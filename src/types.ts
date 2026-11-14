@@ -1726,6 +1726,8 @@ export interface FoundAccount extends AccountCfg {
 /** An account the setup wizard offers (setup.rs): one config.toml lists, or another on this Mac. */
 export interface SetupAccount extends FoundAccount {
   listed: boolean;
+  /** It can draw session emblems: its harness draws, it's signed in, and it isn't turned off. */
+  draws: boolean;
 }
 
 /** A folder the setup wizard offers to search for repos (setup.rs). */

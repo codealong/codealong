@@ -1,22 +1,25 @@
-// Set up Codealong: a first run's wizard over the main window, and again from the app menu. Four
-// steps confirm what a first run found and wrote to config.toml (src-tauri/src/setup.rs): the
-// agent accounts to show, the folders to search for repos, the terminal and editor to open things
-// in; the last offers to put Codealong in those accounts (the plugin, or the skill, and the
-// command) and to open it at login, and points at what's worth setting up later (`MORE`), each a
-// button that finishes as Done does and opens its part of Settings. Nothing is saved until then;
-// Skip, Escape or the ✕ keep what the first run wrote. Either way it doesn't show by itself again
-// (`finishSetup`).
+// Set up Codealong: a first run's wizard over the main window, and again from the app menu. Its
+// first three steps confirm what a first run found and wrote to config.toml
+// (src-tauri/src/setup.rs): the agent accounts to show, the folders to search for repos, the
+// terminal and editor to open things in. The fourth offers session emblems, with Settings ›
+// General's own fields: an emoji Jev picks, with a box for its key when there's none, or a picture
+// drawn by an account you kept that can draw. The last offers to put Codealong in those accounts
+// (the plugin, or the skill, and the command) and to open it at login, and points at what's worth
+// setting up later (`MORE`), each a button that finishes as Done does and opens its part of
+// Settings. Nothing in config.toml changes until then (a key saved for Jev goes to the keychain as
+// you save it); Skip, Escape or the ✕ keep what the first run wrote. Either way it doesn't show by
+// itself again (`finishSetup`).
 
 import { useEffect, useState, type ReactNode } from 'react';
 import { agentsStatus, finishSetup, getConfig, installAgents, saveConfig, setOpenAtLogin, setupView } from '../api';
 import { HARNESS_WORD } from '../harness';
 import { shortcutKeys } from '../quick';
 import { errorText } from '../report';
-import { accountsAfter, configAfter, firstPicks, folderNote, SETUP_STEPS, typedFolder, type SetupPicks, type SetupStep } from '../setup';
+import { accountsAfter, configAfter, emblemDrawers, firstPicks, folderNote, SETUP_STEPS, typedFolder, type SetupPicks, type SetupStep } from '../setup';
 import type { ConfigView, SetupView } from '../types';
 import { foundNote } from './AccountsSection';
 import { Button, CheckBox, cx, Dialog, Icon, Kbd } from './primitives';
-import { ProfileSelect, type SettingsSection } from './SettingsDialog';
+import { EmblemsFields, ProfileSelect, type SettingsSection } from './SettingsDialog';
 
 /** What the last step suggests setting up once the basics are in. Pull request reviews lead, as
  *  the one most worth having and the least likely to be found alone: they're off until turned on,
@@ -58,10 +61,11 @@ const LEDE: Record<SetupStep, string> = {
   accounts: 'Codealong found these agent accounts on this Mac. It shows the sessions of the ones you keep, and how much of each plan they’ve used.',
   folders: 'Codealong looks for repos in these folders, three levels deep, and shows each one’s worktrees and the agents working in them.',
   apps: 'Where Codealong opens a session’s terminal, and a worktree’s folder.',
+  emblems: 'Codealong can give each session an emblem beside its title, an emoji or a small picture, so sessions side by side read apart at a glance and you can remember one as “the dinosaur”.',
   ready: 'Codealong keeps these in config.toml, and Settings changes them whenever you like.',
 };
 
-const TITLE: Record<SetupStep, string> = { accounts: 'Your agents', folders: 'Your repos', apps: 'Your apps', ready: 'Ready' };
+const TITLE: Record<SetupStep, string> = { accounts: 'Your agents', folders: 'Your repos', apps: 'Your apps', emblems: 'Your sessions', ready: 'Ready' };
 
 function Check({ checked, onChange, label, note }: { checked: boolean; onChange: (on: boolean) => void; label: ReactNode; note?: ReactNode }) {
   return (
@@ -123,7 +127,7 @@ export function SetupDialog({ onClose, onDone, onSettings, now }: { onClose: () 
     setError(null);
     try {
       const accounts = accountsAfter(view, cfg.config.accounts, picks.accounts);
-      const next = configAfter(cfg.config, picks, accounts);
+      const next = configAfter(cfg.config, picks, accounts, emblemDrawers(view, picks.accounts));
       if (JSON.stringify(next) !== JSON.stringify(cfg.config)) await saveConfig(next);
       const troubles: string[] = [];
       if (picks.agents && accounts.length > 0) {
@@ -262,6 +266,12 @@ export function SetupDialog({ onClose, onDone, onSettings, now }: { onClose: () 
               <ProfileSelect value={picks.editor} profiles={cfg.editors} onChange={(editor) => pick({ editor })} />
               <small>Opens a worktree’s folder. The Open in menus offer the other editors installed here.</small>
             </label>
+          </div>
+        ) : step === 'emblems' ? (
+          <div className="ca-setup-fields">
+            {/* Settings › General's own fields, on what's picked here: drawn by the accounts you
+                kept that can draw, and saved with the rest at Done. */}
+            <EmblemsFields cfg={{ ...cfg.config, emblems: picks.emblems }} drawers={emblemDrawers(view, picks.accounts)} disabled={busy} onSave={(next) => pick({ emblems: next.emblems ?? picks.emblems })} />
           </div>
         ) : (
           <>

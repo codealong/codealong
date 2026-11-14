@@ -225,14 +225,16 @@ the archived sessions it finds, so its count says how many match.
 
 Session emblems (Settings › General, `[emblems]`) give each session something you can name beside
 its title, so the sessions beside each other read apart at a glance and you can remember one as
-"the dinosaur". Each is one of two kinds:
+"the dinosaur". They're off until you pick a kind, there or in the setup wizard's Your sessions
+step (see *Set up Codealong*), which offers the same choices. Each is one of two kinds:
 
 - **Emoji**: Jev picks an emoji for what the session works on, from its title and first prompt
   (the latest, for OpenCode, which keeps only that), out of some 250 that each stand for
   something sessions work on, a pun where one is handy (a spool for threads, a dinosaur for Rex).
   Where another session of the project shows the emoji Jev likes best, the session gets the next
   that fits nearly as well. It needs Jev's key (Settings › Jev), and a question costs a fraction of
-  a cent.
+  a cent; picked while there's no key, Emoji shows a box to paste one into, which saves it to the
+  keychain as Settings › Jev does.
 - **Drawn**: an account that can draw (Codex, with its image tool: the one you pick, else the first
   that can) draws a small picture of one
   thing that stands for what the session works on, told what the sessions beside it show so it
@@ -2269,7 +2271,7 @@ accounts in use or signed in, the folders the repos your agents worked in over t
 in (each repo's parent; one right in your home folder is searched by itself, and none hidden, like
 an agent's scratch clone, or outside your home folder), a project per GitHub owner of those repos,
 the first terminal it finds of Ghostty, iTerm2 and Terminal, and the first editor installed. Then
-a wizard over the main window has you confirm it, in four steps:
+a wizard over the main window has you confirm it, and offers session emblems, in five steps:
 
 - **Your agents**: every account on the Mac, the ones config.toml lists and the others it found,
   each with where it's signed in and when it was last used. The listed ones, and any other in use
@@ -2280,6 +2282,11 @@ a wizard over the main window has you confirm it, in four steps:
   many your agents worked in lately. Type another to add it.
 - **Your apps**: the terminal sessions open in and the editor folders open in, from the ones
   installed.
+- **Your sessions**: session emblems (see *Emblems*), with Settings › General's own choices, None
+  to start with (or what config.toml has, when you go through it again): Emoji, with a box for
+  Jev's TypeSafe key while there's none, which saves it to the keychain there and then; and Drawn,
+  only while you keep an account that can draw (a Codex account you're signed in to), with the box
+  for how they're drawn, and which of them draws them when you keep more than one.
 - **Ready**: putting Codealong in the accounts you kept (the plugin in Claude Code, the skill
   elsewhere) and the `codealong` command on your PATH, as Settings › Agents does, ticked; and
   opening Codealong when you log in, not. Under *When you're ready* it points at what's worth
@@ -2291,7 +2298,8 @@ a wizard over the main window has you confirm it, in four steps:
   account with room (carrying on after a lost connection, a restart or a lifted usage limit is on
   already). Each one's button finishes as Done does and opens it in Settings.
 
-Nothing is saved until **Done**. **Skip setup**, Escape or the ✕ keep what the first run wrote.
+Nothing goes into config.toml until **Done** (a key saved for Jev goes to the keychain as you save
+it). **Skip setup**, Escape or the ✕ keep what the first run wrote.
 Either way it doesn't show by itself again (state.json's `setupDone`), and Settings changes all of
 it later.
 

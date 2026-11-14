@@ -583,6 +583,9 @@ window.__TAURI_INTERNALS__ = {
       });
     }
     if (cmd === 'jev_usage') return Promise.resolve(sampleJevUsage((args || {}).days || 30));
+    // The keychain has no key for Jev here, as on a new Mac: Settings › Jev and Session emblems'
+    // Emoji ask for one. A check that wants one answers jev_key itself.
+    if (cmd === 'jev_key') return Promise.resolve(false);
     // A schedule's time read back as the engine would: the words as written, and the next three
     // days at this hour. A save answers with the schedule it was given.
     if (cmd === 'schedule_times') {

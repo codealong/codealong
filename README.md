@@ -271,7 +271,9 @@ the notch, the Claude and Codex apps, and Antigravity's and Cursor's usage among
    repos in the folders your agents worked in, and makes a project for each GitHub owner your
    recent sessions worked in. Your sessions show up straight away, wherever you started them.
 2. **Go through Set up Codealong**, which opens over the window the first time: tick the
-   accounts to show, the folders your code lives in, and your terminal and editor. Its last step
+   accounts to show, the folders your code lives in, and your terminal and editor, and, if you
+   like, give each session an emblem beside its title, an emoji Jev picks or a small picture a
+   Codex account draws, so the ones side by side read apart. Its last step
    installs the agent tools: the `codealong` command on your PATH, Codealong's plugin in each
    Claude Code account (so you can answer its permission prompts and questions from Codealong),
    and a skill in every other agent that tells it how to use the board. On macOS, the app menu's

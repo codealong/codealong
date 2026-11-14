@@ -118,7 +118,8 @@
 # doesn't list, which are often none.
 # PREVIEW_SETUP=<file> gives the setup wizard what's in it (scripts/preview/setup-sample.json is a
 # new Mac's: accounts listed and not, folders searched and not) in place of this Mac's
-# (--snapshot --setup); scripts/preview/setup-init.js opens the wizard.
+# (--snapshot --setup); scripts/preview/setup-init.js opens the wizard, setup-emblems-init.js at its
+# session emblems step with Emoji picked.
 # PREVIEW_EMBLEMS=1 gives every session an emblem made up from its key, as `[emblems] kind = "emoji"`
 # would once Jev had picked them; PREVIEW_EMBLEMS=drawn a picture of scripts/preview/emblems/, as
 # `"drawn"` would once they were drawn.

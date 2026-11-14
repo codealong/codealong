@@ -477,7 +477,7 @@ const EMBLEM_KINDS: { id: EmblemKind; label: string; says: string }[] = [
   {
     id: 'emoji',
     label: 'Emoji',
-    says: 'Jev picks an emoji for what each session works on, from its title and first prompt, and one the sessions beside it don’t show where another fits nearly as well. It needs Jev’s key (Settings › Jev), and costs a fraction of a cent a session.',
+    says: 'Jev picks an emoji for what each session works on, from its title and first prompt, and one the sessions beside it don’t show where another fits nearly as well. It needs a TypeSafe key for Jev, and costs a fraction of a cent a session.',
   },
   {
     id: 'drawn',
@@ -487,21 +487,34 @@ const EMBLEM_KINDS: { id: EmblemKind; label: string; says: string }[] = [
 ];
 
 /**
- * Settings › General's session emblems: what each session gets beside its title, and for drawn
- * ones the account that draws them and how, in words of your own. The prompt is saved as you
- * leave its box, as the routing instructions are.
+ * Session emblems: what each session gets beside its title, for emoji ones Jev's key while
+ * there's none, and for drawn ones the account that draws them and how, in words of your own. The
+ * prompt is saved as you leave its box, as the routing instructions are. Settings › General's,
+ * and the setup wizard's (SetupDialog.tsx), which holds what's picked until its Done and passes
+ * the accounts you kept that can draw as `drawers`; Settings' are every account turned on whose
+ * harness draws.
  */
-function EmblemsFields({ cfg, disabled, onSave }: { cfg: Config; disabled: boolean; onSave: (next: Config) => void }) {
+export function EmblemsFields({ cfg, drawers: canDraw, disabled, onSave }: { cfg: Config; drawers?: string[]; disabled: boolean; onSave: (next: Config) => void }) {
   const emblems = cfg.emblems ?? EMBLEMS_OFF;
   const [prompt, setPrompt] = useState(emblems.prompt);
   useEffect(() => setPrompt(emblems.prompt), [emblems.prompt]);
-  const drawers = cfg.accounts.filter((a) => !a.disabled && DRAWS.includes(a.harness));
+  const drawers = canDraw ?? cfg.accounts.filter((a) => !a.disabled && DRAWS.includes(a.harness)).map((a) => a.name);
   // The one named while it can draw, else the first that can, as the engine picks (config.rs
   // `drawing_account`).
-  const drawer = drawers.find((a) => a.name === emblems.account) ?? drawers[0];
+  const drawer = drawers.find((name) => name === emblems.account) ?? drawers[0];
   const save = (next: Partial<EmblemsCfg>) => onSave({ ...cfg, emblems: { ...emblems, ...next } });
   // Drawn only with an account that draws, or its save would be refused; one already set stays.
   const kinds = EMBLEM_KINDS.filter((k) => k.id !== 'drawn' || drawers.length > 0 || emblems.kind === 'drawn');
+  // Whether Jev has a key, for emoji: the key's field shows while there's none, and stays once a
+  // key was saved in it, saying so.
+  const [hasKey, setHasKey] = useState<boolean | null>(null);
+  const [keyHere, setKeyHere] = useState(false);
+  useEffect(() => {
+    // Not saying it failed: the field then shows, and saving a key in it says what went wrong.
+    jevKey()
+      .then(setHasKey)
+      .catch(() => setHasKey(false));
+  }, []);
   return (
     <>
       <div className="ca-field">
@@ -512,10 +525,22 @@ function EmblemsFields({ cfg, disabled, onSave }: { cfg: Config; disabled: boole
           {drawers.length === 0 && (emblems.kind === 'drawn' ? 'No account here can draw them now: add a Codex account in Settings › Accounts, or turn one on.' : 'A Codex account can draw them instead: add one in Settings › Accounts.')}
         </small>
       </div>
+      {emblems.kind === 'emoji' && (hasKey === false || keyHere) && (
+        <JevKeyField
+          label="Jev’s key"
+          model={cfg.jev?.model ?? JEV_OFF.model}
+          hasKey={hasKey}
+          saved="Saved in the keychain: Jev picks your sessions’ emoji from now on."
+          onChanged={async () => {
+            setKeyHere(true);
+            setHasKey(await jevKey());
+          }}
+        />
+      )}
       {emblems.kind === 'drawn' && drawers.length > 1 && (
         <label className="ca-field">
           <span>Drawn by</span>
-          <ProfileSelect value={drawer?.name ?? ''} profiles={drawers.map((a) => ({ id: a.name, name: a.name }))} onChange={(account) => save({ account })} />
+          <ProfileSelect value={drawer ?? ''} profiles={drawers.map((name) => ({ id: name, name }))} onChange={(account) => save({ account })} />
           <small>The account whose usage the pictures spend.</small>
         </label>
       )}
@@ -524,7 +549,7 @@ function EmblemsFields({ cfg, disabled, onSave }: { cfg: Config; disabled: boole
           <span>How they’re drawn</span>
           <textarea rows={3} value={prompt} placeholder={DRAWN_STYLE} disabled={disabled} onChange={(e) => setPrompt(e.target.value)} onBlur={() => prompt.trim() !== emblems.prompt.trim() && save({ prompt: prompt.trim() })} />
           <small>
-            Said to {drawer?.name ?? 'the account'} with each session’s title and first prompt: “Pixel art on a 16 by 16 grid, with a dark outline”, say, or “A white silhouette on a rounded tile of one strong color”. A plain white background is made clear. Sessions drawn already keep their pictures.
+            Said to {drawer ?? 'the account'} with each session’s title and first prompt: “Pixel art on a 16 by 16 grid, with a dark outline”, say, or “A white silhouette on a rounded tile of one strong color”. A plain white background is made clear. Sessions drawn already keep their pictures.
           </small>
         </label>
       )}
@@ -1726,22 +1751,16 @@ function jevFeatureName(feature: string): string {
 }
 
 /**
- * Settings › Jev: the TypeSafe key, which goes to the keychain and never comes back to the page,
- * what Jev's requests have used and cost, and a switch per feature that says what it does and
- * what it sends.
+ * The TypeSafe key's field: a box to paste one into while there's none, else Test, Replace and
+ * Remove. The key goes to the keychain as its button is pressed and never comes back to the page.
+ * Settings › Jev's, and Session emblems' while emoji want one (`EmblemsFields`), which the setup
+ * wizard shows too: it's no form of its own, so Return saves the key, not the form it's in.
  */
-function JevPane({ jev, disabled, onChange }: { jev: JevCfg; disabled: boolean; onChange: (j: JevCfg) => void }) {
-  const [hasKey, setHasKey] = useState<boolean | null>(null);
+function JevKeyField({ label, model, hasKey, saved, onChanged }: { label: string; model: string; hasKey: boolean | null; saved: string; onChanged: () => Promise<void> }) {
   const [editing, setEditing] = useState(false);
   const [key, setKey] = useState('');
   const [busy, setBusy] = useState(false);
   const [note, setNote] = useState<{ ok: boolean; text: string } | null>(null);
-  // Bumped after each button, so the usage reads again with the Test button's request in it.
-  const [asked, setAsked] = useState(0);
-
-  useEffect(() => {
-    void jevKey().then(setHasKey);
-  }, []);
 
   const run = async (what: () => Promise<string | null>) => {
     setBusy(true);
@@ -1752,18 +1771,93 @@ function JevPane({ jev, disabled, onChange }: { jev: JevCfg; disabled: boolean; 
     } catch (e) {
       setNote({ ok: false, text: errorText(e) });
     }
-    setHasKey(await jevKey());
+    await onChanged();
     setBusy(false);
-    setAsked((n) => n + 1);
   };
 
-  const saveKey = () =>
-    run(async () => {
+  const saveKey = () => {
+    if (busy || !key.trim()) return;
+    void run(async () => {
       await setJevKey(key);
       setKey('');
       setEditing(false);
-      return 'Saved in the keychain. Test it, then turn on what you want below.';
+      return saved;
     });
+  };
+
+  return (
+    <div className="ca-field">
+      <span>{label}</span>
+      {editing || hasKey === false ? (
+        <div className="ca-shortcut-row">
+          <input
+            type="password"
+            className="ca-jev-key"
+            value={key}
+            placeholder="Paste your TypeSafe API key"
+            autoComplete="off"
+            spellCheck={false}
+            aria-label="TypeSafe API key"
+            onChange={(e) => setKey(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter') {
+                e.preventDefault();
+                saveKey();
+              }
+            }}
+          />
+          <Button size="sm" disabled={busy || !key.trim()} onClick={saveKey}>
+            Save key
+          </Button>
+          {editing && (
+            <Button variant="ghost" size="sm" onClick={() => setEditing(false)}>
+              Cancel
+            </Button>
+          )}
+        </div>
+      ) : hasKey ? (
+        <div className="ca-shortcut-row">
+          <span className="ca-jev-saved">
+            <Icon name="lock" size={12} />
+            Saved in the keychain
+          </span>
+          <Button variant="ghost" size="sm" disabled={busy} onClick={() => void run(() => testJev(model))}>
+            Test
+          </Button>
+          <Button variant="ghost" size="sm" disabled={busy} onClick={() => setEditing(true)}>
+            Replace
+          </Button>
+          <Button variant="ghost" size="sm" disabled={busy} onClick={() => void run(async () => (await setJevKey(''), null))}>
+            Remove
+          </Button>
+        </div>
+      ) : (
+        <p className="ca-empty">Reading the keychain…</p>
+      )}
+      {note && <p className={note.ok ? 'ca-jev-ok' : 'ca-form-error'}>{note.text}</p>}
+      <small>
+        Kept in your login keychain, never in config.toml.{' '}
+        <button type="button" className="ca-linkbtn" onClick={() => void openUrl('https://console.typesafe.ai/keys')}>
+          Get a key from TypeSafe
+        </button>
+      </small>
+    </div>
+  );
+}
+
+/**
+ * Settings › Jev: the TypeSafe key (`JevKeyField`), what Jev's requests have used and cost, and a
+ * switch per feature that says what it does and what it sends.
+ */
+function JevPane({ jev, disabled, onChange }: { jev: JevCfg; disabled: boolean; onChange: (j: JevCfg) => void }) {
+  const [hasKey, setHasKey] = useState<boolean | null>(null);
+  // Bumped after each of the key's buttons, so the usage reads again with the Test button's
+  // request in it.
+  const [asked, setAsked] = useState(0);
+
+  useEffect(() => {
+    void jevKey().then(setHasKey);
+  }, []);
 
   const noKey = hasKey === false;
 
@@ -1777,53 +1871,16 @@ function JevPane({ jev, disabled, onChange }: { jev: JevCfg; disabled: boolean; 
         </p>
       </div>
       <fieldset className="ca-settings-fields" disabled={disabled}>
-        <div className="ca-field">
-          <span>API key</span>
-          {editing || noKey ? (
-            <form
-              className="ca-shortcut-row"
-              onSubmit={(e) => {
-                e.preventDefault();
-                void saveKey();
-              }}
-            >
-              <input type="password" className="ca-jev-key" value={key} placeholder="Paste your TypeSafe API key" autoComplete="off" spellCheck={false} aria-label="TypeSafe API key" onChange={(e) => setKey(e.target.value)} />
-              <Button size="sm" type="submit" disabled={busy || !key.trim()}>
-                Save key
-              </Button>
-              {editing && (
-                <Button variant="ghost" size="sm" onClick={() => setEditing(false)}>
-                  Cancel
-                </Button>
-              )}
-            </form>
-          ) : hasKey ? (
-            <div className="ca-shortcut-row">
-              <span className="ca-jev-saved">
-                <Icon name="lock" size={12} />
-                Saved in the keychain
-              </span>
-              <Button variant="ghost" size="sm" disabled={busy} onClick={() => void run(() => testJev(jev.model))}>
-                Test
-              </Button>
-              <Button variant="ghost" size="sm" disabled={busy} onClick={() => setEditing(true)}>
-                Replace
-              </Button>
-              <Button variant="ghost" size="sm" disabled={busy} onClick={() => void run(async () => (await setJevKey(''), null))}>
-                Remove
-              </Button>
-            </div>
-          ) : (
-            <p className="ca-empty">Reading the keychain…</p>
-          )}
-          {note && <p className={note.ok ? 'ca-jev-ok' : 'ca-form-error'}>{note.text}</p>}
-          <small>
-            Kept in your login keychain, never in config.toml.{' '}
-            <button type="button" className="ca-linkbtn" onClick={() => void openUrl('https://console.typesafe.ai/keys')}>
-              Get a key from TypeSafe
-            </button>
-          </small>
-        </div>
+        <JevKeyField
+          label="API key"
+          model={jev.model}
+          hasKey={hasKey}
+          saved="Saved in the keychain. Test it, then turn on what you want below."
+          onChanged={async () => {
+            setHasKey(await jevKey());
+            setAsked((n) => n + 1);
+          }}
+        />
         <JevUsage nameOf={jevFeatureName} stamp={asked} hasKey={hasKey === true} />
         <div className="ca-field">
           <span>What to use it for</span>

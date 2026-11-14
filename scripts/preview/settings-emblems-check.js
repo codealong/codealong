@@ -1,5 +1,6 @@
 // Checks Settings › General's session emblems (`[emblems]`): None, Emoji and Drawn, each saying
-// what it does; Drawn offered with an account that draws (Codex), and once picked, a box for how
+// what it does; Emoji with a box for Jev's key while the keychain has none (the stub's has none);
+// Drawn offered with an account that draws (Codex), and once picked, a box for how
 // they're drawn that shows Codealong's own style until you write yours and saves yours as you
 // leave it. config.toml reads back as it was saved, as the engine's would.
 //   scripts/preview.sh sessions '' scripts/preview/settings-emblems-check.js
@@ -33,7 +34,9 @@
     choice('Emoji').click();
     await until(function () { return latest && latest.emblems && latest.emblems.kind === 'emoji'; }, 5000, 'Emoji saved');
     await until(function () { return /Jev picks an emoji/.test(named('Session emblems').textContent); }, 5000, 'what Emoji does');
-    check('Emoji says Jev picks one, and needs its key', /Settings › Jev/.test(named('Session emblems').textContent));
+    check('Emoji says Jev picks one, and needs its key', /needs a TypeSafe key for Jev/.test(named('Session emblems').textContent));
+    // The stub's keychain has no key, so its field asks for one here, as Settings › Jev does.
+    check('with no key yet, a box for it', !!(named('Jev’s key') && named('Jev’s key').querySelector('input[type="password"]')));
     check('no box for how they’re drawn', !named('How they’re drawn'));
     if (!draws) {
       check('without an account that draws, Drawn isn’t offered, and it says what would', !choice('Drawn') && /add one in Settings › Accounts/.test(named('Session emblems').textContent));

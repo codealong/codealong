@@ -2,10 +2,10 @@
 // each row says, and what config.toml gets once you're done. The engine's side, what it offers
 // and when it shows by itself, is src-tauri/src/setup.rs.
 
-import type { AccountCfg, Config, Profile, SetupAccount, SetupFolder, SetupView } from './types';
+import type { AccountCfg, Config, EmblemsCfg, Profile, SetupAccount, SetupFolder, SetupView } from './types';
 
-export type SetupStep = 'accounts' | 'folders' | 'apps' | 'ready';
-export const SETUP_STEPS: SetupStep[] = ['accounts', 'folders', 'apps', 'ready'];
+export type SetupStep = 'accounts' | 'folders' | 'apps' | 'emblems' | 'ready';
+export const SETUP_STEPS: SetupStep[] = ['accounts', 'folders', 'apps', 'emblems', 'ready'];
 
 /** What's picked so far. Accounts by their folder, folders as config.toml writes them. */
 export interface SetupPicks {
@@ -16,6 +16,8 @@ export interface SetupPicks {
   /** Put Codealong in the accounts kept (the plugin, or the skill) and the command on PATH. */
   agents: boolean;
   atLogin: boolean;
+  /** Session emblems, as Settings › General sets them. */
+  emblems: EmblemsCfg;
 }
 
 /** An account starts ticked when config.toml lists it, or it's in use or signed in: the ones a
@@ -45,7 +47,24 @@ export function firstPicks(view: SetupView, cfg: Config, terminals: Profile[], e
     editor: installedOr(cfg.apps.editor, editors),
     agents: true,
     atLogin: false,
+    // As config.toml has them, which a first run's has off (config.rs `EmblemsCfg`): both kinds
+    // spend, Jev's requests or an account's usage, so they're on only once you pick one.
+    emblems: cfg.emblems ?? { kind: 'off', account: '', prompt: '' },
   };
+}
+
+/** The accounts you kept that can draw session emblems (setup.rs `Account::draws`), by the name
+ *  config.toml gets for each: the ones the wizard's Drawn is offered for. */
+export function emblemDrawers(view: SetupView, picked: string[]): string[] {
+  return view.accounts.filter((a) => a.draws && picked.includes(a.home)).map((a) => a.name);
+}
+
+/** The emblems config.toml gets. Drawn ones go to an account that can draw: the one picked while
+ *  it's among `drawers`, else the first of them, which the engine's own pick of the first whose
+ *  harness draws (config.rs `drawing_account`) wouldn't be when that one is signed out. */
+export function emblemsAfter(emblems: EmblemsCfg, drawers: string[]): EmblemsCfg {
+  if (emblems.kind !== 'drawn' || drawers.length === 0 || drawers.includes(emblems.account)) return emblems;
+  return { ...emblems, account: drawers[0] };
 }
 
 /** The accounts config.toml gets: the ones it lists that you kept, as it has them, then the
@@ -59,10 +78,11 @@ export function accountsAfter(view: SetupView, listed: AccountCfg[], picked: str
 }
 
 /** config.toml's settings with what was picked: the accounts (`accountsAfter`), the folders in
- *  the wizard's order, and the apps. One save writes them all: saving the settings writes the
- *  accounts too (config.rs `with_config`), so a save of the accounts alone would be undone. */
-export function configAfter(cfg: Config, picks: SetupPicks, accounts: AccountCfg[]): Config {
-  return { ...cfg, accounts, scan: picks.folders, apps: { ...cfg.apps, terminal: picks.terminal, editor: picks.editor } };
+ *  the wizard's order, the apps and the emblems (`emblemsAfter`, drawn by one of `drawers`). One
+ *  save writes them all: saving the settings writes the accounts too (config.rs `with_config`), so
+ *  a save of the accounts alone would be undone. */
+export function configAfter(cfg: Config, picks: SetupPicks, accounts: AccountCfg[], drawers: string[]): Config {
+  return { ...cfg, accounts, scan: picks.folders, apps: { ...cfg.apps, terminal: picks.terminal, editor: picks.editor }, emblems: emblemsAfter(picks.emblems, drawers) };
 }
 
 /** What a folder's row says of it. */

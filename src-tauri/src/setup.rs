@@ -1,9 +1,10 @@
 //! First run, and the setup wizard (src/ui/SetupDialog.tsx) that has you confirm what it found:
 //! the agent accounts on this Mac, the folders to search for repos, and the apps to open things
-//! in. A first run writes config.toml from what it finds (engine.rs `first_run_config`, with
-//! `worked_repos`, `scan_folders` and `first_editor` here); the wizard then shows over the main
-//! window until it's finished or skipped (state.json's `setupDone`), and Set up Codealong… in the
-//! app menu shows it again.
+//! in; then it offers session emblems, an emoji Jev picks or a picture one of those accounts
+//! draws (`Account::draws`). A first run writes config.toml from what it finds (engine.rs
+//! `first_run_config`, with `worked_repos`, `scan_folders` and `first_editor` here); the wizard
+//! then shows over the main window until it's finished or skipped (state.json's `setupDone`), and
+//! Set up Codealong… in the app menu shows it again.
 
 use std::collections::{BTreeMap, HashMap, HashSet};
 use std::path::{Path, PathBuf};
@@ -48,6 +49,10 @@ pub struct Account {
     pub found: Found,
     /// config.toml lists it.
     pub listed: bool,
+    /// It can draw session emblems (emblems.rs): its harness draws (harness.rs `draws`), it's
+    /// signed in, and config.toml doesn't have it turned off. The wizard offers drawn emblems only
+    /// when one you keep does.
+    pub draws: bool,
 }
 
 #[derive(Debug, Clone, Serialize, PartialEq)]
@@ -182,11 +187,17 @@ fn accounts_of(found: Vec<Found>, config: &[AccountCfg], known: &[String]) -> Ve
                 Some(f) => Found { name: a.name.clone(), home: a.home.clone(), command: a.command.clone(), new: false, ..f.clone() },
                 None => Found::of_listed(a),
             };
-            Account { found, listed: true }
+            let draws = !a.disabled && draws(&found);
+            Account { found, listed: true, draws }
         })
         .collect();
-    rows.extend(detect::not_configured(found, config, known).into_iter().map(|found| Account { found, listed: false }));
+    rows.extend(detect::not_configured(found, config, known).into_iter().map(|found| Account { draws: draws(&found), found, listed: false }));
     rows
+}
+
+/// Whether an account can draw session emblems now: its harness draws, and it's signed in.
+fn draws(found: &Found) -> bool {
+    found.signed_in && crate::harness::named(&found.harness).is_some_and(|h| h.draws())
 }
 
 /// The rows for the folders, in the order they're offered: the ones config.toml searches as it
@@ -252,6 +263,15 @@ mod tests {
         let said: Vec<(&str, bool, bool)> = rows.iter().map(|r| (r.found.name.as_str(), r.listed, r.found.signed_in)).collect();
         assert_eq!(said, [("work", true, true), ("gone", true, false), ("claude", false, true), ("codex", false, true)]);
         assert!(!rows[0].found.new && rows[2].found.new, "a listed account isn't news");
+    }
+
+    #[test]
+    fn only_a_signed_in_account_turned_on_whose_harness_draws_can_draw_emblems() {
+        let on_mac = vec![found("codex", "codex", "~/.codex"), found("claude", "claude", "~/.claude"), Found { signed_in: false, ..found("codex-old", "codex", "~/.codex-old") }, found("codex-off", "codex", "~/.codex-off")];
+        let config = vec![found("codex", "codex", "~/.codex").account(), AccountCfg { disabled: true, ..found("codex-off", "codex", "~/.codex-off").account() }, found("codex-gone", "codex", "~/.codex-gone").account()];
+        let rows = accounts_of(on_mac, &config, &[]);
+        let said: Vec<(&str, bool)> = rows.iter().map(|r| (r.found.name.as_str(), r.draws)).collect();
+        assert_eq!(said, [("codex", true), ("codex-off", false), ("codex-gone", false), ("claude", false), ("codex-old", false)], "Codex draws; Claude Code doesn't, nor a Codex account turned off, signed out or not on this Mac");
     }
 
     #[test]

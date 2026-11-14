@@ -1,12 +1,14 @@
 // Checks Set up Codealong (ui/SetupDialog.tsx) on a new Mac's accounts and folders
 // (setup-sample.json): it starts with the listed accounts ticked and an idle one not, the folders
 // searched or worked in ticked, a typed folder added ticked; Done saves, in one go, the accounts kept and the
-// one added, the folders in order, the apps, puts Codealong in the accounts, opens at login when
-// ticked and says setup is finished. Skip setup saves nothing and says it's finished too. A first
-// run (`setup_needed`) opens it by itself. What the last step suggests for later leads with pull
-// request reviews, and Set up reviews finishes it and opens Settings at Automation, on its
-// reviews. config.toml's accounts are the sample's listed ones, so the check doesn't hang on this
-// Mac's.
+// one added, the folders in order, the apps and the emblems picked, puts Codealong in the
+// accounts, opens at login when ticked and says setup is finished. Session emblems start off;
+// Drawn is offered only while an account that draws (Codex) is kept, and Emoji always, with a box
+// for Jev's key while there's none, whose Return saves the key and stays on the step. Skip setup
+// saves nothing and says it's finished too. A first run (`setup_needed`) opens it by itself. What
+// the last step suggests for later leads with pull request reviews, and Set up reviews finishes it
+// and opens Settings at Automation, on its reviews. config.toml's accounts are the sample's listed
+// ones, with emblems off, so the check doesn't hang on this Mac's or start from its emblems.
 //   PREVIEW_WAIT=30000 PREVIEW_SETUP=scripts/preview/setup-sample.json scripts/preview.sh sessions '' scripts/preview/setup-check.js
 (function () {
   window.__setupNeeded = true;
@@ -14,17 +16,31 @@
     { name: 'claude', harness: 'claude', home: '~/.claude', command: null },
     { name: 'codex', harness: 'codex', home: '~/.codex', command: null, monthly: 20 },
   ];
+  // The keychain, as the app has it: no key for Jev until one is saved.
+  var jevKey = '';
   var real = window.__TAURI_INTERNALS__.invoke;
   window.__TAURI_INTERNALS__.invoke = function (cmd, args, options) {
     if (cmd === 'get_config') {
       return real(cmd, args, options).then(function (view) {
         view.config.accounts = JSON.parse(JSON.stringify(listed));
         view.config.scan = ['~/code'];
+        view.config.emblems = { kind: 'off', account: '', prompt: '' };
         return view;
       });
     }
+    if (cmd === 'jev_key') {
+      window.__calls.push([cmd, args]);
+      return Promise.resolve(jevKey !== '');
+    }
+    if (cmd === 'set_jev_key') {
+      window.__calls.push([cmd, args]);
+      jevKey = args.key.trim();
+      return Promise.resolve(null);
+    }
     return real(cmd, args, options);
   };
+  var choice = function (label) { return all('.ca-segctl button', dialog()).filter(function (b) { return b.textContent.trim() === label; })[0]; };
+  var field = function (name) { return all('.ca-field', dialog()).filter(function (f) { var s = f.querySelector(':scope > span'); return s && s.textContent === name; })[0]; };
   var dialog = function () { return q('.ca-setup'); };
   var rows = function () { return all('.ca-setup-row', dialog()); };
   var row = function (text) { return rows().filter(function (r) { return r.textContent.indexOf(text) >= 0; })[0]; };
@@ -69,6 +85,22 @@
       await until(function () { return heading() === 'Your apps'; }, 5000);
       button('Next').click();
 
+      await until(function () { return heading() === 'Your sessions'; }, 5000, 'Next didn’t go on to session emblems');
+      check('session emblems start off', choice('None') && choice('None').classList.contains('is-on'), choice('None') && choice('None').className);
+      check('without an account kept that draws, Drawn isn’t offered, and it says what would', !choice('Drawn') && /A Codex account can draw them/.test(field('Session emblems').textContent), field('Session emblems').textContent);
+      check('no box for Jev’s key before Emoji', !field('Jev’s key'));
+      choice('Emoji').click();
+      var keyBox = await until(function () { var f = field('Jev’s key'); return f && f.querySelector('input[type="password"]'); }, 5000, 'Emoji didn’t ask for Jev’s key');
+      check('Emoji says Jev picks one, and asks for its key while there’s none', /Jev picks an emoji/.test(field('Session emblems').textContent) && !!keyBox);
+      keyBox.focus();
+      setValue(keyBox, '  ts-made-up-key  ');
+      keyBox.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }));
+      await until(function () { return calls('set_jev_key').length === 1; }, 5000, 'Return didn’t save the key');
+      check('Return saves the key to the keychain', last('set_jev_key').key.trim() === 'ts-made-up-key', JSON.stringify(last('set_jev_key')));
+      await until(function () { var f = field('Jev’s key'); return f && /Saved in the keychain/.test(f.textContent); }, 5000, 'the key’s field didn’t say it was saved');
+      check('and stays on the step, saying it’s saved', heading() === 'Your sessions', heading());
+      button('Next').click();
+
       await until(function () { return heading() === 'Ready'; }, 5000, 'Next didn’t go on to the last step');
       check('putting Codealong in the accounts starts ticked, opening at login not', ticked('Let your agents use Codealong') && !ticked('Open Codealong when you log in'));
       check('it says the quick panel’s shortcut', !!q('.ca-setup-tip .ca-kbds', dialog()));
@@ -84,6 +116,7 @@
       check('with the accounts kept and the one added', names.join(',') === 'claude,claude-work', names.join(','));
       check('a kept account as config.toml has it', cfg && cfg.config.accounts[0].home === '~/.claude');
       check('and the folders, in order', cfg && cfg.config.scan.join(',') === '~/code,~/work,~/src', cfg && cfg.config.scan.join(','));
+      check('and the emblems picked', cfg && cfg.config.emblems.kind === 'emoji', cfg && JSON.stringify(cfg.config.emblems));
       var put = last('install_agents');
       check('it puts Codealong in those accounts', put && put.accounts.join(',') === 'claude,claude-work', JSON.stringify(put));
       check('opens at login when ticked', (last('set_open_at_login') || {}).on === true);
@@ -105,6 +138,14 @@
         button('Next').click();
         await wait(50);
       }
+      // Codex is kept this time, so it can draw them.
+      await until(function () { return heading() === 'Your sessions'; }, 5000, 'Next didn’t go on to session emblems again');
+      check('with Codex kept, Drawn is offered', !!choice('Drawn'));
+      choice('Drawn').click();
+      await until(function () { var f = field('How they’re drawn'); return f && f.querySelector('textarea'); }, 5000, 'Drawn didn’t offer a box for how they’re drawn');
+      check('Drawn says what each costs, and who draws them', /image turn/.test(field('Session emblems').textContent) && /Said to codex/.test(field('How they’re drawn').textContent), field('How they’re drawn').textContent.slice(0, 80));
+      check('no box for Jev’s key for Drawn', !field('Jev’s key'));
+      button('Next').click();
       await until(function () { return heading() === 'Ready'; }, 5000, 'Next didn’t go on to the last step again');
       var more = all('.ca-setup-more-row .ca-setup-label', dialog()).map(function (l) { return l.textContent.trim(); });
       check('the last step suggests pull request reviews first, then Jev, other devices and automation', more.join(',') === 'Pull request reviews,Jev,Your other devices,Automation', more.join(','));
@@ -112,6 +153,8 @@
       button('Set up reviews').click();
       await until(function () { return !dialog(); }, 5000, 'Set up reviews didn’t close the wizard');
       check('Set up reviews finishes setup', calls('finish_setup').length === finished + 1);
+      var drawn = (last('save_config') || { config: {} }).config.emblems;
+      check('saving drawn emblems, by the account kept that draws', drawn && drawn.kind === 'drawn' && drawn.account === 'codex', JSON.stringify(drawn));
       var reviews = await until(function () { var p = q('.ca-settings-pane'); return p && p.textContent.indexOf('Review pull requests that wait on your review') >= 0 && p; }, 5000, 'Settings didn’t open at its reviews');
       check('and opens Settings at Automation, on its reviews', !!reviews);
       done();
