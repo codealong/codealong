@@ -319,9 +319,11 @@ fn names_a_lock(file: &Path) -> bool {
 
 /// Whether a process holds a lock on `file` exclusively, as cargo holds a build folder's: a
 /// shared lock of Codealong's own on it is refused. One that's had is given back at once, as the
-/// file closes, so a build that asks for the lock in that moment waits that long.
+/// file closes, so a build that asks for the lock in that moment waits that long. Only a regular
+/// file is asked: opening a named pipe to read waits for something to write to it, and this runs
+/// on the engine's thread.
 pub fn held_exclusively(file: &Path) -> bool {
-    std::fs::File::open(file).is_ok_and(|f| matches!(f.try_lock_shared(), Err(std::fs::TryLockError::WouldBlock)))
+    std::fs::metadata(file).is_ok_and(|m| m.is_file()) && std::fs::File::open(file).is_ok_and(|f| matches!(f.try_lock_shared(), Err(std::fs::TryLockError::WouldBlock)))
 }
 
 /// What `ps` listed, as pid, parent, CPU and command line, leaving out a process whose CPU time it
@@ -738,6 +740,26 @@ mod tests {
         assert!(file.try_lock().is_ok());
         assert!(!super::held_exclusively(&dir.join("no-such.lock")));
         std::fs::remove_dir_all(&dir).ok();
+    }
+
+    /// A named pipe called like a lock isn't one, and asking of it doesn't wait for a writer.
+    #[test]
+    #[cfg(unix)]
+    fn a_named_pipe_called_a_lock_is_answered_at_once() {
+        let dir = std::env::temp_dir().join(format!("codealong-fifo-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let pipe = dir.join("atlas-build.lock");
+        assert!(Command::new(crate::procs::posix_tool("mkfifo")).arg(&pipe).status().unwrap().success());
+        let (tx, rx) = std::sync::mpsc::channel();
+        let asked = pipe.clone();
+        std::thread::spawn(move || tx.send(super::held_exclusively(&asked)));
+        let answer = rx.recv_timeout(Duration::from_secs(5));
+        if answer.is_err() {
+            // Let the asking thread go before failing: it waits for a writer.
+            let _ = std::fs::OpenOptions::new().write(true).open(&pipe);
+        }
+        std::fs::remove_dir_all(&dir).ok();
+        assert_eq!(answer, Ok(false));
     }
 
     /// A tree is the process and everything under it, with the CPU they've used; it's at rest
