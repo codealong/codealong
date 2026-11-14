@@ -13,8 +13,11 @@ paths:
 # Checking performance
 
 - `[debug] perf_log = true` in config.toml (no restart needed) makes the engine and every window
-  append timings to `~/Library/Logs/Codealong/perf.log`; perf.rs's header says what's in it. Set
-  it back to false when done: the log grows. The server turns it on from config.toml and the app
+  append timings to `~/Library/Logs/Codealong/perf.log`; perf.rs's header says what's in it. It's
+  cut at 200 MB, the older half kept as `perf.log.1` (perf.rs `CUT_AT`), so either reads whole in
+  perf-summary.mjs; before 2026-11-14 nothing cut it, and it held 540 MB from seven weeks, too
+  much for Node to read whole (cut out a week with `tail -n +<line>` and `--log` it). The server
+  turns it on from config.toml and the app
   from the board's `perfLog` (lib.rs `on_board`), so the windows' `ui[<window>]` lines are the
   app's to write: from 2026-10-31, when the engine moved into the server, until 2026-11-06 only
   the server turned it on, and the log has no window lines from those days.

@@ -6,13 +6,13 @@
 //! wall-clock time and the one-minute load average, so a slow moment can be matched to what
 //! the Mac was doing. A main thread stuck for a second is sampled while it's stuck
 //! (`sample_stall`), into `stalls/` beside the log. Off, nothing here costs more than an atomic
-//! load.
+//! load. The log is cut as it passes `CUT_AT` (`keep_bounded`).
 
 use std::collections::HashMap;
 use std::fs::{File, OpenOptions};
 use std::io::Write;
-use std::path::PathBuf;
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::Mutex;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
@@ -22,6 +22,16 @@ use crate::util::home;
 static ARMED: AtomicBool = AtomicBool::new(false);
 static ON: AtomicBool = AtomicBool::new(false);
 static FILE: Mutex<Option<File>> = Mutex::new(None);
+static WRITTEN: AtomicU64 = AtomicU64::new(0);
+
+/// Where the log is cut: what it held moves to perf.log.1, in place of the one before, so the
+/// two together stay under twice this, and either can be read whole by perf-summary.mjs (Node
+/// holds no string near 512 MB). Nothing cut it before 2026-11-14, when it held 540 MB from
+/// seven weeks; a busy week's was about 100 MB.
+const CUT_AT: u64 = 200 * 1024 * 1024;
+
+/// Lines written between looks at the file's length.
+const LOOK_EVERY: u64 = 4096;
 
 /// Lag below this isn't worth a line.
 pub const LAG_FLOOR: Duration = Duration::from_millis(50);
@@ -56,7 +66,7 @@ pub fn set_enabled(on: bool) {
     }
     match OpenOptions::new().create(true).append(true).open(&path) {
         Ok(f) => {
-            *slot = Some(f);
+            *slot = Some(keep_bounded(&f, &path, CUT_AT).unwrap_or(f));
             drop(slot);
             ON.store(true, Ordering::Relaxed);
             log(&format!("perf log on: pid {}, Codealong {}, {}", std::process::id(), env!("CARGO_PKG_VERSION"), date()));
@@ -76,8 +86,32 @@ pub fn log(line: &str) {
     if let Ok(mut slot) = FILE.lock() {
         if let Some(f) = slot.as_mut() {
             let _ = f.write_all(stamped.as_bytes());
+            if WRITTEN.fetch_add(1, Ordering::Relaxed) % LOOK_EVERY == LOOK_EVERY - 1 {
+                if let Some(fresh) = keep_bounded(f, &log_path(), CUT_AT) {
+                    *f = fresh;
+                }
+            }
         }
     }
+}
+
+/// The file to write on in place of `f`, when it isn't the one to: `f` has passed `cut_at`, and
+/// what's at `path` moves to perf.log.1 for a new file there; or the file at `path` isn't `f`,
+/// since the app and its server both write the log and the other one cut it, and this one would
+/// write on into perf.log.1. Both only append, so a length that isn't `f`'s is another file, or
+/// `f` written to between the two looks, for which opening `path` again does no harm.
+fn keep_bounded(f: &File, path: &Path, cut_at: u64) -> Option<File> {
+    let ours = f.metadata().ok()?.len();
+    let there = std::fs::metadata(path).ok().map(|m| m.len());
+    if there == Some(ours) && ours < cut_at {
+        return None;
+    }
+    if there.is_some_and(|len| len >= cut_at) {
+        let mut cut = path.as_os_str().to_owned();
+        cut.push(".1");
+        let _ = std::fs::rename(path, cut);
+    }
+    OpenOptions::new().create(true).append(true).open(path).ok()
 }
 
 /// Logs how long something waited, when it's long enough to matter.
@@ -502,6 +536,29 @@ Total number in stack (recursive counted multiple, when >=5):
         assert_eq!(diff(&mut seen, vec![("a".into(), 1), ("b".into(), 3)].into_iter()), 1);
         assert_eq!(diff(&mut seen, vec![("b".into(), 3)].into_iter()), 0);
         assert_eq!(seen.len(), 1);
+    }
+
+    /// The log is cut once it passes its limit, and the process that didn't cut it follows the
+    /// cut to the new file rather than write on into the old one.
+    #[test]
+    fn the_log_is_cut_at_its_limit_and_both_writers_follow() {
+        let dir = crate::fixtures::scratch("perf-cut");
+        let path = dir.join("perf.log");
+        let open = || OpenOptions::new().create(true).append(true).open(&path).unwrap();
+        let (mut app, mut server) = (open(), open());
+        app.write_all(b"0123456789").unwrap();
+        // Under the limit, and the file there is the one each writes: nothing to do.
+        assert!(keep_bounded(&app, &path, 20).is_none());
+        assert!(keep_bounded(&server, &path, 20).is_none());
+        server.write_all(b"0123456789").unwrap();
+        let mut fresh = keep_bounded(&app, &path, 20).expect("past its limit, the log is cut");
+        assert_eq!(std::fs::read_to_string(dir.join("perf.log.1")).unwrap(), "01234567890123456789");
+        fresh.write_all(b"app").unwrap();
+        // The server's file is now perf.log.1, a length the new perf.log doesn't have.
+        let mut followed = keep_bounded(&server, &path, 20).expect("a writer follows the other's cut");
+        followed.write_all(b"server").unwrap();
+        assert_eq!(std::fs::read_to_string(&path).unwrap(), "appserver");
+        assert_eq!(std::fs::read_to_string(dir.join("perf.log.1")).unwrap(), "01234567890123456789");
     }
 
     #[test]

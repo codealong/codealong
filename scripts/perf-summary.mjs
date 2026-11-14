@@ -42,6 +42,17 @@ const seconds = (t) => {
   const [h, m, s] = t.split(':').map(Number);
   return h * 3600 + m * 60 + s;
 };
+// Minutes from a run's first line to its last. The lines carry only the time of day, so a
+// clock that goes back by more than half a day has passed midnight; the app's and its server's
+// lines can go back by a second, as each stamps its own.
+const minutes = (run) => {
+  let s = 0;
+  for (let i = 1; i < run.length; i++) {
+    const d = seconds(clock(run[i])) - seconds(clock(run[i - 1]));
+    s += d < -43200 ? d + 86400 : d;
+  }
+  return Math.max(1, s) / 60;
+};
 const top = (xs, n) =>
   Object.entries(xs.reduce((m, x) => ((m[x] = (m[x] ?? 0) + 1), m), {}))
     .sort((a, b) => b[1] - a[1])
@@ -56,11 +67,11 @@ for (let run of runs) {
     console.log(`${head.slice(0, 12)}: nothing since ${since}`);
     continue;
   }
-  const span = Math.max(1, seconds(clock(run[run.length - 1])) - seconds(clock(run[0]))) / 60;
+  const span = minutes(run);
   const loads = run.map((l) => num(/load=([\d.]+)/, l)).filter((x) => x != null);
   const perMin = (n) => (n / span).toFixed(1);
   console.log(`\n${head.includes('perf log on') ? head.slice(head.indexOf('perf log on')) : 'perf log'}`);
-  console.log(`  ${clock(run[0])} to ${clock(run[run.length - 1])} (${span.toFixed(0)} min), load ${Math.min(...loads)} to ${Math.max(...loads)}, median ${pct(loads, 0.5)}`);
+  console.log(`  ${clock(run[0])} to ${clock(run[run.length - 1])} (${span.toFixed(0)} min), load ${pct(loads, 0)} to ${pct(loads, 1)}, median ${pct(loads, 0.5)}`);
 
   const pubs = run.filter((l) => / publish \d+ KB/.test(l));
   const skipped = run.filter((l) => l.includes('publish skipped')).length;
