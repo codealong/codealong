@@ -2191,11 +2191,7 @@ fn clears_context_in(texts: impl Iterator<Item = String>) -> bool {
 /// `permission_mode` reads) says nothing of how it started, since it may have been switched.
 fn live_mode(account: &AccountCfg, s: &Session, registry: Option<&registry::RegistryEntry>) -> Option<String> {
     let records = records_in(account, s, home_of_account);
-    // A job's arguments where the roster was read for it, else its process's command line.
-    let starts = || match registry.and_then(|r| r.launched_with.as_ref()) {
-        Some(job) => mode::starting_mode(&account.home_path(), Path::new(&s.cwd), &job.iter().map(String::as_str).collect::<Vec<_>>()),
-        None => mode::starting_mode(&account.home_path(), Path::new(&s.cwd), &s.pid.and_then(procs::command_line).as_deref().map(mode::words).unwrap_or_default()),
-    };
+    let starts = || mode::starting_mode(&account.home_path(), Path::new(&s.cwd), &s.pid.and_then(procs::command_line).as_deref().map(mode::words).unwrap_or_default());
     permission_mode(registry, &records).or_else(|| records.is_empty().then(starts).flatten())
 }
 
