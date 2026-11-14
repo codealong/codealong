@@ -329,8 +329,9 @@ fn yes() -> bool {
 pub struct LimitsCfg {
     #[serde(default)]
     pub when_hit: WhenLimited,
-    /// A session still stopped at its limit when the limit lifts is told to carry on
-    /// (reconnect.rs), unless its agent already did by itself.
+    /// A session still stopped at its limit when the limit lifts, and still open where it stopped
+    /// (reconnect.rs `open_where_it_stopped`), is told to carry on, unless its agent already did
+    /// by itself.
     #[serde(default = "yes")]
     pub continue_when_lifted: bool,
 }

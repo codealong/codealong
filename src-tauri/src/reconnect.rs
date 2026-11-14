@@ -5,9 +5,10 @@
 //! that can't connect for only a few minutes of the Mac being awake, and with the lid closed the
 //! Mac wakes for a few seconds every minute or two without DNS: the retries run out there, and the
 //! session waits for a prompt when the lid opens (claude/transcript.rs `connection_lost_at`). A
-//! usage limit stops a session until it lifts, hours or days away. A session Codealong runs is its
-//! adapter's, a child of the app (acp.rs), so every relaunch cuts off the turns it was taking:
-//! other sessions relaunch the app many times a day as they land their work.
+//! usage limit stops a session until it lifts, hours or days away, by when one Codealong runs
+//! itself has often lost its agent's process to a relaunch (`open_where_it_stopped`). A session
+//! Codealong runs is its adapter's, a child of the app (acp.rs), so every relaunch cuts off the
+//! turns it was taking: other sessions relaunch the app many times a day as they land their work.
 //!
 //! Every board the engine publishes is looked at for sessions here with such a turn
 //! (`Session::connection_lost` and `Session::limit`, which the engine marks `continues`, and
@@ -155,22 +156,37 @@ pub fn cut_off_here(s: &Session) -> bool {
     s.hosted && !s.live && s.cut_off.is_some()
 }
 
+/// Whether a session a usage limit stopped is still open where it stopped, so that Codealong tells
+/// it to carry on once the limit lifts (`[limits] continue_when_lifted`, which the engine marks on
+/// its limit as `continues`): it runs, or Codealong runs it itself and you haven't archived it.
+/// One Codealong runs stays open in Codealong when Codealong's server quits (another session's
+/// relaunch, an update): its agent's process, a child of the server, ends with it, between turns
+/// as well as in one, and a message picks it up again in a new one (acp.rs `send`). A limit lasts
+/// hours, so without this one was hardly ever still running when its limit lifted (2026-11-14:
+/// stopped at 4:24 PM, the server relaunched at 5:34, the limit lifted at 10, and nothing told
+/// it). One that stopped in a terminal or another app and isn't running is left for you: closing
+/// it may have been you.
+pub fn open_where_it_stopped(s: &Session) -> bool {
+    s.live || (s.hosted && !s.archived)
+}
+
 /// What `s` is owed at `now` (ms), when anything: what stopped it and when, and where its API is
 /// to try first. A cut, while `cut_offs` (`[sessions] continue_after_restart`) is on, is owed an
 /// answer at once, in the hour after (`CUT_MAX_AGE_MS`); a lost connection at once, in the day
 /// after; a limit once it's lifted and Claude Code's own carrying on has had time to show
-/// (`LIFTED_GRACE_MS`), in the day after that. Only a cut is owed to a session that isn't running,
-/// which the answer picks up again.
+/// (`LIFTED_GRACE_MS`), in the day after that. Only a cut, or a limit of a session still open
+/// where it stopped (`open_where_it_stopped`), is owed to a session that isn't running, which the
+/// answer picks up again.
 fn owed(s: &Session, now: i64, cut_offs: bool, ended_with_server: Option<i64>) -> Option<(Why, i64, Option<&'static str>)> {
     let ours = cut_off_here(s) || (!s.live && s.cut_off.zip(ended_with_server).is_some_and(|(cut, ended)| cut <= ended));
     if cut_offs && ours && s.helper.as_ref().is_none_or(|h| h.pr.is_none()) {
         let at = s.cut_off?;
         return (now - at <= CUT_MAX_AGE_MS).then_some((Why::CutOff, at, None));
     }
-    if !s.live {
+    if !open_where_it_stopped(s) {
         return None;
     }
-    if let Some(lost) = s.connection_lost.as_ref().filter(|l| l.continues && now - l.at <= MAX_AGE_MS) {
+    if let Some(lost) = s.connection_lost.as_ref().filter(|l| s.live && l.continues && now - l.at <= MAX_AGE_MS) {
         let address = crate::harness::adapter(s.harness).api_address()?;
         return Some((Why::Connection, lost.at, Some(address)));
     }
@@ -494,6 +510,30 @@ mod tests {
         // Any harness: it needs no address.
         let agy = Session { harness: crate::model::Harness::Antigravity, ..limited("antigravity:antigravity:g", NOW - 3_600_000, lifted) };
         assert_eq!(keys(&c.due(&board(vec![agy]), NOW, true)), ["antigravity:antigravity:g"]);
+    }
+
+    /// As it was found: Codealong ran it, it stopped at its weekly limit, Codealong's server was
+    /// relaunched an hour later, its agent's process ending with it, and the limit lifted hours
+    /// after that.
+    #[test]
+    fn a_session_codealong_runs_is_carried_on_from_its_limit_though_its_process_ended() {
+        let mut c = Continuer::default();
+        let (lifts, at) = (NOW - LIFTED_GRACE_MS, NOW - 6 * 3_600_000);
+        let hosted = Session { hosted: true, live: false, ..limited(A, at, lifts) };
+        assert!(open_where_it_stopped(&hosted));
+        assert_eq!(lifted(&board(vec![hosted.clone()]), NOW), [A]);
+        let due = c.due(&board(vec![hosted.clone()]), NOW, true);
+        assert_eq!(due.jobs, vec![Job { session: A.into(), at, why: Why::Limit, address: None }]);
+        // Not one that stopped in a terminal and isn't running, nor one you archived.
+        let closed = Session { hosted: false, ..hosted.clone() };
+        let archived = Session { archived: true, ..hosted.clone() };
+        for s in [closed, archived] {
+            assert!(!open_where_it_stopped(&s), "{s:?}");
+            assert!(Continuer::default().due(&board(vec![s.clone()]), NOW, true).is_empty(), "{s:?}");
+        }
+        // A lost connection is still answered only while it runs.
+        let dropped = Session { hosted: true, live: false, ..lost(B, NOW - 1_000) };
+        assert!(Continuer::default().due(&board(vec![dropped]), NOW, true).is_empty());
     }
 
     #[test]

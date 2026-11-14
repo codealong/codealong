@@ -382,7 +382,9 @@ moves it there by itself, as soon as it stops; a session moved there that stops 
 move rather than moved back.
 
 A session still stopped at its limit, and still open where it stopped, is told to carry on a few
-minutes after the limit lifts, and its Limit says so. Claude Code may carry on by itself first (its
+minutes after the limit lifts, and its Limit says so. One Codealong runs itself stays open until you
+archive it, however often Codealong restarts meanwhile; one in a terminal you closed, or a
+background job that ended, is left for you. Claude Code may carry on by itself first (its
 own Continue automatically at usage limit, 30 to 90 seconds after); then Codealong leaves it be. A
 session stopped again straight after it was told a few times running is left for you, with a
 notice. `[limits] continue_when_lifted = false` (Settings › Automation) turns that off.

@@ -2091,16 +2091,17 @@ fn waiting_call(s: &Session, account: Option<&config::AccountCfg>) -> Option<Str
 
     /// Sessions a usage limit stopped, each with the account it could move to and go on
     /// (`start::limit_moves`), and whether Codealong tells it to carry on once the limit lifts
-    /// (reconnect.rs): when config.toml says to, it runs, and its harness said when it lifts.
+    /// (reconnect.rs): when config.toml says to, it's still open where it stopped
+    /// (`reconnect::open_where_it_stopped`), and its harness said when it lifts.
     fn with_limits(&self, mut sessions: Vec<Session>, usage: &[Usage], now: i64) -> Vec<Session> {
         if sessions.iter().any(|s| s.limit.is_some()) {
             crate::start::limit_moves(&mut sessions, &self.cfg.accounts, self.cfg.routing.buffer, usage, |h| harness::adapter(h).moves_accounts(), now);
         }
         let on = self.cfg.limits.continue_when_lifted;
         for s in &mut sessions {
-            let live = s.live && !self.cfg.sessions.blocks(s);
+            let open = crate::reconnect::open_where_it_stopped(s) && !self.cfg.sessions.blocks(s);
             if let Some(limit) = s.limit.as_mut() {
-                limit.continues = on && live && limit.resets_at.is_some();
+                limit.continues = on && open && limit.resets_at.is_some();
             }
         }
         sessions
