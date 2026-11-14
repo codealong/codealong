@@ -16,14 +16,22 @@
   display: flex;
   flex-direction: column;
   gap: 10px;
-  padding: var(--space-3) var(--space-4) var(--space-4);
+  /* Its right padding, which macOS's overlay scrollbar draws over, and the fade below leaves out. */
+  --thread-edge: var(--space-4);
+  padding: var(--space-3) var(--thread-edge) var(--space-4) var(--space-4);
 }
 /* Over the message box (SessionReply.css), what's scrolled under its top edge fades out over the
    thread's foot, its padding there, so the box needs no rule of its own to stand off it. At the
-   end there's nothing in that padding to fade. */
+   end there's nothing in that padding to fade. A mask covers the thread's scrollbar as well as its
+   words, so the strip of right padding the scrollbar draws over is left out of the fade: there the
+   thumb faded at its foot like a white shadow, scrolled to the end too. */
 .ca-thread:has(+ .ca-composer:not(.is-waiting)) {
-  -webkit-mask-image: linear-gradient(to top, transparent, #000 var(--space-4));
-  mask-image: linear-gradient(to top, transparent, #000 var(--space-4));
+  -webkit-mask:
+    linear-gradient(#000, #000) right / var(--thread-edge) 100% no-repeat,
+    linear-gradient(to top, transparent, #000 var(--space-4));
+  mask:
+    linear-gradient(#000, #000) right / var(--thread-edge) 100% no-repeat,
+    linear-gradient(to top, transparent, #000 var(--space-4));
 }
 .ca-thread.is-fallback {
   justify-content: flex-start;
