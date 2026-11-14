@@ -30,7 +30,7 @@ export function taskName(t: BackgroundTask): string {
 }
 
 /** Where a command stands: `Running · 12m`, `Done · 3m ago`, `Failed · exit 1 · just now`,
- *  `Stopped · 4m ago`. */
+ *  `Stopped · 4m ago`, and a Monitor that ran out of time, `Ran out of time · 1m ago`. */
 export function taskState(t: BackgroundTask, now: number): string {
   if (t.endedAt == null) return `Running · ${duration(t.startedAt, now)}`;
   const when = agoPhrase(t.endedAt, now);
@@ -39,6 +39,8 @@ export function taskState(t: BackgroundTask, now: number): string {
       return `Stopped · ${when}`;
     case 'stopped':
       return `Stopped as its session ended · ${when}`;
+    case 'expired':
+      return `Ran out of time · ${when}`;
     case 'failed':
       return t.exitCode != null ? `Failed · exit ${t.exitCode} · ${when}` : `Failed · ${when}`;
     default:

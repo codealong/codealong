@@ -3838,8 +3838,10 @@ turns *Your turn* into *Needs you*, with the question; one that offers more work
 want…") or leaves you next steps to take yourself stays *Your turn*. A busy session quiet on a
 long build stays *Working* instead of *stuck*; a command left running in the background says
 whether it polls for something, runs a job, is a server or watcher left running (no longer
-*Working*), or waits on you (a sign-in, a password), which still takes what you send it, since its
-turn is over. A reply written as a turn ended with agents still running in the background is read
+*Working*, unless something else the agent started in the background still runs beside it, or the
+command is a Claude Code Monitor, whose every line wakes the agent: then it's *Waiting on* that),
+or waits on you (a sign-in, a password), which still takes what you send it, since its turn is
+over. A reply written as a turn ended with agents still running in the background is read
 as any turn's: one that asks you something is *Needs you* until you've seen it, and one that only
 says it waits on its agents stays waiting. Rows show how far the work got (Landed, Pushed,
 Committed, Not committed, Blocked) and how risky a command waiting for approval looks, judged from
@@ -3910,7 +3912,10 @@ off is a [label](#labels).
 A Claude session whose turn left a command running in the background (registry status `shell`) is
 *Working* while that command does something. The engine looks at the command's processes once a
 minute; when none has started or used CPU for 15 minutes (a dev server, a sign-in waiting on a
-browser, `tail -f`), the turn is over and the row says *Left running*.
+browser, `tail -f`), the turn is over and the row says *Left running*. Jev's read of the command
+can say so sooner, when it looks like a server or a watcher, but only of a session that has nothing
+else running in the background: one that left a dev server running and waits on a build, or left a
+Monitor watching a log, is still waiting.
 
 Agents and workflows a Claude Code session started in the background keep it busy by Claude Code's
 own word, whether or not a turn runs. A session whose transcript says its turn ended with some of
@@ -3922,8 +3927,9 @@ Every command an agent left running in the background is listed in its session's
 *Sessions*), as its harness lists them itself. A Claude Code session's come from its transcript: a
 Bash call run in the background, or moved there past its timeout, and a Monitor, with the file
 Claude Code writes its output to and, once it ends, the notification that says how and with what
-exit code; a session whose process has gone runs none, Claude Code having stopped them as it
-exited. A Codex thread's come from its rollout: a command still running when its call returned,
+exit code (a Monitor whose time ran out says *Ran out of time*); a session whose process has gone
+runs none, Claude Code having stopped them as it exited. A Codex thread's come from its rollout: a
+command still running when its call returned,
 which Codex calls a background terminal, ended as Codex writes that its process exited; its output
 is what the agent read of it, or all of it once it ended. While no Codex process has the thread
 loaded, it runs none, and a process that takes the thread up later runs none of the one before's. Only what the harness started is listed: a server a command left behind as it

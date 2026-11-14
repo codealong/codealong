@@ -2066,8 +2066,9 @@ pub fn aside_holds(s: &Session, at: i64, sides: &[crate::side::Glance]) -> bool 
 /// - a busy session gone quiet on a command that isn't waiting for typing is working on it,
 ///   not stuck;
 /// - a command left running in the background says whether it polls or runs a job, is left
-///   running when it's a server or watcher (the turn is over; the engine makes that *Your
-///   turn* when you haven't seen it), and is stuck when it looks stuck.
+///   running when it's a server or watcher and nothing else it started there runs beside it
+///   (the turn is over; the engine makes that *Your turn* when you haven't seen it;
+///   `waits_beside`), and is stuck when it looks stuck.
 pub fn apply_insight(s: &mut Session, i: &SessionInsight) {
     s.insight = Some(i.clone());
     if s.status == Status::Unread && i.asks_you.unwrap_or(0.0) >= ASKS_YOU {
@@ -2091,12 +2092,22 @@ pub fn apply_insight(s: &mut Session, i: &SessionInsight) {
                 s.excerpt = Some(format!("Polling in the background · {}", waits.unwrap_or(shown)));
             }
             "job" => s.excerpt = Some(format!("Running in the background · {shown}")),
-            "server" if i.background_p.unwrap_or(0.0) >= BACKGROUND_LEFT_RUNNING => {
-                if s.status == Status::Working {
-                    s.status = Status::Idle;
+            "server" if i.background_p.unwrap_or(0.0) >= BACKGROUND_LEFT_RUNNING => match waits_beside(s, &cmd) {
+                // The server isn't all its turn left: it still waits on what else runs.
+                Some(task) if s.status == Status::Working => {
+                    let name = [&task.command, &task.about].into_iter().map(|t| t.trim()).find(|t| !t.is_empty());
+                    s.excerpt = Some(match name {
+                        Some(name) => format!("Waiting on {}", code(&truncate(&one_line(name, 200), 80))),
+                        None => "Waiting on a command in the background".to_string(),
+                    });
                 }
-                s.excerpt = Some(format!("Left running · {shown}"));
-            }
+                _ => {
+                    if s.status == Status::Working {
+                        s.status = Status::Idle;
+                    }
+                    s.excerpt = Some(format!("Left running · {shown}"));
+                }
+            },
             "stalled" if i.background_p.unwrap_or(0.0) >= BACKGROUND_STALLED => {
                 s.status = Status::Needs;
                 s.stalled_since = Some(s.status_since.unwrap_or(s.last_activity));
@@ -2105,6 +2116,20 @@ pub fn apply_insight(s: &mut Session, i: &SessionInsight) {
             _ => {}
         }
     }
+}
+
+/// What a session whose turn left `judged` running in the background (`Session::background`, the
+/// one command Jev reads) still waits on beside it, by its harness's list (`Session::tasks`): the
+/// newest other command it started there, or a Monitor, whose every line wakes it whatever its
+/// command looks like. So Jev's word that the command is a server says the turn is over only when
+/// nothing else runs: a Monitor's `tail -f`, read as one, left a session that waited on the
+/// relaunch it had started in Your turn (2026-11-14). The process table names a command as the
+/// list does (`shells::eval_command` in the Claude adapter); where no running one on the list is
+/// `judged`, its oldest stands for it, as the table lists the oldest shell first.
+fn waits_beside<'a>(s: &'a Session, judged: &str) -> Option<&'a BackgroundTask> {
+    let running: Vec<&BackgroundTask> = s.tasks.iter().filter(|t| t.ended_at.is_none()).collect();
+    let judged = running.iter().position(|t| t.command.trim() == judged.trim()).unwrap_or(0);
+    running.iter().enumerate().rev().find(|(i, t)| *i != judged || t.monitor).map(|(_, t)| *t)
 }
 
 /// Makes a session whose turn ended on a reply that asks you something Needs you, with the
@@ -5616,6 +5641,47 @@ mod tests {
         let mut unsure = s.clone();
         apply_insight(&mut unsure, &insight(|i| (i.background, i.background_p) = (Some("server".into()), Some(0.5))));
         assert_eq!(unsure.status, Status::Working);
+    }
+
+    #[test]
+    fn a_server_read_leaves_working_a_session_that_waits_on_more() {
+        const MIN: i64 = 60_000;
+        let a = acct("claude2");
+        let watch = "tail -n +1 -f ~/vm/test.log | grep --line-buffered -E \"^error|test result\"";
+        let task = |id: &str, command: &str, monitor: bool, started_at: i64| BackgroundTask { id: id.into(), command: command.into(), monitor, started_at, ..Default::default() };
+        let read = |s: &Session| {
+            let mut s = s.clone();
+            apply_insight(&mut s, &insight(|i| (i.background, i.background_p) = (Some("server".into()), Some(0.97))));
+            (s.status, s.excerpt)
+        };
+        let quiet = Quiet { running: Some(watch), ..Default::default() };
+        let s = claude_session(&a, Some(&reg("shell", NOW - 60_000)), Some(&tr()), 0, NOW, &quiet).unwrap();
+        // The process table's oldest shell is a Monitor's `tail -f`, which Jev reads as a server,
+        // while the relaunch it started after runs on: it waits on the relaunch (2026-11-14).
+        let relaunch = "scripts/relaunch.sh 2>&1 | tail -5";
+        let both = Session { tasks: vec![task("b1", watch, true, NOW - 25 * MIN), task("b2", relaunch, false, NOW - MIN)], ..s.clone() };
+        assert_eq!(read(&both), (Status::Working, Some("Waiting on `scripts/relaunch.sh 2>&1 | tail -5`".into())));
+        // A Monitor alone wakes it with each line, so it waits on that.
+        let alone = Session { tasks: vec![task("b1", watch, true, NOW - 25 * MIN)], ..s.clone() };
+        assert_eq!(read(&alone).0, Status::Working);
+        // A dev server beside a build: the build. One that ended doesn't count, nor does an
+        // empty list, as before.
+        let server = Session { background: Some("npm run dev".into()), ..s.clone() };
+        let build = task("b4", "", false, NOW - MIN);
+        let beside = Session { tasks: vec![task("b3", "npm run dev", false, NOW - 9 * MIN), BackgroundTask { about: "Build the app".into(), ..build.clone() }], ..server.clone() };
+        assert_eq!(read(&beside), (Status::Working, Some("Waiting on `Build the app`".into())));
+        let unnamed = Session { tasks: vec![task("b3", "npm run dev", false, NOW - 9 * MIN), build.clone()], ..server.clone() };
+        assert_eq!(read(&unnamed).1.as_deref(), Some("Waiting on a command in the background"));
+        let ended = Session { tasks: vec![task("b3", "npm run dev", false, NOW - 9 * MIN), BackgroundTask { ended_at: Some(NOW - MIN), status: Some("completed".into()), ..build }], ..server.clone() };
+        for left in [ended, server] {
+            assert_eq!(read(&left), (Status::Idle, Some("Left running · `npm run dev`".into())));
+        }
+        // Where the list names no running command as the table does, its oldest stands for it.
+        let unmatched = Session { tasks: vec![task("b3", "npm  run dev ", false, NOW - 9 * MIN)], background: Some("npm run dev --port 4321".into()), ..s.clone() };
+        assert_eq!(read(&unmatched).0, Status::Idle);
+        // Its processes already sat still long enough to be left running: so it stays.
+        let still = Session { status: Status::Idle, excerpt: Some("Left running · `npm run dev`".into()), ..beside };
+        assert_eq!(read(&still), (Status::Idle, Some("Left running · `npm run dev`".into())));
     }
 
     #[test]

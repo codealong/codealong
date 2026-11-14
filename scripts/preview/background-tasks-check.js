@@ -20,6 +20,7 @@
         { id: 'bfoz923q7', command: 'npm run dev -- --port 4321', about: 'Start the blog’s dev server', startedAt: now - 12 * min, output: '/private/tmp/claude-501/-Users-me-projects-northwind-app/s1/tasks/bfoz923q7.output' },
         { id: 'b70i34vi3', command: 'tail -f server.log | grep --line-buffered ERROR', about: 'errors in the server’s log', monitor: true, startedAt: now - 9 * min },
         { id: 'bsabc908a', command: 'cargo test -p atlas', about: 'Run the engine’s tests', startedAt: now - 8 * min, endedAt: now - 3 * min, status: 'failed', exitCode: 101 },
+        { id: 'bq1w2e3r4', command: 'tail -f build.log | grep --line-buffered error', about: 'errors in the build', monitor: true, startedAt: now - 38 * min, endedAt: now - 8 * min, status: 'expired' },
       ],
     },
     { title: 'Background B', tasks: [{ id: '19957', command: 'npm ci', startedAt: now - 7 * min, endedAt: now - 2 * min, status: 'completed', exitCode: 0 }] },
@@ -89,12 +90,13 @@
       check('and names them on hover', /npm run dev -- --port 4321 · Running · 12m/.test(chip().title) && /cargo test -p atlas · Failed · exit 101 · 3m ago/.test(chip().title), chip().title);
       check('nothing is listed until it’s clicked', rows().length === 0);
       chip().click();
-      return until(function () { return rows().length === 3; }, 2000, 'the list under the links');
+      return until(function () { return rows().length === 4; }, 2000, 'the list under the links');
     })
     .then(function () {
       var r = rows();
       check('each says its command, running ones first', command(r[0]) === 'npm run dev -- --port 4321' && command(r[1]).indexOf('tail -f server.log') === 0 && command(r[2]) === 'cargo test -p atlas', r.map(command).join(' | '));
       check('and where it stands', state(r[0]) === 'Running · 12m' && state(r[2]) === 'Failed · exit 101 · 3m ago', r.map(state).join(' | '));
+      check('a Monitor whose time ran out says so', !!r[3] && state(r[3]) === 'Ran out of time · 8m ago', r[3] ? state(r[3]) : 'no fourth row');
       check('what it’s for, a Monitor said as one', /Start the blog’s dev server/.test(r[0].textContent) && /Monitor: each line it prints goes to the agent · errors in the server’s log/.test(r[1].textContent), r[1].querySelector('.ca-task-about') && r[1].querySelector('.ca-task-about').textContent);
       check('running ones can be stopped, an ended one can’t', !!buttonIn(r[0], 'Stop') && !!buttonIn(r[1], 'Stop') && !buttonIn(r[2], 'Stop'));
       buttonIn(r[1], 'Stop').click();

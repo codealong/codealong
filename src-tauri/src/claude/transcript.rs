@@ -102,7 +102,8 @@ pub struct Shell {
 pub struct ShellEnd {
     pub at: i64,
     /// Its notification's `<status>`: completed, failed, killed, or stopped as the session
-    /// ended; `killed` for one TaskStop stopped, which no notification follows.
+    /// ended; `killed` for one TaskStop stopped, which no notification follows, and `expired` for
+    /// a Monitor whose time ran out (`MONITOR_EXPIRED`).
     pub status: String,
     /// From its notification's summary: "completed (exit code 0)", "failed with exit code 1".
     pub exit_code: Option<i64>,
@@ -999,7 +1000,8 @@ const CALLS_MOST: usize = 32;
 /// `backgroundTaskId`, a Monitor's `taskId`, an Agent's or a Workflow's launch, a shell named by
 /// its call (`command`, `description`) and the file its result says its output goes to. A
 /// notification with a `<status>` ends one (completed, failed, killed, or stopped as the session
-/// ended; a Monitor's events come without), as a line of its own or one held for the turn to
+/// ended; a Monitor's events come without, all but the one saying its time ran out,
+/// `notifications`), as a line of its own or one held for the turn to
 /// take in (`queued_command`); so does TaskStop's result, which no notification follows. One in
 /// Claude Code's queue (`queue-operation` / `enqueue`) has ended, but isn't told until the turn
 /// takes it in, and wakes the session then.
@@ -1099,7 +1101,10 @@ struct Told {
 
 /// The notifications with a `<status>` in a line's text, each a task's end: `<task-id>`,
 /// `<output-file>`, `<status>`, and the exit code in its `<summary>` ("Background command
-/// \"Build\" completed (exit code 0)", "… failed with exit code 1"; 2.1.323).
+/// \"Build\" completed (exit code 0)", "… failed with exit code 1"; 2.1.323). A Monitor's
+/// events come without one, but the last it sends as its time runs out is its end too
+/// (`MONITOR_EXPIRED`), `expired`: read as an event, an expired Monitor stayed running on the
+/// session's list until its process went (2026-11-14).
 fn notifications(text: &str) -> Vec<Told> {
     let tag = |n: &str, t: &str| Some(n.split(&format!("<{t}>")).nth(1)?.split(&format!("</{t}>")).next()?.trim().to_string()).filter(|s| !s.is_empty());
     text.split("<task-notification>")
@@ -1107,10 +1112,16 @@ fn notifications(text: &str) -> Vec<Told> {
         .filter_map(|n| n.split("</task-notification>").next())
         .filter_map(|n| {
             let exit_code = tag(n, "summary").and_then(|s| s.split("exit code ").nth(1)?.split(|c: char| c != '-' && !c.is_ascii_digit()).next()?.parse().ok());
-            Some(Told { id: tag(n, "task-id")?, status: tag(n, "status")?, output: tag(n, "output-file"), exit_code })
+            let expired = || tag(n, "event").filter(|e| e.starts_with(MONITOR_EXPIRED)).map(|_| "expired".to_string());
+            Some(Told { id: tag(n, "task-id")?, status: tag(n, "status").or_else(expired)?, output: tag(n, "output-file"), exit_code })
         })
         .collect()
 }
+
+/// How the event a Monitor sends as its time runs out starts: "[Monitor expired after 30m with 2
+/// events delivered. Re-arm it if you still need the watch.]", or "… with no events delivered. …"
+/// (claude-agent-acp's 2.1.280, 2026-11-14; 64 of them in this Mac's transcripts).
+const MONITOR_EXPIRED: &str = "[Monitor expired";
 
 /// The file a Bash call's result says its command's output goes to: "Command running in
 /// background with ID: b26apolb2. Output is being written to: /private/tmp/claude-501/…/tasks/
@@ -2912,6 +2923,13 @@ pub(super) mod tests {
         let stop = result("2026-10-29T22:01:00.000Z", json!({"message": "Successfully stopped task: b3x8c1v5n", "task_id": "b3x8c1v5n", "task_type": "local_bash"}));
         let mut info = parse_lines(HEAD, &format!("{}\n{stop}", started[0]));
         assert!(running(&info).is_empty());
+        // So is the event a Monitor sends as its time runs out, which has no status either.
+        let expired = "<task-notification>\n<task-id>b7k2m9p4q</task-id>\n<summary>Monitor event: \"errors\"</summary>\n<event>[Monitor expired after 15m with no events delivered. Re-arm it if you still need the watch.]</event>\n</task-notification>";
+        let mut monitor = parse_lines(HEAD, &started[1]);
+        assert_eq!(running(&monitor), both[1..]);
+        apply_tail(&mut monitor, &mut TailState::default(), &told(expired));
+        assert!(running(&monitor).is_empty());
+        assert_eq!(monitor.background.ended.last().and_then(|s| s.ended.as_ref()).map(|e| e.status.as_str()), Some("expired"));
         // Ends never read leave no more than a few behind.
         let many: Vec<String> = (0..40).map(|i| result("2026-10-29T22:02:00.000Z", json!({"backgroundTaskId": format!("b{i:08}")}))).collect();
         apply_tail(&mut info, &mut TailState::default(), &many.join("\n"));

@@ -25,6 +25,7 @@ describe('a session’s background commands', () => {
     expect(taskState(task({ ...ended, status: 'failed', exitCode: 144 }), NOW)).toBe('Failed · exit 144 · 3m ago');
     expect(taskState(task({ ...ended, status: 'killed' }), NOW)).toBe('Stopped · 3m ago');
     expect(taskState(task({ ...ended, status: 'stopped' }), NOW)).toBe('Stopped as its session ended · 3m ago');
+    expect(taskState(task({ ...ended, status: 'expired', monitor: true }), NOW)).toBe('Ran out of time · 3m ago');
   });
 
   it('names one by its command, else what it’s for', () => {

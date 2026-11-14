@@ -1024,7 +1024,8 @@ pub struct BackgroundTask {
     /// When it ended, once its harness said so.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub ended_at: Option<i64>,
-    /// How it ended, as its harness put it (`completed`, `failed`, `killed`, `stopped`).
+    /// How it ended, as its harness put it (`completed`, `failed`, `killed`, `stopped`), or
+    /// `expired` for a Claude Code Monitor whose time ran out, which its harness says in words.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub status: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]

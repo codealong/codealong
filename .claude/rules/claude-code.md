@@ -31,7 +31,9 @@ on this Mac; read it before changing the Claude adapter (paths are under `src-ta
   registry says only busy, waiting or idle, so the transcript says which background shells a
   session started (a Bash result's `toolUseResult.backgroundTaskId`, a Monitor's `taskId`, ids
   `b` and eight of `0-9a-z`) and which ended (a `<task-notification>` with a `<status>`; a
-  Monitor's events come without one; TaskStop's result `task_id`, which no notification follows),
+  Monitor's events come without one, its expiry too, an `<event>` that says "[Monitor expired
+  after 30m with 2 events delivered. Re-arm it…]", which ends it; TaskStop's result `task_id`,
+  which no notification follows),
   and the process table whether one still runs: `claude/transcript.rs` (`background_step`),
   `board.rs` (`untold_shell`). Read as a turn that ended, an ACP session's reply saying it waited
   on what its Monitor would report was taken by Jev for asking you (2026-10-29). What a session's
