@@ -1,19 +1,21 @@
-// Checks finding words in a session's conversation (ThreadFind.tsx): a session read in three
-// pages, "lighthouse" said five times in the newest (once in a call a run folds away, once across
-// a bold half-word), once in the page before and once in the first. ⌘F in the box opens the bar
-// with the keyboard in it; typing marks every match and counts all seven once the pages before
-// are read, the run of calls opening to show the one it finds; the latest is the one you're on.
-// ⏎ goes back through them and on into the pages before, laying them out from the pages read for
-// the count, ⇧⏎ comes forward, ⌘G and ⇧⌘G step from outside the bar, and Escape closes it,
-// clears the marks, folds the run again and gives the box its keyboard back. ⌘F opens it again
-// with the words ready to type over. A second session says "needle" only two pages back: typing
-// it goes there by itself. Words that go on from one paragraph of a prompt into the next are
-// found there. Words said nowhere say so. The bar takes the place of the prompt pinned
-// over the top while it's open. ⌘F finds where you are (findKeys.ts): from the list it opens the
-// list's find (ListBar.tsx), which Escape puts away, after a click on the conversation it finds
-// there, and with the panel taking the whole window too; ⌥⌘F opens the list's find from the box,
-// and ⌘K opens the quick panel. In the
-// waiting window it works the same from the card's box, and Escape closes only the bar.
+// Checks finding words in a session's conversation with the window's find (WindowFind.tsx,
+// ThreadFind.tsx): a session read in three pages, "lighthouse" said five times in the newest
+// (once in a call a run folds away, once across a bold half-word), once in the page before and
+// once in the first. ⌘F in the box opens the bar with the keyboard in it; typing marks every match
+// and counts all seven once the pages before are read, the run of calls opening to show the one it
+// finds; the nearest above where you're reading is the one you're on, as a word on the session's
+// row and over its panel starts over the panel, where the keyboard was. ⇧⏎ goes back through them
+// and on into the pages before, laying them out from the pages read for the count, round to the
+// last from the first; ⏎ goes on, round to the first; ⌘G and ⇧⌘G step from outside the bar; and
+// Escape closes it, clears the marks, folds the run again and gives the box its keyboard back.
+// ⌘F opens it again with the words ready to type over. A second session says "needle" only two
+// pages back: typing it goes there by itself. Words that go on from one paragraph of a prompt
+// into the next are found there. Words said nowhere say so. The prompt pinned over the top stays.
+// ⌘F finds in the whole window, starting where you are (findKeys.ts): from the list it starts in
+// the list, finding in the panel too; after a click on the conversation, and with the panel taking
+// the whole window, it opens as well; ⌥⌘F opens the list's find (ListBar.tsx) from the box, and ⌘K
+// the quick panel. In the waiting window it works the same from the card's box, and Escape closes
+// only the bar.
 //   scripts/preview.sh sessions '' scripts/preview/thread-find-check.js
 //   PREVIEW_WAIT=60000 scripts/preview.sh sessions '' scripts/preview/thread-find-check.js
 //   scripts/preview.sh waiting '' scripts/preview/thread-find-check.js
@@ -85,19 +87,31 @@
   var title = function () { var t = q('.ca-sessinsp-title'); return t ? t.textContent : null; };
   var box = function () { return q('.ca-sessinsp .ca-composer textarea, .ca-reply .ca-composer textarea'); };
   var thread = function () { return q('.ca-sessinsp .ca-thread, .ca-reply .ca-thread'); };
-  var bar = function () { return q('.ca-thread-find'); };
+  var bar = function () { return q('.ca-findbar'); };
   var filter = function () { return q('.ca-listfind input'); };
-  // The holder of the prompt pinned over the top, which makes way for the bar.
+  // The holder of the prompt pinned over the top.
   var pinShown = function () { var p = q('.ca-sessinsp .ca-thread-pin'); return !!p && getComputedStyle(p).display !== 'none'; };
-  var field = function () { return q('.ca-thread-find input'); };
-  var count = function () { var c = q('.ca-thread-findcount'); return c ? c.textContent : null; };
-  var button = function (label) { return q('.ca-thread-find button[aria-label="' + label + '"]'); };
+  var field = function () { return q('.ca-findbar input'); };
+  var count = function () { var c = q('.ca-findbar-count'); return c ? c.textContent : null; };
+  var button = function (label) { return q('.ca-findbar button[aria-label="' + label + '"]'); };
   var press = function (el, init) {
     var e = new KeyboardEvent('keydown', Object.assign({ bubbles: true, cancelable: true }, init));
     el.dispatchEvent(e);
     return wait(150).then(function () { return e; });
   };
   var marks = function (name) { var h = CSS.highlights.get(name); return h ? Array.from(h) : []; };
+  // How many matches are laid out, which the marks' layer says; and whether a box marks one in an
+  // element `sel` matches (the one you're on is a highlight, the rest boxes).
+  var shown = function () { var l = q('.ca-findmarks'); return l ? Number(l.dataset.shown) : 0; };
+  var boxes = function () { return all('.ca-findmarks > span'); };
+  var boxIn = function (sel) {
+    return boxes().some(function (b) {
+      var r = b.getBoundingClientRect();
+      var x = r.left + r.width / 2;
+      var y = r.top + r.height / 2;
+      return all(sel).some(function (el) { var e = el.getBoundingClientRect(); return x >= e.left && x <= e.right && y >= e.top && y <= e.bottom; });
+    });
+  };
   // The match you're on: its words, and whether it's in view below the prompt pinned over the top.
   var at = function () { return marks('ca-find-at')[0] || null; };
   var atText = function () { var r = at(); return r ? r.toString() : null; };
@@ -121,8 +135,8 @@
   // The waiting window, on whichever of the two it opens: every reply says "paragraph" thirty
   // times, four of them in A's pages and three in B's.
   var waiting = function () {
-    var shown = null;
-    return until(function () { shown = title(); return (shown === 'Find A' || shown === 'Find B') && thread() && box() && !/Reading the conversation/.test(thread().textContent); }, 5000)
+    var which = null;
+    return until(function () { which = title(); return (which === 'Find A' || shown === 'Find B') && thread() && box() && !/Reading the conversation/.test(thread().textContent); }, 5000)
       .then(function () { return wait(300); })
       .then(function () { return press(box(), { key: 'f', metaKey: true }); })
       .then(function (e) {
@@ -131,12 +145,12 @@
         return until(function () { return / of (120|90)$/.test(count() || ''); }, 5000).catch(function () {});
       })
       .then(function () {
-        check('it counts the whole conversation', count() === (shown === 'Find A' ? '120 of 120' : '90 of 90'), shown + ': ' + count());
-        check('and marks what’s laid out', marks('ca-find').length === (shown === 'Find A' ? 60 : 30) && inView(), String(marks('ca-find').length));
+        check('it counts the whole conversation', / of (120|90)$/.test(count() || '') && count().slice(-3) === (which === 'Find A' ? '120' : ' 90'), which + ': ' + count());
+        check('and marks what’s laid out', shown() === (which === 'Find A' ? 60 : 30) && inView(), String(shown()));
         return press(field(), { key: 'Escape' });
       })
       .then(function (e) {
-        check('Escape closes only the bar', e.defaultPrevented && !bar() && inWindow() && title() === shown && document.activeElement === box(), title());
+        check('Escape closes only the bar', e.defaultPrevented && !bar() && inWindow() && title() === which && document.activeElement === box(), title());
       });
   };
 
@@ -155,64 +169,72 @@
     .then(function (e) {
       check('⌘F in the box opens the bar', !!bar() && e.defaultPrevented);
       check('with the keyboard in it', document.activeElement === field(), document.activeElement && document.activeElement.className);
-      check('in place of the pinned prompt', !pinShown());
+      check('the pinned prompt stays', pinShown());
       var el = thread();
       check('and the conversation still at its end', el.scrollHeight - el.scrollTop - el.clientHeight < 2, String(el.scrollHeight - el.scrollTop - el.clientHeight));
+      // Its title shows on its row in the list and over its panel.
+      type(field(), 'Find A');
+      return until(function () { return at(); }, 3000).catch(function () {});
+    })
+    .then(function () {
+      check('typed in the bar, it starts where the keyboard was, the panel, not the list', within('.ca-sessinsp') && boxIn('.ca-board'), atText() + ', ' + boxes().length + ' boxes');
       type(field(), 'lighthouse');
       return counted('7 of 7');
     })
     .then(function () {
       check('typing counts every match, the pages before read for it', count() === '7 of 7', count() + ' after pages ' + pagesRead(A).join(','));
       check('the pages before are read once, not laid out', pagesRead(A).join(',') === 'null,100,50' && !/A lighthouse in the middle/.test(thread().textContent), pagesRead(A).join(','));
-      check('each match laid out is marked', marks('ca-find').length === 5, String(marks('ca-find').length));
+      check('each match laid out is marked', shown() === 5, String(shown()));
       check('the run of calls opens to show the one it finds', /src\/lighthouse\.ts/.test(thread().textContent));
-      check('the latest is the one you’re on, in view', within('.ca-thread-toollabel') && inView(), atText());
-      check('nothing later to go to', button('Later match').disabled);
-      return press(field(), { key: 'Enter' });
+      check('the nearest above where you’re reading is the one you’re on, in view', within('.ca-thread-toollabel') && inView(), atText());
+      return press(field(), { key: 'Enter', shiftKey: true });
     })
     .then(function () {
-      check('⏎ goes to the one before, across a bold half-word', count() === '6 of 7' && atText() === 'lighthouse' && within('.ca-thread-agent') && inView(), count() + ' ' + atText());
-      return press(field(), { key: 'Enter' }).then(function () { return press(field(), { key: 'Enter' }); }).then(function () { return press(field(), { key: 'Enter' }); });
+      check('⇧⏎ goes back to the one before, across a bold half-word', count() === '6 of 7' && atText() === 'lighthouse' && within('.ca-thread-agent') && inView(), count() + ' ' + atText());
+      return press(field(), { key: 'Enter', shiftKey: true }).then(function () { return press(field(), { key: 'Enter', shiftKey: true }); }).then(function () { return press(field(), { key: 'Enter', shiftKey: true }); });
     })
     .then(function () {
       check('back to the prompt’s', count() === '3 of 7' && within('.ca-thread-you') && inView(), count() + ' ' + atText());
-      return press(field(), { key: 'Enter' }).then(function () { return counted('2 of 7'); });
+      return press(field(), { key: 'Enter', shiftKey: true }).then(function () { return counted('2 of 7'); });
     })
     .then(function () {
       check('past the first laid out, the page before is laid out and it goes there', count() === '2 of 7' && /A lighthouse in the middle/.test(thread().textContent) && within('.ca-thread-agent') && inView(), count());
-      return press(field(), { key: 'Enter' }).then(function () { return counted('1 of 7'); });
+      return press(field(), { key: 'Enter', shiftKey: true }).then(function () { return counted('1 of 7'); });
     })
     .then(function () {
       check('and on to the first page', count() === '1 of 7' && /Prompt 1 about/.test(at().startContainer.textContent) && inView(), count());
       check('from the pages already read', pagesRead(A).join(',') === 'null,100,50', pagesRead(A).join(','));
-      check('nothing earlier to go to', button('Earlier match').disabled);
-      return press(field(), { key: 'Enter' });
-    })
-    .then(function () {
-      check('⏎ on the first stays there', count() === '1 of 7', count());
       return press(field(), { key: 'Enter', shiftKey: true });
     })
     .then(function () {
-      check('⇧⏎ comes forward', count() === '2 of 7', count());
+      check('⇧⏎ on the first goes round to the last', count() === '7 of 7' && within('.ca-thread-toollabel'), count());
+      return press(field(), { key: 'Enter' });
+    })
+    .then(function () {
+      check('⏎ goes on, round to the first', count() === '1 of 7', count());
+      return press(field(), { key: 'Enter' });
+    })
+    .then(function () {
+      check('and on to the next', count() === '2 of 7', count());
       field().blur();
       return press(document.body, { key: 'g', metaKey: true });
     })
     .then(function (e) {
-      check('⌘G steps back from outside the bar', e.defaultPrevented && count() === '1 of 7', count());
+      check('⌘G steps on from outside the bar', e.defaultPrevented && count() === '3 of 7', count());
       return press(document.body, { key: 'g', metaKey: true, shiftKey: true });
     })
     .then(function () {
-      check('⇧⌘G steps forward', count() === '2 of 7', count());
+      check('⇧⌘G steps back', count() === '2 of 7', count());
       field().focus();
       return press(field(), { key: 'Escape' });
     })
     .then(function (e) {
       check('Escape closes the bar', !bar() && e.defaultPrevented);
-      check('and clears the marks', marks('ca-find').length === 0 && marks('ca-find-at').length === 0);
+      check('and clears the marks', shown() === 0 && boxes().length === 0 && marks('ca-find-at').length === 0);
       check('the run folds again', !/src\/lighthouse\.ts/.test(thread().textContent));
       check('the box has the keyboard back', document.activeElement === box(), document.activeElement && document.activeElement.className);
       check('the session’s still shown', title() === 'Find A', title());
-      check('and the pinned prompt is back', pinShown());
+      check('and the pinned prompt with it', pinShown());
       return press(box(), { key: 'f', metaKey: true });
     })
     .then(function () {
@@ -221,8 +243,8 @@
       return until(function () { return / of 7$/.test(count() || ''); }, 4000).catch(function () {});
     })
     .then(function () {
-      // On the one nearest where you were reading, which went back to the second.
-      check('marked again, all laid out now, the one nearest in view', / of 7$/.test(count()) && marks('ca-find').length === 7 && inView(), count() + ' ' + marks('ca-find').length);
+      // On the one in view where you were reading, which went back to the second.
+      check('marked again, all laid out now, the one in view', / of 7$/.test(count()) && shown() === 7 && inView(), count() + ' ' + shown());
       type(field(), 'look out. where is');
       return counted('1 of 1');
     })
@@ -232,7 +254,7 @@
       return counted('No matches');
     })
     .then(function () {
-      check('words said nowhere say so', count() === 'No matches' && marks('ca-find').length === 0, count());
+      check('words said nowhere say so', count() === 'No matches' && shown() === 0 && boxes().length === 0, count());
       return press(field(), { key: 'Escape' });
     })
     .then(function () {
@@ -245,7 +267,7 @@
       return press(box(), { key: 'f', metaKey: true });
     })
     .then(function () {
-      check('its bar starts empty', field() && field().value === '', field() && field().value);
+      check('the bar keeps the words it found last, to type over', field() && field().value === 'zqxj' && field().selectionEnd === 4, field() && field().value);
       type(field(), 'needle');
       return until(function () { return count() === '1 of 1' && at(); }, 5000).catch(function () {});
     })
@@ -255,24 +277,31 @@
       check('the keyboard stays in the bar', document.activeElement === field());
       return press(field(), { key: 'Escape' });
     })
-    // ⌘F finds where you are (findKeys.ts): from the list, the list's find.
+    // ⌘F finds in the whole window, starting where you are (findKeys.ts): from the list, in the
+    // list. B's title shows on its row and over its panel.
     .then(function () {
       var list = q('.ca-board-list');
       list.focus();
       return press(list, { key: 'f', metaKey: true });
     })
     .then(function (e) {
-      check('⌘F from the list opens the list’s find', e.defaultPrevented && !!filter() && document.activeElement === filter() && !bar(), document.activeElement && document.activeElement.className);
-      return press(filter(), { key: 'Escape' });
+      check('⌘F from the list opens the window’s find, not the list’s', e.defaultPrevented && !!bar() && document.activeElement === field() && !filter(), document.activeElement && document.activeElement.className);
+      type(field(), 'Find B');
+      return until(function () { return at(); }, 3000).catch(function () {});
     })
     .then(function () {
-      check('Escape puts it away', !filter());
+      check('it finds in the list and the panel alike', boxIn('.ca-sessinsp-title') && shown() >= 2, shown() + ' found, ' + boxes().length + ' boxes');
+      check('starting in the list, where you are', within('.ca-board'), atText());
+      return press(field(), { key: 'Escape' });
+    })
+    .then(function () {
+      check('Escape gives the list the keyboard back', !bar() && document.activeElement === q('.ca-board-list'), document.activeElement && document.activeElement.className);
       // A click on the conversation's text leaves the keyboard with nothing.
       q('.ca-sessinsp .ca-thread-agent').dispatchEvent(new PointerEvent('pointerdown', { bubbles: true }));
       return press(document.body, { key: 'f', metaKey: true });
     })
     .then(function (e) {
-      check('after a click on the conversation it finds there', e.defaultPrevented && !!bar() && document.activeElement === field(), document.activeElement && document.activeElement.className);
+      check('after a click on the conversation it opens too', e.defaultPrevented && !!bar() && document.activeElement === field(), document.activeElement && document.activeElement.className);
       return press(field(), { key: 'Escape' });
     })
     .then(function () {
@@ -290,8 +319,6 @@
       });
     })
     .then(function () {
-      // The board had the keyboard last, but with the panel taking the whole window there's no
-      // list for it to find in.
       return press(document.body, { key: 'f', metaKey: true, shiftKey: true });
     })
     .then(function () {
@@ -299,7 +326,7 @@
       return press(document.body, { key: 'f', metaKey: true });
     })
     .then(function (e) {
-      check('where ⌘F finds in the conversation', e.defaultPrevented && !!bar() && document.activeElement === field(), document.activeElement && document.activeElement.className);
+      check('where ⌘F finds as anywhere', e.defaultPrevented && !!bar() && document.activeElement === field(), document.activeElement && document.activeElement.className);
       return press(field(), { key: 'Escape' }).then(function () { return press(document.body, { key: 'f', metaKey: true, shiftKey: true }); });
     })
     .then(done)

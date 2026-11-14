@@ -6,7 +6,7 @@
 // whole title, its times and commits, and the chips as a tree, under the merge box. Then its
 // parts as tabs, one shown at a time, by whose words they are: Description (the author's, as
 // GitHub renders it), Changes (its changed files with their diffs, PrFiles.tsx, which the file
-// count in the header and ⌘F go to) and Reviews (yours first: the agent's, your draft on GitHub,
+// count in the header and ⌥⌘F go to) and Reviews (yours first: the agent's, your draft on GitHub,
 // AgentReview.tsx; then everyone's, each person's verdict with what they wrote, PrReviewers.tsx).
 // In PRs the panel can take the whole window (⇧⌘F, App.tsx). The tabs stay at the top as what's
 // under them scrolls. A PR opens on the tab it showed last, else on its reviews when the agent's
@@ -136,7 +136,7 @@ export interface PrDetailsProps {
   onLaneMenu: (lane: Lane) => void;
   /** Right-click on a session. */
   onSessionMenu: (lane: Lane, session: Session) => void;
-  /** ⌘F goes to the files' filter (PrFiles.tsx). */
+  /** ⌥⌘F goes to the files' filter (PrFiles.tsx). */
   keys?: boolean;
   /** A window that goes on to the next PR as one is merged (MergeBox.tsx). */
   goesOn?: MergeGoesOn;
@@ -504,7 +504,7 @@ export function PrDetails({ item, now, lead, trail, onMenu, onShowSession, onOpe
           onPick={pick}
           tabs={[
             { id: 'description', label: 'Description', title: 'What its author says it does' },
-            { id: 'changes', label: 'Changes', count: pr.changedFiles, title: keysIn('The files it changes, with their diffs (⌘F filters them)') },
+            { id: 'changes', label: 'Changes', count: pr.changedFiles, title: keysIn('The files it changes, with their diffs (⌥⌘F filters them)') },
             {
               id: 'review',
               label: 'Reviews',

@@ -90,8 +90,8 @@
   var listed = function () { return all('.ca-sessionlist .ca-lane.is-agent'); };
   var saidIn = function (row) { return row ? q('.ca-agentrow-said', row) : null; };
   var title = function () { var t = q('.ca-sessinsp-title'); return t ? t.textContent : null; };
-  var bar = function () { return q('.ca-thread-find'); };
-  var field = function () { return q('.ca-thread-find input'); };
+  var bar = function () { return q('.ca-findbar'); };
+  var field = function () { return q('.ca-findbar input'); };
   var at = function () { var h = CSS.highlights.get('ca-find-at'); var r = h ? Array.from(h)[0] : null; return r ? r.toString() : null; };
   var shown = function (name) {
     return until(function () { var t = q('.ca-sessinsp .ca-thread'); return title() === name && !!t && !/Reading the conversation/.test(t.textContent); }, 5000).then(function () { return wait(300); });
@@ -141,7 +141,7 @@
       .then(function () {
         check('a session the quick panel shows opens with the bar on its words', !!field() && field().value === 'lighthouse' && /^lighthouse$/i.test(at() || ''), (field() && field().value) + ' / ' + at());
         check('without the keyboard', document.activeElement !== field());
-        q('.ca-thread-find button[aria-label="Close find"]').click();
+        q('.ca-findbar button[aria-label="Close find"]').click();
         return until(function () { return !bar(); }, 2000).then(function () {
           window.__emit('reveal', { kind: 'session', laneId: B.lane, key: B.key, find: 'lighthouse' });
           return until(function () { return !!field(); }, 3000).catch(function () {});
@@ -186,7 +186,7 @@
         return find('quokka bridge').then(function () { return until(function () { return !!saidIn(rowOf(A)); }, 5000, 'A found by the search here'); });
       })
       .then(function () {
-        q('.ca-thread-find button[aria-label="Close find"]').click();
+        q('.ca-findbar button[aria-label="Close find"]').click();
         return until(function () { return !bar(); }, 2000);
       })
       .then(function () {

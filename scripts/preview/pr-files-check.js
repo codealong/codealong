@@ -4,9 +4,9 @@
 // `-word` leaves some out; the files whose changes mention the words come after, under their own
 // heading with how many lines do; ↑ ↓ pick a file and ⏎ opens it, its code in its language's
 // colors (syntax.ts) and the words marked in them;
-// Open all opens what the filter lists; Escape clears the filter, then leaves it; ⌘F comes back to
-// it, and in the main window's PRs ⌘F from the list opens the list's find (ListBar.tsx) instead
-// (findKeys.ts); and a filter nothing matches says so, with a way to clear it. Tree lists the
+// Open all opens what the filter lists; Escape clears the filter, then leaves it; ⌥⌘F comes back
+// to it, and in the main window's PRs ⌥⌘F from the list opens the list's find (ListBar.tsx)
+// instead (findKeys.ts); and a filter nothing matches says so, with a way to clear it. Tree lists the
 // files in their folders, which a click or ⏎ shuts and opens, ↑ ↓ going over them too, and Open
 // all opens the folders of what it opens.
 //   PREVIEW_WAIT=60000 scripts/preview.sh waiting '' scripts/preview/pr-files-check.js
@@ -115,17 +115,18 @@
     })
     .then(function () {
       check('and then leaves it', document.activeElement !== input());
-      key(window, { key: 'f', metaKey: true });
+      // As a key comes with nothing holding the keyboard: to the page's body.
+      key(document.body, { key: 'ƒ', code: 'KeyF', metaKey: true, altKey: true });
       return wait(100);
     })
     .then(function () {
-      check('⌘F comes back to it', document.activeElement === input());
+      check('⌥⌘F comes back to it', document.activeElement === input());
       var list = q('.ca-board-list');
       if (!list) return;
       list.focus();
-      key(list, { key: 'f', metaKey: true });
+      key(list, { key: 'ƒ', code: 'KeyF', metaKey: true, altKey: true });
       return wait(100).then(function () {
-        check('⌘F from the list opens the list’s find', !!q('.ca-listfind input') && document.activeElement === q('.ca-listfind input'), document.activeElement && document.activeElement.className);
+        check('⌥⌘F from the list opens the list’s find', !!q('.ca-listfind input') && document.activeElement === q('.ca-listfind input'), document.activeElement && document.activeElement.className);
       });
     })
     .then(function () {

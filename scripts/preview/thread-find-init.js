@@ -1,5 +1,6 @@
-// Opens PREVIEW_TRANSCRIPT's session in Sessions and finds "window" in its conversation (⌘F,
-// ThreadFind.tsx), going back one match, for a screenshot of the find bar and its marks.
+// Opens PREVIEW_TRANSCRIPT's session in Sessions and finds "window" with the window's find (⌘F
+// from its box, WindowFind.tsx, ThreadFind.tsx), going back one match, for a screenshot of the
+// find bar and its marks in a conversation.
 //   PREVIEW_TRANSCRIPT=<session key> PREVIEW_INIT=scripts/preview/thread-find-init.js scripts/preview.sh sessions
 (function () {
   localStorage.setItem('codealong.project', 'All projects');
@@ -11,7 +12,7 @@
     var row = Array.prototype.slice.call(document.querySelectorAll('[id^="row-"]')).filter(function (r) { return r.id.slice(-wanted.length - 2) === '::' + wanted; })[0];
     var box = document.querySelector('.ca-sessinsp .ca-composer textarea');
     var thread = document.querySelector('.ca-sessinsp .ca-thread');
-    var field = document.querySelector('.ca-thread-find input');
+    var field = document.querySelector('.ca-findbar input');
     if (step === 0 && row) {
       row.dispatchEvent(new MouseEvent('mousedown', { bubbles: true }));
       step = 1;
@@ -25,7 +26,7 @@
     } else if (step >= 3 && step < 6) {
       step++;
     } else if (step === 6 && field) {
-      field.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true }));
+      field.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', shiftKey: true, bubbles: true, cancelable: true }));
       clearInterval(t);
     }
   }, 100);

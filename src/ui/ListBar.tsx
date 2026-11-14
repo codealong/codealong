@@ -1,8 +1,9 @@
 // The strip over the main window's list, stuck to the top of the board as it scrolls: the view's
 // tools (`ListTools`: Sessions' sort, SessionsView.tsx `SessionsBar`, and Rows in Sessions, PRs
-// and Todo) and, in any view, the list's find while it's open. ⌘F from the list (findKeys.ts), and ⌥⌘F or / from anywhere in the window (mainKeys.ts),
-// open the find, as ⌘F in a session's panel opens the find over its conversation (ThreadFind.tsx):
-// what's typed narrows the view's list to what matches (boardLists.ts), and the canvas fades the
+// and Todo) and, in any view, the list's find while it's open. ⌥⌘F or / from anywhere in the
+// window (mainKeys.ts) open it, as ⌥⌘F filters a PR's files where they show (findKeys.ts): ⌘F finds
+// in the whole window without narrowing anything (WindowFind.tsx). What's typed in it narrows the
+// view's list to what matches (boardLists.ts), and the canvas fades the
 // cards that don't. The keys in the field are the window's (mainKeys.ts): ↓ hands the list the
 // keyboard, ⏎ opens the selected row, Escape clears the find and puts it away. Left with nothing
 // typed, it goes away by itself; left with words, it stays, narrowing the list, until they're

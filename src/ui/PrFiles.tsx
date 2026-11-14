@@ -5,7 +5,7 @@
 // leaving some out, and lists after them the files whose changes mention it, so a name is found
 // where the PR changed it as well as where it lives. The words are marked in the paths and in the
 // diffs. ↑ ↓ pick a file, ⏎ opens or closes it, Escape clears the filter, then leaves it; while
-// it filters, the files it lists open and close together. ⌘F goes to the filter where the
+// it filters, the files it lists open and close together. ⌥⌘F goes to the filter where the
 // window says so (`keys`) and it's for the PR's panel or card (findKeys.ts), and so does a click
 // on the file count over the details (`FilesFinder`), each showing the tab first (`onShow`).
 // What's typed is kept for each PR while the window shows another. Where the PR has had commits
@@ -30,14 +30,14 @@
 
 import { forwardRef, Fragment, useEffect, useImperativeHandle, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode } from 'react';
 import { flushSync } from 'react-dom';
-import { findsAt } from '../findKeys';
+import { filterPressed, findsAt } from '../findKeys';
 import { useLatest } from '../latest';
 import { diffRuns, drawnFor, fileTree, filterFiles, fileQuery, foldersOf, isShut, marks, parsePatch, pieces, splitPath, splitRows, treeRows, type DiffLine, type FileFolder, type FileHit, type TreeRow } from '../prFiles';
 import { flag, oneOf, useStored } from '../stored';
 import { paint, useSyntax, type Run } from '../syntax';
 import type { PrFile } from '../types';
 import { cx, Icon, Kbd, Seg } from './primitives';
-import { chordPressed, typed } from '../platform';
+import { typed } from '../platform';
 
 /** How diffs are drawn, as you left them, for every PR. */
 const LAYOUT_KEY = 'codealong.diffLayout';
@@ -358,7 +358,7 @@ interface PrFilesProps {
   /** How many files the PR changes, of which `files` may be the first. */
   total: number;
   more: boolean;
-  /** ⌘F goes to the filter. */
+  /** ⌥⌘F goes to the filter. */
   keys?: boolean;
   /** Shows the tab the files are on, before the filter's gone to. */
   onShow?: () => void;
@@ -435,18 +435,19 @@ export const PrFiles = forwardRef<FilesFinder, PrFilesProps>(function PrFiles({ 
   };
   useImperativeHandle(ref, () => ({ find }));
 
+  // Ahead of the window's own keys, which filter the list with ⌥⌘F that no files took.
   const finding = useLatest(find);
   useEffect(() => {
     if (!keys) return;
     const onKey = (e: KeyboardEvent) => {
       if (e.defaultPrevented || e.isComposing) return;
-      if (!chordPressed('Cmd+F', e)) return;
+      if (!filterPressed(e)) return;
       if (!findsAt(section.current)) return;
       e.preventDefault();
       finding.current();
     };
-    window.addEventListener('keydown', onKey);
-    return () => window.removeEventListener('keydown', onKey);
+    window.addEventListener('keydown', onKey, true);
+    return () => window.removeEventListener('keydown', onKey, true);
   }, [keys, finding]);
 
   const toggle = (path: string) =>

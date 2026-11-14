@@ -48,7 +48,7 @@
   var text = function (el) { return el.querySelector('.ca-thread-peertext'); };
   var toggle = function (el) { return el.querySelector('.ca-thread-peer > .ca-linkbtn'); };
   var cut = function (el) { return text(el).classList.contains('is-cut'); };
-  var field = function () { return document.querySelector('.ca-sessinsp .ca-thread-find input'); };
+  var field = function () { return document.querySelector('.ca-findbar input'); };
   var type = function (input, value) {
     Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value').set.call(input, value);
     input.dispatchEvent(new Event('input', { bubbles: true }));

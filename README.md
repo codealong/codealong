@@ -462,7 +462,7 @@ else works without it.
 Select a session to read its whole conversation, straight from the agent's own records: your
 prompts, the replies as formatted text, and every tool call, which opens to show what went in and
 what came out. Images you sent show in place, links to pull requests show their status, and
-⌘F finds words anywhere in the conversation.
+⌘F finds words anywhere in the window, the whole conversation among it.
 
 The box at the bottom replies the way that agent takes a prompt: typed into its terminal tab, sent
 through Claude Code's background service, started as a new turn in the Codex app, or through
@@ -670,8 +670,9 @@ From any app (change them in Settings › General):
 | ⌃⌘P · ⌃⌘A · ⌃⌘R · ⌃⌘U | Pin, archive, rename, mark as unread |
 | ⌃⌘0 | Move to top: first in every queue of what waits on you |
 | ⌃⌘W | Close the session's terminal (the conversation stays, to resume) |
-| ⌘F | Find where you are: in a session's conversation, a PR's files, or the view's list |
-| ⌥⌘F | Find in the view's list, from anywhere |
+| ⌘F | Find in the window, as a browser does: the list, the panels, the whole conversation |
+| ⌘G / ⇧⌘G | Next / previous match (⏎ / ⇧⏎ in the find) |
+| ⌥⌘F | Filter where you are: a PR's files, else the view's list |
 | ⌃- / ⌃⇧- | Back / forward through the sessions you looked at |
 | ⌃` | A new terminal in the folder of what's shown |
 | ⌘C / ⌥⌘C | Copy the selected worktree's branch / path |

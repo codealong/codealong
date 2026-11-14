@@ -123,8 +123,8 @@
       check('⇧⌘B goes to Canvas', shown() === 'Canvas', shown());
       var board = navs().filter(function (r) { return r.querySelector('.ca-nav-label').textContent === 'Board'; })[0];
       check('the sidebar’s Board says the keys of the layout it shows', !!board && board.querySelector('.ca-kbds').textContent === '⇧⌘B', board && board.querySelector('.ca-kbds').textContent);
-      // The list's find (ListBar.tsx), as ⌘F opens it from the board.
-      key(document.body, { key: 'f', code: 'KeyF', metaKey: true });
+      // The list's find (ListBar.tsx), as ⌥⌘F opens it.
+      key(document.body, { key: 'ƒ', code: 'KeyF', metaKey: true, altKey: true });
       return until(function () { return document.activeElement === document.querySelector('.ca-listfind input'); }, 2000, 'the list’s find');
     })
     .then(function () {

@@ -1,26 +1,19 @@
-// Finding words in a session's conversation (⌘F in its panel, ui/ThreadFind.tsx): what a query
-// matches, and how often the pages read but not laid out yet say it. What's laid out is searched
-// as it reads on the page; a page further back is counted from its items, as near as plain text
-// gets to how they show, so the count covers the whole conversation and the way back knows which
-// page to bring in.
+// A session's conversation for the window's find (ui/WindowFind.tsx, ui/ThreadFind.tsx): how
+// often the pages read but not laid out yet say what's found. What's laid out is searched as it
+// reads on the page; a page further back is counted from its items, as near as plain text gets to
+// how they show, so the count covers the whole conversation and the way back knows which page to
+// bring in.
 
 import { plainDirectives } from './directives';
 import { BOLD, BOLD_UNDER, ITALIC } from './emphasis';
 import type { TranscriptItem } from './types';
+import { countIn, findPattern, says } from './windowFind';
 
-/** What a query finds: its words in order, in any case, each run of spaces in it matching any run
- *  of whitespace, a line break included. Null when nothing's typed. */
-export function findPattern(query: string): RegExp | null {
-  const words = query.trim().split(/\s+/).filter(Boolean);
-  if (words.length === 0) return null;
-  return new RegExp(words.map((w) => w.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')).join('\\s+'), 'giu');
-}
-
-/** What the bar looks for in a session a search found by what was said in it, from `line`, the
- *  line it was found by, and the words typed (quick.ts `queryWords`): the words as typed when the
- *  line has them in that order, else the longest of them the line has, else the longest. The
- *  search finds a session with its words anywhere in what was said, but the bar finds them only
- *  together. */
+/** What the window's find looks for in a session a search found by what was said in it, from
+ *  `line`, the line it was found by, and the words typed (quick.ts `queryWords`): the words as
+ *  typed when the line has them in that order, else the longest of them the line has, else the
+ *  longest. The search finds a session with its words anywhere in what was said, but the find
+ *  matches them only together. */
 export function findFor(line: string, words: string[]): string {
   if (words.length === 0) return '';
   const phrase = words.join(' ');
@@ -29,16 +22,6 @@ export function findFor(line: string, words: string[]): string {
   const longest = [...words].sort((a, b) => b.length - a.length);
   const lower = line.toLowerCase();
   return longest.find((w) => lower.includes(w)) ?? longest[0];
-}
-
-/** How many times `text` says it. */
-export function countIn(pattern: RegExp, text: string): number {
-  return text ? (text.match(pattern)?.length ?? 0) : 0;
-}
-
-/** Whether `text` says it at all. */
-export function says(pattern: RegExp, text: string): boolean {
-  return text.search(pattern) >= 0;
 }
 
 /** Code, then bold and italics, as Markdown.tsx reads them: what each holds is its one group. */
@@ -115,14 +98,4 @@ export function chainFrom<P extends { before: number | null }>(before: number | 
     at = page.before;
   }
   return { pages, whole: true };
-}
-
-/** What the find's count says: where the current match is among them all, counted from the top,
- *  and how many there are. `partial` while pages further back haven't been read (they're being
- *  read, unless one couldn't be), and `looking` while it goes back to the match before. */
-export function countWords({ at, total, partial, reading, looking }: { at: number | null; total: number; partial: boolean; reading: boolean; looking: boolean }): string {
-  if (looking) return 'Looking earlier…';
-  const sofar = partial ? ' so far' : '';
-  if (total === 0) return reading ? 'Looking…' : `No matches${sofar}`;
-  return at == null ? `${total}${sofar}` : `${at + 1} of ${total}${sofar}`;
 }

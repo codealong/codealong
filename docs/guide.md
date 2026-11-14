@@ -45,11 +45,10 @@ the notch's session, the quick panel and the peek away as Open in main window do
 sidebar shows its keys while you point at it (the folded rail says them; the Board's are those of
 the layout a click on it shows); ⌃Tab and ⌃⇧Tab go through
 the views (`v` too, outside Sessions), ⌥↑ ⌥↓ move along a list as the arrows do, and ⌃⌘↑ ⌃⌘↓ reorder
-what's pinned. ⌘F finds where you are, as VS Code's does: from a session's panel (the keyboard in
-it, or a click in it last) the words in its conversation, from a PR's panel its files, and from
-anywhere else, the list say, the list's find, which narrows the view's list (*Find in the list*).
-⌥⌘F opens the list's find from anywhere, as in Mail and Notes, and ⌘K, or the box in the middle of
-the title bar, opens the quick panel, to find a session, a todo or a PR anywhere or to start one.
+what's pinned. ⌘F finds in the whole window, as a browser's find does (*Find in the window*), and
+⌥⌘F filters where you are, as Mail and Notes filter their lists: a PR's files in its panel, else
+the view's list (*Find in the list*), which `/` opens too. ⌘K, or the box in the middle of the
+title bar, opens the quick panel, to find a session, a todo or a PR anywhere or to start one.
 The two icons at the title bar's right end are New session (+, ⌘N) and Improve Codealong (the
 bulb). ⌃- goes back to the session you were looking at before and ⌃⇧- forward
 again, as in
@@ -732,16 +731,15 @@ brings it up.
 
 #### Find
 
-⌘F in its panel finds words in it, wherever the panel shows: a bar over the conversation, in place
-of the prompt pinned there, marks every match and counts them across the whole conversation (the
-pages further back are read for it), starting from the one nearest where you're reading; ⏎ goes to
-the match before, on into earlier pages, ⇧⏎ to the one after (⌘G and ⇧⌘G from anywhere in the
-window), a run of tool calls opens to show a call it finds, and Escape closes the bar and gives the
-keyboard back. It finds what shows: prompts, replies and the calls' lines, and a call's input and
-output once you've opened it. A session that a search found by what was said in it, in the list's
-find or the quick panel, opens with the bar already on the words it found (the words as you
-typed them when the line it was found by has them together, else the longest of them that line
-has), at the nearest match, the keyboard staying where it was.
+⌘F finds words in it as in the rest of the window (*Find in the window*), wherever it shows, and
+further back than it's laid out: the count takes in the whole conversation (the pages further back
+are read for it), going back past its first match laid out (⇧⏎, ⇧⌘G) lays out the earlier pages
+up to the next, and a run of tool calls opens to show a call it finds. It finds what shows:
+prompts, replies and the calls' lines, and a call's input and output once you've opened it, not
+the times and buttons around them. A session that a search found by what was said in it, in the
+list's find or the quick panel, opens with the find already on the words it found (the words as
+you typed them when the line it was found by has them together, else the longest of them that
+line has), at the nearest match in its conversation, the keyboard staying where it was.
 
 #### Copy and Run
 
@@ -1676,7 +1674,7 @@ and saying while it's shut how many files it holds; a filter beside Files change
 files it changes, which the file count goes to and which stays under the tabs as the list scrolls,
 narrows them to the paths holding every word
 typed, `-word` leaving some out, then lists the files whose changes mention the words, which are
-marked in the paths and diffs; ↑ ↓ and ⏎ open one, Escape clears it, ⌘F in the PR's panel or card
+marked in the paths and diffs; ↑ ↓ and ⏎ open one, Escape clears it, ⌥⌘F in the PR's panel or card
 comes back to it); and Reviews, your review first (see *Your review*), then everyone's.
 
 Everyone on the PR is listed once under Reviews and comments: whoever has something still open
@@ -2084,7 +2082,7 @@ rest (move onto it to select its text, click its PR chip to select the PR's card
 PRs when the canvas has no card of it, and double-click the chip to open it on GitHub, click a
 session in it to go to that session, right-click one for its menu), select one for its panel on the
 right (a session's shows its whole conversation and takes messages; the rest are the ones their own
-views show), find (⌘F) or pick a status in the sidebar to fade what doesn't match (a status, or
+views show), filter (⌥⌘F) or pick a status in the sidebar to fade what doesn't match (a status, or
 Return in the find, also zooms to what does), double-click to open it where it lives, right-click
 for its usual menu.
 
@@ -2163,16 +2161,33 @@ devices, whose filter button opens it and carries a badge while a filter narrows
 the button beside the traffic lights, opens and folds it, and it stays as you left it. Its foot,
 open or folded, has Settings and a button that opens Codealong's repo on GitHub.
 
+### Find in the window
+
+⌘F finds words anywhere in a window, as a browser's find does, in every window but the quick panel
+(whose ⌘F is Send to) and a terminal's: a bar at the window's top right marks every match in what
+the window shows (the list, a panel, the sidebar, a card), the one you're on more strongly, and
+says where it is among them. It narrows nothing. It starts on the first match in view where you
+are (the place the keyboard or a click was in last), else on the first in view in the window; ⏎
+and ⌘G go on to the next match and ⇧⏎ and ⇧⌘G back to the one before, round from the last to the
+first, each brought into view (on the canvas, the camera moves to it); Escape closes the bar and
+gives the keyboard back to where it was. It finds what's laid out and shown: not what an element
+hides, what a field holds, nor a row a list hasn't drawn (under List 28 more sessions, say, which
+the list's find narrows to instead). Past 1000 matches it marks the first 1000 and says 1000+. A
+session's conversation is found further back than it's laid out (*Find*, under the
+conversation): its older matches are reached by going back from its first one shown. A dialog
+keeps ⌘F, and Settings' is its own search.
+
 ### Find in the list
 
 Finding anything anywhere, and starting work, is the quick panel's (the box in the middle of the
-title bar, ⌘K). Finding in what the view lists is ⌘F's from the list, and ⌥⌘F's or `/`'s from
-anywhere in the window (a panel taking the whole window gives the list its place back): a find opens in the strip over the list (beside Sessions' sort and rows
-buttons), as ⌘F in a session's panel opens one over its conversation, saying the view it finds in.
+title bar, ⌘K), and finding in what a window shows is ⌘F's (*Find in the window*). Narrowing what
+the view lists is ⌥⌘F's or `/`'s, from anywhere in the window but among a PR's files, which ⌥⌘F
+filters instead (a panel taking the whole window gives the list its place back): a find opens in
+the strip over the list (beside Sessions' sort and rows buttons), saying the view it finds in.
 What's typed narrows the view's list, and on the canvas fades the cards that don't match. ↓ hands
 the list the keyboard, ⏎ opens the selected row (on the canvas, zooms to what matches), Escape or
 its × clears it and puts it away. Left with nothing typed it goes away by itself; left with words it
-stays, the list narrowed, as you change views, and ⌘F gives it the keyboard back with the words
+stays, the list narrowed, as you change views, and ⌥⌘F gives it the keyboard back with the words
 selected. It finds by every word typed, in any order (a word of one
 or two letters among others counts only whole, as in the quick panel): in what describes a row (a
 session's title, account, latest line and labels, its worktree, branch and PR; a worktree's name, branch,

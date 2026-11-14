@@ -467,6 +467,14 @@ export function Bar() {
     applyTheme(docked ? 'dark' : theme);
     document.documentElement.classList.toggle('is-notch', docked);
   }, [theme, docked]);
+  // The notch's height on the page too, for what floats over the window under the camera rather
+  // than behind it: the window's find (WindowFind.css).
+  const notchHeight = notch?.height;
+  useEffect(() => {
+    const root = document.documentElement.style;
+    if (notchHeight == null) root.removeProperty('--notch-h');
+    else root.setProperty('--notch-h', `${notchHeight}px`);
+  }, [notchHeight]);
 
   useEffect(() => {
     if (!failed) return;

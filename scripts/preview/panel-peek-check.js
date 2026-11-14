@@ -196,7 +196,7 @@
   // find bar opens on them, leaving the box the keyboard; and what goes wrong is said in the main
   // window as a toast, where one opened from a pill says it on the bar.
   var peek = function () {
-    var field = function () { return q('.ca-peek .ca-thread-find input'); };
+    var field = function () { return q('.ca-findbar input'); };
     var keep = function () { return q('.ca-peek .ca-sessinsp-head button[aria-label="Keep on the desktop"]'); };
     return until(function () { return q('.ca-peek .ca-sessinsp-head'); }, 20000, 'the peek’s session')
       .then(function () {

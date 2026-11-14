@@ -1,0 +1,87 @@
+/* The window's find (WindowFind.tsx): a bar floating at the window's top right while ⌘F has it
+   open, over what it finds in, and the marks on what it found. A match is marked with a box over
+   it, as Settings' search marks what it found (SettingsFind.css), in a layer over the window
+   under what sits over the page (the strip over a list, a conversation's pinned prompt, menus),
+   and the one you're on is drawn in ink, as a selection is. */
+
+.ca-findbar {
+  position: fixed;
+  top: calc(var(--titlebar-h) + var(--space-2));
+  right: var(--space-3);
+  z-index: var(--z-find);
+  width: min(360px, calc(100vw - 2 * var(--space-3)));
+  box-sizing: border-box;
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
+  padding: var(--space-1);
+  border-radius: var(--radius-md);
+  background: var(--surface-raised);
+  box-shadow: var(--shadow-popover);
+}
+/* The windows that float have no title bar of Codealong's: it sits at their top. */
+.is-bar .ca-findbar,
+.is-peek .ca-findbar,
+.is-waiting .ca-findbar {
+  top: var(--space-2);
+  right: var(--space-2);
+  width: min(320px, calc(100vw - 2 * var(--space-2)));
+}
+/* Docked in the notch, under the camera, which would hide its field. */
+.is-notch .ca-findbar {
+  top: calc(var(--notch-h, 0px) + var(--space-2));
+}
+.ca-findbar-field {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  height: 24px;
+  padding: 0 8px;
+  box-sizing: border-box;
+  border-radius: var(--radius-sm);
+  background: var(--surface-sunken);
+  color: var(--ink-3);
+}
+.ca-findbar-field:focus-within {
+  box-shadow: var(--shadow-focus);
+}
+.ca-findbar-field input {
+  flex: 1;
+  min-width: 0;
+  height: 100%;
+  padding: 0;
+  border: 0;
+  outline: none;
+  background: transparent;
+  color: var(--ink);
+  font: var(--type-meta);
+}
+.ca-findbar-field input::placeholder {
+  color: var(--ink-3);
+}
+.ca-findbar-count {
+  flex: none;
+  padding: 0 var(--space-1);
+  color: var(--ink-3);
+  font: var(--type-meta);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.ca-findmarks {
+  position: fixed;
+  inset: 0;
+  z-index: var(--z-find-marks);
+  pointer-events: none;
+}
+.ca-findmarks > span {
+  position: absolute;
+  border-radius: var(--radius-xs);
+  background: color-mix(in srgb, var(--attn-solid) 20%, transparent);
+}
+::highlight(ca-find-at) {
+  background-color: var(--fill-strong);
+  color: var(--on-fill-strong);
+}

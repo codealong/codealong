@@ -52,9 +52,9 @@
 // so when the first page doesn't start with a prompt, the pages before it are read (and kept for
 // scrolling up) until one does: it's pinned from the start.
 //
-// ⌘F finds words in it (ThreadFind.tsx): what `FIND_IN` names is what's searched, the whole
-// conversation's pages read for it, and a run of calls opens to show the ones it finds. The
-// pinned prompt makes way for its bar while it's open.
+// ⌘F finds words in it as in the rest of the window (WindowFind.tsx, ThreadFind.tsx): what
+// `FIND_IN` names is what's searched, the whole conversation's pages read for it, and a run of
+// calls opens to show the ones it finds.
 
 import { useCallback, useContext, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { delivered, dismiss, heldWords, inRecord, steerAhead, unqueueAhead, useAhead, type Ahead } from '../ahead';
@@ -79,9 +79,11 @@ import { useReloads } from '../reload';
 import { errorText } from '../report';
 import { clearNotice, failedNotice, reportNotice } from '../notices';
 import { useLatest } from '../latest';
-import { says, shownText } from '../threadFind';
+import { shownText } from '../threadFind';
+import { says } from '../windowFind';
 import { scaleOf } from '../zoom';
-import { FindContext, ThreadFind, type FindAsk } from './ThreadFind';
+import { useThreadFind, type FindAsk } from './ThreadFind';
+import { FindContext } from './WindowFind';
 import { SessionLink } from './SessionLink';
 import { Reading } from './Tip';
 import { Waiting, Working } from './Working';
@@ -1190,6 +1192,9 @@ export function SessionThread({ session: s, now, onOpen, fallback, machine, onLo
   // a prompt taken back does.
   const followUp = useCallback((prompt: string) => void putBack(s.key, `followup:${prompt}`, prompt, true), [s.key]);
 
+  // ⌘F finds in it as in the rest of the window, and in its pages further back (ThreadFind.tsx).
+  useThreadFind({ key: s.key, scroller, roots: FIND_IN, ready: loaded && current, read: reading.current, before, pageAt, show }, find);
+
   if (failedView) {
     return (
       <div className="ca-thread is-fallback">
@@ -1202,7 +1207,6 @@ export function SessionThread({ session: s, now, onOpen, fallback, machine, onLo
     <RunContext.Provider value={run ?? null}>
       <FollowUpContext.Provider value={answeredBelow ? followUp : null}>
         <ImagesFrom.Provider value={shortOf(s.key)}>
-          <ThreadFind host={{ key: s.key, scroller, roots: FIND_IN, ready: loaded && current, read: reading.current, before, pageAt, show }} asked={find}>
             <div className="ca-thread" ref={scroller} onScroll={onScroll}>
               {/* Takes no room: it floats over the top of the view while it has a prompt to show. */}
               <div className="ca-thread-pin">
@@ -1344,7 +1348,6 @@ export function SessionThread({ session: s, now, onOpen, fallback, machine, onLo
                 </div>
               )}
             </div>
-          </ThreadFind>
         </ImagesFrom.Provider>
       </FollowUpContext.Provider>
     </RunContext.Provider>

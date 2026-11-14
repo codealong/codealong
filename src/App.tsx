@@ -8,7 +8,8 @@
 // shows one of the project's boards (boards/model.ts) as Kanban, in columns (KanbanView.tsx), or
 // as Canvas, laid out in space to be remembered by where it is (CanvasView.tsx).
 // The box in the middle of the title bar opens the quick panel, the way into finding and starting
-// anything; ⌘F finds in the view's list (ui/ListBar.tsx).
+// anything; ⌘F finds in the whole window, as a browser's find does (ui/WindowFind.tsx), and ⌥⌘F
+// filters the view's list (ui/ListBar.tsx).
 // Keyboard map: the design system's Surfaces page.
 
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type Dispatch, type SetStateAction } from 'react';
@@ -447,11 +448,11 @@ export function App() {
     [setToast],
   );
   const now = useNow(15_000);
-  // The list's find (ui/ListBar.tsx): open from ⌘F until the keyboard leaves it, and shown as
-  // long as it has words.
+  // The list's find (ui/ListBar.tsx): open from ⌥⌘F or / until the keyboard leaves it, and shown
+  // as long as it has words.
   const searchRef = useRef<HTMLInputElement>(null);
   const [findOpen, setFindOpen] = useState(false);
-  // Each ⌘F, which gives the find the keyboard once what it asks for is laid out.
+  // Each ⌥⌘F or /, which gives the find the keyboard once what it asks for is laid out.
   const [findAsk, setFindAsk] = useState(0);
   const findShown = findOpen || query !== '';
   const openFind = useCallback(() => {
@@ -1940,7 +1941,6 @@ export function App() {
     lanePins,
     prPins,
     searchRef,
-    boardRef,
     listRef,
     canvasKeys,
     kanbanKeys,
@@ -2369,8 +2369,8 @@ export function App() {
         </div>
         {/* The way into the app: the quick panel (ui/Quick.tsx), as ⌘K and its own shortcut open it,
             to find a session, a todo or a PR anywhere or to start new work where ⌘N would. It says
-            what the panel's box says, and the panel's shortcut. Finding in the list is ⌘F's
-            (ui/ListBar.tsx). */}
+            what the panel's box says, and the panel's shortcut. Finding in the window is ⌘F's
+            (ui/WindowFind.tsx), and filtering the list ⌥⌘F's (ui/ListBar.tsx). */}
         <button
           type="button"
           className="ca-search"
@@ -2515,7 +2515,7 @@ export function App() {
           }
         />
         {sideCollapsed ? <span aria-hidden="true" /> : <Resizer panel="before" cssVar="--sidebar-w" onResize={setSidebarWidth} />}
-        {/* ⌘F from the board opens its find (findKeys.ts), but not while a panel takes the whole window. */}
+        {/* Where you are for the finds (findKeys.ts): ⌘F starts here, and ⌥⌘F filters the list from here, but not while a panel takes the whole window. */}
         <main ref={boardRef} className={cx('ca-board', view === 'canvas' && 'is-canvas', view === 'kanban' && 'is-kanban')} aria-label={VIEWS.find((v) => v.id === view)?.label} data-find={maxed ? undefined : 'window'}>
           {/* One strip in every view, so the find keeps the keyboard as the view changes under it. */}
           {!loading && (view === 'sessions' || view === 'prs' || view === 'todo' || ((view === 'kanban' || view === 'canvas') && shownBoard) || findShown) && (

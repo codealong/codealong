@@ -11,6 +11,7 @@ import { useEffect, useLayoutEffect, type RefObject } from 'react';
 import { useLatest } from '../latest';
 import { held, keysIn } from '../platform';
 import { findWords, foundIn, spansIn, type Piece } from '../settingsFind';
+import { clipsIn } from './clips';
 import { Button, Icon } from './primitives';
 import { useEscape } from './useDismiss';
 
@@ -76,46 +77,6 @@ function paint(layer: HTMLElement, sections: Iterable<Element>, words: string[])
     }
   }
   layer.replaceChildren(...boxes);
-}
-
-/** The part of the page an element's ancestors leave in sight, in the page's coordinates. */
-interface Clip {
-  left: number;
-  top: number;
-  right: number;
-  bottom: number;
-}
-
-/**
- * What of an element inside `root` its ancestors' overflow leaves in sight, where they cut it
- * off (an ellipsis, a list that scrolls), in the page's coordinates: the marks are drawn in a
- * layer of `root`'s, which clips only to `root`, so a mark over the text an ellipsis cut off would
- * show there and widen the pane. Each element's is worked out once.
- */
-function clipsIn(root: Element | null): (el: Element | null) => Clip {
-  const all: Clip = { left: -Infinity, top: -Infinity, right: Infinity, bottom: Infinity };
-  const known = new Map<Element, Clip>();
-  const clipOf = (el: Element | null): Clip => {
-    if (!el || el === root) return all;
-    const was = known.get(el);
-    if (was) return was;
-    let clip = clipOf(el.parentElement);
-    const { overflowX, overflowY } = getComputedStyle(el);
-    if (overflowX !== 'visible' || overflowY !== 'visible') {
-      const r = el.getBoundingClientRect();
-      const left = r.left + el.clientLeft;
-      const top = r.top + el.clientTop;
-      clip = {
-        left: overflowX === 'visible' ? clip.left : Math.max(clip.left, left),
-        right: overflowX === 'visible' ? clip.right : Math.min(clip.right, left + el.clientWidth),
-        top: overflowY === 'visible' ? clip.top : Math.max(clip.top, top),
-        bottom: overflowY === 'visible' ? clip.bottom : Math.min(clip.bottom, top + el.clientHeight),
-      };
-    }
-    known.set(el, clip);
-    return clip;
-  };
-  return clipOf;
 }
 
 /**

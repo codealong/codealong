@@ -1,4 +1,4 @@
-// Opens the list's find (⌘F from the list, ListBar.tsx) and types "co" in it, for a screenshot of
+// Opens the list's find (⌥⌘F, ListBar.tsx) and types "co" in it, for a screenshot of
 // the find over a view's list as it narrows it.
 //   PREVIEW_INIT=scripts/preview/list-find-init.js scripts/preview.sh sessions
 //   PREVIEW_INIT=scripts/preview/list-find-init.js scripts/preview.sh canvas
@@ -9,7 +9,7 @@
     if (!board || document.querySelector('.ca-board-loading')) return;
     var field = document.querySelector('.ca-listfind input');
     if (!field) {
-      board.dispatchEvent(new KeyboardEvent('keydown', { key: 'f', code: 'KeyF', metaKey: true, bubbles: true, cancelable: true }));
+      board.dispatchEvent(new KeyboardEvent('keydown', { key: 'ƒ', code: 'KeyF', metaKey: true, altKey: true, bubbles: true, cancelable: true }));
       return;
     }
     clearInterval(t);

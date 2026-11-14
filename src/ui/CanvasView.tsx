@@ -51,7 +51,9 @@ import { CanvasCard } from './CanvasCard';
 import { CardDetail, CardPopover } from './card/CardPopover';
 import { cardData, cardSig } from './card/data';
 import { cx, Icon } from './primitives';
+import { FIND_REVEAL } from './WindowFind';
 import { chordMod, cmd, keysIn, pinch, zoomWheel } from '../platform';
+import { scaleOf } from '../zoom';
 
 /** At or above this zoom, cards are HTML you can read; below it, blocks on the GPU. */
 const NEAR = 0.4;
@@ -321,6 +323,26 @@ export function CanvasView(props: CanvasViewProps) {
     // Once: the camera is the view's own from here on.
     // eslint-disable-next-line react-hooks/exhaustive-deps -- run again as the cards change, it would apply the camera each time, which puts a card's popover away
   }, []);
+
+  // The window's find brings a match on a card or a note into view by moving the camera to it,
+  // not by scrolling (WindowFind.tsx `FIND_REVEAL`); one well inside the view stays put.
+  useEffect(() => {
+    const el = rootRef.current;
+    if (!el) return;
+    const reveal = (e: Event) => {
+      e.preventDefault();
+      const r = (e as CustomEvent<Range>).detail.getBoundingClientRect();
+      const box = el.getBoundingClientRect();
+      const pad = 48;
+      if (r.top >= box.top + pad && r.bottom <= box.bottom - pad && r.left >= box.left + pad && r.right <= box.right - pad) return;
+      const scale = scaleOf(el);
+      const c = cam.current;
+      cam.current = { ...c, x: c.x + (box.left + box.width / 2 - (r.left + r.width / 2)) / scale, y: c.y + (box.top + box.height / 2 - (r.top + r.height / 2)) / scale };
+      applyCamera();
+    };
+    el.addEventListener(FIND_REVEAL, reveal);
+    return () => el.removeEventListener(FIND_REVEAL, reveal);
+  }, [applyCamera]);
 
   // A project's own camera when the project changes.
   const lastProject = useRef(project);

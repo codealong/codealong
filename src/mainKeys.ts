@@ -8,7 +8,7 @@ import { useEffect, type Dispatch, type MutableRefObject, type RefObject, type S
 import { showMain } from './api';
 import type { ListRow } from './boardLists';
 import type { MenuAction } from './contextMenu';
-import { findsAt } from './findKeys';
+import { filterPressed } from './findKeys';
 import { historyChord } from './history';
 import { AGENT_BAY, listedStatus, seenable } from './lanes';
 import { useLatest } from './latest';
@@ -124,8 +124,6 @@ export interface MainKeys<V extends string> {
   prPins: Pins;
   /** The list's find (ui/ListBar.tsx), while it shows. */
   searchRef: RefObject<HTMLInputElement | null>;
-  /** The board, where ⌘F opens the list's find (`data-find="window"`, findKeys.ts). */
-  boardRef: RefObject<HTMLElement | null>;
   listRef: RefObject<HTMLDivElement | null>;
   /** The canvas's own keys, which say whether they took one. */
   canvasKeys: { readonly current: (e: KeyboardEvent) => boolean };
@@ -174,7 +172,7 @@ export interface MainKeys<V extends string> {
 
 /** Does what a key pressed in the main window does. */
 export function onMainKey<V extends string>(e: KeyboardEvent, keys: MainKeys<V>): void {
-  const { view, views: VIEWS, settings, previewFor, renaming, panelMax, selected, visible, pickedRows, listPicks, selectedLane, startLaneId, terminalAt, projects, pinnedRows, pinnedLanes, pinnedPrRows, sessionPins, lanePins, prPins, searchRef, boardRef, listRef, canvasKeys, kanbanKeys, gPending, todoKeys, travel, actionsRef, openSettings, runQueue, toggleSidebar, pickProject, startForTodos, startForTodo, newSession, openFind, setQuery, setCanvasFit, openRow, setView, togglePanelMax, togglePrPanelMax, movePinnedSession, movePinnedLane, move, focusBox, open, copy, say, markSeen, setSelectedKey, zoom, reload } = keys;
+  const { view, views: VIEWS, settings, previewFor, renaming, panelMax, selected, visible, pickedRows, listPicks, selectedLane, startLaneId, terminalAt, projects, pinnedRows, pinnedLanes, pinnedPrRows, sessionPins, lanePins, prPins, searchRef, listRef, canvasKeys, kanbanKeys, gPending, todoKeys, travel, actionsRef, openSettings, runQueue, toggleSidebar, pickProject, startForTodos, startForTodo, newSession, openFind, setQuery, setCanvasFit, openRow, setView, togglePanelMax, togglePrPanelMax, movePinnedSession, movePinnedLane, move, focusBox, open, copy, say, markSeen, setSelectedKey, zoom, reload } = keys;
   const typing = document.activeElement === searchRef.current;
   // ⌘ held, whatever else is (Ctrl on Linux, platform.ts).
   const mod = cmd(e);
@@ -225,9 +223,8 @@ export function onMainKey<V extends string>(e: KeyboardEvent, keys: MainKeys<V>)
   // ⇧⌘F from a PR panel's own fields (its review box, the files' filter), which have no use for it:
   // in PRs, and in Sessions, where a session's PR shows in its panel's place.
   const prMaxKey = (view === 'prs' || view === 'sessions') && held(e, 'Shift', 'Cmd') && key === 'f' && !!document.activeElement?.closest('.ca-prpanel');
-  // ⌘F, and ⌥⌘F, which goes by the key's code, as ⌥ changes the character.
-  const findAnywhere = held(e, 'Alt', 'Cmd') && e.code === 'KeyF';
-  const findKey = (held(e, 'Cmd') && key === 'f') || findAnywhere;
+  // ⌥⌘F, which filters the list (⌘F finds in the whole window, ui/WindowFind.tsx).
+  const findKey = filterPressed(e);
   // ⌥⌘ digits switch projects. ⌥ changes the character, so they go by the key's code. Not with ⌃
   // as well, as in the quick panel.
   const digit = /^Digit(\d)$/.exec(e.code);
@@ -325,11 +322,10 @@ export function onMainKey<V extends string>(e: KeyboardEvent, keys: MainKeys<V>)
     runQueue(queueStep, queueStep === 'seen' ? inBox : true);
     return;
   }
-  // ⌘F opens the list's find from wherever nothing else finds, the list say, and a session's or
-  // a PR's panel keeps it for its own find (findKeys.ts); ⌥⌘F opens the list's from anywhere,
-  // as in Mail and Notes.
+  // ⌥⌘F filters the list from anywhere, as in Mail and Notes, but among a PR's files, whose own
+  // filter takes it first (findKeys.ts, PrFiles.tsx).
   if (findKey) {
-    if (!findAnywhere && !findsAt(boardRef.current)) return;
+    if (e.defaultPrevented) return;
     e.preventDefault();
     openFind();
     return;

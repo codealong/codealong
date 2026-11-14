@@ -26,10 +26,10 @@ const APP_CHORDS = [
   ...[0, 1, 2, 3, 4, 5, 6, 7, 8, 9].map((d) => `Alt+Cmd+${d}`),
   ...[1, 2, 3, 4, 5, 6, 7, 8, 9].map((d) => `Cmd+${d}`),
   ...['Ctrl+Cmd+S', 'Ctrl+Cmd+Up', 'Ctrl+Cmd+Down', 'Ctrl+Tab', 'Ctrl+Shift+Tab', 'Ctrl+Enter'],
-  ...['Cmd+K', 'Cmd+P', 'Cmd+N', 'Cmd+F', 'Cmd+,', 'Cmd+=', 'Cmd+-', 'Cmd+0', 'Cmd+A', 'Cmd+C', 'Cmd+O', 'Cmd+D', 'Cmd+T', 'Cmd+B', 'Cmd+L', 'Cmd+W', 'Cmd+Q', 'Cmd+H', 'Cmd+S', 'Cmd+.'],
+  ...['Cmd+K', 'Cmd+P', 'Cmd+N', 'Cmd+F', 'Cmd+,', 'Cmd+=', 'Cmd+-', 'Cmd+0', 'Cmd+A', 'Cmd+C', 'Cmd+O', 'Cmd+D', 'Cmd+T', 'Cmd+B', 'Cmd+L', 'Cmd+W', 'Cmd+Q', 'Cmd+H', 'Cmd+S', 'Cmd+.', 'Cmd+G'],
   ...['Cmd+Up', 'Cmd+Down', 'Cmd+Enter', 'Cmd+Backspace'],
   ...['Alt+Cmd+F', 'Alt+Cmd+C', 'Alt+Cmd+Enter', 'Alt+Enter', 'Alt+Up', 'Alt+Down'],
-  ...['Shift+Cmd+N', 'Shift+Cmd+F', 'Shift+Cmd+A', 'Shift+Cmd+U', 'Shift+Cmd+Up', 'Shift+Cmd+Down'],
+  ...['Shift+Cmd+N', 'Shift+Cmd+F', 'Shift+Cmd+G', 'Shift+Cmd+A', 'Shift+Cmd+U', 'Shift+Cmd+Up', 'Shift+Cmd+Down'],
   ...['Shift+Tab', 'Shift+Enter', 'Shift+Up', 'Shift+Down', 'Shift+0', 'Shift+1', 'Shift+2'],
 ];
 

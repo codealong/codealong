@@ -1,35 +1,9 @@
 import { describe, expect, it } from 'vitest';
-import { chainFrom, countIn, countWords, findFor, findPattern, pageHits, plainOf, says, shownText } from './threadFind';
+import { chainFrom, findFor, pageHits, plainOf, shownText } from './threadFind';
+import { findPattern, says } from './windowFind';
 import type { TranscriptItem } from './types';
 
 const item = (kind: TranscriptItem['kind'], text: string, extra: Partial<TranscriptItem> = {}): TranscriptItem => ({ at: 0, kind, text, failed: false, cursor: 0, n: 0, ...extra });
-
-describe('findPattern', () => {
-  it('finds the words in any case, a run of spaces matching any whitespace', () => {
-    const p = findPattern('  Session   thread ')!;
-    expect(countIn(p, 'the session thread, the SESSION\nTHREAD and the session  thread')).toBe(3);
-    expect(says(p, 'session-thread')).toBe(false);
-  });
-
-  it('takes what it finds as written, not as a pattern', () => {
-    const p = findPattern('a.b (c)* [d] $e^ {f} | \\g')!;
-    expect(says(p, 'x a.b (c)* [d] $e^ {f} | \\g y')).toBe(true);
-    expect(says(findPattern('a.b')!, 'axb')).toBe(false);
-  });
-
-  it('is nothing for nothing typed', () => {
-    expect(findPattern('')).toBeNull();
-    expect(findPattern('  \n ')).toBeNull();
-  });
-
-  it('can be used again and again', () => {
-    const p = findPattern('one')!;
-    expect(countIn(p, 'one one')).toBe(2);
-    expect(says(p, 'one')).toBe(true);
-    expect(says(p, 'one')).toBe(true);
-    expect(countIn(p, 'one')).toBe(1);
-  });
-});
 
 describe('plainOf', () => {
   it('reads Markdown as it shows', () => {
@@ -108,22 +82,6 @@ describe('chainFrom', () => {
 
   it('is whole with the session’s start shown', () => {
     expect(chainFrom(null, read)).toEqual({ pages: [], whole: true });
-  });
-});
-
-describe('countWords', () => {
-  const none = { at: null, total: 0, partial: false, reading: false, looking: false };
-  it('counts from the top, so far while more is to read', () => {
-    expect(countWords({ ...none, at: 2, total: 12 })).toBe('3 of 12');
-    expect(countWords({ ...none, at: 2, total: 12, partial: true, reading: true })).toBe('3 of 12 so far');
-    expect(countWords({ ...none, total: 5, partial: true, reading: true })).toBe('5 so far');
-  });
-
-  it('says when there are none, or it’s still looking', () => {
-    expect(countWords(none)).toBe('No matches');
-    expect(countWords({ ...none, partial: true, reading: true })).toBe('Looking…');
-    expect(countWords({ ...none, partial: true })).toBe('No matches so far');
-    expect(countWords({ ...none, at: 0, total: 4, looking: true })).toBe('Looking earlier…');
   });
 });
 

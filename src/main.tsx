@@ -12,6 +12,7 @@ import { DesktopPin } from './ui/DesktopPin';
 import { Peek } from './ui/Peek';
 import { Quick } from './ui/Quick';
 import { Waiting } from './ui/Waiting';
+import { WindowFind } from './ui/WindowFind';
 import { TerminalWindow } from './ui/terminal/TerminalWindow';
 import './styles/app.css';
 
@@ -68,9 +69,13 @@ if (!isBar && !isQuick && !isWaiting && !isPeek && !isDesktop && !isLineage) dra
 // A session's Listen… asked in a window that floats is handed to the main window, which has the
 // room for its dialog (ui/Listening.tsx `ListenHost`; the board's windows mount their own).
 const floats = isBar || isWaiting || isPeek;
+const shows = isBar ? <Bar /> : isQuick ? <Quick /> : isWaiting ? <Waiting /> : isTerminal ? <TerminalWindow /> : isPeek ? <Peek kept={isKept} side={isSide} /> : isDesktop ? <DesktopPin /> : isLineage ? <DesktopLines /> : <App />;
+// ⌘F finds in the window (ui/WindowFind.tsx): in every one with something to read, but the quick
+// panel, whose ⌘F is Send to, and a terminal's, whose text is drawn, not laid out.
+const finds = !isQuick && !isTerminal && !isDesktop && !isLineage;
 createRoot(document.getElementById('root')!).render(
   <StrictMode>
-    {isBar ? <Bar /> : isQuick ? <Quick /> : isWaiting ? <Waiting /> : isTerminal ? <TerminalWindow /> : isPeek ? <Peek kept={isKept} side={isSide} /> : isDesktop ? <DesktopPin /> : isLineage ? <DesktopLines /> : <App />}
+    {finds ? <WindowFind>{shows}</WindowFind> : shows}
     {floats && <ListenHost here={false} />}
   </StrictMode>,
 );

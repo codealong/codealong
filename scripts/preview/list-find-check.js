@@ -1,13 +1,14 @@
 // Checks the main window's title bar and the list's find (App.tsx, ui/ListBar.tsx). The box in the
 // middle of the title bar says what the quick panel's box says, with the panel's shortcut, sits in
 // the middle of the window, and a click opens the quick panel; New session and Improve Codealong
-// are icons, each named and with a tooltip. ⌘F from the list opens the find in the strip over it,
+// are icons, each named and with a tooltip. ⌥⌘F from the list opens the find in the strip over it,
 // saying the view it finds in, with the keyboard in it; words narrow the list, and words nothing
-// has say so. Left with words, it stays and the list stays narrowed, and ⌘F gives it the keyboard
+// has say so. Left with words, it stays and the list stays narrowed, and ⌥⌘F gives it the keyboard
 // back with the words selected; a view's keys take it along to that view, which it says. Escape
 // clears it and puts it away, the list whole again; left with nothing typed it goes away by
-// itself; its × clears it and puts it away. With a session's or a PR's panel taking the whole
-// window, ⌥⌘F gives the list its place back and opens the find over it.
+// itself; its × clears it and puts it away. With a session's panel taking the whole window, ⌥⌘F
+// gives the list its place back and opens the find over it; with a PR's, ⌥⌘F filters its files
+// (findKeys.ts), where it has them, and / gives the list its place back with the find.
 //   scripts/preview.sh sessions '' scripts/preview/list-find-check.js
 //   PREVIEW_SCHEME=dark scripts/preview.sh sessions '' scripts/preview/list-find-check.js
 (function () {
@@ -28,12 +29,16 @@
     el.dispatchEvent(e);
     return wait(150).then(function () { return e; });
   };
-  var findKey = function (el) { return press(el, { key: 'f', code: 'KeyF', metaKey: true }); };
+  var altF = { key: 'ƒ', code: 'KeyF', metaKey: true, altKey: true };
+  var findKey = function (el) { return press(el, altF); };
   var view = function (letter) { return press(document.activeElement || document.body, { key: letter, code: 'Key' + letter, metaKey: true, shiftKey: true }); };
   var typeIn = function (text) { type(field(), text); return wait(300); };
   var maxed = function () { return !!q('.ca-win-body.is-panel-max'); };
-  // In a view (its key's letter), the selected row's panel takes the whole window, then ⌥⌘F.
+  // In a view (its key's letter), the selected row's panel takes the whole window, then ⌥⌘F; for
+  // a PR's, whose files ⌥⌘F filters where it has them, / after it.
   var maxedFind = function (what, letter) {
+    var pr = what === 'PR';
+    var files = function () { return q('.ca-prpanel .ca-prfiles-filter input'); };
     return view(letter)
       .then(function () {
         list().focus();
@@ -41,10 +46,19 @@
       })
       .then(function () {
         if (!maxed()) return note('no ' + what + ' to take the whole window, so ⌥⌘F from one went unchecked');
-        return press(document.body, { key: 'ƒ', code: 'KeyF', metaKey: true, altKey: true }).then(function (e) {
-          check('⌥⌘F from a ' + what + '’s panel taking the whole window gives the list its place back, the find open over it', e.defaultPrevented && !maxed() && !!field() && document.activeElement === field(), (maxed() ? 'still maxed; ' : '') + (document.activeElement && document.activeElement.className));
-          return press(field(), { key: 'Escape' });
-        });
+        var filtered = pr && !!files();
+        if (pr && !filtered) note('the PR shows no files, so ⌥⌘F from its panel filtering them went unchecked');
+        return press(document.body, altF)
+          .then(function (e) {
+            if (!filtered) return e;
+            check('⌥⌘F from a PR’s panel taking the whole window filters its files', e.defaultPrevented && maxed() && document.activeElement === files() && !field(), document.activeElement && document.activeElement.className);
+            files().blur();
+            return press(document.body, { key: '/', code: 'Slash' });
+          })
+          .then(function (e) {
+            check((filtered ? '/' : '⌥⌘F') + ' from a ' + what + '’s panel taking the whole window gives the list its place back, the find open over it', e.defaultPrevented && !maxed() && !!field() && document.activeElement === field(), (maxed() ? 'still maxed; ' : '') + (document.activeElement && document.activeElement.className));
+            return press(field(), { key: 'Escape' });
+          });
       });
   };
   var whole = 0;
@@ -79,7 +93,7 @@
       return findKey(list());
     })
     .then(function (e) {
-      check('⌘F from the list opens the find over it, with the keyboard', e.defaultPrevented && !!field() && document.activeElement === field(), document.activeElement && document.activeElement.className);
+      check('⌥⌘F from the list opens the find over it, with the keyboard', e.defaultPrevented && !!field() && document.activeElement === field(), document.activeElement && document.activeElement.className);
       check('saying what it finds in', field().placeholder === 'Find in sessions', field().placeholder);
       // Made up as it runs: written here, it would be said in the conversation of a session
       // working on this file, and found there.
@@ -111,7 +125,7 @@
     })
     .then(function (e) {
       var f = field();
-      check('⌘F gives it the keyboard back, the words selected', e.defaultPrevented && document.activeElement === f && f.selectionStart === 0 && f.selectionEnd === word.length, f && f.selectionStart + '–' + f.selectionEnd);
+      check('⌥⌘F gives it the keyboard back, the words selected', e.defaultPrevented && document.activeElement === f && f.selectionStart === 0 && f.selectionEnd === word.length, f && f.selectionStart + '–' + f.selectionEnd);
       return view('T');
     })
     .then(function () {
@@ -129,7 +143,7 @@
       return findKey(document.body);
     })
     .then(function () {
-      check('⌘F opens it empty', !!field() && field().value === '');
+      check('⌥⌘F opens it empty', !!field() && field().value === '');
       list().focus();
       return wait(150);
     })
@@ -144,8 +158,8 @@
     })
     .then(function () {
       check('its × clears it and puts it away', !field() && rows().length === whole, rows().length + ' of ' + whole);
-      // A session's panel, then a PR's, taking the whole window (⇧⌘F): ⌥⌘F gives the list its
-      // place back, with the find open over it.
+      // A session's panel, then a PR's, taking the whole window (⇧⌘F): ⌥⌘F (/ from a PR's)
+      // gives the list its place back, with the find open over it.
       return maxedFind('session', 'S');
     })
     .then(function () { return maxedFind('PR', 'P'); })
