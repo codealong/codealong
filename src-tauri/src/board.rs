@@ -2124,12 +2124,11 @@ pub fn apply_insight(s: &mut Session, i: &SessionInsight) {
 /// command looks like. So Jev's word that the command is a server says the turn is over only when
 /// nothing else runs: a Monitor's `tail -f`, read as one, left a session that waited on the
 /// relaunch it had started in Your turn (2026-11-14). The process table names a command as the
-/// list does (`shells::eval_command` in the Claude adapter); where no running one on the list is
-/// `judged`, its oldest stands for it, as the table lists the oldest shell first.
+/// list does (`shells::eval_command` in the Claude adapter), so one the list names otherwise is
+/// another, even where the list has lost the judged one (it keeps only so many, and reads only so
+/// far back): that it still runs is surer than which of them Jev read.
 fn waits_beside<'a>(s: &'a Session, judged: &str) -> Option<&'a BackgroundTask> {
-    let running: Vec<&BackgroundTask> = s.tasks.iter().filter(|t| t.ended_at.is_none()).collect();
-    let judged = running.iter().position(|t| t.command.trim() == judged.trim()).unwrap_or(0);
-    running.iter().enumerate().rev().find(|(i, t)| *i != judged || t.monitor).map(|(_, t)| *t)
+    s.tasks.iter().rev().filter(|t| t.ended_at.is_none()).find(|t| t.monitor || t.command.trim() != judged.trim())
 }
 
 /// Makes a session whose turn ended on a reply that asks you something Needs you, with the
@@ -5676,9 +5675,12 @@ mod tests {
         for left in [ended, server] {
             assert_eq!(read(&left), (Status::Idle, Some("Left running · `npm run dev`".into())));
         }
-        // Where the list names no running command as the table does, its oldest stands for it.
-        let unmatched = Session { tasks: vec![task("b3", "npm  run dev ", false, NOW - 9 * MIN)], background: Some("npm run dev --port 4321".into()), ..s.clone() };
-        assert_eq!(read(&unmatched).0, Status::Idle);
+        // Where the list has lost the server, what it still names runs beside it.
+        let lost = Session { tasks: vec![task("b5", "cargo build", false, NOW - MIN)], background: Some("npm run dev".into()), ..s.clone() };
+        assert_eq!(read(&lost), (Status::Working, Some("Waiting on `cargo build`".into())));
+        // The same command twice is the one Jev read.
+        let twice = Session { tasks: vec![task("b3", "npm run dev", false, NOW - 9 * MIN), task("b6", " npm run dev", false, NOW - MIN)], background: Some("npm run dev".into()), ..s.clone() };
+        assert_eq!(read(&twice).0, Status::Idle);
         // Its processes already sat still long enough to be left running: so it stays.
         let still = Session { status: Status::Idle, excerpt: Some("Left running · `npm run dev`".into()), ..beside };
         assert_eq!(read(&still), (Status::Idle, Some("Left running · `npm run dev`".into())));
