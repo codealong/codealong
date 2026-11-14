@@ -234,14 +234,32 @@ build it yourself? See [Building from source](#building-from-source).
 
 #### On Linux
 
-There's no installer yet: build it from source, under X11. With Rust, Node and the packages Tauri
-needs on Linux (WebKitGTK 4.1 and GTK 3 among them; `scripts/linux/lima.yaml` lists every one for
-Ubuntu):
+There's no installer yet: build it from source, under X11. You need Rust 1.96 or later, Node
+22.13 or later (not 23), and Zig 0.17.0; Zig builds the Ghostty terminal library Codealong uses.
+On Ubuntu 24.04 and Linux Mint 22.x, install the system packages Tauri needs:
+
+```bash
+sudo apt update
+sudo apt install -y build-essential curl wget file git pkg-config libssl-dev \
+  libwebkit2gtk-4.1-dev libgtk-3-dev libayatana-appindicator3-dev \
+  librsvg2-dev libxdo-dev
+```
+
+Install Zig and add it to your `PATH`:
+
+```bash
+mkdir -p "$HOME/.local/zig"
+curl -fsSL "https://ziglang.org/download/0.17.0/zig-$(uname -m)-linux-0.17.0.tar.xz" |
+  tar -xJ --strip-components=1 -C "$HOME/.local/zig"
+export PATH="$HOME/.local/zig:$PATH"
+```
+
+Then clone and build:
 
 ```bash
 git clone https://github.com/codealong/codealong.git
 cd codealong
-npm install
+npm ci
 npm run tauri build -- --bundles deb   # the binary in ../codealong-target/release, the .deb in its bundle/deb
 ```
 
