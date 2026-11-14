@@ -46,6 +46,12 @@ const SETTLE_MS = 300;
  *  keeps changing. */
 const SOON_MS = 40;
 const SCAN_MS = 200;
+/** How near the edge of what it scrolls in a box has to be for something stuck there (the strip
+ *  over a list and its sections' headings, a conversation's pinned prompt) to cover it. Further
+ *  in, nothing's looked for over it: a look costs some 0.15 ms (2026-11-14, Chrome at a load of
+ *  300), two a box, and what floats over the whole window (popovers, menus, dialogs, the find's
+ *  own bar) is drawn over the marks' layer anyway. */
+const STUCK_PX = 96;
 
 /** A match laid out: its text, and which of its line's (or root's) matches it is, to know it again
  *  once the window has changed around it. */
@@ -228,20 +234,29 @@ function uncovered(b: Clip, range: Range): Clip | null {
   const own = common instanceof Element ? common : common.parentElement;
   if (!own) return b;
   const x = (b.left + b.right) / 2;
-  // What's drawn over it, whole: the point can find a part of it (a button on the strip), whose
-  // edge isn't the strip's.
+  // How far what's drawn over it there reaches, whole: the point can find a part of it (a button
+  // on the strip), whose edge isn't the strip's, so it's every element from there up to beside the
+  // match's that the point is in; not one that holds the cover without taking room itself (the
+  // pinned prompt's holder, no height, with the prompt drawn out of it).
   const over = (y: number) => {
     let el = document.elementFromPoint(x, y);
     if (!el || own.contains(el) || el.contains(own)) return null;
-    while (el.parentElement && !el.parentElement.contains(own)) el = el.parentElement;
-    return el;
+    let { top, bottom } = el.getBoundingClientRect();
+    while (el.parentElement && !el.parentElement.contains(own)) {
+      el = el.parentElement;
+      const r = el.getBoundingClientRect();
+      if (r.left > x || r.right < x || r.top > y || r.bottom < y) continue;
+      top = Math.min(top, r.top);
+      bottom = Math.max(bottom, r.bottom);
+    }
+    return { top, bottom };
   };
   const top = over(b.top + 1);
   const bottom = over(b.bottom - 1);
   if (top && bottom) return null;
   const left = { ...b };
-  if (top) left.top = Math.max(left.top, top.getBoundingClientRect().bottom);
-  if (bottom) left.bottom = Math.min(left.bottom, bottom.getBoundingClientRect().top);
+  if (top) left.top = Math.max(left.top, top.bottom);
+  if (bottom) left.bottom = Math.min(left.bottom, bottom.top);
   return left.bottom > left.top ? left : null;
 }
 
@@ -314,11 +329,25 @@ function paint(layer: HTMLElement | null, all: Hit[], at: Hit | null): void {
   layer.dataset.shown = String(all.length);
   const clipOf = clipsInWindow();
   const boxes: Clip[] = [];
-  // Cut off where the text is, and none where something's drawn over it: the layer is over the
-  // whole window, so a box would show over the strip stuck over a list, or a popover.
+  // The box each text scrolls in, up and down, whose edges what's stuck covers; null for none.
+  const scrollers = new Map<Element, DOMRect | null>();
+  const scrollerOf = (el: Element | null): DOMRect | null => {
+    if (!el) return null;
+    const known = scrollers.get(el);
+    if (known !== undefined) return known;
+    const own = el.scrollHeight > el.clientHeight && /(auto|scroll)/.test(getComputedStyle(el).overflowY);
+    const found = own ? el.getBoundingClientRect() : scrollerOf(el.parentElement);
+    scrollers.set(el, found);
+    return found;
+  };
+  // Cut off where the text is, and where something's stuck over it near the edge of what it
+  // scrolls in (`STUCK_PX`): the layer is over the whole window, so a box would show over the strip
+  // stuck over a list, which is drawn in the list's own stacking.
   const cut = (b: Clip, clip: Clip, range: Range) => {
     const box = { left: Math.max(b.left, clip.left), top: Math.max(b.top, clip.top), right: Math.min(b.right, clip.right), bottom: Math.min(b.bottom, clip.bottom) };
-    const shown = box.right > box.left && box.bottom > box.top ? uncovered(box, range) : null;
+    const view = scrollerOf(range.startContainer.parentElement);
+    const edge = !!view && (box.top - Math.max(view.top, 0) < STUCK_PX || Math.min(view.bottom, window.innerHeight) - box.bottom < STUCK_PX);
+    const shown = box.right > box.left && box.bottom > box.top ? (edge ? uncovered(box, range) : box) : null;
     if (shown) boxes.push(shown);
   };
   for (const h of all) {

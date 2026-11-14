@@ -6,7 +6,7 @@
 // by display, visibility or opacity, or cut off past an ellipsis or in a scroller cut off itself),
 // what's marked aria-hidden or data-find-skip, and what a field holds, nor what a scroller can't
 // scroll into sight; words split across inline elements are boxed, and a box under a strip stuck
-// over a scroller stops at the strip. A line added while it's open is found as it comes, the match you're on staying. ⏎ steps
+// over a scroller, or a prompt pinned there as a conversation pins one, stops at its edge. A line added while it's open is found as it comes, the match you're on staying. ⏎ steps
 // on, round from the last to the first, ⇧⏎ back; ⌘G and ⇧⌘G step from outside the bar. Past 1000
 // matches it marks 1000 and says 1000+. Escape closes it, clears the marks and gives the keyboard
 // back. ⌥⌘F and / open the list's own find instead, and in Settings ⌘F is Settings' search.
@@ -174,7 +174,25 @@
       var bar = q('#wf-covbar').getBoundingClientRect();
       var area = q('#wf-cov').getBoundingClientRect();
       var under = boxes().map(function (b) { return b.getBoundingClientRect(); }).filter(function (r) { return r.bottom > area.top && r.top < area.bottom; });
+      // A prompt pinned as a conversation pins one: drawn out of a holder that takes no room.
+      var pin = document.createElement('div');
+      pin.innerHTML = [
+        '<p>qxpin two</p>',
+        '<div id="wf-pinbox" style="height: 60px; overflow: auto">',
+        '<div style="position: sticky; top: 0; height: 0; z-index: 1"><div id="wf-pinned" style="position: absolute; top: 0; left: 0; right: 0; height: 20px; overflow: hidden; background: #ccc"><span style="display: inline-block; width: 150px; height: 8px; margin-top: 10px; vertical-align: top"></span></div></div>',
+        '<p style="margin-top: 14px">qxpin one</p><div style="height: 100px"></div></div>',
+      ].join('');
+      window.__pinFixture = pin;
       check('a box under a strip stops at the strip, not at what in it was found there', under.length === 1 && under[0].top >= bar.bottom - 0.5, count() + ', on ' + (at() && at().toString() + ' in ' + at().startContainer.parentElement.textContent) + '; boxes ' + under.map(function (r) { return Math.round(r.top) + '..' + Math.round(r.bottom); }).join(',') + ' over ' + Math.round(area.top) + '..' + Math.round(area.bottom) + ', strip to ' + Math.round(bar.bottom) + ', scrolled ' + q('#wf-cov').scrollTop);
+      fixture.insertBefore(window.__pinFixture, fixture.firstChild);
+      type(field(), 'qxpin');
+      return counted(/ of 2$/);
+    })
+    .then(function () {
+      var pinned = q('#wf-pinned').getBoundingClientRect();
+      var area = q('#wf-pinbox').getBoundingClientRect();
+      var under = boxes().map(function (b) { return b.getBoundingClientRect(); }).filter(function (r) { return r.bottom > area.top && r.top < area.bottom; });
+      check('a box under a pinned prompt stops at the prompt, not at its holder', under.length === 1 && under[0].top >= pinned.bottom - 0.5, count() + '; boxes ' + under.map(function (r) { return Math.round(r.top) + '..' + Math.round(r.bottom); }).join(',') + ', prompt to ' + Math.round(pinned.bottom));
     })
     .then(function () {
       var many = document.createElement('p');
