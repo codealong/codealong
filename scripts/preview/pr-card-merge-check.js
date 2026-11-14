@@ -80,7 +80,7 @@
     .then(function () {
       squashed = picked.pr.title + ' (#' + picked.pr.number + ')';
       var word = q('.ca-pr-word', chip());
-      var pill = q('.ca-prhover-head .ca-prpill-text, .ca-hovercard-head .ca-prpill-text', card());
+      var pill = q('.ca-hovercard-head .ca-prpill-text', card());
       check('the chip says where the PR stands, as its pills lead with it', !!word && !!pill && word.textContent === pill.textContent, (word && word.textContent) + ' / ' + (pill && pill.textContent));
       check('the chip’s card has no Show in Codealong', labels().indexOf('Show in Codealong') < 0, labels().join(' | '));
       check('it has GitHub’s merge box, its button GitHub’s pick for you', main().textContent === 'Squash and merge', main().textContent);

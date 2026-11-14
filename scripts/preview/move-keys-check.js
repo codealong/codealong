@@ -54,10 +54,11 @@
     try {
       await until(function () { return q('.ca-waiting .ca-composer.is-approval'); }, 20000, 'no call waiting in the waiting window');
       if (!picked) return stopped('no Claude Code session with another signed-in Claude Code account to move to');
-      var chip = await until(function () { return q('.ca-waiting .ca-acctmenu-chip'); }, 5000, 'no account chip in the box');
+      var chip = await until(function () { return q('.ca-waiting .ca-composer-buttons .ca-modelmenu-chip'); }, 5000, 'no account chip in the box');
       chip.click();
-      var menu = await until(function () { return q('.ca-waiting .ca-acctmenu .ca-picker'); }, 3000, 'no account menu');
-      all('.ca-picker-opt', menu)[1].click();
+      var menu = await until(function () { return q('.ca-waiting .ca-composer-buttons .ca-modelmenu .ca-picker'); }, 3000, 'no menu on the chip');
+      var moving = await until(function () { return all('.ca-picker-opt', menu).filter(function (o) { return q('.ca-picker-title', o) && q('.ca-picker-title', o).textContent.trim() === 'Move it here'; })[0]; }, 3000, 'no account to move to in the chip’s menu');
+      moving.click();
       var dlg = await until(dialog, 3000, 'picking another account opened no dialog');
       var scrim = dlg.closest('.ca-scrim');
       check('the dialog covers the card, not the window', getComputedStyle(scrim).position === 'absolute' && scrim.parentElement.classList.contains('ca-reply'), getComputedStyle(scrim).position);

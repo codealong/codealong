@@ -71,7 +71,7 @@
   var row = function () { return picked && document.getElementById('row-' + picked.lane + '::' + picked.key); };
   var said = function () { return Array.prototype.slice.call(document.querySelectorAll('.ca-sessinsp .ca-thread-said.is-agent')); };
   var last = function () { var all = said(); return all[all.length - 1]; };
-  var lastText = function () { var l = last(); var body = l && l.querySelector('.ca-md, .ca-thread-text'); return ((body || l || {}).textContent || '').trim(); };
+  var lastText = function () { var l = last(); var body = l && l.querySelector('.ca-md'); return ((body || l || {}).textContent || '').trim(); };
   var times = function (words) { return said().filter(function (s) { return s.textContent.indexOf(words) >= 0; }).length; };
   var labelOf = function (el) { var m = el && el.querySelector('.ca-thread-meta > span'); return m ? m.textContent : null; };
   var push = function () { return window.__TAURI_INTERNALS__.invoke('get_board').then(function (b) { window.__emit('board', b); }); };

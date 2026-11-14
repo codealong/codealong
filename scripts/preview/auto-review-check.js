@@ -421,7 +421,7 @@
       await until(function () { return !!nav('Automation'); }, 3000, 'no Automation in Settings');
       var on = /Review pull requests that wait on your review/;
       nav('Accounts').click();
-      await until(function () { return !!q('.ca-settings-pane .ca-acct, .ca-settings-pane .ca-accounts, .ca-settings-pane fieldset, .ca-settings-pane section'); }, 5000, 'Settings › Accounts shows nothing');
+      await until(function () { return !!q('.ca-settings-pane .ca-acct, .ca-settings-pane fieldset, .ca-settings-pane section'); }, 5000, 'Settings › Accounts shows nothing');
       check('Settings › Accounts no longer has what Codealong does by itself', !box(on) && !box(/Carry on after a network error/) && !box(/Nudge a pull request’s primary session/), '');
       nav('Automation').click();
       await until(function () { return !!box(on); }, 5000, 'no reviews setting in Settings › Automation');

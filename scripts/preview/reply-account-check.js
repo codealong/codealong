@@ -34,7 +34,7 @@
   until(function () {
     // In Sessions, a session is shown once a row is picked.
     if (!label() && !q('.ca-sessinsp-title')) {
-      var row = q('.ca-row[role="option"]');
+      var row = q('[role="listbox"] [role="option"]');
       if (row) row.click();
     }
     return label();
@@ -44,7 +44,7 @@
       var field = buttons.closest('.ca-composer-field');
       var who = q('.ca-composer-who', field);
       var chip = label.closest('.ca-modelmenu-chip, .ca-modelmenu-said');
-      var title = q('.ca-sessinsp-title').getAttribute('title');
+      var title = q('.ca-sessinsp-title').getAttribute('title').split('\n')[0];
       var s = sessions.filter(function (x) { return x.title === title; })[0];
       if (!s) return stopped('no session on the board is titled ' + title);
       var meter = q('.ca-context', buttons);

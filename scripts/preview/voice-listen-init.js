@@ -9,7 +9,7 @@
     if (!row) return;
     clearInterval(t);
     var at = row.id.indexOf('::');
-    var title = row.querySelector('.ca-agentline-title, .ca-lane-title');
+    var title = row.querySelector('.ca-agentline-title');
     window.dispatchEvent(new CustomEvent('codealong-listen', { detail: { key: row.id.slice(at + 2), laneId: row.id.slice(4, at), title: title ? title.textContent : 'This session' } }));
     var role = window.__LISTEN_ROLE__;
     if (!role) return;

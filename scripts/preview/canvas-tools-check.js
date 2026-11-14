@@ -13,7 +13,7 @@
     return until(function () { return menus() > before; }, 3000, 'no menu').then(menuLabels);
   };
   var saved = function () { return last('canvas_save'); };
-  var dialogTitle = function () { var h = q('.ca-boarddlg .ca-dialog-title, .ca-boarddlg h2'); return h ? h.textContent : ''; };
+  var dialogTitle = function () { var h = q('.ca-boarddlg h2'); return h ? h.textContent : ''; };
   var closeDialog = function () {
     var cancel = all('.ca-boarddlg button').filter(function (b) { return b.textContent.trim() === 'Cancel'; })[0];
     if (cancel) cancel.click();

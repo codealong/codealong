@@ -24,7 +24,7 @@
   say('context check: opening a session');
   until(function () {
     if (!meter()) {
-      var row = q('.ca-row[role="option"]');
+      var row = q('[role="listbox"] [role="option"]');
       if (row) row.click();
     }
     return meter();
