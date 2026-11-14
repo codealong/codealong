@@ -50,6 +50,10 @@ pub struct RegistryEntry {
     /// For a background job that goes on from another session's conversation (a fork, or a
     /// window's `/background`), that session's id, from the service's roster.
     pub resumes: Option<String>,
+    /// For a background job, the arguments it was started with, from the service's roster
+    /// (`launched_with`): its process is a spare's (`claude bg-spare`), whose command line says
+    /// nothing of them, so they're what says which modes it offers (mode.rs `cycled_modes`).
+    pub launched_with: Option<String>,
     /// For a background job waiting on the questions it asks, the first of them, from its record
     /// (`job_questions`), which has them whether or not its transcript or the plugin's hook does.
     pub asks: Option<String>,
@@ -118,6 +122,7 @@ pub fn parse_registry(text: &str) -> Option<RegistryEntry> {
         started_at: raw.started_at,
         status_updated_at: raw.status_updated_at,
         resumes: None,
+        launched_with: None,
         asks: None,
         messaging_socket: text_of(raw.messaging_socket_path),
         peer_protocol: raw.peer_protocol.as_ref().and_then(Value::as_u64),
@@ -181,6 +186,17 @@ pub fn resumed_from(roster: &Value, job: &str) -> Option<String> {
     let from = Path::new(launch.get("sessionId")?.as_str()?).file_stem()?.to_str()?.to_string();
     let own = worker.get("sessionId").and_then(Value::as_str);
     (!from.is_empty() && own != Some(from.as_str())).then_some(from)
+}
+
+/// The arguments a background job was started with, from the service's roster:
+/// `workers.<job>.dispatch.launch.args` (`--session-id <id>`, then what `claude --bg` was given
+/// besides `--bg`), up to the `--` its prompt comes after, joined with spaces as a command line
+/// is. None for a job the roster doesn't give them for (one the service brought back, `mode:
+/// "resume"` with no `args`).
+pub fn launched_with(roster: &Value, job: &str) -> Option<String> {
+    let args = roster.get("workers")?.get(job)?.pointer("/dispatch/launch/args")?.as_array()?;
+    let before: Vec<&str> = args.iter().filter_map(Value::as_str).take_while(|a| *a != "--").collect();
+    Some(before.join(" "))
 }
 
 /// A record newer than this may not name what it forked from yet, so it's read again.
@@ -325,6 +341,7 @@ pub fn read_registry(home: &Path) -> Vec<RegistryEntry> {
         if let Some(job) = entry.job_id.as_deref() {
             let roster = roster.get_or_insert_with(|| std::fs::read(home.join("daemon/roster.json")).ok().and_then(|b| serde_json::from_slice(&b).ok()).unwrap_or(Value::Null));
             entry.resumes = resumed_from(roster, job);
+            entry.launched_with = launched_with(roster, job);
             if entry.waits_on(INPUT_NEEDED) {
                 entry.asks = job_questions(home, job).and_then(|b| b.pointer("/questions/0/question")?.as_str().map(str::trim).filter(|q| !q.is_empty()).map(String::from));
             }
@@ -376,6 +393,20 @@ mod tests {
         assert_eq!(resumed_from(&roster, "77777777"), None);
         assert_eq!(resumed_from(&roster, "d3d3cd21"), None);
         assert_eq!(resumed_from(&roster, "00000000"), None);
+    }
+
+    /// What a job's mode list reads in place of its spare's command line: the roster's arguments
+    /// up to its prompt (2.1.325's roster, a Haiku job started with `--bg --model haiku --`).
+    #[test]
+    fn a_jobs_launch_arguments_come_from_the_roster_without_its_prompt() {
+        let roster = serde_json::json!({"workers": {
+            "4f5bdab8": {"dispatch": {"source": "shell", "launch": {"mode": "prompt", "args": ["--session-id", "4f5bdab8-7858-40ea-b6b6-842aad5cc9d5", "--model", "haiku", "--dangerously-skip-permissions", "--", "--permission-mode plan, it said"]}}},
+            "3615f788": {"dispatch": {"source": "fleet", "launch": {"mode": "resume", "sessionId": "3615f788-0000-4000-8000-000000000000"}}}
+        }});
+        assert_eq!(launched_with(&roster, "4f5bdab8").as_deref(), Some("--session-id 4f5bdab8-7858-40ea-b6b6-842aad5cc9d5 --model haiku --dangerously-skip-permissions"));
+        // Brought back by the service, with no arguments of its own; not in the roster.
+        assert_eq!(launched_with(&roster, "3615f788"), None);
+        assert_eq!(launched_with(&roster, "00000000"), None);
     }
 
     #[test]

@@ -596,7 +596,14 @@ on this Mac; read it before changing the Claude adapter (paths are under `src-ta
   Shift+Tab as its own (`confirm:cycleMode` in its keybindings; what it does to the call that
   waits wasn't looked into), and lists and panels above the prompt as their previous item, so
   cycle.rs presses it only while the session doesn't wait on you. `claude/mode.rs`
-  (`cycled_modes`), cycle.rs.
+  (`cycled_modes`), cycle.rs. A background job takes it typed through its service's `attach`, as
+  its own footer shows ("⏵⏵ auto mode on (shift+tab to cycle)"), several in one attach too, and
+  writes the mode with its next prompt as a terminal does (a Haiku job on 2.1.325, Bypass by the
+  account's `defaultMode`, went to Auto, then two more to Accept edits, and its next prompt was
+  written `acceptEdits`; 2026-11-13): `claude/mod.rs` (`press_in_job`). Its process is a spare's,
+  whose command line names no flag, so what it was started with is the roster's
+  `dispatch.launch.args` (`claude/registry.rs` `launched_with`); a job the service brought back
+  (`source: "fleet"`, `mode: "resume"`) has none there.
 - Background jobs through the account's daemon, `/tmp/cc-daemon-<uid>/<first 8 hex of
   sha256(config dir)>/control.sock`: `reply` hands a job a prompt (pasted, then Return), and
   `attach` types into its terminal, an Escape that stops its turn included: `claude/daemon.rs`,

@@ -823,7 +823,7 @@ At the left of the box's foot, under where you write, are the mode a running ses
 where it runs (Ghostty, Background, the Codex app, Codealong), or for one that isn't running where
 a send goes on with it. At the right are a small pie for its context window, one chip that says
 its account (its harness on hover), the model it's on and its effort, and the send button. The mode
-is how much it does without asking you, in its harness's own words, said lowercase, with what
+is how much it does without asking you, in its harness's own words, with what
 that means on hover (and in the header's Details): Claude Code's Manual, Plan, Accept edits, Auto,
 Don't Ask or Bypass (a terminal session's from its transcript, where a switch shows
 from its next prompt; the Claude app's from the app's record); Codex's Read Only, Ask for approval,
@@ -841,14 +841,16 @@ Code's Manual, Accept edits, Plan, Auto and Bypass); ⇧⇥ in its box steps to 
 Code's terminal. Either switches that session alone, mid-turn too and while it waits on you: what it
 asks from then on goes by the new mode, and what it asks now still waits for your answer.
 
-A Claude Code or Antigravity session running in Ghostty, iTerm2, Rex, Codealong or tmux has the same menu, of the
-modes its terminal steps through with Shift+Tab, in that order, and ⇧⇥ in its box steps to the
-next: Codealong presses Shift+Tab in its tab, as often as it takes to reach the mode you picked,
-mid-turn too, but not while it waits on you, where Shift+Tab would go to what it asks. Antigravity
+A Claude Code or Antigravity session running in Ghostty, iTerm2, Rex, Codealong or tmux, and a
+Claude Code background job, has the same menu, of the modes its terminal steps through with
+Shift+Tab, in that order, and ⇧⇥ in its box steps to the next: Codealong presses Shift+Tab in its
+tab (a background job's through its account's background service, as `claude attach` would type
+it), as often as it takes to reach the mode you picked, mid-turn too, but not while it waits on you, where Shift+Tab would go to what it asks. Antigravity
 steps through Default (named by its tool permission), Accept edits, Auto and Plan, and its log says
 each switch as it takes it, so the chip says the mode it's in. Claude Code steps through Manual,
 Accept edits and Plan, then Bypass where the session started bypassing permissions (or was let to,
-`--allow-dangerously-skip-permissions`), then Auto unless its settings or Anthropic's flag turn
+`--allow-dangerously-skip-permissions`; a background job by the arguments it was started with),
+then Auto unless its settings or Anthropic's flag turn
 Auto off, and writes the mode it's in only with your next message: until then the chip says, in
 italics, the mode Codealong expects by that order, which can be wrong if you switched it in the
 terminal too, or where a model doesn't take Auto. A Codex session running in Ghostty, iTerm2, Rex or

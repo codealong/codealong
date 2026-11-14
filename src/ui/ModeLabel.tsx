@@ -1,10 +1,11 @@
 // The mode a session runs in (`Session.mode`), as its harness names it: Claude Code's Manual,
 // Plan or Bypass, Codex's Approve for me or Full Access, OpenCode's agent, Cursor's auto-run.
-// It's said in the reply box's foot beside its account, lowercase, as Claude Code says its own
-// mode by its box (SessionReply.tsx), and in the header's Details for a session with no box;
-// what the mode means is its tooltip. Where the session offers its modes here (`Session.modes`)
-// it's switched here (`ModeMenu`): one Codealong runs through its agent, one in a terminal by
-// Shift+Tab pressed there, or a pick in Codex's `/permissions` (cycle.rs). The chip opens them
+// It's said in the reply box's foot beside where it runs, in the same case ("Bypass",
+// "Background"; a lowercase mode beside them read as a mistake, 2026-11-13) (SessionReply.tsx),
+// and in the header's Details for a session with no box; what the mode means is its tooltip.
+// Where the session offers its modes here (`Session.modes`) it's switched here (`ModeMenu`): one
+// Codealong runs through its agent, one in a terminal or a background job by Shift+Tab pressed
+// there, or a pick in Codex's `/permissions` (cycle.rs). The chip opens them
 // above the box, as Shift+Tab in the box
 // steps to the next, as it does in Claude Code's terminal. Any other has its mode changed where
 // it runs, so Codealong only says it. A mode Codealong expects after a press, which the harness

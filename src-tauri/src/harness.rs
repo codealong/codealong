@@ -262,6 +262,16 @@ pub trait Adapter: Sync {
         None
     }
 
+    /// Presses `keys`, a moment apart, in the terminal UI of a running session that has no tab of
+    /// its own (a background job, `Session::attach_command`), the way its harness reaches it
+    /// there (Claude Code's service, as `claude attach` types): a mode switch's Shift+Tab
+    /// (cycle.rs). None where its harness has no such way; a session in a tab has its keys
+    /// pressed there (`launch::terminal_host`). Its reader lists a job's modes only where this
+    /// reaches it.
+    fn press_in_job(&self, _ctx: &Ctx, _session: &Session, _keys: &[crate::launch::Key]) -> Option<Result<()>> {
+        None
+    }
+
     /// Types a switch (`model_command` or `effort_command`, and the value: `text`) into a running
     /// session's terminal by `typ`, which answers whether it went in, and sees it through: a
     /// question the harness asks before it takes the switch is answered, and what it keeps of the

@@ -6,7 +6,7 @@
 // switched still where its harness runs the command at once (`switchesMidTurn`, Claude Code's),
 // and waits for the turn to end elsewhere; one waiting on you waits for your answer. After the model is the effort it's on as its harness writes it,
 // which follows the session, and the longest of both isn't cut off; the mode under the box is
-// lowercase. Under the models are the account's levels, its own not among them, the session's
+// said as its harness names it, as the place beside it is ("Bypass", "Background"). Under the models are the account's levels, its own not among them, the session's
 // checked, and picking another switches that session's effort and closes the menu; there's no
 // row for where it runs, which a running session has already.
 //   scripts/preview.sh peek '' scripts/preview/session-model-check.js
@@ -58,7 +58,7 @@
       check('the chip sits beside Send', !!q('.ca-composer-send', chip().closest('.ca-composer-buttons')), 'apart');
       if (picked.effort) check('after the model, the effort its latest reply was made at, as its harness writes it', effort() === picked.effort, effort() || 'none');
       var mode = q('.ca-peek .ca-composer-who .ca-mode-name');
-      if (mode) check('in the box’s foot the mode is said lowercase', mode.innerText === mode.innerText.toLowerCase(), mode.innerText);
+      if (mode) check('in the box’s foot the mode is said as its harness names it', getComputedStyle(mode).textTransform === 'none' && mode.innerText.charAt(0) === mode.innerText.charAt(0).toUpperCase(), mode.innerText);
       // `/effort` set another, on the longest name a model has.
       window.__emit('board', withSession(function (s) { s.effort = 'xhigh'; s.model = 'claude-fable-5-1[1m]'; }));
       return until(function () { return effort() === 'xhigh'; }, 3000, 'the effort didn’t follow the session: ' + effort());

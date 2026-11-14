@@ -1,8 +1,9 @@
 //! Switching the mode of a session that runs in a terminal: Claude Code's and Antigravity's
 //! terminal UIs step through their modes with Shift+Tab, mid-turn too, and Codealong presses it
-//! in the session's tab (Ghostty, iTerm2, Rex, tmux; Terminal presses no key alone). Their readers
-//! list the modes in that order (`Session::modes`), and `overlay` keeps them where the tab takes
-//! keys. Antigravity writes each switch to its log as it takes it, so a switch watches it there
+//! in the session's tab (Ghostty, iTerm2, Rex, tmux; Terminal presses no key alone), or in a
+//! background job's terminal the way its harness reaches it (`Adapter::press_in_job`). Their
+//! readers list the modes in that order (`Session::modes`), a job's only where its harness
+//! reaches it, and `overlay` keeps them where the tab takes keys. Antigravity writes each switch to its log as it takes it, so a switch watches it there
 //! (`Adapter::mode_said`). Claude Code writes the mode only with the next prompt, so the mode a
 //! press leads to is the next in its order, held as expected (`SessionMode::expected`) until its
 //! record says. Codex's terminal UI numbers its modes under `/permissions` instead
@@ -72,7 +73,8 @@ pub fn overlay(s: &mut Session) {
     if s.hosted {
         return;
     }
-    let presses = s.live && !s.modes.is_empty() && s.pid.is_some_and(|pid| launch::terminal_kind(pid).is_some_and(|t| t.presses_keys()));
+    // A job has no tab: its reader listed its modes only where its harness reaches it.
+    let presses = s.live && !s.modes.is_empty() && (s.attach_command.is_some() || s.pid.is_some_and(|pid| launch::terminal_kind(pid).is_some_and(|t| t.presses_keys())));
     let mut all = expected();
     let all = all.get_or_insert_with(HashMap::new);
     if !presses {
@@ -100,6 +102,34 @@ fn holds(e: Option<&Expected>, s: &Session) -> Option<SessionMode> {
     s.modes.iter().find(|m| m.id == e.mode).cloned()
 }
 
+/// Where a switch presses its keys: the session's tab, or a background job's terminal the way its
+/// harness reaches it (`Adapter::press_in_job`).
+enum Keys<'a> {
+    Tab(launch::TerminalHost),
+    Job(&'a Ctx<'a>, &'a Session),
+}
+
+impl Keys<'_> {
+    /// Presses `keys` in order, a moment apart: `PRESS_GAP` in a tab, and as its harness spaces
+    /// them in a job.
+    fn press(&self, keys: &[Key]) -> Result<()> {
+        match self {
+            Keys::Tab(host) => {
+                for (i, key) in keys.iter().enumerate() {
+                    if i > 0 {
+                        std::thread::sleep(PRESS_GAP);
+                    }
+                    launch::press_key(host, *key)?;
+                }
+                Ok(())
+            }
+            Keys::Job(ctx, s) => crate::harness::adapter(s.harness)
+                .press_in_job(ctx, s, keys)
+                .unwrap_or_else(|| Err(anyhow!("Codealong can't press keys in {}'s background job: switch its mode where it runs.", quoted(&s.title)))),
+        }
+    }
+}
+
 /// Switches a session in a terminal to `to`, one of its `modes`, by pressing Shift+Tab there as
 /// often as it takes. Not while it waits on you, where Shift+Tab goes to what it asks: Claude
 /// Code's permission prompts take it as their own (`confirm:cycleMode`), and what that does to
@@ -110,16 +140,21 @@ pub fn switch(account: &AccountCfg, s: &Session, to: &SessionMode) -> Result<Mod
     if crate::send::waits_on_you(s) {
         bail!("{title} is waiting on you, and what Codealong pressed in its terminal would go to what it asks: answer it first.");
     }
-    let Some(host) = launch::terminal_host(pid, Path::new(&s.cwd))? else {
-        bail!("{title} isn't in a terminal Codealong can press keys in ({}): switch its mode there.", launch::presses_keys_in());
-    };
     let adapter = crate::harness::adapter(s.harness);
     let ctx = Ctx { account };
+    let keys = if s.attach_command.is_some() {
+        Keys::Job(&ctx, s)
+    } else {
+        match launch::terminal_host(pid, Path::new(&s.cwd))? {
+            Some(host) => Keys::Tab(host),
+            None => bail!("{title} isn't in a terminal Codealong can press keys in ({}): switch its mode there.", launch::presses_keys_in()),
+        }
+    };
     if let Some(picker) = adapter.mode_picker(&ctx, s) {
-        return pick(&ctx, s, to, &picker?, &host);
+        return pick(&ctx, s, to, &picker?, &keys);
     }
     let named = |id: &str| s.modes.iter().find(|m| m.id == id).map_or_else(|| id.to_string(), |m| m.label.clone());
-    let press = || launch::press_key(&host, Key::BackTab);
+    let press = || keys.press(&[Key::BackTab]);
     let _one = one_switch();
     // Its harness says each switch: pressed until it's there, or round once.
     if let Some(mut said) = adapter.mode_said(&ctx, s) {
@@ -141,12 +176,7 @@ pub fn switch(account: &AccountCfg, s: &Session, to: &SessionMode) -> Result<Mod
     if presses == 0 {
         return Ok(ModeSwitched { message: format!("{title} is in {} mode already.", to.label), mode: to.id.clone() });
     }
-    for i in 0..presses {
-        if i > 0 {
-            std::thread::sleep(PRESS_GAP);
-        }
-        press()?;
-    }
+    keys.press(&vec![Key::BackTab; presses])?;
     expect(s, pid, &to.id, crate::util::now_ms());
     let times = if presses == 1 { String::new() } else { format!(" {presses} times") };
     let message = format!("{title} should be in {} mode now: Codealong pressed Shift+Tab in its terminal{times}, and {} says which mode it's in only with your next message.", to.label, s.harness.word());
@@ -167,7 +197,7 @@ pub fn switch(account: &AccountCfg, s: &Session, to: &SessionMode) -> Result<Mod
 /// has Full Access at 2. Should a mode be taken that isn't the one picked even so, it's backed
 /// out of at once, to the list's first, which every list has first (Codex's Ask for approval),
 /// unless a step has started meanwhile, and said.
-fn pick(ctx: &Ctx, s: &Session, to: &SessionMode, picker: &crate::harness::ModePicker, host: &launch::TerminalHost) -> Result<ModeSwitched> {
+fn pick(ctx: &Ctx, s: &Session, to: &SessionMode, picker: &crate::harness::ModePicker, keys: &Keys) -> Result<ModeSwitched> {
     let title = quoted(&s.title);
     let harness = s.harness.word();
     let command = picker.command;
@@ -186,7 +216,7 @@ fn pick(ctx: &Ctx, s: &Session, to: &SessionMode, picker: &crate::harness::ModeP
         return picked(s, to, "already");
     }
     let digit = u8::try_from(number + 1).unwrap_or(9);
-    pick_number(host, command, digit, LIST_WAIT)?;
+    pick_number(keys, command, digit, LIST_WAIT)?;
     let typed = format!("Codealong typed {command} in its terminal and picked {digit}, {}", to.label);
     let Some(said) = said.as_mut() else {
         return Ok(ModeSwitched { message: format!("{typed}."), mode: to.id.clone() });
@@ -201,7 +231,7 @@ fn pick(ctx: &Ctx, s: &Session, to: &SessionMode, picker: &crate::harness::ModeP
                 bail!("{typed}, and {harness} took {took}: its list isn't numbered as Codealong read it, and a step has started since, so Codealong typed nothing more. Switch its mode in its terminal.");
             }
             // The list was read a moment ago, so it opens at once.
-            pick_number(host, command, 1, PRESS_GAP * 3)?;
+            pick_number(keys, command, 1, PRESS_GAP * 3)?;
             let back = if reached(said, first) { format!("so Codealong put it back to {}", picker_label(s, first)) } else { "and Codealong's pick of 1 to put it back didn't take: look in its terminal".to_string() };
             bail!("{typed}, and {harness} took {took}: its list isn't numbered as Codealong read it, {back}. Switch its mode in its terminal.")
         }
@@ -210,12 +240,10 @@ fn pick(ctx: &Ctx, s: &Session, to: &SessionMode, picker: &crate::harness::ModeP
 }
 
 /// Opens a numbered list with `command` and presses `number` once it's had `wait` to come up.
-fn pick_number(host: &launch::TerminalHost, command: &'static str, number: u8, wait: Duration) -> Result<()> {
-    launch::press_key(host, Key::Keys(command))?;
-    std::thread::sleep(PRESS_GAP);
-    launch::press_key(host, Key::Return)?;
+fn pick_number(keys: &Keys, command: &'static str, number: u8, wait: Duration) -> Result<()> {
+    keys.press(&[Key::Keys(command), Key::Return])?;
     std::thread::sleep(wait);
-    launch::press_key(host, Key::Digit(number))
+    keys.press(&[Key::Digit(number)])
 }
 
 /// A mode by its id as the session lists it, else in words.
@@ -399,6 +427,23 @@ mod tests {
         assert_eq!(known_mode(&s, 7).as_deref(), Some("acceptEdits"), "a board that shows neither");
         // Another process starts in its own.
         assert_eq!(known_mode(&s, 8).as_deref(), Some("auto"));
+    }
+
+    /// A background job keeps the modes its reader listed, having no tab to look for, where a
+    /// session in no terminal Codealong presses keys in loses them.
+    #[test]
+    fn a_job_keeps_its_modes_without_a_tab() {
+        let nowhere = u32::MAX - 7;
+        let mut job = Session { attach_command: Some("claude attach 4f5bdab8".into()), pid: Some(nowhere), ..claude("auto") };
+        job.key = "claude:claude:cycle-job".into();
+        overlay(&mut job);
+        assert_eq!(job.modes.len(), 4);
+        assert_eq!(job.mode.as_ref().map(|m| m.id.as_str()), Some("auto"));
+        let mut untabbed = Session { pid: Some(nowhere), ..claude("auto") };
+        untabbed.key = "claude:claude:cycle-untabbed".into();
+        overlay(&mut untabbed);
+        assert!(untabbed.modes.is_empty());
+        assert_eq!(untabbed.mode.as_ref().map(|m| m.id.as_str()), Some(""), "said, not switched");
     }
 
     /// `overlay` without the look at the process tree.

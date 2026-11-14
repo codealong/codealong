@@ -715,6 +715,15 @@ impl crate::harness::Adapter for ClaudeCode {
         Ok(format!("Stopped “{}”.", s.title))
     }
 
+    /// Through its account's service, in one attach: a Haiku job took Shift+Tab that way, its
+    /// footer going from Bypass to "auto mode on", then two more to "accept edits on", and its
+    /// next prompt was written `acceptEdits` (2.1.325, 2026-11-13).
+    fn press_in_job(&self, ctx: &crate::harness::Ctx, s: &crate::model::Session, keys: &[crate::launch::Key]) -> Option<anyhow::Result<()>> {
+        s.attach_command.as_ref()?;
+        let home = ctx.account.home_path();
+        Some(session_entry(&home, s).ok_or_else(|| anyhow::anyhow!("It isn't running any more.")).and_then(|r| press_in_job_of(&home, &r, keys)))
+    }
+
     fn app(&self) -> &'static str {
         "the Claude app"
     }
@@ -1528,10 +1537,17 @@ impl crate::harness::Reader for Reader {
                 // The app keeps the mode you pick for a session it runs (`permission_mode`).
                 if reg.is_some_and(|r| r.host_session.is_some()) {
                     s.mode = app_modes.get(id).and_then(|m| session_mode(m)).or(s.mode);
-                } else if let Some(recorded) = info.and_then(|t| t.permission_mode.as_deref()).map(mode::mode_id).filter(|_| s.live && s.surface == crate::model::Surface::Cli && reg.is_some_and(|r| r.kind.as_deref() != Some("bg"))) {
+                } else if let Some(recorded) = info.and_then(|t| t.permission_mode.as_deref()).map(mode::mode_id).filter(|_| s.live && s.surface == crate::model::Surface::Cli && reg.is_some_and(|r| r.kind.as_deref() != Some("bg") || daemon_socket(&a.home_path()).is_some())) {
                     // The modes Shift+Tab steps its terminal through, which Codealong presses
-                    // there where it can (cycle.rs), counting from the mode its record says.
-                    let command = s.pid.and_then(|pid| look.ps.all().iter().find(|p| p.pid == pid)).map(|p| p.command.as_str());
+                    // there where it can (cycle.rs), counting from the mode its record says: in
+                    // its tab, or a background job's through its account's service
+                    // (`press_in_job`). A job's process is a spare's, so what it was started with
+                    // is the roster's.
+                    let job = reg.filter(|r| r.kind.as_deref() == Some("bg"));
+                    let command = match job {
+                        Some(job) => job.launched_with.as_deref(),
+                        None => s.pid.and_then(|pid| look.ps.all().iter().find(|p| p.pid == pid)).map(|p| p.command.as_str()),
+                    };
                     s.modes = mode::cycled_modes(&a.home_path(), Path::new(&s.cwd), Some(recorded), command);
                     s.mode = s.mode.map(|m| m.with_id(recorded));
                 }
@@ -1722,15 +1738,21 @@ fn record(a: &ClaudeCode, ctx: &crate::harness::Ctx, s: &crate::model::Session) 
     a.records(ctx.account, s).into_iter().next().ok_or_else(|| anyhow::anyhow!("Its transcript isn't on this Mac any more."))
 }
 
+/// Presses `keys` in a background job's terminal, by its registry entry, through its account's
+/// service in one attach, a moment apart (`daemon_type`).
+fn press_in_job_of(home: &Path, registry: &RegistryEntry, keys: &[crate::launch::Key]) -> anyhow::Result<()> {
+    let job = registry.job_id.as_deref().ok_or_else(|| anyhow::anyhow!("Claude Code didn't record which job it is."))?;
+    let socket = daemon_socket(home).ok_or_else(|| anyhow::anyhow!("Its account's background service isn't running."))?;
+    daemon_type(&socket, &home.join("daemon/control.key"), job, &keys.iter().map(|k| k.typed().as_bytes()).collect::<Vec<_>>())
+}
+
 /// Presses `key` in a running session, by its registry entry: a background job has no terminal
 /// of its own, so the key is typed into the one its account's background service keeps for it, as
 /// `claude attach` would; any other's goes to the tab it runs in. `instead` says what to do where
 /// that tab is in a terminal Codealong can't press keys in.
 fn press_in(home: &Path, s: &Session, registry: &RegistryEntry, key: crate::launch::Key, instead: &str) -> anyhow::Result<()> {
     if registry.kind.as_deref() == Some("bg") {
-        let job = registry.job_id.as_deref().ok_or_else(|| anyhow::anyhow!("Claude Code didn't record which job it is."))?;
-        let socket = daemon_socket(home).ok_or_else(|| anyhow::anyhow!("Its account's background service isn't running."))?;
-        return daemon_type(&socket, &home.join("daemon/control.key"), job, &[key.typed().as_bytes()]);
+        return press_in_job_of(home, registry, &[key]);
     }
     let Some(host) = crate::launch::terminal_host(registry.pid, Path::new(&s.cwd))? else {
         anyhow::bail!("It isn't in a terminal Codealong can press keys in ({}). {instead}", crate::launch::presses_keys_in());
