@@ -4,8 +4,9 @@
 // counts them, on the first in view where you are; it narrows nothing. It finds words across bold
 // within a line, but not from one line into the next, and passes over what doesn't show (hidden
 // by display, visibility or opacity, or cut off past an ellipsis or in a scroller cut off itself),
-// what's marked aria-hidden or data-find-skip, and what a field holds; words split across inline
-// elements are boxed. A line added while it's open is found as it comes, the match you're on staying. ⏎ steps
+// what's marked aria-hidden or data-find-skip, and what a field holds, nor what a scroller can't
+// scroll into sight; words split across inline elements are boxed, and a box under a strip stuck
+// over a scroller stops at the strip. A line added while it's open is found as it comes, the match you're on staying. ⏎ steps
 // on, round from the last to the first, ⇧⏎ back; ⌘G and ⇧⌘G step from outside the bar. Past 1000
 // matches it marks 1000 and says 1000+. Escape closes it, clears the marks and gives the keyboard
 // back. ⌥⌘F and / open the list's own find instead, and in Settings ⌘F is Settings' search.
@@ -142,6 +143,38 @@
       check('what a box that’s cut off itself scrolls isn’t found', / of 2$/.test(count() || '') && shown() === 2, count());
       if (!atIn('#wf-split2')) field().dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true }));
       check('words split across inline elements are boxed', atIn('#wf-split2') && boxIn('#wf-split'), boxes().length + ' boxes');
+      // A scroller cut off but for its first 20px, that can scroll 2px, can't bring in what's
+      // 90px down; one wholly in sight can bring in all it holds.
+      var reach = document.createElement('div');
+      reach.innerHTML = [
+        '<div style="height: 20px; overflow: hidden"><div style="height: 100px; overflow: auto"><div style="height: 90px"></div><p>qxreach far</p></div></div>',
+        '<div style="height: 20px; overflow: hidden"><div id="wf-near" style="height: 20px; overflow: auto"><div style="height: 60px"></div><p>qxreach near</p></div></div>',
+      ].join('');
+      fixture.insertBefore(reach, fixture.firstChild);
+      type(field(), 'qxreach');
+      return counted(/ of 1$|No matches/);
+    })
+    .then(function () {
+      check('only what a scroller can scroll into sight is found in it', count() === '1 of 1' && atIn('#wf-near'), count());
+      // A strip stuck over a scroller, its top half empty and a narrow child in its bottom half,
+      // over half a line: the box stops at the strip, not at its child.
+      var cov = document.createElement('div');
+      cov.innerHTML = [
+        '<p>qxcov two</p>',
+        '<div id="wf-cov" style="height: 60px; overflow: auto">',
+        '<div id="wf-covbar" style="position: sticky; top: 0; height: 10px; padding-top: 10px; overflow: hidden; background: #ccc"><span style="display: inline-block; width: 150px; height: 8px; vertical-align: top"></span></div>',
+        '<p>qxcov one</p><div style="height: 100px"></div></div>',
+      ].join('');
+      fixture.insertBefore(cov, fixture.firstChild);
+      q('#wf-cov').scrollTop = 6;
+      type(field(), 'qxcov');
+      return counted(/ of 2$/);
+    })
+    .then(function () {
+      var bar = q('#wf-covbar').getBoundingClientRect();
+      var area = q('#wf-cov').getBoundingClientRect();
+      var under = boxes().map(function (b) { return b.getBoundingClientRect(); }).filter(function (r) { return r.bottom > area.top && r.top < area.bottom; });
+      check('a box under a strip stops at the strip, not at what in it was found there', under.length === 1 && under[0].top >= bar.bottom - 0.5, count() + ', on ' + (at() && at().toString() + ' in ' + at().startContainer.parentElement.textContent) + '; boxes ' + under.map(function (r) { return Math.round(r.top) + '..' + Math.round(r.bottom); }).join(',') + ' over ' + Math.round(area.top) + '..' + Math.round(area.bottom) + ', strip to ' + Math.round(bar.bottom) + ', scrolled ' + q('#wf-cov').scrollTop);
     })
     .then(function () {
       var many = document.createElement('p');

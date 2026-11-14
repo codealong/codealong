@@ -228,9 +228,13 @@ function uncovered(b: Clip, range: Range): Clip | null {
   const own = common instanceof Element ? common : common.parentElement;
   if (!own) return b;
   const x = (b.left + b.right) / 2;
+  // What's drawn over it, whole: the point can find a part of it (a button on the strip), whose
+  // edge isn't the strip's.
   const over = (y: number) => {
-    const el = document.elementFromPoint(x, y);
-    return el && !own.contains(el) && !el.contains(own) ? el : null;
+    let el = document.elementFromPoint(x, y);
+    if (!el || own.contains(el) || el.contains(own)) return null;
+    while (el.parentElement && !el.parentElement.contains(own)) el = el.parentElement;
+    return el;
   };
   const top = over(b.top + 1);
   const bottom = over(b.bottom - 1);
