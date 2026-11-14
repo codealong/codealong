@@ -1,6 +1,22 @@
 /* A schedule's panel (SchedulePanel.tsx): its name, when it runs and what it does, what it's told,
    and its runs, each with how it went and its session. */
 
+/* When it runs, beside the header's icon: its words cut short before the tag, never when next. */
+.ca-schedinsp-when {
+  display: flex;
+  min-width: 0;
+  white-space: nowrap;
+  font: var(--type-body);
+  color: var(--ink);
+}
+.ca-schedinsp-when-words {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.ca-schedinsp-when > .ca-schedinsp-next {
+  flex: none;
+}
 .ca-schedinsp-name {
   display: flex;
   align-items: center;
@@ -44,6 +60,10 @@
   font: var(--type-code-sm);
   white-space: pre-wrap;
   overflow-wrap: anywhere;
+}
+/* A watch's command, first under its label, which has its own space below. */
+.ca-label + .ca-schedinsp-code {
+  margin-top: 0;
 }
 .ca-schedinsp-check {
   margin: 6px 0 0;

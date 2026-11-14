@@ -1,7 +1,8 @@
 // Checks the Schedules view (ui/SchedulesView.tsx, ui/SchedulePanel.tsx, ui/ScheduleDialog.tsx):
 // a row for each of the project's schedules saying when it runs, what it does and when next, a
-// paused one saying so, and none for a chat of its own; the panel of the one selected, with its
-// runs; the row's menu (menus.ts `scheduleMenu`), whose Run now and Pause send their change; and
+// paused one saying so, and none for a chat of its own; the panel of the one selected, when it
+// runs and next on its header's first line, with its runs; the row's menu (menus.ts
+// `scheduleMenu`), whose Run now and Pause send their change; and
 // the dialog, which previews a time as it's written and saves what it was given, and whose
 // session field (FieldPicker.tsx) finds a session by typing, says how long since it did anything,
 // and brings its worktree. Under a schedule, set in as helpers are in Sessions, its latest run's
@@ -95,6 +96,8 @@
     .then(function () {
       var panel = q('.ca-schedinsp');
       check('its panel says what it watches', !!panel.querySelector('.ca-schedinsp-code') && panel.textContent.indexOf('Last look') >= 0, panel.textContent);
+      var when = panel.querySelector('.ca-insp-title .ca-schedinsp-when');
+      check('its header says when it looks next, whatever its command cuts', !!when && /^When `/.test(when.textContent) && /· Looks /.test(when.querySelector('.ca-schedinsp-next').textContent), when ? when.textContent : 'no when in its header');
       check('and its runs', panel.querySelectorAll('.ca-schedrun').length === 2, panel.textContent);
       check('and that it keeps one session going', panel.textContent.indexOf('Keeps one session going') >= 0, panel.textContent);
       return menuOf(named('After each deploy'));
@@ -125,6 +128,9 @@
     .then(function () {
       var panel = q('.ca-schedinsp');
       check('one your machines share says which runs it next', /Runs onOne of your machines each time · Next on Mac mini/.test(panel.textContent), panel.textContent);
+      var when = panel.querySelector('.ca-insp-title .ca-schedinsp-when');
+      var labels = all('.ca-schedinsp .ca-label').map(function (el) { return el.textContent; });
+      check('a timed one says when in its header, with no When section to say it again', !!when && /^Weekdays at 9:00\u00a0· Next in /.test(when.textContent) && labels.indexOf('When') < 0, (when ? when.textContent : 'no when in its header') + ' | ' + labels.join(', '));
       var ran = all('.ca-schedrun-on').map(function (el) { return el.textContent; });
       check('and where a run went when it was another machine', ran.length === 1 && ran[0] === 'on Mac mini', ran.join(' | '));
       all('.ca-insp-actions button').filter(function (b) { return b.textContent === 'Edit'; })[0].click();

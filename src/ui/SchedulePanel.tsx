@@ -1,8 +1,8 @@
-// A schedule's panel, beside the Schedules view's list: when it runs and when next, what it does
-// and what it's told, which of your machines runs it next, how its watch's last look went, the
-// session it keeps going, and its latest runs, each with why it ran, how it went and on which
-// machine, its session a click away. Run now, Pause and Edit
-// are its buttons; its menu (menus.ts `scheduleMenu`) has those and the rest.
+// A schedule's panel, beside the Schedules view's list: when it runs and when next (on the
+// header's first line, beside its icon), what it does and what it's told, which of your machines
+// runs it next, how its watch's last look went, the session it keeps going, and its latest runs,
+// each with why it ran, how it went and on which machine, its session a click away. Run now,
+// Pause and Edit are its buttons; its menu (menus.ts `scheduleMenu`) has those and the rest.
 
 import { absolute, ago, agoPhrase, tildePath } from '../format';
 import { HARNESS_APP, HARNESS_WORD } from '../harness';
@@ -41,6 +41,18 @@ function settingsWords(s: ScheduleItem): string[] {
   return out;
 }
 
+/** When it runs and when next, on the header's first line, which otherwise holds only an icon
+ *  and a tag. Long words (a watch's command) are cut there, never when next; the whole on hover. */
+function WhenLine({ words, next }: { words: string; next: string }) {
+  return (
+    <span className="ca-schedinsp-when" title={next ? `${words} · ${next}` : words}>
+      <span className="ca-schedinsp-when-words">{words}</span>
+      {/* A space that leads a flex item would be dropped. */}
+      {next && <span className="ca-schedinsp-next">{'\u00a0· '}{next}</span>}
+    </span>
+  );
+}
+
 /** A schedule a harness keeps, beside the list: what it is and where, when it runs, what keeps it
  *  going, what it's told, and the way to it where it lives. Read only: it's changed there. */
 export function HarnessSchedulePanel({ item: h, now, sessionOf, onShowSession, onOpen }: { item: HarnessSchedule; now: number; sessionOf: SchedulePanelProps['sessionOf']; onShowSession: SchedulePanelProps['onShowSession']; onOpen: () => void }) {
@@ -51,6 +63,7 @@ export function HarnessSchedulePanel({ item: h, now, sessionOf, onShowSession, o
       <header>
         <div className="ca-insp-title">
           <Icon name="clock" size={14} />
+          <WhenLine words={h.whenWords} next={next} />
           <span className="ca-tag">{h.problem ? 'Can’t run' : h.paused ? 'Paused' : 'Active'}</span>
         </div>
         <h3 className="ca-schedinsp-name">{h.name}</h3>
@@ -74,14 +87,7 @@ export function HarnessSchedulePanel({ item: h, now, sessionOf, onShowSession, o
         </div>
       )}
       <p className="ca-schedinsp-note">{HARNESS_WORD[h.harness]} keeps it, not Codealong: it’s listed here, and changed where it lives.</p>
-      <section className="ca-insp-sec">
-        <h4 className="ca-label">When</h4>
-        <p className="ca-schedinsp-line">
-          {h.whenWords}
-          {next && <span className="ca-schedinsp-next"> · {next}</span>}
-        </p>
-        <p className="ca-schedinsp-note">{h.lasts}</p>
-      </section>
+      {h.lasts && <p className="ca-schedinsp-note">{h.lasts}</p>}
       <section className="ca-insp-sec">
         <h4 className="ca-label">Does</h4>
         {session ? (
@@ -127,6 +133,7 @@ export function SchedulePanel({ item, now, sessionOf, onShowSession, onRun, onPa
       <header onContextMenu={headerMenu(() => onMenu())}>
         <div className="ca-insp-title">
           <Icon name={whenIcon(s.when)} size={14} />
+          <WhenLine words={s.whenWords} next={next} />
           <span className="ca-tag">{s.finished != null ? 'Finished' : s.problem ? 'Can’t run' : s.paused ? 'Paused' : 'Active'}</span>
           <Button variant="ghost" size="sm" icon="dots" aria-label="More" title="Run, pause, change or delete it" onClick={(e) => {
             const r = e.currentTarget.getBoundingClientRect();
@@ -166,30 +173,29 @@ export function SchedulePanel({ item, now, sessionOf, onShowSession, onRun, onPa
       )}
       {s.createdBy && <p className="ca-schedinsp-note">An agent made it, so what it sends goes as Codealong’s, not as yours, and the sessions it starts are that agent’s.</p>}
 
-      <section className="ca-insp-sec">
-        <h4 className="ca-label">When</h4>
-        <p className="ca-schedinsp-line">
-          {s.whenWords}
-          {next && <span className="ca-schedinsp-next"> · {next}</span>}
-        </p>
-        {s.when.kind === 'watch' && <code className="ca-schedinsp-code">{s.when.command}</code>}
-        {s.when.kind === 'watch' && s.check && (
-          <p className={cx('ca-schedinsp-check', !s.check.ok && 'is-failing')} title={absolute(s.check.at)}>
-            {s.check.ok ? 'Last look' : s.check.failures > 1 ? `Its last ${s.check.failures} looks failed` : 'Its last look failed'} {agoPhrase(s.check.at, now)}: {s.check.said}
-          </p>
-        )}
-        {s.when.kind === 'fired' && (
-          <p className="ca-schedinsp-note">
-            Run it from a script with <code>codealong schedule fire</code>; <code>codealong schedule fire --help</code> says how.
-          </p>
-        )}
-        {s.onlyIf.trim() && (
-          <>
-            <p className="ca-schedinsp-note">Only when this succeeds and prints something:</p>
-            <code className="ca-schedinsp-code">{s.onlyIf}</code>
-          </>
-        )}
-      </section>
+      {/* The header says when; this is what more there is to it. */}
+      {(s.when.kind === 'watch' || s.when.kind === 'fired' || s.onlyIf.trim()) && (
+        <section className="ca-insp-sec">
+          <h4 className="ca-label">When</h4>
+          {s.when.kind === 'watch' && <code className="ca-schedinsp-code">{s.when.command}</code>}
+          {s.when.kind === 'watch' && s.check && (
+            <p className={cx('ca-schedinsp-check', !s.check.ok && 'is-failing')} title={absolute(s.check.at)}>
+              {s.check.ok ? 'Last look' : s.check.failures > 1 ? `Its last ${s.check.failures} looks failed` : 'Its last look failed'} {agoPhrase(s.check.at, now)}: {s.check.said}
+            </p>
+          )}
+          {s.when.kind === 'fired' && (
+            <p className="ca-schedinsp-note">
+              Run it from a script with <code>codealong schedule fire</code>; <code>codealong schedule fire --help</code> says how.
+            </p>
+          )}
+          {s.onlyIf.trim() && (
+            <>
+              <p className="ca-schedinsp-note">Only when this succeeds and prints something:</p>
+              <code className="ca-schedinsp-code">{s.onlyIf}</code>
+            </>
+          )}
+        </section>
+      )}
 
       {s.runsOnWords && (
         <section className="ca-insp-sec">
