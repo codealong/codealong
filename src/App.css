@@ -15,9 +15,6 @@
 .ca-search { appearance: none; display: flex; align-items: center; gap: var(--space-2); min-width: 0; height: 28px; padding: 0 6px 0 9px; box-sizing: border-box; border: 0; border-radius: var(--radius-sm); background: var(--surface-sunken); color: var(--ink-3); font: var(--type-body); text-align: left; white-space: nowrap; overflow: hidden; cursor: text; }
 .ca-search > span:not(.ca-kbds) { flex: 1; overflow: hidden; text-overflow: ellipsis; }
 .ca-search:hover { background: var(--surface-hover); }
-/* With glass on (src/glass.ts) its well is a see-through shade of the glass, and surface-hover, opaque
-   and nearly white there, was a jump from it: under the pointer it's a step lighter, still see-through. */
-.is-glass .ca-search:hover { background: var(--glass-well-hover); }
 .ca-search:focus-visible { outline: none; box-shadow: var(--shadow-focus); }
 .ca-win-body { display: grid; grid-template-columns: var(--sidebar-w) minmax(0, 1fr) var(--inspector-w); min-height: 0; }
 

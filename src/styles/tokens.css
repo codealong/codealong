@@ -18,7 +18,6 @@
   --glass-ground: rgba(245, 245, 245, 0.82);
   --glass-cover: #eeeeef;
   --glass-well: rgba(0, 0, 0, 0.09);
-  --glass-well-hover: rgba(0, 0, 0, 0.05);
   --glass-hover: rgba(0, 0, 0, 0.035);
   --glass-selected: rgba(0, 0, 0, 0.11);
   --glass-nav-selected: #ffffff;
@@ -189,7 +188,6 @@
     --glass-ground: rgba(14, 14, 15, 0.82);
     --glass-cover: #0c0c0d;
     --glass-well: rgba(0, 0, 0, 0.5);
-    --glass-well-hover: rgba(0, 0, 0, 0.3);
     --glass-hover: rgba(255, 255, 255, 0.025);
     --glass-selected: rgba(255, 255, 255, 0.075);
     --glass-nav-selected: rgba(255, 255, 255, 0.075);
@@ -297,7 +295,6 @@
   --glass-ground: rgba(14, 14, 15, 0.82);
   --glass-cover: #0c0c0d;
   --glass-well: rgba(0, 0, 0, 0.5);
-  --glass-well-hover: rgba(0, 0, 0, 0.3);
   --glass-hover: rgba(255, 255, 255, 0.025);
   --glass-selected: rgba(255, 255, 255, 0.075);
   --glass-nav-selected: rgba(255, 255, 255, 0.075);

@@ -626,9 +626,11 @@ html.is-quick body {
   font: var(--type-meta);
   color: var(--ink-3);
 }
+/* Laid over the chip's white, which a see-through surface-hover (on the glass's bar, styles/glass.css)
+   would otherwise show through. */
 .ca-quick-chip:hover,
 .ca-quick-chip[aria-expanded='true'] {
-  background: var(--surface-hover);
+  background: linear-gradient(var(--surface-hover), var(--surface-hover)), var(--surface);
 }
 .ca-quick-chip:disabled {
   color: var(--ink-3);

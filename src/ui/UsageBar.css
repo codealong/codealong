@@ -83,8 +83,10 @@
   cursor: pointer;
   transition: background var(--dur-fast) ease-out, border-color var(--dur-fast) ease-out;
 }
+/* Laid over the chip's white, which a see-through surface-hover (on the glass, styles/glass.css)
+   would otherwise show through, and the chips under it as it's dragged. */
 .ca-uchip:hover {
-  background: var(--surface-hover);
+  background: linear-gradient(var(--surface-hover), var(--surface-hover)), var(--surface);
   border-color: var(--line-strong);
 }
 /* A chip dragged to another place (useSort.ts) follows the pointer over the others,

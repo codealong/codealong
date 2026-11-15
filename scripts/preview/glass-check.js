@@ -1,15 +1,14 @@
 // Checks glass (`[appearance] glass`, src/glass.ts) as the pages draw it. In the main window the
 // root says is-glass and draws no ground of its own, and the board's ground is frosted, not clear;
 // what sits on the glass (the title bar, the usage bar, the sidebar, the strip over the list, the
-// group headers) draws its wells, selections and lines see-through, so they take the glass's tint
-// (styles/glass.css), the strip over the list hides the rows that scroll under it, nothing draws a
-// blur of its own (WebKit's, stacked on the glass, flickers as the window moves), and surface-hover
-// stays opaque there, so a white control keeps its white on
-// hover and a usage chip while it's dragged over the others. In the quick panel the card draws no
-// ground of its own, which would cover the glass under it, its parts above the bar draw it, the bar
-// is see-through, and in Send to, which has no bar, the part at the foot has the card's corners. On
-// Linux there's no glass to let through,
-// so neither page is see-through anywhere.
+// group headers) draws its wells, hovers, selections and lines see-through, so they take the
+// glass's tint (styles/glass.css), while a white control there keeps its white under the pointer,
+// and a usage chip while it's dragged over the others; the strip over the list hides the rows that
+// scroll under it, and nothing draws a blur of its own (WebKit's, stacked on the glass, flickers as
+// the window moves). In the quick panel the card draws no ground of its own, which would cover the
+// glass under it, its parts above the bar draw it, the bar is see-through, its chips keep their
+// white under the pointer, and in Send to, which has no bar, the part at the foot has the card's
+// corners. On Linux there's no glass to let through, so neither page is see-through anywhere.
 //   PREVIEW_GLASS=1 scripts/preview.sh sessions '' scripts/preview/glass-check.js
 //   PREVIEW_GLASS=1 PREVIEW_SCHEME=dark scripts/preview.sh sessions '' scripts/preview/glass-check.js
 //   PREVIEW_WAIT=60000 PREVIEW_GLASS=1 scripts/preview.sh quick '' scripts/preview/glass-check.js
@@ -32,6 +31,23 @@
     return p.length > 3 ? p[3] : 1;
   };
   var bg = function (el) { return getComputedStyle(el).backgroundColor; };
+  // The background a control's :hover rule gives it, drawn on a probe in `place` (a :hover can't be
+  // made to happen here): its color, under whatever it lays over it.
+  var rules = function () { return [].concat.apply([], Array.prototype.map.call(document.styleSheets, function (sh) { try { return Array.prototype.slice.call(sh.cssRules); } catch (e) { return []; } })); };
+  var hoverOn = function (selector, place) {
+    var rule = rules().filter(function (r) { return r.selectorText && r.selectorText.split(',').some(function (s) { return s.trim() === selector; }); })[0];
+    if (!rule) return null;
+    var probe = document.createElement('div');
+    place.appendChild(probe);
+    probe.style.background = rule.style.background;
+    var color = bg(probe);
+    probe.remove();
+    return color;
+  };
+  var hovers = function (selector, place, opaque, what) {
+    var color = hoverOn(selector, place);
+    check(what, !!color && (opaque ? alpha(color) === 1 : alpha(color) > 0 && alpha(color) < 1), selector + ' → ' + (color || 'no rule for it'));
+  };
   var token = function (el, name) { return getComputedStyle(el).getPropertyValue(name).trim(); };
   var run = async function () {
     if (quick) {
@@ -48,7 +64,7 @@
       var parts = Array.prototype.filter.call(card.children, function (c) { return c !== bar && !c.classList.contains('ca-scrim'); });
       var clear = parts.filter(function (c) { return alpha(bg(c)) !== 1; });
       check('each part above the bar draws the card’s ground', parts.length > 0 && clear.length === 0, clear.map(function (c) { return c.className + ' ' + bg(c); }).join(', '));
-      check('a chip on the bar keeps an opaque hover', alpha(token(bar, '--surface-hover')) === 1, token(bar, '--surface-hover'));
+      hovers('.ca-quick-chip:hover', bar, true, 'a chip on the bar keeps its white under the pointer');
       // Send to (⌘F under a prompt) has no bar: the part at the card's foot has its corners.
       var box = q('.ca-quick-input textarea');
       type(box, 'Look at why the build fails on main and fix it');
@@ -81,24 +97,20 @@
     check('the board’s ground is frosted: mostly opaque, not clear', frost > 0.6 && frost < 1, bg(board));
     ['.ca-win-bar', '.ca-usagebar', '.ca-side', '.ca-listbar', '.ca-bay'].forEach(function (sel) {
       var el = q(sel);
-      var see = ['--surface-sunken', '--surface-selected', '--line', '--neutral-tint'].filter(function (t) { return !(alpha(token(el, t)) < 1); });
-      check(sel + ' draws its wells, selections, lines and keycaps see-through', see.length === 0, see.map(function (t) { return t + ' ' + token(el, t); }).join(', '));
-      check(sel + ' keeps surface-hover opaque', alpha(token(el, '--surface-hover')) === 1, token(el, '--surface-hover'));
+      var see = ['--surface-sunken', '--surface-hover', '--surface-selected', '--line', '--neutral-tint'].filter(function (t) { return !(alpha(token(el, t)) < 1); });
+      check(sel + ' draws its wells, hovers, selections, lines and keycaps see-through', see.length === 0, see.map(function (t) { return t + ' ' + token(el, t); }).join(', '));
     });
     var strip = q('.ca-listbar');
     check('the strip over the list hides the rows that scroll under it: opaque', alpha(bg(strip)) === 1, bg(strip));
     // A page's own blur, stacked on the glass behind the window, flickers as the window moves.
     var blurred = all('body *').filter(function (el) { var cs = getComputedStyle(el); return (cs.backdropFilter || cs.webkitBackdropFilter || 'none') !== 'none'; });
     check('nothing on the page draws a blur of its own over the glass', blurred.length === 0, blurred.slice(0, 3).map(function (el) { return el.className; }).join(', '));
-    // The search box's hover on the glass is a step from its see-through well, not surface-hover,
-    // opaque and nearly white there: the color its rule gives, on a probe in the title bar.
-    var hover = [].concat.apply([], Array.prototype.map.call(document.styleSheets, function (sh) { try { return Array.prototype.slice.call(sh.cssRules); } catch (e) { return []; } }))
-      .filter(function (r) { return r.selectorText === '.is-glass .ca-search:hover'; })[0];
-    var probe = document.createElement('div');
-    q('.ca-win-bar').appendChild(probe);
-    probe.style.background = hover ? hover.style.background : '';
-    check('the search box’s hover on the glass is see-through', !!hover && alpha(bg(probe)) > 0 && alpha(bg(probe)) < 1, hover ? hover.style.background + ' → ' + bg(probe) : 'no hover rule for it');
-    probe.remove();
+    // Under the pointer, what's on the glass is a shade of it, not near white; a white control there
+    // stays white, and a usage chip so while it's dragged over the others.
+    hovers('.ca-search:hover', q('.ca-win-bar'), false, 'the search box’s hover is see-through');
+    hovers('.ca-sidetoggle:hover', q('.ca-win-bar'), false, 'the sidebar toggle’s hover is see-through');
+    hovers('.ca-btn:hover', q('.ca-win-bar'), true, 'a button keeps its white under the pointer');
+    hovers('.ca-uchip:hover', q('.ca-usagebar'), true, 'a usage chip keeps its white under the pointer');
     var chip = q('.ca-usagebar .ca-uchip');
     check('a usage chip keeps its white', alpha(bg(chip)) === 1, bg(chip));
     var row = q('.ca-board .ca-lane');
