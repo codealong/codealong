@@ -129,7 +129,7 @@
 # over a stand-in for the glass macOS draws behind them: the theme's surface tinted olive to blue, as
 # macOS 26's Liquid Glass is nearly white in light and a dark gray in dark, with the wallpaper's hue,
 # strong enough that a gray with a hue of its own shows against it. The quick panel has it only
-# under the bar along its card's foot, over the stand-in desktop.
+# under its card, behind the page as the app puts it, so it shows only where the page lets it.
 # PREVIEW_GROUP=worktree|repo shows Sessions, PRs and Todo grouped by worktree or by repo (Group
 # by, over each list); without it, as the window was left: not grouped.
 # PREVIEW_LOADING=1 shows every window as it is at launch, before the engine's first scan has
@@ -267,7 +267,7 @@ backdrop="linear-gradient(135deg,rgb(93,111,134),rgb(169,182,196))"
 on_desktop() {
   setup="$setup</script><style>html.$1{background:${2:-}$backdrop!important}</style><script>"
 }
-[ -n "${PREVIEW_GLASS:-}" ] && setup="$setup</script><style>html.is-glass{background:linear-gradient(135deg,color-mix(in srgb,var(--surface) 82%,rgb(120,150,60)),color-mix(in srgb,var(--surface) 82%,rgb(60,120,200)))!important}html.is-glass.is-quick .ca-quick-bar{background:linear-gradient(var(--glass-sunken),var(--glass-sunken)),linear-gradient(135deg,color-mix(in srgb,var(--surface) 82%,rgb(120,150,60)),color-mix(in srgb,var(--surface) 82%,rgb(60,120,200)))!important}</style><script>"
+[ -n "${PREVIEW_GLASS:-}" ] && setup="$setup</script><style>html.is-glass{background:linear-gradient(135deg,color-mix(in srgb,var(--surface) 82%,rgb(120,150,60)),color-mix(in srgb,var(--surface) 82%,rgb(60,120,200)))!important}html.is-glass.is-quick .ca-quick::before{content:'';position:absolute;inset:0;z-index:-1;border-radius:inherit;background:linear-gradient(135deg,color-mix(in srgb,var(--surface) 82%,rgb(120,150,60)),color-mix(in srgb,var(--surface) 82%,rgb(60,120,200)))}</style><script>"
 if [ "$view" = bar ]; then
   size="${PREVIEW_SIZE:-1100,64}"
   # Headless Chrome's screen is 800 wide whatever the window; the bar fits itself to the screen.

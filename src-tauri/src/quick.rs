@@ -211,7 +211,8 @@ pub fn setup(app: &AppHandle) -> Result<()> {
 /// With glass on (glass.rs), the panel has it under its card, which its page lets through only
 /// at the bar along its foot (Quick.css); none while it's folded, as the page draws the chip in
 /// the card's window before the window shrinks round it, and the card's glass would show round
-/// the chip meanwhile. On the main thread, or any.
+/// the chip meanwhile, and none again until the page has drawn the card once it opens (`ready`).
+/// On the main thread, or any.
 pub fn fit_glass(app: &AppHandle) {
     let (Some(state), Some(window)) = (app.try_state::<Quick>(), app.get_webview_window(LABEL)) else { return };
     let on = crate::glass::shown() && !is_folded(&state);
@@ -248,7 +249,6 @@ pub fn open(app: &AppHandle, context: Value) {
         }
         None => context,
     };
-    fit_glass(app);
     // It opens where you are: on the screen with the pointer, centered, near the top.
     if !panel::is_visible(&window) {
         if let Some(s) = pointer_screen() {
@@ -345,6 +345,9 @@ fn anchor_on(visible: Rect) -> (f64, f64) {
 /// and give it the keyboard. On the main thread.
 pub fn ready(app: &AppHandle, height: Option<f64>) {
     let (Some(state), Some(window)) = (app.try_state::<Quick>(), app.get_webview_window(LABEL)) else { return };
+    // Opened from the chip, the glass comes back now the page draws the card, not as the window
+    // took the card's size back, while the chip still showed in it.
+    fit_glass(app);
     if let Ok(mut w) = state.waiting.lock() {
         if w.is_none() {
             // Not opening: the page answered after its wait ran out and the panel showed anyway.

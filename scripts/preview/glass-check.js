@@ -3,8 +3,9 @@
 // what sits on the glass (the title bar, the usage bar, the sidebar, the strip over the list, the
 // group headers) draws its wells, selections and lines see-through, so they take the glass's tint
 // (styles/glass.css), while surface-hover stays opaque there, so a white control keeps its white on
-// hover and a usage chip while it's dragged over the others. In the quick panel the bar along the
-// card's foot is see-through and the card above it isn't. On Linux there's no glass to let through,
+// hover and a usage chip while it's dragged over the others. In the quick panel the card draws no
+// ground of its own, which would cover the glass under it, its parts above the bar draw it, and the
+// bar is see-through. On Linux there's no glass to let through,
 // so neither page is see-through anywhere.
 //   PREVIEW_GLASS=1 scripts/preview.sh sessions '' scripts/preview/glass-check.js
 //   PREVIEW_GLASS=1 PREVIEW_SCHEME=dark scripts/preview.sh sessions '' scripts/preview/glass-check.js
@@ -38,7 +39,10 @@
       // It says so once the board comes, after the card is drawn.
       await until(function () { return document.documentElement.classList.contains('is-glass'); }, 20000, 'is-glass on the quick panel’s page');
       check('the bar lets the glass through', alpha(bg(bar)) < 0.5, bg(bar));
-      check('the card above it keeps its ground', alpha(bg(card)) === 1, bg(card));
+      check('the card draws no ground under it', alpha(bg(card)) === 0, bg(card));
+      var parts = Array.prototype.filter.call(card.children, function (c) { return c !== bar && !c.classList.contains('ca-scrim'); });
+      var clear = parts.filter(function (c) { return alpha(bg(c)) !== 1; });
+      check('each part above the bar draws the card’s ground', parts.length > 0 && clear.length === 0, clear.map(function (c) { return c.className + ' ' + bg(c); }).join(', '));
       check('a chip on the bar keeps an opaque hover', alpha(token(bar, '--surface-hover')) === 1, token(bar, '--surface-hover'));
       return;
     }

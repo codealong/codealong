@@ -563,8 +563,19 @@ html.is-quick body {
   background: var(--surface-sunken);
 }
 /* With glass on (src/glass.ts), the app puts macOS's glass under the card (quick.rs `fit_glass`),
-   and the bar lets it through, as the main window's sidebar does; the rest of the card keeps its
-   ground. */
+   and the bar lets it through, as the main window's sidebar does. The card draws no ground of its
+   own, which would cover the glass under the bar; each part of it but the bar draws the card's
+   instead, the first with the card's top corners. They stack with no gap, and none has a ground
+   of its own (a dialog's scrim, which covers the card, keeps its). */
+.is-glass .ca-quick {
+  background: transparent;
+}
+.is-glass .ca-quick > :not(.ca-quick-bar, .ca-scrim) {
+  background: var(--surface-raised);
+}
+.is-glass .ca-quick > :first-child {
+  border-radius: var(--radius-lg) var(--radius-lg) 0 0;
+}
 .is-glass .ca-quick-bar {
   background: var(--glass-sunken);
 }
