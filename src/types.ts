@@ -1501,7 +1501,9 @@ export type UpdateView = { current: string; behind?: DevBehind } & (
   | { state: 'checking' }
   | { state: 'upToDate'; checkedAt: number }
   | { state: 'installing'; version: string }
-  | { state: 'ready'; version: string; notes: string | null } // starts at the next launch
+  // In place, starting at the next launch, or with `inPlace` false, downloaded and going in at
+  // Restart to update (updates.rs `installs_at_once`).
+  | { state: 'ready'; version: string; notes: string | null; inPlace: boolean }
   | { state: 'failed'; error: string; at: number }
 );
 

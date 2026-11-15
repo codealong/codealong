@@ -1030,10 +1030,11 @@ fn check_for_updates(app: tauri::AppHandle) {
     updates::check_soon(&app);
 }
 
-/// Quits and opens the version an update put in place.
+/// Quits and opens the version an update put in place, or installs the one it kept first
+/// (updates.rs `restart`): what comes back is why that couldn't be.
 #[tauri::command]
-fn restart_to_update(app: tauri::AppHandle) {
-    app.restart();
+async fn restart_to_update(app: tauri::AppHandle) -> Result<(), String> {
+    blocking(move || updates::restart(&app)).await?
 }
 
 /// Whether the app opens when you log in, as the system has it (os/login): Settings › General.

@@ -165,8 +165,10 @@ In the app (`updates.rs`, `src/ui/Updates.tsx`):
 - **When it checks.** Two minutes after launch, once the first scan is done, then every six
   hours by the clock (so a Mac that slept catches up), and whenever asked. It downloads and
   installs in the background, then tells the windows an update is ready, with the version and
-  its notes. `[updates] check = false` in config.toml stops the automatic checks; asking still
-  works.
+  its notes. A Windows setup, a .deb or an .rpm is only downloaded then, and goes in at Restart to
+  update (`installs_at_once`): the setup quits the app to run, and the packages ask for an
+  administrator's password, which should come when you've asked for it. `[updates] check = false`
+  in config.toml stops the automatic checks; asking still works.
 - **Where you see it.** "Restart to update to <version>" above the foot of the sidebar once an
   update is in place; "Check for updates…" in the app menu under About (which becomes "Restart to
   update to <version>"), whose check the window in front follows in a toast: a spinner while it

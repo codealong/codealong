@@ -3,8 +3,9 @@
 // the build hasn't; and the Updates field in Settings › General.
 import { useEffect, useState } from 'react';
 import { devUpdateTask } from '../agentTasks';
-import { askAgent, checkForUpdates, onUpdateStatus, restartToUpdate, updateStatus } from '../api';
+import { askAgent, checkForUpdates, onUpdateStatus, restartToUpdate, updateStatus, windowLabel, windowToast } from '../api';
 import { agoPhrase } from '../format';
+import { errorText } from '../report';
 import type { Config, DevBehind, UpdateView } from '../types';
 import { Button, CheckBox, Icon } from './primitives';
 
@@ -39,10 +40,20 @@ function devBehind(view: UpdateView | null): DevBehind | null {
   return view?.state === 'off' ? (view.behind ?? null) : null;
 }
 
+/** Restart to update, and a toast in this window when the update it kept couldn't go in: a
+ *  password asked for and not given (updates.rs `restart`). */
+function restart() {
+  restartToUpdate().catch((e: unknown) => {
+    const here = windowLabel();
+    // A toast that can't be shown has nowhere else to go; the button is still there to try again.
+    if (here) windowToast(here, errorText(e)).catch(() => {});
+  });
+}
+
 /** Above the foot of the sidebar: Restart to update once a newer version is in place (the next
- *  launch runs it anyway; this is for now), or in Codealong Dev, Update once origin/main has
- *  commits the build hasn't, which opens the quick panel on a session that pulls them and
- *  relaunches it (agentTasks.ts `devUpdateTask`). */
+ *  launch runs it anyway; this is for now) or downloaded (which waits for this), or in Codealong
+ *  Dev, Update once origin/main has commits the build hasn't, which opens the quick panel on a
+ *  session that pulls them and relaunches it (agentTasks.ts `devUpdateTask`). */
 export function SidebarUpdate({ compact }: { compact?: boolean }) {
   const view = useUpdates();
   const behind = devBehind(view);
@@ -65,14 +76,14 @@ export function SidebarUpdate({ compact }: { compact?: boolean }) {
   // In the collapsed sidebar: its icon alone, marked.
   if (compact) {
     return (
-      <button type="button" className="ca-rail-btn is-update" aria-label={`Restart to update to ${view.version}`} title={`Restart to update to ${view.version}`} onClick={() => void restartToUpdate()}>
+      <button type="button" className="ca-rail-btn is-update" aria-label={`Restart to update to ${view.version}`} title={`Restart to update to ${view.version}`} onClick={restart}>
         <Icon name="refresh" size={18} />
         <span className="ca-rail-badge is-ink" aria-hidden="true" />
       </button>
     );
   }
   return (
-    <button type="button" className="ca-side-update" title={view.notes ?? `Codealong ${view.version} is ready`} onClick={() => void restartToUpdate()}>
+    <button type="button" className="ca-side-update" title={view.notes ?? `Codealong ${view.version} is ready`} onClick={restart}>
       <Icon name="refresh" size={14} />
       <span>Restart to update to {view.version}</span>
     </button>
@@ -95,7 +106,7 @@ export function updateSays(view: UpdateView, now: number): string {
     case 'installing':
       return `Getting Codealong ${view.version}…`;
     case 'ready':
-      return `Codealong ${view.version} starts when you restart it${view.notes ? `. What's new: ${view.notes}` : '.'}`;
+      return `${view.inPlace ? `Codealong ${view.version} starts when you restart it` : `Codealong ${view.version} is downloaded: Restart to update installs it`}${view.notes ? `. What's new: ${view.notes}` : '.'}`;
     case 'failed':
       return view.error;
   }
@@ -148,7 +159,7 @@ export function UpdatesFields({ cfg, onSave, now }: { cfg: Config; onSave: (next
         <div className="ca-settings-version">
           <span>Codealong {view.current}</span>
           {view.state === 'ready' ? (
-            <Button size="sm" icon="refresh" onClick={() => void restartToUpdate()}>
+            <Button size="sm" icon="refresh" onClick={restart}>
               Restart to update
             </Button>
           ) : view.state === 'off' && view.behind ? (

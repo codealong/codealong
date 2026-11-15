@@ -105,7 +105,10 @@ the app's windows, not this. Paths are under `src-tauri/src/`.
 - Ghostty's static library bundles Zig's compiler runtime on every OS (`GhosttyLibVt.zig`
   `bundle_compiler_rt`), whose weak definition of `__udivti3` Microsoft's link.exe takes for a
   conflict with Rust's compiler_builtins on Arm64 (LNK1227); lld-link, from the same clang, links
-  it (`.cargo/config.toml`). x86_64 hasn't been linked.
+  it (`.cargo/config.toml`). x86_64 links with link.exe (GitHub's windows-2025, 2026-11-14).
+- Tauri drops a resource's drive (tauri-utils `resources.rs` `normalize`) and looks for it on the
+  build's, so a resource in `%TEMP%` (C:) isn't found by a build on D:, where GitHub's x64 runner
+  has the checkout (`scripts/installers.sh`).
 - Tauri embeds its manifest, the one asking for Common Controls 6, in the app's binary alone, and
   the engine imports `TaskDialogIndirect`, which only that comctl32.dll has: a test binary without
   it isn't started (STATUS_ENTRYPOINT_NOT_FOUND), so build.rs has the linker write it into every
@@ -160,7 +163,20 @@ the app's windows, not this. Paths are under `src-tauri/src/`.
 - A program started over SSH runs in session 0, no one's desktop: the app is started from a
   scheduled task in the logged-on user's session (`scripts/windows/run.ps1`).
 
+## The setup and its updates
+
+- The installer is Tauri's NSIS setup, installing for the user alone (`%LOCALAPPDATA%`, no
+  administrator). An update runs the new setup with `/P /UPDATE /R` (passive, then the app opened
+  again) and the updater ends the app as soon as it's started (`std::process::exit`, after
+  Tauri's `cleanup_before_exit`), which is why updates.rs keeps it for Restart to update.
+- The setup asks Restart Manager which processes have its `codealong.exe` open and, passive,
+  shuts them down by force (`RmForceShutdown`, the template's `CheckIfAppIsRunning`): the server
+  too, and a `codealong` command an agent runs then. The new app starts a server as it does when
+  it finds none; store.rs's writes are a rename, so a write cut short leaves the last one.
+
 ## Unchecked
+
+- 2026-11-14: an update, end to end; the setup has only been built (CI), never run.
 
 - 2026-11-14: every harness's sessions there, and the app past its first run. The engine's and
   codealong-peer's tests pass in the VM (2108 and 29 on 2026-11-14), less 69 for what Windows

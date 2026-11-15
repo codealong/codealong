@@ -3,7 +3,9 @@
 //! codealong.com, which counts the check, and from GitHub itself when that fails), downloads a newer
 //! version's archive, checks its signature against the key compiled into the app, and puts the
 //! new bundle in place of this one. The running app carries on as it is; the new version starts
-//! at the next launch, or when you choose Restart to update.
+//! at the next launch, or when you choose Restart to update. Where the running copy can't be
+//! replaced without a word (a Windows setup, a .deb or an .rpm: `installs_at_once`), the update
+//! is downloaded and kept, and goes in when you choose Restart to update.
 //!
 //! Only release builds update themselves: scripts/release.sh builds with `CODEALONG_RELEASE`
 //! set. A build from relaunch.sh that found a release would replace itself with it. Codealong Dev,
@@ -18,6 +20,7 @@ use std::time::Duration;
 
 use serde::Serialize;
 use tauri::menu::MenuItem;
+use tauri::utils::config::BundleType;
 use tauri::{AppHandle, Emitter, Manager, Runtime, Wry};
 use tauri_plugin_updater::{Update, UpdaterExt};
 
@@ -53,8 +56,10 @@ pub enum Status {
     UpToDate { checked_at: i64 },
     /// Downloading a newer version and putting it in place.
     Installing { version: String },
-    /// A newer version is in place and starts at the next launch.
-    Ready { version: String, notes: Option<String> },
+    /// A newer version is in place and starts at the next launch, or with `in_place` false, is
+    /// downloaded and goes in at Restart to update (`installs_at_once`).
+    #[serde(rename_all = "camelCase")]
+    Ready { version: String, notes: Option<String>, in_place: bool },
     /// The last check or install didn't work; the next one tries again.
     Failed { error: String, at: i64 },
 }
@@ -95,6 +100,8 @@ pub struct Updates {
     /// When the last check finished, by the clock (ms), for the next one's turn.
     last_check: Mutex<i64>,
     menu: Mutex<Option<MenuItem<Wry>>>,
+    /// An update downloaded and checked, waiting for Restart to update (`installs_at_once`).
+    held: Mutex<Option<(Update, Vec<u8>)>>,
 }
 
 /// Whether this build updates itself.
@@ -239,14 +246,15 @@ fn finish(app: &AppHandle) {
         app,
         match outcome {
             Ok(None) => Status::UpToDate { checked_at: now_ms() },
-            Ok(Some((version, notes))) => Status::Ready { version, notes },
+            Ok(Some((version, notes, in_place))) => Status::Ready { version, notes, in_place },
             Err(error) => Status::Failed { error, at: now_ms() },
         },
     );
 }
 
-/// The newer version put in place, with its release notes; `None` when this is the latest.
-async fn install_newer(app: &AppHandle) -> Result<Option<(String, Option<String>)>, String> {
+/// The newer version put in place or downloaded, with its release notes and whether it's in
+/// place; `None` when this is the latest.
+async fn install_newer(app: &AppHandle) -> Result<Option<(String, Option<String>, bool)>, String> {
     // A manifest of your own, to try an update before it's released.
     let own = match std::env::var("CODEALONG_UPDATE_URL") {
         Ok(url) => Some(url.parse().map_err(|e| format!("CODEALONG_UPDATE_URL isn't a URL: {e}"))?),
@@ -259,11 +267,43 @@ async fn install_newer(app: &AppHandle) -> Result<Option<(String, Option<String>
         return Err(why);
     }
     set(app, Status::Installing { version: update.version.clone() });
-    update
-        .download_and_install(|_, _| {}, || {})
-        .await
-        .map_err(|e| format!("Couldn't install Codealong {}: {e}", update.version))?;
-    Ok(Some((update.version.clone(), update.body.clone().filter(|n| !n.trim().is_empty()))))
+    let in_place = installs_at_once(tauri::utils::platform::bundle_type());
+    if in_place {
+        update
+            .download_and_install(|_, _| {}, || {})
+            .await
+            .map_err(|e| format!("Couldn't install Codealong {}: {e}", update.version))?;
+    } else {
+        let bytes = update.download(|_, _| {}, || {}).await.map_err(|e| format!("Couldn't download Codealong {}: {e}", update.version))?;
+        *app.state::<Updates>().held.lock().unwrap() = Some((update.clone(), bytes));
+    }
+    Ok(Some((update.version.clone(), update.body.clone().filter(|n| !n.trim().is_empty()), in_place)))
+}
+
+/// Whether an update goes in as soon as it's found, the running copy carrying on as it is: an app
+/// bundle or an AppImage is replaced where it is. The others wait for Restart to update, so that
+/// what installing them does comes when you've asked for it: a Windows setup quits the app to run
+/// (Windows can't replace a running program) and opens the new version when it's done, and a .deb
+/// or an .rpm asks for an administrator's password (the updater runs pkexec). So does a build that
+/// doesn't say how it was installed, which the updater can't put in place.
+fn installs_at_once(bundle: Option<BundleType>) -> bool {
+    matches!(bundle, Some(BundleType::App | BundleType::AppImage))
+}
+
+/// Restart to update: an update that's kept goes in first, then the app starts again. A Windows
+/// setup ends the app itself as it starts, and the processes that run its binary, the server among
+/// them, which the new app starts again as it does whenever it finds none. Returns only when the
+/// update couldn't go in (a password asked for and not given): why, the update kept to try again.
+pub fn restart(app: &AppHandle) -> Result<(), String> {
+    let held = app.state::<Updates>().held.lock().unwrap().take();
+    if let Some((update, bytes)) = held {
+        if let Err(e) = update.install(&bytes) {
+            let why = format!("Couldn't install Codealong {}: {e}", update.version);
+            *app.state::<Updates>().held.lock().unwrap() = Some((update, bytes));
+            return Err(why);
+        }
+    }
+    app.restart();
 }
 
 /// A newer release, as tauri.conf.json's endpoints (or `only`) offer it. The updater asks them
@@ -329,7 +369,15 @@ fn add_menu(app: &AppHandle) -> tauri::Result<()> {
         }
         let ready = matches!(view(app).status, Status::Ready { .. });
         if ready {
-            app.restart();
+            // Off the main thread: a .deb's or an .rpm's password is asked for meanwhile.
+            let app = app.clone();
+            std::thread::spawn(move || {
+                if let Err(why) = restart(&app) {
+                    let _ = crate::front::show_main(&app, None);
+                    let _ = app.emit_to("main", "toast", why);
+                }
+            });
+            return;
         }
         check_soon(app);
         // The window in front says how the check goes, in a toast; Settings isn't opened for it.
@@ -354,6 +402,16 @@ mod tests {
     fn finds_the_bundle_of_its_executable() {
         assert_eq!(bundle_of(Path::new("/Applications/Codealong.app/Contents/MacOS/codealong")), Some(PathBuf::from("/Applications/Codealong.app")));
         assert_eq!(bundle_of(Path::new("/Users/me/codealong-target/release/codealong")), None);
+    }
+
+    #[test]
+    fn only_a_bundle_or_an_appimage_is_replaced_at_once() {
+        assert!(installs_at_once(Some(BundleType::App)));
+        assert!(installs_at_once(Some(BundleType::AppImage)));
+        for waits in [BundleType::Nsis, BundleType::Msi, BundleType::Deb, BundleType::Rpm] {
+            assert!(!installs_at_once(Some(waits)));
+        }
+        assert!(!installs_at_once(None));
     }
 
     #[test]
@@ -545,8 +603,8 @@ mod tests {
 
     #[test]
     fn a_status_says_its_state_to_the_windows() {
-        let ready = View { current: "0.2.0".into(), status: Status::Ready { version: "0.3.0".into(), notes: Some("Faster".into()) }, behind: None };
-        assert_eq!(serde_json::to_value(ready).unwrap(), serde_json::json!({"current": "0.2.0", "state": "ready", "version": "0.3.0", "notes": "Faster"}));
+        let ready = View { current: "0.2.0".into(), status: Status::Ready { version: "0.3.0".into(), notes: Some("Faster".into()), in_place: false }, behind: None };
+        assert_eq!(serde_json::to_value(ready).unwrap(), serde_json::json!({"current": "0.2.0", "state": "ready", "version": "0.3.0", "notes": "Faster", "inPlace": false}));
         let checked = View { current: "0.2.0".into(), status: Status::UpToDate { checked_at: 5 }, behind: None };
         assert_eq!(serde_json::to_value(checked).unwrap(), serde_json::json!({"current": "0.2.0", "state": "upToDate", "checkedAt": 5}));
         let off = View { current: "0.2.0".into(), status: Status::Off, behind: None };

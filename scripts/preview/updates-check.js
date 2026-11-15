@@ -36,7 +36,7 @@
     })
     .then(function () {
       check('it keeps looking while the update goes in', /Looking for updates/.test(busy()) && !toast(), busy() + ' / ' + toast());
-      status({ state: 'ready', version: '0.6.0', notes: 'Faster' });
+      status({ state: 'ready', version: '0.6.0', notes: 'Faster', inPlace: true });
       return until(function () { return toast(); }, 3000, 'the toast');
     })
     .then(function () {

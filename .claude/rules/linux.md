@@ -64,6 +64,13 @@ What Linux, its desktops and the harnesses there turned out to need, found in th
 
 ## Unchecked
 
+- 2026-11-14: the installers (`scripts/installers.sh`), built in CI and never installed. An update
+  replaces an AppImage where it is (`$APPIMAGE`) and installs a .deb or an .rpm with pkexec (then
+  zenity or kdialog with sudo, then sudo in a terminal: tauri-plugin-updater 2.14.1), so updates.rs
+  keeps those for Restart to update. An AppImage runs from a mount (`/tmp/.mount_…`) at another
+  path each launch, which goes when the app that mounted it quits; the server it starts runs from
+  there, so it may not be found as that app's own (`serve::ours` compares binaries) or outlive it.
+
 - 2026-11-02: the bar in the menu bar there (`menubar.rs`): the tray icon and its menu on a
   desktop that shows them, and `gdbus`'s IsStatusNotifierHostRegistered answer with and without a
   StatusNotifierWatcher (`os::windows::tray_shown`). CI only builds and tests it.
