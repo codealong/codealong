@@ -295,15 +295,24 @@ fn installs_at_once(bundle: Option<BundleType>) -> bool {
 /// them, which the new app starts again as it does whenever it finds none. Returns only when the
 /// update couldn't go in (a password asked for and not given): why, the update kept to try again.
 pub fn restart(app: &AppHandle) -> Result<(), String> {
-    let held = app.state::<Updates>().held.lock().unwrap().take();
-    if let Some((update, bytes)) = held {
-        if let Err(e) = update.install(&bytes) {
-            let why = format!("Couldn't install Codealong {}: {e}", update.version);
-            *app.state::<Updates>().held.lock().unwrap() = Some((update, bytes));
-            return Err(why);
+    let install = |(update, bytes): &(Update, Vec<u8>)| update.install(bytes).map_err(|e| format!("Couldn't install Codealong {}: {e}", update.version));
+    // None: another Restart to update is installing it, and restarts once it's in.
+    install_then(&app.state::<Updates>().held, install, || app.restart()).unwrap_or(Ok(()))
+}
+
+/// Installs the kept update, if there is one, then calls `then`, all under the lock, so a second
+/// Restart to update meanwhile (a click while the password is asked for) does nothing, where it
+/// would restart before the update is in: `None` for that one. The update stays kept when it
+/// doesn't go in.
+fn install_then<T>(kept: &Mutex<Option<T>>, install: impl FnOnce(&T) -> Result<(), String>, then: impl FnOnce()) -> Option<Result<(), String>> {
+    let kept = kept.try_lock().ok()?;
+    if let Some(update) = kept.as_ref() {
+        if let Err(why) = install(update) {
+            return Some(Err(why));
         }
     }
-    app.restart();
+    then();
+    Some(Ok(()))
 }
 
 /// A newer release, as tauri.conf.json's endpoints (or `only`) offer it. The updater asks them
@@ -412,6 +421,42 @@ mod tests {
             assert!(!installs_at_once(Some(waits)));
         }
         assert!(!installs_at_once(None));
+    }
+
+    #[test]
+    fn a_second_restart_while_the_update_goes_in_does_nothing() {
+        use std::sync::{mpsc, Arc};
+        let kept = Arc::new(Mutex::new(Some("0.3.0")));
+        let (started_tx, started) = mpsc::channel();
+        let (answer, answered) = mpsc::channel::<Result<(), String>>();
+        let first = {
+            let kept = kept.clone();
+            std::thread::spawn(move || {
+                install_then(
+                    &kept,
+                    |_| {
+                        started_tx.send(()).unwrap();
+                        // The password dialog, until it's answered.
+                        answered.recv().unwrap()
+                    },
+                    || panic!("restarted though the update didn't go in"),
+                )
+            })
+        };
+        started.recv().unwrap();
+        let mut restarted = false;
+        assert_eq!(install_then(&kept, |_| panic!("installed twice"), || restarted = true), None);
+        assert!(!restarted, "the second restart went ahead before the update was in");
+        answer.send(Err("no password".into())).unwrap();
+        assert_eq!(first.join().unwrap(), Some(Err("no password".into())));
+        // Kept for another try, which goes in and restarts.
+        assert_eq!(*kept.lock().unwrap(), Some("0.3.0"));
+        assert_eq!(install_then(&kept, |_| Ok(()), || restarted = true), Some(Ok(())));
+        assert!(restarted);
+        // With nothing kept (an app bundle, an AppImage), it restarts at once.
+        let mut restarted = false;
+        assert_eq!(install_then(&Mutex::new(None::<&str>), |_| panic!("nothing to install"), || restarted = true), Some(Ok(())));
+        assert!(restarted);
     }
 
     #[test]
