@@ -126,8 +126,9 @@
 # PREVIEW_ANALYTICS=1 turns `[experimental] analytics` on, with a made-up report for the Analytics
 # window's Your part and Sessions (scripts/preview/usage-part-init.js opens them).
 # PREVIEW_GLASS=1 turns `[appearance] glass` on: the main window's chrome and board are see-through,
-# over a stand-in for the glass macOS draws behind them: the theme's surface, faintly tinted, as
-# macOS 26's Liquid Glass is nearly white in light and a dark gray in dark.
+# over a stand-in for the glass macOS draws behind them: the theme's surface tinted olive to blue, as
+# macOS 26's Liquid Glass is nearly white in light and a dark gray in dark, with the wallpaper's hue,
+# strong enough that a gray with a hue of its own shows against it.
 # PREVIEW_GROUP=worktree|repo shows Sessions, PRs and Todo grouped by worktree or by repo (Group
 # by, over each list); without it, as the window was left: not grouped.
 # PREVIEW_LOADING=1 shows every window as it is at launch, before the engine's first scan has
@@ -265,7 +266,7 @@ backdrop="linear-gradient(135deg,rgb(93,111,134),rgb(169,182,196))"
 on_desktop() {
   setup="$setup</script><style>html.$1{background:${2:-}$backdrop!important}</style><script>"
 }
-[ -n "${PREVIEW_GLASS:-}" ] && setup="$setup</script><style>html.is-glass{background:linear-gradient(135deg,color-mix(in srgb,var(--surface) 94%,rgb(150,110,210)),color-mix(in srgb,var(--surface) 92%,rgb(90,150,190)))!important}</style><script>"
+[ -n "${PREVIEW_GLASS:-}" ] && setup="$setup</script><style>html.is-glass{background:linear-gradient(135deg,color-mix(in srgb,var(--surface) 82%,rgb(120,150,60)),color-mix(in srgb,var(--surface) 82%,rgb(60,120,200)))!important}</style><script>"
 if [ "$view" = bar ]; then
   size="${PREVIEW_SIZE:-1100,64}"
   # Headless Chrome's screen is 800 wide whatever the window; the bar fits itself to the screen.

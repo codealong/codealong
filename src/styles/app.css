@@ -21,6 +21,7 @@
 @import './tree.css';
 @import './dialog.css';
 @import './panel.css';
+@import './glass.css';
 @import '../App.css';
 @import '../ui/Inspector.css';
 @import '../ui/UsageBar.css';

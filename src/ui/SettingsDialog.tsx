@@ -483,7 +483,7 @@ function AppearancePane({ cfg, theme, onPickTheme, disabled, onSave }: PaneProps
           <label className="ca-field ca-settings-check">
             <CheckBox checked={!!cfg.appearance.glass} onChange={(on) => void onSave({ ...cfg, appearance: { ...cfg.appearance, glass: on } })} />
             <span>Glass</span>
-            <small>The main window and the project windows show what’s behind them through macOS’s glass, Liquid Glass from macOS 26 and the sidebar’s blur before it: the title bar, the sidebar and what’s gray around the list let it through, as the Finder’s do, while the rows, the cards and the panel keep their own ground.</small>
+            <small>The main window and the project windows show what’s behind them through macOS’s glass, Liquid Glass from macOS 26 and the sidebar’s blur before it: the title bar and the sidebar let it through, as the Finder’s do, what sits on it takes its tint, and the bands between a list’s groups are frosted, while the rows, the cards and the panel keep their own ground.</small>
           </label>
         )}
         <EmblemsFields cfg={cfg} disabled={disabled} onSave={(next) => void onSave(next)} />

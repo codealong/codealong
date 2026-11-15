@@ -1,0 +1,24 @@
+/* With glass on (src/glass.ts), what sits on the glass draws its neutrals see-through, black or
+   white with no hue of their own, rather than the palette's grays, which have one (a green-gray)
+   and looked out of place over a glass that takes its hue from the wallpaper. A well, a hover, a
+   selection, a line or a keycap there is a shade of whatever is behind it, as macOS's vibrancy draws
+   them. Only the glass's places: the title bar, the usage bar, the sidebar and its rail, the strip
+   over the list, the list's group headers and Kanban's column heads. What's white (the rows, the
+   cards, the panel, menus) keeps the palette's grays, which the see-through ones come to over
+   white anyway, and what covers something that scrolls under it keeps a ground of its own. */
+.is-glass .ca-win-bar,
+.is-glass .ca-usagebar,
+.is-glass .ca-side,
+.is-glass .ca-rail,
+.is-glass .ca-listbar,
+.is-glass .ca-bay,
+.is-glass .ca-kb-head,
+.is-glass .ca-kb-rail {
+  --surface-sunken: var(--glass-well);
+  --surface-hover: var(--glass-hover);
+  --surface-selected: var(--glass-selected);
+  --nav-hover: var(--glass-hover);
+  --nav-selected: var(--glass-nav-selected);
+  --line: var(--glass-line);
+  --neutral-tint: var(--glass-tint);
+}

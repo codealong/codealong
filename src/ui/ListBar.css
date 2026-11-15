@@ -19,8 +19,8 @@
   background: var(--surface-sunken);
   box-shadow: 0 -2px 0 var(--surface-sunken);
 }
-/* With glass on (src/glass.ts), see-through over the board, which is the glass there, as the usage
-   bar over it is; the rows that scroll under it are blurred, as under a toolbar of macOS's. The
+/* With glass on (src/glass.ts), see-through over the board's frosted glass, as the usage bar over
+   it is; the rows that scroll under it are blurred, as under a toolbar of macOS's. The
    strip over a session's panel is the panel's own white instead (SessionPanel.css), and the two
    lines still meet. */
 .is-glass .ca-listbar {

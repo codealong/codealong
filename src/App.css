@@ -37,12 +37,14 @@
   box-shadow: none;
 }
 /* With glass on (src/glass.ts), the title bar is half see-through over macOS's glass, as the
-   Finder's toolbar is, and the board's ground is the glass itself: what showed gray between the
-   rows and below them shows the glass, and the rows keep their own ground, so what you read stays
-   as legible. */
-.is-glass .ca-win,
-.is-glass .ca-board {
+   Finder's toolbar is, and the board's ground is the glass frosted: what showed gray between the
+   rows and below them is tinted by the glass without showing the wallpaper through it, and the
+   rows keep their own ground, so what you read stays as legible. */
+.is-glass .ca-win {
   background: transparent;
+}
+.is-glass .ca-board {
+  background: var(--glass-ground);
 }
 .is-glass .ca-win-bar {
   background: var(--glass-chrome);
