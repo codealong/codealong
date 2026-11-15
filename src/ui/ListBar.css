@@ -19,15 +19,15 @@
   background: var(--surface-sunken);
   box-shadow: 0 -2px 0 var(--surface-sunken);
 }
-/* With glass on (src/glass.ts), see-through over the board's frosted glass, as the usage bar over
-   it is; the rows that scroll under it are blurred, as under a toolbar of macOS's. The
-   strip over a session's panel is the panel's own white instead (SessionPanel.css), and the two
-   lines still meet. */
+/* With glass on (src/glass.ts), frosted all but through, a shade under the board's frosted ground,
+   so the rows that scroll under it don't show. Not see-through and blurred, as under a toolbar of
+   macOS's: WebKit draws a page's backdrop-filter with a backdrop layer of its own, and stacked on
+   the glass behind the window the strip flickered as the window was dragged (2026-11-15). The strip
+   over a session's panel is the panel's own white instead (SessionPanel.css), and the two lines
+   still meet. */
 .is-glass .ca-listbar {
-  background: var(--glass-sunken);
-  box-shadow: 0 -2px 0 var(--glass-sunken);
-  -webkit-backdrop-filter: blur(16px) saturate(1.6);
-  backdrop-filter: blur(16px) saturate(1.6);
+  background: var(--glass-cover);
+  box-shadow: 0 -2px 0 var(--glass-cover);
 }
 /* A row the keyboard goes to is scrolled to just under the bar, not under it: the bar's height. */
 .ca-board:has(> .ca-listbar) {

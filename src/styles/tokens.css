@@ -16,6 +16,7 @@
   --glass-chrome: rgba(255, 255, 255, 0.5);
   --glass-sunken: rgba(0, 0, 0, 0.03);
   --glass-ground: rgba(245, 245, 245, 0.82);
+  --glass-cover: rgba(238, 238, 239, 0.94);
   --glass-well: rgba(0, 0, 0, 0.09);
   --glass-hover: rgba(0, 0, 0, 0.035);
   --glass-selected: rgba(0, 0, 0, 0.11);
@@ -185,6 +186,7 @@
     --glass-chrome: rgba(0, 0, 0, 0.3);
     --glass-sunken: rgba(0, 0, 0, 0.15);
     --glass-ground: rgba(14, 14, 15, 0.82);
+    --glass-cover: rgba(10, 10, 11, 0.94);
     --glass-well: rgba(0, 0, 0, 0.5);
     --glass-hover: rgba(255, 255, 255, 0.025);
     --glass-selected: rgba(255, 255, 255, 0.075);
@@ -291,6 +293,7 @@
   --glass-chrome: rgba(0, 0, 0, 0.3);
   --glass-sunken: rgba(0, 0, 0, 0.15);
   --glass-ground: rgba(14, 14, 15, 0.82);
+  --glass-cover: rgba(10, 10, 11, 0.94);
   --glass-well: rgba(0, 0, 0, 0.5);
   --glass-hover: rgba(255, 255, 255, 0.025);
   --glass-selected: rgba(255, 255, 255, 0.075);

@@ -2,7 +2,9 @@
 // root says is-glass and draws no ground of its own, and the board's ground is frosted, not clear;
 // what sits on the glass (the title bar, the usage bar, the sidebar, the strip over the list, the
 // group headers) draws its wells, selections and lines see-through, so they take the glass's tint
-// (styles/glass.css), while surface-hover stays opaque there, so a white control keeps its white on
+// (styles/glass.css), the strip over the list hides the rows that scroll under it, nothing draws a
+// blur of its own (WebKit's, stacked on the glass, flickers as the window moves), and surface-hover
+// stays opaque there, so a white control keeps its white on
 // hover and a usage chip while it's dragged over the others. In the quick panel the card draws no
 // ground of its own, which would cover the glass under it, its parts above the bar draw it, the bar
 // is see-through, and in Send to, which has no bar, the part at the foot has the card's corners. On
@@ -83,6 +85,11 @@
       check(sel + ' draws its wells, selections, lines and keycaps see-through', see.length === 0, see.map(function (t) { return t + ' ' + token(el, t); }).join(', '));
       check(sel + ' keeps surface-hover opaque', alpha(token(el, '--surface-hover')) === 1, token(el, '--surface-hover'));
     });
+    var strip = q('.ca-listbar');
+    check('the strip over the list hides the rows that scroll under it', alpha(bg(strip)) >= 0.9, bg(strip));
+    // A page's own blur, stacked on the glass behind the window, flickers as the window moves.
+    var blurred = all('body *').filter(function (el) { var cs = getComputedStyle(el); return (cs.backdropFilter || cs.webkitBackdropFilter || 'none') !== 'none'; });
+    check('nothing on the page draws a blur of its own over the glass', blurred.length === 0, blurred.slice(0, 3).map(function (el) { return el.className; }).join(', '));
     var chip = q('.ca-usagebar .ca-uchip');
     check('a usage chip keeps its white', alpha(bg(chip)) === 1, bg(chip));
     var row = q('.ca-board .ca-lane');
