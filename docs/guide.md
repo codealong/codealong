@@ -2320,7 +2320,7 @@ a wizard over the main window has you confirm it, and offers session emblems, in
   agents worked in, and the usual places for code in your home folder (`~/projects`, `~/code`,
   `~/src`, `~/Developer` and the like) that hold repos, each saying how many repos it has and how
   many your agents worked in lately. Type another to add it.
-- **Your apps**: the terminal sessions open in and the editor folders open in, from the ones
+- **Terminal and editor**: the terminal sessions open in and the editor folders open in, from the ones
   installed.
 - **Your sessions**: session emblems (see *Emblems*), with Settings › Appearance's own choices, None
   to start with (or what config.toml has, when you go through it again): Emoji, with a box for

@@ -76,13 +76,13 @@
       check('and Return there stays on the step', heading() === 'Your repos', heading());
       button('Next').click();
 
-      await until(function () { return heading() === 'Your apps'; }, 5000, 'Next didn’t go on to the apps');
+      await until(function () { return heading() === 'Terminal and editor'; }, 5000, 'Next didn’t go on to the terminal and editor');
       check('it asks for the terminal and the editor', all('select', dialog()).length === 2);
       button('Back').click();
       await until(function () { return heading() === 'Your repos'; }, 5000, 'Back didn’t go back');
       check('Back keeps what was picked', ticked('~/src') && !ticked('~/projects'));
       button('Next').click();
-      await until(function () { return heading() === 'Your apps'; }, 5000);
+      await until(function () { return heading() === 'Terminal and editor'; }, 5000);
       button('Next').click();
 
       await until(function () { return heading() === 'Your sessions'; }, 5000, 'Next didn’t go on to session emblems');

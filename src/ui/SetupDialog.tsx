@@ -65,7 +65,7 @@ const LEDE: Record<SetupStep, string> = {
   ready: 'Codealong keeps these in config.toml, and Settings changes them whenever you like.',
 };
 
-const TITLE: Record<SetupStep, string> = { accounts: 'Your agents', folders: 'Your repos', apps: 'Your apps', emblems: 'Your sessions', ready: 'Ready' };
+const TITLE: Record<SetupStep, string> = { accounts: 'Your agents', folders: 'Your repos', apps: 'Terminal and editor', emblems: 'Your sessions', ready: 'Ready' };
 
 function Check({ checked, onChange, label, note }: { checked: boolean; onChange: (on: boolean) => void; label: ReactNode; note?: ReactNode }) {
   return (
