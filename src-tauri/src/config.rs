@@ -3723,7 +3723,9 @@ mod tests {
     #[test]
     fn glass_is_on_by_default_on_macos_and_a_file_says_it_only_when_it_differs() {
         use crate::os::{as_if, Os};
-        // Elsewhere there's no glass to turn on (the fixture's sounds are macOS's, so it's parsed there).
+        // Read with `from_text`, not `parse`: as if on macOS, the fixture's sounds are macOS's, which
+        // `check` looks for in folders a Linux or Windows runner hasn't.
+        // Elsewhere there's no glass to turn on.
         for os in [Os::Linux, Os::Windows] {
             as_if(os, || assert!(!toml::from_str::<Config>("").unwrap().appearance.glass, "{os:?}"));
         }
@@ -3736,11 +3738,11 @@ mod tests {
                 let other = Config { appearance: AppearanceCfg { glass: !default, ..full().appearance }, ..full() };
                 let out = with_config(&old, &other).unwrap();
                 assert!(out.contains(&format!("[appearance]\ntheme = \"dark\"\nglass = {}\n", !default)), "{out}");
-                assert_eq!(parse(&out).unwrap(), other);
-                assert_eq!(parse(&render(&other)).unwrap(), other);
+                assert_eq!(from_text(&out).unwrap(), other);
+                assert_eq!(from_text(&render(&other)).unwrap(), other);
                 let back = with_config(&out, &full()).unwrap();
                 assert!(back.contains(&format!("[appearance]\ntheme = \"dark\"\nglass = {default}\n")), "{back}");
-                assert_eq!(parse(&back).unwrap(), full());
+                assert_eq!(from_text(&back).unwrap(), full());
             });
         }
     }
@@ -3751,15 +3753,15 @@ mod tests {
         for was in [true, false] {
             let now = Config { appearance: AppearanceCfg { glass: was, ..full().appearance }, ..full() };
             let old = render(&full()).replace("[appearance]\n", &format!("[experimental]\nboards = false\nglass = {was}\n\n[appearance]\n"));
-            assert_eq!(parse(&old).unwrap(), now, "{was}");
+            assert_eq!(from_text(&old).unwrap(), now, "{was}");
             let out = with_config(&old, &now).unwrap();
             assert!(out.contains("[experimental]\nboards = false\n\n"), "{out}");
-            assert_eq!(parse(&out).unwrap(), now, "{out}");
+            assert_eq!(from_text(&out).unwrap(), now, "{out}");
         }
         // Set where it is now, it isn't set again from where it was.
         let old = render(&full()).replace("[appearance]\n", "[experimental]\nboards = false\nglass = true\n\n[appearance]\n");
         let both = old.replace("theme = \"dark\"\n", "theme = \"dark\"\nglass = false\n");
-        assert!(!parse(&both).unwrap().appearance.glass);
+        assert!(!from_text(&both).unwrap().appearance.glass);
     }
 
     #[test]
