@@ -85,6 +85,9 @@ struct Quick {
     waiting: Mutex<Option<u64>>,
     /// Folded to the chip that holds what you wrote (`put_aside`), with the height it had open.
     folded: Mutex<Option<f64>>,
+    /// Whether the page has drawn the card since the panel last folded, which it says by answering
+    /// an open with its height (`drew_card`): glass goes under the card only then (`fit_glass`).
+    card_drawn: Mutex<bool>,
     lost: Mutex<Lost>,
     shortcut: Mutex<ShortcutState>,
     chat_shortcut: Mutex<ShortcutState>,
@@ -209,14 +212,27 @@ pub fn setup(app: &AppHandle) -> Result<()> {
 }
 
 /// With glass on (glass.rs), the panel has it under its card, which its page lets through only
-/// at the bar along its foot (Quick.css); none while it's folded, as the page draws the chip in
+/// at the bar along its foot (Quick.css). None while it's folded, as the page draws the chip in
 /// the card's window before the window shrinks round it, and the card's glass would show round
-/// the chip meanwhile, and none again until the page has drawn the card once it opens (`ready`).
-/// On the main thread, or any.
+/// the chip meanwhile; and none once it opens again until the page has drawn the card, which an
+/// open whose page doesn't answer in time shows the panel without. On the main thread, or any.
 pub fn fit_glass(app: &AppHandle) {
     let (Some(state), Some(window)) = (app.try_state::<Quick>(), app.get_webview_window(LABEL)) else { return };
-    let on = crate::glass::shown() && !is_folded(&state);
+    let drawn = state.card_drawn.lock().is_ok_and(|d| *d);
+    let on = crate::glass::shown() && drawn && !is_folded(&state);
     panel::set_glass_under(&window, on.then_some((MARGIN, RADIUS)));
+}
+
+/// The page answered the newest open with its height: the card is drawn, not the chip, so the
+/// glass can go under it. An answer that comes while it's folded again is too late to say so.
+fn drew_card(app: &AppHandle) {
+    let Some(state) = app.try_state::<Quick>() else { return };
+    if !is_folded(&state) {
+        if let Ok(mut drawn) = state.card_drawn.lock() {
+            *drawn = true;
+        }
+    }
+    fit_glass(app);
 }
 
 /// Opens the panel, or brings it back up, for `context`: what a board window asks it to start
@@ -315,6 +331,9 @@ fn answered(app: &AppHandle, id: u64, height: Option<f64>, since: Instant) {
     // A later open has the page now, or the panel was closed meanwhile.
     if latest && height.is_some() {
         ready(app, height);
+    } else if height.is_some() && state.opens.lock().is_ok_and(|o| *o == id) {
+        // The newest open's answer, after its wait ran out and the panel showed without it.
+        drew_card(app);
     }
 }
 
@@ -345,9 +364,11 @@ fn anchor_on(visible: Rect) -> (f64, f64) {
 /// and give it the keyboard. On the main thread.
 pub fn ready(app: &AppHandle, height: Option<f64>) {
     let (Some(state), Some(window)) = (app.try_state::<Quick>(), app.get_webview_window(LABEL)) else { return };
-    // Opened from the chip, the glass comes back now the page draws the card, not as the window
-    // took the card's size back, while the chip still showed in it.
-    fit_glass(app);
+    // The page laid out the open (or, at launch, came up and said so): the card is drawn. A wait
+    // that ran out says nothing of what the page shows, the chip still, maybe.
+    if height.is_some() {
+        drew_card(app);
+    }
     if let Ok(mut w) = state.waiting.lock() {
         if w.is_none() {
             // Not opening: the page answered after its wait ran out and the panel showed anyway.
@@ -474,6 +495,9 @@ fn put_aside(app: &AppHandle) {
     let open_height = panel::frame(&window).map_or(START_HEIGHT, |f| f.h);
     if let Ok(mut f) = state.folded.lock() {
         *f = Some(open_height);
+    }
+    if let Ok(mut drawn) = state.card_drawn.lock() {
+        *drawn = false;
     }
     fit_glass(app);
     let handle = app.clone();

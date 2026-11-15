@@ -4,8 +4,9 @@
 // group headers) draws its wells, selections and lines see-through, so they take the glass's tint
 // (styles/glass.css), while surface-hover stays opaque there, so a white control keeps its white on
 // hover and a usage chip while it's dragged over the others. In the quick panel the card draws no
-// ground of its own, which would cover the glass under it, its parts above the bar draw it, and the
-// bar is see-through. On Linux there's no glass to let through,
+// ground of its own, which would cover the glass under it, its parts above the bar draw it, the bar
+// is see-through, and in Send to, which has no bar, the part at the foot has the card's corners. On
+// Linux there's no glass to let through,
 // so neither page is see-through anywhere.
 //   PREVIEW_GLASS=1 scripts/preview.sh sessions '' scripts/preview/glass-check.js
 //   PREVIEW_GLASS=1 PREVIEW_SCHEME=dark scripts/preview.sh sessions '' scripts/preview/glass-check.js
@@ -15,6 +16,8 @@
   var linux = window.__CODEALONG_PLATFORM__ === 'linux';
   // The quick panel's page, as its window says (quick.rs `setup`).
   var quick = !!window.__CODEALONG_QUICK__;
+  // Before the app's script: every project's sessions, for Send to to list (quick-sendto-check.js).
+  if (quick) localStorage.setItem('codealong.quick.project', 'All projects');
   // A color's opacity, as computed (rgb(), rgba()) or as the build writes a token (#rgb, #rrggbb,
   // and #rrggbbaa for one with alpha).
   var alpha = function (color) {
@@ -44,6 +47,22 @@
       var clear = parts.filter(function (c) { return alpha(bg(c)) !== 1; });
       check('each part above the bar draws the card’s ground', parts.length > 0 && clear.length === 0, clear.map(function (c) { return c.className + ' ' + bg(c); }).join(', '));
       check('a chip on the bar keeps an opaque hover', alpha(token(bar, '--surface-hover')) === 1, token(bar, '--surface-hover'));
+      // Send to (⌘F under a prompt) has no bar: the part at the card's foot has its corners.
+      var box = q('.ca-quick-input textarea');
+      type(box, 'Look at why the build fails on main and fix it');
+      for (var i = 0; i < 20 && q('.ca-quick-bar'); i++) {
+        await wait(250);
+        key(box, { key: 'f', metaKey: true });
+      }
+      await wait(300);
+      if (q('.ca-quick-bar')) {
+        // Nothing here it can send to: the bar is taken out as Send to leaves it out.
+        note('Send to didn’t open, with nothing here to send to: the bar is taken out as it leaves it out');
+        q('.ca-quick-bar').remove();
+      }
+      var foot = Array.prototype.filter.call(card.children, function (c) { return !c.classList.contains('ca-scrim'); }).pop();
+      var corners = getComputedStyle(foot);
+      check('in Send to, the part at the card’s foot has its bottom corners', corners.borderBottomLeftRadius === '12px' && corners.borderBottomRightRadius === '12px', foot.className + ' ' + corners.borderBottomLeftRadius + ' ' + corners.borderBottomRightRadius);
       return;
     }
     await until(function () { return q('.ca-usagebar .ca-uchip') && q('.ca-side') && q('.ca-listbar') && q('.ca-bay'); }, 20000, 'the usage bar, the sidebar, the strip over the list and a group header');

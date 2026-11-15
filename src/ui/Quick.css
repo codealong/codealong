@@ -566,7 +566,7 @@ html.is-quick body {
    and the bar lets it through, as the main window's sidebar does. The card draws no ground of its
    own, which would cover the glass under the bar; each part of it but the bar draws the card's
    instead, the first with the card's top corners. They stack with no gap, and none has a ground
-   of its own (a dialog's scrim, which covers the card, keeps its). */
+   of its own (a dialog's scrim, which covers the card, keeps its). The card doesn't clip them. */
 .is-glass .ca-quick {
   background: transparent;
 }
@@ -574,7 +574,14 @@ html.is-quick body {
   background: var(--surface-raised);
 }
 .is-glass .ca-quick > :first-child {
-  border-radius: var(--radius-lg) var(--radius-lg) 0 0;
+  border-top-left-radius: var(--radius-lg);
+  border-top-right-radius: var(--radius-lg);
+}
+/* With no bar (Send to has none), the last part but a scrim is at the card's foot, and has its
+   bottom corners. */
+.is-glass .ca-quick > :nth-last-child(1 of :not(.ca-scrim)):not(.ca-quick-bar) {
+  border-bottom-left-radius: var(--radius-lg);
+  border-bottom-right-radius: var(--radius-lg);
 }
 .is-glass .ca-quick-bar {
   background: var(--glass-sunken);
