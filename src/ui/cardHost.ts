@@ -76,7 +76,7 @@ export function useLiveSession(told: Told | null, shown: boolean): LiveSession {
   // The theme and zoom as the latest push says, for one the board doesn't list (another device's).
   const [look, setLook] = useState<{ theme: Theme; zoom: number | null } | null>(null);
   const [board, setBoard] = useState<CardBoard | null>(null);
-  const takeBoard = useCallback((b: Board) => setBoard((prev) => reuse(prev, { prs: b.prs, lanes: b.lanes, todos: b.todos, labels: b.labels, sides: b.sides, pinned: b.pinned, nudgeAbout: b.nudgeAbout, reviews: b.reviews, repos: b.repos, teamFiles: b.teamFiles, terminals: b.terminals })), []);
+  const takeBoard = useCallback((b: Board) => setBoard((prev) => reuse(prev, { prs: b.prs, lanes: b.lanes, todos: b.todos, labels: b.labels, sides: b.sides, starting: b.starting, pinned: b.pinned, nudgeAbout: b.nudgeAbout, reviews: b.reviews, repos: b.repos, teamFiles: b.teamFiles, terminals: b.terminals })), []);
   const toldNow = useRef(told);
   toldNow.current = told;
 

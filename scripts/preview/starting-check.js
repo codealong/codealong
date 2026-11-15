@@ -5,6 +5,9 @@
 // (Notices.tsx) shows that screen as it's laid out. The board is the snapshot's, with two starts
 // put under the first session the list shows, and the notice the engine would make for the stuck one.
 //   PREVIEW_WAIT=60000 scripts/preview.sh sessions '' scripts/preview/starting-check.js
+// A window that shows a session as a card (cardHost.ts) has the line too: the peek, a start put
+// under the session it opens on.
+//   PREVIEW_WAIT=60000 scripts/preview.sh peek '' scripts/preview/starting-check.js
 (function () {
   var MIN = 60000;
   var screen = '  Hooks need review\n  3 hooks are new or changed.\n\n› 1. Review hooks\n  2. Trust all and continue\n\n  enter confirm · esc skip';
@@ -13,7 +16,24 @@
   var rows = function () { return all('.ca-sessinsp-kids .ca-sessinsp-kin'); };
   var text = function (el, sel) { var x = el && el.querySelector(sel); return x ? x.textContent : null; };
 
+  // The peek: the session it shows, with a start under it.
+  var peek = async function () {
+    var card = await until(function () { return q('[data-shows-session]'); }, 20000, 'the peek’s session');
+    var key = card.getAttribute('data-shows-session');
+    var b = await window.__TAURI_INTERNALS__.invoke('get_board');
+    var home = null;
+    b.lanes.forEach(function (l) { l.sessions.forEach(function (s) { if (s.key === key) home = l; if (s.origin && s.origin.key === key) s.origin = null; if (s.helper && s.helper.parent === key) s.helper = null; }); });
+    if (b.sides) delete b.sides[key];
+    b.starting = {};
+    b.starting[key] = [{ at: Date.now() - 5 * MIN, account: 'codex', harness: 'Codex', lane: home ? home.id : '/r', place: home ? home.callsign : 'r', helper: true, opens: opens, terminal: 'Rex', stuck: true, screen: screen }];
+    window.__emit('board', b);
+    var r = await until(function () { return q('.ca-sessinsp-kids .ca-sessinsp-kin.is-starting'); }, 5000, 'the start under the peek’s title');
+    check('the peek lists the start under its session too', text(r, '.ca-sessinsp-kin-title') === opens && text(r, '.ca-sessinsp-kin-state') === '\u201cHooks need review\u201d', r.textContent);
+    done();
+  };
+
   var run = async function () {
+    if (window.__CODEALONG_PEEK__) return peek();
     // The session the list shows first (App.tsx `domIdOf`: its row's id is `row-` and its row's
     // key, which ends in `::` and the session's key).
     var first = await until(function () { return q('.ca-lane.is-agent[id^="row-"]'); }, 20000, 'a session in the list');

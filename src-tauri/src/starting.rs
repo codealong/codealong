@@ -11,10 +11,9 @@
 //! `stuck_notices`) and its session's report (helpers.rs) say what its tab shows, read as
 //! `launch::screen_of` reads a session's (Rex, tmux, Codealong's own terminals; not Ghostty).
 //!
-//! The tab is found by its harness's process: one on a terminal that began as the start was
-//! asked for, whose command line has the prompt's first words (Codex takes the prompt as an
-//! argument), else the latest to begin in its worktree when all that began there then are on one
-//! terminal.
+//! The tab is found by its harness's process: one on a terminal in its worktree that began as the
+//! start was asked for, those whose command line has the prompt's first words first (Codex takes
+//! the prompt as an argument), and only when they're all on one terminal (`process_of`).
 
 use std::collections::{BTreeMap, HashMap};
 use std::path::{Path, PathBuf};
@@ -172,29 +171,29 @@ pub fn read(asks: &[Ask], listed: &[PsLine]) -> Vec<(i64, Option<String>)> {
 }
 
 /// The process of the harness a start runs in its terminal, among the processes on a terminal
-/// that began (`began`) as the start was asked for: the latest to begin whose command line has
-/// the prompt's first words, else the latest to begin in its worktree (`cwd`) when every one
-/// that began there then is on one terminal. None when nothing says which.
+/// that began (`began`) in its worktree (`cwd`) as the start was asked for: those whose command
+/// line has the prompt's first words where there are any, else all of them; the latest of those
+/// to begin, when they're all on one terminal. None when nothing says which: two starts there
+/// then with the same opening (one agent's two reviewers) are on two terminals, and a terminal
+/// that might be the other's is never read as this one's.
 fn process_of(ask: &Ask, listed: &[PsLine], began: impl Fn(u32) -> Option<i64>, cwd: impl Fn(u32) -> Option<PathBuf>) -> Option<u32> {
-    let then: Vec<(&PsLine, i64)> = listed
+    let lane = Path::new(&ask.lane);
+    let real = dunce::canonicalize(lane).ok();
+    let here: Vec<(&PsLine, i64)> = listed
         .iter()
         .filter(|l| on_terminal(&l.tty))
         .filter_map(|l| began(l.pid).map(|t| (l, t)))
         .filter(|(_, t)| *t >= ask.at - PENDING_SLACK_MS && *t <= ask.at + LAUNCH_MS)
+        .filter(|(l, _)| cwd(l.pid).is_some_and(|d| d == lane || real.as_ref() == Some(&d)))
         .collect();
-    if let Some(words) = ask.opens.as_deref().and_then(first_words) {
-        if let Some((l, _)) = then.iter().filter(|(l, _)| collapsed(&l.command).contains(&words)).max_by_key(|(_, t)| *t) {
-            return Some(l.pid);
-        }
-    }
-    let lane = Path::new(&ask.lane);
-    let real = dunce::canonicalize(lane).ok();
-    let here: Vec<&(&PsLine, i64)> = then.iter().filter(|(l, _)| cwd(l.pid).is_some_and(|d| d == lane || real.as_ref() == Some(&d))).collect();
-    let tty = &here.first()?.0.tty;
-    if here.iter().any(|(l, _)| &l.tty != tty) {
+    let words = ask.opens.as_deref().and_then(first_words);
+    let named: Vec<&(&PsLine, i64)> = here.iter().filter(|(l, _)| words.as_ref().is_some_and(|w| collapsed(&l.command).contains(w.as_str()))).collect();
+    let these = if named.is_empty() { here.iter().collect() } else { named };
+    let tty = &these.first()?.0.tty;
+    if these.iter().any(|(l, _)| &l.tty != tty) {
         return None;
     }
-    here.iter().max_by_key(|(_, t)| *t).map(|(l, _)| l.pid)
+    these.iter().max_by_key(|(_, t)| *t).map(|(l, _)| l.pid)
 }
 
 /// `ps` names a terminal (`ttys004`); `??` is none.
@@ -315,6 +314,12 @@ mod tests {
         assert_eq!(process_of(&other, &two, began, at_app), None);
         // None in its worktree.
         assert_eq!(process_of(&other, &listed[1..2], began, |_| Some(PathBuf::from("/r/elsewhere"))), None);
+        // The same prompt started in another worktree then is that one's, however late; and two
+        // of it in this one are on two terminals, so neither is read as this start's.
+        let twins = [ps(3, "ttys010", "codex -- Draft the release notes for northwind from the merged PRs"), ps(7, "ttys012", "codex -- Draft the release notes for northwind from the merged PRs")];
+        let other_place = |pid: u32| Some(PathBuf::from(if pid == 7 { "/r/other" } else { "/r/app" }));
+        assert_eq!(process_of(&ask, &twins, began, other_place), Some(3));
+        assert_eq!(process_of(&ask, &twins, began, at_app), None);
         // Too little of an opening to go by.
         assert_eq!(first_words("Hi"), None);
         assert_eq!(first_words("Look at [the PR](https://example.com) and …"), None);

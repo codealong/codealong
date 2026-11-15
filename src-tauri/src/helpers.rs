@@ -30,6 +30,10 @@ use crate::origins::Pending;
 /// tried again: the first wait, doubled each time.
 const TRIES: u32 = 4;
 const RETRY_MS: i64 = 30_000;
+/// How long a stuck start's report waits on past its being stuck for what its terminal shows
+/// (`Board.starting`), which a server that starts with it stuck already reads only afterwards: a
+/// few reads' time (starting.rs `READ_EVERY_MS`). A terminal that can't be read is told of without.
+const SCREEN_WAIT_MS: i64 = 60_000;
 
 /// Where a helper stands, as a board shows it.
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -107,22 +111,33 @@ impl Reporter {
     /// both with a newer prompt it has answered since (a turn quicker than a board apart); a
     /// wait on its user begins when this board has it waiting and the last didn't, or not since
     /// then. A reporting helper started in a terminal that's stuck before it made its session
-    /// (`pending`, `Pending::stuck`) is told of once. Each is owed to the helper's session while
-    /// that runs on this Mac.
+    /// (`pending`, `Pending::stuck`) is told of once, with what its terminal shows once that's
+    /// read, or once `SCREEN_WAIT_MS` has gone without it. Each is owed to the helper's session
+    /// while that runs on this Mac.
     pub fn due(&mut self, pending: &[Pending], board: &Board, now: i64) -> Vec<Job> {
         let runs_here = |k: &str| board.session(k).is_some_and(|(lane, s)| lane.device.is_none() && s.live && !s.archived);
+        let screen_of = |p: &Pending| board.starting.get(&p.from).and_then(|starts| starts.iter().find(|s| s.at == p.at)).and_then(|s| s.screen.clone());
         self.told_stuck.retain(|(from, at)| pending.iter().any(|p| &p.from == from && p.at == *at));
         // One not told yet whose start found its session (or stopped waiting) has nothing to say:
-        // its session was waiting on you, say, while the helper started and ran.
+        // its session was waiting on you, say, while the helper started and ran. One still stuck
+        // says what its terminal shows now.
         for (from, o) in self.owed.iter_mut() {
             o.notes.retain(|_, n| !matches!(n.news, News::Unstarted { .. }) || pending.iter().any(|p| &p.from == from && n.helper == format!("start@{}", p.at) && p.stuck(now)));
+            for n in o.notes.values_mut() {
+                let Some(p) = pending.iter().find(|p| &p.from == from && n.helper == format!("start@{}", p.at)) else { continue };
+                if let (News::Unstarted { screen, .. }, Some(read)) = (&mut n.news, screen_of(p)) {
+                    *screen = Some(read);
+                }
+            }
         }
         for p in pending.iter().filter(|p| p.report && p.stuck(now) && runs_here(&p.from)) {
-            if !self.told_stuck.insert((p.from.clone(), p.at)) {
+            let screen = screen_of(p);
+            // Without its screen yet, it waits a little for one: it was stuck already then.
+            let waited = p.stuck(now - SCREEN_WAIT_MS);
+            if (screen.is_none() && !waited) || !self.told_stuck.insert((p.from.clone(), p.at)) {
                 continue;
             }
             let place = crate::origins::place_of(board, &p.lane);
-            let screen = board.starting.get(&p.from).and_then(|starts| starts.iter().find(|s| s.at == p.at)).and_then(|s| s.screen.clone());
             let news = News::Unstarted { account: p.account.clone(), place, terminal: board.apps.terminal.clone(), minutes: p.minutes(now), screen };
             let key = format!("start@{}", p.at);
             self.owed.entry(p.from.clone()).or_default().notes.insert(key.clone(), Note { helper: key, title: String::new(), news });
@@ -349,9 +364,22 @@ mod tests {
         let screen = "Hooks need review\n\n› 1. Review hooks".to_string();
         read.starting.insert(BOSS.into(), vec![crate::starting::Starting { at: start.at, screen: Some(screen.clone()), ..Default::default() }]);
         let jobs = Reporter::default().due(&[start.clone()], &read, NOW);
-        assert_eq!(news(&jobs), [(BOSS.to_string(), News::Unstarted { account: "codex".into(), place: place.clone(), terminal: "Ghostty".into(), minutes: 4, screen: Some(screen) })]);
+        assert_eq!(news(&jobs), [(BOSS.to_string(), News::Unstarted { account: "codex".into(), place: place.clone(), terminal: "Ghostty".into(), minutes: 4, screen: Some(screen.clone()) })]);
         let text = words(&jobs[0].notes);
         assert!(text.contains("hasn't made its session yet: its terminal waits on your user to answer what it shows before it starts, which Codealong can't answer. It shows:\n\n    Hooks need review\n\n    › 1. Review hooks\n\nTell them what it asks"), "{text}");
+        // Just stuck without its screen (a server that started with it stuck has read none yet),
+        // it waits a little for one: told as soon as that's read, else a minute on without it.
+        let just = Pending { at: NOW - 3 * 60_000, ..start.clone() };
+        let mut r = Reporter::default();
+        assert!(r.due(&[just.clone()], &b, NOW).is_empty());
+        let mut read_just = b.clone();
+        read_just.starting.insert(BOSS.into(), vec![crate::starting::Starting { at: just.at, screen: Some(screen.clone()), ..Default::default() }]);
+        assert!(matches!(&news(&r.due(&[just.clone()], &read_just, NOW + 15_000))[..], [(_, News::Unstarted { screen: Some(_), .. })]));
+        assert!(matches!(&news(&Reporter::default().due(&[just.clone()], &b, NOW + 60_000))[..], [(_, News::Unstarted { screen: None, .. })]));
+        // Held while its session waited on you, it says what was read meanwhile.
+        let mut r = Reporter::default();
+        assert!(r.due(&[start.clone()], &board(vec![boss(Status::Needs)]), NOW).is_empty());
+        assert!(matches!(&news(&r.due(&[start.clone()], &read, NOW + 30_000))[..], [(_, News::Unstarted { screen: Some(_), .. })]));
         // Started without --report, or by a session that isn't running: nobody to tell.
         let mut r = Reporter::default();
         assert!(r.due(&[Pending { report: false, ..start.clone() }], &b, NOW).is_empty());
