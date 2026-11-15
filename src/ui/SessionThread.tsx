@@ -1276,8 +1276,11 @@ export function SessionThread({ session: s, now, onOpen, fallback, machine, onLo
                   running in the background, says what it waits on. */}
               {loaded && s.status === 'working' && !s.stalledSince && (s.running || waitsInBackground(s) ? <Waiting session={s} onGrow={follow} /> : <Working session={s} tips={tips} onGrow={follow} />)}
               {/* Not for a reply that asks you something: its excerpt is the reply's own question
-                  (board.rs `needs_your_answer`), which ends the conversation just above. */}
-              {s.status === 'needs' && !pending && s.excerpt && !s.asks && (
+                  (board.rs `needs_your_answer`), which ends the conversation just above. Nor while
+                  the box below shows a call, which says what this would: a harness can hold back
+                  the call until it's answered (Claude Code writes a question to its record only
+                  then), so the conversation has no line for the box to stand in for. */}
+              {s.status === 'needs' && !pending && s.excerpt && !s.asks && !shownBelow && (
                 <div className="ca-thread-tool is-asks">
                   <div className="ca-thread-askrow">
                     <span>

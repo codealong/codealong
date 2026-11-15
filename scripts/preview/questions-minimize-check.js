@@ -3,8 +3,9 @@
 // there are, and gives the room to the conversation above; a click on the question (or ⌘⏎, where
 // ⌘⏎ answers) shows the box again with your picks and the question you were on, and answers
 // nothing. The conversation has no line for the call the box shows, minimized or not: the box
-// stands in its place at the conversation's end (questionsBox.ts); the line of another call it
-// waits on at the same time shows, and opens its own. In the main window the box stays
+// stands in its place at the conversation's end (questionsBox.ts), and where the conversation
+// hasn't the call yet, no line of the session's excerpt says it there instead; the line of another
+// call it waits on at the same time shows, and opens its own. In the main window the box stays
 // minimized as you go to another session and back, and the next call it waits on shows whole
 // though it asks the same. ⌘⏎ is Ctrl+Enter on Linux.
 //   PREVIEW_WAIT=30000 scripts/preview.sh sessions '' scripts/preview/questions-minimize-check.js
@@ -29,6 +30,9 @@
   };
   // The call its conversation ends on, which the box shows until it waits on another too.
   var latest = pending.questions;
+  // Whether the conversation has the call yet: Claude Code writes a question to its record only
+  // once it's answered.
+  var written = true;
   var real = window.__TAURI_INTERNALS__.invoke;
   window.__TAURI_INTERNALS__.invoke = function (cmd, args, options) {
     if (cmd === 'session_pending' && picked && (args || {}).key === picked.key) {
@@ -40,11 +44,9 @@
       window.__calls.push([cmd, args, options]);
       var at = Date.now() - 10 * 60e3;
       var item = function (n, kind, text, extra) { return Object.assign({ at: at + n * 60e3, kind: kind, text: text, failed: false, cursor: n, n: 0 }, extra || {}); };
-      return Promise.resolve({ before: null, after: 3, items: [
-        item(0, 'you', 'Set up the review'),
-        item(1, 'agent', 'Two things to settle first.'),
-        item(2, 'tool', 'AskUserQuestion', { id: 'toolu_wait', input: '{ "questions": [] }', questions: latest }),
-      ] });
+      var items = [item(0, 'you', 'Set up the review'), item(1, 'agent', 'Two things to settle first.')];
+      if (written) items.push(item(2, 'tool', 'AskUserQuestion', { id: 'toolu_wait', input: '{ "questions": [] }', questions: latest }));
+      return Promise.resolve({ before: null, after: items.length, items: items });
     }
     if (cmd === 'session_answer') {
       window.__calls.push([cmd, args, options]);
@@ -76,9 +78,15 @@
   };
 
   var rowOf = function (it) { return it && document.getElementById('row-' + it.lane + '::' + it.key); };
+  // The board's first other session can be one the list leaves out (a helper, say): then any other
+  // session it lists.
+  var otherRow = function () {
+    return rowOf(other) || all('[id^="row-"]').filter(function (r) { return r.id.indexOf('::') > 0 && r !== rowOf(picked); })[0] || null;
+  };
   var choose = function (it) {
-    rowOf(it).dispatchEvent(new MouseEvent('mousedown', { bubbles: true }));
-    rowOf(it).click();
+    var row = it === other ? otherRow() : rowOf(it);
+    row.dispatchEvent(new MouseEvent('mousedown', { bubbles: true }));
+    row.click();
   };
   var box = function () { return q('.ca-composer.is-questions'); };
   var fold = function () { return q('.ca-approval-fold', box()); };
@@ -169,6 +177,19 @@
         })
         .then(function () {
           check('the next call shows whole, though it asks the same', !folded());
+          // Its question not in the conversation yet, the box says it alone still: the line of
+          // the session's excerpt that ends the conversation in its place is left out too.
+          written = false;
+          choose(other);
+          return until(function () { return !box(); }, 3000, 'another session');
+        })
+        .then(function () {
+          choose(picked);
+          return until(function () { return box() && q('.ca-question-choice', box()) && /Two things to settle first/.test(thread().textContent); }, 5000, 'the call not written yet');
+        })
+        .then(function () {
+          check('with the call not in the conversation yet, no line says it there either', !line() && thread().textContent.indexOf('Which color do you prefer') < 0, line() ? line().textContent : 'none');
+          written = true;
           // Waiting on two calls at once (a subagent's and its own), the box shows the one asked
           // first, and the conversation's line for the latest isn't the box's, though it asks the
           // same questions in the same words: their choices differ.

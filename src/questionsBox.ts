@@ -5,7 +5,9 @@
 // minimized, its head still says the question and shows the box again (asked 2026-11-13). Before,
 // the line stayed and opened no copy of the questions, since a copy read as the box losing its
 // choices (asked 2026-11-04). Once it's answered, the call is a line of the conversation as any
-// other is.
+// other is. Where the conversation hasn't the call yet (Claude Code writes a question to its
+// record once it's answered), the line it ends on in its place, the session's excerpt, is left out
+// too while the box shows a call (asked 2026-11-15).
 //
 // The line is known for the box's by what the call asks (`askedOf`, `calledOf`), not only by its
 // session: a session can wait on two calls at once (a subagent's and its own), and the box shows
