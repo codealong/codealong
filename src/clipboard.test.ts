@@ -1,7 +1,8 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { copyText } from './clipboard';
 
-/** A clipboard that, as WebKit's, waits for an item's promise and writes nothing when it fails. */
+/** A clipboard that, as WebKit's, waits for an item's promise and writes nothing when it fails;
+ *  with `refuse`, one that refuses at once, not waiting for the item. */
 function fakeClipboard(opts: { items?: boolean; refuse?: boolean } = {}) {
   const log: string[] = [];
   let held: string | null = 'before';
@@ -16,6 +17,7 @@ function fakeClipboard(opts: { items?: boolean; refuse?: boolean } = {}) {
     },
     write: async (items: Item[]) => {
       log.push('write');
+      if (opts.refuse) throw new DOMException('The request is not allowed', 'NotAllowedError');
       const blob = await items[0]!.data['text/plain']!.catch(() => {
         throw new DOMException('The request is not allowed', 'NotAllowedError');
       });
@@ -72,6 +74,22 @@ describe('copying text', () => {
   it('says in words that the clipboard refused it', async () => {
     fakeClipboard({ refuse: true });
     await expect(copyText('ls')).rejects.toThrow('Couldn’t copy: the clipboard refused it (NotAllowedError).');
+    const r = later();
+    const copied = copyText(r.read);
+    // Refused before the read answers, which then has text to copy.
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    r.answer('ls');
+    await expect(copied).rejects.toThrow('Couldn’t copy: the clipboard refused it (NotAllowedError).');
+  });
+
+  it('says nothing of a clipboard that refused before the read came back with nothing to copy', async () => {
+    const clip = fakeClipboard({ refuse: true });
+    const r = later();
+    const copied = copyText(r.read);
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    r.answer(null);
+    expect(await copied).toBe(false);
+    expect(clip.held()).toBe('before');
   });
 
   it('waits for the text where the webview has no ClipboardItem', async () => {

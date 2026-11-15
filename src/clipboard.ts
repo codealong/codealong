@@ -23,21 +23,21 @@ export async function copyText(text: string | Promise<string | null>): Promise<b
     await navigator.clipboard.writeText(read).catch(refused);
     return true;
   }
-  let nothing = false;
+  // Nothing read fails the item, so the clipboard keeps what it had.
   const blob = text.then((read) => {
-    if (!read) {
-      nothing = true;
-      throw new Error('Nothing to copy.');
-    }
+    if (!read) throw new Error('Nothing to copy.');
     return new Blob([read], { type: 'text/plain' });
   });
+  // A clipboard that refuses at once never waits for the item; what the read came to is said
+  // from `text` below.
+  blob.catch(() => {});
   try {
     await navigator.clipboard.write([new ClipboardItem({ 'text/plain': blob })]);
     return true;
   } catch (e) {
-    if (nothing) return false;
-    // A read that failed says why better than the clipboard's refusal of it.
-    await blob;
+    // What the read came to says which it was, once it's in: a clipboard can refuse before it
+    // is. A read that failed says why better than the clipboard's refusal of it.
+    if (!(await text)) return false;
     return refused(e);
   }
 }
