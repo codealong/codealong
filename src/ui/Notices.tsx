@@ -81,6 +81,7 @@ function NoticeCard({ notices, now, anchor, onDismiss, onAction }: { notices: No
           <section key={noticeId(n)} className="ca-notice-item">
             <div className="ca-notice-title">{n.title}</div>
             <div className="ca-notice-text">{n.text.replace(/`/g, '')}</div>
+            {n.screen && <pre className="ca-notice-screen">{n.screen}</pre>}
             {until && <div className="ca-notice-until">{until}</div>}
             <div className="ca-notice-foot">
               {action && (

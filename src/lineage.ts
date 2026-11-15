@@ -9,7 +9,7 @@
 // both on one side, bowing out past the cards.
 
 import { sideTitle, type Placed } from './lanes';
-import type { Board, Session, SessionOrigin, SideGlance } from './types';
+import type { Board, Session, SessionOrigin, SideGlance, Starting } from './types';
 
 export interface Pt {
   x: number;
@@ -113,36 +113,49 @@ export type Kin = Placed & { how: KinHow };
 
 /** Where a session came from and what came of it, as far as the board has them: the sessions
  *  (`to`), the headless runs its commands started apart from them (`runs`), since they come by the
- *  hundred, and the side conversations asked about it (`sides`, `Board.sides`), which aren't
- *  sessions. */
+ *  hundred, the side conversations asked about it (`sides`, `Board.sides`), which aren't
+ *  sessions, and the starts its agent asked for whose sessions aren't here yet (`starting`,
+ *  `Board.starting`). */
 export interface Lineage {
   from: Kin | null;
   to: Kin[];
   runs: Kin[];
   sides: SideGlance[];
+  starting: Starting[];
 }
 
 /** A session's lineage, looked up among the board's sessions where they live (`sessionHomes`),
- *  and its side conversations among the board's (`sides`). */
-export function lineageOf(session: Session, homes: Map<string, Placed>, sides?: Board['sides']): Lineage {
+ *  and its side conversations and the starts still on their way among the board's. */
+export function lineageOf(session: Session, homes: Map<string, Placed>, board?: Pick<Board, 'sides' | 'starting'> | null): Lineage {
   const from = session.origin ? homes.get(session.origin.key) : undefined;
   return {
     from: from && session.origin ? { ...from, how: kinHow(session.origin.how, from.session, session) } : null,
     to: cameOf(session.key, homes.values()).map((p) => ({ ...p, how: kinHow(p.session.origin?.how ?? 'started', session, p.session) })),
     runs: [...homes.values()].filter((p) => p.session.headless && p.session.origin?.key === session.key && p.session.helper?.parent !== session.key).map((p) => ({ ...p, how: 'started' as const })),
-    sides: sides?.[session.key] ?? [],
+    sides: board?.sides?.[session.key] ?? [],
+    starting: board?.starting?.[session.key] ?? [],
   };
 }
 
+/** A start on its way, by how its prompt opens, which its session will likely be titled by. */
+export function startingTitle(s: Starting): string {
+  return s.opens ?? `${s.harness} on ${s.account}`;
+}
+
 /** One line under a session's title for what came of it (SessionHeader.tsx): a session, its
- *  headless runs together (the latest first), or a side conversation, with when it started. */
-export type CameLine = { kind: 'kin'; kin: Kin; at: number } | { kind: 'runs'; runs: Kin[]; at: number } | { kind: 'side'; side: SideGlance; at: number };
+ *  headless runs together (the latest first), a side conversation, or a start whose session
+ *  isn't here yet, with when it started. */
+export type CameLine = { kind: 'kin'; kin: Kin; at: number } | { kind: 'runs'; runs: Kin[]; at: number } | { kind: 'side'; side: SideGlance; at: number } | { kind: 'starting'; starting: Starting; at: number };
 
 /** What came of a session, a line each, the latest started first: it's the one the header shows,
  *  and the rest open under it in the order they started, so the list holds still as they work. */
-export function cameLines(lineage: Pick<Lineage, 'to' | 'runs' | 'sides'> | null | undefined): CameLine[] {
+export function cameLines(lineage: Pick<Lineage, 'to' | 'runs' | 'sides' | 'starting'> | null | undefined): CameLine[] {
   const started = (s: Session) => s.startedAt ?? s.lastPromptAt;
-  const lines: CameLine[] = [...(lineage?.to ?? []).map((kin): CameLine => ({ kind: 'kin', kin, at: started(kin.session) })), ...(lineage?.sides ?? []).map((side): CameLine => ({ kind: 'side', side, at: side.startedAt }))];
+  const lines: CameLine[] = [
+    ...(lineage?.to ?? []).map((kin): CameLine => ({ kind: 'kin', kin, at: started(kin.session) })),
+    ...(lineage?.sides ?? []).map((side): CameLine => ({ kind: 'side', side, at: side.startedAt })),
+    ...(lineage?.starting ?? []).map((starting): CameLine => ({ kind: 'starting', starting, at: starting.at })),
+  ];
   const runs = [...(lineage?.runs ?? [])].sort((a, b) => started(b.session) - started(a.session));
   if (runs.length > 0) lines.push({ kind: 'runs', runs, at: started(runs[0].session) });
   return lines.sort((a, b) => b.at - a.at);
@@ -152,6 +165,7 @@ export function cameLines(lineage: Pick<Lineage, 'to' | 'runs' | 'sides'> | null
 export function cameLineWords(line: CameLine): string {
   if (line.kind === 'kin') return `${cameWord(line.kin.how)} ${line.kin.session.title}`;
   if (line.kind === 'side') return `On the side: ${sideTitle(line.side)}`;
+  if (line.kind === 'starting') return `${line.starting.helper ? 'Its helper' : 'Started'}, starting: ${startingTitle(line.starting)}`;
   return line.runs.length === 1 ? 'A headless run' : `${line.runs.length} headless runs`;
 }
 

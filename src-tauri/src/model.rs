@@ -117,6 +117,10 @@ pub struct Notice {
     /// offers to try again (autoreview.rs `again`).
     #[serde(default)]
     pub review_again: Option<String>,
+    /// What a terminal shows that the notice is about, to be drawn as it's laid out: the screen a
+    /// start that never made its session waits on (origins.rs `stuck_notices`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub screen: Option<String>,
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, Default)]
@@ -164,6 +168,11 @@ pub struct Board {
     /// devices.
     #[serde(default)]
     pub sides: std::collections::BTreeMap<String, Vec<crate::side::Glance>>,
+    /// The starts a session's agent asked for whose sessions aren't here yet (starting.rs
+    /// `by_session`), by the key of the session that asked, the latest first. This Mac's own: not
+    /// sent to other devices.
+    #[serde(default, skip_serializing_if = "std::collections::BTreeMap::is_empty")]
+    pub starting: std::collections::BTreeMap<String, Vec<crate::starting::Starting>>,
     /// Codealong's own terminals (terminals.rs), by the key of the session each is for, in the
     /// order they were opened. This Mac's own: not sent to other devices.
     #[serde(default, skip_serializing_if = "std::collections::BTreeMap::is_empty")]

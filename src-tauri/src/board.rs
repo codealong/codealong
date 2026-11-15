@@ -3117,6 +3117,7 @@ pub fn compose(inp: Inputs) -> Board {
         training: Vec::new(),
         mcp: Vec::new(),
         sides: Default::default(),
+        starting: Default::default(),
         terminals: Default::default(),
         listenings: Default::default(),
         meeting: None,

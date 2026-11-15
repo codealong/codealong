@@ -521,10 +521,17 @@ user's sessions with nothing tying them to yours.
 - Or start it with `--report` too and end your turn: Codealong sends you a message when its
   turn ends or it waits on your user, naming it and the command that prints its reply. Use
   one or the other, not both, or you'll hear of it twice.
+- Leave `--in` out unless your user asked for a place: out of sight is already where a helper
+  goes. Don't pass `--in background` for a harness with no background service of its own (Codex,
+  OpenCode, Antigravity, Cursor): for those it means a terminal behind your user's windows, where
+  its terminal UI can stop on a screen of its own before it starts (an update offer, a repo's
+  hooks to review) and your helper waits unseen. Left out, it runs in Codealong wherever
+  Codealong can run its harness (it can run Codex), with no terminal to stop in.
 - Started in a terminal on a harness that names its own sessions (Codex, OpenCode, Antigravity),
   it has no key until it starts (`key` is null), so there's nothing to wait on: use `--report`.
-  You're told too if it hasn't started a few minutes on, when its terminal likely waits on your
-  user on a screen of its own: tell them.
+  It's listed under your session as starting until it makes one. You're told too if it hasn't
+  started a few minutes on, with what its terminal shows where Codealong could read it: tell
+  your user what it asks, to answer it in that tab.
 - Give it everything it needs in the prompt (paths, the diff, what to look for, what to
   answer with), and tell it to change nothing it wasn't asked to: nobody reads it as it goes.
   A call it can't make without asking stops it until your user answers. Write a long prompt,

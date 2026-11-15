@@ -116,7 +116,7 @@ describe('cameLines', () => {
     const run = (key: string, mins: number) => ({ lane, session: fx.session({ key, startedAt: at(mins), headless: true, origin: { key: 'boss', how: 'started' } }) });
     const homes = new Map([boss, fork, run('r1', 50), run('r2', 10)].map((p) => [p.session.key, p]));
     const side = (id: string, mins: number) => ({ id, question: `why ${id}?`, asked: 1, running: false, open: false, startedAt: at(mins), lastAt: at(mins) });
-    const lineage = lineageOf(boss.session, homes, { boss: [side('s1', 5), side('s2', 40)], other: [side('x', 1)] });
+    const lineage = lineageOf(boss.session, homes, { sides: { boss: [side('s1', 5), side('s2', 40)], other: [side('x', 1)] } });
     expect(lineage.to.map((k) => k.session.key)).toEqual(['fork']);
     expect(lineage.runs.map((k) => k.session.key).sort()).toEqual(['r1', 'r2']);
     const lines = cameLines(lineage);
@@ -124,5 +124,20 @@ describe('cameLines', () => {
     // The runs go by the latest of them, which leads their line.
     expect(lines[1].kind === 'runs' && lines[1].runs[0].session.key).toBe('r2');
     expect(cameLines(lineageOf(fork.session, homes))).toEqual([]);
+  });
+
+  it('lists a start whose session is still on its way among them, by how its prompt opens', () => {
+    const lane = fx.lane();
+    const at = (n: number) => fx.NOW - n * 60_000;
+    const boss = { lane, session: fx.session({ key: 'boss', title: 'Boss' }) };
+    const review = { lane, session: fx.session({ key: 'review', title: 'Review the diff', startedAt: at(20), helper: { parent: 'boss' } }) };
+    const homes = new Map([boss, review].map((p) => [p.session.key, p]));
+    const start = { at: at(4), account: 'codex', harness: 'Codex', lane: lane.id, place: lane.callsign, helper: true, opens: 'Draft the northwind release notes', terminal: 'Rex', stuck: true, screen: 'Hooks need review' };
+    const untitled = { ...start, at: at(30), helper: false, opens: null, stuck: false, screen: null };
+    const lineage = lineageOf(boss.session, homes, { starting: { boss: [start, untitled], other: [start] } });
+    expect(lineage.starting).toEqual([start, untitled]);
+    // The latest started first: the one the header shows while the rest are folded away.
+    expect(cameLines(lineage).map(cameLineWords)).toEqual(['Its helper, starting: Draft the northwind release notes', 'Its helper Review the diff', 'Started, starting: Codex on codex']);
+    expect(lineageOf(review.session, homes, { starting: { boss: [start] } }).starting).toEqual([]);
   });
 });

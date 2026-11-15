@@ -312,11 +312,20 @@ checked on this Mac, most of them by reading the apps' own bundles and files. Pa
   check_for_update_on_startup=notabool` fails ("failed to load bootstrap configuration") where a
   key it doesn't know is ignored, and `-c` goes before `resume` and `fork`. Codealong passes it
   as false to every terminal UI it opens (`codex/mod.rs` `terminal_ui`), so those never offer an
-  update; the background server is left as Codex sets it (asked 2026-10-14). Codealong can't
-  read a Ghostty tab to tell which screen is up, so it answers none: a
-  start in a terminal still without its session three minutes on is said in a notice, and told
-  to the session that started it as a reporting helper (origins.rs `Pending::stuck`,
-  helpers.rs). A Codex review started in a terminal sat on one for 66 minutes (2026-10-14).
+  update; the background server is left as Codex sets it (asked 2026-10-14). A repo's own
+  `.codex/config.toml` hooks (`[[hooks.SessionStart]]`, `[[hooks.PreToolUse]]`) bring up a fourth
+  until they're trusted: "Hooks need review · 3 hooks are new or changed. · Hooks can run outside
+  the sandbox after you trust them." (1 Review hooks, 2 Trust all and continue, 3 Continue without
+  trusting (hooks won't run); "enter confirm · esc skip"). A Codex helper started in Rex in a
+  worktree of a repo with three such hooks sat on it with no rollout written (2026-11-15). Trust
+  is kept in the account's config.toml as `[hooks.state."<file>:<event>:<group>:<index>"]`
+  `trusted_hash`, by the file's path, so a worktree's copy is likely asked about again; the
+  app-server (Codealong's own sessions) didn't ask. Codealong answers none of these screens: a
+  start in a terminal still without its session is listed under the session that asked as
+  starting (starting.rs), its tab read a minute on where its terminal can be (not Ghostty), and
+  three minutes on it's said in a notice with what the tab shows, and told to the session that
+  started it as a reporting helper (origins.rs `Pending::stuck`, helpers.rs). A Codex review
+  started in a terminal sat on one for 66 minutes (2026-10-14).
 - The CLI (Homebrew cask `codex`, `/opt/homebrew/bin/codex`) runs its TUI against a shared
   app-server daemon it spawns, `~/.codex/packages/app-server-daemon/releases/<version>/bin/codex
   app-server --listen unix:// --managed-daemon`, beside a `codex app-server daemon

@@ -462,6 +462,7 @@ export type AccountInfo = Holds<Same<
 export type Notice = Holds<Same<
   | "key"
   | "reviewAgain"
+  | "screen"
   | "text"
   | "title"
   | "until",
@@ -510,6 +511,7 @@ export type Board = Holds<Same<
   | "schedulesProblem"
   | "sessions"
   | "sides"
+  | "starting"
   | "talkOrchestratorShortcut"
   | "talkShortcut"
   | "teamFiles"
@@ -740,6 +742,20 @@ export type Listening = Holds<Same<
   | "toldAt"
   | "whyEnded",
   Names<Types.Listening>
+>>;
+
+export type Starting = Holds<Same<
+  | "account"
+  | "at"
+  | "harness"
+  | "helper"
+  | "lane"
+  | "opens"
+  | "place"
+  | "screen"
+  | "stuck"
+  | "terminal",
+  Names<Types.Starting>
 >>;
 
 export type Mcp = Holds<Same<

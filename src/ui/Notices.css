@@ -85,6 +85,20 @@
   -webkit-user-select: text;
   user-select: text;
 }
+/* What a terminal shows, as it's laid out there: the screen a start that never made its session
+   waits on. Its lines keep their indents, and wrap in a card narrower than the terminal. */
+.ca-notice-screen {
+  margin: 0;
+  padding: var(--space-2);
+  border-radius: var(--radius-sm);
+  background: var(--surface-sunken);
+  color: var(--ink-2);
+  font: var(--type-code-block);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  -webkit-user-select: text;
+  user-select: text;
+}
 .ca-notice-until {
   color: var(--ink-3);
   font-variant-numeric: tabular-nums;

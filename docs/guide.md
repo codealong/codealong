@@ -4005,8 +4005,9 @@ started by an agent's `codealong start`, and a fork into a terminal made from Co
 another account. A session's panel names the session it was forked from, moved from or started by
 over its title, and shows the latest of what came of it under the title, with its status and a "+N
 more" for the rest: the sessions forked from it or that its agent started (its helpers among them,
-*Its helper*), its headless runs on one line with how many, and its side conversations, each by what
-it was first asked. A click shows a session and a right-click gives its menu, so Pin to desktop there
+*Its helper*), its headless runs on one line with how many, its side conversations, each by what
+it was first asked, and the starts its agent asked for whose sessions aren't there yet, each by how
+its prompt opens, *Starting* until its session shows. A click shows a session and a right-click gives its menu, so Pin to desktop there
 puts its card beside the one you're on; a click on the runs shows the latest, listed under the
 session in Sessions, and one on a side conversation shows it above the box. The bar's peek and the waiting window have the same header, and
 its card's popover on the canvas lists them too. On the canvas, hovering or selecting a session
@@ -4107,12 +4108,16 @@ send that doesn't go is tried again a few times, then said in a notice.
 
 A start in a terminal whose harness names its own sessions (Codex, OpenCode, Antigravity) has no
 session until its terminal UI makes one, and the UI can first stop on a screen of its own (Codex's
-question about its background server) that Codealong can't read or answer, in a terminal that may
-be out of sight. Codex's terminal UI as Codealong opens it (a start, a resume, a fork) never
-offers an update; Codex you run yourself still does. When one started with a prompt, by you or by an
-agent, has made no session three minutes on, a notice says where (*Codex hasn't started in …*)
-until its session shows, and a helper started with `--report` is told of to its session once, so
-its agent can tell you.
+review of the hooks a repo's `.codex/config.toml` adds, its question about its background server)
+that Codealong can't answer, in a terminal that may be out of sight. Codex's terminal UI as
+Codealong opens it (a start, a resume, a fork) never offers an update; Codex you run yourself still
+does. One an agent started is listed under that agent's session meanwhile, *Starting*. When one
+started with a prompt, by you or by an agent, has made no session three minutes on, a notice says
+where (*Codex hasn't started in …*) until its session shows, and a helper started with `--report`
+is told of to its session once, so its agent can tell you. Where Codealong can read its terminal
+(Rex, tmux and its own terminals; not Ghostty), the notice shows what the terminal shows, the
+agent is told it, and the line under the agent's session says what it waits on (*“Hooks need
+review”*), with the whole screen when you point at it.
 
 A helper's message to the session that started it (`codealong session send`) isn't held for
 you to allow when that session is a Claude Code one that skips permission prompts: it's work the

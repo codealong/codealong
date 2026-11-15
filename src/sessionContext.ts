@@ -1,6 +1,7 @@
 // What a session's header shows besides the session itself (SessionHeader.tsx), looked up from
 // the board: the PRs it worked on, the todos it's on, the session it came from with the ones
-// that came of it, its headless runs and its side conversations, and the schedule it came from. The main window has indexes of its own for these; the windows that show one
+// that came of it, its headless runs, its side conversations and the starts it asked for that
+// have no session yet, and the schedule it came from. The main window has indexes of its own for these; the windows that show one
 // session at a time (the bar's peek, the waiting window) look them up here.
 
 import { sessionHomes, sessionPrs } from './lanes';
@@ -16,13 +17,13 @@ export interface SessionContext {
 }
 
 /** Without a board yet, what the session's own worktree says: its PR, when the session is on its branch. */
-export function sessionContext(board: Pick<Board, 'prs' | 'lanes' | 'todos' | 'sides' | 'schedules'> | null | undefined, lane: Lane, session: Session): SessionContext {
+export function sessionContext(board: Pick<Board, 'prs' | 'lanes' | 'todos' | 'sides' | 'starting' | 'schedules'> | null | undefined, lane: Lane, session: Session): SessionContext {
   // Archived sessions are off the lists, so they aren't named as kin either.
   const homes = new Map([...sessionHomes(board?.lanes ?? [])].filter(([, p]) => !p.session.archived));
   return {
     prs: sessionPrs(board?.prs ?? [], lane, session),
     todos: (board?.todos ?? []).filter((t) => t.sessions.includes(session.key)),
-    lineage: lineageOf(session, homes, board?.sides),
+    lineage: lineageOf(session, homes, board),
     schedule: scheduleBySession(board?.schedules).get(session.key) ?? null,
   };
 }

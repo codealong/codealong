@@ -16,7 +16,8 @@
 //!
 //! A helper started in a terminal whose session hasn't shown a few minutes on is told of too,
 //! once (`origins::Pending::stuck`): its terminal UI likely sits on a screen of its own, and the
-//! session that started it, which has no key to wait on, would otherwise wait on it unseen.
+//! session that started it, which has no key to wait on, would otherwise wait on it unseen. What
+//! that screen shows goes with it where its tab could be read (`Board.starting`, starting.rs).
 
 use std::collections::{BTreeMap, HashMap, HashSet};
 use std::sync::Mutex;
@@ -56,8 +57,9 @@ pub enum News {
     /// It waits on its user: what for, as the board says, when it does.
     OnUser(Option<String>),
     /// Started in a terminal some minutes ago, it hasn't made its session yet
-    /// (`origins::Pending::stuck`): its terminal likely waits on its user.
-    Unstarted { account: String, place: String, terminal: String, minutes: i64 },
+    /// (`origins::Pending::stuck`): its terminal likely waits on its user, on what it shows
+    /// (`screen`) where that was read.
+    Unstarted { account: String, place: String, terminal: String, minutes: i64, screen: Option<String> },
 }
 
 /// News of one helper.
@@ -119,8 +121,9 @@ impl Reporter {
             if !self.told_stuck.insert((p.from.clone(), p.at)) {
                 continue;
             }
-            let place = board.lanes.iter().find(|l| l.id == p.lane).map(|l| l.callsign.clone()).unwrap_or_else(|| crate::util::tilde(std::path::Path::new(&p.lane)));
-            let news = News::Unstarted { account: p.account.clone(), place, terminal: board.apps.terminal.clone(), minutes: p.minutes(now) };
+            let place = crate::origins::place_of(board, &p.lane);
+            let screen = board.starting.get(&p.from).and_then(|starts| starts.iter().find(|s| s.at == p.at)).and_then(|s| s.screen.clone());
+            let news = News::Unstarted { account: p.account.clone(), place, terminal: board.apps.terminal.clone(), minutes: p.minutes(now), screen };
             let key = format!("start@{}", p.at);
             self.owed.entry(p.from.clone()).or_default().notes.insert(key.clone(), Note { helper: key, title: String::new(), news });
         }
@@ -193,8 +196,13 @@ fn line(n: &Note) -> String {
             let what = what.as_deref().map(|w| format!(": {}", w.trim())).unwrap_or_default();
             format!("“{title}” ({key}) waits on your user{what}. They answer it in Codealong, so you may want to tell them; `codealong session wait {key} --until-done` waits on to the end of its turn.")
         }
-        News::Unstarted { account, place, terminal, minutes } => format!(
+        News::Unstarted { account, place, terminal, minutes, screen: None } => format!(
             "you started on {account} in {terminal} {minutes} minutes ago, in {place}, hasn't made its session yet: its terminal may be waiting on your user on a screen of its own before it starts, such as an update offer or a question about its background server, which Codealong can't answer. Tell them to answer it in that tab. Once it starts, you're told when its turn ends."
+        ),
+        // Set in, so it stays within a list's item when there's other news.
+        News::Unstarted { account, place, terminal, minutes, screen: Some(screen) } => format!(
+            "you started on {account} in {terminal} {minutes} minutes ago, in {place}, hasn't made its session yet: its terminal waits on your user to answer what it shows before it starts, which Codealong can't answer. It shows:\n\n{}\n\nTell them what it asks, to answer it in that tab. Once it starts, you're told when its turn ends.",
+            screen.lines().map(|l| if l.is_empty() { String::new() } else { format!("    {l}") }).collect::<Vec<_>>().join("\n")
         ),
     }
 }
@@ -330,11 +338,20 @@ mod tests {
         assert!(r.due(&[Pending { at: NOW - 60_000, ..start.clone() }], &b, NOW).is_empty());
         let jobs = r.due(&[start.clone()], &b, NOW);
         let place = b.lanes[0].callsign.clone();
-        assert_eq!(news(&jobs), [(BOSS.to_string(), News::Unstarted { account: "codex".into(), place: place.clone(), terminal: "Ghostty".into(), minutes: 4 })]);
+        assert_eq!(news(&jobs), [(BOSS.to_string(), News::Unstarted { account: "codex".into(), place: place.clone(), terminal: "Ghostty".into(), minutes: 4, screen: None })]);
         let text = words(&jobs[0].notes);
         assert!(text.starts_with(&format!("Your helper you started on codex in Ghostty 4 minutes ago, in {place}, hasn't made its session yet: its terminal may be waiting on your user")), "{text}");
         r.told(&jobs[0], true, NOW);
         assert!(r.due(&[start.clone()], &b, NOW + 60_000).is_empty(), "once");
+        // Where its tab was read (`Board.starting`), what it shows goes with it, set in
+        // (2026-11-15: Codex's review of a repo's hooks).
+        let mut read = b.clone();
+        let screen = "Hooks need review\n\n› 1. Review hooks".to_string();
+        read.starting.insert(BOSS.into(), vec![crate::starting::Starting { at: start.at, screen: Some(screen.clone()), ..Default::default() }]);
+        let jobs = Reporter::default().due(&[start.clone()], &read, NOW);
+        assert_eq!(news(&jobs), [(BOSS.to_string(), News::Unstarted { account: "codex".into(), place: place.clone(), terminal: "Ghostty".into(), minutes: 4, screen: Some(screen) })]);
+        let text = words(&jobs[0].notes);
+        assert!(text.contains("hasn't made its session yet: its terminal waits on your user to answer what it shows before it starts, which Codealong can't answer. It shows:\n\n    Hooks need review\n\n    › 1. Review hooks\n\nTell them what it asks"), "{text}");
         // Started without --report, or by a session that isn't running: nobody to tell.
         let mut r = Reporter::default();
         assert!(r.due(&[Pending { report: false, ..start.clone() }], &b, NOW).is_empty());

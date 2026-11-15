@@ -16,8 +16,10 @@
 // title, and the latest of what came of it hangs under the title with its status; a quiet
 // "+N more" beside it lists the rest (lineage.ts `cameLines`). What came of it is the sessions
 // it was forked into and the ones its agent started, its helpers among them; its headless runs,
-// together on one line with how many; and its side conversations (SideStrip.tsx). A click shows
-// a session, a right-click gives its menu; a side conversation shows above the box. The pages it
+// together on one line with how many; its side conversations (SideStrip.tsx); and the starts its
+// agent asked for whose sessions aren't here yet, starting, or stuck on what their terminal shows
+// (starting.rs). A click shows a session, a right-click gives its menu; a side conversation
+// shows above the box; a start has nothing to show yet, so its tooltip says where it is. The pages it
 // made go the same way under its links: the latest one's chip, and "+N more" for the rest.
 //
 // A session Codealong runs lives in the main window's panel, so there its Open button doesn't
@@ -44,13 +46,13 @@ import { folderTargets, opensInEditor, useEditorIcons } from '../editors';
 import { absolute, ago, agoPhrase, duration, middleTruncate, tildePath } from '../format';
 import { MOVES_ACCOUNTS, sessionName, sessionPlace } from '../harness';
 import { apiErrorWords, cutOffWords, endedOnApiError, limitWords, raisedBy, seenable, setAside, sideTitle } from '../lanes';
-import { cameLines, cameLineWords, cameWord, originWord, type CameLine, type Kin, type Lineage } from '../lineage';
+import { cameLines, cameLineWords, cameWord, originWord, startingTitle, type CameLine, type Kin, type Lineage } from '../lineage';
 import { CHORDS, chordKeys, chordSigns, type SessionActions } from '../menus';
 import { showSide } from '../side';
 import { SUGGESTED_CHORD, suggestedIn, suggestedSnooze, untilWords } from '../snooze';
 import { sessionTokens } from '../api';
 import { cacheShare, money, tokenCount, totalTokens } from '../spend';
-import type { Board, DeviceView, Label, Lane, Pr, Session, SessionSpent, SideGlance, Target, Todo } from '../types';
+import type { Board, DeviceView, Label, Lane, Pr, Session, SessionSpent, SideGlance, Starting, Target, Todo } from '../types';
 import { closedWord, isOpen, newId, nextColor, panelTodos, STATUS_WORD as TODO_WORD } from '../todos';
 import { ArtifactChip } from './ArtifactBits';
 import { BackgroundChip, BackgroundList } from './BackgroundBits';
@@ -62,7 +64,7 @@ import { OpenInMenu } from './Inspector';
 import { PreviewChip } from './PreviewBits';
 import { ProjectPrefix } from './ProjectSaid';
 import { PrChipCard } from './PrLink';
-import { AccountLabel, BranchLabel, Button, HarnessChip, headerMenu, Icon, PanelBack, STATUS_WORD, SessionEmblem, SessionGlyph, type PanelBackTo } from './primitives';
+import { AccountLabel, BranchLabel, Button, cx, HarnessChip, headerMenu, Icon, PanelBack, STATUS_WORD, SessionEmblem, SessionGlyph, type PanelBackTo } from './primitives';
 import { runFolder } from './RunButton';
 import { AddChip, LabelChip, TodoGlyph } from './TodoBits';
 import { keysIn } from '../platform';
@@ -239,7 +241,7 @@ function KinRow({ kin, now, parent = false, onShow, onMenu }: { kin: Kin; now: n
 }
 
 /** What keeps a line of what came of a session apart from the others. */
-const cameKey = (line: CameLine) => (line.kind === 'kin' ? line.kin.session.key : line.kind === 'side' ? `side:${line.side.id}` : 'runs');
+const cameKey = (line: CameLine) => (line.kind === 'kin' ? line.kin.session.key : line.kind === 'side' ? `side:${line.side.id}` : line.kind === 'starting' ? `starting:${line.starting.at}` : 'runs');
 
 /** The headless runs a session's commands started, on one line under its title: the glyph of
  *  the latest, or the working one while any works, how many, and how long since the latest moved.
@@ -263,6 +265,38 @@ function RunsRow({ runs, now, onShow }: { runs: Kin[]; now: number; onShow?: (la
       <Icon name="robot" size={11} />
       <span className="ca-sessinsp-kin-age">{ago(t.lastActivity, now)}</span>
     </button>
+  );
+}
+
+/** The first line a stuck start's terminal shows, which says what it waits on (Codex's “Hooks
+ *  need review”). */
+function screenHeadline(screen: string): string {
+  return (screen.split('\n').find((l) => l.trim() !== '') ?? '').trim();
+}
+
+/** A start the session's agent asked for whose session isn't here yet (`Board.starting`), under
+ *  its title as what came of it: titled by how its prompt opens, starting, or once it's gone a few
+ *  minutes without its session, waiting in its terminal on what that shows. It has nothing to
+ *  show yet, so it's no button: its tooltip says where it is and what it waits on. */
+function StartingRow({ starting: s, now }: { starting: Starting; now: number }) {
+  const who = `${s.harness} on ${s.account}`;
+  const where = s.terminal ? `in ${s.terminal}, in ${s.place}` : `in ${s.place}`;
+  const headline = s.screen ? screenHeadline(s.screen) : '';
+  const state = s.stuck ? (headline ? `“${headline}”` : `Waiting in ${s.terminal ?? 'its terminal'}`) : 'Starting';
+  const said = s.stuck
+    ? s.screen
+      ? `${who} hasn't made its session ${duration(s.at, now)} after it was started ${where}: its terminal, which may be behind your windows, waits on this to be answered before it starts.\n\n${s.screen}\n\nAnswer it in that tab.`
+      : `${who} hasn't made its session ${duration(s.at, now)} after it was started ${where}: its terminal, which may be behind your windows, may be waiting on a screen of its own before it starts. Answer it in that tab.`
+    : `${who} is starting ${where}. It shows here as its session once ${s.harness} makes one.`;
+  return (
+    <div className={cx('ca-sessinsp-kin', 'is-starting', s.stuck && 'is-stuck')} title={`${s.helper ? 'Its helper' : 'Started'}: ${startingTitle(s)}\n${said}`}>
+      <span className="ca-sessinsp-elbow" aria-hidden="true" />
+      <SessionGlyph s={{ status: s.stuck ? 'needs' : 'working' }} size={11} />
+      <span className="ca-sessinsp-kin-title">{startingTitle(s)}</span>
+      <span className="ca-sessinsp-kin-state">{state}</span>
+      {s.helper && <Icon name="subtask" size={11} />}
+      <span className="ca-sessinsp-kin-age">{duration(s.at, now)}</span>
+    </div>
   );
 }
 
@@ -507,6 +541,8 @@ export function SessionHeader({ lane, session: s, apps, now, onOpen, onShowLane,
                 <KinRow kin={line.kin} now={now} onShow={onShowSession} onMenu={onSessionMenu} />
               ) : line.kind === 'runs' ? (
                 <RunsRow runs={line.runs} now={now} onShow={onShowSession} />
+              ) : line.kind === 'starting' ? (
+                <StartingRow starting={line.starting} now={now} />
               ) : (
                 <SideKinRow sessionKey={s.key} side={line.side} now={now} />
               )}

@@ -302,7 +302,7 @@ export function MainPanel(props: MainPanelProps) {
         onPrMenu={(p) => prChipMenu(lane, p)}
         todos={todoLinks.bySession.get(session.key)}
         onShowTodo={showTodoFromPanel}
-        lineage={lineageOf(session, homes, board?.sides)}
+        lineage={lineageOf(session, homes, board)}
         schedule={bySchedule.get(session.key) ?? null}
         onShowSchedule={showSchedule}
         onShowSession={showSessionFromPanel}

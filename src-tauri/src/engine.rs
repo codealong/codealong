@@ -179,6 +179,9 @@ pub enum Msg {
     /// The read of the accounts' MCP servers is over (mcp.rs): what it read, or none when it fell
     /// over or never started.
     McpRead(Option<Vec<crate::mcp::Mcp>>),
+    /// The read of the terminals of starts that wait for their session is over (starting.rs
+    /// `read`): what each showed, or none when it fell over or never started.
+    Screens(Option<Vec<(i64, Option<String>)>>),
     /// A session's emblem was drawn, or why it wasn't (emblems.rs `draw`): the kept picture's
     /// name and what it shows.
     EmblemDrawn(String, std::result::Result<(String, String), String>),
@@ -1438,6 +1441,8 @@ struct Engine {
     training: training::TrainingPoll,
     /// The MCP servers each account's agents have (mcp.rs).
     mcp: crate::mcp::McpPoll,
+    /// What the terminals of starts waiting for their session show (starting.rs).
+    screens: crate::starting::Screens,
     dirty: bool,
     /// Only git results changed since the last publish; they go out in batches.
     dirty_git: bool,
@@ -1577,6 +1582,7 @@ impl Engine {
             team_files: teamfile::TeamFiles::default(),
             training: training::TrainingPoll::default(),
             mcp: crate::mcp::McpPoll::default(),
+            screens: crate::starting::Screens::default(),
             dirty: false,
             loading: true,
             dirty_git: false,
@@ -2388,6 +2394,27 @@ fn waiting_call(s: &Session, account: Option<&config::AccountCfg>) -> Option<Str
         });
     }
 
+    /// Reads the terminals of starts waiting in one for their session that are due
+    /// (`starting::Screens::due`), on a background thread, their processes found in the latest
+    /// listing.
+    fn read_screens(&mut self) {
+        if self.passing {
+            return;
+        }
+        let Some(listed) = self.processes.clone() else { return };
+        let now = now_ms();
+        let waiting = self.board.read().map(|b| origins::waiting_for(&b, now)).unwrap_or_default();
+        let asks = self.screens.due(&waiting, now);
+        if asks.is_empty() {
+            return;
+        }
+        let tx = self.tx.clone();
+        // `on_read` hears that the read is over however it ends, so the next one can go.
+        throttle::background("codealong-screens", move || crate::starting::read(&asks, &listed.lines), move |found| {
+            let _ = tx.send(Msg::Screens(found));
+        });
+    }
+
     /// The team files due to be read now (`TeamFiles::due`), marked under way.
     fn team_file_asks(&mut self) -> Vec<teamfile::Ask> {
         let repos: Vec<teamfile::Repo> = self
@@ -2683,6 +2710,7 @@ fn waiting_call(s: &Session, account: Option<&config::AccountCfg>) -> Option<Str
                 Ok(Msg::TrainingRead(list)) => self.dirty |= self.training.on_read(list),
                 Ok(Msg::TrainingOne(asked_as, t)) => self.dirty |= self.training.on_changed(&asked_as, t),
                 Ok(Msg::McpRead(list)) => self.dirty |= self.mcp.on_read(list),
+                Ok(Msg::Screens(found)) => self.dirty |= self.screens.on_read(found),
                 Ok(Msg::EmblemDrawn(key, drawn)) => self.on_emblem_drawn(&key, drawn),
                 Ok(Msg::MarkSeen(keys, at, reply)) => {
                     let now = now_ms();
@@ -3287,6 +3315,7 @@ fn waiting_call(s: &Session, account: Option<&config::AccountCfg>) -> Option<Str
         self.read_team_files();
         self.read_training();
         self.read_mcp();
+        self.read_screens();
         // Sessions that started in tmux while the screen was locked open in your terminal once
         // it isn't, those started while Codealong was closed too (`launch::TabLooks`).
         if crate::os::is_macos() && self.tab_looks.on_tick(launch::screen_locked(), launch::take_marked()) {
@@ -4153,10 +4182,13 @@ fn waiting_call(s: &Session, account: Option<&config::AccountCfg>) -> Option<Str
             machines: &self.machines,
             session_settings: &self.cfg.sessions,
         });
-        // Starts in a terminal that never made their session: the board has nothing else of them.
+        // Starts whose sessions aren't here yet: a line under the session that asked for each, and
+        // a notice for one in a terminal that never made its session, with what its tab shows.
         let word_of = |account: &str| self.cfg.accounts.iter().find(|a| a.name == account).and_then(harness::of).map_or_else(|| account.to_string(), |h| h.harness().word().to_string());
-        let stuck = origins::stuck_notices(&origins::waiting_for(&board, now), &board, word_of, now);
+        let waiting = origins::waiting_for(&board, now);
+        let stuck = origins::stuck_notices(&waiting, &board, word_of, |at| self.screens.screen(at).map(String::from), now);
         board.notices.extend(stuck);
+        board.starting = crate::starting::by_session(&waiting, &board, &self.screens, word_of, now);
         board.usage = usage;
         board.training = self.training.list(&self.cfg.accounts);
         board.mcp = self.mcp.list(&self.cfg.accounts);

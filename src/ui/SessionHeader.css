@@ -299,6 +299,24 @@
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+/* A start whose session isn't here yet: nothing to show, so nothing lights up; once it's stuck,
+   what its terminal waits on, as what waits on you is. */
+.ca-sessinsp-kin.is-starting:hover {
+  background: transparent;
+  color: var(--ink-2);
+}
+/* What it waits on keeps its words while the title gives way, up to half the line. */
+.ca-sessinsp-kin-state {
+  flex: none;
+  max-width: 50%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--ink-3);
+}
+.ca-sessinsp-kin.is-stuck > .ca-sessinsp-kin-state {
+  color: var(--attn);
+}
 .ca-sessinsp-kin-age {
   flex: none;
   margin-left: 2px;

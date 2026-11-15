@@ -1802,6 +1802,9 @@ export interface Notice {
   /** The PR (`owner/name#number`) whose review didn't start or wasn't posted, which the notice
    *  offers to try again (review.ts `tryAgain`). */
   reviewAgain?: string | null;
+  /** What a terminal shows that the notice is about, drawn as it's laid out: the screen a start
+   *  that never made its session waits on (origins.rs `stuck_notices`). */
+  screen?: string;
 }
 
 export interface Board {
@@ -1835,6 +1838,10 @@ export interface Board {
    *  the session or PR they're about, the latest started first. Absent from engines of older
    *  builds. */
   sides?: Record<string, SideGlance[]>;
+  /** The starts a session's agent asked for whose sessions aren't here yet (starting.rs
+   *  `by_session`), by the key of the session that asked, the latest first. This Mac's own.
+   *  Absent from engines of older builds, and when there are none. */
+  starting?: Record<string, Starting[]>;
   /** Codealong's own terminals (terminals.rs `glances`), by the key of the session each is for,
    *  in the order they were opened. Absent from engines of older builds, and when there are none. */
   terminals?: Record<string, TerminalGlance[]>;
@@ -3528,6 +3535,30 @@ export type TerminalInput =
   | { kind: 'focus'; on: boolean }
   | { kind: 'scroll'; to: 'top' | 'bottom' | 'pageUp' | 'pageDown' | 'promptUp' | 'promptDown' }
   | { kind: 'select'; all: boolean };
+
+/** A start a session's agent asked for whose session isn't on the board yet (starting.rs
+ *  `Starting`), listed under that session until its session shows. */
+export interface Starting {
+  /** When it was started: which start it is. */
+  at: number;
+  account: string;
+  /** Its harness's word (Codex). */
+  harness: string;
+  /** The worktree it was started in (a lane id), and its name. */
+  lane: string;
+  place: string;
+  /** Started as a helper of the session. */
+  helper: boolean;
+  /** How its prompt opens: its title until its session has one. */
+  opens: string | null;
+  /** The terminal it was started in, where it's found, when it was. */
+  terminal: string | null;
+  /** It's gone a few minutes without its session: its terminal likely waits on a screen of its
+   *  own. */
+  stuck: boolean;
+  /** What its terminal shows at its foot, when that was read. */
+  screen: string | null;
+}
 
 /** A side conversation as the board lists it (side.rs `Glance`): what it was first asked, how far
  *  it went and whether its copy is answering, without what was said. */

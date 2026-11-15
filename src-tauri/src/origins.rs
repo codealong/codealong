@@ -30,13 +30,14 @@ const PENDING_MS: i64 = 30 * 60 * 1000;
 /// two seconds before the start was noted, and that and the prompt say it's the one, however late.
 const PROMPTED_MS: i64 = 24 * 60 * 60 * 1000;
 /// How long after a start its harness's process can begin: the terminal opens a tab and its shell
-/// starts first, slowly on a busy Mac.
-const LAUNCH_MS: i64 = 5 * 60 * 1000;
+/// starts first, slowly on a busy Mac. A stuck start's terminal is found by when its process began
+/// too (starting.rs `process_of`).
+pub(crate) const LAUNCH_MS: i64 = 5 * 60 * 1000;
 /// How long a start in a terminal goes without its session before it's said to be stuck: its
 /// harness's UI makes one within seconds of its prompt, unless it waits on a screen of its own.
 const STUCK_MS: i64 = 3 * 60 * 1000;
 /// A session that says it started a little before the start was asked for can still be it.
-const PENDING_SLACK_MS: i64 = 60 * 1000;
+pub(crate) const PENDING_SLACK_MS: i64 = 60 * 1000;
 /// Entries are kept this long. Claude Code deletes transcripts after about 30 days.
 const KEEP_MS: i64 = 90 * 24 * 60 * 60 * 1000;
 
@@ -104,13 +105,19 @@ impl Pending {
         if self.opens.is_some() { PROMPTED_MS } else { PENDING_MS }
     }
 
-    /// Started in a terminal with a prompt `STUCK_MS` ago or more and still without its session,
-    /// while it's waited for: its UI is likely on a screen of its own (Codex's update offer, its
+    /// Started in a terminal with a prompt and still waited for: its UI can stop on a screen of
+    /// its own before it makes its session, whose terminal is read for it (starting.rs
+    /// `Screens`). One started without a prompt makes no session until someone types one.
+    pub fn in_terminal(&self, now: i64) -> bool {
+        self.terminal && self.opens.is_some() && now - self.at <= self.waits()
+    }
+
+    /// Waiting in a terminal (`in_terminal`) `STUCK_MS` or more without its session: its UI is
+    /// likely on a screen of its own (Codex's review of a repo's hooks, its update offer, its
     /// question about its background server), which nobody sees in a terminal behind your
-    /// windows, and which Codealong can't read or answer. One started without a prompt makes no
-    /// session until someone types one, so it isn't.
+    /// windows, and which Codealong can't answer.
     pub fn stuck(&self, now: i64) -> bool {
-        self.terminal && self.opens.is_some() && now - self.at >= STUCK_MS && now - self.at <= self.waits()
+        self.in_terminal(now) && now - self.at >= STUCK_MS
     }
 
     /// How many whole minutes ago it was started.
@@ -420,16 +427,22 @@ pub fn started(spec: &crate::start::StartSpec, key: Option<&str>) {
     }
 }
 
+/// A worktree's name on the board, or its path where the board has no such worktree.
+pub fn place_of(board: &crate::model::Board, lane: &str) -> String {
+    board.lanes.iter().find(|l| l.id == lane).map(|l| l.callsign.clone()).unwrap_or_else(|| crate::util::tilde(Path::new(lane)))
+}
+
 /// A notice for each start in a terminal that's stuck (`Pending::stuck`): it has no session on
-/// the board yet, and its terminal may be behind your windows. Each has a key of its own (`start:`
-/// and when it was started), so dismissing one doesn't hide the next, even in the same worktree,
-/// and goes once its session shows.
-pub fn stuck_notices(pending: &[Pending], board: &crate::model::Board, word_of: impl Fn(&str) -> String, now: i64) -> Vec<crate::model::Notice> {
+/// the board yet, and its terminal may be behind your windows. What its terminal shows, where
+/// that was read (`screen`, by the start's time: starting.rs `Screens`), goes with it; else it
+/// guesses. Each has a key of its own (`start:` and when it was started), so dismissing one
+/// doesn't hide the next, even in the same worktree, and goes once its session shows.
+pub fn stuck_notices(pending: &[Pending], board: &crate::model::Board, word_of: impl Fn(&str) -> String, screen: impl Fn(i64) -> Option<String>, now: i64) -> Vec<crate::model::Notice> {
     pending
         .iter()
         .filter(|p| p.stuck(now))
         .map(|p| {
-            let place = board.lanes.iter().find(|l| l.id == p.lane).map(|l| l.callsign.clone()).unwrap_or_else(|| crate::util::tilde(Path::new(&p.lane)));
+            let place = place_of(board, &p.lane);
             let word = word_of(&p.account);
             let asker = board.session(&p.from).map(|(_, s)| crate::send::quoted(&s.title)).unwrap_or_else(|| "another session".into());
             let by = match (p.from.is_empty(), p.helper) {
@@ -437,12 +450,18 @@ pub fn stuck_notices(pending: &[Pending], board: &crate::model::Board, word_of: 
                 (false, true) => format!(" as a helper of {asker},"),
                 (false, false) => format!(" by {asker},"),
             };
+            let screen = screen(p.at);
+            let waits = if screen.is_some() {
+                "its terminal shows this, and waits on it to be answered before it starts"
+            } else {
+                "its terminal may be waiting on a screen of its own before it starts, such as an update offer or a question about its background server"
+            };
             let text = format!(
-                "{word} was started in {terminal} {mins} minutes ago, in {place},{by} and hasn't made its session yet: its terminal may be waiting on a screen of its own before it starts, such as an update offer or a question about its background server. Answer it in that tab; if you closed it, dismiss this.",
+                "{word} was started in {terminal} {mins} minutes ago, in {place},{by} and hasn't made its session yet: {waits}. Answer it in that tab; if you closed it, dismiss this.",
                 terminal = board.apps.terminal,
                 mins = p.minutes(now),
             );
-            crate::model::Notice { key: format!("start:{}", p.at), title: format!("{word} hasn't started in {place}"), text, ..Default::default() }
+            crate::model::Notice { key: format!("start:{}", p.at), title: format!("{word} hasn't started in {place}"), text, screen, ..Default::default() }
         })
         .collect()
 }
@@ -751,19 +770,26 @@ mod tests {
         let mut board = Board { lanes: vec![crate::fixtures::lane("/r/app", vec![boss])], ..Board::default() };
         board.apps.terminal = "Ghostty".into();
         let word = |_: &str| "Codex".to_string();
-        assert!(stuck_notices(&[start.clone()], &board, word, AT + 60_000).is_empty());
-        let said = stuck_notices(&[start.clone()], &board, word, AT + 66 * 60_000);
+        let unread = |_: i64| None;
+        assert!(stuck_notices(&[start.clone()], &board, word, unread, AT + 60_000).is_empty());
+        let said = stuck_notices(&[start.clone()], &board, word, unread, AT + 66 * 60_000);
         assert_eq!((said.len(), said[0].key.as_str(), said[0].title.as_str()), (1, "start:1000000", format!("Codex hasn't started in {}", board.lanes[0].callsign).as_str()));
         // Two stuck in one worktree are two notices, one dismissed apart from the other.
         let again = Pending { at: AT + 60_000, ..start.clone() };
-        let two = stuck_notices(&[start.clone(), again], &board, word, AT + 66 * 60_000);
+        let two = stuck_notices(&[start.clone(), again], &board, word, unread, AT + 66 * 60_000);
         assert!(two.len() == 2 && two[0].key != two[1].key);
         assert!(said[0].text.starts_with(&format!("Codex was started in Ghostty 66 minutes ago, in {}, as a helper of “Dashboards”, and hasn't made its session yet: its terminal may be waiting on a screen of its own", board.lanes[0].callsign)), "{}", said[0].text);
+        assert_eq!(said[0].screen, None);
+        // Where its terminal was read, it says what that shows rather than guessing
+        // (2026-11-15: Codex's review of a repo's hooks).
+        let read = stuck_notices(&[start.clone()], &board, word, |at| (at == AT).then(|| "Hooks need review\n› 1. Review hooks".to_string()), AT + 5 * 60_000);
+        assert_eq!(read[0].screen.as_deref(), Some("Hooks need review\n› 1. Review hooks"));
+        assert!(read[0].text.ends_with("hasn't made its session yet: its terminal shows this, and waits on it to be answered before it starts. Answer it in that tab; if you closed it, dismiss this."), "{}", read[0].text);
         // Started by a session the board doesn't show, in a folder it doesn't either; and by you.
         let other = Pending { helper: false, lane: "/r/gone".into(), from: "claude:claude:gone".into(), ..start.clone() };
-        assert!(stuck_notices(&[other], &board, word, AT + STUCK_MS)[0].text.contains("in /r/gone, by another session, and hasn't"));
+        assert!(stuck_notices(&[other], &board, word, unread, AT + STUCK_MS)[0].text.contains("in /r/gone, by another session, and hasn't"));
         let yours = Pending { helper: false, report: false, from: String::new(), ..start };
-        let said = stuck_notices(&[yours.clone()], &board, word, AT + STUCK_MS);
+        let said = stuck_notices(&[yours.clone()], &board, word, unread, AT + STUCK_MS);
         assert!(said[0].text.contains(&format!("in {}, and hasn't made its session yet", board.lanes[0].callsign)), "{}", said[0].text);
         // Yours doesn't take an agent's helper that shows first, which its own start takes; it
         // takes its own, and notes no origin.
