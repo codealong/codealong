@@ -242,6 +242,11 @@
 .ca-sessinsp .ca-reply-queue {
   padding: 4px 12px 4px var(--space-4);
 }
+/* With glass on (src/glass.ts), on the panel's own white, which the glass doesn't show through, so
+   no gray is left between the two. */
+.is-glass .ca-sessinsp .ca-reply-queue {
+  background: transparent;
+}
 .ca-reply .ca-thread {
   --thread-edge: var(--space-3);
   padding: var(--space-3) var(--thread-edge) var(--space-3) 14px;

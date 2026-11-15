@@ -2252,8 +2252,11 @@ bigger, while the notch's shape and the bar's pills stay at actual size.
 
 With glass on, the main window and the project windows show what's behind them through macOS's own
 glass, as the Finder does: Liquid Glass from macOS 26, and the sidebar's blur on earlier versions.
-The title bar, the usage bar and the sidebar let it through, in light and in dark; the list, the
-board and the panel on the right keep their own ground, so what you read is as legible as before.
+The title bar, the usage bar, the sidebar and what was gray around the list (between its groups,
+the strip over it, Kanban's columns) let it through, in light and in dark, with the rows that scroll
+under the strip blurred; the rows, the cards and the panel on the right keep their own ground, so
+what you read is as legible as before. The notch stays black, so it still reads as part of the
+screen, and the floating bar, the quick panel and the other windows that float are as they were.
 It turns on and off as the setting changes, without a relaunch. Linux and Windows don't offer it.
 
 ### Reload

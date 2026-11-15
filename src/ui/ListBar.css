@@ -19,6 +19,16 @@
   background: var(--surface-sunken);
   box-shadow: 0 -2px 0 var(--surface-sunken);
 }
+/* With glass on (src/glass.ts), see-through over the board, which is the glass there, as the usage
+   bar over it is; the rows that scroll under it are blurred, as under a toolbar of macOS's. The
+   strip over a session's panel is the panel's own white instead (SessionPanel.css), and the two
+   lines still meet. */
+.is-glass .ca-listbar {
+  background: var(--glass-sunken);
+  box-shadow: 0 -2px 0 var(--glass-sunken);
+  -webkit-backdrop-filter: blur(16px) saturate(1.6);
+  backdrop-filter: blur(16px) saturate(1.6);
+}
 /* A row the keyboard goes to is scrolled to just under the bar, not under it: the bar's height. */
 .ca-board:has(> .ca-listbar) {
   scroll-padding-top: 31px;

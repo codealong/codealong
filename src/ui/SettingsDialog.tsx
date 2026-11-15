@@ -2522,7 +2522,7 @@ function ExperimentalPane({ cfg, view, disabled, onSave }: PaneProps & { view: C
               <CheckBox checked={experimental.glass} onChange={(on) => void onSave({ ...cfg, experimental: { ...experimental, glass: on } })} />
               <span>Glass</span>
               <small>
-                The main window and the project windows show what’s behind them through macOS’s glass, Liquid Glass from macOS 26 and the sidebar’s blur before it: the title bar, the usage bar and the sidebar let it through, as the Finder’s do, while the list and the panel keep their own ground.
+                The main window and the project windows show what’s behind them through macOS’s glass, Liquid Glass from macOS 26 and the sidebar’s blur before it: the title bar, the sidebar and what’s gray around the list let it through, as the Finder’s do, while the rows, the cards and the panel keep their own ground.
               </small>
             </label>
           </section>

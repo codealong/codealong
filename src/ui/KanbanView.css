@@ -25,6 +25,13 @@
   background: var(--surface-sunken);
   transition: box-shadow var(--dur-fast);
 }
+/* With glass on (src/glass.ts), the columns and the folded rail are see-through over the board,
+   which is the glass there, as the sidebar is; the cards keep their own ground. Before the rail's
+   hover, which still shows. */
+.is-glass .ca-kb-col,
+.is-glass .ca-kb-rail {
+  background: var(--glass-sunken);
+}
 /* A card dragged over a column it would move to. */
 .ca-kb-col.is-drop,
 .ca-kb-rail.is-drop {
