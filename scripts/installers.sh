@@ -25,8 +25,8 @@ fail() {
 
 version="$(node -p "require('./src-tauri/tauri.conf.json').version")"
 
-# A path as the OS's own programs take it: on Windows, Git Bash's /tmp/… as C:\…, which Tauri
-# and Node want in a file they're given, where Git Bash doesn't turn it around for them.
+# A path as the OS's own programs take it: on Windows, Git Bash's /d/a/… as D:\a\…, for Tauri,
+# rather than leaving Git Bash to guess which arguments are paths.
 native() {
   if command -v cygpath >/dev/null; then cygpath -w "$1"; else echo "$1"; fi
 }
@@ -47,21 +47,21 @@ build() {
   esac
   arch="${host%%-*}"
   local target="${CARGO_TARGET_DIR:-$(scripts/target-dir.sh)}"
-  # Cargo takes the folder as given; Git Bash's own programs (find, mktemp) want it as a POSIX path.
-  local posix="$target"
-  if command -v cygpath >/dev/null; then posix="$(cygpath -u "$target")"; fi
-  local bundle="$posix/release/bundle"
-  # The licenses go in the target folder, not the temporary one: Tauri drops a resource's drive
-  # (C:) and looks for it on the build's, where GitHub's x64 Windows runner has the checkout on D:.
-  local work
-  mkdir -p "$posix"
-  work="$(mktemp -d "$posix/installers.XXXXXX")"
+  # Cargo takes the folder as given; Git Bash's own programs (find) want it as a POSIX path.
+  local bundle="$target/release/bundle"
+  if command -v cygpath >/dev/null; then bundle="$(cygpath -u "$target")/release/bundle"; fi
+  # The licenses are written in the checkout and named from src-tauri, where Tauri looks for a
+  # resource: it drops a path's drive (C:) and looks on the build's, so in a temporary or target
+  # folder on another drive than the checkout they aren't found (GitHub's x64 Windows runner has
+  # the checkout on D:).
+  local work=.installers
+  rm -rf "$work" && mkdir "$work"
   scripts/licenses.sh "$work/THIRD_PARTY_LICENSES.txt" "$host"
-  node -e 'process.stdout.write(JSON.stringify({ bundle: { resources: { [process.argv[1]]: "THIRD_PARTY_LICENSES.txt" } } }))' "$(native "$work/THIRD_PARTY_LICENSES.txt")" >"$work/release.conf.json"
+  node -e 'process.stdout.write(JSON.stringify({ bundle: { resources: { [process.argv[1]]: "THIRD_PARTY_LICENSES.txt" } } }))' "../$work/THIRD_PARTY_LICENSES.txt" >"$work/release.conf.json"
   rm -rf "$bundle"
   echo "Building Codealong $version for $os on $arch: $bundles."
   CARGO_TARGET_DIR="$target" CODEALONG_RELEASE=1 CARGO_PROFILE_RELEASE_LTO=thin CARGO_PROFILE_RELEASE_INCREMENTAL=false \
-    npx tauri build --ci --bundles "$bundles" --config "$(native "$work/release.conf.json")"
+    npx tauri build --ci --bundles "$bundles" --config "$(native "$PWD/$work/release.conf.json")"
 
   mkdir -p "$out"
   local signed=0 trusted

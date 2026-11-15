@@ -12,3 +12,4 @@ src-tauri/gen/schemas/
 *.p8
 *.pem
 *.key
+.installers/
