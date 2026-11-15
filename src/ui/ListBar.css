@@ -19,10 +19,11 @@
   background: var(--surface-sunken);
   box-shadow: 0 -2px 0 var(--surface-sunken);
 }
-/* With glass on (src/glass.ts), frosted all but through, a shade under the board's frosted ground,
-   so the rows that scroll under it don't show. Not see-through and blurred, as under a toolbar of
-   macOS's: WebKit draws a page's backdrop-filter with a backdrop layer of its own, and stacked on
-   the glass behind the window the strip flickered as the window was dragged (2026-11-15). The strip
+/* With glass on (src/glass.ts), opaque, a shade under the board's frosted ground, so the rows that
+   scroll under it don't show: frosted all but through, a group header's words under it still read
+   faintly through it (2026-11-15). Not see-through and blurred, as under a toolbar of macOS's:
+   WebKit draws a page's backdrop-filter with a backdrop layer of its own, and stacked on the glass
+   behind the window the strip flickered as the window was dragged (2026-11-15). The strip
    over a session's panel is the panel's own white instead (SessionPanel.css), and the two lines
    still meet. */
 .is-glass .ca-listbar {

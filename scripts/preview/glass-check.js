@@ -86,7 +86,7 @@
       check(sel + ' keeps surface-hover opaque', alpha(token(el, '--surface-hover')) === 1, token(el, '--surface-hover'));
     });
     var strip = q('.ca-listbar');
-    check('the strip over the list hides the rows that scroll under it', alpha(bg(strip)) >= 0.9, bg(strip));
+    check('the strip over the list hides the rows that scroll under it: opaque', alpha(bg(strip)) === 1, bg(strip));
     // A page's own blur, stacked on the glass behind the window, flickers as the window moves.
     var blurred = all('body *').filter(function (el) { var cs = getComputedStyle(el); return (cs.backdropFilter || cs.webkitBackdropFilter || 'none') !== 'none'; });
     check('nothing on the page draws a blur of its own over the glass', blurred.length === 0, blurred.slice(0, 3).map(function (el) { return el.className; }).join(', '));
