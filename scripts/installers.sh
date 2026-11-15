@@ -47,11 +47,15 @@ build() {
   esac
   arch="${host%%-*}"
   local target="${CARGO_TARGET_DIR:-$(scripts/target-dir.sh)}"
-  # Cargo takes the folder as given; Git Bash's own programs (find) want it as a POSIX path.
-  local bundle="$target/release/bundle"
-  if command -v cygpath >/dev/null; then bundle="$(cygpath -u "$target")/release/bundle"; fi
+  # Cargo takes the folder as given; Git Bash's own programs (find, mktemp) want it as a POSIX path.
+  local posix="$target"
+  if command -v cygpath >/dev/null; then posix="$(cygpath -u "$target")"; fi
+  local bundle="$posix/release/bundle"
+  # The licenses go in the target folder, not the temporary one: Tauri drops a resource's drive
+  # (C:) and looks for it on the build's, where GitHub's x64 Windows runner has the checkout on D:.
   local work
-  work="$(mktemp -d)"
+  mkdir -p "$posix"
+  work="$(mktemp -d "$posix/installers.XXXXXX")"
   scripts/licenses.sh "$work/THIRD_PARTY_LICENSES.txt" "$host"
   node -e 'process.stdout.write(JSON.stringify({ bundle: { resources: { [process.argv[1]]: "THIRD_PARTY_LICENSES.txt" } } }))' "$(native "$work/THIRD_PARTY_LICENSES.txt")" >"$work/release.conf.json"
   rm -rf "$bundle"
