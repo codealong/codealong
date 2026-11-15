@@ -90,6 +90,15 @@
     // A page's own blur, stacked on the glass behind the window, flickers as the window moves.
     var blurred = all('body *').filter(function (el) { var cs = getComputedStyle(el); return (cs.backdropFilter || cs.webkitBackdropFilter || 'none') !== 'none'; });
     check('nothing on the page draws a blur of its own over the glass', blurred.length === 0, blurred.slice(0, 3).map(function (el) { return el.className; }).join(', '));
+    // The search box's hover on the glass is a step from its see-through well, not surface-hover,
+    // opaque and nearly white there: the color its rule gives, on a probe in the title bar.
+    var hover = [].concat.apply([], Array.prototype.map.call(document.styleSheets, function (sh) { try { return Array.prototype.slice.call(sh.cssRules); } catch (e) { return []; } }))
+      .filter(function (r) { return r.selectorText === '.is-glass .ca-search:hover'; })[0];
+    var probe = document.createElement('div');
+    q('.ca-win-bar').appendChild(probe);
+    probe.style.background = hover ? hover.style.background : '';
+    check('the search box’s hover on the glass is see-through', !!hover && alpha(bg(probe)) > 0 && alpha(bg(probe)) < 1, hover ? hover.style.background + ' → ' + bg(probe) : 'no hover rule for it');
+    probe.remove();
     var chip = q('.ca-usagebar .ca-uchip');
     check('a usage chip keeps its white', alpha(bg(chip)) === 1, bg(chip));
     var row = q('.ca-board .ca-lane');
