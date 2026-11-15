@@ -48,6 +48,8 @@ pub const LABEL: &str = "quick";
 /// The room the page leaves round its card for the card's shadow (useQuickSize.ts `MARGIN`),
 /// which is drawn to fit it (`--shadow-quick`).
 const MARGIN: f64 = 20.0;
+/// The card's corners, and the chip's (`--radius-lg`).
+const RADIUS: f64 = 12.0;
 /// The window's width: the page's card and the room for its shadow on each side.
 const WIDTH: f64 = 720.0 + 2.0 * MARGIN;
 /// Its height before the page has said its own: the card's (useQuickSize.ts `HEIGHT`, which
@@ -202,7 +204,18 @@ pub fn setup(app: &AppHandle) -> Result<()> {
     let window = panel::builder(app, LABEL, page).build()?;
     // The panel is never destroyed, so the class it had isn't kept.
     let _ = panel::make(&window, PANEL);
+    fit_glass(app);
     Ok(())
+}
+
+/// With glass on (glass.rs), the panel has it under its card, which its page lets through only
+/// at the bar along its foot (Quick.css); none while it's folded, as the page draws the chip in
+/// the card's window before the window shrinks round it, and the card's glass would show round
+/// the chip meanwhile. On the main thread, or any.
+pub fn fit_glass(app: &AppHandle) {
+    let (Some(state), Some(window)) = (app.try_state::<Quick>(), app.get_webview_window(LABEL)) else { return };
+    let on = crate::glass::shown() && !is_folded(&state);
+    panel::set_glass_under(&window, on.then_some((MARGIN, RADIUS)));
 }
 
 /// Opens the panel, or brings it back up, for `context`: what a board window asks it to start
@@ -235,6 +248,7 @@ pub fn open(app: &AppHandle, context: Value) {
         }
         None => context,
     };
+    fit_glass(app);
     // It opens where you are: on the screen with the pointer, centered, near the top.
     if !panel::is_visible(&window) {
         if let Some(s) = pointer_screen() {
@@ -458,6 +472,7 @@ fn put_aside(app: &AppHandle) {
     if let Ok(mut f) = state.folded.lock() {
         *f = Some(open_height);
     }
+    fit_glass(app);
     let handle = app.clone();
     let asked = window.eval_with_callback(FOLD_SCRIPT, move |answer| {
         let size = serde_json::from_str::<(f64, f64)>(answer.trim()).ok().filter(|&(w, h)| w.is_finite() && h.is_finite() && w > 0.0 && h > 0.0);
@@ -844,6 +859,12 @@ mod tests {
         // The page returns its height; a page that isn't up keeps the open for when it is.
         assert!(script.contains("return typeof h === 'number' && isFinite(h) ? h : null;"));
         assert!(script.contains("window.__quickPending = [context, board]; return null;"));
+    }
+
+    #[test]
+    fn the_glass_has_the_cards_corners() {
+        let tokens = include_str!("../../src/styles/tokens.css");
+        assert!(tokens.contains(&format!("--radius-lg: {RADIUS}px;")), "RADIUS is the card's --radius-lg");
     }
 
     #[test]

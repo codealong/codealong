@@ -105,6 +105,10 @@ pub fn set_alpha(w: &WebviewWindow, alpha: f64) {
 /// through, so a window here always draws all of itself.
 pub fn set_opaque(_w: &WebviewWindow, _opaque: bool) {}
 
+/// Nothing: glass (glass.rs) is macOS's alone, as GTK has no material behind a window to show
+/// through.
+pub fn set_glass_under(_w: &WebviewWindow, _under: Option<(f64, f64)>) {}
+
 pub fn is_visible(w: &WebviewWindow) -> bool {
     w.is_visible().unwrap_or(false)
 }

@@ -3,9 +3,12 @@
    and looked out of place over a glass that takes its hue from the wallpaper. A well, a hover, a
    selection, a line or a keycap there is a shade of whatever is behind it, as macOS's vibrancy draws
    them. Only the glass's places: the title bar, the usage bar, the sidebar and its rail, the strip
-   over the list, the list's group headers and Kanban's column heads. What's white (the rows, the
-   cards, the panel, menus) keeps the palette's grays, which the see-through ones come to over
-   white anyway, and what covers something that scrolls under it keeps a ground of its own. */
+   over the list, the list's group headers, Kanban's column heads and the quick panel's bar. What's
+   white (the rows, the cards, the panel, menus) keeps the palette's grays, which the see-through
+   ones come to over white anyway, and what covers something that scrolls under it keeps a ground
+   of its own. surface-hover stays as it is: a white control there (a button, a usage chip, a
+   quick panel chip) takes it on hover, and while it's dragged over the others, and see-through
+   it would lose its white. */
 .is-glass .ca-win-bar,
 .is-glass .ca-usagebar,
 .is-glass .ca-side,
@@ -13,9 +16,9 @@
 .is-glass .ca-listbar,
 .is-glass .ca-bay,
 .is-glass .ca-kb-head,
-.is-glass .ca-kb-rail {
+.is-glass .ca-kb-rail,
+.is-glass .ca-quick-bar {
   --surface-sunken: var(--glass-well);
-  --surface-hover: var(--glass-hover);
   --surface-selected: var(--glass-selected);
   --nav-hover: var(--glass-hover);
   --nav-selected: var(--glass-nav-selected);

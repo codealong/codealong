@@ -562,6 +562,12 @@ html.is-quick body {
   border-radius: 0 0 var(--radius-lg) var(--radius-lg);
   background: var(--surface-sunken);
 }
+/* With glass on (src/glass.ts), the app puts macOS's glass under the card (quick.rs `fit_glass`),
+   and the bar lets it through, as the main window's sidebar does; the rest of the card keeps its
+   ground. */
+.is-glass .ca-quick-bar {
+  background: var(--glass-sunken);
+}
 .ca-quick-pick {
   position: relative;
   min-width: 0;

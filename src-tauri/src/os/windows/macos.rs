@@ -3,14 +3,15 @@
 //! what AppKit and WebKit are asked of any window: a page's focus handed back, what its drawing
 //! side has, a picture of it, the title bar a board window draws under.
 
-use std::cell::OnceCell;
+use std::cell::{OnceCell, RefCell};
+use std::collections::HashMap;
 use std::ffi::{c_void, CString};
 use std::sync::Mutex;
 
 use objc2::rc::Retained;
 use objc2::runtime::{AnyClass, AnyObject, Bool, ClassBuilder, NSObjectProtocol, Sel};
 use objc2::{msg_send, sel, ClassType, MainThreadMarker};
-use objc2_app_kit::{NSApplication, NSBackingStoreType, NSColor, NSEvent, NSMainMenuWindowLevel, NSPanel, NSResponder, NSScreen, NSStatusWindowLevel, NSView, NSWindow, NSWindowAnimationBehavior, NSWindowCollectionBehavior, NSWindowDidBecomeKeyNotification, NSWindowLevel, NSWindowOcclusionState, NSWindowStyleMask};
+use objc2_app_kit::{NSApplication, NSAutoresizingMaskOptions, NSBackingStoreType, NSColor, NSEvent, NSGlassEffectView, NSGlassEffectViewStyle, NSMainMenuWindowLevel, NSPanel, NSResponder, NSScreen, NSStatusWindowLevel, NSView, NSVisualEffectBlendingMode, NSVisualEffectMaterial, NSVisualEffectState, NSVisualEffectView, NSWindow, NSWindowAnimationBehavior, NSWindowCollectionBehavior, NSWindowDidBecomeKeyNotification, NSWindowLevel, NSWindowOcclusionState, NSWindowOrderingMode, NSWindowStyleMask};
 use objc2_foundation::{NSNotificationCenter, NSPoint, NSRect, NSSize, NSString};
 use tauri::WebviewWindow;
 
@@ -406,6 +407,69 @@ pub fn set_opaque(w: &WebviewWindow, opaque: bool) {
             n.setOpaque(opaque);
         }
     });
+}
+
+thread_local! {
+    /// The glass `set_glass_under` put under part of a window, by the window's label. AppKit's,
+    /// so only ever touched on the main thread.
+    static UNDER: RefCell<HashMap<String, Retained<NSView>>> = RefCell::new(HashMap::new());
+}
+
+/// Puts macOS's glass under part of the window, behind its page: `margin` points in from each
+/// edge, with `radius` corners, following the window's size; or takes it away (`None`). For a
+/// window whose page draws a card with room round it for its shadow (the quick panel): Tauri's
+/// effects (glass.rs) fill the whole window, and would frost the room round the card too. Liquid
+/// Glass (NSGlassEffectView) from macOS 26, before it the sidebar's vibrancy (NSVisualEffectView,
+/// rounded with the private `setCornerRadius:` that window-vibrancy uses too, and left out where
+/// it isn't there, as square corners would show past the card's). Run on the main thread, from any.
+pub fn set_glass_under(w: &WebviewWindow, under: Option<(f64, f64)>) {
+    let window = w.clone();
+    let label = w.label().to_string();
+    let run = move || {
+        let Some(mtm) = main_thread() else { return };
+        UNDER.with(|views| {
+            let mut views = views.borrow_mut();
+            match under {
+                None => {
+                    if let Some(view) = views.remove(&label) {
+                        view.removeFromSuperview();
+                    }
+                }
+                Some(_) if views.contains_key(&label) => {}
+                Some((margin, radius)) => {
+                    let Some(content) = ns(&window).and_then(|n| n.contentView()) else { return };
+                    let bounds = content.bounds();
+                    let frame = NSRect::new(NSPoint::new(margin, margin), NSSize::new((bounds.size.width - 2.0 * margin).max(0.0), (bounds.size.height - 2.0 * margin).max(0.0)));
+                    let view: Retained<NSView> = if AnyClass::get(c"NSGlassEffectView").is_some() {
+                        let glass = NSGlassEffectView::initWithFrame(mtm.alloc(), frame);
+                        glass.setStyle(NSGlassEffectViewStyle::Regular);
+                        glass.setCornerRadius(radius);
+                        Retained::into_super(glass)
+                    } else {
+                        let blur = NSVisualEffectView::initWithFrame(mtm.alloc(), frame);
+                        if !blur.respondsToSelector(sel!(setCornerRadius:)) {
+                            return;
+                        }
+                        blur.setMaterial(NSVisualEffectMaterial::Sidebar);
+                        blur.setBlendingMode(NSVisualEffectBlendingMode::BehindWindow);
+                        // A panel that's never key still draws it as it is in front.
+                        blur.setState(NSVisualEffectState::Active);
+                        // SAFETY: NSVisualEffectView answers it (asked just above); it takes a CGFloat.
+                        let () = unsafe { msg_send![&*blur, setCornerRadius: radius] };
+                        Retained::into_super(blur)
+                    };
+                    view.setAutoresizingMask(NSAutoresizingMaskOptions::ViewWidthSizable | NSAutoresizingMaskOptions::ViewHeightSizable);
+                    content.addSubview_positioned_relativeTo(&view, NSWindowOrderingMode::Below, None);
+                    views.insert(label, view);
+                }
+            }
+        });
+    };
+    if on_main_thread() {
+        run();
+    } else {
+        let _ = w.run_on_main_thread(run);
+    }
 }
 
 /// Ordered in, wherever it is.

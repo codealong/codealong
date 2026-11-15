@@ -2258,8 +2258,9 @@ the list's groups are frosted, so they take the glass's tint without showing the
 sits on the glass (a field, a button's well, a selected or hovered row in the sidebar, a keycap, a
 line) is a shade of whatever is behind it rather than a gray of its own, as macOS's own sidebars
 draw it, so it suits whatever color the wallpaper gives the glass. The rows, the cards and the panel
-on the right keep their own ground, so what you read is as legible as before. The notch stays black, so it still reads as part of the
-screen, and the floating bar, the quick panel and the other windows that float are as they were.
+on the right keep their own ground, so what you read is as legible as before. The quick panel's bar, along its foot, shows the glass too,
+while the rest of the panel keeps its ground. The notch stays black, so it still reads as part of
+the screen, and the floating bar and the other windows that float are as they were.
 It turns on and off as the setting changes, without a relaunch. Linux and Windows don't offer it.
 
 ### Reload

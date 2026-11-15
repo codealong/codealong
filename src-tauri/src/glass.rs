@@ -12,6 +12,10 @@
 //! window that never had it is never touched, so with it off nothing is as it was before it.
 //! macOS only: Linux has no material behind a window, and Windows' Mica hasn't been tried, so the
 //! page never draws see-through there either.
+//!
+//! The quick panel has glass too, only under its card, as its window has room round the card for
+//! the card's shadow that the glass mustn't frost (`panel::set_glass_under`, quick.rs
+//! `fit_glass`); its page lets it through at the bar along the card's foot.
 
 use std::sync::atomic::{AtomicBool, Ordering};
 
@@ -23,7 +27,8 @@ use crate::os::{self, Os};
 /// Whether the board's windows have glass now.
 static SHOWN: AtomicBool = AtomicBool::new(false);
 
-/// Puts glass on every board window, or takes it off, when they don't have it that way.
+/// Puts glass on every board window, and under the quick panel's card, or takes it off, when they
+/// don't have it that way.
 pub fn follow(app: &tauri::AppHandle, on: bool) {
     if SHOWN.swap(on, Ordering::AcqRel) == on {
         return;
@@ -33,6 +38,12 @@ pub fn follow(app: &tauri::AppHandle, on: bool) {
             set(&w, on);
         }
     }
+    crate::quick::fit_glass(app);
+}
+
+/// Whether the windows have glass now.
+pub fn shown() -> bool {
+    SHOWN.load(Ordering::Acquire)
 }
 
 /// Gives a board window just made the glass the others have.

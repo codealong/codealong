@@ -143,6 +143,7 @@ import { projectForDigit, projectKey } from './ProjectSwitcher';
 import { usePrLinks } from './PrLink';
 import { PrGlyph } from './PrsView';
 import { useTheme } from './ThemeSwitch';
+import { useGlass } from '../glass';
 import { Tip } from './Tip';
 import { TodoGlyph } from './TodoBits';
 import { useNow } from './useNow';
@@ -698,6 +699,7 @@ export function Quick() {
 
   const theme = board?.theme ?? 'system';
   useTheme(theme);
+  useGlass(!!board?.glass);
   const logoStatus = useLogo(board?.logoStatus);
 
   // The input grows with what you write. At its tallest with more than it shows there's nothing
