@@ -13,6 +13,7 @@
 import { useEffect, useState } from 'react';
 import { chromeProfiles, closeSession, desktopPins, expandAttachments, forkSession, getAccounts, inPreview, moveSession, moveSessionTo, onDesktopPins, openInChrome, openUrl, ownSessions, pinToDesktop, resumeSession, sessionCancel, sessionWindow, stopListening, setPrNudge, setPrPrimary, setReusable, showQuick, unpinFromDesktop, type MergeDone } from './api';
 import { archiveAhead, asideAhead, doneAhead, labelAhead, quietAhead, raiseAhead, seenAhead, sendAhead, sentWorthSaying, unreadAhead } from './ahead';
+import { copyText } from './clipboard';
 import { showContextMenu, type MenuAction, type MenuGroup, type MenuImage, type MenuSpec } from './contextMenu';
 import { shortOf } from './devices';
 import { dueChoices } from './due';
@@ -1601,13 +1602,10 @@ function archiveItems(ts: Todo[], edit: TodoEdit | undefined, archive: ((archive
 /** Copy as prompt: the prompt the todos would start a session with, attachments as their paths. */
 function copyPromptItem(ts: Todo[], report: Report): MenuAction {
   const what = ts.length > 1 ? 'todos as a prompt' : 'todo as a prompt';
+  // The clipboard's handed the prompt while the click is handled, before it's read (clipboard.ts).
   const copy = () =>
-    expandAttachments(todosPrompt(ts)).then(
-      (text) =>
-        navigator.clipboard.writeText(text).then(
-          () => report.info(`Copied the ${what}.`),
-          () => report.error(`Couldn't copy the ${what}.`),
-        ),
+    copyText(expandAttachments(todosPrompt(ts))).then(
+      () => report.info(`Copied the ${what}.`),
       (e: unknown) => report.error(errorText(e)),
     );
   return { label: 'Copy as prompt', run: () => void copy() };

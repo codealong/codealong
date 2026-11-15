@@ -19,12 +19,14 @@ vi.mock('../../api', async (original) => ({
     return hold(inputs.map((i) => (i.kind === 'key' ? i.text : i.kind)).join(''));
   }),
   terminalPaste: vi.fn((_id: string, text: string, force: boolean) => hold(`paste:${text}${force ? '!' : ''}`, !/\n/.test(text) || force)),
-  terminalCopy: vi.fn(() => hold('copy', null)),
+  terminalCopy: vi.fn(() => hold('copy', selection.text)),
   terminalResize: vi.fn((_id: string, size: { cols: number; rows: number }) => {
     resizes.push(`${size.cols}x${size.rows}`);
     return Promise.resolve();
   }),
 }));
+/** What the terminal has selected, as a copy reads it. */
+const selection: { text: string | null } = { text: null };
 const resizes: string[] = [];
 /** Every input sent, as it went. */
 const given: TerminalInput[] = [];
@@ -43,7 +45,7 @@ async function answer() {
 describe('what a window sends a terminal', () => {
   it('goes in the order it came, a paste among the keys, one call at a time', async () => {
     const unsafe: string[] = [];
-    const c = new TerminalController('t', {} as HTMLElement, {} as HTMLCanvasElement, { onLeave: () => {}, onUnsafePaste: (t) => unsafe.push(t), onError: () => {}, onPointer: () => {} });
+    const c = new TerminalController('t', {} as HTMLElement, {} as HTMLCanvasElement, { onLeave: () => {}, onUnsafePaste: (t) => unsafe.push(t), onError: () => {}, onCopyFailed: () => {}, onPointer: () => {} });
     c.send(key('a'));
     // While the first call is out, more keys and a paste wait their turn.
     c.send(key('b'));
@@ -69,7 +71,7 @@ describe('what a window sends a terminal', () => {
 
   it('copies the selection only once what came before it has reached the terminal', async () => {
     sent.length = 0;
-    const c = new TerminalController('t', {} as HTMLElement, {} as HTMLCanvasElement, { onLeave: () => {}, onUnsafePaste: () => {}, onError: () => {}, onPointer: () => {} });
+    const c = new TerminalController('t', {} as HTMLElement, {} as HTMLCanvasElement, { onLeave: () => {}, onUnsafePaste: () => {}, onError: () => {}, onCopyFailed: () => {}, onPointer: () => {} });
     c.send(key('x'));
     c.selectAll();
     c.copy();
@@ -82,13 +84,74 @@ describe('what a window sends a terminal', () => {
   });
 });
 
+describe('⌘C in a terminal', () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+    selection.text = null;
+  });
+
+  const cmdC = { key: 'c', code: 'KeyC', metaKey: true, ctrlKey: false, altKey: false, shiftKey: false, repeat: false, isComposing: false } as KeyboardEvent;
+
+  /** A clipboard that, as WebKit's, takes a write only while the key is handled, and waits for
+   *  its text. */
+  function clipboard(refuse = false) {
+    const written: Promise<Blob>[] = [];
+    vi.stubGlobal(
+      'ClipboardItem',
+      class {
+        constructor(data: Record<string, Promise<Blob>>) {
+          written.push(data['text/plain']!);
+        }
+      },
+    );
+    vi.stubGlobal('navigator', {
+      clipboard: {
+        write: async () => {
+          if (refuse) throw new DOMException('The request is not allowed', 'NotAllowedError');
+        },
+      },
+    });
+    return written;
+  }
+
+  it('hands the clipboard the selection while the key is handled, its text to come once the terminal answers', async () => {
+    sent.length = 0;
+    held.length = 0;
+    setPlatform('mac');
+    selection.text = 'npm run build';
+    const written = clipboard();
+    const c = new TerminalController('t', {} as HTMLElement, {} as HTMLCanvasElement, { onLeave: () => {}, onUnsafePaste: () => {}, onError: () => {}, onCopyFailed: () => {}, onPointer: () => {} });
+    expect(c.key(cmdC, true)).toBe(true);
+    expect(written, 'written before the terminal answers').toHaveLength(1);
+    expect(sent).toEqual(['copy']);
+    await answer();
+    expect(await (await written[0]!).text()).toBe('npm run build');
+  });
+
+  it('says a copy that didn’t go for a moment, not as the terminal failing', async () => {
+    sent.length = 0;
+    held.length = 0;
+    setPlatform('mac');
+    selection.text = 'ls';
+    clipboard(true);
+    const copyFailed: string[] = [];
+    const failed: string[] = [];
+    const c = new TerminalController('t', {} as HTMLElement, {} as HTMLCanvasElement, { onLeave: () => {}, onUnsafePaste: () => {}, onError: (why) => failed.push(why), onCopyFailed: (why) => copyFailed.push(why), onPointer: () => {} });
+    c.key(cmdC, true);
+    await answer();
+    await new Promise((r) => setTimeout(r, 0));
+    expect(copyFailed).toEqual(['Couldn’t copy: the clipboard refused it (NotAllowedError).']);
+    expect(failed).toEqual([]);
+  });
+});
+
 describe('a drag the window loses', () => {
   it('is let go where the pointer last was, so the terminal stops scrolling on past its edge', async () => {
     sent.length = 0;
     held.length = 0;
     given.length = 0;
     const canvas = { getBoundingClientRect: () => ({ left: 10, top: 10 }) } as HTMLCanvasElement;
-    const c = new TerminalController('t', {} as HTMLElement, canvas, { onLeave: () => {}, onUnsafePaste: () => {}, onError: () => {}, onPointer: () => {} });
+    const c = new TerminalController('t', {} as HTMLElement, canvas, { onLeave: () => {}, onUnsafePaste: () => {}, onError: () => {}, onCopyFailed: () => {}, onPointer: () => {} });
     const at = (y: number, buttons: number, button = 0) => ({ button, buttons, clientX: 30, clientY: y, shiftKey: false, ctrlKey: false, altKey: false, metaKey: false }) as PointerEvent;
     c.pointer(at(40, 1), 'down');
     c.pointer(at(-20, 1, -1), 'move');
@@ -116,7 +179,7 @@ describe('a press and the selection it would clear', () => {
     held.length = 0;
     given.length = 0;
     const canvas = { getBoundingClientRect: () => ({ left: 10, top: 10 }) } as HTMLCanvasElement;
-    const c = new TerminalController('t', {} as HTMLElement, canvas, { onLeave: () => {}, onUnsafePaste: () => {}, onError: () => {}, onPointer: () => {} });
+    const c = new TerminalController('t', {} as HTMLElement, canvas, { onLeave: () => {}, onUnsafePaste: () => {}, onError: () => {}, onCopyFailed: () => {}, onPointer: () => {} });
     for (const step of events) {
       if (typeof step === 'function') step(c);
       else c.pointer({ button: -1, buttons: 0, clientX: 30, clientY: 30, shiftKey: false, ctrlKey: false, altKey: false, metaKey: false, ...step[0] } as PointerEvent, step[1]);
@@ -152,7 +215,7 @@ describe('a press and the selection it would clear', () => {
       [{ button: -1, buttons: 1, clientX: 40 }, 'move'],
       // A right-click with the left button held: the menu's loop takes both releases.
       [{ button: 2, buttons: 3, clientX: 40 }, 'move'],
-      (c) => c.readForMenu(() => {}),
+      (c) => void c.readForMenu(),
       ...draggedAfterAMenu,
     ]);
     expect(mouse).toEqual(['down:left@10', 'move:@30', 'move:@30', 'up:left@30', 'down:left@30', 'move:@50', 'move:@60', 'up:left@60']);
@@ -188,7 +251,7 @@ describe('a terminal fitted to its room', () => {
       draw: () => {},
       dispose: () => {},
     };
-    const c = new TerminalController('t', wrap, canvas, { onLeave: () => {}, onUnsafePaste: () => {}, onError: () => {}, onPointer: () => {} });
+    const c = new TerminalController('t', wrap, canvas, { onLeave: () => {}, onUnsafePaste: () => {}, onError: () => {}, onCopyFailed: () => {}, onPointer: () => {} });
     (c as unknown as { renderer: Renderer }).renderer = renderer;
     resizes.length = 0;
     c.fit(true);
@@ -219,7 +282,7 @@ describe('a terminal fitted to its room', () => {
       draw: () => {},
       dispose: () => {},
     };
-    const c = new TerminalController('t', wrap, canvas, { onLeave: () => {}, onUnsafePaste: () => {}, onError: () => {}, onPointer: () => {} });
+    const c = new TerminalController('t', wrap, canvas, { onLeave: () => {}, onUnsafePaste: () => {}, onError: () => {}, onCopyFailed: () => {}, onPointer: () => {} });
     (c as unknown as { renderer: Renderer }).renderer = renderer;
     return { c, canvas, given };
   }

@@ -13,6 +13,8 @@
 // the card's scale, so the text is as sharp and as big as the card's.
 
 import { onTerminalFrame, openUrl, terminalCopy, terminalInput, terminalPaste, terminalResize, terminalText, terminalTheme, terminalWatch } from '../../api';
+import { copyText } from '../../clipboard';
+import { errorText } from '../../report';
 import { hasKeys, onKeysHere, rememberSize, themeOf } from '../../terminals';
 import type { TerminalInput, TerminalTheme } from '../../types';
 import { cmd, contextPress } from '../../platform';
@@ -34,13 +36,18 @@ export interface Hooks {
   onUnsafePaste: (text: string) => void;
   /** Something went wrong in the background: said once, quietly. */
   onError: (why: string) => void;
+  /** ⌘C didn't copy: said for a moment, as what you just did. */
+  onCopyFailed: (why: string) => void;
   /** The pointer is over a link (⌘ held), or isn't. */
   onPointer: (cursor: string) => void;
 }
 
 /** What waits to go to the server, in order: inputs that go together, a paste, or a read of the
- *  selection's text (everything's with `all`) for `then`, whose failure is said as a call's is. */
-type Sending = { kind: 'inputs'; inputs: TerminalInput[] } | { kind: 'paste'; text: string; force: boolean } | { kind: 'read'; all: boolean; then: (text: string | null) => unknown };
+ *  selection's text (everything's with `all`), whose failure goes to its reader. */
+type Sending =
+  | { kind: 'inputs'; inputs: TerminalInput[] }
+  | { kind: 'paste'; text: string; force: boolean }
+  | { kind: 'read'; all: boolean; done: (text: string | null) => void; failed: (e: unknown) => void };
 
 interface Measured extends Metrics {
   font: Font;
@@ -260,7 +267,7 @@ export class TerminalController {
           ? terminalPaste(this.id, next.text, next.force).then((pasted) => {
               if (!pasted) this.hooks.onUnsafePaste(next.text);
             })
-          : (next.all ? terminalText(this.id) : terminalCopy(this.id)).then(next.then);
+          : (next.all ? terminalText(this.id) : terminalCopy(this.id)).then(next.done, next.failed);
     sent
       .catch((e: unknown) => this.hooks.onError(String(e)))
       .finally(() => {
@@ -288,7 +295,7 @@ export class TerminalController {
         this.send(route.input);
         return true;
       case 'copy':
-        if (down) this.copy();
+        if (down) void this.copy().catch((e: unknown) => this.hooks.onCopyFailed(errorText(e)));
         return true;
       case 'selectAll':
         if (down) this.send({ kind: 'select', all: true });
@@ -307,30 +314,29 @@ export class TerminalController {
     }
   }
 
-  /** The selection's text, or with `all` everything the terminal holds, scrollback included, for
-   *  `then`: as it is once what came before (a click, Select all) has reached the terminal. */
-  read(all: boolean, then: (text: string | null) => unknown): void {
-    this.queue.push({ kind: 'read', all, then });
-    this.flush();
+  /** The selection's text, or with `all` everything the terminal holds, scrollback included: as it
+   *  is once what came before (a click, Select all) has reached the terminal. */
+  read(all: boolean): Promise<string | null> {
+    return new Promise((done, failed) => {
+      this.queue.push({ kind: 'read', all, done, failed });
+      this.flush();
+    });
   }
 
   /** The selection's text for the terminal's own menu (TerminalView.tsx), once a drag still going
    *  has ended where it is, keeping what it selected: the menu's loop takes the buttons'
    *  releases, and the drag would go on from its old start at the next press after it. */
-  readForMenu(then: (text: string | null) => unknown): void {
+  readForMenu(): Promise<string | null> {
     this.pressed = null;
     this.letGo();
-    this.read(false, then);
+    return this.read(false);
   }
 
-  /** Copies the selection. */
-  copy(): void {
-    this.read(false, (text) => (text ? navigator.clipboard.writeText(text) : undefined));
-  }
-
-  /** Copies everything the terminal holds. */
-  copyAll(): void {
-    this.read(true, (text) => (text ? navigator.clipboard.writeText(text) : undefined));
+  /** Copies the selection, or with `all` everything the terminal holds; false when nothing's
+   *  selected. It's called while the key or click is handled, which the clipboard needs, and
+   *  hands it the text as it's read (clipboard.ts). */
+  copy(all = false): Promise<boolean> {
+    return copyText(this.read(all));
   }
 
   selectAll(): void {

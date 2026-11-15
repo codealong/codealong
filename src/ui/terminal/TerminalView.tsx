@@ -7,6 +7,7 @@
 
 import { useEffect, useRef, useState } from 'react';
 import { sentWorthSaying } from '../../ahead';
+import { copyText } from '../../clipboard';
 import { showContextMenu } from '../../contextMenu';
 import { errorText } from '../../report';
 import { addToBox, sendToTheSession } from '../../terminals';
@@ -52,6 +53,7 @@ export function TerminalView({ id, focusAt, onLeave, session }: TerminalViewProp
       onLeave: () => leave.current(),
       onUnsafePaste: setUnsafe,
       onError: setFailed,
+      onCopyFailed: (why) => said(why, true),
       onPointer: setCursor,
     });
     control.current = c;
@@ -96,7 +98,7 @@ export function TerminalView({ id, focusAt, onLeave, session }: TerminalViewProp
             // The menu acts on what was selected as you asked for it, read before it shows, so
             // nothing done meanwhile changes what it copies or sends, and what needs a selection
             // is dimmed without one.
-            c.readForMenu((selected) => {
+            void c.readForMenu().then((selected) => {
               // What it reads goes into the box's text as the session's draft.
               const toBox = (key: string, text: string, all: boolean) =>
                 void addToBox(key, text).then(
@@ -112,19 +114,20 @@ export function TerminalView({ id, focusAt, onLeave, session }: TerminalViewProp
                   (e: unknown) => said(errorText(e), true),
                 );
               const some = !!selected;
+              const failed = (e: unknown) => said(errorText(e), true);
               // Not returned: the terminal's input doesn't wait for the menu to close.
               void showContextMenu(
                 [
-                  { label: 'Copy', enabled: some, run: () => selected && void navigator.clipboard.writeText(selected).catch((e: unknown) => said(errorText(e), true)) },
+                  { label: 'Copy', enabled: some, run: () => selected && void copyText(selected).catch(failed) },
                   { label: 'Select all', run: () => c.selectAll() },
                   'separator',
-                  { label: 'Copy all text', run: () => c.copyAll() },
+                  { label: 'Copy all text', run: () => void c.copy(true).catch(failed) },
                   ...(session
                     ? ([
                         'separator',
                         { label: 'Send to the session', enabled: some, run: () => selected && toSession(session, selected) },
                         { label: 'Add to the session’s box', enabled: some, run: () => selected && toBox(session.key, selected, false) },
-                        { label: 'Add all text to the session’s box', run: () => c.read(true, (all) => all && toBox(session.key, all, true)) },
+                        { label: 'Add all text to the session’s box', run: () => void c.read(true).then((all) => all && toBox(session.key, all, true), failed) },
                       ] as const)
                     : []),
                 ],
@@ -132,7 +135,7 @@ export function TerminalView({ id, focusAt, onLeave, session }: TerminalViewProp
               ).catch(() => {
                 // A menu that didn't show leaves nothing undone: the terminal is as it was.
               });
-            });
+            }, (e: unknown) => said(errorText(e), true));
           }}
         />
         <textarea
