@@ -184,8 +184,13 @@ fn from_text(text: &str) -> std::result::Result<Config, toml::de::Error> {
         cfg.emblems.kind = EmblemKind::Emoji;
     }
     cfg.jev.emblems = false;
-    if cfg.experimental.glass && !text.parse::<toml_edit::DocumentMut>().is_ok_and(|d| d.get("appearance").and_then(|a| a.get("glass")).is_some()) {
-        cfg.appearance.glass = true;
+    // As the old file has it, on or off: glass turned off as an experiment stays off now it's on by
+    // default.
+    if let Ok(doc) = text.parse::<toml_edit::DocumentMut>() {
+        let said = |table: &str| doc.get(table).and_then(|t| t.get("glass"));
+        if let (Some(old), None) = (said("experimental").and_then(toml_edit::Item::as_bool), said("appearance")) {
+            cfg.appearance.glass = old;
+        }
     }
     cfg.experimental.glass = false;
     if let Some(old) = cfg.router.take() {
@@ -1102,8 +1107,8 @@ pub struct ExperimentalCfg {
     /// kept in the ledger and shown in the Analytics window.
     #[serde(default)]
     pub analytics: bool,
-    /// `glass = true` from 0.22.0, when glass was an experiment: read, folded into `[appearance]
-    /// glass`, and never written back.
+    /// `glass` from 0.22.0, when glass was an experiment: accepted, folded into `[appearance] glass`
+    /// as the file has it (`from_text`), and never written back.
     #[serde(default, skip_serializing)]
     pub glass: bool,
 }
@@ -1217,15 +1222,20 @@ pub struct AppearanceCfg {
     pub zoom: u32,
     /// Glass (glass.rs): the main window and the project windows show what's behind them through
     /// macOS's own material, Liquid Glass from macOS 26 and the sidebar's vibrancy before it, with
-    /// what was gray in them see-through over it. macOS only.
-    #[serde(default)]
+    /// what was gray in them see-through over it. On by default on macOS, the only OS that has it.
+    #[serde(default = "default_glass")]
     pub glass: bool,
 }
 
 impl Default for AppearanceCfg {
     fn default() -> Self {
-        AppearanceCfg { theme: Theme::default(), zoom: default_zoom(), glass: false }
+        AppearanceCfg { theme: Theme::default(), zoom: default_zoom(), glass: default_glass() }
     }
+}
+
+/// Glass is on unless config.toml turns it off, on macOS; elsewhere there's none to turn on.
+fn default_glass() -> bool {
+    crate::os::is_macos()
 }
 
 fn default_zoom() -> u32 {
@@ -1664,7 +1674,7 @@ pub fn updates_check() -> bool {
 /// with the theme, so the windows open with them before the engine has read the settings.
 /// Whether the board's windows have glass (`[appearance] glass`, glass.rs).
 pub fn glass() -> bool {
-    load().ok().flatten().is_some_and(|c| c.appearance.glass)
+    load().ok().flatten().map_or_else(default_glass, |c| c.appearance.glass)
 }
 
 pub fn experimental() -> ExperimentalCfg {
@@ -1978,7 +1988,7 @@ fn set_accounts(doc: &mut toml_edit::DocumentMut, accounts: &[AccountCfg]) {
 }
 
 const APPS_COMMENT: &str = "# Where Codealong opens things. terminal: \"ghostty\", \"iterm2\", \"terminal\" or \"rex\". editor: \"vscode\", \"cursor\", \"zed\", \"xcode\" and the others\n# Settings lists, or any app's name. Picking another editor from an Open in menu sets it here.\n# new_terminal: \"window\", \"tab\" (in the front window), or \"project\" (a tab beside the same repo or project).\n# move_pointer: move the pointer to a terminal Codealong brings forward on another screen.\n# close_command_tabs_after: minutes after a command Codealong runs in your terminal ends that its tab\n# closes, unless you pressed Return for a shell there; 0 keeps it open.\n# tmux: when the sessions Codealong starts run in tmux, shown in your terminal: \"always\", \"when-locked\"\n# (only while the screen is locked, when Ghostty can't start a terminal) or \"never\".\n# run_in: where a session's new terminals (⌃`) and the commands you run from it open: \"codealong\", in a\n# terminal of Codealong's own under the session, or \"terminal\", in a tab of your terminal app.\n";
-const APPEARANCE_COMMENT: &str = "# Light or dark. \"system\" follows macOS. The buttons at the foot of the sidebar set this too.\n# zoom: how big the windows draw, in percent, 50 to 200. View › Zoom in and Zoom out (⌘= and ⌘-) set it.\n# glass: the main and the project windows show what's behind them through macOS's glass (macOS only).\n";
+const APPEARANCE_COMMENT: &str = "# Light or dark. \"system\" follows macOS. The buttons at the foot of the sidebar set this too.\n# zoom: how big the windows draw, in percent, 50 to 200. View › Zoom in and Zoom out (⌘= and ⌘-) set it.\n# glass: the main and the project windows show what's behind them through macOS's glass; on by default.\n";
 const JEV_COMMENT: &str = "# What Codealong asks TypeSafe's Jev, feature by feature (Settings › Jev says what each one sends).\n# The API key is kept in the login keychain; set it in Settings.\n";
 const EMBLEMS_COMMENT: &str = "# Something to know each session by beside its title (Settings › Appearance): an emoji Jev picks\n# (`kind = \"emoji\"`), or a picture an account draws (`\"drawn\"`), as `prompt` says.\n";
 const SEARCH_COMMENT: &str = "# The quick panel, the main window's filter and `codealong sessions find` search what was said in\n# sessions active in the last `days` days, not just their titles. 0 turns it off; 14, the board's\n# reach, is the most.\n";
@@ -2372,8 +2382,8 @@ pub fn with_config(text: &str, cfg: &Config) -> Result<String> {
     }
 
     set_theme(&mut doc, cfg.appearance.theme);
-    // Only a file that has it or turns it on gets the line.
-    if cfg.appearance.glass || doc["appearance"].get("glass").is_some() {
+    // Only a file that has it or sets it other than the default gets the line.
+    if cfg.appearance.glass != default_glass() || doc["appearance"].get("glass").is_some() {
         set_value(&mut doc["appearance"]["glass"], Value::from(cfg.appearance.glass));
     }
     set_shortcuts(&mut doc, &cfg.shortcuts, cfg.experimental.voice);
@@ -2991,8 +3001,8 @@ pub fn render(cfg: &Config) -> String {
     if cfg.appearance.zoom != crate::zoom::ACTUAL {
         s.push_str(&format!("zoom = {}\n", cfg.appearance.zoom));
     }
-    if cfg.appearance.glass {
-        s.push_str("glass = true\n");
+    if cfg.appearance.glass != default_glass() {
+        s.push_str(&format!("glass = {}\n", cfg.appearance.glass));
     }
     s.push('\n');
     s.push_str(&shortcuts_comment());
@@ -3711,31 +3721,45 @@ mod tests {
     }
 
     #[test]
-    fn glass_gets_its_line_once_turned_on_and_keeps_it_turned_off() {
-        assert!(!toml::from_str::<Config>("").unwrap().appearance.glass);
-        let old = render(&full());
-        assert!(!old.contains("glass = "), "{old}");
-        let on = Config { appearance: AppearanceCfg { glass: true, ..full().appearance }, ..full() };
-        let out = with_config(&old, &on).unwrap();
-        assert!(out.contains("[appearance]\ntheme = \"dark\"\nglass = true\n"), "{out}");
-        assert_eq!(parse(&out).unwrap(), on);
-        assert_eq!(parse(&render(&on)).unwrap(), on);
-        let off = with_config(&out, &full()).unwrap();
-        assert!(off.contains("[appearance]\ntheme = \"dark\"\nglass = false\n"), "{off}");
-        assert_eq!(parse(&off).unwrap(), full());
+    fn glass_is_on_by_default_on_macos_and_a_file_says_it_only_when_it_differs() {
+        use crate::os::{as_if, Os};
+        // Elsewhere there's no glass to turn on (the fixture's sounds are macOS's, so it's parsed there).
+        for os in [Os::Linux, Os::Windows] {
+            as_if(os, || assert!(!toml::from_str::<Config>("").unwrap().appearance.glass, "{os:?}"));
+        }
+        for (os, default) in [(Os::MacOs, true)] {
+            as_if(os, || {
+                assert_eq!(toml::from_str::<Config>("").unwrap().appearance.glass, default, "{os:?}");
+                let old = render(&full());
+                assert!(!old.contains("glass = "), "{old}");
+                // Set the other way, the file says so; set back, the line it has stays, saying so.
+                let other = Config { appearance: AppearanceCfg { glass: !default, ..full().appearance }, ..full() };
+                let out = with_config(&old, &other).unwrap();
+                assert!(out.contains(&format!("[appearance]\ntheme = \"dark\"\nglass = {}\n", !default)), "{out}");
+                assert_eq!(parse(&out).unwrap(), other);
+                assert_eq!(parse(&render(&other)).unwrap(), other);
+                let back = with_config(&out, &full()).unwrap();
+                assert!(back.contains(&format!("[appearance]\ntheme = \"dark\"\nglass = {default}\n")), "{back}");
+                assert_eq!(parse(&back).unwrap(), full());
+            });
+        }
     }
 
     #[test]
-    fn glass_from_when_it_was_an_experiment_moves_to_appearance() {
-        let on = Config { appearance: AppearanceCfg { glass: true, ..full().appearance }, ..full() };
+    fn glass_from_when_it_was_an_experiment_moves_to_appearance_on_or_off() {
+        let _mac = crate::os::AsIf::new(crate::os::Os::MacOs);
+        for was in [true, false] {
+            let now = Config { appearance: AppearanceCfg { glass: was, ..full().appearance }, ..full() };
+            let old = render(&full()).replace("[appearance]\n", &format!("[experimental]\nboards = false\nglass = {was}\n\n[appearance]\n"));
+            assert_eq!(parse(&old).unwrap(), now, "{was}");
+            let out = with_config(&old, &now).unwrap();
+            assert!(out.contains("[experimental]\nboards = false\n\n"), "{out}");
+            assert_eq!(parse(&out).unwrap(), now, "{out}");
+        }
+        // Set where it is now, it isn't set again from where it was.
         let old = render(&full()).replace("[appearance]\n", "[experimental]\nboards = false\nglass = true\n\n[appearance]\n");
-        assert_eq!(parse(&old).unwrap(), on);
-        let out = with_config(&old, &on).unwrap();
-        assert!(out.contains("[experimental]\nboards = false\n\n") && out.contains("[appearance]\ntheme = \"dark\"\nglass = true\n"), "{out}");
-        assert_eq!(parse(&out).unwrap(), on);
-        // Turned off where it is now, it isn't turned on again from where it was.
         let both = old.replace("theme = \"dark\"\n", "theme = \"dark\"\nglass = false\n");
-        assert_eq!(parse(&both).unwrap(), full());
+        assert!(!parse(&both).unwrap().appearance.glass);
     }
 
     #[test]

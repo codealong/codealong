@@ -1006,7 +1006,8 @@ export interface Config {
   scan: string[];
   apps: { terminal: string; editor: string; new_terminal?: NewTerminal; move_pointer?: boolean; close_command_tabs_after?: number; tmux?: TmuxUse; run_in?: 'codealong' | 'terminal' };
   /** `zoom` is a percent; Settings leaves it as config.toml has it. */
-  /** `glass`: the board's windows show what's behind them through macOS's glass (glass.rs). */
+  /** `glass`: the board's windows show what's behind them through macOS's glass (glass.rs); on by
+   *  default on macOS, and the engine sends what it comes to. */
   appearance: { theme: Theme; zoom?: number; glass?: boolean };
   /** Shortcuts that work in any app, as config.toml writes them (`Option+Cmd+/`); empty is off. */
   shortcuts: { quick_panel: string; chat?: string; waiting: string; improve?: string; main_window?: string; talk?: string; talk_orchestrator?: string; listen?: string };

@@ -768,7 +768,7 @@ run_in = "codealong"           # a session's new terminals (⌃`) and the comman
 [appearance]
 theme = "system"               # follows the system; or "light", "dark"
 zoom = 100                     # the windows and the cards in the notch and peek, in percent, 50 to 200 (⌘= ⌘- ⌘0)
-glass = false                  # the main window and the project windows show what's behind them through macOS's glass (macOS only)
+glass = true                   # the main window and the project windows show what's behind them through macOS's glass (on by default; macOS only)
 
 [shortcuts]                          # macOS's defaults; on Linux they're Ctrl+Alt+/ and so on
 quick_panel = "Option+Cmd+/"        # works in every app; "" turns it off (Settings › General)

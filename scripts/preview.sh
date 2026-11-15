@@ -125,10 +125,12 @@
 # `"drawn"` would once they were drawn.
 # PREVIEW_ANALYTICS=1 turns `[experimental] analytics` on, with a made-up report for the Analytics
 # window's Your part and Sessions (scripts/preview/usage-part-init.js opens them).
-# PREVIEW_GLASS=1 turns `[appearance] glass` on: the main window's chrome and board are see-through,
-# over a stand-in for the glass macOS draws behind them: the theme's surface tinted olive to blue, as
-# macOS 26's Liquid Glass is nearly white in light and a dark gray in dark, with the wallpaper's hue,
-# strong enough that a gray with a hue of its own shows against it. The quick panel has it only
+# PREVIEW_GLASS=1 turns `[appearance] glass` on. It's off otherwise, though macOS has it on by
+# default, so the checks see the windows as they're drawn without it. With it the main window's chrome
+# and board are see-through, over a stand-in for the glass macOS draws behind them: the theme's
+# surface tinted olive to blue, as macOS 26's Liquid Glass is nearly white in light and a dark gray
+# in dark, with the wallpaper's hue, strong enough that a gray with a hue of its own shows against
+# it. The quick panel has it only
 # under its card, behind the page as the app puts it, so it shows only where the page lets it.
 # PREVIEW_GROUP=worktree|repo shows Sessions, PRs and Todo grouped by worktree or by repo (Group
 # by, over each list); without it, as the window was left: not grouped.

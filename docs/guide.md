@@ -2248,7 +2248,7 @@ bigger, while the notch's shape and the bar's pills stay at actual size.
 
 ### Glass
 
-*Settings › Appearance › Glass, or `glass = true` under `[appearance]`; macOS only*
+*Settings › Appearance › Glass, or `glass` under `[appearance]`; on by default on macOS, the only one that has it*
 
 With glass on, the main window and the project windows show what's behind them through macOS's own
 glass, as the Finder does: Liquid Glass from macOS 26, and the sidebar's blur on earlier versions.

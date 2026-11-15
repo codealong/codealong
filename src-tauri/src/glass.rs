@@ -1,5 +1,5 @@
-//! Glass (`[appearance] glass`, Settings › Appearance): the board's windows (the main one and a
-//! project's) show what's behind them through macOS's own material, as the Finder's
+//! Glass (`[appearance] glass`, Settings › Appearance, on by default): the board's windows (the main
+//! one and a project's) show what's behind them through macOS's own material, as the Finder's
 //! sidebar does. It's Tauri's window effects (window-vibrancy): Liquid Glass (NSGlassEffectView)
 //! from macOS 26, and before it, where that isn't there, the sidebar's vibrancy
 //! (NSVisualEffectView). Either is a view put behind the page, which shows only where the window

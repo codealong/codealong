@@ -421,8 +421,8 @@ function sampleAnalytics(board, days, account) {
 // also has the session named in `window.__LISTENS__` listening (`listeningSample`), if a check
 // or an init script named one. Analytics (`[experimental] analytics`) are off the same way, and
 // on with PREVIEW_ANALYTICS, which gives the Analytics window its Your part and Sessions
-// (`sampleAnalytics`). Glass (`[appearance] glass`) is off the same way, and on with
-// PREVIEW_GLASS.
+// (`sampleAnalytics`). Glass (`[appearance] glass`) is off but with PREVIEW_GLASS, though macOS has
+// it on by default, so the checks see the windows as they're drawn without it.
 function withExperiments(board) {
   var voice = !!window.__PREVIEW_VOICE__;
   var out = Object.assign(board, { glass: !!window.__PREVIEW_GLASS__, experimental: Object.assign({}, board.experimental, { boards: !window.__PREVIEW_BOARDS_OFF__, voice: voice, analytics: !!window.__PREVIEW_ANALYTICS__ }) });
