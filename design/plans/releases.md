@@ -220,7 +220,7 @@ the release's `latest.json` and archive, and the key is `tauri.conf.json`'s.
 - Each release: `version.sh --push`, which has CI build the draft (or `release.sh --draft` on a
   Mac with the keys, after pushing the tag), then `scripts/check-release.sh <version>` and
   installing the draft's image on a Mac or user account that has never had Codealong, then
-  publish the draft. The website needs nothing: its button follows `releases/latest`; the
+  publish the draft. The website needs nothing: its button follows `releases/latest`; a
   Homebrew cask follows it by itself (phase 4). The `/release` skill
   (`.claude/skills/release/SKILL.md`) walks an agent through all of it, stopping for the owner's
   word at the notes, the build's approval and publishing.
@@ -254,18 +254,18 @@ there first, and Gatekeeper's checks.
   environment of `v*` tags without approval (release-secrets.sh makes it). Not tried yet: an
   install from it, which needs a public release. Homebrew's own cask list comes later, once the
   repo has the stars and forks it asks for.
-- **Linux and Windows installers (all four build, unsigned; not run on a tag yet).** `release.yml`'s `installers`
-  job builds them beside the Mac's, each on its own OS and processor, with
-  `scripts/installers.sh build`: an AppImage, a .deb and an .rpm for x86_64 and aarch64 (on Ubuntu
-  22.04, whose libraries most distributions are newer than), and an NSIS setup .exe for x64 and
-  Arm64 that installs for the user alone. Each is signed with the update key, which the release
+- **Linux and Windows installers (all four build, unsigned; not run on a tag yet).**
+  `release.yml`'s `installers` job builds them beside the Mac's, each on its own OS and processor,
+  with `scripts/installers.sh build`: an AppImage, a .deb and an .rpm for x86_64 and aarch64 (on
+  Ubuntu 22.04, whose libraries most distributions are newer than), and an NSIS setup .exe for x64
+  and Arm64 that installs for the user alone. Each is signed with the update key, which the release
   environment holds (each of the four jobs waits for its approval, given at once with the Mac's),
   and `publish-installers` puts them in the Mac's draft and their entries in its latest.json
   (`linux-x86_64-deb` and the rest, the updater asking for its installer's first), with a copy of
   each without the version (`Codealong_x64-setup.exe`) that a link to the latest release can name.
   The setup isn't signed with a code-signing certificate, so SmartScreen warns of it until one is
-  bought. `gh workflow run release.yml` builds them unsigned, to try, as the run's artifacts; the
-  first such run (2026-11-14) built all four, about 100 MB an AppImage, 24 MB a .deb, 16 MB a setup.
+  bought. `gh workflow run release.yml` builds them unsigned, to try, as the run's artifacts; a
+  run on 2026-11-14 built all four, about 100 MB an AppImage, 24 MB a .deb, 16 MB a setup.
   Not chosen: Flatpak and Snap, whose sandboxes keep an app from the agents' folders and from
   starting processes and tmux; the AUR and winget are packages others keep, made from these.
 - **The Claude Code plugin.** `/plugin marketplace add codealong/codealong` reads the repo too,
