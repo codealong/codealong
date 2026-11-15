@@ -215,12 +215,17 @@ pub fn setup(app: &AppHandle) -> Result<()> {
 /// at the bar along its foot (Quick.css). None while it's folded, as the page draws the chip in
 /// the card's window before the window shrinks round it, and the card's glass would show round
 /// the chip meanwhile; and none once it opens again until the page has drawn the card, which an
-/// open whose page doesn't answer in time shows the panel without. On the main thread, or any.
+/// open whose page doesn't answer in time shows the panel without. Called from any thread (glass.rs
+/// `follow` is the server's), it decides on the main thread, where folding, opening and the page's
+/// answers change what it reads, so a decision is never made from what they've changed since.
 pub fn fit_glass(app: &AppHandle) {
-    let (Some(state), Some(window)) = (app.try_state::<Quick>(), app.get_webview_window(LABEL)) else { return };
-    let drawn = state.card_drawn.lock().is_ok_and(|d| *d);
-    let on = crate::glass::shown() && drawn && !is_folded(&state);
-    panel::set_glass_under(&window, on.then_some((MARGIN, RADIUS)));
+    let handle = app.clone();
+    on_main(app, move || {
+        let (Some(state), Some(window)) = (handle.try_state::<Quick>(), handle.get_webview_window(LABEL)) else { return };
+        let drawn = state.card_drawn.lock().is_ok_and(|d| *d);
+        let on = crate::glass::shown() && drawn && !is_folded(&state);
+        panel::set_glass_under(&window, on.then_some((MARGIN, RADIUS)));
+    });
 }
 
 /// The page answered the newest open with its height: the card is drawn, not the chip, so the
@@ -331,8 +336,10 @@ fn answered(app: &AppHandle, id: u64, height: Option<f64>, since: Instant) {
     // A later open has the page now, or the panel was closed meanwhile.
     if latest && height.is_some() {
         ready(app, height);
-    } else if height.is_some() && state.opens.lock().is_ok_and(|o| *o == id) {
-        // The newest open's answer, after its wait ran out and the panel showed without it.
+    } else if let Some(h) = height.filter(|_| state.opens.lock().is_ok_and(|o| *o == id)) {
+        // The newest open's answer, after its wait ran out and the panel showed without it: the
+        // panel takes its height, as it would have, and the glass then goes under the card at it.
+        fit(app, h);
         drew_card(app);
     }
 }
