@@ -16,7 +16,7 @@ export interface SetupPicks {
   /** Put Codealong in the accounts kept (the plugin, or the skill) and the command on PATH. */
   agents: boolean;
   atLogin: boolean;
-  /** Session emblems, as Settings › General sets them. */
+  /** Session emblems, as Settings › Appearance sets them. */
   emblems: EmblemsCfg;
 }
 

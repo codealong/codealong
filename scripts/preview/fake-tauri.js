@@ -421,11 +421,11 @@ function sampleAnalytics(board, days, account) {
 // also has the session named in `window.__LISTENS__` listening (`listeningSample`), if a check
 // or an init script named one. Analytics (`[experimental] analytics`) are off the same way, and
 // on with PREVIEW_ANALYTICS, which gives the Analytics window its Your part and Sessions
-// (`sampleAnalytics`). Glass (`[experimental] glass`) is off the same way, and on with
+// (`sampleAnalytics`). Glass (`[appearance] glass`) is off the same way, and on with
 // PREVIEW_GLASS.
 function withExperiments(board) {
   var voice = !!window.__PREVIEW_VOICE__;
-  var out = Object.assign(board, { experimental: Object.assign({}, board.experimental, { boards: !window.__PREVIEW_BOARDS_OFF__, voice: voice, analytics: !!window.__PREVIEW_ANALYTICS__, glass: !!window.__PREVIEW_GLASS__ }) });
+  var out = Object.assign(board, { glass: !!window.__PREVIEW_GLASS__, experimental: Object.assign({}, board.experimental, { boards: !window.__PREVIEW_BOARDS_OFF__, voice: voice, analytics: !!window.__PREVIEW_ANALYTICS__ }) });
   if (voice && window.__LISTENS__) {
     out.listenings = Object.assign({}, out.listenings, listeningSample(window.__LISTENS__));
     // Said on the session too, as the engine says it (board.rs `apply_listening`).

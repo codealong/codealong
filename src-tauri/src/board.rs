@@ -3129,6 +3129,7 @@ pub fn compose(inp: Inputs) -> Board {
         github_login: github_login.map(str::to_string),
         theme: Default::default(),
         zoom: crate::zoom::ACTUAL,
+        glass: false,
         perf_log: false,
         todos: Vec::new(),
         todos_unreadable: false,

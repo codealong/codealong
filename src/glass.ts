@@ -1,4 +1,4 @@
-// Glass, an experiment (`[experimental] glass`, Settings › Experimental): the app puts macOS's
+// Glass (`[appearance] glass`, Settings › Appearance): the app puts macOS's
 // glass behind a board window's page (glass.rs), where it shows only through what the page leaves
 // see-through. So while it's on the page's root says `is-glass`, and what was gray lets it through,
 // as the Finder's chrome does: the title bar and the board's ground (App.css), the usage bar
@@ -10,7 +10,7 @@
 import { useEffect } from 'react';
 import { platform } from './platform';
 
-/** Keeps a board window's page see-through while glass is on (the board's `experimental.glass`). */
+/** Keeps a board window's page see-through while glass is on (the board's `glass`). */
 export function useGlass(on: boolean) {
   useEffect(() => {
     document.documentElement.classList.toggle('is-glass', on && platform() === 'mac');

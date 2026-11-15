@@ -158,8 +158,8 @@ pub struct LegacyRouter {
     pub model: Option<String>,
 }
 
-/// Settings from config.toml's text, with an old `[router]` folded into `[jev]` and an old
-/// `[jev] emblems` into `[emblems]`.
+/// Settings from config.toml's text, with an old `[router]` folded into `[jev]`, an old
+/// `[jev] emblems` into `[emblems]` and an old `[experimental] glass` into `[appearance]`.
 fn from_text(text: &str) -> std::result::Result<Config, toml::de::Error> {
     let mut cfg: Config = toml::from_str(text)?;
     if let Some(first) = cfg.reviews.reviewers.first().cloned() {
@@ -184,6 +184,10 @@ fn from_text(text: &str) -> std::result::Result<Config, toml::de::Error> {
         cfg.emblems.kind = EmblemKind::Emoji;
     }
     cfg.jev.emblems = false;
+    if cfg.experimental.glass && !text.parse::<toml_edit::DocumentMut>().is_ok_and(|d| d.get("appearance").and_then(|a| a.get("glass")).is_some()) {
+        cfg.appearance.glass = true;
+    }
+    cfg.experimental.glass = false;
     if let Some(old) = cfg.router.take() {
         let has_jev = text.parse::<toml_edit::DocumentMut>().is_ok_and(|d| d.get("jev").is_some());
         if !has_jev {
@@ -1098,10 +1102,9 @@ pub struct ExperimentalCfg {
     /// kept in the ledger and shown in the Analytics window.
     #[serde(default)]
     pub analytics: bool,
-    /// Glass (glass.rs): the main window and the project windows show what's behind them through
-    /// macOS's own material, Liquid Glass from macOS 26 and the sidebar's vibrancy before it, with
-    /// the page's chrome see-through over it. macOS only.
-    #[serde(default)]
+    /// `glass = true` from 0.22.0, when glass was an experiment: read, folded into `[appearance]
+    /// glass`, and never written back.
+    #[serde(default, skip_serializing)]
     pub glass: bool,
 }
 
@@ -1212,11 +1215,16 @@ pub struct AppearanceCfg {
     /// How big the board's windows draw, in percent; ⌘= and ⌘- step it (zoom.rs).
     #[serde(default = "default_zoom")]
     pub zoom: u32,
+    /// Glass (glass.rs): the main window and the project windows show what's behind them through
+    /// macOS's own material, Liquid Glass from macOS 26 and the sidebar's vibrancy before it, with
+    /// what was gray in them see-through over it. macOS only.
+    #[serde(default)]
+    pub glass: bool,
 }
 
 impl Default for AppearanceCfg {
     fn default() -> Self {
-        AppearanceCfg { theme: Theme::default(), zoom: default_zoom() }
+        AppearanceCfg { theme: Theme::default(), zoom: default_zoom(), glass: false }
     }
 }
 
@@ -1654,6 +1662,11 @@ pub fn updates_check() -> bool {
 
 /// The experiments config.toml turns on: none when there's no file yet or it has an error, as
 /// with the theme, so the windows open with them before the engine has read the settings.
+/// Whether the board's windows have glass (`[appearance] glass`, glass.rs).
+pub fn glass() -> bool {
+    load().ok().flatten().is_some_and(|c| c.appearance.glass)
+}
+
 pub fn experimental() -> ExperimentalCfg {
     load().ok().flatten().map(|c| c.experimental).unwrap_or_default()
 }
@@ -1965,9 +1978,9 @@ fn set_accounts(doc: &mut toml_edit::DocumentMut, accounts: &[AccountCfg]) {
 }
 
 const APPS_COMMENT: &str = "# Where Codealong opens things. terminal: \"ghostty\", \"iterm2\", \"terminal\" or \"rex\". editor: \"vscode\", \"cursor\", \"zed\", \"xcode\" and the others\n# Settings lists, or any app's name. Picking another editor from an Open in menu sets it here.\n# new_terminal: \"window\", \"tab\" (in the front window), or \"project\" (a tab beside the same repo or project).\n# move_pointer: move the pointer to a terminal Codealong brings forward on another screen.\n# close_command_tabs_after: minutes after a command Codealong runs in your terminal ends that its tab\n# closes, unless you pressed Return for a shell there; 0 keeps it open.\n# tmux: when the sessions Codealong starts run in tmux, shown in your terminal: \"always\", \"when-locked\"\n# (only while the screen is locked, when Ghostty can't start a terminal) or \"never\".\n# run_in: where a session's new terminals (⌃`) and the commands you run from it open: \"codealong\", in a\n# terminal of Codealong's own under the session, or \"terminal\", in a tab of your terminal app.\n";
-const APPEARANCE_COMMENT: &str = "# Light or dark. \"system\" follows macOS. The buttons at the foot of the sidebar set this too.\n# zoom: how big the windows draw, in percent, 50 to 200. View › Zoom in and Zoom out (⌘= and ⌘-) set it.\n";
+const APPEARANCE_COMMENT: &str = "# Light or dark. \"system\" follows macOS. The buttons at the foot of the sidebar set this too.\n# zoom: how big the windows draw, in percent, 50 to 200. View › Zoom in and Zoom out (⌘= and ⌘-) set it.\n# glass: the main and the project windows show what's behind them through macOS's glass (macOS only).\n";
 const JEV_COMMENT: &str = "# What Codealong asks TypeSafe's Jev, feature by feature (Settings › Jev says what each one sends).\n# The API key is kept in the login keychain; set it in Settings.\n";
-const EMBLEMS_COMMENT: &str = "# Something to know each session by beside its title (Settings › General): an emoji Jev picks\n# (`kind = \"emoji\"`), or a picture an account draws (`\"drawn\"`), as `prompt` says.\n";
+const EMBLEMS_COMMENT: &str = "# Something to know each session by beside its title (Settings › Appearance): an emoji Jev picks\n# (`kind = \"emoji\"`), or a picture an account draws (`\"drawn\"`), as `prompt` says.\n";
 const SEARCH_COMMENT: &str = "# The quick panel, the main window's filter and `codealong sessions find` search what was said in\n# sessions active in the last `days` days, not just their titles. 0 turns it off; 14, the board's\n# reach, is the most.\n";
 const DEVICES_COMMENT: &str = "# Your other devices: Codealong on each shows the others' sessions and can read and search them.\n# tailscale finds them on your tailnet; iroh reaches devices you link with a code, anywhere.\n# remote_control lets your linked devices send prompts, answer approvals and start sessions here.\n# in_bar shows their sessions in the bar, the notch and Waiting on you too, while they're connected.\n# automations: \"first\" or \"backup\", where this machine stands for what your machines share, so one of them\n# runs it (reviewing a PR that asks for yours): a backup does only when no first choice can.\n";
 const UPDATES_COMMENT: &str = "# check: look for a newer Codealong now and then, and put it in place for the next launch.\n# The app menu's Check for updates… works either way.\n";
@@ -1997,7 +2010,7 @@ const OWN_REVIEWS_COMMENT: &str = "# [reviews.own] auto: an agent reviews each o
 # review to the PR's primary session, once it runs and doesn't wait on you. drafts: review your draft PRs too.
 # Nothing goes on GitHub.
 ";
-const EXPERIMENTAL_COMMENT: &str = "# Features still being tried out, each off until it's turned on. boards: the main window's Board view, as\n# Kanban and as Canvas, Add to board in the menus, and `codealong board`. voice: a key held to talk to the\n# session you're looking at or to your orchestrator, and sessions that listen to a meeting ([voice]).\n# analytics: who began each session and turn, what your prompts did with what the agent had said, and how\n# the sessions you marked done stood, in the Analytics window and `codealong analytics`. glass: the main\n# window and the project windows show what's behind them through macOS's glass (macOS only).\n";
+const EXPERIMENTAL_COMMENT: &str = "# Features still being tried out, each off until it's turned on. boards: the main window's Board view, as\n# Kanban and as Canvas, Add to board in the menus, and `codealong board`. voice: a key held to talk to the\n# session you're looking at or to your orchestrator, and sessions that listen to a meeting ([voice]).\n# analytics: who began each session and turn, what your prompts did with what the agent had said, and how\n# the sessions you marked done stood, in the Analytics window and `codealong analytics`.\n";
 const VOICE_COMMENT: &str = "# Voice, once [experimental] voice is on. locale: the language spoken, such as \"en-US\"; \"\" for this Mac's own.\n# send_on_release: what you say to your orchestrator is sent as you let go of the key, not put in its box\n# first. tell_every: how often, in seconds, a session that listens is told what's new, at most.\n# meetings: as a meeting in your calendar is about to start, offer to take its notes, in a folder of its own\n# under meetings_folder (\"\" for meetings beside this file), by a session on meeting_account (an account, a\n# routing group, or \"\" for Auto) and meeting_model, meeting_lead minutes before it starts, but for the\n# calendars in meeting_calendars_off (by id; Settings lists them). meeting_countdown: from how many minutes\n# before, the notch, the floating bar and the Meetings button count down to it (0 for none).\n";
 const REPOS_COMMENT: &str = "# Your settings for one repo's pull requests, over [reviews] and [pull_requests] and over what the repo's\n# .codealong/config.toml sets for its team. Settings › Automation sets them with the repo picked.\n";
 /// What config.toml says above `[sounds]`: where the OS keeps the sounds it can name.
@@ -2359,6 +2372,10 @@ pub fn with_config(text: &str, cfg: &Config) -> Result<String> {
     }
 
     set_theme(&mut doc, cfg.appearance.theme);
+    // Only a file that has it or turns it on gets the line.
+    if cfg.appearance.glass || doc["appearance"].get("glass").is_some() {
+        set_value(&mut doc["appearance"]["glass"], Value::from(cfg.appearance.glass));
+    }
     set_shortcuts(&mut doc, &cfg.shortcuts, cfg.experimental.voice);
 
     // Only a file that has the table, or turns something on, gets it: it's opt-in. An old
@@ -2604,8 +2621,9 @@ pub fn with_config(text: &str, cfg: &Config) -> Result<String> {
         if cfg.experimental.analytics || doc["experimental"].get("analytics").is_some() {
             set_value(&mut doc["experimental"]["analytics"], Value::from(cfg.experimental.analytics));
         }
-        if cfg.experimental.glass || doc["experimental"].get("glass").is_some() {
-            set_value(&mut doc["experimental"]["glass"], Value::from(cfg.experimental.glass));
+        // Folded into [appearance] as it was read.
+        if let Some(experimental) = doc["experimental"].as_table_like_mut() {
+            experimental.remove("glass");
         }
     }
     // Only a file that has the table, or changes one of its settings, gets it.
@@ -2973,6 +2991,9 @@ pub fn render(cfg: &Config) -> String {
     if cfg.appearance.zoom != crate::zoom::ACTUAL {
         s.push_str(&format!("zoom = {}\n", cfg.appearance.zoom));
     }
+    if cfg.appearance.glass {
+        s.push_str("glass = true\n");
+    }
     s.push('\n');
     s.push_str(&shortcuts_comment());
     s.push_str("[shortcuts]\n");
@@ -3137,9 +3158,6 @@ pub fn render(cfg: &Config) -> String {
         if cfg.experimental.analytics {
             s.push_str("analytics = true\n");
         }
-        if cfg.experimental.glass {
-            s.push_str("glass = true\n");
-        }
     }
     if cfg.voice != VoiceCfg::default() {
         s.push('\n');
@@ -3279,7 +3297,7 @@ mod tests {
             pull_requests: PullRequestsCfg { nudge_by_default: true, nudge_about: NudgeAbout::FeedbackAndChecks, rerequest_after_fixes: false },
             repos: BTreeMap::from([("github.com/sprucehq/web".to_string(), RepoCfg { reviews: ReviewsPatch { auto: Some(true), account: Some("codex".into()), post: Some(ReviewPost::Draft), own: OwnReviewsPatch { send: Some(false), ..OwnReviewsPatch::default() }, ..ReviewsPatch::default() }, pull_requests: PullRequestsPatch { nudge_about: Some(NudgeAbout::Feedback), ..PullRequestsPatch::default() } })]),
             sounds: SoundsCfg { needs_you: "Tink".into(), your_turn: String::new(), review_requested: "Purr".into(), meeting: "Glass".into(), volume: 35 },
-            experimental: ExperimentalCfg { boards: true, voice: true, analytics: true, glass: true },
+            experimental: ExperimentalCfg { boards: true, voice: true, analytics: true, glass: false },
             voice: VoiceCfg { locale: "en-GB".into(), send_on_release: true, tell_every: 45, meetings: true, meetings_folder: "~/Meetings".into(), meeting_account: String::new(), meeting_model: "haiku".into(), meeting_lead: 2, meeting_countdown: 10, meeting_calendars_off: vec!["C1".into(), "C2".into()] },
             debug: DebugCfg::default(),
             prices: BTreeMap::new(),
@@ -3694,17 +3712,30 @@ mod tests {
 
     #[test]
     fn glass_gets_its_line_once_turned_on_and_keeps_it_turned_off() {
-        assert!(!toml::from_str::<Config>("").unwrap().experimental.glass);
+        assert!(!toml::from_str::<Config>("").unwrap().appearance.glass);
         let old = render(&full());
         assert!(!old.contains("glass = "), "{old}");
-        let on = Config { experimental: ExperimentalCfg { glass: true, ..Default::default() }, ..full() };
+        let on = Config { appearance: AppearanceCfg { glass: true, ..full().appearance }, ..full() };
         let out = with_config(&old, &on).unwrap();
-        assert!(out.contains("[experimental]\nboards = false\nglass = true\n"), "{out}");
+        assert!(out.contains("[appearance]\ntheme = \"dark\"\nglass = true\n"), "{out}");
         assert_eq!(parse(&out).unwrap(), on);
         assert_eq!(parse(&render(&on)).unwrap(), on);
         let off = with_config(&out, &full()).unwrap();
-        assert!(off.contains("[experimental]\nboards = false\nglass = false\n"), "{off}");
+        assert!(off.contains("[appearance]\ntheme = \"dark\"\nglass = false\n"), "{off}");
         assert_eq!(parse(&off).unwrap(), full());
+    }
+
+    #[test]
+    fn glass_from_when_it_was_an_experiment_moves_to_appearance() {
+        let on = Config { appearance: AppearanceCfg { glass: true, ..full().appearance }, ..full() };
+        let old = render(&full()).replace("[appearance]\n", "[experimental]\nboards = false\nglass = true\n\n[appearance]\n");
+        assert_eq!(parse(&old).unwrap(), on);
+        let out = with_config(&old, &on).unwrap();
+        assert!(out.contains("[experimental]\nboards = false\n\n") && out.contains("[appearance]\ntheme = \"dark\"\nglass = true\n"), "{out}");
+        assert_eq!(parse(&out).unwrap(), on);
+        // Turned off where it is now, it isn't turned on again from where it was.
+        let both = old.replace("theme = \"dark\"\n", "theme = \"dark\"\nglass = false\n");
+        assert_eq!(parse(&both).unwrap(), full());
     }
 
     #[test]

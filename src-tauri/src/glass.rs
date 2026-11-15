@@ -1,11 +1,11 @@
-//! Glass, an experiment (`[experimental] glass`, Settings › Experimental): the board's windows (the
-//! main one and a project's) show what's behind them through macOS's own material, as the Finder's
+//! Glass (`[appearance] glass`, Settings › Appearance): the board's windows (the main one and a
+//! project's) show what's behind them through macOS's own material, as the Finder's
 //! sidebar does. It's Tauri's window effects (window-vibrancy): Liquid Glass (NSGlassEffectView)
 //! from macOS 26, and before it, where that isn't there, the sidebar's vibrancy
 //! (NSVisualEffectView). Either is a view put behind the page, which shows only where the window
 //! and the page draw nothing: so the window is made see-through, as Tauri's `transparent` makes
-//! one at its start, and the page draws its chrome see-through with the board's
-//! `experimental.glass` (the `is-glass` class, `src/glass.ts`).
+//! one at its start, and the page draws what was gray see-through with the board's `glass` (the
+//! `is-glass` class, `src/glass.ts`).
 //!
 //! As the zoom is (zoom.rs), it follows config.toml: the engine puts it on the board, the board's
 //! publisher sets it on the windows (`follow`), and a project window just made gets it (`fit`). A

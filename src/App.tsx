@@ -482,7 +482,7 @@ export function App() {
   const theme = pickedTheme ?? board?.theme ?? 'system';
   const logoStatus = useLogo(board?.logoStatus);
   useTheme(theme);
-  useGlass(!!board?.experimental?.glass);
+  useGlass(!!board?.glass);
   useEffect(() => {
     if (pickedTheme && board?.theme === pickedTheme) setPickedTheme(null);
   }, [board?.theme, pickedTheme]);

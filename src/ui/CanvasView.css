@@ -14,6 +14,11 @@
   -webkit-user-select: none;
   cursor: default;
 }
+/* With glass on (src/glass.ts), the world is the glass, as the board around it is: the frames and
+   the cards on it keep their own grounds. */
+.is-glass .ca-cv {
+  background: transparent;
+}
 .ca-cv.is-panning,
 .ca-cv.is-panning * {
   cursor: grab;

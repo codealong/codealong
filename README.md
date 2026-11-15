@@ -768,6 +768,7 @@ run_in = "codealong"           # a session's new terminals (⌃`) and the comman
 [appearance]
 theme = "system"               # follows the system; or "light", "dark"
 zoom = 100                     # the windows and the cards in the notch and peek, in percent, 50 to 200 (⌘= ⌘- ⌘0)
+glass = false                  # the main window and the project windows show what's behind them through macOS's glass (macOS only)
 
 [shortcuts]                          # macOS's defaults; on Linux they're Ctrl+Alt+/ and so on
 quick_panel = "Option+Cmd+/"        # works in every app; "" turns it off (Settings › General)
@@ -787,7 +788,7 @@ todos = false                  # links sessions to todos, done hints, new todos'
 pull_requests = false          # review comments that ask for a change
 prompts = false                # with [experimental] analytics: what each prompt you typed did with the reply before it
 
-[emblems]                      # something to know each session by beside its title (Settings › General)
+[emblems]                      # something to know each session by beside its title (Settings › Appearance)
 kind = "off"                   # "emoji" (Jev picks one) or "drawn" (an account draws one)
 account = "codex"              # drawn: the account that draws them; the first that can when unset
 prompt = "Pixel art on a 16 by 16 grid, with a dark outline."  # drawn: how; Codealong's own when unset
@@ -874,7 +875,6 @@ check = true                   # look for a new version by itself (Settings › 
 boards = false                 # the Board view, as Kanban and as Canvas, Add to board in the menus, and `codealong board`
 voice = false                  # the keys held to talk, sessions that listen to a meeting (Listen… in a session's menu), and `codealong listen`
 analytics = false              # who began each session and turn, what your prompts did, how the sessions you marked done stood (the Analytics window, `codealong analytics`)
-glass = false                  # the main window and the project windows show what's behind them through macOS's glass (macOS only)
 
 [voice]                        # once [experimental] voice is on (Settings › Experimental)
 locale = ""                    # the language spoken, such as "en-US"; "" for this Mac's own

@@ -1549,7 +1549,7 @@ pub fn run() {
             // And at its zoom, and with glass if that's on: the main window is made before this
             // runs.
             zoom::follow(app.handle(), config::zoom());
-            glass::follow(app.handle(), config::experimental().glass);
+            glass::follow(app.handle(), config::glass());
             // And where it was left, which brings it up.
             frames::setup(app.handle());
             // Codealong and Codealong Dev both say they open Codealong's links (Info.plist), and
@@ -1602,7 +1602,7 @@ pub fn run() {
                     }
                 }
                 zoom::follow(&emitter, board.zoom);
-                glass::follow(&emitter, board.experimental.glass);
+                glass::follow(&emitter, board.glass);
                 // Registering waits on the main thread, so it gets a thread of its own: this one
                 // may hold what a command on the main thread is waiting for.
                 // Voice turned on: its speech model is loaded (and downloaded, the first time),

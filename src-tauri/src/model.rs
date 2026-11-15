@@ -199,6 +199,10 @@ pub struct Board {
     /// How big the board's windows draw, in percent, from config.toml (zoom.rs).
     #[serde(default)]
     pub zoom: u32,
+    /// Whether the board's windows show what's behind them through macOS's glass, from
+    /// config.toml's `[appearance] glass` (glass.rs, `src/glass.ts`).
+    #[serde(default)]
+    pub glass: bool,
     /// True while `[debug] perf_log` is on, so windows report their timings too.
     pub perf_log: bool,
     /// Every todo, in your order.

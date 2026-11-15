@@ -1774,7 +1774,7 @@ impl Engine {
     fn draw_emblem(&mut self, board: &Board, key: String) {
         let Some(subject) = crate::emblems::subject(board, &key) else { return };
         let Some(account) = config::drawing_account(&self.cfg).cloned() else {
-            self.set_trouble(Trouble::Emblems, Some("No account can draw emblems: add a Codex account in Settings › Accounts, or have Jev pick emoji in Settings › General.".into()));
+            self.set_trouble(Trouble::Emblems, Some("No account can draw emblems: add a Codex account in Settings › Accounts, or have Jev pick emoji in Settings › Appearance.".into()));
             return;
         };
         let prompt = crate::emblems::draw_prompt(subject, &self.emblems.taken(&key, config::EmblemKind::Drawn), &self.cfg.emblems.prompt);
@@ -4187,6 +4187,7 @@ fn waiting_call(s: &Session, account: Option<&config::AccountCfg>) -> Option<Str
         board.pinned_repos = self.seen.pinned_repos.clone();
         board.theme = self.cfg.appearance.theme;
         board.zoom = self.cfg.appearance.zoom;
+        board.glass = self.cfg.appearance.glass;
         board.quick_shortcut = self.cfg.shortcuts.quick_panel.clone();
         board.chat_shortcut = self.cfg.shortcuts.chat.clone();
         board.waiting_shortcut = self.cfg.shortcuts.waiting.clone();

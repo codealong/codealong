@@ -478,6 +478,7 @@ export type Board = Holds<Same<
   | "githubCurrent"
   | "githubLogin"
   | "githubPolled"
+  | "glass"
   | "improve"
   | "improveShortcut"
   | "jev"
@@ -858,7 +859,6 @@ export type EmblemsCfg = Holds<Same<
 export type ExperimentalCfg = Holds<Same<
   | "analytics"
   | "boards"
-  | "glass"
   | "voice",
   Names<Types.ExperimentalCfg>
 >>;

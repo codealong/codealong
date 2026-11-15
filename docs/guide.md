@@ -222,7 +222,7 @@ the archived sessions it finds, so its count says how many match.
 
 #### Emblems
 
-Session emblems (Settings › General, `[emblems]`) give each session something you can name beside
+Session emblems (Settings › Appearance, `[emblems]`) give each session something you can name beside
 its title, so the sessions beside each other read apart at a glance and you can remember one as
 "the dinosaur". They're off until you pick a kind, there or in the setup wizard's Your sessions
 step (see *Set up Codealong*), which offers the same choices. Each is one of two kinds:
@@ -2248,7 +2248,7 @@ bigger, while the notch's shape and the bar's pills stay at actual size.
 
 ### Glass
 
-*Experimental: Settings › Experimental › Glass, or `glass = true` under `[experimental]`; macOS only*
+*Settings › Appearance › Glass, or `glass = true` under `[appearance]`; macOS only*
 
 With glass on, the main window and the project windows show what's behind them through macOS's own
 glass, as the Finder does: Liquid Glass from macOS 26, and the sidebar's blur on earlier versions.
@@ -2317,7 +2317,7 @@ a wizard over the main window has you confirm it, and offers session emblems, in
   many your agents worked in lately. Type another to add it.
 - **Your apps**: the terminal sessions open in and the editor folders open in, from the ones
   installed.
-- **Your sessions**: session emblems (see *Emblems*), with Settings › General's own choices, None
+- **Your sessions**: session emblems (see *Emblems*), with Settings › Appearance's own choices, None
   to start with (or what config.toml has, when you go through it again): Emoji, with a box for
   Jev's TypeSafe key while there's none, which saves it to the keychain there and then; and Drawn,
   only while you keep an account that can draw (a Codex account you're signed in to), with the box
@@ -2344,11 +2344,12 @@ it later.
 
 A form for everything in config.toml. General has the folders searched for repos, the shortcuts
 that work in any app, the terminal and editor, Keep \<terminal> awake (on macOS: whether macOS may
-nap your terminal while other apps' windows cover it; see *How a prompt gets to a session*), the theme, and
+nap your terminal while other apps' windows cover it; see *How a prompt gets to a session*), and
 Open at login (off until you turn it
 on; the system keeps it rather than config.toml: on macOS System Settings › General › Login Items
 lists Codealong, and on Linux it's an entry in `~/.config/autostart`, and turning it off there
-shows here); Sounds has the sound for each thing that starts to
+shows here); Appearance has the theme, glass (see *Glass*) and session emblems (see *Emblems*),
+and says the keys that zoom (see *Zoom*); Sounds has the sound for each thing that starts to
 wait on you, and how loud (see *Sounds*); Jev has the TypeSafe key (kept in the keychain),
 what Jev's requests used and cost (see *What sessions used and cost*), and a switch per feature,
 each saying what it sends; Accounts adds, edits, turns off, removes and
@@ -2368,8 +2369,8 @@ the performance log on and shows where the files are; Experimental turns on feat
 tried out, each off until you do and each in a part of its own: boards (see *Boards*); voice,
 with its language and then its settings under Talk (the shortcuts held to talk, and sending to
 your orchestrator as you let go) and Meetings (Listen now, how often a listening session is told
-what's new, and the offer to take a meeting's notes) (see *Voice*); analytics; and glass (see
-*Glass*). Each change is saved in its place in the file,
+what's new, and the offer to take a meeting's notes) (see *Voice*); and analytics. Each change is
+saved in its place in the file,
 so comments and order stay as you wrote them. The config.toml section edits the file itself, for
 anything the form doesn't cover, and says what's wrong when it doesn't parse.
 

@@ -32,10 +32,11 @@ import { reorderKey } from '../mainKeys';
 import { errorText } from '../report';
 import { bare, cmd, keysIn, keysSaid, platform, type Platform } from '../platform';
 
-export type SettingsSection = 'general' | 'sounds' | 'accounts' | 'routing' | 'automation' | 'agents' | 'devices' | 'projects' | 'jev' | 'advanced' | 'experimental' | 'file';
+export type SettingsSection = 'general' | 'appearance' | 'sounds' | 'accounts' | 'routing' | 'automation' | 'agents' | 'devices' | 'projects' | 'jev' | 'advanced' | 'experimental' | 'file';
 
 const SECTIONS: { id: SettingsSection; label: string; icon: string }[] = [
   { id: 'general', label: 'General', icon: 'settings' },
+  { id: 'appearance', label: 'Appearance', icon: 'palette' },
   { id: 'sounds', label: 'Sounds', icon: 'bell' },
   { id: 'accounts', label: 'Accounts', icon: 'user' },
   { id: 'routing', label: 'Routing', icon: 'git-fork' },
@@ -219,7 +220,9 @@ export function SettingsDialog({ section, onSection, focus, usage, training, mcp
     if (!cfg) return null;
     switch (s) {
       case 'general':
-        return <GeneralPane cfg={cfg} view={view} theme={theme} onPickTheme={onPickTheme} disabled={!!broken} onSave={save} now={now} />;
+        return <GeneralPane cfg={cfg} view={view} disabled={!!broken} onSave={save} now={now} />;
+      case 'appearance':
+        return <AppearancePane cfg={cfg} theme={theme} onPickTheme={onPickTheme} disabled={!!broken} onSave={save} />;
       case 'sounds':
         return <SoundsPane cfg={cfg} names={view.sounds ?? []} disabled={!!broken} onSave={save} onError={setError} />;
       case 'routing':
@@ -326,7 +329,7 @@ interface PaneProps {
   onSave: (next: Config) => Promise<boolean>;
 }
 
-function GeneralPane({ cfg, view, theme, onPickTheme, disabled, onSave, now }: PaneProps & { view: ConfigView; theme: Theme; onPickTheme: (t: Theme) => void; now: number }) {
+function GeneralPane({ cfg, view, disabled, onSave, now }: PaneProps & { view: ConfigView; now: number }) {
   const searchDays = cfg.search?.days ?? MAX_SEARCH_DAYS;
   const closeCommandTabs = cfg.apps.close_command_tabs_after ?? CLOSE_COMMAND_TABS_AFTER;
   const tmuxUse = cfg.apps.tmux ?? 'when-locked';
@@ -337,7 +340,7 @@ function GeneralPane({ cfg, view, theme, onPickTheme, disabled, onSave, now }: P
       <div className="ca-settings-intro">
         <h3>General</h3>
 
-        <p>Where Codealong looks for repos, which apps it opens things in, and how it looks.</p>
+        <p>Where Codealong looks for repos, which apps it opens things in, and how it keeps up to date.</p>
       </div>
       <fieldset className="ca-settings-fields" disabled={disabled}>
         <div className="ca-field">
@@ -452,14 +455,38 @@ function GeneralPane({ cfg, view, theme, onPickTheme, disabled, onSave, now }: P
           <ProfileSelect value={cfg.apps.editor} profiles={view.editors} onChange={(editor) => void onSave({ ...cfg, apps: { ...cfg.apps, editor } })} />
           <small>Opens a worktree's folder, and config.toml. The Open in menus offer the other editors installed here, and picking one there makes it this.</small>
         </label>
+        <OpenAtLoginField />
+        <UpdatesFields cfg={cfg} onSave={(next) => void onSave(next)} now={now} />
+      </fieldset>
+    </>
+  );
+}
+
+/** `[appearance]`, and what else is about how Codealong looks: the theme, glass, and session
+ *  emblems (`[emblems]`). The zoom is the keys' and the View menu's: Settings saves the whole file,
+ *  and a zoom it had read would undo a key pressed since. */
+function AppearancePane({ cfg, theme, onPickTheme, disabled, onSave }: PaneProps & { theme: Theme; onPickTheme: (t: Theme) => void }) {
+  return (
+    <>
+      <div className="ca-settings-intro">
+        <h3>Appearance</h3>
+        <p>{keysIn('How Codealong’s windows look, and what each session shows beside its title. ⌘= and ⌘- make the windows bigger and smaller, as View › Zoom in and Zoom out do.')}</p>
+      </div>
+      <fieldset className="ca-settings-fields" disabled={disabled}>
         <div className="ca-field">
-          <span>Appearance</span>
+          <span>Theme</span>
           <Seg className="ca-settings-theme" label="Theme" look="text" options={THEMES} value={theme} onPick={(t) => theme !== t && onPickTheme(t)} />
           <small>Every window follows, and so do the window chrome and menus.</small>
         </div>
+        {/* Glass is macOS's alone (glass.rs): elsewhere the box would turn on nothing. */}
+        {platform() === 'mac' && (
+          <label className="ca-field ca-settings-check">
+            <CheckBox checked={!!cfg.appearance.glass} onChange={(on) => void onSave({ ...cfg, appearance: { ...cfg.appearance, glass: on } })} />
+            <span>Glass</span>
+            <small>The main window and the project windows show what’s behind them through macOS’s glass, Liquid Glass from macOS 26 and the sidebar’s blur before it: the title bar, the sidebar and what’s gray around the list let it through, as the Finder’s do, while the rows, the cards and the panel keep their own ground.</small>
+          </label>
+        )}
         <EmblemsFields cfg={cfg} disabled={disabled} onSave={(next) => void onSave(next)} />
-        <OpenAtLoginField />
-        <UpdatesFields cfg={cfg} onSave={(next) => void onSave(next)} now={now} />
       </fieldset>
     </>
   );
@@ -489,7 +516,7 @@ const EMBLEM_KINDS: { id: EmblemKind; label: string; says: string }[] = [
 /**
  * Session emblems: what each session gets beside its title, for emoji ones Jev's key while
  * there's none, and for drawn ones the account that draws them and how, in words of your own. The
- * prompt is saved as you leave its box, as the routing instructions are. Settings › General's,
+ * prompt is saved as you leave its box, as the routing instructions are. Settings › Appearance's,
  * and the setup wizard's (SetupDialog.tsx), which holds what's picked until its Done and passes
  * the accounts you kept that can draw as `drawers`; Settings' are every account turned on whose
  * harness draws.
@@ -1729,7 +1756,7 @@ const JEV_FEATURES: { id: JevFeature; label: string; does: string; sends: string
   },
 ];
 
-/** A feature's name in Jev's usage: its switch's label, Session emblems' (Settings › General), or
+/** A feature's name in Jev's usage: its switch's label, Session emblems' (Settings › Appearance), or
  *  the Test button's. */
 function jevFeatureName(feature: string): string {
   return JEV_FEATURES.find((f) => f.id === feature)?.label ?? ({ emblems: 'Session emblems', test: 'Test button', prompts: 'What your prompts did' } as Record<string, string>)[feature] ?? feature;
@@ -2347,7 +2374,7 @@ function AdvancedPane({ cfg, view, disabled, onSave }: PaneProps & { view: Confi
 /* ---- Experimental ---- */
 
 /** `[experimental]` as a file without the table has it: every experiment off. */
-const EXPERIMENTS_OFF: Required<ExperimentalCfg> = { boards: false, voice: false, analytics: false, glass: false };
+const EXPERIMENTS_OFF: Required<ExperimentalCfg> = { boards: false, voice: false, analytics: false };
 
 /** `[voice]` as a file without the table has it (config.rs `VoiceCfg`). */
 export const VOICE_DEFAULT: Required<VoiceCfg> = { locale: '', send_on_release: false, tell_every: 20, meetings: false, meetings_folder: '', meeting_account: '', meeting_model: '', meeting_lead: 1, meeting_countdown: 5, meeting_calendars_off: [] };
@@ -2515,18 +2542,6 @@ function ExperimentalPane({ cfg, view, disabled, onSave }: PaneProps & { view: C
             </label>
           )}
         </section>
-        {/* Glass is macOS's alone (glass.rs): elsewhere the box would turn on nothing. */}
-        {platform() === 'mac' && (
-          <section className="ca-settings-group">
-            <label className="ca-field ca-settings-check ca-settings-experiment">
-              <CheckBox checked={experimental.glass} onChange={(on) => void onSave({ ...cfg, experimental: { ...experimental, glass: on } })} />
-              <span>Glass</span>
-              <small>
-                The main window and the project windows show what’s behind them through macOS’s glass, Liquid Glass from macOS 26 and the sidebar’s blur before it: the title bar, the sidebar and what’s gray around the list let it through, as the Finder’s do, while the rows, the cards and the panel keep their own ground.
-              </small>
-            </label>
-          </section>
-        )}
       </fieldset>
     </>
   );

@@ -24,7 +24,6 @@
       "experimental": {
         "analytics": false,
         "boards": false,
-        "glass": false,
         "voice": false
       },
       "generatedAt": 1000,
@@ -34,6 +33,7 @@
       },
       "githubLogin": null,
       "githubPolled": false,
+      "glass": false,
       "improve": {},
       "improveShortcut": "",
       "jev": {
@@ -369,7 +369,6 @@
         "experimental": {
           "analytics": false,
           "boards": false,
-          "glass": false,
           "voice": false
         },
         "generatedAt": 1000,
@@ -379,6 +378,7 @@
         },
         "githubLogin": null,
         "githubPolled": false,
+        "glass": false,
         "improve": {},
         "improveShortcut": "",
         "jev": {
@@ -717,7 +717,6 @@
       "experimental": {
         "analytics": false,
         "boards": false,
-        "glass": false,
         "voice": false
       },
       "generatedAt": 2000,
@@ -727,6 +726,7 @@
       },
       "githubLogin": null,
       "githubPolled": false,
+      "glass": false,
       "improve": {},
       "improveShortcut": "",
       "jev": {
@@ -1103,7 +1103,6 @@
       "experimental": {
         "analytics": false,
         "boards": false,
-        "glass": false,
         "voice": false
       },
       "generatedAt": 3000,
@@ -1113,6 +1112,7 @@
       },
       "githubLogin": null,
       "githubPolled": false,
+      "glass": false,
       "improve": {},
       "improveShortcut": "",
       "jev": {
@@ -1488,7 +1488,6 @@
       "experimental": {
         "analytics": false,
         "boards": false,
-        "glass": false,
         "voice": false
       },
       "generatedAt": 4000,
@@ -1498,6 +1497,7 @@
       },
       "githubLogin": null,
       "githubPolled": false,
+      "glass": false,
       "improve": {},
       "improveShortcut": "",
       "jev": {
@@ -1942,13 +1942,13 @@
       "experimental": {
         "analytics": false,
         "boards": false,
-        "glass": false,
         "voice": false
       },
       "generatedAt": 5000,
       "githubAt": null,
       "githubLogin": null,
       "githubPolled": false,
+      "glass": false,
       "improve": {},
       "improveShortcut": "",
       "jev": {
@@ -2368,13 +2368,13 @@
       "experimental": {
         "analytics": false,
         "boards": false,
-        "glass": false,
         "voice": false
       },
       "generatedAt": 6000,
       "githubAt": null,
       "githubLogin": null,
       "githubPolled": false,
+      "glass": false,
       "improve": {},
       "improveShortcut": "",
       "jev": {

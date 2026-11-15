@@ -1006,7 +1006,8 @@ export interface Config {
   scan: string[];
   apps: { terminal: string; editor: string; new_terminal?: NewTerminal; move_pointer?: boolean; close_command_tabs_after?: number; tmux?: TmuxUse; run_in?: 'codealong' | 'terminal' };
   /** `zoom` is a percent; Settings leaves it as config.toml has it. */
-  appearance: { theme: Theme; zoom?: number };
+  /** `glass`: the board's windows show what's behind them through macOS's glass (glass.rs). */
+  appearance: { theme: Theme; zoom?: number; glass?: boolean };
   /** Shortcuts that work in any app, as config.toml writes them (`Option+Cmd+/`); empty is off. */
   shortcuts: { quick_panel: string; chat?: string; waiting: string; improve?: string; main_window?: string; talk?: string; talk_orchestrator?: string; listen?: string };
   /** What Codealong asks TypeSafe's Jev, feature by feature. Older files have none: all off. */
@@ -1052,13 +1053,11 @@ export interface Config {
  *  it's turned on. `boards`: the Board view, as Kanban and as Canvas, and Add to board. `voice`:
  *  the keys held to talk, and sessions that listen. `analytics`: who began each session and turn,
  *  what your prompts did, and how the sessions you marked done stood (the Analytics window's Your part
- *  and Sessions). `glass`: the board's windows show what's behind them through macOS's glass
- *  (glass.rs, `src/glass.ts`). Missing from files and boards before it: off. */
+ *  and Sessions). Missing from files and boards before it: off. */
 export interface ExperimentalCfg {
   boards: boolean;
   voice?: boolean;
   analytics?: boolean;
-  glass?: boolean;
 }
 
 /** `[voice]` (config.rs `VoiceCfg`). */
@@ -1864,6 +1863,9 @@ export interface Board {
   /** How big the board's windows draw, in percent, from config.toml (zoom.ts); actual size when
    *  it's missing. */
   zoom?: number;
+  /** Whether the board's windows show what's behind them through macOS's glass, from
+   *  `[appearance] glass` (src/glass.ts); off when it's missing. */
+  glass?: boolean;
   /** Every todo, in your order (src-tauri/src/todos.rs). */
   todos: Todo[];
   /** todos.json didn't read the last time it was read: `todos` is what it held before, and a
