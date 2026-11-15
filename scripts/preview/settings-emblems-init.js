@@ -1,4 +1,4 @@
-// Opens Settings › General at Session emblems with Drawn picked and a prompt of your own, for a
+// Opens Settings › Appearance at Session emblems with Drawn picked and a prompt of your own, for a
 // screenshot (preview.sh's sessions view). config.toml reads back as it was saved.
 //   PREVIEW_INIT=scripts/preview/settings-emblems-init.js PREVIEW_NAME=settings-emblems scripts/preview.sh sessions
 //   PREVIEW_SCHEME=dark PREVIEW_NAME=settings-emblems PREVIEW_INIT=scripts/preview/settings-emblems-init.js scripts/preview.sh sessions
@@ -20,10 +20,13 @@
   var open = setInterval(function () {
     tries += 1;
     var gear = document.querySelector('.ca-side-config');
+    var nav = Array.prototype.filter.call(document.querySelectorAll('.ca-settings-nav button'), function (b) { return b.textContent.trim() === 'Appearance'; })[0];
     var field = Array.prototype.filter.call(document.querySelectorAll('.ca-settings-pane .ca-field > span:not(.ca-checkbox)'), function (s) { return s.textContent === 'Session emblems'; })[0];
     if (field) {
       field.scrollIntoView({ block: 'start' });
       clearInterval(open);
+    } else if (nav) {
+      nav.click();
     } else if (gear) {
       gear.click();
     }

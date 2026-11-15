@@ -1015,8 +1015,8 @@ fn open_as_preview(url: &str, lane: &Lane) -> Result<()> {
     chrome::open(url, &profile)
 }
 
-/// The board before the first scan has finished: loading, with the theme, zoom, shortcuts and
-/// experiments config.toml has, so windows open in them. The app's copy starts from it too, until
+/// The board before the first scan has finished: loading, with the theme, zoom, glass, shortcuts
+/// and experiments config.toml has, so windows open in them. The app's copy starts from it too, until
 /// the server's first board comes (view.rs).
 pub fn starting_board() -> Board {
     let shortcuts = config::shortcuts();
@@ -1024,6 +1024,7 @@ pub fn starting_board() -> Board {
         loading: true,
         theme: config::theme(),
         zoom: config::zoom(),
+        glass: config::glass(),
         experimental: config::experimental(),
         quick_shortcut: shortcuts.quick_panel,
         chat_shortcut: shortcuts.chat,

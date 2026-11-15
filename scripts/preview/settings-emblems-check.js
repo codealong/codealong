@@ -1,4 +1,4 @@
-// Checks Settings › General's session emblems (`[emblems]`): None, Emoji and Drawn, each saying
+// Checks Settings › Appearance's session emblems (`[emblems]`): None, Emoji and Drawn, each saying
 // what it does; Emoji with a box for Jev's key while the keychain has none (the check's has none
 // until one is saved), and under a search that shows it beside Settings › Jev's, a key saved in one
 // shows in the other; Drawn offered with an account that draws (Codex), and once picked, a box for
@@ -29,7 +29,8 @@
   };
   var run = async function () {
     (await until(function () { return q('.ca-side-config'); }, 20000, 'the settings button')).click();
-    var field = await until(function () { return named('Session emblems'); }, 20000, 'Session emblems in General');
+    (await until(function () { return all('.ca-settings-nav button').filter(function (b) { return b.textContent.trim() === 'Appearance'; })[0]; }, 20000, 'Appearance in Settings')).click();
+    var field = await until(function () { return named('Session emblems'); }, 20000, 'Session emblems in Appearance');
     var cfg = (await window.__TAURI_INTERNALS__.invoke('get_config', {})).config;
     var draws = (cfg.accounts || []).some(function (a) { return a.harness === 'codex' && !a.disabled; });
     check('None, Emoji and Drawn are offered', !!choice('None') && !!choice('Emoji') && (!draws || !!choice('Drawn')), field.textContent.slice(0, 120));
