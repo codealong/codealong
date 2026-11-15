@@ -858,6 +858,7 @@ export type EmblemsCfg = Holds<Same<
 export type ExperimentalCfg = Holds<Same<
   | "analytics"
   | "boards"
+  | "glass"
   | "voice",
   Names<Types.ExperimentalCfg>
 >>;

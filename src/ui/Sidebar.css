@@ -185,6 +185,12 @@
   background: var(--surface-sunken);
   border-right: 1px solid var(--line);
 }
+/* With glass on (src/glass.ts), the sidebar and its rail are mostly see-through over macOS's
+   glass, as the Finder's sidebar is. */
+.is-glass .ca-side,
+.is-glass .ca-rail {
+  background: var(--glass-sunken);
+}
 .ca-rail-btn {
   position: relative;
   flex: none;

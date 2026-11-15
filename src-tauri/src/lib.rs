@@ -49,6 +49,7 @@ mod fixtures;
 mod geometry;
 mod flash;
 mod frames;
+mod glass;
 mod front;
 mod ghpoll;
 mod git;
@@ -217,6 +218,7 @@ fn open_project_window(app: tauri::AppHandle, window: tauri::WebviewWindow, proj
     }
     let window = builder.build().map_err(|e| format!("Couldn't open a window for {project}: {e}"))?;
     zoom::fit(&window);
+    glass::fit(&window);
     Ok(())
 }
 
@@ -1544,8 +1546,10 @@ pub fn run() {
             // Set before the page loads, so a window never opens in the wrong theme.
             let theme = config::theme();
             app.set_theme(native_theme(theme));
-            // And at its zoom: the main window is made before this runs.
+            // And at its zoom, and with glass if that's on: the main window is made before this
+            // runs.
             zoom::follow(app.handle(), config::zoom());
+            glass::follow(app.handle(), config::experimental().glass);
             // And where it was left, which brings it up.
             frames::setup(app.handle());
             // Codealong and Codealong Dev both say they open Codealong's links (Info.plist), and
@@ -1567,7 +1571,8 @@ pub fn run() {
             // Whether voice was on at the last board: on at launch, its model is loaded then.
             let voice = std::sync::atomic::AtomicBool::new(config::experimental().voice);
             // The board the server publishes, and what the app does with each: the Dock icon, the
-            // theme, the zoom and the shortcuts, the windows' feed, and the windows that float.
+            // theme, the zoom, glass and the shortcuts, the windows' feed, and the windows that
+            // float.
             let mirror = view::Mirror::new();
             app.manage(mirror.clone());
             let emitter = app.handle().clone();
@@ -1597,6 +1602,7 @@ pub fn run() {
                     }
                 }
                 zoom::follow(&emitter, board.zoom);
+                glass::follow(&emitter, board.experimental.glass);
                 // Registering waits on the main thread, so it gets a thread of its own: this one
                 // may hold what a command on the main thread is waiting for.
                 // Voice turned on: its speech model is loaded (and downloaded, the first time),

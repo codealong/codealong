@@ -46,6 +46,7 @@ import { Button, cx, Icon, Kbd, Seg } from './ui/primitives';
 import { ALL_PROJECTS, ProjectSwitcher } from './ui/ProjectSwitcher';
 import { ProjectShown } from './ui/ProjectSaid';
 import { useLogo } from './logo';
+import { useGlass } from './glass';
 import { mayYetCome, opened } from './codealongLinks';
 import { linkHost, usePrLinks } from './ui/PrLink';
 import { reviewedWords } from './prDraft';
@@ -481,6 +482,7 @@ export function App() {
   const theme = pickedTheme ?? board?.theme ?? 'system';
   const logoStatus = useLogo(board?.logoStatus);
   useTheme(theme);
+  useGlass(!!board?.experimental?.glass);
   useEffect(() => {
     if (pickedTheme && board?.theme === pickedTheme) setPickedTheme(null);
   }, [board?.theme, pickedTheme]);

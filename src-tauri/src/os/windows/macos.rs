@@ -396,6 +396,18 @@ pub fn set_alpha(w: &WebviewWindow, alpha: f64) {
     }
 }
 
+/// Whether the window draws all of itself (`true`, as a window does), or lets what's behind it
+/// show where it draws nothing, as Tauri's `transparent` makes one at its start: glass (glass.rs)
+/// is a window's that doesn't. Run on the main thread, from any.
+pub fn set_opaque(w: &WebviewWindow, opaque: bool) {
+    let window = w.clone();
+    let _ = w.run_on_main_thread(move || {
+        if let Some(n) = ns(&window) {
+            n.setOpaque(opaque);
+        }
+    });
+}
+
 /// Ordered in, wherever it is.
 pub fn is_visible(w: &WebviewWindow) -> bool {
     ns(w).map(|n| n.isVisible()).unwrap_or(false)

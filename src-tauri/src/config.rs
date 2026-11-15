@@ -1098,6 +1098,11 @@ pub struct ExperimentalCfg {
     /// kept in the ledger and shown in the Analytics window.
     #[serde(default)]
     pub analytics: bool,
+    /// Glass (glass.rs): the main window and the project windows show what's behind them through
+    /// macOS's own material, Liquid Glass from macOS 26 and the sidebar's vibrancy before it, with
+    /// the page's chrome see-through over it. macOS only.
+    #[serde(default)]
+    pub glass: bool,
 }
 
 impl Config {
@@ -1992,7 +1997,7 @@ const OWN_REVIEWS_COMMENT: &str = "# [reviews.own] auto: an agent reviews each o
 # review to the PR's primary session, once it runs and doesn't wait on you. drafts: review your draft PRs too.
 # Nothing goes on GitHub.
 ";
-const EXPERIMENTAL_COMMENT: &str = "# Features still being tried out, each off until it's turned on. boards: the main window's Board view, as\n# Kanban and as Canvas, Add to board in the menus, and `codealong board`. voice: a key held to talk to the\n# session you're looking at or to your orchestrator, and sessions that listen to a meeting ([voice]).\n# analytics: who began each session and turn, what your prompts did with what the agent had said, and how\n# the sessions you marked done stood, in the Analytics window and `codealong analytics`.\n";
+const EXPERIMENTAL_COMMENT: &str = "# Features still being tried out, each off until it's turned on. boards: the main window's Board view, as\n# Kanban and as Canvas, Add to board in the menus, and `codealong board`. voice: a key held to talk to the\n# session you're looking at or to your orchestrator, and sessions that listen to a meeting ([voice]).\n# analytics: who began each session and turn, what your prompts did with what the agent had said, and how\n# the sessions you marked done stood, in the Analytics window and `codealong analytics`. glass: the main\n# window and the project windows show what's behind them through macOS's glass (macOS only).\n";
 const VOICE_COMMENT: &str = "# Voice, once [experimental] voice is on. locale: the language spoken, such as \"en-US\"; \"\" for this Mac's own.\n# send_on_release: what you say to your orchestrator is sent as you let go of the key, not put in its box\n# first. tell_every: how often, in seconds, a session that listens is told what's new, at most.\n# meetings: as a meeting in your calendar is about to start, offer to take its notes, in a folder of its own\n# under meetings_folder (\"\" for meetings beside this file), by a session on meeting_account (an account, a\n# routing group, or \"\" for Auto) and meeting_model, meeting_lead minutes before it starts, but for the\n# calendars in meeting_calendars_off (by id; Settings lists them). meeting_countdown: from how many minutes\n# before, the notch, the floating bar and the Meetings button count down to it (0 for none).\n";
 const REPOS_COMMENT: &str = "# Your settings for one repo's pull requests, over [reviews] and [pull_requests] and over what the repo's\n# .codealong/config.toml sets for its team. Settings › Automation sets them with the repo picked.\n";
 /// What config.toml says above `[sounds]`: where the OS keeps the sounds it can name.
@@ -2599,6 +2604,9 @@ pub fn with_config(text: &str, cfg: &Config) -> Result<String> {
         if cfg.experimental.analytics || doc["experimental"].get("analytics").is_some() {
             set_value(&mut doc["experimental"]["analytics"], Value::from(cfg.experimental.analytics));
         }
+        if cfg.experimental.glass || doc["experimental"].get("glass").is_some() {
+            set_value(&mut doc["experimental"]["glass"], Value::from(cfg.experimental.glass));
+        }
     }
     // Only a file that has the table, or changes one of its settings, gets it.
     if cfg.voice != VoiceCfg::default() || doc.get("voice").is_some() {
@@ -3129,6 +3137,9 @@ pub fn render(cfg: &Config) -> String {
         if cfg.experimental.analytics {
             s.push_str("analytics = true\n");
         }
+        if cfg.experimental.glass {
+            s.push_str("glass = true\n");
+        }
     }
     if cfg.voice != VoiceCfg::default() {
         s.push('\n');
@@ -3268,7 +3279,7 @@ mod tests {
             pull_requests: PullRequestsCfg { nudge_by_default: true, nudge_about: NudgeAbout::FeedbackAndChecks, rerequest_after_fixes: false },
             repos: BTreeMap::from([("github.com/sprucehq/web".to_string(), RepoCfg { reviews: ReviewsPatch { auto: Some(true), account: Some("codex".into()), post: Some(ReviewPost::Draft), own: OwnReviewsPatch { send: Some(false), ..OwnReviewsPatch::default() }, ..ReviewsPatch::default() }, pull_requests: PullRequestsPatch { nudge_about: Some(NudgeAbout::Feedback), ..PullRequestsPatch::default() } })]),
             sounds: SoundsCfg { needs_you: "Tink".into(), your_turn: String::new(), review_requested: "Purr".into(), meeting: "Glass".into(), volume: 35 },
-            experimental: ExperimentalCfg { boards: true, voice: true, analytics: true },
+            experimental: ExperimentalCfg { boards: true, voice: true, analytics: true, glass: true },
             voice: VoiceCfg { locale: "en-GB".into(), send_on_release: true, tell_every: 45, meetings: true, meetings_folder: "~/Meetings".into(), meeting_account: String::new(), meeting_model: "haiku".into(), meeting_lead: 2, meeting_countdown: 10, meeting_calendars_off: vec!["C1".into(), "C2".into()] },
             debug: DebugCfg::default(),
             prices: BTreeMap::new(),
@@ -3678,6 +3689,21 @@ mod tests {
         // Turned off again, the table stays, saying so.
         let off = with_config(&out, &full()).unwrap();
         assert!(off.contains("[experimental]\nboards = false"), "{off}");
+        assert_eq!(parse(&off).unwrap(), full());
+    }
+
+    #[test]
+    fn glass_gets_its_line_once_turned_on_and_keeps_it_turned_off() {
+        assert!(!toml::from_str::<Config>("").unwrap().experimental.glass);
+        let old = render(&full());
+        assert!(!old.contains("glass = "), "{old}");
+        let on = Config { experimental: ExperimentalCfg { glass: true, ..Default::default() }, ..full() };
+        let out = with_config(&old, &on).unwrap();
+        assert!(out.contains("[experimental]\nboards = false\nglass = true\n"), "{out}");
+        assert_eq!(parse(&out).unwrap(), on);
+        assert_eq!(parse(&render(&on)).unwrap(), on);
+        let off = with_config(&out, &full()).unwrap();
+        assert!(off.contains("[experimental]\nboards = false\nglass = false\n"), "{off}");
         assert_eq!(parse(&off).unwrap(), full());
     }
 

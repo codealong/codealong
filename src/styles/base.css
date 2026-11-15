@@ -68,6 +68,11 @@ body {
   user-select: none;
   cursor: default;
 }
+/* With glass on, a board window's page draws nothing of its own behind its chrome, so macOS's
+   glass, which the app puts behind the page, shows there (src/glass.ts). */
+.is-glass body {
+  background: transparent;
+}
 input,
 textarea {
   -webkit-user-select: text;

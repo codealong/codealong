@@ -2246,6 +2246,16 @@ you're typing in it. The session or PR shown in the notch, the peek, a kept sess
 window draws at the same zoom, and the keys work there too; the notch and the peek open as much
 bigger, while the notch's shape and the bar's pills stay at actual size.
 
+### Glass
+
+*Experimental: Settings › Experimental › Glass, or `glass = true` under `[experimental]`; macOS only*
+
+With glass on, the main window and the project windows show what's behind them through macOS's own
+glass, as the Finder does: Liquid Glass from macOS 26, and the sidebar's blur on earlier versions.
+The title bar, the usage bar and the sidebar let it through, in light and in dark; the list, the
+board and the panel on the right keep their own ground, so what you read is as legible as before.
+It turns on and off as the setting changes, without a relaunch. Linux and Windows don't offer it.
+
 ### Reload
 
 *View › Reload, ⌘R*
@@ -2355,7 +2365,8 @@ the performance log on and shows where the files are; Experimental turns on feat
 tried out, each off until you do and each in a part of its own: boards (see *Boards*); voice,
 with its language and then its settings under Talk (the shortcuts held to talk, and sending to
 your orchestrator as you let go) and Meetings (Listen now, how often a listening session is told
-what's new, and the offer to take a meeting's notes) (see *Voice*); and analytics. Each change is saved in its place in the file,
+what's new, and the offer to take a meeting's notes) (see *Voice*); analytics; and glass (see
+*Glass*). Each change is saved in its place in the file,
 so comments and order stay as you wrote them. The config.toml section edits the file itself, for
 anything the form doesn't cover, and says what's wrong when it doesn't parse.
 

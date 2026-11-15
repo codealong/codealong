@@ -13,6 +13,8 @@
   --surface: #ffffff;
   --surface-sunken: #e8eae6;
   --surface-raised: #ffffff;
+  --glass-chrome: rgba(255, 255, 255, 0.5);
+  --glass-sunken: rgba(232, 234, 230, 0.35);
   --notch: #000000;
   --surface-hover: #f6f7f5;
   --surface-selected: #e2e6e1;
@@ -173,6 +175,8 @@
     --surface: #15181a;
     --surface-sunken: #0a0c0d;
     --surface-raised: #1c2022;
+    --glass-chrome: rgba(21, 24, 26, 0.5);
+    --glass-sunken: rgba(10, 12, 13, 0.35);
     --notch: #000000;
     --surface-hover: #1a1d1f;
     --surface-selected: #262b2d;
@@ -270,6 +274,8 @@
   --surface: #15181a;
   --surface-sunken: #0a0c0d;
   --surface-raised: #1c2022;
+  --glass-chrome: rgba(21, 24, 26, 0.5);
+  --glass-sunken: rgba(10, 12, 13, 0.35);
   --notch: #000000;
   --surface-hover: #1a1d1f;
   --surface-selected: #262b2d;

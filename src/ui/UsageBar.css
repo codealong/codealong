@@ -25,6 +25,10 @@
   background: var(--surface-sunken);
   border-bottom: 1px solid var(--line);
 }
+/* With glass on (src/glass.ts), see-through over macOS's glass as the sidebar is, which it meets. */
+.is-glass .ca-usagebar {
+  background: var(--glass-sunken);
+}
 /* Chips that don't fit scroll sideways. The scrollbar is hidden: where macOS always shows
    scrollbars it would take most of the bar's height. Fades mark the ends with more past them. */
 .ca-usagebar-accts {

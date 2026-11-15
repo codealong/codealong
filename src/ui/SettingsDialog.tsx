@@ -2347,7 +2347,7 @@ function AdvancedPane({ cfg, view, disabled, onSave }: PaneProps & { view: Confi
 /* ---- Experimental ---- */
 
 /** `[experimental]` as a file without the table has it: every experiment off. */
-const EXPERIMENTS_OFF: Required<ExperimentalCfg> = { boards: false, voice: false, analytics: false };
+const EXPERIMENTS_OFF: Required<ExperimentalCfg> = { boards: false, voice: false, analytics: false, glass: false };
 
 /** `[voice]` as a file without the table has it (config.rs `VoiceCfg`). */
 export const VOICE_DEFAULT: Required<VoiceCfg> = { locale: '', send_on_release: false, tell_every: 20, meetings: false, meetings_folder: '', meeting_account: '', meeting_model: '', meeting_lead: 1, meeting_countdown: 5, meeting_calendars_off: [] };
@@ -2515,6 +2515,18 @@ function ExperimentalPane({ cfg, view, disabled, onSave }: PaneProps & { view: C
             </label>
           )}
         </section>
+        {/* Glass is macOS's alone (glass.rs): elsewhere the box would turn on nothing. */}
+        {platform() === 'mac' && (
+          <section className="ca-settings-group">
+            <label className="ca-field ca-settings-check ca-settings-experiment">
+              <CheckBox checked={experimental.glass} onChange={(on) => void onSave({ ...cfg, experimental: { ...experimental, glass: on } })} />
+              <span>Glass</span>
+              <small>
+                The main window and the project windows show what’s behind them through macOS’s glass, Liquid Glass from macOS 26 and the sidebar’s blur before it: the title bar, the usage bar and the sidebar let it through, as the Finder’s do, while the list and the panel keep their own ground.
+              </small>
+            </label>
+          </section>
+        )}
       </fieldset>
     </>
   );

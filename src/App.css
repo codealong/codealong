@@ -36,6 +36,14 @@
   border-radius: 0;
   box-shadow: none;
 }
+/* With glass on (src/glass.ts), the title bar is half see-through over macOS's glass, as the
+   Finder's toolbar is; the board keeps its own ground, so what you read stays as legible. */
+.is-glass .ca-win {
+  background: transparent;
+}
+.is-glass .ca-win-bar {
+  background: var(--glass-chrome);
+}
 /* The traffic lights' room is the left end's own, so the bar's padding stays even and its middle
    is the window's. */
 .ca-win--app .ca-win-bar-start {

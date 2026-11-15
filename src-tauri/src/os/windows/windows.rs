@@ -152,6 +152,10 @@ pub fn set_alpha(w: &WebviewWindow, alpha: f64) {
     }
 }
 
+/// Nothing: glass (glass.rs) is macOS's alone. Windows' Mica and Acrylic want a window made
+/// transparent before it's first shown, which the board's windows aren't, and haven't been tried.
+pub fn set_opaque(_w: &WebviewWindow, _opaque: bool) {}
+
 pub fn is_visible(w: &WebviewWindow) -> bool {
     w.is_visible().unwrap_or(false)
 }
