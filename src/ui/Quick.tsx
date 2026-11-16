@@ -87,7 +87,7 @@ import { boardAhead, sendAhead, useAhead } from '../ahead';
 import { filesToAttach, keepFiles, useFileDrop } from '../attachInput';
 import { deviceLabel, floatingLanes, shortOf } from '../devices';
 import { useDeviceLanes, useObserve } from '../useDevices';
-import { useKeyPerf, usePerf } from '../perf';
+import { usePerf } from '../perf';
 import { showContextMenu, type MenuSpec } from '../contextMenu';
 import { useEditorIcons } from '../editors';
 import * as menus from '../menus';
@@ -690,12 +690,6 @@ export function Quick() {
   // The panel follows the board only while it's up; so does what it knows of its changes, by
   // both halves.
   useObserve(engineBoard, devicesOn, shown && !!engineBoard);
-  // Keys typed anywhere in the panel, its reply box included.
-  const keyed = useKeyPerf(board?.perfLog ?? false);
-  useEffect(() => {
-    window.addEventListener('keydown', keyed, true);
-    return () => window.removeEventListener('keydown', keyed, true);
-  }, [keyed]);
 
   const theme = board?.theme ?? 'system';
   useTheme(theme);

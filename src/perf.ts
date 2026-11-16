@@ -1,17 +1,18 @@
 // What a window costs, for the perf log (perf.rs): on while `[debug] perf_log` is set.
 
-import { useCallback, useEffect, useLayoutEffect, useRef, type MutableRefObject } from 'react';
+import { useEffect, useLayoutEffect, type MutableRefObject } from 'react';
 import { perfMark } from './api';
 import { useTypingTrace } from './typingTrace';
 
 /** While `[debug] perf_log` is on, reports to the perf log what this window costs: each board
  *  push (board or bar feed) from arrival to commit and to paint, pointer events that waited in the queue (the
- *  wait a hover feels), and event-loop stalls, once a second at most; and what moves the caret in
- *  a session's box (typingTrace.ts). */
+ *  wait a hover feels), typed keys (`useKeyPerf`) and event-loop stalls, once a second at most;
+ *  and what moves the caret in a session's box (typingTrace.ts). */
 export function usePerf(source: { perfLog?: boolean } | null, arrived: MutableRefObject<number | null>) {
   const on = source?.perfLog ?? false;
   // What moves the caret in a session's box, too (typingTrace.ts).
   useTypingTrace(on);
+  useKeyPerf(on);
   useLayoutEffect(() => {
     const at = arrived.current;
     if (!on || at == null) return;
@@ -52,28 +53,52 @@ export function usePerf(source: { perfLog?: boolean } | null, arrived: MutableRe
   }, [on]);
 }
 
-/** While `[debug] perf_log` is on, how long typed keys take to show: from each key's event to the
- *  frame drawn after it, summed up once a second while keys come. A key event carries the time
- *  macOS had it, so waiting on the app's main thread counts as well as waiting in the page. Call
- *  what this returns on every keydown. */
-export function useKeyPerf(on: boolean): (e: { timeStamp: number }) => void {
-  const keys = useRef<number[]>([]);
+/** A key's times, in ms after macOS had it. */
+interface KeyTimes {
+  /** When the page had it: what it waited on before the page ran anything for it. */
+  reached: number;
+  /** When the frame after it was drawn. */
+  drawn: number;
+}
+
+/** The median of what's sorted. */
+function median(sorted: number[]): number {
+  return sorted[Math.floor(sorted.length / 2)];
+}
+
+/** What a second's keys say in the perf log: how long they took to show (median and worst), and
+ *  how much of it was spent before the page had them. */
+export function keysLine(keys: KeyTimes[]): string {
+  const drawn = keys.map((k) => k.drawn).sort((a, b) => a - b);
+  const reached = keys.map((k) => k.reached).sort((a, b) => a - b);
+  return `keys: ${keys.length} in 1 s, drawn ${median(drawn).toFixed(0)} ms after the key (median), ${drawn[drawn.length - 1].toFixed(0)} ms at most; in the page ${median(reached).toFixed(0)} ms after it (median), ${reached[reached.length - 1].toFixed(0)} ms at most`;
+}
+
+/** While `[debug] perf_log` is on, how long keys typed in this window take to show: from each
+ *  key's event to the frame drawn after it, summed up once a second while keys come. A key event
+ *  carries the time macOS had it, so waiting on the app's main thread counts as well as waiting
+ *  in the page; when the page had it is said apart, as what came before the page ran anything,
+ *  and the rest is the page's own work and its wait for a frame. */
+export function useKeyPerf(on: boolean): void {
   useEffect(() => {
     if (!on) return;
-    const id = window.setInterval(() => {
-      const k = keys.current.sort((a, b) => a - b);
-      if (k.length === 0) return;
-      keys.current = [];
-      perfMark(`keys: ${k.length} in 1 s, drawn ${k[Math.floor(k.length / 2)].toFixed(0)} ms after the key (median), ${k[k.length - 1].toFixed(0)} ms at most`);
-    }, 1000);
-    return () => window.clearInterval(id);
-  }, [on]);
-  return useCallback(
-    (e: { timeStamp: number }) => {
-      if (!on) return;
+    let keys: KeyTimes[] = [];
+    const onKey = (e: KeyboardEvent) => {
       const at = e.timeStamp;
-      requestAnimationFrame(() => window.setTimeout(() => keys.current.push(performance.now() - at), 0));
-    },
-    [on],
-  );
+      const reached = performance.now() - at;
+      requestAnimationFrame(() => window.setTimeout(() => keys.push({ reached, drawn: performance.now() - at }), 0));
+    };
+    // Heard before anything else in the window, so the page's own work for the key comes after.
+    window.addEventListener('keydown', onKey, true);
+    const id = window.setInterval(() => {
+      if (keys.length === 0) return;
+      const line = keysLine(keys);
+      keys = [];
+      perfMark(line);
+    }, 1000);
+    return () => {
+      window.removeEventListener('keydown', onKey, true);
+      window.clearInterval(id);
+    };
+  }, [on]);
 }

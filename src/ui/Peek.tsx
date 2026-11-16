@@ -246,11 +246,7 @@ export function Peek({ kept = false, side = false }: { kept?: boolean; side?: bo
   }, [open, shown, kept, sized]);
 
   // With the perf log on, how long typed keys take to show.
-  const keyed = useKeyPerf(open?.perfLog ?? false);
-  useEffect(() => {
-    window.addEventListener('keydown', keyed, true);
-    return () => window.removeEventListener('keydown', keyed, true);
-  }, [keyed]);
+  useKeyPerf(open?.perfLog ?? false);
 
   /** Closes a popped-out side conversation and its window, for its × and ⌘W: an answer on its way
    *  still comes, read where the kept ones are. */

@@ -42,8 +42,16 @@ paths:
   `scripts/preview/push-bench.js` (forty pushes of the real board
   with one worktree changed, as most publishes are), the quick panel's open, keys and pushes
   `quick-bench.js`, and its keys after a prompt of up to 12,000 characters `quick-long-bench.js`
-  (a key cost 48 ms there until the session search stopped marking titles it didn't match);
-  each header has its command. Rows of the board and the sidebar skip
+  (a key cost 48 ms there until the session search stopped marking titles it didn't match),
+  and typing in the notch's box `notch-keys-bench.js`; each header has its command.
+- Every window's typed keys go to the log as `ui[<window>] keys:` lines (perf.ts `useKeyPerf`):
+  from the time macOS had each key to the frame after it, and, from 2026-11-16, how much of that
+  came before the page had the key (the app's main thread, the page's process waiting for the
+  CPU). Before then only the quick panel and the peek wrote them, so the notch's box had none.
+  A key's own work is small: in the notch 1 ms of script and 1 ms of layout in an offscreen
+  WKWebView, in the quick panel 4 ms of script in Chrome (2026-11-16), so what the lines say
+  past a frame is waiting. The quick panel's median per second was 13 to 15 ms at a load under
+  100 and about 20 ms at 400 (2026-11-10 to 11-14), and 29 ms at 300 on 2026-11-16. Rows of the board and the sidebar skip
   rendering when nothing they show changed (`reuse.ts` keeps unchanged parts of a push as the
   same objects, `ui/memoRow.ts` compares rows), which `rows-check.js` checks.
 - The engine thread's own costs on this Mac's real data (composing the board, hashing it, a
