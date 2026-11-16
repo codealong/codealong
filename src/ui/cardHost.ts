@@ -60,6 +60,9 @@ export interface LiveSession {
    *  for a session of this Mac's, whose card doesn't follow your devices: what it read for an
    *  earlier one would go stale. */
   there?: readonly Lane[];
+  /** `[debug] perf_log`, as the board says while the card is up: a kept or side window, which no
+   *  open tells it to, times its keys by it (Peek.tsx). */
+  perfLog: boolean;
 }
 
 /** The session `told` of, kept up with the board while it's `shown`: the windows that show one
@@ -120,7 +123,8 @@ export function useLiveSession(told: Told | null, shown: boolean): LiveSession {
   // What moves the caret in the card's box, while the perf log is on (typingTrace.ts): from the
   // board as it comes, so a kept or side window traces too, and the setting changing while the
   // card is up turns it on or off.
-  useTypingTrace(up && (engine?.perfLog ?? false));
+  const perfLog = up && (engine?.perfLog ?? false);
+  useTypingTrace(perfLog);
 
   const ahead = useAhead();
   const now = live && live.under === told ? live : null;
@@ -134,7 +138,7 @@ export function useLiveSession(told: Told | null, shown: boolean): LiveSession {
     if (following.current) following.current.read(failed);
     else void getBoard().then(takeBoard, failed);
   }, [takeBoard]);
-  return { lane, session, theme: now?.theme ?? (elsewhere ? look?.theme : null) ?? null, zoom: now?.zoom ?? (elsewhere ? look?.zoom : null) ?? null, board, device: elsewhere && key ? deviceOf(devices, key) : null, needBoard, there: elsewhere ? devices?.lanes : undefined };
+  return { lane, session, theme: now?.theme ?? (elsewhere ? look?.theme : null) ?? null, zoom: now?.zoom ?? (elsewhere ? look?.zoom : null) ?? null, board, device: elsewhere && key ? deviceOf(devices, key) : null, needBoard, there: elsewhere ? devices?.lanes : undefined, perfLog };
 }
 
 /** ⌘= ⌘- ⌘0 on a card in a window that floats: they zoom every window, as in the board's, and

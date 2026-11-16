@@ -245,8 +245,9 @@ export function Peek({ kept = false, side = false }: { kept?: boolean; side?: bo
     return () => observer.disconnect();
   }, [open, shown, kept, sized]);
 
-  // With the perf log on, how long typed keys take to show.
-  useKeyPerf(open?.perfLog ?? false);
+  // With the perf log on, how long typed keys take to show: as the open says, or, in a kept or
+  // side window, which no open tells, as the board does.
+  useKeyPerf((open?.perfLog ?? false) || live.perfLog);
 
   /** Closes a popped-out side conversation and its window, for its × and ⌘W: an answer on its way
    *  still comes, read where the kept ones are. */
