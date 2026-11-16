@@ -80,7 +80,7 @@
       check('Approve is the filled one', button('Approve') && button('Approve').classList.contains('ca-btn--primary'));
       check('the comparison asked for is your commit against the one it’s at', JSON.stringify(last('pr_since')) === JSON.stringify({ repo: picked[0].repoSlug, from: OLD, to: HEAD }), JSON.stringify(last('pr_since')));
       press(q('.ca-prbox-since'));
-      return until(function () { return text('.ca-tab.is-on') .indexOf('Changes') === 0 && shownFiles() === 2; }, 5000, 'Changes showing the two files changed since');
+      return until(function () { return text('.ca-prinsp .ca-tab.is-on').indexOf('Changes') === 0 && shownFiles() === 2; }, 5000, 'Changes showing the two files changed since');
     })
     .then(function () {
       check('the pill shows Changes since your review', /^Since 1234567$/.test(segOn()), segOn());
