@@ -239,17 +239,13 @@ pub fn overlay(s: &mut Session, waits: Option<&Waits>) {
 }
 
 /// The starts still waiting for their session (`origins::waiting_for`) that a session asked for,
-/// by that session's key, the latest first, each with what its terminal showed when last read.
-/// Its process is what Show, the choices and Stop act on, so it goes with a start only when no
-/// other waiting start's read found the same one: two started in one worktree with the same
-/// opening (an agent's two reviewers), one gone since, both find the one left by its prompt, and
-/// a stop meant for the one that's gone would close the other's tab. The choices go only with a
-/// process to press them in.
+/// by that session's key, the latest first, each with what its terminal showed when last read,
+/// and its process where that read was sure of it (`read`). The choices go only with a process to
+/// press them in.
 pub fn by_session(waiting: &[Pending], board: &Board, screens: &Screens, word_of: impl Fn(&str) -> String, now: i64) -> BTreeMap<String, Vec<Starting>> {
     let mut out: BTreeMap<String, Vec<Starting>> = BTreeMap::new();
-    let own = |at: i64| screens.pid(at).filter(|&pid| !waiting.iter().any(|q| q.at != at && screens.pid(q.at) == Some(pid)));
     for p in waiting.iter().filter(|p| !p.from.is_empty()) {
-        let pid = own(p.at);
+        let pid = screens.pid(p.at);
         out.entry(p.from.clone()).or_default().push(Starting {
             at: p.at,
             account: p.account.clone(),
@@ -301,6 +297,13 @@ pub struct Ask {
     pub opens: Option<String>,
 }
 
+impl Ask {
+    /// A start waiting for its session, as its terminal is looked for (`process_of`).
+    pub fn of(p: &Pending) -> Ask {
+        Ask { at: p.at, lane: p.lane.clone(), opens: p.opens.clone() }
+    }
+}
+
 impl Screens {
     /// The starts whose terminals are due to be read at `now`: waiting in one `READ_AFTER_MS` or
     /// more (`Pending::in_terminal`) and not asked for in `READ_EVERY_MS`; none while a read is on
@@ -316,7 +319,7 @@ impl Screens {
             let read = self.read.entry(p.at).or_insert(Read { asked: None, screen: None, pid: None });
             if read.asked.is_none_or(|asked| now - asked >= READ_EVERY_MS) {
                 read.asked = Some(now);
-                asks.push(Ask { at: p.at, lane: p.lane.clone(), opens: p.opens.clone() });
+                asks.push(Ask::of(p));
             }
         }
         self.inflight = !asks.is_empty();
@@ -369,13 +372,14 @@ pub struct Found {
 
 /// Reads each start's terminal, its harness's process found among those `listed`: the foot of
 /// what its tab shows (`foot`), none where its terminal can't be read (Ghostty) or its process
-/// isn't found; and the process, where its command line has the prompt (`process_of`), so that
-/// what's done to it is done to the start's own. A read that fails says nothing more than one
-/// that can't be made: the notice goes on guessing, as it did before reads.
-pub fn read(asks: &[Ask], listed: &[PsLine]) -> Vec<Found> {
+/// isn't found; and the process, where it's sure to be the start's own (`process_of`), so that
+/// what's done to it is done to that start: among `waiting`, every start still waiting in a
+/// terminal, none other could claim it. A read that fails says nothing more than one that can't
+/// be made: the notice goes on guessing, as it did before reads.
+pub fn read(asks: &[Ask], waiting: &[Ask], listed: &[PsLine]) -> Vec<Found> {
     asks.iter()
         .map(|a| {
-            let found = process_of(a, listed, crate::procs::proc_start_ms, crate::procs::cwd_of);
+            let found = process_of(a, waiting, listed, crate::procs::proc_start_ms, crate::procs::cwd_of);
             let screen = found.and_then(|(pid, _)| crate::launch::screen_of(pid, Path::new(&a.lane)).ok().flatten()).and_then(|text| foot(&text));
             Found { at: a.at, pid: found.filter(|(_, named)| *named).map(|(pid, _)| pid), screen }
         })
@@ -385,11 +389,14 @@ pub fn read(asks: &[Ask], listed: &[PsLine]) -> Vec<Found> {
 /// The process of the harness a start runs in its terminal, among the processes on a terminal
 /// that began (`began`) in its worktree (`cwd`) as the start was asked for: those whose command
 /// line has the prompt's first words where there are any, else all of them; the latest of those
-/// to begin, when they're all on one terminal; and whether it was found by the prompt (`runs_it`),
-/// which says it's the start's own. None when nothing says which: two starts there then with the
-/// same opening (one agent's two reviewers) are on two terminals, and a terminal that might be
-/// the other's is never read as this one's.
-fn process_of(ask: &Ask, listed: &[PsLine], began: impl Fn(u32) -> Option<i64>, cwd: impl Fn(u32) -> Option<PathBuf>) -> Option<(u32, bool)> {
+/// to begin, when they're all on one terminal; and whether it's sure to be the start's own: found
+/// by the prompt (`runs_it`), and no other start of `waiting` in the worktree, asked for as it
+/// began, opens so too. None when nothing says which: two starts there then with the same
+/// opening (one agent's two reviewers) are on two terminals, and a terminal that might be the
+/// other's is never read as this one's. With one of those gone, the one left is found by both
+/// in the same listing, and it's sure to be neither's: a stop meant for the one that's gone
+/// would close the other's tab.
+fn process_of(ask: &Ask, waiting: &[Ask], listed: &[PsLine], began: impl Fn(u32) -> Option<i64>, cwd: impl Fn(u32) -> Option<PathBuf>) -> Option<(u32, bool)> {
     let lane = Path::new(&ask.lane);
     let real = dunce::canonicalize(lane).ok();
     let here: Vec<(&PsLine, i64)> = listed
@@ -400,13 +407,15 @@ fn process_of(ask: &Ask, listed: &[PsLine], began: impl Fn(u32) -> Option<i64>, 
         .filter(|(l, _)| cwd(l.pid).is_some_and(|d| d == lane || real.as_ref() == Some(&d)))
         .collect();
     let named: Vec<&(&PsLine, i64)> = here.iter().filter(|(l, _)| runs_it(&l.command, ask.opens.as_deref())).collect();
-    let sure = !named.is_empty();
-    let these = if sure { named } else { here.iter().collect() };
+    let by_prompt = !named.is_empty();
+    let these = if by_prompt { named } else { here.iter().collect() };
     let tty = &these.first()?.0.tty;
     if these.iter().any(|(l, _)| &l.tty != tty) {
         return None;
     }
-    these.iter().max_by_key(|(_, t)| *t).map(|(l, _)| (l.pid, sure))
+    let (line, t) = these.into_iter().max_by_key(|(_, t)| *t)?;
+    let rival = |o: &Ask| o.at != ask.at && o.lane == ask.lane && *t >= o.at - PENDING_SLACK_MS && *t <= o.at + LAUNCH_MS && runs_it(&line.command, o.opens.as_deref());
+    Some((line.pid, by_prompt && !waiting.iter().any(rival)))
 }
 
 /// Whether a process's command line has the prompt a start opened with (`first_words`), which
@@ -529,22 +538,33 @@ mod tests {
         ];
         // The one started then, on a terminal, whose command has the prompt: not an older run of
         // the same prompt, nor one with no terminal.
-        assert_eq!(process_of(&ask, &listed, began, at_app), Some((3, true)));
+        assert_eq!(process_of(&ask, &[], &listed, began, at_app), Some((3, true)));
         // An opening its command line doesn't have: the latest in the worktree, its terminal the
         // only one that began there then, read but not sure to be the start's.
         let other = Ask { opens: Some("Something else entirely, typed in".into()), ..ask.clone() };
-        assert_eq!(process_of(&other, &listed, began, at_app), Some((3, false)));
+        assert_eq!(process_of(&other, &[], &listed, began, at_app), Some((3, false)));
         // Two terminals began there then: nothing says which.
         let two = [ps(2, "ttys010", "/bin/zsh -l"), ps(5, "ttys011", "/bin/zsh -l")];
-        assert_eq!(process_of(&other, &two, began, at_app), None);
+        assert_eq!(process_of(&other, &[], &two, began, at_app), None);
         // None in its worktree.
-        assert_eq!(process_of(&other, &listed[1..2], began, |_| Some(PathBuf::from("/r/elsewhere"))), None);
+        assert_eq!(process_of(&other, &[], &listed[1..2], began, |_| Some(PathBuf::from("/r/elsewhere"))), None);
         // The same prompt started in another worktree then is that one's, however late; and two
         // of it in this one are on two terminals, so neither is read as this start's.
         let twins = [ps(3, "ttys010", "codex -- Draft the release notes for northwind from the merged PRs"), ps(7, "ttys012", "codex -- Draft the release notes for northwind from the merged PRs")];
         let other_place = |pid: u32| Some(PathBuf::from(if pid == 7 { "/r/other" } else { "/r/app" }));
-        assert_eq!(process_of(&ask, &twins, began, other_place), Some((3, true)));
-        assert_eq!(process_of(&ask, &twins, began, at_app), None);
+        assert_eq!(process_of(&ask, &[], &twins, began, other_place), Some((3, true)));
+        assert_eq!(process_of(&ask, &[], &twins, began, at_app), None);
+        // Two waiting with the same opening, one gone: the one left is found by both, and is
+        // neither's to act on, whichever read comes first; a start in another worktree, asked for
+        // long before, or opening otherwise, takes nothing from it.
+        let twin = Ask { at: AT + 120_000, ..ask.clone() };
+        let left = [ps(7, "ttys012", "codex -- Draft the release notes for northwind from the merged PRs")];
+        let late = |pid: u32| Some(if pid == 7 { AT + 121_000 } else { AT });
+        assert_eq!(process_of(&ask, &[ask.clone(), twin.clone()], &left, late, at_app), Some((7, false)));
+        assert_eq!(process_of(&twin, &[ask.clone(), twin.clone()], &left, late, at_app), Some((7, false)));
+        for apart in [Ask { lane: "/r/other".into(), ..twin.clone() }, Ask { at: AT + 120_000 - LAUNCH_MS - PENDING_SLACK_MS - 1, ..twin.clone() }, Ask { opens: Some("Something else entirely, typed in".into()), ..twin.clone() }] {
+            assert_eq!(process_of(&twin, &[apart.clone(), twin.clone()], &left, late, at_app), Some((7, true)), "{apart:?}");
+        }
         // Its command line, as a stop asks again: the prompt's, not another program's, nor any
         // for a prompt too short to go by.
         assert!(runs_it("codex -c check_for_update_on_startup=false -- Draft the release  notes for northwind from the merged PRs", ask.opens.as_deref()));
@@ -620,15 +640,6 @@ mod tests {
         unsure.on_read(Some(vec![Found { pid: None, ..hooks(AT) }]));
         let listed = by_session(&waiting, &board, &unsure, |_| "Codex".into(), AT + 4 * 60_000);
         assert!(listed[boss][1].screen.is_some() && listed[boss][1].pid.is_none() && listed[boss][1].choices.is_empty());
-        // Two waiting starts whose reads found the same process (two alike, one gone since):
-        // neither has it, nor its choices.
-        let twin = Pending { at: AT + 30_000, ..older.clone() };
-        let both = [older.clone(), twin.clone()];
-        let mut shared = Screens::default();
-        shared.due(&both, AT + 4 * 60_000);
-        shared.on_read(Some(vec![hooks(AT), hooks(AT + 30_000)]));
-        let listed = by_session(&both, &board, &shared, |_| "Codex".into(), AT + 4 * 60_000);
-        assert!(listed[boss].iter().all(|s| s.pid.is_none() && s.choices.is_empty() && s.screen.is_some()), "{:?}", listed[boss]);
     }
 
     #[test]

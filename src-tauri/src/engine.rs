@@ -2451,9 +2451,12 @@ fn waiting_call(s: &Session, account: Option<&config::AccountCfg>) -> Option<Str
         if asks.is_empty() {
             return;
         }
+        // Every start still waiting in a terminal, which a read asks whether another could claim
+        // the process it finds.
+        let all: Vec<crate::starting::Ask> = waiting.iter().filter(|p| p.terminal).map(crate::starting::Ask::of).collect();
         let tx = self.tx.clone();
         // `on_read` hears that the read is over however it ends, so the next one can go.
-        throttle::background("codealong-screens", move || crate::starting::read(&asks, &listed.lines), move |found| {
+        throttle::background("codealong-screens", move || crate::starting::read(&asks, &all, &listed.lines), move |found| {
             let _ = tx.send(Msg::Screens(found));
         });
     }
