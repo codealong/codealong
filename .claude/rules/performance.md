@@ -43,17 +43,26 @@ paths:
   with one worktree changed, as most publishes are), the quick panel's open, keys and pushes
   `quick-bench.js`, and its keys after a prompt of up to 12,000 characters `quick-long-bench.js`
   (a key cost 48 ms there until the session search stopped marking titles it didn't match),
-  and typing in the notch's box `notch-keys-bench.js`; each header has its command.
+  and typing in the notch's box `notch-keys-bench.js`; each header has its command. Rows of the
+  board and the sidebar skip rendering when nothing they show changed (`reuse.ts` keeps
+  unchanged parts of a push as the same objects, `ui/memoRow.ts` compares rows), which
+  `rows-check.js` checks.
 - Every window's typed keys go to the log as `ui[<window>] keys:` lines (perf.ts `useKeyPerf`):
   from the time macOS had each key to the frame after it, and, from 2026-11-16, how much of that
-  came before the page had the key (the app's main thread, the page's process waiting for the
-  CPU). Before then only the quick panel and the peek wrote them, so the notch's box had none.
-  A key's own work is small: in the notch 1 ms of script and 1 ms of layout in an offscreen
-  WKWebView, in the quick panel 4 ms of script in Chrome (2026-11-16), so what the lines say
-  past a frame is waiting. The quick panel's median per second was 13 to 15 ms at a load under
-  100 and about 20 ms at 400 (2026-11-10 to 11-14), and 29 ms at 300 on 2026-11-16. Rows of the board and the sidebar skip
-  rendering when nothing they show changed (`reuse.ts` keeps unchanged parts of a push as the
-  same objects, `ui/memoRow.ts` compares rows), which `rows-check.js` checks.
+  came before the page had the key. Before then only the quick panel and the peek wrote them, so
+  the notch's box had none. A key's own work is small: in the notch 1 ms of script and 1 ms of
+  layout in an offscreen WKWebView, in the quick panel 4 ms of script in Chrome (2026-11-16).
+  The quick panel's median per second was 13 to 15 ms at a load under 100 and about 20 ms at 400
+  (2026-11-10 to 11-14), and 29 ms at 300 on 2026-11-16. Most of it comes before the page has the
+  key: at a load of 15 to 90 (2026-11-16) the notch's keys were drawn 18 to 24 ms after them, 13
+  to 19 ms of it before the page had them, and the quick panel's 14 to 20 ms, 8 to 13 before. Real
+  key events handed to an offscreen WKWebView (`keyDown:` on the web view, through WebKit's own
+  handling and its message to the page's process) reached the page in 0 ms (median) and were
+  drawn in 3, so that wait is before WebKit has the key: WindowServer handing it to the app, and
+  the app's main thread taking it. A 5 s sample of the app's main thread while nobody typed found
+  it 95% idle, its busiest work WebKit asking WindowServer which window is under the pointer on
+  each mouse move (`windowNumberAtPoint`, a round trip to WindowServer), and WindowServer was
+  using 60 to 76% of a core.
 - The engine thread's own costs on this Mac's real data (composing the board, hashing it, a
   big batch from the file watcher) are `bench_engine_on_real_data` in engine.rs, an ignored test
   whose doc has the command; `/usr/bin/sample` on it names the hot functions, which the stripped
