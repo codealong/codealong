@@ -19,7 +19,7 @@ import { prFlag, primaryHere } from './prStatus';
 import { scheduleProject } from './schedules';
 import type { Board, DevicesView, HarnessSchedule, Label, Lane, PrItem, PrSession, ProjectSummary, ScheduleItem, Session, TextHit, Todo } from './types';
 import type { ActionCounts } from './ui/ProjectSwitcher';
-import { prIsOpen, prPlace, prPlaces, prSections, prTabCounts, waitsOnReview, type PrRowItem, type PrSort, type PrTab } from './ui/PrsView';
+import { inPrTab, prIsOpen, prPlace, prPlaces, prSections, prTabCounts, waitsOnReview, type PrRowItem, type PrSort, type PrTab } from './ui/PrsView';
 import { groupedRows, groupSessions, helpersUnder, sessionSections, waitingQueue, type SessionItem, type SessionSort, type StartedPlace } from './ui/SessionsView';
 import { groupRows, placeIn, type ListGroupBy } from './groups';
 
@@ -267,9 +267,10 @@ export function sessionLabelOptions(rows: SessionItem[], f: Facets): FacetOption
 }
 
 /** PRs' repos, labels and authors, each counting the open PRs among `rows` that the other facets
- *  let through. Your own PRs' author is "you", first. */
-export function prFacetOptions(rows: PrRowItem[], f: Facets): { repos: FacetOption[]; prLabels: FacetOption[]; authors: FacetOption[] } {
-  const open = rows.filter((r) => prIsOpen(r.pr));
+ *  let through and the tab shown lists (`shown`), so none counts PRs a pick of it wouldn't show.
+ *  Your own PRs' author is "you", first. */
+export function prFacetOptions(rows: PrRowItem[], f: Facets, shown: (r: PrRowItem) => boolean = () => true): { repos: FacetOption[]; prLabels: FacetOption[]; authors: FacetOption[] } {
+  const open = rows.filter((r) => prIsOpen(r.pr) && shown(r));
   const names = new Map(open.map((r) => [r.pr.repoSlug, r.pr.repo]));
   const labels = new Map(open.flatMap((r) => (r.pr.labels ?? []).map((l) => [l.name, l] as const)));
   const me = rows.find((r) => r.pr.mine && r.pr.author)?.pr.author;
@@ -1151,7 +1152,8 @@ export function useBoardLists(input: ListsInput) {
   const projectPrs = useMemo(() => (board?.prs ?? []).filter((p) => current === ALL_PROJECTS || p.project === current), [board?.prs, current]);
   const listedPrs = useMemo(() => prRowsOf(projectPrs, cutoff, prPins.set, query, filter, laneById, sessionIndex, said, elsewhere), [projectPrs, cutoff, query, filter, laneById, sessionIndex, prPins.set, said, elsewhere]);
   const prRows = useMemo(() => listedPrs.filter((r) => prInFacets(r, facets)), [listedPrs, facets]);
-  const prFacets = useMemo(() => prFacetOptions(listedPrs, facets), [listedPrs, facets]);
+  // The pinned PRs show in every tab.
+  const prFacets = useMemo(() => prFacetOptions(listedPrs, facets, (r) => inPrTab(r.pr, prTab) || prPins.set.has(r.pr.key)), [listedPrs, facets, prTab, prPins.set]);
   // Pinned PRs lead the PRs view in your order, whatever their age, and leave its sections.
   const pinnedPrRows = useMemo(() => inPinOrder(prRows, prPins.keys, (r) => r.pr.key), [prRows, prPins.keys]);
   const prSecs = useMemo(() => prSections(prRows.filter((r) => !prPins.set.has(r.pr.key)), prSort, now, prTab), [prRows, prPins.set, prSort, now, prTab]);

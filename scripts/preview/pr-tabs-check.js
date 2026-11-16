@@ -2,8 +2,9 @@
 // list, All shown first, each counting the PRs in it that are your move; All leads with Your move
 // (a review asked of you before a PR of yours to merge) and Agent reviewing; Yours lists only
 // yours, under Your move, Waiting on others and Drafts; Others only everyone else's, under Your
-// move, Agent reviewing, Snoozed and Not asking you; the tab picked is remembered; and a PR shown
-// from elsewhere that the tab doesn't list switches to its own tab. In each project the three
+// move, Agent reviewing, Snoozed and Not asking you; the sidebar's Authors count only the tab's
+// PRs; the tab picked is remembered; a PR shown from elsewhere that the tab doesn't list switches
+// to its own tab, once: a tab picked after it stays through a visit to Sessions. In each project the three
 // latest open PRs are made a review asked of you, a PR of yours ready to merge, and a review
 // Codealong's agent is still on, since a snapshot seldom has all three.
 //   scripts/preview.sh prs '' scripts/preview/pr-tabs-check.js
@@ -47,6 +48,13 @@
   var num = function (row) { return (q('.ca-prrow-num', row) || {}).textContent; };
   var under = function (label, pr) { return rowsUnder(label).some(function (r) { return num(r) === '#' + pr.number; }); };
   var listed = function (pr) { return all('.ca-board-list .ca-prrow').some(function (r) { return num(r) === '#' + pr.number; }); };
+  var nav = function (label) { return all('.ca-side .ca-nav').filter(function (b) { return b.textContent.indexOf(label) === 0; })[0]; };
+  /** The sidebar's Authors, each as its name and count run together (`you3`). */
+  var authors = function () {
+    var head = all('.ca-side .ca-side-label').filter(function (x) { return (q('span', x) || {}).textContent === 'Authors'; })[0];
+    var chips = head && head.nextElementSibling;
+    return chips ? Array.prototype.filter.call(chips.children, function (c) { return !c.classList.contains('ca-side-more'); }).map(function (c) { return c.textContent.trim(); }) : [];
+  };
   var only = function (allowed) { return headings().every(function (h) { return allowed.indexOf(h) >= 0; }); };
   /** The made PRs of the project shown. */
   var shown = function (list) { return list.filter(listedAnywhere)[0]; };
@@ -71,6 +79,9 @@
         check('with your PR to merge as your move, and no one else’s', under('Your move', ready) && !listed(held), headings().join(', '));
         check('Yours counts its own', countOf(tab('Yours')) === rowsUnder('Your move').length, String(countOf(tab('Yours'))));
         check('the list is the tab’s panel', q('.ca-board-list').id === 'ca-prtabs-mine' && tab('Yours').getAttribute('aria-controls') === 'ca-prtabs-mine', q('.ca-board-list').id);
+        var who = authors();
+        if (who.length === 0) note('no Authors in the sidebar to count');
+        else check('the sidebar’s Authors count only yours', who.every(function (a) { return /^you\d*$/.test(a); }), who.join(', '));
         tab('Others').click();
         return until(function () { return tab('Others').getAttribute('aria-selected') === 'true' && !listed(ready); }, 5000, 'Others shown');
       }).then(function () {
@@ -81,6 +92,16 @@
         return until(function () { return tab('Yours').getAttribute('aria-selected') === 'true' && listed(ready); }, 5000, 'Yours shown for a PR of yours shown from elsewhere').then(function () {
           var row = all('.ca-board-list .ca-prrow').filter(function (r) { return num(r) === '#' + ready.number; })[0];
           check('a PR of yours shown from elsewhere switches to Yours, selected', row && row.classList.contains('is-selected'), row && row.className);
+          tab('Others').click();
+          return until(function () { return tab('Others').getAttribute('aria-selected') === 'true'; }, 5000, 'Others shown');
+        }).then(function () {
+          nav('Sessions').click();
+          return until(function () { return !tab('Others'); }, 5000, 'Sessions shown');
+        }).then(function () {
+          nav('PRs').click();
+          return until(function () { return tab('Others') && q('.ca-prrow'); }, 5000, 'the PRs again').then(function () { return wait(300); });
+        }).then(function () {
+          check('a tab picked after it stays through a visit to Sessions', tab('Others').getAttribute('aria-selected') === 'true' && !listed(ready), tabs().map(function (t) { return t.textContent + '=' + t.getAttribute('aria-selected'); }).join(', '));
         });
       });
     })

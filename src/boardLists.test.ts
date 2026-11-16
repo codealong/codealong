@@ -391,6 +391,10 @@ describe('the sidebar’s facets', () => {
     ]);
     // Picked, it narrows the others' counts.
     expect(prFacetOptions(rows, { authors: ['me'] }).repos.map((o) => [o.id, o.count])).toEqual([['o/web', 1]]);
+    // Under Yours, only yours count, and you're still you.
+    const yours = prFacetOptions(rows, {}, (r) => r.pr.mine);
+    expect(yours.authors.map((o) => [o.id, o.label, o.count])).toEqual([['me', 'you', 1]]);
+    expect(yours.repos.map((o) => [o.id, o.count])).toEqual([['o/web', 1]]);
   });
 
   it('lists todos’ labels in your order, counting the ones not done', () => {

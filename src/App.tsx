@@ -1829,19 +1829,28 @@ export function App() {
       const by = sessionGroup;
       const home = homes.get(selectedKey.split('::')[1] ?? '');
       if (home) opening(setOpenGroups, chainOf(sessionItemOf(home), sessionItemsOf(lanes), sessionStarted === 'under').map((r) => groupKeyOf(r.lane, by)));
-    } else if (view === 'prs') {
-      // A PR the tab shown doesn't list shows under its own.
+    } else if (view === 'prs' && prGroup !== 'none') {
       const r = prRows.find((x) => x.key === selectedKey);
-      if (r && !inPrTab(r.pr, prTab)) {
-        setPrTab(r.pr.mine ? 'mine' : 'others');
-        setScrollTo(selectedKey);
-      }
-      if (r && prGroup !== 'none') opening(setOpenPrGroups, [prPlace(r, prGroup).key]);
+      if (r) opening(setOpenPrGroups, [prPlace(r, prGroup).key]);
     } else if (view === 'todo' && todoGroup !== 'none') {
       const r = todoItems.find((x) => x.key === selectedKey);
       if (r) opening(setOpenTodoGroups, [placeIn(r.lane, todoGroup).key]);
     }
-  }, [loading, selectedKey, revealed, visible, view, sessionGroup, sessionStarted, prGroup, prTab, setPrTab, todoGroup, homes, lanes, prRows, todoItems]);
+  }, [loading, selectedKey, revealed, visible, view, sessionGroup, sessionStarted, prGroup, todoGroup, homes, lanes, prRows, todoItems]);
+  // A PR shown from elsewhere (a link, the queue, the history) that the PRs' tab doesn't list
+  // shows under its own tab, once as it's shown: a tab picked after it, another view or Group by
+  // leaves the tab you picked, with it selected out of sight.
+  const tabbedFor = useRef<string | null>(null);
+  useEffect(() => {
+    if (loading || view !== 'prs' || !selectedKey) return;
+    const r = prRows.find((x) => x.key === selectedKey);
+    const ask = `${selectedKey}#${revealed}`;
+    if (!r || tabbedFor.current === ask) return;
+    tabbedFor.current = ask;
+    if (inPrTab(r.pr, prTab)) return;
+    setPrTab(r.pr.mine ? 'mine' : 'others');
+    setScrollTo(selectedKey);
+  }, [loading, view, selectedKey, revealed, prRows, prTab, setPrTab]);
   useEffect(() => {
     if (!scrollTo) return;
     // Only while it's still the row selected: another selected meanwhile is scrolled to as it's
