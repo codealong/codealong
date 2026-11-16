@@ -1342,6 +1342,16 @@ fn run(inner: Arc<Inner>, wire: Wire, via: Via, dialed: bool, expect: Option<Pub
             old.close.close(format!("a newer connection to it took its place, {}", via_words(via)));
         }
         let linked = Inner::is_linked(&st, &hex);
+        // Whether a linked device only watches is settled when you link it, not by each hello: a
+        // phone's requests are yours (actions.rs `From::Phone`), so a Mac saying it's a phone now
+        // doesn't make it one, and a phone stays one. Within that, it's the kind it says.
+        let kind = match st.linked.iter().find(|l| l.key == hex) {
+            Some(l) if peerproto::watches(l.kind.as_deref()) != peerproto::watches(kind.as_deref()) => {
+                log_device(&format!("{} {name} ({}) said it's a {}, but was linked as a {}: taken as linked\n", crate::perf::stamp(), short_of(&hex), kind.as_deref().unwrap_or(peerproto::MAC), l.kind.as_deref().unwrap_or(peerproto::MAC)));
+                l.kind.clone()
+            }
+            _ => kind,
+        };
         if linked {
             if st.linked.iter().any(|l| l.key == hex && (l.name != name || l.kind != kind)) {
                 // Only its name and kind as it says them now: one that can't be saved is a
@@ -2186,6 +2196,40 @@ mod tests {
         // Unlinking on the phone unlinks the Mac too.
         phone.unlink(&d.key).unwrap();
         until("the Mac to forget the phone", || mac.peers.view().phones.is_empty());
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    /// A phone's requests are yours (actions.rs `From::Phone`): it can run a command for a
+    /// session. A device linked as a Mac that comes back with the same key saying it's a phone
+    /// isn't taken for one, so what it asks stays another Mac's.
+    #[test]
+    fn a_device_linked_as_a_mac_stays_one_whatever_its_hello_says() {
+        let mac = device("Mini", vec![lane("/Users/sam/app", vec![session("claude:claude:s2", Status::Needs)])]);
+        let on = DevicesCfg { remote_control: true, ..mac.peers.0.lock().cfg.clone() };
+        mac.board.lock().unwrap().devices = on.clone();
+        mac.peers.configure(&on);
+        let secret = "00112233445566778899".to_string();
+        mac.peers.0.lock().codes.push((secret.clone(), now_ms() + LINK_CODE_FOR_MS));
+        let code = Ticket { key: mac.peers.0.me.get().unwrap().key, secret }.encode();
+        let dir = mac.dir.with_extension("book");
+        let key = SecretKey::generate();
+        let book = codealong_peer::client::Client::new(dir.clone(), key.clone(), "Book".into(), "0.1.0".into(), peerproto::MAC, Box::new(|| {}));
+        assert_eq!(book.link_wire(&code, reconnect(&mac)).unwrap(), "Mini");
+        until("the Mac to link it", || mac.peers.0.lock().linked.iter().any(|l| l.name == "Book"));
+        assert!(!mac.peers.0.lock().linked[0].watches());
+        book.stop();
+        let hex = mac.peers.0.lock().linked[0].key.clone();
+        until("the Mac to see it go", || !mac.peers.0.lock().conns.contains_key(&hex));
+
+        let posing = codealong_peer::client::Client::new(dir.clone(), key, "Book".into(), "0.1.0".into(), peerproto::PHONE, Box::new(|| {}));
+        posing.connect_wire(reconnect(&mac), mac.peers.0.me.get().unwrap().key);
+        until("it to be back", || posing.devices().first().is_some_and(|d| d.online && d.linked_back));
+        let d = posing.devices().remove(0);
+        posing.rename(&d.short, "claude:claude:s2", "Fix the build").unwrap();
+        assert_eq!(mac.asked.lock().unwrap().last().unwrap().1["watching"], json!(false), "asked as a Mac, not as your phone");
+        assert!(!mac.peers.0.lock().linked[0].watches(), "devices.json still has it as a Mac");
+        assert!(mac.peers.view().phones.is_empty());
+        posing.stop();
         let _ = std::fs::remove_dir_all(dir);
     }
 
