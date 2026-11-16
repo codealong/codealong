@@ -102,6 +102,19 @@ export async function openTarget(laneId: string, targetId: string): Promise<void
   await invoke('open_target', { laneId, targetId });
 }
 
+/** Answers what the terminal of a start that hasn't made its session waits on with one of the
+ *  choices its line shows (starting.rs `answer`): what the screen `asked`, and the choice. */
+export async function answerStart(at: number, asked: string, number: number, said: string): Promise<void> {
+  if (!inTauri) return;
+  await invoke('start_answer', { at, asked, number, said });
+}
+
+/** Stops a start that hasn't made its session: its tab closed, and nothing waits for it. */
+export async function stopStart(at: number): Promise<void> {
+  if (!inTauri) return;
+  await invoke('start_stop', { at });
+}
+
 export async function openConfig(): Promise<void> {
   if (!inTauri) return;
   await invoke('open_config');

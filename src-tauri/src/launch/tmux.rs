@@ -115,6 +115,8 @@ impl Terminal for Tmux {
             Key::CtrlC => "C-c",
             Key::End => "End",
             Key::Left => "Left",
+            Key::Up => "Up",
+            Key::Down => "Down",
             Key::Tab => "Tab",
             Key::BackTab => "BTab",
             Key::Return => "Enter",

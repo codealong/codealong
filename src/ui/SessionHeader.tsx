@@ -50,7 +50,8 @@ import { cameLines, cameLineWords, cameWord, originWord, startingTitle, type Cam
 import { CHORDS, chordKeys, chordSigns, type SessionActions } from '../menus';
 import { showSide } from '../side';
 import { SUGGESTED_CHORD, suggestedIn, suggestedSnooze, untilWords } from '../snooze';
-import { sessionTokens } from '../api';
+import { answerStart, openTarget, sessionTokens, stopStart } from '../api';
+import { errorText } from '../report';
 import { cacheShare, money, tokenCount, totalTokens } from '../spend';
 import type { Board, DeviceView, Label, Lane, Pr, Session, SessionSpent, SideGlance, Starting, Target, Todo } from '../types';
 import { closedWord, isOpen, newId, nextColor, panelTodos, STATUS_WORD as TODO_WORD } from '../todos';
@@ -276,26 +277,78 @@ function screenHeadline(screen: string): string {
 
 /** A start the session's agent asked for whose session isn't here yet (`Board.starting`), under
  *  its title as what came of it: titled by how its prompt opens, starting, or once it's gone a few
- *  minutes without its session, waiting in its terminal on what that shows. It has nothing to
- *  show yet, so it's no button: its tooltip says where it is and what it waits on. */
+ *  minutes without its session, waiting in its terminal on what that shows. Once its terminal is
+ *  found a click shows its tab; stuck, it waits on you (the session needs you for it), so what
+ *  its screen offers is a row of buttons under it that pick it there as you would, with Stop,
+ *  which closes its tab. What went wrong with one shows on the line, in whichever window it's in. */
 function StartingRow({ starting: s, now }: { starting: Starting; now: number }) {
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const terminal = s.terminal ?? 'its terminal';
   const who = `${s.harness} on ${s.account}`;
   const where = s.terminal ? `in ${s.terminal}, in ${s.place}` : `in ${s.place}`;
   const headline = s.screen ? screenHeadline(s.screen) : '';
-  const state = s.stuck ? (headline ? `“${headline}”` : `Waiting in ${s.terminal ?? 'its terminal'}`) : 'Starting';
+  const state = s.stuck ? (headline ? `“${headline}”` : `Waiting in ${terminal}`) : 'Starting';
+  const answerHere = s.choices.length > 0 ? ' Answer it with a button below, or in that tab.' : ' Answer it in that tab.';
   const said = s.stuck
     ? s.screen
-      ? `${who} hasn't made its session ${duration(s.at, now)} after it was started ${where}: its terminal, which may be behind your windows, waits on this to be answered before it starts.\n\n${s.screen}\n\nAnswer it in that tab.`
-      : `${who} hasn't made its session ${duration(s.at, now)} after it was started ${where}: its terminal, which may be behind your windows, may be waiting on a screen of its own before it starts. Answer it in that tab.`
+      ? `${who} hasn't made its session ${duration(s.at, now)} after it was started ${where}: its terminal, which may be behind your windows, waits on this to be answered before it starts.\n\n${s.screen}\n\n${answerHere.trim()}`
+      : `${who} hasn't made its session ${duration(s.at, now)} after it was started ${where}: its terminal, which may be behind your windows, may be waiting on a screen of its own before it starts.${answerHere}`
     : `${who} is starting ${where}. It shows here as its session once ${s.harness} makes one.`;
+  const act = (work: () => Promise<void>) => {
+    setBusy(true);
+    setError(null);
+    work()
+      .catch((e: unknown) => setError(errorText(e)))
+      .finally(() => setBusy(false));
+  };
+  // Its tab is found by its process, read with its screen a minute after it started.
+  const show = s.pid != null ? () => act(() => openTarget(s.lane, `start|${s.at}|focus`)) : undefined;
   return (
-    <div className={cx('ca-sessinsp-kin', 'is-starting', s.stuck && 'is-stuck')} title={`${s.helper ? 'Its helper' : 'Started'}: ${startingTitle(s)}\n${said}`}>
-      <span className="ca-sessinsp-elbow" aria-hidden="true" />
-      <SessionGlyph s={{ status: s.stuck ? 'needs' : 'working' }} size={11} />
-      <span className="ca-sessinsp-kin-title">{startingTitle(s)}</span>
-      <span className="ca-sessinsp-kin-state">{state}</span>
-      {s.helper && <Icon name="subtask" size={11} />}
-      <span className="ca-sessinsp-kin-age">{duration(s.at, now)}</span>
+    <div className="ca-sessinsp-start">
+      <button
+        type="button"
+        className={cx('ca-sessinsp-kin', 'is-starting', s.stuck && 'is-stuck')}
+        disabled={!show}
+        title={`${s.helper ? 'Its helper' : 'Started'}: ${startingTitle(s)}\n${said}${show ? `\n\nClick to show its tab in ${terminal}.` : ''}`}
+        onClick={show}
+      >
+        <span className="ca-sessinsp-elbow" aria-hidden="true" />
+        <SessionGlyph s={{ status: s.stuck ? 'needs' : 'working' }} size={11} />
+        <span className="ca-sessinsp-kin-title">{startingTitle(s)}</span>
+        <span className="ca-sessinsp-kin-state">{state}</span>
+        {s.helper && <Icon name="subtask" size={11} />}
+        <span className="ca-sessinsp-kin-age">{duration(s.at, now)}</span>
+      </button>
+      {s.stuck && (
+        <div className="ca-sessinsp-start-acts" role="group" aria-label={headline ? `Answer “${headline}”` : `${s.harness} waits in ${terminal}`}>
+          {s.choices.map((c) => (
+            <Button key={c.number} size="sm" disabled={busy} title={`Picks “${c.words}” in its terminal, as you would there.`} onClick={() => act(() => answerStart(s.at, headline, c.number, c.words))}>
+              {c.words}
+            </Button>
+          ))}
+          {show && (
+            <Button size="sm" variant="ghost" icon="terminal" disabled={busy} title={`Shows its tab in ${terminal}, to answer it there.`} onClick={show}>
+              Show in {terminal}
+            </Button>
+          )}
+          <Button
+            size="sm"
+            variant="ghost"
+            icon="x"
+            disabled={busy}
+            title={s.pid != null ? 'Closes its tab, which ends it before it starts, and stops waiting for it.' : 'Stops waiting for it. Its tab wasn’t found: close it yourself if it’s still open.'}
+            onClick={() => act(() => stopStart(s.at))}
+          >
+            {s.pid != null ? 'Stop' : 'Forget it'}
+          </Button>
+          {error && (
+            <span className="ca-sessinsp-start-error" role="alert">
+              {error}
+            </span>
+          )}
+        </div>
+      )}
     </div>
   );
 }

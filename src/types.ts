@@ -162,8 +162,9 @@ export interface RunningIn {
 
 /** Why a session needs you (model.rs `Need`): waiting for you to allow something, for your
  *  answer to a question it holds its turn on, on a reply that asks you something, holding
- *  another session's message, or stuck. */
-export type Need = 'approval' | 'question' | 'reply' | 'message' | 'stuck' | 'input' | 'other';
+ *  another session's message, stuck, on a command in its terminal that waits for input, or on a
+ *  helper it started that waits in its terminal before it starts. */
+export type Need = 'approval' | 'question' | 'reply' | 'message' | 'stuck' | 'input' | 'start' | 'other';
 
 export interface Session {
   key: string;
@@ -3558,6 +3559,18 @@ export interface Starting {
   stuck: boolean;
   /** What its terminal shows at its foot, when that was read. */
   screen: string | null;
+  /** Its harness's process, found in its terminal as its screen was last read: what shows its
+   *  tab, answers it and stops it. */
+  pid: number | null;
+  /** What its screen offers to pick from, once it's stuck, to answer it with (starting.rs
+   *  `choices`). */
+  choices: Choice[];
+}
+
+/** One of the choices a terminal UI's screen lists, as it numbers it (starting.rs `Choice`). */
+export interface Choice {
+  number: number;
+  words: string;
 }
 
 /** A side conversation as the board lists it (side.rs `Glance`): what it was first asked, how far

@@ -87,7 +87,7 @@ fn others() -> Vec<Pair> {
         of!(crate::ledger: JevReport, JevUsed, SessionSpent, Spent),
         of!(crate::teamfile: TeamCfg, TeamFile),
         of!(crate::listen: Listening),
-        of!(crate::starting: Starting),
+        of!(crate::starting: Starting, Choice),
         of!(crate::mcp: Mcp),
         of!(crate::improve: Improve),
         of!(crate::training: Training),

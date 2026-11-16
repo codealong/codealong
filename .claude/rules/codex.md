@@ -320,12 +320,18 @@ checked on this Mac, most of them by reading the apps' own bundles and files. Pa
   worktree of a repo with three such hooks sat on it with no rollout written (2026-11-15). Trust
   is kept in the account's config.toml as `[hooks.state."<file>:<event>:<group>:<index>"]`
   `trusted_hash`, by the file's path, so a worktree's copy is likely asked about again; the
-  app-server (Codealong's own sessions) didn't ask. Codealong answers none of these screens: a
-  start in a terminal still without its session is listed under the session that asked as
-  starting (starting.rs), its tab read a minute on where its terminal can be (not Ghostty), and
-  three minutes on it's said in a notice with what the tab shows, and told to the session that
-  started it as a reporting helper (origins.rs `Pending::stuck`, helpers.rs). A Codex review
-  started in a terminal sat on one for 66 minutes (2026-10-14).
+  app-server (Codealong's own sessions) didn't ask. In a scratch repo with two such hooks
+  (0.162.1 in tmux, 2026-11-15): Continue without trusting is asked again at the next start; on
+  the hooks screen a digit picks its choice at once, while on the folder trust screen `1` only
+  moved to it and took Return; the arrows and Return work on both; and a prompt given on the
+  command line went on once the screen was answered. Codealong answers none of these screens by
+  itself: a start in a terminal still without its session is listed under the session that asked
+  as starting (starting.rs), its tab read a minute on where its terminal can be (not Ghostty), and
+  three minutes on the session that asked needs you for it and its line offers the screen's
+  choices, picked with the arrows and Return (starting.rs `answer`), Show and Stop; one of yours
+  is said in a notice with what the tab shows; and a reporting helper's session is told
+  (origins.rs `Pending::stuck`, helpers.rs). A Codex review started in a terminal sat on one for
+  66 minutes (2026-10-14).
 - The CLI (Homebrew cask `codex`, `/opt/homebrew/bin/codex`) runs its TUI against a shared
   app-server daemon it spawns, `~/.codex/packages/app-server-daemon/releases/<version>/bin/codex
   app-server --listen unix:// --managed-daemon`, beside a `codex app-server daemon

@@ -35,7 +35,7 @@ const PROMPTED_MS: i64 = 24 * 60 * 60 * 1000;
 pub(crate) const LAUNCH_MS: i64 = 5 * 60 * 1000;
 /// How long a start in a terminal goes without its session before it's said to be stuck: its
 /// harness's UI makes one within seconds of its prompt, unless it waits on a screen of its own.
-const STUCK_MS: i64 = 3 * 60 * 1000;
+pub(crate) const STUCK_MS: i64 = 3 * 60 * 1000;
 /// A session that says it started a little before the start was asked for can still be it.
 pub(crate) const PENDING_SLACK_MS: i64 = 60 * 1000;
 /// Entries are kept this long. Claude Code deletes transcripts after about 30 days.
@@ -397,6 +397,16 @@ pub fn forget(key: &str) -> Result<()> {
     change(|s| s.sessions.remove(key).is_some())
 }
 
+/// Stops waiting for the session of the start made `at`: it was stopped before it made one
+/// (starting.rs `stop`), so nothing will.
+pub fn forget_start(at: i64) -> Result<()> {
+    change(|s| {
+        let before = s.pending.len();
+        s.pending.retain(|p| p.at != at);
+        s.pending.len() != before
+    })
+}
+
 /// Notes where a start came from: the session that asked for it (`StartSpec::from`), by the new
 /// session's key when the start knew it, else as a start waiting for its session (`Pending`,
 /// `resolve`). `StartSpec::helper`: it was started as a helper of that session, which
@@ -436,11 +446,13 @@ pub fn place_of(board: &crate::model::Board, lane: &str) -> String {
 /// the board yet, and its terminal may be behind your windows. What its terminal shows, where
 /// that was read (`screen`, by the start's time: starting.rs `Screens`), goes with it; else it
 /// guesses. Each has a key of its own (`start:` and when it was started), so dismissing one
-/// doesn't hide the next, even in the same worktree, and goes once its session shows.
+/// doesn't hide the next, even in the same worktree, and goes once its session shows. One a
+/// session on the board asked for has none: that session needs you for it, and the start's line
+/// under it answers it (starting.rs `overlay`).
 pub fn stuck_notices(pending: &[Pending], board: &crate::model::Board, word_of: impl Fn(&str) -> String, screen: impl Fn(i64) -> Option<String>, now: i64) -> Vec<crate::model::Notice> {
     pending
         .iter()
-        .filter(|p| p.stuck(now))
+        .filter(|p| p.stuck(now) && !board.session(&p.from).is_some_and(|(_, s)| !s.archived))
         .map(|p| {
             let place = place_of(board, &p.lane);
             let word = word_of(&p.account);
@@ -767,10 +779,14 @@ mod tests {
         assert!(!Pending { terminal: false, ..start.clone() }.stuck(AT + STUCK_MS));
         assert!(!Pending { opens: None, ..start.clone() }.stuck(AT + STUCK_MS));
         let boss = Session { title: "Dashboards".into(), ..crate::fixtures::session("claude:claude:boss") };
-        let mut board = Board { lanes: vec![crate::fixtures::lane("/r/app", vec![boss])], ..Board::default() };
+        let mut board = Board { lanes: vec![crate::fixtures::lane("/r/app", vec![boss.clone()])], ..Board::default() };
         board.apps.terminal = "Ghostty".into();
         let word = |_: &str| "Codex".to_string();
         let unread = |_: i64| None;
+        // The session that asked is on the board, and needs you for it there: no notice.
+        assert!(stuck_notices(&[start.clone()], &board, word, unread, AT + 66 * 60_000).is_empty());
+        // Put away, it's no longer where you'd look, so the notice says it.
+        board.lanes[0].sessions[0].archived = true;
         assert!(stuck_notices(&[start.clone()], &board, word, unread, AT + 60_000).is_empty());
         let said = stuck_notices(&[start.clone()], &board, word, unread, AT + 66 * 60_000);
         assert_eq!((said.len(), said[0].key.as_str(), said[0].title.as_str()), (1, "start:1000000", format!("Codex hasn't started in {}", board.lanes[0].callsign).as_str()));

@@ -132,12 +132,16 @@ describe('cameLines', () => {
     const boss = { lane, session: fx.session({ key: 'boss', title: 'Boss' }) };
     const review = { lane, session: fx.session({ key: 'review', title: 'Review the diff', startedAt: at(20), helper: { parent: 'boss' } }) };
     const homes = new Map([boss, review].map((p) => [p.session.key, p]));
-    const start = { at: at(4), account: 'codex', harness: 'Codex', lane: lane.id, place: lane.callsign, helper: true, opens: 'Draft the northwind release notes', terminal: 'Rex', stuck: true, screen: 'Hooks need review' };
-    const untitled = { ...start, at: at(30), helper: false, opens: null, stuck: false, screen: null };
+    const start = { at: at(4), account: 'codex', harness: 'Codex', lane: lane.id, place: lane.callsign, helper: true, opens: 'Draft the northwind release notes', terminal: 'Rex', stuck: false, screen: null, pid: null, choices: [] };
+    const untitled = { ...start, at: at(30), helper: false, opens: null };
     const lineage = lineageOf(boss.session, homes, { starting: { boss: [start, untitled], other: [start] } });
     expect(lineage.starting).toEqual([start, untitled]);
     // The latest started first: the one the header shows while the rest are folded away.
     expect(cameLines(lineage).map(cameLineWords)).toEqual(['Its helper, starting: Draft the northwind release notes', 'Its helper Review the diff', 'Started, starting: Codex on codex']);
     expect(lineageOf(review.session, homes, { starting: { boss: [start] } }).starting).toEqual([]);
+    // One stuck in its terminal waits on you, so it comes first however long ago it started.
+    const stuck = { ...untitled, helper: true, opens: 'Check the atlas migration', stuck: true, screen: 'Hooks need review\n› 1. Review hooks', pid: 4242, choices: [{ number: 1, words: 'Review hooks' }] };
+    const waiting = lineageOf(boss.session, homes, { starting: { boss: [start, stuck] } });
+    expect(cameLines(waiting).map(cameLineWords)).toEqual(['Its helper, starting: Check the atlas migration', 'Its helper, starting: Draft the northwind release notes', 'Its helper Review the diff']);
   });
 });

@@ -4109,16 +4109,20 @@ send that doesn't go is tried again a few times, then said in a notice.
 
 A start in a terminal whose harness names its own sessions (Codex, OpenCode, Antigravity) has no
 session until its terminal UI makes one, and the UI can first stop on a screen of its own (Codex's
-review of the hooks a repo's `.codex/config.toml` adds, its question about its background server)
-that Codealong can't answer, in a terminal that may be out of sight. Codex's terminal UI as
-Codealong opens it (a start, a resume, a fork) never offers an update; Codex you run yourself still
-does. One an agent started is listed under that agent's session meanwhile, *Starting*. When one
-started with a prompt, by you or by an agent, has made no session three minutes on, a notice says
-where (*Codex hasn't started in …*) until its session shows, and a helper started with `--report`
-is told of to its session once, so its agent can tell you. Where Codealong can read its terminal
-(Rex, tmux and its own terminals; not Ghostty), the notice shows what the terminal shows, the
-agent is told it, and the line under the agent's session says what it waits on (*“Hooks need
-review”*), with the whole screen when you point at it.
+review of the hooks a repo's `.codex/config.toml` adds, which it asks at every start there until
+they're trusted, or its question about its background server), in a terminal that may be out of
+sight. Codex's terminal UI as Codealong opens it (a start, a resume, a fork) never offers an
+update; Codex you run yourself still does. One an agent started is listed under that agent's
+session meanwhile, *Starting*. When one started with a prompt has made no session three minutes on,
+it waits on you. If an agent started it, that agent's session needs you for it, *Helper waits* in
+its row, and the start's line under its title says what it waits on (*“Hooks need review”*), with
+the whole screen when you point at it. Where Codealong can read its terminal (Rex, tmux and its own
+terminals; not Ghostty), the screen's choices are buttons under the line, which pick one in that
+tab as you would there, and the start goes on with its prompt. *Show in Rex*, or a click on the
+line, shows its tab, and *Stop* closes it, ending the start; where its tab wasn't found, *Forget it*
+stops waiting for it. A helper started with `--report` is told of to its session once, so its
+agent can tell you. One you started yourself has a notice instead (*Codex hasn't started in …*),
+with what its terminal shows, until its session shows.
 
 A helper's message to the session that started it (`codealong session send`) isn't held for
 you to allow when that session is a Claude Code one that skips permission prompts: it's work the

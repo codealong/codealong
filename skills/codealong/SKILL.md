@@ -530,8 +530,10 @@ user's sessions with nothing tying them to yours.
 - Started in a terminal on a harness that names its own sessions (Codex, OpenCode, Antigravity),
   it has no key until it starts (`key` is null), so there's nothing to wait on: use `--report`.
   It's listed under your session as starting until it makes one. You're told too if it hasn't
-  started a few minutes on, with what its terminal shows where Codealong could read it: tell
-  your user what it asks, to answer it in that tab.
+  started a few minutes on, with what its terminal shows where Codealong could read it. Your
+  session then shows your user that it waits on them, and the helper's line under your session's
+  title answers it, shows its tab or stops it: tell them what it asks, and to stop it there if you
+  no longer need it.
 - Give it everything it needs in the prompt (paths, the diff, what to look for, what to
   answer with), and tell it to change nothing it wasn't asked to: nobody reads it as it goes.
   A call it can't make without asking stops it until your user answers. Write a long prompt,

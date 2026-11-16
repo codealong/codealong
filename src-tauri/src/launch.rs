@@ -1332,6 +1332,10 @@ pub enum Key {
     End,
     /// Back to the question before, in Antigravity's and Claude Code's questions.
     Left,
+    /// Up and down a list of choices, as a terminal UI's screen of its own takes them before it
+    /// starts (starting.rs `answer`).
+    Up,
+    Down,
     /// On to the next question, in Claude Code's questions.
     Tab,
     /// Shift+Tab, which steps Claude Code's and Antigravity's terminal UIs to their next mode
@@ -1356,6 +1360,8 @@ impl Key {
             Key::CtrlC => "\x03",
             Key::End => "\x1b[F",
             Key::Left => "\x1b[D",
+            Key::Up => "\x1b[A",
+            Key::Down => "\x1b[B",
             Key::Tab => "\t",
             Key::BackTab => "\x1b[Z",
             Key::Return => "\r",

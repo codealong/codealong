@@ -148,7 +148,8 @@ export function startingTitle(s: Starting): string {
 export type CameLine = { kind: 'kin'; kin: Kin; at: number } | { kind: 'runs'; runs: Kin[]; at: number } | { kind: 'side'; side: SideGlance; at: number } | { kind: 'starting'; starting: Starting; at: number };
 
 /** What came of a session, a line each, the latest started first: it's the one the header shows,
- *  and the rest open under it in the order they started, so the list holds still as they work. */
+ *  and the rest open under it in the order they started, so the list holds still as they work.
+ *  A start stuck in its terminal comes before them all: it waits on you, so it isn't folded away. */
 export function cameLines(lineage: Pick<Lineage, 'to' | 'runs' | 'sides' | 'starting'> | null | undefined): CameLine[] {
   const started = (s: Session) => s.startedAt ?? s.lastPromptAt;
   const lines: CameLine[] = [
@@ -158,7 +159,8 @@ export function cameLines(lineage: Pick<Lineage, 'to' | 'runs' | 'sides' | 'star
   ];
   const runs = [...(lineage?.runs ?? [])].sort((a, b) => started(b.session) - started(a.session));
   if (runs.length > 0) lines.push({ kind: 'runs', runs, at: started(runs[0].session) });
-  return lines.sort((a, b) => b.at - a.at);
+  const waits = (l: CameLine) => l.kind === 'starting' && l.starting.stuck;
+  return lines.sort((a, b) => Number(waits(b)) - Number(waits(a)) || b.at - a.at);
 }
 
 /** A line of what came of a session in words, for the tooltip that lists the ones folded away. */

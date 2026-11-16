@@ -71,7 +71,7 @@ import { DescriptionView, ImagesFrom } from './DescriptionEditor';
 import { FileLink, FollowUpContext, Link, linked, Markdown } from './Markdown';
 import { Button, Chip, cx, Icon, Rich, StatusGlyph } from './primitives';
 import { useAside } from '../side';
-import { waitsInBackground } from '../lanes';
+import { needOf, waitsInBackground } from '../lanes';
 import { answeredOf, QuestionList } from './QuestionList';
 import { showsCall, useShownCall } from '../questionsBox';
 import { RunContext, type RunPlace } from './RunButton';
@@ -1286,8 +1286,10 @@ export function SessionThread({ session: s, now, onOpen, fallback, machine, onLo
                     <span>
                       <Rich text={s.excerpt} now={now} />
                     </span>
-                    {/* A question in its reply is answered in the box below; anything else where it runs. */}
-                    {!s.asks && !answeredBelow && (
+                    {/* A question in its reply is answered in the box below; a helper that waits before
+                        it starts, on its line under the title, not where this session runs;
+                        anything else where it runs. */}
+                    {!s.asks && !answeredBelow && needOf(s) !== 'start' && (
                       <button type="button" className="ca-btn ca-btn--secondary ca-btn--sm" onClick={onOpen}>
                         <Icon name="arrow-up-right" size={13} />
                         <span>Open to answer</span>

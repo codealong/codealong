@@ -181,7 +181,10 @@ pub enum Msg {
     McpRead(Option<Vec<crate::mcp::Mcp>>),
     /// The read of the terminals of starts that wait for their session is over (starting.rs
     /// `read`): what each showed, or none when it fell over or never started.
-    Screens(Option<Vec<(i64, Option<String>)>>),
+    Screens(Option<Vec<crate::starting::Found>>),
+    /// What the terminal of the start made then waited on was just answered (starting.rs
+    /// `answer`): it's read again at the next look.
+    StartAnswered(i64),
     /// A session's emblem was drawn, or why it wasn't (emblems.rs `draw`): the kept picture's
     /// name and what it shows.
     EmblemDrawn(String, std::result::Result<(String, String), String>),
@@ -298,6 +301,12 @@ impl Handle {
     /// read again now, not at the next poll.
     pub fn pr_changed(&self) {
         let _ = self.tx.send(Msg::PrChanged);
+    }
+
+    /// What the start made `at` waited on in its terminal was just answered: its terminal is read
+    /// again at the next look, for what it shows next.
+    pub fn start_answered(&self, at: i64) {
+        let _ = self.tx.send(Msg::StartAnswered(at));
     }
 
     /// A PR you've just merged shows merged now, not at the next poll. Returns the time of the
@@ -975,6 +984,18 @@ fn open_with(board: &Board, cfg: &config::Config, lane_id: &str, target_id: &str
                 other => harness::adapter(s.harness).open(s, other)?,
             }
             return Ok(Some(s.key.clone()));
+        }
+        // A start whose session isn't here yet: the tab its harness waits in, found by its
+        // process as its screen was read (starting.rs), to answer what it shows there.
+        ["start", at, "focus"] => {
+            let s = at.parse().ok().and_then(|at| crate::starting::find(board, at)).ok_or_else(|| anyhow!("It has made its session, or was stopped."))?;
+            let pid = s.pid.ok_or_else(|| anyhow!("Codealong hasn't found its terminal yet."))?;
+            if let Some(cmd) = launch::attach_command(pid) {
+                launch::terminal_open(&apps.terminal_id, place, &path, Some(&format!("{cmd}\n")))?;
+            } else if !launch::terminal_focus_session(&apps.terminal_id, pid, s.opens.as_deref().unwrap_or_default(), &path)? {
+                let app = launch::terminal_kind(pid).filter(|k| k.bundle().is_some()).map_or(apps.terminal.as_str(), |k| k.name());
+                bail!("Couldn't find {}'s terminal in {app}. It's running as pid {pid}.", s.harness);
+            }
         }
         ["l", "terminal"] => launch::terminal_open(&apps.terminal_id, place, &path, None)?,
         ["l", "editor"] => editors::open(&apps.editor_id, &path)?,
@@ -1887,6 +1908,28 @@ impl Engine {
     /// Sessions with the read of their moment applied (board::apply_insight): Jev's, and the
     /// landing their reply's status line says, when `[jev] sessions` is on; an agent's tag of
     /// them over both, whether or not it is (tags.rs, `insights::merged`).
+    /// Each session that asked for a start that's stuck in its terminal (`origins::Pending::stuck`)
+    /// needs you for it (`starting::overlay`), as what its terminal shows was last read: its
+    /// helper can't start until you answer that. The starts are as the last board left them
+    /// (`link_origins`), as `with_origins` has them.
+    fn with_starts(&self, mut sessions: Vec<Session>, now: i64) -> Vec<Session> {
+        let store = origins::current();
+        if store.pending.is_empty() {
+            return sessions;
+        }
+        let waits = crate::starting::waiting(&store.pending, &self.screens, |account| self.harness_word(account), &launch::terminal_name(&self.cfg.apps.terminal), now);
+        for s in &mut sessions {
+            crate::starting::overlay(s, waits.get(&s.key));
+        }
+        sessions
+    }
+
+    /// An account's harness by its word (Codex), or the account's name where config.toml has no
+    /// such account.
+    fn harness_word(&self, account: &str) -> String {
+        self.cfg.accounts.iter().find(|a| a.name == account).and_then(harness::of).map_or_else(|| account.to_string(), |h| h.harness().word().to_string())
+    }
+
     fn with_insights(&self, mut sessions: Vec<Session>, now: i64) -> Vec<Session> {
         let tags = tags::current();
         if !self.cfg.jev.sessions && tags.sessions.is_empty() {
@@ -2711,6 +2754,7 @@ fn waiting_call(s: &Session, account: Option<&config::AccountCfg>) -> Option<Str
                 Ok(Msg::TrainingOne(asked_as, t)) => self.dirty |= self.training.on_changed(&asked_as, t),
                 Ok(Msg::McpRead(list)) => self.dirty |= self.mcp.on_read(list),
                 Ok(Msg::Screens(found)) => self.dirty |= self.screens.on_read(found),
+                Ok(Msg::StartAnswered(at)) => self.screens.again(at),
                 Ok(Msg::EmblemDrawn(key, drawn)) => self.on_emblem_drawn(&key, drawn),
                 Ok(Msg::MarkSeen(keys, at, reply)) => {
                     let now = now_ms();
@@ -3941,6 +3985,7 @@ fn waiting_call(s: &Session, account: Option<&config::AccountCfg>) -> Option<Str
         let sessions = self.with_emblems(sessions);
         let sessions = self.with_insights(sessions, now);
         let sessions = with_runs(sessions, now);
+        let sessions = self.with_starts(sessions, now);
         let sessions = self.with_suggestions(sessions);
         let sessions = self.with_snoozes(sessions, sides, listenings, now);
         let sessions = self.with_limits(sessions, usage, now);
@@ -4184,7 +4229,7 @@ fn waiting_call(s: &Session, account: Option<&config::AccountCfg>) -> Option<Str
         });
         // Starts whose sessions aren't here yet: a line under the session that asked for each, and
         // a notice for one in a terminal that never made its session, with what its tab shows.
-        let word_of = |account: &str| self.cfg.accounts.iter().find(|a| a.name == account).and_then(harness::of).map_or_else(|| account.to_string(), |h| h.harness().word().to_string());
+        let word_of = |account: &str| self.harness_word(account);
         let waiting = origins::waiting_for(&board, now);
         let stuck = origins::stuck_notices(&waiting, &board, word_of, |at| self.screens.screen(at).map(String::from), now);
         board.notices.extend(stuck);

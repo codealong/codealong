@@ -15,7 +15,7 @@ use std::sync::{Arc, Mutex};
 use serde_json::Value;
 
 use crate::util::{self, words};
-use crate::{acp, actions, analytics, api, autoreview, boards, config, detect, engine, github, harness, idle, improve, install, jev, ledger, model, newfolder, peers, prasks, prlinks, prmerge, route, routelog, runcode, schedules, search, send, setup, side, skills, stale, start, store, terminals, todojev, todos, training, views, zoom};
+use crate::{acp, actions, analytics, api, autoreview, boards, config, detect, engine, github, harness, idle, improve, install, jev, ledger, model, newfolder, peers, prasks, prlinks, prmerge, route, routelog, runcode, schedules, search, send, setup, side, skills, stale, start, starting, store, terminals, todojev, todos, training, views, zoom};
 
 /// What a call runs with: the server's engine, your other devices, and the automatic reviewer.
 #[derive(Clone)]
@@ -50,6 +50,11 @@ macro_rules! calls {
             }
         }
     };
+}
+
+/// The process and worktree of the start made `at`, as its line under its session has them.
+fn started(c: &Ctx, at: i64) -> Result<(Option<u32>, String), String> {
+    c.engine.read(|b| starting::find(b, at).map(|s| (s.pid, s.lane.clone()))).ok_or_else(|| "It has made its session, or was stopped.".to_string())
 }
 
 /// The time of the board that shows a change, out of what an action answered.
@@ -638,6 +643,24 @@ calls! {
 
     fn sign_in(c, name: String) -> Result<(), String> {
         c.engine.sign_in(&name).map_err(words)
+    }
+
+    /// Answers what the terminal of a start that hasn't made its session waits on with one of the
+    /// choices its line showed (starting.rs `answer`): what the screen `asked`, and the choice's
+    /// `number` and words (`said`), so a screen that moved on since isn't answered blind.
+    fn start_answer(c, at: i64, asked: String, number: u8, said: String) -> Result<(), String> {
+        let (pid, lane) = started(c, at)?;
+        let pid = pid.ok_or("Codealong hasn't found its terminal. Answer it in its tab.")?;
+        starting::answer(pid, std::path::Path::new(&lane), &asked, number, &said).map_err(words)?;
+        c.engine.start_answered(at);
+        Ok(())
+    }
+
+    /// Stops a start that hasn't made its session: closes its tab where that was found, and
+    /// stops waiting for it (starting.rs `stop`).
+    fn start_stop(c, at: i64) -> Result<(), String> {
+        let (pid, lane) = started(c, at)?;
+        starting::stop(at, pid, std::path::Path::new(&lane)).map_err(words)
     }
 
     /// Turns training off for an account at its provider (training.rs).

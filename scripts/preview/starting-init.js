@@ -1,7 +1,8 @@
 // Puts two starts whose sessions aren't here yet under the first session the list shows (one
-// stuck on what its terminal shows, one starting) and nothing else under it, with the stuck one's
-// notice, selects that session and opens what's folded under its title: for a screenshot of the
-// lines (starting-check.js checks them, and the notice).
+// stuck on what its terminal shows, with its choices to answer it with, one starting) and nothing
+// else under it, the session needing you for the stuck one as the engine has it (starting.rs
+// `overlay`), selects that session and opens what's folded under its title: for a screenshot of
+// the lines and the session's row (starting-check.js checks the lines).
 //   PREVIEW_INIT=scripts/preview/starting-init.js PREVIEW_NAME=starting scripts/preview.sh sessions
 (function () {
   var MIN = 60000;
@@ -14,13 +15,14 @@
     if (!shown) return;
     var now = Date.now();
     var key = shown.s.key;
-    var stuck = { at: now - 5 * MIN, account: 'codex', harness: 'Codex', lane: shown.lane.id, place: shown.lane.callsign, helper: true, opens: 'Draft the release notes for northwind from the merged PRs', terminal: 'Rex', stuck: true, screen: screen };
-    var starting = Object.assign({}, stuck, { at: now - MIN, opens: 'Check the migration on a copy of the staging database', stuck: false, screen: null });
+    var choices = [{ number: 1, words: 'Review hooks' }, { number: 2, words: 'Trust all and continue' }, { number: 3, words: 'Continue without trusting (hooks won’t run)' }];
+    var stuck = { at: now - 5 * MIN, account: 'codex', harness: 'Codex', lane: shown.lane.id, place: shown.lane.callsign, helper: true, opens: 'Draft the release notes for northwind from the merged PRs', terminal: 'Rex', stuck: true, screen: screen, pid: 4242, choices: choices };
+    var starting = Object.assign({}, stuck, { at: now - MIN, opens: 'Check the migration on a copy of the staging database', stuck: false, screen: null, pid: null, choices: [] });
     b.lanes.forEach(function (l) { l.sessions.forEach(function (s) { if (s.origin && s.origin.key === key) s.origin = null; if (s.helper && s.helper.parent === key) s.helper = null; }); });
     if (b.sides) delete b.sides[key];
     b.starting = {};
     b.starting[key] = [starting, stuck];
-    b.notices = [{ key: 'start:' + stuck.at, title: 'Codex hasn’t started in ' + shown.lane.callsign, text: 'Codex was started in Rex 5 minutes ago, in ' + shown.lane.callsign + ', as a helper of “' + shown.s.title + '”, and hasn’t made its session yet: its terminal shows this, and waits on it to be answered before it starts. Answer it in that tab; if you closed it, dismiss this.', screen: screen }];
+    Object.assign(shown.s, { status: 'needs', need: 'start', excerpt: 'Its helper waits · Codex: Hooks need review', statusSince: now - 2 * MIN, asks: false, stalledSince: null });
     // The board's own theme wins over the scheme Chrome is given; a dark run asks for dark.
     if (window.matchMedia('(prefers-color-scheme: dark)').matches) b.theme = 'dark';
     window.__emit('board', b);

@@ -2666,6 +2666,8 @@ pub fn session_headline(s: &Session) -> (String, Option<String>) {
             (Some(Need::Message), _) => (format!("{acct} holds a message for you · {title}"), s.excerpt.as_deref().and_then(|e| e.strip_prefix("Held message ")).map(str::to_string)),
             // A command it runs stopped at a question in its terminal: what it asks below.
             (Some(Need::Input), _) => (format!("{acct}'s command asks you · {title}"), s.excerpt.as_deref().and_then(|e| e.strip_prefix(TERMINAL_ASKS)).map(str::to_string)),
+            // A helper it started waits in its terminal before it starts: what that shows below.
+            (Some(Need::Start), _) => (format!("{acct}'s helper waits on you · {title}"), s.excerpt.as_deref().and_then(|e| e.strip_prefix(START_WAITS)).map(str::to_string)),
             (Some(Need::Approval), Harness::Claude) => (format!("{acct} is waiting for approval · {title}"), s.excerpt.clone()),
             (Some(Need::Approval), Harness::Codex | Harness::Opencode | Harness::Antigravity | Harness::Cursor) => (format!("{acct} asks for approval · {title}"), s.excerpt.clone()),
             (Some(Need::Stuck | Need::Other) | None, _) => (format!("{acct} needs you · {title}"), None),
@@ -7252,6 +7254,8 @@ mod tests {
             Session { asks: true, ..said(at("needs", "reply", Status::Needs, 90, 10), "Asks you · Want the PR?") },
             Session { stalled_since: Some(NOW - 45 * MIN), excerpt: Some(format!("Stuck on `cargo build` for {{for:{}}}", NOW - 45 * MIN)), ..at("needs", "stuck", Status::Needs, 50, 45) },
             Session { excerpt: Some(format!("{TERMINAL_ASKS}`Continue? [y/N]`")), running: Some(RunningIn { terminal: "Codealong".into(), command: "./scripts/restore.sh".into(), yours: true }), ..at("needs", "input", Status::Needs, 18, 17) },
+            // A helper it started waits in its terminal on a screen of its own (starting.rs).
+            Session { excerpt: Some(format!("{START_WAITS}Codex: Hooks need review")), ..at("needs", "start", Status::Needs, 19, 16) },
             at("needs", "unsaid", Status::Needs, 6, 5),
             // No time for when it began to wait: it waits since it was last active.
             Session { status_since: None, ..said(at("needs", "untimed", Status::Needs, 70, 28), "Bash · `ls`") },
@@ -7404,7 +7408,7 @@ mod tests {
         assert_eq!(bays.len(), 6, "{bays:?}");
         let all = || lanes.iter().flat_map(|l| &l.sessions);
         let needs: Vec<Option<Need>> = all().filter(|s| s.status == Status::Needs && !s.archived).map(|s| s.need).collect();
-        for need in [Some(Need::Approval), Some(Need::Question), Some(Need::Reply), Some(Need::Message), Some(Need::Stuck), Some(Need::Input), None] {
+        for need in [Some(Need::Approval), Some(Need::Question), Some(Need::Reply), Some(Need::Message), Some(Need::Stuck), Some(Need::Input), Some(Need::Start), None] {
             assert!(needs.contains(&need), "{need:?}");
         }
         assert!(all().any(|s| s.visitor.is_some()) && all().any(|s| s.earlier) && all().any(|s| s.archived) && all().any(|s| s.unattended()), "a visitor, earlier work, an archived session and one unattended");

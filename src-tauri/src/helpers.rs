@@ -217,11 +217,11 @@ fn line(n: &Note) -> String {
             format!("“{title}” ({key}) waits on your user{what}. They answer it in Codealong, so you may want to tell them; `codealong session wait {key} --until-done` waits on to the end of its turn.")
         }
         News::Unstarted { account, place, terminal, minutes, screen: None } => format!(
-            "you started on {account} in {terminal} {minutes} minutes ago, in {place}, hasn't made its session yet: its terminal may be waiting on your user on a screen of its own before it starts, such as an update offer or a question about its background server, which Codealong can't answer. Tell them to answer it in that tab. Once it starts, you're told when its turn ends."
+            "you started on {account} in {terminal} {minutes} minutes ago, in {place}, hasn't made its session yet: its terminal may be waiting on your user on a screen of its own before it starts, such as an update offer or a question about its background server. Your session shows in Codealong as waiting on them for it, and its line under your session's title shows its tab, or stops it if you no longer need it: tell them. Once it starts, you're told when its turn ends."
         ),
         // Set in, so it stays within a list's item when there's other news.
         News::Unstarted { account, place, terminal, minutes, screen: Some(screen) } => format!(
-            "you started on {account} in {terminal} {minutes} minutes ago, in {place}, hasn't made its session yet: its terminal waits on your user to answer what it shows before it starts, which Codealong can't answer. It shows:\n\n{}\n\nTell them what it asks, to answer it in that tab. Once it starts, you're told when its turn ends.",
+            "you started on {account} in {terminal} {minutes} minutes ago, in {place}, hasn't made its session yet: its terminal waits on your user to answer what it shows before it starts. It shows:\n\n{}\n\nYour session shows in Codealong as waiting on them for it, and its line under your session's title answers it, shows its tab, or stops it if you no longer need it: tell them what it asks. Once it starts, you're told when its turn ends.",
             screen.lines().map(|l| if l.is_empty() { String::new() } else { format!("    {l}") }).collect::<Vec<_>>().join("\n")
         ),
     }
@@ -373,7 +373,7 @@ mod tests {
         let jobs = Reporter::default().due(&[start.clone()], &read, NOW);
         assert_eq!(news(&jobs), [(BOSS.to_string(), News::Unstarted { account: "codex".into(), place: place.clone(), terminal: "Ghostty".into(), minutes: 4, screen: Some(screen.clone()) })]);
         let text = words(&jobs[0].notes);
-        assert!(text.contains("hasn't made its session yet: its terminal waits on your user to answer what it shows before it starts, which Codealong can't answer. It shows:\n\n    Hooks need review\n\n    › 1. Review hooks\n\nTell them what it asks"), "{text}");
+        assert!(text.contains("hasn't made its session yet: its terminal waits on your user to answer what it shows before it starts. It shows:\n\n    Hooks need review\n\n    › 1. Review hooks\n\nYour session shows in Codealong as waiting on them for it, and its line under your session's title answers it"), "{text}");
         // Found stuck long after it was started (a server started meanwhile, which has read no
         // screen yet), it waits from then: told as soon as its screen is read, else a minute on
         // without it.

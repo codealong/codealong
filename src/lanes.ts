@@ -310,10 +310,10 @@ export function closable(s: Session): boolean {
 /** Whether it waits on you to answer a prompt, where what's typed would answer it (send.rs
  *  `waits_on_you`): not one whose reply only asks you something, nor one that's stuck, which sits
  *  at no prompt and takes a message as it would in its own terminal, nor one whose command waits
- *  for input in its terminal, where the answer is typed. */
+ *  for input in its terminal, where the answer is typed, nor one whose helper waits in its own. */
 export function waitsOnYou(s: Pick<Session, 'status' | 'need' | 'stalledSince' | 'asks'>): boolean {
   const need = needOf(s);
-  return s.status === 'needs' && need !== 'reply' && need !== 'stuck' && need !== 'input';
+  return s.status === 'needs' && need !== 'reply' && need !== 'stuck' && need !== 'input' && need !== 'start';
 }
 
 /** Why a session needs you (model.rs `Session::need`). What a session says of itself outright
@@ -484,6 +484,10 @@ function truncate(s: string, max: number): string {
 /** How a session's excerpt starts while a command it runs waits for input (model.rs `TERMINAL_ASKS`). */
 export const TERMINAL_ASKS = 'Waiting for input · ';
 
+/** How a session's excerpt starts while a helper it started waits on you before it starts
+ *  (model.rs `START_WAITS`). */
+const START_WAITS = 'Its helper waits · ';
+
 /** What a session set aside says before what it asked on the side (board.rs `ASKING_ON_THE_SIDE`). */
 const ASKING_ON_THE_SIDE = 'Asking on the side · ';
 
@@ -508,6 +512,9 @@ export function sessionHeadline(s: Session): [string, string | null] {
         // A command it runs stopped at a question in its terminal: what it asks below.
         case 'input':
           return [`${acct}'s command asks you · ${s.title}`, s.excerpt?.startsWith(TERMINAL_ASKS) ? s.excerpt.slice(TERMINAL_ASKS.length) : null];
+        // A helper it started waits in its terminal before it starts (starting.rs): what that shows below.
+        case 'start':
+          return [`${acct}'s helper waits on you · ${s.title}`, s.excerpt?.startsWith(START_WAITS) ? s.excerpt.slice(START_WAITS.length) : null];
         case 'approval':
           return [`${acct} ${s.harness === 'claude' ? 'is waiting for approval' : 'asks for approval'} · ${s.title}`, s.excerpt];
         default:
@@ -609,6 +616,8 @@ export function sessionFlag(s: Session): InsightLabel | null {
       return { label: 'Needs approval', tone: 'warn', title: 'It’s waiting for you to allow what it wants to run.' };
     case 'input':
       return { label: 'Needs input', tone: 'warn', title: 'A command it runs in its terminal waits for you to type something there.' };
+    case 'start':
+      return { label: 'Helper waits', tone: 'warn', title: 'A helper it started waits in its terminal on a screen of its own before it starts. Answer it from the helper’s line under its title.' };
     default:
       return null;
   }

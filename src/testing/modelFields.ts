@@ -747,15 +747,23 @@ export type Listening = Holds<Same<
 export type Starting = Holds<Same<
   | "account"
   | "at"
+  | "choices"
   | "harness"
   | "helper"
   | "lane"
   | "opens"
+  | "pid"
   | "place"
   | "screen"
   | "stuck"
   | "terminal",
   Names<Types.Starting>
+>>;
+
+export type Choice = Holds<Same<
+  | "number"
+  | "words",
+  Names<Types.Choice>
 >>;
 
 export type Mcp = Holds<Same<

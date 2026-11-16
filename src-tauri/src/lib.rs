@@ -294,7 +294,9 @@ fn flash_focused(app: &tauri::AppHandle, board: &model::Board, lane_id: &str, ta
 /// process runs under, whichever terminal config.toml names.
 fn target_app(board: &model::Board, lane_id: &str, target_id: &str) -> Option<&'static str> {
     let session = target_id.strip_prefix("s|").and_then(|t| t.rsplit_once('|')).and_then(|(key, action)| Some((board.lanes.iter().find(|l| l.id == lane_id)?.sessions.iter().find(|s| s.key == key)?, action)));
-    let host = session.and_then(|(s, _)| launch::session_app(s.pid?));
+    // A start whose session isn't here yet is in the tab of its harness's process too.
+    let start = target_id.strip_prefix("start|").and_then(|t| t.split('|').next()?.parse().ok()).and_then(|at| starting::find(board, at));
+    let host = session.and_then(|(s, _)| launch::session_app(s.pid?)).or_else(|| launch::session_app(start?.pid?));
     let own = session.and_then(|(s, action)| harness::adapter(s.harness).app_bundle(action));
     bar::target_app(target_id, &board.apps.terminal_id, host, own)
 }
