@@ -2,7 +2,8 @@
 //! board holds what its rule takes in and what you added by hand, less what you took off; its
 //! Kanban columns, where you put cards by hand and in what order; and its canvas, where each card
 //! sits among your notes and frames. A project has only the boards made in it: none until you
-//! make one (`without_own_boards` says what became of the board each project had of its own).
+//! make one (`without_own_boards` says what became of the board each project had of its own, and
+//! `with_review_split` what became of a rule that took in what was in review).
 //!
 //! Kept in `boards.json` next to the config. The engine owns the file and makes every change
 //! through `apply`, so the app and the `codealong` command never write over each other. What the
@@ -36,8 +37,11 @@ fn canvases_path() -> PathBuf {
 
 const MAX_NAME: usize = 100;
 
-/// The file's version: 2 since projects stopped having boards of their own (`without_own_boards`).
-const VERSION: u32 = 2;
+/// The file's version: 2 since projects stopped having boards of their own (`without_own_boards`),
+/// 3 since an open PR's work stopped being one stage, In review (`with_review_split`).
+const VERSION: u32 = 3;
+/// The version from which projects have no boards of their own.
+const NO_OWN_BOARDS: u32 = 2;
 
 /// What a card shows.
 #[derive(Serialize, Deserialize, Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord, clap::ValueEnum)]
@@ -72,14 +76,21 @@ pub fn parse_card(id: &str) -> Option<(Kind, &str)> {
     (!key.is_empty()).then_some((kind, key))
 }
 
-/// How far a card's work has got, as the stage columns have it (boardLists.ts `todoStage`,
-/// `sessionStage`).
+/// How far a card's work has got, as the stage columns have it (src/boards/rules.ts `todoStage`,
+/// `sessionStage`, `prStage`). Once its PR is open the work goes round one loop of checks, reviews
+/// and fixes, split by whose turn it is.
 #[derive(Serialize, Deserialize, Debug, Clone, Copy, PartialEq, Eq, clap::ValueEnum)]
 #[serde(rename_all = "lowercase")]
 pub enum Stage {
     Todo,
     Progress,
+    /// Its PR's checks are running, or Codealong's agent is reviewing it: the machines' turn.
+    Validating,
+    /// Its PR waits on a person: a review to give, feedback to answer, a failing check or a
+    /// conflict to see to; or it's marked for review by hand.
     Review,
+    /// GitHub would merge its PR now.
+    Ready,
     Done,
 }
 
@@ -169,7 +180,7 @@ pub struct BoardDoc {
     /// When each card was added by hand.
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     pub added_at: BTreeMap<String, i64>,
-    /// Its Kanban columns; none for the four stages.
+    /// Its Kanban columns; none for the stages.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub columns: Option<Vec<Column>>,
     /// The column each card was put in by hand, by card.
@@ -242,7 +253,7 @@ pub enum BoardOp {
     /// Takes cards off the board, and keeps them off.
     Remove { id: String, cards: Vec<String> },
     Rule { id: String, rule: Option<Rule> },
-    /// Its Kanban columns; none for the four stages.
+    /// Its Kanban columns; none for the stages.
     Columns { id: String, columns: Option<Vec<Column>> },
     /// Puts a card in a column by hand, or none to leave it to the rules.
     Place {
@@ -279,10 +290,10 @@ pub struct Applied {
 /// The file as it is, or for none yet, the canvases kept before there were boards.
 fn read() -> Result<BoardsFile> {
     if let Some(file) = store::read::<BoardsFile>(&path(), "boards")? {
-        return Ok(without_own_boards(file));
+        return Ok(with_review_split(without_own_boards(file)));
     }
     // A canvas file that doesn't read gives no boards, and is left as it is.
-    Ok(without_own_boards(from_canvases(&store::text(&canvases_path()).ok().flatten().unwrap_or_default())))
+    Ok(with_review_split(without_own_boards(from_canvases(&store::text(&canvases_path()).ok().flatten().unwrap_or_default()))))
 }
 
 /// Until 2026-10-22 every project had a board of its own, `p:<project>`, that held everything in
@@ -293,10 +304,44 @@ fn read() -> Result<BoardsFile> {
 /// project had, go. Version 2 is written with the next change, and from then on an id like that
 /// is only an id.
 fn without_own_boards(mut file: BoardsFile) -> BoardsFile {
-    if file.version < VERSION {
+    if file.version < NO_OWN_BOARDS {
         file.boards.retain(|b| b.id != format!("p:{}", b.project) || has_yours(b));
     }
     file
+}
+
+/// Until 2026-11-16 the work on an open PR was one stage, In review; now it's Validating while
+/// the PR's checks run or Codealong's agent reviews it, In review while it waits on a person, and
+/// Ready to merge once GitHub would merge it (src/boards/rules.ts `prStage`). A rule of a file
+/// from before then, a board's or a column's, that took in what was in review takes in all three,
+/// as it did. Version 3 is written with the next change, and from then on In review is only that.
+fn with_review_split(mut file: BoardsFile) -> BoardsFile {
+    if file.version < VERSION {
+        for b in &mut file.boards {
+            let columns = b.columns.iter_mut().flatten().filter_map(|c| c.rule.as_mut());
+            for rule in b.rule.as_mut().into_iter().chain(columns) {
+                split_review(&mut rule.stages);
+            }
+        }
+    }
+    file
+}
+
+fn split_review(stages: &mut Vec<Stage>) {
+    const LOOP: [Stage; 3] = [Stage::Validating, Stage::Review, Stage::Ready];
+    if !stages.contains(&Stage::Review) {
+        return;
+    }
+    let mut out = Vec::new();
+    for s in stages.iter().copied() {
+        let one = [s];
+        for t in if s == Stage::Review { &LOOP[..] } else { &one[..] } {
+            if !out.contains(t) {
+                out.push(*t);
+            }
+        }
+    }
+    *stages = out;
 }
 
 fn has_yours(b: &BoardDoc) -> bool {
@@ -806,6 +851,33 @@ mod tests {
         assert_eq!(without_own_boards(file.clone()).boards.len(), 9);
         assert!(run(&mut file, BoardOp::Delete { id: "p:Northwind".into() }).unwrap().0);
         assert_eq!(run(&mut file, BoardOp::Project { id: "p:Atlas".into(), project: "Northwind".into() }).unwrap().1.left.as_deref(), Some("Atlas"));
+    }
+
+    #[test]
+    fn a_rule_from_before_the_review_split_takes_in_all_three_stages_of_an_open_pr() {
+        use Stage::*;
+        let rule = |stages: Vec<Stage>| Some(Rule { stages, ..Default::default() });
+        let column = |id: &str, stages: Vec<Stage>| Column { id: id.into(), name: id.into(), rule: rule(stages), sort: Sort::Move, folded: false };
+        let board = BoardDoc {
+            rule: rule(vec![Review, Done]),
+            columns: Some(vec![column("next", vec![Todo]), column("review", vec![Review]), column("ship", vec![Ready, Review]), Column { rule: None, ..column("mine", vec![]) }]),
+            ..named("b-1", "Release", "Northwind")
+        };
+        let stages = |f: &BoardsFile| {
+            let b = &f.boards[0];
+            let cols = b.columns.iter().flatten().map(|c| c.rule.as_ref().map(|r| r.stages.clone()));
+            (b.rule.as_ref().unwrap().stages.clone(), cols.collect::<Vec<_>>())
+        };
+        let after = with_review_split(BoardsFile { version: 2, ..file_with(vec![board.clone()]) });
+        assert_eq!(stages(&after), (vec![Validating, Review, Ready, Done], vec![Some(vec![Todo]), Some(vec![Validating, Review, Ready]), Some(vec![Ready, Validating, Review]), None]));
+        // Once the file is of version 3, In review is only In review.
+        let now = file_with(vec![board]);
+        assert_eq!(with_review_split(now.clone()), now);
+        // A file of version 2 keeps a project's own board it kept: only one of version 1 drops it.
+        let mut file = BoardsFile { version: 2, ..file_with(vec![own("Larch")]) };
+        assert_eq!(without_own_boards(file.clone()).boards.len(), 1);
+        file.version = 1;
+        assert!(without_own_boards(file).boards.is_empty());
     }
 
     #[test]

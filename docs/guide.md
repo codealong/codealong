@@ -2002,8 +2002,8 @@ alone. Add to board › offers there the boards that would show the thing: All p
 own project's.
 
 A board holds what its rule takes in, as the work moves on, and what you add by hand, less what
-you take off. A rule picks by kind (todos, sessions, worktrees, PRs), stage (To do, In progress, In
-review, Done), status (Needs you, Your turn, Working; a todo or a worktree by its sessions), label
+you take off. A rule picks by kind (todos, sessions, worktrees, PRs), stage (To do, In progress,
+Validating, In review, Ready to merge, Done), status (Needs you, Your turn, Working; a todo or a worktree by its sessions), label
 (the todos with it, the sessions you put it on, and the sessions and worktrees on either), repo, account, how recently the
 work moved on, and words in the title: each part picked must hold, and within one any pick does.
 Everything takes in the whole project; Only what you add takes in nothing by itself. Add to board ›
@@ -2023,19 +2023,27 @@ are kept per Mac, in `boards.json`.
 
 #### Kanban
 
-A board's todos and sessions as cards in columns, by default four by how far the work has got: To
-do, In progress, In review and Done. A card is a todo, with the sessions on it listed under its two
-lines, the most urgent first, or a session on no open todo the board shows, while it's running or
-waits on you, or its PR is in review, or you put it on the board: one that ended and that you've
-seen leaves the board, as do helpers and headless runs that don't need you, which work for another
-session, and archived ones, unless you added them. Its face is the one cards on the canvas and the
-desktop have. A todo is in the column its Todo section says (Ready and Waiting are To do, with a
-line where Waiting begins); a session is Done once it's archived (marked done, say), In review
-while the PR it worked on is open and not a draft, Done once that PR merged or its turn ended
-saying its work landed, unless it's working or waits on you, and In progress otherwise. A card moves only when its work does (started, a PR opened, merged, done) or
+A board's todos and sessions as cards in columns, by default six by how far the work has got: To
+do, In progress, Validating, In review, Ready to merge and Done. Once its PR is open, the work goes
+round one loop of checks, reviews and fixes, and the three columns in the middle split that loop by
+whose turn it is: Validating while the machines have it (its checks are running, none failed yet,
+or Codealong's agent is reviewing the commit it's at), In review while it's a person's (a review to
+give, feedback to answer, a failing check or a conflict to see to), and Ready to merge once GitHub
+would merge it, as its PR's Ready to merge pill says. A draft is still In progress. A card is a
+todo, with the sessions on it listed under its two lines, the most urgent first, or a session on no
+open todo the board shows, while it's running or waits on you, or its PR is open, or you put it on
+the board: one that ended and that you've seen leaves the board, as do helpers and headless runs
+that don't need you, which work for another session, and archived ones, unless you added them. Its
+face is the one cards on the canvas and the desktop have. A todo is in the column its Todo section
+says (Ready and Waiting are To do, with a line where Waiting begins), one in review where its PR is
+in the loop, and In review when you marked it for review with no PR open, or its PR merged before
+you said it's done; a session is Done once it's archived (marked done, say), where its PR is in the
+loop while the PR it worked on is open and not a draft, Done once that PR merged or its turn ended
+saying its work landed, unless it's working or waits on you, and In progress otherwise. A card
+moves only when its work does (started, a PR opened, its checks done, a review, merged, done) or
 you move it, never with each turn: whose move it is shows in its stripe, amber when it needs you,
-and in its place. To do keeps your order (drag, or ⌃⌘↑ ⌃⌘↓); In progress
-and In review list what needs you first, the longest wait first, then your turns, then what's
+and in its place. To do keeps your order (drag, or ⌃⌘↑ ⌃⌘↓); In progress, Validating, In review
+and Ready to merge list what needs you first, the longest wait first, then your turns, then what's
 working, then the rest, the one you last sent a prompt first; Done, the latest first, is folded to
 a rail with its count until you open it. Done's todos go back as far as the age filter does (two
 weeks under All), which narrows the sessions too, but not what you added to the board; the list's
@@ -2050,8 +2058,9 @@ adds a todo in the box at the top of the column a new todo goes in. Dragged to a
 card does what lands it there, which the drag says as it goes, and nothing where nothing would: in
 the stages, a todo goes back to To do, starts a session (the quick panel, as ⌘N does) from To do to
 In progress, is marked ready for review, is sent back from In review to In progress, or is marked
-done, and the toast can undo what it did; a session dropped on Done is marked done as its menu
-marks it, and one dropped on a todo's card joins that todo. A todo In review because of its PR
+done, and the toast can undo what it did (Validating and Ready to merge are its PR's to say, so
+nothing dropped there lands there); a session dropped on Done is marked done as its menu
+marks it, and one dropped on a todo's card joins that todo. A todo where its PR is in the loop
 stays there, and a session's PR keeps it where it is. A card dragged out of the window is pinned to
 the desktop.
 
@@ -2064,8 +2073,10 @@ column, Inbox, to make your own beside. A column holds what its rule takes in (t
 board's rule has), or with no rule, the cards you put in it. A card goes in the first column whose
 rule takes it, else in the column you put it in, else in the first column without a rule; a card
 no column takes goes in No column, after the rest, until one does. So with Next and Later of your
-own before In progress, In review and Done, you sort the todos not started into Next and Later, and
-they still move on to In progress, In review and Done as the work does.
+own before the stages after To do, you sort the todos not started into Next and Later, and they
+still move on to In progress, In review and Done as the work does. A board's rule or column from
+before 2026-11-16 that took in In review, when that was all of an open PR's loop, takes in
+Validating and Ready to merge too.
 
 A card dropped on a column does what lands it there: a stage column does what the stages do, a
 label column gives a todo its label (and one it leaves takes its label away), and a column of your

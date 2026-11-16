@@ -4648,11 +4648,11 @@ Commands:
            under All projects
   new      Make a board. Given no rule options it holds only what's added (`board add`);
            with them, what they take in too (as `board rule` says), and with
-           --everything, everything in the project. Its Kanban starts with the four
-           stage columns (To do, In progress, In review, Done), or with --columns labels
-           one column per label its rule names (every label, for a rule that names none)
-           and Other, or with --columns blank one column, Inbox, to make your own
-           beside. Prints its id
+           --everything, everything in the project. Its Kanban starts with the stage
+           columns (To do, In progress, Validating, In review, Ready to merge, Done), or
+           with --columns labels one column per label its rule names (every label, for a
+           rule that names none) and Other, or with --columns blank one column, Inbox,
+           to make your own beside. Prints its id
   show     What a board holds, as its user sees it: its Kanban columns, each with its
            cards in their order (a todo with the sessions on it, or a session on no todo
            the board shows), or with --as canvas its canvas's frames in reading order,
@@ -4675,15 +4675,15 @@ Commands:
            --json` prints them: {"rule": {…} | null, "columns": [{"id": "next", "name":
            "Next", "rule": {…}, "sort": "hand", "folded": false}] | null}. A field left
            out stays as it is; a rule of null takes in nothing but what's added, and
-           columns of null are the four stages. A rule is {"kinds": ["worktree",
-           "session", "todo", "pr"], "stages": ["todo", "progress", "review", "done"],
-           "statuses": ["needs", "unread", "working"], "labels": [names or ids],
-           "repos": ["owner/name"], "accounts": [names], "active": "1d" | "3d" | "7d" |
-           "30d", "text": "words in the title"}, each part optional, every part given
-           holding; {} takes in everything. A card goes in the first column whose rule
-           takes it, else in the column it was put in by hand, else in the first column
-           without a rule; `sort` is `hand` (as they're put), `move` (what needs your
-           user first) or `latest`
+           columns of null are the stages. A rule is {"kinds": ["worktree", "session",
+           "todo", "pr"], "stages": ["todo", "progress", "validating", "review",
+           "ready", "done"], "statuses": ["needs", "unread", "working"], "labels":
+           [names or ids], "repos": ["owner/name"], "accounts": [names], "active": "1d"
+           | "3d" | "7d" | "30d", "text": "words in the title"}, each part optional,
+           every part given holding; {} takes in everything. A card goes in the first
+           column whose rule takes it, else in the column it was put in by hand, else in
+           the first column without a rule; `sort` is `hand` (as they're put), `move`
+           (what needs your user first) or `latest`
   move     Move a card on a board's Kanban to a column, doing what dragging it there
            does in the app: in a stage column a todo is marked ready for review, done,
            or reopened, and a session marked done; in a label column a todo gets the
@@ -4756,10 +4756,10 @@ Options:
 ```
 Make a board. Given no rule options it holds only what's added (`board add`); with them,
 what they take in too (as `board rule` says), and with --everything, everything in the
-project. Its Kanban starts with the four stage columns (To do, In progress, In review,
-Done), or with --columns labels one column per label its rule names (every label, for a
-rule that names none) and Other, or with --columns blank one column, Inbox, to make your
-own beside. Prints its id
+project. Its Kanban starts with the stage columns (To do, In progress, Validating, In
+review, Ready to merge, Done), or with --columns labels one column per label its rule
+names (every label, for a rule that names none) and Other, or with --columns blank one
+column, Inbox, to make your own beside. Prints its id
 
 Usage: codealong board new [OPTIONS] <NAME>
 
@@ -4790,9 +4790,19 @@ Options:
           Say on stderr whether the app or the files answered
 
       --stage <STAGES>
-          Work at a stage: todo (not started), progress, review, done
-          
-          [possible values: todo, progress, review, done]
+          Work at a stage: todo (not started), progress, validating (its PR's checks
+          running or Codealong's agent reviewing it), review (its PR waiting on a
+          person), ready (GitHub would merge its PR), done
+
+          Possible values:
+          - todo
+          - progress
+          - validating: Its PR's checks are running, or Codealong's agent is reviewing
+            it: the machines' turn
+          - review:     Its PR waits on a person: a review to give, feedback to answer,
+            a failing check or a conflict to see to; or it's marked for review by hand
+          - ready:      GitHub would merge its PR now
+          - done
 
       --status <STATUSES>
           Agents in a status: needs (needs you), unread (your turn), working; a todo or
@@ -4986,9 +4996,19 @@ Options:
           Tables, even when piped
 
       --stage <STAGES>
-          Work at a stage: todo (not started), progress, review, done
-          
-          [possible values: todo, progress, review, done]
+          Work at a stage: todo (not started), progress, validating (its PR's checks
+          running or Codealong's agent reviewing it), review (its PR waiting on a
+          person), ready (GitHub would merge its PR), done
+
+          Possible values:
+          - todo
+          - progress
+          - validating: Its PR's checks are running, or Codealong's agent is reviewing
+            it: the machines' turn
+          - review:     Its PR waits on a person: a review to give, feedback to answer,
+            a failing check or a conflict to see to; or it's marked for review by hand
+          - ready:      GitHub would merge its PR now
+          - done
 
       --verbose
           Say on stderr whether the app or the files answered
@@ -5024,7 +5044,7 @@ Options:
           project of the worktree the current folder is in
 
   -h, --help
-          Print help
+          Print help (see a summary with '-h')
 ```
 
 ## codealong board set
@@ -5033,14 +5053,14 @@ Options:
 Set a board's rule and its Kanban columns from JSON, in the shape `board show --json`
 prints them: {"rule": {…} | null, "columns": [{"id": "next", "name": "Next", "rule":
 {…}, "sort": "hand", "folded": false}] | null}. A field left out stays as it is; a rule
-of null takes in nothing but what's added, and columns of null are the four stages. A
-rule is {"kinds": ["worktree", "session", "todo", "pr"], "stages": ["todo", "progress",
-"review", "done"], "statuses": ["needs", "unread", "working"], "labels": [names or ids],
-"repos": ["owner/name"], "accounts": [names], "active": "1d" | "3d" | "7d" | "30d",
-"text": "words in the title"}, each part optional, every part given holding; {} takes in
-everything. A card goes in the first column whose rule takes it, else in the column it
-was put in by hand, else in the first column without a rule; `sort` is `hand` (as
-they're put), `move` (what needs your user first) or `latest`
+of null takes in nothing but what's added, and columns of null are the stages. A rule is
+{"kinds": ["worktree", "session", "todo", "pr"], "stages": ["todo", "progress",
+"validating", "review", "ready", "done"], "statuses": ["needs", "unread", "working"],
+"labels": [names or ids], "repos": ["owner/name"], "accounts": [names], "active": "1d" |
+"3d" | "7d" | "30d", "text": "words in the title"}, each part optional, every part given
+holding; {} takes in everything. A card goes in the first column whose rule takes it,
+else in the column it was put in by hand, else in the first column without a rule;
+`sort` is `hand` (as they're put), `move` (what needs your user first) or `latest`
 
 Usage: codealong board set [OPTIONS] <BOARD> <SPEC>
 

@@ -1,4 +1,4 @@
-// A board's Kanban (boardLists.ts `kanbanColumns`): its work as cards in its columns, the four
+// A board's Kanban (boardLists.ts `kanbanColumns`): its work as cards in its columns, the
 // stages unless it has columns of its own. A card is a todo, with the sessions on it listed under
 // its two lines, or a session on no todo. Its face is the canvas's (card/CardFace.tsx); this file
 // adds where it goes and what a press, a double-click, a right-click and a drag do, which are a
@@ -28,18 +28,23 @@ import { cmd } from '../platform';
 /** How many of a todo's sessions its card lists, the most urgent first. */
 const SESSIONS_SHOWN = 3;
 
-/** A stage column's box, as its todos' glyph draws it. */
-const STAGE_GLYPH: Record<Stage, { status: TodoStatus; review?: boolean }> = {
+/** A stage column's glyph: its todos' box where a todo's status has the stage, else the icon its
+ *  PR's pill has (prStatus.ts: an hourglass while the agent reviews, the merge of Ready to merge). */
+const STAGE_GLYPH: Record<Stage, { status: TodoStatus; review?: boolean } | { icon: string }> = {
   todo: { status: 'todo' },
   progress: { status: 'in-progress' },
+  validating: { icon: 'hourglass' },
   review: { status: 'in-progress', review: true },
+  ready: { icon: 'merge' },
   done: { status: 'done' },
 };
 
 const STAGE_EMPTY: Record<Stage, string> = {
   todo: 'Nothing waiting to start.',
   progress: 'Nothing under way.',
-  review: 'Nothing waiting on a review.',
+  validating: 'Nothing with checks running or the agent reviewing.',
+  review: 'Nothing waiting on a person.',
+  ready: 'Nothing ready to merge.',
   done: 'Nothing done lately.',
 };
 
@@ -160,6 +165,7 @@ export function KanbanView(props: KanbanViewProps) {
 function ColumnGlyph({ stage }: { stage: Stage | null }) {
   if (!stage) return <Icon name="layout-kanban" size={11} />;
   const g = STAGE_GLYPH[stage];
+  if ('icon' in g) return <Icon name={g.icon} size={11} />;
   return <TodoGlyph status={g.status} review={g.review} size={11} title="" />;
 }
 

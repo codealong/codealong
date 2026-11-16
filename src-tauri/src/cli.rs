@@ -1005,7 +1005,7 @@ enum ReuseCmd {
 enum BoardCmd {
     /// A project's boards as they were made, each with its id, its name, what its rule takes in, and how many cards were added and taken off by hand. With --project all, every project's boards after its own, as the app lists them under All projects.
     List(BoardAt),
-    /// Make a board. Given no rule options it holds only what's added (`board add`); with them, what they take in too (as `board rule` says), and with --everything, everything in the project. Its Kanban starts with the four stage columns (To do, In progress, In review, Done), or with --columns labels one column per label its rule names (every label, for a rule that names none) and Other, or with --columns blank one column, Inbox, to make your own beside. Prints its id.
+    /// Make a board. Given no rule options it holds only what's added (`board add`); with them, what they take in too (as `board rule` says), and with --everything, everything in the project. Its Kanban starts with the stage columns (To do, In progress, Validating, In review, Ready to merge, Done), or with --columns labels one column per label its rule names (every label, for a rule that names none) and Other, or with --columns blank one column, Inbox, to make your own beside. Prints its id.
     New(BoardNewArgs),
     /// What a board holds, as its user sees it: its Kanban columns, each with its cards in their order (a todo with the sessions on it, or a session on no todo the board shows), or with --as canvas its canvas's frames in reading order, each with who made it (`by`: `you` drew it, a `tidy` made it, or `arrange` did), the cards in it (`gone` once the board no longer has one) and its notes. Without a board, the one the project has.
     Show(BoardShowArgs),
@@ -1015,7 +1015,7 @@ enum BoardCmd {
     Remove(BoardCardsArgs),
     /// Change what comes onto a board by itself. Each option given must hold, and one holds when a card has any of what it names: --label release --stage review takes in the todos labelled release that are in review, and the sessions on them. --everything takes in everything in the project; --hand-only nothing but what's added.
     Rule(BoardRuleArgs),
-    /// Set a board's rule and its Kanban columns from JSON, in the shape `board show --json` prints them: {"rule": {…} | null, "columns": [{"id": "next", "name": "Next", "rule": {…}, "sort": "hand", "folded": false}] | null}. A field left out stays as it is; a rule of null takes in nothing but what's added, and columns of null are the four stages. A rule is {"kinds": ["worktree", "session", "todo", "pr"], "stages": ["todo", "progress", "review", "done"], "statuses": ["needs", "unread", "working"], "labels": [names or ids], "repos": ["owner/name"], "accounts": [names], "active": "1d" | "3d" | "7d" | "30d", "text": "words in the title"}, each part optional, every part given holding; {} takes in everything. A card goes in the first column whose rule takes it, else in the column it was put in by hand, else in the first column without a rule; `sort` is `hand` (as they're put), `move` (what needs your user first) or `latest`.
+    /// Set a board's rule and its Kanban columns from JSON, in the shape `board show --json` prints them: {"rule": {…} | null, "columns": [{"id": "next", "name": "Next", "rule": {…}, "sort": "hand", "folded": false}] | null}. A field left out stays as it is; a rule of null takes in nothing but what's added, and columns of null are the stages. A rule is {"kinds": ["worktree", "session", "todo", "pr"], "stages": ["todo", "progress", "validating", "review", "ready", "done"], "statuses": ["needs", "unread", "working"], "labels": [names or ids], "repos": ["owner/name"], "accounts": [names], "active": "1d" | "3d" | "7d" | "30d", "text": "words in the title"}, each part optional, every part given holding; {} takes in everything. A card goes in the first column whose rule takes it, else in the column it was put in by hand, else in the first column without a rule; `sort` is `hand` (as they're put), `move` (what needs your user first) or `latest`.
     Set(BoardSetArgs),
     /// Move a card on a board's Kanban to a column, doing what dragging it there does in the app: in a stage column a todo is marked ready for review, done, or reopened, and a session marked done; in a label column a todo gets the label; in a column of your own the card is put there. Starting a todo from To do starts a session in the app, so it's turned down here: run `codealong todo start` in the session that takes it on. --dry-run says what it would do without doing it.
     Move(BoardMoveArgs),
@@ -1126,7 +1126,7 @@ struct RuleArgs {
     /// Cards of a kind.
     #[arg(long = "kind", value_enum)]
     kinds: Vec<boards::Kind>,
-    /// Work at a stage: todo (not started), progress, review, done.
+    /// Work at a stage: todo (not started), progress, validating (its PR's checks running or Codealong's agent reviewing it), review (its PR waiting on a person), ready (GitHub would merge its PR), done.
     #[arg(long = "stage", value_enum)]
     stages: Vec<boards::Stage>,
     /// Agents in a status: needs (needs you), unread (your turn), working; a todo or a worktree by its sessions.
@@ -2726,7 +2726,9 @@ fn rule_text(rule: Option<&Rule>, labels: &[Label]) -> String {
         let word = |s: &boards::Stage| match s {
             boards::Stage::Todo => "not started",
             boards::Stage::Progress => "in progress",
+            boards::Stage::Validating => "validating",
             boards::Stage::Review => "in review",
+            boards::Stage::Ready => "ready to merge",
             boards::Stage::Done => "done",
         };
         parts.push(or(r.stages.iter().map(|s| word(s).to_string()).collect()));
@@ -2892,7 +2894,7 @@ fn board_set(c: &mut Client, a: BoardSetArgs, json: bool) -> Result<()> {
         now = apply_board(c, BoardOp::Columns { id: b.id.clone(), columns })?.board.unwrap_or(now);
     }
     let labels = store.labels;
-    let cols = now.columns.as_ref().map_or_else(|| "the four stages".to_string(), |cols| cols.iter().map(|c| c.name.as_str()).collect::<Vec<_>>().join(", "));
+    let cols = now.columns.as_ref().map_or_else(|| "the stages".to_string(), |cols| cols.iter().map(|c| c.name.as_str()).collect::<Vec<_>>().join(", "));
     say_done(json, &now, format!("{} takes in {}, in columns {}.\n", now.name, rule_text(now.rule.as_ref(), &labels), cols))
 }
 

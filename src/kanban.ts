@@ -1,7 +1,8 @@
 // What a card dropped on a board's Kanban does (ui/KanbanView.tsx): whatever lands it in that
 // column (boards/rules.ts `columnOf`), or nothing. A stage column moves a todo's work on as its
 // stage says: back to To do, started (the quick panel, as ⌘N does), marked ready for review or
-// sent back from it, or done; a session can be marked done there. A label column gives a todo its
+// sent back from it, or done; a session can be marked done there. Validating and Ready to merge
+// are its PR's to say, so nothing dropped there lands there. A label column gives a todo its
 // label, and one it leaves takes its own away. A column of your own puts the card there, and when a
 // rule column holds it, undoes what holds it first (Done reopens it). A session dropped on a todo's
 // card joins that todo. What a column works out for itself it keeps: a todo In review because its
@@ -13,7 +14,7 @@ import { refId } from './canvas/model';
 import type { BoardColumn, Stage } from './boards/model';
 import { columnOf, todoStage, todoSubject, type Subject } from './boards/rules';
 import { applyOp, type TodoItem, type TodoOp, type TodoPatch } from './todos';
-import type { Todo } from './types';
+import type { PrItem, Todo } from './types';
 import type { SessionItem } from './ui/SessionsView';
 
 /** One thing letting a card go somewhere does. */
@@ -49,6 +50,9 @@ export interface DropContext {
   subjects: Map<string, Subject>;
   /** Every todo: what a todo waits on decides its stage. */
   todos: Todo[];
+  /** The PRs the board lists: a todo in review goes by its PR's stage (boards/rules.ts
+   *  `todoStage`). */
+  prs: readonly PrItem[];
   now: number;
 }
 
@@ -114,6 +118,10 @@ function stageStep(item: TodoItem, from: Stage, to: Stage): Step | null {
       return { moves: [{ kind: 'review', on: true }], patch: { ...(t.status === 'done' ? { status: 'in-progress' as const } : {}), review: { note: '', since: 0 } }, icon: 'eye', word: 'Ready for review' };
     case 'done':
       return { moves: [{ kind: 'status', status: 'done' }], patch: { status: 'done' }, icon: 'check', word: 'Done' };
+    // Its PR's checks and reviews put it there, which no change to the todo does.
+    case 'validating':
+    case 'ready':
+      return null;
   }
 }
 
@@ -126,7 +134,7 @@ function todoDrop(card: TodoItem, from: KanbanColumn, to: KanbanColumn, index: n
   let patch: TodoPatch = {};
   let icon = 'arrow-right';
   let word = `Move to ${to.label}`;
-  const stage = todoStage(card, ctx.todos);
+  const stage = todoStage(card, ctx.todos, ctx.prs);
   const step = (s: Step | null) => {
     if (!s) return false;
     moves.push(...s.moves);
@@ -146,7 +154,7 @@ function todoDrop(card: TodoItem, from: KanbanColumn, to: KanbanColumn, index: n
     // As the todo store will have it: what a status or a review mark does to the rest is its own.
     const todo = applyOp({ todos: [t], labels: [] }, { op: 'update', id: t.id, patch: { ...patch, labels } }, ctx.now).todos[0] ?? t;
     const placed = place ? { ...ctx.placed, [refId('todo', t.id)]: place } : ctx.placed;
-    return columnOf(todoSubject({ ...card, todo }, ctx.todos), ctx.columns, placed, ctx.now);
+    return columnOf(todoSubject({ ...card, todo }, ctx.todos, ctx.prs), ctx.columns, placed, ctx.now);
   };
   // What holds it in another column: a label column it leaves gives up its label, and a stage
   // column it leaves for one of your own sends its work back to To do.

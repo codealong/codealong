@@ -1,6 +1,6 @@
 // Making a board, or changing one: its name and what it takes in by itself (boards/model.ts): its
 // project's everything, what a rule says (RuleFields.tsx), or only what you add. A new board picks
-// its Kanban's columns too: the four stages, one per label, or one to make your own beside. A
+// its Kanban's columns too: the stages, one per label, or one to make your own beside. A
 // column of a board's Kanban is made or changed here as well (`ColumnDialog`): its name, what it
 // holds (what a rule says, or the cards you put in it) and its order.
 
@@ -18,7 +18,7 @@ const TAKES: { id: Takes; label: string; title: string }[] = [
 ];
 
 const PRESETS: { id: ColumnsPreset; label: string; title: string }[] = [
-  { id: 'stages', label: 'Stages', title: 'To do, In progress, In review and Done, which follow the work' },
+  { id: 'stages', label: 'Stages', title: 'To do, In progress, Validating, In review, Ready to merge and Done, which follow the work' },
   { id: 'labels', label: 'By label', title: 'A column per label, and Other' },
   { id: 'blank', label: 'Your own', title: 'One column, Inbox, to make your own beside' },
 ];

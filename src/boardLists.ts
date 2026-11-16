@@ -11,7 +11,7 @@ import { needsOn, withDevices, workingOn } from './devices';
 import { AGENT_BAY, bySession, byStatusTime, filterByAge, homeOf, type HelperGlance, inboxCounts, keptCopy, listedStatus, listedUnder, prNeedsWork, runsShownKey, selfShownKey, sessionHomes, sideTitle, snoozedApart, unattended, workingFor, worktreeName, type BoardRow, type Filter, type LaneCopies, type Placed } from './lanes';
 import type { Pins } from './pins';
 import type { RefKind } from './canvas/model';
-import { columnsOf, stageOfColumn, type BoardColumn, type BoardDoc, type Stage } from './boards/model';
+import { columnsOf, inPrLoop, stageOfColumn, type BoardColumn, type BoardDoc, type Stage } from './boards/model';
 import { columnOf, memberTest, ownLabels, sessionStage, subjectsOf, todoStage, type Subject } from './boards/rules';
 import { ALL_PROJECTS, hasWords, inProject, queryWords, saidLine, type SaidLine } from './quick';
 import { isOpen, itemSection, todoIndex, todoInFilter, todoItem, todoSections, type TodoItem, type TodoSectionId, type TodoSort } from './todos';
@@ -881,11 +881,11 @@ export interface KanbanInput {
 }
 
 /**
- * A board's Kanban: its columns (four stages, unless it has its own), each always there, and No
+ * A board's Kanban: its columns (the stages, unless it has its own), each always there, and No
  * column after them while some card goes in none. The cards are the board's todos among those
  * listed, and its sessions among those listed that aren't on an open todo's card, which shows
- * them: each one put on the board by hand, and the rest that are worth one (`current`, or in
- * review), but helpers and headless runs that don't need you (lanes.ts `unattended`), which work
+ * them: each one put on the board by hand, and the rest that are worth one (`current`, or with
+ * its PR open and not a draft: boards/model.ts `inPrLoop`), but helpers and headless runs that don't need you (lanes.ts `unattended`), which work
  * for another session. A session is the board's when it is, or its worktree is, or a PR it worked
  * on. Done todos go back to `doneSince`, but those put on the board by hand; archived ones are on
  * no board. Each column goes in its own order: yours, whose move it is, or the latest first.
@@ -932,7 +932,7 @@ function boardCards({ todoRows, todos, sessions, prs, doneSince, board, member }
     if (removed.has(card)) return false;
     const onTodo = onCards.has(r.session.key);
     if (onTodo ? !withTodos : !(member(card) || member(`worktree:${r.lane.id}`) || viaPrs.has(r.session.key))) return false;
-    return added.has(card) || (!unattended(r.session) && (current(r.session) || sessionStage(r, prs) === 'review'));
+    return added.has(card) || (!unattended(r.session) && (current(r.session) || inPrLoop(sessionStage(r, prs))));
   });
   return { todoCards, sessionCards };
 }

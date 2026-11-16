@@ -154,7 +154,7 @@ async function move(op: Extract<Ask, { kind: 'move' }>, doc: BoardDoc, board: Bo
   if (op.before && (!keepsPlace || before < 0)) throw new Error(`${op.before} isn't in ${to.label}, or ${to.label} keeps no order of yours for it.`);
   // Within its column a card needs a place to go to; into another it goes after the rest there.
   const index = !keepsPlace ? null : op.before ? before : from.id === to.id ? null : places.length;
-  const drop = kanbanDrop(card, from, to, null, index, { columns: columns.flatMap((c) => c.column ?? []), placed: doc.placed, subjects, todos: board.todos, now });
+  const drop = kanbanDrop(card, from, to, null, index, { columns: columns.flatMap((c) => c.column ?? []), placed: doc.placed, subjects, todos: board.todos, prs: board.prs, now });
   if (!drop || drop.moves.length === 0) throw new Error(from.id === to.id ? `It's in ${to.label} already.` : `Moving it to ${to.label} does nothing: no change would put it there.`);
   if (drop.moves.some((m) => m.kind === 'start')) throw new Error('Moving a todo from To do to In progress starts a session, which the command doesn’t do: run `codealong todo start` in the session that takes it on.');
   // Mark as done can stop a session, which its menu asks about first; the command for it says so.

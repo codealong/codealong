@@ -129,6 +129,14 @@ export function heldForAgent(pr: { autoReview?: { holds?: boolean } }): boolean 
   return !!pr.autoReview?.holds;
 }
 
+/** Codealong's agent is reviewing the commit the PR is at: one it holds out of what waits on you
+ *  (`heldForAgent`), or a round under way on that commit, which on a PR of yours (`[reviews.own]`)
+ *  holds nothing, since nothing of yours waits on it. A board's Kanban has it in Validating. */
+export function agentReviewing(pr: Pick<PrFacts, 'autoReview' | 'headOid'>): boolean {
+  const a = pr.autoReview;
+  return heldForAgent(pr) || (a?.stage === 'reviewing' && !!pr.headOid && a.head === pr.headOid);
+}
+
 type AgentFacts = Pick<PrFacts, 'state' | 'reviewRequested' | 'autoReview' | 'headOid'>;
 
 /** Codealong's agent approves the commit someone else's PR is at, and the PR waits on your review:

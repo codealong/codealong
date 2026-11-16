@@ -11,15 +11,26 @@ import { ALL_PROJECTS } from '../quick';
 import type { Label } from '../types';
 
 /** How far a card's work has got, as the stage columns have it (rules.ts `todoStage`,
- *  `sessionStage`, `prStage`). */
-export type Stage = 'todo' | 'progress' | 'review' | 'done';
+ *  `sessionStage`, `prStage`). Once its PR is open the work goes round one loop of checks,
+ *  reviews and fixes, split by whose turn it is: Validating while the machines have it (its checks
+ *  running, Codealong's agent reviewing it), In review while a person does (a review to give,
+ *  feedback to answer, a failing check or a conflict to see to), and Ready to merge once GitHub
+ *  would merge it. */
+export type Stage = 'todo' | 'progress' | 'validating' | 'review' | 'ready' | 'done';
 /** An agent's status, as the sidebar's statuses name them. */
 export type StatusPick = 'needs' | 'unread' | 'working';
 /** How recently a card's work moved on. */
 export type Active = '1d' | '3d' | '7d' | '30d';
 
-export const STAGES: Stage[] = ['todo', 'progress', 'review', 'done'];
-export const STAGE_WORD: Record<Stage, string> = { todo: 'To do', progress: 'In progress', review: 'In review', done: 'Done' };
+export const STAGES: Stage[] = ['todo', 'progress', 'validating', 'review', 'ready', 'done'];
+export const STAGE_WORD: Record<Stage, string> = { todo: 'To do', progress: 'In progress', validating: 'Validating', review: 'In review', ready: 'Ready to merge', done: 'Done' };
+/** The stages of an open PR's loop (`Stage`). */
+export type PrStage = 'validating' | 'review' | 'ready';
+export const PR_STAGES: readonly PrStage[] = ['validating', 'review', 'ready'];
+
+export function inPrLoop(stage: Stage | null): stage is PrStage {
+  return PR_STAGES.some((s) => s === stage);
+}
 export const STATUS_PICKS: StatusPick[] = ['needs', 'unread', 'working'];
 export const STATUS_WORD: Record<StatusPick, string> = { needs: 'Needs you', unread: 'Your turn', working: 'Working' };
 export const ACTIVES: Active[] = ['1d', '3d', '7d', '30d'];
@@ -71,7 +82,7 @@ export interface BoardDoc {
   removed: string[];
   /** When each card was added by hand. */
   addedAt?: Record<string, number>;
-  /** Its Kanban columns; null for the four stages. */
+  /** Its Kanban columns; null for the stages. */
   columns?: BoardColumn[] | null;
   /** The column each card was put in by hand, by card id. */
   placed?: Record<string, string>;
@@ -97,7 +108,9 @@ export type BoardOp =
 export const STAGE_COLUMNS: BoardColumn[] = [
   { id: 'todo', name: 'To do', rule: { stages: ['todo'] }, sort: 'hand' },
   { id: 'progress', name: 'In progress', rule: { stages: ['progress'] }, sort: 'move' },
+  { id: 'validating', name: 'Validating', rule: { stages: ['validating'] }, sort: 'move' },
   { id: 'review', name: 'In review', rule: { stages: ['review'] }, sort: 'move' },
+  { id: 'ready', name: 'Ready to merge', rule: { stages: ['ready'] }, sort: 'move' },
   { id: 'done', name: 'Done', rule: { stages: ['done'] }, sort: 'latest', folded: true },
 ];
 
@@ -115,7 +128,7 @@ export function stageOfColumn(c: BoardColumn): Stage | null {
 
 export type ColumnsPreset = 'stages' | 'labels' | 'blank';
 
-/** The columns a new board starts with (cli.rs `ColumnsPreset` makes the same): the four stages
+/** The columns a new board starts with (cli.rs `ColumnsPreset` makes the same): the stages
  *  (null), one column per label and Other, or one column, Inbox. */
 export function presetColumns(preset: ColumnsPreset, labels: Label[]): BoardColumn[] | null {
   switch (preset) {

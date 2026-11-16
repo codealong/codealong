@@ -2703,7 +2703,7 @@ export function App() {
                 onShowPr={(p, c) => showPrOf(p, { key: c.key, select: () => setSelectedKey(c.key) })}
                 onOpenPr={(p) => openUrl(p.url).catch((e: unknown) => setToast(String(e)))}
                 onDrop={(c, drop) => applyKanbanDrop(c, drop, kanbanActs, shownBoard.placed?.[kanbanCardId(c)] ?? null)}
-                dropContext={{ columns: columnsOf(shownBoard), placed: shownBoard.placed, subjects, todos: todoStore.todos, now }}
+                dropContext={{ columns: columnsOf(shownBoard), placed: shownBoard.placed, subjects, todos: todoStore.todos, prs: board.prs, now }}
                 canReorder
                 composerColumn={composerColumn}
                 hints={board.jev?.todos ? board.todoHints : undefined}

@@ -1,8 +1,8 @@
-// Checks the Kanban view (KanbanView.tsx): its four columns, Done folded to a rail that opens it,
+// Checks the Kanban view (KanbanView.tsx): its six columns, Done folded to a rail that opens it,
 // a card's press selecting it with its panel beside the board (a todo's, or a session's), the
 // arrows going up a column and across, R marking a todo ready for review, and dragging: a todo
-// to In review marks it so, a session to Done marks it done, and a session dropped on a todo's
-// card joins it.
+// to In review marks it so, one to Validating does nothing (its PR's to say), a session to Done
+// marks it done, and a session dropped on a todo's card joins it.
 //   PREVIEW_WAIT=60000 PREVIEW_TODOS=scripts/preview/todos-sample.json PREVIEW_BOARDS=scripts/preview/boards-everything.json scripts/preview.sh kanban '' scripts/preview/kanban-check.js
 // It needs a session card on the board, one running or waiting on you on no todo; the sample
 // todos give it its todos, and the board that takes in everything shows them.
@@ -30,7 +30,7 @@
   until(function () { return column('todo') && q('.ca-kb-rail'); }, 30000, 'the Kanban view’s columns')
     .then(function () {
       var heads = all('.ca-kb-col .ca-kb-head span:nth-child(2)').map(function (s) { return s.textContent; });
-      check('it has To do, In progress and In review, Done folded to a rail', heads.join('|') === 'To do|In progress|In review' && !!q('.ca-kb-rail[data-kb-column="done"]'), heads.join('|'));
+      check('it has To do, In progress, Validating, In review and Ready to merge, Done folded to a rail', heads.join('|') === 'To do|In progress|Validating|In review|Ready to merge' && !!q('.ca-kb-rail[data-kb-column="done"]'), heads.join('|'));
       check('To do holds only todos, in the box’s column', cards('todo').length > 0 && cards('todo').every(function (r) { return face(r).indexOf('todo:') === 0; }) && !!q('.ca-kb-col.is-todo .ca-todonew'), cards('todo').map(face).join(' '));
       // A label's swatch is square, as the todo's box is, so a card's line leads with when it's
       // due, by its icon, and leaves the swatches to its end.
@@ -77,11 +77,17 @@
     })
     .then(function (session) {
       check('a session’s press shows its panel, with its conversation', true);
-      // A todo dragged from To do to In review is marked so.
+      // A todo dragged from To do to Validating does nothing: its PR's checks and reviews put it
+      // there. To In review it's marked so.
       since = todoOps().length;
       var todo = cards('todo')[cards('todo').length - 1];
-      drag(todo, column('review'));
-      return until(function () { return opsSince().length > 0; }, 5000, 'the drop on In review')
+      drag(todo, column('validating'));
+      return wait(300)
+        .then(function () {
+          check('a todo dropped on Validating changes nothing', opsSince().length === 0, JSON.stringify(opsSince()));
+          drag(todo, column('review'));
+          return until(function () { return opsSince().length > 0; }, 5000, 'the drop on In review');
+        })
         .then(function () {
           var op = opsSince()[0];
           check('a todo dropped on In review is marked ready for review', op && op.op === 'update' && op.patch.review, JSON.stringify(op));

@@ -8,10 +8,11 @@
 
 import { refId, type RefKind } from '../canvas/model';
 import { AGENT_BAY, sessionPrs } from '../lanes';
-import { itemSection, type TodoItem } from '../todos';
+import { agentReviewing, prReady, type PrFacts } from '../prStatus';
+import { itemSection, todoPr, type TodoItem } from '../todos';
 import type { Label, Lane, Pr, PrItem, Session, Todo } from '../types';
 import type { SessionItem } from '../ui/SessionsView';
-import { takesAll, type Active, type BoardColumn, type BoardDoc, type Rule, type Stage, type StatusPick } from './model';
+import { inPrLoop, takesAll, type Active, type BoardColumn, type BoardDoc, type Rule, type Stage, type StatusPick } from './model';
 
 /** What a rule asks of one thing on the board. */
 export interface Subject {
@@ -27,10 +28,31 @@ export interface Subject {
   accounts: string[];
 }
 
-const isOpenForReview = (state: Pr['state'] | undefined) => state === 'open' || state === 'approved' || state === 'changes';
+/** A PR as the PRs view lists it, for what it says of its review and checks, where the board lists
+ *  it; else as its worktree has it, which says less (`Pr`). */
+function factsOf(pr: Pr, prs: readonly PrItem[]): PrFacts {
+  return prs.find((p) => p.url === pr.url) ?? pr;
+}
+
+/** A PR's stage, and a worktree's by its PR, its PR's facts first (`factsOf`). A draft is under
+ *  way and a merged or closed one done. An open one goes round the loop of checks, reviews and
+ *  fixes (model.ts `Stage`), split by whose turn it is: Validating while the machines have it,
+ *  Codealong's agent reviewing the commit it's at (prStatus.ts `agentReviewing`) or its checks
+ *  still running with none failed; Ready to merge once GitHub would merge it (`prReady`: the
+ *  reviews the repo requires, passing checks, no conflicts), the agent done with it; else In review,
+ *  a person's turn: a review to give, feedback to answer, a failing check or a conflict to see to.
+ *  It moves as its work does (a push, a check's end, a review), never with an agent's turns. */
+export function prStage(pr: PrFacts | null | undefined): Stage | null {
+  if (!pr) return null;
+  if (pr.state === 'merged' || pr.state === 'closed') return 'done';
+  if (pr.state === 'draft') return 'progress';
+  if (agentReviewing(pr)) return 'validating';
+  if (prReady(pr)) return 'ready';
+  return pr.checks.pending > 0 && pr.checks.failed === 0 ? 'validating' : 'review';
+}
 
 /** Where a session stands: Done once it's archived (marked done, say), whatever its PR, unless it's
- *  at work or waits on you; In review while the PR it worked on (an open one first, lanes.ts
+ *  at work or waits on you; its PR's stage while the PR it worked on (an open one first, lanes.ts
  *  `sessionPrs`) is open and not a draft; Done once that PR merged or its turn ended saying its
  *  work landed, unless it's at work or waits on you; else In progress. */
 export function sessionStage(r: SessionItem, prs: PrItem[]): Exclude<Stage, 'todo'> {
@@ -39,24 +61,25 @@ export function sessionStage(r: SessionItem, prs: PrItem[]): Exclude<Stage, 'tod
   if (s.archived && !busy) return 'done';
   const worked = sessionPrs(prs, r.lane, s);
   const pr = worked.find((p) => p.state !== 'merged' && p.state !== 'closed') ?? worked[0];
-  if (isOpenForReview(pr?.state)) return 'review';
+  const stage = prStage(pr && factsOf(pr, prs));
+  if (inPrLoop(stage)) return stage;
   return !busy && (pr?.state === 'merged' || s.insight?.landing === 'landed') ? 'done' : 'progress';
 }
 
 /** A todo's stage: its Todo view section (todos.ts `itemSection`), Ready and Waiting both To do,
  *  and Archived done with (an archived todo is on no board's Kanban, boardLists.ts
- *  `kanbanColumns`). */
-export function todoStage(item: TodoItem, todos: Todo[]): Stage {
+ *  `kanbanColumns`). One in review goes by its PR (`todoPr`, `prStage`) while that's open and not a
+ *  draft; marked for review by hand without one, or with its PR merged while it isn't done, it's In
+ *  review, waiting on you. `prs`: the PRs the board lists, for what they say of their checks and
+ *  reviews. */
+export function todoStage(item: TodoItem, todos: Todo[], prs: readonly PrItem[] = []): Stage {
   const section = itemSection(item, todos);
+  if (section === 'review') {
+    const pr = todoPr(item);
+    const stage = prStage(pr && factsOf(pr, prs));
+    return inPrLoop(stage) ? stage : 'review';
+  }
   return section === 'ready' || section === 'waiting' ? 'todo' : section === 'in-progress' ? 'progress' : section === 'archived' ? 'done' : section;
-}
-
-/** A PR's stage, and a worktree's by its PR: a draft is under way, an open one in review, and a
- *  merged or closed one done. */
-function prStage(state: Pr['state'] | undefined): Stage | null {
-  if (!state) return null;
-  if (state === 'draft') return 'progress';
-  return isOpenForReview(state) ? 'review' : 'done';
 }
 
 const statusOf = (s: Session): StatusPick | null => {
@@ -71,14 +94,15 @@ export function repoOf(lane: Lane): string {
   return lane.repoSlug ?? `${lane.project}/${lane.repo}`;
 }
 
-export function todoSubject(item: TodoItem, todos: Todo[]): Subject {
+/** `prs`: the PRs the board lists (`todoStage`). */
+export function todoSubject(item: TodoItem, todos: Todo[], prs: readonly PrItem[] = []): Subject {
   const sessions = item.sessions.map((p) => p.session);
   return {
     card: refId('todo', item.todo.id),
     ref: 'todo',
     title: item.todo.title,
     activity: item.lastActivity,
-    stage: todoStage(item, todos),
+    stage: todoStage(item, todos, prs),
     statuses: statusesOf(sessions),
     labels: item.todo.labels,
     repos: uniq([...item.places.map((p) => repoOf(p.lane)), ...item.sessions.map((p) => repoOf(p.lane))]),
@@ -112,14 +136,14 @@ export function sessionSubject(r: SessionItem, prs: PrItem[], on: Todo[], labels
 }
 
 /** `on`: the todos linked to it or to a session in it, whose labels go with its sessions' own;
- *  `labels`, this Mac's (`ownLabels`). */
-export function laneSubject(lane: Lane, on: Todo[], labels: readonly Label[] = []): Subject {
+ *  `labels`, this Mac's (`ownLabels`); `prs`, the PRs the board lists (`prStage`). */
+export function laneSubject(lane: Lane, on: Todo[], labels: readonly Label[] = [], prs: readonly PrItem[] = []): Subject {
   return {
     card: refId('worktree', lane.id),
     ref: 'worktree',
     title: lane.callsign,
     activity: lane.lastActivity,
-    stage: prStage(lane.pr?.state),
+    stage: prStage(lane.pr && factsOf(lane.pr, prs)),
     statuses: statusesOf(lane.sessions),
     labels: uniq([...on.flatMap((t) => t.labels), ...lane.sessions.flatMap((s) => ownLabels(s, labels))]),
     repos: [repoOf(lane)],
@@ -134,7 +158,7 @@ export function prSubject(pr: PrItem, sessions: Session[]): Subject {
     ref: 'pr',
     title: `#${pr.number} ${pr.title}`,
     activity: pr.updatedAt,
-    stage: prStage(pr.state),
+    stage: prStage(pr),
     statuses: statusesOf(sessions),
     labels: [],
     repos: [pr.repoSlug],
@@ -173,9 +197,9 @@ export function subjectsOf({ todoItems, todos, sessionItems, lanes, prs, labels 
   }
   const out = new Map<string, Subject>();
   const put = (s: Subject) => out.set(s.card, s);
-  todoItems.forEach((r) => put(todoSubject(r, todos)));
+  todoItems.forEach((r) => put(todoSubject(r, todos, prs)));
   sessionItems.forEach((r) => put(sessionSubject(r, prs, bySession.get(r.session.key) ?? [], labels)));
-  lanes.forEach((l) => put(laneSubject(l, byLane.get(l.id) ?? [], labels)));
+  lanes.forEach((l) => put(laneSubject(l, byLane.get(l.id) ?? [], labels, prs)));
   const sessionByKey = new Map(sessionItems.map((r) => [r.session.key, r.session]));
   prs.forEach((p) => put(prSubject(p, p.sessions.flatMap((x) => sessionByKey.get(x.key) ?? []))));
   return out;

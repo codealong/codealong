@@ -4,9 +4,9 @@ import { sessionHomes } from '../lanes';
 import * as fx from '../testing/fixtures';
 import { NOW } from '../testing/fixtures';
 import { todoItem } from '../todos';
-import type { Label, Lane, Todo } from '../types';
+import type { AutoReview, Label, Lane, PrItem, Todo } from '../types';
 import type { BoardColumn, BoardDoc } from './model';
-import { columnOf, matches, memberTest, ownLabels, subjectsOf, type Subject } from './rules';
+import { columnOf, matches, memberTest, ownLabels, prStage, subjectsOf, todoStage, type Subject } from './rules';
 
 const DAY = 86_400_000;
 
@@ -24,6 +24,71 @@ function project() {
 }
 
 const at = (subjects: Map<string, Subject>, card: string) => subjects.get(card) as Subject;
+
+describe('where an open PR is in its loop of checks, reviews and fixes', () => {
+  const review = (over: Partial<AutoReview>): AutoReview => ({ stage: 'reviewing', head: 'c2', at: NOW, rounds: 1, ...over });
+  const at = (over: Partial<PrItem>) => prStage(fx.prItem({ headOid: 'c2', ...over }));
+
+  it('has a draft under way and a merged or closed one done', () => {
+    expect(at({ state: 'draft', checks: fx.checks({ pending: 2 }) })).toBe('progress');
+    expect(at({ state: 'merged' })).toBe('done');
+    expect(at({ state: 'closed' })).toBe('done');
+    expect(prStage(null)).toBeNull();
+  });
+
+  it('is Validating while the machines have it: its checks running, or the agent reviewing the commit it’s at', () => {
+    expect(at({ checks: fx.checks({ pending: 2, passed: 3 }) })).toBe('validating');
+    expect(at({ merge: 'clean', autoReview: review({ holds: true }) })).toBe('validating');
+    // A round on a PR of yours holds nothing, and is still the agent's turn.
+    expect(at({ mine: true, autoReview: review({ own: true }) })).toBe('validating');
+    // One of an earlier commit is done with this one.
+    expect(at({ autoReview: review({ head: 'c1' }) })).toBe('review');
+  });
+
+  it('is Ready to merge once GitHub would merge it, approved or not where the repo asks for none', () => {
+    expect(at({ state: 'approved', merge: 'clean', checks: fx.checks({ passed: 4 }) })).toBe('ready');
+    expect(at({ state: 'open', merge: 'clean' })).toBe('ready');
+    // GitHub has the last word: approved with passing checks can still be held back.
+    expect(at({ state: 'approved', merge: 'blocked', checks: fx.checks({ passed: 4 }) })).toBe('review');
+    expect(at({ state: 'approved', merge: 'unknown' })).toBe('review');
+  });
+
+  it('is In review while it’s a person’s turn: a review to give, feedback, a failing check, a conflict', () => {
+    expect(at({ reviewRequested: true })).toBe('review');
+    expect(at({ state: 'changes' })).toBe('review');
+    // A check that failed is someone's to see to, though others still run.
+    expect(at({ checks: fx.checks({ failed: 1, pending: 2 }) })).toBe('review');
+    expect(at({ state: 'approved', merge: 'conflicts' })).toBe('review');
+  });
+
+  it('puts a session, its worktree and a todo on it where the PR the board lists is, not the worktree’s copy', () => {
+    const s = fx.session({ key: 'claude:claude:p', status: 'idle' });
+    // The worktree's copy of the PR says less than the PRs view's: GitHub hasn't said it merges.
+    const lane: Lane = fx.lane({ id: '/r/app', repoSlug: 'acme/app', sessions: [s], pr: fx.pr({ state: 'approved' }) });
+    const prs = [fx.prItem({ state: 'approved', merge: 'clean', lanes: ['/r/app'] })];
+    const todos: Todo[] = [fx.todo({ id: 'p', status: 'in-progress', worktrees: ['/r/app'] })];
+    const todoItems = todos.map((t) => todoItem(t, new Map([[lane.id, lane]]), sessionHomes([lane]), new Map()));
+    const subjects = subjectsOf({ todoItems, todos, sessionItems: sessionItemsOf([lane]), lanes: [lane], prs });
+    expect(at2(subjects, 'session:claude:claude:p').stage).toBe('ready');
+    expect(at2(subjects, 'worktree:/r/app').stage).toBe('ready');
+    expect(at2(subjects, 'todo:p').stage).toBe('ready');
+    // Without the board's copy, the worktree's says In review.
+    expect(subjectsOf({ todoItems, todos, sessionItems: sessionItemsOf([lane]), lanes: [lane], prs: [] }).get('todo:p')?.stage).toBe('review');
+  });
+
+  it('keeps a todo marked for review by hand, or whose PR merged before it was done, In review', () => {
+    const draft: Lane = fx.lane({ id: '/r/draft', pr: fx.pr({ state: 'draft', checks: fx.checks({ pending: 1 }) }) });
+    const merged: Lane = fx.lane({ id: '/r/merged', pr: fx.pr({ state: 'merged', number: 8 }) });
+    const map = new Map([draft, merged].map((l) => [l.id, l]));
+    const marked = fx.todo({ id: 'm', status: 'in-progress', review: { note: '', since: 1 }, worktrees: ['/r/draft'] });
+    const late = fx.todo({ id: 'l', status: 'in-progress', worktrees: ['/r/merged'] });
+    const item = (t: Todo) => todoItem(t, map, new Map(), new Map());
+    expect(todoStage(item(marked), [marked])).toBe('review');
+    expect(todoStage(item(late), [late])).toBe('review');
+  });
+});
+
+const at2 = (subjects: Map<string, Subject>, card: string) => subjects.get(card) as Subject;
 
 describe('what a thing on a board is to its rules', () => {
   const s = project();

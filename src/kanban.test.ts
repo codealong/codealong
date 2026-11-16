@@ -6,7 +6,7 @@ import { applyKanbanDrop, boardOrderWith, columnWith, insertionAt, kanbanDrop, k
 import * as fx from './testing/fixtures';
 import { NOW } from './testing/fixtures';
 import { todoItem, type TodoOp } from './todos';
-import type { Lane, Todo } from './types';
+import type { Lane, PrItem, Todo } from './types';
 import type { SessionItem } from './ui/SessionsView';
 
 const todoCard = (over: Partial<Todo> = {}, lanes: Lane[] = []) => todoItem(fx.todo(over), new Map(lanes.map((l) => [l.id, l])), new Map(), new Map());
@@ -17,9 +17,9 @@ const sessionCard = (key = 'claude:claude:s1'): SessionItem => {
 
 /** A board's columns as the view shows them, with no cards. */
 const shown = (defs: BoardColumn[]): KanbanColumn[] => defs.map((c) => ({ id: c.id, label: c.name, column: c, stage: stageOfColumn(c), cards: [] }));
-const ctxOf = (defs: BoardColumn[], cards: KanbanCard[] = [], placed?: Record<string, string>): DropContext => {
-  const subjects = new Map<string, Subject>(cards.map((c) => (c.kind === 'todo' ? todoSubject(c, []) : sessionSubject(c, [], []))).map((s) => [s.card, s]));
-  return { columns: defs, placed, subjects, todos: [], now: NOW };
+const ctxOf = (defs: BoardColumn[], cards: KanbanCard[] = [], placed?: Record<string, string>, prs: PrItem[] = []): DropContext => {
+  const subjects = new Map<string, Subject>(cards.map((c) => (c.kind === 'todo' ? todoSubject(c, [], prs) : sessionSubject(c, prs, []))).map((s) => [s.card, s]));
+  return { columns: defs, placed, subjects, todos: [], prs, now: NOW };
 };
 const stages = shown(STAGE_COLUMNS);
 const col = (id: string, cols = stages) => cols.find((c) => c.id === id) as KanbanColumn;
@@ -50,6 +50,23 @@ describe('kanbanDrop on the stage columns', () => {
     expect(drop(byPr, 'review', 'progress')).toBeNull();
     // Back to To do it can go: a todo not started has no PR in review.
     expect(said(drop(byPr, 'review', 'todo'))?.word).toBe('Back to to do');
+  });
+
+  it('leaves Validating and Ready to merge to the PR: nothing dropped there lands, and its PR keeps it', () => {
+    const lane = fx.lane({ id: '/r/ready', pr: fx.pr({ state: 'approved', merge: 'clean' }) });
+    const prs = [fx.prItem({ state: 'approved', merge: 'clean', lanes: ['/r/ready'] })];
+    const ready = todoCard({ status: 'in-progress', worktrees: ['/r/ready'] }, [lane]);
+    const ctx = ctxOf(STAGE_COLUMNS, [ready], undefined, prs);
+    expect(ctx.subjects.get('todo:t1')?.stage).toBe('ready');
+    expect(drop(ready, 'ready', 'review', null, null, stages, ctx)).toBeNull();
+    expect(drop(ready, 'ready', 'validating', null, null, stages, ctx)).toBeNull();
+    expect(drop(ready, 'ready', 'progress', null, null, stages, ctx)).toBeNull();
+    expect(said(drop(ready, 'ready', 'done', null, null, stages, ctx))?.word).toBe('Done');
+    // Nor does a todo not started go there.
+    const t = todoCard({ status: 'todo' });
+    expect(drop(t, 'todo', 'validating')).toBeNull();
+    expect(drop(t, 'todo', 'ready')).toBeNull();
+    expect(drop(sessionCard(), 'progress', 'ready')).toBeNull();
   });
 
   it('marks a session done, or adds it to a todo it’s dropped on', () => {
@@ -222,13 +239,13 @@ describe('insertionAt', () => {
 
 describe('kanbanStep', () => {
   const card = (key: string): KanbanCard => ({ ...sessionCard(key), key });
-  const columns: KanbanColumn[] = shown(STAGE_COLUMNS).map((c, i) => ({ ...c, cards: [[card('a'), card('b'), card('c')], [], [card('d')], [card('e')]][i] }));
+  const columns: KanbanColumn[] = shown(STAGE_COLUMNS).map((c, i) => ({ ...c, cards: [[card('a'), card('b'), card('c')], [], [], [card('d')], [], [card('e')]][i] }));
   const open = (opened: boolean) => (c: KanbanColumn) => !c.column?.folded || opened;
   it('goes up and down a column, and across to the next column that has cards', () => {
     expect(kanbanStep(columns, 'b', 'down', open(false))).toBe('c');
     expect(kanbanStep(columns, 'c', 'down', open(false))).toBe('c');
     expect(kanbanStep(columns, 'a', 'up', open(false))).toBe('a');
-    // In progress has none: across it, to as far down as the next column goes.
+    // In progress and Validating have none: across them, to as far down as the next column goes.
     expect(kanbanStep(columns, 'c', 'right', open(false))).toBe('d');
     expect(kanbanStep(columns, 'd', 'left', open(false))).toBe('a');
     // Done, which starts folded, only while it's open.

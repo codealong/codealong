@@ -893,7 +893,10 @@ describe('the Kanban view’s columns', () => {
     const open = lane('/r/open', [], { pr: fx.pr({ state: 'open' }) });
     const draft = lane('/r/draft', [], { pr: fx.pr({ state: 'draft' }) });
     const merged = lane('/r/merged', [], { pr: fx.pr({ state: 'merged' }) });
-    const lanes = [open, draft, merged];
+    // Its PR's checks running, and one GitHub would merge: the PR's loop, split by whose turn it is.
+    const checking = lane('/r/checking', [], { pr: fx.pr({ number: 9, checks: fx.checks({ pending: 2 }) }) });
+    const mergeable = lane('/r/mergeable', [], { pr: fx.pr({ number: 10, state: 'approved', merge: 'clean', checks: fx.checks({ passed: 3 }) }) });
+    const lanes = [open, draft, merged, checking, mergeable];
     const todos = [
       fx.todo({ id: 'wait', dependsOn: ['ready'] }),
       fx.todo({ id: 'ready' }),
@@ -902,6 +905,8 @@ describe('the Kanban view’s columns', () => {
       fx.todo({ id: 'pr', status: 'in-progress', worktrees: ['/r/open'] }),
       fx.todo({ id: 'drafting', status: 'in-progress', worktrees: ['/r/draft'] }),
       fx.todo({ id: 'landed', status: 'in-progress', worktrees: ['/r/merged'] }),
+      fx.todo({ id: 'checking', status: 'in-progress', worktrees: ['/r/checking'] }),
+      fx.todo({ id: 'mergeable', status: 'in-progress', worktrees: ['/r/mergeable'] }),
       fx.todo({ id: 'done', status: 'done', doneAt: NOW - DAY }),
       fx.todo({ id: 'long-done', status: 'done', doneAt: NOW - 30 * DAY }),
       // Archived, it's on no board, whatever its status.
@@ -911,7 +916,9 @@ describe('the Kanban view’s columns', () => {
     expect(cols(todos.map((t) => todoOf(t, lanes)), todos, [], [], NOW - 7 * DAY)).toEqual({
       todo: ['todo:ready', 'todo:wait'],
       progress: ['todo:doing', 'todo:drafting'],
+      validating: ['todo:checking'],
       review: ['todo:marked', 'todo:pr', 'todo:landed'],
+      ready: ['todo:mergeable'],
       done: ['todo:done'],
     });
   });
@@ -919,6 +926,7 @@ describe('the Kanban view’s columns', () => {
   it('gives a session on no todo a card by its PR and how its turn ended', () => {
     const s = (key: string, over: Partial<Session> = {}) => session(key, over);
     const reviewing = lane('/r/a', [s('claude:claude:pr')], { pr: fx.pr({ state: 'changes' }) });
+    const mergeable = lane('/r/g', [s('claude:claude:ready')], { pr: fx.pr({ number: 11, merge: 'clean' }) });
     const mergedIdle = lane('/r/b', [s('claude:claude:merged', { live: true })], { pr: fx.pr({ state: 'merged' }) });
     const mergedBusy = lane('/r/c', [s('claude:claude:busy', { status: 'working' })], { pr: fx.pr({ state: 'merged' }) });
     const landed = lane('/r/d', [s('claude:claude:landed', { status: 'unread', insight: { landing: 'landed' } }), s('claude:claude:mine', { live: true }), s('claude:claude:helper', { helper: { parent: 'claude:claude:mine' }, status: 'working' })]);
@@ -926,10 +934,11 @@ describe('the Kanban view’s columns', () => {
     const gone = lane('/r/e', [s('claude:claude:gone'), s('claude:claude:landed-long-ago', { insight: { landing: 'landed' } })]);
     // A session still at work on a done todo has a card of its own; one on an open todo is on its card.
     const doneOn = lane('/r/f', [s('claude:claude:after', { status: 'working' })]);
-    const lanes = [reviewing, mergedIdle, mergedBusy, landed, gone, doneOn];
+    const lanes = [reviewing, mergedIdle, mergedBusy, landed, gone, doneOn, mergeable];
     const todos = [fx.todo({ id: 'open', status: 'in-progress', sessions: ['claude:claude:mine'] }), fx.todo({ id: 'old', status: 'done', doneAt: NOW - 30 * DAY, sessions: ['claude:claude:after'] })];
     const out = cols(todos.map((t) => todoOf(t, lanes)), todos, sessionItemsOf(lanes), [], NOW - 7 * DAY);
     expect(out.review).toEqual(['/r/a::claude:claude:pr']);
+    expect(out.ready).toEqual(['/r/g::claude:claude:ready']);
     expect(out.done.sort()).toEqual(['/r/b::claude:claude:merged', '/r/d::claude:claude:landed']);
     // A helper at work is its session's.
     expect(out.progress.sort()).toEqual(['/r/c::claude:claude:busy', '/r/f::claude:claude:after', 'todo:open']);
@@ -956,10 +965,10 @@ describe('the Kanban view’s columns', () => {
     const rows = todos.map((t) => todoOf(t, [l]));
     const board: BoardDoc = { id: 'b-1', name: 'Release', project: 'Acme', rule: { labels: ['l-rel'] }, added: ['session:claude:claude:hand'], removed: ['todo:off'] };
     // A session added by hand has a card though its turn ended and you've seen it.
-    expect(cols(rows, todos, sessionItemsOf([l]), [], 0, board)).toEqual({ todo: ['todo:rel'], progress: ['/r/app::claude:claude:hand'], review: [], done: [] });
+    expect(cols(rows, todos, sessionItemsOf([l]), [], 0, board)).toEqual({ todo: ['todo:rel'], progress: ['/r/app::claude:claude:hand'], validating: [], review: [], ready: [], done: [] });
     const hand: BoardDoc = { ...board, rule: null, added: ['todo:other', 'worktree:/r/app'] };
     // A worktree on the board brings its sessions worth a card, but not one taken off.
-    expect(cols(rows, todos, sessionItemsOf([l]), [], 0, hand)).toEqual({ todo: ['todo:other'], progress: ['/r/app::claude:claude:in', '/r/app::claude:claude:out'], review: [], done: [] });
+    expect(cols(rows, todos, sessionItemsOf([l]), [], 0, hand)).toEqual({ todo: ['todo:other'], progress: ['/r/app::claude:claude:in', '/r/app::claude:claude:out'], validating: [], review: [], ready: [], done: [] });
     expect(cols(rows, todos, sessionItemsOf([l]), [], 0, { ...hand, removed: ['session:claude:claude:out'] }).progress).toEqual(['/r/app::claude:claude:in']);
     // Nor on a board that takes in everything, which holds every worktree.
     expect(cols(rows, todos, sessionItemsOf([l]), [], 0, { ...everything, removed: ['session:claude:claude:in'] }).progress).toEqual(['/r/app::claude:claude:out']);
@@ -988,7 +997,9 @@ describe('the Kanban view’s columns', () => {
     expect(Object.fromEntries(columns.map((c) => [c.id, c.cards.map((r) => r.key)]))).toEqual({
       todo: [],
       progress: ['/r/app::claude:claude:lead', '/r/app::codex:codex:review'],
+      validating: [],
       review: [],
+      ready: [],
       done: ['/r/app::claude:claude:marked', 'todo:old'],
     });
     expect(archived.map((r) => r.session.key)).toEqual(['claude:claude:marked']);
@@ -1003,7 +1014,7 @@ describe('the Kanban view’s columns', () => {
     const todos = [fx.todo({ id: 'open', project: 'Acme', status: 'in-progress', sessions: [marked.key] })];
     const doc: BoardDoc = { ...everything, added: ['session:claude:claude:marked'] };
     const { columns } = kanbanOf(fx.board({ lanes: [l], todos }), [l], doc, NOW);
-    expect(Object.fromEntries(columns.map((c) => [c.id, c.cards.map((r) => r.key)]))).toEqual({ todo: [], progress: ['todo:open'], review: [], done: ['/r/app::claude:claude:marked'] });
+    expect(Object.fromEntries(columns.map((c) => [c.id, c.cards.map((r) => r.key)]))).toEqual({ todo: [], progress: ['todo:open'], validating: [], review: [], ready: [], done: ['/r/app::claude:claude:marked'] });
   });
 
   it('shows on its canvas what its Kanban shows, but done todos, with the sessions on open todos, the open PRs it holds and what was added by hand', () => {

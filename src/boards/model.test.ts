@@ -57,9 +57,9 @@ describe('a project’s boards', () => {
     expect(boardChoices(boards, [{ card: 'pr:x', project: null }], holds).map((c) => c.board.id)).toEqual(['b-2', 'b-1', 'b-4', 'b-5']);
   });
 
-  it('has the four stage columns until it has its own', () => {
+  it('has the stage columns until it has its own', () => {
     expect(columnsOf(named('b-1', 'Release'))).toBe(STAGE_COLUMNS);
-    expect(STAGE_COLUMNS.map(stageOfColumn)).toEqual(['todo', 'progress', 'review', 'done']);
+    expect(STAGE_COLUMNS.map(stageOfColumn)).toEqual(['todo', 'progress', 'validating', 'review', 'ready', 'done']);
     expect(stageOfColumn({ id: 'x', name: 'X', rule: { stages: ['review'], labels: ['l-1'] }, sort: 'hand' })).toBeNull();
     expect(stageOfColumn({ id: 'x', name: 'X', sort: 'hand' })).toBeNull();
   });
