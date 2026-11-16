@@ -132,7 +132,7 @@ export function SchedulesView(props: SchedulesViewProps) {
           onMenu={() => onMenu(s)}
         >
           <div className="ca-seg ca-seg-glyph">
-            <Icon name={done ? 'check' : s.problem ? 'alert' : s.paused ? 'player-pause' : whenIcon(s.when)} size={14} className="ca-schedrow-glyph" />
+            <Icon name={done ? 'check' : s.problem ? 'alert' : s.paused ? 'player-pause' : s.orchestrates ? 'compass' : whenIcon(s.when)} size={14} className="ca-schedrow-glyph" />
           </div>
           <div className="ca-seg ca-seg-main">
             <div className="ca-lane-line1">

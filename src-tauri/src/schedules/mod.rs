@@ -27,6 +27,7 @@
 
 pub mod harnesses;
 pub mod machines;
+pub mod orchestrate;
 pub mod rule;
 pub mod runner;
 
@@ -154,6 +155,10 @@ pub struct Schedule {
     /// through saves until it's said to run at other times or on something else, or not just once.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub finished_at: Option<i64>,
+    /// It's an orchestrator: it keeps watch over a project's sessions, or every project's without
+    /// one of its own, and its session is listed first in their Sessions (orchestrate.rs).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub orchestrates: Option<orchestrate::Orchestrates>,
 }
 
 /// A checkout of a repo, as a schedule's folder is one: the repo's main checkout, or a worktree of
@@ -277,6 +282,8 @@ pub enum Event {
     ChecksFailed,
     /// A todo is ready to start: not started, and waiting on nothing.
     TodoReady,
+    /// Something an orchestrator keeps watch over needs a look (orchestrate.rs `found`).
+    Changes,
 }
 
 /// What a schedule does when it runs.
@@ -750,6 +757,10 @@ pub fn checked(s: &Schedule, cfg: &Config, at: Option<i64>, zone: &dyn Zone) -> 
     if s.per_day == Some(0) {
         return Err("A limit of no runs a day would never run it; pause it instead.".into());
     }
+    orchestrate::check(s, cfg)?;
+    if s.orchestrates.is_none() && matches!(s.when, When::Event { event: Event::Changes, .. }) {
+        return Err("Only an orchestrator runs when something needs a look.".into());
+    }
     Ok(())
 }
 
@@ -838,6 +849,7 @@ pub fn when_words(when: &When) -> String {
                 Event::ChecksFailed => format!("When {whose}'s checks fail{place}"),
                 Event::TodoReady if label.trim().is_empty() => "When a todo is ready".to_string(),
                 Event::TodoReady => format!("When a todo labeled {} is ready", label.trim()),
+                Event::Changes => "When something needs a look".to_string(),
             }
         }
         When::Fired => "When it's fired".to_string(),
@@ -953,7 +965,7 @@ pub fn items(file: &File, runs: &Runs, board: &Board, cfg: &Config, now: i64, zo
             };
             Item {
                 schedule: s.clone(),
-                when_words: when_words(&s.when),
+                when_words: s.orchestrates.as_ref().map_or_else(|| when_words(&s.when), orchestrate::when_words),
                 problem,
                 next_at,
                 thread: match s.run.to {
@@ -988,9 +1000,10 @@ pub fn spent(s: &Schedule, track: Option<&Track>, now: i64, zone: &dyn Zone) -> 
 }
 
 /// What on the board a schedule's event is for now: each PR merged, PR whose checks fail at its
-/// commit, or ready todo, by an id of its own.
-pub fn found_on(board: &Board, when: &When, since: i64) -> Vec<Found> {
-    let When::Event { event, repo, label, mine } = when else { return Vec::new() };
+/// commit, ready todo, or what an orchestrator keeps watch over that needs a look, by an id of its
+/// own. `file` says which orchestrator keeps watch over what.
+pub fn found_on(board: &Board, file: &File, s: &Schedule, since: i64, now: i64) -> Vec<Found> {
+    let When::Event { event, repo, label, mine } = &s.when else { return Vec::new() };
     let repo = repo.trim();
     let in_repo = |slug: &str| repo.is_empty() || slug.eq_ignore_ascii_case(repo);
     match event {
@@ -1020,6 +1033,7 @@ pub fn found_on(board: &Board, when: &When, since: i64) -> Vec<Found> {
             .filter(|t| label.trim().is_empty() || t.labels.iter().any(|id| id.eq_ignore_ascii_case(label.trim()) || board.labels.iter().any(|l| &l.id == id && l.name.trim().eq_ignore_ascii_case(label.trim()))))
             .map(|t| Found { id: format!("todo:{}", t.id), title: t.title.clone(), url: String::new(), text: String::new(), todo: Some(t.id.clone()) })
             .collect(),
+        Event::Changes => orchestrate::found(board, file, s, now),
     }
 }
 
@@ -1078,6 +1092,23 @@ pub enum Op {
         #[serde(default)]
         text: String,
     },
+    /// Starts an orchestrator for a project, or for All projects with none: resumes the one there
+    /// is (on the account and model given, where they're given), else adds it (orchestrate.rs
+    /// `schedule`), and runs it now so it takes its first look.
+    Orchestrate {
+        #[serde(default)]
+        project: Option<String>,
+        #[serde(default)]
+        account: String,
+        #[serde(default)]
+        model: Option<String>,
+        /// Lets it message sessions, or stops it; as it was when not given.
+        #[serde(default)]
+        send: Option<bool>,
+        /// Lets it start sessions, or stops it; as it was when not given.
+        #[serde(default)]
+        start: Option<bool>,
+    },
 }
 
 /// The repo a schedule saved here is a checkout of, and whether it goes by its folder alone. A
@@ -1125,6 +1156,9 @@ pub fn apply_op(op: Op, by: Option<&str>, board: Option<&Board>, cfg: &Config, n
                 let old = file.schedules.iter().position(|s| !schedule.id.is_empty() && s.id == schedule.id);
                 if file.schedules.iter().any(|s| s.id != schedule.id && s.name.eq_ignore_ascii_case(&schedule.name)) {
                     bail!("There's a schedule named {} already.", schedule.name);
+                }
+                if let Some(why) = orchestrate::clash(file, &schedule) {
+                    bail!("{why}");
                 }
                 match old.map(|i| &file.schedules[i]) {
                     Some(was) => {
@@ -1224,6 +1258,43 @@ pub fn apply_op(op: Op, by: Option<&str>, board: Option<&Board>, cfg: &Config, n
                 bail!("It has run for {key} already, or is about to.");
             }
             serde_json::to_value(asked)?
+        }
+        Op::Orchestrate { project, account, model, send, start } => {
+            let scope = orchestrate::Orchestrates::of(project.as_deref());
+            let may = |o: &mut orchestrate::Orchestrates| {
+                o.send = send.unwrap_or(o.send);
+                o.start = start.unwrap_or(o.start);
+            };
+            let file = load()?;
+            let (schedule, started) = match orchestrate::find(&file, &scope).cloned() {
+                Some(mut s) => {
+                    let was = s.clone();
+                    s.paused = false;
+                    if !account.trim().is_empty() {
+                        s.run.account = account.trim().to_string();
+                    }
+                    if let Some(m) = model.filter(|m| !m.trim().is_empty()) {
+                        s.run.model = Some(m);
+                    }
+                    if let Some(o) = s.orchestrates.as_mut() {
+                        may(o);
+                    }
+                    if s != was {
+                        apply_op(Op::Save { schedule: s.clone() }, None, board, cfg, now, zone)?;
+                    }
+                    (s, false)
+                }
+                // Never an agent's own, though an agent may ask for it: its session is yours.
+                None => {
+                    let mut fresh = orchestrate::schedule(scope, &account, model);
+                    if let Some(o) = fresh.orchestrates.as_mut() {
+                        may(o);
+                    }
+                    (serde_json::from_value(apply_op(Op::Save { schedule: fresh }, None, board, cfg, now, zone)?)?, true)
+                }
+            };
+            apply_op(Op::Run { id: schedule.id.clone() }, None, board, cfg, now, zone)?;
+            serde_json::json!({ "schedule": schedule, "added": started })
         }
     };
     runner::poke();
@@ -1325,7 +1396,7 @@ mod tests {
     use super::*;
     use crate::model::{Checks, Merge, PrItem};
 
-    fn pr(key: &str, state: PrState, merged_at: Option<i64>) -> PrItem {
+    pub(super) fn pr(key: &str, state: PrState, merged_at: Option<i64>) -> PrItem {
         let (slug, number) = key.split_once('#').unwrap();
         PrItem {
             key: key.into(),
@@ -1389,13 +1460,15 @@ mod tests {
         board.prs = vec![pr("acme/web#1", PrState::Merged, Some(50)), pr("acme/web#2", PrState::Merged, Some(200)), pr("acme/api#3", PrState::Merged, Some(300)), pr("acme/web#4", PrState::Open, None)];
         board.prs[3].checks.failed = 1;
         board.prs[3].head_oid = Some("abc".into());
-        let merged = When::Event { event: Event::PrMerged, repo: "acme/web".into(), label: String::new(), mine: false };
-        let ids: Vec<String> = found_on(&board, &merged, 100).into_iter().map(|f| f.id).collect();
+        let on = |when: When| Schedule { when, ..Schedule::default() };
+        let file = File::default();
+        let merged = on(When::Event { event: Event::PrMerged, repo: "acme/web".into(), label: String::new(), mine: false });
+        let ids: Vec<String> = found_on(&board, &file, &merged, 100, 0).into_iter().map(|f| f.id).collect();
         assert_eq!(ids, ["pr-merged:acme/web#2"]);
-        let failing = When::Event { event: Event::ChecksFailed, repo: String::new(), label: String::new(), mine: false };
-        assert_eq!(found_on(&board, &failing, 0)[0].id, "checks:acme/web#4@abc");
-        let mine = When::Event { event: Event::ChecksFailed, repo: String::new(), label: String::new(), mine: true };
-        assert!(found_on(&board, &mine, 0).is_empty());
+        let failing = on(When::Event { event: Event::ChecksFailed, repo: String::new(), label: String::new(), mine: false });
+        assert_eq!(found_on(&board, &file, &failing, 0, 0)[0].id, "checks:acme/web#4@abc");
+        let mine = on(When::Event { event: Event::ChecksFailed, repo: String::new(), label: String::new(), mine: true });
+        assert!(found_on(&board, &file, &mine, 0, 0).is_empty());
     }
 
     #[test]

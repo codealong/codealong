@@ -16,6 +16,7 @@ import { columnOf, memberTest, ownLabels, sessionStage, subjectsOf, todoStage, t
 import { ALL_PROJECTS, hasWords, inProject, queryWords, saidLine, type SaidLine } from './quick';
 import { isOpen, itemSection, todoIndex, todoInFilter, todoItem, todoSections, type TodoItem, type TodoSectionId, type TodoSort } from './todos';
 import { prFlag, primaryHere } from './prStatus';
+import { orchestratorsIn } from './orchestrators';
 import { scheduleProject } from './schedules';
 import type { Board, DevicesView, HarnessSchedule, Label, Lane, PrItem, PrSession, ProjectSummary, ScheduleItem, Session, TextHit, Todo } from './types';
 import type { ActionCounts } from './ui/ProjectSwitcher';
@@ -1101,8 +1102,10 @@ export function useBoardLists(input: ListsInput) {
   // since then.
   const recentLanes = useMemo(() => filterByAge(projectLanes, cutoff, lanePins.set, since), [projectLanes, cutoff, lanePins.set, since]);
 
-  // The Sessions view: each session once, in the worktree it runs in, pinned ones first.
-  const sessionItems = useMemo(() => sessionItemsOf(projectLanes), [projectLanes]);
+  // The Sessions view: each session once, in the worktree it runs in, pinned ones first. An
+  // orchestrator's own leads it instead (orchestrators.ts), from whatever worktree it's in.
+  const sessionItems = useMemo(() => sessionItemsOf(projectLanes).filter((r) => !r.session.orchestrator), [projectLanes]);
+  const orchestratorRows = useMemo(() => orchestratorsIn(sessionItemsOf(lanes), current), [lanes, current]);
   // Helpers under the sessions that started them, or out of sight while they don't need you.
   // The agents a session runs on narrow it after the rest, so each agent's count is of what it
   // would show.
@@ -1137,11 +1140,11 @@ export function useBoardLists(input: ListsInput) {
   );
   const sessionList = useMemo<ListRow[]>(() => (groupedSecs ? groupedRows(groupedSecs) : sessionSecs.flatMap((s) => s.rows)), [groupedSecs, sessionSecs]);
   const sessionRows = useMemo<ListRow[]>(
-    () => [...[...listeningRows, ...pinnedRows].flatMap((r) => [r, ...(topHelpers.get(r.session.key) ?? [])]), ...sessionList, ...(showArchived ? archivedItems : [])],
-    [listeningRows, pinnedRows, topHelpers, sessionList, showArchived, archivedItems],
+    () => [...orchestratorRows, ...[...listeningRows, ...pinnedRows].flatMap((r) => [r, ...(topHelpers.get(r.session.key) ?? [])]), ...sessionList, ...(showArchived ? archivedItems : [])],
+    [orchestratorRows, listeningRows, pinnedRows, topHelpers, sessionList, showArchived, archivedItems],
   );
   // What waits on you, for working through it from a session's panel (useWaitingQueue.ts).
-  const waitingRows = useMemo(() => waitingQueue(shownSessions), [shownSessions]);
+  const waitingRows = useMemo(() => waitingQueue([...orchestratorRows, ...shownSessions]), [orchestratorRows, shownSessions]);
 
   // The PRs view: the project's PRs with the worktrees that hold them and the sessions that
   // worked on them, archived ones too, which the engine lists there with the rest.
@@ -1291,6 +1294,7 @@ export function useBoardLists(input: ListsInput) {
     shownSessionCount,
     listeningRows,
     pinnedRows,
+    orchestratorRows,
     topHelpers,
     sessionSecs,
     groupedSecs,

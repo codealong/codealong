@@ -113,6 +113,11 @@ enum Cmd {
         #[command(subcommand)]
         cmd: ScheduleCmd,
     },
+    /// Orchestrators: an agent session Codealong keeps going that keeps watch over your sessions for you, one for a project and one for All projects (every project without one of its own, and the sessions in none). Each runs when something it keeps watch over needs a look (a session newly waiting on you, a PR opened, approved, sent back, merged or failing its checks, two agents in one worktree), reads it, tags it and suggests replies, as the codealong skill's references/orchestrate.md says; nothing runs while nothing changes. Its session is quiet unless it asks you something, started afresh each day with its notes, and listed first in its project's Sessions. Each is a schedule (`schedule list` shows it), so `schedule show` has its runs.
+    Orchestrator {
+        #[command(subcommand)]
+        cmd: OrchestratorCmd,
+    },
     /// Sessions on the board: every agent, live or not, with its status and where it works. Lists by default; `find` searches. This machine's, and with --devices your other machines' too.
     Sessions(SessionsArgs),
     /// One session: in full (`show`: status, excerpt, folder, branch, PR, how to resume it, and where its own records are), its conversation (`transcript`), replies suggested for its user to send with a click (`suggest`), in the Codealong app (`open`), a message to it where it runs (`send`), what it waits on its user for (`pending`) and denying it (`answer`), stopping its turn (`stop`), naming it (`rename`) and forking it into the background (`fork`). A session on another of your machines is named by its key as `sessions --devices` lists it (`@<short>:…`) or by its id, and what's asked of it is asked of that machine, as Codealong's windows ask it; a message to it, or marking it done, isn't the command's to do there.
@@ -194,7 +199,7 @@ struct ChangesArgs {
     /// Read --since from this file, where an earlier run saved its cursor, and save this run's cursor there once it's done: for a loop, one command a tick. With no file yet it goes back 24h.
     #[arg(long, value_name = "FILE", conflicts_with = "since")]
     cursor_file: Option<String>,
-    /// Only this project's sessions, PRs, todos and worktrees.
+    /// Only this project's sessions, PRs, todos and worktrees. Run by an orchestrator's session, what it keeps watch over unless this says otherwise: its project, or for All projects' every project without an orchestrator of its own.
     #[arg(long)]
     project: Option<String>,
     /// How many changed sessions to read the latest prompt and reply of, waiting ones first; each is a read of its conversation. 0 reads none.
@@ -1319,6 +1324,44 @@ struct StartArgs {
 }
 
 #[derive(Subcommand, Debug)]
+enum OrchestratorCmd {
+    /// Every orchestrator: what it keeps watch over, whether it's on, its session, and how its last run went.
+    List,
+    /// Start an orchestrator for a project, or for All projects without one: the one there is goes on (resumed, if it was turned off), else one's made. It takes its first look at once. Spends usage only when something it keeps watch over needs a look.
+    Start(OrchestratorStartArgs),
+    /// Turn an orchestrator off: nothing runs it, and its session is marked done, so it leaves Sessions. Its notes are kept for when it's started again; what it kept watch over goes to All projects' orchestrator, if that one's on.
+    Stop(OrchestratorScope),
+    /// Have an orchestrator look now, as something needing a look would.
+    Look(OrchestratorScope),
+    /// Start an orchestrator's session afresh: the one it has is marked done, and a new one takes its first look now, going on from its notes. Its session is started afresh each day anyway.
+    Fresh(OrchestratorScope),
+}
+
+#[derive(Args, Debug)]
+struct OrchestratorScope {
+    /// The project, by its name in Settings › Projects; without it, All projects' orchestrator.
+    project: Option<String>,
+}
+
+#[derive(Args, Debug)]
+struct OrchestratorStartArgs {
+    #[command(flatten)]
+    scope: OrchestratorScope,
+    /// The account its session starts on, or a routing group; without it, Auto (an account with room), picked again each time it starts afresh.
+    #[arg(long)]
+    account: Option<String>,
+    /// A model for its session: fable, opus, sonnet, haiku, or a full name.
+    #[arg(long)]
+    model: Option<String>,
+    /// Let it message sessions (`session send`) or not (`=no`). Without it, an orchestrator only reads, tags, suggests replies and moves what's urgent to the top; it never merges, reviews or approves a PR, or removes a worktree, whatever it's let do.
+    #[arg(long, value_name = "YES|NO", num_args = 0..=1, require_equals = true, default_missing_value = "yes", value_parser = yes_no)]
+    may_send: Option<bool>,
+    /// Let it start sessions (`codealong start`, a helper) or not (`=no`).
+    #[arg(long, value_name = "YES|NO", num_args = 0..=1, require_equals = true, default_missing_value = "yes", value_parser = yes_no)]
+    may_start: Option<bool>,
+}
+
+#[derive(Subcommand, Debug)]
 enum ScheduleCmd {
     /// Every schedule: when it runs, what it does, when it runs next, and how its last run went.
     List,
@@ -2135,6 +2178,7 @@ fn run(cmd: Cmd, c: &mut Client, json: bool) -> Result<()> {
         Cmd::Whoami { context } => whoami(c, context, json),
         Cmd::Todo { cmd } => todo(cmd, c, json),
         Cmd::Schedule { cmd } => schedule(cmd, c, json),
+        Cmd::Orchestrator { cmd } => orchestrator(cmd, c, json),
         Cmd::Sessions(args) => match args.cmd {
             Some(SessionsCmd::Find { query, filter }) => sessions(c, &filter, &query, json),
             Some(SessionsCmd::CloseIdle { after, archive, dry_run }) => close_idle(c, &after, archive, dry_run, json),
@@ -6336,6 +6380,134 @@ fn schedule(cmd: ScheduleCmd, c: &mut Client, json: bool) -> Result<()> {
     Ok(())
 }
 
+// ---- orchestrator ----
+
+/// An orchestrator in a row of `orchestrator list`.
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct OrchestratorRow {
+    /// The project it keeps watch over; none for All projects.
+    project: Option<String>,
+    on: bool,
+    /// Its schedule, by id, which `schedule show` takes.
+    schedule: String,
+    /// The session it keeps going; none before its first run, or once it's turned off.
+    session: Option<String>,
+    account: String,
+    last_run: Option<crate::schedules::RunRecord>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    problem: Option<String>,
+}
+
+fn orchestrator(cmd: OrchestratorCmd, c: &mut Client, json: bool) -> Result<()> {
+    use crate::schedules::{self, orchestrate, rule::Local, Op};
+    let now = now_ms();
+    let scope_of = |a: &OrchestratorScope| orchestrate::Orchestrates::of(a.project.as_deref());
+    let start_hint = |scope: &orchestrate::Orchestrates| format!("`codealong orchestrator start{}`", scope.project.as_deref().map(|p| format!(" {p}")).unwrap_or_default());
+    // The orchestrator a command names, as the Schedules view has it.
+    let named = |c: &mut Client, scope: &orchestrate::Orchestrates| -> Result<schedules::Item> {
+        schedule_items(c)?
+            .into_iter()
+            .find(|i| i.schedule.orchestrates.as_ref().is_some_and(|o| o.same(scope)))
+            .ok_or_else(|| anyhow!("There's no orchestrator for {}. {} starts one.", scope.words(), start_hint(scope)))
+    };
+    let cfg = c.cfg()?.clone();
+    match cmd {
+        OrchestratorCmd::List => {
+            let rows: Vec<OrchestratorRow> = schedule_items(c)?
+                .into_iter()
+                .filter_map(|i| {
+                    let scope = i.schedule.orchestrates.clone()?;
+                    let account = Some(i.schedule.run.account.clone()).filter(|a| !a.is_empty()).unwrap_or_else(|| "auto".into());
+                    Some(OrchestratorRow { project: scope.project, on: orchestrate::on(&i.schedule), schedule: i.schedule.id.clone(), session: i.thread.clone(), account, last_run: i.runs.first().cloned(), problem: i.problem.clone() })
+                })
+                .collect();
+            if json {
+                return print_json(&rows);
+            }
+            if rows.is_empty() {
+                println!("No orchestrators. `codealong orchestrator start [project]` starts one.");
+                return Ok(());
+            }
+            let table = rows
+                .iter()
+                .map(|r| {
+                    let last = r.last_run.as_ref().map(|x| format!("{} {}", word(&x.outcome), ago(now - x.at))).unwrap_or_default();
+                    vec![r.project.clone().unwrap_or_else(|| orchestrate::ALL.into()), if r.on { "on".into() } else { "off".into() }, r.session.clone().unwrap_or_default(), r.account.clone(), r.problem.clone().unwrap_or(last)]
+                })
+                .collect();
+            print!("{}", table_text(&["KEEPS WATCH OVER", "", "SESSION", "ACCOUNT", "LAST RUN"], table));
+            Ok(())
+        }
+        OrchestratorCmd::Start(a) => {
+            let scope = scope_of(&a.scope);
+            let board = c.board()?.clone();
+            let op = Op::Orchestrate { project: scope.project.clone(), account: a.account.unwrap_or_default(), model: a.model, send: a.may_send, start: a.may_start };
+            let done = schedules::apply_op(op, None, Some(&board), &cfg, now, &Local)?;
+            if json {
+                return print_json(&done);
+            }
+            let added = done.get("added").and_then(Value::as_bool) == Some(true);
+            println!("{} for {}: it takes its first look within a few seconds, then runs whenever something it keeps watch over needs a look.", if added { "Started an orchestrator" } else { "The orchestrator goes on" }, scope.words());
+            if c.app.is_none() {
+                println!("Codealong's server isn't running: it runs once the server starts.");
+            }
+            Ok(())
+        }
+        OrchestratorCmd::Stop(a) => {
+            let scope = scope_of(&a);
+            let item = named(c, &scope)?;
+            let board = c.board()?.clone();
+            schedules::apply_op(Op::Pause { id: item.schedule.id.clone(), paused: true }, None, Some(&board), &cfg, now, &Local)?;
+            let ended = match &item.thread {
+                // Marked done as you'd mark it: turning it off is yours, whoever types the command.
+                Some(key) if c.app.is_some() => c.act(api::SESSION_DONE, key, params::Done { stop: true, archive: true, ..Default::default() }, None).map(|_| true)?,
+                _ => false,
+            };
+            let out = serde_json::json!({ "schedule": item.schedule.id, "stopped": true, "sessionDone": ended });
+            if json {
+                return print_json(&out);
+            }
+            println!("Turned off the orchestrator for {}{}.", scope.words(), if ended { ", and marked its session done" } else { "" });
+            Ok(())
+        }
+        OrchestratorCmd::Look(a) => {
+            let scope = scope_of(&a);
+            let item = named(c, &scope)?;
+            if !orchestrate::on(&item.schedule) {
+                bail!("The orchestrator for {} is off: {} starts it, and it looks at once.", scope.words(), start_hint(&scope));
+            }
+            let board = c.board()?.clone();
+            let done = schedules::apply_op(Op::Run { id: item.schedule.id.clone() }, None, Some(&board), &cfg, now, &Local)?;
+            if json {
+                return print_json(&done);
+            }
+            println!("Asked: it looks within a few seconds, once its session's turn has ended.");
+            Ok(())
+        }
+        OrchestratorCmd::Fresh(a) => {
+            let scope = scope_of(&a);
+            let item = named(c, &scope)?;
+            if !orchestrate::on(&item.schedule) {
+                bail!("The orchestrator for {} is off: {} starts it with a new session.", scope.words(), start_hint(&scope));
+            }
+            if c.app.is_none() {
+                bail!("Starting an orchestrator's session afresh needs Codealong's server, which couldn't be started here (`codealong server start` says why).");
+            }
+            if let Some(key) = &item.thread {
+                c.act(api::SESSION_DONE, key, params::Done { stop: true, archive: true, ..Default::default() }, None)?;
+            }
+            let board = c.board()?.clone();
+            let done = schedules::apply_op(Op::Run { id: item.schedule.id.clone() }, None, Some(&board), &cfg, now, &Local)?;
+            if json {
+                return print_json(&done);
+            }
+            println!("Its session is marked done; a new one takes its first look within a few seconds, going on from its notes.");
+            Ok(())
+        }
+    }
+}
+
 /// The schedules with what's happened to them, as the app's Schedules view has them: read from the
 /// files, so a change just made is there, with where each your machines share runs and their runs
 /// of it, which only the app knows, from the app's.
@@ -7378,7 +7550,18 @@ fn changes(c: &mut Client, a: &ChangesArgs, json: bool) -> Result<()> {
         _ => {}
     }
     let todos = !board.loading && !board.todos_unreadable;
-    let sight = ch::Sight { board, sessions: !board.loading, prs: from_app && board.github_polled, todos, me: me.as_deref(), project: a.project.as_deref() };
+    // Asked by an orchestrator, what it keeps watch over: its project, or every project but those
+    // other orchestrators keep watch over.
+    let (project, skip) = match (a.project.clone(), me.as_deref().and_then(|k| board.session(k)).and_then(|(_, s)| s.orchestrator.clone())) {
+        (Some(p), _) => (Some(p), Vec::new()),
+        (None, Some(o)) => {
+            let file = crate::schedules::load().unwrap_or_default();
+            let skip = file.schedules.iter().find(|s| s.id == o.schedule).map(|s| crate::schedules::orchestrate::told_elsewhere(&file, s)).unwrap_or_default();
+            (o.project, skip)
+        }
+        (None, None) => (None, Vec::new()),
+    };
+    let sight = ch::Sight { board, sessions: !board.loading, prs: from_app && board.github_polled, todos, me: me.as_deref(), project: project.as_deref(), skip: &skip };
     let (mut out, look) = ch::compare(&sight, earlier.as_ref(), since_ms, now);
     ch::untagged_and_unsuggested(&mut out, &crate::tags::current().gone, &crate::suggestions::current().gone);
     out.cursor = ch::keep(look)?;

@@ -1,0 +1,22 @@
+/* Start an orchestrator? (StartOrchestrator.tsx), from the compass in Sessions' bar. */
+
+.ca-dialog.ca-startorch {
+  width: min(520px, 100%);
+}
+.ca-startorch-note {
+  margin: 0;
+  font: var(--type-body);
+  color: var(--ink-2);
+}
+.ca-startorch-error {
+  margin: var(--space-2) 0 0;
+  font: var(--type-meta-strong);
+  color: var(--alert);
+}
+
+/* The compass at the end of Sessions' tools, there while no orchestrator runs for the view: a
+   button with its word, after the groups of icon buttons. */
+.ca-listtools .ca-listtools-start {
+  height: 20px;
+  margin-left: var(--space-1);
+}

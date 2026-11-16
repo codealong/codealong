@@ -486,6 +486,12 @@ pub struct Session {
     /// 2026-10-10, whose helpers show as sessions of their own.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub helper: Option<Helper>,
+    /// The orchestrator whose session it is: it keeps watch over a project's sessions, or every
+    /// project's without one of its own, for you (the engine's schedules/orchestrate.rs), and is
+    /// listed first in their Sessions rather than among them. None for every other session, and
+    /// from Macs before 2026-11-16.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub orchestrator: Option<Orchestrator>,
     /// A run of its harness that nobody is at: a script or an agent ran it on a prompt and reads
     /// what comes back itself (`claude -p`, `codex exec`), often hundreds at a time. A turn it
     /// ends is idle rather than Your turn, an error and all; while it doesn't need you it's out
@@ -559,6 +565,20 @@ pub struct Artifact {
     pub note: Option<String>,
     /// When it last did, or 0 where its record doesn't say.
     pub at: i64,
+}
+
+/// An orchestrator a session is the session of (`Session::orchestrator`).
+#[derive(Serialize, Deserialize, Clone, Debug, Default, PartialEq, Eq)]
+#[serde(default, rename_all = "camelCase")]
+pub struct Orchestrator {
+    /// Its schedule's id, which the windows pause, resume, run and edit it by.
+    pub schedule: String,
+    /// The project it keeps watch over, by its name; none for All projects.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub project: Option<String>,
+    /// It's paused: it keeps watch over nothing until it's resumed.
+    #[serde(skip_serializing_if = "std::ops::Not::not")]
+    pub paused: bool,
 }
 
 /// What a helper session works for: the session whose agent started it, or the PR it reviews.
@@ -794,6 +814,7 @@ impl Session {
             context: None,
             own_worktree: None,
             helper: None,
+            orchestrator: None,
             headless: false,
             listening: false,
             artifacts: Vec::new(),

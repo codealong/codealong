@@ -4301,6 +4301,7 @@ fn waiting_call(s: &Session, account: Option<&config::AccountCfg>) -> Option<Str
         board.machines = self.machines.clone();
         board.schedules = crate::schedules::items(&self.schedules, &self.schedule_runs, &board, &self.cfg, now, &crate::schedules::rule::Local);
         board.schedules.iter_mut().for_each(|i| i.emblem = self.emblems.of_schedule(&i.schedule.id, self.cfg.emblems.kind));
+        crate::schedules::orchestrate::mark(&mut board.lanes, &board.schedules);
         board.shared_schedules = crate::schedules::machines::outgoing(&self.schedules, &self.schedule_runs, &board, &self.cfg, &crate::schedules::rule::Local);
         board.shared_schedules.list.iter_mut().for_each(|x| x.emblem = self.emblems.shared(&x.id));
         board.schedules_problem = self.schedules_problem.clone();

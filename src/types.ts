@@ -335,6 +335,10 @@ export interface Session {
    *  start --helper`), or an automatic review's session. While it doesn't need you it's out of
    *  the lists and queues, under what it helps (lanes.ts `unattended`). Missing from older Macs. */
   helper?: Helper;
+  /** The orchestrator whose session it is: it keeps watch over a project's sessions, or every
+   *  project's without one of its own, and is listed first in their Sessions rather than among
+   *  them (boardLists.ts `orchestrators`). Missing for every other session, and from older Macs. */
+  orchestrator?: Orchestrator;
   /** A run nobody is at (`claude -p`, `codex exec`): a script or an agent ran it and reads what
    *  comes back, so a turn it ends is idle (board.rs `apply_headless`). While it doesn't need you
    *  it's out of the lists and queues, counted on the row of the session it came from
@@ -2547,7 +2551,8 @@ export type ScheduleWhen =
   | { kind: 'event'; event: ScheduleEvent; repo: string; label: string; mine: boolean }
   | { kind: 'fired' };
 
-export type ScheduleEvent = 'pr-merged' | 'checks-failed' | 'todo-ready';
+/** `changes`: something an orchestrator keeps watch over needs a look (schedules/orchestrate.rs). */
+export type ScheduleEvent = 'pr-merged' | 'checks-failed' | 'todo-ready' | 'changes';
 
 /** What a schedule does when it runs (schedules/mod.rs `Run`): start a new session, keep one
  *  going (`thread`), or send to one that's there (`session`). */
@@ -2599,6 +2604,9 @@ export interface Schedule {
   /** Its folder was picked where its worktree had no repo another machine could tell: it goes
    *  by its folder alone. */
   folderOnly?: boolean;
+  /** It's an orchestrator: it keeps watch over a project's sessions (`project`), or every
+   *  project's without one of its own (none), and its session is listed first in their Sessions. */
+  orchestrates?: { project?: string; send?: boolean; start?: boolean };
 }
 
 /** Which of your machines run a schedule (schedules/mod.rs `RunsOn`): this one alone; one of them
@@ -2688,7 +2696,14 @@ export interface ScheduleTimes {
 }
 
 /** A change to the schedules (schedules/mod.rs `Op`). */
-export type ScheduleOp = { op: 'save'; schedule: Schedule } | { op: 'remove'; id: string } | { op: 'pause'; id: string; paused: boolean } | { op: 'run'; id: string };
+export type ScheduleOp =
+  | { op: 'save'; schedule: Schedule }
+  | { op: 'remove'; id: string }
+  | { op: 'pause'; id: string; paused: boolean }
+  | { op: 'run'; id: string }
+  /** Starts the orchestrator for a project, or All projects' with none: resumes it, else adds it,
+   *  and runs it now (schedules/mod.rs `Op::Orchestrate`). */
+  | { op: 'orchestrate'; project?: string | null; account?: string; model?: string | null; send?: boolean | null; start?: boolean | null };
 
 /** A skill a session can be asked to run by name (skills.rs). */
 export interface Skill {
@@ -2805,6 +2820,16 @@ export interface StartOptions {
 }
 
 /** What a helper session works for: the session whose agent started it, or the PR it reviews. */
+/** An orchestrator a session is the session of (`Session.orchestrator`). */
+export interface Orchestrator {
+  /** Its schedule's id, which it's paused, resumed, run and edited by. */
+  schedule: string;
+  /** The project it keeps watch over; missing for All projects. */
+  project?: string;
+  /** Paused: it keeps watch over nothing until it's resumed. */
+  paused?: boolean;
+}
+
 export interface Helper {
   parent?: string;
   /** The PR's key as reviews.json has it, which ignores case (`owner/name#7`, lowercased). */

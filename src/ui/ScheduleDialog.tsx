@@ -226,10 +226,19 @@ export function ScheduleDialog({ schedule, board, devices, now, onClose, onSaved
           <input ref={name} value={draft.name} spellCheck={false} placeholder="Morning triage" onChange={(e) => setDraft({ ...draft, name: e.target.value })} />
         </label>
 
-        <div className="ca-field">
-          <span>When</span>
-          <Seg label="When" options={WHENS} value={when.kind} onPick={(k) => setWhen(whenOf(k, kept))} />
-        </div>
+        {/* An orchestrator's when and what are its own (schedules/orchestrate.rs): only its agent,
+            what it's told, where it runs and its options change here. */}
+        {draft.orchestrates ? (
+          <div className="ca-field">
+            <span>When</span>
+            <small>When something in {draft.orchestrates.project ?? 'every project without an orchestrator of its own'} needs a look: a session that starts to wait on you, a PR that moves, two agents in one worktree. It keeps one session going, started afresh each day.</small>
+          </div>
+        ) : (
+          <div className="ca-field">
+            <span>When</span>
+            <Seg label="When" options={WHENS} value={when.kind} onPick={(k) => setWhen(whenOf(k, kept))} />
+          </div>
+        )}
         {when.kind === 'time' && (
           <div className="ca-field">
             <input aria-label="Times" value={when.rule} spellCheck={false} onChange={(e) => setWhen({ kind: 'time', rule: e.target.value })} />
@@ -269,7 +278,7 @@ export function ScheduleDialog({ schedule, board, devices, now, onClose, onSaved
             <small>Runs through your login shell in its worktree. Its first look only notes what’s there. A line that’s JSON with an id is that thing, with its title, url and text.</small>
           </div>
         )}
-        {when.kind === 'event' && (
+        {when.kind === 'event' && !draft.orchestrates && (
           <div className="ca-field">
             <Seg label="What happens" options={EVENTS} value={when.event} onPick={(event) => setWhen({ ...when, event })} />
             {when.event === 'todo-ready' ? (
@@ -293,10 +302,12 @@ export function ScheduleDialog({ schedule, board, devices, now, onClose, onSaved
           </div>
         )}
 
-        <div className="ca-field">
-          <span>Does</span>
-          <Seg label="Does" options={TOS} value={run.to} onPick={(to) => setRun({ to })} />
-        </div>
+        {!draft.orchestrates && (
+          <div className="ca-field">
+            <span>Does</span>
+            <Seg label="Does" options={TOS} value={run.to} onPick={(to) => setRun({ to })} />
+          </div>
+        )}
         {run.to === 'session' ? (
           <>
             <FieldPicker
@@ -317,7 +328,7 @@ export function ScheduleDialog({ schedule, board, devices, now, onClose, onSaved
         ) : (
           <>
             <div className="ca-scheddlg-row">
-              {worktreeField}
+              {!draft.orchestrates && worktreeField}
               <Select label="Where it runs" value={(run.place ?? '') as StartPlace | ''} options={PLACES} onPick={(p) => setRun({ place: p || null })} />
             </div>
             <AgentPromptBox
@@ -337,7 +348,7 @@ export function ScheduleDialog({ schedule, board, devices, now, onClose, onSaved
               onAgent={(account, model, effort) => setRun({ account, model: model || null, effort: effort || null })}
               onPrompt={(prompt) => setRun({ prompt })}
             />
-            <div className="ca-scheddlg-checks">
+            <div className="ca-scheddlg-checks" hidden={!!draft.orchestrates}>
               <label className="ca-check">
                 <CheckBox checked={run.worktree} onChange={(worktree) => setRun({ worktree })} />
                 <span>A new worktree each time</span>
@@ -352,7 +363,8 @@ export function ScheduleDialog({ schedule, board, devices, now, onClose, onSaved
           </>
         )}
 
-        {asksRunsOn(devices, schedule.runsOn) && (
+        {/* An orchestrator runs on this machine alone, for now (orchestrate.rs `check`). */}
+        {asksRunsOn(devices, schedule.runsOn) && !draft.orchestrates && (
           <div className="ca-field">
             <span>Runs on</span>
             <Seg label="Runs on" options={RUNS_ON} value={runsOn.kind} onPick={(kind) => setRunsOn(kind)} />
@@ -372,10 +384,24 @@ export function ScheduleDialog({ schedule, board, devices, now, onClose, onSaved
               <CheckBox checked={draft.notes} onChange={(notes) => setDraft({ ...draft, notes })} />
               <span>Keep notes between runs</span>
             </label>
-            <label className="ca-check" title="After its first run that goes, it’s finished and nothing runs it again. Run now doesn’t count, so you can try it.">
-              <CheckBox checked={!!draft.once} onChange={(once) => setDraft({ ...draft, once })} />
-              <span>Run once, then stop</span>
-            </label>
+            {draft.orchestrates && (
+              <>
+                <label className="ca-check" title="It may message sessions (codealong session send). It never merges, reviews or approves a PR, or removes a worktree.">
+                  <CheckBox checked={!!draft.orchestrates.send} onChange={(send) => setDraft({ ...draft, orchestrates: { ...draft.orchestrates, send } })} />
+                  <span>May message sessions</span>
+                </label>
+                <label className="ca-check" title="It may start sessions (codealong start, a helper), each spending usage.">
+                  <CheckBox checked={!!draft.orchestrates.start} onChange={(start) => setDraft({ ...draft, orchestrates: { ...draft.orchestrates, start } })} />
+                  <span>May start sessions</span>
+                </label>
+              </>
+            )}
+            {!draft.orchestrates && (
+              <label className="ca-check" title="After its first run that goes, it’s finished and nothing runs it again. Run now doesn’t count, so you can try it.">
+                <CheckBox checked={!!draft.once} onChange={(once) => setDraft({ ...draft, once })} />
+                <span>Run once, then stop</span>
+              </label>
+            )}
             {when.kind === 'time' && (
               <label className="ca-check" title="A time missed while the machine slept or Codealong was closed runs once, late, when it’s back">
                 <CheckBox checked={draft.catchUp === 'once'} onChange={(on) => setDraft({ ...draft, catchUp: on ? 'once' : 'skip' })} />

@@ -4664,24 +4664,48 @@ the terminal's, so nothing the app starts carries an agent's session with it. Se
 
 ### An orchestrator
 
-A session can keep watch over all your others for you, on a loop. Start one with `codealong start
---prompt "/codealong:orchestrate"` on a Claude Code account, or `/codealong:orchestrate` in a
-session's box; on another harness, ask it to run as your orchestrator with the codealong skill. It
-asks first how often to look (every 15 minutes) and which optional parts you want, keeps your
-answers, its cursor and a running narrative of the work in `orchestrator/` in Codealong's folder,
-and schedules itself with its harness's scheduler. Each tick it reads what changed, tags what waits
-on you and suggests replies (*Suggested replies*), and points out agents getting in each other's
-way: two sessions in one worktree, two on one task, PRs touching the same code, a production change
-planned while a deploy runs. It never messages a session for you. Where Codealong itself gets in its
-way (a command that misleads, output it has to filter, a session shown in the wrong state), it
-notes it in `orchestrator/codealong-ideas.md` and suggests the fix once; with your go-ahead, each
-time or once for all of them, it starts a session for it where Improve Codealong would, after
-checking that no todo or session has it already. If you say so, it also ends what's
-left running of old sessions (`codealong hygiene --kill`), turns real action items in your email
-into a todo and a session that may only investigate and draft (with a Gmail connector), watches
-deploys where a repo has a watch of its own, and once a day looks at what's new in Codealong and
-suggests how its loop or your work could use it. The skill is `references/orchestrate.md` in the
-codealong skill.
+An orchestrator is an agent that keeps watch over your sessions for you: one for a project, and one
+for All projects, which takes every project without an orchestrator of its own and the sessions in
+none. None runs until you start one. In Sessions, the compass at the end of the bar (Orchestrator)
+is there while the project you're looking at, or All projects, has none running; it asks first,
+then starts it. `codealong orchestrator start [project]` does the same from a terminal or an agent.
+
+Codealong runs each as a schedule of its own (it's listed in Schedules, with its runs): it keeps
+one session going, out of sight on an account with room, among Codealong's chats, and starts it
+afresh each day, the new session going on from the notes the last one kept. It runs only when
+something it keeps watch over needs a look: a session that starts to wait on you (a call to allow,
+a question or an error at once, a finished turn once it has settled for two minutes, unless its work
+is known to be done), a PR its sessions worked on, or of yours, opened, out of draft, approved, sent
+back, merged, closed or failing its checks, and two agents working in one linked worktree at once.
+Nothing runs while nothing changes, so an orchestrator spends no usage in a quiet hour, and several
+cost no more than what happens in their projects. A run that comes while its session is at work
+waits for its turn to end, several in one message.
+
+Each run it reads what changed (`codealong changes`, kept to what it keeps watch over), tags what
+waits on you and suggests replies (*Suggested replies*), moves what can't wait to the top, and
+points out agents getting in each other's way: two sessions in one worktree, two on one task, PRs
+touching the same code, a production change planned while a deploy runs. A project's sessions are
+its own orchestrator's while that one is on, else All projects', so two never read the same session.
+What it does is the codealong skill's `references/orchestrate.md`.
+
+Its session leads the Sessions of what it keeps watch over, above the pinned ones, under
+Orchestrator: under a project, that project's; under All projects, every one that runs. It's quiet:
+a turn it ends waits on you only when it asks you something, and is otherwise idle with its first
+line as its headline. Its menu has Look now, Start afresh (its session is marked done, and a new one
+takes over now from its notes) and Turn off orchestrator, which pauses its schedule and marks its
+session done, so it leaves Sessions; its notes are kept for when it's started again, and what it
+kept watch over goes to All projects' orchestrator meanwhile. `codealong orchestrator
+list|stop|look|fresh` do the same.
+
+It never messages or starts a session for you unless you let it (`--may-send`, `--may-start`, or
+May message sessions and May start sessions in its schedule): Codealong turns down what it asks for
+until then, and a merge, a PR review or approval, or removing a worktree always, whoever told it to.
+Where Codealong itself gets in its way (a command that misleads, output it has to filter, a session
+shown in the wrong state), it notes it and suggests the fix once; with your go-ahead and leave to
+start sessions, it starts one for it where Improve Codealong would. What runs on a loop besides
+watching sessions (ending old sessions' processes, removing finished worktrees, triaging your email,
+watching deploys) is a schedule of your own (*Schedules*), which an orchestrator can make for you
+when you ask; what those start or find comes to it like any other session.
 
 Its two commands are for any agent. `codealong changes` says what changed since the cursor an
 earlier run printed: sessions that started, began or ended a turn, wait on you or stopped, each with

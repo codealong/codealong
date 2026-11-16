@@ -71,6 +71,7 @@ export type Session = Holds<Same<
   | "name"
   | "need"
   | "openTarget"
+  | "orchestrator"
   | "origin"
   | "ownWorktree"
   | "pid"
@@ -121,6 +122,13 @@ export type Helper = Holds<Same<
   | "report"
   | "yours",
   Names<Types.Helper>
+>>;
+
+export type Orchestrator = Holds<Same<
+  | "paused"
+  | "project"
+  | "schedule",
+  Names<Types.Orchestrator>
 >>;
 
 export type SessionMode = Holds<Same<
@@ -657,6 +665,7 @@ export type Schedule = Holds<Same<
   | "notes"
   | "once"
   | "onlyIf"
+  | "orchestrates"
   | "overlap"
   | "paused"
   | "perDay"

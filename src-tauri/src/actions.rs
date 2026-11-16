@@ -422,6 +422,7 @@ pub fn run_on(engine: &Handle, peers: &Peers, name: &str, device: Option<&str>, 
 pub fn run_as(engine: &Handle, peers: &Peers, from: &From, name: &str, on: On, params: impl Serialize) -> Result<Value, String> {
     let params = to_value(params)?;
     let req = asked(from, name, &params)?;
+    orchestrator_may(engine, from, name)?;
     if name == api::SESSION_FORK || name == api::SESSION_EDIT || name == FORK_TERMINAL {
         let (device, own) = on.split();
         let key = device.map(|d| peerfeed::remote_key(d, own)).unwrap_or_else(|| own.to_string());
@@ -621,7 +622,22 @@ pub fn command_may_ask(name: &str, params: &Value) -> Result<(), String> {
 pub fn local(engine: &Handle, from: &From, name: &str, key: &str, params: impl Serialize) -> Result<Value, String> {
     let params = to_value(params)?;
     let req = asked(from, name, &params)?;
+    orchestrator_may(engine, from, name)?;
     (req.here)(engine, &Call { key, params: &params, from })
+}
+
+/// Turns down what an orchestrator's session may not ask for (schedules/orchestrate.rs
+/// `refused`), as the `codealong` command it runs asks it: told apart by the session the command
+/// found, which the board marks as its orchestrator's (`Session::orchestrator`).
+fn orchestrator_may(engine: &Handle, from: &From, name: &str) -> Result<(), String> {
+    let From::Command(Some(caller)) = from else { return Ok(()) };
+    let Some(theirs) = engine.read(|b| b.session(caller).and_then(|(_, s)| s.orchestrator.clone())) else { return Ok(()) };
+    // Its schedule as written: a file that doesn't read turns down what it may only once let.
+    let may = crate::schedules::load().ok().and_then(|f| f.schedules.into_iter().find(|s| s.id == theirs.schedule)).and_then(|s| s.orchestrates).unwrap_or_else(|| crate::schedules::orchestrate::Orchestrates::of(theirs.project.as_deref()));
+    match crate::schedules::orchestrate::refused(name, &may) {
+        Some(why) => Err(why),
+        None => Ok(()),
+    }
 }
 
 /// The request `name`, when `from` may ask for it on this device with these params.

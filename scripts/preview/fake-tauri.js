@@ -431,6 +431,28 @@ function withExperiments(board) {
     // Said on the session too, as the engine says it (board.rs `apply_listening`).
     (out.lanes || []).forEach(function (l) { l.sessions.forEach(function (s) { if (s.key === window.__LISTENS__) s.listening = true; }); });
   }
+  // An orchestrator (schedules/orchestrate.rs), when a check or an init script set
+  // `window.__ORCHESTRATES__` ({ project }): the most recently active session is its session,
+  // marked as the engine marks one (`mark`) and named as its runs name it, with its schedule
+  // among the schedules, on. `{ off: true }` leaves the session alone and the schedule paused.
+  var orch = window.__ORCHESTRATES__;
+  if (orch) {
+    var latest = null;
+    (out.lanes || []).forEach(function (l) { l.sessions.forEach(function (s) { if (!s.archived && !s.visitor && (!latest || s.lastActivity > latest.lastActivity)) latest = s; }); });
+    var project = orch.project || undefined;
+    var id = 'orch-' + (project || 'all');
+    if (latest && !orch.off) {
+      latest.orchestrator = { schedule: id, project: project };
+      latest.title = project ? project + ' orchestrator' : 'Orchestrator';
+      latest.quiet = true;
+    }
+    out.schedules = (out.schedules || []).concat([{
+      id: id, name: project ? project + ' orchestrator' : 'Orchestrator', paused: !!orch.off, when: { kind: 'event', event: 'changes', repo: '', label: '', mine: false },
+      onlyIf: '', run: { to: 'thread', session: '', folder: '', worktree: false, account: '', prompt: 'Run a tick.', freshAfter: '1d' },
+      quiet: true, overlap: 'skip', catchUp: 'skip', notes: true, createdAt: 0, updatedAt: 0, orchestrates: { project: project },
+      whenWords: project ? 'When something in ' + project + ' needs a look' : 'When something needs a look', thread: latest && !orch.off ? latest.key : undefined, runs: [], asked: 0,
+    }]);
+  }
   // The meeting on offer (meetings.rs `Offer`), and the one counted down to before its offer
   // (`counting_down`), when a check or an init script set them.
   if (voice && window.__MEETING__) out.meeting = window.__MEETING__;

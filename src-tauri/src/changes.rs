@@ -394,13 +394,16 @@ pub struct Sight<'a> {
     pub me: Option<&'a str>,
     /// Only this project's changes are told; every item is still marked.
     pub project: Option<&'a str>,
+    /// Nor these projects', which other orchestrators keep watch over (an orchestrator for All
+    /// projects asking: schedules/orchestrate.rs `told_elsewhere`).
+    pub skip: &'a [String],
 }
 
 /// What changed since `earlier` (or, where it has no mark, since `since`), and the look to keep
 /// for next time. The cursor is left for `keep` to give.
 pub fn compare(sight: &Sight, earlier: Option<&Look>, since: i64, now: i64) -> (Changes, Look) {
     let board = sight.board;
-    let in_project = |p: &str| sight.project.map_or(true, |want| want.eq_ignore_ascii_case(p));
+    let in_project = |p: &str| sight.project.map_or(true, |want| want.eq_ignore_ascii_case(p)) && !sight.skip.iter().any(|x| x.eq_ignore_ascii_case(p));
     let mut out = Changes { since, at: now, compared: earlier.is_some(), ..Changes::default() };
     let mut look = Look { at: now, ..Look::default() };
     let since_of = |at: Option<i64>| at.unwrap_or(since);
@@ -416,7 +419,8 @@ pub fn compare(sight: &Sight, earlier: Option<&Look>, since: i64, now: i64) -> (
                 continue;
             }
             marks.insert(s.key.clone(), SessionMark { status: s.status, prompt_at: s.last_prompt_at, since: s.status_since, activity: s.last_activity });
-            if sight.me == Some(s.key.as_str()) || !in_project(&lane.project) {
+            // An orchestrator's own session is no session it keeps watch over, its own or another's.
+            if sight.me == Some(s.key.as_str()) || !in_project(&lane.project) || s.orchestrator.is_some() {
                 continue;
             }
             match session_change(s, part.and_then(|p| p.marks.get(&s.key)), from) {
@@ -438,7 +442,7 @@ pub fn compare(sight: &Sight, earlier: Option<&Look>, since: i64, now: i64) -> (
     let changed: BTreeSet<&str> = out.sessions.iter().map(|r| r.key.as_str()).collect();
     out.waiting = sessions
         .iter()
-        .filter(|(s, lane)| sight.sessions && waits_on_user(s) && sight.me != Some(s.key.as_str()) && in_project(&lane.project))
+        .filter(|(s, lane)| sight.sessions && waits_on_user(s) && sight.me != Some(s.key.as_str()) && s.orchestrator.is_none() && in_project(&lane.project))
         .map(|(s, lane)| WaitingRow {
             key: s.key.clone(),
             title: s.title.clone(),
@@ -763,9 +767,10 @@ fn todo_row(change: TodoChange, t: &Todo) -> TodoRow {
 
 /// A session of a worktree's own that's at work there now: working or waiting on its user, or
 /// live and active within the hour. Helpers work for another session (unless the user is talking
-/// to one) and headless runs for what ran them, so neither is counted.
+/// to one) and headless runs for what ran them, so neither is counted, nor an orchestrator, which
+/// keeps watch from a chat of its own.
 fn working_here(s: &Session, now: i64) -> bool {
-    s.visitor.is_none() && !s.archived && !s.helps_an_agent() && !s.headless && (matches!(s.status, Status::Working | Status::Needs | Status::Error) || (s.live && now - s.last_activity < ACTIVE_MS))
+    s.visitor.is_none() && s.orchestrator.is_none() && !s.archived && !s.helps_an_agent() && !s.headless && (matches!(s.status, Status::Working | Status::Needs | Status::Error) || (s.live && now - s.last_activity < ACTIVE_MS))
 }
 
 /// The message that began the latest turn in a page of a conversation, who sent it when it wasn't
@@ -933,7 +938,7 @@ mod tests {
         let t = NOW - 30 * MIN;
         let suggested = Session { suggestions: Some(Default::default()), ..s("c", Status::Unread, t) };
         let b = board(vec![s("a", Status::Unread, t), s("b", Status::Unread, t), suggested], vec![]);
-        let sight = Sight { board: &b, sessions: true, prs: true, todos: true, me: None, project: None };
+        let sight = Sight { board: &b, sessions: true, prs: true, todos: true, me: None, project: None, skip: &[] };
         let (mut out, _) = compare(&sight, None, NOW - 60 * MIN, NOW);
         let gone: BTreeMap<String, MovedOn> = [("a".to_string(), MovedOn::Turn { at: NOW - 5 * MIN }), ("c".to_string(), MovedOn::Prompt { at: NOW - 4 * MIN })].into();
         untagged_and_unsuggested(&mut out, &gone, &gone);
@@ -1046,7 +1051,7 @@ mod tests {
     #[test]
     fn a_repo_that_isnt_current_holds_its_time_while_others_move_on() {
         let other = |n: u64, state: PrState| PrItem { key: format!("x/y#{n}"), repo_slug: "x/y".into(), ..pr(n, state) };
-        let sight = |b| Sight { board: b, sessions: true, prs: true, todos: true, me: None, project: None };
+        let sight = |b| Sight { board: b, sessions: true, prs: true, todos: true, me: None, project: None, skip: &[] };
         let current = |or: i64, xy: Option<i64>| [("o/r".to_string(), Some(or)), ("x/y".to_string(), xy)].into_iter().collect();
         // The first look comes while x/y has never been read: it goes from where the look begins.
         let closed = PrItem { closed_at: Some(NOW - DAY_MS), ..other(3, PrState::Closed) };
@@ -1069,7 +1074,7 @@ mod tests {
 
     #[test]
     fn a_repo_never_read_keeps_where_the_first_look_began() {
-        let sight = |b| Sight { board: b, sessions: true, prs: true, todos: true, me: None, project: None };
+        let sight = |b| Sight { board: b, sessions: true, prs: true, todos: true, me: None, project: None, skip: &[] };
         // x/y is polled but its read has never come, and the board has no PRs of it.
         let unread = |at: i64| Board { github_at: Some(at), github_current: [("o/r".to_string(), Some(at)), ("x/y".to_string(), None)].into_iter().collect(), ..board(vec![], vec![]) };
         let (first_board, second_board) = (unread(NOW - 10 * MIN), unread(NOW + 5 * MIN));
@@ -1085,7 +1090,7 @@ mod tests {
 
     #[test]
     fn a_pr_changes_only_by_github_word_newer_than_its_mark() {
-        let sight = |b| Sight { board: b, sessions: true, prs: true, todos: true, me: None, project: None };
+        let sight = |b| Sight { board: b, sessions: true, prs: true, todos: true, me: None, project: None, skip: &[] };
         let at = |t: i64, p: PrItem| Board { github_at: Some(t), github_current: [("o/r".to_string(), Some(t))].into_iter().collect(), ..board(vec![], vec![p]) };
         let read = at(NOW - 10 * MIN, pr(1, PrState::Open));
         let (_, first) = compare(&sight(&read), None, NOW - 15 * MIN, NOW);
@@ -1109,7 +1114,7 @@ mod tests {
         // The board stops listing a closed PR (its repo fails after a restart): its mark stays for a
         // week, so its reopening is told once it's back.
         let closed = PrItem { closed_at: Some(NOW - DAY_MS), ..pr(4, PrState::Closed) };
-        let sight = |b| Sight { board: b, sessions: true, prs: true, todos: true, me: None, project: None };
+        let sight = |b| Sight { board: b, sessions: true, prs: true, todos: true, me: None, project: None, skip: &[] };
         let (listed, gone, back) = (board(vec![], vec![closed]), board(vec![], vec![]), board(vec![], vec![pr(4, PrState::Open)]));
         let (_, first) = compare(&sight(&listed), None, NOW - 15 * MIN, NOW);
         let (_, second) = compare(&sight(&gone), Some(&first), first.at, NOW + MIN);
@@ -1121,11 +1126,11 @@ mod tests {
     fn prs_are_as_of_when_github_last_answered_so_an_outage_hides_nothing() {
         // GitHub stopped answering an hour ago; a PR opened during it shows once it answers again.
         let stale = Board { github_at: Some(NOW - 60 * MIN), ..board(vec![], vec![pr(1, PrState::Open)]) };
-        let (_, first) = compare(&Sight { board: &stale, sessions: true, prs: true, todos: true, me: None, project: None }, None, NOW - 2 * 60 * MIN, NOW);
+        let (_, first) = compare(&Sight { board: &stale, sessions: true, prs: true, todos: true, me: None, project: None, skip: &[] }, None, NOW - 2 * 60 * MIN, NOW);
         assert_eq!(first.prs.as_ref().unwrap().at, NOW - 60 * MIN);
         let opened = PrItem { created_at: NOW - 30 * MIN, ..pr(2, PrState::Open) };
         let back = Board { github_at: Some(NOW + MIN), ..board(vec![], vec![pr(1, PrState::Open), opened]) };
-        let (out, _) = compare(&Sight { board: &back, sessions: true, prs: true, todos: true, me: None, project: None }, Some(&first), first.at, NOW + 2 * MIN);
+        let (out, _) = compare(&Sight { board: &back, sessions: true, prs: true, todos: true, me: None, project: None, skip: &[] }, Some(&first), first.at, NOW + 2 * MIN);
         assert_eq!(out.prs.unwrap().iter().map(|r| (r.key.as_str(), r.change)).collect::<Vec<_>>(), vec![("o/r#2", PrChange::Opened)]);
     }
 
@@ -1137,7 +1142,7 @@ mod tests {
     fn prs_that_cant_be_read_keep_the_earlier_marks_so_nothing_comes_back_new() {
         let since = NOW - 15 * MIN;
         let b = board(vec![], vec![PrItem { created_at: NOW - 20 * MIN, ..pr(1, PrState::Open) }]);
-        let sight = |prs| Sight { board: &b, sessions: true, prs, todos: true, me: None, project: None };
+        let sight = |prs| Sight { board: &b, sessions: true, prs, todos: true, me: None, project: None, skip: &[] };
         let (_, first) = compare(&sight(true), None, NOW - 30 * MIN, since);
         assert!(first.prs.as_ref().unwrap().marks.contains_key("o/r#1"));
         // GitHub doesn't answer: PRs aren't told, and the marks stay.
@@ -1146,7 +1151,7 @@ mod tests {
         assert_eq!(second.prs, first.prs);
         // A board whose PRs miss one (its repo didn't answer) keeps its mark; when it's back, it isn't new.
         let empty = board(vec![], vec![]);
-        let (_, third) = compare(&Sight { board: &empty, sessions: true, prs: true, todos: true, me: None, project: None }, Some(&second), second.at, NOW + MIN);
+        let (_, third) = compare(&Sight { board: &empty, sessions: true, prs: true, todos: true, me: None, project: None, skip: &[] }, Some(&second), second.at, NOW + MIN);
         assert!(third.prs.as_ref().unwrap().marks.contains_key("o/r#1"));
         let (out, _) = compare(&sight(true), Some(&third), third.at, NOW + 2 * MIN);
         assert_eq!(out.prs, Some(vec![]));
@@ -1156,17 +1161,17 @@ mod tests {
     fn sessions_are_left_alone_until_the_app_has_read_them() {
         let b = board(vec![s("a", Status::Unread, NOW - MIN)], vec![]);
         let earlier = Look { at: NOW - 15 * MIN, sessions: Some(Part { at: NOW - 15 * MIN, marks: BTreeMap::from([("a".to_string(), mark(Status::Working, NOW - MIN))]), repos: BTreeMap::new() }), ..Look::default() };
-        let (out, look) = compare(&Sight { board: &b, sessions: false, prs: false, todos: true, me: None, project: None }, Some(&earlier), earlier.at, NOW);
+        let (out, look) = compare(&Sight { board: &b, sessions: false, prs: false, todos: true, me: None, project: None, skip: &[] }, Some(&earlier), earlier.at, NOW);
         assert!(out.sessions.is_empty() && !out.notes.is_empty());
         assert_eq!(look.sessions, earlier.sessions);
-        let (out, _) = compare(&Sight { board: &b, sessions: true, prs: false, todos: true, me: None, project: None }, Some(&earlier), earlier.at, NOW);
+        let (out, _) = compare(&Sight { board: &b, sessions: true, prs: false, todos: true, me: None, project: None, skip: &[] }, Some(&earlier), earlier.at, NOW);
         assert_eq!(out.sessions.iter().map(|r| (r.key.as_str(), r.change)).collect::<Vec<_>>(), vec![("a", SessionChange::Finished)]);
     }
 
     #[test]
     fn the_asking_session_is_left_out_and_what_waits_is_listed() {
         let b = board(vec![s("me", Status::Unread, NOW - MIN), s("b", Status::Needs, NOW - MIN), s("c", Status::Unread, NOW - DAY_MS)], vec![]);
-        let (out, _) = compare(&Sight { board: &b, sessions: true, prs: false, todos: true, me: Some("me"), project: None }, None, NOW - 15 * MIN, NOW);
+        let (out, _) = compare(&Sight { board: &b, sessions: true, prs: false, todos: true, me: Some("me"), project: None, skip: &[] }, None, NOW - 15 * MIN, NOW);
         assert_eq!(out.sessions.iter().map(|r| r.key.as_str()).collect::<Vec<_>>(), vec!["b"]);
         let waiting: Vec<(&str, bool)> = out.waiting.iter().map(|w| (w.key.as_str(), w.changed)).collect();
         assert_eq!(waiting, vec![("c", false), ("b", true)]);
@@ -1176,7 +1181,7 @@ mod tests {
     fn a_helper_that_waits_says_its_a_helper() {
         let review = Session { helper: Some(crate::model::Helper { pr: Some("o/r#7".into()), ..Default::default() }), ..s("h", Status::Needs, NOW - MIN) };
         let b = board(vec![review, s("mine", Status::Needs, NOW - 2 * MIN)], vec![]);
-        let (out, _) = compare(&Sight { board: &b, sessions: true, prs: false, todos: true, me: None, project: None }, None, NOW - 15 * MIN, NOW);
+        let (out, _) = compare(&Sight { board: &b, sessions: true, prs: false, todos: true, me: None, project: None, skip: &[] }, None, NOW - 15 * MIN, NOW);
         let waiting: Vec<(&str, bool)> = out.waiting.iter().map(|w| (w.key.as_str(), w.helper)).collect();
         assert_eq!(waiting, vec![("mine", false), ("h", true)]);
         // Said only of a helper, so an orchestrator's rows stay as they were otherwise.
@@ -1191,7 +1196,7 @@ mod tests {
         let idle_long = Session { live: false, ..s("c", Status::Idle, NOW - DAY_MS) };
         let alone = board(vec![one.clone(), idle_long.clone()], vec![]);
         let both = board(vec![one, two, idle_long], vec![]);
-        let sight = |b| Sight { board: b, sessions: true, prs: false, todos: true, me: None, project: None };
+        let sight = |b| Sight { board: b, sessions: true, prs: false, todos: true, me: None, project: None, skip: &[] };
         let (out, first) = compare(&sight(&alone), None, NOW - 15 * MIN, NOW - 10 * MIN);
         assert!(out.shared.is_empty());
         let (out, second) = compare(&sight(&both), Some(&first), first.at, NOW);
@@ -1204,7 +1209,7 @@ mod tests {
     #[test]
     fn the_asking_session_shares_no_worktree() {
         let b = board(vec![s("a", Status::Working, NOW - MIN), s("me", Status::Working, NOW - MIN)], vec![]);
-        let sight = |me| Sight { board: &b, sessions: true, prs: false, todos: true, me, project: None };
+        let sight = |me| Sight { board: &b, sessions: true, prs: false, todos: true, me, project: None, skip: &[] };
         let (out, look) = compare(&sight(Some("me")), None, NOW - 15 * MIN, NOW);
         assert!(out.shared.is_empty());
         assert_eq!(look.shared.unwrap().marks["/r"], vec!["a".to_string()]);
@@ -1221,7 +1226,7 @@ mod tests {
     fn an_apps_chats_share_nothing() {
         let chats = Lane { chats: true, ..lane("/Users/me/.gemini/antigravity-cli/scratch", vec![s("a", Status::Working, NOW - MIN), s("b", Status::Working, NOW - MIN)]) };
         let b = Board { lanes: vec![chats], ..Board::default() };
-        let (out, _) = compare(&Sight { board: &b, sessions: true, prs: false, todos: true, me: None, project: None }, None, NOW - 15 * MIN, NOW);
+        let (out, _) = compare(&Sight { board: &b, sessions: true, prs: false, todos: true, me: None, project: None, skip: &[] }, None, NOW - 15 * MIN, NOW);
         assert_eq!(out.sessions.len(), 2);
         assert!(out.shared.is_empty());
     }
@@ -1236,7 +1241,7 @@ mod tests {
             ],
             ..Board::default()
         };
-        let (out, look) = compare(&Sight { board: &b, sessions: true, prs: false, todos: true, me: None, project: None }, None, NOW - 15 * MIN, NOW);
+        let (out, look) = compare(&Sight { board: &b, sessions: true, prs: false, todos: true, me: None, project: None, skip: &[] }, None, NOW - 15 * MIN, NOW);
         assert_eq!(out.sessions.iter().map(|r| r.key.as_str()).collect::<Vec<_>>(), vec!["a"]);
         let counted: Vec<(&str, usize, usize)> = out.headless.iter().map(|h| (h.callsign.as_str(), h.runs, h.working)).collect();
         assert_eq!(counted, vec![("tmp/judge", 3, 2), ("r", 1, 1)]);
@@ -1246,7 +1251,7 @@ mod tests {
         assert!(Changes { sessions: vec![], ..out.clone() }.quiet(), "headless runs alone are quiet");
         // Marked like any session, so the next look tells only what changed again.
         assert!(look.sessions.as_ref().unwrap().marks.contains_key("j3"));
-        let (out, _) = compare(&Sight { board: &b, sessions: true, prs: false, todos: true, me: None, project: None }, Some(&look), look.at, NOW + MIN);
+        let (out, _) = compare(&Sight { board: &b, sessions: true, prs: false, todos: true, me: None, project: None, skip: &[] }, Some(&look), look.at, NOW + MIN);
         assert!(out.headless.is_empty());
     }
 
@@ -1254,7 +1259,7 @@ mod tests {
     fn todos_are_left_alone_until_they_can_be_read() {
         let mut b = board(vec![], vec![]);
         b.todos = vec![todo("t1"), Todo { status: TodoStatus::Done, ..todo("t2") }];
-        let sight = |b, todos| Sight { board: b, sessions: true, prs: false, todos, me: None, project: None };
+        let sight = |b, todos| Sight { board: b, sessions: true, prs: false, todos, me: None, project: None, skip: &[] };
         let (_, first) = compare(&sight(&b, true), None, NOW - 15 * MIN, NOW - 10 * MIN);
         assert_eq!(first.todos.as_ref().unwrap().marks.len(), 2);
         // Right after a restart the app's board has no todos yet: none is gone, and the marks stay.
@@ -1274,7 +1279,7 @@ mod tests {
             todos: vec![Todo { created_at: NOW - 90 * MIN, ..todo("t1") }],
             ..Board::default()
         };
-        let sight = |read| Sight { board: &b, sessions: read, prs: false, todos: read, me: None, project: None };
+        let sight = |read| Sight { board: &b, sessions: read, prs: false, todos: read, me: None, project: None, skip: &[] };
         // The first look, asked for two hours, comes while the app is starting.
         let (_, first) = compare(&sight(false), None, NOW - 120 * MIN, NOW - 60 * MIN);
         // The next goes from that look, and still tells what happened in the two hours.

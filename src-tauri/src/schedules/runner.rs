@@ -367,7 +367,7 @@ pub fn plan_in(file: &File, runs: &Runs, board: &Board, busy: &HashSet<String>, 
             // PRs and their checks aren't known until GitHub's first read.
             let ready = !matches!(s.when, When::Event { event: Event::PrMerged | Event::ChecksFailed, .. }) || board.github_polled;
             if ready {
-                notes.push(Note::Arm { id: s.id.clone(), at: now, seen: found_on(board, &s.when, 0).into_iter().map(|f| f.id).collect() });
+                notes.push(Note::Arm { id: s.id.clone(), at: now, seen: found_on(board, file, s, 0, now).into_iter().map(|f| f.id).collect() });
             }
             continue;
         };
@@ -474,7 +474,7 @@ pub fn plan_in(file: &File, runs: &Runs, board: &Board, busy: &HashSet<String>, 
                     continue;
                 }
                 let theirs = if line.is_some() { machines::their_seen(&board.machines, &s.id) } else { HashSet::new() };
-                let found: Vec<Found> = found_on(board, &s.when, track.armed_at).into_iter().filter(|f| !track.seen.contains(&f.id) && !theirs.contains(f.id.as_str())).collect();
+                let found: Vec<Found> = found_on(board, file, s, track.armed_at, now).into_iter().filter(|f| !track.seen.contains(&f.id) && !theirs.contains(f.id.as_str())).collect();
                 if let Some(first) = found.first() {
                     let why = match found.len() {
                         1 => crate::util::one_line(&first.title, 80),
@@ -800,9 +800,10 @@ fn went(r: &RunRecord) -> bool {
 }
 
 /// Who a schedule's messages are from: you, for one you made; Codealong, for one an agent made,
-/// whose words aren't yours.
+/// whose words aren't yours, and for an orchestrator's.
 fn sender(s: &Schedule) -> Sender {
-    if s.created_by.is_some() {
+    // An orchestrator's runs are Codealong's own news, never a prompt of yours.
+    if s.created_by.is_some() || s.orchestrates.is_some() {
         Sender::Codealong
     } else {
         Sender::You
@@ -1229,7 +1230,9 @@ fn fire(engine: &Handle, id: &str, cause: Cause) -> Option<Done> {
     let files: Vec<String> = file_ref.iter().cloned().collect();
     let prompt = prompt_of(&s, std::slice::from_ref(&cause.said), &files, &todos, &board, now);
     let step = step(&board, &cfg, &s, &track, &prompt, &todos, now);
+    let before = target(&board, &s, Some(&track));
     let (mut rec, to, queued) = act(engine, &board, &cfg, &s, &track, step, &prompt, &cause, file_ref.as_deref());
+    retire(engine, &s, before.as_deref(), &rec);
     rec.name = name.filter(|_| rec.outcome == Outcome::Started);
     Some(Done {
         thread: (s.run.to != To::New).then(|| to.clone()),
@@ -1243,6 +1246,18 @@ fn fire(engine: &Handle, id: &str, cause: Cause) -> Option<Done> {
         due: cause.due,
         delivered: false,
     })
+}
+
+/// An orchestrator's session started afresh (`Run::fresh_after`) takes the place of the one
+/// before, which is archived: its notes carry what that one knew, and nothing else would take the
+/// old one off your lists, where it would show as a session of yours once the new one is its
+/// orchestrator's.
+fn retire(engine: &Handle, s: &Schedule, before: Option<&str>, rec: &RunRecord) {
+    let Some(before) = before.filter(|_| s.orchestrates.is_some() && rec.outcome == Outcome::Started) else { return };
+    if rec.session.as_deref().is_some_and(|k| k != before) {
+        // Left where it is when its harness won't archive it: it's only a session of yours then.
+        let _ = engine.archive(before, true);
+    }
 }
 
 /// Whether a schedule's thread has gone on long enough that the next run starts a new one.
@@ -1330,7 +1345,9 @@ fn deliver_queued(engine: &Handle, id: &str, q: Queued) -> Option<Done> {
         Step::Wait { key, .. } => Step::Fail { why: format!("{} was busy for a day, so what waited for it was dropped.", title_of(&board, &key)) },
         other => other,
     };
+    let before = target(&board, &s, Some(&track));
     let (mut rec, went, _) = act(engine, &board, &cfg, &s, &track, step, &prompt, &cause, None);
+    retire(engine, &s, before.as_deref(), &rec);
     rec.name = run_name(&s, &cause).filter(|_| rec.outcome == Outcome::Started);
     Some(Done { record: Some(rec), thread: (s.run.to != To::New).then_some(went), follows: (s.run.to == To::Session).then(|| s.run.session.trim().to_string()), delivered: true, ..Done::default() })
 }
@@ -1383,6 +1400,27 @@ mod tests {
 
     fn schedule(id: &str, when: When) -> Schedule {
         Schedule { id: id.into(), name: format!("Schedule {id}"), when, run: Run { prompt: "Look".into(), ..Run::default() }, ..Schedule::default() }
+    }
+
+    #[test]
+    fn an_orchestrator_runs_for_what_needs_a_look_in_its_project_once() {
+        let z = Fake::utc();
+        let now = ms(&z, 2026, 10, 20, 9, 0);
+        let o = Schedule { id: "o".into(), ..orchestrate::schedule(orchestrate::Orchestrates::of(Some("Web")), "", None) };
+        let asks = |id: &str| crate::model::Session { status: crate::model::Status::Needs, status_since: Some(now - 1000), title: id.into(), ..crate::model::Session::new(crate::model::Harness::Claude, "claude", id) };
+        // Main checkouts, where two agents at once aren't news.
+        let lane = |project: &str, path: &str, sessions| crate::model::Lane { sessions, origin: crate::model::Origin::Main, ..crate::model::Lane::new(path, project, "web") };
+        let b = Board { lanes: vec![lane("Web", "/w", vec![asks("old"), asks("new")]), lane("Docs", "/d", vec![asks("theirs")])], ..board() };
+        let file = File { schedules: vec![o], ..File::default() };
+        // Armed with "old" waiting already: only "new" needs a look, and Docs isn't its project.
+        let old = format!("waits:claude:claude:old:{}", now - 1000);
+        let runs = Runs { of: [("o".to_string(), Track { seen: vec![old], ..armed(now - 5000) })].into(), ..Runs::default() };
+        let (jobs, _) = plan(&file, &runs, &b, &HashSet::new(), now, &z);
+        let ids: Vec<String> = jobs.iter().flat_map(|j| match j { Job::Fire { cause, .. } => cause.found.iter().map(|f| f.id.clone()).collect(), _ => Vec::new() }).collect();
+        assert_eq!(ids, vec![format!("waits:claude:claude:new:{}", now - 1000)]);
+        // Once that's noted as seen, nothing more runs until something else changes.
+        let runs = Runs { of: [("o".to_string(), Track { seen: vec![format!("waits:claude:claude:old:{}", now - 1000), ids[0].clone()], ..armed(now - 5000) })].into(), ..Runs::default() };
+        assert!(plan(&file, &runs, &b, &HashSet::new(), now, &z).0.is_empty());
     }
 
     fn armed(at: i64) -> Track {

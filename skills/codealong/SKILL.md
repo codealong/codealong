@@ -333,12 +333,16 @@ can't tell untagged: it's shown as not read, which is true.
 
 ## Orchestrating
 
-When your user asks you to run as their orchestrator, keeping watch over all their sessions on a
-loop (in Claude Code, `/codealong:orchestrate`), read `references/orchestrate.md` and follow it.
-Its two commands are for any watcher: `codealong changes --since <cursor>` says what changed
-since the last look (sessions, PRs, todos, worktrees two agents share) with what waits on the
-user now, and `codealong hygiene` lists the processes left over from old sessions, with this
-Mac's load, memory and swap (`--kill` ends them).
+An orchestrator keeps watch over your user's sessions for them: one for a project, and one for All
+projects (every project without one of its own). Codealong runs each itself (`codealong
+orchestrator list|start|stop|look|fresh`), waking its session only when something it keeps watch
+over needs a look. When your user asks for one, or you're told you're Codealong's orchestrator
+and to run a tick (in Claude Code, `/codealong:orchestrate`), read `references/orchestrate.md`
+and follow it. Its two commands are for any watcher: `codealong changes --since <cursor>` says
+what changed since the last look (sessions, PRs, todos, worktrees two agents share) with what
+waits on the user now, kept to what an orchestrator keeps watch over when one runs it, and
+`codealong hygiene` lists the processes left over from old sessions, with this Mac's load, memory
+and swap (`--kill` ends them).
 
 ## Schedules
 

@@ -36,7 +36,7 @@ import { GroupBlock, PinnedGroups, useGroupDrag, type GroupActs } from './Groups
 import { AgentRow, FoldRow, SideRow } from './LaneRow';
 import { PinnedSection } from './PinnedSection';
 import { ListSeg, ListTools, RowsSeg, rowsOptions, type RowLines } from './ListBar';
-import { BAY_WORD, BayHeader, SectionHeader } from './primitives';
+import { BAY_WORD, BayHeader, Button, SectionHeader } from './primitives';
 import { useRowDrag, type DragProps } from './useRowDrag';
 
 export interface SessionItem {
@@ -267,18 +267,35 @@ export function sortSessions(rows: SessionItem[], sort: SessionSort, now: number
 
 /** Sessions' tools in the bar over the list (ListBar.tsx): how the list is sorted, what groups
  *  it, where a session another one started goes, and how much each row says. */
-export function SessionsBar({ sort, onSort, group, onGroup, started, onStarted, lines, onLines }: { sort: SessionSort; onSort: (sort: SessionSort) => void; group: SessionGroupBy; onGroup: (group: SessionGroupBy) => void; started: StartedPlace; onStarted: (place: StartedPlace) => void; lines: RowLines; onLines: (lines: RowLines) => void }) {
+/** Sessions' bar: how it's listed, and, while the view's project (or All projects) has no
+ *  orchestrator running, a compass that starts one (StartOrchestrator.tsx). */
+export function SessionsBar({ sort, onSort, group, onGroup, started, onStarted, lines, onLines, startOrchestrator }: { sort: SessionSort; onSort: (sort: SessionSort) => void; group: SessionGroupBy; onGroup: (group: SessionGroupBy) => void; started: StartedPlace; onStarted: (place: StartedPlace) => void; lines: RowLines; onLines: (lines: RowLines) => void; startOrchestrator?: { scope: string; run: () => void } | null }) {
   return (
     <ListTools label="How Sessions is listed">
       <ListSeg label="Sort by" options={SESSION_SORTS} value={sort} onPick={onSort} />
       <ListSeg label="Group by" options={SESSION_GROUPS} value={group} onPick={onGroup} />
       <ListSeg label="Started sessions" options={STARTED_PLACES} value={started} onPick={onStarted} />
       <RowsSeg options={SESSION_ROWS} value={lines} onPick={onLines} />
+      {startOrchestrator && (
+        <Button
+          variant="ghost"
+          size="sm"
+          className="ca-listtools-start"
+          icon="compass"
+          title={`Start an orchestrator for ${startOrchestrator.scope}: an agent that keeps watch over its sessions for you`}
+          onClick={startOrchestrator.run}
+        >
+          Orchestrator
+        </Button>
+      )}
     </ListTools>
   );
 }
 
 interface SessionsViewProps {
+  /** The orchestrators' sessions for what the view shows (orchestrators.ts `orchestratorsIn`),
+   *  which lead it, above everything, and aren't dragged or pinned: turned off, one leaves. */
+  orchestrators?: SessionItem[];
   /** The sessions hearing a meeting now, which lead the list while they hear, pinned or not. */
   listening: SessionItem[];
   pinned: SessionItem[];
@@ -361,11 +378,11 @@ interface SessionsViewProps {
 const NO_KEYS: ReadonlySet<string> = new Set();
 
 export function SessionsView(props: SessionsViewProps) {
-  const { listening, pinned, topHelpers, sections, groups, groupActs, sort, lines, now, selectedKey, picked, domId, onSelect, onPickThese, onOpen, onContextMenu, onPrMenu, onPrShow, onPrOpen, onPlacePinned, onUnpin, pinnedKeys, desktop, archived, showArchived, onToggleArchived, todosFor, helpersOf, helpersShown, onToggleHelpers, runsOf, onToggleRuns, sidesOf, sideGlancesOf, onToggleSides, onShowSide, helperActions, onShowTodo, onFilterLabel, saidOf } = props;
+  const { orchestrators = [], listening, pinned, topHelpers, sections, groups, groupActs, sort, lines, now, selectedKey, picked, domId, onSelect, onPickThese, onOpen, onContextMenu, onPrMenu, onPrShow, onPrOpen, onPlacePinned, onUnpin, pinnedKeys, desktop, archived, showArchived, onToggleArchived, todosFor, helpersOf, helpersShown, onToggleHelpers, runsOf, onToggleRuns, sidesOf, sideGlancesOf, onToggleSides, onShowSide, helperActions, onShowTodo, onFilterLabel, saidOf } = props;
   const shown = helpersShown ?? NO_KEYS;
   const allGroups = groups ? groupsOf(groups) : [];
   const listed = groups ? allGroups.flatMap((g) => g.rows) : sections.flatMap((s) => s.rows);
-  const byKey = (key: string) => [...listening, ...pinned].find((r) => r.session.key === key) ?? [...(topHelpers?.values() ?? [])].flat().find((r) => r.session.key === key) ?? listed.find((r) => r.session.key === key);
+  const byKey = (key: string) => [...orchestrators, ...listening, ...pinned].find((r) => r.session.key === key) ?? [...(topHelpers?.values() ?? [])].flat().find((r) => r.session.key === key) ?? listed.find((r) => r.session.key === key);
   // Only the pinned rows carry an index: the others join them when dropped among them.
   const drag = useRowDrag({
     onPlace: onPlacePinned,
@@ -479,6 +496,14 @@ export function SessionsView(props: SessionsViewProps) {
   const listedCount = pinned.length + (groups ? groups.pinned.length + groups.sections.length : sections.length);
   return (
     <>
+      {orchestrators.length > 0 && (
+        // Above the list its rows are dragged in: an orchestrator's session isn't pinned, moved or
+        // grouped, and says no worktree, since it keeps watch from a chat of its own.
+        <section className="ca-bayblock ca-orchestrators">
+          <SectionHeader icon="compass" label={orchestrators.length === 1 ? 'Orchestrator' : 'Orchestrators'} count={orchestrators.length} />
+          <div className="ca-bay-lanes">{orchestrators.map((r) => family(r, [], null, () => undefined, true))}</div>
+        </section>
+      )}
       {listening.length > 0 && (
         // Above the list its rows are dragged in, so a session that's hearing isn't dragged among
         // the pins: it keeps its place here while it hears, and goes out of the window to the

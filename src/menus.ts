@@ -33,6 +33,7 @@ import type { MergeForm } from './merge';
 import { mayApprove, prReady } from './prStatus';
 import { errorText, type Report } from './report';
 import { askToListen, voiceNow } from './listening';
+import { orchestratorActions } from './orchestrators';
 
 /** The editors installed here and their icons, for Open folder in and Open in. */
 export interface Editors {
@@ -234,6 +235,11 @@ export function mergesWith(prs: readonly PrItem[], s: Pick<Session, 'key' | 'arc
  *  action is missing when the window can't do it or the session doesn't allow it, so the rule for
  *  when each applies is here and nowhere else. */
 export interface SessionActions {
+  /** For an orchestrator's session (orchestrators.ts `orchestratorActions`): it looks now, its
+   *  session starts afresh from its notes, or it's turned off. */
+  look?: MenuAction;
+  fresh?: MenuAction;
+  turnOff?: MenuAction;
   /** Where it lives: missing for one on another device, which opens on its own Mac. */
   open?: MenuAction;
   /** A session on this Mac that isn't running: each place its account's sessions go on in, on
@@ -565,6 +571,8 @@ export function sessionActions(lane: Lane, s: Session, can: SessionCan): Session
     archive: { label: s.archived ? 'Unarchive' : s.harness === 'codex' ? 'Archive in Codex' : 'Archive', run: () => archive(!s.archived) },
     copyId: copyItem('Copy session ID', s.id, 'session ID', report) as MenuAction,
     copyResume: copyItem('Copy resume command', s.resumeCommand, 'resume command', report),
+    // Asked of the Mac the orchestrator runs on, as its schedule is.
+    ...(s.visitor ? {} : orchestratorActions(s, report)),
   };
 }
 
@@ -670,6 +678,8 @@ export function folderMoves(from: Lane, worktrees: Lane[], run: (to: Lane) => vo
  *  copying it. */
 const SESSION_MENU = [
   ['heading'],
+  // An orchestrator's own (orchestrators.ts): first, since they're what its session is for.
+  ['look', 'fresh', 'turnOff'],
   ['open', 'resume', 'folder', 'ownTerminal', 'pr', 'chrome', 'reveal', 'window', 'reply', 'newSession', 'fork', 'move', 'moveFolder'],
   ['todos', 'boards', 'labels'],
   ['stop', 'listen', 'rename', 'seen', 'unread', 'pin', 'desktop', 'raise', 'snooze', 'quiet', 'own', 'close', 'done', 'mergeDone', 'archive'],

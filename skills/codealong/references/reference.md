@@ -28,197 +28,214 @@ A command that takes a key or an id takes its link too.
 Usage: codealong [OPTIONS] <COMMAND>
 
 Commands:
-  status     Whether Codealong's server is running and the app open, and where the data
-             lives
-  server     Codealong's server: the process that runs the engine, the sessions
-             Codealong runs itself, your other devices, the schedules and the automatic
-             reviews, whether or not the app is open, so quitting the app leaves them
-             going. The app is a view of it. launchd runs it (`codealong serve`, with
-             its output in Codealong's logs folder as server.log); a command starts it
-             when it isn't running, and so does the app as it opens
-  accounts   The configured accounts: harness, sign-in, and with --usage how much of
-             each plan limit is used
-  mcp        The services the accounts' agents reach through MCP servers and connectors
-             (claude.ai's connectors, ChatGPT's apps, the servers an account's settings
-             and plugins add), each once, with the accounts a session can start on that
-             reach it, the one Auto would start first, and the model it would start it
-             on when that isn't the account's default (`model`). A session reaches only
-             its own account's: for a service yours doesn't, start a helper on an
-             account that does (`codealong start --helper --account <account>`, with
-             `--model <model>` when one is named) and have it answer in a few lines. The
-             app reads them at launch and every hour; an account it hasn't read yet is
-             read here
-  tokens     What sessions on this machine used and cost, from the app's token ledger:
-             tokens, what they'd cost at API prices, and what was paid (each account's
-             plan, its `monthly` in config.toml, a day's share at a time; Claude's extra
-             usage; and accounts that pay by the token). Rows by account, model, folder,
-             session or day; JSON has them all
-  analytics  Your part in the work, an experiment (`[experimental] analytics`, Settings
-             › Experimental): what came in to your sessions and who from (you, another
-             agent, Codealong, the session itself), what your prompts did with what the
-             agent had said (set out new work, agreed, steered, redirected, asked), how
-             sessions began, and how the ones you marked done stood (finished, or left
-             asking you something, not landed…). The Analytics window's Your part and
-             Sessions show the same; JSON has it all. `prompts` lists prompts of yours
-             nothing has read yet, and `tag` says what one did
-  whoami     Which session runs this command, its worktree, the other agents running in
-             that worktree now (`others`: none means no other agent shares the checkout,
-             however many sessions worked there before), and its open todos: the ones
-             linked to the session, then the worktree's when no other agent is running
-             there (in a checkout several agents share, those are the others' work). Run
-             it first
-  todo       Todos: work meant for an agent. Each has a title, a description, labels, a
-             status (todo, in-progress, done) and the worktrees and sessions that took
-             it on. The app lists open ones under In progress, In review, Ready and
-             Waiting
-  schedule   Schedules: a session Codealong starts, or a message it sends a session, at
-             times (`weekdays 9:00`, `every 2h`), when a command it runs every so often
-             prints something new (a watch), when something happens on the board (a PR
-             merges, a PR's checks fail, a todo is ready), or when fired from a script
-             (`schedule fire`). Codealong's server runs them, and the app lists them in
-             its Schedules view with each one's runs. What's watched costs no usage: an
-             agent runs only once something happens
-  sessions   Sessions on the board: every agent, live or not, with its status and where
-             it works. Lists by default; `find` searches. This machine's, and with
-             --devices your other machines' too
-  session    One session: in full (`show`: status, excerpt, folder, branch, PR, how to
-             resume it, and where its own records are), its conversation (`transcript`),
-             replies suggested for its user to send with a click (`suggest`), in the
-             Codealong app (`open`), a message to it where it runs (`send`), what it
-             waits on its user for (`pending`) and denying it (`answer`), stopping its
-             turn (`stop`), naming it (`rename`) and forking it into the background
-             (`fork`). A session on another of your machines is named by its key as
-             `sessions --devices` lists it (`@<short>:…`) or by its id, and what's asked
-             of it is asked of that machine, as Codealong's windows ask it; a message to
-             it, or marking it done, isn't the command's to do there
-  worktrees  Worktrees the board knows: each with its branch, PR, status, and the agents
-             running in it now (`agents`: sessions a process has open, or that are
-             working or waiting on you; `working`: those working or waiting on you).
-             `sessions` counts every session that worked there, running or not: it's
-             history, not who's there. `cleanup` says whether it can be removed with
-             nothing in it lost (`ok`), or why it stays (`why`); `codealong worktree
-             remove` removes it. `improve` marks the one Improve Codealong starts its
-             sessions in: a checkout of Codealong's own source
-  worktree   One worktree: removing it (`remove`) once its work is done
-  pr         A PR and the sessions that worked on it, and linking a session to a PR by
-             hand. A session is linked by itself when its records show it made, edited
-             or commented on the PR (`gh pr create` and the like), or when it worked in
-             a worktree on the PR's branch while the PR was open
-  preview    A worktree's app, to open in the browser: the URL set for it, the Chrome
-             profile it opens in, and whether a server in its folder serves it now. Set
-             the URL when you know where the worktree's app opens (you started its dev
-             server, or the repo's instructions say where it's served): the worktree's
-             row in the app links to it and shows whether it's running
-  reuse      Whether a worktree is reusable: it takes one piece of work after another,
-             where others are kept for one piece of work each. Jev suggests new work
-             only in reusable worktrees. A main checkout, and a worktree that has taken
-             new work three times or more (its reflog), are reusable unless marked
-             otherwise. The app's worktree menu has the same switch (Reuse for new work)
-  start      Start a session for a todo (or several, on one prompt) or on a prompt, the
-             way the app's New session does, and link it to the todos
-  config     Codealong's own settings (config.toml): show them as the app reads them,
-             and check a file before or after editing it. Change settings by editing the
-             file; the app watches it
-  install    Put the command on PATH, Codealong's plugin in each Claude Code account
-             (the skill, the command for its Bash tool, and the hooks that let Codealong
-             answer its permission prompts and questions) and the skill in each other
-             account's skills folder (with a hook in a Codex account that hands
-             Codealong its approval prompts), and the adapters Codealong runs sessions
-             through
-  devices    Your other devices (Settings › Devices): this device, the devices it's
-             linked with, your devices on your tailnet that could be, and devices asking
-             to link. Linking is how devices see each other's sessions; needs Devices on
-  terminal   Run a command in a terminal of your user's, as them, once they allow it: a
-             new tab of their terminal beside your session's, in their own shell (its
-             settings, PATH and sign-ins, outside any sandbox), where they can watch it
-             and type into it, and what it prints comes back to you. For what your own
-             shell can't or shouldn't do: a sign-in that opens a browser or asks for a
-             password (gcloud auth login, aws sso login, gh auth refresh), a command
-             that needs their identity rather than yours, a dev server or watcher they
-             should see. They're asked in Codealong every time, exactly the command you
-             give, and the app opens to ask them when it isn't open. Needs a session
-             Codealong lists running this
-  changes    What changed since an earlier look, for an agent that keeps watch over
-             every session on a loop (an orchestrator: the skill's
-             references/orchestrate.md). Sessions that started (`new`), began a turn
-             (`working`), wait on their user (`waiting`: a call to allow, a question, an
-             error), ended a turn (`finished`) or stopped (`stopped`), a turn that
-             another session's message, Codealong's, a background command's report or a
-             scheduled wakeup began among them, each with its worktree, PRs, todos and
-             `lastPromptAt` (when its user last prompted it, for `session suggest` and
-             `session tag`; a message from another session or from Codealong doesn't
-             move it), and for the first --texts of them, waiting ones first, what began
-             its latest turn and its reply: `prompt` is its user's latest prompt, or a
-             message sent after it, whose sender `promptFrom` names (`agent` for another
-             session, `codealong` for Codealong's own); PRs in your repos opened, out of
-             draft, approved, sent back, merged or closed, or asking your review (`prs`,
-             null when they can't be read); todos added, started, done, reopened, set
-             waiting, archived or unarchived; worktrees a second agent started working
-             in (`shared`; not an app's chats, which are listed together for having no
-             folder of yours). Headless runs (`claude -p`, `codex exec`, which a script
-             or an agent started and reads itself) aren't sessions there, nor a second
-             agent: they're counted by the worktree they ran in (`headless`). With them,
-             every session that waits on you now (`waiting`, as `sessions --waiting`
-             lists them), each saying whether it has suggested replies or a tag, why
-             Codealong took away ones it had (`untagged`, `unsuggested`: it was sent a
-             prompt, or a turn of its started, since), and `helper` when it works for
-             another agent or a PR (`start --helper`, an automatic review), whose reply
-             is that agent's or PR's to read, not a question for you. It prints a
-             `cursor`: give it to --since next time, and what changed is told by
-             difference from what this look saw, so a busy app or a GitHub error never
-             makes a session or a PR look new. What it couldn't read is said in `notes`,
-             and told once it can be. Without --since, or with a duration, it goes by
-             times alone, which can't tell a review's change. The session running it is
-             left out
-  hygiene    Processes left over from old sessions, and this machine's load, memory and
-             swap, for keeping a machine with many agents usable. It lists: the
-             processes of sessions quiet for --after (an agent's own process and what it
-             runs; not one working or waiting on you, unless it's archived), older
-             copies of a background job's attach client (`claude attach <job>` in a
-             second tab), a harness's background processes left with no parent, and dev
-             servers and watchers in a linked worktree no session has been active in for
-             --after (never a repo's main checkout). A quiet session's process is kept
-             while it waits on a wakeup it scheduled itself that its process alone would
-             fire (Claude Code's `ScheduleWakeup` or `CronCreate`: a loop's next tick, a
-             check in two days), and listed under `kept` with when (`wakesAt`). With
-             --kill it ends those, each with its child processes: it checks again that
-             each process runs the same command first, stops a background job through
-             its harness as Close does and asks the rest to end (SIGTERM), kills what's
-             left after a while (SIGKILL), sweeps once more for dev processes that came
-             back in the worktrees it cleared, and logs each to --log. A session whose
-             process ended keeps its conversation and resumes as usual. It judges
-             nothing, and kills nothing, when the app doesn't answer or is still reading
-             after a start: without its board, every session would look old
-  board      Boards, the app's Kanban and Canvas: named sets of work in a project, each
-             shown as Kanban (todos and sessions in columns) or as Canvas (the work laid
-             out in space, in frames). A project has the boards made in it and no
-             others: none until one's made, for a release, a fix, an investigation, or
-             with --everything one that holds everything in the project. A board holds
-             what its rule takes in (labels, stages, statuses, repos, accounts, how
-             recent, words) and what's added by hand, less what's taken off, so add the
-             session you're in to your user's board for the work you're on (`board add
-             <board> --session me`). Name a board by its id or its name: a name in the
-             project of the folder you're in or --project, or one only one project has.
-             `list`, `new`, `add`, `remove`, `rule`, `set`, `rename` and `delete` work
-             with or without the app; `show`, `move`, `arrange` and `open` need the app
-             open, since its main window works boards out. Boards are an experiment, off
-             until your user turns them on in Settings › Experimental (`[experimental]
-             boards = true` in config.toml); until then every board command says so and
-             does nothing
-  listen     Listenings: a session that listens to a meeting. Codealong hears it on this
-             Mac (the microphone, what the Mac plays, or only some apps), writes what's
-             said to a transcript, a line for each thing said (`You` for the microphone,
-             `Them` for what the Mac plays), and every so often tells the session which
-             lines are new, as data rather than instructions; the session keeps notes of
-             it or coaches its user through it. No audio is kept. Starting one through
-             the microphone or the Mac's audio is its user's to do, in Codealong's
-             windows (a session's menu, Listen…): the command lists them (`list`), ends
-             one (`stop`), says what this Mac can hear with (`status`), and has a
-             session hear a recording (`start --file`). Voice is an experiment, off
-             until your user turns it on in Settings › Experimental (`[experimental]
-             voice = true` in config.toml); until then every listen command says so and
-             does nothing
-  help       Print this message or the help of the given subcommand(s)
+  status        Whether Codealong's server is running and the app open, and where the
+                data lives
+  server        Codealong's server: the process that runs the engine, the sessions
+                Codealong runs itself, your other devices, the schedules and the
+                automatic reviews, whether or not the app is open, so quitting the app
+                leaves them going. The app is a view of it. launchd runs it (`codealong
+                serve`, with its output in Codealong's logs folder as server.log); a
+                command starts it when it isn't running, and so does the app as it opens
+  accounts      The configured accounts: harness, sign-in, and with --usage how much of
+                each plan limit is used
+  mcp           The services the accounts' agents reach through MCP servers and
+                connectors (claude.ai's connectors, ChatGPT's apps, the servers an
+                account's settings and plugins add), each once, with the accounts a
+                session can start on that reach it, the one Auto would start first, and
+                the model it would start it on when that isn't the account's default
+                (`model`). A session reaches only its own account's: for a service yours
+                doesn't, start a helper on an account that does (`codealong start
+                --helper --account <account>`, with `--model <model>` when one is named)
+                and have it answer in a few lines. The app reads them at launch and
+                every hour; an account it hasn't read yet is read here
+  tokens        What sessions on this machine used and cost, from the app's token
+                ledger: tokens, what they'd cost at API prices, and what was paid (each
+                account's plan, its `monthly` in config.toml, a day's share at a time;
+                Claude's extra usage; and accounts that pay by the token). Rows by
+                account, model, folder, session or day; JSON has them all
+  analytics     Your part in the work, an experiment (`[experimental] analytics`,
+                Settings › Experimental): what came in to your sessions and who from
+                (you, another agent, Codealong, the session itself), what your prompts
+                did with what the agent had said (set out new work, agreed, steered,
+                redirected, asked), how sessions began, and how the ones you marked done
+                stood (finished, or left asking you something, not landed…). The
+                Analytics window's Your part and Sessions show the same; JSON has it
+                all. `prompts` lists prompts of yours nothing has read yet, and `tag`
+                says what one did
+  whoami        Which session runs this command, its worktree, the other agents running
+                in that worktree now (`others`: none means no other agent shares the
+                checkout, however many sessions worked there before), and its open
+                todos: the ones linked to the session, then the worktree's when no other
+                agent is running there (in a checkout several agents share, those are
+                the others' work). Run it first
+  todo          Todos: work meant for an agent. Each has a title, a description, labels,
+                a status (todo, in-progress, done) and the worktrees and sessions that
+                took it on. The app lists open ones under In progress, In review, Ready
+                and Waiting
+  schedule      Schedules: a session Codealong starts, or a message it sends a session,
+                at times (`weekdays 9:00`, `every 2h`), when a command it runs every so
+                often prints something new (a watch), when something happens on the
+                board (a PR merges, a PR's checks fail, a todo is ready), or when fired
+                from a script (`schedule fire`). Codealong's server runs them, and the
+                app lists them in its Schedules view with each one's runs. What's
+                watched costs no usage: an agent runs only once something happens
+  orchestrator  Orchestrators: an agent session Codealong keeps going that keeps watch
+                over your sessions for you, one for a project and one for All projects
+                (every project without one of its own, and the sessions in none). Each
+                runs when something it keeps watch over needs a look (a session newly
+                waiting on you, a PR opened, approved, sent back, merged or failing its
+                checks, two agents in one worktree), reads it, tags it and suggests
+                replies, as the codealong skill's references/orchestrate.md says;
+                nothing runs while nothing changes. Its session is quiet unless it asks
+                you something, started afresh each day with its notes, and listed first
+                in its project's Sessions. Each is a schedule (`schedule list` shows
+                it), so `schedule show` has its runs
+  sessions      Sessions on the board: every agent, live or not, with its status and
+                where it works. Lists by default; `find` searches. This machine's, and
+                with --devices your other machines' too
+  session       One session: in full (`show`: status, excerpt, folder, branch, PR, how
+                to resume it, and where its own records are), its conversation
+                (`transcript`), replies suggested for its user to send with a click
+                (`suggest`), in the Codealong app (`open`), a message to it where it
+                runs (`send`), what it waits on its user for (`pending`) and denying it
+                (`answer`), stopping its turn (`stop`), naming it (`rename`) and forking
+                it into the background (`fork`). A session on another of your machines
+                is named by its key as `sessions --devices` lists it (`@<short>:…`) or
+                by its id, and what's asked of it is asked of that machine, as
+                Codealong's windows ask it; a message to it, or marking it done, isn't
+                the command's to do there
+  worktrees     Worktrees the board knows: each with its branch, PR, status, and the
+                agents running in it now (`agents`: sessions a process has open, or that
+                are working or waiting on you; `working`: those working or waiting on
+                you). `sessions` counts every session that worked there, running or not:
+                it's history, not who's there. `cleanup` says whether it can be removed
+                with nothing in it lost (`ok`), or why it stays (`why`); `codealong
+                worktree remove` removes it. `improve` marks the one Improve Codealong
+                starts its sessions in: a checkout of Codealong's own source
+  worktree      One worktree: removing it (`remove`) once its work is done
+  pr            A PR and the sessions that worked on it, and linking a session to a PR
+                by hand. A session is linked by itself when its records show it made,
+                edited or commented on the PR (`gh pr create` and the like), or when it
+                worked in a worktree on the PR's branch while the PR was open
+  preview       A worktree's app, to open in the browser: the URL set for it, the Chrome
+                profile it opens in, and whether a server in its folder serves it now.
+                Set the URL when you know where the worktree's app opens (you started
+                its dev server, or the repo's instructions say where it's served): the
+                worktree's row in the app links to it and shows whether it's running
+  reuse         Whether a worktree is reusable: it takes one piece of work after
+                another, where others are kept for one piece of work each. Jev suggests
+                new work only in reusable worktrees. A main checkout, and a worktree
+                that has taken new work three times or more (its reflog), are reusable
+                unless marked otherwise. The app's worktree menu has the same switch
+                (Reuse for new work)
+  start         Start a session for a todo (or several, on one prompt) or on a prompt,
+                the way the app's New session does, and link it to the todos
+  config        Codealong's own settings (config.toml): show them as the app reads them,
+                and check a file before or after editing it. Change settings by editing
+                the file; the app watches it
+  install       Put the command on PATH, Codealong's plugin in each Claude Code account
+                (the skill, the command for its Bash tool, and the hooks that let
+                Codealong answer its permission prompts and questions) and the skill in
+                each other account's skills folder (with a hook in a Codex account that
+                hands Codealong its approval prompts), and the adapters Codealong runs
+                sessions through
+  devices       Your other devices (Settings › Devices): this device, the devices it's
+                linked with, your devices on your tailnet that could be, and devices
+                asking to link. Linking is how devices see each other's sessions; needs
+                Devices on
+  terminal      Run a command in a terminal of your user's, as them, once they allow it:
+                a new tab of their terminal beside your session's, in their own shell
+                (its settings, PATH and sign-ins, outside any sandbox), where they can
+                watch it and type into it, and what it prints comes back to you. For
+                what your own shell can't or shouldn't do: a sign-in that opens a
+                browser or asks for a password (gcloud auth login, aws sso login, gh
+                auth refresh), a command that needs their identity rather than yours, a
+                dev server or watcher they should see. They're asked in Codealong every
+                time, exactly the command you give, and the app opens to ask them when
+                it isn't open. Needs a session Codealong lists running this
+  changes       What changed since an earlier look, for an agent that keeps watch over
+                every session on a loop (an orchestrator: the skill's
+                references/orchestrate.md). Sessions that started (`new`), began a turn
+                (`working`), wait on their user (`waiting`: a call to allow, a question,
+                an error), ended a turn (`finished`) or stopped (`stopped`), a turn that
+                another session's message, Codealong's, a background command's report or
+                a scheduled wakeup began among them, each with its worktree, PRs, todos
+                and `lastPromptAt` (when its user last prompted it, for `session
+                suggest` and `session tag`; a message from another session or from
+                Codealong doesn't move it), and for the first --texts of them, waiting
+                ones first, what began its latest turn and its reply: `prompt` is its
+                user's latest prompt, or a message sent after it, whose sender
+                `promptFrom` names (`agent` for another session, `codealong` for
+                Codealong's own); PRs in your repos opened, out of draft, approved, sent
+                back, merged or closed, or asking your review (`prs`, null when they
+                can't be read); todos added, started, done, reopened, set waiting,
+                archived or unarchived; worktrees a second agent started working in
+                (`shared`; not an app's chats, which are listed together for having no
+                folder of yours). Headless runs (`claude -p`, `codex exec`, which a
+                script or an agent started and reads itself) aren't sessions there, nor
+                a second agent: they're counted by the worktree they ran in
+                (`headless`). With them, every session that waits on you now (`waiting`,
+                as `sessions --waiting` lists them), each saying whether it has
+                suggested replies or a tag, why Codealong took away ones it had
+                (`untagged`, `unsuggested`: it was sent a prompt, or a turn of its
+                started, since), and `helper` when it works for another agent or a PR
+                (`start --helper`, an automatic review), whose reply is that agent's or
+                PR's to read, not a question for you. It prints a `cursor`: give it to
+                --since next time, and what changed is told by difference from what this
+                look saw, so a busy app or a GitHub error never makes a session or a PR
+                look new. What it couldn't read is said in `notes`, and told once it can
+                be. Without --since, or with a duration, it goes by times alone, which
+                can't tell a review's change. The session running it is left out
+  hygiene       Processes left over from old sessions, and this machine's load, memory
+                and swap, for keeping a machine with many agents usable. It lists: the
+                processes of sessions quiet for --after (an agent's own process and what
+                it runs; not one working or waiting on you, unless it's archived), older
+                copies of a background job's attach client (`claude attach <job>` in a
+                second tab), a harness's background processes left with no parent, and
+                dev servers and watchers in a linked worktree no session has been active
+                in for --after (never a repo's main checkout). A quiet session's process
+                is kept while it waits on a wakeup it scheduled itself that its process
+                alone would fire (Claude Code's `ScheduleWakeup` or `CronCreate`: a
+                loop's next tick, a check in two days), and listed under `kept` with
+                when (`wakesAt`). With --kill it ends those, each with its child
+                processes: it checks again that each process runs the same command
+                first, stops a background job through its harness as Close does and asks
+                the rest to end (SIGTERM), kills what's left after a while (SIGKILL),
+                sweeps once more for dev processes that came back in the worktrees it
+                cleared, and logs each to --log. A session whose process ended keeps its
+                conversation and resumes as usual. It judges nothing, and kills nothing,
+                when the app doesn't answer or is still reading after a start: without
+                its board, every session would look old
+  board         Boards, the app's Kanban and Canvas: named sets of work in a project,
+                each shown as Kanban (todos and sessions in columns) or as Canvas (the
+                work laid out in space, in frames). A project has the boards made in it
+                and no others: none until one's made, for a release, a fix, an
+                investigation, or with --everything one that holds everything in the
+                project. A board holds what its rule takes in (labels, stages, statuses,
+                repos, accounts, how recent, words) and what's added by hand, less
+                what's taken off, so add the session you're in to your user's board for
+                the work you're on (`board add <board> --session me`). Name a board by
+                its id or its name: a name in the project of the folder you're in or
+                --project, or one only one project has. `list`, `new`, `add`, `remove`,
+                `rule`, `set`, `rename` and `delete` work with or without the app;
+                `show`, `move`, `arrange` and `open` need the app open, since its main
+                window works boards out. Boards are an experiment, off until your user
+                turns them on in Settings › Experimental (`[experimental] boards = true`
+                in config.toml); until then every board command says so and does nothing
+  listen        Listenings: a session that listens to a meeting. Codealong hears it on
+                this Mac (the microphone, what the Mac plays, or only some apps), writes
+                what's said to a transcript, a line for each thing said (`You` for the
+                microphone, `Them` for what the Mac plays), and every so often tells the
+                session which lines are new, as data rather than instructions; the
+                session keeps notes of it or coaches its user through it. No audio is
+                kept. Starting one through the microphone or the Mac's audio is its
+                user's to do, in Codealong's windows (a session's menu, Listen…): the
+                command lists them (`list`), ends one (`stop`), says what this Mac can
+                hear with (`status`), and has a session hear a recording (`start
+                --file`). Voice is an experiment, off until your user turns it on in
+                Settings › Experimental (`[experimental] voice = true` in config.toml);
+                until then every listen command says so and does nothing
+  help          Print this message or the help of the given subcommand(s)
 
 Options:
       --json
@@ -1893,6 +1910,199 @@ Usage: codealong schedule times [OPTIONS] [RULE]...
 Arguments:
   [RULE]...
           
+
+Options:
+      --json
+          JSON output. The default when stdout isn't a terminal
+
+      --table
+          Tables, even when piped
+
+      --verbose
+          Say on stderr whether the app or the files answered
+
+  -h, --help
+          Print help
+```
+
+## codealong orchestrator
+
+```
+Orchestrators: an agent session Codealong keeps going that keeps watch over your
+sessions for you, one for a project and one for All projects (every project without one
+of its own, and the sessions in none). Each runs when something it keeps watch over
+needs a look (a session newly waiting on you, a PR opened, approved, sent back, merged
+or failing its checks, two agents in one worktree), reads it, tags it and suggests
+replies, as the codealong skill's references/orchestrate.md says; nothing runs while
+nothing changes. Its session is quiet unless it asks you something, started afresh each
+day with its notes, and listed first in its project's Sessions. Each is a schedule
+(`schedule list` shows it), so `schedule show` has its runs
+
+Usage: codealong orchestrator [OPTIONS] <COMMAND>
+
+Commands:
+  list   Every orchestrator: what it keeps watch over, whether it's on, its session, and
+         how its last run went
+  start  Start an orchestrator for a project, or for All projects without one: the one
+         there is goes on (resumed, if it was turned off), else one's made. It takes its
+         first look at once. Spends usage only when something it keeps watch over needs
+         a look
+  stop   Turn an orchestrator off: nothing runs it, and its session is marked done, so
+         it leaves Sessions. Its notes are kept for when it's started again; what it
+         kept watch over goes to All projects' orchestrator, if that one's on
+  look   Have an orchestrator look now, as something needing a look would
+  fresh  Start an orchestrator's session afresh: the one it has is marked done, and a
+         new one takes its first look now, going on from its notes. Its session is
+         started afresh each day anyway
+  help   Print this message or the help of the given subcommand(s)
+
+Options:
+      --json
+          JSON output. The default when stdout isn't a terminal
+
+      --table
+          Tables, even when piped
+
+      --verbose
+          Say on stderr whether the app or the files answered
+
+  -h, --help
+          Print help
+```
+
+## codealong orchestrator list
+
+```
+Every orchestrator: what it keeps watch over, whether it's on, its session, and how its
+last run went
+
+Usage: codealong orchestrator list [OPTIONS]
+
+Options:
+      --json
+          JSON output. The default when stdout isn't a terminal
+
+      --table
+          Tables, even when piped
+
+      --verbose
+          Say on stderr whether the app or the files answered
+
+  -h, --help
+          Print help
+```
+
+## codealong orchestrator start
+
+```
+Start an orchestrator for a project, or for All projects without one: the one there is
+goes on (resumed, if it was turned off), else one's made. It takes its first look at
+once. Spends usage only when something it keeps watch over needs a look
+
+Usage: codealong orchestrator start [OPTIONS] [PROJECT]
+
+Arguments:
+  [PROJECT]
+          The project, by its name in Settings › Projects; without it, All projects'
+          orchestrator
+
+Options:
+      --account <ACCOUNT>
+          The account its session starts on, or a routing group; without it, Auto (an
+          account with room), picked again each time it starts afresh
+
+      --json
+          JSON output. The default when stdout isn't a terminal
+
+      --model <MODEL>
+          A model for its session: fable, opus, sonnet, haiku, or a full name
+
+      --table
+          Tables, even when piped
+
+      --may-send[=<YES|NO>]
+          Let it message sessions (`session send`) or not (`=no`). Without it, an
+          orchestrator only reads, tags, suggests replies and moves what's urgent to the
+          top; it never merges, reviews or approves a PR, or removes a worktree,
+          whatever it's let do
+
+      --verbose
+          Say on stderr whether the app or the files answered
+
+      --may-start[=<YES|NO>]
+          Let it start sessions (`codealong start`, a helper) or not (`=no`)
+
+  -h, --help
+          Print help
+```
+
+## codealong orchestrator stop
+
+```
+Turn an orchestrator off: nothing runs it, and its session is marked done, so it leaves
+Sessions. Its notes are kept for when it's started again; what it kept watch over goes
+to All projects' orchestrator, if that one's on
+
+Usage: codealong orchestrator stop [OPTIONS] [PROJECT]
+
+Arguments:
+  [PROJECT]
+          The project, by its name in Settings › Projects; without it, All projects'
+          orchestrator
+
+Options:
+      --json
+          JSON output. The default when stdout isn't a terminal
+
+      --table
+          Tables, even when piped
+
+      --verbose
+          Say on stderr whether the app or the files answered
+
+  -h, --help
+          Print help
+```
+
+## codealong orchestrator look
+
+```
+Have an orchestrator look now, as something needing a look would
+
+Usage: codealong orchestrator look [OPTIONS] [PROJECT]
+
+Arguments:
+  [PROJECT]
+          The project, by its name in Settings › Projects; without it, All projects'
+          orchestrator
+
+Options:
+      --json
+          JSON output. The default when stdout isn't a terminal
+
+      --table
+          Tables, even when piped
+
+      --verbose
+          Say on stderr whether the app or the files answered
+
+  -h, --help
+          Print help
+```
+
+## codealong orchestrator fresh
+
+```
+Start an orchestrator's session afresh: the one it has is marked done, and a new one
+takes its first look now, going on from its notes. Its session is started afresh each
+day anyway
+
+Usage: codealong orchestrator fresh [OPTIONS] [PROJECT]
+
+Arguments:
+  [PROJECT]
+          The project, by its name in Settings › Projects; without it, All projects'
+          orchestrator
 
 Options:
       --json
@@ -4555,7 +4765,10 @@ Options:
           Tables, even when piped
 
       --project <PROJECT>
-          Only this project's sessions, PRs, todos and worktrees
+          Only this project's sessions, PRs, todos and worktrees. Run by an
+          orchestrator's session, what it keeps watch over unless this says otherwise:
+          its project, or for All projects' every project without an orchestrator of its
+          own
 
       --verbose
           Say on stderr whether the app or the files answered

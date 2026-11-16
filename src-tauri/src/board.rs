@@ -1052,18 +1052,20 @@ pub fn home<'a>(lanes: &'a [Lane], key: &str) -> Option<(&'a Lane, &'a Session)>
 /// /codealong:orchestrate; its scheduled ticks say `tick` after it, in the same session).
 const ORCHESTRATES: &str = "/codealong:orchestrate";
 
-/// The session that runs as your orchestrator, for talking to it (dictation.rs): one of this
-/// Mac's that was started on the orchestrator's prompt, or failing that is called an
+/// The session that runs as your orchestrator, for talking to it (dictation.rs): an
+/// orchestrator's own (`Session::orchestrator`), All projects' before a project's, else one of
+/// this Mac's that was started on the orchestrator's prompt, or failing that is called an
 /// orchestrator, and isn't archived or some session's helper. A running one before a stopped one,
 /// then the latest to do anything.
 pub fn orchestrator(lanes: &[Lane]) -> Option<&Session> {
     let started_as = |s: &Session| s.first_prompt.as_deref().is_some_and(|p| p.trim_start().starts_with(ORCHESTRATES));
     let called = |s: &Session| s.name.as_deref().unwrap_or(&s.title).to_lowercase().contains("orchestrator");
+    let own = |s: &Session| s.orchestrator.as_ref().map(|o| if o.project.is_none() { 2 } else { 1 }).unwrap_or(0);
     lanes
         .iter()
         .flat_map(|l| &l.sessions)
-        .filter(|s| !s.archived && s.helper.is_none() && s.visitor.is_none() && (started_as(s) || called(s)))
-        .max_by_key(|s| (s.live, started_as(s), s.last_activity))
+        .filter(|s| !s.archived && s.helper.is_none() && s.visitor.is_none() && (own(s) > 0 || started_as(s) || called(s)))
+        .max_by_key(|s| (own(s), s.live, started_as(s), s.last_activity))
 }
 
 /// When a session began waiting on you, for one that needs you: the list of those is a queue,

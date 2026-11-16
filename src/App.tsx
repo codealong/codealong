@@ -53,6 +53,8 @@ import { reviewedWords } from './prDraft';
 import { mayApprove } from './prStatus';
 import { inPrTab, PR_GROUPS, PR_ROWS, PR_SORTS, PR_TABS, prPlace, PrsView, type PrRowItem, type PrSort, type PrTab } from './ui/PrsView';
 import { Resizer, usePanelWidth } from './ui/Resizer';
+import { orchestratorFor, orchestratorOn, scopeOfView, scopeWords, startOrchestrator } from './orchestrators';
+import { StartOrchestratorDialog } from './ui/StartOrchestrator';
 import { groupKeyOf, headItem, SESSION_GROUPS, SESSION_ROWS, SESSION_SORTS, SessionsBar, SessionsView, STARTED_PLACES, type SessionItem, type SessionSort, type StartedPlace } from './ui/SessionsView';
 import type { GroupActs } from './ui/Groups';
 import { placeIn, type ListGroupBy, type RepoName } from './groups';
@@ -387,6 +389,8 @@ export function App() {
   // File › Close idle sessions… (ui/CloseIdleDialog.tsx) and Close stale terminals…
   // (ui/CloseStaleDialog.tsx).
   const [closeIdle, setCloseIdle] = useState(false);
+  // Start orchestrator… from Sessions' bar, for the scope it was asked for (null: All projects).
+  const [orchestratorAsk, setOrchestratorAsk] = useState<{ project: string | null } | null>(null);
   const [closeStale, setCloseStale] = useState(false);
   // Set up Codealong (ui/SetupDialog.tsx): by itself in the main window on a first run, and from
   // the app menu's Set up Codealong… whenever asked.
@@ -579,6 +583,7 @@ export function App() {
     shownSessionCount,
     listeningRows,
     pinnedRows,
+    orchestratorRows,
     topHelpers,
     sessionSecs,
     groupedSecs,
@@ -2536,7 +2541,21 @@ export function App() {
               {(view === 'kanban' || view === 'canvas') && shownBoard && (
                 <BoardBar board={shownBoard} project={shownBoard.project !== current ? shownBoard.project : null} layout={boardLayout} labels={todoStore.labels} onLayout={setView} onMenu={() => boardMenu()} onEdit={() => setBoardEdit({ board: shownBoard })} />
               )}
-              {view === 'sessions' && <SessionsBar sort={sessionSort} onSort={setSessionSort} group={sessionGroup} onGroup={setSessionGroup} started={sessionStarted} onStarted={setSessionStarted} lines={sessionLines} onLines={setSessionLines} />}
+              {view === 'sessions' && (
+                <SessionsBar
+                  sort={sessionSort}
+                  onSort={setSessionSort}
+                  group={sessionGroup}
+                  onGroup={setSessionGroup}
+                  started={sessionStarted}
+                  onStarted={setSessionStarted}
+                  lines={sessionLines}
+                  onLines={setSessionLines}
+                  // Offered while the view's project, or All projects, has none running: once one
+                  // runs, its session leads the list and its menu turns it off.
+                  startOrchestrator={orchestratorOn(orchestratorFor(board?.schedules, scopeOfView(current))) ? null : { scope: scopeWords(scopeOfView(current)), run: () => setOrchestratorAsk({ project: scopeOfView(current) }) }}
+                />
+              )}
               {view === 'prs' && (
                 <Tabs
                   className="ca-listtabs"
@@ -2815,6 +2834,7 @@ export function App() {
             )}
             {view === 'sessions' && (
               <SessionsView
+                orchestrators={orchestratorRows}
                 listening={listeningRows}
                 pinned={pinnedRows}
                 topHelpers={topHelpers}
@@ -2982,6 +3002,14 @@ export function App() {
         />
       )}
       {closeIdle && <CloseIdleDialog onClose={() => setCloseIdle(false)} onDone={setToast} />}
+      {orchestratorAsk && (
+        <StartOrchestratorDialog
+          project={orchestratorAsk.project}
+          others={orchestratorAsk.project ? [] : (board?.schedules ?? []).filter((i) => orchestratorOn(i) && i.orchestrates?.project).map((i) => i.orchestrates?.project ?? '')}
+          onStart={() => startOrchestrator(orchestratorAsk.project)}
+          onClose={() => setOrchestratorAsk(null)}
+        />
+      )}
       {closeStale && <CloseStaleDialog onClose={() => setCloseStale(false)} onDone={setToast} />}
       {setup && <SetupDialog onClose={() => setSetup(false)} onDone={setToast} onSettings={(section) => openSettings(section)} now={now} />}
       {usageOf && board && (
