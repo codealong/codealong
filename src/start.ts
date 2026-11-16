@@ -6,6 +6,7 @@
 
 import { resetsPhrase } from './format';
 import { HARNESS_WORD } from './harness';
+import { GENERAL_CHAT } from './quick';
 import { failedNotice } from './notices';
 import { errorText } from './report';
 import { readStored, writeStored, type Codec } from './stored';
@@ -739,8 +740,8 @@ export function startHappens(p: StartPlan): string {
   return p.mac && p.lane && p.account && p.place ? `On ${mac}: ${there}` : there;
 }
 
-/** Where a start goes, as its words say it: the worktree, or a chat of its own (the worktree
- *  chip says No project). */
+/** Where a start goes, as its words say it: the worktree, or a chat of its own (the repo chip
+ *  says General chat). */
 function startsIn(lane: Pick<Lane, 'callsign' | 'startsChats'>): string {
   return lane.startsChats ? 'a chat of its own' : lane.callsign;
 }
@@ -777,20 +778,20 @@ function startHappensThere({ lane, account, place, mac: on, reading, newWorktree
 
 /** A start's title: where it starts. */
 export function startTitleWords(lane: Pick<Lane, 'repo' | 'callsign' | 'startsChats' | 'origin'>, newWorktree: boolean): string {
-  if (lane.startsChats) return 'Start a chat in no project';
+  if (lane.startsChats) return 'Start a general chat';
   return newWorktree ? `Start in a new worktree of ${lane.repo}` : `Start in ${lane.origin === 'main' ? `${lane.callsign} (main)` : lane.callsign}`;
 }
 
 /** The project and repo a start is in, at the right of its row. */
 export function startWhereWords(lane: Pick<Lane, 'project' | 'repo' | 'startsChats'>): string {
-  return lane.startsChats ? 'No project' : `${lane.project} · ${lane.repo}`;
+  return lane.startsChats ? GENERAL_CHAT : `${lane.project} · ${lane.repo}`;
 }
 
 /** What a start does: "Starts claude on Opus in api in the background." `who` is the account
  *  with what it starts on (`onModelWords`), which is `onModel`; `newWorktree`, that its harness
  *  makes one for it. */
 export function startDoes(s: { lane: Pick<Lane, 'repo' | 'callsign' | 'startsChats'>; who: string; onModel?: string; place: StartPlace | null; newWorktree: boolean; prompted: boolean; terminal: string; behind: boolean }): string {
-  // The row's title says a chat is in no project.
+  // The row's title says it's a general chat.
   const there = s.lane.startsChats ? 'a folder of its own' : s.lane.callsign;
   if (s.place === 'codealong') return `Codealong runs ${s.who} in ${there}.`;
   if (s.place === 'claude-app') return `The Claude app opens a new session in ${there}${s.prompted ? ' with this prompt filled in' : ''}.`;

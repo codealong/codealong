@@ -1,5 +1,5 @@
 // Checks where the quick panel starts a session: a repo, then a worktree in it (quick.ts
-// `repoChoices`, `repoWorktrees`, `startLaneIn`; Quick.tsx). ⌘T's menu lists No project and
+// `repoChoices`, `repoWorktrees`, `startLaneIn`; Quick.tsx). ⌘T's menu lists General chat and
 // Another folder…, then each repo once and no worktree, until what's typed names no repo, when it
 // lists the worktrees it names, a pick of one starting there. A repo picked starts where new work
 // goes in it: a reusable worktree ready for it, else its main checkout. ⌘B's menu lists that
@@ -47,7 +47,7 @@
     })
     .then(function () {
       var listed = titles();
-      check('No project and Another folder… first', listed[0] === 'No project' && listed[1] === 'Another folder…', listed.slice(0, 2).join(' | '));
+      check('General chat and Another folder… first', listed[0] === 'General chat' && listed[1] === 'Another folder…', listed.slice(0, 2).join(' | '));
       var repos = listed.slice(2);
       var once = repos.filter(function (t, i) { return repos.indexOf(t) === i; });
       check('then each repo once', heads().every(function (h) { return h !== 'Worktrees'; }) && repos.length > 0 && once.length === repos.length, repos.length + ' rows, ' + once.length + ' names');

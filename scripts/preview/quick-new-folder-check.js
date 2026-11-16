@@ -1,5 +1,5 @@
 // Checks a folder that isn't on the board, picked in the quick panel's repo menu (Quick.tsx,
-// quick.ts `folderChoices`, newfolder.rs): Another folder… comes after No project and puts the
+// quick.ts `folderChoices`, newfolder.rs): Another folder… comes after General chat and puts the
 // folder most main checkouts are in into the filter; a path typed there lists the folders in it
 // whose names start with what’s typed, ahead of making a folder of a name half typed, a click on
 // one going on from it; a new folder is offered as a project of its own and in the project the
@@ -48,7 +48,7 @@
       var o = named('Another folder…');
       var titles = options().map(function (x) { return x.querySelector('.ca-picker-title').textContent; });
       check('the menu offers another folder', !!o, titles.slice(0, 3).join(' | '));
-      check('after No project, ahead of the repos', titles.indexOf('Another folder…') === (titles[0] === 'No project' ? 1 : 0), titles.slice(0, 3).join(' | '));
+      check('after General chat, ahead of the repos', titles.indexOf('Another folder…') === (titles[0] === 'General chat' ? 1 : 0), titles.slice(0, 3).join(' | '));
       check('the filter says it takes a path', /folder’s path/.test(filter().placeholder), filter().placeholder);
       o.click();
       return wait(100);

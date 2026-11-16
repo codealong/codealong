@@ -172,14 +172,14 @@
       box.dispatchEvent(new FocusEvent('blur'));
       box.dispatchEvent(new FocusEvent('focusout', { bubbles: true }));
       var where = q('.ca-scheddlg .ca-fieldpick-btn');
-      check('a new one starts in the project’s worktree', where.textContent.indexOf('No project') < 0, where.textContent);
+      check('a new one starts in the project’s worktree', where.textContent.indexOf('General chat') < 0, where.textContent);
       where.click();
       return until(function () { return q('.ca-fieldpick .ca-picker-filter'); }, 3000, 'the worktree menu');
     })
     .then(function () {
-      // No project's id is empty, and ⏎ still picks it.
+      // General chat's id is empty, and ⏎ still picks it.
       var filter = q('.ca-fieldpick .ca-picker-filter');
-      type(filter, 'no project');
+      type(filter, 'general chat');
       return wait(50).then(function () {
         filter.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true }));
         return until(function () { return !q('.ca-fieldpick .ca-picker'); }, 3000, 'the worktree menu to close');
@@ -187,7 +187,7 @@
     })
     .then(function () {
       var where = q('.ca-scheddlg .ca-fieldpick-btn');
-      check('⏎ on No project makes it a chat of its own', where.textContent.indexOf('No project') >= 0, where.textContent);
+      check('⏎ on General chat makes it a chat of its own', where.textContent.indexOf('General chat') >= 0, where.textContent);
       return wait(50);
     })
     .then(function () {
@@ -232,7 +232,7 @@
     .then(function () {
       var opts = all('.ca-fieldpick .ca-picker-opt');
       check('it lists sessions with how long since each did anything', opts.length > 1 && opts.every(function (o) { return !!o.querySelector('.ca-picker-trail'); }), opts.length + ' options');
-      var worked = opts.filter(function (o) { return o.querySelector('.ca-picker-detail').textContent.indexOf('No project') !== 0; })[1];
+      var worked = opts.filter(function (o) { return o.querySelector('.ca-picker-detail').textContent.indexOf('General chat') !== 0; })[1];
       if (!worked) throw new Error('no session in a worktree to pick');
       var title = worked.querySelector('.ca-picker-title').textContent;
       var detail = worked.querySelector('.ca-picker-detail').textContent;

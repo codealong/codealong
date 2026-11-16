@@ -43,7 +43,7 @@
       var hint = q('.ca-quick-hotkey');
       check('the hint names the listen shortcut', !!hint && hint.textContent === '⌥⌘=', hint && hint.textContent);
       check('nothing is listed', all('[data-row]').length === 0 && all('.ca-quick-glabel').length === 0, all('[data-row]').length + ' rows');
-      check('it’s a chat of its own', /No project/.test(chip().textContent), chip().textContent);
+      check('it’s a chat of its own', /General chat/.test(chip().textContent), chip().textContent);
       check('with only the repo to pick', !treeChip() && q('.ca-quick-agent').hidden, String(!!treeChip()));
       check('the card is its own height', Math.round(q('.ca-quick').getBoundingClientRect().height) === 500, String(q('.ca-quick').getBoundingClientRect().height));
       check('it’s of the meeting going on', box('Design review').querySelector('input').checked && title() === 'Listen to “Design review”', title());
@@ -131,7 +131,7 @@
       });
     })
     .then(function () {
-      // The first repo the picker lists, after No project and Another folder…; the worktree chip
+      // The first repo the picker lists, after General chat and Another folder…; the worktree chip
       // says where in it the session starts.
       var row = all('.ca-picker-opt')[2];
       if (!row) throw new Error('the picker lists no repo');

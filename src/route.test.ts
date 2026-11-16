@@ -399,7 +399,7 @@ describe('suggestionWords', () => {
 
   it('says a chat starts in a folder of its own', () => {
     const chats = lane('/chats', [], 'Chats', { project: 'Elsewhere', startsChats: true, callsign: 'Chats' });
-    expect(suggestionWords(start(chats, true), ctx())).toEqual({ icon: 'message-circle', title: 'Start a chat in no project', why: 'Starts work in a folder of its own in Ghostty.', where: 'No project' });
+    expect(suggestionWords(start(chats, true), ctx())).toEqual({ icon: 'message-circle', title: 'Start a general chat', why: 'Starts work in a folder of its own in Ghostty.', where: 'General chat' });
     expect(suggestionWords(start(chats), ctx({ place: 'claude-app' })).why).toBe('The Claude app opens a new session in a folder of its own with this prompt filled in.');
   });
 

@@ -96,7 +96,7 @@ import { ago, tildePath } from '../format';
 import { useLogo } from '../logo';
 import { useRowDrag } from './useRowDrag';
 import { prPills } from '../prStatus';
-import { ALL_PROJECTS, NO_PROJECT, attachmentsNote, attentionRows, draftCodec, findPrs, foldedWords, holdsPrompt as holdsAPrompt, findSessions, findTodos, folderChoices, folderStart, FOUND_SESSIONS, inProject, isFolderPath, macUnavailable, MAX_ROWS, nextDraft, primaryRunningWords, projectCounts, QUICK_PLACEHOLDER, queryWords, readyTodos, recallList, recentRows, repoChoices, repoKey, repoWorktrees, SEND_TO_PLACEHOLDER, sendTargets, shortcutLabel, startLaneIn, startTitle, todosStayNote, worktreeCount, worktreeName, type Machines, type PrRow, type QuickDraft, type ReviewRow, type RowGroup, type SessionRow, type TodoRow, withPrompt as historyWith } from '../quick';
+import { ALL_PROJECTS, GENERAL_CHAT, attachmentsNote, attentionRows, draftCodec, findPrs, foldedWords, holdsPrompt as holdsAPrompt, findSessions, findTodos, folderChoices, folderStart, FOUND_SESSIONS, inProject, isFolderPath, macUnavailable, MAX_ROWS, nextDraft, primaryRunningWords, projectCounts, projectShownIn, QUICK_PLACEHOLDER, queryWords, readyTodos, recallList, recentRows, repoChoices, repoKey, repoWorktrees, SEND_TO_PLACEHOLDER, sendTargets, shortcutLabel, startLaneIn, startTitle, todosStayNote, worktreeCount, worktreeName, type Machines, type PrRow, type QuickDraft, type ReviewRow, type RowGroup, type SessionRow, type TodoRow, withPrompt as historyWith } from '../quick';
 import {
   agentChipWords,
   isAuto,
@@ -363,7 +363,7 @@ export function Quick() {
   // While ↑ shows a draft written over Improve's pictures: the pictures the panel had before it,
   // which walking on brings back, and where it was starting, when it wasn't open for Improve.
   const recalledOver = useRef<{ improve: { shots: Attachment[] } | null; place: { project: string; laneId: string | null; device: string | null; asChat: boolean } | null } | null>(null);
-  // Opened by the chat shortcut: on Codealong's chats, which the worktree picker calls No project,
+  // Opened by the chat shortcut: on Codealong's chats, which the repo picker calls General chat,
   // until another is picked, and the hint names that shortcut.
   const [asChat, setAsChat] = useState(false);
   // Opened to listen (`[shortcuts] listen`, Listen now in the windows): the box asks what the
@@ -715,17 +715,26 @@ export function Quick() {
   /* ---- Where ---- */
 
   const projects = useMemo(() => board?.projects ?? [], [board?.projects]);
-  // The board lists no projects until it's read, so the one picked holds until then.
-  const current = project === ALL_PROJECTS || projects.some((p) => p.name === project) || !board || board.loading ? project : ALL_PROJECTS;
+  // The board lists no projects until it's read, so the one picked holds until then. General
+  // chat is no project of the board's: it lists the chats, and starts the next one there.
+  const current = project === ALL_PROJECTS || project === GENERAL_CHAT || projects.some((p) => p.name === project) || !board || board.loading ? project : ALL_PROJECTS;
+  const chatting = current === GENERAL_CHAT;
   const pickProject = (name: string) => {
     if (name !== current) dropAdding();
+    // General chat starts in Codealong's chats, whatever worktree was picked before it; leaving it
+    // for a project starts in that project's repos again, not in the chats. (The chat shortcut's
+    // chat stays one under whatever project is picked.)
+    if (name !== current && (name === GENERAL_CHAT || (current === GENERAL_CHAT && lane?.startsChats))) {
+      setLaneId(null);
+      setAsChat(false);
+    }
     setProject(name);
     setActiveKey(null);
     setPicker(null);
     writeStored(PROJECT_KEY, asText, name);
     refocus();
   };
-  const counts = useMemo(() => (board ? projectCounts(board, [...projects.map((p) => p.name), ALL_PROJECTS]) : {}), [board, projects]);
+  const counts = useMemo(() => (board ? projectCounts(board, [...projects.map((p) => p.name), GENERAL_CHAT, ALL_PROJECTS]) : {}), [board, projects]);
 
   // Which Mac: this one, or another linked Mac, which starts the session with its own accounts
   // in its own worktrees. Until your devices are read, one a window asked for is taken as it is.
@@ -745,11 +754,12 @@ export function Quick() {
 
   // Where a session can start: the project's worktrees on that Mac, and the one a window asked
   // for or picked before another project was, with its repo's, which its worktree menu lists.
-  // Codealong's chats are apart from them, as No project, whatever the project.
+  // Codealong's chats are apart from them, as General chat, whatever the project; on General chat
+  // there are no worktrees but one picked.
   const { lanes, chatLane } = useMemo(() => {
     const all = deviceNow ? (devices?.lanes ?? []).filter((l) => shortOf(l.id) === deviceNow) : (board?.lanes ?? []);
     const worktrees = all.filter((l) => !l.startsChats);
-    const mine = worktrees.filter((l) => inProject(l, current));
+    const mine = current === GENERAL_CHAT ? [] : worktrees.filter((l) => inProject(l, current));
     const asked = laneId && !mine.some((l) => l.id === laneId) ? worktrees.find((l) => l.id === laneId) : undefined;
     const extra = asked ? worktrees.filter((l) => repoKey(l) === repoKey(asked)) : [];
     return { lanes: [...mine, ...extra], chatLane: all.find((l) => l.startsChats) ?? null };
@@ -757,12 +767,12 @@ export function Quick() {
   const pinnedWorktrees = board?.pinnedWorktrees;
   const repoList = useMemo(() => repoChoices(lanes, pinnedWorktrees ?? []), [lanes, pinnedWorktrees]);
   // Without one asked for, where new work starts in the first repo on the list: one with a
-  // pinned worktree, else the latest (quick.ts `startLaneIn`). Opened by the chat shortcut, the
-  // chats lane, once the board has it: a panel opened before the first scan finished gets it
-  // with the board that has it.
+  // pinned worktree, else the latest (quick.ts `startLaneIn`). Opened by the chat shortcut or on
+  // General chat, the chats lane, once the board has it: a panel opened before the first scan
+  // finished gets it with the board that has it.
   // Improving Codealong with no source on the board goes to no worktree by default (the note
   // says why), never to the project's first: that would start it in some other repo.
-  const lane = lanes.find((l) => l.id === laneId) ?? (chatLane && (chatLane.id === laneId || (asChat && !laneId)) ? chatLane : null) ?? (improve ? null : startLaneIn(repoList[0]?.lanes ?? [], false));
+  const lane = lanes.find((l) => l.id === laneId) ?? (chatLane && (chatLane.id === laneId || ((asChat || chatting) && !laneId)) ? chatLane : null) ?? (improve ? null : startLaneIn(repoList[0]?.lanes ?? [], false));
   // The repo it starts in, whose worktrees the worktree menu lists.
   const repoNow = lane && !lane.startsChats ? (repoList.find((r) => r.key === repoKey(lane)) ?? null) : null;
 
@@ -1046,8 +1056,9 @@ export function Quick() {
   // and its suggestions lead the list, so ⏎ does the likeliest. A word or two alone is a search
   // and isn't sent.
   const routePrompt = query ? withShots(withAttachments(query, attached)) : '';
-  // Not while it's being said: the words change until the key comes up.
-  const routeFor = board?.jev?.quick_panel && !todo && !talking && worthRouting(routePrompt) ? `${current}\n${routePrompt}` : null;
+  // Not while it's being said: the words change until the key comes up. On General chat a prompt
+  // starts a chat, with no worktree for Jev to weigh, so it isn't asked and the start row leads.
+  const routeFor = board?.jev?.quick_panel && !todo && !talking && !chatting && worthRouting(routePrompt) ? `${current}\n${routePrompt}` : null;
   const [routed, setRouted] = useState<{ for: string; route: Route } | null>(null);
   const [routeError, setRouteError] = useState<{ for: string; message: string } | null>(null);
   useEffect(() => {
@@ -1101,7 +1112,7 @@ export function Quick() {
     return sameStart({ laneId: sg.lane.id, newWorktree: startsTree(sg), account: c ? c.account : account, model: c ? c.modelNow : modelNow, effort: c ? c.effortNow : effortNow, place: c ? c.placeNow : placeNow }, startRowFacts);
   };
   const startRowSuggested = jevSuggested.find((r) => isStartRow(r.s))?.s ?? null;
-  const startLeads = !!jevSuggested[0] && isStartRow(jevSuggested[0].s);
+  const startLeads = (!!jevSuggested[0] && isStartRow(jevSuggested[0].s)) || (chatting && !todo && worthRouting(routePrompt));
   const suggested = jevSuggested.filter((r) => !isStartRow(r.s));
   const lastSuggested = jevLastSuggested.filter((r) => !isStartRow(r.s));
 
@@ -2128,9 +2139,10 @@ export function Quick() {
 
   const projectOption = (name: string): PickerOption => ({
     id: name,
-    text: name,
+    text: name === GENERAL_CHAT ? `${name} question no project no repo` : name,
     label: name,
-    lead: <Icon name={name === ALL_PROJECTS ? 'stack' : 'folder'} size={14} />,
+    detail: name === GENERAL_CHAT ? 'A question for none of your repos' : undefined,
+    lead: <Icon name={name === ALL_PROJECTS ? 'stack' : name === GENERAL_CHAT ? 'message-circle' : 'folder'} size={14} />,
     trail: (
       <>
         <ProjectCounts needs={counts[name]?.needs ?? 0} unread={counts[name]?.unread ?? 0} />
@@ -2138,10 +2150,11 @@ export function Quick() {
       </>
     ),
   });
-  // As in the main window's switcher: the projects, then All projects set apart.
+  // As in the main window's switcher: the projects, then All projects set apart, with General
+  // chat, for a question that belongs to none of them.
   const projectSections: PickerSection[] = [
     { key: 'projects', options: projects.map((p) => projectOption(p.name)) },
-    { key: 'all', head: <span className="ca-picker-sep" />, options: [projectOption(ALL_PROJECTS)] },
+    { key: 'all', head: <span className="ca-picker-sep" />, options: [projectOption(ALL_PROJECTS), projectOption(GENERAL_CHAT)] },
   ];
 
   // A folder's path typed in the repo menu is looked up as it's typed; an answer goes only
@@ -2301,7 +2314,9 @@ export function Quick() {
 
   const deviceSections: PickerSection[] = useMemo(() => {
     if (!devices) return [];
-    const count = (short: string | null) => worktreeCount((short ? devices.lanes.filter((l) => shortOf(l.id) === short) : (board?.lanes ?? [])).filter((l) => !l.startsChats && inProject(l, current)).length, current);
+    // On General chat, each machine's worktrees: its chats are in none.
+    const scope = current === GENERAL_CHAT ? ALL_PROJECTS : current;
+    const count = (short: string | null) => worktreeCount((short ? devices.lanes.filter((l) => shortOf(l.id) === short) : (board?.lanes ?? [])).filter((l) => !l.startsChats && inProject(l, scope)).length, scope);
     const here = devices.me.name || 'This machine';
     return [
       {
@@ -2996,9 +3011,9 @@ export function Quick() {
               </div>
             )}
             <div className="ca-quick-pick">
-              <button type="button" data-picker-trigger className="ca-quick-chip" title={keysIn(addingNow ? `Adding ${addingNow.name}…` : lane ? `${lane.startsChats ? 'A chat of its own, in no project' : `${lane.repo}, in ${lane.project}`}\nRepo (⌘T)` : 'Repo (⌘T)')} disabled={lanes.length === 0 && !chatLane} aria-haspopup="dialog" aria-expanded={picker === 'repo'} onClick={() => togglePicker('repo')}>
+              <button type="button" data-picker-trigger className="ca-quick-chip" title={keysIn(addingNow ? `Adding ${addingNow.name}…` : lane ? `${lane.startsChats ? 'A general chat, in a folder of its own: no repo, no project' : `${lane.repo}, in ${lane.project}`}\nRepo (⌘T)` : 'Repo (⌘T)')} disabled={lanes.length === 0 && !chatLane} aria-haspopup="dialog" aria-expanded={picker === 'repo'} onClick={() => togglePicker('repo')}>
                 <Icon name={addingNow ? 'folder-plus' : lane?.startsChats ? 'message-circle' : 'folder'} size={14} />
-                <span>{addingNow ? addingNow.name : lane ? (lane.startsChats ? NO_PROJECT : lane.repo) : 'No repo'}</span>
+                <span>{addingNow ? addingNow.name : lane ? (lane.startsChats ? GENERAL_CHAT : lane.repo) : 'No repo'}</span>
                 <Icon name="chevron-down" size={12} />
               </button>
               {picker === 'repo' && (
@@ -3059,7 +3074,7 @@ export function Quick() {
       </div>
     </div>
   );
-  return <ProjectShown.Provider value={current}>{page}</ProjectShown.Provider>;
+  return <ProjectShown.Provider value={projectShownIn(current)}>{page}</ProjectShown.Provider>;
 }
 
 /** Where a row's session, todo or PR is: its worktree or repo, after its project where the panel

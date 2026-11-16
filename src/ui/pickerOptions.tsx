@@ -8,7 +8,7 @@
 
 import { ago } from '../format';
 import { laneWaits } from '../lanes';
-import { laneBranch, NO_PROJECT, worktreeName, type FolderChoice, type LaneGroup, type RepoChoice } from '../quick';
+import { GENERAL_CHAT, laneBranch, worktreeName, type FolderChoice, type LaneGroup, type RepoChoice } from '../quick';
 import { REUSE_STATE } from '../reusable';
 import type { Lane, Session } from '../types';
 import type { PickerOption, PickerSection } from './Picker';
@@ -70,9 +70,10 @@ export function laneSections(groups: LaneGroup[], id?: (l: Lane) => string): Pic
   }));
 }
 
-/** A chat of its own, in no project: Codealong's chats, apart from every worktree. */
+/** A general chat: a question for none of your repos, in a folder of its own among Codealong's
+ *  chats, apart from every worktree. */
 export function chatOption(id: string): PickerOption {
-  return { id, text: 'no project chat question', label: NO_PROJECT, detail: 'A chat of its own', lead: <Icon name="message-circle" size={12} /> };
+  return { id, text: 'general chat question no project no repo', label: GENERAL_CHAT, detail: 'In no repo: a folder of its own', lead: <Icon name="message-circle" size={12} /> };
 }
 
 /** The id of a folder row that adds the folder to `project` (to a project of its own with none). */
@@ -112,7 +113,7 @@ export function anotherFolderOption(start: string): PickerOption {
 
 /** A session, with the worktree it works in. */
 export function sessionOption(lane: Lane, s: Session, now: number): PickerOption {
-  const where = lane.startsChats ? NO_PROJECT : `${lane.project} · ${lane.callsign}`;
+  const where = lane.startsChats ? GENERAL_CHAT : `${lane.project} · ${lane.callsign}`;
   return {
     id: s.key,
     text: [s.title, lane.project, lane.repo, lane.callsign, lane.branch ?? '', s.account, lane.startsChats ? 'chat' : ''].join(' '),

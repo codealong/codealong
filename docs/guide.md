@@ -2518,8 +2518,8 @@ for it): the list scrolls within it, the row that starts a new session stays abo
 bar's menus open over the list. A click does a row
 only when you moved the pointer onto it: one the list moved under a pointer that stayed put (as
 suggestions and what was said come in) is selected by the click, and a second click does it. A
-project picker (⌘P) narrows everything to one project, but for a search: the sessions it finds in
-other projects come after the project's own, as if they were eight times older, each saying its
+project picker (⌘P) narrows everything to one project, or to General chat (*Chats*), but for a
+search: the sessions it finds in other projects come after the project's own, as if they were eight times older, each saying its
 project before its worktree. A search finds the sessions on your other machines too (Settings ›
 Devices), as the main window lists them, by what was said in them as well (each machine searching
 its own), each row with its machine's badge: they come after the same match on the machine the
@@ -2528,7 +2528,7 @@ opens where it lives only on its own machine, so ⏎ and ⌥⏎ both show it in 
 it in the waiting window while that lists the machine's sessions (connected, with `[devices]
 in_bar` on), else shows it in Codealong too. Send to lists this machine's sessions only.
 ⌥⌘' (`[shortcuts] chat`) opens the same
-panel with the repo picker on No project, so what you type starts a chat of its own, in a folder
+panel with the repo picker on General chat, so what you type starts a chat of its own, in a folder
 of its own among Codealong's chats, rather than in a worktree; it finds sessions as ⌥⌘/ does, and
 the picker (⌘T) still goes to a repo. With voice on, ⌥⌘= (`[shortcuts] listen`) opens it set
 to listen to a meeting instead (*Voice*, Listen now). The shortcuts are yours to change in
@@ -2893,16 +2893,25 @@ it would have. Folded, a file let go on the chip opens the panel again with the 
 
 #### Chats
 
-**No project**, first in the worktree picker, starts a chat for a question that belongs to none of
+**General chat**, first in the repo picker, starts a chat for a question that belongs to none of
 your repos: the session gets a folder of its own under `~/Library/Application
 Support/Codealong/chats` (trusted once for Claude Code, for all of them, and each one for Codex and
 `agy`, which trust a folder only by itself), and no new worktree. The
 chats are listed together in one lane, Chats, in Elsewhere, and `codealong start --chat` starts one.
 
+The quick panel's project picker (⌘P) has **General chat** too, after All projects. Picked there,
+the panel lists your chats (Codealong's, and the Claude app's and the Codex app's, which keep
+theirs in folders of their own too) where a project's sessions would be, with what they wait on
+you for counted beside it in the menu, and the repo picker is on General chat, listing no repos.
+Jev isn't asked where a prompt goes, as there's no worktree to weigh, so ⏎ on what you type starts
+the chat (Send to still sends it to a session). A search still finds sessions in every project,
+after the chats. The panel stays on General chat until another project is picked, which starts in
+that project's repos again; ⌥⌘' is the way to one chat without leaving the project you're on.
+
 #### A folder that isn't listed
 
 The worktree picker takes a folder's path too, for a new project or a folder Codealong doesn't list:
-type one from `~/` or `/`, or pick **Another folder…**, after No project, which puts the folder
+type one from `~/` or `/`, or pick **Another folder…**, after General chat, which puts the folder
 most of your repos are in into the filter to type a name after. The folders in it whose names
 start with what's typed are listed to go on from (a click or ⏎ puts one in the filter), ahead of
 making a folder of a name only half typed. The folder itself is offered as a project of its own,

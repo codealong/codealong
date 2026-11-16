@@ -383,8 +383,8 @@ describe('what the quick panel says of a start', () => {
     const chat = { repo: 'Chats', callsign: 'Chats', startsChats: true };
     expect(startHappens(plan({ lane: chat, prompted: true }))).toBe('Starts work in a folder of its own in Ghostty.');
     expect(startHappens(plan({ lane: chat, place: 'claude-app' }))).toBe('The Claude app opens a new session in a folder of its own. You send it from there.');
-    expect(startTitleWords({ ...chat, origin: 'script' }, false)).toBe('Start a chat in no project');
-    expect(startWhereWords({ ...chat, project: 'Elsewhere' })).toBe('No project');
+    expect(startTitleWords({ ...chat, origin: 'script' }, false)).toBe('Start a general chat');
+    expect(startWhereWords({ ...chat, project: 'Elsewhere' })).toBe('General chat');
     expect(startingLabel('background', 'work', '', chat, false, null)).toBe('Starting work in a chat of its own in the background…');
   });
 

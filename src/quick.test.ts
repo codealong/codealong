@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it } from 'vitest';
 import { agoPhrase } from './format';
-import { ALL_PROJECTS, attachmentsNote, attentionRows, draftCodec, folderChoices, foldedWords, holdsPrompt, folderStart, isFolderPath, macUnavailable, nextDraft, primaryRunningWords, queueRows, recallList, startTitle, todosStayNote, withPrompt, findPrs, findSessions, findTodos, heldSaid, laneGroups, projectCounts, repoChoices, repoWorktrees, startLaneIn, worktreeName, readyTodos, recentRows, sendTargets, shortcutFromKey, shortcutKeys, shortcutLabel, stillSaid, TAKEN, takenFor, titleMarks, worktreeCount, deviceHits } from './quick';
+import { ALL_PROJECTS, GENERAL_CHAT, attachmentsNote, attentionRows, draftCodec, folderChoices, foldedWords, holdsPrompt, folderStart, isFolderPath, macUnavailable, nextDraft, primaryRunningWords, queueRows, recallList, startTitle, todosStayNote, withPrompt, findPrs, findSessions, findTodos, heldSaid, laneGroups, projectCounts, repoChoices, repoWorktrees, startLaneIn, worktreeName, readyTodos, recentRows, sendTargets, shortcutFromKey, shortcutKeys, shortcutLabel, stillSaid, TAKEN, takenFor, titleMarks, worktreeCount, deviceHits, inProject, projectShownIn } from './quick';
 import { setPlatform } from './platform';
 import * as fx from './testing/fixtures';
 import type { Board, FolderLook, Label, Lane, PrItem, Session, Todo } from './types';
@@ -478,6 +478,33 @@ describe('projectCounts', () => {
   });
 });
 
+describe('General chat', () => {
+  // Codealong's own chats, an app's chats beside them in Elsewhere, and a plain folder there.
+  const chats = lane('chats', [session('c1', 'unread', NOW - 5, { title: 'Fix my zsh prompt' })], { project: 'Elsewhere', callsign: 'Chats', chats: true, startsChats: true });
+  const appChats = lane('app-chats', [session('c2', 'needs', NOW - 9, { title: 'Mutex or semaphore' })], { project: 'Elsewhere', callsign: 'Claude app chats', chats: true });
+  const scratch = lane('scratch', [session('s', 'needs', NOW - 1, { title: 'Scratch notes' })], { project: 'Elsewhere' });
+  const app = lane('app', [session('a', 'needs', NOW - 2, { title: 'Fix login' })]);
+  const b = board([chats, appChats, scratch, app]);
+
+  it('lists the chats, Codealong’s and the apps’, and nothing else', () => {
+    expect([chats, appChats, scratch, app].map((l) => inProject(l, GENERAL_CHAT))).toEqual([true, true, false, false]);
+    expect(attentionRows(b, GENERAL_CHAT).rows.map((r) => r.key)).toEqual(['c2', 'c1']);
+    expect(projectCounts(b, [GENERAL_CHAT])).toEqual({ [GENERAL_CHAT]: { needs: 1, unread: 1 } });
+  });
+
+  it('finds other projects’ sessions after its own, as a project does', () => {
+    // The project's login fix is the newer, and still comes after the chat.
+    expect(findSessions(b, GENERAL_CHAT, 'fix', NOW).map((r) => r.key)).toEqual(['c1', 'a']);
+    expect(findSessions(b, GENERAL_CHAT, 'semaphore', NOW).map((r) => r.key)).toEqual(['c2']);
+  });
+
+  it('doesn’t say Elsewhere before its chats, which are all there', () => {
+    expect(projectShownIn(GENERAL_CHAT)).toBe('Elsewhere');
+    expect(projectShownIn('Acme')).toBe('Acme');
+    expect(projectShownIn(ALL_PROJECTS)).toBe(ALL_PROJECTS);
+  });
+});
+
 describe('repoChoices', () => {
   it('lists each repo once with its worktrees, pinned ones\' repos first, then the latest active', () => {
     const lanes = [
@@ -856,7 +883,7 @@ describe('folders typed in the worktree menu', () => {
       { kind: 'add', project: null, label: 'kestrel', detail: 'New folder ~/projects/kestrel · a project of its own' },
       { kind: 'add', project: 'Atlas', label: 'kestrel', detail: 'New folder ~/projects/kestrel · in Atlas' },
     ]);
-    for (const current of [ALL_PROJECTS, 'Elsewhere', 'Gone']) {
+    for (const current of [ALL_PROJECTS, GENERAL_CHAT, 'Elsewhere', 'Gone']) {
       expect(folderChoices(look({ exists: true }), current, projects).map((c) => c.kind === 'add' && c.detail)).toEqual(['Add ~/projects/kestrel · a project of its own']);
     }
     expect(folderChoices(look({ name: 'Atlas' }), 'Atlas', projects).map((c) => c.kind === 'add' && [c.project, c.detail])).toEqual([[null, 'New folder ~/projects/kestrel · in Atlas']]);
