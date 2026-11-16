@@ -106,7 +106,8 @@ them. The paths have spaces in them, so quote them:
      folder the day in its name.
    - `You` is the microphone and `Them` is what the Mac played: on a call, your user and
      everyone else. With only the microphone heard (a meeting in a room), `You` is everyone in
-     the room, your user among them. On speakers a line of `You` can repeat one of `Them`.
+     the room, your user among them. On speakers the microphone hears the others too:
+     Codealong leaves out what of `You` repeats `Them`, but a line of `You` can still echo one.
    - Nobody is named. In a room, or among several people on a call's other end, who said a line
      has to be worked out: from where people say who they are, from what a speaker says of
      themselves or their company, from who the notes say was there. Say what you rest on. With

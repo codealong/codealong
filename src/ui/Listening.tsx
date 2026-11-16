@@ -287,8 +287,9 @@ export function ListenChoices({ ask, set, playing, children }: { ask: Pick<Liste
           </div>
         )}
         {/* Speakers or headphones isn't asked: the engine hears which (echo.rs) and says so on
-            the strip. Nothing is taken out of the microphone (main.swift `Mic` says why). */}
-        {ask.mic && ask.system && <small>On speakers the microphone hears the others too, so some of what they say can also be written down as yours. Headphones keep the two apart.</small>}
+            the strip. Nothing is taken out of the microphone's sound (main.swift `Mic` says why);
+            what of its words repeats the Mac's is left out of the transcript (echo.rs `Repeats`). */}
+        {ask.mic && ask.system && <small>On speakers the microphone hears the others too. Codealong leaves out what of yours repeats them, though a line can slip through; headphones keep the two apart.</small>}
       </div>
     </>
   );

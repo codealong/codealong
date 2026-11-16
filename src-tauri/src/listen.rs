@@ -51,6 +51,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::config::support_dir;
 use crate::ear::{self, Ear, Event, Source};
+use crate::echo::{Repeats, Said};
 use crate::engine::Handle;
 use crate::model::{Board, Session, Status};
 use crate::{send, store, util};
@@ -389,7 +390,7 @@ pub fn brief(l: &Listening) -> String {
     let mic = l.sources.iter().any(|s| s.name == YOU);
     let them = l.sources.iter().any(|s| s.name == THEM);
     let who = match (mic, them) {
-        (true, true) => format!("{YOU} is your user, heard through their microphone; {THEM} is everyone else, heard from what their Mac plays. On speakers the microphone can pick the others up too, so a line of {YOU}'s may repeat one of {THEM}'s."),
+        (true, true) => format!("{YOU} is your user, heard through their microphone; {THEM} is everyone else, heard from what their Mac plays. On speakers the microphone picks the others up too: Codealong leaves out what of {YOU}'s repeats {THEM}'s, but a line of {YOU}'s may still echo one of {THEM}'s."),
         (true, false) => format!("{YOU} is whatever their microphone hears: your user, and anyone in the room with them."),
         _ => format!("{THEM} is whoever is heard in what their Mac plays; your user's own voice isn't in it."),
     };
@@ -521,6 +522,34 @@ fn append(transcript: &Path, line: &str) -> Result<()> {
     Ok(())
 }
 
+/// Writes lines that were heard to listening `l`'s transcript, and tells the windows of each.
+fn write(l: &Listening, lines: Vec<Said>) {
+    for said in lines {
+        let said = line(&clock(said.at), if said.mine { YOU } else { THEM }, &said.text);
+        match append(&l.transcript(), &said) {
+            Ok(()) => {
+                let now = update(&l.id, |l| {
+                    l.lines += 1;
+                    l.heard_at = util::now_ms();
+                });
+                if let Some(now) = now {
+                    crate::views::emit(HEARING, &Hearing { session: now.session, line: Some(now.lines), said: Some(said.trim_end().to_string()), ..Hearing::default() });
+                }
+            }
+            Err(e) => say(&l.id, |r| r.problem = Some(format!("Its transcript couldn't be written ({e})."))),
+        }
+    }
+}
+
+/// Writes what's still held back of listening `id`'s lines: its hearing has ended.
+fn write_held(id: &str) {
+    let Some(mut held) = state().held.remove(id) else { return };
+    let rest = held.rest(util::now_ms());
+    if let Some(l) = list().into_iter().find(|l| l.id == id).filter(|_| !rest.is_empty()) {
+        write(&l, rest);
+    }
+}
+
 fn count_lines(transcript: &Path) -> u64 {
     std::fs::read(transcript).map(|bytes| bytes.iter().filter(|b| **b == b'\n').count() as u64).unwrap_or(0)
 }
@@ -603,6 +632,11 @@ struct State {
     /// The listenings whose hearing is being ended right now (`end_as`), which takes as long as
     /// their helper takes to write its last words.
     ending: HashSet<String>,
+    /// The lines on their way to the transcript of each listening that hears both you and the
+    /// others, yours held back until it's known whether they repeat theirs (echo.rs `Repeats`).
+    /// Apart from `running`, since an ending takes that before the helper's last words come, and
+    /// the last of these is written once they have (`end_when`).
+    held: HashMap<String, Repeats>,
 }
 
 /// How long an ending under way is waited for (`ending_over`, `forget`): a helper writes its last
@@ -688,7 +722,7 @@ pub struct Glance {
     #[serde(skip_serializing_if = "Vec::is_empty")]
     pub apps: Vec<String>,
     /// You're on speakers, as it was heard to be (echo.rs): the microphone hears the others too,
-    /// and a line of You's may repeat one of Them's.
+    /// and what of You's repeats Them's is left out of the transcript (`Repeats`).
     #[serde(skip_serializing_if = "std::ops::Not::not")]
     pub speakers: bool,
     pub transcript: String,
@@ -800,6 +834,9 @@ fn heard(id: &str, event: Event) {
         Event::Partial { source, text } => {
             let session = {
                 let mut state = state();
+                if let Some(held) = state.held.get_mut(id) {
+                    held.saying(source == YOU, &text, util::now_ms());
+                }
                 let Some(running) = state.running.get_mut(id) else { return };
                 // The words settling (empty) always go; the ones still changing, every so often.
                 if !text.is_empty() && running.said_at.is_some_and(|at| at.elapsed() < PARTIAL_EVERY) {
@@ -810,21 +847,23 @@ fn heard(id: &str, event: Event) {
             };
             crate::views::emit(HEARING, &Hearing { session, who: Some(source), text: Some(text), ..Hearing::default() });
         }
-        Event::Final { source, text, at, .. } => {
+        Event::Final { source, text, at, until } => {
             let Some(l) = list().into_iter().find(|l| l.id == id) else { return };
-            let said = line(&clock(at), &source, &text);
-            match append(&l.transcript(), &said) {
-                Ok(()) => {
-                    let now = update(id, |l| {
-                        l.lines += 1;
-                        l.heard_at = util::now_ms();
-                    });
-                    if let Some(now) = now {
-                        crate::views::emit(HEARING, &Hearing { session: now.session, line: Some(now.lines), said: Some(said.trim_end().to_string()), ..Hearing::default() });
-                    }
+            let said = Said { mine: source == YOU, text, at, until };
+            let ready = {
+                let mut state = state();
+                let speakers = state.running.get(id).is_some_and(|r| r.echo.speakers());
+                // Held from its first line on, for one that hears both, until its ending writes
+                // the last; an ending under way only takes what's left.
+                if hears_both(&l) && l.hearing() && !state.ended.contains(id) {
+                    state.held.entry(id.to_string()).or_default();
                 }
-                Err(e) => say(id, |r| r.problem = Some(format!("Its transcript couldn't be written ({e})."))),
-            }
+                match state.held.get_mut(id) {
+                    Some(held) => held.said(said, speakers, util::now_ms()),
+                    None => vec![said],
+                }
+            };
+            write(&l, ready);
         }
         Event::Level { source, level } => {
             let mine = source == YOU;
@@ -836,6 +875,18 @@ fn heard(id: &str, event: Event) {
                 // Whether the microphone hears what the Mac plays: you're on speakers.
                 r.echo.heard(mine, level, util::now_ms());
             });
+            // Loudness comes ten times a second whatever's said, which is what lets go of a line
+            // that was held back once its time is up.
+            let ready = {
+                let mut state = state();
+                let speakers = state.running.get(id).is_some_and(|r| r.echo.speakers());
+                state.held.get_mut(id).map(|held| held.due(speakers, util::now_ms())).unwrap_or_default()
+            };
+            if !ready.is_empty() {
+                if let Some(l) = list().into_iter().find(|l| l.id == id) {
+                    write(&l, ready);
+                }
+            }
         }
         Event::Output { device, kind } => say(id, |r| r.echo.plays_through(&device, &kind)),
         Event::Ready => say(id, |r| r.waiting = None),
@@ -876,6 +927,12 @@ const SILENT: &str = "Nothing has come from what this Mac plays";
 
 fn with_mic(l: &Listening) -> bool {
     l.sources.iter().any(|s| matches!(s.from, ear::From::Mic))
+}
+
+/// Whether it hears both you, through the microphone, and the others, from what the Mac plays:
+/// on speakers, the microphone has the others' words too.
+fn hears_both(l: &Listening) -> bool {
+    with_mic(l) && l.sources.iter().any(|s| !matches!(s.from, ear::From::Mic))
 }
 
 /// What a listening says while the Mac's own audio has given nothing at all. It's about that
@@ -1158,6 +1215,8 @@ fn forget(l: &Listening) -> bool {
         });
         return false;
     }
+    // Taken back with its transcript: nothing held back of it is written.
+    state().held.remove(&l.id);
     let _ = change(|all| all.retain(|old| old.id != l.id));
     // Its own folder goes with it; a meeting's is the meeting's, and only what this put there
     // goes (its transcript).
@@ -1252,6 +1311,8 @@ fn end_when(id: &str, why: Option<String>, still: Option<&dyn Fn(&Listening) -> 
     if let Some(ear) = running.and_then(|r| r.ear) {
         ear.stop();
     }
+    // Before the file says it ended: its last telling counts them.
+    write_held(id);
     let ended = update(id, |l| {
         if l.ended_at.is_none() {
             l.ended_at = Some(util::now_ms());
@@ -1512,7 +1573,9 @@ fn revive(l: &Listening, now: i64) {
             end(&l.id, Some("Codealong's hearing kept stopping".into()));
         }
         Do::Start => {
-            // Whatever was said since the helper stopped wasn't heard, and the transcript says so.
+            // Whatever was said since the helper stopped wasn't heard, and the transcript says so,
+            // after what was heard before it.
+            write_held(&l.id);
             let said = aside(&clock(now), MISSING);
             if append(&l.transcript(), &said).is_ok() {
                 if let Some(after) = update(&l.id, |l| l.lines += 1) {
@@ -1588,6 +1651,10 @@ pub fn shut_down() {
     let running: Vec<Running> = state().running.drain().map(|(_, r)| r).collect();
     for ear in running.into_iter().filter_map(|r| r.ear) {
         ear.stop();
+    }
+    let held: Vec<String> = state().held.keys().cloned().collect();
+    for id in held {
+        write_held(&id);
     }
 }
 
@@ -2038,6 +2105,14 @@ mod tests {
         // A recording's words are Them's, heard as fast as it reads or at the speed it plays.
         assert_eq!(sources(Ask { file: Some("/tmp/call.m4a".into()), mic: true, ..Ask::default() }).unwrap(), vec![(THEM.to_string(), From::File { path: "/tmp/call.m4a".into(), paced: false })]);
         assert_eq!(sources(Ask { file: Some("/tmp/call.m4a".into()), paced: true, ..Ask::default() }).unwrap()[0].1, From::File { path: "/tmp/call.m4a".into(), paced: true });
+        // Only one that hears both the microphone and the Mac holds the microphone's lines back
+        // to leave out what repeats the Mac's (echo.rs `Repeats`); a recording is the Mac's alone.
+        let hearing_of = |ask: Ask| Listening { sources: ask.sources().unwrap(), ..Listening::default() };
+        assert!(hears_both(&hearing_of(Ask { mic: true, system: true, ..Ask::default() })));
+        assert!(hears_both(&hearing_of(Ask { mic: true, system: true, apps: vec!["us.example.meet".into()], ..Ask::default() })));
+        for ask in [Ask { mic: true, ..Ask::default() }, Ask { system: true, ..Ask::default() }, Ask { file: Some("/tmp/call.m4a".into()), mic: true, ..Ask::default() }] {
+            assert!(!hears_both(&hearing_of(ask)));
+        }
     }
 
     #[test]

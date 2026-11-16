@@ -1196,7 +1196,7 @@ export interface ListeningGlance {
   playback: boolean;
   apps?: string[];
   /** You're on speakers, as Codealong heard it to be (echo.rs): the microphone hears the others
-   *  too, and a line of You's may repeat one of Them's. Missing while it isn't. */
+   *  too, and what of You's repeats Them's is left out of the transcript. Missing while it isn't. */
   speakers?: boolean;
   transcript: string;
   notes: string;

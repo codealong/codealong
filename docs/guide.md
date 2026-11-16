@@ -3571,15 +3571,26 @@ Tell the session first what you want from the meeting, as you'd tell it anything
 - what it hears: you, through the microphone; and everyone else, from what the Mac plays, or
   only from one app that's playing.
 
-Speakers or headphones isn't asked. On speakers the microphone hears the others too, and some of
-what they say is written down a second time, as you; headphones keep the two apart. Codealong
+Speakers or headphones isn't asked. On speakers the microphone hears the others too, so what they
+say is heard twice, once from the Mac and once as you; headphones keep the two apart. Codealong
 hears which it is: a microphone that picks up what the Mac plays is never as quiet while the Mac
 is loud as it gets when the Mac is silent, and one on headphones is. After a few seconds of the
 others talking it knows, and the strip says *on speakers*. It starts over whenever what the Mac
 plays through changes and goes by what it hears after that, so headphones put on or taken off
 mid-meeting are followed; speakers that say they are (the Mac's own, a display's) start that way.
-Nothing is taken out of the microphone: macOS's voice processing, which would, left the Mac's
-audio silent and turned the call down for you and for the others (tried on 2026-11-13).
+Nothing is taken out of the microphone's sound: macOS's voice processing, which would, left the
+Mac's audio silent and turned the call down for you and for the others (tried on 2026-11-13).
+
+What's taken out is the second copy of their words. Each line the microphone settles on is held
+back about three seconds and matched against what the Mac played at the same moment: words in the
+same order at the same time are theirs, heard through your speakers, and are left out of the
+transcript, a word misheard or a sentence cut in other places included. A few words of yours
+before or after them stay, as your line: you answering as they finish. Until a close repeat or
+the speakers' sound has shown that the microphone hears the Mac, only a line that's nearly all
+theirs is left out; after that, a looser one is too, and a "Yeah." they said at that moment as
+well. The Mac's lines are never left out, and lines are written in the order they settled, so
+one of theirs waits behind one of yours that's held back. The words being said still show as
+they're heard, yours included, before they settle.
 
 Codealong writes what's said to a transcript, a line for each thing said: the time, who (You for
 the microphone, Them for what the Mac plays), and the words. At a pause in the talk, and no more

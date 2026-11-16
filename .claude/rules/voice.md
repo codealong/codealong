@@ -89,7 +89,8 @@ What macOS's speech recognition and audio capture take and give, as codealong-ea
   processing; with it, neither source wrote a word. On the call it also turned things down: the
   others said the person sounded faint, and both their microphone and what they heard got louder
   the moment the listening stopped. So the helper doesn't use voice processing (main.swift `Mic`),
-  and nothing is taken out of the microphone on speakers. Whether a tap in another process than
+  and nothing is taken out of the microphone's sound on speakers; the engine leaves its words that
+  repeat the Mac's out of the transcript instead (echo.rs `Repeats`). Whether a tap in another process than
   the voice processing stays audible wasn't tried; the turning down rules it out anyway.
 - The camera, run once (2026-11-13, macOS 26.6.2, Teams' Mac app opened while a listening heard
   the microphone and the Mac's audio): Teams showed its camera before joining. The camera went off
