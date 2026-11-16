@@ -76,6 +76,14 @@ describe('where an open PR is in its loop of checks, reviews and fixes', () => {
     expect(subjectsOf({ todoItems, todos, sessionItems: sessionItemsOf([lane]), lanes: [lane], prs: [] }).get('todo:p')?.stage).toBe('review');
   });
 
+  it('takes a todo into the loop by the board’s copy of its PR, though its worktree’s still says draft', () => {
+    const lane: Lane = fx.lane({ id: '/r/app', pr: fx.pr({ state: 'draft' }) });
+    const t = fx.todo({ id: 'p', status: 'in-progress', worktrees: ['/r/app'] });
+    const item = todoItem(t, new Map([[lane.id, lane]]), new Map(), new Map());
+    expect(todoStage(item, [t], [fx.prItem({ state: 'approved', merge: 'clean' })])).toBe('ready');
+    expect(todoStage(item, [t])).toBe('progress');
+  });
+
   it('keeps a todo marked for review by hand, or whose PR merged before it was done, In review', () => {
     const draft: Lane = fx.lane({ id: '/r/draft', pr: fx.pr({ state: 'draft', checks: fx.checks({ pending: 1 }) }) });
     const merged: Lane = fx.lane({ id: '/r/merged', pr: fx.pr({ state: 'merged', number: 8 }) });

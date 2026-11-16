@@ -486,7 +486,11 @@ export function todoPr(item: TodoItem): Pr | null {
  *  todo isn't done, which waits on you to say it is. `pr_in_review` in todos.rs has the same
  *  rule. */
 export function prInReview(item: TodoItem): boolean {
-  const state = todoPr(item)?.state;
+  return withReviewers(todoPr(item)?.state);
+}
+
+/** `prInReview` of a PR in this state. */
+export function withReviewers(state: Pr['state'] | undefined): boolean {
   return state === 'open' || state === 'approved' || state === 'changes' || state === 'merged';
 }
 

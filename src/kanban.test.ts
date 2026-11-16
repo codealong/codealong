@@ -69,6 +69,13 @@ describe('kanbanDrop on the stage columns', () => {
     expect(drop(sessionCard(), 'progress', 'ready')).toBeNull();
   });
 
+  it('marks a todo for review dropped on a column that takes In review with the PR’s other stages, as one made before them does', () => {
+    const loop: BoardColumn = { id: 'loop', name: 'In review', rule: { stages: ['validating', 'review', 'ready'] }, sort: 'move' };
+    const defs = [...STAGE_COLUMNS.filter((c) => c.id === 'todo' || c.id === 'progress'), loop];
+    const t = todoCard({ status: 'in-progress' });
+    expect(said(drop(t, 'progress', 'loop', null, null, shown(defs), ctxOf(defs, [t])))).toEqual({ moves: [{ kind: 'review', on: true }], word: 'Ready for review' });
+  });
+
   it('marks a session done, or adds it to a todo it’s dropped on', () => {
     const s = sessionCard();
     expect(said(drop(s, 'progress', 'done'))).toEqual({ moves: [{ kind: 'done' }], word: 'Mark as done' });

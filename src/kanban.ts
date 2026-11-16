@@ -143,8 +143,10 @@ function todoDrop(card: TodoItem, from: KanbanColumn, to: KanbanColumn, index: n
     word = s.word;
     return true;
   };
-  // What the column asks for: a stage, a label.
-  if (rule?.stages?.length && !rule.stages.includes(stage) && !step(stageStep(card, stage, rule.stages[0]))) return null;
+  // What the column asks for: a stage, the first of its that a change to the todo can step to (its
+  // PR's facts put it in Validating or Ready to merge, which a column made before those were
+  // stages takes in with In review: boards.rs `with_review_split`); a label.
+  if (rule?.stages?.length && !rule.stages.includes(stage) && !step(rule.stages.map((s) => stageStep(card, stage, s)).find((s) => s !== null) ?? null)) return null;
   const added: string[] = [];
   const removed: string[] = [];
   if (rule?.labels?.length && !rule.labels.some((l) => t.labels.includes(l))) added.push(rule.labels[0]);

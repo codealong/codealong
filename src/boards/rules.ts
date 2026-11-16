@@ -9,7 +9,7 @@
 import { refId, type RefKind } from '../canvas/model';
 import { AGENT_BAY, sessionPrs } from '../lanes';
 import { agentReviewing, prReady, type PrFacts } from '../prStatus';
-import { itemSection, todoPr, type TodoItem } from '../todos';
+import { sectionOf, todoPr, withReviewers, type TodoItem } from '../todos';
 import type { Label, Lane, Pr, PrItem, Session, Todo } from '../types';
 import type { SessionItem } from '../ui/SessionsView';
 import { inPrLoop, takesAll, type Active, type BoardColumn, type BoardDoc, type Rule, type Stage, type StatusPick } from './model';
@@ -73,10 +73,13 @@ export function sessionStage(r: SessionItem, prs: PrItem[]): Exclude<Stage, 'tod
  *  review, waiting on you. `prs`: the PRs the board lists, for what they say of their checks and
  *  reviews. */
 export function todoStage(item: TodoItem, todos: Todo[], prs: readonly PrItem[] = []): Stage {
-  const section = itemSection(item, todos);
+  // Its section as todos.ts `itemSection` has it, by the board's copy of its PR where there is one,
+  // which goes for whether it's with its reviewers as for where it is in the loop.
+  const pr = todoPr(item);
+  const facts = pr && factsOf(pr, prs);
+  const section = sectionOf(item.todo, todos, withReviewers(facts?.state));
   if (section === 'review') {
-    const pr = todoPr(item);
-    const stage = prStage(pr && factsOf(pr, prs));
+    const stage = prStage(facts);
     return inPrLoop(stage) ? stage : 'review';
   }
   return section === 'ready' || section === 'waiting' ? 'todo' : section === 'in-progress' ? 'progress' : section === 'archived' ? 'done' : section;
