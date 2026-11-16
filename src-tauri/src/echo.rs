@@ -309,20 +309,15 @@ impl Repeats {
         let near = |at: i64, until: i64| at <= said.until + NEAR_MS && until >= said.at - NEAR_MS;
         let mut heard: Vec<&Said> = self.theirs.iter().filter(|t| near(t.at, t.until)).collect();
         heard.sort_by_key(|t| t.at);
-        let mut theirs: Vec<String> = heard.iter().flat_map(|t| words(&t.text)).map(|(_, w)| w).collect();
-        let mut from = heard.iter().map(|t| t.at).min();
-        let mut until = heard.iter().map(|t| t.until).max();
+        let mut theirs: Vec<Theirs> = heard.iter().flat_map(|t| words(&t.text).into_iter().map(move |(_, plain)| Theirs { plain, at: t.at, until: t.until })).collect();
         // What they're still saying, while it's still changing near this line: one that stopped
-        // changing long ago is one whose source was lost before its words settled.
+        // changing long ago is one whose source was lost before its words settled. Its last words
+        // aren't in yet, so nothing of yours is past them.
         if let Some(saying) = self.saying.as_ref().filter(|s| near(s.since, s.changed)) {
-            theirs.extend(words(&saying.text).into_iter().map(|(_, w)| w));
-            from = Some(from.map_or(saying.since, |from| from.min(saying.since)));
-            // Its last words aren't in yet, so nothing of yours is past them.
-            until = Some(i64::MAX);
+            theirs.extend(words(&saying.text).into_iter().map(|(_, plain)| Theirs { plain, at: saying.since, until: i64::MAX }));
         }
-        let apart = (from.is_some_and(|from| said.at + APART_MS <= from), until.is_some_and(|until| said.until >= until.saturating_add(APART_MS)));
         let proven = self.speakers || self.repeated_at.is_some_and(|at| now - at < PROVEN_MS);
-        match verdict(&said.text, &theirs, proven, apart) {
+        match verdict(&said, &theirs, proven) {
             Verdict::Yours => Some(said),
             Verdict::Repeats { kept, close } => {
                 if close {
@@ -344,24 +339,38 @@ enum Verdict {
     Repeats { kept: Option<String>, close: bool },
 }
 
-/// What of `line` repeats `theirs`, the Mac's words of the time in order, given whether it's
-/// proven the microphone hears the Mac, and whether the line starts sooner than theirs and ends
-/// later (`apart`), each by enough that what's said then is yours.
-fn verdict(line: &str, theirs: &[String], proven: bool, apart: (bool, bool)) -> Verdict {
-    let mine = words(line);
+/// One of the Mac's words of the time a line of yours was said, as compared, with when the line
+/// it's in was said.
+struct Theirs {
+    plain: String,
+    at: i64,
+    until: i64,
+}
+
+/// What of line `said` repeats `theirs`, the Mac's words of the time in order, given whether it's
+/// proven the microphone hears the Mac.
+fn verdict(said: &Said, theirs: &[Theirs], proven: bool) -> Verdict {
+    let mine = words(&said.text);
     let n = mine.len();
-    let plain: Vec<String> = mine.iter().map(|(_, w)| w.clone()).collect();
+    let plain: Vec<&str> = mine.iter().map(|(_, w)| w.as_str()).collect();
+    let their_plain: Vec<&str> = theirs.iter().map(|t| t.plain.as_str()).collect();
     // Words that match one at a time may be the same few common ones by chance; a run of them in
     // order isn't. A line of a word or two has only that.
     let shortest = if n <= 2 { 1 } else { 2 };
-    let runs: Vec<(usize, usize)> = runs(&plain, theirs).into_iter().filter(|&(_, len)| len >= shortest).collect();
-    let (Some(&(first, _)), Some(&(last_start, last_len))) = (runs.first(), runs.last()) else { return Verdict::Yours };
+    let runs: Vec<(usize, usize, usize)> = runs(&plain, &their_plain).into_iter().filter(|&(_, _, len)| len >= shortest).collect();
+    let (Some(&(first, _, _)), Some(&(last_start, _, last_len))) = (runs.first(), runs.last()) else { return Verdict::Yours };
     let last = last_start + last_len;
-    let matched: usize = runs.iter().map(|&(_, len)| len).sum();
+    let matched: usize = runs.iter().map(|&(_, _, len)| len).sum();
     let (before, after) = (first, n - last);
+    // When what it repeats of theirs was said (not the rest of what they said around then, which
+    // may be them going on to something else): a line of yours that starts sooner or ends later
+    // than that has words of yours there, however few ("No, I can't." as they finish).
+    let repeated = || runs.iter().flat_map(|&(_, j, len)| &theirs[j..j + len]);
+    let sooner = repeated().map(|t| t.at).min().is_some_and(|from| said.at + APART_MS <= from);
+    let later = repeated().map(|t| t.until).max().is_some_and(|until| said.until >= until.saturating_add(APART_MS));
     // Words between the runs are theirs misheard; those around them are yours when there are
     // enough of them, or they were said apart from theirs.
-    let (own_before, own_after) = (before >= OWN_WORDS || (before > 0 && apart.0), after >= OWN_WORDS || (after > 0 && apart.1));
+    let (own_before, own_after) = (before >= OWN_WORDS || (before > 0 && sooner), after >= OWN_WORDS || (after > 0 && later));
     let lost = (last - first - matched) + if own_before { 0 } else { before } + if own_after { 0 } else { after };
     let close = matched >= 4 && matched * 4 >= n * 3;
     // Too little of it theirs, or more of it left out than matched: it's yours, words in common
@@ -385,10 +394,10 @@ fn words(line: &str) -> Vec<(&str, String)> {
 }
 
 /// The runs of words `a` and `b` have in common, in the same order in both: where each starts in
-/// `a`, and how long. The longest first, then the same on either side of it, as difflib finds
-/// them: a run is what gives a repeat away, so none is broken up for a few more words in common
-/// (the most in common would take "we can ship" of "we can we can ship" a word at a time).
-fn runs(a: &[String], b: &[String]) -> Vec<(usize, usize)> {
+/// `a` and in `b`, and how long. The longest first, then the same on either side of it, as difflib
+/// finds them: a run is what gives a repeat away, so none is broken up for a few more words in
+/// common (the most in common would take "we can ship" of "we can we can ship" a word at a time).
+fn runs<T: PartialEq>(a: &[T], b: &[T]) -> Vec<(usize, usize, usize)> {
     let mut out = Vec::new();
     let mut left = vec![(0, a.len(), 0, b.len())];
     while let Some((a_from, a_to, b_from, b_to)) = left.pop() {
@@ -396,7 +405,7 @@ fn runs(a: &[String], b: &[String]) -> Vec<(usize, usize)> {
         if len == 0 {
             continue;
         }
-        out.push((a_from + i, len));
+        out.push((a_from + i, b_from + j, len));
         left.push((a_from, a_from + i, b_from, b_from + j));
         left.push((a_from + i + len, a_to, b_from + j + len, b_to));
     }
@@ -406,7 +415,7 @@ fn runs(a: &[String], b: &[String]) -> Vec<(usize, usize)> {
 
 /// The longest run of words `a` and `b` have in common: where it starts in each, and how long, 0
 /// for none. Of runs as long, the one that ends first.
-fn longest(a: &[String], b: &[String]) -> (usize, usize, usize) {
+fn longest<T: PartialEq>(a: &[T], b: &[T]) -> (usize, usize, usize) {
     let mut best = (0, 0, 0);
     // How long the run in common ending at each word of `b` is, for the word of `a` before.
     let mut before = vec![0; b.len() + 1];
@@ -710,6 +719,18 @@ mod tests {
         // However short the answer, once it goes on past the end of theirs.
         let heard = vec![(2000, theirs("Can you send it over?", 0, 1500)), (3400, mine("Can you send it over? No, I can't.", 0, 3000))];
         assert_eq!(transcript(heard, true), vec!["Them: Can you send it over?", "You: No, I can't."]);
+        // Whatever they go on to say while it's held back: past the end of what it repeats is
+        // what counts, not of everything they said around then.
+        let heard = vec![
+            (2000, theirs("Can you send it over?", 0, 1500)),
+            (3400, mine("Can you send it over? No, I can't.", 0, 3000)),
+            (4600, Heard::Saying("All right")),
+            (5000, Heard::Saying("")),
+            (5000, theirs("All right.", 3600, 4200)),
+        ];
+        assert_eq!(transcript(heard, true), vec!["Them: Can you send it over?", "You: No, I can't.", "Them: All right."]);
+        let heard = vec![(2000, theirs("Can you send it over?", 0, 1500)), (3400, mine("Can you send it over? No, I can't.", 0, 3000)), (4600, Heard::Saying("All right then"))];
+        assert_eq!(transcript(heard, true), vec!["Them: Can you send it over?", "You: No, I can't."]);
         // Where it ends with theirs, a word or two after the repeat is theirs misheard.
         let heard = vec![(2300, theirs("Can you send it over tonight?", 0, 1800)), (2400, mine("Can you send it over to night?", 0, 1900))];
         assert_eq!(transcript(heard, true), vec!["Them: Can you send it over tonight?"]);
@@ -741,10 +762,10 @@ mod tests {
     fn words_are_compared_without_their_case_or_punctuation() {
         assert_eq!(words("It's — Okay, OK?"), vec![("It's", "its".into()), ("Okay,", "okay".into()), ("OK?", "ok".into())]);
         let plain = |s: &str| words(s).into_iter().map(|(_, w)| w).collect::<Vec<_>>();
-        assert_eq!(runs(&plain("a b c x d e"), &plain("a b c d e")), vec![(0, 3), (4, 2)]);
+        assert_eq!(runs(&plain("a b c x d e"), &plain("a b c d e")), vec![(0, 0, 3), (4, 3, 2)]);
         // A run isn't broken up where the words it starts with come twice.
-        assert_eq!(runs(&plain("we can ship friday"), &plain("well we can we can ship it")), vec![(0, 3)]);
+        assert_eq!(runs(&plain("we can ship friday"), &plain("well we can we can ship it")), vec![(0, 3, 3)]);
         assert_eq!(runs(&plain("a b"), &plain("")), vec![]);
-        assert_eq!(verdict("", &plain("a b"), true, (false, false)), Verdict::Yours);
+        assert_eq!(verdict(&Said { mine: true, text: String::new(), at: 0, until: 0 }, &[], true), Verdict::Yours);
     }
 }
