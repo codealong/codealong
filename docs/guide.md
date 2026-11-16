@@ -1134,22 +1134,23 @@ than that there are none. When GitHub can't be asked (`gh` missing or signed out
 says why instead.
 
 Tabs at the top of the list show All the PRs, Yours (the ones you opened) or Others (everyone
-else's), each counting the PRs in it that are your move; the list keeps the tab you last picked,
-and a PR shown from elsewhere (a link, the queue, the history) that the tab doesn't list switches
-to its own. Pinned PRs show in every tab. Sorted by status, as it starts, each tab leads with Your
-move and Agent reviewing. Your move has what you can act on now, each row marked at its left edge:
-first the PRs that wait on your review (one your review is back with too, once commits come after
-the agent's review submitted for you, see `[reviews] submit`, once its author wrote after you did,
-see Author replied, or once someone assigned you to it after your last review, see Assigned), then
-your own that GitHub would merge, whose checks fail, or that have changes asked of them (until
-their reviewer is asked to look again), conflicts or an out-of-date branch. Agent reviewing has
-the PRs that ask for your review while Codealong's agent reviews them first (see `[reviews]
-auto`); each moves up to Your move once its review is done. The rest go under headings of the
-tab's own: in All, Yours, Others and Snoozed; in Yours, Waiting on others (on a review, or checks
-still running) and Drafts; in Others, Snoozed and Not asking you. Grouped by worktree or repo, a
-group goes under the heading of its first PR, and a PR that's your move is never folded away in
-it. Sorted by when they were opened, the tab's open PRs are under the day each was opened, the
-newest first, snoozed ones too. Merged & closed is folded at the end either way.
+else's), each counting the PRs in it that need you; the list keeps the tab you last picked, and a
+PR shown from elsewhere (a link, the queue, the history) that the tab doesn't list switches to its
+own. Pinned PRs show in every tab. Sorted by status, as it starts, each tab leads with what you can
+act on now, under what it needs of you, each row marked at its left edge: Review requested, the PRs
+that wait on your review (one your review is back with too, once commits come after the agent's
+review submitted for you, see `[reviews] submit`, once its author wrote after you did, see Author
+replied, or once someone assigned you to it after your last review, see Assigned); Ready to merge,
+your own that GitHub would merge now; and Needs work, your own whose checks fail, or that have
+changes asked of them (until their reviewer is asked to look again), conflicts or an out-of-date
+branch. Then Agent reviewing has the PRs that ask for your review while Codealong's agent reviews
+them first (see `[reviews] auto`); each moves up to Review requested once its review is done. The
+rest go under headings of the tab's own: in All, Yours, Others and Snoozed; in Yours, Waiting on
+others (on a review, or checks still running) and Drafts; in Others, Snoozed and Not asking you.
+Grouped by worktree or repo, a group goes under the heading of its first PR, and a PR that needs
+you is never folded away in it. Sorted by when they were opened, the tab's open PRs are under the
+day each was opened, the newest first, snoozed ones too. Merged & closed is folded at the end
+either way.
 
 #### Nudging a PR's primary session
 
@@ -1562,7 +1563,7 @@ reviews asked of you; they're listed for every repo a project has here, one chec
 default branch too, whose other PRs aren't read. Approve is in a PR's panel and its menu, not on its
 row, for any open PR but your own (GitHub doesn't let you approve that), your review asked for or
 not; it's filled when it was asked. Snooze review (in the menu, or Snooze… in the panel) puts one
-off for one of the times a session's Snooze offers, or until a day and time you pick: it leaves Your move,
+off for one of the times a session's Snooze offers, or until a day and time you pick: it leaves Review requested,
 the bar's reviews pill, the mark and the sidebar's count, and waits under Snoozed with when it's
 back, the soonest first, until its time or Wake now. PRs picked together open on GitHub one after
 another (⌘O), pin (`p`) and copy their links and branch names; the open ones that aren't yours are
@@ -1629,14 +1630,14 @@ again or written to since; and Reviewer replied (amber) when they wrote again af
 of theirs finding it fixed say, which leaves you to ask for the approval. Someone else's PR you
 reviewed or commented on reads Author replied (amber) when its author wrote after you were on it
 (your agent's posted reviews count) and nothing of yours answered them since, unless your agent
-approves the commit it's at, and waits on your review again (Your move, Needs you, the
+approves the commit it's at, and waits on your review again (Review requested, Needs you, the
 floating bar) though GitHub asks nobody. A review you submit answers them, at once, and so do
 words of your own; your agent's review posted as you after their reply doesn't, so a PR it
 approves still waits on your sign-off, as one GitHub asks you of does. Only the Mac that posted
 it knows it for your agent's, though: another of yours takes it for your answer. Not once your own
 latest review approves the commit it's at, when what they say is theirs to act on, and only in a
 repo whose PRs are read. Someone else's PR that someone assigned you to after your last review of
-it reads Assigned (amber) and waits on your review as a request for it does (Your move,
+it reads Assigned (amber) and waits on your review as a request for it does (Review requested,
 Needs you, the floating bar, and the agent's review with `[reviews] auto`), whoever assigned you
 named as the one who asked: some authors ask for a review that way rather than asking GitHub,
 which ends a request for your review at any review you submit but keeps an assignment. So a review

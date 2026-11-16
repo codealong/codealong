@@ -220,7 +220,7 @@ export function PrInspector({ approving, onApprove, onReview, onSnooze, report, 
   const trail = (
     <>
       {requested && (
-        <Button icon="zzz" title="Out of Your move and off the floating bar until the time you pick" onClick={(e) => onSnooze(e.currentTarget)}>
+        <Button icon="zzz" title="Out of Review requested and off the floating bar until the time you pick" onClick={(e) => onSnooze(e.currentTarget)}>
           Snooze…
         </Button>
       )}
@@ -429,7 +429,7 @@ export function PrDetails({ item, now, lead, trail, onMenu, onShowSession, onOpe
         </div>
         <div className="ca-prinsp-status">
           {reviewSnoozed(pr) ? (
-            <span className="ca-tag" title="Out of Your move and off the floating bar until then">
+            <span className="ca-tag" title="Out of Review requested and off the floating bar until then">
               <Icon name="zzz" size={12} />
               Review snoozed until {untilWords(pr.snoozedUntil, now)}
             </span>

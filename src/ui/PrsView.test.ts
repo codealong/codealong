@@ -57,7 +57,7 @@ describe('prSections', () => {
       row(6, { state: 'merged', mergedAt: 5 }),
     ];
     expect(prSections(rows).map((s) => [s.id, s.rows.map((r) => r.pr.number)])).toEqual([
-      ['move', [1]],
+      ['requested', [1]],
       ['mine', [3]],
       ['others', [4]],
       ['snoozed', [5, 2]],
@@ -65,7 +65,7 @@ describe('prSections', () => {
     ]);
   });
 
-  it('puts what is your move first: the reviews asked of you, then your PRs to merge or fix', () => {
+  it('puts what needs you first, by what it needs: a review, a merge, then work', () => {
     const held = { stage: 'reviewing', head: 'abc', at: 1, rounds: 1, holds: true } as const;
     const rows = [
       row(1, { mine: true }),
@@ -78,7 +78,9 @@ describe('prSections', () => {
       row(8, { merge: 'clean' }),
     ];
     expect(prSections(rows).map((s) => [s.id, s.label, s.rows.map((r) => r.pr.number)])).toEqual([
-      ['move', 'Your move', [5, 2, 4, 6]],
+      ['requested', 'Review requested', [5]],
+      ['ready', 'Ready to merge', [2]],
+      ['work', 'Needs work', [4, 6]],
       ['agent', 'Agent reviewing', [3]],
       ['mine', 'Yours', [1, 7]],
       ['others', 'Others', [8]],
@@ -100,9 +102,10 @@ describe('prSections', () => {
     ];
     const shown = (tab: 'all' | 'mine' | 'others') => prSections(rows, 'status', 0, tab).map((s) => [s.label, s.rows.map((r) => r.pr.number)]);
 
-    it('All lists everyone’s, your move first', () => {
+    it('All lists everyone’s, what needs you first', () => {
       expect(shown('all')).toEqual([
-        ['Your move', [5, 2]],
+        ['Review requested', [5]],
+        ['Ready to merge', [2]],
         ['Agent reviewing', [3]],
         ['Yours', [1, 4]],
         ['Others', [7]],
@@ -111,9 +114,9 @@ describe('prSections', () => {
       ]);
     });
 
-    it('Yours lists yours: to merge or fix, then waiting on others, then drafts', () => {
+    it('Yours lists yours: ready to merge, then waiting on others, then drafts', () => {
       expect(shown('mine')).toEqual([
-        ['Your move', [2]],
+        ['Ready to merge', [2]],
         ['Waiting on others', [1]],
         ['Drafts', [4]],
         ['Merged & closed', [8]],
@@ -122,7 +125,7 @@ describe('prSections', () => {
 
     it('Others lists everyone else’s: reviews asked of you, the agent’s, snoozed, then the rest', () => {
       expect(shown('others')).toEqual([
-        ['Your move', [5]],
+        ['Review requested', [5]],
         ['Agent reviewing', [3]],
         ['Snoozed', [6]],
         ['Not asking you', [7]],
@@ -134,7 +137,7 @@ describe('prSections', () => {
       expect(prSections(rows, 'opened', 0, 'mine').flatMap((s) => s.rows.map((r) => r.pr.number)).sort()).toEqual([1, 2, 4, 8]);
     });
 
-    it('counts what is your move in each', () => {
+    it('counts what needs you in each', () => {
       expect(prTabCounts(rows)).toEqual({ all: 2, mine: 1, others: 1 });
       expect([inPrTab({ mine: true }, 'mine'), inPrTab({ mine: true }, 'others'), inPrTab({ mine: false }, 'all')]).toEqual([true, false, true]);
     });

@@ -2550,7 +2550,7 @@ export function App() {
                   className="ca-listtabs"
                   label="Whose PRs"
                   idBase="ca-prtabs"
-                  tabs={PR_TABS.map((t) => ({ ...t, count: prCounts[t.id] || null, title: prCounts[t.id] ? `${t.title}. ${prCounts[t.id]} your move` : t.title }))}
+                  tabs={PR_TABS.map((t) => ({ ...t, count: prCounts[t.id] || null, title: prCounts[t.id] ? `${t.title}. ${prCounts[t.id]} ${prCounts[t.id] === 1 ? 'needs' : 'need'} you` : t.title }))}
                   value={prTab}
                   onPick={setPrTab}
                 />

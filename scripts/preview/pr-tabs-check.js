@@ -1,8 +1,8 @@
 // Checks the PRs view's tabs (PrsView.tsx `PR_TABS`, `prSections`): All, Yours and Others over the
-// list, All shown first, each counting the PRs in it that are your move; All leads with Your move
-// (a review asked of you before a PR of yours to merge) and Agent reviewing; Yours lists only
-// yours, under Your move, Waiting on others and Drafts; Others only everyone else's, under Your
-// move, Agent reviewing, Snoozed and Not asking you; the sidebar's Authors count only the tab's
+// list, All shown first, each counting the PRs in it that need you; All leads with Review
+// requested, then Ready to merge, then Agent reviewing; Yours lists only yours, under Ready to
+// merge, Needs work, Waiting on others and Drafts; Others only everyone else's, under Review
+// requested, Agent reviewing, Snoozed and Not asking you; the sidebar's Authors count only the tab's
 // PRs; the tab picked is remembered; a PR shown from elsewhere that the tab doesn't list switches
 // to its own tab, once: a tab picked after it stays through a visit to Sessions. In each project the three
 // latest open PRs are made a review asked of you, a PR of yours ready to merge, and a review
@@ -68,16 +68,17 @@
       [].concat(made.asked, made.ready, made.held).forEach(function (pr) { if (listed(pr)) seen[pr.key] = true; });
       var asked = shown(made.asked), ready = shown(made.ready), held = shown(made.held);
       if (!asked || !ready || !held) throw new Error('the project shown has fewer than three open PRs');
-      check('All leads with Your move', headings()[0] === 'Your move', headings().join(', '));
-      var move = rowsUnder('Your move').map(num);
-      check('a review asked of you is your move, ahead of a PR of yours to merge', move.indexOf('#' + asked.number) >= 0 && move.indexOf('#' + asked.number) < move.indexOf('#' + ready.number), move.join(', '));
-      check('a review the agent is still on waits under Agent reviewing', under('Agent reviewing', held) && !under('Your move', held), headings().join(', '));
-      check('All counts what is your move', countOf(tab('All')) === rowsUnder('Your move').length, countOf(tab('All')) + ' for ' + move.join(', '));
+      var heads = headings();
+      check('All leads with Review requested, then Ready to merge', heads[0] === 'Review requested' && heads.indexOf('Ready to merge') > 0, heads.join(', '));
+      check('a review asked of you is under Review requested, a PR of yours to merge under Ready to merge', under('Review requested', asked) && under('Ready to merge', ready), heads.join(', '));
+      check('a review the agent is still on waits under Agent reviewing, after them', under('Agent reviewing', held) && heads.indexOf('Agent reviewing') > heads.indexOf('Ready to merge'), heads.join(', '));
+      var needing = rowsUnder('Review requested').length + rowsUnder('Ready to merge').length + rowsUnder('Needs work').length;
+      check('All counts what needs you', countOf(tab('All')) === needing, countOf(tab('All')) + ' for ' + needing);
       tab('Yours').click();
       return until(function () { return tab('Yours').getAttribute('aria-selected') === 'true' && !listed(asked); }, 5000, 'Yours shown').then(function () {
-        check('Yours lists yours under its own headings', only(['Your move', 'Waiting on others', 'Drafts', 'Merged & closed']), headings().join(', '));
-        check('with your PR to merge as your move, and no one else’s', under('Your move', ready) && !listed(held), headings().join(', '));
-        check('Yours counts its own', countOf(tab('Yours')) === rowsUnder('Your move').length, String(countOf(tab('Yours'))));
+        check('Yours lists yours under its own headings', only(['Ready to merge', 'Needs work', 'Waiting on others', 'Drafts', 'Merged & closed']), headings().join(', '));
+        check('with your PR under Ready to merge, and no one else’s', under('Ready to merge', ready) && !listed(held), headings().join(', '));
+        check('Yours counts its own', countOf(tab('Yours')) === rowsUnder('Ready to merge').length + rowsUnder('Needs work').length, String(countOf(tab('Yours'))));
         check('the list is the tab’s panel', q('.ca-board-list').id === 'ca-prtabs-mine' && tab('Yours').getAttribute('aria-controls') === 'ca-prtabs-mine', q('.ca-board-list').id);
         var who = authors();
         if (who.length === 0) note('no Authors in the sidebar to count');
@@ -85,8 +86,8 @@
         tab('Others').click();
         return until(function () { return tab('Others').getAttribute('aria-selected') === 'true' && !listed(ready); }, 5000, 'Others shown');
       }).then(function () {
-        check('Others lists everyone else’s under its own headings', only(['Your move', 'Agent reviewing', 'Snoozed', 'Not asking you', 'Merged & closed']), headings().join(', '));
-        check('with the review asked of you as your move, and the agent’s under Agent reviewing', under('Your move', asked) && under('Agent reviewing', held), headings().join(', '));
+        check('Others lists everyone else’s under its own headings', only(['Review requested', 'Agent reviewing', 'Snoozed', 'Not asking you', 'Merged & closed']), headings().join(', '));
+        check('with the review asked of you under Review requested, and the agent’s under Agent reviewing', under('Review requested', asked) && under('Agent reviewing', held), headings().join(', '));
         check('the tab picked is remembered', /others/.test(localStorage.getItem('codealong.prTab') || ''), localStorage.getItem('codealong.prTab'));
         window.__emit('reveal', { kind: 'pr', key: ready.key });
         return until(function () { return tab('Yours').getAttribute('aria-selected') === 'true' && listed(ready); }, 5000, 'Yours shown for a PR of yours shown from elsewhere').then(function () {

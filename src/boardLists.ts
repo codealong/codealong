@@ -1159,7 +1159,7 @@ export function useBoardLists(input: ListsInput) {
   const prSecs = useMemo(() => prSections(prRows.filter((r) => !prPins.set.has(r.pr.key)), prSort, now, prTab), [prRows, prPins.set, prSort, now, prTab]);
   const prCounts = useMemo(() => prTabCounts(prRows), [prRows]);
   // Grouped by worktree or repo (groups.ts): the pinned groups after the pinned PRs, a PR that's
-  // your move never folded away, Merged & closed grouped among themselves.
+  // needs you never folded away, Merged & closed grouped among themselves.
   const groupedPrs = useMemo(
     () => (prGroup === 'none' ? null : groupRows(prSecs, prGroup, (r) => prPlace(r, prGroup), { pinned: prGroupPins, lanes: projectLanes, empty: false, opened: openPrGroups, whole: !!query, awake: ([r]) => prFlag(r.pr) !== null, apart: (id) => id === 'done' })),
     [prGroup, prSecs, prGroupPins, projectLanes, openPrGroups, query],

@@ -42,7 +42,7 @@ export function PrPickPanel({ items, actions, onShow, onLeaveOut, onMoreMenu }: 
           <Hotkey
             label={`Snooze${some('snooze')}`}
             keys={snoozeRange()}
-            title={snooze ? `${snooze.label}: they're out of Your move and off the floating bar until their time comes. ${snoozeKeys(snooze)}` : 'None of them asks for your review'}
+            title={snooze ? `${snooze.label}: they're out of Review requested and off the floating bar until their time comes. ${snoozeKeys(snooze)}` : 'None of them asks for your review'}
             run={snooze && ((el) => void showContextMenu(snooze.items, below(el)).catch(() => {}))}
           />
           <Hotkey label="Open" keys="⌘O" title={github?.label ?? 'Open on GitHub'} run={github && (() => github.run())} />

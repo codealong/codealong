@@ -1,9 +1,10 @@
 // The PRs view: every PR in the project's repos, under tabs for all of them, yours and everyone
-// else's (`PR_TABS`), each tab counting the PRs in it that are your move. The ones you pinned come
-// first in every tab, in your order; then, sorted by status, what's your move, flagged: the reviews
-// asked of you (Approve is in the PR's panel and its menu), then your own PRs to merge or fix; then
-// the reviews Codealong's agent is still on, which are yours once it's done; then the rest under
-// headings of the tab's own (`prSections`); then the reviews you snoozed, the soonest back first.
+// else's (`PR_TABS`), each tab counting the PRs in it that need you. The ones you pinned come first
+// in every tab, in your order; then, sorted by status, what needs you, flagged: the reviews asked of
+// you (Approve is in the PR's panel and its menu), then your own PRs ready to merge, then your own
+// that need work; then the reviews Codealong's agent is still on, which are yours once it's done;
+// then the rest under headings of the tab's own (`prSections`), the reviews you snoozed among them,
+// the soonest back first.
 // Sorted by when opened (`PR_SORTS`, in the bar over the list), the open ones go under the days
 // they were opened. Merged and closed ones fold at the end. Each row names its repo (a chip whose
 // double-click shows only that repo's PRs), the local worktree and the sessions that worked on
@@ -94,8 +95,8 @@ export type PrSort = 'status' | 'opened';
 export type PrTab = 'all' | 'mine' | 'others';
 
 export const PR_TABS: { id: PrTab; label: string; title: string }[] = [
-  { id: 'all', label: 'All', title: 'Every PR: what’s your move first, yours and everyone else’s' },
-  { id: 'mine', label: 'Yours', title: 'The PRs you opened: the ones to merge or fix first, then the ones waiting on others, then your drafts' },
+  { id: 'all', label: 'All', title: 'Every PR, yours and everyone else’s: what needs you first' },
+  { id: 'mine', label: 'Yours', title: 'The PRs you opened: the ones ready to merge or needing work first, then the ones waiting on others, then your drafts' },
   { id: 'others', label: 'Others', title: 'Everyone else’s PRs: the reviews asked of you first, then the ones Codealong’s agent is reviewing, the ones you snoozed, and the ones that don’t ask for you' },
 ];
 
@@ -104,14 +105,14 @@ export function inPrTab(pr: Pick<PrItem, 'mine'>, tab: PrTab): boolean {
   return tab === 'all' || (tab === 'mine') === pr.mine;
 }
 
-/** How many PRs under each tab are your move (`prFlag`), as the tab counts them. */
+/** How many PRs under each tab need you (`prFlag`), as the tab counts them. */
 export function prTabCounts(rows: PrRowItem[]): Record<PrTab, number> {
   const move = rows.filter((r) => prFlag(r.pr) !== null);
   return { all: move.length, mine: move.filter((r) => r.pr.mine).length, others: move.filter((r) => !r.pr.mine).length };
 }
 
 export const PR_SORTS: { id: PrSort; label: string; icon: string; title: string }[] = [
-  { id: 'status', label: 'Status', icon: 'sort-descending-shapes', title: 'Sort by status: reviews asked of you first, then yours, then everyone else’s, then the ones you snoozed' },
+  { id: 'status', label: 'Status', icon: 'sort-descending-shapes', title: 'Sort by status: what needs you first, then the reviews Codealong’s agent is on, then the rest' },
   { id: 'opened', label: 'Opened', icon: 'sort-descending-numbers', title: 'Sort by when opened: the newest PR first, under the day it was opened' },
 ];
 
@@ -130,7 +131,7 @@ export function prPlace(r: PrRowItem, by: GroupBy): Place {
 }
 
 export interface PrSection {
-  id: 'move' | 'agent' | 'mine' | 'others' | 'waiting' | 'drafts' | 'unasked' | 'snoozed' | 'done' | DayId;
+  id: 'requested' | 'ready' | 'work' | 'agent' | 'mine' | 'others' | 'waiting' | 'drafts' | 'unasked' | 'snoozed' | 'done' | DayId;
   label: string;
   rows: PrRowItem[];
 }
@@ -150,23 +151,28 @@ export function reviewSnoozed(pr: PrItem): pr is PrItem & { snoozedUntil: number
   return pr.reviewRequested && !!pr.snoozedUntil && prIsOpen(pr);
 }
 
-type Standing = 'move' | 'agent' | 'rest';
+type Standing = 'requested' | 'ready' | 'work' | 'agent' | 'rest';
 
-/** Where an open PR whose review isn't snoozed stands, sorted by status: your move, asked of you
- *  but with Codealong's agent's review to come first, or neither. */
+/** Where an open PR whose review isn't snoozed stands, sorted by status: by what it needs of you
+ *  (`prFlag`), a review, a merge or work; asked of you but with Codealong's agent's review to come
+ *  first; or nothing yet. */
 function standing(pr: PrItem): Standing {
-  if (prFlag(pr)) return 'move';
+  const flag = prFlag(pr);
+  if (flag && pr.reviewRequested) return 'requested';
+  if (flag === 'ready') return 'ready';
+  if (flag) return 'work';
   if (pr.reviewRequested && heldForAgent(pr)) return 'agent';
   return 'rest';
 }
 
-/** The PRs of a tab (`PR_TABS`). By status, each tab leads with Your move (`prFlag`: the reviews
- *  asked of you first, then your own PRs that are ready to merge or need fixing) and Agent
- *  reviewing (asked of you, but the agent's review comes first: `heldForAgent`), and puts the
- *  rest under headings of its own: All under Yours and Others, Yours under Waiting on others and
- *  Drafts, Others under Not asking you, after Snoozed (the soonest back first) there. By when
- *  opened: the open ones under the day each was opened, the newest first, snoozed ones too.
- *  Either way Merged & closed (newest first) come last. */
+/** The PRs of a tab (`PR_TABS`). By status, what needs you comes first, under what it needs:
+ *  Review requested (the reviews asked of you), Ready to merge and Needs work (your own PRs that
+ *  could be merged now, or whose checks fail, with changes asked for, conflicts or an out-of-date
+ *  branch); then Agent reviewing (asked of you, but the agent's review comes first:
+ *  `heldForAgent`); then the rest under headings of the tab's own: All under Yours and Others,
+ *  Yours under Waiting on others and Drafts, Others under Not asking you, after Snoozed (the
+ *  soonest back first) there. By when opened: the open ones under the day each was opened, the
+ *  newest first, snoozed ones too. Either way Merged & closed (newest first) come last. */
 export function prSections(rows: PrRowItem[], sort: PrSort = 'status', now = Date.now(), tab: PrTab = 'all'): PrSection[] {
   const listed = rows.filter((r) => inPrTab(r.pr, tab));
   const done = listed.filter((r) => !prIsOpen(r.pr)).sort((a, b) => (b.pr.mergedAt ?? b.pr.closedAt ?? 0) - (a.pr.mergedAt ?? a.pr.closedAt ?? 0));
@@ -177,9 +183,13 @@ export function prSections(rows: PrRowItem[], sort: PrSort = 'status', now = Dat
   }
   const open = listed.filter((r) => prIsOpen(r.pr) && !reviewSnoozed(r.pr));
   const under = (id: Standing) => open.filter((r) => standing(r.pr) === id);
-  const [move, rest] = [under('move'), under('rest')];
-  const yourMove: PrSection = { id: 'move', label: 'Your move', rows: [...move.filter((r) => r.pr.reviewRequested), ...move.filter((r) => !r.pr.reviewRequested)] };
-  const agent: PrSection = { id: 'agent', label: 'Agent reviewing', rows: under('agent') };
+  const rest = under('rest');
+  const needs: PrSection[] = [
+    { id: 'requested', label: 'Review requested', rows: under('requested') },
+    { id: 'ready', label: 'Ready to merge', rows: under('ready') },
+    { id: 'work', label: 'Needs work', rows: under('work') },
+    { id: 'agent', label: 'Agent reviewing', rows: under('agent') },
+  ];
   const snoozed: PrSection = {
     id: 'snoozed',
     label: 'Snoozed',
@@ -187,10 +197,10 @@ export function prSections(rows: PrRowItem[], sort: PrSort = 'status', now = Dat
   };
   const sections: PrSection[] =
     tab === 'mine'
-      ? [yourMove, agent, { id: 'waiting', label: 'Waiting on others', rows: rest.filter((r) => r.pr.state !== 'draft') }, { id: 'drafts', label: 'Drafts', rows: rest.filter((r) => r.pr.state === 'draft') }, snoozed, doneSection]
+      ? [...needs, { id: 'waiting', label: 'Waiting on others', rows: rest.filter((r) => r.pr.state !== 'draft') }, { id: 'drafts', label: 'Drafts', rows: rest.filter((r) => r.pr.state === 'draft') }, snoozed, doneSection]
       : tab === 'others'
-        ? [yourMove, agent, snoozed, { id: 'unasked', label: 'Not asking you', rows: rest }, doneSection]
-        : [yourMove, agent, { id: 'mine', label: 'Yours', rows: rest.filter((r) => r.pr.mine) }, { id: 'others', label: 'Others', rows: rest.filter((r) => !r.pr.mine) }, snoozed, doneSection];
+        ? [...needs, snoozed, { id: 'unasked', label: 'Not asking you', rows: rest }, doneSection]
+        : [...needs, { id: 'mine', label: 'Yours', rows: rest.filter((r) => r.pr.mine) }, { id: 'others', label: 'Others', rows: rest.filter((r) => !r.pr.mine) }, snoozed, doneSection];
   return sections.filter((s) => s.rows.length > 0);
 }
 
@@ -238,7 +248,7 @@ function PrRow({ item, domId, now, slim, opened, onShowRepo, selected, onSelect,
   const sessions = [...item.sessions].sort((a, b) => Number(b.session.key === primary) - Number(a.session.key === primary));
   const shown = sessions.slice(0, 1);
   const repo = under !== 'repo' && <RepoChip repo={pr.repo} slug={pr.repoSlug} project={pr.project} onShowOnly={onShowRepo && (() => onShowRepo(pr.repoSlug))} />;
-  const snooze = reviewSnoozed(pr) && <SnoozeChip until={pr.snoozedUntil} now={now} away="out of Your move and off the floating bar" />;
+  const snooze = reviewSnoozed(pr) && <SnoozeChip until={pr.snoozedUntil} now={now} away="out of Review requested and off the floating bar" />;
   const diff = (
     <span className="ca-diff">
       +{pr.additions.toLocaleString('en-US')} −{pr.deletions.toLocaleString('en-US')}
@@ -358,7 +368,7 @@ interface PrsViewProps {
 }
 
 /** The status headings' icons; the days' have none, as in Sessions. */
-const SECTION_ICON: Partial<Record<PrSection['id'], string>> = { move: 'bell', agent: 'hourglass', mine: 'user', others: 'pr', waiting: 'clock', drafts: 'pr-draft', unasked: 'pr', snoozed: 'zzz', done: 'merge' };
+const SECTION_ICON: Partial<Record<PrSection['id'], string>> = { requested: 'eye', ready: 'circle-check', work: 'tool', agent: 'hourglass', mine: 'user', others: 'pr', waiting: 'clock', drafts: 'pr-draft', unasked: 'pr', snoozed: 'zzz', done: 'merge' };
 
 export function PrsView(props: PrsViewProps) {
   const { pinned, sections, groups, groupActs, sort, onShowRepo, lines, now, selectedKey, picked, domId, showDone, onToggleDone, onSelect, onOpen, onOpenSession, onContextMenu, onPlacePinned, onUnpin } = props;
