@@ -300,8 +300,11 @@
   white-space: nowrap;
 }
 /* A start whose session isn't here yet: its line, and once it's stuck, what its screen offers
-   under it. Until its terminal is found it has nothing to show, so nothing lights up (the
-   disabled line's own rule). */
+   under it. Until its terminal is found it has nothing to show, so nothing lights up. */
+div.ca-sessinsp-kin.is-starting:hover {
+  background: transparent;
+  color: var(--ink-2);
+}
 .ca-sessinsp-start {
   display: grid;
   gap: var(--space-1);

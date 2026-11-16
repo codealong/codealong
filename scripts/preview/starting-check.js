@@ -3,8 +3,8 @@
 // prompt opens, the latest first; stuck, it says what its terminal waits on in place of
 // "Starting", its tooltip has the whole screen, and the choices its screen offers are buttons
 // under it that answer it (`start_answer`), with Show in its terminal (`open_target`) and Stop
-// (`start_stop`); a click on the line shows its tab, and one whose terminal wasn't found is no
-// button and offers to be forgotten. A stuck start's notice (Notices.tsx, a start of yours, which
+// (`start_stop`); a click on the line shows its tab, and one whose terminal wasn't found yet is no
+// button. A stuck start's notice (Notices.tsx, a start of yours, which
 // no session asked for) shows that screen as it's laid out. The board is the snapshot's, with two
 // starts put under the first session the list shows, and such a notice.
 //   PREVIEW_WAIT=60000 scripts/preview.sh sessions '' scripts/preview/starting-check.js
@@ -105,7 +105,7 @@
     await until(function () { return rows().length === 2; }, 3000, 'both starts');
     var second = rows()[1];
     check('opened, the older one says it is starting, titled by its harness without a prompt', text(second, '.ca-sessinsp-kin-state') === 'Starting' && text(second, '.ca-sessinsp-kin-title') === 'Codex on codex' && !second.classList.contains('is-stuck'), second.textContent);
-    check('its terminal not found yet, it is no button to click, and offers nothing', second.disabled && acts().length === 4, acts().length);
+    check('its terminal not found yet, it is no button to click, and offers nothing', second.tagName === 'DIV' && acts().length === 4, second.tagName + ' ' + acts().length);
 
     q('.ca-notice-open').click();
     await until(function () { return q('.ca-notice-card'); }, 3000, 'the notices card');

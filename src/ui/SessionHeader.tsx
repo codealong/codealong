@@ -302,24 +302,32 @@ function StartingRow({ starting: s, now }: { starting: Starting; now: number }) 
       .catch((e: unknown) => setError(errorText(e)))
       .finally(() => setBusy(false));
   };
-  // Its tab is found by its process, read with its screen a minute after it started.
+  // Its tab is found by its process, read with its screen a minute after it started. Until then
+  // the line is no button: a disabled one may not show its tooltip, which says where it is.
   const show = s.pid != null ? () => act(() => openTarget(s.lane, `start|${s.at}|focus`)) : undefined;
+  const className = cx('ca-sessinsp-kin', 'is-starting', s.stuck && 'is-stuck');
+  const title = `${s.helper ? 'Its helper' : 'Started'}: ${startingTitle(s)}\n${said}${show ? `\n\nClick to show its tab in ${terminal}.` : ''}`;
+  const line = (
+    <>
+      <span className="ca-sessinsp-elbow" aria-hidden="true" />
+      <SessionGlyph s={{ status: s.stuck ? 'needs' : 'working' }} size={11} />
+      <span className="ca-sessinsp-kin-title">{startingTitle(s)}</span>
+      <span className="ca-sessinsp-kin-state">{state}</span>
+      {s.helper && <Icon name="subtask" size={11} />}
+      <span className="ca-sessinsp-kin-age">{duration(s.at, now)}</span>
+    </>
+  );
   return (
     <div className="ca-sessinsp-start">
-      <button
-        type="button"
-        className={cx('ca-sessinsp-kin', 'is-starting', s.stuck && 'is-stuck')}
-        disabled={!show}
-        title={`${s.helper ? 'Its helper' : 'Started'}: ${startingTitle(s)}\n${said}${show ? `\n\nClick to show its tab in ${terminal}.` : ''}`}
-        onClick={show}
-      >
-        <span className="ca-sessinsp-elbow" aria-hidden="true" />
-        <SessionGlyph s={{ status: s.stuck ? 'needs' : 'working' }} size={11} />
-        <span className="ca-sessinsp-kin-title">{startingTitle(s)}</span>
-        <span className="ca-sessinsp-kin-state">{state}</span>
-        {s.helper && <Icon name="subtask" size={11} />}
-        <span className="ca-sessinsp-kin-age">{duration(s.at, now)}</span>
-      </button>
+      {show ? (
+        <button type="button" className={className} title={title} onClick={show}>
+          {line}
+        </button>
+      ) : (
+        <div className={className} title={title}>
+          {line}
+        </div>
+      )}
       {s.stuck && (
         <div className="ca-sessinsp-start-acts" role="group" aria-label={headline ? `Answer “${headline}”` : `${s.harness} waits in ${terminal}`}>
           {s.choices.map((c) => (
@@ -337,7 +345,7 @@ function StartingRow({ starting: s, now }: { starting: Starting; now: number }) 
             variant="ghost"
             icon="x"
             disabled={busy}
-            title={s.pid != null ? 'Closes its tab, which ends it before it starts, and stops waiting for it.' : 'Stops waiting for it. Its tab wasn’t found: close it yourself if it’s still open.'}
+            title={s.pid != null ? 'Closes its tab, which ends it before it starts, and stops waiting for it.' : 'Stops waiting for it. Codealong can’t tell which tab is its: close it yourself if it’s still open.'}
             onClick={() => act(() => stopStart(s.at))}
           >
             {s.pid != null ? 'Stop' : 'Forget it'}

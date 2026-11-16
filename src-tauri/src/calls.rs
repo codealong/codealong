@@ -52,9 +52,10 @@ macro_rules! calls {
     };
 }
 
-/// The process and worktree of the start made `at`, as its line under its session has them.
-fn started(c: &Ctx, at: i64) -> Result<(Option<u32>, String), String> {
-    c.engine.read(|b| starting::find(b, at).map(|s| (s.pid, s.lane.clone()))).ok_or_else(|| "It has made its session, or was stopped.".to_string())
+/// The process, worktree and prompt's opening of the start made `at`, as its line under its
+/// session has them.
+fn started(c: &Ctx, at: i64) -> Result<(Option<u32>, String, Option<String>), String> {
+    c.engine.read(|b| starting::find(b, at).map(|s| (s.pid, s.lane.clone(), s.opens.clone()))).ok_or_else(|| "It has made its session, or was stopped.".to_string())
 }
 
 /// The time of the board that shows a change, out of what an action answered.
@@ -649,7 +650,7 @@ calls! {
     /// choices its line showed (starting.rs `answer`): what the screen `asked`, and the choice's
     /// `number` and words (`said`), so a screen that moved on since isn't answered blind.
     fn start_answer(c, at: i64, asked: String, number: u8, said: String) -> Result<(), String> {
-        let (pid, lane) = started(c, at)?;
+        let (pid, lane, _) = started(c, at)?;
         let pid = pid.ok_or("Codealong hasn't found its terminal. Answer it in its tab.")?;
         starting::answer(pid, std::path::Path::new(&lane), &asked, number, &said).map_err(words)?;
         c.engine.start_answered(at);
@@ -659,8 +660,8 @@ calls! {
     /// Stops a start that hasn't made its session: closes its tab where that was found, and
     /// stops waiting for it (starting.rs `stop`).
     fn start_stop(c, at: i64) -> Result<(), String> {
-        let (pid, lane) = started(c, at)?;
-        starting::stop(at, pid, std::path::Path::new(&lane)).map_err(words)
+        let (pid, lane, opens) = started(c, at)?;
+        starting::stop(at, pid, std::path::Path::new(&lane), opens.as_deref()).map_err(words)
     }
 
     /// Turns training off for an account at its provider (training.rs).

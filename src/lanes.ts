@@ -617,7 +617,7 @@ export function sessionFlag(s: Session): InsightLabel | null {
     case 'input':
       return { label: 'Needs input', tone: 'warn', title: 'A command it runs in its terminal waits for you to type something there.' };
     case 'start':
-      return { label: 'Helper waits', tone: 'warn', title: 'A helper it started waits in its terminal on a screen of its own before it starts. Answer it from the helper’s line under its title.' };
+      return { label: 'Helper waits', tone: 'warn', title: 'A helper it started waits in its terminal on a screen of its own before it starts. Answer it from the helper’s line under its title, on the Mac it runs on.' };
     default:
       return null;
   }

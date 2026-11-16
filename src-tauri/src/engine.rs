@@ -1909,9 +1909,9 @@ impl Engine {
     /// landing their reply's status line says, when `[jev] sessions` is on; an agent's tag of
     /// them over both, whether or not it is (tags.rs, `insights::merged`).
     /// Each session that asked for a start that's stuck in its terminal (`origins::Pending::stuck`)
-    /// needs you for it (`starting::overlay`), as what its terminal shows was last read: its
-    /// helper can't start until you answer that. The starts are as the last board left them
-    /// (`link_origins`), as `with_origins` has them.
+    /// needs you for it once it isn't taking a turn (`starting::overlay`), as what its terminal
+    /// shows was last read: its helper can't start until you answer that. The starts are as the
+    /// last board left them (`link_origins`), as `with_origins` has them.
     fn with_starts(&self, mut sessions: Vec<Session>, now: i64) -> Vec<Session> {
         let store = origins::current();
         if store.pending.is_empty() {
