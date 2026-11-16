@@ -1,7 +1,8 @@
 // Checks the Sessions list (SessionsView.tsx, App.tsx): Pinned first, and a
 // drag still reorders them; the rest under the headings the other views have, by status or by
 // the day they started. Sort by, icon buttons in the bar over the list, switches between status
-// and start and remembers it. The bar stays at the top as the list scrolls; its tools are each
+// and start and remembers it. The bar stays at the top as the list scrolls, inside the board's
+// edge; its tools are each
 // view's own, so PRs has no Group by; the sidebar has no Sort by.
 //   scripts/preview.sh sessions '' scripts/preview/session-sort-check.js
 // It pins three of the shown project's latest sessions itself, in place of yours.
@@ -60,6 +61,9 @@
       board.scrollTop = 400;
       var stuck = board.scrollTop === 0 || Math.abs(bar.getBoundingClientRect().top - board.getBoundingClientRect().top) < 1;
       check('the bar stays at the top as the list scrolls', stuck, 'scrolled ' + board.scrollTop + ', bar ' + Math.round(bar.getBoundingClientRect().top) + ', board ' + Math.round(board.getBoundingClientRect().top));
+      // Stuck, WebKit draws it on a layer of its own, which at 110% its overflow let reach a device
+      // pixel over the line above the board; clip-path holds it to the board's edge (App.css).
+      check('the board clips what’s stuck in it to its own box', /inset\(0(px)?\)/.test(getComputedStyle(board).clipPath), getComputedStyle(board).clipPath);
       // A row scrolled to from below, as the keyboard's ↑ scrolls to it (App.tsx), shows whole under the bar.
       var second = rows()[1];
       if (board.scrollTop > 0 && second) {

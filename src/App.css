@@ -29,6 +29,13 @@
    scroller's own layer. Nothing in the board stacks over what's beside it: dialogs and toasts
    are mounted outside it, and hover cards and the drag's ghost are portalled to the body. */
 .ca-board { isolation: isolate; }
+/* And clipped to its own box by clip-path, not only by its overflow. While the strip over the list is
+   stuck (ListBar.css), WebKit draws it on a layer of its own, and at a zoom like 110%, where the
+   board's top falls between device pixels, it clipped that layer a device pixel above the board: the
+   strip's ground took the lower half of the line over it, and that line read thinner over the list
+   than over a session's panel beside it (2026-11-16, in a WKWebView at 110%). clip-path holds it to
+   the board's edge. The board is still scrolled off the main thread, with the same layers. */
+.ca-board { clip-path: inset(0); }
 
 /* Native window: no rounded corners or shadow of our own; room for the traffic lights. */
 .ca-win--app {

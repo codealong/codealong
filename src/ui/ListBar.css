@@ -4,7 +4,8 @@
    board while the list scrolls under it. As tall as that strip (31px with its line), so the two
    lines meet across the window. Its ground reaches 2px above it: stuck, WebKit places it on its
    own layer, and at a zoom like 110% the board's top edge falls between device pixels, so a row
-   could show through a pixel above it. Unstuck, the board's edge clips that off. */
+   could show through a pixel above it. The board's clip-path (App.css) cuts that off at the
+   board's edge, so it never covers the line over the board. */
 .ca-listbar {
   position: sticky;
   top: 0;
