@@ -2045,7 +2045,8 @@ you move it, never with each turn: whose move it is shows in its stripe, amber w
 and in its place. To do keeps your order (drag, or ⌃⌘↑ ⌃⌘↓); In progress, Validating, In review
 and Ready to merge list what needs you first, the longest wait first, then your turns, then what's
 working, then the rest, the one you last sent a prompt first; Done, the latest first, is folded to
-a rail with its count until you open it. Done's todos go back as far as the age filter does (two
+a rail with its count until you open it, and so are Validating and Ready to merge while nothing's in
+them, until something is, so a board with a panel beside it still has room for In review. Done's todos go back as far as the age filter does (two
 weeks under All), which narrows the sessions too, but not what you added to the board; the list's
 find, the statuses and the devices narrow it as they do the other views, and a label shows the
 todos with it and the sessions you put it on.

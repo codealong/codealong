@@ -1,4 +1,5 @@
 // Checks the Kanban view (KanbanView.tsx): its six columns, Done folded to a rail that opens it,
+// and an empty Validating or Ready to merge too,
 // a card's press selecting it with its panel beside the board (a todo's, or a session's), the
 // arrows going up a column and across, R marking a todo ready for review, and dragging: a todo
 // to In review marks it so, one to Validating does nothing (its PR's to say), a session to Done
@@ -11,8 +12,10 @@
     target.dispatchEvent(new PointerEvent(type, { bubbles: true, cancelable: true, button: 0, buttons: type === 'pointerup' ? 0 : 1, clientX: x, clientY: y, pointerId: 1, isPrimary: true, pointerType: 'mouse' }));
   };
   var mid = function (el) { var r = el.getBoundingClientRect(); return { x: r.left + r.width / 2, y: r.top + r.height / 2 }; };
-  /** Presses on `el`, moves onto `to` in steps, and lets go there. */
+  /** Presses on `el`, moves onto `to` in steps, and lets go there: `to` scrolled into sight
+   *  first, since with a panel beside the board its columns don't all fit. */
   var drag = function (el, to) {
+    to.scrollIntoView({ block: 'nearest', inline: 'nearest' });
     var a = mid(el);
     var b = mid(to);
     pointer(el, 'pointerdown', a.x, a.y);
@@ -21,28 +24,33 @@
   };
   var press = function (el) { el.dispatchEvent(new MouseEvent('mousedown', { bubbles: true, cancelable: true, button: 0 })); };
   var column = function (id) { return q('.ca-kb-col.is-' + id); };
+  /** A column, or its rail when it's folded to one. */
+  var place = function (id) { return column(id) || q('.ca-kb-rail[data-kb-column="' + id + '"]'); };
   var cards = function (id) { var c = column(id); return c ? all('.ca-kb-cardrow', c) : []; };
   var face = function (row) { var f = q('.ca-cv-card', row); return f ? f.dataset.id : ''; };
   var todoOps = function () { return calls('todo_op').map(function (c) { return c[1].op; }); };
   var since = 0;
   var opsSince = function () { return todoOps().slice(since); };
 
-  until(function () { return column('todo') && q('.ca-kb-rail'); }, 30000, 'the Kanban view’s columns')
+  var doneRail = function () { return q('.ca-kb-rail[data-kb-column="done"]'); };
+  until(function () { return column('todo') && doneRail(); }, 30000, 'the Kanban view’s columns')
     .then(function () {
       var heads = all('.ca-kb-col .ca-kb-head span:nth-child(2)').map(function (s) { return s.textContent; });
-      check('it has To do, In progress, Validating, In review and Ready to merge, Done folded to a rail', heads.join('|') === 'To do|In progress|Validating|In review|Ready to merge' && !!q('.ca-kb-rail[data-kb-column="done"]'), heads.join('|'));
+      var ids = all('.ca-kanban > [data-kb-column]').map(function (e) { return e.dataset.kbColumn; });
+      check('it has To do, In progress, Validating, In review, Ready to merge and Done, in that order', ids.join('|') === 'todo|progress|validating|review|ready|done', ids.join('|'));
+      check('Done is folded to a rail, and Validating and Ready to merge are while they’re empty', !!q('.ca-kb-rail[data-kb-column="done"]') && ['validating', 'ready'].every(function (id) { return column(id) ? cards(id).length > 0 : !!place(id); }), heads.join('|'));
       check('To do holds only todos, in the box’s column', cards('todo').length > 0 && cards('todo').every(function (r) { return face(r).indexOf('todo:') === 0; }) && !!q('.ca-kb-col.is-todo .ca-todonew'), cards('todo').map(face).join(' '));
       // A label's swatch is square, as the todo's box is, so a card's line leads with when it's
       // due, by its icon, and leaves the swatches to its end.
       var dated = cards('todo').map(function (r) { return q('.ca-cv-l2', r); }).filter(function (l) { return l && q('.ca-cv-due', l) && q('.ca-cv-labels', l); })[0];
       check('a todo card leads with its due date, by its icon, and ends with its labels', !!dated && dated.firstElementChild.classList.contains('ca-cv-due') && !!q('.ca-cv-due .ca-icon', dated) && dated.lastElementChild.classList.contains('ca-cv-labels'), dated ? dated.innerHTML : 'no card with a due date and labels');
-      q('.ca-kb-rail').click();
+      doneRail().click();
       return until(function () { return column('done'); }, 5000, 'Done opened');
     })
     .then(function () {
-      check('the rail opens Done as a column', !!column('done') && !q('.ca-kb-rail'));
+      check('the rail opens Done as a column', !!column('done') && !doneRail());
       q('.ca-kb-col.is-done .ca-kb-fold').click();
-      return until(function () { return q('.ca-kb-rail'); }, 5000, 'Done folded again');
+      return until(function () { return doneRail(); }, 5000, 'Done folded again');
     })
     .then(function () {
       // A todo's press selects it, with its panel beside the board.
@@ -81,7 +89,7 @@
       // there. To In review it's marked so.
       since = todoOps().length;
       var todo = cards('todo')[cards('todo').length - 1];
-      drag(todo, column('validating'));
+      drag(todo, place('validating'));
       return wait(300)
         .then(function () {
           check('a todo dropped on Validating changes nothing', opsSince().length === 0, JSON.stringify(opsSince()));
@@ -96,7 +104,7 @@
           var idle = all('.ca-kb-cardrow').filter(function (r) { return face(r).indexOf('session:') === 0 && !q('.ca-cv-card.st-working', r); })[0];
           if (!idle) return note('no session card that isn’t working, to drop on Done');
           var before = calls('session_done').length;
-          drag(idle, q('.ca-kb-rail'));
+          drag(idle, doneRail());
           return until(function () { return calls('session_done').length > before; }, 5000, 'session_done').then(function () {
             check('a session dropped on Done is marked done', calls('session_done').slice(-1)[0][1].key === face(idle).slice('session:'.length));
           });

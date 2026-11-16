@@ -802,6 +802,19 @@ export interface KanbanColumn {
   cards: KanbanCard[];
 }
 
+/** Whether a column shows open rather than as a rail: one that starts folded (Done) is a rail
+ *  until it's opened (`opened`), and so is an empty one of the stages only a PR's facts fill
+ *  (Validating, Ready to merge: nothing dropped there lands there), till a card comes or it's
+ *  opened, so a board with a panel beside it still has room for In review. */
+export function columnShown(c: Pick<KanbanColumn, 'column' | 'stage' | 'cards'>, opened: boolean): boolean {
+  return opened || !columnFolds(c);
+}
+
+/** Whether a column is a rail unless it's opened (`columnShown`), which its Hide puts back. */
+export function columnFolds(c: Pick<KanbanColumn, 'column' | 'stage' | 'cards'>): boolean {
+  return !!c.column?.folded || (c.cards.length === 0 && (c.stage === 'validating' || c.stage === 'ready'));
+}
+
 /** How far back Done goes when the age filter says all: as far as sessions do. */
 const DONE_SPAN = 14 * 86_400_000;
 const NO_PINS: Set<string> = new Set();

@@ -5,12 +5,12 @@
 // list's row's (primitives.tsx `Row`). A card changes column only when its work moves on (started,
 // a PR opened, merged, done) or you move it, never with each turn: whose move it is shows in its
 // stripe and its place in a column ordered by it. A column that starts folded (Done) is a rail
-// until you open it, and a column's right-click changes it. A card dropped on another column, or a
-// session's on a todo's card, does what kanban.ts says; one dragged out of the window is pinned to
-// the desktop.
+// until you open it, as an empty Validating or Ready to merge is (boardLists.ts `columnShown`),
+// and a column's right-click changes it. A card dropped on another column, or a session's on a
+// todo's card, does what kanban.ts says; one dragged out of the window is pinned to the desktop.
 
 import { useMemo, type ReactNode } from 'react';
-import { cardLead, NO_COLUMN, type KanbanCard, type KanbanColumn } from '../boardLists';
+import { cardLead, columnFolds, NO_COLUMN, type KanbanCard, type KanbanColumn } from '../boardLists';
 import type { Stage } from '../boards/model';
 import { insertionAt, kanbanDrop, type DropContext, type KanbanDrop } from '../kanban';
 import { selectHow, type SelectHow } from '../picks';
@@ -151,7 +151,7 @@ export function KanbanView(props: KanbanViewProps) {
             <span className="ca-bay-count">{col.cards.length}</span>
           </button>
         ) : (
-          <Column key={col.id} column={col} props={props} drag={drag} target={target} onFold={col.column?.folded ? () => onFold(col) : undefined} todos={todos} />
+          <Column key={col.id} column={col} props={props} drag={drag} target={target} onFold={columnFolds(col) ? () => onFold(col) : undefined} todos={todos} />
         ),
       )}
       <button type="button" className="ca-kb-add" title="Add a column" aria-label="Add a column" onClick={props.onAddColumn}>

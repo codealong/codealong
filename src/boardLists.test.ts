@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import type { BoardColumn, BoardDoc } from './boards/model';
+import { STAGE_COLUMNS, stageOfColumn, type BoardColumn, type BoardDoc } from './boards/model';
 import { memberTest, subjectsOf } from './boards/rules';
 import {
   ageListingChain,
@@ -63,6 +63,7 @@ import {
   scheduleSessions,
   schedulesIn,
   harnessSchedulesIn,
+  columnShown,
 } from './boardLists';
 import { needsOn } from './devices';
 import { bayOf, runsShownKey, selfShownKey, sessionHomes, unattended } from './lanes';
@@ -1006,6 +1007,19 @@ describe('the Kanban view’s columns', () => {
     // Nor does a board that takes in everything show an archived session or a helper it doesn't have by hand.
     const own = kanbanOf(fx.board({ lanes: [l], todos }), [l], everything, NOW);
     expect(own.columns.flatMap((c) => c.cards.map((r) => r.key))).toEqual(['/r/app::claude:claude:lead']);
+  });
+
+  it('folds Done to a rail till it’s opened, and an empty Validating or Ready to merge till a card comes', () => {
+    const at = (id: string, cards: number, opened = false) => {
+      const column = STAGE_COLUMNS.find((c) => c.id === id) as BoardColumn;
+      const card = todoOf(fx.todo());
+      return columnShown({ column, stage: stageOfColumn(column), cards: Array.from({ length: cards }, () => card) }, opened);
+    };
+    expect([at('todo', 0), at('progress', 0), at('review', 0)]).toEqual([true, true, true]);
+    expect([at('validating', 0), at('ready', 0), at('done', 3)]).toEqual([false, false, false]);
+    expect([at('validating', 1), at('ready', 2), at('validating', 0, true), at('done', 3, true)]).toEqual([true, true, true, true]);
+    // A column of your own folds only when you said it should.
+    expect(columnShown({ column: { id: 'mine', name: 'Mine', rule: { stages: ['ready'], labels: ['l-1'] }, sort: 'hand' }, stage: null, cards: [] }, false)).toBe(true);
   });
 
   it('gives an archived session on an open todo a card of its own, as the todo’s card doesn’t list it', () => {

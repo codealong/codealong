@@ -112,7 +112,7 @@ import { MeetingCountdown, MeetingOffered } from './ui/Meeting';
 import { meetingWhen } from './meetings';
 import { MeetingsDialog } from './ui/Meetings';
 import { hearingNow } from './listening';
-import { ageListingChain, ageListingPr, chainOf, currentProject, FACET_WORD, facetsIn, facetsOn, harnessSchedulesIn, labelPick, laneInQuery, onlyPick, prInDone, prInFilter, prInQuery, projectOfCard, revealing, unarchived, scheduleSessions, schedulesIn, sessionInFacets, sessionInFilter, sessionInQuery, sessionItemOf, sessionItemsOf, showingHelper, todoInQuery, togglePick, toggleShown, useBoardLists, projectsOf, type Facets } from './boardLists';
+import { ageListingChain, ageListingPr, chainOf, columnShown, currentProject, FACET_WORD, facetsIn, facetsOn, harnessSchedulesIn, labelPick, laneInQuery, onlyPick, prInDone, prInFilter, prInQuery, projectOfCard, revealing, unarchived, scheduleSessions, schedulesIn, sessionInFacets, sessionInFilter, sessionInQuery, sessionItemOf, sessionItemsOf, showingHelper, todoInQuery, togglePick, toggleShown, useBoardLists, projectsOf, type Facets, type KanbanColumn } from './boardLists';
 import { inProject, QUICK_PLACEHOLDER, queryWords, shortcutKeys, shortcutLabel } from './quick';
 import { findFor } from './threadFind';
 import { CODEALONG_REPO, improveTitle } from './improve';
@@ -551,7 +551,7 @@ export function App() {
   const boardsProject = currentProject(project, projectsOf(board?.projects ?? [], deviceLanes), loading);
   const boards = useBoards(boardsProject);
   const shownBoard = boards.board;
-  const columnOpen = useCallback((c: { id: string; column: BoardColumn | null }) => !c.column?.folded || openedColumns.has(`${shownBoard?.id}:${c.id}`), [openedColumns, shownBoard?.id]);
+  const columnOpen = useCallback((c: KanbanColumn) => columnShown(c, openedColumns.has(`${shownBoard?.id}:${c.id}`)), [openedColumns, shownBoard?.id]);
   const toggleColumn = (c: { id: string }) =>
     setOpenedColumns((o) => {
       const key = `${shownBoard?.id}:${c.id}`;
