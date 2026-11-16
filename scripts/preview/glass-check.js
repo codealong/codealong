@@ -4,7 +4,7 @@
 // group headers) draws its wells, hovers, selections and lines see-through, so they take the
 // glass's tint (styles/glass.css), while a white control there keeps its white under the pointer,
 // and a usage chip while it's dragged over the others; the strip over the list hides the rows that
-// scroll under it, and nothing draws a blur of its own (WebKit's, stacked on the glass, flickers as
+// scroll under it, the strip over a session's panel has its ground and line, and nothing draws a blur of its own (WebKit's, stacked on the glass, flickers as
 // the window moves). In the quick panel the card draws no ground of its own, which would cover the
 // glass under it, its parts above the bar draw it, the bar is see-through, its chips keep their
 // white under the pointer, and in Send to, which has no bar, the part at the foot has the card's
@@ -102,6 +102,13 @@
     });
     var strip = q('.ca-listbar');
     check('the strip over the list hides the rows that scroll under it: opaque', alpha(bg(strip)) === 1, bg(strip));
+    // The strip over a session's panel is the list's strip carried on across the window: its shade,
+    // and the same see-through shades on it.
+    var panelStrip = q('.ca-sessinsp .ca-reply-queue');
+    if (panelStrip) {
+      check('the strip over a session’s panel has the list strip’s ground', bg(panelStrip) === bg(strip), bg(panelStrip) + ' | ' + bg(strip));
+      check('and its line', getComputedStyle(panelStrip).borderBottomColor === getComputedStyle(strip).borderBottomColor, getComputedStyle(panelStrip).borderBottomColor + ' | ' + getComputedStyle(strip).borderBottomColor);
+    } else note('no session’s panel to look at');
     // A page's own blur, stacked on the glass behind the window, flickers as the window moves.
     var blurred = all('body *').filter(function (el) { var cs = getComputedStyle(el); return (cs.backdropFilter || cs.webkitBackdropFilter || 'none') !== 'none'; });
     check('nothing on the page draws a blur of its own over the glass', blurred.length === 0, blurred.slice(0, 3).map(function (el) { return el.className; }).join(', '));

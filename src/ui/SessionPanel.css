@@ -242,10 +242,11 @@
 .ca-sessinsp .ca-reply-queue {
   padding: 4px 12px 4px var(--space-4);
 }
-/* With glass on (src/glass.ts), on the panel's own white, which the glass doesn't show through, so
-   no gray is left between the two. */
+/* With glass on (src/glass.ts), the strip over the list's own shade (ListBar.css), and its lines,
+   hovers and keycaps the same see-through shades of it (styles/glass.css), so the two strips read
+   as one across the window, as they do without glass, where both are sunken (2026-11-16). */
 .is-glass .ca-sessinsp .ca-reply-queue {
-  background: transparent;
+  background: var(--glass-cover);
 }
 .ca-reply .ca-thread {
   --thread-edge: var(--space-3);

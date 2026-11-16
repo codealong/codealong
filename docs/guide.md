@@ -2278,7 +2278,8 @@ glass, as the Finder does: Liquid Glass from macOS 26, and the sidebar's blur on
 The title bar, the usage bar, the sidebar and Kanban's columns let it through, in light and in
 dark; the bands between the list's groups are frosted, so they take the glass's tint without
 showing the wallpaper, and the strip over the list, which the rows scroll under, is a solid shade
-under them, so nothing shows through it. What
+under them, so nothing shows through it; the strip over a session's conversation is the same shade,
+so the two read as one toolbar across the window. What
 sits on the glass (a field, a button's well, a selected or hovered row in the sidebar, a keycap, a
 line) is a shade of whatever is behind it rather than a gray of its own, as macOS's own sidebars
 draw it, so it suits whatever color the wallpaper gives the glass. The rows, the cards and the panel

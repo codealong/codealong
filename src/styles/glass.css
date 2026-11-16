@@ -3,7 +3,8 @@
    and looked out of place over a glass that takes its hue from the wallpaper. A well, a hover, a
    selection, a line or a keycap there is a shade of whatever is behind it, as macOS's vibrancy draws
    them. Only the glass's places: the title bar, the usage bar, the sidebar and its rail, the strip
-   over the list, the list's group headers, Kanban's column heads and the quick panel's bar. What's
+   over the list and the one over a session's panel, which takes its shade (SessionPanel.css), the
+   list's group headers, Kanban's column heads and the quick panel's bar. What's
    white (the rows, the cards, the panel, menus) keeps the palette's grays, which the see-through
    ones come to over white anyway, and what covers something that scrolls under it keeps a ground
    of its own. A white control there (a button, a usage chip, a quick panel chip) lays its hover
@@ -14,6 +15,7 @@
 .is-glass .ca-side,
 .is-glass .ca-rail,
 .is-glass .ca-listbar,
+.is-glass .ca-sessinsp .ca-reply-queue,
 .is-glass .ca-bay,
 .is-glass .ca-kb-head,
 .is-glass .ca-kb-rail,

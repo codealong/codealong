@@ -8,7 +8,7 @@
 // stacked on the glass, flickers as the window moves. What sits on
 // the glass draws its neutrals see-through, so they take its tint (styles/glass.css). The rows, the
 // cards and the panel keep their grounds, so what you read stays as legible; the strip over the panel
-// takes the panel's (SessionPanel.css). The quick panel has glass only under its card (quick.rs
+// takes the shade of the strip over the list, so the two read as one (SessionPanel.css). The quick panel has glass only under its card (quick.rs
 // `fit_glass`), which its bar along the foot lets through (Quick.css). Only on macOS, the one
 // platform the app puts glass behind a window.
 
