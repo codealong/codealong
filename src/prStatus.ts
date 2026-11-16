@@ -341,8 +341,8 @@ export function chipWord(pr: PrFacts): string {
 }
 
 /** Why a PR is your move, if it is: your review is asked for, or it's yours and GitHub would
- *  merge it, or its checks fail, or it's held up by something you can fix. `attn` and `alert`
- *  are what the Needs you filter keeps. */
+ *  merge it, or its checks fail, or it's held up by something you can fix. It marks the PR's row
+ *  and puts it under Your move, sorted by status (PrsView.tsx `prSections`). */
 export function prFlag(pr: PrItem): 'ready' | 'attn' | 'alert' | null {
   if (!isOpen(pr.state)) return null;
   // A review you snoozed waits until its time, and one the agent is on until it's done.

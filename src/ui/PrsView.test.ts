@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import * as fx from '../testing/fixtures';
 import type { GitInfo, PrItem } from '../types';
-import { prPlaces, prSections, syncWords, type PrRowItem } from './PrsView';
+import { inPrTab, prPlaces, prSections, prTabCounts, syncWords, type PrRowItem } from './PrsView';
 
 const lane = (id: string) => fx.lane({ id });
 const session = (key: string) => fx.session({ key });
@@ -57,12 +57,87 @@ describe('prSections', () => {
       row(6, { state: 'merged', mergedAt: 5 }),
     ];
     expect(prSections(rows).map((s) => [s.id, s.rows.map((r) => r.pr.number)])).toEqual([
-      ['requested', [1]],
+      ['move', [1]],
       ['mine', [3]],
       ['others', [4]],
       ['snoozed', [5, 2]],
       ['done', [6]],
     ]);
+  });
+
+  it('puts what is your move first: the reviews asked of you, then your PRs to merge or fix', () => {
+    const held = { stage: 'reviewing', head: 'abc', at: 1, rounds: 1, holds: true } as const;
+    const rows = [
+      row(1, { mine: true }),
+      row(2, { mine: true, merge: 'clean', checks: fx.checks({ passed: 2 }) }),
+      row(3, { reviewRequested: true, autoReview: held }),
+      row(4, { mine: true, checks: fx.checks({ failed: 1 }) }),
+      row(5, { reviewRequested: true }),
+      row(6, { mine: true, state: 'changes' }),
+      row(7, { mine: true, state: 'changes', turn: { kind: 'rereviewAsked', who: 'ken' } }),
+      row(8, { merge: 'clean' }),
+    ];
+    expect(prSections(rows).map((s) => [s.id, s.label, s.rows.map((r) => r.pr.number)])).toEqual([
+      ['move', 'Your move', [5, 2, 4, 6]],
+      ['agent', 'Agent reviewing', [3]],
+      ['mine', 'Yours', [1, 7]],
+      ['others', 'Others', [8]],
+    ]);
+  });
+
+  describe('in tabs', () => {
+    const held = { stage: 'reviewing', head: 'abc', at: 1, rounds: 1, holds: true } as const;
+    const rows = [
+      row(1, { mine: true }),
+      row(2, { mine: true, merge: 'clean', checks: fx.checks({ passed: 2 }) }),
+      row(3, { reviewRequested: true, autoReview: held }),
+      row(4, { mine: true, state: 'draft' }),
+      row(5, { reviewRequested: true }),
+      row(6, { reviewRequested: true, snoozedUntil: 100 }),
+      row(7),
+      row(8, { mine: true, state: 'merged', mergedAt: 5 }),
+      row(9, { state: 'closed', closedAt: 4 }),
+    ];
+    const shown = (tab: 'all' | 'mine' | 'others') => prSections(rows, 'status', 0, tab).map((s) => [s.label, s.rows.map((r) => r.pr.number)]);
+
+    it('All lists everyone’s, your move first', () => {
+      expect(shown('all')).toEqual([
+        ['Your move', [5, 2]],
+        ['Agent reviewing', [3]],
+        ['Yours', [1, 4]],
+        ['Others', [7]],
+        ['Snoozed', [6]],
+        ['Merged & closed', [8, 9]],
+      ]);
+    });
+
+    it('Yours lists yours: to merge or fix, then waiting on others, then drafts', () => {
+      expect(shown('mine')).toEqual([
+        ['Your move', [2]],
+        ['Waiting on others', [1]],
+        ['Drafts', [4]],
+        ['Merged & closed', [8]],
+      ]);
+    });
+
+    it('Others lists everyone else’s: reviews asked of you, the agent’s, snoozed, then the rest', () => {
+      expect(shown('others')).toEqual([
+        ['Your move', [5]],
+        ['Agent reviewing', [3]],
+        ['Snoozed', [6]],
+        ['Not asking you', [7]],
+        ['Merged & closed', [9]],
+      ]);
+    });
+
+    it('sorted by when opened, lists only the tab’s', () => {
+      expect(prSections(rows, 'opened', 0, 'mine').flatMap((s) => s.rows.map((r) => r.pr.number)).sort()).toEqual([1, 2, 4, 8]);
+    });
+
+    it('counts what is your move in each', () => {
+      expect(prTabCounts(rows)).toEqual({ all: 2, mine: 1, others: 1 });
+      expect([inPrTab({ mine: true }, 'mine'), inPrTab({ mine: true }, 'others'), inPrTab({ mine: false }, 'all')]).toEqual([true, false, true]);
+    });
   });
 
   it('by when opened, puts the open ones under the day each was opened, the newest first, snoozed ones too', () => {

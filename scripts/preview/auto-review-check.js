@@ -23,7 +23,7 @@
 // Try again beside it, as the line over its box does, saying why on hover; each tries it again
 // (review_pr_again). The
 // third is still being reviewed, so it's held out of what waits on you (prStatus.ts
-// `heldForAgent`): its row says Agent reviewing in place of Review requested, its Reviews tab has a
+// `heldForAgent`): its row says Agent reviewing in place of Review requested, under Agent reviewing, its Reviews tab has a
 // dot, and says it waits on you once that's done. A fourth is made a PR of yours an agent
 // reviewed (`[reviews.own]`) with handing back off: it opens on Reviews, says why its review hasn't
 // gone back, and Send hands it to its primary session (send_agent_review). Then Settings ›

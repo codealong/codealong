@@ -139,3 +139,15 @@
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+
+/* The PRs' tabs (All, Yours, Others) at the strip's start, as tall as the strip, so the tab shown
+   is underlined on the strip's own line. */
+.ca-listtabs {
+  align-self: stretch;
+  margin: -3px var(--space-2) -3px 0;
+  border-bottom: 0;
+}
+.ca-listtabs .ca-tab {
+  height: auto;
+  margin-bottom: 0;
+}

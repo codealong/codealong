@@ -42,7 +42,7 @@ import { RenameDialog } from './ui/RenameDialog';
 import { SnoozeDialog } from './ui/SnoozeDialog';
 import { useMergeDone } from './ui/MergeDone';
 import type { HelperActions } from './ui/HelpersCard';
-import { Button, cx, Icon, Kbd, Seg } from './ui/primitives';
+import { Button, cx, Icon, Kbd, Seg, Tabs } from './ui/primitives';
 import { ALL_PROJECTS, ProjectSwitcher } from './ui/ProjectSwitcher';
 import { ProjectShown } from './ui/ProjectSaid';
 import { useLogo } from './logo';
@@ -51,7 +51,7 @@ import { mayYetCome, opened } from './codealongLinks';
 import { linkHost, usePrLinks } from './ui/PrLink';
 import { reviewedWords } from './prDraft';
 import { mayApprove } from './prStatus';
-import { PR_GROUPS, PR_ROWS, PR_SORTS, prPlace, PrsView, type PrRowItem, type PrSort } from './ui/PrsView';
+import { inPrTab, PR_GROUPS, PR_ROWS, PR_SORTS, PR_TABS, prPlace, PrsView, type PrRowItem, type PrSort, type PrTab } from './ui/PrsView';
 import { Resizer, usePanelWidth } from './ui/Resizer';
 import { groupKeyOf, headItem, SESSION_GROUPS, SESSION_ROWS, SESSION_SORTS, SessionsBar, SessionsView, STARTED_PLACES, type SessionItem, type SessionSort, type StartedPlace } from './ui/SessionsView';
 import type { GroupActs } from './ui/Groups';
@@ -147,6 +147,7 @@ const PR_GROUP_KEY = 'codealong.prGroup';
 const TODO_GROUP_KEY = 'codealong.todoGroup';
 const PR_ROWS_KEY = 'codealong.prRows';
 const PR_SORT_KEY = 'codealong.prSort';
+const PR_TAB_KEY = 'codealong.prTab';
 const TODO_SORT_KEY = 'codealong.todoSort';
 const TODO_ROWS_KEY = 'codealong.todoRows';
 const SIDEBAR_WIDTH_KEY = 'codealong.sidebarWidth';
@@ -233,6 +234,7 @@ const LAYOUT_STORED = oneOf<BoardLayout>(['kanban', 'canvas']);
 const AGE_STORED = oneOf(AGES.map((a) => a.id));
 const SORT_STORED = oneOf(SESSION_SORTS.map((o) => o.id));
 const PR_SORT_STORED = oneOf(PR_SORTS.map((o) => o.id));
+const PR_TAB_STORED = oneOf(PR_TABS.map((o) => o.id));
 const TODO_SORT_STORED = oneOf(TODO_SORTS.map((o) => o.id));
 const ROWS_STORED = oneOf(SESSION_ROWS.map((o) => o.id));
 const GROUP_STORED = oneOf(SESSION_GROUPS.map((o) => o.id));
@@ -526,6 +528,7 @@ export function App() {
   const sessionGroupPins = sessionGroup === 'repo' ? repoPins : lanePins;
   // How PRs and Todo order what isn't pinned or done: by status, or the newest opened or added first.
   const [prSort, setPrSort] = useStored<PrSort>(PR_SORT_KEY, PR_SORT_STORED, 'status');
+  const [prTab, setPrTab] = useStored<PrTab>(PR_TAB_KEY, PR_TAB_STORED, 'all');
   const [todoSort, setTodoSort] = useStored<TodoSort>(TODO_SORT_KEY, TODO_SORT_STORED, 'status');
   // How much each row says in Sessions, PRs and Todo, each as you left it: two lines, or one.
   const [sessionLines, setSessionLines] = useStored<RowLines>(SESSION_ROWS_KEY, ROWS_STORED, 'one');
@@ -591,6 +594,7 @@ export function App() {
     prVisible,
     openPrCount,
     requestedCount,
+    prCounts,
     githubPrs,
     homes,
     allHomes,
@@ -648,6 +652,7 @@ export function App() {
     todoGroup,
     openTodoGroups,
     prSort,
+    prTab,
     todoSort,
     showArchived,
     showDonePrs,
@@ -1824,14 +1829,19 @@ export function App() {
       const by = sessionGroup;
       const home = homes.get(selectedKey.split('::')[1] ?? '');
       if (home) opening(setOpenGroups, chainOf(sessionItemOf(home), sessionItemsOf(lanes), sessionStarted === 'under').map((r) => groupKeyOf(r.lane, by)));
-    } else if (view === 'prs' && prGroup !== 'none') {
+    } else if (view === 'prs') {
+      // A PR the tab shown doesn't list shows under its own.
       const r = prRows.find((x) => x.key === selectedKey);
-      if (r) opening(setOpenPrGroups, [prPlace(r, prGroup).key]);
+      if (r && !inPrTab(r.pr, prTab)) {
+        setPrTab(r.pr.mine ? 'mine' : 'others');
+        setScrollTo(selectedKey);
+      }
+      if (r && prGroup !== 'none') opening(setOpenPrGroups, [prPlace(r, prGroup).key]);
     } else if (view === 'todo' && todoGroup !== 'none') {
       const r = todoItems.find((x) => x.key === selectedKey);
       if (r) opening(setOpenTodoGroups, [placeIn(r.lane, todoGroup).key]);
     }
-  }, [loading, selectedKey, revealed, visible, view, sessionGroup, sessionStarted, prGroup, todoGroup, homes, lanes, prRows, todoItems]);
+  }, [loading, selectedKey, revealed, visible, view, sessionGroup, sessionStarted, prGroup, prTab, setPrTab, todoGroup, homes, lanes, prRows, todoItems]);
   useEffect(() => {
     if (!scrollTo) return;
     // Only while it's still the row selected: another selected meanwhile is scrolled to as it's
@@ -2527,6 +2537,16 @@ export function App() {
               )}
               {view === 'sessions' && <SessionsBar sort={sessionSort} onSort={setSessionSort} group={sessionGroup} onGroup={setSessionGroup} started={sessionStarted} onStarted={setSessionStarted} lines={sessionLines} onLines={setSessionLines} />}
               {view === 'prs' && (
+                <Tabs
+                  className="ca-listtabs"
+                  label="Whose PRs"
+                  idBase="ca-prtabs"
+                  tabs={PR_TABS.map((t) => ({ ...t, count: prCounts[t.id] || null, title: prCounts[t.id] ? `${t.title}. ${prCounts[t.id]} your move` : t.title }))}
+                  value={prTab}
+                  onPick={setPrTab}
+                />
+              )}
+              {view === 'prs' && (
                 <ListTools label="How PRs are listed">
                   <ListSeg label="Sort by" options={PR_SORTS} value={prSort} onPick={setPrSort} />
                   <ListSeg label="Group by" options={PR_GROUPS} value={prGroup} onPick={setPrGroup} />
@@ -2662,6 +2682,8 @@ export function App() {
           {view !== 'canvas' && view !== 'schedules' && !(view === 'kanban' && !shownBoard) && !loading && (
           <div
             role="listbox"
+            // The PRs' tabs control the list they show.
+            id={view === 'prs' ? `ca-prtabs-${prTab}` : undefined}
             aria-label={view === 'sessions' ? 'Sessions' : view === 'prs' ? 'Pull requests' : view === 'todo' ? 'Todos' : 'Todos and sessions'}
             aria-activedescendant={selected ? domId(selected) : undefined}
             aria-multiselectable

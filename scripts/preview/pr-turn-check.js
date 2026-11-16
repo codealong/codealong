@@ -57,7 +57,7 @@
         check('#' + pr.number + ' reads ' + want[i][0], text === want[i][0] && p.classList.contains(want[i][1]) && want[i][2].test(title), text + ' / ' + p.className + ' / ' + title);
       });
       var replied = rowOf(picked[3]);
-      check('the PR whose author wrote after you is under Review requested, your move', sectionOf(replied) === 'Review requested' && replied.classList.contains('is-flag-attn'), sectionOf(replied) + ' / ' + replied.className);
+      check('the PR whose author wrote after you is under Your move', sectionOf(replied) === 'Your move' && replied.classList.contains('is-flag-attn'), sectionOf(replied) + ' / ' + replied.className);
     })
     .then(done)
     .catch(stopped);

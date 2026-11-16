@@ -1,0 +1,89 @@
+// Checks the PRs view's tabs (PrsView.tsx `PR_TABS`, `prSections`): All, Yours and Others over the
+// list, All shown first, each counting the PRs in it that are your move; All leads with Your move
+// (a review asked of you before a PR of yours to merge) and Agent reviewing; Yours lists only
+// yours, under Your move, Waiting on others and Drafts; Others only everyone else's, under Your
+// move, Agent reviewing, Snoozed and Not asking you; the tab picked is remembered; and a PR shown
+// from elsewhere that the tab doesn't list switches to its own tab. In each project the three
+// latest open PRs are made a review asked of you, a PR of yours ready to merge, and a review
+// Codealong's agent is still on, since a snapshot seldom has all three.
+//   scripts/preview.sh prs '' scripts/preview/pr-tabs-check.js
+(function () {
+  var made = { asked: [], ready: [], held: [] };
+  var real = window.__TAURI_INTERNALS__.invoke;
+  window.__TAURI_INTERNALS__.invoke = function (cmd, args, options) {
+    var p = real(cmd, args, options);
+    if (cmd !== 'get_board') return p;
+    return p.then(function (board) {
+      var open = board.prs.filter(function (pr) { return pr.state !== 'merged' && pr.state !== 'closed'; });
+      board.projects.forEach(function (project) {
+        var three = open.filter(function (pr) { return pr.project === project.name; }).slice(0, 3);
+        var base = { snoozedUntil: null, autoReview: undefined, turn: undefined, mergedAt: null, closedAt: null };
+        if (three[0]) {
+          Object.assign(three[0], base, { state: 'open', mine: false, reviewRequested: true });
+          made.asked.push(three[0]);
+        }
+        if (three[1]) {
+          Object.assign(three[1], base, { state: 'open', mine: true, reviewRequested: false, merge: 'clean', checks: { passed: 2, failed: 0, pending: 0, skipped: 0, failing: [] } });
+          made.ready.push(three[1]);
+        }
+        if (three[2]) {
+          Object.assign(three[2], base, { state: 'open', mine: false, reviewRequested: true, autoReview: { stage: 'reviewing', head: three[2].headOid || 'abc1234', at: Date.now(), rounds: 1, holds: true } });
+          made.held.push(three[2]);
+        }
+      });
+      board.pinnedPrs = [];
+      return board;
+    });
+  };
+
+  var tabs = function () { return all('.ca-listtabs .ca-tab'); };
+  var tab = function (label) { return tabs().filter(function (t) { return t.firstChild && t.firstChild.textContent === label; })[0]; };
+  var countOf = function (t) { var c = q('.ca-tab-count', t); return c ? Number(c.textContent) : 0; };
+  var headings = function () { return all('.ca-board-list .ca-bayblock').map(function (b) { var h = q('.ca-bay > span', b); return h ? h.textContent : null; }); };
+  var rowsUnder = function (label) {
+    var b = all('.ca-board-list .ca-bayblock').filter(function (x) { var h = q('.ca-bay > span', x); return h && h.textContent === label; })[0];
+    return b ? all('.ca-prrow', b) : [];
+  };
+  var num = function (row) { return (q('.ca-prrow-num', row) || {}).textContent; };
+  var under = function (label, pr) { return rowsUnder(label).some(function (r) { return num(r) === '#' + pr.number; }); };
+  var listed = function (pr) { return all('.ca-board-list .ca-prrow').some(function (r) { return num(r) === '#' + pr.number; }); };
+  var only = function (allowed) { return headings().every(function (h) { return allowed.indexOf(h) >= 0; }); };
+  /** The made PRs of the project shown. */
+  var shown = function (list) { return list.filter(listedAnywhere)[0]; };
+  var seen = {};
+  var listedAnywhere = function (pr) { return !!seen[pr.key]; };
+
+  say('pr tabs check: waiting for the tabs');
+  until(function () { return tabs().length === 3 && q('.ca-prrow'); }, 20000, 'the PRs view with its tabs')
+    .then(function () {
+      check('the tabs read All, Yours, Others, All shown', tabs().map(function (t) { return t.firstChild.textContent; }).join('|') === 'All|Yours|Others' && tab('All').getAttribute('aria-selected') === 'true', tabs().map(function (t) { return t.textContent + '=' + t.getAttribute('aria-selected'); }).join(', '));
+      [].concat(made.asked, made.ready, made.held).forEach(function (pr) { if (listed(pr)) seen[pr.key] = true; });
+      var asked = shown(made.asked), ready = shown(made.ready), held = shown(made.held);
+      if (!asked || !ready || !held) throw new Error('the project shown has fewer than three open PRs');
+      check('All leads with Your move', headings()[0] === 'Your move', headings().join(', '));
+      var move = rowsUnder('Your move').map(num);
+      check('a review asked of you is your move, ahead of a PR of yours to merge', move.indexOf('#' + asked.number) >= 0 && move.indexOf('#' + asked.number) < move.indexOf('#' + ready.number), move.join(', '));
+      check('a review the agent is still on waits under Agent reviewing', under('Agent reviewing', held) && !under('Your move', held), headings().join(', '));
+      check('All counts what is your move', countOf(tab('All')) === rowsUnder('Your move').length, countOf(tab('All')) + ' for ' + move.join(', '));
+      tab('Yours').click();
+      return until(function () { return tab('Yours').getAttribute('aria-selected') === 'true' && !listed(asked); }, 5000, 'Yours shown').then(function () {
+        check('Yours lists yours under its own headings', only(['Your move', 'Waiting on others', 'Drafts', 'Merged & closed']), headings().join(', '));
+        check('with your PR to merge as your move, and no one else’s', under('Your move', ready) && !listed(held), headings().join(', '));
+        check('Yours counts its own', countOf(tab('Yours')) === rowsUnder('Your move').length, String(countOf(tab('Yours'))));
+        check('the list is the tab’s panel', q('.ca-board-list').id === 'ca-prtabs-mine' && tab('Yours').getAttribute('aria-controls') === 'ca-prtabs-mine', q('.ca-board-list').id);
+        tab('Others').click();
+        return until(function () { return tab('Others').getAttribute('aria-selected') === 'true' && !listed(ready); }, 5000, 'Others shown');
+      }).then(function () {
+        check('Others lists everyone else’s under its own headings', only(['Your move', 'Agent reviewing', 'Snoozed', 'Not asking you', 'Merged & closed']), headings().join(', '));
+        check('with the review asked of you as your move, and the agent’s under Agent reviewing', under('Your move', asked) && under('Agent reviewing', held), headings().join(', '));
+        check('the tab picked is remembered', /others/.test(localStorage.getItem('codealong.prTab') || ''), localStorage.getItem('codealong.prTab'));
+        window.__emit('reveal', { kind: 'pr', key: ready.key });
+        return until(function () { return tab('Yours').getAttribute('aria-selected') === 'true' && listed(ready); }, 5000, 'Yours shown for a PR of yours shown from elsewhere').then(function () {
+          var row = all('.ca-board-list .ca-prrow').filter(function (r) { return num(r) === '#' + ready.number; })[0];
+          check('a PR of yours shown from elsewhere switches to Yours, selected', row && row.classList.contains('is-selected'), row && row.className);
+        });
+      });
+    })
+    .then(done)
+    .catch(stopped);
+})();

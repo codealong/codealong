@@ -15,11 +15,11 @@ import { columnsOf, inPrLoop, stageOfColumn, type BoardColumn, type BoardDoc, ty
 import { columnOf, memberTest, ownLabels, sessionStage, subjectsOf, todoStage, type Subject } from './boards/rules';
 import { ALL_PROJECTS, hasWords, inProject, queryWords, saidLine, type SaidLine } from './quick';
 import { isOpen, itemSection, todoIndex, todoInFilter, todoItem, todoSections, type TodoItem, type TodoSectionId, type TodoSort } from './todos';
-import { primaryHere } from './prStatus';
+import { prFlag, primaryHere } from './prStatus';
 import { scheduleProject } from './schedules';
 import type { Board, DevicesView, HarnessSchedule, Label, Lane, PrItem, PrSession, ProjectSummary, ScheduleItem, Session, TextHit, Todo } from './types';
 import type { ActionCounts } from './ui/ProjectSwitcher';
-import { prIsOpen, prPlace, prPlaces, prSections, waitsOnReview, type PrRowItem, type PrSort } from './ui/PrsView';
+import { prIsOpen, prPlace, prPlaces, prSections, prTabCounts, waitsOnReview, type PrRowItem, type PrSort, type PrTab } from './ui/PrsView';
 import { groupedRows, groupSessions, helpersUnder, sessionSections, waitingQueue, type SessionItem, type SessionSort, type StartedPlace } from './ui/SessionsView';
 import { groupRows, placeIn, type ListGroupBy } from './groups';
 
@@ -1058,6 +1058,8 @@ export interface ListsInput {
   todoGroup: ListGroupBy;
   openTodoGroups: ReadonlySet<string>;
   prSort: PrSort;
+  /** Whose PRs the PRs view lists (`PR_TABS`). */
+  prTab: PrTab;
   todoSort: TodoSort;
   showArchived: boolean;
   showDonePrs: boolean;
@@ -1075,7 +1077,7 @@ export interface ListsInput {
 
 /** The lists, each kept while what it's made from stays the same. */
 export function useBoardLists(input: ListsInput) {
-  const { board, deviceLanes, devices, deviceFilter, project, loading, cutoff, since, now, query, said, filter, sessionPins, helpersShown, lanePins, prPins, sessionSort, sessionStarted, sessionGroup, repoPins, openGroups, prGroup, openPrGroups, todoGroup, openTodoGroups, prSort, todoSort, showArchived, showDonePrs, todos, labels, facets, showDoneTodos, showArchivedTodos, shownBoard, columnOpen } = input;
+  const { board, deviceLanes, devices, deviceFilter, project, loading, cutoff, since, now, query, said, filter, sessionPins, helpersShown, lanePins, prPins, sessionSort, sessionStarted, sessionGroup, repoPins, openGroups, prGroup, openPrGroups, todoGroup, openTodoGroups, prSort, prTab, todoSort, showArchived, showDonePrs, todos, labels, facets, showDoneTodos, showArchivedTodos, shownBoard, columnOpen } = input;
 
   const projects = useMemo(() => projectsOf(board?.projects ?? [], deviceLanes), [board?.projects, deviceLanes]);
   const current = currentProject(project, projects, loading);
@@ -1152,11 +1154,12 @@ export function useBoardLists(input: ListsInput) {
   const prFacets = useMemo(() => prFacetOptions(listedPrs, facets), [listedPrs, facets]);
   // Pinned PRs lead the PRs view in your order, whatever their age, and leave its sections.
   const pinnedPrRows = useMemo(() => inPinOrder(prRows, prPins.keys, (r) => r.pr.key), [prRows, prPins.keys]);
-  const prSecs = useMemo(() => prSections(prRows.filter((r) => !prPins.set.has(r.pr.key)), prSort, now), [prRows, prPins.set, prSort, now]);
-  // Grouped by worktree or repo (groups.ts): the pinned groups after the pinned PRs, a review that
-  // waits on you never folded away, Merged & closed grouped among themselves.
+  const prSecs = useMemo(() => prSections(prRows.filter((r) => !prPins.set.has(r.pr.key)), prSort, now, prTab), [prRows, prPins.set, prSort, now, prTab]);
+  const prCounts = useMemo(() => prTabCounts(prRows), [prRows]);
+  // Grouped by worktree or repo (groups.ts): the pinned groups after the pinned PRs, a PR that's
+  // your move never folded away, Merged & closed grouped among themselves.
   const groupedPrs = useMemo(
-    () => (prGroup === 'none' ? null : groupRows(prSecs, prGroup, (r) => prPlace(r, prGroup), { pinned: prGroupPins, lanes: projectLanes, empty: false, opened: openPrGroups, whole: !!query, awake: ([r]) => waitsOnReview(r.pr), apart: (id) => id === 'done' })),
+    () => (prGroup === 'none' ? null : groupRows(prSecs, prGroup, (r) => prPlace(r, prGroup), { pinned: prGroupPins, lanes: projectLanes, empty: false, opened: openPrGroups, whole: !!query, awake: ([r]) => prFlag(r.pr) !== null, apart: (id) => id === 'done' })),
     [prGroup, prSecs, prGroupPins, projectLanes, openPrGroups, query],
   );
   const prVisible = useMemo<ListRow[]>(
@@ -1301,6 +1304,7 @@ export function useBoardLists(input: ListsInput) {
     prVisible,
     openPrCount,
     requestedCount,
+    prCounts,
     githubPrs,
     homes,
     allHomes,

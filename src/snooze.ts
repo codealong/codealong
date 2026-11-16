@@ -1,6 +1,6 @@
 // Snoozing a session: it stays off the floating bar's Needs you and Your turn until the time you
 // pick, then comes back, as Your turn if nothing else would bring it (board::apply_snooze). A
-// review asked of you snoozes the same way: the PR stays out of Review requested, the bar's
+// review asked of you snoozes the same way: the PR stays out of Your move, the bar's
 // reviews and the mark until its time (board::apply_review_snoozes). The engine keeps snoozes in
 // state.json; these are the menus that set them, and Pick a time… asks the main window for any
 // other time (ui/SnoozeDialog.tsx). A session whose last reply says its work goes on at a later
