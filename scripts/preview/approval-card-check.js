@@ -3,7 +3,8 @@
 // under it, in the panel and expanded to the window, where both keep to the centered column; the
 // message box has no rule or strip over it of its own; and the conversation has no line for the
 // call the card shows, though it keeps one for another call of the same tool waiting at once with
-// other input (an MCP tool's label is its name alone).
+// other input (an MCP tool's label is its name alone). A wait Codealong can read nothing of ("It's
+// waiting on you. Answer it in …") is the same card, as wide as the message box and over it.
 //   PREVIEW_WAIT=30000 scripts/preview.sh sessions '' scripts/preview/approval-card-check.js
 (function () {
   localStorage.setItem('codealong.project', 'All projects');
@@ -15,12 +16,14 @@
   // The call its conversation ends on: the one the card shows, until another of the same tool
   // waits after it.
   var latest = first;
+  // Whether what it waits on can be read: off, it waits on something Codealong can't say.
+  var readable = true;
   var real = window.__TAURI_INTERNALS__.invoke;
   window.__TAURI_INTERNALS__.invoke = function (cmd, args, options) {
     var mine = picked && (args || {}).key === picked.key;
     if (cmd === 'session_pending' && mine) {
       window.__calls.push([cmd, args, options]);
-      return Promise.resolve({ id: 'ask-card', label: label, input: first, cannot: null });
+      return Promise.resolve(readable ? { id: 'ask-card', label: label, input: first, cannot: null } : null);
     }
     if (cmd === 'session_page' && mine) {
       window.__calls.push([cmd, args, options]);
@@ -57,20 +60,22 @@
   var row = function () { return picked && document.getElementById('row-' + picked.lane + '::' + picked.key); };
   var panel = function () { return q('.ca-sessinsp'); };
   var card = function () { return q('.ca-composer.is-approval', panel()); };
+  var waitCard = function () { return q('.ca-composer.is-waiting', panel()); };
   var field = function () { return q('.ca-composer-field', panel()); };
   var thread = function () { return q('.ca-thread', panel()); };
   var line = function () { return q('.ca-thread-tool.is-asks', thread()); };
   var rect = function (el) { return el.getBoundingClientRect(); };
   var level = function (a, b) { return Math.abs(rect(a).left - rect(b).left) <= 1 && Math.abs(rect(a).right - rect(b).right) <= 1; };
-  var sides = function () { return Math.round(rect(card()).left) + '–' + Math.round(rect(card()).right) + ' and ' + Math.round(rect(field()).left) + '–' + Math.round(rect(field()).right); };
+  var sides = function (el) { el = el || card(); return Math.round(rect(el).left) + '–' + Math.round(rect(el).right) + ' and ' + Math.round(rect(field()).left) + '–' + Math.round(rect(field()).right); };
   var expand = function () { return all('button', panel()).filter(function (b) { return /^(Expand to the window|Show the list)$/.test(b.getAttribute('aria-label') || ''); })[0]; };
-  var reopen = function () {
+  var reopen = function (shown) {
+    shown = shown || card;
     // Another session's row, then this one's again, reads its conversation again.
     var other = all('[id^="row-"]').filter(function (r) { return r !== row(); })[0];
     other.dispatchEvent(new MouseEvent('mousedown', { bubbles: true }));
     return wait(300).then(function () {
       row().dispatchEvent(new MouseEvent('mousedown', { bubbles: true }));
-      return until(function () { return card() && thread() && /Filing it now/.test(thread().textContent); }, 5000, 'the session again');
+      return until(function () { return shown() && thread() && /Filing it now/.test(thread().textContent); }, 5000, 'the session again');
     });
   };
 
@@ -103,6 +108,26 @@
     .then(function () { return wait(300); })
     .then(function () {
       check('another call with the same label keeps its line', !!line() && new RegExp(label).test(line().textContent), line() ? line().textContent : 'none');
+      // It waits on something Codealong can read nothing of.
+      readable = false;
+      return reopen(waitCard);
+    })
+    .then(function () { return wait(300); })
+    .then(function () {
+      var w = waitCard();
+      check('a wait it can say nothing of says where to answer it', /Answer it in/.test(w.textContent), w.textContent.slice(0, 80));
+      check('that wait is a card as wide as the message box', level(w, field()), sides(w));
+      check('the wait card has rounded corners', getComputedStyle(w).borderTopLeftRadius !== '0px', getComputedStyle(w).borderTopLeftRadius);
+      check('the wait card has no rule over it', getComputedStyle(w).borderTopWidth === '0px', getComputedStyle(w).borderTopWidth);
+      check('the wait card ends above the message box', rect(w).bottom <= rect(field()).top, Math.round(rect(w).bottom) + ' > ' + Math.round(rect(field()).top));
+      var box = field().closest('.ca-composer');
+      check('under the wait card the message box has no rule of its own', getComputedStyle(box).borderTopWidth === '0px', getComputedStyle(box).borderTopWidth);
+      expand().click();
+      return until(function () { return q('.ca-win-body.is-panel-max'); }, 3000, 'the panel expanded').then(function () { return wait(300); });
+    })
+    .then(function () {
+      check('expanded, the wait card is as wide as the message box', level(waitCard(), field()), sides(waitCard()));
+      expand().click();
     })
     .then(done)
     .catch(stopped);

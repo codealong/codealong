@@ -12,28 +12,29 @@
 }
 /* Under a session's conversation, the field's own edge is the only one: no rule and no strip of
    room between the conversation and the field, which runs down to it and fades out under its top
-   edge (SessionThread.css), with a call to allow or questions to answer between them. A wait keeps
-   its tinted strip. The notch's box is the same, on the notch's black (Notch.css). */
+   edge (SessionThread.css), with a call to allow, questions to answer or a wait between them. The
+   notch's box is the same, on the notch's black (Notch.css). */
 .ca-thread + .ca-composer:not(.is-approval, .is-waiting) {
   padding-top: 0;
   border-top: 0;
 }
-/* A call to allow or questions to answer, there: a tinted card as wide as the field, just over it,
-   as suggested replies are, rather than a strip across the panel with a rule under it. Its sides
-   are as near its edge as its top, which keeps a command's line as wide as it can. It takes no
-   more height than the strip did: in a card too short for its questions they're at their least
-   already (`.is-questions`), and more would push the field out of the card. */
-.ca-thread + .ca-composer.is-approval {
+/* A call to allow, questions to answer, or a wait Codealong can say no more of, there: a tinted
+   card as wide as the field, just over it, as suggested replies are, rather than a strip across
+   the panel with a rule under it. Its sides are as near its edge as its top, which keeps a
+   command's line as wide as it can. It takes no more height than the strip did: in a card too
+   short for its questions they're at their least already (`.is-questions`), and more would push
+   the field out of the card. */
+.ca-thread + .ca-composer:is(.is-approval, .is-waiting) {
   margin-inline: var(--space-4);
   padding: var(--space-3);
   border-top: 0;
   border-radius: var(--radius-lg);
 }
-.ca-composer.is-approval + .ca-composer:not(.is-approval, .is-waiting) {
+.ca-composer:is(.is-approval, .is-waiting) + .ca-composer:not(.is-approval, .is-waiting) {
   padding-top: var(--space-2);
   border-top: 0;
 }
-.ca-reply > .ca-thread + .ca-composer.is-approval {
+.ca-reply > .ca-thread + .ca-composer:is(.is-approval, .is-waiting) {
   margin-inline: 12px;
   padding: 10px 12px;
 }
