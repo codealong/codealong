@@ -3584,8 +3584,9 @@ Mac's audio silent and turned the call down for you and for the others (tried on
 What's taken out is the second copy of their words. Each line the microphone settles on is held
 back about three seconds and matched against what the Mac played at the same moment: words in the
 same order at the same time are theirs, heard through your speakers, and are left out of the
-transcript, a word misheard or a sentence cut in other places included. A few words of yours
-before or after them stay, as your line: you answering as they finish. Until a close repeat or
+transcript, a word misheard or a sentence cut in other places included. Words of yours before or
+after them stay, as your line, when there are four or more, or when they go on past the end of
+theirs or start before it: you answering as they finish ("No, I can't."). Until a close repeat or
 the speakers' sound has shown that the microphone hears the Mac, only a line that's nearly all
 theirs is left out; after that, a looser one is too, and a "Yeah." they said at that moment as
 well. The Mac's lines are never left out, and lines are written in the order they settled, so

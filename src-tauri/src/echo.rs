@@ -214,12 +214,26 @@ const THEIRS_KEPT_MS: i64 = 60_000;
 const PROVEN_MS: i64 = 5 * 60_000;
 
 /// How many words of yours before or after a repeat are yours, kept as your line: you talking as
-/// the others stop or start. Fewer are taken for the microphone mishearing the ends of theirs.
+/// the others stop or start. Fewer are taken for the microphone mishearing the ends of theirs,
+/// unless they're said apart from them (`APART_MS`).
 const OWN_WORDS: usize = 4;
+
+/// How much sooner than the Mac's words of the time a line of yours must start, or later end, for
+/// the words of yours there to be yours however few ("No, I can't." as they finish): the
+/// microphone's mishearing of the ends of theirs starts and ends with them.
+const APART_MS: i64 = 700;
 
 /// How long before the first of the words they're in the middle of saying (`saying`) they began:
 /// the model has them about a second behind the sound, and a word or two in.
 const SAYING_LAG_MS: i64 = 2000;
+
+/// What the Mac is in the middle of saying: its words so far, about when they began, and when they
+/// last changed, which is about when the last of them was said.
+struct Saying {
+    text: String,
+    since: i64,
+    changed: i64,
+}
 
 /// A listening's lines on their way to its transcript, the microphone's held back until it's
 /// known whether they repeat the Mac's.
@@ -227,20 +241,24 @@ const SAYING_LAG_MS: i64 = 2000;
 pub struct Repeats {
     /// The Mac's lines of the last minute.
     theirs: VecDeque<Said>,
-    /// What the Mac is in the middle of saying, and about when it began.
-    saying: Option<(String, i64)>,
+    saying: Option<Saying>,
     /// Each line in the order it settled, with when it may be written: at once for theirs.
     queue: VecDeque<(Said, i64)>,
     /// When a line of yours last repeated theirs closely.
     repeated_at: Option<i64>,
-    /// Whether the microphone is heard to hear the Mac, as last said.
+    /// Whether the microphone is heard to hear the Mac, as last said (`on_speakers`).
     speakers: bool,
 }
 
 impl Repeats {
-    /// A line that settled, with whether you're on speakers: the lines that may be written now,
-    /// in the order they settled.
-    pub fn said(&mut self, said: Said, speakers: bool, now: i64) -> Vec<Said> {
+    /// Whether you're on speakers, as the loudness of the two says (`Echo::speakers`). It stays as
+    /// last said: an ending lets go of what tells it before the helper's last lines come.
+    pub fn on_speakers(&mut self, speakers: bool) {
+        self.speakers = speakers;
+    }
+
+    /// A line that settled: the lines that may be written now, in the order they settled.
+    pub fn said(&mut self, said: Said, now: i64) -> Vec<Said> {
         if !said.mine {
             self.theirs.push_back(said.clone());
             while self.theirs.front().is_some_and(|t| now - t.until > THEIRS_KEPT_MS) {
@@ -249,23 +267,23 @@ impl Repeats {
         }
         let due = if said.mine { now + HOLD_MS } else { now };
         self.queue.push_back((said, due));
-        self.due(speakers, now)
+        self.due(now)
     }
 
-    /// What a source is in the middle of saying, empty once it's settled. Only the Mac's counts.
+    /// What a source is in the middle of saying, empty once it's settled or the source is lost.
+    /// Only the Mac's counts.
     pub fn saying(&mut self, mine: bool, text: &str, now: i64) {
         if mine {
             return;
         }
         self.saying = match text.trim() {
             "" => None,
-            text => Some((text.to_string(), self.saying.as_ref().map_or(now - SAYING_LAG_MS, |&(_, since)| since))),
+            text => Some(Saying { text: text.to_string(), since: self.saying.as_ref().map_or(now - SAYING_LAG_MS, |s| s.since), changed: now }),
         };
     }
 
-    /// The lines that may be written by now, with whether you're on speakers.
-    pub fn due(&mut self, speakers: bool, now: i64) -> Vec<Said> {
-        self.speakers = speakers;
+    /// The lines that may be written by now.
+    pub fn due(&mut self, now: i64) -> Vec<Said> {
         let mut out = Vec::new();
         while self.queue.front().is_some_and(|&(_, due)| due <= now) {
             let Some((said, _)) = self.queue.pop_front() else { break };
@@ -292,11 +310,19 @@ impl Repeats {
         let mut heard: Vec<&Said> = self.theirs.iter().filter(|t| near(t.at, t.until)).collect();
         heard.sort_by_key(|t| t.at);
         let mut theirs: Vec<String> = heard.iter().flat_map(|t| words(&t.text)).map(|(_, w)| w).collect();
-        if let Some((text, _)) = self.saying.as_ref().filter(|&&(_, since)| near(since, now)) {
-            theirs.extend(words(text).into_iter().map(|(_, w)| w));
+        let mut from = heard.iter().map(|t| t.at).min();
+        let mut until = heard.iter().map(|t| t.until).max();
+        // What they're still saying, while it's still changing near this line: one that stopped
+        // changing long ago is one whose source was lost before its words settled.
+        if let Some(saying) = self.saying.as_ref().filter(|s| near(s.since, s.changed)) {
+            theirs.extend(words(&saying.text).into_iter().map(|(_, w)| w));
+            from = Some(from.map_or(saying.since, |from| from.min(saying.since)));
+            // Its last words aren't in yet, so nothing of yours is past them.
+            until = Some(i64::MAX);
         }
+        let apart = (from.is_some_and(|from| said.at + APART_MS <= from), until.is_some_and(|until| said.until >= until.saturating_add(APART_MS)));
         let proven = self.speakers || self.repeated_at.is_some_and(|at| now - at < PROVEN_MS);
-        match verdict(&said.text, &theirs, proven) {
+        match verdict(&said.text, &theirs, proven, apart) {
             Verdict::Yours => Some(said),
             Verdict::Repeats { kept, close } => {
                 if close {
@@ -319,8 +345,9 @@ enum Verdict {
 }
 
 /// What of `line` repeats `theirs`, the Mac's words of the time in order, given whether it's
-/// proven the microphone hears the Mac.
-fn verdict(line: &str, theirs: &[String], proven: bool) -> Verdict {
+/// proven the microphone hears the Mac, and whether the line starts sooner than theirs and ends
+/// later (`apart`), each by enough that what's said then is yours.
+fn verdict(line: &str, theirs: &[String], proven: bool, apart: (bool, bool)) -> Verdict {
     let mine = words(line);
     let n = mine.len();
     let plain: Vec<String> = mine.iter().map(|(_, w)| w.clone()).collect();
@@ -333,9 +360,9 @@ fn verdict(line: &str, theirs: &[String], proven: bool) -> Verdict {
     let matched: usize = runs.iter().map(|&(_, len)| len).sum();
     let (before, after) = (first, n - last);
     // Words between the runs are theirs misheard; those around them are yours when there are
-    // enough of them.
-    let own = |count: usize| count >= OWN_WORDS;
-    let lost = (last - first - matched) + if own(before) { 0 } else { before } + if own(after) { 0 } else { after };
+    // enough of them, or they were said apart from theirs.
+    let (own_before, own_after) = (before >= OWN_WORDS || (before > 0 && apart.0), after >= OWN_WORDS || (after > 0 && apart.1));
+    let lost = (last - first - matched) + if own_before { 0 } else { before } + if own_after { 0 } else { after };
     let close = matched >= 4 && matched * 4 >= n * 3;
     // Too little of it theirs, or more of it left out than matched: it's yours, words in common
     // and all.
@@ -343,7 +370,7 @@ fn verdict(line: &str, theirs: &[String], proven: bool) -> Verdict {
         return Verdict::Yours;
     }
     let join = |part: &[(&str, String)]| part.iter().map(|(w, _)| *w).collect::<Vec<_>>().join(" ");
-    let kept: Vec<String> = [own(before).then(|| join(&mine[..first])), own(after).then(|| join(&mine[last..]))].into_iter().flatten().collect();
+    let kept: Vec<String> = [own_before.then(|| join(&mine[..first])), own_after.then(|| join(&mine[last..]))].into_iter().flatten().collect();
     Verdict::Repeats { kept: (!kept.is_empty()).then(|| kept.join(" … ")), close }
 }
 
@@ -571,17 +598,18 @@ mod tests {
     fn transcript(mut heard: Vec<(i64, Heard)>, speakers: bool) -> Vec<String> {
         heard.sort_by_key(|(at, _)| *at);
         let mut repeats = Repeats::default();
+        repeats.on_speakers(speakers);
         let mut out = Vec::new();
         let mut heard = heard.into_iter().peekable();
         let mut now = 0;
         while heard.peek().is_some() {
             while let Some((_, happened)) = heard.next_if(|(at, _)| *at <= now) {
                 match happened {
-                    Heard::Said(said) => out.extend(repeats.said(said, speakers, now)),
+                    Heard::Said(said) => out.extend(repeats.said(said, now)),
                     Heard::Saying(text) => repeats.saying(false, text, now),
                 }
             }
-            out.extend(repeats.due(speakers, now));
+            out.extend(repeats.due(now));
             now += 100;
         }
         out.extend(repeats.rest(now));
@@ -635,6 +663,15 @@ mod tests {
             (9000, theirs(said, 0, 8000)),
         ];
         assert_eq!(transcript(heard, false), vec![format!("Them: {said}")]);
+        // What they were saying when their source was lost, its words never settled, counts only
+        // near when it was said: a minute on, the same words from the microphone are yours.
+        let words = "Before we go on I want to walk through the numbers.";
+        let heard = vec![(1000, Heard::Saying("Before we go on I want to walk through the numbers")), (63_000, mine(words, 60_000, 62_500))];
+        assert_eq!(transcript(heard, true), vec![format!("You: {words}")]);
+        let mut repeats = Repeats::default();
+        repeats.saying(false, "Before we go on I want to walk through the numbers", 1000);
+        repeats.saying(false, "", 1500);
+        assert!(repeats.saying.is_none());
     }
 
     #[test]
@@ -670,6 +707,12 @@ mod tests {
         // Answering as they finish: the microphone has both in one line, and your answer stays.
         let heard = vec![(2000, theirs("Can you send it over?", 0, 1500)), (5600, mine("Can you send it over? Yes, I'll send it tonight with the notes.", 0, 5200))];
         assert_eq!(transcript(heard, true), vec!["Them: Can you send it over?", "You: Yes, I'll send it tonight with the notes."]);
+        // However short the answer, once it goes on past the end of theirs.
+        let heard = vec![(2000, theirs("Can you send it over?", 0, 1500)), (3400, mine("Can you send it over? No, I can't.", 0, 3000))];
+        assert_eq!(transcript(heard, true), vec!["Them: Can you send it over?", "You: No, I can't."]);
+        // Where it ends with theirs, a word or two after the repeat is theirs misheard.
+        let heard = vec![(2300, theirs("Can you send it over tonight?", 0, 1800)), (2400, mine("Can you send it over to night?", 0, 1900))];
+        assert_eq!(transcript(heard, true), vec!["Them: Can you send it over tonight?"]);
         // And before they start.
         let heard = vec![(5000, theirs(EXPORT, 2000, 6000)), (6300, mine(&format!("Fine, and what about backups? {EXPORT}"), 0, 6000))];
         assert_eq!(transcript(heard, true), vec![format!("Them: {EXPORT}"), "You: Fine, and what about backups?".into()]);
@@ -684,9 +727,14 @@ mod tests {
         assert_eq!(transcript(heard, false), vec!["You: What does it cost?", "Them: About fifty a month.", "You: Per seat?"]);
         // What's held back when hearing ends is written then.
         let mut repeats = Repeats::default();
-        assert_eq!(repeats.said(Said { mine: true, text: "Thanks, talk soon.".into(), at: 0, until: 900 }, false, 1000), vec![]);
+        assert_eq!(repeats.said(Said { mine: true, text: "Thanks, talk soon.".into(), at: 0, until: 900 }, 1000), vec![]);
         assert_eq!(repeats.rest(1200).len(), 1);
         assert_eq!(repeats.rest(1300), vec![]);
+        // Judged then as on speakers if that was last said.
+        repeats.on_speakers(true);
+        repeats.said(Said { mine: false, text: "Okay.".into(), at: 2000, until: 2400 }, 2800);
+        repeats.said(Said { mine: true, text: "Okay.".into(), at: 2000, until: 2400 }, 2900);
+        assert_eq!(repeats.rest(3000), vec![]);
     }
 
     #[test]
@@ -697,6 +745,6 @@ mod tests {
         // A run isn't broken up where the words it starts with come twice.
         assert_eq!(runs(&plain("we can ship friday"), &plain("well we can we can ship it")), vec![(0, 3)]);
         assert_eq!(runs(&plain("a b"), &plain("")), vec![]);
-        assert_eq!(verdict("", &plain("a b"), true), Verdict::Yours);
+        assert_eq!(verdict("", &plain("a b"), true, (false, false)), Verdict::Yours);
     }
 }

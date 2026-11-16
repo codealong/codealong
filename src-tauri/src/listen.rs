@@ -828,6 +828,21 @@ fn say(id: &str, f: impl FnOnce(&mut Running)) {
     }
 }
 
+/// Listening `id`'s lines on their way to its transcript (`State::held`), begun when `start` and
+/// there are none, and told whether you're on speakers while its helper is there to say: once an
+/// ending has taken that, they're judged as it last said.
+fn held<'a>(state: &'a mut State, id: &str, start: bool) -> Option<&'a mut Repeats> {
+    let speakers = state.running.get(id).map(|r| r.echo.speakers());
+    if start {
+        state.held.entry(id.to_string()).or_default();
+    }
+    let held = state.held.get_mut(id)?;
+    if let Some(speakers) = speakers {
+        held.on_speakers(speakers);
+    }
+    Some(held)
+}
+
 /// What the helper heard, for listening `id`. On the helper's reader thread.
 fn heard(id: &str, event: Event) {
     match event {
@@ -852,14 +867,11 @@ fn heard(id: &str, event: Event) {
             let said = Said { mine: source == YOU, text, at, until };
             let ready = {
                 let mut state = state();
-                let speakers = state.running.get(id).is_some_and(|r| r.echo.speakers());
                 // Held from its first line on, for one that hears both, until its ending writes
                 // the last; an ending under way only takes what's left.
-                if hears_both(&l) && l.hearing() && !state.ended.contains(id) {
-                    state.held.entry(id.to_string()).or_default();
-                }
-                match state.held.get_mut(id) {
-                    Some(held) => held.said(said, speakers, util::now_ms()),
+                let start = hears_both(&l) && l.hearing() && !state.ended.contains(id);
+                match held(&mut state, id, start) {
+                    Some(held) => held.said(said, util::now_ms()),
                     None => vec![said],
                 }
             };
@@ -877,11 +889,7 @@ fn heard(id: &str, event: Event) {
             });
             // Loudness comes ten times a second whatever's said, which is what lets go of a line
             // that was held back once its time is up.
-            let ready = {
-                let mut state = state();
-                let speakers = state.running.get(id).is_some_and(|r| r.echo.speakers());
-                state.held.get_mut(id).map(|held| held.due(speakers, util::now_ms())).unwrap_or_default()
-            };
+            let ready = held(&mut state(), id, false).map(|held| held.due(util::now_ms())).unwrap_or_default();
             if !ready.is_empty() {
                 if let Some(l) = list().into_iter().find(|l| l.id == id) {
                     write(&l, ready);
@@ -891,7 +899,13 @@ fn heard(id: &str, event: Event) {
         Event::Output { device, kind } => say(id, |r| r.echo.plays_through(&device, &kind)),
         Event::Ready => say(id, |r| r.waiting = None),
         Event::Waiting { message } => say(id, |r| r.waiting = Some(message)),
-        Event::Lost { source, message } => say(id, |r| r.problem = Some(format!("{source} can't be heard: {message}"))),
+        Event::Lost { source, message } => {
+            // What it was in the middle of saying won't settle now.
+            if let Some(held) = state().held.get_mut(id) {
+                held.saying(source == YOU, "", util::now_ms());
+            }
+            say(id, |r| r.problem = Some(format!("{source} can't be heard: {message}")));
+        }
         Event::Permission { state, .. } => {
             let mic = list().iter().find(|l| l.id == id).is_some_and(with_mic);
             say(id, |r| r.permitted(state, mic, util::now_ms()));
@@ -2113,6 +2127,24 @@ mod tests {
         for ask in [Ask { mic: true, ..Ask::default() }, Ask { system: true, ..Ask::default() }, Ask { file: Some("/tmp/call.m4a".into()), mic: true, ..Ask::default() }] {
             assert!(!hears_both(&hearing_of(ask)));
         }
+    }
+
+    #[test]
+    fn held_lines_are_judged_as_on_speakers_through_an_ending() {
+        let mut state = State::default();
+        let mut running = Running::default();
+        running.echo.plays_through("built-in", "speakers");
+        state.running.insert("l".into(), running);
+        // None until the first line to hold.
+        assert!(held(&mut state, "l", false).is_none());
+        assert!(held(&mut state, "l", true).is_some());
+        // An ending takes what says you're on speakers before the helper's last lines come; a
+        // word they both have is still the Mac's alone.
+        state.running.remove("l");
+        let lines = held(&mut state, "l", false).unwrap();
+        assert_eq!(lines.said(Said { mine: false, text: "Okay.".into(), at: 0, until: 400 }, 800).len(), 1);
+        assert_eq!(lines.said(Said { mine: true, text: "Okay.".into(), at: 0, until: 400 }, 900), vec![]);
+        assert_eq!(lines.rest(1000), vec![]);
     }
 
     #[test]
