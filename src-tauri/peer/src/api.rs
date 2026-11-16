@@ -82,6 +82,18 @@ pub const SESSION_TASK_OUTPUT: &str = "session-task-output";
 /// ends its process and what it started, and its harness tells the agent it ended; answering a
 /// sentence. Machines before 2026-11-12 refuse it as a request they don't know.
 pub const SESSION_TASK_STOP: &str = "session-task-stop";
+/// Runs a command for a session (`key`), as `!` in its box or Run on a shell block in its
+/// conversation does on its machine (`params::RunCommand`): in a terminal under the session or a
+/// tab of your terminal app there, as you, and the session is told what it printed once it ends;
+/// answering a sentence. Only you ask for it, at that machine or from your phone, never another
+/// machine, where an agent may have asked. Machines before 2026-11-15 refuse it as a request they
+/// don't know.
+pub const SESSION_RUN: &str = "session-run-command";
+/// What a new terminal's shell on the machine takes as a command's first word: the programs on
+/// its PATH and the shell's own, answering a list of names. A block in a reply with no language
+/// gets Run where each of its lines starts with one. Machines before 2026-11-15 refuse it as a
+/// request they don't know.
+pub const SHELL_COMMANDS: &str = "shell-commands";
 /// Where what you typed goes, as the quick panel suggests it: Jev's answer about this device's
 /// board (`Route`). Macs before 2026-09-29 refuse it as a request they don't know.
 pub const ROUTE: &str = "route";
@@ -284,6 +296,20 @@ pub mod params {
         #[serde(skip_serializing_if = "String::is_empty")]
         pub key: String,
         pub id: String,
+    }
+
+    /// `session-run-command`: the command, led by `!` as the session's box takes one, or with
+    /// `block` a shell block from its conversation, whose own `!` is the shell's and whose
+    /// comments are left out. It runs in `folder`, or with none the folder the session works in.
+    #[derive(Serialize, Deserialize, Clone, Debug, Default, PartialEq)]
+    #[serde(default)]
+    pub struct RunCommand {
+        #[serde(skip_serializing_if = "String::is_empty")]
+        pub key: String,
+        pub text: String,
+        #[serde(skip_serializing_if = "String::is_empty")]
+        pub folder: String,
+        pub block: bool,
     }
 
     /// `session-model`: the model, as its account's list names it (`opus`, `haiku[1m]`).
@@ -664,7 +690,7 @@ pub enum Reach {
 }
 
 /// Every request, with who may make it. A request missing here is one a device doesn't know.
-pub const REQUESTS: [(&str, Reach); 52] = [
+pub const REQUESTS: [(&str, Reach); 54] = [
     (SESSION_PAGE, Reach::Read),
     (SESSION_NEWER, Reach::Read),
     (SESSION_PENDING, Reach::Read),
@@ -678,6 +704,7 @@ pub const REQUESTS: [(&str, Reach); 52] = [
     (SEARCH, Reach::Read),
     (START_OPTIONS, Reach::Read),
     (START_PICK, Reach::Read),
+    (SHELL_COMMANDS, Reach::Read),
     (ROUTE, Reach::Read),
     (PR_DETAIL, Reach::Read),
     (PR_MERGE_BOX, Reach::Read),
@@ -703,6 +730,8 @@ pub const REQUESTS: [(&str, Reach); 52] = [
     (SESSION_UNQUEUE, Reach::Control),
     // It ends a process an agent started, which the agent is then told of.
     (SESSION_TASK_STOP, Reach::Control),
+    // It runs what it's given in a shell, as you; the machine asked takes it only from a phone.
+    (SESSION_RUN, Reach::Control),
     (START, Reach::Control),
     (SESSION_FORK, Reach::Control),
     (SESSION_EDIT, Reach::Control),

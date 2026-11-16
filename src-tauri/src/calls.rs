@@ -731,7 +731,7 @@ calls! {
     /// Runs a command you ran for a session in a new tab of your terminal in `folder`, and has the
     /// session told what it printed once it ends (actions.rs `run_command`).
     fn run_command(c, key: String, folder: String, text: String, block: bool) -> Result<String, String> {
-        let said = actions::run(&c.engine, &c.peers, actions::RUN_COMMAND, &key, actions::params::RunCommand { text, folder, block })?;
+        let said = actions::run(&c.engine, &c.peers, api::SESSION_RUN, &key, actions::params::RunCommand { text, folder, block, ..Default::default() })?;
         Ok(said.as_str().unwrap_or_default().to_string())
     }
 

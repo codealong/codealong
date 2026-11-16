@@ -31,7 +31,6 @@ pub const CLOSE: &str = "session-close";
 pub const OPEN: &str = "open-target";
 pub const PREVIEW: &str = "worktree-preview";
 pub const REUSABLE: &str = "worktree-reusable";
-pub const RUN_COMMAND: &str = "session-run-command";
 pub const LISTEN: &str = "session-listen";
 pub const HEARING: &str = "hearing";
 pub const MEETING: &str = "meeting";
@@ -113,17 +112,6 @@ pub mod params {
         pub meeting: Option<String>,
         pub lane: String,
         pub ask: crate::listen::Ask,
-    }
-
-    /// `session-run-command`: a command you ran for the session, and the folder it runs in. It's
-    /// led by `!` as the session's box takes one, or with `block` it's a shell block from the
-    /// session's conversation, whose own `!` is the shell's.
-    #[derive(Serialize, Deserialize, Clone, Debug, Default, PartialEq)]
-    #[serde(default)]
-    pub struct RunCommand {
-        pub text: String,
-        pub folder: String,
-        pub block: bool,
     }
 }
 
@@ -328,8 +316,11 @@ const REQUESTS: &[Request] = &[
     Request { name: REUSABLE, only_here: Some("That worktree is on another device; mark it there."), here: set_reusable, ..ANY },
     // A command you ran for a session (led by `!`, or Run on a block in its conversation) runs in a
     // tab of yours on its Mac, as you, and the session is told what it printed. Not the command's:
-    // its agent asks with `codealong terminal run`, which you allow.
-    Request { name: RUN_COMMAND, only_here: Some("Run it on the machine the session runs on."), here: run_command, command: run_is_yours, ..ANY },
+    // its agent asks with `codealong terminal run`, which you allow. Nor another Mac's, where an
+    // agent may have asked (`elsewhere`, `run_command`); a phone's is yours, as a window's is.
+    Request { name: api::SESSION_RUN, here: run_command, command: run_is_yours, ..ANY },
+    // Which blocks with no language get Run, on a device that shows this one's sessions.
+    Request { name: api::SHELL_COMMANDS, here: |_, _| to_value(crate::runcode::commands()), ..ANY },
     // A session listens through the microphone and the audio of the Mac it runs on, which are
     // its user's to turn on, at that Mac: the command may end a listening, and start one only on
     // a recording.
@@ -594,6 +585,10 @@ fn elsewhere(req: &Request, from: &From) -> Result<(), String> {
     if req.name == api::SESSION_SEND && matches!(from, From::Command(_)) {
         return Err("That session is on another device, where a message from the command would arrive as its user's own, so nothing was sent.".into());
     }
+    // The other Mac runs a command only for you at its windows or your phone (`run_command`).
+    if req.name == api::SESSION_RUN {
+        return Err("Run it on the machine the session runs on.".into());
+    }
     // The other device would take it as its user's, and not as an agent's, which may mark done
     // only its own session and those it started (agentdone.rs).
     if req.name == api::SESSION_DONE && matches!(from, From::Command(_)) {
@@ -763,12 +758,17 @@ fn answer_call(engine: &Handle, c: &Call) -> Result<Value, String> {
 /// what it prints, whatever its harness.
 fn run_command(engine: &Handle, c: &Call) -> Result<Value, String> {
     let key = c.session()?;
+    if !matches!(c.from, From::Here | From::Phone) {
+        return Err("A command runs for a session only when you ask on the machine it runs on or from your phone.".into());
+    }
     let p: params::RunCommand = c.read()?;
     let command = command_to_run(&p)?;
-    let (apps, lanes, title) = engine.read(|b| (b.apps.clone(), b.lanes.clone(), b.session(key).map(|(_, s)| s.title.clone())));
-    let title = title.ok_or("Codealong doesn't list that session.")?;
+    let (apps, lanes, found) = engine.read(|b| (b.apps.clone(), b.lanes.clone(), b.session(key).map(|(l, s)| (s.title.clone(), crate::board::session_folder(&l.path, &s.cwd)))));
+    let (title, folder) = found.ok_or("Codealong doesn't list that session.")?;
+    // A phone doesn't know the session's folder as this Mac has it, so it leaves it to this Mac.
+    let cwd = if p.folder.is_empty() { folder } else { p.folder };
     let (id, at) = crate::terminal::new_id();
-    let asked = crate::terminal::Asked { id, ask: crate::terminal::Ask { session: key.to_string(), command, cwd: p.folder.into(), ..Default::default() }, at };
+    let asked = crate::terminal::Asked { id, ask: crate::terminal::Ask { session: key.to_string(), command, cwd: cwd.into(), ..Default::default() }, at };
     let run = crate::terminal::start(&asked, &apps, &lanes, &title, true).map_err(words)?;
     // The session waits on it meanwhile, unless what it prints can't be sent to it.
     let told = cfg().is_ok_and(|cfg| crate::send::takes_unattended(&engine.board(), &cfg, key));
@@ -2352,6 +2352,13 @@ mod tests {
         assert!(err.contains("update it here"), "{err}");
         let err = answer(&engine, api::SESSION_PAGE, json!({}), false).unwrap_err();
         assert_eq!(err, "The request names no session.");
+        // A command runs for a session as you ask from your phone, which gets as far as the
+        // session, and never as another Mac asks, where an agent may have.
+        let run = json!({ "key": "claude:claude:abc", "text": "! make" });
+        let err = answer(&engine, api::SESSION_RUN, run.clone(), true).unwrap_err();
+        assert_eq!(err, "Codealong doesn't list that session.");
+        let err = answer(&engine, api::SESSION_RUN, run, false).unwrap_err();
+        assert!(err.contains("from your phone"), "{err}");
     }
 
     fn no_devices() -> (Peers, crate::fixtures::Scratch) {
@@ -2366,7 +2373,7 @@ mod tests {
         let engine = Handle::for_tests();
         // A worktree's targets open, and its preview and reuse mark are set, on its own Mac.
         let lane = "@a1b2c3d4e5:/Users/sam/app";
-        for (name, words) in [(OPEN, "it opens there"), (PREVIEW, "set its preview there"), (REUSABLE, "mark it there"), (RUN_COMMAND, "on the machine the session runs on")] {
+        for (name, words) in [(OPEN, "it opens there"), (PREVIEW, "set its preview there"), (REUSABLE, "mark it there"), (api::SESSION_RUN, "on the machine the session runs on")] {
             let err = run(&engine, &peers, name, lane, json!({ "target": "editor", "on": true })).unwrap_err();
             assert!(err.contains(words), "{name}: {err}");
         }
@@ -2560,7 +2567,7 @@ mod tests {
         }
         // A command led by `!` runs in a terminal of its user's only as they ran it: an agent asks
         // with `codealong terminal run`, which they allow.
-        assert!(ask(RUN_COMMAND, json!({ "text": "! make", "folder": "/tmp" })).unwrap_err().contains("`codealong terminal run`"));
+        assert!(ask(api::SESSION_RUN, json!({ "text": "! make", "folder": "/tmp" })).unwrap_err().contains("`codealong terminal run`"));
         // The rest is the command's as it is a window's: these get as far as the session. Mark as
         // done goes by what an agent may mark done once it has the session (agentdone.rs).
         for name in [api::SESSION_PENDING, api::SESSION_CANCEL, api::SESSION_RENAME, api::SESSION_FORK, api::SESSION_SEND, CLOSE, api::SESSION_DONE] {
@@ -2655,7 +2662,7 @@ mod tests {
 
     #[test]
     fn a_command_led_by_bang_runs_as_typed_and_a_block_without_its_comments() {
-        let run = |text: &str, block: bool| command_to_run(&params::RunCommand { text: text.into(), folder: "/tmp".into(), block });
+        let run = |text: &str, block: bool| command_to_run(&params::RunCommand { text: text.into(), folder: "/tmp".into(), block, ..Default::default() });
         // The box's, or a `!` block's: the session's `!` comes off and the rest runs as typed, a
         // `#` in quotes inside `$(…)` included, which the comment scanner would cut.
         assert_eq!(run(r#"! printf '%s\n' "$(printf "%s" "a # b")""#, false).unwrap(), r#"printf '%s\n' "$(printf "%s" "a # b")""#);

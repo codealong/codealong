@@ -3169,7 +3169,8 @@ it, with where it runs and the command ("Running in Ghostty · `npm run deploy`"
 goes without printing anything, rather than as stuck.
 You run commands this way yourself too, with `!` in a session's box (*Replying*) or Run on a block
 in its conversation (*Copy and Run*): no Allow, since you asked for it, and the session is told
-what it printed once it ends. Meanwhile a session whose turn was over, waiting on your next message
+what it printed once it ends. The iPhone app runs them too, on the session's Mac where it has
+remote control on; another Mac doesn't, since an agent there may have asked. Meanwhile a session whose turn was over, waiting on your next message
 or on your answer to its reply, shows as working on it, drawn with a clock as one waiting on a
 command in the background is ("Waiting on your command · `npm test`"), out of Your turn and the
 notch's count, its conversation ending with the command and where what it prints goes; once it's
