@@ -1225,6 +1225,12 @@ pub struct PlaceOption {
     /// Missing from Macs before 2026-10-23.
     #[serde(default)]
     pub service: bool,
+    /// The repos' main checkouts on the device's board that a session started here moves out of
+    /// into a worktree of its own before it changes anything (Claude Code's background jobs),
+    /// so it can start in one that holds other work without joining it. Missing from Macs
+    /// before 2026-11-16, whose sessions start where new work goes as for any other place.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub isolates_in: Vec<String>,
 }
 
 /// An account as the new-session sheet offers it.

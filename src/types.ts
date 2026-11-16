@@ -2724,8 +2724,11 @@ export interface StartAccount {
    *  `behind`, on Background: its harness has no background service of its own, so the session
    *  starts in the terminal, behind your windows (missing from Macs before 2026-10-03); false
    *  where it starts in tmux with no window instead. `service`, on Background: it goes under its
-   *  harness's own background service (missing from Macs before 2026-10-23). */
-  places: { place: StartPlace; label: string; behind?: boolean; service?: boolean }[];
+   *  harness's own background service (missing from Macs before 2026-10-23). `isolatesIn`: the
+   *  main checkouts on that Mac's board that a session started here moves out of into a worktree
+   *  of its own before it changes anything (Claude Code's background jobs), so it can start in
+   *  one holding other work (missing from Macs before 2026-11-16). */
+  places: { place: StartPlace; label: string; behind?: boolean; service?: boolean; isolatesIn?: string[] }[];
   /** The place its `start` setting names; starts go there rather than where the last one went. */
   chosen: StartPlace | null;
   /** Why there's nowhere, when `places` is empty. */

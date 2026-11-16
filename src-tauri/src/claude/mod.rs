@@ -1064,6 +1064,13 @@ impl crate::harness::Adapter for ClaudeCode {
         true
     }
 
+    /// A background job is told to call EnterWorktree before its first edit, and its edits in
+    /// the shared checkout are refused until it has, unless the settings say otherwise
+    /// (`start::isolates_in_background`).
+    fn isolates(&self, account: &AccountCfg, place: crate::start::Place, folder: &Path) -> bool {
+        place == crate::start::Place::Background && start::isolates_in_background(&account.home_path(), folder)
+    }
+
     /// The repo's `WorktreeRemove` hooks (`teardown::remove_hooks`), which Claude Code runs only
     /// in a folder the account trusts.
     fn teardown(&self, ctx: &crate::harness::Ctx, main: &Path, worktree: &Path) -> Result<Vec<crate::cleanup::Hook>, String> {

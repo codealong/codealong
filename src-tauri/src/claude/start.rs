@@ -1,7 +1,7 @@
 //! The commands that start, fork, resume and stop Claude Code sessions, and what its command
 //! line takes.
 
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
 
 use crate::attachments::{self, Style};
@@ -34,6 +34,49 @@ pub fn default_model(a: &AccountCfg) -> Option<String> {
     let bytes = std::fs::read(a.home_path().join("settings.json")).ok()?;
     let v: serde_json::Value = serde_json::from_slice(&bytes).ok()?;
     v.get("model").and_then(serde_json::Value::as_str).map(str::trim).filter(|m| !m.is_empty()).map(str::to_string)
+}
+
+/// Whether a background job of the account whose folder is `home`, started in the checkout
+/// `folder`, moves into a worktree of its own before it edits anything (2.1.325's code, the
+/// setting's description and the job's own prompt). Such a job is told to call EnterWorktree
+/// before its first edit, and an Edit or Write in the shared checkout is refused until it has
+/// ("This background session hasn't isolated its changes yet…"); it reads and answers in place.
+/// Its worktree is based on a freshly fetched `origin/<default branch>` unless `worktree.baseRef`
+/// says `head`, so a checkout on another branch with work of its own doesn't carry into it.
+///
+/// It goes by `CLAUDE_BG_ISOLATION`, then `worktree.bgIsolation` in its merged settings, each
+/// `worktree` or `none` and `worktree` when neither says. The variable is what the job was
+/// launched with, which a settings file's `env` replaces, the highest-ranked file that sets it
+/// winning, and only then is its value looked at: empty or another word, it says nothing and the
+/// setting decides. Each file's setting is read for itself, another word there leaving it unset
+/// in that file. Codealong starts background jobs from the login shell (`background_command`),
+/// so the variable a job is launched with is taken as the login shell sets it; a background
+/// service already running keeps the environment of the shell that started it, which may differ.
+/// Not read: the settings `settings_files` leaves out.
+pub(super) fn isolates_in_background(home: &Path, folder: &Path) -> bool {
+    isolated_by(&super::mode::settings_files(home, folder), launched_with())
+}
+
+/// `CLAUDE_BG_ISOLATION` as the login shell sets it, asked once: it takes a login shell.
+fn launched_with() -> Option<&'static str> {
+    static SAID: std::sync::OnceLock<Option<String>> = std::sync::OnceLock::new();
+    SAID.get_or_init(|| crate::procs::login_var("CLAUDE_BG_ISOLATION")).as_deref()
+}
+
+/// Whether the settings files, lowest-ranked first as `settings_files` lists them, and the
+/// variable a job is `launched` with leave a background job isolating itself
+/// (`isolates_in_background`).
+fn isolated_by(files: &[PathBuf], launched: Option<&str>) -> bool {
+    let read: Vec<serde_json::Value> = files.iter().rev().map(|f| std::fs::read(f).ok().and_then(|b| serde_json::from_slice(&b).ok()).unwrap_or(serde_json::Value::Null)).collect();
+    bg_isolation(&read, launched) != Some("none")
+}
+
+/// What the settings files, highest-ranked first, and the variable a job is `launched` with
+/// say of a background job's isolation: `worktree`, `none`, or nothing.
+fn bg_isolation<'a>(files: &'a [serde_json::Value], launched: Option<&'a str>) -> Option<&'a str> {
+    let taken = |v: &&str| matches!(*v, "worktree" | "none");
+    let var = files.iter().find_map(|f| f.pointer("/env/CLAUDE_BG_ISOLATION").and_then(serde_json::Value::as_str)).or(launched);
+    var.filter(taken).or_else(|| files.iter().find_map(|f| f.pointer("/worktree/bgIsolation").and_then(serde_json::Value::as_str).filter(taken)))
 }
 
 /// What follows the account's command in a background start, quoted for the shell:
@@ -223,7 +266,46 @@ pub(super) fn resume_job_command(account: &AccountCfg, from: &str, keep: Option<
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::path::PathBuf;
+
+    #[test]
+    fn a_background_job_isolates_itself_unless_its_settings_say_none() {
+        let dir = crate::fixtures::scratch("bg-isolation");
+        // The account's, the repo's, its local ones and the managed ones: scratch files all.
+        let files: Vec<PathBuf> = ["account.json", "repo.json", "local.json", "managed.json"].iter().map(|f| dir.join(f)).collect();
+        let set = |i: usize, text: &str| std::fs::write(&files[i], text).unwrap();
+        let isolated = |launched: Option<&str>| isolated_by(&files, launched);
+        assert!(isolated(None), "with no file, it isolates");
+        set(0, r#"{"worktree":{"bgIsolation":"none"}}"#);
+        assert!(!isolated(None));
+        set(1, r#"{"worktree":{"bgIsolation":"worktree"}}"#);
+        assert!(isolated(None), "the repo's over the account's");
+        set(2, r#"{"worktree":{"bgIsolation":"none"}}"#);
+        assert!(!isolated(None), "the local ones over the repo's");
+        set(3, r#"{"worktree":{"bgIsolation":"worktree"}}"#);
+        assert!(isolated(None), "the managed ones over all");
+        set(3, r#"{"worktree":{"bgIsolation":"off"}}"#);
+        assert!(!isolated(None), "a word it doesn't take leaves the setting unset in that file");
+        // The variable, launched with or from any file's `env`, wins over the setting in a file
+        // ranked higher, and a file's over the one it was launched with.
+        assert!(isolated(Some("worktree")));
+        set(0, r#"{"env":{"CLAUDE_BG_ISOLATION":"worktree"}}"#);
+        assert!(isolated(None));
+        assert!(isolated(Some("none")), "a file's variable over the one it was launched with");
+        set(3, "not json");
+        set(1, r#"{"env":{"CLAUDE_BG_ISOLATION":"none"}}"#);
+        assert!(!isolated(None), "the higher file's variable, a broken file passed over");
+        // The variable is replaced before its value is looked at: an empty one in a higher file
+        // says nothing, and the setting decides.
+        set(1, "{}");
+        set(3, r#"{"env":{"CLAUDE_BG_ISOLATION":""},"worktree":{"bgIsolation":"none"}}"#);
+        assert!(!isolated(None), "the managed variable empties the account's, and its setting decides");
+        assert!(!isolated(Some("worktree")));
+        set(0, "{}");
+        set(2, "{}");
+        set(3, "{}");
+        assert!(!isolated(Some("none")), "launched with none, nothing replacing it");
+        assert!(isolated(Some("")), "an empty one says nothing");
+    }
 
     #[test]
     fn stops_a_job_by_the_id_it_attaches_to() {

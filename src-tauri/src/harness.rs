@@ -842,6 +842,14 @@ pub trait Adapter: Sync {
         false
     }
 
+    /// Whether a session of `account` started at `place` in the checkout `folder` moves into a
+    /// worktree of its own before it changes anything there (Claude Code's background jobs), so
+    /// it can start in a checkout that holds other work without joining that work
+    /// (`start::note_isolation`).
+    fn isolates(&self, _account: &AccountCfg, _place: crate::start::Place, _folder: &Path) -> bool {
+        false
+    }
+
     /// The repo's own teardown for its worktree `worktree`, as the harness's settings in the
     /// repo's main checkout `main` declare it (Claude Code's `WorktreeRemove` hooks), run as the
     /// harness would run it there (cleanup.rs): none when the repo declares none, Err with why

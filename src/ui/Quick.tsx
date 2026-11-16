@@ -324,6 +324,8 @@ export function Quick() {
   const [project, setProject] = useState<string>(() => readStored(PROJECT_KEY, asText, ALL_PROJECTS));
   const [text, setText] = useState('');
   const [attached, setAttached] = useState<Attachment[]>([]);
+  // The worktree picked or asked for, or a repo picked in the repo menu (`REPO` and its key):
+  // where new work goes in it, which follows the place picked (quick.ts `startLaneIn`).
   const [laneId, setLaneId] = useState<string | null>(null);
   // A folder picked in the worktree menu that's being put on the board (newfolder.rs): until the
   // board here has its worktree, the panel waits for it rather than start somewhere else. It
@@ -760,22 +762,13 @@ export function Quick() {
     const all = deviceNow ? (devices?.lanes ?? []).filter((l) => shortOf(l.id) === deviceNow) : (board?.lanes ?? []);
     const worktrees = all.filter((l) => !l.startsChats);
     const mine = current === CHATS ? [] : worktrees.filter((l) => inProject(l, current));
-    const asked = laneId && !mine.some((l) => l.id === laneId) ? worktrees.find((l) => l.id === laneId) : undefined;
+    const isAsked = (l: Lane) => l.id === laneId || `${REPO}${repoKey(l)}` === laneId;
+    const asked = laneId && !mine.some(isAsked) ? worktrees.find(isAsked) : undefined;
     const extra = asked ? worktrees.filter((l) => repoKey(l) === repoKey(asked)) : [];
     return { lanes: [...mine, ...extra], chatLane: all.find((l) => l.startsChats) ?? null };
   }, [board?.lanes, devices?.lanes, deviceNow, current, laneId]);
   const pinnedWorktrees = board?.pinnedWorktrees;
   const repoList = useMemo(() => repoChoices(lanes, pinnedWorktrees ?? []), [lanes, pinnedWorktrees]);
-  // Without one asked for, where new work starts in the first repo on the list: one with a
-  // pinned worktree, else the latest (quick.ts `startLaneIn`). Opened by the chat shortcut or on
-  // General chat, the chats lane, once the board has it: a panel opened before the first scan
-  // finished gets it with the board that has it.
-  // Improving Codealong with no source on the board goes to no worktree by default (the note
-  // says why), never to the project's first, which would start it in some other repo, nor to
-  // General chat's chats.
-  const lane = lanes.find((l) => l.id === laneId) ?? (chatLane && (chatLane.id === laneId || ((asChat || (chatting && !improve)) && !laneId)) ? chatLane : null) ?? (improve ? null : startLaneIn(repoList[0]?.lanes ?? [], false));
-  // The repo it starts in, whose worktrees the worktree menu lists.
-  const repoNow = lane && !lane.startsChats ? (repoList.find((r) => r.key === repoKey(lane)) ?? null) : null;
 
   const shownNow = useLatest(shown);
 
@@ -834,8 +827,12 @@ export function Quick() {
       return;
     }
     const to = skillStart(repo, lanesNow.current);
-    beforeSkill.current = { laneId: laneIdNow.current, newWorktree: newWorktreeNow.current, ...beforeSkill.current, put: to.lane.id };
-    setLaneId(to.lane.id);
+    // Where new work goes in its repo is the repo's own pick, which follows the place as a repo
+    // picked in its menu does.
+    const ofRepo = lanesNow.current.filter((l) => repoKey(l) === repoKey(to.lane));
+    const put = !to.newWorktree && startLaneIn(ofRepo, false)?.id === to.lane.id ? `${REPO}${repoKey(to.lane)}` : to.lane.id;
+    beforeSkill.current = { laneId: laneIdNow.current, newWorktree: newWorktreeNow.current, ...beforeSkill.current, put };
+    setLaneId(put);
     setNewWorktree(to.newWorktree);
   }, [skillNowKey, skillLaneNow, lanesNow, laneIdNow, newWorktreeNow, setNewWorktree]);
   // Only accounts whose agent reads the skill are offered (asked 2026-10-04), and for an
@@ -869,6 +866,7 @@ export function Quick() {
     placeNow,
     makesWorktree: harnessMakesWorktree,
     inNewWorktree: newWorktreePicked,
+    isolatesIn,
     modelNow,
     startsOn,
     effortModel,
@@ -882,6 +880,21 @@ export function Quick() {
     pickEffort,
     effortShown,
   } = useStartChoice(startPicks, optionsForStart, usage, now, allLanes);
+  // Without a worktree asked for, where new work starts in the repo picked, else the first on the
+  // list: one with a pinned worktree, else the latest (quick.ts `startLaneIn`), the main
+  // checkout where the place picked moves the session out of it before it changes anything.
+  // Opened by the chat shortcut or on General chat, the chats lane, once the board has it: a
+  // panel opened before the first scan finished gets it with the board that has it.
+  // Improving Codealong with no source on the board goes to no worktree by default (the note
+  // says why), never to the project's first, which would start it in some other repo, nor to
+  // General chat's chats.
+  const repoPicked = laneId?.startsWith(REPO) ? repoList.find((r) => `${REPO}${r.key}` === laneId) : undefined;
+  const lane =
+    lanes.find((l) => l.id === laneId) ??
+    (chatLane && (chatLane.id === laneId || ((asChat || (chatting && !improve)) && !laneId)) ? chatLane : null) ??
+    (improve && !repoPicked ? null : startLaneIn((repoPicked ?? repoList[0])?.lanes ?? [], false, isolatesIn));
+  // The repo it starts in, whose worktrees the worktree menu lists.
+  const repoNow = lane && !lane.startsChats ? (repoList.find((r) => r.key === repoKey(lane)) ?? null) : null;
   /** A suggested start's agent as it would start, among `only` when it needs a service only they
    *  reach (route.ts `resolveSuggestedAgent`). */
   const choiceForAgent = (suggestedAgent: string | undefined, overWorktree: boolean, only: string[] | null = null) =>
@@ -2184,7 +2197,7 @@ export function Quick() {
   // Where a pick in the repo menu would start, under the repo's name.
   const startsInRepo = (lanes: Lane[]) => {
     if (newWorktree && makesWorktree) return 'New worktree';
-    const l = startLaneIn(lanes, false);
+    const l = startLaneIn(lanes, false, isolatesIn);
     return l ? `${worktreeName(l)}${l.origin !== 'main' && l.reuse ? `, ${REUSE_STATE[l.reuse].toLowerCase()}` : ''}` : '';
   };
   // A worktree's name or branch typed where it names no repo lists the worktrees it names, so
@@ -2222,8 +2235,9 @@ export function Quick() {
       ]
     : [];
 
-  /** A repo picked in its menu: where new work starts in it (New worktree, while it's on, is made
-   *  from the repo's checkout for it as the session starts). */
+  /** A repo picked in its menu: where new work starts in it, as the place picked has it now or
+   *  later (`lane`; New worktree, while it's on, is made from the repo's checkout for it as the
+   *  session starts). */
   const pickRepo = (id: string) => {
     const r = id.startsWith(REPO) ? repoList.find((x) => x.key === id.slice(REPO.length)) : undefined;
     if (!r) {
@@ -2236,7 +2250,7 @@ export function Quick() {
     setPicker(null);
     refocus();
     dropAdding();
-    setLaneId(startLaneIn(r.lanes, false)?.id ?? null);
+    setLaneId(id);
   };
 
   /** A worktree picked in the repo's menu, or New worktree: on over the worktree picked, which

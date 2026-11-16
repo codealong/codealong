@@ -577,6 +577,9 @@ export interface ChosenStart {
   placeNow: StartPlace | null;
   makesWorktree: boolean;
   inNewWorktree: boolean;
+  /** The main checkouts a session started there moves out of before it changes anything
+   *  (quick.ts `startLaneIn`). */
+  isolatesIn: string[];
   takesAModel: boolean;
   /** The model asked for: Auto's pick, or the one picked, where the place takes one. */
   modelNow: string | null;
@@ -671,6 +674,7 @@ export function startChoice(
     placeNow,
     makesWorktree,
     inNewWorktree: makesWorktree && newWorktree,
+    isolatesIn: places.find((p) => p.place === placeNow)?.isolatesIn ?? [],
     takesAModel,
     modelNow,
     defaultModel,

@@ -195,7 +195,7 @@ pub fn options(accounts_in: &[AccountCfg], terminal: &str, codex_projects: Vec<S
                         Place::Codealong => "Codealong".into(),
                     };
                     let background = place == Place::Background;
-                    PlaceOption { place, label, behind: background && !adapter.runs_in_background(), service: background && adapter.runs_in_background() }
+                    PlaceOption { place, label, behind: background && !adapter.runs_in_background(), service: background && adapter.runs_in_background(), isolates_in: Vec::new() }
                 })
                 .collect();
             let chosen = a.start.as_deref().and_then(Place::from_word);
@@ -797,8 +797,25 @@ pub fn options_for(cfg: &Config) -> StartOptions {
 
 /// The sheet's options for the accounts config.toml has now: what a window's new-session sheet
 /// and another device's get.
-pub fn options_here() -> Result<StartOptions> {
-    Ok(options_for(&config::current()?))
+pub fn options_here(board: &Board) -> Result<StartOptions> {
+    let cfg = config::current()?;
+    let mut out = options_for(&cfg);
+    note_isolation(&mut out, &cfg.accounts, board);
+    Ok(out)
+}
+
+/// Each place's `isolates_in`: the main checkouts on `board` that a session started there moves
+/// out of into a worktree of its own before it changes anything (`Adapter::isolates`), where the
+/// quick panel starts it whatever work is under way there (src/quick.ts `startLaneIn`).
+pub fn note_isolation(options: &mut StartOptions, accounts: &[AccountCfg], board: &Board) {
+    let mains: Vec<&str> = board.lanes.iter().filter(|l| l.origin == Origin::Main).map(|l| l.path.as_str()).collect();
+    for a in &mut options.accounts {
+        let Some(cfg) = accounts.iter().find(|c| c.name == a.name) else { continue };
+        let adapter = adapter_of(cfg);
+        for p in &mut a.places {
+            p.isolates_in = mains.iter().filter(|m| adapter.isolates(cfg, p.place, Path::new(m))).map(|m| m.to_string()).collect();
+        }
+    }
 }
 
 /// The account, model, effort and place a start goes on (`pick`).

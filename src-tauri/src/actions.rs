@@ -1299,8 +1299,8 @@ fn route(engine: &Handle, c: &Call) -> Result<Value, String> {
 }
 
 /// Where each account here can start a session.
-fn start_options(_: &Handle, _: &Call) -> Result<Value, String> {
-    to_value(crate::start::options_here().map_err(words)?)
+fn start_options(engine: &Handle, _: &Call) -> Result<Value, String> {
+    to_value(crate::start::options_here(&engine.board()).map_err(words)?)
 }
 
 /// Where `codealong start` run here would start what the command on another device was given.

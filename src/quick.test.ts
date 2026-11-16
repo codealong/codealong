@@ -587,6 +587,17 @@ describe('startLaneIn', () => {
     expect(startLaneIn([free, lane('a', [], { repo: 'a', origin: 'main', reuse: 'open' })], true)?.id).toBe('a');
   });
 
+  it('starts in the main checkout, work under way or not, where the session moves out of it before changing anything', () => {
+    const free = lane('free', [], { repo: 'a', reuse: 'free', lastActivity: 3, path: '/Users/me/projects/atlas-free' });
+    const busyMain = lane('a', [], { repo: 'a', origin: 'main', reuse: 'open', lastActivity: 9, path: '/Users/me/projects/atlas' });
+    expect(startLaneIn([busyMain, free], false, ['/Users/me/projects/atlas'])?.id).toBe('a');
+    // Another repo's main checkout isolating changes nothing here.
+    expect(startLaneIn([busyMain, free], false, ['/Users/me/projects/kestrel'])?.id).toBe('free');
+    // Nor in a repo without a main checkout listed, nor with New worktree on.
+    expect(startLaneIn([free], false, ['/Users/me/projects/atlas-free'])?.id).toBe('free');
+    expect(startLaneIn([busyMain, free], true, ['/Users/me/projects/atlas'])?.id).toBe('a');
+  });
+
   it('names the main checkout main', () => {
     expect(worktreeName({ origin: 'main', callsign: 'atlas' })).toBe('main');
     expect(worktreeName({ origin: 'claude-app', callsign: 'atlas-2' })).toBe('atlas-2');

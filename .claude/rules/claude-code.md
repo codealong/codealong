@@ -461,6 +461,18 @@ on this Mac; read it before changing the Claude adapter (paths are under `src-ta
   The lock comes off just before the files are deleted. A session sent no prompt yet has no
   `worktree-state` line, and the exit writes none: it writes a `relocated` line with the
   checkout's folder.
+- A background job isolates itself (2.1.325's code; on this Mac's 96 latest sessions started in
+  one repo's main checkout, 86 called EnterWorktree, 2026-11-16): its prompt tells it to call
+  EnterWorktree before its first code change unless its folder is under `.claude/worktrees/`,
+  and an Edit or Write in the shared checkout is refused until it has. It reads and answers in
+  place. `CLAUDE_BG_ISOLATION`, then `worktree.bgIsolation` (`worktree`, the default, or `none`,
+  which lets it edit the working copy) turn it off, the variable being what the job was launched
+  with as the highest-ranked settings file's `env` replaces it, empty or another word saying
+  nothing: `claude/start.rs` (`isolates_in_background`, `bg_isolation`),
+  which the quick panel starts such a job by in a main checkout holding other work (start.rs
+  `note_isolation`, src/quick.ts `startLaneIn`). Not there: a conversation moved to the
+  background with `/background` is a job with `bgIsolation: "none"` in its `state.json`, and a
+  subagent of an unisolated job is refused too, told to re-spawn with `isolation: "worktree"`.
 - `--bg` (2.1.283): the job ID it prints, the session ID the roster has as soon as it returns,
   `--session-id` ignored, its arguments quoted in the command since the service keeps the
   environment of whichever shell started it, and an untrusted folder refused:

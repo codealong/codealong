@@ -2722,7 +2722,12 @@ The repo menu lists each repo once (after its project's name, where it lists sev
 a pinned worktree first, with where a session would start in it under its name; a worktree's name or branch typed there, where it names no repo,
 lists the worktrees it names. A repo picked starts where new work goes in it: its main checkout
 when that holds no work, else a reusable worktree ready for new work, else the main checkout
-anyway; never another worktree with work under way. The worktree menu lists that repo's
+anyway; never another worktree with work under way. Where the account and place move a session
+into a worktree of its own before it changes anything, it starts in the main checkout whatever
+work is under way there, as it joins none of it: Claude Code's background jobs do (Background on
+a Claude Code account), unless `worktree.bgIsolation` is `none` in the account's or the repo's
+settings. The repo picked follows the place: pick another and where it starts in the repo changes
+with it. The worktree menu lists that repo's
 worktrees: the main checkout (*main*) first, then *New worktree* (where the account makes one,
 below), the reusable ones ready for new work and the ones you pinned; the reusable ones with
 work under way and the rest, each kept for the one piece of work it was made for, fold away

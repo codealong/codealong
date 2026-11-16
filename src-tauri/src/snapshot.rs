@@ -720,6 +720,7 @@ fn start_options(_: &Args, _: &[String]) -> Done {
         std::thread::sleep(std::time::Duration::from_millis(250));
         options = start::options_for(&cfg);
     }
+    start::note_isolation(&mut options, &cfg.accounts, &engine::snapshot(false, false));
     Ok(pretty(&options))
 }
 
