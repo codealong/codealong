@@ -27,22 +27,30 @@ export const QUICK_PLACEHOLDER = 'Search or prompt…';
 export const SEND_TO_PLACEHOLDER = 'Find the session to send this to…';
 /** Codealong's chats, for a question that belongs to none of your repos: the repo menu's pick
  *  that starts one, in a folder of its own, and the project menu's that lists them and starts the
- *  next one there. */
+ *  next one there (`CHATS`). */
 export const GENERAL_CHAT = 'General chat';
+/** General chat in the project menu, as the panel keeps it: no name a project of yours would
+ *  have, so one you named General chat stays a project of its own. */
+export const CHATS = 'codealong:general-chat';
+
+/** What the project menu and its chip call the project the panel is on. */
+export function projectLabel(project: string): string {
+  return project === CHATS ? GENERAL_CHAT : project;
+}
 
 /** Whether a worktree (or a floating bar pill, which carries its worktree's project) is in the
  *  project the panel shows. All projects has every project's, Elsewhere's among them, as the main
  *  window and the bar do; General chat has the folders chats are kept in, Codealong's own and the
  *  apps' (`Lane.chats`), which are all Elsewhere's. */
 export function inProject(lane: Pick<Lane, 'project' | 'chats'>, project: string): boolean {
-  if (project === GENERAL_CHAT) return !!lane.chats;
+  if (project === CHATS) return !!lane.chats;
   return project === ALL_PROJECTS || lane.project === project;
 }
 
 /** The project a panel on `project` says its rows are in (ProjectSaid.tsx `ProjectShown`), so a
  *  row in another says its own: General chat's chats are Elsewhere's, which they needn't say. */
 export function projectShownIn(project: string): string {
-  return project === GENERAL_CHAT ? 'Elsewhere' : project;
+  return project === CHATS ? 'Elsewhere' : project;
 }
 
 export type RowGroup = 'suggested' | 'skills' | 'top' | 'needs' | 'reviews' | 'unread' | 'working' | 'found' | 'sendto' | 'todos' | 'prs' | 'ready' | 'recent';
@@ -671,7 +679,7 @@ export function folderChoices(look: FolderLook, current: string, projects: reado
   const add = (project: string | null, where: string): FolderChoice => ({ kind: 'add', project, label: look.name, detail: `${what} · ${where}` });
   const own = add(null, projects.includes(look.name) ? `in ${look.name}` : 'a project of its own');
   // Elsewhere is where folders outside your projects go: none is added to it.
-  const real = ![ALL_PROJECTS, GENERAL_CHAT, 'Elsewhere', look.name].includes(current) && projects.includes(current);
+  const real = ![ALL_PROJECTS, CHATS, 'Elsewhere', look.name].includes(current) && projects.includes(current);
   const adds = look.project ? [add(look.project, `in ${look.project}`)] : [own, ...(real ? [add(current, `in ${current}`)] : [])];
   return !look.exists && into.length > 0 ? [...into, ...adds] : [...adds, ...into];
 }

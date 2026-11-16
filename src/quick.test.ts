@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it } from 'vitest';
 import { agoPhrase } from './format';
-import { ALL_PROJECTS, GENERAL_CHAT, attachmentsNote, attentionRows, draftCodec, folderChoices, foldedWords, holdsPrompt, folderStart, isFolderPath, macUnavailable, nextDraft, primaryRunningWords, queueRows, recallList, startTitle, todosStayNote, withPrompt, findPrs, findSessions, findTodos, heldSaid, laneGroups, projectCounts, repoChoices, repoWorktrees, startLaneIn, worktreeName, readyTodos, recentRows, sendTargets, shortcutFromKey, shortcutKeys, shortcutLabel, stillSaid, TAKEN, takenFor, titleMarks, worktreeCount, deviceHits, inProject, projectShownIn } from './quick';
+import { ALL_PROJECTS, CHATS, GENERAL_CHAT, attachmentsNote, attentionRows, draftCodec, folderChoices, foldedWords, holdsPrompt, folderStart, isFolderPath, macUnavailable, nextDraft, primaryRunningWords, queueRows, recallList, startTitle, todosStayNote, withPrompt, findPrs, findSessions, findTodos, heldSaid, laneGroups, projectCounts, repoChoices, repoWorktrees, startLaneIn, worktreeName, readyTodos, recentRows, sendTargets, shortcutFromKey, shortcutKeys, shortcutLabel, stillSaid, TAKEN, takenFor, titleMarks, worktreeCount, deviceHits, inProject, projectLabel, projectShownIn } from './quick';
 import { setPlatform } from './platform';
 import * as fx from './testing/fixtures';
 import type { Board, FolderLook, Label, Lane, PrItem, Session, Todo } from './types';
@@ -487,23 +487,33 @@ describe('General chat', () => {
   const b = board([chats, appChats, scratch, app]);
 
   it('lists the chats, Codealong’s and the apps’, and nothing else', () => {
-    expect([chats, appChats, scratch, app].map((l) => inProject(l, GENERAL_CHAT))).toEqual([true, true, false, false]);
-    expect(attentionRows(b, GENERAL_CHAT).rows.map((r) => r.key)).toEqual(['c2', 'c1']);
-    expect(projectCounts(b, [GENERAL_CHAT])).toEqual({ [GENERAL_CHAT]: { needs: 1, unread: 1 } });
+    expect([chats, appChats, scratch, app].map((l) => inProject(l, CHATS))).toEqual([true, true, false, false]);
+    expect(attentionRows(b, CHATS).rows.map((r) => r.key)).toEqual(['c2', 'c1']);
+    expect(projectCounts(b, [CHATS])).toEqual({ [CHATS]: { needs: 1, unread: 1 } });
   });
 
   it('finds other projects’ sessions after its own, as a project does', () => {
     // The project's login fix is the newer, and still comes after the chat.
-    expect(findSessions(b, GENERAL_CHAT, 'fix', NOW).map((r) => r.key)).toEqual(['c1', 'a']);
-    expect(findSessions(b, GENERAL_CHAT, 'semaphore', NOW).map((r) => r.key)).toEqual(['c2']);
+    expect(findSessions(b, CHATS, 'fix', NOW).map((r) => r.key)).toEqual(['c1', 'a']);
+    expect(findSessions(b, CHATS, 'semaphore', NOW).map((r) => r.key)).toEqual(['c2']);
   });
 
   it('doesn’t say Elsewhere before its chats, which are all there', () => {
-    expect(projectShownIn(GENERAL_CHAT)).toBe('Elsewhere');
+    expect(projectShownIn(CHATS)).toBe('Elsewhere');
     expect(projectShownIn('Acme')).toBe('Acme');
     expect(projectShownIn(ALL_PROJECTS)).toBe(ALL_PROJECTS);
   });
+
+  it('is kept apart from a project you named General chat', () => {
+    const named = lane('notes', [session('n', 'needs', NOW)], { project: GENERAL_CHAT });
+    expect(inProject(named, GENERAL_CHAT)).toBe(true);
+    expect(inProject(named, CHATS)).toBe(false);
+    expect(projectLabel(CHATS)).toBe(GENERAL_CHAT);
+    expect(projectLabel(GENERAL_CHAT)).toBe(GENERAL_CHAT);
+    expect(projectShownIn(GENERAL_CHAT)).toBe(GENERAL_CHAT);
+  });
 });
+
 
 describe('repoChoices', () => {
   it('lists each repo once with its worktrees, pinned ones\' repos first, then the latest active', () => {
@@ -883,7 +893,7 @@ describe('folders typed in the worktree menu', () => {
       { kind: 'add', project: null, label: 'kestrel', detail: 'New folder ~/projects/kestrel · a project of its own' },
       { kind: 'add', project: 'Atlas', label: 'kestrel', detail: 'New folder ~/projects/kestrel · in Atlas' },
     ]);
-    for (const current of [ALL_PROJECTS, GENERAL_CHAT, 'Elsewhere', 'Gone']) {
+    for (const current of [ALL_PROJECTS, CHATS, 'Elsewhere', 'Gone']) {
       expect(folderChoices(look({ exists: true }), current, projects).map((c) => c.kind === 'add' && c.detail)).toEqual(['Add ~/projects/kestrel · a project of its own']);
     }
     expect(folderChoices(look({ name: 'Atlas' }), 'Atlas', projects).map((c) => c.kind === 'add' && [c.project, c.detail])).toEqual([[null, 'New folder ~/projects/kestrel · in Atlas']]);

@@ -3,8 +3,9 @@
 // the engine took of the windows show as attachments and go into the prompt after what you
 // typed, one removed stays out; with Codealong's source in no project the panel says so and its
 // button saves config.toml with a Codealong project for the source; with no source it says where
-// to clone one; with it only on another Mac the panel goes there and starts there with the
-// pictures; and an ordinary open after is itself again.
+// to clone one and starts nowhere, not in General chat's chats either; with it only on another
+// Mac the panel goes there and starts there with the pictures; and an ordinary open after is
+// itself again.
 //   PREVIEW_WAIT=60000 scripts/preview.sh quick '' scripts/preview/improve-check.js
 // The board needs a worktree in a project and an account that can start.
 (function () {
@@ -67,7 +68,13 @@
       await until(function () { return box() && !q('button', box()); }, 5000, 'the note about cloning the source');
       check('without the source it says where to clone it', box().textContent.indexOf('github.com/codealong/codealong') >= 0, box().textContent);
       check('and has no button', !q('button', box()));
-      check('and no worktree to start in', compose().classList.contains('is-disabled') && q('.ca-quick-bar').textContent.indexOf('No worktree') >= 0, compose().textContent.slice(0, 80));
+      check('and no worktree to start in', compose().classList.contains('is-disabled') && q('.ca-quick-bar').textContent.indexOf('No repo') >= 0, compose().textContent.slice(0, 80));
+      // Nor General chat's chats, with General chat picked in the project menu.
+      localStorage.setItem('codealong.quick.project', 'codealong:general-chat');
+      window.__quickOpen({ improve: { shots: [] } }, Object.assign({}, board, { improve: {} }));
+      await wait(300);
+      check('on General chat, still no worktree to start in', compose().classList.contains('is-disabled') && q('.ca-quick-bar').textContent.indexOf('No repo') >= 0, q('.ca-quick-bar').textContent.slice(0, 80));
+      localStorage.setItem('codealong.quick.project', 'All projects');
 
       // The source on another Mac and none here: the panel goes there and starts there, the
       // pictures going with the prompt (actions.rs `carry_images`).
