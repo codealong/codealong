@@ -1248,8 +1248,8 @@ pub struct ShortcutsCfg {
     /// Opens the quick panel: find a session, or start one.
     #[serde(default = "default_quick_panel")]
     pub quick_panel: String,
-    /// Opens the quick panel set to start a chat of its own, in no project, rather than in a
-    /// worktree.
+    /// Opens the quick panel on General chat, to start a chat of its own in no project rather
+    /// than in a worktree (quick.rs `toggle_chat`).
     #[serde(default = "default_chat")]
     pub chat: String,
     /// Opens the first session that waits on you, to answer one after another: in the notch when

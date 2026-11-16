@@ -2528,9 +2528,11 @@ opens where it lives only on its own machine, so ⏎ and ⌥⏎ both show it in 
 it in the waiting window while that lists the machine's sessions (connected, with `[devices]
 in_bar` on), else shows it in Codealong too. Send to lists this machine's sessions only.
 ⌥⌘' (`[shortcuts] chat`) opens the same
-panel with the repo picker on General chat, so what you type starts a chat of its own, in a folder
-of its own among Codealong's chats, rather than in a worktree; it finds sessions as ⌥⌘/ does, and
-the picker (⌘T) still goes to a repo. With voice on, ⌥⌘= (`[shortcuts] listen`) opens it set
+panel on General chat (below), so what you type starts a chat of its own, in a folder of its own
+among Codealong's chats, rather than in a worktree; it finds sessions as ⌥⌘/ does, and the picker
+(⌘T) still goes to a repo. It's on General chat for that open alone: the next opens on the project
+you were on. Pressed with the panel up on a project, it goes to General chat, its project picker
+closed if it was open, and pressed there it puts the panel away. With voice on, ⌥⌘= (`[shortcuts] listen`) opens it set
 to listen to a meeting instead (*Voice*, Listen now). The shortcuts are yours to change in
 Settings › General; Settings names shortcuts macOS and common launchers already use.
 
@@ -2907,11 +2909,14 @@ chats are listed together in one lane, Chats, in Elsewhere, and `codealong start
 The quick panel's project picker (⌘P) has **General chat** too, after All projects. Picked there,
 the panel lists your chats (Codealong's, and the Claude app's and the Codex app's, which keep
 theirs in folders of their own too) where a project's sessions would be, with what they wait on
-you for counted beside it in the menu, and the repo picker is on General chat, listing no repos.
+you for counted beside it in the menu and the chat shortcut (⌥⌘') beside that, as ⌥⌘0 is beside
+All projects and ⌥⌘1 to ⌥⌘9 beside the projects, and the repo picker is on General chat, listing
+no repos.
 Jev isn't asked where a prompt goes, as there's no worktree to weigh, so ⏎ on what you type starts
 the chat (Send to still sends it to a session). A search still finds sessions in every project,
-after the chats. The panel stays on General chat until another project is picked, which starts in
-that project's repos again; ⌥⌘' is the way to one chat without leaving the project you're on.
+after the chats. Picked in the menu, the panel stays on General chat until another project is
+picked, which starts in that project's repos again; ⌥⌘' is the way to one chat without leaving the
+project you're on.
 
 #### A folder that isn't listed
 

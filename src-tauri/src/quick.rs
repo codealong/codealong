@@ -459,9 +459,16 @@ pub fn toggle(app: &AppHandle) {
     toggle_for(app, Value::Null);
 }
 
-/// The chat shortcut: opens the panel set to start a chat of its own, in no project, or closes
-/// the panel when it's up. On the main thread.
+/// The chat shortcut: opens the panel on General chat, for a question that belongs to none of
+/// your projects, or, when it's up, goes there or closes it. On the main thread.
 pub fn toggle_chat(app: &AppHandle) {
+    // Up, the page has the say, as only it knows the project it's on: on another it goes to
+    // General chat, and on General chat it puts the panel away (Quick.tsx `onQuickChat`). A page
+    // that doesn't hear it stays as it was, which needs no word.
+    if is_up(app) {
+        let _ = app.emit_to(LABEL, "quick-chat", ());
+        return;
+    }
     toggle_for(app, serde_json::json!({ "chat": true }));
 }
 

@@ -61,6 +61,7 @@ import {
   noteRoute,
   onBoard,
   onDevices,
+  onQuickChat,
   onQuickHidden,
   onTalk,
   onTalked,
@@ -543,7 +544,9 @@ export function Quick() {
         if (ctx.listen && ctx.meeting) setMeetings([]);
         setAsChat(!!ctx.chat || !!ctx.listen);
         const at = improving ? (b?.improve?.laneId ?? null) : (ctx.laneId ?? null);
-        setProject(improving && b?.improve?.project ? b.improve.project : (ctx.project ?? readStored(PROJECT_KEY, asText, ALL_PROJECTS)));
+        // The chat shortcut opens on General chat for this open alone, the project picked before
+        // being where the next opens.
+        setProject(improving && b?.improve?.project ? b.improve.project : ctx.chat ? CHATS : (ctx.project ?? readStored(PROJECT_KEY, asText, ALL_PROJECTS)));
         setLaneId(at);
         setTodoIds(ctx.todos ?? (ctx.todo ? [ctx.todo] : []));
         // What was typed to name a meeting is no prompt to keep as a draft.
@@ -721,7 +724,8 @@ export function Quick() {
   // chat is no project of the board's: it lists the chats, and starts the next one there.
   const current = project === ALL_PROJECTS || project === CHATS || projects.some((p) => p.name === project) || !board || board.loading ? project : ALL_PROJECTS;
   const chatting = current === CHATS;
-  const pickProject = (name: string) => {
+  /** A project picked, kept for the next open unless `keep` is false (the chat shortcut's). */
+  const pickProject = (name: string, keep = true) => {
     if (name !== current) dropAdding();
     // General chat starts in Codealong's chats, whatever worktree was picked before it; leaving it
     // for a project starts in that project's repos again, not in the chats. (The chat shortcut's
@@ -733,9 +737,21 @@ export function Quick() {
     setProject(name);
     setActiveKey(null);
     setPicker(null);
-    writeStored(PROJECT_KEY, asText, name);
+    if (keep) writeStored(PROJECT_KEY, asText, name);
     refocus();
   };
+  // The chat shortcut pressed with the panel up (quick.rs `toggle_chat`): to General chat, for
+  // this open alone as when it opens the panel, its menu put away if it was up; pressed there, it
+  // puts the panel away.
+  const chatKey = useLatest(() => {
+    if (chatting) {
+      void hideQuick();
+      return;
+    }
+    pickProject(CHATS, false);
+    setAsChat(true);
+  });
+  useEffect(() => onQuickChat(() => chatKey.current()), [chatKey]);
   const counts = useMemo(() => (board ? projectCounts(board, [...projects.map((p) => p.name), CHATS, ALL_PROJECTS]) : {}), [board, projects]);
 
   // Which Mac: this one, or another linked Mac, which starts the session with its own accounts
@@ -2160,7 +2176,7 @@ export function Quick() {
     trail: (
       <>
         <ProjectCounts needs={counts[name]?.needs ?? 0} unread={counts[name]?.unread ?? 0} />
-        <span className="ca-projswitch-key">{projectKey(name, projects)}</span>
+        <span className="ca-projswitch-key">{name === CHATS ? shortcutLabel(board?.chatShortcut) : projectKey(name, projects)}</span>
       </>
     ),
   });

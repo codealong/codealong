@@ -1,11 +1,13 @@
 // Checks starting a general chat from the quick panel (Quick.tsx): the repo picker offers
 // General chat ahead of the repos, picking it says so on the chip, leaves no worktree to pick and
 // words the start row for a chat, and ⌘⏎ starts in Codealong's chats lane with no
-// worktree. Opened as the chat shortcut opens it, the panel is on General chat, also when it opened
-// before the first scan finished and the board came after, and its hint names that shortcut; an
-// ordinary open after is on a worktree again. The project menu offers General chat too, after All
-// projects: picked, it lists only the chats, starts in Codealong's with ⏎ alone, and a project
-// picked after it starts in that project's repos again.
+// worktree. Opened as the chat shortcut opens it, the panel is on General chat, its project too,
+// also when it opened before the first scan finished and the board came after, and its hint names
+// that shortcut; an ordinary open after is on a worktree and the project picked before again. The
+// shortcut pressed with the panel up on a project goes to General chat for that open alone, and
+// pressed there puts the panel away (quick.rs `toggle_chat`). The project menu offers General chat
+// too, after All projects, with that shortcut beside it: picked, it lists only the chats, starts in
+// Codealong's with ⏎ alone, and a project picked after it starts in that project's repos again.
 //   PREVIEW_WAIT=60000 scripts/preview.sh quick '' scripts/preview/quick-chat-check.js
 // The board needs Codealong's chats lane, which an engine of this build always has.
 (function () {
@@ -67,6 +69,7 @@
     .then(function () {
       var hint = q('.ca-quick-hotkey');
       check('the hint names the chat shortcut', !!hint && hint.textContent === '⌥⌘\'', hint && hint.textContent);
+      check('and the project chip says General chat', /General chat/.test(projectChip().textContent), projectChip().textContent);
       type(input(), 'How do I read a core dump?');
       var starts = sent('start_from_quick').length;
       key(input(), { key: 'Enter', metaKey: true });
@@ -80,6 +83,24 @@
     })
     .then(function () {
       check('an ordinary open after is on a worktree', !/General chat/.test(chip().textContent), chip().textContent);
+      check('on the project picked before', /All projects/.test(projectChip().textContent), projectChip().textContent);
+      // The chat shortcut, pressed with the panel up on a project.
+      window.__emit('quick-chat', null);
+      return until(function () { return /General chat/.test(projectChip().textContent); }, 5000, 'the chat shortcut going to General chat');
+    })
+    .then(function () {
+      check('the chat shortcut in the panel goes to General chat', /General chat/.test(chip().textContent), chip().textContent);
+      check('for this open alone', localStorage.getItem('codealong.quick.project') === 'All projects', localStorage.getItem('codealong.quick.project'));
+      var hides = calls('hide_quick').length;
+      window.__emit('quick-chat', null);
+      return until(function () { return calls('hide_quick').length > hides; }, 5000, 'the chat shortcut on General chat putting the panel away');
+    })
+    .then(function () {
+      window.__quickOpen({}, board);
+      return wait(300);
+    })
+    .then(function () {
+      check('and the next open is on the project picked before', /All projects/.test(projectChip().textContent), projectChip().textContent);
       projectChip().click();
       return until(function () { return options().length > 0; }, 5000, 'the project menu');
     })
@@ -90,6 +111,8 @@
       check('the project menu offers General chat', !!o, opts.map(function (x) { return x.textContent; }).join(' | '));
       check('after All projects', !!o && !!everything && opts.indexOf(o) === opts.indexOf(everything) + 1, opts.length + ' options');
       check('for a question in none of your repos', !!o && /A question for none of your repos/.test(o.textContent), o && o.textContent);
+      var keyOf = o && q('.ca-projswitch-key', o);
+      check('with the chat shortcut beside it', !!keyOf && keyOf.textContent === '⌥⌘\'', keyOf && keyOf.textContent);
       o.click();
       return wait(300);
     })

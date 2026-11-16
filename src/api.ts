@@ -2033,7 +2033,8 @@ export interface QuickOpen {
    *  the pictures it took of the windows (`shots`, kept as attachments), on the board's
    *  `improve` project and worktree. */
   improve?: boolean | { shots: Attachment[] };
-  /** Starts in a chat of its own, in no project (`[shortcuts] chat`), in place of `laneId`. */
+  /** Starts in a chat of its own (`[shortcuts] chat`), in place of `laneId`, the panel on General
+   *  chat for this open alone: the next opens on the project picked before. */
   chat?: boolean;
   /** Opened to hear what's said with the key held to talk (dictation.rs `press`), from another
    *  app: an ordinary open, which goes away again by itself when nothing was heard. */
@@ -2080,6 +2081,12 @@ export async function quickReady(height: number): Promise<void> {
 /** Calls `cb` when the quick panel has hidden, by Escape, a click elsewhere or its shortcut. */
 export function onQuickHidden(cb: () => void): () => void {
   return onWindowEvent<null>('quick-hidden', () => cb());
+}
+
+/** Calls `cb` when the chat shortcut is pressed while the quick panel is up (quick.rs
+ *  `toggle_chat`): the page goes to General chat, or puts the panel away when it's there. */
+export function onQuickChat(cb: () => void): () => void {
+  return onWindowEvent<null>('quick-chat', () => cb());
 }
 
 /** What the waiting window opens for (waiting.rs). With nothing, it shows the session it shows
