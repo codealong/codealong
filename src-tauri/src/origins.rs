@@ -447,12 +447,14 @@ pub fn place_of(board: &crate::model::Board, lane: &str) -> String {
 /// that was read (`screen`, by the start's time: starting.rs `Screens`), goes with it; else it
 /// guesses. Each has a key of its own (`start:` and when it was started), so dismissing one
 /// doesn't hide the next, even in the same worktree, and goes once its session shows. One a
-/// session on the board asked for has none: that session needs you for it, and the start's line
-/// under it answers it (starting.rs `overlay`).
+/// session on the board asked for has none while that session needs you, for it (starting.rs
+/// `overlay`) or for something of its own, its line under the session answering it; one whose
+/// session is taking a turn, which isn't laid over, or is put away, has its notice.
 pub fn stuck_notices(pending: &[Pending], board: &crate::model::Board, word_of: impl Fn(&str) -> String, screen: impl Fn(i64) -> Option<String>, now: i64) -> Vec<crate::model::Notice> {
+    let carried = |p: &Pending| board.session(&p.from).is_some_and(|(_, s)| !s.archived && s.status != crate::model::Status::Working);
     pending
         .iter()
-        .filter(|p| p.stuck(now) && !board.session(&p.from).is_some_and(|(_, s)| !s.archived))
+        .filter(|p| p.stuck(now) && !carried(p))
         .map(|p| {
             let place = place_of(board, &p.lane);
             let word = word_of(&p.account);
@@ -549,7 +551,7 @@ pub fn current() -> Arc<Store> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::model::{Board, Session};
+    use crate::model::{Board, Session, Status};
 
     struct Repos;
     impl Lanes for Repos {
@@ -784,8 +786,13 @@ mod tests {
         let word = |_: &str| "Codex".to_string();
         let unread = |_: i64| None;
         // The session that asked is on the board, and needs you for it there: no notice.
+        board.lanes[0].sessions[0].status = Status::Needs;
         assert!(stuck_notices(&[start.clone()], &board, word, unread, AT + 66 * 60_000).is_empty());
-        // Put away, it's no longer where you'd look, so the notice says it.
+        // Taking a turn, it isn't laid over, so the notice says it; and put away, it's no longer
+        // where you'd look.
+        board.lanes[0].sessions[0].status = Status::Working;
+        assert_eq!(stuck_notices(&[start.clone()], &board, word, unread, AT + 66 * 60_000).len(), 1);
+        board.lanes[0].sessions[0].status = Status::Needs;
         board.lanes[0].sessions[0].archived = true;
         assert!(stuck_notices(&[start.clone()], &board, word, unread, AT + 60_000).is_empty());
         let said = stuck_notices(&[start.clone()], &board, word, unread, AT + 66 * 60_000);

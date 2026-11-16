@@ -4124,7 +4124,8 @@ start. Those go only to a tab whose program has the start's prompt in its comman
 Codealong can't tell which tab is its, *Forget it* stops waiting for it. On your other devices the
 session shows *Helper waits* too, to answer on the Mac it runs on. A helper started with `--report` is told of to its session once, so its
 agent can tell you. One you started yourself has a notice instead (*Codex hasn't started in …*),
-with what its terminal shows, until its session shows.
+with what its terminal shows, until its session shows, and so does an agent's while its session is
+taking a turn.
 
 A helper's message to the session that started it (`codealong session send`) isn't held for
 you to allow when that session is a Claude Code one that skips permission prompts: it's work the

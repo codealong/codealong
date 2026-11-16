@@ -18,7 +18,8 @@
 //! A stuck one waits on you, so it's yours to answer from Codealong: the session that asked needs
 //! you for it (`overlay`), and its line offers what the screen offers (`choices`), picked as you'd
 //! pick it there (`answer`), shows its tab (engine.rs `open_with`), or stops it, closing its tab
-//! and forgetting the start (`stop`). A start no session asked for (yours) has its notice. Codex
+//! and forgetting the start (`stop`). A start no session asked for (yours), or whose session is
+//! taking a turn, has its notice (origins.rs `stuck_notices`). Codex
 //! asks about a repo's untrusted hooks at every start there, and its prompt goes on once that's
 //! answered (0.162.1, 2026-11-15), so an answer from Codealong is all a stuck helper needs.
 
@@ -239,9 +240,16 @@ pub fn overlay(s: &mut Session, waits: Option<&Waits>) {
 
 /// The starts still waiting for their session (`origins::waiting_for`) that a session asked for,
 /// by that session's key, the latest first, each with what its terminal showed when last read.
+/// Its process is what Show, the choices and Stop act on, so it goes with a start only when no
+/// other waiting start's read found the same one: two started in one worktree with the same
+/// opening (an agent's two reviewers), one gone since, both find the one left by its prompt, and
+/// a stop meant for the one that's gone would close the other's tab. The choices go only with a
+/// process to press them in.
 pub fn by_session(waiting: &[Pending], board: &Board, screens: &Screens, word_of: impl Fn(&str) -> String, now: i64) -> BTreeMap<String, Vec<Starting>> {
     let mut out: BTreeMap<String, Vec<Starting>> = BTreeMap::new();
+    let own = |at: i64| screens.pid(at).filter(|&pid| !waiting.iter().any(|q| q.at != at && screens.pid(q.at) == Some(pid)));
     for p in waiting.iter().filter(|p| !p.from.is_empty()) {
+        let pid = own(p.at);
         out.entry(p.from.clone()).or_default().push(Starting {
             at: p.at,
             account: p.account.clone(),
@@ -253,8 +261,8 @@ pub fn by_session(waiting: &[Pending], board: &Board, screens: &Screens, word_of
             terminal: p.terminal.then(|| board.apps.terminal.clone()),
             stuck: p.stuck(now),
             screen: screens.screen(p.at).map(String::from),
-            pid: screens.pid(p.at),
-            choices: screens.screen(p.at).filter(|_| p.stuck(now)).map(choices).unwrap_or_default(),
+            pid,
+            choices: screens.screen(p.at).filter(|_| p.stuck(now) && pid.is_some()).map(choices).unwrap_or_default(),
         });
     }
     for starts in out.values_mut() {
@@ -606,6 +614,21 @@ mod tests {
         // Read before it's stuck, a screen offers nothing yet: it may still be on its way.
         let early = by_session(&waiting, &board, &screens, |_| "Codex".into(), AT + 2 * 60_000);
         assert!(early[boss][1].choices.is_empty() && !early[boss][1].stuck);
+        // Its process found only as the one terminal there (no pid): its screen, nothing to press.
+        let mut unsure = Screens::default();
+        unsure.due(&waiting, AT + 4 * 60_000);
+        unsure.on_read(Some(vec![Found { pid: None, ..hooks(AT) }]));
+        let listed = by_session(&waiting, &board, &unsure, |_| "Codex".into(), AT + 4 * 60_000);
+        assert!(listed[boss][1].screen.is_some() && listed[boss][1].pid.is_none() && listed[boss][1].choices.is_empty());
+        // Two waiting starts whose reads found the same process (two alike, one gone since):
+        // neither has it, nor its choices.
+        let twin = Pending { at: AT + 30_000, ..older.clone() };
+        let both = [older.clone(), twin.clone()];
+        let mut shared = Screens::default();
+        shared.due(&both, AT + 4 * 60_000);
+        shared.on_read(Some(vec![hooks(AT), hooks(AT + 30_000)]));
+        let listed = by_session(&both, &board, &shared, |_| "Codex".into(), AT + 4 * 60_000);
+        assert!(listed[boss].iter().all(|s| s.pid.is_none() && s.choices.is_empty() && s.screen.is_some()), "{:?}", listed[boss]);
     }
 
     #[test]
