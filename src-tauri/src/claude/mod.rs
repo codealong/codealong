@@ -1090,13 +1090,17 @@ impl crate::harness::Adapter for ClaudeCode {
     /// Trusts the folder for the account (`trust_folder`): Claude Code stops a new session at
     /// its trust prompt in a folder it hasn't trusted, where the default answer quits, and
     /// `--bg` refuses to start there. You chose the folder, as answering the prompt would. A
-    /// start goes ahead without it, and Claude Code asks. A chat of Codealong's goes by its
-    /// chats folder, where trust goes by the folders above: trusting it trusts every chat in it.
+    /// start goes ahead without it, and Claude Code asks. Codealong's folders of attachments are
+    /// trusted too (`start_trusts`), which a start, resume or fork adds (`--add-dir`) when its
+    /// prompt has any: from 2.1.326 Claude Code checks an added folder as it does the session's,
+    /// `--bg` refusing an untrusted one ("Added folder not trusted") and a terminal start
+    /// stopping at a prompt about it, whose No quits. They hold only what Codealong kept there.
     fn before_start(&self, account: &AccountCfg, folder: &Path) {
-        let chats = crate::config::chats_dir();
-        let folder = if folder.starts_with(&chats) { chats.as_path() } else { folder };
-        if let Err(e) = trust_folder(&account.home_path(), folder) {
-            eprintln!("Couldn't trust {} for {}: {e:#}", crate::util::tilde(folder), account.name);
+        let attachments = [crate::attachments::images_dir(), crate::attachments::files_dir()];
+        for f in start_trusts(folder, &crate::config::chats_dir(), attachments) {
+            if let Err(e) = trust_folder(&account.home_path(), &f) {
+                eprintln!("Couldn't trust {} for {}: {e:#}", crate::util::tilde(&f), account.name);
+            }
         }
     }
 
@@ -1674,6 +1678,14 @@ fn home_of_account(name: &str) -> Option<PathBuf> {
     crate::config::current().ok()?.accounts.into_iter().find(|a| a.name == name).map(|a| a.home_path())
 }
 
+/// The folders a start trusts (`before_start`): its own, or for a chat of Codealong's its chats
+/// folder, where trust goes by the folders above, so trusting it trusts every chat in it; then
+/// those of `attachments` that are there, each made with its first attachment.
+fn start_trusts(folder: &Path, chats: &Path, attachments: [PathBuf; 2]) -> Vec<PathBuf> {
+    let own = if folder.starts_with(chats) { chats } else { folder };
+    std::iter::once(own.to_path_buf()).chain(attachments.into_iter().filter(|d| d.is_dir())).collect()
+}
+
 /// Whether `home` is `~/.claude`, where Claude Code looks when no folder is named: it's never
 /// named, whatever the app was started with, but any `CLAUDE_CONFIG_DIR` is taken off. A named
 /// folder keeps its sign-in under a keychain item of its own (`Claude Code-credentials-` and
@@ -2243,6 +2255,23 @@ mod tests {
         let other = crate::util::home().join(".claude2");
         let (program, env) = acp_launch("'/a/claude-agent-acp'".into(), &other);
         assert_eq!((program.as_str(), env), ("'/a/claude-agent-acp'", vec![("CLAUDE_CONFIG_DIR".to_string(), other.to_string_lossy().into_owned())]));
+    }
+
+    /// A start trusts Codealong's folders of attachments as well as its own, since from 2.1.326
+    /// `--bg` refuses one added with `--add-dir` that isn't trusted ("Added folder not trusted"),
+    /// and a terminal start stops to ask about it. A folder not made yet is left out.
+    #[test]
+    fn a_start_trusts_the_attachments_folders_too() {
+        let support = std::env::temp_dir().join(format!("codealong-start-trusts-{}", std::process::id()));
+        let (chats, images, files) = (support.join("chats"), support.join("images"), support.join("files"));
+        std::fs::create_dir_all(&images).unwrap();
+        let repo = PathBuf::from("/r/northwind-app");
+        assert_eq!(start_trusts(&repo, &chats, [images.clone(), files.clone()]), vec![repo.clone(), images.clone()]);
+        std::fs::create_dir_all(&files).unwrap();
+        assert_eq!(start_trusts(&repo, &chats, [images.clone(), files.clone()]), vec![repo, images.clone(), files.clone()]);
+        // A chat goes by the chats folder.
+        assert_eq!(start_trusts(&chats.join("2026-11-16-a1b2c3"), &chats, [images.clone(), files.clone()]), vec![chats.clone(), images, files]);
+        std::fs::remove_dir_all(&support).unwrap();
     }
 
     /// A session holds another's message in bypass, may in plan, which keeps the class it was

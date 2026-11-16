@@ -690,6 +690,16 @@ on this Mac; read it before changing the Claude adapter (paths are under `src-ta
   same entries, with the path's links resolved and in NFC. Running sessions reread the file
   every second, and Claude Code strips `hasCompletedProjectOnboarding`, `history`,
   `projectOnboardingSeenCount` and `devIntentsDetected` from project entries whenever it saves.
+  From 2.1.326 a folder `--add-dir` names is checked by the same entries (`untrustedAddedFolder`,
+  `foldersToTrustForFlag`; its resolved path and the path as given): `--bg` refuses an untrusted
+  one before it starts anything ("Added folder not trusted: <path>. Leave out its --add-dir or,
+  if you trust it…", exit 1), and a terminal start asks about each at startup
+  (`AddedFolderTrustPrompt`), its No quitting with "start again … without --add-dir <path>". A
+  headless run (`-p`) isn't asked, nor is a folder under the session's own outside home, and
+  `CLAUDE_CODE_SANDBOXED` or the remote gate `bot_protected_tengu_slate_orchard` (on when
+  missing) turns the check off. Images and files Codealong attaches went to a background start
+  as `--add-dir` on their folders, refused from that version on (2026-11-16), so `before_start`
+  trusts those folders too (`claude/mod.rs` `start_trusts`).
 - The Codealong plugin's `PermissionRequest` hook (2.1.284): what it's handed, how Claude Code's
   own prompt races it, how a background subagent's prompt waits for it
   (`awaitAutomatedChecksBeforeDialog`), and the decision it prints: `claude/asks.rs` (module
