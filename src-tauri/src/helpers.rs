@@ -12,7 +12,9 @@
 //! begins is owed to its session while that session runs on this Mac. A session waiting on you to
 //! answer a prompt isn't sent anything (what's typed would answer it) and is told once it isn't;
 //! what's owed to one session goes in one message, gathered for up to `GATHER_MS` while another of
-//! its reporting helpers is at work; a send that fails is tried again a little later, a few times.
+//! its reporting helpers is at work (serve.rs wakes it then, though no board comes); a wait on its
+//! user that's over by the time it goes is no news; a send that fails is tried again a little
+//! later, a few times.
 //!
 //! A helper started in a terminal whose session hasn't shown a few minutes on is told of too,
 //! once (`origins::Pending::stuck`): its terminal UI likely sits on a screen of its own, and the
@@ -123,6 +125,10 @@ pub struct Reporter {
     /// When each stuck start was first found stuck here, by the session that asked and when it
     /// did, for the wait for its screen.
     stuck_seen: HashMap<(String, i64), i64>,
+    /// When the news gathered on the last board is due (`GATHER_MS`), and the time a wake was
+    /// asked for (`wake`), so one is asked for each.
+    gathering: Option<i64>,
+    woken_for: Option<i64>,
 }
 
 impl Reporter {
@@ -187,17 +193,47 @@ impl Reporter {
         let at_work = |k: &str| {
             board.lanes.iter().filter(|l| l.device.is_none()).flat_map(|l| &l.sessions).any(|s| !s.archived && s.status == Status::Working && s.helper.as_ref().is_some_and(|h| h.report && h.parent.as_deref() == Some(k)))
         };
+        let seen = &self.seen;
+        let mut gathering = None;
         let mut out = Vec::new();
         for (k, o) in self.owed.iter_mut() {
-            if o.sending.is_some() || o.notes.is_empty() || now < o.next_at || waits(k) || (now - o.since < GATHER_MS && at_work(k)) {
+            // A wait on its user answered while its news was held (gathered, or its session
+            // waiting on you) is no news: it would have its session tell your user of a question
+            // they've answered.
+            o.notes.retain(|_, n| !matches!(n.news, News::OnUser(_)) || matches!(seen.get(&n.helper), Some(Stand::OnUser(_))));
+            if o.sending.is_some() || o.notes.is_empty() || now < o.next_at || waits(k) {
+                continue;
+            }
+            if now - o.since < GATHER_MS && at_work(k) {
+                gathering = Some(gathering.map_or(o.since + GATHER_MS, |g: i64| g.min(o.since + GATHER_MS)));
                 continue;
             }
             let notes: Vec<Note> = std::mem::take(&mut o.notes).into_values().collect();
             o.sending = Some(notes.clone());
             out.push(Job { session: k.clone(), notes });
         }
+        self.gathering = gathering;
         out.sort_by(|a, b| a.session.cmp(&b.session));
         out
+    }
+
+    /// When to look again for news gathered on the last board (`due`), though no board comes by
+    /// then: a helper's silent command can keep the board as it is for long after. Once for each
+    /// time: none while one asked for comes no later.
+    pub fn wake(&mut self) -> Option<i64> {
+        let at = self.gathering?;
+        if self.woken_for.is_some_and(|w| w <= at) {
+            return None;
+        }
+        self.woken_for = Some(at);
+        Some(at)
+    }
+
+    /// The wake asked for at `at` came.
+    pub fn woke(&mut self, at: i64) {
+        if self.woken_for == Some(at) {
+            self.woken_for = None;
+        }
     }
 
     /// How a job went, at `now` (ms). What was told is owed no longer; what wasn't is owed again,
@@ -339,6 +375,36 @@ mod tests {
         assert!(r.due(&[], &board(vec![boss(Status::Idle), rev(Status::Idle, 10, 40), other(Status::Working)]), NOW).is_empty());
         assert!(r.due(&[], &board(vec![boss(Status::Idle), rev(Status::Idle, 10, 40), other(Status::Working)]), NOW + GATHER_MS - 1).is_empty());
         assert_eq!(news(&r.due(&[], &board(vec![boss(Status::Idle), rev(Status::Idle, 10, 40), other(Status::Working)]), NOW + GATHER_MS)).len(), 1);
+    }
+
+    #[test]
+    fn what_it_gathers_asks_to_be_looked_at_again_once_at_its_time() {
+        let mut r = Reporter::default();
+        let other = |status: Status| Session { key: "codex:codex:other".into(), ..rev(status, 10, 20) };
+        r.due(&[], &board(vec![boss(Status::Idle), rev(Status::Working, 10, 20), other(Status::Working)]), NOW);
+        assert_eq!(r.wake(), None, "nothing gathered");
+        let held = board(vec![boss(Status::Idle), rev(Status::Idle, 10, 40), other(Status::Working)]);
+        assert!(r.due(&[], &held, NOW).is_empty());
+        assert_eq!(r.wake(), Some(NOW + GATHER_MS));
+        // Asked for once, however many boards come meanwhile.
+        assert!(r.due(&[], &held, NOW + 5_000).is_empty());
+        assert_eq!(r.wake(), None);
+        // When it comes, the same board, looked at again, has it due.
+        r.woke(NOW + GATHER_MS);
+        assert_eq!(news(&r.due(&[], &held, NOW + GATHER_MS)).len(), 1);
+        assert_eq!(r.wake(), None, "nothing left gathered");
+    }
+
+    #[test]
+    fn a_wait_on_its_user_answered_while_its_news_was_held_isnt_told() {
+        let mut r = Reporter::default();
+        let other = |status: Status| Session { key: "codex:codex:other".into(), ..rev(status, 10, 20) };
+        r.due(&[], &board(vec![boss(Status::Idle), rev(Status::Working, 10, 20), other(Status::Working)]), NOW);
+        // It waits on your user while the other works: held.
+        assert!(r.due(&[], &board(vec![boss(Status::Idle), rev(Status::Needs, 10, 30), other(Status::Working)]), NOW).is_empty());
+        // Answered, it works again: nothing to tell, then or once the other ends.
+        assert!(r.due(&[], &board(vec![boss(Status::Idle), rev(Status::Working, 10, 35), other(Status::Working)]), NOW + 10_000).is_empty());
+        assert!(r.due(&[], &board(vec![boss(Status::Idle), rev(Status::Working, 10, 35), other(Status::Working)]), NOW + GATHER_MS).is_empty());
     }
 
     #[test]

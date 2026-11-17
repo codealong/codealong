@@ -52,7 +52,9 @@ the question to answer. A yes to something else isn't a yes to starting sessions
 1. Its place. A part that changes code gets a worktree of its own, never one another child or your
    own session works in: two agents in one worktree overwrite each other's files, branch and
    builds. `--new-worktree` has Claude Code make one; otherwise make it as the repo's rules say
-   and give `--worktree <path>`. A part that only reads (research, a review) can share a checkout.
+   and give `--worktree <path>` once `codealong worktrees` lists it (a few seconds on; until then
+   `start` turns it down rather than start in the checkout around it). A part that only reads
+   (research, a review) can share a checkout.
 2. Its account. `codealong accounts` says which have room; another provider than yours for a
    review or a second opinion; `--model` when a part needs a stronger or a cheaper one.
 3. Its prompt. It can't see your conversation, so its prompt stands alone: the goal and why, what

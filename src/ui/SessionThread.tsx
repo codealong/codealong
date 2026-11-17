@@ -1089,14 +1089,16 @@ export function SessionThread({ session: s, now, onOpen, fallback, machine, onLo
   }, []);
 
 
-  // An orchestrator's runs that found nothing fold into a line each (orchestrators.ts).
+  // An orchestrator's runs that found nothing fold into a line each (orchestrators.ts), which
+  // starts afresh as any note does.
   const orchestrating = !!s.orchestrator;
-  const rows = useMemo(() => rowsOf(orchestrating ? foldQuietRuns(items) : items), [items, orchestrating]);
+  const folded = useMemo(() => (orchestrating ? foldQuietRuns(items) : items), [items, orchestrating]);
+  const rows = useMemo(() => rowsOf(folded), [folded]);
   // A session that listens (listen.rs): what Codealong told it is drawn as what it is (the
   // meeting's lines, that it began, that it ended), and an answer that says there's nothing to
   // say, a dash, as it's asked to give most of the time, isn't drawn at all.
   const told = useMemo(() => new Map(items.filter((it) => it.kind === 'codealong').flatMap((it) => [toldIn(it.text)].flatMap((t) => (t ? [[it, t] as const] : [])))), [items]);
-  const headings = useMemo(() => headingsOf(items), [items]);
+  const headings = useMemo(() => headingsOf(folded), [folded]);
   const editable = useMemo(() => editablePrompts(items, before == null), [items, before]);
   // Your messages to it still on their way, less the ones its record has now.
   const ahead = useAhead();

@@ -225,6 +225,26 @@ fn keep(about: NudgeAbout, open: bool, why: Why) -> Why {
     }
 }
 
+/// Whether `pr`'s nudge tells its primary session of `why` (an approval, changes asked for,
+/// failing checks), as `Nudger::due` goes by: while it runs on this Mac, what `[pull_requests]
+/// nudge_about` keeps; while it doesn't, only what it's resumed for. What it's told of is that
+/// session's to see to, and not an orchestrator's (schedules/orchestrate.rs `found`).
+pub fn tells(board: &Board, pr: &PrItem, why: &Why) -> bool {
+    let Some(primary) = pr.primary.as_deref().filter(|_| pr.nudge) else { return false };
+    if board.automation_blocked(primary) {
+        return false;
+    }
+    let about = about_of(board, pr);
+    let about = if runs_here(board, primary) {
+        about
+    } else if board.pr_stopped.get(&pr.key) == Some(&Stopped::Resumes) {
+        for_stopped(pr, about)
+    } else {
+        return false;
+    };
+    keep(about, pr.state.is_open(), why.clone()) != Why::default()
+}
+
 /// How many times a send is tried before it's given up on.
 const TRIES: u32 = 6;
 

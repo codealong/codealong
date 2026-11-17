@@ -199,10 +199,26 @@ pub fn start() -> Result<Ctx, String> {
         // that began, or a start stuck before its session. One thread for the batch.
         if let Some(engine) = reports_with.get() {
             let pending = &origins::current().pending;
-            let due = reporter.lock().map(|mut r| r.due(pending, board, board.generated_at)).unwrap_or_default();
+            let (due, wake) = reporter.lock().map(|mut r| (r.due(pending, board, board.generated_at), r.wake())).unwrap_or_default();
             if !due.is_empty() {
                 let (engine, reporter) = (engine.clone(), reporter.clone());
                 std::thread::spawn(move || helpers::send_now(&engine, &reporter, due));
+            }
+            // What it gathers is looked at again when it's due, on the board as it is then: no
+            // board may come meanwhile (helpers.rs `GATHER_MS`).
+            if let Some(at) = wake {
+                let (engine, reporter) = (engine.clone(), reporter.clone());
+                std::thread::spawn(move || {
+                    std::thread::sleep(std::time::Duration::from_millis((at - util::now_ms()).max(0) as u64));
+                    let board = engine.board();
+                    let due = reporter.lock().map(|mut r| {
+                        r.woke(at);
+                        r.due(&origins::current().pending, &board, util::now_ms())
+                    });
+                    if let Some(due) = due.ok().filter(|d| !d.is_empty()) {
+                        helpers::send_now(&engine, &reporter, due);
+                    }
+                });
             }
         }
         // PRs that wait on your review, reviewed without being asked when config.toml says to

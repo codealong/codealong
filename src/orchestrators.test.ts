@@ -55,7 +55,7 @@ describe('orchestrators', () => {
 
   it('folds the runs that found nothing into a line, and leaves the ones that told you something', () => {
     let n = 0;
-    const item = (kind: TranscriptItem['kind'], text = ''): TranscriptItem => ({ at: n * 1000, kind, text, failed: false, cursor: 1, n: n++ });
+    const item = (kind: TranscriptItem['kind'], text = '', extra: Partial<TranscriptItem> = {}): TranscriptItem => ({ at: n * 1000, kind, text, failed: false, cursor: 1, n: n++, ...extra });
     const tick = () => item('codealong', 'You’re Codealong’s orchestrator…');
     const quiet = () => [tick(), item('tool', 'codealong changes'), item('result'), item('agent', '—')];
     const told = [tick(), item('tool', 'codealong changes'), item('agent', 'Two sessions now work in one worktree.')];
@@ -76,5 +76,14 @@ describe('orchestrators', () => {
     // What came before the page's first message from Codealong stays too.
     const cut = [item('tool', 'codealong changes'), item('agent', '—')];
     expect(foldQuietRuns(cut)).toEqual(cut);
+    // A fresh session's first run, its prompt recorded as yours, folds as the others do; a prompt
+    // that is yours doesn't.
+    const first = item('you', 'You’re Codealong’s orchestrator for All projects.\n\nThis comes from the schedule “Orchestrator”: run for “Fix the docs” asks you a question.');
+    expect(foldQuietRuns([first, item('agent', '—')]).map((x) => x.text)).toEqual(['Looked: nothing new']);
+    const yours = [item('you', 'Anything new?'), item('agent', '—')];
+    expect(foldQuietRuns(yours)).toEqual(yours);
+    // A run that asked you something keeps it in view, with your answers.
+    const asked = [tick(), item('tool', 'AskUserQuestion', { questions: [{ question: 'Merge it?', header: 'Merge', options: [], multiSelect: false }] }), item('result', '', { answers: { 'Merge it?': ['No'] } }), item('agent', '—')];
+    expect(foldQuietRuns(asked)).toEqual(asked);
   });
 });

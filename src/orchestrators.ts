@@ -99,11 +99,20 @@ export function orchestratorActions(s: Session, report: Report): { look?: MenuAc
   };
 }
 
+/** How Codealong's message for a schedule's run says so (runner.rs `prompt_of`): a fresh
+ *  session's first prompt, and a stopped one's resumed with it, are recorded as yours, so they're
+ *  told by it. */
+const FROM_SCHEDULE = 'This comes from the schedule “';
+
+/** Whether a message is one of Codealong's that starts an orchestrator's run. */
+const startsRun = (it: TranscriptItem) => it.kind === 'codealong' || (it.kind === 'you' && it.text.includes(FROM_SCHEDULE));
+
 /** An orchestrator's conversation with each run that found nothing to tell you folded into a
  *  line: Codealong's message that woke it, what it did, and its reply, a dash (listening.ts
  *  `saysNothing`), as skills/codealong/references/orchestrate.md asks it to answer then, which the
  *  engine says as its headline (board.rs `quiet_orchestrator`). Such runs in a row fold into one
- *  line, and a run that told you something, or that's still going, stays as it is. */
+ *  line. A run that told you something, asked you something (a question and your answers stay in
+ *  view), or that's still going, stays as it is. */
 export function foldQuietRuns(items: TranscriptItem[]): TranscriptItem[] {
   const out: TranscriptItem[] = [];
   // The line the last run folded into, while nothing has come after it.
@@ -112,11 +121,12 @@ export function foldQuietRuns(items: TranscriptItem[]): TranscriptItem[] {
     const it = items[i];
     // A run is what Codealong told it and everything up to the next message to it.
     let end = i + 1;
-    if (it.kind === 'codealong') while (end < items.length && !['codealong', 'you', 'peer'].includes(items[end].kind)) end++;
+    if (startsRun(it)) while (end < items.length && !['codealong', 'you', 'peer'].includes(items[end].kind)) end++;
     const run = items.slice(i, end);
     // Its last step: a reply that ends it, or a call it's still making.
     const last = [...run].reverse().find((x) => x.kind === 'agent' || x.kind === 'tool');
-    const quiet = it.kind === 'codealong' && last?.kind === 'agent' && saysNothing(last.text);
+    const asked = run.some((x) => x.questions?.length || x.answers);
+    const quiet = startsRun(it) && !asked && last?.kind === 'agent' && saysNothing(last.text);
     if (!quiet) {
       out.push(...run);
       fold = null;

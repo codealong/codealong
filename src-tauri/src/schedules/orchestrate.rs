@@ -253,7 +253,7 @@ pub fn resting(runs: &[RunRecord], found: &[Found], now: i64) -> bool {
 /// What an orchestrator finds on the board to look at now, each by an id of its own that a run
 /// notes as seen, so each is told once: a session of its own that waits on you (a call to allow, a
 /// question, an error), a PR its sessions worked on, or of yours, that waits on you (approved, sent
-/// back, or with failing checks) with no session of its own told of it (`for_you`), and a linked
+/// back, or with failing checks) where no session of its own is told of it (nudges.rs `tells`), and a linked
 /// worktree two agents work in at once. A finished turn, and a PR opened, merged or closed, aren't
 /// found: Codealong shows them already, its next run reads them (`codealong changes`), and a run
 /// for each was most of what an orchestrator ran for, to find nothing to tell you. `seen` is what
@@ -280,31 +280,29 @@ pub fn found(board: &Board, file: &File, s: &Schedule, now: i64, seen: &[String]
             out.push(found);
         }
     }
-    for p in board.prs.iter().filter(|p| keeps(&p.project) && (p.mine || !p.sessions.is_empty()) && for_you(p)) {
-        let head = p.head_oid.as_deref().unwrap_or(&p.head);
+    for p in board.prs.iter().filter(|p| keeps(&p.project) && (p.mine || !p.sessions.is_empty())) {
+        use crate::nudges::{tells, Why};
         let moved = match p.state {
-            crate::model::PrState::Approved => Some(("approved", "approved")),
-            crate::model::PrState::Changes => Some(("changes", "sent back with changes asked for")),
+            crate::model::PrState::Approved => Some(("approved", "approved", Why { approved: true, ..Why::default() })),
+            crate::model::PrState::Changes => Some(("changes", "sent back with changes asked for", Why { changes: true, ..Why::default() })),
             _ => None,
         };
-        if let Some((state, said)) = moved {
-            // Told once each time it comes to a state that waits on you, at a commit: against the
-            // state it was last told in, so one it comes back to (approved again after changes
-            // were asked, or after a push took its approval away) is news again, and the same
-            // state is told once however often it's looked at. By when it was first seen there,
-            // which no id kept from before can be, however many the list keeps. One told before
-            // states had their commit (`approved` alone) counts for any.
-            let state = format!("{state}@{head}");
+        if let Some((state, said, _)) = moved.filter(|(_, _, why)| !tells(board, p, why)) {
+            // Told once each time it comes to a state that waits on you: against the state it was
+            // last told in, so one it comes back to (approved again after changes were asked) is
+            // news again, and the same state is told once however often it's looked at, a push
+            // while it's in it too. By when it was first seen there, which no id kept from before
+            // can be, however many the list keeps.
             let prefix = format!("pr:{}:", p.key);
             let last = seen.iter().filter_map(|x| x.strip_prefix(&prefix)?.split_once(':')).filter_map(|(at, was)| Some((at.parse::<i64>().ok()?, was))).max_by_key(|(at, _)| *at);
-            let told = last.is_some_and(|(_, was)| was == state || (!was.contains('@') && state.split('@').next() == Some(was)));
-            if !told {
+            if last.map(|(_, was)| was) != Some(state) {
                 out.push(Found { id: format!("{prefix}{now}:{state}"), title: format!("#{} {} in {}: {said}", p.number, p.title, p.repo_slug), url: p.url.clone(), text: String::new(), todo: None });
             }
         }
-        if p.state.is_open() && p.checks.failed > 0 {
+        let failing = Why { failed: if p.checks.failing.is_empty() { vec![String::new()] } else { p.checks.failing.clone() }, ..Why::default() };
+        if p.state.is_open() && p.checks.failed > 0 && !tells(board, p, &failing) {
             out.push(Found {
-                id: format!("checks:{}@{head}", p.key),
+                id: format!("checks:{}@{}", p.key, p.head_oid.as_deref().unwrap_or(&p.head)),
                 title: format!("#{} {} in {}: checks failing", p.number, p.title, p.repo_slug),
                 url: p.url.clone(),
                 text: if p.checks.failing.is_empty() { String::new() } else { format!("Failing: {}", p.checks.failing.join(", ")) },
@@ -313,12 +311,6 @@ pub fn found(board: &Board, file: &File, s: &Schedule, now: i64, seen: &[String]
         }
     }
     out
-}
-
-/// Whether what a PR waits on is yours to see to: none of its sessions is told of what happens on
-/// it (its nudge to its primary, nudges.rs), which would see to it itself.
-fn for_you(p: &crate::model::PrItem) -> bool {
-    !(p.nudge && p.primary.is_some())
 }
 
 /// What a session that needs you waits on, in words.
@@ -493,7 +485,7 @@ mod tests {
     }
 
     #[test]
-    fn a_pr_is_told_when_it_waits_on_you_once_for_each_state_and_commit() {
+    fn a_pr_is_told_when_it_waits_on_you_once_for_each_state() {
         let file = File { schedules: vec![orch("web", Some("Web"))], ..File::default() };
         let s = &file.schedules[0];
         let at = |state: PrState| Board { prs: vec![pr("Web", state)], ..Board::default() };
@@ -502,30 +494,38 @@ mod tests {
         for state in [PrState::Draft, PrState::Open, PrState::Merged, PrState::Closed] {
             assert!(told(state, &[], 10).is_empty(), "{state:?}");
         }
-        assert_eq!(told(PrState::Approved, &[], 10), vec!["pr:acme/web#4:10:approved@abc"]);
-        // Told already, it isn't again; sent back, then approved again on that commit, each is.
-        let mut seen = vec!["pr:acme/web#4:10:approved@abc".to_string()];
+        assert_eq!(told(PrState::Approved, &[], 10), vec!["pr:acme/web#4:10:approved"]);
+        // Told already, it isn't again, a push while it's approved too; sent back, then approved
+        // again, each is.
+        let mut seen = vec!["pr:acme/web#4:10:approved".to_string()];
         assert!(told(PrState::Approved, &seen, 20).is_empty());
-        assert_eq!(told(PrState::Changes, &seen, 20), vec!["pr:acme/web#4:20:changes@abc"]);
-        seen.push("pr:acme/web#4:20:changes@abc".into());
-        assert_eq!(told(PrState::Approved, &seen, 30), vec!["pr:acme/web#4:30:approved@abc"]);
-        // Approved again on a new commit, after a push took its approval away.
         let mut pushed = at(PrState::Approved);
         pushed.prs[0].head_oid = Some("def".into());
-        assert_eq!(ids(found(&pushed, &file, s, 40, &["pr:acme/web#4:10:approved@abc".to_string()])), vec!["pr:acme/web#4:40:approved@def"]);
-        // One told before states had their commit counts for any.
-        assert!(told(PrState::Approved, &["pr:acme/web#4:10:approved".to_string()], 20).is_empty());
+        assert!(found(&pushed, &file, s, 20, &seen).is_empty());
+        assert_eq!(told(PrState::Changes, &seen, 20), vec!["pr:acme/web#4:20:changes"]);
+        seen.push("pr:acme/web#4:20:changes".into());
+        assert_eq!(told(PrState::Approved, &seen, 30), vec!["pr:acme/web#4:30:approved"]);
         // With its oldest moves trimmed from the list, a move is still told, by an id none kept has.
-        let trimmed = vec!["pr:acme/web#4:20:changes@abc".to_string()];
-        assert_eq!(told(PrState::Approved, &trimmed, 40), vec!["pr:acme/web#4:40:approved@abc"]);
+        let trimmed = vec!["pr:acme/web#4:20:changes".to_string()];
+        assert_eq!(told(PrState::Approved, &trimmed, 40), vec!["pr:acme/web#4:40:approved"]);
         let mut failing = at(PrState::Open);
         failing.prs[0].checks.failed = 1;
         assert_eq!(ids(found(&failing, &file, s, NOW, &[])), vec!["checks:acme/web#4@abc".to_string()]);
-        // One whose session is told of it (its nudge) is that session's to see to.
-        let mut nudged = failing.clone();
-        nudged.prs[0].state = PrState::Approved;
-        (nudged.prs[0].nudge, nudged.prs[0].primary) = (true, Some("claude:claude:p".into()));
-        assert!(found(&nudged, &file, s, NOW, &[]).is_empty());
+        // One whose running primary session its nudge tells of it is that session's to see to;
+        // what its nudge leaves out (an approval, failing checks, by `nudge_about`) is still yours.
+        let primary = Session { live: true, ..session("p", Status::Idle, NOW) };
+        let nudged = |state: PrState, about: crate::config::NudgeAbout| {
+            let mut b = Board { lanes: vec![lane("Web", "/w", vec![primary.clone()])], nudge_about: about, ..failing.clone() };
+            (b.prs[0].state, b.prs[0].nudge, b.prs[0].primary) = (state, true, Some(primary.key.clone()));
+            ids(found(&b, &file, s, NOW, &[]))
+        };
+        assert!(nudged(PrState::Approved, crate::config::NudgeAbout::Everything).is_empty());
+        assert_eq!(nudged(PrState::Approved, crate::config::NudgeAbout::Feedback), vec![format!("pr:acme/web#4:{NOW}:approved"), "checks:acme/web#4@abc".to_string()]);
+        assert_eq!(nudged(PrState::Changes, crate::config::NudgeAbout::Feedback), vec!["checks:acme/web#4@abc".to_string()]);
+        // One whose primary has stopped, and isn't resumed for its news, is yours too.
+        let mut stopped = Board { nudge_about: crate::config::NudgeAbout::Everything, ..failing.clone() };
+        (stopped.prs[0].nudge, stopped.prs[0].primary) = (true, Some("claude:claude:gone".into()));
+        assert_eq!(ids(found(&stopped, &file, s, NOW, &[])), vec!["checks:acme/web#4@abc".to_string()]);
         // Another project's PR, or one neither yours nor worked on here, isn't its.
         assert!(found(&Board { prs: vec![pr("Docs", PrState::Approved)], ..Board::default() }, &file, s, NOW, &[]).is_empty());
         let mut theirs = at(PrState::Approved);

@@ -901,6 +901,15 @@ pub fn lane_at<'a>(board: &'a Board, dir: &Path) -> Option<&'a Lane> {
     board.lanes.iter().find(|l| Path::new(&l.id) == dir).or_else(|| lane_for_path(board, dir))
 }
 
+/// Whether `dir` is a checkout of its own (a `.git` there) that the board doesn't list yet: a
+/// worktree just made, which Codealong lists a few seconds on. Made inside another (`git worktree
+/// add` under a main checkout, Claude Code's `.claude/worktrees`), `lane_at` would find the one
+/// around it, so a start there would go to that checkout, whose files another agent may change.
+pub fn unlisted_checkout(board: &Board, dir: &Path) -> bool {
+    let real = |p: &Path| dunce::canonicalize(p).unwrap_or_else(|_| p.to_path_buf());
+    dir.join(".git").exists() && !board.lanes.iter().any(|l| real(Path::new(&l.path)) == real(dir))
+}
+
 /// The worktree the folder is in: the lane whose path contains it, the deepest one.
 pub fn lane_for_path<'a>(board: &'a Board, dir: &Path) -> Option<&'a Lane> {
     let dir = dunce::canonicalize(dir).unwrap_or_else(|_| dir.to_path_buf());
@@ -1640,6 +1649,23 @@ fn move_target<'a>(cfg: &'a Config, s: &crate::model::Session, account: &Account
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_checkout_made_inside_another_isnt_taken_for_it_until_its_listed() {
+        let main = std::env::temp_dir().join(format!("codealong-unlisted-{}-{}", std::process::id(), crate::util::now_ms()));
+        let made = main.join(".claude/worktrees/atlas");
+        std::fs::create_dir_all(&made).unwrap();
+        std::fs::write(made.join(".git"), "gitdir: elsewhere").unwrap();
+        std::fs::create_dir_all(main.join("src")).unwrap();
+        let lane = |path: &Path| crate::fixtures::lane(&path.to_string_lossy(), Vec::new());
+        let board = Board { lanes: vec![lane(&main)], ..Board::default() };
+        assert!(unlisted_checkout(&board, &made), "inside the main checkout, not listed yet");
+        assert!(!unlisted_checkout(&board, &main.join("src")), "a folder of the main checkout is in it");
+        let listed = Board { lanes: vec![lane(&main), lane(&made)], ..Board::default() };
+        assert!(!unlisted_checkout(&listed, &made));
+        assert_eq!(lane_at(&listed, &made).map(|l| l.path.as_str()), Some(made.to_string_lossy().as_ref()));
+        let _ = std::fs::remove_dir_all(&main);
+    }
 
     #[test]
     fn a_provider_flag_blocks_automated_resume_before_preparing_the_folder() {
