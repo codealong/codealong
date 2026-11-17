@@ -1255,6 +1255,9 @@ export function App() {
       const wider = ageListingPr(pr, prPins.set, AGES, age, Date.now());
       if (wider) setAge(wider);
       setSelectedKey(`pr:${pr.key}`);
+      // The list goes to it, though it was selected already: under a tab picked since, or
+      // scrolled out of sight, its selection alone wouldn't move the list.
+      setScrollTo(`pr:${pr.key}`);
     }
   });
 

@@ -4,7 +4,8 @@
 // merge, Needs work, Waiting on others and Drafts; Others only everyone else's, under Review
 // requested, Agent reviewing, Snoozed and Not asking you; the sidebar's Authors count only the tab's
 // PRs; the tab picked is remembered; a PR shown from elsewhere that the tab doesn't list switches
-// to its own tab, once: a tab picked after it stays through a visit to Sessions. In each project the three
+// to its own tab, once: a tab picked after it stays through a visit to Sessions, and shown again,
+// it switches back and the list goes to it. In each project the three
 // latest open PRs are made a review asked of you, a PR of yours ready to merge, and a review
 // Codealong's agent is still on, since a snapshot seldom has all three.
 //   scripts/preview.sh prs '' scripts/preview/pr-tabs-check.js
@@ -110,6 +111,17 @@
           return until(function () { return tab('Others') && q('.ca-prrow'); }, 5000, 'the PRs again').then(function () { return wait(300); });
         }).then(function () {
           check('a tab picked after it stays through a visit to Sessions', tab('Others').getAttribute('aria-selected') === 'true' && !listed(ready), tabs().map(function (t) { return t.textContent + '=' + t.getAttribute('aria-selected'); }).join(', '));
+          // Shown again while still selected: its selection doesn't change, so only the reveal
+          // can take the list to it.
+          var went = [];
+          var scroll = Element.prototype.scrollIntoView;
+          Element.prototype.scrollIntoView = function () { went.push(this); return scroll.apply(this, arguments); };
+          window.__emit('reveal', { kind: 'pr', key: ready.key });
+          return until(function () { return tab('Yours').getAttribute('aria-selected') === 'true' && listed(ready); }, 5000, 'Yours again for the PR shown again').then(function () { return wait(200); }).then(function () {
+            Element.prototype.scrollIntoView = scroll;
+            var row = all('.ca-board-list .ca-prrow').filter(isRow(ready))[0];
+            check('shown again while selected out of sight, it switches back and the list goes to it', row && row.classList.contains('is-selected') && went.some(function (el) { return el === row || el.contains(row) || row.contains(el); }), went.length + ' scrolled to');
+          });
         });
       });
     })
