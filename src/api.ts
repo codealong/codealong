@@ -1464,6 +1464,15 @@ export function imageUrl(name: string, from: string | null = null, again = 0): s
   return `codealong-image://localhost/${name}${from ? `?from=${encodeURIComponent(from)}${again ? `&again=${again}` : ''}` : ''}`;
 }
 
+/** Where a window loads a picture, film or recording a session sent you, to show it in place
+ *  (sentfiles.rs): its full path, as one piece. `at` is the call that sent it: an agent often
+ *  sends a file again once it's changed it, and a later call's loads anew rather than from what
+ *  WebKit kept of an earlier one. A preview serves them from ./files. */
+export function sentFileUrl(path: string, at: number): string {
+  if (!inTauri || inPreview) return `./files/${encodeURIComponent(path)}`;
+  return `codealong-file://localhost/${encodeURIComponent(path)}?at=${at}`;
+}
+
 /** Calls `cb` with the paths of files dropped on this window and where they landed. */
 export function onFileDrop(cb: (paths: string[], at: { x: number; y: number }) => void): () => void {
   if (!inTauri) return () => {};

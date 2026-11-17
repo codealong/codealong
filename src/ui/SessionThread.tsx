@@ -19,8 +19,8 @@
 // your answers show where you gave them as a message of yours, each by its question's header,
 // heading the agent's reply again after them. A call that made a page on the web (an artifact
 // Claude Code published) says so under its line, as a link to it, and stays out of a fold; web links in a tool's output open
-// too. A call that sent you files (Claude Code's SendUserFile) lists them under its line with what
-// it said of them, each opening on a click (Markdown.tsx `FileLink`), and stays out of a fold too.
+// too. A call that sent you files (Claude Code's SendUserFile) shows them under its line with what
+// it said of them, pictures, films and recordings in place (SentFiles.tsx), and stays out of a fold too.
 //
 // A prompt of yours shows as you typed it, its Markdown drawn as a reply's is (Markdown.tsx
 // `written`: its line breaks and indentation stay), and its images in place, whichever way they went: sent from Codealong,
@@ -68,7 +68,8 @@ import type { DeviceTag, Harness, HostedStream, Question, QueuedMessage, Session
 import { selectedForMenu, type MenuSpec } from '../contextMenu';
 import { CodeBlock } from './CopyButton';
 import { DescriptionView, ImagesFrom } from './DescriptionEditor';
-import { FileLink, FollowUpContext, Link, linked, Markdown } from './Markdown';
+import { FollowUpContext, Link, linked, Markdown } from './Markdown';
+import { SentFiles } from './SentFiles';
 import { Button, Chip, cx, Icon, Rich, StatusGlyph } from './primitives';
 import { useAside } from '../side';
 import { needOf, waitsInBackground } from '../lanes';
@@ -343,18 +344,7 @@ function ToolLine({ item, result, state, onOpen }: { item: TranscriptItem; resul
         {detail && <Icon name={open ? 'chevron-down' : 'chevron-right'} size={12} />}
       </button>
       {link && <MadeLine link={link} />}
-      {item.sent && (
-        <div className="ca-thread-sent">
-          {item.sent.caption && <p className="ca-thread-sentcaption">{item.sent.caption}</p>}
-          <ul aria-label="Files it sent you">
-            {item.sent.files.map((f) => (
-              <li key={f}>
-                <FileLink path={f} />
-              </li>
-            ))}
-          </ul>
-        </div>
-      )}
+      {item.sent && <SentFiles sent={item.sent} at={item.cursor} />}
       {state === 'asks' && onOpen && (
         <div className="ca-thread-askrow">
           <span>{questions ? 'It’s asking you.' : 'It’s waiting for your approval.'}</span>

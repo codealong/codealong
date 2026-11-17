@@ -1,0 +1,74 @@
+/* The files a call sent you (SentFiles.tsx), under its line as a page it made is: what it said of
+   them, then each file. A picture, film or recording shows in place over its name, side by side
+   with the next as they fit; any other file takes a line of its own. */
+.ca-thread-sent {
+  min-width: 0;
+  margin: 0 6px 3px 25px;
+  font: var(--type-meta);
+}
+.ca-thread-sentcaption {
+  margin: 0 0 2px;
+  color: var(--ink-2);
+  overflow-wrap: anywhere;
+}
+.ca-thread-sent ul {
+  display: flex;
+  flex-wrap: wrap;
+  column-gap: var(--space-3);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.ca-thread-sent li {
+  flex: 1 0 100%;
+  min-width: 0;
+  padding: 1px 0;
+}
+.ca-thread-sent li.is-media {
+  flex: 0 1 auto;
+  max-width: 100%;
+  padding: 4px 0 2px;
+}
+.ca-thread-sentfile {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 3px;
+  max-width: 100%;
+  margin: 0;
+}
+/* Each at most a few lines of the conversation tall, at its own shape: a portrait film narrow,
+   a wide one wide. */
+.ca-thread-sentfile video,
+.ca-thread-sentfile .ca-desc-img img {
+  display: block;
+  width: auto;
+  max-width: 100%;
+  height: auto;
+  max-height: 240px;
+}
+.ca-thread-sentfile .ca-desc-img {
+  margin: 0;
+}
+.ca-thread-sentfile video {
+  border-radius: var(--radius-sm);
+  background: var(--surface-sunken);
+}
+.ca-thread-sentfile audio {
+  width: 320px;
+  max-width: 100%;
+}
+/* Its name, as wide as what it names and no wider, without the folder (on hover, and in its
+   menu's Reveal in Finder): side by side, a long folder would push the next one away. */
+.ca-thread-sentfile figcaption {
+  width: 0;
+  min-width: 100%;
+}
+.ca-thread-sentfile .ca-md-file-dir {
+  display: none;
+}
+/* Why one didn't open, on a line of its own under its name: a scratch folder's path is long. */
+.ca-thread-sent .ca-md-file-why {
+  display: block;
+  margin: 1px 0 0 18px;
+}

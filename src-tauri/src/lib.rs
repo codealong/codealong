@@ -105,6 +105,7 @@ mod rerequest;
 mod reusable;
 mod reviewdone;
 mod send;
+mod sentfiles;
 mod route;
 mod routelog;
 mod rpc;
@@ -1765,6 +1766,7 @@ pub fn run() {
             dictation::on_window_event(window, event);
         })
         .register_asynchronous_uri_scheme_protocol("codealong-image", |_, request, responder| serve_image(request, responder))
+        .register_asynchronous_uri_scheme_protocol("codealong-file", |_, request, responder| sentfiles::serve(request, responder))
         // A window's command is the app's own when it's one of these, and the server's when it's
         // one of its calls (calls.rs), which `forward` hands it.
         .invoke_handler({

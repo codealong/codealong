@@ -100,6 +100,7 @@
 # newest page, from --snapshot --transcript) and what it waits on you to allow (--pending);
 # other sessions show their title and excerpt there. PREVIEW_BEFORE=<cursor> shows the page
 # before that place in its record (a byte offset at a line's start) in place of the newest.
+# The pictures, films and recordings its calls sent you show from where they are on this Mac.
 # PREVIEW_TOKENS=<file> answers the Analytics window with the token report in it (`codealong --snapshot
 # --tokens [days] > file` prints this Mac's); without one it gets a report made up from the board.
 # PREVIEW_NOTICES=<file> shows the background failures in it (scripts/preview/notices-sample.json
@@ -228,6 +229,19 @@ if [ -n "${PREVIEW_TRANSCRIPT:-}" ]; then
   "$bin" --snapshot --transcript "$PREVIEW_TRANSCRIPT" ${PREVIEW_BEFORE:+--before "$PREVIEW_BEFORE"} >"$dir/transcript.json" 2>/dev/null
   "$bin" --snapshot --pending "$PREVIEW_TRANSCRIPT" >"$dir/pending.json" 2>/dev/null
   echo "{\"key\": \"$PREVIEW_TRANSCRIPT\"}" >"$dir/transcript-key.json"
+fi
+# The files its calls sent you, which the page loads from ./files as the app loads them from
+# where they are (api.ts `sentFileUrl`): linked there by their full paths, not copied, as a film
+# can be large.
+rm -rf "$dir/files"
+if [ -s "$dir/transcript.json" ]; then
+  python3 -c 'import json, sys; sys.stdout.write("".join(f + "\0" for f in {f for i in json.load(open(sys.argv[1]))["items"] for f in (i.get("sent") or {}).get("files", [])}))' "$dir/transcript.json" 2>/dev/null |
+    while IFS= read -r -d '' f; do
+      if [ -f "$f" ]; then
+        mkdir -p "$dir/files$(dirname "$f")"
+        ln -s "$f" "$dir/files$f"
+      fi
+    done
 fi
 # After the conversation is read: reading it keeps the images its prompts came with.
 images="${PREVIEW_IMAGES:-$HOME/Library/Application Support/Codealong/images}"

@@ -405,7 +405,7 @@ function FollowUp({ label, prompt }: { label: string; prompt: string }) {
  *  (launch.rs `open_file`, which shows in the Finder what opening would run); a right-click
  *  offers each way, and its path (menus.ts `fileMenu`). What goes wrong is said in place (`why`):
  *  a file in a scratch folder is often gone by the time you look. */
-function useFileActions({ path, line }: PathAt, kind: PathKind) {
+export function useFileActions({ path, line }: PathAt, kind: PathKind) {
   const [why, setWhy] = useState<string | null>(null);
   const tried = (work: Promise<void>) => {
     setWhy(null);
@@ -427,7 +427,7 @@ function useFileActions({ path, line }: PathAt, kind: PathKind) {
 }
 
 /** Why a file didn't open, beside it. */
-function FileWhy({ why }: { why: string | null }) {
+export function FileWhy({ why }: { why: string | null }) {
   return why ? (
     <span className="ca-md-file-why" role="status">
       {why}

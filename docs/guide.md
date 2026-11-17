@@ -628,12 +628,17 @@ too, as a line that opens to each question with its choices, your picks marked; 
 under it, where you gave them, as a message of yours: a line for each question, by its header (the
 whole question on hover), with what you picked or wrote. The agent's reply after them heads itself
 again, and ⌘F finds what you answered. Files Claude Code sent you (its SendUserFile tool, which the Claude app and your
-phone show as cards) are listed under their call, each by its name and folder, with what the agent
-said of them, and the call stays out of a fold. Click one to open it in the app that opens its
-kind, as a double-click in the Finder would; an app, a script or a program is shown in the Finder
-instead, so a click never runs anything. A file sent from a scratch folder is often cleared by the
-time you look, and says so where you clicked. A session on another Mac has its files there, so
-they're listed but don't open. A full path an agent writes as code in a reply (`/private/tmp/…/plan.md`,
+phone show as cards) show under their call with what the agent said of them, and the call stays out
+of a fold. An image, a video or an audio file shows in place, over its name, side by side as they
+fit: an image opens on a click, and a video or audio plays where it is, with its controls. It shows
+the file as it is now, so one the agent changed after sending it shows the change. One in Desktop,
+Documents or Downloads, on another volume, in iCloud Drive or in another app's folder waits for a
+click on Show image (or video, or audio), since reading a file there can bring up macOS's prompt to
+allow it. Any other file is listed by its name and folder. Click a name to open the file in the app
+that opens its kind, as a double-click in the Finder would; an app, a script or a program is shown
+in the Finder instead, so a click never runs anything. A file sent from a scratch folder is often
+cleared by the time you look: it's left as its name, which says so where you clicked. A session on
+another machine has its files there, so they're listed, not shown, and don't open. A full path an agent writes as code in a reply (`/private/tmp/…/plan.md`,
 `~/notes.md`) is underlined, as it's written, once Codealong has found something there, and opens
 the same way on a click; one with a line (`main.rs:42`) opens in your editor at that line. What only
 looks like a path (a route such as `/api/v1/users`, a skill, a command, a file that isn't here)
