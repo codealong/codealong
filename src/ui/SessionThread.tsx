@@ -91,6 +91,7 @@ import { Reading } from './Tip';
 import { Waiting, Working } from './Working';
 import { held, keysIn } from '../platform';
 import { asCue, saysNothing, toldIn } from '../listening';
+import { foldQuietRuns } from '../orchestrators';
 import { Told } from './Listening';
 
 /** Loads the page before once you're this close to the top. */
@@ -1088,7 +1089,9 @@ export function SessionThread({ session: s, now, onOpen, fallback, machine, onLo
   }, []);
 
 
-  const rows = useMemo(() => rowsOf(items), [items]);
+  // An orchestrator's runs that found nothing fold into a line each (orchestrators.ts).
+  const orchestrating = !!s.orchestrator;
+  const rows = useMemo(() => rowsOf(orchestrating ? foldQuietRuns(items) : items), [items, orchestrating]);
   // A session that listens (listen.rs): what Codealong told it is drawn as what it is (the
   // meeting's lines, that it began, that it ended), and an answer that says there's nothing to
   // say, a dash, as it's asked to give most of the time, isn't drawn at all.

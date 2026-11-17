@@ -444,6 +444,8 @@ function withExperiments(board) {
     var project = orch.project === '$first' ? ((out.projects || [])[0] || {}).name : orch.project || undefined;
     var id = 'orch-' + (project || 'all');
     if (latest && !orch.off) {
+      // Its conversation is an orchestrator's (`session_page`).
+      window.__ORCHESTRATOR_KEY__ = latest.key;
       latest.orchestrator = { schedule: id, project: project, lookedAt: Date.now() - 4 * 60e3 };
       latest.title = project ? project + ' orchestrator' : 'Orchestrator';
       latest.quiet = true;
@@ -463,6 +465,16 @@ function withExperiments(board) {
   if (voice && window.__MEETING_SOON__) out.meetingSoon = window.__MEETING_SOON__;
   return out;
 }
+// An orchestrator's conversation (`session_page`): Codealong's message for each run, what it ran,
+// and its reply.
+function orchestratorPage(last) {
+  var n = 0;
+  var item = function (kind, text, extra) { var at = last - (12 - n) * 60e3; return Object.assign({ at: at, kind: kind, text: text, failed: false, cursor: n++, n: 0 }, extra || {}); };
+  var tick = function () { return item('codealong', 'You’re Codealong’s orchestrator for All projects. Run a tick as the codealong skill’s references/orchestrate.md says, from *Each tick*.'); };
+  var run = function (reply) { var id = 't' + n; return [tick(), item('tool', 'Bash · `codealong changes`', { id: id, input: 'codealong changes' }), item('result', '', { id: id, output: '{"sessions":[]}' }), item('agent', reply)]; };
+  return { before: null, after: 12, items: [].concat(run('—'), run('—'), run('**Two sessions work in one worktree at once.** They’ll overwrite each other’s files.'), run('—')) };
+}
+
 // Two meetings kept (meetings.rs `Kept`): one with notes, and one in which nothing was heard.
 function meetingsSample() {
   var root = '/Users/me/Library/Application Support/Codealong/meetings/';
@@ -1042,6 +1054,9 @@ window.__TAURI_INTERNALS__ = {
         if (!s) return Promise.reject(new Error("That session isn't on the board any more."));
         // The session that listens (PREVIEW_VOICE, `window.__LISTENS__`): the meeting it heard.
         if (window.__PREVIEW_VOICE__ && window.__LISTENS__ === key) return (args || {}).before == null ? listeningPage(s.lastActivity) : { items: [], before: null, after: 9 };
+        // An orchestrator's (`window.__ORCHESTRATES__`): two runs that found nothing, answered with
+        // a dash, one that told you something, and another that found nothing.
+        if (window.__ORCHESTRATOR_KEY__ === key) return (args || {}).before == null ? orchestratorPage(s.lastActivity) : { items: [], before: null, after: 12 };
         var item = function (kind, text, n, extra) { return Object.assign({ at: s.lastActivity - (3 - n) * 60e3, kind: kind, text: text, failed: false, cursor: n, n: 0 }, extra || {}); };
         // The reply links the PR the session worked on, if the board has one, and an older PR in
         // its repo the board doesn't list (pr_card answers for that one); the tool's output links

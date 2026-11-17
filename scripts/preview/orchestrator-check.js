@@ -1,6 +1,8 @@
 // Checks an orchestrator's session in Sessions (orchestrators.ts): it leads the list in a section
 // of its own, is listed once, never among the rest, and the bar offers no compass while it runs;
-// selected, its header says it's the orchestrator for its project; its menu looks now, starts it
+// selected, its header says it's the orchestrator for its project, and its conversation folds the
+// runs that found nothing (a dash for a reply) into a line each, runs in a row into one
+// (orchestrators.ts `foldQuietRuns`), leaving the run that told you something; its menu looks now, starts it
 // afresh and turns it off in Mark as done's place, which pauses its schedule (its scheduler then
 // marks its session done: runner.rs `Job::Retire`), with no pin, snooze or archive.
 //   scripts/preview.sh sessions '' scripts/preview/orchestrator-check.js
@@ -25,8 +27,16 @@
     .then(function (it) {
       check('its header says it’s the orchestrator for its project', /^Orchestrator for\s*\S/.test(it.line.textContent.trim()), it.line.textContent);
       check('and not that it came from a schedule', !q('.ca-sessinsp-head') || q('.ca-sessinsp-head').textContent.indexOf('From the schedule') < 0);
-      rightClick(it.row);
-      return wait(100).then(function () { return it; });
+      return until(function () { return all('.ca-thread-note').length >= 2 ? all('.ca-thread-note') : null; }, 5000, 'its conversation’s folded runs').then(function (notes) {
+        var said = notes.map(function (x) { return x.textContent.trim(); });
+        check('its two quiet runs in a row fold into one line', said[0] === 'Looked 2 times: nothing new', said.join(' | '));
+        check('and the last one into another', said[said.length - 1] === 'Looked: nothing new', said.join(' | '));
+        var replies = all('.ca-thread-agent').map(function (x) { return x.textContent.trim(); });
+        check('the run that told you something stays', replies.some(function (t) { return /Two sessions work in one worktree/.test(t); }), replies.join(' | '));
+        check('and no dash is drawn', !replies.some(function (t) { return /^[—–-]$/.test(t); }), replies.join(' | '));
+        rightClick(it.row);
+        return wait(100).then(function () { return it; });
+      });
     })
     .then(function (it) {
       var labels = menuLabels();

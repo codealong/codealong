@@ -1,8 +1,8 @@
 import { describe, expect, it } from 'vitest';
-import { compassTitle, freeScopes, orchestrates, orchestratorFor, orchestratorOn, orchestratorsIn, scopeOfView } from './orchestrators';
+import { compassTitle, foldQuietRuns, freeScopes, orchestrates, orchestratorFor, orchestratorOn, orchestratorsIn, scopeOfView } from './orchestrators';
 import { ALL_PROJECTS } from './quick';
 import { lane, session } from './testing/fixtures';
-import type { ScheduleItem } from './types';
+import type { ScheduleItem, TranscriptItem } from './types';
 
 const chats = lane({ id: '/chats', project: 'Elsewhere' });
 const row = (key: string, project?: string, archived = false) => ({ lane: chats, session: session({ key, archived, orchestrator: { schedule: key, project } }) });
@@ -51,5 +51,30 @@ describe('orchestrators', () => {
     expect(orchestratorFor(items, 'Docs')).toBeUndefined();
     expect(orchestratorOn(orchestratorFor(items, 'Web'))).toBe(false);
     expect(orchestratorOn(orchestratorFor(items, null))).toBe(true);
+  });
+
+  it('folds the runs that found nothing into a line, and leaves the ones that told you something', () => {
+    let n = 0;
+    const item = (kind: TranscriptItem['kind'], text = ''): TranscriptItem => ({ at: n * 1000, kind, text, failed: false, cursor: 1, n: n++ });
+    const tick = () => item('codealong', 'You’re Codealong’s orchestrator…');
+    const quiet = () => [tick(), item('tool', 'codealong changes'), item('result'), item('agent', '—')];
+    const told = [tick(), item('tool', 'codealong changes'), item('agent', 'Two sessions now work in one worktree.')];
+    const items = [item('you', 'Keep watch'), item('agent', 'On it.'), ...quiet(), ...quiet(), ...told, ...quiet()];
+    const folded = foldQuietRuns(items);
+    expect(folded.map((x) => [x.kind, x.text])).toEqual([
+      ['you', 'Keep watch'],
+      ['agent', 'On it.'],
+      ['note', 'Looked 2 times: nothing new'],
+      ...told.map((x) => [x.kind, x.text]),
+      ['note', 'Looked: nothing new'],
+    ]);
+    // Each line keeps the place of the run it starts with, so it has a key of its own.
+    expect(folded[2].n).toBe(items[2].n);
+    // A run still going, its last step a call, stays.
+    const going = [tick(), item('agent', '—'), item('tool', 'codealong changes')];
+    expect(foldQuietRuns(going)).toEqual(going);
+    // What came before the page's first message from Codealong stays too.
+    const cut = [item('tool', 'codealong changes'), item('agent', '—')];
+    expect(foldQuietRuns(cut)).toEqual(cut);
   });
 });

@@ -3,9 +3,11 @@
 //! the sessions in none (Elsewhere). It keeps one session going (`To::Thread`), started afresh each
 //! day with its notes carried over, quiet unless it asks you something, and it runs only when
 //! something it keeps watch over needs a look (`Event::Changes`): a session newly waiting on you, a
-//! PR's state moving, two agents in one worktree. Nothing runs while nothing changes, so an
-//! orchestrator costs no usage in a quiet hour, and one per project costs no more than what happens
-//! in them.
+//! PR of yours that waits on you with no session told of it, two agents in one worktree. It runs
+//! at most once every `GAP_MS`, what comes meanwhile waiting for that run. Nothing runs while
+//! nothing changes, so an orchestrator costs no usage in a quiet hour, and one per project costs no
+//! more than what happens in them. A finished turn, a PR opened or merged, aren't a run of their
+//! own: Codealong shows them already, and the next run reads them (`codealong changes`).
 //!
 //! Each of a project's sessions is its project's orchestrator's when that one is on, else All
 //! projects' (`owner`): two orchestrators never read, tag or suggest for one session. An
@@ -60,10 +62,12 @@ impl Orchestrates {
 
 /// All projects, as the project switcher says it.
 pub const ALL: &str = "All projects";
-/// A finished turn waits this long before its orchestrator is told: it's often followed at once by
-/// another (a background command's report, your reply), and one run for both is enough. What
-/// waits on you to allow or answer is told at once.
-pub const SETTLE_MS: i64 = 2 * 60_000;
+/// An orchestrator runs at most this often for what it finds: what comes meanwhile waits for its
+/// next run, which takes it all at once, so a burst of sessions waiting on you is one run rather
+/// than one each (`resting`). Most runs, one for each event, found nothing to tell you.
+pub const GAP_MS: i64 = 15 * 60_000;
+/// How what `shared` finds is told apart: two agents in one worktree, which don't wait out the gap.
+const SHARED: &str = "shared:";
 /// Its session is started afresh this often, its notes carrying what the last one knew.
 pub const FRESH_AFTER: &str = "1d";
 
@@ -239,67 +243,68 @@ fn watched(s: &Session) -> bool {
     s.orchestrator.is_none() && !s.archived && s.visitor.is_none() && !s.headless && !s.listening && !s.helping()
 }
 
+/// Whether an orchestrator looked too lately to run again now for what it found (`GAP_MS`): what
+/// it found stays unseen, and its first run after the gap takes it with whatever else came. Two
+/// agents in one linked worktree (`shared`) don't wait: they overwrite each other's work meanwhile.
+pub fn resting(runs: &[RunRecord], found: &[Found], now: i64) -> bool {
+    !found.iter().any(|f| f.id.starts_with(SHARED)) && looked_at(runs.iter()).is_some_and(|at| now - at < GAP_MS)
+}
+
 /// What an orchestrator finds on the board to look at now, each by an id of its own that a run
 /// notes as seen, so each is told once: a session of its own that waits on you (a call to allow, a
-/// question, an error, at once; a finished turn once it has settled, unless Codealong knows its
-/// work is done, which is only yours to read), a PR its sessions worked on, or of yours, opened,
-/// out of draft, approved, sent back, merged, closed or with failing checks, and a linked worktree
-/// two agents work in at once. `seen` is what it was told of already, which a PR's moves count by.
+/// question, an error), a PR its sessions worked on, or of yours, that waits on you (approved, sent
+/// back, or with failing checks) with no session of its own told of it (`for_you`), and a linked
+/// worktree two agents work in at once. A finished turn, and a PR opened, merged or closed, aren't
+/// found: Codealong shows them already, its next run reads them (`codealong changes`), and a run
+/// for each was most of what an orchestrator ran for, to find nothing to tell you. `seen` is what
+/// it was told of already, which a PR's moves count by.
 pub fn found(board: &Board, file: &File, s: &Schedule, now: i64, seen: &[String]) -> Vec<Found> {
     let mut out = Vec::new();
     let keeps = |project: &str| keeps(file, s, project);
     for lane in board.lanes.iter().filter(|l| l.device.is_none() && keeps(&l.project)) {
         for x in lane.sessions.iter().filter(|x| watched(x) && !x.held_back()) {
-            let since = x.status_since.unwrap_or(x.last_activity);
-            let (what, settled) = match x.status {
-                Status::Needs => (need_words(x), true),
-                Status::Error => ("stopped with an error".to_string(), true),
-                Status::Unread if x.finished.is_none() => ("ended its turn".to_string(), now - since >= SETTLE_MS),
+            let what = match x.status {
+                Status::Needs => need_words(x),
+                Status::Error => "stopped with an error".to_string(),
                 _ => continue,
             };
-            if settled {
-                out.push(Found {
-                    id: format!("waits:{}:{since}", x.key),
-                    title: format!("“{}” {what}", x.title),
-                    url: String::new(),
-                    text: x.excerpt.clone().unwrap_or_default(),
-                    todo: None,
-                });
-            }
+            out.push(Found {
+                id: format!("waits:{}:{}", x.key, x.status_since.unwrap_or(x.last_activity)),
+                title: format!("“{}” {what}", x.title),
+                url: String::new(),
+                text: x.excerpt.clone().unwrap_or_default(),
+                todo: None,
+            });
         }
         if let Some(found) = shared(lane, now) {
             out.push(found);
         }
     }
-    for p in board.prs.iter().filter(|p| keeps(&p.project) && (p.mine || !p.sessions.is_empty())) {
-        let state = match p.state {
-            crate::model::PrState::Draft => "draft",
-            crate::model::PrState::Open => "open",
-            crate::model::PrState::Approved => "approved",
-            crate::model::PrState::Changes => "changes",
-            crate::model::PrState::Merged => "merged",
-            crate::model::PrState::Closed => "closed",
+    for p in board.prs.iter().filter(|p| keeps(&p.project) && (p.mine || !p.sessions.is_empty()) && for_you(p)) {
+        let head = p.head_oid.as_deref().unwrap_or(&p.head);
+        let moved = match p.state {
+            crate::model::PrState::Approved => Some(("approved", "approved")),
+            crate::model::PrState::Changes => Some(("changes", "sent back with changes asked for")),
+            _ => None,
         };
-        let said = match p.state {
-            crate::model::PrState::Draft => "opened as a draft",
-            crate::model::PrState::Open => "open for review",
-            crate::model::PrState::Approved => "approved",
-            crate::model::PrState::Changes => "sent back with changes asked for",
-            crate::model::PrState::Merged => "merged",
-            crate::model::PrState::Closed => "closed without merging",
-        };
-        // Told once each time it moves to another state: against the state it was last told in, so
-        // one it comes back to (reopened, approved again after changes were asked) is news again,
-        // and the same state is told once however often it's looked at. By when it was first seen
-        // there, which no id kept from before can be, however many the list keeps.
-        let prefix = format!("pr:{}:", p.key);
-        let last = seen.iter().filter_map(|x| x.strip_prefix(&prefix)?.split_once(':')).filter_map(|(at, was)| Some((at.parse::<i64>().ok()?, was))).max_by_key(|(at, _)| *at);
-        if last.map(|(_, was)| was) != Some(state) {
-            out.push(Found { id: format!("{prefix}{now}:{state}"), title: format!("#{} {} in {}: {said}", p.number, p.title, p.repo_slug), url: p.url.clone(), text: String::new(), todo: None });
+        if let Some((state, said)) = moved {
+            // Told once each time it comes to a state that waits on you, at a commit: against the
+            // state it was last told in, so one it comes back to (approved again after changes
+            // were asked, or after a push took its approval away) is news again, and the same
+            // state is told once however often it's looked at. By when it was first seen there,
+            // which no id kept from before can be, however many the list keeps. One told before
+            // states had their commit (`approved` alone) counts for any.
+            let state = format!("{state}@{head}");
+            let prefix = format!("pr:{}:", p.key);
+            let last = seen.iter().filter_map(|x| x.strip_prefix(&prefix)?.split_once(':')).filter_map(|(at, was)| Some((at.parse::<i64>().ok()?, was))).max_by_key(|(at, _)| *at);
+            let told = last.is_some_and(|(_, was)| was == state || (!was.contains('@') && state.split('@').next() == Some(was)));
+            if !told {
+                out.push(Found { id: format!("{prefix}{now}:{state}"), title: format!("#{} {} in {}: {said}", p.number, p.title, p.repo_slug), url: p.url.clone(), text: String::new(), todo: None });
+            }
         }
         if p.state.is_open() && p.checks.failed > 0 {
             out.push(Found {
-                id: format!("checks:{}@{}", p.key, p.head_oid.as_deref().unwrap_or(&p.head)),
+                id: format!("checks:{}@{head}", p.key),
                 title: format!("#{} {} in {}: checks failing", p.number, p.title, p.repo_slug),
                 url: p.url.clone(),
                 text: if p.checks.failing.is_empty() { String::new() } else { format!("Failing: {}", p.checks.failing.join(", ")) },
@@ -308,6 +313,12 @@ pub fn found(board: &Board, file: &File, s: &Schedule, now: i64, seen: &[String]
         }
     }
     out
+}
+
+/// Whether what a PR waits on is yours to see to: none of its sessions is told of what happens on
+/// it (its nudge to its primary, nudges.rs), which would see to it itself.
+fn for_you(p: &crate::model::PrItem) -> bool {
+    !(p.nudge && p.primary.is_some())
 }
 
 /// What a session that needs you waits on, in words.
@@ -345,7 +356,7 @@ fn shared(lane: &Lane, now: i64) -> Option<Found> {
     let mut keys: Vec<&str> = here.iter().map(|s| s.key.as_str()).collect();
     keys.sort();
     let titles: Vec<String> = here.iter().map(|s| format!("“{}”", s.title)).collect();
-    Some(Found { id: format!("shared:{}:{}", lane.id, keys.join(",")), title: format!("{} work in {} at once", titles.join(" and "), lane.callsign), url: String::new(), text: lane.path.clone(), todo: None })
+    Some(Found { id: format!("{SHARED}{}:{}", lane.id, keys.join(",")), title: format!("{} work in {} at once", titles.join(" and "), lane.callsign), url: String::new(), text: lane.path.clone(), todo: None })
 }
 
 /// Each orchestrator's session by its key, as its runs have it (`Track::thread`), with when it last
@@ -402,7 +413,7 @@ mod tests {
     }
 
     fn pr(project: &str, state: PrState) -> PrItem {
-        PrItem { project: project.into(), mine: true, ..crate::schedules::tests::pr("acme/web#4", state, None) }
+        PrItem { project: project.into(), mine: true, head_oid: Some("abc".into()), ..crate::schedules::tests::pr("acme/web#4", state, None) }
     }
 
     fn ids(found: Vec<Found>) -> Vec<String> {
@@ -435,16 +446,32 @@ mod tests {
     }
 
     #[test]
-    fn finds_what_waits_on_you_at_once_and_a_finished_turn_once_it_settles() {
+    fn finds_what_waits_on_you_and_not_a_finished_turn() {
         let file = File { schedules: vec![orch("web", Some("Web"))], ..File::default() };
         let s = &file.schedules[0];
         let asks = session("asks", Status::Needs, NOW - 1000);
-        let ended = session("ended", Status::Unread, NOW - 1000);
-        let settled = session("settled", Status::Unread, NOW - SETTLE_MS - 1);
+        let failed = session("failed", Status::Error, NOW - 2000);
+        let ended = session("ended", Status::Unread, NOW - 60 * 60_000);
         let working = session("working", Status::Working, NOW - 1000);
         // A main checkout, where two agents at once aren't news.
-        let board = Board { lanes: vec![Lane { origin: crate::model::Origin::Main, ..lane("Web", "/w", vec![asks, ended, settled, working]) }], ..Board::default() };
-        assert_eq!(ids(found(&board, &file, s, NOW, &[])), vec![format!("waits:claude:claude:asks:{}", NOW - 1000), format!("waits:claude:claude:settled:{}", NOW - SETTLE_MS - 1)]);
+        let board = Board { lanes: vec![Lane { origin: crate::model::Origin::Main, ..lane("Web", "/w", vec![asks, failed, ended, working]) }], ..Board::default() };
+        assert_eq!(ids(found(&board, &file, s, NOW, &[])), vec![format!("waits:claude:claude:asks:{}", NOW - 1000), format!("waits:claude:claude:failed:{}", NOW - 2000)]);
+    }
+
+    #[test]
+    fn it_rests_between_runs_unless_two_agents_share_a_worktree() {
+        let ran = |at: i64, outcome: Outcome| RunRecord { at, outcome, ..RunRecord::default() };
+        let waits = vec![Found { id: "waits:k:1".into(), ..Found::default() }];
+        // Looked five minutes ago: what it found waits for the gap to pass.
+        assert!(resting(&[ran(NOW - 5 * 60_000, Outcome::Sent)], &waits, NOW));
+        assert!(resting(&[ran(NOW - 5 * 60_000, Outcome::Queued)], &waits, NOW), "a run waiting for its session's turn to end looked too");
+        // Once it has, or when it never looked, or only skipped, it runs.
+        assert!(!resting(&[ran(NOW - GAP_MS, Outcome::Sent)], &waits, NOW));
+        assert!(!resting(&[], &waits, NOW));
+        assert!(!resting(&[ran(NOW - 60_000, Outcome::Skipped)], &waits, NOW));
+        // Two agents in one worktree don't wait.
+        let shared = vec![Found { id: format!("{SHARED}/w:a,b"), ..Found::default() }];
+        assert!(!resting(&[ran(NOW - 60_000, Outcome::Sent)], &shared, NOW));
     }
 
     #[test]
@@ -466,33 +493,42 @@ mod tests {
     }
 
     #[test]
-    fn a_prs_each_state_is_told_once_and_failing_checks_at_each_commit() {
+    fn a_pr_is_told_when_it_waits_on_you_once_for_each_state_and_commit() {
         let file = File { schedules: vec![orch("web", Some("Web"))], ..File::default() };
         let s = &file.schedules[0];
         let at = |state: PrState| Board { prs: vec![pr("Web", state)], ..Board::default() };
         let told = |state: PrState, seen: &[String], now: i64| ids(found(&at(state), &file, s, now, seen));
-        assert_eq!(told(PrState::Open, &[], 10), vec!["pr:acme/web#4:10:open"]);
-        // Told already, it isn't again; closed, then reopened, each is.
-        let mut seen = vec!["pr:acme/web#4:10:open".to_string()];
-        assert!(told(PrState::Open, &seen, 20).is_empty());
-        assert_eq!(told(PrState::Closed, &seen, 20), vec!["pr:acme/web#4:20:closed"]);
-        seen.push("pr:acme/web#4:20:closed".into());
-        assert_eq!(told(PrState::Open, &seen, 30), vec!["pr:acme/web#4:30:open"]);
-        // Approved, sent back and approved again on one commit: three moves, each told.
-        let mut seen = vec!["pr:acme/web#4:10:approved".to_string(), "pr:acme/web#4:20:changes".to_string()];
-        assert_eq!(told(PrState::Approved, &seen, 30), vec!["pr:acme/web#4:30:approved"]);
-        seen.push("pr:acme/web#4:30:approved".into());
-        assert!(told(PrState::Approved, &seen, 40).is_empty());
+        // Opened, a draft, merged or closed: Codealong shows it, and the next run reads it.
+        for state in [PrState::Draft, PrState::Open, PrState::Merged, PrState::Closed] {
+            assert!(told(state, &[], 10).is_empty(), "{state:?}");
+        }
+        assert_eq!(told(PrState::Approved, &[], 10), vec!["pr:acme/web#4:10:approved@abc"]);
+        // Told already, it isn't again; sent back, then approved again on that commit, each is.
+        let mut seen = vec!["pr:acme/web#4:10:approved@abc".to_string()];
+        assert!(told(PrState::Approved, &seen, 20).is_empty());
+        assert_eq!(told(PrState::Changes, &seen, 20), vec!["pr:acme/web#4:20:changes@abc"]);
+        seen.push("pr:acme/web#4:20:changes@abc".into());
+        assert_eq!(told(PrState::Approved, &seen, 30), vec!["pr:acme/web#4:30:approved@abc"]);
+        // Approved again on a new commit, after a push took its approval away.
+        let mut pushed = at(PrState::Approved);
+        pushed.prs[0].head_oid = Some("def".into());
+        assert_eq!(ids(found(&pushed, &file, s, 40, &["pr:acme/web#4:10:approved@abc".to_string()])), vec!["pr:acme/web#4:40:approved@def"]);
+        // One told before states had their commit counts for any.
+        assert!(told(PrState::Approved, &["pr:acme/web#4:10:approved".to_string()], 20).is_empty());
         // With its oldest moves trimmed from the list, a move is still told, by an id none kept has.
-        let trimmed = vec!["pr:acme/web#4:20:closed".to_string(), "pr:acme/web#4:30:open".to_string()];
-        assert_eq!(told(PrState::Closed, &trimmed, 40), vec!["pr:acme/web#4:40:closed"]);
+        let trimmed = vec!["pr:acme/web#4:20:changes@abc".to_string()];
+        assert_eq!(told(PrState::Approved, &trimmed, 40), vec!["pr:acme/web#4:40:approved@abc"]);
         let mut failing = at(PrState::Open);
         failing.prs[0].checks.failed = 1;
-        failing.prs[0].head_oid = Some("abc".into());
-        assert_eq!(ids(found(&failing, &file, s, NOW, &[])), vec![format!("pr:acme/web#4:{NOW}:open"), "checks:acme/web#4@abc".to_string()]);
+        assert_eq!(ids(found(&failing, &file, s, NOW, &[])), vec!["checks:acme/web#4@abc".to_string()]);
+        // One whose session is told of it (its nudge) is that session's to see to.
+        let mut nudged = failing.clone();
+        nudged.prs[0].state = PrState::Approved;
+        (nudged.prs[0].nudge, nudged.prs[0].primary) = (true, Some("claude:claude:p".into()));
+        assert!(found(&nudged, &file, s, NOW, &[]).is_empty());
         // Another project's PR, or one neither yours nor worked on here, isn't its.
-        assert!(found(&Board { prs: vec![pr("Docs", PrState::Open)], ..Board::default() }, &file, s, NOW, &[]).is_empty());
-        let mut theirs = at(PrState::Open);
+        assert!(found(&Board { prs: vec![pr("Docs", PrState::Approved)], ..Board::default() }, &file, s, NOW, &[]).is_empty());
+        let mut theirs = at(PrState::Approved);
         theirs.prs[0].mine = false;
         assert!(found(&theirs, &file, s, NOW, &[]).is_empty());
     }

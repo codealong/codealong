@@ -4734,12 +4734,14 @@ Codealong runs each as a schedule of its own (it's listed in Schedules, with its
 one session going, out of sight on an account with room, among Codealong's chats, and starts it
 afresh each day, the new session going on from the notes the last one kept. It runs only when
 something it keeps watch over needs a look: a session that starts to wait on you (a call to allow,
-a question or an error at once, a finished turn once it has settled for two minutes, unless its work
-is known to be done), a PR its sessions worked on, or of yours, opened, out of draft, approved, sent
-back, merged, closed or failing its checks, and two agents working in one linked worktree at once.
-Nothing runs while nothing changes, so an orchestrator spends no usage in a quiet hour, and several
-cost no more than what happens in their projects. A run that comes while its session is at work
-waits for its turn to end, several in one message.
+a question, an error), a PR its sessions worked on, or of yours, approved, sent back or failing its
+checks while no session of its own is told of it (its nudge), and two agents working in one linked
+worktree at once. A finished turn, or a PR opened or merged, isn't a run of its own: Codealong
+shows those already, and its next run reads them. It runs at most once every 15 minutes, what
+comes meanwhile waiting for that run, which takes it all at once; two agents in one worktree don't
+wait. Nothing runs while nothing changes, so an orchestrator spends no usage in a quiet hour, and
+several cost no more than what happens in their projects. A run that comes while its session is at
+work waits for its turn to end, several in one message.
 
 Each run it reads what changed (`codealong changes`, kept to what it keeps watch over), tags what
 waits on you and suggests replies (*Suggested replies*), moves what can't wait to the top, and
@@ -4753,7 +4755,10 @@ Orchestrator: under a project, that project's; under All projects, every one tha
 its replies are digests of what other sessions want of you, which wait on you on their own, so no
 reply of its makes it wait on you (Jev doesn't read them); it waits on you only for what its
 harness holds it on, a question it asks with its question tool or a call to allow. A turn it ends is
-idle, with its first line as its headline. Its header says so over its title (Orchestrator for, and when it last looked,
+idle, with its first line as its headline. It speaks only for what you don't see already (agents in
+each other's way, a decision across sessions, what a stream of work comes to); a run with nothing
+to tell you answers with a dash, its row says Nothing new, and its conversation folds the run into a
+line (Looked: nothing new; several in a row, one line). Its header says so over its title (Orchestrator for, and when it last looked,
 or off), a click away from its schedule. Its menu has Look now, Start afresh (its session is marked
 done, and a new one takes over now from its notes) and, in Mark as done's place and with its key
 (⇧⌘E), Turn off orchestrator, which pauses its schedule and marks its session done, so it leaves

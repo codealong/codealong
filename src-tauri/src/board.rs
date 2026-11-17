@@ -1693,13 +1693,18 @@ pub fn apply_quiet(s: &mut Session, quiet: bool) {
     }
 }
 
+/// What an orchestrator's row says when its last run found nothing to tell you.
+pub const NOTHING_NEW: &str = "Nothing new";
+
 /// An orchestrator's session (`Session::orchestrator`, set before its read is applied) waits on
 /// you only for what its harness holds it on: a call to allow, a question it asked with its
 /// harness's question tool, an error. Its replies are its digests of what other sessions want of
 /// you, which wait on you on their own, so no read of a reply makes it wait on you too
 /// (`needs_your_answer`, from an agent's tag or one Jev made before it was one: insights.rs leaves
 /// its turns unread). What a read says of its reply goes; what Jev says of a call it waits to have
-/// allowed (its risk), or of what it left running, stays.
+/// allowed (its risk), or of what it left running, stays. A run that found nothing to tell you
+/// ends with a dash (listen.rs `says_nothing`, as skills/codealong/references/orchestrate.md asks),
+/// and says so rather than heading its row with the dash.
 pub fn quiet_orchestrator(s: &mut Session) {
     if s.orchestrator.is_none() {
         return;
@@ -1710,6 +1715,9 @@ pub fn quiet_orchestrator(s: &mut Session) {
             s.status = Status::Idle;
         }
         s.excerpt = s.reply_head.clone().or_else(|| s.reply_tail.as_deref().map(last_sentence));
+    }
+    if matches!(s.status, Status::Idle | Status::Unread) && s.reply_tail.as_deref().is_some_and(crate::listen::says_nothing) {
+        s.excerpt = Some(NOTHING_NEW.to_string());
     }
     if let Some(i) = s.insight.as_mut() {
         (i.asks_you, i.ending, i.landing, i.finished, i.waits_until) = (None, None, None, None, None);
@@ -3303,11 +3311,15 @@ mod tests {
         assert!(read.insight.as_ref().is_some_and(|i| i.asks_you.is_none() && i.ending.is_none()));
         // A call to allow, held by its harness, still waits on you, with Jev's read of its risk.
         let risky = SessionInsight { risk: Some(0.8), ..SessionInsight::default() };
-        let mut held = Session { status: Status::Needs, excerpt: Some("Bash: rm -rf build".into()), insight: Some(risky), orchestrator: o, ..Session::new(Harness::Claude, "claude", "o") };
+        let mut held = Session { status: Status::Needs, excerpt: Some("Bash: rm -rf build".into()), insight: Some(risky), orchestrator: o.clone(), ..Session::new(Harness::Claude, "claude", "o") };
         quiet_orchestrator(&mut held);
         assert_eq!(held.status, Status::Needs);
         assert_eq!(held.need, Some(crate::model::Need::Approval));
         assert_eq!(held.insight.and_then(|i| i.risk), Some(0.8));
+        // A run that found nothing new, its reply a dash, says so.
+        let mut nothing = Session { status: Status::Idle, reply_tail: Some("—".into()), excerpt: Some("—".into()), orchestrator: o, ..Session::new(Harness::Claude, "claude", "o") };
+        quiet_orchestrator(&mut nothing);
+        assert_eq!(nothing.excerpt.as_deref(), Some(NOTHING_NEW));
         // Any other session is left as it is.
         let mut other = Session { status: Status::Needs, asks: true, ..Session::new(Harness::Claude, "claude", "x") };
         quiet_orchestrator(&mut other);

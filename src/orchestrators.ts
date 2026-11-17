@@ -8,9 +8,10 @@
 
 import { scheduleOp } from './api';
 import type { MenuAction } from './contextMenu';
+import { saysNothing } from './listening';
 import { ALL_PROJECTS } from './quick';
 import { errorText, type Report } from './report';
-import type { Lane, ScheduleItem, Session } from './types';
+import type { Lane, ScheduleItem, Session, TranscriptItem } from './types';
 
 /** What an orchestrator keeps watch over, in a word or two. */
 export function scopeWords(project: string | null | undefined): string {
@@ -96,4 +97,37 @@ export function orchestratorActions(s: Session, report: Report): { look?: MenuAc
       run: () => void scheduleOp({ op: 'pause', id: o.schedule, paused: true }).then(() => report.info(`The orchestrator for ${words} is off: its session is marked done, and its notes are kept for when it's started again.`), fail),
     },
   };
+}
+
+/** An orchestrator's conversation with each run that found nothing to tell you folded into a
+ *  line: Codealong's message that woke it, what it did, and its reply, a dash (listening.ts
+ *  `saysNothing`), as skills/codealong/references/orchestrate.md asks it to answer then, which the
+ *  engine says as its headline (board.rs `quiet_orchestrator`). Such runs in a row fold into one
+ *  line, and a run that told you something, or that's still going, stays as it is. */
+export function foldQuietRuns(items: TranscriptItem[]): TranscriptItem[] {
+  const out: TranscriptItem[] = [];
+  // The line the last run folded into, while nothing has come after it.
+  let fold: { line: TranscriptItem; runs: number } | null = null;
+  for (let i = 0; i < items.length; ) {
+    const it = items[i];
+    // A run is what Codealong told it and everything up to the next message to it.
+    let end = i + 1;
+    if (it.kind === 'codealong') while (end < items.length && !['codealong', 'you', 'peer'].includes(items[end].kind)) end++;
+    const run = items.slice(i, end);
+    // Its last step: a reply that ends it, or a call it's still making.
+    const last = [...run].reverse().find((x) => x.kind === 'agent' || x.kind === 'tool');
+    const quiet = it.kind === 'codealong' && last?.kind === 'agent' && saysNothing(last.text);
+    if (!quiet) {
+      out.push(...run);
+      fold = null;
+    } else if (fold) {
+      fold.runs += 1;
+      fold.line.text = `Looked ${fold.runs} times: nothing new`;
+    } else {
+      fold = { line: { at: it.at, kind: 'note', text: 'Looked: nothing new', failed: false, cursor: it.cursor, n: it.n }, runs: 1 };
+      out.push(fold.line);
+    }
+    i = end;
+  }
+  return out;
 }

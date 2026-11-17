@@ -514,6 +514,11 @@ pub fn plan_in(file: &File, runs: &Runs, board: &Board, busy: &HashSet<String>, 
                 }
                 let theirs = if line.is_some() { machines::their_seen(&board.machines, &s.id) } else { HashSet::new() };
                 let found: Vec<Found> = found_on(board, file, s, track.armed_at, now, &track.seen).into_iter().filter(|f| !track.seen.contains(&f.id) && !theirs.contains(f.id.as_str())).collect();
+                // An orchestrator that looked lately waits out its gap, what it found unclaimed for
+                // the run after it (orchestrate.rs `resting`).
+                if s.orchestrates.is_some() && orchestrate::resting(&track.runs, &found, now) {
+                    continue;
+                }
                 if let Some(first) = found.first() {
                     let why = match found.len() {
                         1 => crate::util::one_line(&first.title, 80),
@@ -1618,6 +1623,16 @@ mod tests {
         // Once that's noted as seen, nothing more runs until something else changes.
         let runs = Runs { of: [("o".to_string(), Track { seen: vec![format!("waits:claude:claude:old:{}", now - 1000), ids[0].clone()], ..armed(now - 5000) })].into(), ..Runs::default() };
         assert!(plan(&file, &runs, &b, &HashSet::new(), now, &z).0.is_empty());
+        // Having looked a minute ago, "new" waits out its gap, still unseen, and runs once it's past.
+        let looked = |at: i64| Track { seen: vec![old_seen(now)], runs: vec![RunRecord { at, outcome: Outcome::Sent, ..RunRecord::default() }], ..armed(now - 5000) };
+        let runs = Runs { of: [("o".to_string(), looked(now - 60_000))].into(), ..Runs::default() };
+        assert!(plan(&file, &runs, &b, &HashSet::new(), now, &z).0.is_empty());
+        let runs = Runs { of: [("o".to_string(), looked(now - orchestrate::GAP_MS))].into(), ..Runs::default() };
+        assert_eq!(plan(&file, &runs, &b, &HashSet::new(), now, &z).0.len(), 1);
+    }
+
+    fn old_seen(now: i64) -> String {
+        format!("waits:claude:claude:old:{}", now - 1000)
     }
 
     fn armed(at: i64) -> Track {

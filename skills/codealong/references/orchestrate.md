@@ -9,14 +9,16 @@ An orchestrator keeps watch over the user's agent sessions for them: one for a p
 for All projects, which takes every project without one of its own and the sessions in none.
 Codealong runs each as a schedule (`codealong orchestrator list`): it keeps one session going,
 started afresh each day, and wakes it only when something it keeps watch over needs a look (a
-session newly waiting on the user, a PR opened, approved, sent back, merged or failing its
-checks, two agents in one worktree), so nothing runs, and no usage is spent, while nothing
-changes. Its session is listed first in the Sessions of what it keeps watch over, quiet unless it
-asks the user something.
+session newly waiting on the user, a PR of theirs approved, sent back or failing its checks with
+no session told of it, two agents in one worktree), at most every 15 minutes, with all that came
+meanwhile in one run, so nothing runs, and no usage is spent, while nothing changes. Its session
+is listed first in the Sessions of what it keeps watch over, quiet unless it asks the user
+something.
 
 Each tick you find what changed, read what waits on the user, tag it and suggest replies, watch
-for agents getting in each other's way, keep running notes of the work, and tell them in a few
-lines what needs them. You don't do the sessions' work, and you don't speak to them for your user.
+for agents getting in each other's way, and keep running notes of the work. That work shows on
+the sessions themselves, so most ticks say nothing: you speak only for what your user doesn't see
+already (*Replying*). You don't do the sessions' work, and you don't speak to them for your user.
 
 The `codealong` skill has every command (its SKILL.md, and `references/reference.md` for each
 command's help); this is how to run a tick. When your prompt says you're Codealong's orchestrator
@@ -38,8 +40,8 @@ and to run a tick, go to *Each tick*. Otherwise start at *Starting*.
   project without an orchestrator of its own) and leaves out your own session and the other
   orchestrators'; keep to that everywhere else too. A session of a project with its own
   orchestrator is that one's to read, tag and suggest for.
-- A quiet tick is one command, `session seen me` and a one-line reply. Read further only where a
-  change asks for it.
+- A quiet tick is one command and a dash for a reply. Read further only where a change asks for
+  it.
 
 ## Starting
 
@@ -86,17 +88,17 @@ Codealong starts orchestrators itself, so you don't schedule a loop of your own:
    and todos while the app starts); those come next tick, so their absence isn't news. If the
    command fails, say so in one line and stop: the cursor stays, and the next tick picks it up.
 3. Nothing changed, every waiting session has suggestions or a tag, and nothing in Codealong got
-   in your way: run `codealong session seen me --note "No coordination changes"`, so the tick
-   doesn't wait on your user, then reply "No coordination changes." and stop.
+   in your way: reply with a dash (`—`) alone, and stop. Codealong folds the run into a line in
+   your conversation (Looked: nothing new), and your row says Nothing new.
 4. Read, tag and suggest for what waits (*Reading, tagging and suggesting*).
 5. Look for overlaps among what changed (*Overlaps*).
 6. Update your notes where something changed (*The notes*).
 7. Note what in Codealong got in this tick's way (*Improving Codealong*).
-8. Reply (*Replying*), then end with `codealong session seen me --note "<what it came to>"`.
-   Your reply never waits on your user, whatever it says: what waits on them already does, on
-   its own. When you need them to decide something, ask with your harness's question tool
-   (Claude Code's AskUserQuestion), which Codealong shows them to answer; that's the only way
-   your session waits on them.
+8. Reply (*Replying*): a few lines, or a dash when nothing's worth them. Your reply never waits
+   on your user, whatever it says: what waits on them already does, on its own. When you need
+   them to decide something, ask with your harness's question tool (Claude Code's
+   AskUserQuestion), which Codealong shows them to answer; that's the only way your session
+   waits on them.
 
 ## Reading, tagging and suggesting
 
@@ -295,15 +297,21 @@ for:
 
 ## Replying
 
-The first line of your reply is what Codealong shows for this session: make it the headline.
+Speak only for what your user doesn't see already. Codealong shows every session that waits on
+them (with your tags, suggestions and notes on it), every finished turn, and every PR; a reply
+that lists those is noise, however short.
 
-- Nothing that needs your user: "No coordination changes."
-- Otherwise a few lines, the most urgent first, of what's new since your last run: sessions
-  newly waiting on them (say suggestions are ready), overlaps and duplicates, what your user's
-  schedules started or found that needs them, notable merges, approvals and reviews, and
-  Codealong improvements you noticed or started sessions for. Don't list again what already
-  waited on them last time: those sessions are in Needs you on their own, so a reminder is only
-  noise. A count is enough ("3 still wait on you").
+- Worth a reply: agents in each other's way (two in one worktree, two on one task, PRs that
+  collide); what a set of sessions comes to that none says alone (a stream of work finished, a
+  release held up behind one session, a deadline now at risk); something that changes how your
+  user works (a tool or a default that changed); and a Codealong improvement, once. A decision
+  only they can make goes to the question tool, not the reply.
+- Not worth one: a session newly waiting on them (your suggestions and note are on it, and
+  moving it to the top says it's urgent), a PR opened or merged, a session that finished,
+  failing checks a session is already fixing, what you told them last time, and that nothing
+  changed. Reply with a dash (`—`) alone then: Codealong folds the run into a line.
+- The first line of a reply is what Codealong shows for your session: make it the headline, then
+  a few lines at most, the most urgent first.
 - Name sessions by their title, each as a link to it (`[title](codealong://session/<key>)`, which
   Codealong draws as the session and shows on a click), and say what each needs; give a bare key
   only where they'd need it.
