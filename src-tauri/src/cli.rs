@@ -5059,6 +5059,28 @@ fn left_out_line(key: &str, about: crate::config::NudgeAbout) -> Option<String> 
     Some(format!("Its nudge leaves out {what} (nudge_about = \"{}\"): for a session waiting on one, `codealong pr watch {key}` tells of them too.", about.as_str()))
 }
 
+/// What `pr nudge` notes its PR's nudge leaves out (`left_out_line`), by its repo's settings on
+/// `board`, once it's on and not watched: `listed` is the PR as the board had it, and a PR it
+/// doesn't list yet (one just opened, when agents turn nudges on) goes by its repo's settings for
+/// its default branch. Nothing for a PR that has ended.
+fn nudge_note(board: &Board, key: &str, listed: Option<&crate::model::PrItem>) -> Option<String> {
+    let about = match listed {
+        Some(p) if !p.state.is_open() => return None,
+        Some(p) => board.repo_settings.nudge_about(board.nudge_about, p),
+        None => board.repo_settings.nudge_about_in(board.nudge_about, key.split_once('#')?.0, None),
+    };
+    left_out_line(key, about)
+}
+
+/// Whether a PR is watched once `pr nudge` or `pr watch` has written its watch as `stored`
+/// (prlinks.rs `is_watched`). A watch holds only while the session it picked is the PR's primary
+/// (board.rs `pr_item`): one this command picks (`picks`), else the pick the board had
+/// (`listed`), which a watch whose session was archived since no longer is, though the file still
+/// says it.
+fn watch_holds(stored: bool, picks: bool, listed: Option<&crate::model::PrItem>) -> bool {
+    stored && (picks || listed.is_some_and(|p| p.watched))
+}
+
 fn pr_show(c: &mut Client, pr: &str, json: bool) -> Result<()> {
     let key = resolve_pr(c, pr)?;
     if c.app.is_none() {
@@ -5299,23 +5321,19 @@ fn pr_nudge(c: &mut Client, a: &PrNudgeArgs, watch: bool, json: bool) -> Result<
     let pr = crate::prlinks::pr_key(&key);
     // Stopping a watch leaves the nudge as it was: turned on for the PR, or as the board has it.
     let nudge = if watch && !on { store.nudges.contains(&pr) || listed.as_ref().is_some_and(|p| p.nudge) } else { on };
-    let out = PrNudgeOut { watched: store.is_watched(&pr), pr, nudge, session: session.clone(), changed };
+    let watched = watch_holds(store.is_watched(&pr), picks.is_some(), listed.as_ref());
+    let out = PrNudgeOut { watched, pr, nudge, session: session.clone(), changed };
     if let Some(k) = &held {
         let who = session_words(c, k);
         let verb = if watch { "watch" } else { "nudge" };
         eprintln!("Note: {key}'s primary session is {who}, which is running, so it's the one told. `codealong pr {verb} {key} --take` has this session told instead: for when you've taken the PR over.");
     }
     // A nudge that isn't a watch tells of what its settings say, which may leave out the approval
-    // a session waits on (`listed` is the PR as it was, so its watch isn't asked).
-    let left_out = match &listed {
-        Some(p) if out.nudge && !out.watched && p.state.is_open() => {
-            let b = c.board()?;
-            left_out_line(&key, b.repo_settings.nudge_about(b.nudge_about, p))
+    // a session waits on. The settings come through the app, without which nothing is told.
+    if out.nudge && !out.watched && c.app.is_some() {
+        if let Some(line) = nudge_note(c.board()?, &key, listed.as_ref()) {
+            eprintln!("Note: {line}");
         }
-        _ => None,
-    };
-    if let Some(line) = left_out {
-        eprintln!("Note: {line}");
     }
     if json {
         return print_json(&out);
@@ -8357,6 +8375,53 @@ mod tests {
         // A plugin installed with no build to compare against isn't called out of date.
         assert_eq!(plugin_words(&p(Some("0.2.1+aaaa"), false, None), None, None), "installed, 0.2.1+aaaa");
         assert!(plugin_words(&p(Some("0.2.1+aaaa"), false, None), None, Some("/x/skills/codealong")).ends_with("; an older copy of the skill is still at /x/skills/codealong"));
+    }
+
+    fn pr_item(state: crate::model::PrState, watched: bool) -> crate::model::PrItem {
+        serde_json::from_value(json!({
+            "key": "o/r#7", "repoSlug": "o/r", "repo": "r", "project": "P", "number": 7, "title": "Add photos",
+            "url": "", "state": state, "author": "me", "mine": true, "reviewRequested": false, "head": "photos", "base": "main",
+            "checks": { "passed": 0, "failed": 0, "pending": 0, "skipped": 0, "failing": [] }, "merge": "clean",
+            "additions": 0, "deletions": 0, "changedFiles": 0, "createdAt": 0, "updatedAt": 0,
+            "mergedAt": null, "closedAt": null, "lanes": [], "sessions": [], "nudge": true, "watched": watched
+        }))
+        .expect("a PR")
+    }
+
+    /// `pr nudge` notes what a nudge leaves out by the PR's repo's settings, for a PR the board
+    /// doesn't list yet too (one just opened), and says nothing for one that tells of everything
+    /// or has ended.
+    #[test]
+    fn pr_nudge_notes_what_its_nudge_leaves_out() {
+        use crate::config::{NudgeAbout, PullRequestsPatch, RepoCfg};
+        use crate::model::PrState;
+        let mut board = Board { nudge_about: NudgeAbout::FeedbackAndChecks, ..Board::default() };
+        let open = pr_item(PrState::Open, false);
+        let note = nudge_note(&board, "o/r#7", Some(&open)).unwrap();
+        assert_eq!(note, "Its nudge leaves out approvals and merges (nudge_about = \"feedback-and-checks\"): for a session waiting on one, `codealong pr watch o/r#7` tells of them too.");
+        assert_eq!(nudge_note(&board, "o/r#8", None).unwrap(), note.replace("o/r#7", "o/r#8"), "one not listed yet");
+        assert_eq!(nudge_note(&board, "o/r#7", Some(&pr_item(PrState::Merged, false))), None);
+        // Your table for the repo goes, listed or not.
+        let table = |about| RepoCfg { pull_requests: PullRequestsPatch { nudge_about: Some(about), ..Default::default() }, ..Default::default() };
+        board.repo_settings.mine.insert(crate::config::repo_key("o/r"), table(NudgeAbout::FeedbackChecksAndMerges));
+        assert!(nudge_note(&board, "o/r#8", None).unwrap().starts_with("Its nudge leaves out approvals (nudge_about = \"feedback-checks-and-merges\")"));
+        board.repo_settings.mine.insert(crate::config::repo_key("o/r"), table(NudgeAbout::Everything));
+        assert_eq!(nudge_note(&board, "o/r#8", None), None);
+        assert_eq!(nudge_note(&board, "o/r#7", Some(&open)), None);
+    }
+
+    /// A watch the file still has holds only while the board has it, or where this command picks
+    /// the session told: the session it picked may have been archived since.
+    #[test]
+    fn a_watch_holds_only_while_its_pick_does() {
+        use crate::model::PrState;
+        let (watched, unwatched) = (pr_item(PrState::Open, true), pr_item(PrState::Open, false));
+        assert!(watch_holds(true, false, Some(&watched)));
+        assert!(!watch_holds(true, false, Some(&unwatched)), "its session was archived, and another is the PR's primary");
+        assert!(watch_holds(true, true, Some(&unwatched)), "picked now");
+        assert!(watch_holds(true, true, None), "a PR not listed yet, picked now");
+        assert!(!watch_holds(true, false, None));
+        assert!(!watch_holds(false, true, Some(&watched)), "stopped");
     }
     use clap::CommandFactory;
 

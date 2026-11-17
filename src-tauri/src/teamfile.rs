@@ -570,7 +570,15 @@ impl RepoSettings {
     /// What a nudge on `pr` tells about: `global` (`[pull_requests] nudge_about`), else as its
     /// repo's team or your table for it says.
     pub fn nudge_about(&self, global: NudgeAbout, pr: &PrItem) -> NudgeAbout {
-        self.pull_requests(&PullRequestsCfg { nudge_about: global, ..PullRequestsCfg::default() }, pr).nudge_about
+        self.nudge_about_in(global, &pr.repo_slug, pr.base.as_deref())
+    }
+
+    /// What a nudge on a PR into `base` of repo `slug` tells about, its default branch's where
+    /// `base` isn't known: `nudge_about` for a PR the board doesn't list yet (`codealong pr nudge`
+    /// on one just opened).
+    pub fn nudge_about_in(&self, global: NudgeAbout, slug: &str, base: Option<&str>) -> NudgeAbout {
+        let global = PullRequestsCfg { nudge_about: global, ..PullRequestsCfg::default() };
+        crate::config::pull_requests_for(&global, self.team_of(slug, base), self.mine_of(slug)).nudge_about
     }
 
     /// Whether any reviews are on: everywhere, or in a repo your table turns them on for.
