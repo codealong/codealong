@@ -3,11 +3,10 @@
 // (All projects'), for you. Its session leads the Sessions of what it keeps watch over, under no
 // worktree and never among the sessions it watches; nothing is listed while there's none, and
 // Sessions' bar offers to start one (StartOrchestrator.tsx). Each is a schedule, so starting,
-// looking now and turning one off are schedule changes (`scheduleOp`), and its session is marked
-// done as yours would be when it's turned off or started afresh.
+// looking now, starting afresh and turning one off are schedule changes (`scheduleOp`): its
+// scheduler marks the session it had done (runner.rs `Job::Retire`, `retire`).
 
 import { scheduleOp } from './api';
-import { doneAhead } from './ahead';
 import type { MenuAction } from './contextMenu';
 import { ALL_PROJECTS } from './quick';
 import { errorText, type Report } from './report';
@@ -63,21 +62,10 @@ export function orchestratorActions(s: Session, report: Report): { look?: MenuAc
   const words = scopeWords(o.project);
   return {
     look: o.paused ? undefined : { label: 'Look now', run: () => void scheduleOp({ op: 'run', id: o.schedule }).then(() => report.info(`The orchestrator for ${words} looks once its turn has ended.`), fail) },
-    fresh: o.paused
-      ? undefined
-      : {
-          label: 'Start afresh',
-          run: () =>
-            void doneAhead(s.key, true)
-              .then(() => scheduleOp({ op: 'run', id: o.schedule }))
-              .then(() => report.info(`A new session takes over for ${words}, going on from its notes.`), fail),
-        },
+    fresh: o.paused ? undefined : { label: 'Start afresh', run: () => void scheduleOp({ op: 'fresh', id: o.schedule }).then(() => report.info(`A new session takes over for ${words}, going on from its notes.`), fail) },
     turnOff: {
       label: 'Turn off orchestrator',
-      run: () =>
-        void scheduleOp({ op: 'pause', id: o.schedule, paused: true })
-          .then(() => doneAhead(s.key, true))
-          .then(() => report.info(`The orchestrator for ${words} is off. Its notes are kept for when it's started again.`), fail),
+      run: () => void scheduleOp({ op: 'pause', id: o.schedule, paused: true }).then(() => report.info(`The orchestrator for ${words} is off: its session is marked done, and its notes are kept for when it's started again.`), fail),
     },
   };
 }

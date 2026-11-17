@@ -4442,6 +4442,7 @@ struct ActOut {
 /// happened.
 fn session_act(c: &mut Client, key: &str, name: &str, params: impl Serialize, json: bool) -> Result<()> {
     let key = resolve_any_session(c, key)?;
+    orchestrator_guard(c, name)?;
     let got = c.act(name, &key, params, None)?;
     let (said, copy) = match got {
         Value::String(s) => (Some(s), None),
@@ -5458,6 +5459,7 @@ struct RemovedOut {
 /// that stays is an error, unless only asked.
 fn worktree_remove(c: &mut Client, worktree: &str, dry_run: bool, json: bool) -> Result<()> {
     let id = resolve_worktree(c, worktree)?;
+    orchestrator_guard(c, api::WORKTREE_REMOVE)?;
     let answer = c.act(api::WORKTREE_REMOVE, &id, params::Remove { dry_run, ..Default::default() }, None)?;
     let removal: api::Removal = serde_json::from_value(answer).context("The app's answer doesn't read")?;
     let stays = !removal.removed && !dry_run;
@@ -6382,6 +6384,17 @@ fn schedule(cmd: ScheduleCmd, c: &mut Client, json: bool) -> Result<()> {
 
 // ---- orchestrator ----
 
+/// Turns down what an orchestrator's session may not ask for (schedules/orchestrate.rs
+/// `refused_to`), where the command asks without naming the session running it, which actions.rs
+/// would tell it by: a start, a fork, removing a worktree.
+fn orchestrator_guard(c: &mut Client, request: &str) -> Result<()> {
+    let Some(me) = find_me(c)?.0 else { return Ok(()) };
+    match crate::schedules::orchestrate::refused_to(c.board()?, &me, request) {
+        Some(why) => bail!("{why}"),
+        None => Ok(()),
+    }
+}
+
 /// An orchestrator in a row of `orchestrator list`.
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -6458,17 +6471,15 @@ fn orchestrator(cmd: OrchestratorCmd, c: &mut Client, json: bool) -> Result<()> 
             let scope = scope_of(&a);
             let item = named(c, &scope)?;
             let board = c.board()?.clone();
-            schedules::apply_op(Op::Pause { id: item.schedule.id.clone(), paused: true }, None, Some(&board), &cfg, now, &Local)?;
-            let ended = match &item.thread {
-                // Marked done as you'd mark it: turning it off is yours, whoever types the command.
-                Some(key) if c.app.is_some() => c.act(api::SESSION_DONE, key, params::Done { stop: true, archive: true, ..Default::default() }, None).map(|_| true)?,
-                _ => false,
-            };
-            let out = serde_json::json!({ "schedule": item.schedule.id, "stopped": true, "sessionDone": ended });
+            // Paused, its scheduler marks its session done and drops what waited for it (runner.rs).
+            let done = schedules::apply_op(Op::Pause { id: item.schedule.id.clone(), paused: true }, None, Some(&board), &cfg, now, &Local)?;
             if json {
-                return print_json(&out);
+                return print_json(&done);
             }
-            println!("Turned off the orchestrator for {}{}.", scope.words(), if ended { ", and marked its session done" } else { "" });
+            println!("Turned off the orchestrator for {}: its session is marked done within a few seconds, and its notes are kept for when it's started again.", scope.words());
+            if c.app.is_none() {
+                println!("Codealong's server isn't running: its session is marked done once the server starts.");
+            }
             Ok(())
         }
         OrchestratorCmd::Look(a) => {
@@ -6491,18 +6502,12 @@ fn orchestrator(cmd: OrchestratorCmd, c: &mut Client, json: bool) -> Result<()> 
             if !orchestrate::on(&item.schedule) {
                 bail!("The orchestrator for {} is off: {} starts it with a new session.", scope.words(), start_hint(&scope));
             }
-            if c.app.is_none() {
-                bail!("Starting an orchestrator's session afresh needs Codealong's server, which couldn't be started here (`codealong server start` says why).");
-            }
-            if let Some(key) = &item.thread {
-                c.act(api::SESSION_DONE, key, params::Done { stop: true, archive: true, ..Default::default() }, None)?;
-            }
             let board = c.board()?.clone();
-            let done = schedules::apply_op(Op::Run { id: item.schedule.id.clone() }, None, Some(&board), &cfg, now, &Local)?;
+            let done = schedules::apply_op(Op::Fresh { id: item.schedule.id.clone() }, None, Some(&board), &cfg, now, &Local)?;
             if json {
                 return print_json(&done);
             }
-            println!("Its session is marked done; a new one takes its first look within a few seconds, going on from its notes.");
+            println!("Asked: a new session takes its first look within a few seconds, going on from its notes, and the one it had is marked done.");
             Ok(())
         }
     }
@@ -7188,6 +7193,7 @@ fn start_cmd(c: &mut Client, a: &StartArgs, json: bool) -> Result<()> {
     let lane_id = if a.chat { crate::config::chats_dir().to_string_lossy().into_owned() } else { resolve_worktree(c, &a.worktree)? };
     // Run by an agent, the new session was started by that agent's.
     let from = find_me(c)?.0;
+    orchestrator_guard(c, api::START)?;
     if a.helper && from.is_none() {
         bail!("--helper starts a helper of the session running this command, and this command isn't running in one. Start it without --helper: it's then a session of your own.");
     }

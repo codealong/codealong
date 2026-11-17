@@ -374,6 +374,9 @@ pub struct Fired {
     pub text: String,
     /// Asked for in the Schedules view: it runs even while the schedule is paused.
     pub by_hand: bool,
+    /// Its session is started afresh (`Op::Fresh`).
+    #[serde(skip_serializing_if = "std::ops::Not::not")]
+    pub fresh: bool,
 }
 
 /// What happened to a schedule.
@@ -1081,6 +1084,9 @@ pub enum Op {
     Pause { id: String, paused: bool },
     /// Runs it now, as its time coming would, paused or not and past the day's limit.
     Run { id: String },
+    /// Runs it now in a new session, for one that keeps a session going: the one it had is marked
+    /// done once the new one starts (runner.rs `retire`, for an orchestrator).
+    Fresh { id: String },
     /// Asks for a run, as a script does when something happened: `key` says what it's for, so
     /// it runs once for it however often it's fired.
     Fire {
@@ -1243,10 +1249,16 @@ pub fn apply_op(op: Op, by: Option<&str>, board: Option<&Board>, cfg: &Config, n
             change_runs(|r| r.fired.push(asked.clone()))?;
             serde_json::to_value(asked)?
         }
+        Op::Fresh { id } => {
+            let id = found(&load()?, &id)?;
+            let asked = Fired { id: fired_id(), schedule: id, at: now, by_hand: true, fresh: true, ..Fired::default() };
+            change_runs(|r| r.fired.push(asked.clone()))?;
+            serde_json::to_value(asked)?
+        }
         Op::Fire { id, key, title, text } => {
             let id = found(&load()?, &id)?;
             let key = key.trim().to_string();
-            let asked = Fired { id: fired_id(), schedule: id.clone(), at: now, key: key.clone(), title: title.trim().to_string(), text: text.trim().to_string(), by_hand: false };
+            let asked = Fired { id: fired_id(), schedule: id.clone(), at: now, key: key.clone(), title: title.trim().to_string(), text: text.trim().to_string(), by_hand: false, fresh: false };
             let ran = change_runs(|r| {
                 let ran = !key.is_empty() && (r.of.get(&id).is_some_and(|t| t.seen.contains(&key)) || r.fired.iter().any(|f| f.schedule == id && f.key == key));
                 if !ran {
@@ -1260,7 +1272,8 @@ pub fn apply_op(op: Op, by: Option<&str>, board: Option<&Board>, cfg: &Config, n
             serde_json::to_value(asked)?
         }
         Op::Orchestrate { project, account, model, send, start } => {
-            let scope = orchestrate::Orchestrates::of(project.as_deref());
+            // As Settings › Projects spells it, so it's listed under that project.
+            let scope = orchestrate::Orchestrates::of(orchestrate::spelled(cfg, project.as_deref()).as_deref());
             let may = |o: &mut orchestrate::Orchestrates| {
                 o.send = send.unwrap_or(o.send);
                 o.start = start.unwrap_or(o.start);

@@ -92,13 +92,15 @@ pub enum Job {
     Quiet { keys: Vec<String> },
     /// Name a session its start made, now that it has somewhere to keep it (`run_name`).
     Name { key: String, name: String },
+    /// Mark done the session a turned-off orchestrator kept going, as Mark as done does.
+    Retire { key: String },
 }
 
 impl Job {
     fn id(&self) -> Option<&str> {
         match self {
             Job::Fire { id, .. } | Job::Check { id } | Job::Deliver { id, .. } => Some(id),
-            Job::Quiet { .. } | Job::Name { .. } => None,
+            Job::Quiet { .. } | Job::Name { .. } | Job::Retire { .. } => None,
         }
     }
 }
@@ -121,6 +123,9 @@ pub struct Cause {
     /// Run by `--snapshot --schedule-run`, which isn't you at a window: its start is asked as
     /// another device's, and what it sends isn't yours.
     pub by_check: bool,
+    /// Asked to start its session afresh (`Op::Fresh`): a new one takes over now, from its notes,
+    /// and the one it kept going is marked done.
+    pub fresh: bool,
 }
 
 /// When this machine first saw a shared schedule's time due, as `(due, at)`, from what it noted
@@ -158,6 +163,8 @@ pub enum Note {
     /// another machine, however that reached here: its times go on from then, and its watch
     /// starts again from a first look.
     Resumed { id: String, at: i64 },
+    /// A turned-off orchestrator keeps no session and nothing waiting for one (`Job::Retire`).
+    Retired { id: String },
 }
 
 /// What a run came to, to note.
@@ -363,6 +370,21 @@ pub fn plan_in(file: &File, runs: &Runs, board: &Board, busy: &HashSet<String>, 
             continue;
         }
         let asked: Vec<&Fired> = runs.fired.iter().filter(|f| f.schedule == s.id).collect();
+        // A turned-off orchestrator keeps watch over nothing: its session is marked done, and what
+        // waited for it or was asked of it is dropped, so nothing starts another until it's
+        // started again (`Op::Orchestrate` resumes it and asks for its first look).
+        if s.orchestrates.is_some() && (s.paused || s.finished_at.is_some()) {
+            if let Some(t) = track.filter(|t| t.thread.is_some() || t.queued.is_some()) {
+                if let Some(key) = target(board, s, Some(t)) {
+                    jobs.push(Job::Retire { key });
+                }
+                notes.push(Note::Retired { id: s.id.clone() });
+            }
+            if !asked.is_empty() {
+                notes.push(Note::Dropped { fired: asked.iter().map(|f| f.id.clone()).collect() });
+            }
+            continue;
+        }
         let Some(track) = track.filter(|t| t.armed_at > 0) else {
             // PRs and their checks aren't known until GitHub's first read.
             let ready = !matches!(s.when, When::Event { event: Event::PrMerged | Event::ChecksFailed, .. }) || board.github_polled;
@@ -390,7 +412,7 @@ pub fn plan_in(file: &File, runs: &Runs, board: &Board, busy: &HashSet<String>, 
             if fresh.is_empty() {
                 notes.push(Note::Dropped { fired: go.iter().map(|f| f.id.clone()).collect() });
             } else {
-                jobs.push(Job::Fire { id: s.id.clone(), cause: Cause { why, said, due: None, found, fired: go.iter().map(|f| f.id.clone()).collect(), by_hand: go.iter().any(|f| f.by_hand), by_check: false } });
+                jobs.push(Job::Fire { id: s.id.clone(), cause: Cause { why, said, due: None, found, fired: go.iter().map(|f| f.id.clone()).collect(), by_hand: go.iter().any(|f| f.by_hand), by_check: false, fresh: go.iter().any(|f| f.fresh) } });
             }
             continue;
         }
@@ -687,6 +709,11 @@ pub fn apply(runs: &mut Runs, note: &Note) {
         }
         Note::Dropped { fired } => runs.fired.retain(|f| !fired.contains(&f.id)),
         Note::Resumed { id, at } => resumed(runs.of.entry(id.clone()).or_default(), *at),
+        Note::Retired { id } => {
+            if let Some(t) = runs.of.get_mut(id) {
+                (t.thread, t.thread_since, t.queued) = (None, None, None);
+            }
+        }
     }
 }
 
@@ -762,6 +789,16 @@ pub fn run(engine: &Handle, job: Job) {
                 eprintln!("codealong: couldn't name a schedule's session: {e:#}");
             }
         }
+        Job::Retire { key } => mark_done(engine, &key),
+    }
+}
+
+/// Marks an orchestrator's session done as Mark as done does (it closes where Codealong can close
+/// it, and is marked seen and archived), when it's turned off or another takes its place.
+fn mark_done(engine: &Handle, key: &str) {
+    let done = codealong_peer::api::params::Done { stop: true, archive: true, ..Default::default() };
+    if let Err(e) = crate::actions::local(engine, &crate::actions::From::Here, codealong_peer::api::SESSION_DONE, key, done) {
+        eprintln!("codealong: couldn't mark an orchestrator's session done: {e}");
     }
 }
 
@@ -1229,7 +1266,11 @@ fn fire(engine: &Handle, id: &str, cause: Cause) -> Option<Done> {
     let todos = todos_for(&board, &cause);
     let files: Vec<String> = file_ref.iter().cloned().collect();
     let prompt = prompt_of(&s, std::slice::from_ref(&cause.said), &files, &todos, &board, now);
-    let step = step(&board, &cfg, &s, &track, &prompt, &todos, now);
+    // Asked to start afresh, its thread takes a new session now whatever the one it has is doing.
+    let step = match cause.fresh && s.run.to == To::Thread {
+        true => start_step(&board, &cfg, &s, &prompt, &todos, now, &crate::util::home()),
+        false => step(&board, &cfg, &s, &track, &prompt, &todos, now),
+    };
     let before = target(&board, &s, Some(&track));
     let (mut rec, to, queued) = act(engine, &board, &cfg, &s, &track, step, &prompt, &cause, file_ref.as_deref());
     retire(engine, &s, before.as_deref(), &rec);
@@ -1255,8 +1296,7 @@ fn fire(engine: &Handle, id: &str, cause: Cause) -> Option<Done> {
 fn retire(engine: &Handle, s: &Schedule, before: Option<&str>, rec: &RunRecord) {
     let Some(before) = before.filter(|_| s.orchestrates.is_some() && rec.outcome == Outcome::Started) else { return };
     if rec.session.as_deref().is_some_and(|k| k != before) {
-        // Left where it is when its harness won't archive it: it's only a session of yours then.
-        let _ = engine.archive(before, true);
+        mark_done(engine, before);
     }
 }
 
@@ -1400,6 +1440,38 @@ mod tests {
 
     fn schedule(id: &str, when: When) -> Schedule {
         Schedule { id: id.into(), name: format!("Schedule {id}"), when, run: Run { prompt: "Look".into(), ..Run::default() }, ..Schedule::default() }
+    }
+
+    #[test]
+    fn a_turned_off_orchestrator_marks_its_session_done_and_runs_nothing_that_waited() {
+        let z = Fake::utc();
+        let now = ms(&z, 2026, 10, 20, 9, 0);
+        let o = Schedule { id: "o".into(), paused: true, ..orchestrate::schedule(orchestrate::Orchestrates::default(), "", None) };
+        let s = crate::model::Session { status: crate::model::Status::Idle, ..crate::model::Session::new(crate::model::Harness::Claude, "claude", "t") };
+        let b = Board { lanes: vec![crate::model::Lane { sessions: vec![s], ..crate::model::Lane::new("/c", "Elsewhere", "") }], ..board() };
+        let track = Track { thread: Some("claude:claude:t".into()), queued: Some(Queued { at: now - 1000, why: vec!["run for a PR".into()], ..Queued::default() }), ..armed(now - 5000) };
+        let runs = Runs { of: [("o".to_string(), track)].into(), fired: vec![Fired { id: "f".into(), schedule: "o".into(), by_hand: true, ..Fired::default() }] };
+        let (jobs, notes) = plan(&File { schedules: vec![o], ..File::default() }, &runs, &b, &HashSet::new(), now, &z);
+        assert_eq!(jobs, vec![Job::Retire { key: "claude:claude:t".into() }]);
+        assert!(notes.contains(&Note::Retired { id: "o".into() }));
+        assert!(notes.contains(&Note::Dropped { fired: vec!["f".into()] }), "Run now on one that's off runs nothing");
+        let mut after = runs.clone();
+        notes.iter().for_each(|n| apply(&mut after, n));
+        let t = &after.of["o"];
+        assert!(t.thread.is_none() && t.queued.is_none());
+        // Once that's noted, nothing more is done.
+        let (jobs, _) = plan(&File { schedules: vec![Schedule { id: "o".into(), paused: true, ..orchestrate::schedule(orchestrate::Orchestrates::default(), "", None) }], ..File::default() }, &after, &b, &HashSet::new(), now, &z);
+        assert!(jobs.is_empty());
+    }
+
+    #[test]
+    fn a_fresh_run_says_so() {
+        let z = Fake::utc();
+        let now = ms(&z, 2026, 10, 20, 9, 0);
+        let o = Schedule { id: "o".into(), ..orchestrate::schedule(orchestrate::Orchestrates::default(), "", None) };
+        let runs = Runs { of: [("o".to_string(), armed(now - 5000))].into(), fired: vec![Fired { id: "f".into(), schedule: "o".into(), by_hand: true, fresh: true, ..Fired::default() }] };
+        let (jobs, _) = plan(&File { schedules: vec![o], ..File::default() }, &runs, &board(), &HashSet::new(), now, &z);
+        assert!(matches!(&jobs[..], [Job::Fire { cause, .. }] if cause.fresh && cause.by_hand), "{jobs:?}");
     }
 
     #[test]

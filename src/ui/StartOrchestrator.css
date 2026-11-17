@@ -14,9 +14,8 @@
   color: var(--alert);
 }
 
-/* The compass at the end of Sessions' tools, there while no orchestrator runs for the view: a
-   button with its word, after the groups of icon buttons. */
-.ca-listtools .ca-listtools-start {
+/* The compass after Sessions' tools, there while no orchestrator runs for the view: a button with
+   its word, beside the groups of icon buttons rather than one of them. */
+.ca-listbar .ca-listbar-start {
   height: 20px;
-  margin-left: var(--space-1);
 }

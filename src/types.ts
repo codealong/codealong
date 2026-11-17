@@ -2701,6 +2701,8 @@ export type ScheduleOp =
   | { op: 'remove'; id: string }
   | { op: 'pause'; id: string; paused: boolean }
   | { op: 'run'; id: string }
+  /** Runs it now in a new session, the one it kept going marked done (an orchestrator's). */
+  | { op: 'fresh'; id: string }
   /** Starts the orchestrator for a project, or All projects' with none: resumes it, else adds it,
    *  and runs it now (schedules/mod.rs `Op::Orchestrate`). */
   | { op: 'orchestrate'; project?: string | null; account?: string; model?: string | null; send?: boolean | null; start?: boolean | null };

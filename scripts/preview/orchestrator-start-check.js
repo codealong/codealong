@@ -6,7 +6,7 @@
 (function () {
   window.__ORCHESTRATES__ = { off: true };
   say('orchestrator start check: waiting for the compass');
-  until(function () { return q('.ca-listtools-start'); }, 20000, 'the compass in Sessions’ bar')
+  until(function () { return q('.ca-listbar-start'); }, 20000, 'the compass in Sessions’ bar')
     .then(function (button) {
       check('it names what it keeps watch over', /All projects/.test(button.title), button.title);
       check('nothing leads the list while it’s off', !q('.ca-orchestrators'));

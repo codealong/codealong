@@ -77,6 +77,9 @@ describe('schedules', () => {
   it('saves whether it runs once', () => {
     expect(blankSchedule('/w').once).toBe(false);
     expect(scheduleOf(item({ once: true, finishedAt: 5 })).once).toBe(true);
+    // An orchestrator stays one through an edit, its leave to message and start sessions with it.
+    expect(scheduleOf(item({ orchestrates: { project: 'Atlas', send: true } })).orchestrates).toEqual({ project: 'Atlas', send: true });
+    expect('orchestrates' in scheduleOf(item({}))).toBe(false);
   });
 
   it('knows which schedule a session came from', () => {
@@ -141,6 +144,11 @@ describe('schedules', () => {
     const shared = { ...blankSchedule('~/code/atlas'), runsIn: '/w/atlas' };
     expect(scheduleProject(shared, lanes)).toBe('Atlas');
     expect(doesWords(shared, () => null)).toBe('New session in atlas on Auto');
+  });
+
+  it('is an orchestrator’s project, and All projects’ is in none', () => {
+    expect(scheduleProject({ ...blankSchedule(''), orchestrates: { project: 'Atlas' } }, lanes)).toBe('Atlas');
+    expect(scheduleProject({ ...blankSchedule('/w/atlas'), orchestrates: {} }, lanes)).toBeNull();
   });
 
   it('is in its worktree’s project, else its session’s', () => {

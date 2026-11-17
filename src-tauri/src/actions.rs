@@ -631,10 +631,7 @@ pub fn local(engine: &Handle, from: &From, name: &str, key: &str, params: impl S
 /// found, which the board marks as its orchestrator's (`Session::orchestrator`).
 fn orchestrator_may(engine: &Handle, from: &From, name: &str) -> Result<(), String> {
     let From::Command(Some(caller)) = from else { return Ok(()) };
-    let Some(theirs) = engine.read(|b| b.session(caller).and_then(|(_, s)| s.orchestrator.clone())) else { return Ok(()) };
-    // Its schedule as written: a file that doesn't read turns down what it may only once let.
-    let may = crate::schedules::load().ok().and_then(|f| f.schedules.into_iter().find(|s| s.id == theirs.schedule)).and_then(|s| s.orchestrates).unwrap_or_else(|| crate::schedules::orchestrate::Orchestrates::of(theirs.project.as_deref()));
-    match crate::schedules::orchestrate::refused(name, &may) {
+    match engine.read(|b| crate::schedules::orchestrate::refused_to(b, caller, name)) {
         Some(why) => Err(why),
         None => Ok(()),
     }

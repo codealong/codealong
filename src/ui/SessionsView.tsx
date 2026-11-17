@@ -271,16 +271,19 @@ export function sortSessions(rows: SessionItem[], sort: SessionSort, now: number
  *  orchestrator running, a compass that starts one (StartOrchestrator.tsx). */
 export function SessionsBar({ sort, onSort, group, onGroup, started, onStarted, lines, onLines, startOrchestrator }: { sort: SessionSort; onSort: (sort: SessionSort) => void; group: SessionGroupBy; onGroup: (group: SessionGroupBy) => void; started: StartedPlace; onStarted: (place: StartedPlace) => void; lines: RowLines; onLines: (lines: RowLines) => void; startOrchestrator?: { scope: string; run: () => void } | null }) {
   return (
-    <ListTools label="How Sessions is listed">
-      <ListSeg label="Sort by" options={SESSION_SORTS} value={sort} onPick={onSort} />
-      <ListSeg label="Group by" options={SESSION_GROUPS} value={group} onPick={onGroup} />
-      <ListSeg label="Started sessions" options={STARTED_PLACES} value={started} onPick={onStarted} />
-      <RowsSeg options={SESSION_ROWS} value={lines} onPick={onLines} />
+    <>
+      <ListTools label="How Sessions is listed">
+        <ListSeg label="Sort by" options={SESSION_SORTS} value={sort} onPick={onSort} />
+        <ListSeg label="Group by" options={SESSION_GROUPS} value={group} onPick={onGroup} />
+        <ListSeg label="Started sessions" options={STARTED_PLACES} value={started} onPick={onStarted} />
+        <RowsSeg options={SESSION_ROWS} value={lines} onPick={onLines} />
+      </ListTools>
+      {/* Beside the tools rather than among them: it does something, where they say how the list is shown. */}
       {startOrchestrator && (
         <Button
           variant="ghost"
           size="sm"
-          className="ca-listtools-start"
+          className="ca-listbar-start"
           icon="compass"
           title={`Start an orchestrator for ${startOrchestrator.scope}: an agent that keeps watch over its sessions for you`}
           onClick={startOrchestrator.run}
@@ -288,7 +291,7 @@ export function SessionsBar({ sort, onSort, group, onGroup, started, onStarted, 
           Orchestrator
         </Button>
       )}
-    </ListTools>
+    </>
   );
 }
 

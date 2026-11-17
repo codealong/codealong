@@ -180,6 +180,8 @@ export function scheduleOf(item: ScheduleItem): Schedule {
     createdBy: item.createdBy,
     runsOn: item.runsOn,
     once: item.once ?? false,
+    // An orchestrator stays one through an edit: the engine turns down its event without it.
+    ...(item.orchestrates ? { orchestrates: item.orchestrates } : {}),
   };
 }
 
@@ -213,7 +215,9 @@ export function sessionFolder(lanes: Lane[], key: string): string {
 
 /** The project a schedule is in, for the Schedules view to list it under: its worktree's, else
  *  the project of the session it sends to. None for a chat of its own, or a worktree that's gone. */
-export function scheduleProject(s: Pick<ScheduleItem, 'run' | 'runsIn'>, lanes: Lane[]): string | null {
+export function scheduleProject(s: Pick<ScheduleItem, 'run' | 'runsIn' | 'orchestrates'>, lanes: Lane[]): string | null {
+  // An orchestrator's is the project it keeps watch over; All projects' is in none.
+  if (s.orchestrates) return s.orchestrates.project ?? null;
   const folder = s.runsIn ?? s.run.folder;
   const lane = folder ? lanes.find((l) => !l.device && !l.startsChats && l.path === folder) : null;
   if (lane) return lane.project;

@@ -206,6 +206,22 @@ pub fn refused(request: &str, may: &Orchestrates) -> Option<String> {
     }
 }
 
+/// Why the session `caller` may not ask for `request`, when it's an orchestrator's (`refused`), by
+/// what its schedule as written lets it: actions.rs asks it of what the `codealong` command it
+/// runs asks for, and the command itself of what it asks with no session named (a start, a fork,
+/// removing a worktree). A schedule that doesn't read lets it only what it may without leave.
+pub fn refused_to(board: &Board, caller: &str, request: &str) -> Option<String> {
+    let theirs = board.session(caller).and_then(|(_, s)| s.orchestrator.clone())?;
+    let may = load().ok().and_then(|f| f.schedules.into_iter().find(|s| s.id == theirs.schedule)).and_then(|s| s.orchestrates).unwrap_or_else(|| Orchestrates::of(theirs.project.as_deref()));
+    refused(request, &may)
+}
+
+/// The project as Settings › Projects spells it, for one named in another case.
+pub fn spelled(cfg: &Config, project: Option<&str>) -> Option<String> {
+    let p = project?.trim();
+    Some(cfg.projects.iter().find(|c| c.name.eq_ignore_ascii_case(p)).map_or_else(|| p.to_string(), |c| c.name.clone())).filter(|p| !p.is_empty())
+}
+
 /// Why another orchestrator can't be saved beside the ones there are: one per project, and one for
 /// All projects.
 pub fn clash(file: &File, s: &Schedule) -> Option<String> {
@@ -272,7 +288,15 @@ pub fn found(board: &Board, file: &File, s: &Schedule, now: i64) -> Vec<Found> {
             crate::model::PrState::Merged => "merged",
             crate::model::PrState::Closed => "closed without merging",
         };
-        out.push(Found { id: format!("pr:{}:{state}", p.key), title: format!("#{} {} in {}: {said}", p.number, p.title, p.repo_slug), url: p.url.clone(), text: String::new(), todo: None });
+        // By the commit it's at, or for one merged or closed by when: a state come back to after a
+        // push (approved again, changes asked again, a PR reopened after new commits) is news again,
+        // where the state alone would have been seen already.
+        let at = match p.state {
+            crate::model::PrState::Merged => p.merged_at.map(|t| t.to_string()).unwrap_or_default(),
+            crate::model::PrState::Closed => p.closed_at.map(|t| t.to_string()).unwrap_or_default(),
+            _ => p.head_oid.clone().unwrap_or_else(|| p.head.clone()),
+        };
+        out.push(Found { id: format!("pr:{}:{state}@{at}", p.key), title: format!("#{} {} in {}: {said}", p.number, p.title, p.repo_slug), url: p.url.clone(), text: String::new(), todo: None });
         if p.state.is_open() && p.checks.failed > 0 {
             out.push(Found {
                 id: format!("checks:{}@{}", p.key, p.head_oid.as_deref().unwrap_or(&p.head)),
@@ -424,12 +448,18 @@ mod tests {
         let file = File { schedules: vec![orch("web", Some("Web"))], ..File::default() };
         let s = &file.schedules[0];
         let at = |state: PrState| Board { prs: vec![pr("Web", state)], ..Board::default() };
-        assert_eq!(ids(found(&at(PrState::Open), &file, s, NOW)), vec!["pr:acme/web#4:open"]);
-        assert_eq!(ids(found(&at(PrState::Merged), &file, s, NOW)), vec!["pr:acme/web#4:merged"]);
+        assert_eq!(ids(found(&at(PrState::Open), &file, s, NOW)), vec!["pr:acme/web#4:open@teams"]);
+        let mut merged = at(PrState::Merged);
+        merged.prs[0].merged_at = Some(NOW);
+        assert_eq!(ids(found(&merged, &file, s, NOW)), vec![format!("pr:acme/web#4:merged@{NOW}")]);
         let mut failing = at(PrState::Open);
         failing.prs[0].checks.failed = 1;
         failing.prs[0].head_oid = Some("abc".into());
-        assert_eq!(ids(found(&failing, &file, s, NOW)), vec!["pr:acme/web#4:open", "checks:acme/web#4@abc"]);
+        assert_eq!(ids(found(&failing, &file, s, NOW)), vec!["pr:acme/web#4:open@abc", "checks:acme/web#4@abc"]);
+        // Approved again after a push is news again.
+        let mut again = at(PrState::Approved);
+        again.prs[0].head_oid = Some("def".into());
+        assert_eq!(ids(found(&again, &file, s, NOW)), vec!["pr:acme/web#4:approved@def"]);
         // Another project's PR, or one neither yours nor worked on here, isn't its.
         assert!(found(&Board { prs: vec![pr("Docs", PrState::Open)], ..Board::default() }, &file, s, NOW).is_empty());
         let mut theirs = at(PrState::Open);

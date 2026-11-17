@@ -1,7 +1,7 @@
 // Checks an orchestrator's session in Sessions (orchestrators.ts): it leads the list in a section
 // of its own, is listed once, never among the rest, and the bar offers no compass while it runs;
-// its menu looks now, starts it afresh and turns it off, which pauses its schedule and marks its
-// session done.
+// its menu looks now, starts it afresh and turns it off, which pauses its schedule (its scheduler
+// then marks its session done: runner.rs `Job::Retire`).
 //   scripts/preview.sh sessions 'All projects' scripts/preview/orchestrator-check.js
 (function () {
   window.__ORCHESTRATES__ = {};
@@ -16,7 +16,7 @@
       check('its section is called Orchestrator', /Orchestrator/.test(q('.ca-bay', section).textContent), q('.ca-bay', section).textContent);
       var rows = all('[id^="row-"]').filter(function (r) { return keyOf(r) === key; });
       check('it is listed once', rows.length === 1, rows.length + ' rows');
-      check('the bar offers no compass while it runs', !q('.ca-listtools-start'));
+      check('the bar offers no compass while it runs', !q('.ca-listbar-start'));
       rightClick(row);
       return wait(100).then(function () { return { row: row, key: key }; });
     })
@@ -24,13 +24,20 @@
       var labels = menuLabels();
       ['Look now', 'Start afresh', 'Turn off orchestrator'].forEach(function (l) { check('its menu has ' + l, labels.indexOf(l) >= 0, labels.join(' | ')); });
       menuItem('Turn off orchestrator')();
-      return until(function () { return calls('session_done').length > 0; }, 5000, 'its session marked done').then(function () { return it; });
+      return until(function () { return calls('schedule_op').length > 0; }, 5000, 'its schedule changed').then(function () { return it; });
     })
-    .then(function (it) {
+    .then(function () {
       var ops = sent('schedule_op').map(function (a) { return a.op; });
       check('turning it off pauses its schedule', ops.some(function (o) { return o.op === 'pause' && o.id === 'orch-all' && o.paused === true; }), JSON.stringify(ops));
-      var done = sent('session_done');
-      check('and marks its session done', done.some(function (a) { return a.key === it.key; }), JSON.stringify(done));
+      rightClick(q('.ca-orchestrators [id^="row-"]'));
+      return wait(100);
+    })
+    .then(function () {
+      menuItem('Start afresh')();
+      return until(function () { return sent('schedule_op').some(function (a) { return a.op.op === 'fresh'; }); }, 5000, 'a fresh run asked for');
+    })
+    .then(function () {
+      check('starting afresh asks its schedule for a fresh run', sent('schedule_op').some(function (a) { return a.op.op === 'fresh' && a.op.id === 'orch-all'; }));
     })
     .then(done)
     .catch(stopped);
