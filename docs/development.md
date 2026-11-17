@@ -245,8 +245,9 @@ an agent at when it's asked to run as one, so every harness has it from the one 
 has a skill's frontmatter too, and `plugin/skills/orchestrate/SKILL.md` links to it, so the plugin
 offers it in Claude Code as `/codealong:orchestrate` (tauri.conf.json bundles the link's file as
 the plugin's). `references/visualize.md`, laying the work in progress out on a board's canvas, is
-packaged the same way, as `/codealong:visualize`, and so is `references/meetings.md`, working from
-a meeting Codealong heard, as `/codealong:meetings`. A new one is a file there with a skill's
+packaged the same way, as `/codealong:visualize`, and so are `references/meetings.md`, working from
+a meeting Codealong heard, as `/codealong:meetings`, and `references/coordinate.md`, splitting a
+piece of work across helpers that report back, as `/codealong:coordinate`. A new one is a file there with a skill's
 frontmatter, a link to it at `plugin/skills/<name>/SKILL.md`, that link's line in tauri.conf.json,
 and its name in skills.rs's test of the limits.
 

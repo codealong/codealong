@@ -11,8 +11,8 @@
 //! doesn't tell a turn that ended before it; after that, a turn that ends or a wait on you that
 //! begins is owed to its session while that session runs on this Mac. A session waiting on you to
 //! answer a prompt isn't sent anything (what's typed would answer it) and is told once it isn't;
-//! what's owed to one session goes in one message; a send that fails is tried again a little
-//! later, a few times.
+//! what's owed to one session goes in one message, gathered for up to `GATHER_MS` while another of
+//! its reporting helpers is at work; a send that fails is tried again a little later, a few times.
 //!
 //! A helper started in a terminal whose session hasn't shown a few minutes on is told of too,
 //! once (`origins::Pending::stuck`): its terminal UI likely sits on a screen of its own, and the
@@ -35,6 +35,10 @@ const RETRY_MS: i64 = 30_000;
 /// terminal only afterwards, a few reads' time (starting.rs `READ_EVERY_MS`). A terminal that
 /// can't be read is told of without.
 const SCREEN_WAIT_MS: i64 = 60_000;
+/// How long news owed to a session waits while another of its reporting helpers is still at work,
+/// from the first of it: a session coordinating several (skills/codealong/references/coordinate.md)
+/// hears of the ones that end close together in one message, rather than a turn for each.
+const GATHER_MS: i64 = 60_000;
 
 /// Where a helper stands, as a board shows it.
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -86,6 +90,18 @@ struct Owed {
     failures: u32,
     /// Not tried again before this (ms).
     next_at: i64,
+    /// When the first of `notes` came (ms), for gathering (`GATHER_MS`).
+    since: i64,
+}
+
+impl Owed {
+    /// Owes a helper's latest news, noting when the first came.
+    fn owe(&mut self, note: Note, now: i64) {
+        if self.notes.is_empty() {
+            self.since = now;
+        }
+        self.notes.insert(note.helper.clone(), note);
+    }
 }
 
 /// A message to send a session: what its helpers did.
@@ -144,8 +160,7 @@ impl Reporter {
             }
             let place = crate::origins::place_of(board, &p.lane);
             let news = News::Unstarted { account: p.account.clone(), place, terminal: board.apps.terminal.clone(), minutes: p.minutes(now), screen };
-            let key = format!("start@{}", p.at);
-            self.owed.entry(p.from.clone()).or_default().notes.insert(key.clone(), Note { helper: key, title: String::new(), news });
+            self.owed.entry(p.from.clone()).or_default().owe(Note { helper: format!("start@{}", p.at), title: String::new(), news }, now);
         }
         let mut seen_now = HashMap::new();
         for lane in board.lanes.iter().filter(|l| l.device.is_none()) {
@@ -161,8 +176,7 @@ impl Reporter {
                     _ => None,
                 };
                 if let Some(news) = news.filter(|_| runs_here(parent)) {
-                    let owed = self.owed.entry(parent.to_string()).or_default();
-                    owed.notes.insert(s.key.clone(), Note { helper: s.key.clone(), title: s.title.clone(), news });
+                    self.owed.entry(parent.to_string()).or_default().owe(Note { helper: s.key.clone(), title: s.title.clone(), news }, now);
                 }
             }
         }
@@ -170,9 +184,12 @@ impl Reporter {
         // A session that stopped is told nothing more.
         self.owed.retain(|k, o| o.sending.is_some() || runs_here(k));
         let waits = |k: &str| board.automation_blocked(k) || board.session(k).is_some_and(|(_, s)| crate::send::waits_on_you(s));
+        let at_work = |k: &str| {
+            board.lanes.iter().filter(|l| l.device.is_none()).flat_map(|l| &l.sessions).any(|s| !s.archived && s.status == Status::Working && s.helper.as_ref().is_some_and(|h| h.report && h.parent.as_deref() == Some(k)))
+        };
         let mut out = Vec::new();
         for (k, o) in self.owed.iter_mut() {
-            if o.sending.is_some() || o.notes.is_empty() || now < o.next_at || waits(k) {
+            if o.sending.is_some() || o.notes.is_empty() || now < o.next_at || waits(k) || (now - o.since < GATHER_MS && at_work(k)) {
                 continue;
             }
             let notes: Vec<Note> = std::mem::take(&mut o.notes).into_values().collect();
@@ -303,6 +320,25 @@ mod tests {
         r.told(&jobs[0], true, NOW);
         // A prompt it hasn't answered yet isn't a turn's end.
         assert!(r.due(&[], &board(vec![boss(Status::Idle), rev(Status::Idle, 70, 70)]), NOW).is_empty());
+    }
+
+    #[test]
+    fn a_turn_that_ends_while_another_helper_works_waits_a_little_to_go_with_its_news() {
+        let mut r = Reporter::default();
+        let other = |status: Status| Session { key: "codex:codex:other".into(), title: "Fix the docs".into(), ..rev(status, 10, 20) };
+        r.due(&[], &board(vec![boss(Status::Idle), rev(Status::Working, 10, 20), other(Status::Working)]), NOW);
+        // One ends while the other works: it waits.
+        assert!(r.due(&[], &board(vec![boss(Status::Idle), rev(Status::Idle, 10, 40), other(Status::Working)]), NOW).is_empty());
+        // The other ends within the minute: both go in one message.
+        let jobs = r.due(&[], &board(vec![boss(Status::Idle), rev(Status::Idle, 10, 40), other(Status::Idle)]), NOW + 20_000);
+        assert_eq!(news(&jobs), [(BOSS.to_string(), News::Ended), (BOSS.to_string(), News::Ended)]);
+        r.told(&jobs[0], true, NOW + 20_000);
+        // One that ends while the other works on past the minute goes then, alone.
+        let mut r = Reporter::default();
+        r.due(&[], &board(vec![boss(Status::Idle), rev(Status::Working, 10, 20), other(Status::Working)]), NOW);
+        assert!(r.due(&[], &board(vec![boss(Status::Idle), rev(Status::Idle, 10, 40), other(Status::Working)]), NOW).is_empty());
+        assert!(r.due(&[], &board(vec![boss(Status::Idle), rev(Status::Idle, 10, 40), other(Status::Working)]), NOW + GATHER_MS - 1).is_empty());
+        assert_eq!(news(&r.due(&[], &board(vec![boss(Status::Idle), rev(Status::Idle, 10, 40), other(Status::Working)]), NOW + GATHER_MS)).len(), 1);
     }
 
     #[test]

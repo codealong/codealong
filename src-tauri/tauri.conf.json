@@ -57,7 +57,8 @@
       "../plugin/hooks/hooks.json": "plugin-marketplace/plugin/hooks/hooks.json",
       "../plugin/skills/orchestrate/SKILL.md": "plugin-marketplace/plugin/skills/orchestrate/SKILL.md",
       "../plugin/skills/visualize/SKILL.md": "plugin-marketplace/plugin/skills/visualize/SKILL.md",
-      "../plugin/skills/meetings/SKILL.md": "plugin-marketplace/plugin/skills/meetings/SKILL.md"
+      "../plugin/skills/meetings/SKILL.md": "plugin-marketplace/plugin/skills/meetings/SKILL.md",
+      "../plugin/skills/coordinate/SKILL.md": "plugin-marketplace/plugin/skills/coordinate/SKILL.md"
     },
     "category": "DeveloperTool",
     "copyright": "Copyright © 2026 Gordon L. Hempton",

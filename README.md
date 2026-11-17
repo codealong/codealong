@@ -606,11 +606,14 @@ codealong start --todo <id>
 `codealong --help` lists everything, and so does
 [the skill's reference](skills/codealong/references/reference.md).
 
-An agent can also keep watch over all your sessions for you on a loop:
-`codealong start --account <a Claude Code account> --prompt "/codealong:orchestrate"` starts an
-orchestrator, which asks what you'd
-like it to do, then tags what waits on you, suggests replies, and flags agents getting in each
-other's way, without messaging any of them ([its skill](skills/codealong/references/orchestrate.md)).
+An agent can also keep watch over your sessions for you: the compass on Sessions' bar, or
+`codealong orchestrator start [project]`, starts an orchestrator for a project or for all of them.
+Codealong wakes it only when something needs a look, at most every 15 minutes; it tags what waits on
+you, suggests replies and flags agents getting in each other's way, without messaging any of them,
+and speaks only for what you don't see already ([its skill](skills/codealong/references/orchestrate.md)).
+And a session you hand a bigger piece of work can coordinate it (`/codealong:coordinate`): it
+splits the work across helper sessions, each in a worktree of its own, that report back to it, and
+brings you what they come to ([its skill](skills/codealong/references/coordinate.md)).
 
 ### Boards and the canvas
 

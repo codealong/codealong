@@ -1,6 +1,6 @@
 ---
 name: codealong
-description: Codealong todos, sessions and accounts on this Mac, through the `codealong` command. Use when the user asks for something done with a Codealong todo (adding, starting, changing, finishing) or the session was started on one, when you need to know what other agents or sessions did in this repo, to message one (on any account or harness) or to name one or a todo in a reply (as a link), when you'd have another account, harness or model (Codex, say) review, check or take on part of your work (a helper, started here, not with its own CLI or plugin), when asked to go over the sessions that wait on the user and suggest replies, to run as their orchestrator, to visualize or lay out their sessions on Codealong's canvas, or to make a board of some work or add to one, when asked about a meeting Codealong heard (its transcript or notes), when choosing an account to start something on, or when a task needs a service you have no tool for (Slack, Figma, a mailbox) that another account's MCP servers or connectors may reach.
+description: Codealong todos, sessions and accounts on this Mac, through the `codealong` command. Use when the user asks for something done with a Codealong todo (adding, starting, changing, finishing) or the session was started on one, when you need to know what other agents or sessions did in this repo, to message one (on any account or harness) or to name one or a todo in a reply (as a link), when you'd have another account, harness or model (Codex, say) review, check or take on parts of your work (a helper, started here, not with its own CLI or plugin), when asked to go over the sessions that wait on the user and suggest replies, to run as their orchestrator, to visualize or lay out their sessions on Codealong's canvas, or to make a board of some work or add to one, when asked about a meeting Codealong heard (its transcript or notes), when choosing an account to start something on, or when a task needs a service you have no tool for (Slack, Figma, a mailbox) that another account's MCP servers or connectors may reach.
 ---
 
 # Codealong
@@ -343,6 +343,14 @@ what changed since the last look (sessions, PRs, todos, worktrees two agents sha
 waits on the user now, kept to what an orchestrator keeps watch over when one runs it, and
 `codealong hygiene` lists the processes left over from old sessions, with this Mac's load, memory
 and swap (`--kill` ends them).
+
+## Coordinating
+
+When your user hands you work to split across sessions (to delegate, fan out or run in
+parallel), or asks you to coordinate it (in Claude Code, `/codealong:coordinate`), read
+`references/coordinate.md` and follow it: you plan the parts, start a helper for each with
+`--report` (*Helpers*), in a worktree of its own when it changes code, and bring your user what
+the parts come to. Unlike an orchestrator, you hear only from your own children.
 
 ## Schedules
 

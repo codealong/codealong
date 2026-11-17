@@ -4799,6 +4799,22 @@ or a check asked for in two days) keeps its process until then, since only that 
 it; `hygiene` lists it as kept, with when it wakes. `--kill` ends them with their child processes, each checked again first and logged, a
 background job stopped the way Close stops it; it judges nothing when the app doesn't answer.
 
+### Coordinating work
+
+An agent can split a piece of work across sessions of its own. Hand a session the work and ask it
+to coordinate (in Claude Code, `/codealong:coordinate`): it plans the parts, starts a helper for
+each (*Helpers*) with `--report`, in a worktree of its own when the part changes code and on
+whichever account or model suits it, and keeps each going as it reports back. The children are
+listed under it, its helpers chip showing where each stands, and reach you only when they need you:
+a call to allow or a question is answered on the child, never by the coordinator for you, and a
+go-ahead you give the coordinator is quoted to the child it's for, word for word. Reports that come
+while another of its children is still at work are gathered for up to a minute, so it hears of
+several in one message. It speaks for the work: what the parts come to, and the decisions only you
+can make, which it asks with its question tool; a turn that only moves the work on is marked seen,
+so it doesn't wait on you. What it follows is the codealong skill's `references/coordinate.md`.
+Unlike an orchestrator, which keeps watch over every session in a project, a coordinator hears only
+from its own children, and an orchestrator leaves them to it.
+
 ## Codealong's server
 
 Codealong runs in two parts. Its server keeps watch: it reads what every agent records, watches git
