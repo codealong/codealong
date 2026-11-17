@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { orchestrates, orchestratorFor, orchestratorOn, orchestratorsIn, scopeOfView } from './orchestrators';
+import { compassTitle, freeScopes, orchestrates, orchestratorFor, orchestratorOn, orchestratorsIn, scopeOfView } from './orchestrators';
 import { ALL_PROJECTS } from './quick';
 import { lane, session } from './testing/fixtures';
 import type { ScheduleItem } from './types';
@@ -22,6 +22,23 @@ describe('orchestrators', () => {
     expect(orchestrates(ALL_PROJECTS, projects)).toBe(true);
     expect(orchestrates('Atlas', projects)).toBe(true);
     expect(orchestrates('Elsewhere', projects)).toBe(false);
+  });
+
+  it('offers under All projects every scope with none running, and under a project that one', () => {
+    const projects = [{ name: 'Atlas' }, { name: 'Kestrel' }, { name: 'Elsewhere' }];
+    const item = (id: string, project?: string, paused = false) => ({ id, paused, orchestrates: { project } }) as unknown as ScheduleItem;
+    expect(freeScopes(ALL_PROJECTS, projects, [])).toEqual([null, 'Atlas', 'Kestrel']);
+    // All projects’ running, and Atlas’s: Kestrel is still free, from All projects too.
+    const running = [item('all'), item('atlas', 'Atlas')];
+    expect(freeScopes(ALL_PROJECTS, projects, running)).toEqual(['Kestrel']);
+    expect(freeScopes('Atlas', projects, running)).toEqual([]);
+    expect(freeScopes('Kestrel', projects, running)).toEqual(['Kestrel']);
+    // One turned off is free again.
+    expect(freeScopes('Atlas', projects, [item('atlas', 'Atlas', true)])).toEqual(['Atlas']);
+    expect(freeScopes('Elsewhere', projects, [])).toEqual([]);
+    expect(compassTitle(['Kestrel'])).toMatch(/^Start an orchestrator for Kestrel:/);
+    expect(compassTitle([null])).toMatch(/^Start an orchestrator for All projects:/);
+    expect(compassTitle([null, 'Kestrel'])).toMatch(/^Start an orchestrator for All projects or one of your projects:/);
   });
 
   it('finds a scope’s orchestrator and whether it runs', () => {

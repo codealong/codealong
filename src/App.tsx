@@ -53,7 +53,7 @@ import { reviewedWords } from './prDraft';
 import { mayApprove } from './prStatus';
 import { inPrTab, PR_GROUPS, PR_ROWS, PR_SORTS, PR_TABS, prPlace, PrsView, type PrRowItem, type PrSort, type PrTab } from './ui/PrsView';
 import { Resizer, usePanelWidth } from './ui/Resizer';
-import { orchestrates, orchestratorFor, orchestratorOn, scopeOfView, scopeWords, startOrchestrator } from './orchestrators';
+import { compassTitle, freeScopes, orchestratorOn, startOrchestrator } from './orchestrators';
 import { StartOrchestratorDialog } from './ui/StartOrchestrator';
 import { groupKeyOf, headItem, SESSION_GROUPS, SESSION_ROWS, SESSION_SORTS, SessionsBar, SessionsView, STARTED_PLACES, type SessionItem, type SessionSort, type StartedPlace } from './ui/SessionsView';
 import type { GroupActs } from './ui/Groups';
@@ -383,7 +383,7 @@ export function App() {
   // (ui/CloseStaleDialog.tsx).
   const [closeIdle, setCloseIdle] = useState(false);
   // Start orchestrator… from Sessions' bar, for the scope it was asked for (null: All projects).
-  const [orchestratorAsk, setOrchestratorAsk] = useState<{ project: string | null } | null>(null);
+  const [orchestratorAsk, setOrchestratorAsk] = useState<{ scopes: (string | null)[] } | null>(null);
   const [closeStale, setCloseStale] = useState(false);
   // Set up Codealong (ui/SetupDialog.tsx): by itself in the main window on a first run, and from
   // the app menu's Set up Codealong… whenever asked.
@@ -662,6 +662,8 @@ export function App() {
     shownBoard,
     columnOpen,
   });
+  // What an orchestrator can be started for from this view, which Sessions' compass offers.
+  const freeOrchestrators = useMemo(() => freeScopes(current, board?.projects, board?.schedules), [current, board?.projects, board?.schedules]);
   // New session opens the quick panel (ui/Quick.tsx) at a worktree, maybe for a todo, in the
   // project this window shows. The panel tells this window how the start goes.
   const projectNow = useLatest(current);
@@ -2547,7 +2549,7 @@ export function App() {
                   onLines={setSessionLines}
                   // Offered while the view's project, or All projects, has none running: once one
                   // runs, its session leads the list and its menu turns it off.
-                  startOrchestrator={!orchestrates(current, board?.projects) || orchestratorOn(orchestratorFor(board?.schedules, scopeOfView(current))) ? null : { scope: scopeWords(scopeOfView(current)), run: () => setOrchestratorAsk({ project: scopeOfView(current) }) }}
+                  startOrchestrator={freeOrchestrators.length > 0 ? { title: compassTitle(freeOrchestrators), run: () => setOrchestratorAsk({ scopes: freeOrchestrators }) } : null}
                 />
               )}
               {view === 'prs' && (
@@ -2998,9 +3000,9 @@ export function App() {
       {closeIdle && <CloseIdleDialog onClose={() => setCloseIdle(false)} onDone={setToast} />}
       {orchestratorAsk && (
         <StartOrchestratorDialog
-          project={orchestratorAsk.project}
-          others={orchestratorAsk.project ? [] : (board?.schedules ?? []).filter((i) => orchestratorOn(i) && i.orchestrates?.project).map((i) => i.orchestrates?.project ?? '')}
-          onStart={() => startOrchestrator(orchestratorAsk.project)}
+          scopes={orchestratorAsk.scopes}
+          others={(board?.schedules ?? []).filter((i) => orchestratorOn(i) && i.orchestrates?.project).map((i) => i.orchestrates?.project ?? '')}
+          onStart={(project) => startOrchestrator(project)}
           onClose={() => setOrchestratorAsk(null)}
         />
       )}

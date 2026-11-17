@@ -46,6 +46,22 @@ export function orchestrates(current: string, projects: readonly { name: string 
 /** The sessions in no project, as the engine names them (board.rs `ELSEWHERE`). */
 const ELSEWHERE = 'Elsewhere';
 
+/** What an orchestrator can be started for from a view, of what has none running yet: the view's
+ *  project, or under All projects, All projects (null) and then each project of yours, in the
+ *  board's order. Empty once every one runs, and for a view that can't have one. */
+export function freeScopes(current: string, projects: readonly { name: string }[] | undefined, items: ScheduleItem[] | undefined): (string | null)[] {
+  if (!orchestrates(current, projects)) return [];
+  const scopes = current === ALL_PROJECTS ? [null, ...(projects ?? []).map((p) => p.name).filter((n) => n !== ELSEWHERE)] : [current];
+  return scopes.filter((p) => !orchestratorOn(orchestratorFor(items, p)));
+}
+
+/** What the compass in Sessions' bar says it starts: one scope by name, or for several, that the
+ *  dialog asks which. */
+export function compassTitle(scopes: readonly (string | null)[]): string {
+  const what = 'an agent that keeps watch over sessions for you';
+  return scopes.length === 1 ? `Start an orchestrator for ${scopeWords(scopes[0])}: ${what}` : `Start an orchestrator for All projects or one of your projects: ${what}`;
+}
+
 /** The orchestrator for a scope, on or not, as the Schedules view has it. */
 export function orchestratorFor(items: ScheduleItem[] | undefined, project: string | null): ScheduleItem | undefined {
   return items?.find((i) => i.orchestrates && sameProject(i.orchestrates.project, project));

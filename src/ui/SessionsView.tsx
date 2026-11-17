@@ -267,9 +267,10 @@ export function sortSessions(rows: SessionItem[], sort: SessionSort, now: number
 
 /** Sessions' tools in the bar over the list (ListBar.tsx): how the list is sorted, what groups
  *  it, where a session another one started goes, and how much each row says. */
-/** Sessions' bar: how it's listed, and, while the view's project (or All projects) has no
- *  orchestrator running, a compass that starts one (StartOrchestrator.tsx). */
-export function SessionsBar({ sort, onSort, group, onGroup, started, onStarted, lines, onLines, startOrchestrator }: { sort: SessionSort; onSort: (sort: SessionSort) => void; group: SessionGroupBy; onGroup: (group: SessionGroupBy) => void; started: StartedPlace; onStarted: (place: StartedPlace) => void; lines: RowLines; onLines: (lines: RowLines) => void; startOrchestrator?: { scope: string; run: () => void } | null }) {
+/** Sessions' bar: how it's listed, and, while an orchestrator can be started from the view
+ *  (orchestrators.ts `freeScopes`), a compass that starts one (StartOrchestrator.tsx), its tooltip
+ *  saying what for. */
+export function SessionsBar({ sort, onSort, group, onGroup, started, onStarted, lines, onLines, startOrchestrator }: { sort: SessionSort; onSort: (sort: SessionSort) => void; group: SessionGroupBy; onGroup: (group: SessionGroupBy) => void; started: StartedPlace; onStarted: (place: StartedPlace) => void; lines: RowLines; onLines: (lines: RowLines) => void; startOrchestrator?: { title: string; run: () => void } | null }) {
   return (
     <>
       <ListTools label="How Sessions is listed">
@@ -285,7 +286,7 @@ export function SessionsBar({ sort, onSort, group, onGroup, started, onStarted, 
           size="sm"
           className="ca-listbar-start"
           icon="compass"
-          title={`Start an orchestrator for ${startOrchestrator.scope}: an agent that keeps watch over its sessions for you`}
+          title={startOrchestrator.title}
           onClick={startOrchestrator.run}
         >
           Orchestrator

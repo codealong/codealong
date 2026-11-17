@@ -4677,8 +4677,10 @@ the terminal's, so nothing the app starts carries an agent's session with it. Se
 An orchestrator is an agent that keeps watch over your sessions for you: one for a project, and one
 for All projects, which takes every project without an orchestrator of its own and the sessions in
 none. None runs until you start one. In Sessions, the compass at the end of the bar (Orchestrator)
-is there while the project you're looking at, or All projects, has none running; it asks first,
-then starts it. `codealong orchestrator start [project]` does the same from a terminal or an agent.
+is there while the project you're looking at has none running, and under All projects while All
+projects or any project of yours has none; it asks first (under All projects, which of them it
+keeps watch over), then starts it. `codealong orchestrator start [project]` does the same from a
+terminal or an agent.
 
 Codealong runs each as a schedule of its own (it's listed in Schedules, with its runs): it keeps
 one session going, out of sight on an account with room, among Codealong's chats, and starts it

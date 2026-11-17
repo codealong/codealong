@@ -19,3 +19,8 @@
 .ca-listbar .ca-listbar-start {
   height: 20px;
 }
+
+/* Under All projects, what it keeps watch over, above what it does. */
+.ca-startorch-scope {
+  margin-bottom: var(--space-3);
+}
