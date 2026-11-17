@@ -270,6 +270,7 @@ export const ROW_READS: Reads<NotchRow> = {
   raisedOf: (r) => (r.kind === 'session' ? r.item.raised : undefined),
   // While it's still Your turn: a pill a window set working ahead of the engine keeps the rest.
   finishedOf: (r) => r.kind === 'session' && r.item.status === 'unread' && !!r.item.finished,
+  firstOf: (r) => r.kind === 'review' && !!r.review.first,
   titleOf: (r) => (r.kind === 'session' ? r.item.title : reviewTitle(r.review)),
 };
 
@@ -280,11 +281,13 @@ export function reviewTitle(r: Pick<BarReview, 'number' | 'title'>): string {
 
 /** Everything the notch can show, in the order the closed notch counts it (`NOTCH_ORDER`): the
  *  sessions that need you, the PRs waiting on your review, the turns that ended, then the
- *  running ones, each group in the bar's own order. ⌥↑ ⌥↓ step along all of it. */
+ *  running ones, each group in the bar's own order; the reviews of a repo that puts them first
+ *  ahead of it all, as the queue has them (queue.ts `byPlace`). ⌥↑ ⌥↓ step along all of it. */
 export function notchRows(items: BarItem[], reviews: BarReview[]): NotchRow[] {
   const session = (i: BarItem): NotchRow => ({ kind: 'session', key: i.key, item: i });
   const review = (r: BarReview): NotchRow => ({ kind: 'review', key: r.key, review: r });
-  return NOTCH_ORDER.flatMap((k) => (k === 'reviews' ? reviews.map(review) : items.filter((i) => i.group === k).map(session)));
+  const rest = NOTCH_ORDER.flatMap((k) => (k === 'reviews' ? reviews.filter((r) => !r.first).map(review) : items.filter((i) => i.group === k).map(session)));
+  return [...reviews.filter((r) => r.first).map(review), ...rest];
 }
 
 /** What the notch works through, as a session's panel in Sessions does: the rows that wait on

@@ -1435,6 +1435,8 @@ fn pr_item(lanes: &[Lane], owners: &HashMap<&Path, &[String]>, slug: &str, (proj
         nudge,
         nudge_by_default: nudge && !by_hand,
         watched,
+        // As its repo's settings say: the engine knows them (engine.rs, where it sends the board).
+        review_first: false,
         primary,
         primary_by,
         head: p.head_ref.clone(),

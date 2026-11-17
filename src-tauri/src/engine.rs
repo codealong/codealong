@@ -4288,6 +4288,9 @@ fn waiting_call(s: &Session, account: Option<&config::AccountCfg>) -> Option<Str
         board.reviews = self.cfg.reviews.clone();
         board.repos = self.cfg.repos.clone();
         board.repo_settings = repo_settings;
+        for pr in &mut board.prs {
+            pr.review_first = board.repo_settings.pull_requests(&self.cfg.pull_requests, pr).reviews_first;
+        }
         board.team_files = self.team_files.files();
         for f in &mut board.team_files {
             let Some(team) = &f.settings else { continue };

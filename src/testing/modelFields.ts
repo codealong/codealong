@@ -583,6 +583,7 @@ export type PrItem = Holds<Same<
   | "repoSlug"
   | "requestedAt"
   | "requestedBy"
+  | "reviewFirst"
   | "reviewRequested"
   | "reviewersAsked"
   | "sessions"
@@ -726,6 +727,7 @@ export type TeamCfg = Holds<Same<
   | "nudgeAbout"
   | "ownReviewInstructions"
   | "reviewInstructions"
+  | "reviewsFirst"
   | "suggests",
   Names<Types.TeamCfg>
 >>;
@@ -954,7 +956,8 @@ export type ProjectCfg = Holds<Same<
 export type PullRequestsCfg = Holds<Same<
   | "nudge_about"
   | "nudge_by_default"
-  | "rerequest_after_fixes",
+  | "rerequest_after_fixes"
+  | "reviews_first",
   Names<Types.PullRequestsCfg>
 >>;
 

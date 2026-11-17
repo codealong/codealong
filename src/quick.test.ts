@@ -40,6 +40,16 @@ describe('queueRows', () => {
     expect(keys(queueRows(b2, 'Acme'))).toEqual(['n1', 'e', 'n2', 'acme/app#1', 'acme/app#3', 'u1']);
     expect(queueRows(b2, ALL_PROJECTS).map((r) => r.kind)).toEqual(['session', 'session', 'session', 'review', 'review', 'review', 'session']);
   });
+
+  it('puts the PRs of a repo that puts reviews first ahead of what needs you, under a heading of their own', () => {
+    const review = (number: number, over: Partial<PrItem> = {}) => fx.prItem({ number, key: `acme/app#${number}`, project: 'Acme', state: 'open', reviewRequested: true, requestedAt: NOW - number, updatedAt: NOW - number, ...over });
+    const b2 = fx.board({ lanes: b.lanes, prs: [review(3, { reviewFirst: true }), review(100), review(1, { reviewFirst: true })] });
+    expect(keys(queueRows(b2, ALL_PROJECTS))).toEqual(['acme/app#3', 'acme/app#1', 'n1', 'e', 'n2', 'acme/app#100', 'u1']);
+    const { rows, counts } = attentionRows(b2, ALL_PROJECTS, Infinity);
+    expect(rows.map((r) => r.group)).toEqual(['firstReviews', 'firstReviews', 'needs', 'needs', 'needs', 'reviews', 'unread']);
+    // Each heading counts what's under it.
+    expect(counts).toEqual({ top: 0, firstReviews: 2, needs: 3, reviews: 1, unread: 1, working: 1 });
+  });
 });
 
 describe('attentionRows', () => {
@@ -55,7 +65,7 @@ describe('attentionRows', () => {
       ['u1', 'unread'],
       ['u2', 'unread'],
     ]);
-    expect(counts).toEqual({ top: 0, needs: 2, reviews: 0, unread: 2, working: 1 });
+    expect(counts).toEqual({ top: 0, firstReviews: 0, needs: 2, reviews: 0, unread: 2, working: 1 });
   });
 
   it('lists the ones moved to the top first under a heading of their own, so no group comes twice', () => {
@@ -73,7 +83,7 @@ describe('attentionRows', () => {
       ['u', 'unread'],
     ]);
     // Each heading counts what's under it.
-    expect(counts).toEqual({ top: 2, needs: 1, reviews: 0, unread: 1, working: 1 });
+    expect(counts).toEqual({ top: 2, firstReviews: 0, needs: 1, reviews: 0, unread: 1, working: 1 });
     // The waiting window works through them in the same order.
     expect(queueRows(b, ALL_PROJECTS).map((r) => r.key)).toEqual(['uUp', 'nUp', 'n', 'u']);
   });
@@ -92,7 +102,7 @@ describe('attentionRows', () => {
     const { rows, counts } = attentionRows(b, ALL_PROJECTS);
     expect(rows.map((r) => r.key)).toEqual(['n']);
     // One that runs still counts with Working.
-    expect(counts).toEqual({ top: 0, needs: 1, reviews: 0, unread: 0, working: 1 });
+    expect(counts).toEqual({ top: 0, firstReviews: 0, needs: 1, reviews: 0, unread: 0, working: 1 });
     expect(queueRows(b, ALL_PROJECTS).map((r) => r.key)).toEqual(['n']);
     expect(recentRows(b, ALL_PROJECTS, new Set(rows.map((r) => r.key)), NOW).rows.map((r) => r.key)).toEqual(['zw', 'zu', 'zn']);
     expect(projectCounts(b, [ALL_PROJECTS])).toEqual({ [ALL_PROJECTS]: { needs: 1, unread: 0 } });

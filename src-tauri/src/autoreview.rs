@@ -3208,6 +3208,7 @@ mod tests {
             nudge: false,
             nudge_by_default: false,
             watched: false,
+            review_first: false,
             primary: None,
             primary_by: None,
             head: "teams".into(),

@@ -196,6 +196,9 @@ pub struct BarReview {
     /// you is a sign-off.
     #[serde(skip_serializing_if = "std::ops::Not::not")]
     pub approves: bool,
+    /// It goes ahead of the sessions that need you in the notch's queue (`PrItem::review_first`).
+    #[serde(skip_serializing_if = "std::ops::Not::not")]
+    pub first: bool,
 }
 
 #[derive(Serialize, Clone, Debug, PartialEq)]
@@ -311,6 +314,7 @@ pub fn feed(shown: Shown) -> BarFeed {
             since: p.requested_at.unwrap_or(p.updated_at),
             updated_at: p.updated_at,
             approves: p.auto_review.as_ref().and_then(|a| a.approves.as_deref()).is_some_and(|a| p.head_oid.as_deref() == Some(a)),
+            first: p.review_first,
         })
         .collect();
 

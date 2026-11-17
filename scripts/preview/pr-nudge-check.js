@@ -12,8 +12,9 @@
 // the nudge off, a watch the board hasn't said yet with it. A merged PR's card
 // has no switch. Then the setting, off by default, saves `[pull_requests]` as config.toml has it;
 // what a nudge tells of, a merge apart under Everything and its own box under the others;
-// asking for a re-review once fixes are pushed, off by default, saves `[pull_requests]` too; and
-// resuming a stopped primary, on by default, saves `[sessions]`.
+// asking for a re-review once fixes are pushed, off by default, saves `[pull_requests]` too, as
+// putting reviews before the sessions that need you does; and resuming a stopped primary, on by
+// default, saves `[sessions]`.
 //   PREVIEW_WAIT=60000 scripts/preview.sh sessions '' scripts/preview/pr-nudge-check.js
 (function () {
   localStorage.setItem('codealong.project', 'All projects');
@@ -278,6 +279,16 @@
       await until(function () { return calls('save_config').length > rerequestSaves; }, 3000, 'turning it on saved nothing');
       prsCfg = calls('save_config')[calls('save_config').length - 1][1].config.pull_requests;
       check('turned on, it saves [pull_requests] rerequest_after_fixes beside the nudge', prsCfg.rerequest_after_fixes === true && prsCfg.nudge_by_default === true && prsCfg.nudge_about === 'feedback-checks-and-merges', JSON.stringify(prsCfg));
+      // Reviews before the sessions that need you: off until turned on, the order the queue has always had.
+      var first = /Put reviews before sessions that need you/;
+      await until(function () { return !!box(first); }, 3000, 'no setting for putting reviews before sessions that need you');
+      var firstInput = box(first).querySelector('input');
+      check('Settings › Automation has putting reviews first, off by default', !firstInput.checked, String(firstInput.checked));
+      var firstSaves = calls('save_config').length;
+      firstInput.click();
+      await until(function () { return calls('save_config').length > firstSaves; }, 3000, 'turning it on saved nothing');
+      prsCfg = calls('save_config')[calls('save_config').length - 1][1].config.pull_requests;
+      check('turned on, it saves [pull_requests] reviews_first beside the rest', prsCfg.reviews_first === true && prsCfg.rerequest_after_fixes === true, JSON.stringify(prsCfg));
       // Resuming a primary that stopped: on unless turned off, saved under [sessions].
       var resume = /Resume a stopped session for its pull request’s news/;
       await until(function () { return !!box(resume); }, 3000, 'no setting for resuming a stopped session for its pull request’s news');

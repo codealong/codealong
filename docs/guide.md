@@ -1577,7 +1577,9 @@ nothing the team sets is missed. A link in `.codealong/` isn't followed, and the
 for reviews of PRs that wait on their review, and the same under `[reviews.own]` for reviews of
 their own PRs, the reviewer told it's the team's; `[reviews] never_submit`, the verdicts
 (`"approve"`, `"request-changes"`, `"comment"`) never submitted as anyone's review, whatever their
-`submit` says; and `[pull_requests] nudge_about`. What spends a person's usage or posts as them
+`submit` says; `[pull_requests] nudge_about`; and `[pull_requests] reviews_first`, which puts the
+repo's PRs waiting on your review ahead of the sessions that need you (*Waiting on you*). Each
+person's own table for the repo still wins over these two. What spends a person's usage or posts as them
 the team only suggests: `[reviews] auto` and `post`, `[reviews.own] auto` and `send`, and
 `[pull_requests] nudge_by_default` and `rerequest_after_fixes`. Settings, with the repo picked, lists the suggestions you don't
 have yet with Use them, which writes them into your table for the repo; and the first PR of the
@@ -2509,7 +2511,8 @@ session's right-click menu in Codealong*
 One input, and below it what you can do next: it finds and starts, and answering is the waiting
 window's (below). With nothing typed it lists the sessions that need you, the longest wait first as
 on the floating bar, then the PRs waiting on your review under Review requested, the longest wait
-first, then the sessions whose turn ended (the working ones when nothing waits on you), and under
+first (those of a repo with `reviews_first` on come ahead of the sessions that need you, under a
+Review requested of their own), then the sessions whose turn ended (the working ones when nothing waits on you), and under
 them the first three todos ready to start, in your order, then the rest of the sessions started in
 the last day. A snoozed session doesn't wait on you there until its time: it's listed with the rest,
 and a search finds it as it finds any other, with a chip saying how long until it's back. Typed words find sessions by title,
@@ -3094,7 +3097,11 @@ panel*
 
 A window of its own, sized and placed as you like and kept up until you close it, that works through
 what waits on you one at a time: every session that needs you, then the PRs waiting on your review,
-then the sessions whose turn ended, each the longest wait first, snoozed ones left out. With the bar
+then the sessions whose turn ended, each the longest wait first, snoozed ones left out. With
+Settings › Automation › Put reviews before sessions that need you (`[pull_requests]
+reviews_first`, everywhere or for one repo, which a repo's team file can turn on for everyone), the
+PRs waiting on your review come first instead, ahead of the sessions that need you; the notch goes
+through them in the same order. A session moved to the top still comes before them. With the bar
 docked in the notch, ⌥⌘. opens the notch instead, on what waits on you, or with nothing waiting on
 the end of what waits (below, under *The bar in the notch*). Pressed while the
 window is the one you're in, ⌥⌘. puts it away and gives the keyboard back to the app you were in. A

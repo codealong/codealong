@@ -799,6 +799,7 @@ mod tests {
             nudge: state.is_open(),
             nudge_by_default: false,
             watched: false,
+            review_first: false,
             primary: sessions.first().map(|k| k.to_string()),
             primary_by: None,
             head: "photos".into(),

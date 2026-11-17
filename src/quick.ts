@@ -53,7 +53,7 @@ export function projectShownIn(project: string): string {
   return project === CHATS ? 'Elsewhere' : project;
 }
 
-export type RowGroup = 'suggested' | 'skills' | 'top' | 'needs' | 'reviews' | 'unread' | 'working' | 'found' | 'sendto' | 'todos' | 'prs' | 'ready' | 'recent';
+export type RowGroup = 'suggested' | 'skills' | 'top' | 'firstReviews' | 'needs' | 'reviews' | 'unread' | 'working' | 'found' | 'sendto' | 'todos' | 'prs' | 'ready' | 'recent';
 
 /** Where a session goes in the empty panel's list by its status, as on the floating bar: errors
  *  wait on you like questions do. A helper or a headless run waits there only while it needs
@@ -97,11 +97,12 @@ export function saidLine(hit: TextHit, words: string[]): SaidLine {
 
 /** A PR waiting on your review, in the empty panel's list among the sessions, keyed by the PR's
  *  key (`owner/name#12`), which no session's key looks like. ⏎ on it reviews it in the waiting
- *  window. */
+ *  window. One whose repo puts reviews first (`PrItem.reviewFirst`) is in a group of its own,
+ *  ahead of the sessions that need you, as `top` is for the ones moved to the top. */
 export interface ReviewRow {
   kind: 'review';
   key: string;
-  group: 'reviews';
+  group: 'firstReviews' | 'reviews';
   pr: PrItem;
   marks: [number, number][];
 }
@@ -119,7 +120,7 @@ export function reviewRows(board: Board, project: string): ReviewRow[] {
   return (board.prs ?? [])
     .filter((p) => p.reviewRequested && p.state !== 'merged' && p.state !== 'closed' && !p.snoozedUntil && !heldForAgent(p) && (project === ALL_PROJECTS || p.project === project))
     .sort((a, b) => reviewSince(a) - reviewSince(b) || a.key.localeCompare(b.key))
-    .map((pr) => ({ kind: 'review' as const, key: pr.key, group: 'reviews' as const, pr, marks: [] }));
+    .map((pr) => ({ kind: 'review' as const, key: pr.key, group: pr.reviewFirst ? ('firstReviews' as const) : ('reviews' as const), pr, marks: [] }));
 }
 
 /** How many rows the panel lists at most: ⌘1 to ⌘9 reach them all. */
@@ -164,19 +165,22 @@ export const QUEUE_READS: Reads<QueueRow> = {
   waitsOf: (r) => (r.kind === 'session' ? statusWaits(r.session.status) : 'reviews'),
   raisedOf: (r) => (r.kind === 'session' ? r.session.raised : undefined),
   finishedOf: (r) => r.kind === 'session' && waitsFinished(r.session),
+  firstOf: (r) => r.kind === 'review' && !!r.pr.reviewFirst,
   titleOf: (r) => (r.kind === 'session' ? r.session.title : `#${r.pr.number} ${r.pr.title}`),
 };
 
 /** The empty panel's list: what waits on you in the order the waiting window works through it
  *  (queue.ts `byPlace`), sessions that need you, then the PRs waiting on your review, then the
  *  sessions whose turn ended, each the longest wait first, as on the floating bar and in the
- *  notch (bar.ts `NOTCH_ORDER`); with none of those, the ones working, the longest running first.
+ *  notch (bar.ts `NOTCH_ORDER`), with the reviews of a repo that puts them first ahead of the
+ *  sessions that need you, under a heading of their own; with none of those, the ones working,
+ *  the longest running first.
  *  Snoozed ones are left out until their time (`groupOf`), so a recent one is in `recentRows`.
  *  The ones moved to the top come first whatever they wait as (lanes.ts `byRaise`), under a
  *  heading of their own: under their statuses' they'd split those groups, a Needs you and a
  *  Your turn above the Needs you and Your turn of the rest.
  *  `counts` has every group's full size, for the headings. */
-export function attentionRows(board: Board, project: string, limit = MAX_ROWS): { rows: QueueRow[]; counts: Record<'top' | 'needs' | 'reviews' | 'unread' | 'working', number> } {
+export function attentionRows(board: Board, project: string, limit = MAX_ROWS): { rows: QueueRow[]; counts: Record<'top' | 'firstReviews' | 'needs' | 'reviews' | 'unread' | 'working', number> } {
   const sessions = sessionsIn(board, project)
     .flatMap(({ lane, session }) => {
       const status = groupOf(session);
@@ -186,8 +190,8 @@ export function attentionRows(board: Board, project: string, limit = MAX_ROWS): 
     })
     .sort((a, b) => ORDER.indexOf(a.group) - ORDER.indexOf(b.group) || byStatusTime(a.session, b.session) || a.key.localeCompare(b.key));
   const reviews = reviewRows(board, project);
-  const counts = { top: 0, needs: 0, reviews: reviews.length, unread: 0, working: 0 };
-  for (const r of sessions) counts[r.group] += 1;
+  const counts = { top: 0, firstReviews: 0, needs: 0, reviews: 0, unread: 0, working: 0 };
+  for (const r of [...sessions, ...reviews]) counts[r.group] += 1;
   const waiting = inQueueOrder<QueueRow>([...sessions.filter((r) => r.group !== 'working'), ...reviews], QUEUE_READS);
   return { rows: (waiting.length > 0 ? waiting : sessions).slice(0, limit), counts };
 }

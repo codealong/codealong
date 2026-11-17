@@ -387,6 +387,11 @@ pub struct PrItem {
     /// watch. Said after it ended too, so that its ending is told.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub watched: bool,
+    /// Your review of it goes ahead of the sessions that need you in what waits on you, as
+    /// `[pull_requests] reviews_first` goes for its repo (config.rs `pull_requests_for`). Said only
+    /// while it's on.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub review_first: bool,
     /// The session that's the PR's own, of `sessions`, by key: the one picked as its primary,
     /// else the one that pushed to its branch most, the one that opened it winning a tie, else
     /// the one that started first (board.rs `pr_primary`). Only it is nudged.

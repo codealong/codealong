@@ -18,7 +18,7 @@ export type Handled = Map<string, number>;
 
 /** What a row waits on you as, the most urgent first: a session that needs you, a PR waiting on
  *  your review, a turn that ended. The notch counts and lists them in this order too (bar.ts
- *  `NOTCH_ORDER`). */
+ *  `NOTCH_ORDER`). A review whose repo puts reviews first goes ahead of them all (`Place.first`). */
 export const WAITS = ['needs', 'reviews', 'unread'] as const;
 export type Waits = (typeof WAITS)[number];
 
@@ -39,29 +39,41 @@ export interface Reads<T> {
   /** A finished turn that's only yours to read (lanes.ts `waitsFinished`): after the rest of
    *  its kind. */
   finishedOf: (row: T) => boolean;
+  /** A review whose repo puts reviews first (`[pull_requests] reviews_first`, `PrItem.reviewFirst`),
+   *  for a window that lists reviews. */
+  firstOf?: (row: T) => boolean;
   titleOf: (row: T) => string;
 }
 
 /** Where a row stands in the queue: whether it was moved to the top, what it waits as, whether
- *  it's only yours to read, since when, and its key, for a tie. */
+ *  it's a review that goes first, whether it's only yours to read, since when, and its key, for
+ *  a tie. */
 export interface Place {
   key: string;
   waits: Waits;
   since: number;
   raised?: Raised;
+  first?: boolean;
   finished?: boolean;
 }
 
 /** What the queue reads of a row to place it. */
-export type PlaceReads<T> = Pick<Reads<T>, 'keyOf' | 'sinceOf' | 'waitsOf' | 'raisedOf' | 'finishedOf'>;
+export type PlaceReads<T> = Pick<Reads<T>, 'keyOf' | 'sinceOf' | 'waitsOf' | 'raisedOf' | 'finishedOf' | 'firstOf'>;
 
 export function placeOf<T>(row: T, reads: PlaceReads<T>): Place {
-  return { key: reads.keyOf(row), waits: reads.waitsOf(row), since: reads.sinceOf(row), raised: reads.raisedOf(row), finished: reads.finishedOf(row) };
+  return { key: reads.keyOf(row), waits: reads.waitsOf(row), since: reads.sinceOf(row), raised: reads.raisedOf(row), first: !!reads.firstOf?.(row), finished: reads.finishedOf(row) };
+}
+
+/** Where what a row waits as comes in the queue: `WAITS`' order, with a review whose repo puts
+ *  reviews first ahead of the sessions that need you. */
+function rankOf(p: Place): number {
+  return p.first && p.waits === 'reviews' ? -1 : WAITS.indexOf(p.waits);
 }
 
 /**
  * The order every window works through what waits on you in: the ones moved to the top first,
- * whatever they wait as (lanes.ts `byRaise`); then the most urgent kind first (`WAITS`), each
+ * whatever they wait as (lanes.ts `byRaise`); then the most urgent kind first (`WAITS`, with the
+ * reviews of a repo that puts them first ahead of the sessions that need you: `rankOf`), each
  * first come, first served, the longest wait first, with the finished turns that are only yours
  * to read after the ones that want something of you. One that comes to wait, or comes back after
  * you answered it, joins the end of its kind and never goes ahead of the ones that have waited
@@ -69,7 +81,7 @@ export function placeOf<T>(row: T, reads: PlaceReads<T>): Place {
  * kept by it (`Handled`), and the windows say how long it's waited.
  */
 export function byPlace(a: Place, b: Place): number {
-  return byRaise(a.raised, b.raised) || WAITS.indexOf(a.waits) - WAITS.indexOf(b.waits) || Number(!!a.finished) - Number(!!b.finished) || a.since - b.since || a.key.localeCompare(b.key);
+  return byRaise(a.raised, b.raised) || rankOf(a) - rankOf(b) || Number(!!a.finished) - Number(!!b.finished) || a.since - b.since || a.key.localeCompare(b.key);
 }
 
 /** A window's rows in the queue's order (`byPlace`), whatever order it lists them in. */

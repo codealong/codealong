@@ -14,6 +14,8 @@ interface Row {
   raised?: Raised;
   /** A finished turn that's only yours to read. */
   finished?: boolean;
+  /** A review whose repo puts reviews first. */
+  first?: boolean;
 }
 const READS: Reads<Row> = {
   keyOf: (r) => r.key,
@@ -21,6 +23,7 @@ const READS: Reads<Row> = {
   waitsOf: (r) => r.waits ?? 'unread',
   raisedOf: (r) => r.raised,
   finishedOf: (r) => !!r.finished,
+  firstOf: (r) => !!r.first,
   titleOf: (r) => `Queue ${r.key}`,
 };
 const NOW = 1_000;
@@ -109,6 +112,17 @@ describe('the queue’s order', () => {
     // A key settles a tie.
     const twin: Row = { ...C, key: 'C2' };
     expect(keys(inQueueOrder([twin, C], READS))).toEqual(['C', 'C2']);
+  });
+
+  it('puts the reviews of a repo that puts them first ahead of the sessions that need you, and the rest after', () => {
+    const first: Row = { key: 'F', since: 50, waits: 'reviews', first: true };
+    const other: Row = { key: 'R', since: 5, waits: 'reviews' };
+    expect(keys(inQueueOrder([D, other, C, first, B, A], READS))).toEqual(['F', 'A', 'B', 'R', 'C', 'D']);
+    // One moved to the top still goes ahead of it.
+    expect(keys(inQueueOrder([first, { ...C, raised: { at: 100 } }, A], READS))).toEqual(['C', 'F', 'A']);
+    // Answered, it's on to the sessions that need you, and it comes round after the rest.
+    expect(keys(leftAfter([A, first, B, C], 'F', none, READS))).toEqual(['A', 'B', 'C']);
+    expect(keys(leftAfter([A, first, B, C], 'A', none, READS))).toEqual(['B', 'C', 'F']);
   });
 
   it('leaves the finished turns that are only yours to read for after the ones that want something', () => {

@@ -1334,6 +1334,9 @@ export interface PullRequestsCfg {
   /** Ask a reviewer who asked for changes to review again once commits came and nothing was said
    *  (rerequest.rs). Missing from older engines. */
   rerequest_after_fixes?: boolean;
+  /** PRs waiting on your review go ahead of the sessions that need you in what waits on you
+   *  (queue.ts `byPlace`). Missing from older engines. */
+  reviews_first?: boolean;
 }
 
 /** Your settings for one repo's pull requests (config.rs `RepoCfg`): each value set goes for that
@@ -1368,6 +1371,8 @@ export interface TeamCfg {
   neverSubmit: Verdict[];
   /** What a nudge tells about, for everyone. */
   nudgeAbout?: NudgeAbout | null;
+  /** Its PRs waiting on your review go ahead of the sessions that need you, for everyone. */
+  reviewsFirst?: boolean | null;
   /** What the team suggests each person turns on. */
   suggests: RepoCfg;
 }
@@ -2304,6 +2309,9 @@ export interface PrItem {
   /** Watched, from its card or by `codealong pr watch`: its nudge tells of everything, whatever
    *  `[pull_requests] nudge_about` says (nudges.rs `about_of`). */
   watched?: boolean;
+  /** Your review of it goes ahead of the sessions that need you in what waits on you, as
+   *  `[pull_requests] reviews_first` goes for its repo (queue.ts `byPlace`). */
+  reviewFirst?: boolean;
   /** The key of its primary session, of `sessions`: the one picked (`codealong pr nudge`, its
    *  menu's Primary session), else the one that pushed to its branch most, the one that opened it
    *  winning a tie, else the one that started first (board.rs `pr_primary`). Only it is nudged. */
@@ -3034,6 +3042,8 @@ export interface BarReview {
   updatedAt: number;
   /** Codealong's agent approves it: what's asked of you is a sign-off (prStatus.ts `agentApproves`). */
   approves?: boolean;
+  /** It goes ahead of the sessions that need you in the queue (`PrItem.reviewFirst`). */
+  first?: boolean;
 }
 
 /** A PR the board lists, with the worktrees that hold it and the ones its sessions are listed

@@ -297,6 +297,13 @@ describe('what the notch works through', () => {
     expect(keys(notchRows(items, []))).toEqual(['n1', 'n2', 'u1', 'w1']);
   });
 
+  it('lists the reviews of a repo that puts them first ahead of everything, as the queue goes to them', () => {
+    const first = { ...review(9, 40), first: true };
+    const withFirst = notchRows(items, [...reviews, first]);
+    expect(keys(withFirst)).toEqual(['o/r#9', 'n1', 'n2', 'o/r#7', 'o/r#8', 'u1', 'w1']);
+    expect(waitingRow(withFirst, null)?.key).toBe('o/r#9');
+  });
+
   it('reads a row by its session or its PR', () => {
     expect(rows.map(ROW_READS.sinceOf)).toEqual([10, 20, 15, 25, 30, 5]);
     expect(ROW_READS.titleOf(rows[2])).toBe('#7 PR 7');
@@ -317,18 +324,23 @@ describe('what the notch works through', () => {
     const session = fx.session({ key: 'claude:claude:u', status: 'unread', statusSince: 30 });
     const row = queueRows(fx.board({ lanes: [fx.lane({ sessions: [session] })] }), ALL_PROJECTS)[0];
     const pill = notchRows([fx.barItem({ key: session.key, group: 'unread', status: 'unread', since: 30 })], [])[0];
-    expect(placeOf(pill, ROW_READS)).toEqual({ key: session.key, waits: 'unread', since: 30, finished: false });
+    expect(placeOf(pill, ROW_READS)).toEqual({ key: session.key, waits: 'unread', since: 30, first: false, finished: false });
     expect(placeOf(row, QUEUE_READS)).toEqual(placeOf(pill, ROW_READS));
     expect(placeOf({ session }, SESSION_READS)).toEqual(placeOf(pill, ROW_READS));
     // And a finished turn, which is only yours to read, as one that comes after the rest.
     const done = { ...session, finished: { sure: true, why: ['#12 merged'] } };
     const donePill = notchRows([fx.barItem({ key: done.key, group: 'unread', status: 'unread', since: 30, finished: true })], [])[0];
-    expect(placeOf(donePill, ROW_READS)).toEqual({ key: done.key, waits: 'unread', since: 30, finished: true });
+    expect(placeOf(donePill, ROW_READS)).toEqual({ key: done.key, waits: 'unread', since: 30, first: false, finished: true });
     expect(placeOf(queueRows(fx.board({ lanes: [fx.lane({ sessions: [done] })] }), ALL_PROJECTS)[0], QUEUE_READS)).toEqual(placeOf(donePill, ROW_READS));
     expect(placeOf({ session: done }, SESSION_READS)).toEqual(placeOf(donePill, ROW_READS));
     const pr = fx.prItem({ key: 'acme/app#7', reviewRequested: true, state: 'open', requestedAt: 15, project: 'Acme' });
     const reviewRow = queueRows(fx.board({ prs: [pr] }), ALL_PROJECTS)[0];
     expect(placeOf(reviewRow, QUEUE_READS)).toEqual(placeOf(notchRows([], [fx.barReview({ key: pr.key, since: 15 })])[0], ROW_READS));
+    // And a review whose repo puts reviews first, as one that goes ahead of what needs you.
+    const firstRow = queueRows(fx.board({ prs: [{ ...pr, reviewFirst: true }] }), ALL_PROJECTS)[0];
+    const firstPill = notchRows([], [fx.barReview({ key: pr.key, since: 15, first: true })])[0];
+    expect(placeOf(firstPill, ROW_READS)).toMatchObject({ waits: 'reviews', first: true });
+    expect(placeOf(firstRow, QUEUE_READS)).toEqual(placeOf(firstPill, ROW_READS));
   });
 
   it('opens on the one shown last while it still waits, else the first that waits', () => {

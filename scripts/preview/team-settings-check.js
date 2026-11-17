@@ -100,6 +100,8 @@
       check('one the team sets says so', from(/^What a nudge tells it about/) === 'Team', String(from(/^What a nudge tells it about/)));
       var nudge = q('select', field(/^What a nudge tells it about/));
       check('and shows the team’s value', nudge.value === 'feedback-and-checks', nudge.value);
+      var first = field(/^Put reviews before sessions that need you/);
+      check('the team putting its reviews first says so, on', from(/^Put reviews before sessions that need you/) === 'Team' && !!first && q('input', first).checked, String(from(/^Put reviews before sessions that need you/)));
       check('the rest are as everywhere', from(/^The reviewer/) === 'Same as everywhere', String(from(/^The reviewer/)));
       check('the team’s words for reviews are there to read', /Check that every migration runs both ways/.test((q('.ca-settings-teamwords') || {}).textContent || ''), '');
       check('the usage limits aren’t per repo', !field(/When a session hits its usage limit/), '');

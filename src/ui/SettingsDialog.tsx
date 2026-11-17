@@ -921,6 +921,7 @@ function AutomationPane({ cfg, disabled, onSave, onReload, defaultPrompt, usage,
       <ReviewsField reviews={reviews} set={setReviews} setOwn={setOwn} scope={scope} team={team} disabled={disabled} defaultPrompt={defaultPrompt} all={all} lanes={lanes} usage={usage} now={now} groups={routingGroups} autoGroup={autoGroup} />
       <NudgeField prs={prs} set={setPrs} scope={scope} disabled={disabled} />
       <RerequestField prs={prs} set={setPrs} scope={scope} disabled={disabled} />
+      <ReviewsFirstField prs={prs} set={setPrs} scope={scope} disabled={disabled} />
       {repo ? (
         <p className="ca-settings-lede">Usage limits and lost connections go the same in every repo: pick Everywhere to change them.</p>
       ) : (
@@ -1651,6 +1652,25 @@ function RerequestField({ prs, set, scope, disabled }: { prs: Required<PullReque
         <small>
           When a reviewer asked for changes on a pull request of yours, commits came after their last word, and nobody has said so on it, Codealong asks them to review it again, as you, as GitHub’s Re-request review does. GitHub tells a reviewer of that, and their agent picks it up; it
           doesn’t tell them of a push. It waits until the pull request has been quiet for ten minutes and its sessions have finished their turn, so a run of fixes is asked about once.
+        </small>
+      </label>
+    </fieldset>
+  );
+}
+
+/** `[pull_requests] reviews_first`: the pull requests that wait on your review come ahead of the
+ *  sessions that need you in what waits on you (queue.ts `byPlace`). */
+function ReviewsFirstField({ prs, set, scope, disabled }: { prs: Required<PullRequestsCfg>; set: (next: Partial<PullRequestsCfg>) => void; scope?: Scope; disabled: boolean }) {
+  return (
+    <fieldset className="ca-settings-fields" disabled={disabled}>
+      <label className="ca-field ca-settings-check">
+        <CheckBox checked={prs.reviews_first} onChange={(on) => set({ reviews_first: on })} />
+        <span>
+          Put reviews before sessions that need you<SourceTag field="prs.reviews_first" scope={scope} />
+        </span>
+        <small>
+          Pull requests that wait on your review come first in what waits on you, in the notch, the waiting window and the quick panel, ahead of sessions that need you, the longest wait first. Off, they come after those and before sessions whose turn ended. A session you moved to the top
+          still comes first.
         </small>
       </label>
     </fieldset>

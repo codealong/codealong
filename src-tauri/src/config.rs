@@ -730,6 +730,12 @@ pub struct PullRequestsCfg {
     /// it's off until you turn it on.
     #[serde(default)]
     pub rerequest_after_fixes: bool,
+    /// A PR waiting on your review goes ahead of the sessions that need you in what waits on you
+    /// (src/queue.ts `byPlace`), in the notch, the waiting window and the quick panel's list. Off,
+    /// reviews come after the sessions that need you and before the turns that ended. A repo's
+    /// team can turn it on for everyone (teamfile.rs), and your table for a repo wins over both.
+    #[serde(default)]
+    pub reviews_first: bool,
 }
 
 /// What a nudge tells a PR's session about (nudges.rs `NudgeAbout::keep`). `everything`: reviews,
@@ -815,6 +821,7 @@ impl RepoCfg {
         put(&mut out.pull_requests.nudge_by_default, &over.pull_requests.nudge_by_default);
         put(&mut out.pull_requests.nudge_about, &over.pull_requests.nudge_about);
         put(&mut out.pull_requests.rerequest_after_fixes, &over.pull_requests.rerequest_after_fixes);
+        put(&mut out.pull_requests.reviews_first, &over.pull_requests.reviews_first);
         out
     }
 }
@@ -892,6 +899,8 @@ pub struct PullRequestsPatch {
     pub nudge_about: Option<NudgeAbout>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub rerequest_after_fixes: Option<bool>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub reviews_first: Option<bool>,
 }
 
 impl PullRequestsPatch {
@@ -945,16 +954,18 @@ pub fn reviews_for(global: &ReviewsCfg, team: Option<&crate::teamfile::TeamCfg>,
 }
 
 /// `[pull_requests]` as it goes for one repo's pull requests, as `reviews_for` has `[reviews]`:
-/// the team sets what a nudge tells about for everyone.
+/// the team sets what a nudge tells about and whether reviews go first for everyone.
 pub fn pull_requests_for(global: &PullRequestsCfg, team: Option<&crate::teamfile::TeamCfg>, mine: Option<&RepoCfg>) -> PullRequestsCfg {
     let mut p = global.clone();
-    if let Some(about) = team.and_then(|t| t.nudge_about) {
-        p.nudge_about = about;
+    if let Some(t) = team {
+        p.nudge_about = t.nudge_about.unwrap_or(p.nudge_about);
+        p.reviews_first = t.reviews_first.unwrap_or(p.reviews_first);
     }
     if let Some(m) = mine.map(|m| &m.pull_requests) {
         p.nudge_by_default = m.nudge_by_default.unwrap_or(p.nudge_by_default);
         p.nudge_about = m.nudge_about.unwrap_or(p.nudge_about);
         p.rerequest_after_fixes = m.rerequest_after_fixes.unwrap_or(p.rerequest_after_fixes);
+        p.reviews_first = m.reviews_first.unwrap_or(p.reviews_first);
     }
     p
 }
@@ -975,6 +986,7 @@ pub fn suggestions_left(suggests: &RepoCfg, reviews: &ReviewsCfg, prs: &PullRequ
             nudge_by_default: differs(&suggests.pull_requests.nudge_by_default, prs.nudge_by_default),
             nudge_about: None,
             rerequest_after_fixes: differs(&suggests.pull_requests.rerequest_after_fixes, prs.rerequest_after_fixes),
+            reviews_first: None,
         },
     }
 }
@@ -1997,7 +2009,7 @@ const UPDATES_COMMENT: &str = "# check: look for a newer Codealong now and then,
 const LIMITS_COMMENT: &str = "# When a session stops at its account's usage limit. when_hit: \"suggest\" offers to move it to an account\n# of its harness that has room; \"move\" moves it there by itself, and it carries on where it stopped.\n# continue_when_lifted: when the limit lifts and it's still stopped there, tell it to carry on.\n";
 const ROUTING_COMMENT: &str = "# Model groups ([[routing.groups]]) that starts and reviews can pick, which group Auto uses (`auto`),\n# and what Jev is told when suggesting an account and model in the quick panel (`prompt`).\n# strategy: \"usage\" (most room under usage_cap), \"alternate-harness\" (rotate harnesses), \"round-robin\",\n# or \"fallback\" (the members in order, each until it's within `buffer` of its usage_cap).\n# buffer: the percent below each account's usage_cap left for the sessions already running on it (default 5).\n";
 const SESSIONS_COMMENT: &str = "# block_flagged_sessions: keep provider-flagged sessions out of automatic messages, resumes and\n# account moves. On by default; manual replies and resumes remain available.\n# continue_after_network_error: when a session's turn ends because its agent couldn't reach its API\n# (the machine slept, or the network dropped), tell it to carry on once the API can be reached again.\n# continue_after_restart: when Codealong quitting cuts off a turn of a session it runs itself, tell it to\n# carry on once Codealong is back.\n# resume_for_sessions_it_started: when a session that isn't running is sent a message by a session it\n# started, or by the one that started it, resume it out of sight with that message.\n# resume_for_any_session: the same for a message from any session, which tells it it had stopped;\n# while it's on, resume_for_sessions_it_started is part of it.\n# resume_for_pr_news: when a pull request's nudge has news that asks for work (comments, changes asked\n# for, failing checks, a conflict), or any news of one that's watched, and its primary session isn't\n# running, resume it out of sight with\n# it, unless another of the pull request's sessions is running.\n# live_replies: Claude Code sessions hand Codealong a reply as their terminal shows it, so Codealong\n# shows it as it's written; their terminals then show a reply a paragraph at a time. New sessions only.\n# hibernate_after: minutes a session in a terminal, or a background job, sits idle, wanting nothing from you,\n# before its tab closes or its job stops to free what its agent holds; a click on it or a reply resumes it.\n# 0 (the default) is off.\n";
-const PULL_REQUESTS_COMMENT: &str = "# nudge_by_default: every open PR of yours tells its primary session (the one picked in its menu, else the one\n# that pushed to it most) what happens on it (reviews, comments, an approval, a merge, failing checks,\n# conflicts), in a message from Codealong. A PR's own switch wins either way.\n# nudge_about: what a nudge tells of: \"everything\"; \"feedback\", only comments and reviews that ask for changes\n# or say something, never an approval, a merge or a close; \"feedback-and-checks\", that, failing checks and\n# conflicts; or \"feedback-and-merges\" or \"feedback-checks-and-merges\", one of those and a merge.\n# rerequest_after_fixes: on a PR of yours whose reviewer asked for changes, once commits came after their last\n# word and nobody said so on it, ask them to review it again, as you. GitHub tells a reviewer of that, not of a push.\n";
+const PULL_REQUESTS_COMMENT: &str = "# nudge_by_default: every open PR of yours tells its primary session (the one picked in its menu, else the one\n# that pushed to it most) what happens on it (reviews, comments, an approval, a merge, failing checks,\n# conflicts), in a message from Codealong. A PR's own switch wins either way.\n# nudge_about: what a nudge tells of: \"everything\"; \"feedback\", only comments and reviews that ask for changes\n# or say something, never an approval, a merge or a close; \"feedback-and-checks\", that, failing checks and\n# conflicts; or \"feedback-and-merges\" or \"feedback-checks-and-merges\", one of those and a merge.\n# rerequest_after_fixes: on a PR of yours whose reviewer asked for changes, once commits came after their last\n# word and nobody said so on it, ask them to review it again, as you. GitHub tells a reviewer of that, not of a push.\n# reviews_first: PRs waiting on your review come before the sessions that need you in what waits on you.\n";
 const REVIEWS_COMMENT: &str = "# auto: an agent reviews each open pull request that waits on your review, and again when new commits come
 # in while it still waits. account, model and effort: what it runs on; \"\" for the account Auto would start, on its
 # own model and effort. prompt: what it's told to do (what to look for, whether to start subagents of its own); \"\" for
@@ -2596,6 +2608,7 @@ pub fn with_config(text: &str, cfg: &Config) -> Result<String> {
         set_value(&mut doc["pull_requests"]["nudge_by_default"], Value::from(cfg.pull_requests.nudge_by_default));
         set_value(&mut doc["pull_requests"]["nudge_about"], Value::from(cfg.pull_requests.nudge_about.as_str()));
         set_value(&mut doc["pull_requests"]["rerequest_after_fixes"], Value::from(cfg.pull_requests.rerequest_after_fixes));
+        set_value(&mut doc["pull_requests"]["reviews_first"], Value::from(cfg.pull_requests.reviews_first));
     }
 
     // A new file has it (`render`); an older one gets it once a sound changes.
@@ -2898,6 +2911,7 @@ fn set_repos(doc: &mut toml_edit::DocumentMut, repos: &BTreeMap<String, RepoCfg>
             ("nudge_by_default", r.pull_requests.nudge_by_default.map(Value::from)),
             ("nudge_about", r.pull_requests.nudge_about.map(|v| Value::from(v.as_str()))),
             ("rerequest_after_fixes", r.pull_requests.rerequest_after_fixes.map(Value::from)),
+            ("reviews_first", r.pull_requests.reviews_first.map(Value::from)),
         ];
         // `reviews` holds `own`, so it's made for an `own` value alone; with no value of its own
         // it has no header of its own either.
@@ -3148,6 +3162,7 @@ pub fn render(cfg: &Config) -> String {
         s.push_str(&format!("nudge_by_default = {}\n", cfg.pull_requests.nudge_by_default));
         s.push_str(&format!("nudge_about = {}\n", q(cfg.pull_requests.nudge_about.as_str())));
         s.push_str(&format!("rerequest_after_fixes = {}\n", cfg.pull_requests.rerequest_after_fixes));
+        s.push_str(&format!("reviews_first = {}\n", cfg.pull_requests.reviews_first));
     }
     s.push('\n');
     s.push_str(&sounds_comment());
@@ -3304,8 +3319,8 @@ mod tests {
             },
             sessions: SessionsCfg { block_flagged_sessions: false, continue_after_network_error: false, continue_after_restart: false, resume_for_sessions_it_started: false, resume_for_any_session: false, resume_for_pr_news: false, live_replies: true, hibernate_after: 0 },
             reviews: ReviewsCfg { auto: true, account: "claude".into(), model: "opus".into(), effort: String::new(), other_harness: true, drafts: true, prompt: "Start two subagents.\nThen combine their findings.".into(), start: ReviewStart::Codealong, post: ReviewPost::None, submit: ReviewSubmit::Approve, auto_approve: false, reviewers: Vec::new(), own: OwnReviewsCfg::default(), team_instructions: String::new(), never_submit: Vec::new() },
-            pull_requests: PullRequestsCfg { nudge_by_default: true, nudge_about: NudgeAbout::FeedbackAndChecks, rerequest_after_fixes: false },
-            repos: BTreeMap::from([("github.com/sprucehq/web".to_string(), RepoCfg { reviews: ReviewsPatch { auto: Some(true), account: Some("codex".into()), post: Some(ReviewPost::Draft), own: OwnReviewsPatch { send: Some(false), ..OwnReviewsPatch::default() }, ..ReviewsPatch::default() }, pull_requests: PullRequestsPatch { nudge_about: Some(NudgeAbout::Feedback), ..PullRequestsPatch::default() } })]),
+            pull_requests: PullRequestsCfg { nudge_by_default: true, nudge_about: NudgeAbout::FeedbackAndChecks, rerequest_after_fixes: false, reviews_first: true },
+            repos: BTreeMap::from([("github.com/sprucehq/web".to_string(), RepoCfg { reviews: ReviewsPatch { auto: Some(true), account: Some("codex".into()), post: Some(ReviewPost::Draft), own: OwnReviewsPatch { send: Some(false), ..OwnReviewsPatch::default() }, ..ReviewsPatch::default() }, pull_requests: PullRequestsPatch { nudge_about: Some(NudgeAbout::Feedback), reviews_first: Some(false), ..PullRequestsPatch::default() } })]),
             sounds: SoundsCfg { needs_you: "Tink".into(), your_turn: String::new(), review_requested: "Purr".into(), meeting: "Glass".into(), volume: 35 },
             experimental: ExperimentalCfg { boards: true, voice: true, analytics: true, glass: false },
             voice: VoiceCfg { locale: "en-GB".into(), send_on_release: true, tell_every: 45, meetings: true, meetings_folder: "~/Meetings".into(), meeting_account: String::new(), meeting_model: "haiku".into(), meeting_lead: 2, meeting_countdown: 10, meeting_calendars_off: vec!["C1".into(), "C2".into()] },
@@ -4133,6 +4148,7 @@ mod tests {
             own_review_instructions: "Mind the tests.".into(),
             never_submit: vec![crate::github::Verdict::Approve],
             nudge_about: Some(NudgeAbout::Feedback),
+            reviews_first: Some(true),
             suggests: RepoCfg {
                 reviews: ReviewsPatch { auto: Some(true), post: Some(ReviewPost::Comment), own: OwnReviewsPatch { auto: Some(true), ..OwnReviewsPatch::default() }, ..ReviewsPatch::default() },
                 pull_requests: PullRequestsPatch { nudge_by_default: Some(true), nudge_about: None, ..Default::default() },
@@ -4154,18 +4170,18 @@ mod tests {
         assert_eq!(r.never_submit, vec![crate::github::Verdict::Approve]);
         assert_eq!((r.submit, r.account.as_str()), (ReviewSubmit::ApproveOrComment, "claude"), "what's submitted as you and where reviews run stay yours");
         let p = pull_requests_for(&prs, Some(&team()), None);
-        assert_eq!((p.nudge_by_default, p.nudge_about), (false, NudgeAbout::Feedback));
+        assert_eq!((p.nudge_by_default, p.nudge_about, p.reviews_first), (false, NudgeAbout::Feedback, true));
 
         let mine = RepoCfg {
             reviews: ReviewsPatch { auto: Some(true), account: Some(" codex ".into()), post: Some(ReviewPost::None), drafts: Some(false), own: OwnReviewsPatch { send: Some(false), drafts: Some(true), ..OwnReviewsPatch::default() }, ..ReviewsPatch::default() },
-            pull_requests: PullRequestsPatch { nudge_by_default: Some(true), nudge_about: Some(NudgeAbout::Everything), ..Default::default() },
+            pull_requests: PullRequestsPatch { nudge_by_default: Some(true), nudge_about: Some(NudgeAbout::Everything), reviews_first: Some(false), ..Default::default() },
         };
         let r = reviews_for(&global, Some(&team()), Some(&mine));
         assert_eq!((r.auto, r.account.as_str(), r.post, r.drafts, r.own.send, r.own.drafts), (true, "codex", ReviewPost::None, false, false, true));
         assert_eq!(r.team_instructions, "Check migrations.", "the team's words are added whatever you set");
         assert_eq!(r.model, "", "what you don't set for the repo is as [reviews] says");
         let p = pull_requests_for(&prs, Some(&team()), Some(&mine));
-        assert_eq!((p.nudge_by_default, p.nudge_about), (true, NudgeAbout::Everything));
+        assert_eq!((p.nudge_by_default, p.nudge_about, p.reviews_first), (true, NudgeAbout::Everything, false), "your table for the repo wins over the team");
     }
 
     #[test]

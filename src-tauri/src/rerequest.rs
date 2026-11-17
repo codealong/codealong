@@ -210,6 +210,7 @@ mod tests {
             nudge: false,
             nudge_by_default: false,
             watched: false,
+            review_first: false,
             primary: Some(A.into()),
             primary_by: None,
             head: "teams".into(),
@@ -244,7 +245,7 @@ mod tests {
         Board { prs: vec![p], lanes: vec![crate::fixtures::lane("/work", vec![Session { status, ..crate::fixtures::session(A) }])], ..Board::default() }
     }
 
-    const ON: PullRequestsCfg = PullRequestsCfg { nudge_by_default: false, nudge_about: crate::config::NudgeAbout::Everything, rerequest_after_fixes: true };
+    const ON: PullRequestsCfg = PullRequestsCfg { nudge_by_default: false, nudge_about: crate::config::NudgeAbout::Everything, rerequest_after_fixes: true, reviews_first: false };
 
     #[test]
     fn asks_the_reviewer_once_the_fixes_have_settled_and_nobody_works_on_them() {

@@ -1,8 +1,10 @@
 //! A repo's settings for its team: `.codealong/config.toml` in the repo, which every teammate's
 //! Codealong reads for that repo's pull requests. It sets what goes for everyone there: words added
 //! to what a reviewer is told (`instructions`, or `instructions_file`, a Markdown file beside
-//! it), the verdicts never submitted as anyone's review (`never_submit`), and what a nudge tells
-//! about (`nudge_about`). What spends a person's usage or posts as them (reviews turned on, where
+//! it), the verdicts never submitted as anyone's review (`never_submit`), what a nudge tells
+//! about (`nudge_about`), and whether its PRs waiting on your review go ahead of the sessions that
+//! need you (`reviews_first`), each over the person's own `[pull_requests]` until their table for
+//! the repo says otherwise. What spends a person's usage or posts as them (reviews turned on, where
 //! they go, nudges by default, asking for a re-review after fixes) the team only suggests: each
 //! person takes it, which writes it into their own config.toml (`config::take_suggestions`), or
 //! doesn't. Accounts, models, a person's own prompt and what's submitted as them are theirs alone,
@@ -49,6 +51,9 @@ pub struct TeamCfg {
     pub never_submit: Vec<Verdict>,
     /// What a nudge tells a PR's session about, for everyone.
     pub nudge_about: Option<NudgeAbout>,
+    /// Its PRs waiting on your review go ahead of the sessions that need you, for everyone
+    /// (`[pull_requests] reviews_first`).
+    pub reviews_first: Option<bool>,
     /// What the team suggests each person turns on, for them to take or not.
     pub suggests: RepoCfg,
 }
@@ -127,6 +132,7 @@ fn pull_requests(t: &toml::Table, cfg: &mut TeamCfg, skipped: &mut Vec<String>) 
         match key.as_str() {
             "nudge_by_default" => s.nudge_by_default = Some(typed(value, &name)?),
             "nudge_about" => cfg.nudge_about = Some(typed(value, &name)?),
+            "reviews_first" => cfg.reviews_first = Some(typed(value, &name)?),
             "rerequest_after_fixes" => s.rerequest_after_fixes = Some(typed(value, &name)?),
             _ => skipped.push(format!("pull_requests.{key}")),
         }
@@ -629,6 +635,7 @@ instructions_file = "own-review.md"
 nudge_by_default = true
 nudge_about = "feedback-and-checks"
 rerequest_after_fixes = true
+reviews_first = true
 "#;
         let file = |path: &str| Ok((path == ".codealong/own-review.md").then(|| "Mind the tests.\n".to_string()));
         let (cfg, skipped) = parse(text, &file).unwrap();
@@ -637,10 +644,11 @@ rerequest_after_fixes = true
         assert_eq!(cfg.own_review_instructions, "Mind the tests.");
         assert_eq!(cfg.never_submit, vec![Verdict::Approve]);
         assert_eq!(cfg.nudge_about, Some(NudgeAbout::FeedbackAndChecks));
+        assert_eq!(cfg.reviews_first, Some(true));
         let s = &cfg.suggests;
         assert_eq!((s.reviews.auto, s.reviews.post), (Some(true), Some(ReviewPost::Comment)));
         assert_eq!((s.reviews.own.auto, s.reviews.own.send), (Some(true), Some(false)));
-        assert_eq!(s.pull_requests, PullRequestsPatch { nudge_by_default: Some(true), nudge_about: None, rerequest_after_fixes: Some(true) });
+        assert_eq!(s.pull_requests, PullRequestsPatch { nudge_by_default: Some(true), nudge_about: None, rerequest_after_fixes: Some(true), reviews_first: None });
         // None of a person's own settings: those aren't the team's to suggest.
         assert_eq!((&s.reviews.account, &s.reviews.model, &s.reviews.prompt, s.reviews.submit), (&None, &None, &None, None));
         assert_eq!(parse("", &none).unwrap(), (TeamCfg::default(), Vec::new()));
@@ -797,6 +805,7 @@ rerequest_after_fixes = true
             nudge: false,
             nudge_by_default: false,
             watched: false,
+            review_first: false,
             primary: None,
             primary_by: None,
             head: "teams".into(),

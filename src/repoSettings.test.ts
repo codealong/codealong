@@ -18,8 +18,13 @@ describe('reviewsFor and pullRequestsFor', () => {
     expect(reviewsFor(global, undefined)).toMatchObject({ auto: false, account: 'claude', post: 'draft', submit: 'approve', drafts: true, own: { auto: false, send: true, drafts: false } });
     const mine: RepoCfg = { reviews: { auto: true, account: ' codex ', drafts: false, own: { send: false, drafts: true } }, pull_requests: { nudge_by_default: true } };
     expect(reviewsFor(global, mine)).toMatchObject({ auto: true, account: 'codex', post: 'draft', submit: 'approve', drafts: false, own: { send: false, drafts: true } });
-    expect(pullRequestsFor({ nudge_by_default: false }, team, undefined)).toEqual({ nudge_by_default: false, nudge_about: 'feedback', rerequest_after_fixes: false });
-    expect(pullRequestsFor({ nudge_by_default: false }, team, mine)).toEqual({ nudge_by_default: true, nudge_about: 'feedback', rerequest_after_fixes: false });
+    expect(pullRequestsFor({ nudge_by_default: false }, team, undefined)).toEqual({ nudge_by_default: false, nudge_about: 'feedback', rerequest_after_fixes: false, reviews_first: false });
+    expect(pullRequestsFor({ nudge_by_default: false }, team, mine)).toEqual({ nudge_by_default: true, nudge_about: 'feedback', rerequest_after_fixes: false, reviews_first: false });
+    // Reviews first: yours everywhere, then the team's for everyone, then your table's for the repo.
+    expect(pullRequestsFor({ nudge_by_default: false, reviews_first: true }, team, undefined).reviews_first).toBe(true);
+    const first: TeamCfg = { ...team, reviewsFirst: true };
+    expect(pullRequestsFor({ nudge_by_default: false }, first, undefined).reviews_first).toBe(true);
+    expect(pullRequestsFor({ nudge_by_default: false }, first, { pull_requests: { reviews_first: false } }).reviews_first).toBe(false);
     // Asking for a re-review after fixes is yours everywhere, then your table's for the repo.
     expect(pullRequestsFor({ nudge_by_default: false, rerequest_after_fixes: true }, team, mine).rerequest_after_fixes).toBe(true);
     expect(pullRequestsFor({ nudge_by_default: false, rerequest_after_fixes: true }, team, { pull_requests: { rerequest_after_fixes: false } }).rerequest_after_fixes).toBe(false);
@@ -48,6 +53,9 @@ describe('sourceOf', () => {
     expect(sourceOf('prs.nudge_about', mine, team)).toBe('team');
     expect(sourceOf('prs.nudge_about', { pull_requests: { nudge_about: 'everything' } }, team)).toBe('repo');
     expect(sourceOf('prs.nudge_about', undefined, undefined)).toBe('everywhere');
+    expect(sourceOf('prs.reviews_first', undefined, team)).toBe('everywhere');
+    expect(sourceOf('prs.reviews_first', undefined, { ...team, reviewsFirst: true })).toBe('team');
+    expect(sourceOf('prs.reviews_first', { pull_requests: { reviews_first: false } }, { ...team, reviewsFirst: true })).toBe('repo');
   });
 });
 

@@ -1,8 +1,8 @@
 // A repo with team settings, as Codealong reads them from a repo's .codealong/config.toml
 // (teamfile.rs), since this Mac's repos rarely have one: the repo of the first open PR that isn't
 // yours and has no review yet (else the first repo on the board), read from that PR's base branch,
-// with words for every review, approvals never submitted, nudges kept to feedback and checks, and
-// three suggestions you don't have yet. Your own table for the repo says each review is a draft.
+// with words for every review, approvals never submitted, nudges kept to feedback and checks, its
+// reviews put before the sessions that need you, and three suggestions you don't have yet. Your own table for the repo says each review is a draft.
 // `window.__TEAM__` says which repo, branch and PR. In Sessions without a check, it opens
 // Settings › Automation on that repo, for a screenshot:
 //   PREVIEW_INIT=scripts/preview/team-init.js PREVIEW_NAME=team-settings scripts/preview.sh
@@ -28,6 +28,7 @@
         ownReviewInstructions: '',
         neverSubmit: ['approve'],
         nudgeAbout: 'feedback-and-checks',
+        reviewsFirst: true,
         suggests: { reviews: { auto: true, post: 'comment', own: { auto: true } }, pull_requests: { nudge_by_default: true } },
       },
       skipped: [],
