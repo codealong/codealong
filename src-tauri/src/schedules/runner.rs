@@ -507,7 +507,9 @@ pub fn plan_in(file: &File, runs: &Runs, board: &Board, busy: &HashSet<String>, 
                 }
             }
             When::Event { .. } => {
-                if !first_here {
+                // While a session that takes over is starting, what happens waits for it: planned
+                // now, it'd be claimed as seen (`claim`) and then skipped, and never reach it.
+                if !first_here || (s.orchestrates.is_some() && starting(board, s, track)) {
                     continue;
                 }
                 let theirs = if line.is_some() { machines::their_seen(&board.machines, &s.id) } else { HashSet::new() };
@@ -1554,6 +1556,24 @@ mod tests {
         // Another kind keeps sending to its session while it's there.
         let plain = Schedule { run: Run { to: To::Thread, ..Run::default() }, ..Schedule::default() };
         assert!(!starting(&b, &plain, &track));
+    }
+
+    #[test]
+    fn what_happens_while_a_session_starts_to_take_over_waits_for_it() {
+        let z = Fake::utc();
+        let now = ms(&z, 2026, 10, 20, 9, 0);
+        let o = Schedule { id: "o".into(), ..orchestrate::schedule(orchestrate::Orchestrates::of(Some("Web")), "", None) };
+        let file = File { schedules: vec![o], ..File::default() };
+        let asks = crate::model::Session { status: crate::model::Status::Needs, status_since: Some(now - 1000), ..crate::model::Session::new(crate::model::Harness::Claude, "claude", "asks") };
+        let old = crate::model::Session::new(crate::model::Harness::Claude, "claude", "old");
+        let b = Board { lanes: vec![crate::model::Lane { sessions: vec![asks], origin: crate::model::Origin::Main, ..crate::model::Lane::new("/w", "Web", "web") }, crate::model::Lane { sessions: vec![old], ..crate::model::Lane::new("/c", "Elsewhere", "") }], ..board() };
+        let pending = RunRecord { at: now - 2000, pending: Some(Pending { lane: "/c".into(), account: "claude".into(), at: now - 2000 }), outcome: Outcome::Started, ..RunRecord::default() };
+        let track = Track { thread: Some("claude:claude:old".into()), runs: vec![pending], ..armed(now - 5000) };
+        let (jobs, notes) = plan(&file, &Runs { of: [("o".to_string(), track.clone())].into(), ..Runs::default() }, &b, &HashSet::new(), now, &z);
+        assert!(jobs.is_empty() && notes.is_empty(), "nothing planned, nothing claimed: {jobs:?} {notes:?}");
+        // Once the session that takes over has shown, it's run for.
+        let (jobs, _) = plan(&file, &Runs { of: [("o".to_string(), Track { runs: Vec::new(), ..track })].into(), ..Runs::default() }, &b, &HashSet::new(), now, &z);
+        assert!(matches!(&jobs[..], [Job::Fire { cause, .. }] if cause.found.iter().any(|f| f.id.starts_with("waits:claude:claude:asks:"))), "{jobs:?}");
     }
 
     #[test]
