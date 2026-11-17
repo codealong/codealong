@@ -189,6 +189,12 @@
 .ca-usagebar-toast:empty {
   display: none;
 }
+/* While a dialog is up, over its scrim, as the toast was when it floated: an Undo stays a click
+   away, and words cut short can still be read whole. */
+body:has(.ca-scrim) .ca-usagebar-toast {
+  position: relative;
+  z-index: var(--z-toast);
+}
 /* Only the limit's bar and number: its window and reset are on hover, with the others. */
 .ca-uchip.is-tight .ca-meter.is-compact {
   grid-template-columns: 30px auto;

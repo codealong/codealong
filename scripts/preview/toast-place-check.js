@@ -3,8 +3,10 @@
 // next one's strip, not in a toast over its box, and in a toast where no strip shows by then
 // (several picked); a toast is a line in the usage bar, over neither the list nor the panel's
 // message box, with the panel taking the whole window too; the account chips step down to give it
-// the room its words need (up to its limit) and come back once it goes; and it stays while the
-// pointer is on it, going once the pointer leaves.
+// the room its words need (up to its limit) and come back once it goes; it stays while the
+// pointer is on it, going once the pointer leaves, and one that comes back after another took
+// its place under the pointer goes in its time; and with a dialog up, its Undo is still a click
+// away, over the dialog's scrim.
 //   PREVIEW_SIZE=1200,900 PREVIEW_WAIT=60000 scripts/preview.sh sessions '' scripts/preview/toast-place-check.js
 (function () {
   localStorage.setItem('codealong.project', 'All projects');
@@ -124,6 +126,40 @@
     })
     .then(function () {
       check('the chips come back as they were', tight() === tightBefore, tight() + ' showing only a number, ' + tightBefore + ' before');
+      return archived();
+    })
+    .then(function () {
+      // A start under way takes the place of the Undo the pointer is on, and goes from under it.
+      hover(true);
+      window.__emit('quick-start', { phase: 'begin', id: 991, label: 'Starting a session…' });
+      return until(function () { return q('.ca-toast.is-busy'); }, 3000, 'the start under way');
+    })
+    .then(function () {
+      window.__emit('quick-start', { phase: 'end', id: 991, key: null, message: null });
+      return until(function () { return toast() && !q('.ca-toast.is-busy'); }, 3000, 'the Undo back');
+    })
+    .then(function () {
+      return until(function () { return !toast(); }, 10000).catch(function () {});
+    })
+    .then(function () {
+      check('an Undo back from under another toast isn’t held by the pointer that left with that one', !toast(), toast() && toast().textContent);
+      document.querySelector('.ca-usagebar-end button:last-child').click();
+      return until(function () { return q('.ca-scrim'); }, 3000, 'Settings');
+    })
+    .then(archived)
+    .then(function () {
+      var undo = toast().querySelector('.ca-toast-action');
+      var r = undo.getBoundingClientRect();
+      var hit = document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2);
+      check('with a dialog up, the toast’s Undo is over its scrim', hit === undo, hit ? hit.className : 'nothing');
+      document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+      return until(function () { return !q('.ca-scrim'); }, 3000).catch(function () {
+        var close = q('.ca-scrim [aria-label="Close"]');
+        if (close) close.click();
+        return until(function () { return !q('.ca-scrim'); }, 3000, 'Settings closed');
+      });
+    })
+    .then(function () {
       return archived();
     })
     .then(function () {

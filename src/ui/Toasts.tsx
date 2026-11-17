@@ -43,6 +43,8 @@ export interface ToastState {
   setArchived: (archived: Archived | null) => void;
   todoUndo: UndoToast | null;
   setTodoUndo: (undo: UndoToast | null) => void;
+  /** Which shows, of those up: what went wrong first, then what's under way, then a way back. */
+  shown: 'toast' | 'busy' | 'archived' | 'todo' | null;
   /** The pointer is on the toast, which stays until it leaves. */
   setHeld: (held: boolean) => void;
 }
@@ -85,11 +87,11 @@ export function useToasts(): ToastState {
     const id = window.setTimeout(() => setTodoUndo(null), 8000);
     return () => window.clearTimeout(id);
   }, [todoUndo, held]);
-  // Nothing up, nothing held: a toast that took the pointer's place as it went doesn't stay.
-  const up = !!toast || !!archived || !!todoUndo;
-  useEffect(() => {
-    if (!up) setHeld(false);
-  }, [up]);
+  const shown = toast ? 'toast' : busy.length > 0 ? 'busy' : archived ? 'archived' : todoUndo ? 'todo' : null;
+  // A toast that takes the place of the one the pointer was on, or comes back once another goes,
+  // isn't held: the one before went without saying the pointer left it.
+  const showing = toast ?? (shown === 'busy' ? 'busy' : (archived ?? todoUndo));
+  useEffect(() => setHeld(false), [showing]);
 
   // Starts this window asked the quick panel for. A spinner shows while the harness takes the
   // session; then what's next. The new session isn't selected when it shows up: by then you may
@@ -117,24 +119,24 @@ export function useToasts(): ToastState {
   // of yours doing it: the toast says which session did, with the way back.
   useEffect(() => onAgentDone((e) => setArchived({ keys: [e.key], title: e.title, message: e.message })), []);
 
-  return { toast, setToast, busy, track, report, archived, setArchived, todoUndo, setTodoUndo, setHeld };
+  return { toast, setToast, busy, track, report, archived, setArchived, todoUndo, setTodoUndo, shown, setHeld };
 }
 
 /** The toast that shows now, as a line in the usage bar. `onUnarchive` puts archived sessions
  *  back. */
 export function Toasts({ state, onUnarchive }: { state: ToastState; onUnarchive: (archived: Archived) => void }) {
-  const { toast, setToast, busy, archived: undo, setArchived: setUndo, todoUndo, setTodoUndo, setHeld } = state;
+  const { toast, setToast, busy, archived: undo, setArchived: setUndo, todoUndo, setTodoUndo, shown, setHeld } = state;
   // The pointer on a toast holds it, for its words to be read on hover.
   const hold = { onMouseEnter: () => setHeld(true), onMouseLeave: () => setHeld(false) };
   return (
     <>
-      {busy.length > 0 && !toast && (
+      {shown === 'busy' && (
         <div className="ca-toast is-busy" role="status" aria-live="polite">
           <StatusGlyph status="working" size={14} title="In progress" />
           <Words text={busy[busy.length - 1].label} />
         </div>
       )}
-      {undo && !toast && busy.length === 0 && (
+      {shown === 'archived' && undo && (
         <div className="ca-toast" role="status" {...hold}>
           <Icon name="archive" size={14} />
           <Words text={undo.message || `Archived “${undo.title}”.`} />
@@ -150,7 +152,7 @@ export function Toasts({ state, onUnarchive }: { state: ToastState; onUnarchive:
           </button>
         </div>
       )}
-      {todoUndo && !toast && !undo && busy.length === 0 && (
+      {shown === 'todo' && todoUndo && (
         <div className="ca-toast" role="status" {...hold}>
           <Icon name={todoUndo.icon ?? 'trash'} size={14} />
           <Words text={todoUndo.message} />
@@ -166,16 +168,8 @@ export function Toasts({ state, onUnarchive }: { state: ToastState; onUnarchive:
           </button>
         </div>
       )}
-      {toast && (
-        <div
-          className="ca-toast"
-          role="status"
-          {...hold}
-          onClick={() => {
-            setToast(null);
-            setHeld(false);
-          }}
-        >
+      {shown === 'toast' && toast && (
+        <div className="ca-toast" role="status" {...hold} onClick={() => setToast(null)}>
           <Icon name="alert" size={14} />
           <Words text={toast} />
         </div>
