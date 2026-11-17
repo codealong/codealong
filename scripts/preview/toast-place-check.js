@@ -1,10 +1,10 @@
-// Checks where the main window says things around a session's panel (Toasts.tsx `usePlace`,
-// MainPanel.tsx): a message that didn't go after ⌘⏎ went on to the next is said on the next one's
-// strip, not in a toast over its box, and in a toast where no strip shows by then (several
-// picked); a toast sits at the foot of the board, never on the panel's message box, and follows
-// the board when a narrower sidebar moves it without changing its width (the window is narrow
-// enough for the board to be at its narrowest); with the panel taking the whole window, above
-// the box.
+// Checks where the main window says things around a session's panel (Toasts.tsx, UsageBar.tsx
+// `toast`, MainPanel.tsx): a message that didn't go after ⌘⏎ went on to the next is said on the
+// next one's strip, not in a toast over its box, and in a toast where no strip shows by then
+// (several picked); a toast is a line in the usage bar, over neither the list nor the panel's
+// message box, with the panel taking the whole window too; the account chips step down to give it
+// the room its words need (up to its limit) and come back once it goes; and it stays while the
+// pointer is on it, going once the pointer leaves.
 //   PREVIEW_SIZE=1200,900 PREVIEW_WAIT=60000 scripts/preview.sh sessions '' scripts/preview/toast-place-check.js
 (function () {
   localStorage.setItem('codealong.project', 'All projects');
@@ -54,6 +54,15 @@
   var toast = function () { return document.querySelector('.ca-toast'); };
   var rect = function (el) { var r = el.getBoundingClientRect(); return { left: Math.round(r.left), right: Math.round(r.right), top: Math.round(r.top), bottom: Math.round(r.bottom) }; };
   var overlaps = function (a, b) { return a.left < b.right && b.left < a.right && a.top < b.bottom && b.top < a.bottom; };
+  var inside = function (a, b) { return a.left >= b.left && a.right <= b.right && a.top >= b.top && a.bottom <= b.bottom; };
+  var bar = function () { return rect(document.querySelector('.ca-usagebar')); };
+  var tight = function () { return document.querySelectorAll('.ca-usagebar-accts .ca-uchip.is-tight').length; };
+  var chips = function () { return document.querySelectorAll('.ca-usagebar-accts .ca-uchip').length; };
+  // What the toast's words would take on one line, with its icon and Undo: its width, less the
+  // words' room, plus all of them.
+  var needs = function () { var t = toast(); var w = t.querySelector('.ca-oneline-text'); return t.offsetWidth - w.clientWidth + w.scrollWidth; };
+  var hover = function (on) { toast().dispatchEvent(new MouseEvent(on ? 'mouseover' : 'mouseout', { bubbles: true, relatedTarget: on ? document.body : document.querySelector('.ca-board') })); };
+  var tightBefore = 0;
   var sentFrom = 0;
   var on = function (name) { return until(function () { return title() === name; }, 3000).catch(function () {}); };
   var archived = function () {
@@ -85,45 +94,50 @@
     .then(function () {
       check('a message that didn’t go is said on the strip of the one gone on to', /Didn’t send to Toast A, so it’s back in its box: Its terminal is gone\./.test(strip()), strip());
       check('not in a toast', !toast(), toast() && toast().textContent);
+      tightBefore = tight();
+      note(chips() + ' account chips, ' + tightBefore + ' showing only a number before the toast');
       return archived();
     })
     .then(function () {
       var t = rect(toast());
       var board = rect(document.querySelector('.ca-board'));
       var composer = rect(document.querySelector('.ca-sessinsp .ca-composer'));
-      check('a toast sits over the board', t.left >= board.left && t.right <= board.right, JSON.stringify({ toast: t, board: board }));
-      check('in its middle', Math.abs((t.left + t.right) / 2 - (board.left + board.right) / 2) <= 1, JSON.stringify({ toast: t, board: board }));
-      check('clear of the panel’s message box', !overlaps(t, composer), JSON.stringify({ toast: t, box: composer }));
+      var accts = rect(document.querySelector('.ca-usagebar-accts'));
+      var end = rect(document.querySelector('.ca-usagebar-end'));
+      check('a toast is a line in the usage bar', inside(t, bar()), JSON.stringify({ toast: t, bar: bar() }));
+      check('between the chips and the bar’s end', accts.right <= t.left && t.right <= end.left, JSON.stringify({ chips: accts, toast: t, end: end }));
+      check('over neither the list nor the panel’s message box', !overlaps(t, board) && !overlaps(t, composer), JSON.stringify({ toast: t, board: board, box: composer }));
+      var want = Math.min(needs(), 560);
+      note('its words want ' + needs() + 'px; it has ' + (t.right - t.left) + 'px, and ' + tight() + ' of ' + chips() + ' chips show only a number');
+      check('the chips step down to give it the room its words need, up to its limit', t.right - t.left >= want - 1 || tight() === chips(), JSON.stringify({ toast: t.right - t.left, wants: want, tight: tight(), chips: chips() }));
+      hover(true);
+      return wait(9000);
+    })
+    .then(function () {
+      check('the pointer on it holds it past its time', !!toast(), 'gone');
+      hover(false);
+      return until(function () { return !toast(); }, 10000).catch(function () {});
+    })
+    .then(function () {
+      check('and once the pointer leaves, it goes', !toast(), toast() && toast().textContent);
+      return wait(300);
+    })
+    .then(function () {
+      check('the chips come back as they were', tight() === tightBefore, tight() + ' showing only a number, ' + tightBefore + ' before');
+      return archived();
+    })
+    .then(function () {
       document.querySelector('.ca-sessinsp-max').click();
       return until(function () { return q('.ca-win-body.is-panel-max'); }, 3000, 'the panel taking the window').then(function () { return wait(200); });
     })
     .then(function () {
       var t = rect(toast());
-      var thread = rect(document.querySelector('.ca-sessinsp .ca-thread'));
       var composer = rect(document.querySelector('.ca-sessinsp .ca-composer'));
-      check('with the panel taking the window, the toast sits above its box', t.bottom <= composer.top && t.bottom <= thread.bottom, JSON.stringify({ toast: t, box: composer, thread: thread }));
-      check('in the middle of the conversation', Math.abs((t.left + t.right) / 2 - (thread.left + thread.right) / 2) <= 1, JSON.stringify({ toast: t, thread: thread }));
+      check('with the panel taking the window, the toast is still in the bar, clear of its box', inside(t, bar()) && !overlaps(t, composer), JSON.stringify({ toast: t, bar: bar(), box: composer }));
       document.querySelector('.ca-sessinsp-max').click();
       return until(function () { return !q('.ca-win-body.is-panel-max'); }, 3000, 'the list back').then(function () { return wait(200); });
     })
     .then(function () {
-      var t = rect(toast());
-      var board = rect(document.querySelector('.ca-board'));
-      check('and back over the board with the list back', t.left >= board.left && t.right <= board.right, JSON.stringify({ toast: t, board: board }));
-      return archived();
-    })
-    .then(function () {
-      var before = rect(document.querySelector('.ca-board'));
-      document.querySelector('.ca-win-body').style.setProperty('--sidebar-w', '240px');
-      return wait(300).then(function () { return before; });
-    })
-    .then(function (before) {
-      var t = rect(toast());
-      var board = rect(document.querySelector('.ca-board'));
-      var composer = rect(document.querySelector('.ca-sessinsp .ca-composer'));
-      note('the board went from ' + before.left + '–' + before.right + ' to ' + board.left + '–' + board.right);
-      check('a narrower sidebar moves the board without changing its width', board.left < before.left && board.right - board.left === before.right - before.left, JSON.stringify({ before: before, after: board }));
-      check('and the toast goes with it', Math.abs((t.left + t.right) / 2 - (board.left + board.right) / 2) <= 1 && !overlaps(t, composer), JSON.stringify({ toast: t, board: board, box: composer }));
       return until(box, 3000, 'Toast B’s box');
     })
     .then(function () {

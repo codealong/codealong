@@ -335,18 +335,11 @@ export function App() {
   const [showDonePrs, setShowDonePrs] = useState(false);
   // PRs being approved, by key: the button waits on GitHub.
   const [approving, setApproving] = useState<Set<string>>(() => new Set());
-  // What went wrong with something you did here, what's under way, and the ways back (Toasts.tsx).
+  // What went wrong with something you did here, what's under way, and the ways back (Toasts.tsx),
+  // said in the usage bar.
   const toasts = useToasts();
   const { setToast, track, report, setTodoUndo } = toasts;
-  // They go at the foot of the board, where what they're about is listed, and so never on a
-  // panel's message box. Where a panel takes the whole window, at the foot of what scrolls over
-  // the box at its own foot: a session's conversation, a PR's details.
   const boardRef = useRef<HTMLElement>(null);
-  const toastAnchor = () => {
-    const board = boardRef.current;
-    if (board && board.offsetWidth > 0) return board;
-    return document.querySelector('.ca-win-body > .ca-insp :is(.ca-thread, .ca-prpanel-body)') ?? document.querySelector('.ca-win-body > .ca-insp');
-  };
   // What isn't working in the background (notices.ts): the engine's and this window's own,
   // less the ones dismissed, which stay dismissed across launches while they still stand.
   const reported = useReportedNotices();
@@ -2463,6 +2456,7 @@ export function App() {
             throw e;
           })
         }
+        toast={<Toasts state={toasts} onUnarchive={(u) => setArchived(u.keys, false, u.title)} />}
         notices={
           <>
             {/* The meeting about to start (meetings.rs), to take its notes: where there's room for it
@@ -3053,7 +3047,6 @@ export function App() {
         />
       )}
       <ListenHost here />
-      <Toasts state={toasts} anchor={toastAnchor} onUnarchive={(u) => setArchived(u.keys, false, u.title)} />
     </div>
   );
   return <ProjectShown.Provider value={current}>{page}</ProjectShown.Provider>;

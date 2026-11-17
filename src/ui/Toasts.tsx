@@ -1,17 +1,17 @@
-// The toasts at the foot of the main window: what went wrong with something you did here (a
-// click puts it away), what's still under way once it takes a moment (opens, starts, a start
-// the quick panel made for this window), and the way back from an archive or a todo change,
-// yours or a session an agent marked done.
-// One shows at a time, in that order. What goes wrong in the background is a notice instead
-// (notices.ts).
-// A toast goes at the foot of the board, where what it's about is listed, rather than the
-// window's: centered on the window, a wide one landed on the session panel's message box.
+// The main window's toasts: what went wrong with something you did here (a click puts it away),
+// what's still under way once it takes a moment (opens, starts, a start the quick panel made for
+// this window), and the way back from an archive or a todo change, yours or a session an agent
+// marked done. One shows at a time, in that order. What goes wrong in the background is a notice
+// instead (notices.ts).
+// A toast is a line in the usage bar (UsageBar.tsx `toast`), beside the notices: floating over the
+// window's foot, it covered the list's last rows, and before that the session panel's message box.
+// Its words fit one line there, all of them under it on hover (primitives.tsx `OneLine`), and it
+// stays while the pointer is on it.
 
-import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { onAgentDone, onQuickStart } from '../api';
-import { useLatest } from '../latest';
 import type { Report } from '../report';
-import { Icon, StatusGlyph } from './primitives';
+import { Icon, OneLine, StatusGlyph } from './primitives';
 
 /** A change that can be put back, and how. */
 export interface UndoToast {
@@ -43,9 +43,12 @@ export interface ToastState {
   setArchived: (archived: Archived | null) => void;
   todoUndo: UndoToast | null;
   setTodoUndo: (undo: UndoToast | null) => void;
+  /** The pointer is on the toast, which stays until it leaves. */
+  setHeld: (held: boolean) => void;
 }
 
-/** The main window's toasts. A toast goes after six seconds, a way back after eight. */
+/** The main window's toasts. A toast goes after six seconds, a way back after eight, counted
+ *  again from when the pointer leaves it. */
 export function useToasts(): ToastState {
   const [toast, setToast] = useState<string | null>(null);
   // Opens and starts still waiting on their app: a spinner shows once one takes a moment.
@@ -53,6 +56,7 @@ export function useToasts(): ToastState {
   const busySeq = useRef(0);
   const [archived, setArchived] = useState<Archived | null>(null);
   const [todoUndo, setTodoUndo] = useState<UndoToast | null>(null);
+  const [held, setHeld] = useState(false);
 
   const track = useCallback(<T,>(label: string, work: Promise<T>): Promise<T> => {
     const id = ++busySeq.current;
@@ -67,20 +71,25 @@ export function useToasts(): ToastState {
   const report = useMemo<Report>(() => ({ error: setToast, info: setToast, busy: track }), [track]);
 
   useEffect(() => {
-    if (!toast) return;
+    if (!toast || held) return;
     const id = window.setTimeout(() => setToast(null), 6000);
     return () => window.clearTimeout(id);
-  }, [toast]);
+  }, [toast, held]);
   useEffect(() => {
-    if (!archived) return;
+    if (!archived || held) return;
     const id = window.setTimeout(() => setArchived(null), 8000);
     return () => window.clearTimeout(id);
-  }, [archived]);
+  }, [archived, held]);
   useEffect(() => {
-    if (!todoUndo) return;
+    if (!todoUndo || held) return;
     const id = window.setTimeout(() => setTodoUndo(null), 8000);
     return () => window.clearTimeout(id);
-  }, [todoUndo]);
+  }, [todoUndo, held]);
+  // Nothing up, nothing held: a toast that took the pointer's place as it went doesn't stay.
+  const up = !!toast || !!archived || !!todoUndo;
+  useEffect(() => {
+    if (!up) setHeld(false);
+  }, [up]);
 
   // Starts this window asked the quick panel for. A spinner shows while the harness takes the
   // session; then what's next. The new session isn't selected when it shows up: by then you may
@@ -108,65 +117,27 @@ export function useToasts(): ToastState {
   // of yours doing it: the toast says which session did, with the way back.
   useEffect(() => onAgentDone((e) => setArchived({ keys: [e.key], title: e.title, message: e.message })), []);
 
-  return { toast, setToast, busy, track, report, archived, setArchived, todoUndo, setTodoUndo };
+  return { toast, setToast, busy, track, report, archived, setArchived, todoUndo, setTodoUndo, setHeld };
 }
 
-/** Where a toast goes while one is `up`: centered on what `anchor` gives, at its foot, and no
- *  wider than it. It's measured again whenever the anchor or anything beside it changes size: a
- *  column before the board can change width without the board changing its own (at its
- *  narrowest, the panel gives way instead), and move it. What the anchor is can change too (a
- *  panel taking the whole window hides the board), so it's asked again each time. */
-function usePlace(anchor: () => Element | null, up: boolean): CSSProperties | undefined {
-  const [place, setPlace] = useState<CSSProperties>();
-  const anchorNow = useLatest(anchor);
-  useLayoutEffect(() => {
-    if (!up) return;
-    let watched: Element[] = [];
-    const measure = () => {
-      const el = anchorNow.current();
-      // Watched afresh only when what's there changed, since an element newly watched reports
-      // its size once, which would measure again.
-      const now = el ? Array.from(el.parentElement?.children ?? [el]) : [];
-      if (now.length !== watched.length || now.some((x, i) => x !== watched[i])) {
-        observer.disconnect();
-        for (const x of now) observer.observe(x);
-        watched = now;
-      }
-      if (!el) {
-        setPlace(undefined);
-        return;
-      }
-      const r = el.getBoundingClientRect();
-      setPlace({ '--toast-x': `${r.left + r.width / 2}px`, '--toast-w': `${r.width}px`, '--toast-foot': `${window.innerHeight - r.bottom}px` } as CSSProperties);
-    };
-    const observer = new ResizeObserver(measure);
-    measure();
-    window.addEventListener('resize', measure);
-    return () => {
-      observer.disconnect();
-      window.removeEventListener('resize', measure);
-    };
-  }, [up, anchorNow]);
-  return place;
-}
-
-/** The toast that shows now, at the foot of what `anchor` gives (`usePlace`). `onUnarchive` puts
- *  archived sessions back. */
-export function Toasts({ state, anchor, onUnarchive }: { state: ToastState; anchor: () => Element | null; onUnarchive: (archived: Archived) => void }) {
-  const { toast, setToast, busy, archived: undo, setArchived: setUndo, todoUndo, setTodoUndo } = state;
-  const place = usePlace(anchor, !!toast || busy.length > 0 || !!undo || !!todoUndo);
+/** The toast that shows now, as a line in the usage bar. `onUnarchive` puts archived sessions
+ *  back. */
+export function Toasts({ state, onUnarchive }: { state: ToastState; onUnarchive: (archived: Archived) => void }) {
+  const { toast, setToast, busy, archived: undo, setArchived: setUndo, todoUndo, setTodoUndo, setHeld } = state;
+  // The pointer on a toast holds it, for its words to be read on hover.
+  const hold = { onMouseEnter: () => setHeld(true), onMouseLeave: () => setHeld(false) };
   return (
     <>
       {busy.length > 0 && !toast && (
-        <div className="ca-toast is-busy" role="status" aria-live="polite" style={place}>
+        <div className="ca-toast is-busy" role="status" aria-live="polite">
           <StatusGlyph status="working" size={14} title="In progress" />
-          <span>{busy[busy.length - 1].label}</span>
+          <Words text={busy[busy.length - 1].label} />
         </div>
       )}
       {undo && !toast && busy.length === 0 && (
-        <div className="ca-toast" role="status" style={place}>
-          <Icon name="archive" size={16} />
-          <span>{undo.message || `Archived “${undo.title}”.`}</span>
+        <div className="ca-toast" role="status" {...hold}>
+          <Icon name="archive" size={14} />
+          <Words text={undo.message || `Archived “${undo.title}”.`} />
           <button
             type="button"
             className="ca-toast-action"
@@ -180,9 +151,9 @@ export function Toasts({ state, anchor, onUnarchive }: { state: ToastState; anch
         </div>
       )}
       {todoUndo && !toast && !undo && busy.length === 0 && (
-        <div className="ca-toast" role="status" style={place}>
-          <Icon name={todoUndo.icon ?? 'trash'} size={16} />
-          <span>{todoUndo.message}</span>
+        <div className="ca-toast" role="status" {...hold}>
+          <Icon name={todoUndo.icon ?? 'trash'} size={14} />
+          <Words text={todoUndo.message} />
           <button
             type="button"
             className="ca-toast-action"
@@ -196,11 +167,24 @@ export function Toasts({ state, anchor, onUnarchive }: { state: ToastState; anch
         </div>
       )}
       {toast && (
-        <div className="ca-toast" role="status" style={place} onClick={() => setToast(null)}>
-          <Icon name="alert" size={16} />
-          <span>{toast}</span>
+        <div
+          className="ca-toast"
+          role="status"
+          {...hold}
+          onClick={() => {
+            setToast(null);
+            setHeld(false);
+          }}
+        >
+          <Icon name="alert" size={14} />
+          <Words text={toast} />
         </div>
       )}
     </>
   );
+}
+
+/** A toast's words, on one line: cut short, they're all there under it on hover. */
+function Words({ text }: { text: string }) {
+  return <OneLine className="ca-toast-text" down text={text} />;
 }

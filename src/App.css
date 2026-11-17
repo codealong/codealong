@@ -176,32 +176,6 @@
   color: var(--ink-3);
 }
 
-/* Toast. It sits at the foot of what Toasts.tsx anchors it to (the board), centered on it and no
-   wider: `--toast-x` is the anchor's middle, `--toast-w` its width and `--toast-foot` how far
-   above the window's foot its own foot is. Until it's measured, the window's. */
-.ca-toast {
-  position: fixed;
-  left: var(--toast-x, 50%);
-  bottom: calc(var(--toast-foot, 0px) + var(--space-6));
-  z-index: var(--z-toast);
-  display: flex;
-  align-items: center;
-  gap: var(--space-2);
-  max-width: min(560px, var(--toast-w, 100vw) - 2 * var(--space-4));
-  padding: 10px 14px;
-  transform: translateX(-50%);
-  border-radius: var(--radius-md);
-  background: var(--surface-raised);
-  box-shadow: var(--shadow-popover);
-  color: var(--ink);
-  font: var(--type-body);
-  cursor: pointer;
-}
-.ca-toast .ca-icon {
-  flex: none;
-  color: var(--alert);
-}
-
 .ca-win--app {
   grid-template-rows: var(--titlebar-h) auto minmax(0, 1fr);
 }
@@ -214,22 +188,6 @@
 .ca-win--app .ca-win-body.is-railed.is-canvas:not(.has-panel),
 .ca-win--app .ca-win-body.is-railed.is-boardless {
   grid-template-columns: 52px 0 minmax(0, 1fr);
-}
-
-.ca-toast-action {
-  margin-left: var(--space-1);
-  padding: 2px 8px;
-  border: 1px solid currentColor;
-  border-radius: var(--radius-xs);
-  background: transparent;
-  color: inherit;
-  font: var(--type-heading-xs);
-  cursor: pointer;
-}
-
-/* A toast for an open or start still waiting on its app: it can't be dismissed. */
-.ca-toast.is-busy {
-  cursor: default;
 }
 
 /* The todo panel: wider than the worktree inspector, for descriptions with screenshots. */
@@ -267,9 +225,6 @@
   flex: 1;
   min-height: 0;
   display: flex;
-}
-.ca-win-body.is-canvas ~ .ca-toast {
-  bottom: calc(var(--toast-foot, 0px) + 72px);
 }
 
 /* A session's own panel (SessionPanel.tsx): a fixed head, the conversation scrolling in the

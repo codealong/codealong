@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import * as fx from '../testing/fixtures';
 import type { Meter, Severity } from '../types';
-import { headlineMeter, inOrder, listsInOrder, shouldCollapse } from './UsageBar';
+import { fitFor, headlineMeter, inOrder, listsInOrder } from './UsageBar';
 
 const meter = (key: string, percent: number, severity: Severity = 'normal'): Meter => fx.meter({ key, percent, severity });
 
@@ -22,15 +22,27 @@ describe('headlineMeter', () => {
   });
 });
 
-describe('shouldCollapse', () => {
-  it('collapses when every limit needs more room than there is', () => {
-    expect(shouldCollapse(false, 1200, 1199)).toBe(true);
-    expect(shouldCollapse(false, 1200, 1200)).toBe(false);
+describe('fitFor', () => {
+  const needs = { all: 1200, one: 800 };
+
+  it('shows every limit while they fit, then one, then that one alone', () => {
+    expect(fitFor('all', needs, 1200)).toBe('all');
+    expect(fitFor('all', needs, 1199)).toBe('one');
+    expect(fitFor('all', needs, 800)).toBe('one');
+    expect(fitFor('all', needs, 799)).toBe('tight');
   });
 
-  it('opens up again only with room to spare', () => {
-    expect(shouldCollapse(true, 1200, 1210)).toBe(true);
-    expect(shouldCollapse(true, 1200, 1216)).toBe(false);
+  it('shows more again only with room to spare', () => {
+    expect(fitFor('one', needs, 1210)).toBe('one');
+    expect(fitFor('one', needs, 1216)).toBe('all');
+    expect(fitFor('tight', needs, 810)).toBe('tight');
+    expect(fitFor('tight', needs, 816)).toBe('one');
+    expect(fitFor('tight', needs, 1216)).toBe('all');
+  });
+
+  it('shows less at once when the room goes', () => {
+    expect(fitFor('one', needs, 799)).toBe('tight');
+    expect(fitFor('all', needs, 500)).toBe('tight');
   });
 });
 

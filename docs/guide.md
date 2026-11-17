@@ -1046,8 +1046,8 @@ archiving a session that waits on you goes on to the next as well, by its key, t
 its menu. ⌘] or ⌥⇧↓ skips to the next, ⌘[ or ⌥⇧↑ goes back to the one before, and a skipped one
 comes round again after the rest. A message that doesn't go after ⌘⏎ went on is back in its
 session's box, and that session comes round again: the strip over the one you went on to says why,
-rather than a toast over the box you're typing in. The window's toasts sit at the foot of the list,
-clear of the panel. ⇧⌘F (or the button beside the check) expands the panel to the
+rather than a toast over the box you're typing in. The window's toasts are a line in the usage bar,
+over neither the list nor the panel. ⇧⌘F (or the button beside the check) expands the panel to the
 whole window, the list and sidebar out of the way while you work through them, and stays so until
 you press it again; Escape in the box then leaves the keys with the window.
 
@@ -4262,7 +4262,11 @@ Antigravity and Cursor don't say, so their print runs are sessions like any othe
 
 **Usage** for every account in a bar across the top: weekly limits, 5-hour limits where the plan has
 them, per-model limits such as Fable, and time to reset. When they don't all fit, each account shows
-the limit it's closest to running out of and the rest on hover, and the bar scrolls sideways. A read
+the limit it's closest to running out of and the rest on hover; when those don't fit either, that
+limit's bar and number alone; and then the bar scrolls sideways. A toast (what something you just
+did came to, with its Undo, or what's still under way) is a line in the bar, between the chips and
+its buttons: the chips step down to make room for it and come back once it goes, its words are all
+there under it on hover, and it stays while the pointer is on it. A read
 that fails keeps the last numbers, dimmed, with why on hover, and they outlast a relaunch (those of
 the last hour). With no numbers to keep the chip says why it has none: *Rate limited* when Claude
 turned the read away, which clears when it's read again a few minutes later. Antigravity's are its weekly

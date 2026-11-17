@@ -178,6 +178,24 @@
 .ca-meter.is-critical .ca-meter-value {
   color: var(--alert);
 }
+/* The window's toast (Toasts.tsx), between the chips and the end: as wide as its words up to a
+   limit, the chips having what's left (UsageBar.tsx `fitFor`); with none up, it takes no room. */
+.ca-usagebar-toast {
+  display: flex;
+  flex: 0 1 auto;
+  min-width: 0;
+  max-width: 560px;
+}
+.ca-usagebar-toast:empty {
+  display: none;
+}
+/* Only the limit's bar and number: its window and reset are on hover, with the others. */
+.ca-uchip.is-tight .ca-meter.is-compact {
+  grid-template-columns: 30px auto;
+}
+.ca-uchip.is-tight :is(.ca-meter-label, .ca-meter-reset) {
+  display: none;
+}
 .ca-usagebar-end {
   display: flex;
   align-items: center;

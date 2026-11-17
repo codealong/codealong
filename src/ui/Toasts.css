@@ -1,0 +1,64 @@
+/* The main window's toast (Toasts.tsx): a line in the usage bar, as high as the account chips
+   beside it and lifted off the bar as a dragged chip is, its words cut to one line. It comes in
+   gently, as a chip would that had been there. */
+
+.ca-toast {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  min-width: 0;
+  height: 26px;
+  padding: 0 12px 0 10px;
+  box-sizing: border-box;
+  border-radius: var(--radius-pill);
+  background: var(--surface-raised);
+  box-shadow: var(--shadow-hud);
+  color: var(--ink);
+  font: var(--type-meta);
+  cursor: pointer;
+  animation: ca-toast-in var(--dur-base) ease-out;
+}
+@keyframes ca-toast-in {
+  from {
+    opacity: 0;
+    transform: translateY(-3px);
+  }
+}
+.ca-toast .ca-icon {
+  flex: none;
+  color: var(--alert);
+}
+/* Cut short, the whole of it shows under the line as wide as the toast can be (base.css
+   `.ca-oneline`). */
+.ca-toast-text {
+  flex: 0 1 auto;
+  --oneline-room: 560px;
+}
+/* An Undo: the end of the pill is its own. */
+.ca-toast:has(.ca-toast-action) {
+  padding-right: 3px;
+}
+.ca-toast-action {
+  flex: none;
+  height: 20px;
+  margin-left: var(--space-1);
+  padding: 0 8px;
+  border: 1px solid var(--line-strong);
+  border-radius: var(--radius-pill);
+  background: transparent;
+  color: inherit;
+  font: var(--type-heading-xs);
+  cursor: pointer;
+}
+.ca-toast-action:hover {
+  background: var(--surface-hover);
+}
+.ca-toast-action:focus-visible {
+  outline: none;
+  box-shadow: var(--shadow-focus);
+}
+
+/* An open or start still waiting on its app: it can't be dismissed. */
+.ca-toast.is-busy {
+  cursor: default;
+}

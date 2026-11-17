@@ -8,8 +8,13 @@
 // Settings lists the accounts in too. The chips show it at once, before the board comes back.
 //
 // When the chips don't all fit, each shows only the limit it's closest to running out of, and
-// hovering it shows all of them in a card. When even those don't fit, the row scrolls sideways
-// (the mouse wheel scrolls it too).
+// hovering it shows all of them in a card; when those don't fit either, that limit's bar and number
+// alone (`fitFor`). When even those don't fit, the row scrolls sideways (the mouse wheel scrolls
+// it too).
+//
+// A toast (Toasts.tsx) goes between the chips and the bar's end, where there's room for it whatever
+// view the window shows, and over nothing it lists. It takes the room it needs, up to a limit, and
+// the chips step down to fit beside it, coming back once it goes.
 //
 // An account whose provider may train on what it sends (training.ts) has its chip in the
 // attention colors with a shield on it, and its hover card says why, turns training off where
@@ -32,8 +37,8 @@ import { keysIn, pinch } from '../platform';
 const SHOW_MS = 150;
 const HIDE_MS = 120;
 const WARM_MS = 400;
-/** A collapsed row opens up again only with this much room to spare, so a reset time growing
- *  by a character near the edge doesn't flip it back and forth. */
+/** A row showing less than it could shows more again only with this much room to spare, so a
+ *  reset time growing by a character near the edge doesn't flip it back and forth. */
 const SLACK = 16;
 
 export function meterTitle(m: Meter, now: number): string {
@@ -59,10 +64,18 @@ export function headlineMeter(meters: Meter[]): Meter | null {
   return best;
 }
 
-/** Whether the row should show one limit per account: when every limit takes more room than
- *  there is, and, once collapsed, until they fit with some to spare. */
-export function shouldCollapse(collapsed: boolean, needed: number, room: number): boolean {
-  return needed > (collapsed ? room - SLACK : room);
+/** How much of its limits each chip shows: all of them; the one it's closest to running out of,
+ *  with its window and reset (`one`); or that one's bar and number alone (`tight`). */
+export type Fit = 'all' | 'one' | 'tight';
+const FITS: Fit[] = ['all', 'one', 'tight'];
+
+/** The most the row can show in `room`, given how wide the chips are showing all their limits and
+ *  showing one. It shows more again than it does `now` only with some room to spare. */
+export function fitFor(now: Fit, needs: { all: number; one: number }, room: number): Fit {
+  const fits = (fit: Fit, needed: number) => needed <= (FITS.indexOf(fit) < FITS.indexOf(now) ? room - SLACK : room);
+  if (fits('all', needs.all)) return 'all';
+  if (fits('one', needs.one)) return 'one';
+  return 'tight';
 }
 
 /** Compact inside a chip; full, with its reset time underneath, in the Accounts dialog. */
@@ -90,7 +103,7 @@ export function UsageMeter({ meter: m, now, compact = true, titled = true }: { m
             {untilShort(m.resetsAt, now)}
           </span>
         ) : (
-          <span />
+          <span className="ca-meter-reset" />
         )}
       </span>
     );
@@ -121,9 +134,9 @@ function isStale(u: Usage): boolean {
 interface ChipProps {
   usage: Usage;
   now: number;
-  /** Only the limit closest to running out; the card shows the rest. */
-  collapsed?: boolean;
-  /** A hidden copy that measures how wide the chip is with every limit showing. */
+  /** How much of its limits it shows; the card shows them all when that isn't all. */
+  fit?: Fit;
+  /** A hidden copy that measures how wide the chip is at `fit`. */
   measure?: boolean;
   onOpen?: () => void;
   onSignIn?: () => void;
@@ -136,7 +149,7 @@ interface ChipProps {
   sort?: SortProps;
 }
 
-function AccountChip({ usage: u, now, collapsed = false, measure = false, onOpen, onSignIn, onPeek, onUnpeek, training, sort }: ChipProps) {
+function AccountChip({ usage: u, now, fit = 'all', measure = false, onOpen, onSignIn, onPeek, onUnpeek, training, sort }: ChipProps) {
   const plain = u.error?.replace(/`/g, '') ?? '';
   // Signed out, the last reading of whether it's trained on still stands, and its card with it.
   const trainingPeeks = !!training && !measure;
@@ -165,7 +178,7 @@ function AccountChip({ usage: u, now, collapsed = false, measure = false, onOpen
   const about = [u.account, u.plan, asOfPhrase(u, now), stale ? plain : null].filter(Boolean).join(' · ');
   // The label stands in for everything the chip shows, the note in place of meters included.
   const summary = u.meters.length ? u.meters.map((m) => meterTitle(m, now)).join('; ') : usageNote(u);
-  const headline = collapsed ? headlineMeter(u.meters) : null;
+  const headline = fit !== 'all' ? headlineMeter(u.meters) : null;
   const shown = headline ? [headline] : u.meters;
   // A chip with a card (collapsed, or flagged for training) says there everything its tooltip
   // would, so it has none.
@@ -173,7 +186,7 @@ function AccountChip({ usage: u, now, collapsed = false, measure = false, onOpen
   return (
     <button
       type="button"
-      className={cx('ca-uchip', stale && 'is-stale', training && 'is-training', sort?.className)}
+      className={cx('ca-uchip', fit === 'tight' && 'is-tight', stale && 'is-stale', training && 'is-training', sort?.className)}
       style={sort?.style}
       title={measure || peeks ? undefined : `${about}. Show what it used and cost`}
       aria-label={`${u.account}${u.plan ? `, ${u.plan}` : ''}${summary ? `. ${summary}` : ''}${stale ? `. ${plain}` : ''}${training ? `. ${cardTitle(training)}: ${training.note}` : ''}`}
@@ -371,12 +384,14 @@ interface UsageBarProps {
   loading?: boolean;
   /** What isn't working in the background (`ui/Notices.tsx`), at the bar's end. */
   notices?: ReactNode;
+  /** The window's toast (Toasts.tsx), between the chips and the end; the chips make room for it. */
+  toast?: ReactNode;
   /** Puts the accounts in this order in config.toml; a failure is the caller's to say, and the
    *  chips go back. */
   onReorder?: (accounts: string[]) => Promise<void>;
 }
 
-export function UsageBar({ usage: board, now, onRefresh, onAccounts, onUsage, onSignIn, training, onStopTraining, onOpenUrl, loading, notices, onReorder }: UsageBarProps) {
+export function UsageBar({ usage: board, now, onRefresh, onAccounts, onUsage, onSignIn, training, onStopTraining, onOpenUrl, loading, notices, toast, onReorder }: UsageBarProps) {
   // The order a drag left the chips in, until the board lists them so.
   const [order, setOrder] = useState<string[] | null>(null);
   const usage = order ? inOrder(board, order) : board;
@@ -386,8 +401,9 @@ export function UsageBar({ usage: board, now, onRefresh, onAccounts, onUsage, on
   const reads = usage.filter((u) => u.harness === 'claude' && u.asOf).map((u) => u.asOf as number);
   const lastRead = reads.length ? Math.max(...reads) : null;
   const row = useRef<HTMLDivElement>(null);
-  const measure = useRef<HTMLDivElement>(null);
-  const [collapsed, setCollapsed] = useState(false);
+  const measureAll = useRef<HTMLDivElement>(null);
+  const measureOne = useRef<HTMLDivElement>(null);
+  const [fit, setFit] = useState<Fit>('all');
   // Which ends have chips scrolled past them, for the fades there.
   const [clipped, setClipped] = useState({ start: false, end: false });
   const { peek, show, hide, keep } = usePeek();
@@ -405,15 +421,17 @@ export function UsageBar({ usage: board, now, onRefresh, onAccounts, onUsage, on
     },
   );
 
-  // Every chip is measured with all its limits, in a hidden copy, against the room the row has.
+  // Every chip is measured with all its limits and with one, in hidden copies, against the room
+  // the row has, which a toast beside it takes some of.
   useLayoutEffect(() => {
     const el = row.current;
-    const full = measure.current;
-    if (!el || !full) return;
+    const all = measureAll.current;
+    const one = measureOne.current;
+    if (!el || !all || !one) return;
     const check = () => {
       const style = getComputedStyle(el);
       const room = el.clientWidth - parseFloat(style.paddingLeft) - parseFloat(style.paddingRight);
-      setCollapsed((c) => shouldCollapse(c, full.getBoundingClientRect().width, room));
+      setFit((f) => fitFor(f, { all: all.getBoundingClientRect().width, one: one.getBoundingClientRect().width }, room));
       const end = el.scrollWidth - el.clientWidth;
       setClipped((c) => {
         const next = { start: el.scrollLeft > 0.5, end: el.scrollLeft < end - 0.5 };
@@ -424,14 +442,15 @@ export function UsageBar({ usage: board, now, onRefresh, onAccounts, onUsage, on
     // The chips change size as their numbers and reset times do, which moves the row's end.
     const observer = new ResizeObserver(check);
     observer.observe(el);
-    observer.observe(full);
+    observer.observe(all);
+    observer.observe(one);
     for (const chip of Array.from(el.children)) observer.observe(chip);
     el.addEventListener('scroll', check, { passive: true });
     return () => {
       observer.disconnect();
       el.removeEventListener('scroll', check);
     };
-  }, [accounts, collapsed]);
+  }, [accounts, fit]);
 
   // A mouse wheel only scrolls up and down; over this row it scrolls sideways. Trackpads swipe
   // sideways on their own.
@@ -450,8 +469,8 @@ export function UsageBar({ usage: board, now, onRefresh, onAccounts, onUsage, on
   // The card belongs to where the chip was: scrolling, a click, or the row opening up again puts
   // it away.
   useEffect(() => {
-    if (!collapsed) hide(true);
-  }, [collapsed, hide]);
+    if (fit === 'all') hide(true);
+  }, [fit, hide]);
   // A press anywhere but on a card's buttons. Any key, which goes on to do what it does, puts away
   // a card that only shows; one with buttons goes on Escape, so Return and Space work them.
   const peekHasButtons = !!peek && flagged(trainingOf(training, peek.account));
@@ -471,7 +490,7 @@ export function UsageBar({ usage: board, now, onRefresh, onAccounts, onUsage, on
   const peeked = peek ? usage.find((u) => u.account === peek.account) : undefined;
   const peekedTraining = peeked && trainingOf(training, peeked.account);
   const flaggedPeek = flagged(peekedTraining) ? peekedTraining : undefined;
-  const peekMeters = collapsed && !!peeked && peeked.meters.length > 0;
+  const peekMeters = fit !== 'all' && !!peeked && peeked.meters.length > 0;
   return (
     <div className="ca-usagebar" role="region" aria-label="Plan usage">
       <div
@@ -485,7 +504,7 @@ export function UsageBar({ usage: board, now, onRefresh, onAccounts, onUsage, on
               key={u.account}
               usage={u}
               now={now}
-              collapsed={collapsed}
+              fit={fit}
               training={flagged(t) ? t : undefined}
               onOpen={() => onUsage(u.account)}
               onSignIn={() => onSignIn(u.account)}
@@ -499,12 +518,15 @@ export function UsageBar({ usage: board, now, onRefresh, onAccounts, onUsage, on
         })}
         {usage.length === 0 && !loading && <span className="ca-uchip-note">No accounts yet.</span>}
       </div>
-      <div ref={measure} className="ca-usagebar-measure" aria-hidden="true">
-        {usage.map((u) => {
-          const t = trainingOf(training, u.account);
-          return <AccountChip key={u.account} usage={u} now={now} measure training={flagged(t) ? t : undefined} />;
-        })}
-      </div>
+      <div className="ca-usagebar-toast">{toast}</div>
+      {(['all', 'one'] as const).map((f) => (
+        <div key={f} ref={f === 'all' ? measureAll : measureOne} className="ca-usagebar-measure" aria-hidden="true">
+          {usage.map((u) => {
+            const t = trainingOf(training, u.account);
+            return <AccountChip key={u.account} usage={u} now={now} fit={f} measure training={flagged(t) ? t : undefined} />;
+          })}
+        </div>
+      ))}
       {peeked && peek && (peekMeters || flaggedPeek) && (
         <UsageCard
           usage={peeked}

@@ -25,6 +25,7 @@
 @import '../App.css';
 @import '../ui/Inspector.css';
 @import '../ui/UsageBar.css';
+@import '../ui/Toasts.css';
 @import '../ui/UsageDialog.css';
 @import '../ui/UsageAnalytics.css';
 @import '../ui/Sidebar.css';
