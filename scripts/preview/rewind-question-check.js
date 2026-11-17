@@ -3,8 +3,9 @@
 // offers Rewind to these questions…, which opens a dialog asking them again one at a time, with
 // your answers picked. A new pick and ⌘⏎ ask for a fork from before your answers
 // (`fork_session` with their cursor as `from` and your new answers as the prompt) and close the
-// dialog; a question left with no answer has Next take you to it first. The conversation is a
-// stand-in for the first Claude Code session.
+// dialog; ⌘⏎ as it opens forks with them as they were; a question left with no answer has Next
+// take you to it, while Fork and answer forks without it. The conversation is a stand-in for the
+// first Claude Code session.
 //   scripts/preview.sh sessions '' scripts/preview/rewind-question-check.js
 (function () {
   localStorage.setItem('codealong.project', 'All projects');
@@ -41,7 +42,12 @@
   var choice = function (label) { return all('.ca-rewinddlg .ca-question-choice').filter(function (b) { return b.textContent.indexOf(label) === 0; })[0]; };
   var on = function (label) { var c = choice(label); return !!c && c.getAttribute('aria-checked') === 'true'; };
   var shown = function () { return q('.ca-rewinddlg .ca-question-body .ca-approval-label').textContent; };
-  var primary = function () { return all('.ca-rewinddlg .ca-dialog-foot button').filter(function (b) { return /is-primary|ca-btn-primary/.test(b.className) || b.textContent === 'Next' || b.textContent === 'Fork and answer'; }).pop(); };
+  var button = function (words) { return all('.ca-rewinddlg .ca-dialog-foot button').filter(function (b) { return b.textContent === words; })[0]; };
+  var reopen = async function (what) {
+    await menuOf(answers());
+    menuItem('Rewind to these questions…')();
+    await until(dialog, 3000, 'no dialog ' + what);
+  };
 
   (async function () {
     try {
@@ -58,7 +64,7 @@
       check('which says the session and the files stay', /stays as it is, and so do the files/.test(q('.ca-rewinddlg .ca-dialog-lede').textContent));
       check('asking the first question, with a strip to the other', /Which size\?/.test(shown()) && all('.ca-rewinddlg .ca-question-steps button').length === 2, shown());
       check('your answer to it picked', on('Large') && !on('Small'));
-      check('every question answered, so it can fork at once', primary().textContent === 'Fork and answer' && !primary().disabled, primary().textContent);
+      check('every question answered, so it can fork at once', !button('Next') && !button('Fork and answer').disabled);
       choice('Small').click();
       await wait(50);
       check('a new pick takes the old one’s place', on('Small') && !on('Large'));
@@ -75,23 +81,33 @@
       await until(function () { return !dialog(); }, 3000, 'the dialog stayed');
       check('and closes the dialog', true);
 
-      await menuOf(answers());
-      menuItem('Rewind to these questions…')();
-      await until(dialog, 3000, 'no dialog the second time');
-      check('it asks again from your answers as they were', on('Large'), String(on('Large')));
+      await reopen('the second time');
+      check('it asks again from your answers as they were', on('Large') && !on('Small'));
+      key(document.activeElement, { key: 'Enter', metaKey: true });
+      await until(function () { return calls('fork_session').length === 2; }, 3000, '⌘⏎ as it opened asked for no fork');
+      check('⌘⏎ as it opens, from wherever the keyboard is, forks with them as they were', calls('fork_session')[1][1].prompt === 'My answers to the questions you just asked:\n"Which size?"="Large"\n"Which days?"="Mon, only mornings"', JSON.stringify(calls('fork_session')[1][1].prompt));
+      await until(function () { return !dialog(); }, 3000, 'the dialog stayed the second time');
+
+      await reopen('the third time');
       all('.ca-rewinddlg .ca-question-steps button')[1].click();
       await wait(50);
       choice('Mon').click();
       type(q('.ca-rewinddlg .ca-question-own'), '');
       all('.ca-rewinddlg .ca-question-steps button')[0].click();
       await wait(50);
-      check('with a question left with no answer, the button is Next', primary().textContent === 'Next', primary().textContent);
-      primary().click();
+      check('with a question left with no answer, Next shows beside Fork and answer', !!button('Next') && !button('Fork and answer').disabled);
+      button('Next').click();
       await wait(50);
-      check('which goes to it', /Which days\?/.test(shown()), shown());
+      check('Next goes to it', /Which days\?/.test(shown()), shown());
+      button('Fork and answer').click();
+      await until(function () { return calls('fork_session').length === 3; }, 3000, 'no fork with a question unanswered');
+      check('and Fork and answer leaves it unanswered', calls('fork_session')[2][1].prompt === 'My answers to the questions you just asked:\n"Which size?"="Large"', JSON.stringify(calls('fork_session')[2][1].prompt));
+      await until(function () { return !dialog(); }, 3000, 'the dialog stayed the third time');
+
+      await reopen('the fourth time');
       key(document.activeElement, { key: 'Escape' });
       await until(function () { return !dialog(); }, 3000, 'Escape left the dialog up');
-      check('Escape closes it without a fork', calls('fork_session').length === 1);
+      check('Escape closes it without a fork', calls('fork_session').length === 3);
     } catch (e) {
       return stopped(e);
     }

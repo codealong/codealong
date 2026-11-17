@@ -20,9 +20,8 @@
 .ca-dialog.ca-rewinddlg {
   width: min(560px, 100%);
 }
+/* The questions in the dialog's body, which scrolls (dialog.css), a row each: the strip, the
+   question and its choices, the box for your own answer. */
 .ca-rewinddlg-questions {
-  display: flex;
-  flex-direction: column;
   gap: var(--space-2);
-  margin: 0 var(--space-5) var(--space-4);
 }

@@ -7,6 +7,7 @@
 // goes back.
 
 import { useEffect, useRef, useState } from 'react';
+import { useLatest } from '../latest';
 import { chordPressed, cmd, keysIn } from '../platform';
 import { splitAttachments, withAttachments } from '../todos';
 import type { Answers, Question, Session, TranscriptItem } from '../types';
@@ -134,13 +135,26 @@ interface RewindDialogProps {
 export function RewindDialog({ session: s, answered, questions, onRewind, onClose }: RewindDialogProps) {
   const p = useQuestionPicks(questions, () => answeredBefore(questions, answered.answers ?? {}));
   const several = questions.length > 1;
-  // On to a question with no answer yet, as the box that answers them goes; with none, the fork.
-  const answer = () => {
-    if (p.next !== null) return p.go(p.next);
+  const fork = () => {
     if (!p.ready) return;
     onRewind(answered.cursor, answersPrompt(questions, p.answers));
     onClose();
   };
+  // ⌘⏎ goes on to a question with no answer yet, as in the box that answers them; with none, it
+  // forks. Fork and answer forks with questions left unanswered too, as they may have been.
+  const answer = () => (p.next !== null ? p.go(p.next) : fork());
+  const latest = useLatest(answer);
+  // Wherever the keyboard is in the dialog, which takes it itself as it opens. The box for your
+  // own answer takes ⌘⏎ first.
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.defaultPrevented || !chordPressed('Cmd+Enter', e)) return;
+      e.preventDefault();
+      latest.current();
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [latest]);
   return (
     <Dialog
       className="ca-rewinddlg"
@@ -152,27 +166,19 @@ export function RewindDialog({ session: s, answered, questions, onRewind, onClos
           <Button variant="ghost" size="sm" onClick={onClose}>
             Cancel
           </Button>
-          {p.next !== null ? (
-            <Button variant="primary" size="sm" title={keysIn('⌘⏎')} onClick={answer}>
+          {p.next !== null && (
+            <Button size="sm" title={keysIn('⌘⏎')} onClick={() => p.next !== null && p.go(p.next)}>
               Next
             </Button>
-          ) : (
-            <Button variant="primary" size="sm" icon="git-fork" disabled={!p.ready} title={keysIn('⌘⏎')} onClick={answer}>
-              Fork and answer
-            </Button>
           )}
+          <Button variant="primary" size="sm" icon="git-fork" disabled={!p.ready} title={p.next === null ? keysIn('⌘⏎') : undefined} onClick={fork}>
+            Fork and answer
+          </Button>
         </>
       }
     >
-      {/* ⌘⏎ from a choice as from the box for your own answer, which takes it first. */}
-      <div
-        className="ca-rewinddlg-questions"
-        onKeyDown={(e) => {
-          if (e.defaultPrevented || !chordPressed('Cmd+Enter', e)) return;
-          e.preventDefault();
-          answer();
-        }}
-      >
+      {/* The dialog's body scrolls, under its head and over its foot, where a card is short. */}
+      <div className="ca-dialog-body ca-rewinddlg-questions">
         <QuestionSteps questions={questions} picks={p} busy={false} onAnswer={answer} />
       </div>
     </Dialog>

@@ -16,6 +16,10 @@ describe('picksOf', () => {
     // A question that takes one isn't split: its answer is one choice or your own words.
     expect(picksOf({ ...days, multiSelect: false }, ['Mon, Tue'])).toEqual({ picked: new Set(), own: ['Mon, Tue'] });
   });
+
+  it('keeps words of your own whole in a list, commas and all', () => {
+    expect(picksOf(days, ['Tue', 'before lunch, Mon'])).toEqual({ picked: new Set(['Tue']), own: ['before lunch, Mon'] });
+  });
 });
 
 describe('answeredOf', () => {
@@ -50,6 +54,8 @@ describe('answeredBefore', () => {
 
   it('leaves a question you didn’t answer unpicked, and reads picks older versions joined', () => {
     expect(answeredBefore([size, days], { 'Which days?': ['Mon, Tue'] })).toEqual({ picks: { 'Which days?': ['Mon', 'Tue'] }, own: {}, at: 0 });
+    // Listed, words of your own stay yours, a choice's name in them or not.
+    expect(answeredBefore([days], { 'Which days?': ['Tue', 'before lunch, Mon'] })).toEqual({ picks: { 'Which days?': ['Tue'] }, own: { 'Which days?': 'before lunch, Mon' }, at: 0 });
   });
 });
 
