@@ -1930,6 +1930,24 @@ impl Engine {
         self.cfg.accounts.iter().find(|a| a.name == account).and_then(harness::of).map_or_else(|| account.to_string(), |h| h.harness().word().to_string())
     }
 
+    /// Marks each orchestrator's session as its own (`Session::orchestrator`), from the schedules'
+    /// runs, followed to where it moved (schedules/orchestrate.rs `sessions`).
+    fn with_orchestrators(&self, mut sessions: Vec<Session>) -> Vec<Session> {
+        let by = crate::schedules::orchestrate::sessions(&self.schedules, &self.schedule_runs);
+        if by.is_empty() {
+            return sessions;
+        }
+        let keys: HashSet<String> = sessions.iter().map(|s| s.key.clone()).collect();
+        let origins = crate::origins::current();
+        let by: HashMap<String, crate::model::Orchestrator> = by.into_iter().map(|(k, o)| (origins.moved_to(&k, |m| keys.contains(m)).unwrap_or(k), o)).collect();
+        for s in &mut sessions {
+            if let Some(o) = by.get(&s.key) {
+                s.orchestrator = Some(o.clone());
+            }
+        }
+        sessions
+    }
+
     fn with_insights(&self, mut sessions: Vec<Session>, now: i64) -> Vec<Session> {
         let tags = tags::current();
         if !self.cfg.jev.sessions && tags.sessions.is_empty() {
@@ -3986,7 +4004,11 @@ fn waiting_call(s: &Session, account: Option<&config::AccountCfg>) -> Option<Str
         let sessions = self.with_chrome(sessions);
         let sessions = self.with_artifacts(sessions);
         let sessions = self.with_emblems(sessions);
-        let sessions = self.with_insights(sessions, now);
+        // An orchestrator's session is known as one before Jev reads it, and quieted after
+        // (board.rs `quiet_orchestrator`), so its lane and the board go by what it waits on.
+        let sessions = self.with_orchestrators(sessions);
+        let mut sessions = self.with_insights(sessions, now);
+        sessions.iter_mut().for_each(board::quiet_orchestrator);
         let sessions = with_runs(sessions, now);
         let sessions = self.with_starts(sessions, now);
         let sessions = self.with_suggestions(sessions);

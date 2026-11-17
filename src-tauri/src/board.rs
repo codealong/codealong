@@ -1693,14 +1693,17 @@ pub fn apply_quiet(s: &mut Session, quiet: bool) {
     }
 }
 
-/// Marks a session as an orchestrator's (`Session::orchestrator`). An orchestrator's replies are
-/// its digests of what other sessions want of you, which wait on you on their own, so no read of
-/// its reply makes it wait on you too (a reply Jev read as asking you, `needs_your_answer`): only
-/// what its harness holds it on does, a call to allow, a question it asked with its harness's
-/// question tool, an error. Jev's read of its reply goes with it (insights.rs leaves its turns
-/// unread from then on), and what it waits on is said again.
-pub fn apply_orchestrator(s: &mut Session, o: crate::model::Orchestrator) {
-    s.orchestrator = Some(o);
+/// An orchestrator's session (`Session::orchestrator`, set before its read is applied) waits on
+/// you only for what its harness holds it on: a call to allow, a question it asked with its
+/// harness's question tool, an error. Its replies are its digests of what other sessions want of
+/// you, which wait on you on their own, so no read of a reply makes it wait on you too
+/// (`needs_your_answer`, from an agent's tag or one Jev made before it was one: insights.rs leaves
+/// its turns unread). What a read says of its reply goes; what Jev says of a call it waits to have
+/// allowed (its risk), or of what it left running, stays.
+pub fn quiet_orchestrator(s: &mut Session) {
+    if s.orchestrator.is_none() {
+        return;
+    }
     if s.asks {
         s.asks = false;
         if s.status == Status::Needs {
@@ -1708,7 +1711,9 @@ pub fn apply_orchestrator(s: &mut Session, o: crate::model::Orchestrator) {
         }
         s.excerpt = s.reply_head.clone().or_else(|| s.reply_tail.as_deref().map(last_sentence));
     }
-    s.insight = None;
+    if let Some(i) = s.insight.as_mut() {
+        (i.asks_you, i.ending, i.landing, i.finished, i.waits_until) = (None, None, None, None, None);
+    }
     s.settle_need();
 }
 
@@ -3286,18 +3291,26 @@ mod tests {
 
     #[test]
     fn an_orchestrators_reply_never_makes_it_wait_on_you_but_its_harness_still_does() {
-        let o = crate::model::Orchestrator { schedule: "orch".into(), ..Default::default() };
-        // Its digest read as asking you: it's quiet again, with its reply's first line.
-        let mut read = Session { status: Status::Needs, asks: true, reply_head: Some("Two sessions wait on you.".into()), excerpt: Some("Asks you something".into()), insight: Some(SessionInsight::default()), ..Session::new(Harness::Claude, "claude", "o") };
-        apply_orchestrator(&mut read, o.clone());
+        let o = Some(crate::model::Orchestrator { schedule: "orch".into(), ..Default::default() });
+        // Its digest read as asking you: it's quiet again, with its reply's first line, and the
+        // read of its reply goes.
+        let read_as_asking = SessionInsight { asks_you: Some(0.9), ending: Some("question".into()), ..SessionInsight::default() };
+        let mut read = Session { status: Status::Needs, asks: true, reply_head: Some("Two sessions wait on you.".into()), excerpt: Some("Asks you something".into()), insight: Some(read_as_asking), orchestrator: o.clone(), ..Session::new(Harness::Claude, "claude", "o") };
+        quiet_orchestrator(&mut read);
         assert_eq!((read.status, read.asks, read.need), (Status::Idle, false, None));
         assert_eq!(read.excerpt.as_deref(), Some("Two sessions wait on you."));
-        assert!(read.insight.is_none() && read.orchestrator.is_some());
-        // A call to allow, held by its harness, still waits on you.
-        let mut held = Session { status: Status::Needs, excerpt: Some("Bash: rm -rf build".into()), ..Session::new(Harness::Claude, "claude", "o") };
-        apply_orchestrator(&mut held, o);
+        assert!(read.insight.as_ref().is_some_and(|i| i.asks_you.is_none() && i.ending.is_none()));
+        // A call to allow, held by its harness, still waits on you, with Jev's read of its risk.
+        let risky = SessionInsight { risk: Some(0.8), ..SessionInsight::default() };
+        let mut held = Session { status: Status::Needs, excerpt: Some("Bash: rm -rf build".into()), insight: Some(risky), orchestrator: o, ..Session::new(Harness::Claude, "claude", "o") };
+        quiet_orchestrator(&mut held);
         assert_eq!(held.status, Status::Needs);
         assert_eq!(held.need, Some(crate::model::Need::Approval));
+        assert_eq!(held.insight.and_then(|i| i.risk), Some(0.8));
+        // Any other session is left as it is.
+        let mut other = Session { status: Status::Needs, asks: true, ..Session::new(Harness::Claude, "claude", "x") };
+        quiet_orchestrator(&mut other);
+        assert!(other.asks && other.status == Status::Needs);
     }
 
     const NOW: i64 = 1_790_200_000_000;

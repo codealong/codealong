@@ -348,15 +348,35 @@ fn shared(lane: &Lane, now: i64) -> Option<Found> {
     Some(Found { id: format!("shared:{}:{}", lane.id, keys.join(",")), title: format!("{} work in {} at once", titles.join(" and "), lane.callsign), url: String::new(), text: lane.path.clone(), todo: None })
 }
 
+/// Each orchestrator's session by its key, as its runs have it (`Track::thread`), with when it last
+/// looked: for the engine to mark its session before reading and composing it (engine.rs
+/// `with_orchestrators`), so what Jev reads and the board works out from it go by it. `mark` puts
+/// it on again once the schedules' items have it as their next runs find it.
+pub fn sessions(file: &File, runs: &Runs) -> std::collections::HashMap<String, crate::model::Orchestrator> {
+    let mut out = std::collections::HashMap::new();
+    for s in &file.schedules {
+        let (Some(scope), Some(t)) = (&s.orchestrates, runs.of.get(&s.id)) else { continue };
+        let Some(key) = t.thread.clone() else { continue };
+        let looked_at = looked_at(t.runs.iter());
+        out.insert(key, crate::model::Orchestrator { schedule: s.id.clone(), project: scope.project.clone(), paused: s.paused, looked_at });
+    }
+    out
+}
+
+/// When an orchestrator last looked: its latest run that went to a session.
+fn looked_at<'a>(runs: impl Iterator<Item = &'a RunRecord>) -> Option<i64> {
+    runs.filter(|r| matches!(r.outcome, Outcome::Started | Outcome::Sent | Outcome::Resumed | Outcome::Queued)).map(|r| r.at).max()
+}
+
 /// Marks each orchestrator's session as its own (`Session::orchestrator`): the one it keeps going,
 /// as its next run finds it, with when it last looked (its latest run that went to a session), which
 /// every window and device then says without the schedules.
 pub fn mark(lanes: &mut [Lane], items: &[Item]) {
     for i in items {
         let (Some(scope), Some(key)) = (&i.schedule.orchestrates, &i.thread) else { continue };
-        let looked_at = i.runs.iter().filter(|r| matches!(r.outcome, Outcome::Started | Outcome::Sent | Outcome::Resumed | Outcome::Queued)).map(|r| r.at).max();
+        let looked_at = looked_at(i.runs.iter());
         for s in lanes.iter_mut().flat_map(|l| l.sessions.iter_mut()).filter(|s| &s.key == key) {
-            crate::board::apply_orchestrator(s, crate::model::Orchestrator { schedule: i.schedule.id.clone(), project: scope.project.clone(), paused: i.schedule.paused, looked_at });
+            s.orchestrator = Some(crate::model::Orchestrator { schedule: i.schedule.id.clone(), project: scope.project.clone(), paused: i.schedule.paused, looked_at });
         }
     }
 }
@@ -365,7 +385,7 @@ pub fn mark(lanes: &mut [Lane], items: &[Item]) {
 mod tests {
     use super::*;
     use crate::model::{Harness, PrItem, PrState};
-    use crate::schedules::{File, Item};
+    use crate::schedules::{File, Item, Runs, Track};
 
     const NOW: i64 = 1_800_000_000_000;
 
@@ -486,6 +506,17 @@ mod tests {
         assert_eq!(ids(found(&linked, &file, s, NOW, &[])), vec!["shared:/w:claude:claude:a,claude:claude:b"]);
         let main = Board { lanes: vec![Lane { origin: crate::model::Origin::Main, ..lane("Web", "/w", two) }], ..Board::default() };
         assert!(found(&main, &file, s, NOW, &[]).is_empty());
+    }
+
+    #[test]
+    fn its_session_is_known_from_its_runs_before_the_board_is() {
+        let file = File { schedules: vec![orch("web", Some("Web")), orch("plain", None)], ..File::default() };
+        let ran = |at: i64, outcome: Outcome| RunRecord { at, outcome, ..RunRecord::default() };
+        let runs = Runs { of: [("web".to_string(), Track { thread: Some("claude:claude:t".into()), runs: vec![ran(10, Outcome::Started), ran(20, Outcome::Skipped)], ..Track::default() })].into(), ..Runs::default() };
+        let by = sessions(&file, &runs);
+        assert_eq!(by.len(), 1, "one with no session yet has none");
+        let o = &by["claude:claude:t"];
+        assert_eq!((o.schedule.as_str(), o.project.as_deref(), o.looked_at), ("web", Some("Web"), Some(10)));
     }
 
     #[test]

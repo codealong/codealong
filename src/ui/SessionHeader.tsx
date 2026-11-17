@@ -570,7 +570,8 @@ export function SessionHeader({ lane, session: s, apps, now, onOpen, onShowLane,
       {back && <PanelBack back={back} />}
       {lineage?.from && <KinRow kin={lineage.from} now={now} parent onShow={onShowSession} onMenu={onSessionMenu} />}
       {!lineage?.from && s.helper?.pr && <ReviewOf pr={s.helper.pr} yours={!!s.helper.yours} prs={prs} onOpenPr={onOpenPr} />}
-      {s.orchestrator && <OrchestratorOf o={s.orchestrator} now={now} onShow={onShowSchedule} />}
+      {/* Another machine's schedule isn't in this one's Schedules view. */}
+      {s.orchestrator && <OrchestratorOf o={s.orchestrator} now={now} onShow={device ? undefined : onShowSchedule} />}
       {!s.orchestrator && !lineage?.from && !s.helper?.pr && schedule && <FromSchedule schedule={schedule} onShow={onShowSchedule} />}
       <div className="ca-sessinsp-top">
         <SessionGlyph s={s} size={14} />

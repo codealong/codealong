@@ -123,7 +123,7 @@ fn moment(s: &Session, now: i64, recent: bool) -> Option<(Kind, String)> {
     } else if turn_ended(s) {
         // A helper's last reply is for its agent to read (unless you're talking to it), a
         // headless run's for what ran it, and an orchestrator's is its digest of what others want
-        // of you, which wait on you on their own (board.rs `apply_orchestrator`):
+        // of you, which wait on you on their own (board.rs `quiet_orchestrator`):
         // what it asks isn't asked of you, and a script's hundreds of runs would each be a read. A
         // turn its harness ended (the connection lost, a usage limit, cut off) has an error for a
         // reply, which Jev would take for the agent being blocked.
