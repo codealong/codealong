@@ -43,6 +43,7 @@
         "color": "teal",
         "kind": "mac",
         "automations": "first",
+        "load": { "level": "calm", "perCpu": 0.3, "cpus": 8, "memoryFree": 60, "memoryShort": false },
         "projects": [
           {
             "name": "Northwind",

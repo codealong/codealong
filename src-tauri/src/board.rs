@@ -3156,6 +3156,7 @@ pub fn compose(inp: Inputs) -> Board {
         pinned_repos: Vec::new(),
         prs: pr_list,
         github_login: github_login.map(str::to_string),
+        load: None,
         theme: Default::default(),
         zoom: crate::zoom::ACTUAL,
         glass: false,

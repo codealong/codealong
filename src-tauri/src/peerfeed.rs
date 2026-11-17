@@ -424,7 +424,7 @@ mod tests {
     }
 
     fn info(name: &str) -> DeviceInfo {
-        DeviceInfo { name: name.into(), app: "0.1.0".into(), remote_control: false, loading: false, shares: None }
+        DeviceInfo { name: name.into(), app: "0.1.0".into(), remote_control: false, loading: false, shares: None, load: None }
     }
 
     #[test]

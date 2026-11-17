@@ -87,6 +87,7 @@ import { place } from '../talk';
 import { boardAhead, sendAhead, useAhead } from '../ahead';
 import { filesToAttach, keepFiles, useFileDrop } from '../attachInput';
 import { deviceLabel, floatingLanes, shortOf } from '../devices';
+import { CALMER_CHORD, calmerMachine, loadSentence, type Calmer } from '../machineLoad';
 import { useDeviceLanes, useObserve } from '../useDevices';
 import { usePerf } from '../perf';
 import { showContextMenu, type MenuSpec } from '../contextMenu';
@@ -139,6 +140,7 @@ import { agentMenuSections, placeIcon } from './StartControls';
 import { Button, CheckBox, Chip, cx, Icon, Kbd, Mark, Marked, SaidText, STATUS_WORD, SessionEmblem, SessionGlyph, StatusGlyph } from './primitives';
 import { SnoozeChip } from './LaneRow';
 import { DeviceBadge } from './DeviceBadge';
+import { LoadTag } from './LoadTag';
 import { ProjectPrefix, ProjectShown } from './ProjectSaid';
 import { projectForDigit, projectKey } from './ProjectSwitcher';
 import { usePrLinks } from './PrLink';
@@ -157,7 +159,7 @@ import { useStartChoice, useStartPicks } from '../useStartChoice';
 import { findFor } from '../threadFind';
 import { useTextSearch } from '../useTextSearch';
 import { cardHeight, HEIGHT, LISTEN_HEIGHT, MARGIN, useQuickSize } from './useQuickSize';
-import { bare, chordPressed, cmd, emacsCtrl, held as modsHeld, keysIn } from '../platform';
+import { bare, chordKeys, chordPressed, cmd, emacsCtrl, held as modsHeld, keysIn } from '../platform';
 
 declare global {
   interface Window {
@@ -911,6 +913,14 @@ export function Quick() {
     (improve && !repoPicked ? null : startLaneIn((repoPicked ?? repoList[0])?.lanes ?? [], false, isolatesIn));
   // The repo it starts in, whose worktrees the worktree menu lists.
   const repoNow = lane && !lane.startsChats ? (repoList.find((r) => r.key === repoKey(lane)) ?? null) : null;
+  // While the machine a start goes to is strained, a calm one with its repo (or chats), which
+  // ⇧⌘D or the note's button switches to (machineLoad.ts): never by itself. Not in Send to, nor
+  // for what starts on this machine alone (listening, improving Codealong, a prompt that starts
+  // with a skill's name, known here or still being looked up, which another machine's start would
+  // take as words).
+  const startsOnName = deviceInfo?.name ?? (devices?.me.name || 'This machine');
+  const startsOnLoad = deviceNow ? deviceInfo?.load : board?.load;
+  const calmer = devicesOn && !inSendTo && !listen && !improve && !skillNow && !text.trimStart().startsWith('/') ? calmerMachine({ on: deviceNow, lane }, { name: devices?.me.name || 'This machine', load: board?.load, lanes: board?.lanes ?? [] }, macs, devices?.lanes ?? []) : null;
   /** A suggested start's agent as it would start, among `only` when it needs a service only they
    *  reach (route.ts `resolveSuggestedAgent`). */
   const choiceForAgent = (suggestedAgent: string | undefined, overWorktree: boolean, only: string[] | null = null) =>
@@ -2134,6 +2144,12 @@ export function Quick() {
         else openSendTo();
         return;
       }
+      // ⇧⌘D: the calm machine offered while this start's is strained.
+      if (calmer && chordPressed(CALMER_CHORD, e)) {
+        e.preventDefault();
+        takeCalmer(calmer);
+        return;
+      }
       // The menus for a new session are put away in Send to, with their keys.
       // And set to listen, all but the repo's and the worktree's: its session starts on this
       // Mac, on the account Settings names for meetings.
@@ -2353,7 +2369,7 @@ export function Quick() {
       {
         key: 'macs',
         options: [
-          { id: HERE, text: `${here} this machine this mac`, label: here, detail: `This machine · ${count(null)}`, lead: <Icon name="device-desktop" size={14} /> },
+          { id: HERE, text: `${here} this machine this mac`, label: here, detail: `This machine · ${count(null)}`, lead: <Icon name="device-desktop" size={14} />, trail: board?.load ? <LoadTag load={board.load} name={here} /> : undefined },
           ...macs.map((d) => {
             const { away, off, title } = macUnavailable(d, now);
             return {
@@ -2362,6 +2378,7 @@ export function Quick() {
               label: d.name,
               detail: away ?? off ?? count(d.short),
               lead: <i className={`ca-labeldot is-${d.color}`} aria-hidden="true" />,
+              trail: d.load && !away ? <LoadTag load={d.load} name={d.name} /> : undefined,
               disabled: !!(away || off),
               title,
             };
@@ -2369,15 +2386,15 @@ export function Quick() {
         ],
       },
     ];
-  }, [devices, macs, board?.lanes, current, now]);
+  }, [devices, macs, board?.lanes, board?.load, current, now]);
 
-  const pickDevice = (id: string) => {
-    const d = id === HERE ? null : id;
+  /** Starts on machine `d` (null for this one), in worktree or repo `laneTo` there when given. */
+  const toDevice = (d: string | null, laneTo: string | null = null) => {
     if (d !== deviceNow) {
       // Its worktrees and accounts are its own.
       dropAdding();
       setDevice(d);
-      setLaneId(null);
+      setLaneId(laneTo);
       setAgent(null);
       setPlace(null);
       // A Mac that didn't answer is asked again.
@@ -2385,6 +2402,13 @@ export function Quick() {
     }
     setPicker(null);
     refocus();
+  };
+  const pickDevice = (id: string) => toDevice(id === HERE ? null : id);
+  /** The calm machine offered, in the checkout of the start's repo there (or its chats), the
+   *  start row picked so that ⏎ starts it. */
+  const takeCalmer = (c: Calmer) => {
+    toDevice(c.on, c.lane.id);
+    setActiveKey(COMPOSE);
   };
 
   /** A suggestion's row: what ⏎ does, and where. */
@@ -3027,6 +3051,17 @@ export function Quick() {
                 Add a {CODEALONG_PROJECT} project
               </Button>
             )}
+          </p>
+        )}
+        {calmer && startsOnLoad && !error && !info && !improveNote && (
+          <p className="ca-quick-error is-info ca-quick-calmer" role="status">
+            <Icon name="gauge" size={14} />
+            <span>
+              {loadSentence(startsOnLoad, startsOnName)} {calmer.name} is calm{calmer.lane.startsChats ? '' : ` and has ${calmer.lane.repo}`}.
+            </span>
+            <Button size="sm" title={loadSentence(calmer.load, calmer.name)} onMouseDown={(e) => e.preventDefault()} onClick={() => takeCalmer(calmer)}>
+              Use {deviceLabel(calmer.name)} <Kbd keys={chordKeys(CALMER_CHORD)} />
+            </Button>
           </p>
         )}
         {!inSendTo && (

@@ -203,6 +203,10 @@ pub struct Board {
     pub prs: Vec<PrItem>,
     /// Who `gh` is signed in as.
     pub github_login: Option<String>,
+    /// How busy this machine is (load.rs), which your other machines are told too (peers.rs);
+    /// none until it's first read.
+    #[serde(default)]
+    pub load: Option<Load>,
     /// Light, dark, or following macOS, from config.toml.
     pub theme: Theme,
     /// How big the board's windows draw, in percent, from config.toml (zoom.rs).

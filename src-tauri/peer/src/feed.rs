@@ -13,7 +13,7 @@ use std::collections::{HashMap, HashSet};
 
 use serde::{Deserialize, Serialize};
 
-use crate::model::{Lane, Session, Usage};
+use crate::model::{Lane, Load, Session, Usage};
 use crate::pr::PrCard;
 use crate::schedules::Shared;
 
@@ -33,6 +33,10 @@ pub struct DeviceInfo {
     /// and from machines before 2026-10-22, which share none and run their own.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub shares: Option<Rank>,
+    /// How busy it is (the engine's load.rs), for choosing a machine to start a session on: none
+    /// from a phone, and from machines before 2026-11-17.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub load: Option<Load>,
 }
 
 /// Where a machine stands for the automations your machines share: a backup runs one only when

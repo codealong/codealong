@@ -540,6 +540,15 @@ html.is-quick body {
   flex: none;
   margin-left: auto;
 }
+/* The machine a start goes to is strained, and a calm one has its repo: the words, and the button
+   that switches to it (machineLoad.ts). */
+.ca-quick-calmer {
+  align-items: center;
+}
+.ca-quick-calmer .ca-btn {
+  flex: none;
+  margin-left: auto;
+}
 /* A dialog the panel opens (Switch to Codealong Dev?, DevSetupDialog.tsx) covers the card rather
    than the window: the window is clear round the card for its shadow, and a scrim there would
    darken the desktop. */

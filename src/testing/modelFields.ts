@@ -440,6 +440,15 @@ export type Usage = Holds<Same<
   Names<Types.Usage>
 >>;
 
+export type Load = Holds<Same<
+  | "cpus"
+  | "level"
+  | "memoryFree"
+  | "memoryShort"
+  | "perCpu",
+  Names<Types.Load>
+>>;
+
 export type ProjectSummary = Holds<Same<
   | "lanes"
   | "name"
@@ -496,6 +505,7 @@ export type Board = Holds<Same<
   | "lanes"
   | "listenShortcut"
   | "listenings"
+  | "load"
   | "loading"
   | "logoStatus"
   | "mainWindowShortcut"
@@ -812,6 +822,7 @@ export type DeviceView = Holds<Same<
   | "kind"
   | "lastSeen"
   | "linkedBack"
+  | "load"
   | "loading"
   | "name"
   | "online"

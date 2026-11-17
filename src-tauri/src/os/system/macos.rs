@@ -28,6 +28,7 @@ pub fn system() -> System {
         compressed: sysctl::<u64>("vm.compressor_bytes_used"),
         swap_total: swap.map_or(0, |s| s.xsu_total),
         swap_used: swap.map_or(0, |s| s.xsu_used),
+        pressure: sysctl::<i32>("kern.memorystatus_vm_pressure_level").and_then(super::Pressure::of_level),
     }
 }
 

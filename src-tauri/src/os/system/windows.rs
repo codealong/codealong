@@ -27,6 +27,7 @@ pub fn system() -> System {
         compressed: None,
         swap_total,
         swap_used: swap_total - swap_free,
+        pressure: None,
     }
 }
 

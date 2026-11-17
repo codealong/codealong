@@ -4647,6 +4647,26 @@ machine it prefers (see *Schedules*). Settings › Devices says where this
 machine stands for those, a first choice, or a backup that runs them only while no first choice
 can (asleep, closed or off), and each linked machine's card says where it stands.
 
+Each machine reads how busy it is every half a minute, from its load average over five minutes for
+each CPU and from how short of memory it is (macOS's memory pressure; on Linux and Windows, how
+much is free), and tells your other machines in a word: calm (CPUs to spare), busy (every CPU has
+work, or memory is getting short) or strained (four threads or more for each CPU, three of
+them waiting, or memory critical), with a little slack between the levels so a machine near a line doesn't change
+at each reading. Windows keeps no load average, so a Windows machine goes by its memory alone. The
+quick panel's machine menu (⌘D) says each machine's word, this one's too, with its numbers on
+hover, and so does each linked machine's card in Settings › Devices while it's connected; the
+usage bar says *Machine strained* while this one is. When the machine a start goes to is strained
+and another that's calm has a checkout of the same GitHub repo (whatever each calls it, a renamed
+repo too; a folder with no GitHub repo by its project and name), or for a general chat any calm
+machine, the quick panel says so above its menus, and ⇧⌘D, or the note's button, switches the
+start to that machine's checkout (its main one when it has one); ⏎ then starts it. It never
+switches by itself: the worktree you picked, its changes and its terminal are on the machine you
+picked. A machine whose remote control is off isn't offered, nor a busy one, which would only trade
+one wait for another, nor anything while the prompt starts with a skill's `/name`, which another
+machine would take as words. A machine just reconnected says its load once its first feed has come. `codealong devices` says each machine's
+load, this one's on its first line, and `--json` has the numbers, for an agent choosing where to
+start a helper. Machines on builds before this don't say theirs.
+
 ## For agents
 
 The `codealong` command and a skill that tells an agent when to use it. `codealong whoami` says

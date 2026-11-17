@@ -901,6 +901,24 @@ export interface Usage {
   rateLimited?: boolean;
 }
 
+/** How busy a machine is, as it reads itself every half a minute (load.rs): what a session
+ *  started there would share it with. Its numbers are rounded. */
+export interface Load {
+  level: LoadLevel;
+  /** Its load average over five minutes for each CPU: at 1 every CPU is busy. Null where the OS
+   *  keeps none (Windows). */
+  perCpu: number | null;
+  cpus: number;
+  /** How much of its memory is free, in percent. */
+  memoryFree: number | null;
+  /** Memory is getting short (macOS's memory pressure isn't normal). */
+  memoryShort: boolean;
+}
+
+/** calm: CPUs to spare; busy: every CPU busy or memory getting short; strained: far more work
+ *  than CPUs, or memory critical, so everything there waits. */
+export type LoadLevel = 'calm' | 'busy' | 'strained';
+
 /** Where an account stands on its provider training on what it sends (training.rs). */
 export interface Training {
   account: string;
@@ -1603,6 +1621,9 @@ export interface DeviceView {
   kind: 'mac' | 'phone' | 'tablet';
   /** Where it stands for the automations your machines share; none from one that shares none. */
   automations?: Rank | null;
+  /** How busy it is while it's connected (load.rs there); null from a phone, and from a machine
+   *  before 2026-11-17. */
+  load?: Load | null;
   /** Its projects as it names them, from its worktrees as they came (peers.rs `projects_there`). */
   projects?: ProjectThere[];
 }
@@ -1875,6 +1896,9 @@ export interface Board {
   prs: PrItem[];
   /** Who `gh` is signed in as. */
   githubLogin: string | null;
+  /** How busy this machine is (load.rs), none until it's first read. Absent from engines of
+   *  older builds. */
+  load?: Load | null;
   /** True while `[debug] perf_log` is on: the window reports its timings to the perf log. */
   perfLog?: boolean;
   /** From config.toml. */

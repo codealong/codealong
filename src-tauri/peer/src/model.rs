@@ -1578,6 +1578,36 @@ pub struct Usage {
     pub rate_limited: bool,
 }
 
+/// How busy a machine is, as it reads itself every half a minute (the engine's load.rs): what a
+/// session started there would share it with. Its numbers are rounded, so it changes, and goes to
+/// your other machines, only when they move.
+#[derive(Serialize, Deserialize, Clone, PartialEq, Debug)]
+#[serde(rename_all = "camelCase")]
+pub struct Load {
+    pub level: LoadLevel,
+    /// Its load average over the last five minutes for each of its CPUs: at 1 every CPU is busy,
+    /// at 3 two more threads wait for each. None where the OS keeps no load average (Windows).
+    pub per_cpu: Option<f64>,
+    pub cpus: u32,
+    /// How much of its memory is free, in percent, as the OS counts it.
+    pub memory_free: Option<u32>,
+    /// macOS says memory is getting short (its memory pressure isn't normal).
+    #[serde(default)]
+    pub memory_short: bool,
+}
+
+/// A machine's load in a word, from the most room to the least.
+#[derive(Serialize, Deserialize, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Debug)]
+#[serde(rename_all = "lowercase")]
+pub enum LoadLevel {
+    /// CPUs to spare and memory enough: a session started there gets going at once.
+    Calm,
+    /// Every CPU busy, or memory getting short, but keeping up.
+    Busy,
+    /// Far more work than CPUs, or memory critical: everything there waits, a new session too.
+    Strained,
+}
+
 #[cfg(test)]
 mod tests {
     #[test]

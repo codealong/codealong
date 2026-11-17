@@ -2451,6 +2451,7 @@ export function App() {
         onUsage={(account) => setUsageOf({ account: account ?? null })}
         onSignIn={startSignIn}
         training={board?.training}
+        load={board?.load}
         onStopTraining={turnOffTraining}
         onOpenUrl={(url) => openUrl(url).catch((e: unknown) => setToast(String(e)))}
         onReorder={(accounts) =>

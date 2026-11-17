@@ -196,6 +196,10 @@ pub struct MeView {
     pub iroh: String,
     pub remote_control: bool,
     pub error: Option<String>,
+    /// How busy this device is (load.rs), which the server puts in for the command
+    /// (`DevicesSummary`); the windows read it from the board.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub load: Option<crate::model::Load>,
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, Default)]
@@ -222,6 +226,10 @@ pub struct DeviceView {
     pub kind: String,
     /// Where it stands for the automations your machines share; none from one that shares none.
     pub automations: Option<codealong_peer::feed::Rank>,
+    /// How busy it is, as its feeds last said (load.rs there), once a feed has come on the
+    /// connection that's open (`caught_up`): one that's away, or only just back, may be anything
+    /// by now. None from a phone, and from a machine before 2026-11-17.
+    pub load: Option<crate::model::Load>,
     /// Its projects as it names them, from its worktrees as they came (`projects_there`): Settings ›
     /// Devices' Sync projects asks an agent to match this device's to them (src/agentTasks.ts).
     #[serde(skip_serializing_if = "Vec::is_empty")]
@@ -986,7 +994,7 @@ impl Inner {
     }
 
     fn device_info(&self, st: &State, board: &Board) -> DeviceInfo {
-        DeviceInfo { name: self.my_name(st), app: APP.into(), remote_control: st.cfg.remote_control, loading: board.loading, shares: Some(st.cfg.automations) }
+        DeviceInfo { name: self.my_name(st), app: APP.into(), remote_control: st.cfg.remote_control, loading: board.loading, shares: Some(st.cfg.automations), load: board.load.clone() }
     }
 
     fn view(&self, st: &State) -> DevicesView {
@@ -1010,6 +1018,7 @@ impl Inner {
             iroh: st.iroh.clone(),
             remote_control: st.cfg.remote_control,
             error: st.error.clone().or_else(|| st.tailnet_error.clone()),
+            load: None,
         };
         let view_of = |l: &Linked| {
                 let conn = st.conns.get(&l.key);
@@ -1030,6 +1039,7 @@ impl Inner {
                     usage: cached.map(|c| c.replica.usage.clone()).unwrap_or_default(),
                     kind: l.kind.clone().unwrap_or_else(|| peerproto::MAC.into()),
                     automations: cached.and_then(|c| c.replica.device.shares),
+                    load: cached.filter(|c| caught_up(conn.map(|c| c.since), c.fed_at)).and_then(|c| c.replica.device.load.clone()),
                     projects: cached.map(|c| projects_there(&c.replica.lanes)).unwrap_or_default(),
                 }
             };
@@ -2398,6 +2408,22 @@ mod tests {
         let said: Vec<(&str, bool, &str)> = queue.iter().map(|s| (s.id.as_str(), s.closed, s.turns.first().map_or("", |t| t.answer.as_str()))).collect();
         // The latest of each, after what happened before it: none is open at the end.
         assert_eq!(said, [("a", false, "Because"), ("b", false, "Yes"), ("", false, ""), ("a", true, "Because it is.")]);
+    }
+
+    #[test]
+    fn a_linked_machine_says_how_busy_it_is_and_follows_it() {
+        use crate::model::{Load, LoadLevel};
+        let load = |level, per_cpu| Load { level, per_cpu: Some(per_cpu), cpus: 8, memory_free: Some(50), memory_short: false };
+        let a = device("Book", vec![]);
+        let b = device("Mini", vec![]);
+        b.board.lock().unwrap().load = Some(load(LoadLevel::Calm, 0.3));
+        join(&a, &b);
+        link(&a, &b);
+        until("a to hear b is calm", || a.peers.view().devices.first().is_some_and(|d| d.load == Some(load(LoadLevel::Calm, 0.3))));
+        // A change of b's load alone goes out with its next board.
+        b.board.lock().unwrap().load = Some(load(LoadLevel::Strained, 27.0));
+        b.peers.publish(&b.board.lock().unwrap());
+        until("a to hear b is strained", || a.peers.view().devices.first().is_some_and(|d| d.load.as_ref().is_some_and(|l| l.level == LoadLevel::Strained)));
     }
 
     #[test]

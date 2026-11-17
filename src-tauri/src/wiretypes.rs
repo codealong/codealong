@@ -64,7 +64,7 @@ fn pairs() -> Vec<Pair> {
     }
     let mut pairs = same![
         Session, Emblem, Artifact, Helper, Orchestrator, SessionMode, ContextUse, QueuedMessage, SessionLimit, ConnectionLost, ApiError, Suggestions, SideAnswer, Raised, AgentSeen, BackgroundTask, RunningIn, SessionOrigin, ChromeTabs,
-        SessionInsight, Finished, Checks, Label, PrLabel, Pr, StaleApproval, GitInfo, Target, Lane, Cleanup, Preview, PreviewServer, DeviceTag, Meter, Usage, ProjectSummary, AccountInfo, Notice, Board,
+        SessionInsight, Finished, Checks, Label, PrLabel, Pr, StaleApproval, GitInfo, Target, Lane, Cleanup, Preview, PreviewServer, DeviceTag, Meter, Usage, Load, ProjectSummary, AccountInfo, Notice, Board,
         TodoHint, PrItem, LastReview, AutoReview, ReviewPart, PrSession,
     ];
     pairs.extend(others());

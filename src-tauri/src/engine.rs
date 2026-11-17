@@ -1132,6 +1132,7 @@ fn snapshot_engine(with_github: bool, with_usage: bool) -> Engine {
     e.load_reusable();
     e.previews.servers = previews::scan_once(&e.server_roots());
     lap("previews", &t);
+    e.load.on_tick(now_ms(), crate::os::system::system);
     e.loading = false;
     let _ = e.compose();
     lap("1st paint", &t);
@@ -1452,6 +1453,8 @@ struct Engine {
     processes_inflight: bool,
     /// When to look for sessions that wait for a tab of your terminal (`launch::show_unlocked`).
     tab_looks: launch::TabLooks,
+    /// How busy this machine is (load.rs), read every half a minute.
+    load: crate::load::Reading,
     /// When each terminal tab was last used, a redraw of every tab not counted, for Close stale
     /// terminals (`stale::Uses`), shared with the handle. Only the app's engine keeps it and
     /// writes it; a snapshot's or a test's has none.
@@ -1599,6 +1602,7 @@ impl Engine {
             processes: None,
             processes_inflight: false,
             tab_looks: launch::TabLooks::default(),
+            load: crate::load::Reading::default(),
             terminal_use: None,
             team_files: teamfile::TeamFiles::default(),
             training: training::TrainingPoll::default(),
@@ -3381,6 +3385,9 @@ fn waiting_call(s: &Session, account: Option<&config::AccountCfg>) -> Option<Str
         self.read_training();
         self.read_mcp();
         self.read_screens();
+        if self.load.on_tick(now_ms(), crate::os::system::system) {
+            self.dirty = true;
+        }
         // Sessions that started in tmux while the screen was locked open in your terminal once
         // it isn't, those started while Codealong was closed too (`launch::TabLooks`).
         if crate::os::is_macos() && self.tab_looks.on_tick(launch::screen_locked(), launch::take_marked()) {
@@ -4268,6 +4275,7 @@ fn waiting_call(s: &Session, account: Option<&config::AccountCfg>) -> Option<Str
         board.listenings = listenings;
         board.meeting = crate::meetings::offered();
         board.meeting_soon = crate::meetings::soon();
+        board.load = self.load.now();
         board.github_polled = self.github.polled();
         board.github_current = self.github.current();
         board.when_limited = self.cfg.limits.when_hit;

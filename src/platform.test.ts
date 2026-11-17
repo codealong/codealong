@@ -5,6 +5,7 @@ import { appKeyInTerminal, capsSaid, chordKeys, chordPressed, chordSigns, cmd, c
 import { AWAY_CHORD, QUEUE_CHORDS } from './queue';
 import { RELOAD_CHORD } from './reload';
 import { SNOOZE_CHORDS, SUGGESTED_CHORD } from './snooze';
+import { CALMER_CHORD } from './machineLoad';
 
 afterEach(() => setPlatform(null));
 
@@ -23,6 +24,7 @@ const APP_CHORDS = [
   ...Object.values(VIEW_CHORDS),
   AWAY_CHORD,
   RELOAD_CHORD,
+  CALMER_CHORD,
   ...[0, 1, 2, 3, 4, 5, 6, 7, 8, 9].map((d) => `Alt+Cmd+${d}`),
   ...[1, 2, 3, 4, 5, 6, 7, 8, 9].map((d) => `Cmd+${d}`),
   ...['Ctrl+Cmd+S', 'Ctrl+Cmd+Up', 'Ctrl+Cmd+Down', 'Ctrl+Tab', 'Ctrl+Shift+Tab', 'Ctrl+Enter'],

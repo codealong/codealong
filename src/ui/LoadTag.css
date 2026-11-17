@@ -1,0 +1,31 @@
+/* How busy a machine is (LoadTag.tsx): a dot and a word, green, amber or red. */
+.ca-load {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+  font: var(--type-caption-strong);
+  color: var(--ink-2);
+  white-space: nowrap;
+}
+.ca-load-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  flex: none;
+  background: var(--logo-working);
+}
+.ca-load.is-busy .ca-load-dot {
+  background: var(--attn-solid);
+}
+.ca-load.is-strained .ca-load-dot {
+  background: var(--alert-solid);
+}
+/* In the usage bar, only while this machine is strained: a tag of the alert's color. */
+.ca-load.is-bar {
+  height: 20px;
+  padding: 0 7px;
+  box-sizing: border-box;
+  border-radius: var(--radius-xs);
+  background: var(--alert-tint);
+  color: var(--alert);
+}

@@ -21,6 +21,7 @@ pub fn system() -> System {
         compressed: None,
         swap_total,
         swap_used: swap_total.saturating_sub(swap_free),
+        pressure: None,
     }
 }
 

@@ -33,6 +33,33 @@ pub struct System {
     pub compressed: Option<u64>,
     pub swap_total: u64,
     pub swap_used: u64,
+    /// How short of memory macOS says it is, as Activity Monitor's Memory Pressure colors it.
+    /// Only macOS says.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub pressure: Option<Pressure>,
+}
+
+/// macOS's memory pressure: `kern.memorystatus_vm_pressure_level`, which is 1 when memory is
+/// enough, 2 when macOS warns that it's getting short (it compresses and swaps more), and 4 when
+/// it's critical (it kills what it can).
+#[derive(Serialize, Clone, Copy, Debug, PartialEq, Eq)]
+#[serde(rename_all = "lowercase")]
+pub enum Pressure {
+    Normal,
+    Warn,
+    Critical,
+}
+
+impl Pressure {
+    /// The sysctl's value as a pressure; None for one it doesn't use.
+    pub fn of_level(level: i32) -> Option<Pressure> {
+        match level {
+            1 => Some(Pressure::Normal),
+            2 => Some(Pressure::Warn),
+            4 => Some(Pressure::Critical),
+            _ => None,
+        }
+    }
 }
 
 /// How many files the server may hold open: one for each window, hook and command waiting on

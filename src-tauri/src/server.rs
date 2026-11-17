@@ -590,7 +590,11 @@ fn handle_request(ctx: &Ctx, req: serde_json::Result<Request>) -> Reply {
         Request::CloseIdle { keys, after_ms, archive } => answered(crate::idle::close_on(engine, &keys, after_ms, archive)),
         Request::Start { spec } => answered(crate::start::start_here(engine, &spec).map_err(crate::util::words)),
         Request::PrReview { pr, account } => answered(crate::autoreview::review_now(engine, &ctx.reviews, &pr, account.as_deref()).map(|()| crate::autoreview::begun(&ctx.reviews, &pr))),
-        Request::Devices => Reply::ok(DevicesSummary::of(peers.view())),
+        Request::Devices => {
+            let mut view = DevicesSummary::of(peers.view());
+            view.me.load = engine.read(|b| b.load.clone());
+            Reply::ok(view)
+        }
         Request::Elsewhere => Reply::ok(peers.view().lanes),
         Request::DeviceLink { key } => answered(peers.link(&key)),
         Request::DeviceAnswer { key, accept } => answered(peers.answer_link(&key, accept)),

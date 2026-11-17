@@ -3361,18 +3361,20 @@ fn devices_list(view: &server::DevicesSummary, json: bool) -> Result<()> {
         // As a JSON value, whose keys come out in order, as the app's reply's did.
         return print_json(&serde_json::to_value(view)?);
     }
+    let me = &view.me;
     if !view.enabled {
-        println!("Devices is off on this device: turn it on in Settings › Devices, or [devices] enabled = true in config.toml.");
+        let load = me.load.as_ref().map(|l| format!(" This device's load: {}.", crate::load::words(l))).unwrap_or_default();
+        println!("Devices is off on this device: turn it on in Settings › Devices, or [devices] enabled = true in config.toml.{load}");
         return Ok(());
     }
-    let me = &view.me;
     let tailscale = match me.tailscale.as_str() {
         "running" => format!("on {}{}", me.tailnet.as_deref().unwrap_or_default(), me.address.as_deref().map(|a| format!(", listening at {a}")).unwrap_or_default()),
         "missing" => "not installed".into(),
         "stopped" => "not connected".into(),
         _ => "off".into(),
     };
-    println!("This device: {} ({}). Tailscale: {tailscale}. iroh: {}. Remote control: {}.", me.name, me.short, me.iroh, if me.remote_control { "on" } else { "off" });
+    let load = me.load.as_ref().map(|l| format!(" Load: {}.", crate::load::words(l))).unwrap_or_default();
+    println!("This device: {} ({}). Tailscale: {tailscale}. iroh: {}. Remote control: {}.{load}", me.name, me.short, me.iroh, if me.remote_control { "on" } else { "off" });
     if let Some(e) = &me.error {
         println!("{e}");
     }
@@ -3380,24 +3382,25 @@ fn devices_list(view: &server::DevicesSummary, json: bool) -> Result<()> {
     for d in &view.devices {
         let via = d.device.via.and_then(|v| serde_json::to_value(v).ok()).and_then(|v| v.as_str().map(String::from)).unwrap_or_default();
         let state = if d.device.online { format!("connected, {via}") } else { d.device.last_seen.map(|t| format!("last seen {} ago", ago(now_ms() - t))).unwrap_or_else(|| "not connected".into()) };
-        rows.push(vec![d.device.name.clone(), d.device.short.clone(), state, if d.device.remote_control { "on".into() } else { "off".into() }, d.worktrees.to_string(), d.sessions.to_string(), d.needs.to_string()]);
+        let load = d.device.load.as_ref().map(crate::load::words).unwrap_or_default();
+        rows.push(vec![d.device.name.clone(), d.device.short.clone(), state, if d.device.remote_control { "on".into() } else { "off".into() }, d.worktrees.to_string(), d.sessions.to_string(), d.needs.to_string(), load]);
     }
     // Phones only watch: no worktrees, and remote control is this device's to give, not theirs.
     for p in &view.phones {
         let kind = if p.kind == "tablet" { "tablet" } else { "phone" };
         let state = if p.online { format!("{kind}, connected") } else { p.last_seen.map(|t| format!("{kind}, last seen {} ago", ago(now_ms() - t))).unwrap_or_else(|| format!("{kind}, not connected")) };
-        rows.push(vec![p.name.clone(), p.short.clone(), state, String::new(), String::new(), String::new(), String::new()]);
+        rows.push(vec![p.name.clone(), p.short.clone(), state, String::new(), String::new(), String::new(), String::new(), String::new()]);
     }
     for f in &view.found {
-        rows.push(vec![f.name.clone(), f.short.clone(), if f.asking { format!("asked to link, code {}", f.code) } else { "on your tailnet, not linked".into() }, String::new(), String::new(), String::new(), String::new()]);
+        rows.push(vec![f.name.clone(), f.short.clone(), if f.asking { format!("asked to link, code {}", f.code) } else { "on your tailnet, not linked".into() }, String::new(), String::new(), String::new(), String::new(), String::new()]);
     }
     for a in &view.asks {
-        rows.push(vec![a.name.clone(), a.short.clone(), format!("asks to link, code {}", a.code), String::new(), String::new(), String::new(), String::new()]);
+        rows.push(vec![a.name.clone(), a.short.clone(), format!("asks to link, code {}", a.code), String::new(), String::new(), String::new(), String::new(), String::new()]);
     }
     if rows.is_empty() {
         println!("No other devices yet.");
     } else {
-        print!("{}", table_text(&["DEVICE", "ID", "STATE", "REMOTE CONTROL", "WORKTREES", "SESSIONS", "NEED YOU"], rows));
+        print!("{}", table_text(&["DEVICE", "ID", "STATE", "REMOTE CONTROL", "WORKTREES", "SESSIONS", "NEED YOU", "LOAD"], rows));
     }
     Ok(())
 }
