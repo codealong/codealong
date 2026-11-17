@@ -145,10 +145,10 @@ export function RewindDialog({ session: s, answered, questions, onRewind, onClos
   const answer = () => (p.next !== null ? p.go(p.next) : fork());
   const latest = useLatest(answer);
   // Wherever the keyboard is in the dialog, which takes it itself as it opens. The box for your
-  // own answer takes ⌘⏎ first.
+  // own answer takes ⌘⏎ first, and leaves it to the input method while it composes.
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
-      if (e.defaultPrevented || !chordPressed('Cmd+Enter', e)) return;
+      if (e.defaultPrevented || e.isComposing || !chordPressed('Cmd+Enter', e)) return;
       e.preventDefault();
       latest.current();
     };

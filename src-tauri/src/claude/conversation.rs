@@ -59,7 +59,7 @@ pub fn conversation_items(v: &Value, at: i64) -> Vec<Item> {
             let results: Vec<&Value> = parts.iter().filter(|p| p.get("type").and_then(Value::as_str) == Some("tool_result")).collect();
             // The line's `toolUseResult` is its one result's: for questions, what you answered,
             // and for an artifact, where it is.
-            let answers = if results.len() == 1 { answers_of(v.pointer("/toolUseResult/answers")) } else { Default::default() };
+            let answers = if results.len() == 1 { answers_of(v.get("toolUseResult")) } else { Default::default() };
             let link = if results.len() == 1 { artifact_of(v.get("toolUseResult")) } else { None };
             let mut out = Vec::new();
             for p in results {
@@ -517,15 +517,21 @@ fn sent_of(input: &Value, cwd: &str) -> Option<crate::harness::SentFiles> {
     (!files.is_empty()).then_some(crate::harness::SentFiles { files, caption })
 }
 
-/// Your answers as Claude Code records them on the result (`toolUseResult.answers`): each
-/// question's text to a label or words of your own, or a list where it took several. Older
-/// versions joined several into one string with commas, which is kept as it is.
-fn answers_of(v: Option<&Value>) -> std::collections::BTreeMap<String, Vec<String>> {
-    let Some(map) = v.and_then(Value::as_object) else { return Default::default() };
+/// Your answers as Claude Code records them on the result (`toolUseResult`, its `answers` beside
+/// the `questions` asked): each question's text to a label or words of your own, or a list where
+/// it took several. Older versions joined several into one string with commas, which is taken
+/// apart by the question's choices (`harness::picks_of`); a list is kept as it is, so words of
+/// your own in it stay whole, commas and all.
+fn answers_of(result: Option<&Value>) -> std::collections::BTreeMap<String, Vec<String>> {
+    let Some(map) = result.and_then(|r| r.get("answers")).and_then(Value::as_object) else { return Default::default() };
+    let asked = result.map(questions_of).unwrap_or_default();
     map.iter()
         .filter_map(|(q, a)| {
             let list: Vec<String> = match a {
-                Value::String(t) => vec![t.clone()],
+                Value::String(t) => match asked.iter().find(|x| &x.question == q) {
+                    Some(x) => crate::harness::picks_of(t.trim(), x),
+                    None => vec![t.clone()],
+                },
                 Value::Array(l) => l.iter().filter_map(Value::as_str).map(String::from).collect(),
                 _ => Vec::new(),
             };
@@ -776,6 +782,20 @@ mod tests {
         assert_eq!(fork_point_before(&path, at(4)).unwrap().as_deref(), Some("msg_2"), "the message that asked, not its result");
         assert_eq!(resent(&path, at(4), "My answers: \"Which fruit?\"=\"Pear\""), "My answers: \"Which fruit?\"=\"Pear\"");
         let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// Several picks that older versions joined into one string are taken apart by the question's
+    /// choices; a list is as Claude Code wrote it, words of your own with a comma in them whole.
+    #[test]
+    fn answers_are_read_as_picks_and_your_own_words() {
+        let questions = serde_json::json!([{ "question": "Which days?", "multiSelect": true, "options": [{ "label": "Mon" }, { "label": "Tue" }] }, { "question": "Which size?", "options": [{ "label": "Large" }] }]);
+        let result = |answers: Value| serde_json::json!({ "questions": questions, "answers": answers });
+        let read = |answers: Value| answers_of(Some(&result(answers)));
+        assert_eq!(read(serde_json::json!({ "Which days?": "Mon, Tue, only mornings" }))["Which days?"], ["Mon", "Tue", "only mornings"]);
+        assert_eq!(read(serde_json::json!({ "Which days?": ["before lunch, Mon"] }))["Which days?"], ["before lunch, Mon"]);
+        assert_eq!(read(serde_json::json!({ "Which days?": ["Tue", "before lunch, Mon"] }))["Which days?"], ["Tue", "before lunch, Mon"]);
+        // A question that takes one, or one the result doesn't list, is answered as written.
+        assert_eq!(read(serde_json::json!({ "Which size?": "Large, please", "Which color?": "Red, Blue" })), [("Which color?".to_string(), vec!["Red, Blue".to_string()]), ("Which size?".to_string(), vec!["Large, please".to_string()])].into());
     }
 
     /// An edited prompt goes with what came with it and the conversation leaves out: what you

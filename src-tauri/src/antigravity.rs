@@ -809,37 +809,11 @@ fn answers_of(result: &str, questions: &[Question]) -> std::collections::BTreeMa
         let (answer, after) = rest.split_once(&format!("\nA{}: ", k + 2)).unwrap_or((rest, ""));
         let answer = answer.trim_end();
         if answer != SKIPPED && !answer.is_empty() {
-            out.insert(q.question.clone(), picks_of(answer, q));
+            // A question that takes several joins the ones ticked with ", ", in their order,
+            // then what you wrote.
+            out.insert(q.question.clone(), crate::harness::picks_of(answer, q));
         }
         rest = after;
-    }
-    out
-}
-
-/// An answer as the choices it picked and your own words after them: a question that takes
-/// several joins the ones ticked with ", ", in their order, then what you wrote. A label with a
-/// comma of its own is still found whole.
-fn picks_of(answer: &str, q: &Question) -> Vec<String> {
-    if !q.multi_select || q.options.iter().any(|o| o.label == answer) {
-        return vec![answer.to_string()];
-    }
-    let mut out = Vec::new();
-    let mut rest = answer;
-    for o in &q.options {
-        match rest.strip_prefix(o.label.as_str()) {
-            Some("") => {
-                out.push(o.label.clone());
-                rest = "";
-            }
-            Some(after) if after.starts_with(", ") => {
-                out.push(o.label.clone());
-                rest = &after[2..];
-            }
-            _ => {}
-        }
-    }
-    if !rest.is_empty() {
-        out.push(rest.to_string());
     }
     out
 }
@@ -3363,11 +3337,6 @@ mod tests {
         assert!(items[1].output.as_deref().unwrap().starts_with('…'));
         let answers = &with_answers(Path::new("/nowhere"), Page { items, before: None, after: 0 }).items[1].answers;
         assert_eq!((answers["Which color?"][0].len(), &answers["Which days?"], &answers["Which size?"]), (long.trim_end().len(), &vec!["Mon".to_string()], &vec!["Small".to_string()]));
-        // A label with a comma of its own is found whole, among others or alone.
-        let q = Question { question: "Which?".into(), header: None, options: ["Mon, Tue", "Wed"].map(|l| codealong_peer::api::Choice { label: l.into(), description: None }).to_vec(), multi_select: true };
-        assert_eq!(picks_of("Mon, Tue, Wed", &q), ["Mon, Tue", "Wed"]);
-        assert_eq!(picks_of("Mon, Tue", &q), ["Mon, Tue"]);
-        assert_eq!(picks_of("Fri", &q), ["Fri"]);
     }
 
     /// A result read without its call, as one that came in after the call was read is: its

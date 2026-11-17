@@ -83,6 +83,9 @@
 
       await reopen('the second time');
       check('it asks again from your answers as they were', on('Large') && !on('Small'));
+      key(q('.ca-rewinddlg .ca-question-own'), { key: 'Enter', metaKey: true, isComposing: true });
+      await wait(50);
+      check('⌘⏎ while an input method composes in your own answer is the input method’s', calls('fork_session').length === 1 && !!dialog());
       key(document.activeElement, { key: 'Enter', metaKey: true });
       await until(function () { return calls('fork_session').length === 2; }, 3000, '⌘⏎ as it opened asked for no fork');
       check('⌘⏎ as it opens, from wherever the keyboard is, forks with them as they were', calls('fork_session')[1][1].prompt === 'My answers to the questions you just asked:\n"Which size?"="Large"\n"Which days?"="Mon, only mornings"', JSON.stringify(calls('fork_session')[1][1].prompt));

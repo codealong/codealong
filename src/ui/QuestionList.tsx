@@ -11,28 +11,17 @@ import { bare, chordPressed, cmd } from '../platform';
 import type { Answers, Question, Suggestions } from '../types';
 import { Chip, cx, Icon, Rich, Seg } from './primitives';
 
-/** What an answer picked among a question's choices, and any words of your own. Claude Code
- *  records several picks as a list, or, in older versions, as one string joined with commas, so
- *  only a lone string is taken apart: in a list, words of yours with a comma in them are yours. */
+/** What an answer picked among a question's choices, and any words of your own: each a choice's
+ *  label or words of yours, never taken apart. Where a harness joined several into one string, its
+ *  reader took them apart (harness.rs `picks_of`), so words of yours with a comma in them stay
+ *  yours. */
 export function picksOf(q: Question, given: string[] | undefined): { picked: Set<string>; own: string[] } {
   const labels = new Set(q.options.map((o) => o.label));
   const picked = new Set<string>();
   const own: string[] = [];
-  const joined = given?.length === 1;
   for (const a of given ?? []) {
-    if (labels.has(a)) {
-      picked.add(a);
-      continue;
-    }
-    const parts = q.multiSelect && joined ? a.split(', ') : [];
-    const known = parts.filter((p) => labels.has(p));
-    if (!known.length) {
-      own.push(a);
-      continue;
-    }
-    for (const p of known) picked.add(p);
-    const rest = parts.filter((p) => !labels.has(p)).join(', ');
-    if (rest) own.push(rest);
+    if (labels.has(a)) picked.add(a);
+    else own.push(a);
   }
   return { picked, own };
 }

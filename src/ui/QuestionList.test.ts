@@ -11,14 +11,9 @@ describe('picksOf', () => {
     expect(picksOf(days, undefined)).toEqual({ picked: new Set(), own: [] });
   });
 
-  it('reads several picks older versions joined with commas', () => {
-    expect(picksOf(days, ['Mon, Tue, only mornings'])).toEqual({ picked: new Set(['Mon', 'Tue']), own: ['only mornings'] });
-    // A question that takes one isn't split: its answer is one choice or your own words.
-    expect(picksOf({ ...days, multiSelect: false }, ['Mon, Tue'])).toEqual({ picked: new Set(), own: ['Mon, Tue'] });
-  });
-
-  it('keeps words of your own whole in a list, commas and all', () => {
+  it('keeps words of your own whole, commas and all: a reader took apart what was joined', () => {
     expect(picksOf(days, ['Tue', 'before lunch, Mon'])).toEqual({ picked: new Set(['Tue']), own: ['before lunch, Mon'] });
+    expect(picksOf(days, ['before lunch, Mon'])).toEqual({ picked: new Set(), own: ['before lunch, Mon'] });
   });
 });
 
@@ -52,10 +47,10 @@ describe('answeredBefore', () => {
     expect(answeredBefore([size], { 'Which size?': ['Medium, please'] })).toEqual({ picks: { 'Which size?': [] }, own: { 'Which size?': 'Medium, please' }, at: 0 });
   });
 
-  it('leaves a question you didn’t answer unpicked, and reads picks older versions joined', () => {
-    expect(answeredBefore([size, days], { 'Which days?': ['Mon, Tue'] })).toEqual({ picks: { 'Which days?': ['Mon', 'Tue'] }, own: {}, at: 0 });
-    // Listed, words of your own stay yours, a choice's name in them or not.
-    expect(answeredBefore([days], { 'Which days?': ['Tue', 'before lunch, Mon'] })).toEqual({ picks: { 'Which days?': ['Tue'] }, own: { 'Which days?': 'before lunch, Mon' }, at: 0 });
+  it('leaves a question you didn’t answer unpicked, and words of your own whole', () => {
+    expect(answeredBefore([size, days], { 'Which days?': ['Mon', 'Tue'] })).toEqual({ picks: { 'Which days?': ['Mon', 'Tue'] }, own: {}, at: 0 });
+    // Words of your own stay yours, a choice's name in them or not.
+    expect(answeredBefore([days], { 'Which days?': ['before lunch, Mon'] })).toEqual({ picks: { 'Which days?': [] }, own: { 'Which days?': 'before lunch, Mon' }, at: 0 });
   });
 });
 
