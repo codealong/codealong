@@ -90,13 +90,21 @@ describe('groupRows', () => {
       { id: 'mine', rows: [...many('m'), item('a1', a)] },
       { id: 'done', rows: [...many('d'), item('a2', a)] },
     ];
-    const g = groupRows(sections, 'worktree', (r) => placeIn(r.lane, 'worktree'), opts({ apart: (id) => id === 'done', opened: new Set(['mine/']) }));
+    const g = groupRows(sections, 'worktree', (r) => placeIn(r.lane, 'worktree'), opts({ apart: (id) => id === 'done', opened: new Set(['mine/worktree/']) }));
     expect(groupsOf(g).map((x) => [x.fold, x.folded, x.opened])).toEqual([
       ['/r/a', 0, false],
-      ['mine/', 0, true],
-      ['done//r/a', 0, false],
-      ['done/', 1, false],
+      ['mine/worktree/', 0, true],
+      ['done/worktree//r/a', 0, false],
+      ['done/worktree/', 1, false],
     ]);
+  });
+
+  it('opens the rows in none apart from the ones grouped otherwise', () => {
+    const rows = Array.from({ length: GROUP_SHOWN + 1 }, (_, i) => item(`n${i}`, null));
+    const byWorktree = groupRows([{ id: 'all', rows }], 'worktree', (r) => placeIn(r.lane, 'worktree'), opts());
+    const opened = new Set([groupsOf(byWorktree)[0].fold]);
+    const byRepo = groupRows([{ id: 'all', rows }], 'repo', (r) => placeIn(r.lane, 'repo'), opts({ opened }));
+    expect(groupsOf(byRepo).map((x) => [x.folded, x.opened])).toEqual([[1, false]]);
   });
 });
 

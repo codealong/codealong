@@ -57,8 +57,9 @@ export interface ListGroup<R> {
   /** How many of its rows are folded away (`GROUP_SHOWN`). */
   folded: number;
   /** What opens it past `GROUP_SHOWN` (`GroupOptions.opened`): its key, or for one of a section's
-   *  own groups (one apart, or the rows in none) the section's id with it, so that opening it
-   *  doesn't open its namesake in another section. */
+   *  own groups (one apart, or the rows in none) the section's id and the grouping with it, so that
+   *  opening it doesn't open its namesake in another section, nor the rows in none grouped
+   *  otherwise. */
   fold: string;
   /** Opened past `GROUP_SHOWN`, so it can be folded again. */
   opened: boolean;
@@ -172,7 +173,7 @@ export function groupRows<S extends { id: string; rows: unknown[] }>(sections: S
     const ownRows = (g: Found) => g.units.filter((u) => u.from === s.id).reduce((n, u) => n + u.rows.length, 0);
     const count = [...mine, ...apart].reduce((n, [, g]) => n + ownRows(g), 0);
     const { rows: _rows, ...rest } = s;
-    return { ...rest, count, groups: [...mine.map(([key, g]) => build(key, g.place, g.units)), ...apart.map(([key, g]) => build(key, g.place, g.units, `${s.id}/${key}`))] };
+    return { ...rest, count, groups: [...mine.map(([key, g]) => build(key, g.place, g.units)), ...apart.map(([key, g]) => build(key, g.place, g.units, `${s.id}/${by}/${key}`))] };
   });
   return { by, pinned, sections: grouped.filter((s) => s.groups.length > 0) };
 }
