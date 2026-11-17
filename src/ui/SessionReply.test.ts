@@ -2,7 +2,8 @@ import { afterEach, describe, expect, it } from 'vitest';
 import * as fx from '../testing/fixtures';
 import { setPlatform } from '../platform';
 import type { Question, Session } from '../types';
-import { bangSays, bangTitle, boxPlace, givenBack, replyPlaceholder, stillOffered, takesReply, typesCommands } from './SessionReply';
+import { bangSays, bangTitle, boxPlace, replyPlaceholder, takesReply, typesCommands } from './SessionReply';
+import { givenBack, stillOffered } from './QuestionList';
 
 const session = (over: Partial<Session> = {}): Session => fx.session({ live: true, asks: false, hosted: false, ...over });
 

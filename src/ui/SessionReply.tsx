@@ -117,8 +117,8 @@ import { bangCommand } from './RunButton';
 import { AttachmentStrip, ImagesFrom } from './DescriptionEditor';
 import { Markdown } from './Markdown';
 import { ModeLabel, ModeMenu, nextMode } from './ModeLabel';
-import { BoxText, Button, Chip, cx, Icon, OneLine, Rich, Seg } from './primitives';
-import { nextQuestion, QuestionList, QuestionWhy } from './QuestionList';
+import { BoxText, Button, cx, Icon, OneLine, Rich } from './primitives';
+import { givenBack, QuestionList, QuestionSteps, stillOffered, useQuestionPicks } from './QuestionList';
 import { askedOf, calledOf, foldQuestions, showCall, useQuestionsFolded } from '../questionsBox';
 import { BoxPlace, offersResume, SessionAgent } from './SessionAgent';
 import { placeIcon } from './StartControls';
@@ -1323,40 +1323,6 @@ function useUnanswered(s: Session): Unanswered | null {
   return said && said.since === (s.statusSince ?? null) ? said : null;
 }
 
-/** The picks and words of answers that didn't go, for the questions' box to have again. The box
- *  sent each choice as its own label and your words as one more (`Questions`), so they're taken
- *  apart as that, never split. */
-export function givenBack(questions: Question[], given: Answers | undefined): { picks: Record<string, string[]>; own: Record<string, string> } {
-  const picks: Record<string, string[]> = {};
-  const own: Record<string, string> = {};
-  for (const q of questions) {
-    const a = given?.[q.question];
-    if (a === undefined) continue;
-    const labels = new Set(q.options.map((o) => o.label));
-    const values = Array.isArray(a) ? a : [a];
-    picks[q.question] = values.filter((v) => labels.has(v));
-    const words = values.filter((v) => !labels.has(v));
-    if (words.length) own[q.question] = words.join(', ');
-  }
-  return { picks, own };
-}
-
-/** Picks that are still among their questions' choices, one for a question that takes one. A
- *  call's questions can change as it waits (a background job's take their headers and whether
- *  they take several from its transcript once it has them), and picks made among the earlier
- *  ones would answer with choices that don't show. A question whose picks are all gone has none,
- *  so what was suggested for it shows again. */
-export function stillOffered(questions: Question[], picks: Record<string, string[]>): Record<string, string[]> {
-  const kept: Record<string, string[]> = {};
-  for (const q of questions) {
-    const labels = picks[q.question];
-    if (!labels) continue;
-    const offered = labels.filter((l) => q.options.some((o) => o.label === l));
-    if (offered.length || !labels.length) kept[q.question] = q.multiSelect ? offered : offered.slice(0, 1);
-  }
-  return kept;
-}
-
 /** A session waiting on you: what it wants to do, with Allow and Deny when it can be answered here. */
 function Approval({ session: s, terminal, onOpen, onAnswered, keys, onKeys, onNext }: ApprovalProps) {
   const [pending, setPending] = useState<Pending | null | undefined>(undefined);
@@ -1677,34 +1643,18 @@ interface QuestionsProps {
   onFold: (on: boolean) => void;
 }
 
-/** Questions a session asks you (Claude Code's AskUserQuestion): pick a choice, several where a
- *  question takes more, or type your own answer; your picks go back as its answer. Several show
- *  one at a time, as Claude Code's own prompt shows them, with a strip of their headers to go
- *  between them: all at once, a few long ones ran off the bottom of the panel. */
+/** Questions a session asks you (Claude Code's AskUserQuestion), answered as `QuestionSteps`
+ *  has you answer them; your picks go back as its answer. */
 function Questions({ questions, draft, call, unwritten, where, onOpen, keys, busy, note, given, onAnswer, onDecline, exiting = false, suggested, onDismissSuggested, folded, onFold }: QuestionsProps) {
   // Your picks and words as you left them, in this window or another, on the question you were
   // on. Kept as they change, they're as new as an answer that didn't go or newer, which has them
   // only where nothing was kept (storage turned down, or the suggested picks sent untouched).
   const [kept] = useState(() => readAnswers(readDraft(draft), call));
-  // Your picks, by question; a question you haven't touched has the ones suggested for it.
-  const [picks, setPicks] = useState<Record<string, string[]>>(() => (kept ? stillOffered(questions, kept.picks) : givenBack(questions, given).picks));
-  // The questions as they were when you picked, so picks no longer offered go as they change.
-  const shape = JSON.stringify(questions.map((q) => [q.question, !!q.multiSelect, q.options.map((o) => o.label)]));
-  const [pickedAmong, setPickedAmong] = useState(shape);
-  if (pickedAmong !== shape) {
-    setPickedAmong(shape);
-    setPicks((all) => stillOffered(questions, all));
-  }
-  const questionsNow = useLatest(questions);
-  const [own, setOwn] = useState<Record<string, string>>(() => kept?.own ?? givenBack(questions, given).own);
   const offered = (q: Question): string[] => (suggested?.picks?.[q.question] ?? []).filter((l) => q.options.some((o) => o.label === l));
-  const chosenFor = (q: Question): string[] => picks[q.question] ?? offered(q);
+  const p = useQuestionPicks(questions, () => (kept ? { picks: stillOffered(questions, kept.picks), own: kept.own, at: kept.at } : { ...givenBack(questions, given), at: 0 }), offered);
+  const { picks, own, at, asked, setPicks, setOwn, setStep } = p;
+  const questionsNow = useLatest(questions);
   const suggesting = !!suggested && questions.some((q) => offered(q).length > 0);
-  // The question showing, for the questions it was picked among: another set starts at the first.
-  const asked = questions.map((q) => q.question).join('\n');
-  const [step, setStep] = useState({ asked, at: kept?.at ?? 0 });
-  const at = step.asked === asked ? Math.min(step.at, questions.length - 1) : 0;
-  const go = (i: number) => setStep({ asked, at: i });
   // What you pick, write and go on to is kept as it changes, for wherever the box shows next. What
   // another window kept (a peek and the main window on the same session) shows here as it's
   // written there, and isn't written back: it may be older by then than what that window has.
@@ -1730,51 +1680,10 @@ function Questions({ questions, draft, call, unwritten, where, onOpen, keys, bus
         setOwn(there.own);
         setStep({ asked, at: there.at });
       }),
-    [draft, call, asked, questionsNow],
+    [draft, call, asked, questionsNow, setPicks, setOwn, setStep],
   );
-  const answers: Answers = {};
-  for (const q of questions) {
-    const words = (own[q.question] ?? '').trim();
-    const chosen = chosenFor(q);
-    if (q.multiSelect) {
-      const all = words ? [...chosen, words] : chosen;
-      if (all.length) answers[q.question] = all;
-    } else if (words || chosen.length) {
-      answers[q.question] = words || chosen[0];
-    }
-  }
-  const ready = Object.keys(answers).length > 0;
-  const answered = questions.map((q) => q.question in answers);
   // Where Next goes, while another question has no answer; with none, the button answers.
-  const next = nextQuestion(answered, at);
-  // The answer box to take the keyboard once Enter there went on to the next question.
-  const ownRef = useRef<HTMLInputElement>(null);
-  const typing = useRef(false);
-  useLayoutEffect(() => {
-    if (!typing.current) return;
-    typing.current = false;
-    ownRef.current?.focus();
-  }, [at]);
-  const pick = (q: Question, label: string) => {
-    setPicks((all) => {
-      const chosen = all[q.question] ?? offered(q);
-      const next = q.multiSelect ? (chosen.includes(label) ? chosen.filter((l) => l !== label) : [...chosen, label]) : [label];
-      return { ...all, [q.question]: next };
-    });
-    // One answer to a question that takes one: a choice clears what was typed, and is all the
-    // question takes, so the next one without an answer shows.
-    if (!q.multiSelect) {
-      setOwn((all) => ({ ...all, [q.question]: '' }));
-      if (next !== null) go(next);
-    }
-  };
-  const type = (q: Question, text: string) => {
-    setOwn((all) => ({ ...all, [q.question]: text }));
-    if (!q.multiSelect && text.trim()) setPicks((all) => ({ ...all, [q.question]: [] }));
-    // Words of yours to go with picks are an answer you've begun: picks suggested later don't
-    // join it, and the ones it went with stay.
-    else if (q.multiSelect) setPicks((all) => (q.question in all ? all : { ...all, [q.question]: offered(q) }));
-  };
+  const { answers, ready, next, go } = p;
   const answerRef = useRef((_on: boolean) => {});
   answerRef.current = (on) => {
     // Minimized, ⌘⏎ shows the questions again rather than answer what you can't see.
@@ -1804,91 +1713,15 @@ function Questions({ questions, draft, call, unwritten, where, onOpen, keys, bus
     <div className="ca-composer is-approval is-questions">
       {head}
       {unwritten && <p className="ca-approval-unwritten">{unwritten}</p>}
-      {questions.length > 1 && (
-        <Seg
-          className="ca-question-steps"
-          label="Questions"
-          options={questions.map((q, i) => ({ id: i, label: q.header || `Question ${i + 1}`, title: q.question, icon: answered[i] ? 'check' : undefined }))}
-          value={at}
-          onPick={go}
-        />
-      )}
-      <div key={q.question} className="ca-question">
-        {/* The question and its choices scroll as one where the card is short for them; the box
-            for your own answer and the buttons stay under them (QuestionList.css). */}
-        <div className="ca-question-body">
-          <div className="ca-approval-label">
-            {/* With several, the strip above names each by its header. */}
-            {q.header && questions.length === 1 && <Chip className="ca-question-header">{q.header}</Chip>}
-            <Rich text={q.question} now={0} />
-          </div>
-          {/* Its choices as Claude Code's own prompt lists them, each with what it says about it.
-              As buttons, a picked one looked like Answer and the strip's question, and the words
-              that say what a choice means were hidden in a tooltip. */}
-          <div className="ca-question-choices" role={q.multiSelect ? 'group' : 'radiogroup'} aria-label={q.question}>
-            {q.options.map((o) => {
-              const on = chosenFor(q).includes(o.label);
-              // Why it was suggested goes with the first choice suggested: one for each question.
-              const why = offered(q)[0] === o.label ? suggested?.why?.[q.question] : undefined;
-              return (
-                <button key={o.label} type="button" className={cx('ca-question-choice', on && 'is-on')} role={q.multiSelect ? 'checkbox' : 'radio'} aria-checked={on} disabled={busy} onClick={() => pick(q, o.label)}>
-                  <span className={cx('ca-question-mark', q.multiSelect && 'is-multi')} aria-hidden="true">
-                    {on && q.multiSelect && <Icon name="check" size={10} stroke={2.5} />}
-                  </span>
-                  <span className="ca-question-choice-text">
-                    <span className="ca-question-choice-label">
-                      <span>
-                        <Rich text={o.label} now={0} />
-                      </span>
-                      {/* The suggested one keeps its chip once you pick another. */}
-                      {offered(q).includes(o.label) && (
-                        <Chip className="ca-suggestedchip" title={suggested?.byTitle ? `Suggested by ${suggested.byTitle}` : 'Suggested'}>
-                          <Icon name="sparkles" size={12} />
-                          Suggested
-                        </Chip>
-                      )}
-                    </span>
-                    {o.description && (
-                      <span className="ca-question-desc">
-                        <Rich text={o.description} now={0} />
-                      </span>
-                    )}
-                    {why && <QuestionWhy why={why} />}
-                  </span>
-                </button>
-              );
-            })}
-          </div>
-          {suggesting && suggested && onDismissSuggested && <SuggestionHead suggestions={suggested} onDismiss={onDismissSuggested} />}
-        </div>
-        {/* What an exit asks takes nothing but its choices. */}
-        {!exiting && (
-          <input
-            ref={ownRef}
-            className="ca-question-own"
-            type="text"
-            placeholder={q.options.length ? 'Or type your own answer' : 'Type your answer'}
-            value={own[q.question] ?? ''}
-            disabled={busy}
-            onChange={(e) => type(q, e.target.value)}
-            onKeyDown={(e) => {
-              if (e.key !== 'Enter' || e.nativeEvent.isComposing || !(bare(e) || chordPressed('Cmd+Enter', e))) return;
-              if (cmd(e)) {
-                // ⌘⏎ from an answer you typed, in every window: on to the next question, or, with
-                // none left, it answers and goes on.
-                e.preventDefault();
-                answerRef.current(true);
-              } else if (next !== null) {
-                // Enter goes on to the next question and its box; it never answers, so a half-typed
-                // answer isn't sent.
-                e.preventDefault();
-                typing.current = true;
-                go(next);
-              }
-            }}
-          />
-        )}
-      </div>
+      <QuestionSteps
+        questions={questions}
+        picks={p}
+        busy={busy}
+        exiting={exiting}
+        suggested={suggested}
+        after={suggesting && suggested && onDismissSuggested && <SuggestionHead suggestions={suggested} onDismiss={onDismissSuggested} />}
+        onAnswer={() => answerRef.current(true)}
+      />
       <div className="ca-composer-foot">
         <span className={cx('ca-composer-note', note?.error && 'is-error')}>{busy ? 'Answering…' : (note?.text ?? (exiting ? 'It’s exiting. Cancel keeps it open, at its prompt.' : `${q.multiSelect ? 'Pick one or more.' : 'Pick one, or type your own.'} Decline stops the turn, or write below to say something else.`))}</span>
         <Button size="sm" disabled={busy} onClick={onDecline} title={exiting ? 'Call the exit off, as Escape in its terminal does' : undefined}>

@@ -74,6 +74,7 @@ import { Button, Chip, cx, Icon, Rich, StatusGlyph } from './primitives';
 import { useAside } from '../side';
 import { needOf, waitsInBackground } from '../lanes';
 import { answeredOf, QuestionList } from './QuestionList';
+import { rewindTitle } from './EditFrom';
 import { showsCall, useShownCall } from '../questionsBox';
 import { RunContext, type RunPlace } from './RunButton';
 import { useReloads } from '../reload';
@@ -407,7 +408,8 @@ function ToolRun({ calls, stateOf, inBox, onOpen }: { calls: { item: TranscriptI
  *  selected and Copy message for the message as it was written, markdown and all, which marks
  *  the message for a moment once it's copied, and for a prompt of yours that can be gone back to,
  *  Edit from here… (`onEdit`). A command has its own Copy. Your answers to questions (`asked`,
- *  with `item` the call's result) are a message of yours too. */
+ *  with `item` the call's result) are a message of yours too, whose `onEdit` is Rewind to this
+ *  question…. */
 function Said({ item, result, asked, now, label, head, onPutBack, onMenu, onEdit }: { item: TranscriptItem; result?: TranscriptItem; asked?: Question[]; now: number; label: ReactNode; head?: number; onPutBack?: () => void; onMenu?: (items: MenuSpec) => void; onEdit?: () => void }) {
   const ran = item.kind === 'you' && item.input != null;
   const answers = item.kind === 'result' ? answeredOf(asked ?? [], item.answers ?? {}) : null;
@@ -431,7 +433,7 @@ function Said({ item, result, asked, now, label, head, onPutBack, onMenu, onEdit
     const items: MenuSpec = [];
     if (selected) items.push({ label: 'Copy', accelerator: 'Cmd+C', run: () => copy(selected, false) });
     if (words.trim() && !ran) items.push({ label: 'Copy message', run: () => copy(words, true) });
-    if (onEdit) items.push('separator', { label: 'Edit from here…', run: onEdit });
+    if (onEdit) items.push('separator', { label: answers ? `${rewindTitle((asked?.length ?? 0) > 1)}…` : 'Edit from here…', run: onEdit });
     if (items.length === 0) return;
     e.preventDefault();
     onMenu(items);
@@ -653,9 +655,13 @@ interface SessionThreadProps {
    *  from before one. Only a prompt with something of the agent's before it has it: a copy from
    *  before the first would have nothing in it. */
   onEdit?: (prompt: TranscriptItem) => void;
+  /** Rewind to this question… on your answers to questions (EditFrom.tsx `RewindDialog`), where
+   *  `onEdit` is offered: `answered` is the result of the call that asked `questions`. Not where
+   *  the call isn't on a page read yet, whose questions the dialog would have none of. */
+  onRewind?: (answered: TranscriptItem, questions: Question[]) => void;
 }
 
-export function SessionThread({ session: s, now, onOpen, fallback, machine, onLoaded, answeredBelow, run, onMenu, find, tips = false, onEdit }: SessionThreadProps) {
+export function SessionThread({ session: s, now, onOpen, fallback, machine, onLoaded, answeredBelow, run, onMenu, find, tips = false, onEdit, onRewind }: SessionThreadProps) {
   const [items, setItems] = useState<TranscriptItem[]>([]);
   // Whether a read has something on screen to keep while it's on its way, or once it fails.
   const shown = useLatest(items.length > 0);
@@ -1229,7 +1235,10 @@ export function SessionThread({ session: s, now, onOpen, fallback, machine, onLo
               {loaded && before != null && <div className="ca-thread-start">Loading earlier…</div>}
               {rows.map((r) => {
                 if (r.kind === 'tools') return <ToolRun key={keyOf(r.calls[0].item)} calls={r.calls} stateOf={stateOf} inBox={inBox} onOpen={askHere} />;
-                if (r.kind === 'answers') return <Said key={keyOf(r.result)} item={r.result} asked={r.questions} now={now} label="You" head={headings.headed.get(keyOf(r.result))} onMenu={onMenu} />;
+                if (r.kind === 'answers') {
+                  const rewind = onRewind && r.questions.length > 0 ? () => onRewind(r.result, r.questions) : undefined;
+                  return <Said key={keyOf(r.result)} item={r.result} asked={r.questions} now={now} label="You" head={headings.headed.get(keyOf(r.result))} onMenu={onMenu} onEdit={rewind} />;
+                }
                 const it = r.item;
                 if (it.kind === 'tool') return inBox(it) ? null : <ToolLine key={keyOf(it)} item={it} result={r.result} state={stateOf(it)} onOpen={askHere} />;
                 if (it.kind === 'note') {

@@ -469,7 +469,9 @@ pub trait Adapter: Sync {
     /// is, and so are the files: only the conversation goes back. Returns the copy's key, when the
     /// harness has said it. A prompt with nothing of the agent's before it can't be gone back to
     /// this way: the copy would have nothing in it. `src/harness.ts` `EDITS` lists the harnesses
-    /// that have one.
+    /// that have one. Rewind to this question goes back the same way from your answers to a
+    /// call's questions (its result's `cursor`), `prompt` being your new answers: the copy has the
+    /// call that asked, without its result.
     fn fork_from(&self, _ctx: &Ctx, _session: &Session, _cwd: &Path, _cursor: u64, _prompt: &str) -> Result<Option<String>> {
         bail!("{} can't fork a session from an earlier message.", self.harness().word())
     }

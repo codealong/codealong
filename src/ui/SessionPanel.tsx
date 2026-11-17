@@ -40,13 +40,13 @@ import { asideable, seenable } from '../lanes';
 import { CHORDS, chordSigns, doneTitle, type SessionActions } from '../menus';
 import { AWAY_CHORD, QUEUE_CHORDS, type QueueAction } from '../queue';
 import { SNOOZE_CHORDS } from '../snooze';
-import type { Sent, Session, TerminalGlance, TranscriptItem } from '../types';
+import type { Question, Sent, Session, TerminalGlance, TranscriptItem } from '../types';
 import { TerminalDrawer } from './terminal/TerminalDrawer';
 import { besideOf, homeTerminalOf, setDrawer, useSessionView } from '../terminals';
 import { useSideAnswering } from '../side';
 import { SessionTerminal, SessionViewSwitch, showView } from './terminal/SessionTerminal';
 import { cardZoom, scaleOf } from '../zoom';
-import { EditDialog } from './EditFrom';
+import { EditDialog, RewindDialog } from './EditFrom';
 import { MoveDialog } from './MoveAccount';
 import { Button, cx, DialogHostContext, Icon, OneLine, Rich, useDialogPlace } from './primitives';
 import { runFolder } from './RunButton';
@@ -445,6 +445,8 @@ export function SessionPanel({ variant = 'panel', zoom, queue, notice, hotkeys, 
   // from here, as its box does, and only for the session it was asked for.
   const edit = replies ? header.actions?.edit : undefined;
   const [editing, setEditing] = useState<{ key: string; prompt: TranscriptItem } | null>(null);
+  // Rewind to this question asks the questions again first, in the same way.
+  const [rewinding, setRewinding] = useState<{ key: string; answered: TranscriptItem; questions: Question[] } | null>(null);
   // The terminal it runs in, for a session started or resumed in Codealong's own: the panel
   // shows that or its conversation, and the drawer the terminals beside it.
   const home = variant === 'panel' && folder !== null ? homeTerminalOf(terminals) : null;
@@ -486,6 +488,7 @@ export function SessionPanel({ variant = 'panel', zoom, queue, notice, hotkeys, 
             find={find}
             tips={variant === 'panel'}
             onEdit={edit && ((prompt) => setEditing({ key, prompt }))}
+            onRewind={edit && ((answered, questions) => setRewinding({ key, answered, questions }))}
             fallback={
               s.excerpt ? (
                 <p className="ca-sessinsp-now">
@@ -521,6 +524,7 @@ export function SessionPanel({ variant = 'panel', zoom, queue, notice, hotkeys, 
           )}
           {moves && moving?.key === key && <MoveDialog session={s} moves={moves} to={moving.to} terminal={terminal} onClose={() => setMoving(null)} />}
           {edit && editing?.key === key && <EditDialog session={s} prompt={editing.prompt} onEdit={edit} onClose={() => setEditing(null)} />}
+          {edit && rewinding?.key === key && <RewindDialog session={s} answered={rewinding.answered} questions={rewinding.questions} onRewind={edit} onClose={() => setRewinding(null)} />}
           {dialog}
     </>
   );

@@ -1444,7 +1444,8 @@ pub fn fork_background(board: &Board, cfg: &Config, key: &str, prompt: &str) -> 
 
 /// Forks a session from before your prompt at `cursor`, `prompt` (your edit of it) in its place
 /// (`Adapter::fork_from`): a copy of what came before goes on where no window comes forward, and
-/// the session itself carries on as it was. Edit from here, in a session's conversation.
+/// the session itself carries on as it was. Edit from here, in a session's conversation, and
+/// Rewind to this question, from your answers to a call's questions, `prompt` your new ones.
 pub fn fork_from(board: &Board, cfg: &Config, key: &str, cursor: u64, prompt: &str) -> Result<Started> {
     if prompt.trim().is_empty() {
         bail!("Write what the copy should start on.");
@@ -1454,7 +1455,7 @@ pub fn fork_from(board: &Board, cfg: &Config, key: &str, cursor: u64, prompt: &s
     if let Some(copy) = &copy {
         crate::origins::record(copy, key, crate::model::OriginHow::Fork);
     }
-    Ok(Started { key: copy, message: Some(format!("Forked from before that message: a copy of “{}” goes on from there with your edit.", s.title)) })
+    Ok(Started { key: copy, message: Some(format!("Forked from before that message: a copy of “{}” goes on from there with what you wrote in its place.", s.title)) })
 }
 
 /// Moves a session to `to`, another account of its harness (`Adapter::move_to`): a copy goes on

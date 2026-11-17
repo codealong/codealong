@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { Question } from '../types';
-import { answeredOf, nextQuestion, picksOf } from './QuestionList';
+import { answeredBefore, answeredOf, nextQuestion, picksOf } from './QuestionList';
 
 const days: Question = { question: 'Which days?', multiSelect: true, options: [{ label: 'Mon' }, { label: 'Tue' }, { label: 'Wed, late' }] };
 
@@ -32,6 +32,24 @@ describe('answeredOf', () => {
   it('leaves out a question you didn’t answer, and keeps an answer to one the call isn’t read for', () => {
     expect(answeredOf([limit, days], { 'Which days?': ['Wed, late'] })).toEqual([{ question: 'Which days?', header: undefined, answer: 'Wed, late' }]);
     expect(answeredOf([], { 'Which limit?': ['Why a limit at all?'] })).toEqual([{ question: 'Which limit?', answer: 'Why a limit at all?' }]);
+  });
+});
+
+describe('answeredBefore', () => {
+  const size: Question = { question: 'Which size?', options: [{ label: 'Small' }, { label: 'Large' }] };
+
+  it('picks what you picked, with your own words, from the first question', () => {
+    expect(answeredBefore([size, days], { 'Which size?': ['Large'], 'Which days?': ['Mon', 'Wed, late', 'only mornings'] })).toEqual({
+      picks: { 'Which size?': ['Large'], 'Which days?': ['Mon', 'Wed, late'] },
+      own: { 'Which days?': 'only mornings' },
+      at: 0,
+    });
+    // Words of your own to a question that takes one are all its answer.
+    expect(answeredBefore([size], { 'Which size?': ['Medium, please'] })).toEqual({ picks: { 'Which size?': [] }, own: { 'Which size?': 'Medium, please' }, at: 0 });
+  });
+
+  it('leaves a question you didn’t answer unpicked, and reads picks older versions joined', () => {
+    expect(answeredBefore([size, days], { 'Which days?': ['Mon, Tue'] })).toEqual({ picks: { 'Which days?': ['Mon', 'Tue'] }, own: {}, at: 0 });
   });
 });
 

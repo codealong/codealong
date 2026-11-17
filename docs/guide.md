@@ -290,7 +290,7 @@ takes in the sessions you put it on, and their worktrees, as it takes in its tod
 A label isn't Jev's read nor an agent's tag (Landed, Pushed, Asks you…), which say where one turn
 left things and go once the next starts: a label stays until you take it off, and goes with the
 work: a session moved to another account or worktree puts its labels on the copy that carries on,
-and so does a fork (Fork, Edit from here) whose harness says at once which session it made. An
+and so does a fork (Fork, Edit from here, Rewind to this question) whose harness says at once which session it made. An
 agent puts one on with `codealong session label <key> --add <name>` when you ask it to sort
 sessions. Labels are kept
 on the session's Mac with what you've pinned and snoozed, so a session on another device wears that
@@ -356,6 +356,17 @@ after a message sent while the agent worked that it hasn't answered yet; it says
 leave out what came between. `codealong session fork <session> <message> --from
 <cursor>` does the same, the cursor being the message's as `codealong session transcript` prints
 it.
+
+#### Rewind to this question
+
+To answer a Claude Code session's questions again, right-click your answers to them in its
+conversation and pick Rewind to this question… (Rewind to these questions… for several). A dialog
+asks them again as the reply box does, one at a time, with your answers picked; change them and
+Fork and answer (⌘⏎). A copy of the session goes on from just after it asked, with your new
+answers as your message, while the session itself stays as it was, as with Edit from here: only
+the conversation goes back, and the copy runs In Codealong. The copy doesn't ask the questions
+again itself: Claude Code can't ask questions in a session Codealong runs, which is why the dialog
+asks them first. In the copy the call that asked shows as cut off, followed by your answers.
 
 #### Move to another account
 

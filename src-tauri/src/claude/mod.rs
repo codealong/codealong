@@ -471,7 +471,13 @@ impl crate::harness::Adapter for ClaudeCode {
     }
 
     /// Codealong runs the copy (claude-agent-acp), whose SDK writes it without running a turn,
-    /// cut at the last message before your prompt (`conversation::fork_point_before`). A
+    /// cut at the last message before your prompt (`conversation::fork_point_before`); before your
+    /// answers to an `AskUserQuestion`, at the message that asked. Claude Code, resuming a copy
+    /// whose last call has no result, gives it one, "[Tool call interrupted: the session ended
+    /// before this call's result was recorded…]", and the agent goes on with the call's questions
+    /// in mind (2.1.326, Haiku 5.5, 2026-11-17). The copy can't ask them again itself: the adapter
+    /// turns `AskUserQuestion` off for a client that takes no forms, as Codealong takes none, so
+    /// Rewind to this question asks you for the answers first. A
     /// background job can't cut one: `--resume-session-at` is for print mode only (2.1.305's
     /// help). The copy goes on in the folder its transcript was started in, which is where the
     /// SDK looks for the transcript, as `--resume` does. What's copied is the transcript the

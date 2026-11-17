@@ -33,6 +33,11 @@ on 2026-09-27. Paths are under `src-tauri/src/`.
   is taken on by its ID with `session/resume`, its conversation and all, and its model set after
   (`acp.rs` `adopt`, `acp_takes_on_a_session`; checked 2026-10-06): the transcript gets a
   `/model` line for the settings' model as it's resumed and another for the one asked for.
+- claude-agent-acp 0.81.2 puts `AskUserQuestion` in `disallowedTools` unless the client says
+  in `initialize` that it takes form elicitations (`clientCapabilities.elicitation.form`), which
+  it asks the questions as (`dist/acp-agent.js` `handleAskUserQuestion`). Codealong says none,
+  so a Claude Code session it runs never asks questions that way: it writes them in its reply,
+  and a copy can't ask again what its session asked (EditFrom.tsx `RewindDialog`).
 - claude-agent-acp's `claude` is the adapter's child, started with `--permission-mode <mode>`
   and `--setting-sources=user,project,local`, so it runs the account's hooks, the Codealong
   plugin's `PermissionRequest` hook among them; its `sessions/<pid>.json` (2.1.280) lets that

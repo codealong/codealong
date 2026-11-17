@@ -105,7 +105,7 @@ export interface AnswersDraft {
   call: string;
   /** Your picks by question; one you haven't touched isn't in it, so a suggested pick still shows.
    *  They were picked among the call's questions as they were asked then, which can change as it
-   *  waits, so the box takes only the ones still offered (SessionReply.tsx `stillOffered`). */
+   *  waits, so the box takes only the ones still offered (QuestionList.tsx `stillOffered`). */
   picks: Record<string, string[]>;
   /** Your own words by question. */
   own: Record<string, string>;

@@ -260,7 +260,13 @@ on this Mac; read it before changing the Claude adapter (paths are under `src-ta
   (`target_message_uuid`, `interrupt_if_running`…) rewinds a session, but only its process's stdin
   and Remote Control take it, not the daemon's socket; `--rewind-files <user message id>` (with
   `--resume`, no prompt) puts the files back as they were at a message. Checked on a Haiku
-  session, 2026-10-20: the copy answered from the turn before the cut, not the one after.
+  session, 2026-10-20: the copy answered from the turn before the cut, not the one after. A copy
+  cut just after a call (Rewind to this question, at an `AskUserQuestion`'s message) is resumed
+  with a result Claude Code writes for it, an error, "[Tool call interrupted: the session ended
+  before this call's result was recorded, so its outcome is unknown…]", then an assistant line
+  "No response requested.", and the agent still has the call's questions in mind: asked to ask
+  them again under `-p`, where it has no `AskUserQuestion`, it listed all three with their choices
+  (2.1.326, Haiku 5.5, 2026-11-17): `claude/mod.rs` (`fork_from`).
 - A turn refused at a usage limit is an `assistant` line with `isApiErrorMessage`, `error:
   "rate_limit"`, `apiErrorStatus: 429` and `quotaLimits`: `claude/transcript.rs` (`limit_of`).
   Its `message.model` is `"<synthetic>"`, its `quotaLimits` also says `status: "rejected"` and

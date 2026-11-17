@@ -761,6 +761,23 @@ mod tests {
         let _ = std::fs::remove_dir_all(&dir);
     }
 
+    /// Rewind to this question goes back from your answers to it, the result of the call that
+    /// asked: the copy goes through the message whose call it was, the call left without its
+    /// result, and your new answers go to it as you gave them, nothing of the result's around them.
+    #[test]
+    fn a_rewind_to_a_question_goes_through_the_message_that_asked_it() {
+        let asked = |uuid: &str, parent: &str| chained("assistant", uuid, Some(parent), "2026-09-30T00:16:10.000Z", serde_json::json!({ "message": { "id": "msg_2", "role": "assistant", "content": [{ "type": "tool_use", "id": "t1", "name": "AskUserQuestion", "input": { "questions": [{ "question": "Which fruit?", "options": [{ "label": "Apple" }, { "label": "Pear" }] }] } }] } }));
+        let answered = |uuid: &str, parent: &str| chained("user", uuid, Some(parent), "2026-09-30T00:16:30.000Z", serde_json::json!({ "message": { "role": "user", "content": [{ "type": "tool_result", "tool_use_id": "t1", "content": "The user answered: \"Which fruit?\"=\"Apple\"." }] }, "toolUseResult": { "questions": [], "answers": { "Which fruit?": "Apple" } } }));
+        let lines = [prompt("p1", None, "Pick a fruit"), part("a1", "p1", "msg_1"), part("a2", "a1", "msg_2"), asked("a3", "a2"), answered("r1", "a3"), reply("a4", "r1", "Apple it is.")];
+        let dir = crate::fixtures::scratch("claude-rewind");
+        let path = dir.join("s1.jsonl");
+        std::fs::write(&path, lines.join("\n") + "\n").unwrap();
+        let at = |n: usize| lines[..n].iter().map(|l| l.len() as u64 + 1).sum::<u64>();
+        assert_eq!(fork_point_before(&path, at(4)).unwrap().as_deref(), Some("msg_2"), "the message that asked, not its result");
+        assert_eq!(resent(&path, at(4), "My answers: \"Which fruit?\"=\"Pear\""), "My answers: \"Which fruit?\"=\"Pear\"");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
     /// An edited prompt goes with what came with it and the conversation leaves out: what you
     /// were looking at, or the comment's thread, your edit quoted in place of the comment.
     #[test]
