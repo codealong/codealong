@@ -178,6 +178,11 @@
   color: var(--ink-3);
   font: var(--type-meta);
 }
+/* On the chosen segment, which in dark is lighter than the track (seg-selected), ink-3 falls
+   under 4.5:1; ink-2 keeps it over. */
+.ca-segctl button.is-on .ca-segctl-note {
+  color: var(--ink-2);
+}
 
 .ca-start-select {
   position: relative;

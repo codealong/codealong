@@ -4140,7 +4140,8 @@ one line, set in, joined to the session by a thread from the session's status, a
 worktree only when it isn't the session's. What's listed under a session (its helpers, and the
 sessions it started when they go under it) is in the order the headings list sessions: what needs
 you, then your turns, then what's working, each the longest first, then snoozed ones, then the
-rest. A row moves only when its status changes, never as its agent works. The session's row has a chip with each of its
+rest. Each goes by when its status began, so a row moves when its status changes rather than with
+each step its agent takes. The session's row has a chip with each of its
 helpers' status glyphs, the most urgent first (three, then +N). Resting the pointer on the chip
 brings up a card with every one of them: what it's called (*Review of #204* for an automatic
 review), where it stands since when (*Working for 3m*, *Done 12m ago*), what it's doing, asking you

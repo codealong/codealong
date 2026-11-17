@@ -143,7 +143,8 @@ const bySnooze = (a: SessionItem, b: SessionItem) => (a.session.snoozedUntil ?? 
  * The rows listed under a session, in the order its headings list sessions on their own: Needs
  * you, Your turn and Working, each the longest first, then snoozed ones, the soonest back first,
  * then the rest as a lane lists them (lanes.ts `bySession`). Each group goes by when its status
- * began, so a row moves when its status changes, never as its agent works.
+ * began, so a row moves when its status changes rather than as its agent works, where its harness
+ * says when that was (`statusSince`); without it, its last activity stands in, as on the headings.
  */
 export function byHeading(a: SessionItem, b: SessionItem): number {
   const rank = (s: Session) => urgency(s) + Number(urgency(s) === ATTENTION.length && !snoozedApart(s));

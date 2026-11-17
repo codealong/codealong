@@ -208,8 +208,10 @@ describe('sessions another one started, in Sessions', () => {
       kid('turn', 'unread', 13),
       kid('busy', 'working', 9),
       kid('asks', 'needs', 14),
+      // Back sooner though its turn ended later: snoozed ones go by when they're back.
+      kid('napping', 'unread', 12, { snoozedUntil: at(16) }),
     ];
-    const order = ['asks', 'turn', 'busy', 'late', 'dozing', 'done'];
+    const order = ['asks', 'turn', 'busy', 'late', 'napping', 'dozing', 'done'];
     expect(rows(sessionSections(list, 'status', now, 'under'))).toEqual(['needs boss', ...order.map((k) => `needs   ${k}`)]);
     // By start, and under a pinned session, the same.
     expect(rows(sessionSections(list, 'started', now, 'under')).filter((r) => r.includes('  ')).map((r) => r.split(' ').pop())).toEqual(order);
