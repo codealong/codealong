@@ -60,11 +60,13 @@ fn requested(path: &str) -> Option<PathBuf> {
 /// Whether macOS asks before Codealong reads a file there: in Desktop, Documents or Downloads, on
 /// another volume, in iCloud Drive or a cloud folder, or in another app's container (held.rs,
 /// .claude/rules/macos-privacy.md). Asked of where a file really is (`real`): a link into
-/// Downloads, or a path through `..`, reads Downloads all the same. No other OS asks.
+/// Downloads, or a path through `..`, reads Downloads all the same, and so does one through the
+/// data volume's own name for it, which realpath keeps. No other OS asks.
 fn asks_first(real: &Path) -> bool {
     if !os::is_macos() {
         return false;
     }
+    let real = real.strip_prefix("/System/Volumes/Data").map_or(real.to_path_buf(), |p| Path::new("/").join(p));
     let mut parts = real.components().map(|c| c.as_os_str().to_string_lossy());
     let (Some(_root), Some(top)) = (parts.next(), parts.next()) else { return false };
     if top == "Volumes" {
@@ -94,7 +96,7 @@ pub enum State {
 /// as named and there.
 fn real_media(path: &Path) -> Option<PathBuf> {
     mime(path)?;
-    let real = std::fs::canonicalize(path).ok()?;
+    let real = dunce::canonicalize(path).ok()?;
     mime(&real)?;
     Some(real)
 }
@@ -170,7 +172,7 @@ pub fn serve(request: tauri::http::Request<Vec<u8>>, responder: tauri::UriScheme
 fn respond(path: &str, you_asked: bool, range: Option<&str>) -> Result<Response<Vec<u8>>, StatusCode> {
     let path = requested(path).ok_or(StatusCode::BAD_REQUEST)?;
     mime(&path).ok_or(StatusCode::FORBIDDEN)?;
-    let real = match std::fs::canonicalize(&path) {
+    let real = match dunce::canonicalize(&path) {
         Ok(real) => real,
         Err(_) => return Err(StatusCode::NOT_FOUND),
     };
@@ -270,6 +272,8 @@ mod tests {
         assert!(asks("/Users/me/Library/Mobile Documents/com~apple~CloudDocs/a.png"));
         assert!(asks("/Users/me/Library/Containers/com.example.atlas/Data/a.png"));
         assert!(asks("/Volumes/Atlas/renders/b.mov"));
+        assert!(asks("/System/Volumes/Data/Users/me/Downloads/clip.mp4"));
+        assert!(!asks("/System/Volumes/Data/private/tmp/clip.mp4"));
         assert!(!asks("/private/tmp/scratchpad/teaser.mp4"));
         assert!(!asks("/Users/me/Library/Application Support/Codealong/chats/videos/a.mp4"));
         assert!(!asks("/Users/me/projects/kestrel/Downloads/a.png"));

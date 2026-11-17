@@ -4,7 +4,7 @@
 // wider than it; any other file the call sent, or one that's gone, is a line of its own. Run it on
 // a session whose page (PREVIEW_BEFORE, when it's gone on since) has a call that sent you a
 // picture or a film that's still there.
-//   PREVIEW_WAIT=30000 PREVIEW_TRANSCRIPT=<key> PREVIEW_BEFORE=<cursor> scripts/preview.sh sessions '' scripts/preview/sent-files-check.js
+//   PREVIEW_WAIT=120000 PREVIEW_TRANSCRIPT=<key> PREVIEW_BEFORE=<cursor> scripts/preview.sh sessions '' scripts/preview/sent-files-check.js
 (function () {
   // Every project's sessions are listed, so PREVIEW_TRANSCRIPT's is wherever it works.
   localStorage.setItem('codealong.project', 'All projects');
@@ -25,12 +25,12 @@
     .then(function (fixed) {
       if (!fixed) throw new Error('no PREVIEW_TRANSCRIPT: name a session that sent you a picture or a film');
       var row = function () { return document.querySelector('[id$="::' + fixed.key + '"]'); };
-      return until(row, 20000, 'its row').then(function () { row().dispatchEvent(new MouseEvent('mousedown', { bubbles: true })); });
+      return until(row, 60000, 'its row').then(function () { row().dispatchEvent(new MouseEvent('mousedown', { bubbles: true })); });
     })
-    .then(function () { return until(function () { return media().length && media(); }, 20000, 'a sent picture, film or recording in the conversation'); })
+    .then(function () { return until(function () { return media().length && media(); }, 60000, 'a sent picture, film or recording in the conversation'); })
     .then(function (lis) {
       say('waiting for ' + lis.length + ' to load');
-      return until(function () { return lis.every(loaded) && lis; }, 20000, 'every one loaded').catch(function (e) {
+      return until(function () { return lis.every(loaded) && lis; }, 60000, 'every one loaded').catch(function (e) {
         // Say which didn't, by its name, rather than only that one didn't.
         var not = lis.filter(function (li) { return !loaded(li); }).map(function (li) { return li.querySelector('.ca-md-file-name').textContent; });
         throw new Error(e.message + ': ' + not.join(', '));

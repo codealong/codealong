@@ -7,6 +7,8 @@ describe('mediaKind', () => {
     expect(mediaKind('/tmp/shots/After.PNG')).toBe('image');
     expect(mediaKind('/tmp/voiceover.m4a')).toBe('audio');
     expect(mediaKind('C:\\Users\\me\\Videos\\teaser.mov')).toBe('video');
+    expect(mediaKind('\\\\atlas\\share\\shot.png')).toBe('image');
+    expect(mediaKind('\\\\?\\C:\\renders\\teaser.mp4')).toBe('video');
   });
 
   it('lists everything else', () => {
