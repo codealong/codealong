@@ -451,7 +451,13 @@ on this Mac; read it before changing the Claude adapter (paths are under `src-ta
   `claude/transcript.rs` (`own_worktree`), `idle.rs` (`exit`, `EXIT_WAIT`). `/exit` removes it
   when nothing is uncommitted, no commit was added and the session has no name of yours
   ("Worktree removed (no changes)"), else asks "Exiting worktree session" (Keep worktree /
-  Remove worktree, Keep first). While that's up the registry says `waiting` / `dialog open`, as
+  Remove worktree, Keep first). It always asks of a worktree a `WorktreeCreate` hook made
+  (2.1.326's code; there since 2.1.321 at least): its `worktree-state` has `hookBased: true` and
+  no `originalHeadCommit`, so the count of added commits is unknown, which counts as some ("A
+  WorktreeCreate hook made this worktree, so Claude Code can't tell whether it has unpushed
+  commits."), clean or not. Remove runs the repo's `WorktreeRemove` hook under its `timeout`; one
+  that runs out is killed partway, and the exit carries on as removed (`worktree-state` null),
+  whatever the hook left. While that's up the registry says `waiting` / `dialog open`, as
   for any command's dialog, and the transcript nothing (`/exit` is written once it closes, not at
   all when it's called off); its screen, its keys (a digit picks, Escape calls the exit off) and
   answering it from Codealong: `claude/exiting.rs` (module header, 2.1.322 in tmux, 2026-11-10).
@@ -517,7 +523,8 @@ on this Mac; read it before changing the Claude adapter (paths are under `src-ta
   transcript_path, cwd, scratchpad_dir, hook_event_name, name}`, with no base ref; a
   `WorktreeRemove` hook's has `worktree_path` too (and `session_id`, `transcript_path`, `cwd`).
   A worktree a hook made isn't locked; one Claude Code makes itself is (`claude session …`). `/exit`
-  in a session whose clean worktree a hook made runs `WorktreeRemove`, and the folder goes. `claude
+  in a session whose clean worktree a hook made ran `WorktreeRemove` then, and the folder went;
+  2.1.321 and later ask first (above). `claude
   rm <job>` stops a running job too; on a worktree Claude Code made it removes the worktree and its
   branch unless a commit is on no remote (then it refuses, naming `--discard-unpushed
   <commit>@<worktree-id>`), keeping the transcript; on one a hook made it refuses ("The worktree has
