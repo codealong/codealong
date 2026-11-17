@@ -8,10 +8,10 @@
 // Its words fit one line there, all of them under it on hover (primitives.tsx `OneLine`), and it
 // stays while the pointer is on it.
 
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { onAgentDone, onQuickStart } from '../api';
 import type { Report } from '../report';
-import { Icon, OneLine, StatusGlyph } from './primitives';
+import { cx, Icon, OneLine, StatusGlyph } from './primitives';
 
 /** A change that can be put back, and how. */
 export interface UndoToast {
@@ -88,10 +88,6 @@ export function useToasts(): ToastState {
     return () => window.clearTimeout(id);
   }, [todoUndo, held]);
   const shown = toast ? 'toast' : busy.length > 0 ? 'busy' : archived ? 'archived' : todoUndo ? 'todo' : null;
-  // A toast that takes the place of the one the pointer was on, or comes back once another goes,
-  // isn't held: the one before went without saying the pointer left it.
-  const showing = toast ?? (shown === 'busy' ? 'busy' : (archived ?? todoUndo));
-  useEffect(() => setHeld(false), [showing]);
 
   // Starts this window asked the quick panel for. A spinner shows while the harness takes the
   // session; then what's next. The new session isn't selected when it shows up: by then you may
@@ -126,18 +122,16 @@ export function useToasts(): ToastState {
  *  back. */
 export function Toasts({ state, onUnarchive }: { state: ToastState; onUnarchive: (archived: Archived) => void }) {
   const { toast, setToast, busy, archived: undo, setArchived: setUndo, todoUndo, setTodoUndo, shown, setHeld } = state;
-  // The pointer on a toast holds it, for its words to be read on hover.
-  const hold = { onMouseEnter: () => setHeld(true), onMouseLeave: () => setHeld(false) };
   return (
     <>
       {shown === 'busy' && (
-        <div className="ca-toast is-busy" role="status" aria-live="polite">
+        <Pill busy setHeld={setHeld}>
           <StatusGlyph status="working" size={14} title="In progress" />
           <Words text={busy[busy.length - 1].label} />
-        </div>
+        </Pill>
       )}
       {shown === 'archived' && undo && (
-        <div className="ca-toast" role="status" {...hold}>
+        <Pill setHeld={setHeld}>
           <Icon name="archive" size={14} />
           <Words text={undo.message || `Archived “${undo.title}”.`} />
           <button
@@ -150,10 +144,10 @@ export function Toasts({ state, onUnarchive }: { state: ToastState; onUnarchive:
           >
             Undo
           </button>
-        </div>
+        </Pill>
       )}
       {shown === 'todo' && todoUndo && (
-        <div className="ca-toast" role="status" {...hold}>
+        <Pill setHeld={setHeld}>
           <Icon name={todoUndo.icon ?? 'trash'} size={14} />
           <Words text={todoUndo.message} />
           <button
@@ -166,15 +160,28 @@ export function Toasts({ state, onUnarchive }: { state: ToastState; onUnarchive:
           >
             Undo
           </button>
-        </div>
+        </Pill>
       )}
       {shown === 'toast' && toast && (
-        <div className="ca-toast" role="status" {...hold} onClick={() => setToast(null)}>
+        <Pill setHeld={setHeld} onClick={() => setToast(null)}>
           <Icon name="alert" size={14} />
           <Words text={toast} />
-        </div>
+        </Pill>
       )}
     </>
+  );
+}
+
+/** One kind of toast's pill. The pointer on it holds the toast, for its words to be read on hover,
+ *  through another of the same kind taking its place, which keeps the element and so stays under
+ *  the pointer. Taken away for another kind, it can't say the pointer left it, so it lets go as
+ *  it goes. */
+function Pill({ busy = false, setHeld, onClick, children }: { busy?: boolean; setHeld: (held: boolean) => void; onClick?: () => void; children: ReactNode }) {
+  useEffect(() => () => setHeld(false), [setHeld]);
+  return (
+    <div className={cx('ca-toast', busy && 'is-busy')} role="status" aria-live={busy ? 'polite' : undefined} onMouseEnter={() => setHeld(true)} onMouseLeave={() => setHeld(false)} onClick={onClick}>
+      {children}
+    </div>
   );
 }
 

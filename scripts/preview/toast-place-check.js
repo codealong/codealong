@@ -5,9 +5,10 @@
 // message box, with the panel taking the whole window too; the account chips step down to give it
 // the room its words need (up to its limit) and come back once it goes; it stays while the
 // pointer is on it, going once the pointer leaves, and one that comes back after another took
-// its place under the pointer goes in its time; and with a dialog up, its Undo is still a click
+// its place under the pointer goes in its time, while one of the same kind is held as the one it
+// replaced was; and with a dialog up, its Undo is still a click
 // away, over the dialog's scrim.
-//   PREVIEW_SIZE=1200,900 PREVIEW_WAIT=60000 scripts/preview.sh sessions '' scripts/preview/toast-place-check.js
+//   PREVIEW_SIZE=1200,900 PREVIEW_WAIT=120000 scripts/preview.sh sessions '' scripts/preview/toast-place-check.js
 (function () {
   localStorage.setItem('codealong.project', 'All projects');
   localStorage.setItem('codealong.view', 'sessions');
@@ -143,6 +144,22 @@
     })
     .then(function () {
       check('an Undo back from under another toast isn’t held by the pointer that left with that one', !toast(), toast() && toast().textContent);
+      // One message taking another's place under a pointer that stays: still held.
+      window.__emit('quick-start', { phase: 'end', id: 992, key: null, message: 'Toast message A' });
+      return until(function () { return toast() && /Toast message A/.test(toast().textContent); }, 3000, 'message A');
+    })
+    .then(function () {
+      hover(true);
+      window.__emit('quick-start', { phase: 'end', id: 993, key: null, message: 'Toast message B' });
+      return until(function () { return toast() && /Toast message B/.test(toast().textContent); }, 3000, 'message B').then(function () { return wait(7000); });
+    })
+    .then(function () {
+      check('a message that takes another’s place under the pointer is held as that one was', !!toast() && /Toast message B/.test(toast().textContent), toast() ? toast().textContent : 'gone');
+      hover(false);
+      return until(function () { return !toast(); }, 8000).catch(function () {});
+    })
+    .then(function () {
+      check('and goes once the pointer leaves', !toast(), toast() && toast().textContent);
       document.querySelector('.ca-usagebar-end button:last-child').click();
       return until(function () { return q('.ca-scrim'); }, 3000, 'Settings');
     })
