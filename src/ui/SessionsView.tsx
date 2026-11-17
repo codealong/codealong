@@ -25,7 +25,7 @@
 
 import { Fragment } from 'react';
 import { byDay, newestFirst } from '../days';
-import { groupOptions, groupRows, groupsOf, placeIn, type GroupBy, type Grouped, type GroupOptions, type ListGroup, type ListGroupBy } from '../groups';
+import { groupOptions, groupRows, groupsOf, placeIn, type Grouped, type GroupOptions, type ListGroup, type ListGroupBy, type PlaceBy } from '../groups';
 import { bySession, byStatusTime, foldsOf, heldBack, listedStatus, listedUnder, runsShownKey, sidesListed, sidesShownKey, snoozedApart, startedOf, waitingSince, waitsFinished, workingFor, type Fold, type LaneItem } from '../lanes';
 import type { SelectHow } from '../picks';
 import type { HelperCount, RunCount, SideCount } from '../boardLists';
@@ -82,7 +82,7 @@ export type SessionGroup = ListGroup<SessionItem>;
 export type GroupedSessions = Grouped<SessionSection, SessionItem>;
 
 /** What a group's key is for a worktree: its own id, or its repo's. */
-export function groupKeyOf(lane: Lane, by: GroupBy): string {
+export function groupKeyOf(lane: Lane, by: PlaceBy): string {
   return placeIn(lane, by).key;
 }
 
@@ -92,7 +92,7 @@ export function groupKeyOf(lane: Lane, by: GroupBy): string {
  * worktree they're in, and one that waits on you or is working never folds away, nor one with
  * such a helper under it, whatever the sort: by start, one can come after five idle ones.
  */
-export function groupSessions(sections: SessionSection[], by: GroupBy, o: Omit<GroupOptions<SessionItem>, 'units' | 'awake' | 'apart'>): GroupedSessions {
+export function groupSessions(sections: SessionSection[], by: PlaceBy, o: Omit<GroupOptions<SessionItem>, 'units' | 'awake' | 'apart'>): GroupedSessions {
   return groupRows(sections, by, (r) => placeIn(r.lane, by), {
     ...o,
     units: (rows) => familiesOf(rows).map(({ head, kids }) => [head, ...kids]),

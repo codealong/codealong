@@ -1,6 +1,7 @@
 // Rows of the Sessions view: a session's (`AgentRow`), on two lines or one; what's listed under
 // it (`SideRow`, `FoldRow`); and, in any list grouped by worktree or repo (Groups.tsx), the
-// heading of each worktree or repo (`WorktreeHead`, `RepoHead`, `NoneHead`) and the way to a
+// heading of each worktree or repo (`WorktreeHead`, `RepoHead`, `NoneHead`; `WorkingHead` over PRs
+// grouped by whether an agent is working) and the way to a
 // group's rows folded away (`GroupFoldRow`). A worktree's heading
 // says on one line everything that belongs to the worktree: its name, where it is (its device,
 // repo and branch), whether new work can start there, Jev's read, its app and its PR, and where it
@@ -18,7 +19,7 @@ import type { HelperCount, RunCount, SideCount } from '../boardLists';
 import type { RepoName } from '../groups';
 import type { SaidLine } from '../quick';
 import type { AgentSeen, GitInfo, Label, Lane, Raised, Session, SideGlance, Suggestions, Todo } from '../types';
-import { Chip, cx, Drift, HarnessChip, Icon, PrChip, Rich, Row, SaidText, STATUS_WORD, SessionEmblem, SessionGlyph, WorktreeChip } from './primitives';
+import { Chip, cx, Drift, HarnessChip, Icon, PrChip, Rich, Row, SaidText, STATUS_WORD, SessionEmblem, SessionGlyph, StatusGlyph, WorktreeChip } from './primitives';
 import type { DragProps } from './useRowDrag';
 import { FlagChip, InsightChips, LooksFinished } from './InsightBits';
 import { HelpersCard, type HelperActions } from './HelpersCard';
@@ -181,6 +182,23 @@ export function NoneHead({ label }: { label: string }) {
       <div className="ca-seg ca-seg-main">
         <div className="ca-grouphead-line">
           <span className="ca-grouphead-none">{label}</span>
+        </div>
+      </div>
+    </Row>
+  );
+}
+
+/** The heading of a section's PRs an agent is working on now (PrsView.tsx `prWorking`), first,
+ *  or of the rest, quieter, as `NoneHead` is: what they lack. */
+export function WorkingHead({ working }: { working: boolean }) {
+  return (
+    <Row role="heading" level={4} className={cx('ca-lane', 'ca-grouphead', !working && 'is-none-head')}>
+      <div className="ca-seg ca-seg-glyph" aria-hidden="true">
+        <StatusGlyph status={working ? 'working' : 'idle'} size={14} title="" />
+      </div>
+      <div className="ca-seg ca-seg-main">
+        <div className="ca-grouphead-line">
+          <span className={working ? 'ca-grouphead-name' : 'ca-grouphead-none'}>{working ? 'Agent working' : 'No agent working'}</span>
         </div>
       </div>
     </Row>

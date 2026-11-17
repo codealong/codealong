@@ -1,7 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import * as fx from '../testing/fixtures';
-import type { GitInfo, PrItem } from '../types';
-import { inPrTab, prPlaces, prSections, prTabCounts, syncWords, type PrRowItem } from './PrsView';
+import type { GitInfo, PrItem, Session } from '../types';
+import { groupRows } from '../groups';
+import { inPrTab, prPlace, prPlaces, prSections, prTabCounts, prWorking, syncWords, type PrRowItem } from './PrsView';
 
 const lane = (id: string) => fx.lane({ id });
 const session = (key: string) => fx.session({ key });
@@ -160,6 +161,34 @@ describe('prSections', () => {
       ['week', [1]],
       ['older', [4]],
       ['done', [6]],
+    ]);
+  });
+});
+
+describe('grouped by whether an agent is working', () => {
+  const row = (number: number, over: Partial<PrItem> = {}, statuses: Session['status'][] = []): PrRowItem => {
+    const pr = fx.prItem({ number, ...over });
+    const sessions = statuses.map((status, i) => ({ lane: lane('w'), session: fx.session({ key: `s${number}-${i}`, status }) }));
+    return { kind: 'pr', key: pr.key, pr, lane: null, sessions, places: [], primary: null };
+  };
+
+  it('counts a session working on it, one set aside for its side conversation, and Codealong’s review', () => {
+    expect(prWorking(row(1, {}, ['idle', 'working']))).toBe(true);
+    expect(prWorking(row(2, {}, ['unread', 'needs', 'stopped']))).toBe(false);
+    expect(prWorking({ ...row(3), sessions: [{ lane: lane('w'), session: fx.session({ status: 'needs', aside: 1 }) }] })).toBe(true);
+    expect(prWorking(row(4, { autoReview: { stage: 'reviewing', head: 'abc', at: 1, rounds: 1, holds: true } }))).toBe(true);
+    expect(prWorking(row(5))).toBe(false);
+  });
+
+  it('splits every section into the PRs an agent is working on, then the rest', () => {
+    const rows = [row(1, { mine: true }), row(2, { mine: true }, ['working']), row(3, { mine: true, state: 'draft' }, ['working']), row(4, { mine: true, state: 'draft' }), row(5, { mine: true, state: 'merged', mergedAt: 5 }, ['working'])];
+    const sections = prSections(rows, 'status', 0, 'mine');
+    const g = groupRows(sections, 'working', (r) => prPlace(r, 'working'), { pinned: [], lanes: [], empty: false, opened: new Set(), whole: false, apart: () => true });
+    expect(g.pinned).toEqual([]);
+    expect(g.sections.map((s) => [s.label, s.count, s.groups.map((x) => [x.key, x.rows.map((r) => r.pr.number)])])).toEqual([
+      ['Waiting on others', 2, [['working', [2]], ['', [1]]]],
+      ['Drafts', 2, [['working', [3]], ['', [4]]]],
+      ['Merged & closed', 1, [['working', [5]]]],
     ]);
   });
 });

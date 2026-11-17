@@ -1,4 +1,5 @@
-// A list grouped by worktree or by repo: Group by, over Sessions, PRs and Todo. Each group heads
+// A list grouped by worktree or by repo: Group by, over Sessions, PRs and Todo (and in PRs, by
+// whether an agent is working on each, which every section splits for itself). Each group heads
 // its rows once, under the heading of its first row, with all of its rows after it in the list's
 // order, so a heading counts only the rows under it for themselves. The sections a list folds
 // away (Done, Merged & closed) group among themselves, and rows with no worktree or repo go under
@@ -13,7 +14,11 @@ import type { Lane } from './types';
 
 /** Whether a list is grouped, and by what. */
 export type ListGroupBy = 'none' | 'worktree' | 'repo';
-export type GroupBy = Exclude<ListGroupBy, 'none'>;
+/** A group of a worktree's rows or of a repo's. */
+export type PlaceBy = Exclude<ListGroupBy, 'none'>;
+/** What a grouped list's groups are: worktrees, repos, or in PRs whether an agent is working on
+ *  them now (PrsView.tsx `prWorking`), which every section splits for itself. */
+export type GroupBy = PlaceBy | 'working';
 
 /** Group by's buttons, each tooltip saying what the list puts under a heading (`sessions`). */
 export function groupOptions(what: string): { id: ListGroupBy; label: string; icon: string; title: string }[] {
@@ -79,7 +84,7 @@ export function repoNameOf(lane: Lane): RepoName {
 }
 
 /** The group of a row in `lane`: the worktree's, or its repo's; none for a row in no worktree. */
-export function placeIn(lane: Lane | null, by: GroupBy): Place {
+export function placeIn(lane: Lane | null, by: PlaceBy): Place {
   if (!lane) return { key: '', lane: null, repo: null };
   return by === 'worktree' ? { key: lane.id, lane, repo: null } : { key: repoOf(lane), lane: null, repo: repoNameOf(lane) };
 }
@@ -139,8 +144,10 @@ export function groupRows<S extends { id: string; rows: unknown[] }>(sections: S
     const folded = opened ? 0 : away.reduce((n, u) => n + u.rows.length, 0);
     return { key, by, lane: place.lane, repo: place.repo, rows: shown.flatMap((u) => u.rows), folded, opened };
   };
-  // A repo with no row listed is named by its main worktree, else by any of its worktrees.
+  // A repo with no row listed is named by its main worktree, else by any of its worktrees. Nothing
+  // pins whether an agent is working.
   const emptyPlace = (key: string): Place | undefined => {
+    if (by === 'working') return undefined;
     const of = o.lanes.filter((l) => placeIn(l, by).key === key);
     const lane = of.find((l) => l.origin === 'main') ?? of[0];
     return lane ? placeIn(lane, by) : undefined;

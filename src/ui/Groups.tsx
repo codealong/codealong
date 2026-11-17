@@ -9,7 +9,7 @@ import type { ReactNode } from 'react';
 import type { GroupBy, ListGroup } from '../groups';
 import type { SelectHow } from '../picks';
 import type { DesktopPinned, Lane } from '../types';
-import { GroupFoldRow, NoneHead, RepoHead, WorktreeHead } from './LaneRow';
+import { GroupFoldRow, NoneHead, RepoHead, WorkingHead, WorktreeHead } from './LaneRow';
 import { ReorderHint, SectionHeader } from './primitives';
 import { useRowDrag, type DragProps } from './useRowDrag';
 
@@ -55,7 +55,8 @@ interface HeadProps {
   none: string;
 }
 
-/** A group's heading: its worktree's, its repo's, or the one over rows in neither. */
+/** A group's heading: its worktree's, its repo's, or the one over rows in neither; in PRs grouped
+ *  by whether an agent is working, the one saying which. */
 export function GroupHead({ g, acts, now, rows, domId, selected = false, pinned, drag, none }: HeadProps) {
   if (g.lane) {
     return (
@@ -79,6 +80,7 @@ export function GroupHead({ g, acts, now, rows, domId, selected = false, pinned,
     );
   }
   if (g.repo) return <RepoHead repo={g.repo} pinned={pinned} onMenu={() => acts.onMenu(g)} drag={drag} />;
+  if (g.by === 'working') return <WorkingHead working={g.key !== ''} />;
   return <NoneHead label={none} />;
 }
 

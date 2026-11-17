@@ -134,7 +134,8 @@
 # it. The quick panel has it only
 # under its card, behind the page as the app puts it, so it shows only where the page lets it.
 # PREVIEW_GROUP=worktree|repo shows Sessions, PRs and Todo grouped by worktree or by repo (Group
-# by, over each list); without it, as the window was left: not grouped.
+# by, over each list), and =working PRs grouped by whether an agent is working on them; without
+# it, as the window was left: not grouped.
 # PREVIEW_LOADING=1 shows every window as it is at launch, before the engine's first scan has
 # finished: nothing read yet, and other devices' worktrees (PREVIEW_DEVICES) already in.
 #

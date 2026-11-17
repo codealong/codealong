@@ -14,13 +14,15 @@
 // PrPickPanel.tsx). Rows, in the bar over the list, puts each PR on one line (`PR_ROWS`), and Group
 // by puts the PRs under the worktrees that hold them or under their repos (groups.ts, Groups.tsx;
 // `prPlace`), the ones no worktree here holds under a heading of their own, and Merged & closed
-// grouped among themselves.
+// grouped among themselves; or splits each section into the PRs an agent is working on now and the
+// rest (`prWorking`).
 
 import { byDay, newestFirst, type DayId } from '../days';
 import { absolute, ago, count } from '../format';
-import { groupOptions, groupsOf, placeIn, type GroupBy, type Grouped, type Place } from '../groups';
+import { groupOptions, groupsOf, placeIn, type GroupBy, type Grouped, type ListGroupBy, type Place } from '../groups';
 import { selectHow, type SelectHow } from '../picks';
-import { heldForAgent, prFlag, type PrPrimary } from '../prStatus';
+import { listedStatus } from '../lanes';
+import { agentReviewing, heldForAgent, prFlag, type PrPrimary } from '../prStatus';
 import type { GitInfo, Lane, PrItem, Session } from '../types';
 import { rowsOptions, type RowLines } from './ListBar';
 import { PinnedSection } from './PinnedSection';
@@ -116,15 +118,30 @@ export const PR_SORTS: { id: PrSort; label: string; icon: string; title: string 
   { id: 'opened', label: 'Opened', icon: 'sort-descending-numbers', title: 'Sort by when opened: the newest PR first, under the day it was opened' },
 ];
 
+/** Whether PRs are grouped, and by what: as the other lists are, or by whether an agent is
+ *  working on each now. */
+export type PrGroupBy = ListGroupBy | 'working';
+
 /** Group by's buttons over PRs (groups.ts). */
-export const PR_GROUPS = groupOptions('PRs');
+export const PR_GROUPS: { id: PrGroupBy; label: string; icon: string; title: string }[] = [
+  ...groupOptions('PRs'),
+  { id: 'working', label: 'Working', icon: 'robot', title: 'Group by whether an agent is working: in each section, the PRs a session or Codealong’s review is working on now, then the ones nothing is' },
+];
 
 /** What the heading over PRs that no worktree here holds says. */
 export const PR_NONE = 'No worktree here';
 
+/** An agent is working on the PR now: one of its sessions, here or on another machine, or
+ *  Codealong's agent reviewing the commit it's at. */
+export function prWorking(r: Pick<PrRowItem, 'pr' | 'sessions'>): boolean {
+  return r.sessions.some(({ session }) => listedStatus(session) === 'working') || agentReviewing(r.pr);
+}
+
 /** Where a PR goes, grouped: the worktree that holds it, or none here; its repo, by its slug on
- *  GitHub, whether or not a worktree here has it. */
+ *  GitHub, whether or not a worktree here has it; or with the PRs an agent is working on, else
+ *  with the rest (key empty). */
 export function prPlace(r: PrRowItem, by: GroupBy): Place {
+  if (by === 'working') return { key: prWorking(r) ? 'working' : '', lane: null, repo: null };
   if (by === 'worktree') return placeIn(r.lane, by);
   const slug = r.pr.repoSlug;
   return { key: slug, lane: null, repo: { name: r.pr.repo, slug, project: r.pr.project } };

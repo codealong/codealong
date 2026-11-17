@@ -20,7 +20,7 @@ import { orchestratorsIn } from './orchestrators';
 import { scheduleProject } from './schedules';
 import type { Board, DevicesView, HarnessSchedule, Label, Lane, PrItem, PrSession, ProjectSummary, ScheduleItem, Session, TextHit, Todo } from './types';
 import type { ActionCounts } from './ui/ProjectSwitcher';
-import { inPrTab, prIsOpen, prPlace, prPlaces, prSections, prTabCounts, waitsOnReview, type PrRowItem, type PrSort, type PrTab } from './ui/PrsView';
+import { inPrTab, prIsOpen, prPlace, prPlaces, prSections, prTabCounts, waitsOnReview, type PrGroupBy, type PrRowItem, type PrSort, type PrTab } from './ui/PrsView';
 import { groupedRows, groupSessions, helpersUnder, sessionSections, waitingQueue, type SessionItem, type SessionSort, type StartedPlace } from './ui/SessionsView';
 import { groupRows, placeIn, type ListGroupBy } from './groups';
 
@@ -820,6 +820,7 @@ export function columnFolds(c: Pick<KanbanColumn, 'column' | 'stage' | 'cards'>)
 /** How far back Done goes when the age filter says all: as far as sessions do. */
 const DONE_SPAN = 14 * 86_400_000;
 const NO_PINS: Set<string> = new Set();
+const NO_GROUP_PINS: readonly string[] = [];
 
 /** How a card's session stands in its column, as Sessions sorts by status: Needs you, Your turn,
  *  Working, then the rest; a snoozed one that isn't working waits with the rest, and one set aside
@@ -1055,7 +1056,7 @@ export interface ListsInput {
   repoPins: Pins;
   openGroups: ReadonlySet<string>;
   /** Whether PRs and Todo are grouped, and by what, and their groups opened past their fold. */
-  prGroup: ListGroupBy;
+  prGroup: PrGroupBy;
   openPrGroups: ReadonlySet<string>;
   todoGroup: ListGroupBy;
   openTodoGroups: ReadonlySet<string>;
@@ -1084,7 +1085,8 @@ export function useBoardLists(input: ListsInput) {
   const projects = useMemo(() => projectsOf(board?.projects ?? [], deviceLanes), [board?.projects, deviceLanes]);
   const current = currentProject(project, projects, loading);
   // The pins of a list's groups: the same worktrees, or repos, lead every list grouped by them.
-  const pinnedOf = (by: ListGroupBy) => (by === 'repo' ? repoPins.keys : lanePins.keys);
+  // Whether an agent is working isn't pinned.
+  const pinnedOf = (by: PrGroupBy) => (by === 'repo' ? repoPins.keys : by === 'working' ? NO_GROUP_PINS : lanePins.keys);
   const sessionGroupPins = pinnedOf(sessionGroup);
   const prGroupPins = pinnedOf(prGroup);
   const todoGroupPins = pinnedOf(todoGroup);
@@ -1162,9 +1164,10 @@ export function useBoardLists(input: ListsInput) {
   const prSecs = useMemo(() => prSections(prRows.filter((r) => !prPins.set.has(r.pr.key)), prSort, now, prTab), [prRows, prPins.set, prSort, now, prTab]);
   const prCounts = useMemo(() => prTabCounts(prRows), [prRows]);
   // Grouped by worktree or repo (groups.ts): the pinned groups after the pinned PRs, a PR that's
-  // needs you never folded away, Merged & closed grouped among themselves.
+  // needs you never folded away, Merged & closed grouped among themselves. Grouped by whether an
+  // agent is working, every section splits its own PRs.
   const groupedPrs = useMemo(
-    () => (prGroup === 'none' ? null : groupRows(prSecs, prGroup, (r) => prPlace(r, prGroup), { pinned: prGroupPins, lanes: projectLanes, empty: false, opened: openPrGroups, whole: !!query, awake: ([r]) => prFlag(r.pr) !== null, apart: (id) => id === 'done' })),
+    () => (prGroup === 'none' ? null : groupRows(prSecs, prGroup, (r) => prPlace(r, prGroup), { pinned: prGroupPins, lanes: projectLanes, empty: false, opened: openPrGroups, whole: !!query, awake: ([r]) => prFlag(r.pr) !== null, apart: (id) => prGroup === 'working' || id === 'done' })),
     [prGroup, prSecs, prGroupPins, projectLanes, openPrGroups, query],
   );
   const prVisible = useMemo<ListRow[]>(

@@ -1,11 +1,12 @@
-// Checks Group by in PRs and Todo (PrsView.tsx, TodoView.tsx; groups.ts, Groups.tsx): its three
-// buttons in the bar over the list, remembered for each list. Grouped by worktree, every row is
+// Checks Group by in PRs and Todo (PrsView.tsx, TodoView.tsx; groups.ts, Groups.tsx): its
+// buttons in the bar over the list (in PRs, Working too), remembered for each list. Grouped by worktree, every row is
 // under a heading, a worktree's or the one over rows in no worktree, last in its section; a row
 // leaves out the worktree its heading names; a worktree's heading isn't a row to select, and a
 // press on it shows the worktree's panel in place of the one beside the list, with the way back.
 // The arrows go from row to row, past the headings. Grouped by repo, each repo heads its PRs once
-// among the open sections, and a PR leaves out its repo's chip. Merged & closed, and Done, stay
-// folded until shown, grouped among themselves.
+// among the open sections, and a PR leaves out its repo's chip. Grouped by Working, every section
+// splits its own PRs: the ones an agent is working on first, then the rest. Merged & closed, and
+// Done, stay folded until shown, grouped among themselves.
 //   PREVIEW_WAIT=60000 scripts/preview.sh prs '' scripts/preview/group-lists-check.js
 //   PREVIEW_WAIT=60000 PREVIEW_TODOS=scripts/preview/todos-sample.json scripts/preview.sh todo '' scripts/preview/group-lists-check.js
 (function () {
@@ -37,7 +38,8 @@
       before = glyphs();
       countBefore = foldCount();
       var labels = all('.ca-listtools [role="radiogroup"][aria-label="Group by"] button').map(function (b) { return b.getAttribute('aria-label'); });
-      check('Group by has its three buttons', labels.join('|') === 'No groups|Worktree|Repo', labels.join('|'));
+      var want = prs ? 'No groups|Worktree|Repo|Working' : 'No groups|Worktree|Repo';
+      check('Group by has its buttons', labels.join('|') === want, labels.join('|'));
       check('the list starts with no groups', on('No groups') && heads().length === 0);
       button('Worktree').click();
       return until(function () { return heads().length > 0; }, 3000, 'the worktrees’ headings');
@@ -103,6 +105,20 @@
         check('each repo heads its PRs once among the open sections', once.length === names.length && names.length > 0, names.join(', '));
         var chipped = rows().filter(function (r) { return r.closest('.ca-group') && q('.ca-grouphead.is-repo-head', r.closest('.ca-group')) && q('.ca-repochip', r); });
         check('a PR under its repo leaves out its repo’s chip', chipped.length === 0, chipped.length + ' with a repo chip');
+      });
+    })
+    .then(function () {
+      if (!prs) return null;
+      button('Working').click();
+      return until(function () { return heads().some(function (h) { return /agent working/i.test(h.textContent); }); }, 3000, 'the Working headings').then(function () {
+        check('Working groups the PRs by whether an agent is working, and is remembered', on('Working') && localStorage.getItem(KEY) === 'working');
+        var open = all('.ca-bayblock', list()).filter(function (b) { return !b.classList.contains('ca-pinned') && !/Merged/.test(b.textContent.slice(0, 40)); });
+        var words = open.map(function (b) { return all('.ca-grouphead', b).map(function (h) { return h.textContent.trim(); }).join(' / '); });
+        var ways = ['Agent working', 'No agent working', 'Agent working / No agent working'];
+        check('every section splits its own PRs, the ones an agent is working on first', words.length > 0 && words.every(function (w) { return ways.indexOf(w) >= 0; }), words.join(' | '));
+        var loose = rows().filter(function (r) { return !r.closest('.ca-group') && !r.closest('.ca-pinned:not(:has(.ca-group))'); });
+        check('every PR is under one of them', loose.length === 0, loose.length + ' loose');
+        if (!words.some(function (w) { return w.indexOf('Agent working') === 0; })) note('no agent is working on a PR listed, so the working group went unchecked');
       });
     })
     .then(function () {

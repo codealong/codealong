@@ -51,7 +51,7 @@ import { mayYetCome, opened } from './codealongLinks';
 import { linkHost, usePrLinks } from './ui/PrLink';
 import { reviewedWords } from './prDraft';
 import { mayApprove } from './prStatus';
-import { inPrTab, PR_GROUPS, PR_ROWS, PR_SORTS, PR_TABS, prPlace, PrsView, type PrRowItem, type PrSort, type PrTab } from './ui/PrsView';
+import { inPrTab, PR_GROUPS, PR_ROWS, PR_SORTS, PR_TABS, prPlace, PrsView, type PrGroupBy, type PrRowItem, type PrSort, type PrTab } from './ui/PrsView';
 import { Resizer, usePanelWidth } from './ui/Resizer';
 import { compassTitle, freeScopes, orchestratorOn, startOrchestrator } from './orchestrators';
 import { StartOrchestratorDialog } from './ui/StartOrchestrator';
@@ -240,6 +240,7 @@ const PR_TAB_STORED = oneOf(PR_TABS.map((o) => o.id));
 const TODO_SORT_STORED = oneOf(TODO_SORTS.map((o) => o.id));
 const ROWS_STORED = oneOf(SESSION_ROWS.map((o) => o.id));
 const GROUP_STORED = oneOf(SESSION_GROUPS.map((o) => o.id));
+const PR_GROUP_STORED = oneOf(PR_GROUPS.map((o) => o.id));
 const STARTED_STORED = oneOf(STARTED_PLACES.map((o) => o.id));
 
 /** A dragged panel width for the grid's style; left out, the panel takes its default from the CSS. */
@@ -516,7 +517,7 @@ export function App() {
   // one's groups opened past their fold, until the window closes (groups.ts).
   const [leftOnWorktrees] = useState(() => readStored(VIEW_KEY, asText, '') === 'worktrees');
   const [sessionGroup, setSessionGroup] = useStored<ListGroupBy>(SESSION_GROUP_KEY, GROUP_STORED, leftOnWorktrees ? 'worktree' : 'none');
-  const [prGroup, setPrGroup] = useStored<ListGroupBy>(PR_GROUP_KEY, GROUP_STORED, 'none');
+  const [prGroup, setPrGroup] = useStored<PrGroupBy>(PR_GROUP_KEY, PR_GROUP_STORED, 'none');
   const [todoGroup, setTodoGroup] = useStored<ListGroupBy>(TODO_GROUP_KEY, GROUP_STORED, 'none');
   const [openGroups, setOpenGroups] = useState<ReadonlySet<string>>(() => new Set());
   const [openPrGroups, setOpenPrGroups] = useState<ReadonlySet<string>>(() => new Set());

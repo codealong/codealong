@@ -137,6 +137,11 @@ The ones in no worktree here go under No worktree here (No worktree in Todo), la
 section rather than pulled under the first one's heading, and Merged & closed (Done in Todo) stays
 folded, grouped among its own. Grouped, todos keep your order but aren't reordered by hand.
 
+PRs can also be grouped by Working: every section splits its own PRs into the ones an agent is
+working on now, under Agent working, and the rest, under No agent working. An agent is working on
+a PR while one of its sessions, here or on another machine, is working (one set aside for its side
+conversation too), or while Codealong's agent reviews the commit it's at. Nothing pins these groups.
+
 A worktree's heading is one line of what belongs to the worktree: its name, then where it is (its
 device, its repo and its branch), Free when it's a reusable worktree new work can start in
 (Landed once its work merged, else Reusable, its tooltip saying what it holds; see [Reusable
@@ -1154,7 +1159,9 @@ them first (see `[reviews] auto`); each moves up to Review requested once its re
 rest go under headings of the tab's own: in All, Yours, Others and Snoozed; in Yours, Waiting on
 others (on a review, or checks still running) and Drafts; in Others, Snoozed and Not asking you.
 Grouped by worktree or repo, a group goes under the heading of its first PR, and a PR that needs
-you is never folded away in it. Sorted by when they were opened, the tab's open PRs are under the
+you is never folded away in it; grouped by Working, each heading splits its own PRs into the ones
+an agent is working on and the rest (see [Grouped by worktree or
+repo](#grouped-by-worktree-or-repo)). Sorted by when they were opened, the tab's open PRs are under the
 day each was opened, the newest first, snoozed ones too. Merged & closed is folded at the end
 either way.
 
