@@ -1236,35 +1236,6 @@ pub fn session_name(raw: &str) -> Result<String> {
     Ok(name.to_string())
 }
 
-/// An answer a harness recorded as one string, as the choices it picked and your own words after
-/// them, for a question that takes several: the picks joined with ", " (Antigravity's results,
-/// in their order; older Claude Code versions' answers), then what you wrote. A label with a
-/// comma of its own is found whole, the longest that fits first, and each is picked once. Any
-/// other answer is one, as it was written.
-pub fn picks_of(answer: &str, q: &Question) -> Vec<String> {
-    if !q.multi_select || q.options.iter().any(|o| o.label == answer) {
-        return vec![answer.to_string()];
-    }
-    let mut labels: Vec<&str> = q.options.iter().map(|o| o.label.as_str()).collect();
-    labels.sort_by_key(|l| std::cmp::Reverse(l.len()));
-    let mut out: Vec<String> = Vec::new();
-    let mut rest = answer;
-    while !rest.is_empty() {
-        let next = labels.iter().filter(|l| !out.iter().any(|o| o == *l)).find_map(|l| match rest.strip_prefix(l) {
-            Some("") => Some((l, "")),
-            Some(after) => after.strip_prefix(", ").map(|after| (l, after)),
-            None => None,
-        });
-        let Some((label, after)) = next else { break };
-        out.push(label.to_string());
-        rest = after;
-    }
-    if !rest.is_empty() {
-        out.push(rest.to_string());
-    }
-    out
-}
-
 /// Why a prompt with nothing of the agent's before it can't be forked from (`Adapter::fork_from`).
 pub fn nothing_before(h: Harness) -> anyhow::Error {
     anyhow::anyhow!("Nothing of {}'s comes before that message, so a copy from there would be empty. Start a new session with your edit instead.", h.word())
@@ -1474,22 +1445,6 @@ pub fn find<'a>(board: &'a crate::model::Board, cfg: &'a Config, key: &str) -> R
 mod tests {
     use super::*;
     use crate::model::{Status, Surface};
-
-    #[test]
-    fn a_joined_answer_is_its_picks_and_your_words() {
-        let q = |labels: &[&str]| Question { question: "Which?".into(), header: None, options: labels.iter().map(|l| codealong_peer::api::Choice { label: l.to_string(), description: None }).collect(), multi_select: true };
-        // A label with a comma of its own is found whole, among others or alone.
-        let days = q(&["Mon, Tue", "Wed"]);
-        assert_eq!(picks_of("Mon, Tue, Wed", &days), ["Mon, Tue", "Wed"]);
-        assert_eq!(picks_of("Mon, Tue", &days), ["Mon, Tue"]);
-        assert_eq!(picks_of("Fri", &days), ["Fri"]);
-        // In any order, the longest label that fits first, your words after them.
-        let week = q(&["Mon", "Monday", "Tue"]);
-        assert_eq!(picks_of("Tue, Monday, only mornings", &week), ["Tue", "Monday", "only mornings"]);
-        assert_eq!(picks_of("before lunch, Mon", &week), ["before lunch, Mon"]);
-        // A question that takes one is answered as written.
-        assert_eq!(picks_of("Mon, Tue", &Question { multi_select: false, ..week }), ["Mon, Tue"]);
-    }
 
     #[test]
     fn a_background_commands_output_is_read_to_its_very_end() {

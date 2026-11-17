@@ -12,9 +12,10 @@ import type { Answers, Question, Suggestions } from '../types';
 import { Chip, cx, Icon, Rich, Seg } from './primitives';
 
 /** What an answer picked among a question's choices, and any words of your own: each a choice's
- *  label or words of yours, never taken apart. Where a harness joined several into one string, its
- *  reader took them apart (harness.rs `picks_of`), so words of yours with a comma in them stay
- *  yours. */
+ *  label or words of yours, never taken apart. A harness that joins several into one string has
+ *  its reader take them apart by its own rule (claude/conversation.rs `picks_in`, antigravity.rs
+ *  `picks_of`), which a window can't know; a Mac whose build is older sends Claude Code's joined
+ *  string as it was, its picks showing as your words. */
 export function picksOf(q: Question, given: string[] | undefined): { picked: Set<string>; own: string[] } {
   const labels = new Set(q.options.map((o) => o.label));
   const picked = new Set<string>();

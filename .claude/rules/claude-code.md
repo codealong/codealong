@@ -790,7 +790,9 @@ on this Mac; read it before changing the Claude adapter (paths are under `src-ta
   filename, displayPath, content}`, an image's content `{type: "image", file: {base64, type,
   originalSize, dimensions}}`; Codealong doesn't read that line (2.1.281 to 2.1.287).
 - Your answers to an `AskUserQuestion`, on its result line's `toolUseResult.answers`:
-  `claude/conversation.rs` (`answers_of`). `toolUseResult` also has `questions` and
+  `claude/conversation.rs` (`answers_of`, `picks_in`). Several picks are one string joined with
+  ", " in the order they were picked, words of your own where they were written (2.1.302 to
+  2.1.326 here, 2026-11-17; only 2.1.219 wrote a list), and labels can have commas of their own. `toolUseResult` also has `questions` and
   `annotations`. Declined, the result is an error, "The user doesn't want to proceed…", with
   `toolUseResult` the string "User rejected tool use".
 - An `Artifact` call's result line (`toolUseResult`) and the link the conversation shows for it:

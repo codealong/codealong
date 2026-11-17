@@ -518,10 +518,10 @@ fn sent_of(input: &Value, cwd: &str) -> Option<crate::harness::SentFiles> {
 }
 
 /// Your answers as Claude Code records them on the result (`toolUseResult`, its `answers` beside
-/// the `questions` asked): each question's text to a label or words of your own, or a list where
-/// it took several. Older versions joined several into one string with commas, which is taken
-/// apart by the question's choices (`harness::picks_of`); a list is kept as it is, so words of
-/// your own in it stay whole, commas and all.
+/// the `questions` asked, listed on all 681 results here): each question's text to a label or
+/// words of your own. Several are one string joined with ", " (2.1.302 to 2.1.326, 56 of 58
+/// answers here; only 2.1.219 wrote a list), taken apart by the question's choices (`picks_in`)
+/// so the windows can show which were picked; a list is kept as it was written.
 fn answers_of(result: Option<&Value>) -> std::collections::BTreeMap<String, Vec<String>> {
     let Some(map) = result.and_then(|r| r.get("answers")).and_then(Value::as_object) else { return Default::default() };
     let asked = result.map(questions_of).unwrap_or_default();
@@ -529,7 +529,7 @@ fn answers_of(result: Option<&Value>) -> std::collections::BTreeMap<String, Vec<
         .filter_map(|(q, a)| {
             let list: Vec<String> = match a {
                 Value::String(t) => match asked.iter().find(|x| &x.question == q) {
-                    Some(x) => crate::harness::picks_of(t.trim(), x),
+                    Some(x) => picks_in(t.trim(), x),
                     None => vec![t.clone()],
                 },
                 Value::Array(l) => l.iter().filter_map(Value::as_str).map(String::from).collect(),
@@ -539,6 +539,51 @@ fn answers_of(result: Option<&Value>) -> std::collections::BTreeMap<String, Vec<
             (!list.is_empty()).then(|| (q.clone(), list))
         })
         .collect()
+}
+
+/// An answer to a question that takes several, as the choices it picked and your own words: Claude
+/// Code joins them with ", " in the order they were picked, your words where you wrote them, first
+/// too ("red, Blue"; of 47 such answers here, 6 out of the choices' order). A label with a comma
+/// of its own is found whole, the longest that fits first; the words between picks are yours, one
+/// entry each run of them. Words of yours that are a choice's label between commas can't be told
+/// from a pick. Any other answer is one, as written.
+fn picks_in(answer: &str, q: &crate::harness::Question) -> Vec<String> {
+    if !q.multi_select || q.options.iter().any(|o| o.label == answer) {
+        return vec![answer.to_string()];
+    }
+    let mut labels: Vec<&str> = q.options.iter().map(|o| o.label.as_str()).collect();
+    labels.sort_by_key(|l| std::cmp::Reverse(l.len()));
+    let mut out: Vec<String> = Vec::new();
+    let mut own: Vec<&str> = Vec::new();
+    let mut rest = answer;
+    while !rest.is_empty() {
+        let picked = labels.iter().find_map(|l| match rest.strip_prefix(l) {
+            Some("") => Some((*l, "")),
+            Some(after) => after.strip_prefix(", ").map(|after| (*l, after)),
+            None => None,
+        });
+        match picked {
+            Some((label, after)) => {
+                if !own.is_empty() {
+                    out.push(own.join(", "));
+                    own.clear();
+                }
+                if !out.iter().any(|o| o == label) {
+                    out.push(label.to_string());
+                }
+                rest = after;
+            }
+            None => {
+                let (words, after) = rest.split_once(", ").unwrap_or((rest, ""));
+                own.push(words);
+                rest = after;
+            }
+        }
+    }
+    if !own.is_empty() {
+        out.push(own.join(", "));
+    }
+    out
 }
 
 /// The artifact an `Artifact` call published, made from a type or opened, as Claude Code records
@@ -784,16 +829,23 @@ mod tests {
         let _ = std::fs::remove_dir_all(&dir);
     }
 
-    /// Several picks that older versions joined into one string are taken apart by the question's
-    /// choices; a list is as Claude Code wrote it, words of your own with a comma in them whole.
+    /// Several picks joined into one string are taken apart by the question's choices, in any
+    /// order and with your words anywhere among them; a list is as Claude Code wrote it.
     #[test]
     fn answers_are_read_as_picks_and_your_own_words() {
-        let questions = serde_json::json!([{ "question": "Which days?", "multiSelect": true, "options": [{ "label": "Mon" }, { "label": "Tue" }] }, { "question": "Which size?", "options": [{ "label": "Large" }] }]);
+        let questions = serde_json::json!([{ "question": "Which days?", "multiSelect": true, "options": [{ "label": "Mon" }, { "label": "Monday" }, { "label": "Tue" }, { "label": "Restart it, then quit" }] }, { "question": "Which size?", "options": [{ "label": "Large" }] }]);
         let result = |answers: Value| serde_json::json!({ "questions": questions, "answers": answers });
         let read = |answers: Value| answers_of(Some(&result(answers)));
-        assert_eq!(read(serde_json::json!({ "Which days?": "Mon, Tue, only mornings" }))["Which days?"], ["Mon", "Tue", "only mornings"]);
-        assert_eq!(read(serde_json::json!({ "Which days?": ["before lunch, Mon"] }))["Which days?"], ["before lunch, Mon"]);
-        assert_eq!(read(serde_json::json!({ "Which days?": ["Tue", "before lunch, Mon"] }))["Which days?"], ["Tue", "before lunch, Mon"]);
+        let days = |answer: Value| read(serde_json::json!({ "Which days?": answer }))["Which days?"].clone();
+        assert_eq!(days("Mon, Tue, only mornings".into()), ["Mon", "Tue", "only mornings"]);
+        // In the order picked, the longest label that fits, your words first or between.
+        assert_eq!(days("Tue, Monday".into()), ["Tue", "Monday"]);
+        assert_eq!(days("red, green, Tue, also blue".into()), ["red, green", "Tue", "also blue"]);
+        // A label with a comma of its own is found whole.
+        assert_eq!(days("Restart it, then quit, Mon".into()), ["Restart it, then quit", "Mon"]);
+        assert_eq!(days("before lunch, if needed".into()), ["before lunch, if needed"]);
+        // Listed, as 2.1.219 wrote them, each is as written.
+        assert_eq!(days(serde_json::json!(["Tue", "before lunch, Mon"])), ["Tue", "before lunch, Mon"]);
         // A question that takes one, or one the result doesn't list, is answered as written.
         assert_eq!(read(serde_json::json!({ "Which size?": "Large, please", "Which color?": "Red, Blue" })), [("Which color?".to_string(), vec!["Red, Blue".to_string()]), ("Which size?".to_string(), vec!["Large, please".to_string()])].into());
     }
