@@ -7386,6 +7386,8 @@ mod tests {
             said(at("idle", "active-last", Status::Idle, 300, 20), "Merged."),
             said(at("idle", "prompted-last", Status::Idle, 30, 100), "Nothing else to do."),
             Session { live: false, ..at("idle", "stopped", Status::Stopped, 10, 500) },
+            // An orchestrator's row says what its last run came to, not when it was.
+            Session { orchestrator: Some(crate::model::Orchestrator { schedule: "orch".into(), ..Default::default() }), ..said(at("idle", "orchestrator", Status::Idle, 600, 600), NOTHING_NEW) },
             // A PR, in each state it can be in, speaks for a worktree whose agents are quiet,
             // and not for one where an agent works.
             said(at("review", "in-review", Status::Idle, 410, 400), "Opened the PR."),

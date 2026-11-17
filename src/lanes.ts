@@ -533,6 +533,8 @@ export function sessionHeadline(s: Session): [string, string | null] {
       // Its glyph and bay already say it finished, so the title stands alone, as a working one's does.
       return [`${acct} · ${s.title}`, s.excerpt];
     case 'idle':
+      // An orchestrator's turns end quiet: its row says what its last run came to (board.rs).
+      if (s.orchestrator && s.excerpt != null) return [`${acct} · ${s.title}`, s.excerpt];
       return [`${acct} · ${s.title}`, `last turn {ago:${s.lastActivity}}`];
     case 'stopped':
       return [`${acct} · ${s.title}`, `stopped {ago:${s.lastActivity}}`];

@@ -129,6 +129,9 @@ pub struct Reporter {
     /// asked for (`wake`), so one is asked for each.
     gathering: Option<i64>,
     woken_for: Option<i64>,
+    /// The latest board looked at (`Board::rev`): a wake's board older than it would undo what
+    /// that one found.
+    rev: u64,
 }
 
 impl Reporter {
@@ -141,6 +144,7 @@ impl Reporter {
     /// read, or once `SCREEN_WAIT_MS` has gone without it. Each is owed to the helper's session
     /// while that runs on this Mac.
     pub fn due(&mut self, pending: &[Pending], board: &Board, now: i64) -> Vec<Job> {
+        self.rev = self.rev.max(board.rev);
         let runs_here = |k: &str| board.session(k).is_some_and(|(lane, s)| lane.device.is_none() && s.live && !s.archived);
         let screen_of = |p: &Pending| board.starting.get(&p.from).and_then(|starts| starts.iter().find(|s| s.at == p.at)).and_then(|s| s.screen.clone());
         self.told_stuck.retain(|(from, at)| pending.iter().any(|p| &p.from == from && p.at == *at));
@@ -229,11 +233,14 @@ impl Reporter {
         Some(at)
     }
 
-    /// The wake asked for at `at` came.
-    pub fn woke(&mut self, at: i64) {
+    /// The wake asked for at `at` came, with the board as it is then: what's due on it, unless a
+    /// later board was looked at meanwhile, which had it due then, and when to wake next.
+    pub fn woke(&mut self, at: i64, pending: &[Pending], board: &Board, now: i64) -> (Vec<Job>, Option<i64>) {
         if self.woken_for == Some(at) {
             self.woken_for = None;
         }
+        let due = if board.rev >= self.rev { self.due(pending, board, now) } else { Vec::new() };
+        (due, self.wake())
     }
 
     /// How a job went, at `now` (ms). What was told is owed no longer; what wasn't is owed again,
@@ -390,9 +397,34 @@ mod tests {
         assert!(r.due(&[], &held, NOW + 5_000).is_empty());
         assert_eq!(r.wake(), None);
         // When it comes, the same board, looked at again, has it due.
-        r.woke(NOW + GATHER_MS);
-        assert_eq!(news(&r.due(&[], &held, NOW + GATHER_MS)).len(), 1);
-        assert_eq!(r.wake(), None, "nothing left gathered");
+        let (jobs, next) = r.woke(NOW + GATHER_MS, &[], &held, NOW + GATHER_MS);
+        assert_eq!((news(&jobs).len(), next), (1, None));
+    }
+
+    #[test]
+    fn a_wake_asks_for_the_next_and_never_looks_at_an_older_board() {
+        let mut r = Reporter::default();
+        let other = |status: Status| Session { key: "codex:codex:other".into(), ..rev(status, 10, 20) };
+        let third = |status: Status| Session { key: "codex:codex:third".into(), ..rev(status, 10, 20) };
+        let at = |rev_: u64, a: Status, b: Status, c: Status| Board { rev: rev_, ..board(vec![boss(Status::Idle), rev(a, 10, 40), other(b), third(c)]) };
+        use Status::{Idle, Needs, Working};
+        r.due(&[], &at(1, Working, Working, Working), NOW);
+        // It waits on your user while the others work: a wake for a minute on.
+        assert!(r.due(&[], &at(2, Needs, Working, Working), NOW).is_empty());
+        assert_eq!(r.wake(), Some(NOW + GATHER_MS));
+        // Answered; then the third ends 20 seconds on, while the other works: its time is later
+        // than the wake asked for, which comes first.
+        assert!(r.due(&[], &at(3, Working, Working, Working), NOW + 10_000).is_empty());
+        assert!(r.due(&[], &at(4, Working, Working, Idle), NOW + 20_000).is_empty());
+        assert_eq!(r.wake(), None);
+        // The wake comes with a board older than the last looked at: it looks at nothing, and
+        // asks for the next, the third's time.
+        let (jobs, next) = r.woke(NOW + GATHER_MS, &[], &at(3, Working, Working, Working), NOW + GATHER_MS);
+        assert!(jobs.is_empty());
+        assert_eq!(next, Some(NOW + 20_000 + GATHER_MS));
+        // Then the third's news goes, and only it: the wait on your user was answered.
+        let (jobs, next) = r.woke(NOW + 20_000 + GATHER_MS, &[], &at(4, Working, Working, Idle), NOW + 20_000 + GATHER_MS);
+        assert_eq!((news(&jobs), next), (vec![(BOSS.to_string(), News::Ended)], None));
     }
 
     #[test]

@@ -206,18 +206,17 @@ pub fn start() -> Result<Ctx, String> {
             }
             // What it gathers is looked at again when it's due, on the board as it is then: no
             // board may come meanwhile (helpers.rs `GATHER_MS`).
-            if let Some(at) = wake {
+            if let Some(mut at) = wake {
                 let (engine, reporter) = (engine.clone(), reporter.clone());
-                std::thread::spawn(move || {
+                std::thread::spawn(move || loop {
                     std::thread::sleep(std::time::Duration::from_millis((at - util::now_ms()).max(0) as u64));
                     let board = engine.board();
-                    let due = reporter.lock().map(|mut r| {
-                        r.woke(at);
-                        r.due(&origins::current().pending, &board, util::now_ms())
-                    });
-                    if let Some(due) = due.ok().filter(|d| !d.is_empty()) {
+                    let Ok((due, next)) = reporter.lock().map(|mut r| r.woke(at, &origins::current().pending, &board, util::now_ms())) else { return };
+                    if !due.is_empty() {
                         helpers::send_now(&engine, &reporter, due);
                     }
+                    let Some(next) = next else { return };
+                    at = next;
                 });
             }
         }

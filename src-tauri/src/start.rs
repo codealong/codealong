@@ -871,6 +871,9 @@ pub fn picked(board: &Board, cfg: &Config, asked: &codealong_peer::api::params::
         config::chats_dir().to_string_lossy().into_owned()
     } else if !asked.folder.is_empty() {
         let dir = crate::util::expand_in(&asked.folder, home);
+        if unlisted_checkout(board, &dir) {
+            bail!("{} is in a checkout Codealong doesn't list yet: a worktree just made shows a few seconds on. Try again then.", asked.folder);
+        }
         lane_at(board, &dir).map(|l| l.id.clone()).ok_or_else(|| anyhow!("{} isn't in a worktree Codealong knows.", asked.folder))?
     } else {
         main_checkout(board, &asked.repo)?
@@ -901,13 +904,15 @@ pub fn lane_at<'a>(board: &'a Board, dir: &Path) -> Option<&'a Lane> {
     board.lanes.iter().find(|l| Path::new(&l.id) == dir).or_else(|| lane_for_path(board, dir))
 }
 
-/// Whether `dir` is a checkout of its own (a `.git` there) that the board doesn't list yet: a
-/// worktree just made, which Codealong lists a few seconds on. Made inside another (`git worktree
-/// add` under a main checkout, Claude Code's `.claude/worktrees`), `lane_at` would find the one
-/// around it, so a start there would go to that checkout, whose files another agent may change.
+/// Whether `dir` is in a checkout of its own (a `.git` there or in a folder above it) that the
+/// board doesn't list yet: a worktree just made, which Codealong lists a few seconds on. Made
+/// inside another (`git worktree add` under a main checkout, Claude Code's `.claude/worktrees`),
+/// `lane_at` would find the one around it, so a start there would go to that checkout, whose files
+/// another agent may change.
 pub fn unlisted_checkout(board: &Board, dir: &Path) -> bool {
     let real = |p: &Path| dunce::canonicalize(p).unwrap_or_else(|_| p.to_path_buf());
-    dir.join(".git").exists() && !board.lanes.iter().any(|l| real(Path::new(&l.path)) == real(dir))
+    let Some(around) = lane_at(board, dir).map(|l| real(Path::new(&l.path))) else { return false };
+    real(dir).ancestors().take_while(|a| *a != around).any(|a| a.join(".git").exists())
 }
 
 /// The worktree the folder is in: the lane whose path contains it, the deepest one.
@@ -1660,7 +1665,10 @@ mod tests {
         let lane = |path: &Path| crate::fixtures::lane(&path.to_string_lossy(), Vec::new());
         let board = Board { lanes: vec![lane(&main)], ..Board::default() };
         assert!(unlisted_checkout(&board, &made), "inside the main checkout, not listed yet");
+        std::fs::create_dir_all(made.join("src")).unwrap();
+        assert!(unlisted_checkout(&board, &made.join("src")), "and a folder of it");
         assert!(!unlisted_checkout(&board, &main.join("src")), "a folder of the main checkout is in it");
+        assert!(!unlisted_checkout(&board, &main));
         let listed = Board { lanes: vec![lane(&main), lane(&made)], ..Board::default() };
         assert!(!unlisted_checkout(&listed, &made));
         assert_eq!(lane_at(&listed, &made).map(|l| l.path.as_str()), Some(made.to_string_lossy().as_ref()));

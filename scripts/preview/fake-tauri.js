@@ -472,7 +472,7 @@ function orchestratorPage(last) {
   var item = function (kind, text, extra) { var at = last - (12 - n) * 60e3; return Object.assign({ at: at, kind: kind, text: text, failed: false, cursor: n++, n: 0 }, extra || {}); };
   var tick = function () { return item('codealong', 'You’re Codealong’s orchestrator for All projects. Run a tick as the codealong skill’s references/orchestrate.md says, from *Each tick*.'); };
   // A fresh session's first run is recorded as your prompt.
-  var first = function () { return item('you', 'You’re Codealong’s orchestrator for All projects.\n\nThis comes from the schedule “Orchestrator”: run for a session that waits on you.'); };
+  var first = function () { return item('you', "You're Codealong's orchestrator for All projects: you keep watch over every project's sessions.\n\nThis comes from the schedule “Orchestrator”: run for a session that waits on you."); };
   var run = function (reply, start) { var id = 't' + n; return [(start || tick)(), item('tool', 'Bash · `codealong changes`', { id: id, input: 'codealong changes' }), item('result', '', { id: id, output: '{"sessions":[]}' }), item('agent', reply)]; };
   return { before: null, after: 12, items: [].concat(run('—', first), run('—'), run('**Two sessions work in one worktree at once.** They’ll overwrite each other’s files.'), run('—')) };
 }

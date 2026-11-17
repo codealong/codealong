@@ -78,10 +78,13 @@ describe('orchestrators', () => {
     expect(foldQuietRuns(cut)).toEqual(cut);
     // A fresh session's first run, its prompt recorded as yours, folds as the others do; a prompt
     // that is yours doesn't.
-    const first = item('you', 'You’re Codealong’s orchestrator for All projects.\n\nThis comes from the schedule “Orchestrator”: run for “Fix the docs” asks you a question.');
+    const first = item('you', "You're Codealong's orchestrator for All projects: you keep watch.\n\nThis comes from the schedule “Orchestrator”: run for “Fix the docs” asks you a question.");
     expect(foldQuietRuns([first, item('agent', '—')]).map((x) => x.text)).toEqual(['Looked: nothing new']);
     const yours = [item('you', 'Anything new?'), item('agent', '—')];
     expect(foldQuietRuns(yours)).toEqual(yours);
+    // Nor one of yours that quotes Codealong's line.
+    const quoting = [item('you', 'Why did it say this?\n\nThis comes from the schedule “Orchestrator”: run for a PR.'), item('agent', '—')];
+    expect(foldQuietRuns(quoting)).toEqual(quoting);
     // A run that asked you something keeps it in view, with your answers.
     const asked = [tick(), item('tool', 'AskUserQuestion', { questions: [{ question: 'Merge it?', header: 'Merge', options: [], multiSelect: false }] }), item('result', '', { answers: { 'Merge it?': ['No'] } }), item('agent', '—')];
     expect(foldQuietRuns(asked)).toEqual(asked);
