@@ -3419,6 +3419,8 @@ Commands:
           worked on it (each with how often its records show it pushed to the PR's
           branch, `pushes`), which is its primary one (`primary`) and why (`primaryBy`:
           picked, pushed, opened or started), and whether that one is nudged (`nudge`)
+          and of what (`nudgeAbout`: everything where the PR is watched, else what
+          `[pull_requests] nudge_about` keeps it to)
   link    Link a session to a PR it worked on that Codealong can't see by itself: a PR
           opened another way (the website, an API tool), or one worked on from a
           worktree that isn't on its branch
@@ -3493,7 +3495,8 @@ Options:
 One PR: its state, branches, the worktrees on its branch, the sessions that worked on it
 (each with how often its records show it pushed to the PR's branch, `pushes`), which is
 its primary one (`primary`) and why (`primaryBy`: picked, pushed, opened or started),
-and whether that one is nudged (`nudge`)
+and whether that one is nudged (`nudge`) and of what (`nudgeAbout`: everything where the
+PR is watched, else what `[pull_requests] nudge_about` keeps it to)
 
 Usage: codealong pr show [OPTIONS] <PR>
 

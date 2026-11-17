@@ -1194,7 +1194,11 @@ only what asks for work, someone else's comments and reviews that ask for change
 something, so the session can work their feedback in; `"feedback-and-checks"` adds failing checks
 and conflicts.
 With either, an approval (its own words with it), a dismissed review, a merge and a close aren't
-told, nor anything once the PR has ended, and the PR's card says so under its switch.
+told, nor anything once the PR has ended, and the PR's card says so under its switch. So does each
+message the session gets on an open PR, in a last line: its approvals and merges (its approvals,
+where merges are told) aren't passed on, and `codealong pr watch <pr>` has them told, for a session
+waiting on one. `codealong pr nudge` says the same as it turns a nudge on, and `codealong pr show`
+while one is on.
 Also when it's merged, the box under it, adds a merge to either (`"feedback-and-merges"`,
 `"feedback-checks-and-merges"`): the session is told the PR was merged, whoever merged it, and that
 nothing more is wanted on it, so it can wrap its work up. Still not a close, nor what came in with

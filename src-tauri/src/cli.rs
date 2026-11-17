@@ -893,7 +893,7 @@ enum AnalyticsCmd {
 
 #[derive(Subcommand, Debug)]
 enum PrCmd {
-    /// One PR: its state, branches, the worktrees on its branch, the sessions that worked on it (each with how often its records show it pushed to the PR's branch, `pushes`), which is its primary one (`primary`) and why (`primaryBy`: picked, pushed, opened or started), and whether that one is nudged (`nudge`).
+    /// One PR: its state, branches, the worktrees on its branch, the sessions that worked on it (each with how often its records show it pushed to the PR's branch, `pushes`), which is its primary one (`primary`) and why (`primaryBy`: picked, pushed, opened or started), and whether that one is nudged (`nudge`) and of what (`nudgeAbout`: everything where the PR is watched, else what `[pull_requests] nudge_about` keeps it to).
     Show {
         /// The PR: its URL, owner/name#number, or a number (#123) in the repo of the current folder's worktree.
         pr: String,
@@ -1925,7 +1925,12 @@ impl Client {
             // until it's back.
             let (board, from_app) = match self.app.is_some() {
                 true => match server::ask(&Request::Board) {
-                    Some(Ok(v)) => (serde_json::from_value(v).context("reading the app's board")?, true),
+                    Some(Ok(v)) => {
+                        let mut board: Board = serde_json::from_value(v).context("reading the app's board")?;
+                        // Not sent, but made of what is: how a PR's settings go for its repo.
+                        board.repo_settings = crate::teamfile::RepoSettings::sent(&board.repos, &board.team_files);
+                        (board, true)
+                    }
                     Some(Err(e)) => bail!("{e}"),
                     None => (engine::light_snapshot(), false),
                 },
@@ -5041,6 +5046,17 @@ struct PrDetail<'a> {
     pr: &'a crate::model::PrItem,
     /// The sessions in `sessions`, in full.
     session_rows: Vec<SessionRow>,
+    /// What its nudge tells of while it's on (nudges.rs `about_of`): everything where it's
+    /// watched, else what `[pull_requests] nudge_about` keeps it to for its repo.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    nudge_about: Option<crate::config::NudgeAbout>,
+}
+
+/// What a PR's nudge that tells of `about` leaves out that a session may be waiting on, with
+/// how to hear of it (`nudges::left_out`), for `pr show` and `pr nudge`.
+fn left_out_line(key: &str, about: crate::config::NudgeAbout) -> Option<String> {
+    let what = crate::nudges::left_out(about)?;
+    Some(format!("Its nudge leaves out {what} (nudge_about = \"{}\"): for a session waiting on one, `codealong pr watch {key}` tells of them too.", about.as_str()))
 }
 
 fn pr_show(c: &mut Client, pr: &str, json: bool) -> Result<()> {
@@ -5052,8 +5068,9 @@ fn pr_show(c: &mut Client, pr: &str, json: bool) -> Result<()> {
     let p = find_pr(board, &key).ok_or_else(|| anyhow!("Codealong doesn't read {key}: its repo isn't in a project and no session here worked on it, or it's closed and older than GitHub's recent list."))?;
     let all = all_sessions(board);
     let rows: Vec<SessionRow> = p.sessions.iter().filter_map(|ps| all.iter().find(|(s, _)| s.key == ps.key)).map(|(s, l)| session_row(s, l, &board.todos)).collect();
+    let nudge_about = p.nudge.then(|| crate::nudges::about_of(board, p));
     if json {
-        return print_json(&PrDetail { pr: p, session_rows: rows });
+        return print_json(&PrDetail { pr: p, session_rows: rows, nudge_about });
     }
     println!("{} {} ({})", p.key, p.title, lower_debug(&p.state));
     println!("{} → {}  {}", p.head, p.base.as_deref().unwrap_or("?"), p.url);
@@ -5082,6 +5099,9 @@ fn pr_show(c: &mut Client, pr: &str, json: bool) -> Result<()> {
     } else if p.nudge {
         let why = if p.nudge_by_default { "[pull_requests] nudge_by_default; " } else { "" };
         println!("Its primary session is told of what happens on it while it runs ({why}`codealong pr nudge {} --off` stops that).", p.key);
+    }
+    if let Some(line) = nudge_about.and_then(|about| left_out_line(&p.key, about)) {
+        println!("{line}");
     }
     if let Some(r) = &p.auto_review {
         println!("Review: {}", review_line(r, p.head_oid.as_deref()));
@@ -5284,6 +5304,18 @@ fn pr_nudge(c: &mut Client, a: &PrNudgeArgs, watch: bool, json: bool) -> Result<
         let who = session_words(c, k);
         let verb = if watch { "watch" } else { "nudge" };
         eprintln!("Note: {key}'s primary session is {who}, which is running, so it's the one told. `codealong pr {verb} {key} --take` has this session told instead: for when you've taken the PR over.");
+    }
+    // A nudge that isn't a watch tells of what its settings say, which may leave out the approval
+    // a session waits on (`listed` is the PR as it was, so its watch isn't asked).
+    let left_out = match &listed {
+        Some(p) if out.nudge && !out.watched && p.state.is_open() => {
+            let b = c.board()?;
+            left_out_line(&key, b.repo_settings.nudge_about(b.nudge_about, p))
+        }
+        _ => None,
+    };
+    if let Some(line) = left_out {
+        eprintln!("Note: {line}");
     }
     if json {
         return print_json(&out);

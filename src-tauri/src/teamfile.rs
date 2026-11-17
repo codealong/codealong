@@ -500,6 +500,16 @@ pub struct RepoSettings {
 }
 
 impl RepoSettings {
+    /// What a board as it's sent holds of these: your tables (`Board::repos`) and the team files
+    /// read (`Board::team_files`), for a reader of a sent board, which doesn't get them (the
+    /// `codealong` command). Enough for how each repo's settings go, as the windows work them out
+    /// (repoSettings.ts), though not whether a repo's are still to be read (`pending`).
+    pub fn sent(mine: &BTreeMap<String, RepoCfg>, files: &[TeamFile]) -> RepoSettings {
+        let team = files.iter().filter_map(|f| Some(((f.repo.clone(), f.branch.clone()), f.settings.clone()?))).collect();
+        let defaults = files.iter().filter(|f| f.default).map(|f| (f.repo.clone(), f.branch.clone())).collect();
+        RepoSettings { mine: mine.clone(), team, defaults, ..RepoSettings::default() }
+    }
+
     /// Whether what `pr`'s repo's team says hasn't been read yet: nothing has been read since
     /// Codealong started, or its repo is checked out here and its base branch hasn't been read
     /// (with a file or without). What the team sets for a review (words for its reviewer, verdicts
@@ -841,6 +851,27 @@ rerequest_after_fixes = true
         assert!(t.settings(&BTreeMap::new()).pending(&pr_into("o/a", "release")));
         assert!(t.due(&repos, &release, t0 + Duration::from_secs(4)).is_empty(), "not again at once");
         assert_eq!(t.due(&repos, &release, t0 + EVERY).len(), 1);
+    }
+
+    /// A board as it's sent, with your tables and the team files read, says how each repo's
+    /// settings go as the engine's own does: a PR into a branch with a file, one naming no base
+    /// (its repo's default branch), one into a branch without a file, and your table for the repo
+    /// over the team's.
+    #[test]
+    fn a_sent_boards_repo_settings_go_as_the_engines() {
+        let mut t = files();
+        let repos = [repo("o/a")];
+        t.due(&repos, &HashMap::new(), Instant::now());
+        let team = parse("[pull_requests]\nnudge_about = \"feedback\"\n", &none);
+        t.on_read(Some(vec![answer("o/a", "main", "c1", Some(team)), answer("o/a", "hotfix", "c2", None)]));
+        let mine = BTreeMap::from([(crate::config::repo_key("o/b"), RepoCfg { pull_requests: PullRequestsPatch { nudge_about: Some(NudgeAbout::FeedbackAndMerges), ..Default::default() }, ..Default::default() })]);
+        let (engine, sent) = (t.settings(&mine), RepoSettings::sent(&mine, &t.files()));
+        let no_base = PrItem { base: None, ..pr_into("o/a", "main") };
+        for pr in [pr_into("o/a", "main"), no_base, pr_into("o/a", "hotfix"), pr_into("o/b", "main")] {
+            assert_eq!(sent.nudge_about(NudgeAbout::Everything, &pr), engine.nudge_about(NudgeAbout::Everything, &pr), "{} into {:?}", pr.repo_slug, pr.base);
+        }
+        let about = |pr: &PrItem| sent.nudge_about(NudgeAbout::Everything, pr);
+        assert_eq!([about(&pr_into("o/a", "main")), about(&pr_into("o/a", "hotfix")), about(&pr_into("o/b", "main"))], [NudgeAbout::Feedback, NudgeAbout::Everything, NudgeAbout::FeedbackAndMerges]);
     }
 
     fn bases_with(bases: &HashMap<String, HashSet<String>>, slug: &str, branch: &str) -> HashMap<String, HashSet<String>> {

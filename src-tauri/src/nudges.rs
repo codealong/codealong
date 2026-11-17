@@ -18,7 +18,8 @@
 //! never told back. `[pull_requests] nudge_about` can keep it to what asks for work (`keep`):
 //! comments and reviews that ask for changes or say something, and failing checks and conflicts or
 //! a merge if it says so, never an approval or a close, unless the PR is watched (`codealong pr
-//! watch`, its card), which has its nudge tell of everything (`about_of`). An agent's review that Codealong posted from someone's
+//! watch`, its card), which has its nudge tell of everything (`about_of`); where it isn't, each
+//! message says what's left out and how to hear of it (`left_out`). An agent's review that Codealong posted from someone's
 //! account (autoreview.rs `signed`), as a comment or submitted as their review, is told as their
 //! agent's, never as their own word (`agent_wrote`): the session would otherwise take it for
 //! that person's say.
@@ -100,6 +101,9 @@ pub struct Job {
     /// What it's told of (`[pull_requests] nudge_about`), as the board said when it was due, and
     /// where it isn't running, only what it's resumed for (`for_stopped`).
     pub about: NudgeAbout,
+    /// What it's told of while it runs (`about_of`): `about` before `for_stopped`, for what its
+    /// message says is left out (`left_out`).
+    pub runs_about: NudgeAbout,
     /// Its session isn't running, so it's resumed to be told (`Board::pr_stopped`,
     /// `send::tell_waking`).
     pub stopped: bool,
@@ -199,7 +203,7 @@ const COPY_MS: i64 = 10 * 60_000;
 
 /// What a nudge on `pr` tells of: everything where it's watched (`PrItem::watched`), else what
 /// `[pull_requests] nudge_about` says for its repo.
-fn about_of(board: &Board, pr: &PrItem) -> NudgeAbout {
+pub fn about_of(board: &Board, pr: &PrItem) -> NudgeAbout {
     if pr.watched {
         NudgeAbout::Everything
     } else {
@@ -370,7 +374,7 @@ impl Nudger {
             let why = std::mem::take(&mut o.why);
             o.sending = Some(why.clone());
             let (about, stopped) = (about_of(board, &o.pr), !runs_here(s));
-            out.push(Job { pr: o.pr.clone(), why, session: s.clone(), last: o.failures + 1 >= TRIES, about: if stopped { for_stopped(&o.pr, about) } else { about }, stopped });
+            out.push(Job { pr: o.pr.clone(), why, session: s.clone(), last: o.failures + 1 >= TRIES, about: if stopped { for_stopped(&o.pr, about) } else { about }, runs_about: about, stopped });
         }
         out.sort_by(|a, b| (&a.pr.key, &a.session).cmp(&(&b.pr.key, &b.session)));
         out
@@ -498,6 +502,19 @@ fn excerpt(body: &str) -> String {
 /// What an open PR's message ends with: the news is no go-ahead to merge.
 pub const NOT_A_MERGE: &str = "This message doesn't ask you to merge it: merge it only if you were asked to.";
 
+/// What a nudge that tells of `about` leaves out that a session may be waiting on: an approval,
+/// with every setting but `everything`, and a merge where it doesn't tell of one. None where it
+/// tells of both, as a watched PR's does (`about_of`). A session told what happened on its PR
+/// took it that it would hear of the approval it waited on too, and sat all night after it came
+/// (2026-11-16), so its messages say so (`message`), as `pr nudge` and `pr show` do.
+pub fn left_out(about: NudgeAbout) -> Option<&'static str> {
+    match about {
+        NudgeAbout::Everything => None,
+        a if a.merges() => Some("approvals"),
+        _ => Some("approvals and merges"),
+    }
+}
+
 /// What the session is told: the PR, each new thing on it, where it stands, and that it's the
 /// session's to take on, but not to merge: a message that came by itself must
 /// never read as your go-ahead to merge (asked 2026-10-09), so an open PR's always says it
@@ -606,14 +623,19 @@ fn standing(pr: &PrItem) -> &'static str {
 
 /// The message for a job, given how reading the PR's detail went (None when it wasn't read):
 /// None when there's nothing to say, and an error when the detail couldn't be read and this
-/// isn't the last try, to try again rather than leave out what others wrote.
+/// isn't the last try, to try again rather than leave out what others wrote. An open PR's ends
+/// with what its nudge leaves out while the session runs (`left_out`), and how to hear of it.
 fn message(job: &Job, detail: Option<Result<&PrDetail, &str>>, login: Option<&str>) -> Result<Option<String>, String> {
     let detail = match detail {
         Some(Err(e)) if !job.last => return Err(format!("What's new on {} couldn't be read: {e}", job.pr.key)),
         Some(Ok(d)) => Some(d),
         _ => None,
     };
-    Ok(words(&job.pr, &job.why, detail, login, job.about))
+    let text = words(&job.pr, &job.why, detail, login, job.about);
+    Ok(text.map(|text| match left_out(job.runs_about).filter(|_| job.pr.state.is_open()) {
+        Some(what) => format!("{text}\nThis PR's {what} aren't passed on to you; if you're waiting on one, run `codealong pr watch {}`.", job.pr.key),
+        None => text,
+    }))
 }
 
 /// Does each job in turn: reads the PR's detail from GitHub where its `updatedAt` moved (once
@@ -913,7 +935,7 @@ mod tests {
         sent(&mut nudger, &resuming(vec![at(UPDATED, PrState::Open)], vec![gone.clone()]));
         // Commented on: it's resumed to be told, of what asks for work only.
         let jobs = sent(&mut nudger, &resuming(vec![at(UPDATED + 1, PrState::Open)], vec![gone.clone()]));
-        assert_eq!(jobs.iter().map(|j| (j.session.as_str(), j.stopped, j.about)).collect::<Vec<_>>(), [(A, true, NudgeAbout::FeedbackAndChecks)]);
+        assert_eq!(jobs.iter().map(|j| (j.session.as_str(), j.stopped, j.about, j.runs_about)).collect::<Vec<_>>(), [(A, true, NudgeAbout::FeedbackAndChecks, NudgeAbout::Everything)]);
         // An approval, a merge or a close is no reason to start it, nor what the board knows of
         // them when GitHub can't be read.
         assert!(sent(&mut nudger, &resuming(vec![at(UPDATED + 1, PrState::Approved)], vec![gone.clone()])).is_empty());
@@ -995,7 +1017,7 @@ mod tests {
     #[test]
     fn a_resume_is_checked_again_before_it_goes() {
         let p = pr("o/r#1", PrState::Open, &[A, B]);
-        let job = Job { pr: p.clone(), why: Why { since: Some(UPDATED), ..Why::default() }, session: A.into(), last: false, about: NudgeAbout::FeedbackAndChecks, stopped: true };
+        let job = Job { pr: p.clone(), why: Why { since: Some(UPDATED), ..Why::default() }, session: A.into(), last: false, about: NudgeAbout::FeedbackAndChecks, runs_about: NudgeAbout::Everything, stopped: true };
         assert!(still_due(&resuming(vec![p.clone()], vec![stopped(A), stopped(B)]), &job));
         assert!(!still_due(&resuming(vec![p.clone()], vec![stopped(A), live(B)]), &job), "B started meanwhile");
         assert!(!still_due(&board(vec![p.clone()], vec![stopped(A), stopped(B)]), &job), "the setting went off");
@@ -1071,7 +1093,7 @@ mod tests {
     /// its primary went on as meanwhile; a copy that couldn't be made primary stays said.
     #[test]
     fn a_prs_failure_is_taken_back_by_a_send_to_the_copy_its_primary_went_on_as() {
-        let job = |pr: &str, session: &str| Job { pr: self::pr(pr, PrState::Open, &[session]), why: Why::default(), session: session.into(), last: false, about: NudgeAbout::Everything, stopped: true };
+        let job = |pr: &str, session: &str| Job { pr: self::pr(pr, PrState::Open, &[session]), why: Why::default(), session: session.into(), last: false, about: NudgeAbout::Everything, runs_about: NudgeAbout::Everything, stopped: true };
         let mut outcomes = Outcomes::default();
         outcomes.went(&job("o/r#1", A), Some("o/r#1 couldn't be read.".into()));
         outcomes.went(&job("o/r#2", A), None);
@@ -1216,7 +1238,7 @@ mod tests {
     #[test]
     fn news_that_cant_be_read_is_tried_again_before_its_left_out() {
         let p = pr("o/r#1", PrState::Approved, &[A]);
-        let job = Job { pr: p.clone(), why: Why { since: Some(UPDATED), approved: true, ..Why::default() }, session: A.into(), last: false, about: NudgeAbout::Everything, stopped: false };
+        let job = Job { pr: p.clone(), why: Why { since: Some(UPDATED), approved: true, ..Why::default() }, session: A.into(), last: false, about: NudgeAbout::Everything, runs_about: NudgeAbout::Everything, stopped: false };
         let e = message(&job, Some(Err("gh timed out after 30s")), Some("me")).unwrap_err();
         assert_eq!(e, "What's new on o/r#1 couldn't be read: gh timed out after 30s");
         // The last try says what the board knows.
@@ -1376,6 +1398,35 @@ mod tests {
         let mut nudger = Nudger::default();
         sent(&mut nudger, &board(vec![watched(&open)], vec![stopped(A)]));
         assert!(sent(&mut nudger, &board(vec![watched(&approved)], vec![stopped(A)])).is_empty());
+    }
+
+    /// A message on a PR whose nudge leaves out approvals says so last, with how to hear of them
+    /// (`left_out`): merges too where it leaves them out; nothing where it tells of everything, as
+    /// a watched PR's does, nor once the PR has ended.
+    #[test]
+    fn a_message_says_what_its_nudge_leaves_out() {
+        let narrow = |prs: Vec<PrItem>| Board { nudge_about: NudgeAbout::FeedbackAndChecks, ..board(prs, vec![live(A)]) };
+        let open = pr("o/r#1", PrState::Open, &[A]);
+        let failing = PrItem { checks: Checks { failed: 1, failing: vec!["lint".into()], ..Default::default() }, ..open.clone() };
+        let told = |watched: bool| {
+            let mut nudger = Nudger::default();
+            sent(&mut nudger, &narrow(vec![PrItem { watched, ..open.clone() }]));
+            let jobs = sent(&mut nudger, &narrow(vec![PrItem { watched, ..failing.clone() }]));
+            message(&jobs[0], None, Some("me")).unwrap().unwrap()
+        };
+        let text = told(false);
+        assert!(text.ends_with(&format!("{NOT_A_MERGE}\nThis PR's approvals and merges aren't passed on to you; if you're waiting on one, run `codealong pr watch o/r#1`.")), "{text}");
+        assert!(told(true).ends_with(NOT_A_MERGE));
+
+        let job = |pr: &PrItem, why: Why, about: NudgeAbout| Job { pr: pr.clone(), why, session: A.into(), last: true, about, runs_about: about, stopped: false };
+        let read = |job: Job| message(&job, None, Some("me")).unwrap().unwrap();
+        let failed = Why { failed: vec!["lint".into()], ..Why::default() };
+        assert!(read(job(&failing, failed.clone(), NudgeAbout::FeedbackChecksAndMerges)).ends_with("\nThis PR's approvals aren't passed on to you; if you're waiting on one, run `codealong pr watch o/r#1`."));
+        assert!(read(job(&failing, failed.clone(), NudgeAbout::Everything)).ends_with(NOT_A_MERGE));
+        // Resumed to be told only what asks for work, it's told of everything once it runs.
+        assert!(read(Job { about: NudgeAbout::FeedbackAndChecks, stopped: true, ..job(&failing, failed, NudgeAbout::Everything) }).ends_with(NOT_A_MERGE));
+        let merged = PrItem { state: PrState::Merged, ..open };
+        assert!(read(job(&merged, Why { ended: Some(PrState::Merged), ..Why::default() }, NudgeAbout::FeedbackAndMerges)).ends_with("unless you were told otherwise."));
     }
 
     /// An agent's review Codealong posted from someone's account is told as their agent's when

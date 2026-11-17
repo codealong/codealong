@@ -465,8 +465,9 @@ worked in a worktree on the PR's branch while the PR was open. So there's usuall
   message is news, never a go-ahead to merge, though it comes as the user's: an approval in it
   doesn't mean merge, so merge only if the user asked you to. Don't turn it on when the user
   wants to handle its review themselves. `--off` turns it off;
-  `codealong pr show <pr>` says whether it's on (`nudge`) and which session is told
-  (`primary`).
+  `codealong pr show <pr>` says whether it's on (`nudge`), what it tells of (`nudgeAbout`) and
+  which session is told (`primary`). A nudge that leaves approvals out says so as you turn it on
+  and at the end of each message: if you're waiting on one, watch the PR instead.
 - `codealong pr watch <pr>` is `pr nudge` with nothing left out: you're told of everything that
   happens on the PR, an approval, a merge and a close included, whatever `nudge_about` or the
   repo's team keep nudges to, for this PR alone. Use it when what you do next hangs on what happens
