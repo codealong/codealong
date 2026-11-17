@@ -39,6 +39,8 @@ describe('orchestrators', () => {
     expect(compassTitle(['Kestrel'])).toMatch(/^Start an orchestrator for Kestrel:/);
     expect(compassTitle([null])).toMatch(/^Start an orchestrator for All projects:/);
     expect(compassTitle([null, 'Kestrel'])).toMatch(/^Start an orchestrator for All projects or one of your projects:/);
+    // All projects' running already, it isn't offered.
+    expect(compassTitle(['Atlas', 'Kestrel'])).toMatch(/^Start an orchestrator for one of your projects:/);
   });
 
   it('finds a scope’s orchestrator and whether it runs', () => {

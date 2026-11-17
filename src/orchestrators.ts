@@ -56,10 +56,11 @@ export function freeScopes(current: string, projects: readonly { name: string }[
 }
 
 /** What the compass in Sessions' bar says it starts: one scope by name, or for several, that the
- *  dialog asks which. */
+ *  dialog asks which, All projects among them only while it's free. */
 export function compassTitle(scopes: readonly (string | null)[]): string {
   const what = 'an agent that keeps watch over sessions for you';
-  return scopes.length === 1 ? `Start an orchestrator for ${scopeWords(scopes[0])}: ${what}` : `Start an orchestrator for All projects or one of your projects: ${what}`;
+  if (scopes.length === 1) return `Start an orchestrator for ${scopeWords(scopes[0])}: ${what}`;
+  return `Start an orchestrator for ${scopes.includes(null) ? 'All projects or one of your projects' : 'one of your projects'}: ${what}`;
 }
 
 /** The orchestrator for a scope, on or not, as the Schedules view has it. */
