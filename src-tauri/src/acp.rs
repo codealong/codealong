@@ -43,6 +43,14 @@ use crate::util::{now_ms, sh_quote, truncate};
 /// against Codealong.
 pub const PACKAGES: [(&str, &str); 2] = [("@agentclientprotocol/claude-agent-acp", "0.81.2"), ("@agentclientprotocol/codex-acp", "1.13.1")];
 
+/// Packages the adapters run, at versions Codealong picks over the ones the adapters ask for:
+/// npm's `overrides` in the folder's package.json, so the folder holds one copy of each. codex-acp
+/// 1.13.1 asks for Codex 0.156.1, which OpenAI's server doesn't offer its newer models to: the
+/// list it fetches leaves out GPT-6.2-Astra and GPT-6.2-Sol, and a turn asking for one is refused
+/// as "not supported when using Codex with a ChatGPT account" (2026-11-17). 1.13.1 runs 0.169.0's
+/// app-server, a turn on `gpt-6.2-astra` with a command in it included (checked 2026-11-17).
+pub const OVERRIDES: [(&str, &str); 1] = [("@openai/codex", "0.169.0")];
+
 /// How long a request other than a prompt may take: starting a session loads the agent's
 /// tools and MCP servers, which can take a while.
 const REQUEST_TIMEOUT: Duration = Duration::from_secs(90);
@@ -341,9 +349,10 @@ pub(crate) fn package_program(bin: &str, h: Harness) -> std::result::Result<Stri
 /// them (`agent`) until it has answered, so neither happens in a folder npm is writing.
 static INSTALLING: std::sync::RwLock<()> = std::sync::RwLock::new(());
 
-/// Whether the adapter packages in `dir` are the versions Codealong expects.
+/// Whether the adapter packages in `dir`, and the ones they run that Codealong overrides, are
+/// the versions Codealong expects.
 fn packages_current(dir: &Path) -> bool {
-    PACKAGES.iter().all(|(name, version)| {
+    PACKAGES.iter().chain(&OVERRIDES).all(|(name, version)| {
         std::fs::read(dir.join("node_modules").join(name).join("package.json"))
             .ok()
             .and_then(|b| serde_json::from_slice::<Value>(&b).ok())
@@ -389,9 +398,11 @@ pub fn install_adapters() -> Result<String> {
     let dir = install_dir();
     // `codealong install` may be running npm here too, in its own process.
     let _one = store::lock(&dir.join("install"))?;
-    let manifest = dir.join("package.json");
-    if !manifest.exists() {
-        std::fs::write(&manifest, "{\n  \"name\": \"codealong-acp\",\n  \"private\": true\n}\n")?;
+    let manifest_path = dir.join("package.json");
+    let was = store::text(&manifest_path)?;
+    let wanted = manifest(&manifest_path, was.as_deref())?;
+    if was.as_deref() != Some(wanted.as_str()) {
+        store::write(&manifest_path, wanted)?;
     }
     if packages_current(&dir) {
         return Ok(format!("ACP adapters: up to date in {}", crate::util::tilde(&dir)));
@@ -404,6 +415,23 @@ pub fn install_adapters() -> Result<String> {
         bail!("npm couldn't install the adapters: {}", out.err.lines().last().unwrap_or(""));
     }
     Ok(format!("ACP adapters: {} in {}", specs.join(", "), crate::util::tilde(&dir)))
+}
+
+/// The adapters' package.json with `OVERRIDES` in it: `text` with them, or a new one where
+/// there's none. npm keeps what it adds (the dependencies) and leaves `overrides` as written. One
+/// that doesn't read as JSON is an error, and isn't written over.
+fn manifest(path: &Path, text: Option<&str>) -> Result<String> {
+    let mut m: serde_json::Map<String, Value> = match text {
+        Some(t) => store::parse(path, "a package manifest", t)?,
+        None => serde_json::Map::from_iter([("name".to_string(), json!("codealong-acp")), ("private".to_string(), json!(true))]),
+    };
+    let Some(overrides) = m.entry("overrides").or_insert_with(|| json!({})).as_object_mut() else {
+        bail!("{}'s overrides isn't an object. Codealong won't change it until it is.", path.display());
+    };
+    for (name, version) in OVERRIDES {
+        overrides.insert(name.to_string(), json!(version));
+    }
+    Ok(serde_json::to_string_pretty(&m)? + "\n")
 }
 
 /// Runs npm in the adapters' folder for at most `timeout`, like every other program the engine
@@ -2461,6 +2489,44 @@ mod tests {
         // And one that ran is read as before, whatever it exited with.
         let Ok(out) = run_npm(&crate::procs::posix_tool("sh"), &["-c", "echo 'npm ERR! 404' >&2; exit 1"], &dir, Duration::from_secs(5)) else { panic!("it ran") };
         assert_eq!((out.ok, out.err.lines().last()), (false, Some("npm ERR! 404")));
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn the_manifest_overrides_what_the_adapters_run() {
+        let path = Path::new("/support/acp/package.json");
+        let read = |text: Option<&str>| serde_json::from_str::<Value>(&manifest(path, text).unwrap()).unwrap();
+        // A new folder's, before npm has added anything.
+        assert_eq!(read(None), json!({ "name": "codealong-acp", "private": true, "overrides": { "@openai/codex": OVERRIDES[0].1 } }));
+        // One npm wrote before there were overrides keeps its dependencies; one with an older
+        // override, or another's, gets this build's and keeps the other.
+        let installed = r#"{"name":"codealong-acp","private":true,"dependencies":{"@agentclientprotocol/codex-acp":"1.13.1"},"overrides":{"@openai/codex":"0.156.1","left-pad":"1.3.0"}}"#;
+        assert_eq!(read(Some(installed))["dependencies"], json!({ "@agentclientprotocol/codex-acp": "1.13.1" }));
+        assert_eq!(read(Some(installed))["overrides"], json!({ "@openai/codex": OVERRIDES[0].1, "left-pad": "1.3.0" }));
+        // Written once, it's left alone: install_adapters writes only what changed.
+        let once = manifest(path, None).unwrap();
+        assert_eq!(manifest(path, Some(&once)).unwrap(), once);
+        // One that doesn't read, or whose overrides isn't a map, is an error and stays as it is.
+        assert!(manifest(path, Some("{not json")).unwrap_err().to_string().contains("doesn't read as a package manifest"));
+        assert!(manifest(path, Some(r#"{"overrides":[]}"#)).unwrap_err().to_string().contains("overrides isn't an object"));
+    }
+
+    #[test]
+    fn an_adapter_running_an_older_codex_is_out_of_date() {
+        let dir = store::test_dir("acp-current");
+        let put = |name: &str, version: &str| {
+            let at = dir.join("node_modules").join(name);
+            std::fs::create_dir_all(&at).unwrap();
+            std::fs::write(at.join("package.json"), json!({ "name": name, "version": version }).to_string()).unwrap();
+        };
+        for (name, version) in PACKAGES {
+            put(name, version);
+        }
+        // The adapters at their versions, running the Codex codex-acp asks for.
+        put("@openai/codex", "0.156.1");
+        assert!(!packages_current(&dir));
+        put("@openai/codex", OVERRIDES[0].1);
+        assert!(packages_current(&dir));
         let _ = std::fs::remove_dir_all(&dir);
     }
 

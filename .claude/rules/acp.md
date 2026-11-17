@@ -92,8 +92,13 @@ on 2026-09-27. Paths are under `src-tauri/src/`.
   `dist/permissions/effects.js` says what each does. codex-acp 1.13.1 asks "Implement this
   plan?" with `implement_plan` (allow_once) and `revise_plan` (reject_once). Which option each
   of Codealong's answers gives: `acp.rs` (`pick`, `clears_context`).
-- `@agentclientprotocol/codex-acp` 1.13.1 runs its own bundled `codex app-server` (0.156.1)
-  with `CODEX_HOME` (`codex/mod.rs`, `acp_command`); the session id is the thread id, and the
+- `@agentclientprotocol/codex-acp` 1.13.1 runs `codex app-server` from the `@openai/codex` it
+  depends on, with `CODEX_HOME` (`codex/mod.rs`, `acp_command`). It asks for 0.156.1, which
+  OpenAI's server doesn't offer GPT-6.2-Astra or -Sol to ("not supported when using Codex with a
+  ChatGPT account"), so the adapters' package.json overrides it to 0.169.0, which 1.13.1 runs
+  (`acp.rs` `OVERRIDES`, 2026-11-17). A model Codex's own terminal offers and a session in
+  Codealong refuses that way wants a newer override. `CODEX_PATH` would run another Codex
+  instead, which Codealong doesn't set. The session id is the thread id, and the
   rollout is an ordinary one with `originator: "codealong"`. The board gives such a session no
   process; its commands carry the thread's ID in `CODEX_THREAD_ID`, which is how the `codealong`
   command run there finds its session however it was run (`cli.rs` `hosted_above`). With `approvals_reviewer =
