@@ -3851,7 +3851,11 @@ fn waiting_call(s: &Session, account: Option<&config::AccountCfg>) -> Option<Str
             made,
             pushed: prlinks::carry_moves(&self.pr_pushes, &moves, prlinks::add_push),
             picked,
-            by_hand: self.pr_store.links.iter().filter(|l| l.linked).map(|l| prlinks::pr_key(&l.pr)).collect(),
+            linked_at: self.pr_store.links.iter().filter(|l| l.linked).fold(HashMap::new(), |mut at, l| {
+                let t = at.entry(prlinks::pr_key(&l.pr)).or_insert(l.at);
+                *t = (*t).max(l.at);
+                at
+            }),
             nudged: self.pr_store.nudges.iter().cloned().collect(),
             not_nudged: self.pr_store.nudges_off.iter().cloned().collect(),
             watched: self.pr_store.watched.iter().cloned().collect(),

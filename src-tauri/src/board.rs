@@ -171,9 +171,10 @@ pub struct PrLinks {
     pub pushed: HashMap<String, Vec<(String, i64)>>,
     /// The session picked by hand as the PR's primary.
     pub picked: HashMap<String, String>,
-    /// The PRs a session was linked to by hand (pr-links.json), whatever its records mark: they go
-    /// first where only so many are read (`worked_prs`).
-    pub by_hand: HashSet<String>,
+    /// When each PR was last linked to a session in pr-links.json, by hand or by its automatic
+    /// review (autoreview.rs `link`): where only so many are read (`worked_prs`), a link counts as
+    /// a mark made then, whatever the session's records mark.
+    pub linked_at: HashMap<String, i64>,
     /// PRs whose primary session is told of what happens on them (nudges.rs), turned on for
     /// each, and the ones turned off.
     pub nudged: HashSet<String>,
@@ -1263,11 +1264,12 @@ fn made_item(repos: &HashMap<&str, (&str, &str, Option<&str>)>, owners: &HashMap
 }
 
 /// The PRs sessions on the board (`lanes`) made or changed by their records, or were linked to by
-/// hand, as `owner/name#number`: one linked by hand first, however long ago it was marked, then
-/// the latest marked. Records outlast the sessions the board lists (a background job removed,
-/// say), and a session unlinked from a PR counts for none. The engine reads the ones in repos
-/// whose PRs aren't read by their numbers (ghpoll.rs `made_to_read`), which are listed only with
-/// such a session (`made_item`).
+/// hand, as `owner/name#number`, the latest marked or linked first. Records outlast the sessions
+/// the board lists (a background job removed, say), and a session unlinked from a PR counts for
+/// none. The engine reads the ones in repos whose PRs aren't read by their numbers (ghpoll.rs
+/// `made_to_read`), which are listed only with such a session (`made_item`). Links aren't put
+/// first: every PR an automatic review was started on has one, hundreds of them a month in a busy
+/// repo, and put first they kept the latest PRs from being read.
 pub fn worked_prs(links: &PrLinks, lanes: &[Lane]) -> Vec<String> {
     let on_board: HashSet<&str> = lanes.iter().flat_map(|l| l.sessions.iter().map(|s| s.key.as_str())).collect();
     let mut prs: Vec<(Reverse<i64>, &String)> = links
@@ -1275,8 +1277,8 @@ pub fn worked_prs(links: &PrLinks, lanes: &[Lane]) -> Vec<String> {
         .iter()
         .filter(|(pr, sessions)| sessions.iter().any(|s| on_board.contains(s.as_str()) && !links.unlinked.contains(&((*pr).clone(), s.clone()))))
         .map(|(pr, _)| {
-            let marked = links.made.get(pr).into_iter().flatten().map(|(_, at)| *at).max().filter(|_| !links.by_hand.contains(pr));
-            (Reverse(marked.unwrap_or(i64::MAX)), pr)
+            let marked = links.made.get(pr).into_iter().flatten().map(|(_, at)| *at).chain(links.linked_at.get(pr).copied()).max();
+            (Reverse(marked.unwrap_or(0)), pr)
         })
         .collect();
     prs.sort();
@@ -4001,14 +4003,16 @@ mod tests {
             ]),
             ..Default::default()
         };
-        // #6, marked long ago by a, was linked to a by hand today.
+        // #6, marked long ago by a, was linked to a by hand today, and #4, which no record marks,
+        // before that. #7 was linked long ago, as an automatic review links every PR it reviews.
         links.worked.insert("o/r#6".into(), vec!["a".into()]);
-        links.by_hand.extend(["o/r#4".to_string(), "o/r#6".to_string()]);
-        // Links by hand first, then by the latest session's mark.
-        assert_eq!(worked_prs(&links, &lanes), ["o/r#4", "o/r#6", "o/r#2", "o/r#3", "o/r#1"]);
+        links.worked.insert("o/r#7".into(), vec!["linked".into()]);
+        links.linked_at.extend([("o/r#4".to_string(), 400), ("o/r#6".to_string(), 500), ("o/r#7".to_string(), 1)]);
+        // By the latest mark or link: an old link no longer goes before a newer mark.
+        assert_eq!(worked_prs(&links, &lanes), ["o/r#6", "o/r#4", "o/r#2", "o/r#3", "o/r#1", "o/r#7"]);
         // Every session it had unlinked by hand: it's no one's.
         links.unlinked.insert(("o/r#3".into(), "c".into()));
-        assert_eq!(worked_prs(&links, &lanes), ["o/r#4", "o/r#6", "o/r#2", "o/r#1"]);
+        assert_eq!(worked_prs(&links, &lanes), ["o/r#6", "o/r#4", "o/r#2", "o/r#1", "o/r#7"]);
     }
 
     #[test]

@@ -741,6 +741,18 @@ impl GhPoll {
         for (slug, prs) in made.iter_mut() {
             self.as_done_here(slug, prs);
         }
+        // A repo no longer read keeps its last read (`board::pr_items`), which a PR read by its
+        // number brings up to date: once later PRs crowd it out of the ones read, the board shows
+        // it as that read had it, which was open for one merged after the repo stopped being read.
+        for (slug, read) in &made {
+            for prs in self.prs.iter_mut().filter(|(s, _)| s.eq_ignore_ascii_case(slug)).map(|(_, prs)| prs) {
+                for pr in prs.iter_mut() {
+                    if let Some(now) = read.iter().find(|p| p.number == pr.number) {
+                        *pr = now.clone();
+                    }
+                }
+            }
+        }
         self.made = made;
         if found.login.is_some() {
             self.login = found.login;
@@ -1457,5 +1469,27 @@ mod tests {
         assert!(gh.ask(&plain, true, after(t, 180)).is_none());
         assert!(gh.made().is_empty());
         assert!(!gh.schedule.stamps.contains_key(github::MADE));
+    }
+
+    #[test]
+    fn a_pr_read_by_its_number_brings_its_repos_last_read_up_to_date() {
+        let mut gh = quiet();
+        let t = clock();
+        // spurhq/spur was read while a worktree was on a branch, with #12 open; then the worktree
+        // went back to main, and #12 was merged.
+        let seeds = [seed("/x/spur", "spurhq/spur", "main")];
+        gh.prs.insert("spurhq/spur".into(), vec![pr(12), pr(11)]);
+        gh.set_marked(vec!["spurhq/spur#12".to_string()]);
+        assert_eq!(gh.made_to_read(&seeds), ["spurhq/spur#12"]);
+        let merged = PrRaw { state: PrState::Merged, merged_at: Some(t.ms), ..pr(12) };
+        gh.on_event(Event::Made(Ok(Made { login: None, prs: vec![("SpurHQ/spur".into(), merged)], asked: vec!["spurhq/spur#12".into()] }), None), &seeds, t);
+        assert_eq!(gh.made()["SpurHQ/spur"][0].state, PrState::Merged);
+        // Its copy in the repo's last read is merged too, so it stays merged once it's no longer
+        // read, and the rest of that read stands.
+        gh.set_marked(Vec::new());
+        gh.ask(&seeds, true, after(t, 180));
+        assert!(gh.made().is_empty());
+        let states: Vec<(u64, PrState)> = gh.prs()["spurhq/spur"].iter().map(|p| (p.number, p.state)).collect();
+        assert_eq!(states, [(12, PrState::Merged), (11, PrState::Open)]);
     }
 }
