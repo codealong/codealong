@@ -288,13 +288,14 @@ pub fn found(board: &Board, file: &File, s: &Schedule, now: i64, seen: &[String]
             crate::model::PrState::Merged => "merged",
             crate::model::PrState::Closed => "closed without merging",
         };
-        // Told once each time it moves to another state: by how many of its moves were told before,
-        // so one it comes back to (reopened, approved again after changes were asked) is news
-        // again, and the same state is told once however often it's looked at.
+        // Told once each time it moves to another state: against the state it was last told in, so
+        // one it comes back to (reopened, approved again after changes were asked) is news again,
+        // and the same state is told once however often it's looked at. By when it was first seen
+        // there, which no id kept from before can be, however many the list keeps.
         let prefix = format!("pr:{}:", p.key);
-        let told: Vec<&String> = seen.iter().filter(|x| x.starts_with(&prefix)).collect();
-        if told.last().and_then(|x| x.rsplit(':').next()) != Some(state) {
-            out.push(Found { id: format!("{prefix}{}:{state}", told.len()), title: format!("#{} {} in {}: {said}", p.number, p.title, p.repo_slug), url: p.url.clone(), text: String::new(), todo: None });
+        let last = seen.iter().filter_map(|x| x.strip_prefix(&prefix)?.split_once(':')).filter_map(|(at, was)| Some((at.parse::<i64>().ok()?, was))).max_by_key(|(at, _)| *at);
+        if last.map(|(_, was)| was) != Some(state) {
+            out.push(Found { id: format!("{prefix}{now}:{state}"), title: format!("#{} {} in {}: {said}", p.number, p.title, p.repo_slug), url: p.url.clone(), text: String::new(), todo: None });
         }
         if p.state.is_open() && p.checks.failed > 0 {
             out.push(Found {
@@ -447,23 +448,26 @@ mod tests {
         let file = File { schedules: vec![orch("web", Some("Web"))], ..File::default() };
         let s = &file.schedules[0];
         let at = |state: PrState| Board { prs: vec![pr("Web", state)], ..Board::default() };
-        let told = |state: PrState, seen: &[String]| ids(found(&at(state), &file, s, NOW, seen));
-        assert_eq!(told(PrState::Open, &[]), vec!["pr:acme/web#4:0:open"]);
+        let told = |state: PrState, seen: &[String], now: i64| ids(found(&at(state), &file, s, now, seen));
+        assert_eq!(told(PrState::Open, &[], 10), vec!["pr:acme/web#4:10:open"]);
         // Told already, it isn't again; closed, then reopened, each is.
-        let mut seen = vec!["pr:acme/web#4:0:open".to_string()];
-        assert!(told(PrState::Open, &seen).is_empty());
-        assert_eq!(told(PrState::Closed, &seen), vec!["pr:acme/web#4:1:closed"]);
-        seen.push("pr:acme/web#4:1:closed".into());
-        assert_eq!(told(PrState::Open, &seen), vec!["pr:acme/web#4:2:open"]);
+        let mut seen = vec!["pr:acme/web#4:10:open".to_string()];
+        assert!(told(PrState::Open, &seen, 20).is_empty());
+        assert_eq!(told(PrState::Closed, &seen, 20), vec!["pr:acme/web#4:20:closed"]);
+        seen.push("pr:acme/web#4:20:closed".into());
+        assert_eq!(told(PrState::Open, &seen, 30), vec!["pr:acme/web#4:30:open"]);
         // Approved, sent back and approved again on one commit: three moves, each told.
-        let mut seen = vec!["pr:acme/web#4:0:approved".to_string(), "pr:acme/web#4:1:changes".to_string()];
-        assert_eq!(told(PrState::Approved, &seen), vec!["pr:acme/web#4:2:approved"]);
-        seen.push("pr:acme/web#4:2:approved".into());
-        assert!(told(PrState::Approved, &seen).is_empty());
+        let mut seen = vec!["pr:acme/web#4:10:approved".to_string(), "pr:acme/web#4:20:changes".to_string()];
+        assert_eq!(told(PrState::Approved, &seen, 30), vec!["pr:acme/web#4:30:approved"]);
+        seen.push("pr:acme/web#4:30:approved".into());
+        assert!(told(PrState::Approved, &seen, 40).is_empty());
+        // With its oldest moves trimmed from the list, a move is still told, by an id none kept has.
+        let trimmed = vec!["pr:acme/web#4:20:closed".to_string(), "pr:acme/web#4:30:open".to_string()];
+        assert_eq!(told(PrState::Closed, &trimmed, 40), vec!["pr:acme/web#4:40:closed"]);
         let mut failing = at(PrState::Open);
         failing.prs[0].checks.failed = 1;
         failing.prs[0].head_oid = Some("abc".into());
-        assert_eq!(ids(found(&failing, &file, s, NOW, &[])), vec!["pr:acme/web#4:0:open", "checks:acme/web#4@abc"]);
+        assert_eq!(ids(found(&failing, &file, s, NOW, &[])), vec![format!("pr:acme/web#4:{NOW}:open"), "checks:acme/web#4@abc".to_string()]);
         // Another project's PR, or one neither yours nor worked on here, isn't its.
         assert!(found(&Board { prs: vec![pr("Docs", PrState::Open)], ..Board::default() }, &file, s, NOW, &[]).is_empty());
         let mut theirs = at(PrState::Open);

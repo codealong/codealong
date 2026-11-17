@@ -2,9 +2,10 @@
 // of its own, is listed once, never among the rest, and the bar offers no compass while it runs;
 // its menu looks now, starts it afresh and turns it off, which pauses its schedule (its scheduler
 // then marks its session done: runner.rs `Job::Retire`).
-//   scripts/preview.sh sessions 'All projects' scripts/preview/orchestrator-check.js
+//   scripts/preview.sh sessions '' scripts/preview/orchestrator-check.js
 (function () {
-  window.__ORCHESTRATES__ = {};
+  // The first project's, which the view shows.
+  window.__ORCHESTRATES__ = { project: '$first' };
   var keyOf = function (row) { return row.id.slice(row.id.indexOf('::') + 2); };
   say('orchestrator check: waiting for Sessions');
   until(function () { return q('.ca-orchestrators [id^="row-"]'); }, 20000, 'the orchestrator section')
@@ -28,7 +29,7 @@
     })
     .then(function () {
       var ops = sent('schedule_op').map(function (a) { return a.op; });
-      check('turning it off pauses its schedule', ops.some(function (o) { return o.op === 'pause' && o.id === 'orch-all' && o.paused === true; }), JSON.stringify(ops));
+      check('turning it off pauses its schedule', ops.some(function (o) { return o.op === 'pause' && /^orch-/.test(o.id) && o.paused === true; }), JSON.stringify(ops));
       rightClick(q('.ca-orchestrators [id^="row-"]'));
       return wait(100);
     })
@@ -37,7 +38,7 @@
       return until(function () { return sent('schedule_op').some(function (a) { return a.op.op === 'fresh'; }); }, 5000, 'a fresh run asked for');
     })
     .then(function () {
-      check('starting afresh asks its schedule for a fresh run', sent('schedule_op').some(function (a) { return a.op.op === 'fresh' && a.op.id === 'orch-all'; }));
+      check('starting afresh asks its schedule for a fresh run', sent('schedule_op').some(function (a) { return a.op.op === 'fresh' && /^orch-/.test(a.op.id); }));
     })
     .then(done)
     .catch(stopped);

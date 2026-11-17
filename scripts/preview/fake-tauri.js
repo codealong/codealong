@@ -432,14 +432,16 @@ function withExperiments(board) {
     (out.lanes || []).forEach(function (l) { l.sessions.forEach(function (s) { if (s.key === window.__LISTENS__) s.listening = true; }); });
   }
   // An orchestrator (schedules/orchestrate.rs), when a check or an init script set
-  // `window.__ORCHESTRATES__` ({ project }): the most recently active session is its session,
-  // marked as the engine marks one (`mark`) and named as its runs name it, with its schedule
-  // among the schedules, on. `{ off: true }` leaves the session alone and the schedule paused.
+  // `window.__ORCHESTRATES__` ({ project }, `$first` for the first project, the view's unless
+  // preview.sh named another; none for All projects): the most recently active session is its
+  // session, marked as the engine marks one (`mark`) and named as its runs name it, with its
+  // schedule among the schedules, on. `{ off: true }` leaves the session alone and the schedule
+  // paused.
   var orch = window.__ORCHESTRATES__;
   if (orch) {
     var latest = null;
     (out.lanes || []).forEach(function (l) { l.sessions.forEach(function (s) { if (!s.archived && !s.visitor && (!latest || s.lastActivity > latest.lastActivity)) latest = s; }); });
-    var project = orch.project || undefined;
+    var project = orch.project === '$first' ? ((out.projects || [])[0] || {}).name : orch.project || undefined;
     var id = 'orch-' + (project || 'all');
     if (latest && !orch.off) {
       latest.orchestrator = { schedule: id, project: project };

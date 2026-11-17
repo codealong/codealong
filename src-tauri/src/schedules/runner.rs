@@ -1276,8 +1276,9 @@ fn fire(engine: &Handle, id: &str, cause: Cause) -> Option<Done> {
         return skipped(&cause, format!("It has run {} times today, its most.", s.per_day.unwrap_or_default()));
     }
     // One session kept going whose first start hasn't shown yet, or one started in place of a
-    // session that's gone: another would be a second one.
-    if s.run.to != To::New && target(&board, &s, Some(&track)).is_none() && track.runs.iter().any(|r| r.pending.is_some()) {
+    // session that's gone: another would be a second one. An orchestrator keeps the session it had
+    // while one that takes over is starting (`thread_after`), and waits for that one all the same.
+    if starting(&board, &s, &track) {
         return skipped(&cause, "Its session is still starting.");
     }
     if s.run.to == To::New && s.overlap == Overlap::Skip {
@@ -1336,6 +1337,13 @@ fn retire(engine: &Handle, s: &Schedule, before: Option<&str>, rec: &mut RunReco
             rec.said.push_str(&format!(" The session before it couldn't be marked done, so it's left a session of yours: {why}"));
         }
     }
+}
+
+/// Whether a schedule that keeps a session going has one starting that hasn't shown: its first,
+/// one in place of a session that's gone, or an orchestrator's that takes over from the one it
+/// still has (`thread_after`). A run then would start another.
+fn starting(board: &Board, s: &Schedule, track: &Track) -> bool {
+    s.run.to != To::New && (s.orchestrates.is_some() || target(board, s, Some(track)).is_none()) && track.runs.iter().any(|r| r.pending.is_some())
 }
 
 /// What a run does to the session a schedule keeps going: the one it went to, or for an
@@ -1426,6 +1434,10 @@ fn deliver_queued(engine: &Handle, id: &str, q: Queued) -> Option<Done> {
     let board = engine.board();
     let now = now_ms();
     let cause = Cause { why: if q.why.len() == 1 { q.why[0].clone() } else { format!("{} runs that waited", q.why.len()) }, found: q.todos.iter().map(|t| Found { todo: Some(t.clone()), ..Found::default() }).collect(), ..Cause::default() };
+    // What waited goes to the session that takes over, once it has shown.
+    if starting(&board, &s, &track) {
+        return back();
+    }
     let todos = todos_for(&board, &cause);
     let prompt = prompt_of(&s, &q.why, &q.files, &todos, &board, now);
     // What waited goes now, or it's dropped after a day: a session busy that long isn't coming back for it.
@@ -1528,6 +1540,20 @@ mod tests {
         let gone = Track { thread_since: Some(now - PENDING_MS - 1), ..fresh };
         let (_, notes) = plan(&file, &Runs { of: [("o".to_string(), gone)].into(), ..Runs::default() }, &board(), &HashSet::new(), now, &z);
         assert_eq!(notes, vec![Note::Retired { id: "o".into() }]);
+    }
+
+    #[test]
+    fn an_orchestrator_with_a_session_starting_to_take_over_waits_for_it() {
+        let o = orchestrate::schedule(orchestrate::Orchestrates::default(), "", None);
+        let s = crate::model::Session::new(crate::model::Harness::Claude, "claude", "old");
+        let b = Board { lanes: vec![crate::model::Lane { sessions: vec![s], ..crate::model::Lane::new("/c", "Elsewhere", "") }], ..board() };
+        let pending = RunRecord { pending: Some(Pending { lane: "/c".into(), account: "claude".into(), at: 1 }), outcome: Outcome::Started, ..RunRecord::default() };
+        let track = Track { thread: Some("claude:claude:old".into()), runs: vec![pending], ..Track::default() };
+        assert!(starting(&b, &o, &track), "the old one still there, a day's replacement is starting");
+        assert!(!starting(&b, &o, &Track { runs: Vec::new(), ..track.clone() }));
+        // Another kind keeps sending to its session while it's there.
+        let plain = Schedule { run: Run { to: To::Thread, ..Run::default() }, ..Schedule::default() };
+        assert!(!starting(&b, &plain, &track));
     }
 
     #[test]
