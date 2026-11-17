@@ -1004,8 +1004,9 @@ pub fn spent(s: &Schedule, track: Option<&Track>, now: i64, zone: &dyn Zone) -> 
 
 /// What on the board a schedule's event is for now: each PR merged, PR whose checks fail at its
 /// commit, ready todo, or what an orchestrator keeps watch over that needs a look, by an id of its
-/// own. `file` says which orchestrator keeps watch over what.
-pub fn found_on(board: &Board, file: &File, s: &Schedule, since: i64, now: i64) -> Vec<Found> {
+/// own. `file` says which orchestrator keeps watch over what, and `seen` what it was told of
+/// already (a PR's state is told again only once it moved).
+pub fn found_on(board: &Board, file: &File, s: &Schedule, since: i64, now: i64, seen: &[String]) -> Vec<Found> {
     let When::Event { event, repo, label, mine } = &s.when else { return Vec::new() };
     let repo = repo.trim();
     let in_repo = |slug: &str| repo.is_empty() || slug.eq_ignore_ascii_case(repo);
@@ -1036,7 +1037,7 @@ pub fn found_on(board: &Board, file: &File, s: &Schedule, since: i64, now: i64) 
             .filter(|t| label.trim().is_empty() || t.labels.iter().any(|id| id.eq_ignore_ascii_case(label.trim()) || board.labels.iter().any(|l| &l.id == id && l.name.trim().eq_ignore_ascii_case(label.trim()))))
             .map(|t| Found { id: format!("todo:{}", t.id), title: t.title.clone(), url: String::new(), text: String::new(), todo: Some(t.id.clone()) })
             .collect(),
-        Event::Changes => orchestrate::found(board, file, s, now),
+        Event::Changes => orchestrate::found(board, file, s, now, seen),
     }
 }
 
@@ -1476,12 +1477,12 @@ mod tests {
         let on = |when: When| Schedule { when, ..Schedule::default() };
         let file = File::default();
         let merged = on(When::Event { event: Event::PrMerged, repo: "acme/web".into(), label: String::new(), mine: false });
-        let ids: Vec<String> = found_on(&board, &file, &merged, 100, 0).into_iter().map(|f| f.id).collect();
+        let ids: Vec<String> = found_on(&board, &file, &merged, 100, 0, &[]).into_iter().map(|f| f.id).collect();
         assert_eq!(ids, ["pr-merged:acme/web#2"]);
         let failing = on(When::Event { event: Event::ChecksFailed, repo: String::new(), label: String::new(), mine: false });
-        assert_eq!(found_on(&board, &file, &failing, 0, 0)[0].id, "checks:acme/web#4@abc");
+        assert_eq!(found_on(&board, &file, &failing, 0, 0, &[])[0].id, "checks:acme/web#4@abc");
         let mine = on(When::Event { event: Event::ChecksFailed, repo: String::new(), label: String::new(), mine: true });
-        assert!(found_on(&board, &file, &mine, 0, 0).is_empty());
+        assert!(found_on(&board, &file, &mine, 0, 0, &[]).is_empty());
     }
 
     #[test]

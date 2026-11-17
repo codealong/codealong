@@ -244,8 +244,8 @@ fn watched(s: &Session) -> bool {
 /// question, an error, at once; a finished turn once it has settled, unless Codealong knows its
 /// work is done, which is only yours to read), a PR its sessions worked on, or of yours, opened,
 /// out of draft, approved, sent back, merged, closed or with failing checks, and a linked worktree
-/// two agents work in at once.
-pub fn found(board: &Board, file: &File, s: &Schedule, now: i64) -> Vec<Found> {
+/// two agents work in at once. `seen` is what it was told of already, which a PR's moves count by.
+pub fn found(board: &Board, file: &File, s: &Schedule, now: i64, seen: &[String]) -> Vec<Found> {
     let mut out = Vec::new();
     let keeps = |project: &str| keeps(file, s, project);
     for lane in board.lanes.iter().filter(|l| l.device.is_none() && keeps(&l.project)) {
@@ -288,15 +288,14 @@ pub fn found(board: &Board, file: &File, s: &Schedule, now: i64) -> Vec<Found> {
             crate::model::PrState::Merged => "merged",
             crate::model::PrState::Closed => "closed without merging",
         };
-        // By the commit it's at, or for one merged or closed by when: a state come back to after a
-        // push (approved again, changes asked again, a PR reopened after new commits) is news again,
-        // where the state alone would have been seen already.
-        let at = match p.state {
-            crate::model::PrState::Merged => p.merged_at.map(|t| t.to_string()).unwrap_or_default(),
-            crate::model::PrState::Closed => p.closed_at.map(|t| t.to_string()).unwrap_or_default(),
-            _ => p.head_oid.clone().unwrap_or_else(|| p.head.clone()),
-        };
-        out.push(Found { id: format!("pr:{}:{state}@{at}", p.key), title: format!("#{} {} in {}: {said}", p.number, p.title, p.repo_slug), url: p.url.clone(), text: String::new(), todo: None });
+        // Told once each time it moves to another state: by how many of its moves were told before,
+        // so one it comes back to (reopened, approved again after changes were asked) is news
+        // again, and the same state is told once however often it's looked at.
+        let prefix = format!("pr:{}:", p.key);
+        let told: Vec<&String> = seen.iter().filter(|x| x.starts_with(&prefix)).collect();
+        if told.last().and_then(|x| x.rsplit(':').next()) != Some(state) {
+            out.push(Found { id: format!("{prefix}{}:{state}", told.len()), title: format!("#{} {} in {}: {said}", p.number, p.title, p.repo_slug), url: p.url.clone(), text: String::new(), todo: None });
+        }
         if p.state.is_open() && p.checks.failed > 0 {
             out.push(Found {
                 id: format!("checks:{}@{}", p.key, p.head_oid.as_deref().unwrap_or(&p.head)),
@@ -422,7 +421,7 @@ mod tests {
         let working = session("working", Status::Working, NOW - 1000);
         // A main checkout, where two agents at once aren't news.
         let board = Board { lanes: vec![Lane { origin: crate::model::Origin::Main, ..lane("Web", "/w", vec![asks, ended, settled, working]) }], ..Board::default() };
-        assert_eq!(ids(found(&board, &file, s, NOW)), vec![format!("waits:claude:claude:asks:{}", NOW - 1000), format!("waits:claude:claude:settled:{}", NOW - SETTLE_MS - 1)]);
+        assert_eq!(ids(found(&board, &file, s, NOW, &[])), vec![format!("waits:claude:claude:asks:{}", NOW - 1000), format!("waits:claude:claude:settled:{}", NOW - SETTLE_MS - 1)]);
     }
 
     #[test]
@@ -438,9 +437,9 @@ mod tests {
         finished.finished = Some(Default::default());
         let elsewhere = session("other", Status::Needs, NOW);
         let board = Board { lanes: vec![lane("Web", "/w", vec![own, snoozed, headless, finished]), lane("Docs", "/d", vec![elsewhere])], ..Board::default() };
-        assert!(found(&board, &file, &file.schedules[0], NOW).is_empty());
+        assert!(found(&board, &file, &file.schedules[0], NOW, &[]).is_empty());
         // Docs has no orchestrator of its own: All projects' keeps it.
-        assert_eq!(found(&board, &file, &file.schedules[1], NOW).len(), 1);
+        assert_eq!(found(&board, &file, &file.schedules[1], NOW, &[]).len(), 1);
     }
 
     #[test]
@@ -448,23 +447,28 @@ mod tests {
         let file = File { schedules: vec![orch("web", Some("Web"))], ..File::default() };
         let s = &file.schedules[0];
         let at = |state: PrState| Board { prs: vec![pr("Web", state)], ..Board::default() };
-        assert_eq!(ids(found(&at(PrState::Open), &file, s, NOW)), vec!["pr:acme/web#4:open@teams"]);
-        let mut merged = at(PrState::Merged);
-        merged.prs[0].merged_at = Some(NOW);
-        assert_eq!(ids(found(&merged, &file, s, NOW)), vec![format!("pr:acme/web#4:merged@{NOW}")]);
+        let told = |state: PrState, seen: &[String]| ids(found(&at(state), &file, s, NOW, seen));
+        assert_eq!(told(PrState::Open, &[]), vec!["pr:acme/web#4:0:open"]);
+        // Told already, it isn't again; closed, then reopened, each is.
+        let mut seen = vec!["pr:acme/web#4:0:open".to_string()];
+        assert!(told(PrState::Open, &seen).is_empty());
+        assert_eq!(told(PrState::Closed, &seen), vec!["pr:acme/web#4:1:closed"]);
+        seen.push("pr:acme/web#4:1:closed".into());
+        assert_eq!(told(PrState::Open, &seen), vec!["pr:acme/web#4:2:open"]);
+        // Approved, sent back and approved again on one commit: three moves, each told.
+        let mut seen = vec!["pr:acme/web#4:0:approved".to_string(), "pr:acme/web#4:1:changes".to_string()];
+        assert_eq!(told(PrState::Approved, &seen), vec!["pr:acme/web#4:2:approved"]);
+        seen.push("pr:acme/web#4:2:approved".into());
+        assert!(told(PrState::Approved, &seen).is_empty());
         let mut failing = at(PrState::Open);
         failing.prs[0].checks.failed = 1;
         failing.prs[0].head_oid = Some("abc".into());
-        assert_eq!(ids(found(&failing, &file, s, NOW)), vec!["pr:acme/web#4:open@abc", "checks:acme/web#4@abc"]);
-        // Approved again after a push is news again.
-        let mut again = at(PrState::Approved);
-        again.prs[0].head_oid = Some("def".into());
-        assert_eq!(ids(found(&again, &file, s, NOW)), vec!["pr:acme/web#4:approved@def"]);
+        assert_eq!(ids(found(&failing, &file, s, NOW, &[])), vec!["pr:acme/web#4:0:open", "checks:acme/web#4@abc"]);
         // Another project's PR, or one neither yours nor worked on here, isn't its.
-        assert!(found(&Board { prs: vec![pr("Docs", PrState::Open)], ..Board::default() }, &file, s, NOW).is_empty());
+        assert!(found(&Board { prs: vec![pr("Docs", PrState::Open)], ..Board::default() }, &file, s, NOW, &[]).is_empty());
         let mut theirs = at(PrState::Open);
         theirs.prs[0].mine = false;
-        assert!(found(&theirs, &file, s, NOW).is_empty());
+        assert!(found(&theirs, &file, s, NOW, &[]).is_empty());
     }
 
     #[test]
@@ -473,9 +477,9 @@ mod tests {
         let s = &file.schedules[0];
         let two = vec![session("a", Status::Working, NOW), session("b", Status::Working, NOW)];
         let linked = Board { lanes: vec![Lane { origin: crate::model::Origin::Script, ..lane("Web", "/w", two.clone()) }], ..Board::default() };
-        assert_eq!(ids(found(&linked, &file, s, NOW)), vec!["shared:/w:claude:claude:a,claude:claude:b"]);
+        assert_eq!(ids(found(&linked, &file, s, NOW, &[])), vec!["shared:/w:claude:claude:a,claude:claude:b"]);
         let main = Board { lanes: vec![Lane { origin: crate::model::Origin::Main, ..lane("Web", "/w", two) }], ..Board::default() };
-        assert!(found(&main, &file, s, NOW).is_empty());
+        assert!(found(&main, &file, s, NOW, &[]).is_empty());
     }
 
     #[test]

@@ -92,15 +92,17 @@ pub enum Job {
     Quiet { keys: Vec<String> },
     /// Name a session its start made, now that it has somewhere to keep it (`run_name`).
     Name { key: String, name: String },
-    /// Mark done the session a turned-off orchestrator kept going, as Mark as done does.
-    Retire { key: String },
+    /// Mark done the session an orchestrator kept going, as Mark as done does: it was turned off
+    /// (`off`, which drops what waited for it too), or another session has taken its place. Noted
+    /// once it's done, or once it couldn't be, with why, in its runs.
+    Retire { id: String, key: String, off: bool },
 }
 
 impl Job {
     fn id(&self) -> Option<&str> {
         match self {
-            Job::Fire { id, .. } | Job::Check { id } | Job::Deliver { id, .. } => Some(id),
-            Job::Quiet { .. } | Job::Name { .. } | Job::Retire { .. } => None,
+            Job::Fire { id, .. } | Job::Check { id } | Job::Deliver { id, .. } | Job::Retire { id, .. } => Some(id),
+            Job::Quiet { .. } | Job::Name { .. } => None,
         }
     }
 }
@@ -331,6 +333,14 @@ pub fn plan_in(file: &File, runs: &Runs, board: &Board, busy: &HashSet<String>, 
                 if s.quiet {
                     quiet.push(key.clone());
                 }
+                // An orchestrator's session that took over (started afresh, or a day on) retires
+                // the one it took over from, now that it's here (`retire` does it for one whose
+                // key came with its start).
+                if s.orchestrates.is_some() {
+                    if let Some(old) = runs.of.get(&s.id).and_then(|t| target(board, s, Some(t))).filter(|old| *old != key) {
+                        jobs.push(Job::Retire { id: s.id.clone(), key: old, off: false });
+                    }
+                }
                 // A start for a schedule that sends to a session is one in place of its session,
                 // gone: its later runs go to the new one, as to its thread.
                 notes.push(Note::Shown { id: s.id.clone(), run_at: r.at, key, thread: s.run.to != To::New });
@@ -374,11 +384,16 @@ pub fn plan_in(file: &File, runs: &Runs, board: &Board, busy: &HashSet<String>, 
         // waited for it or was asked of it is dropped, so nothing starts another until it's
         // started again (`Op::Orchestrate` resumes it and asks for its first look).
         if s.orchestrates.is_some() && (s.paused || s.finished_at.is_some()) {
-            if let Some(t) = track.filter(|t| t.thread.is_some() || t.queued.is_some()) {
-                if let Some(key) = target(board, s, Some(t)) {
-                    jobs.push(Job::Retire { key });
+            if let Some(t) = track {
+                match target(board, s, Some(t)) {
+                    Some(key) => jobs.push(Job::Retire { id: s.id.clone(), key, off: true }),
+                    // A session just started that the board doesn't list yet is waited for: it'd
+                    // go on unseen as no one's.
+                    None if t.thread.as_ref().is_some_and(|k| board.session(k).is_none()) && t.thread_since.is_some_and(|at| now - at < PENDING_MS) => {}
+                    // Archived, or gone: nothing to mark done, only what's noted of it.
+                    None if t.thread.is_some() || t.queued.is_some() => notes.push(Note::Retired { id: s.id.clone() }),
+                    None => {}
                 }
-                notes.push(Note::Retired { id: s.id.clone() });
             }
             if !asked.is_empty() {
                 notes.push(Note::Dropped { fired: asked.iter().map(|f| f.id.clone()).collect() });
@@ -389,7 +404,7 @@ pub fn plan_in(file: &File, runs: &Runs, board: &Board, busy: &HashSet<String>, 
             // PRs and their checks aren't known until GitHub's first read.
             let ready = !matches!(s.when, When::Event { event: Event::PrMerged | Event::ChecksFailed, .. }) || board.github_polled;
             if ready {
-                notes.push(Note::Arm { id: s.id.clone(), at: now, seen: found_on(board, file, s, 0, now).into_iter().map(|f| f.id).collect() });
+                notes.push(Note::Arm { id: s.id.clone(), at: now, seen: found_on(board, file, s, 0, now, &[]).into_iter().map(|f| f.id).collect() });
             }
             continue;
         };
@@ -496,7 +511,7 @@ pub fn plan_in(file: &File, runs: &Runs, board: &Board, busy: &HashSet<String>, 
                     continue;
                 }
                 let theirs = if line.is_some() { machines::their_seen(&board.machines, &s.id) } else { HashSet::new() };
-                let found: Vec<Found> = found_on(board, file, s, track.armed_at, now).into_iter().filter(|f| !track.seen.contains(&f.id) && !theirs.contains(f.id.as_str())).collect();
+                let found: Vec<Found> = found_on(board, file, s, track.armed_at, now, &track.seen).into_iter().filter(|f| !track.seen.contains(&f.id) && !theirs.contains(f.id.as_str())).collect();
                 if let Some(first) = found.first() {
                     let why = match found.len() {
                         1 => crate::util::one_line(&first.title, 80),
@@ -789,16 +804,37 @@ pub fn run(engine: &Handle, job: Job) {
                 eprintln!("codealong: couldn't name a schedule's session: {e:#}");
             }
         }
-        Job::Retire { key } => mark_done(engine, &key),
+        Job::Retire { id, key, off } => {
+            let failed = mark_done(engine, &key).err();
+            let noted = change_runs(|r| retired(r, &id, &key, off, failed));
+            if let Err(e) = noted {
+                eprintln!("codealong: couldn't note schedule {id}'s retired session: {e:#}");
+            }
+        }
     }
 }
 
 /// Marks an orchestrator's session done as Mark as done does (it closes where Codealong can close
 /// it, and is marked seen and archived), when it's turned off or another takes its place.
-fn mark_done(engine: &Handle, key: &str) {
+fn mark_done(engine: &Handle, key: &str) -> std::result::Result<(), String> {
     let done = codealong_peer::api::params::Done { stop: true, archive: true, ..Default::default() };
-    if let Err(e) = crate::actions::local(engine, &crate::actions::From::Here, codealong_peer::api::SESSION_DONE, key, done) {
-        eprintln!("codealong: couldn't mark an orchestrator's session done: {e}");
+    crate::actions::local(engine, &crate::actions::From::Here, codealong_peer::api::SESSION_DONE, key, done).map(|_| ())
+}
+
+/// Notes what came of marking `key` done: the thread lets go of it (only of it: one that took its
+/// place stays), and for one turned off, what waited for it goes too. One that couldn't be marked
+/// done is let go of all the same, so nothing tries again every few seconds: it's left a session
+/// of yours, and its runs say why.
+fn retired(runs: &mut Runs, id: &str, key: &str, off: bool, failed: Option<String>) {
+    let t = runs.of.entry(id.to_string()).or_default();
+    if t.thread.as_deref() == Some(key) {
+        (t.thread, t.thread_since) = (None, None);
+    }
+    if off {
+        t.queued = None;
+    }
+    if let Some(why) = failed {
+        note_run(t, RunRecord { at: now_ms(), why: "Its session".into(), outcome: Outcome::Failed, said: format!("Its session couldn't be marked done, so it's left a session of yours: {why}"), session: Some(key.to_string()), ..RunRecord::default() });
     }
 }
 
@@ -1273,10 +1309,10 @@ fn fire(engine: &Handle, id: &str, cause: Cause) -> Option<Done> {
     };
     let before = target(&board, &s, Some(&track));
     let (mut rec, to, queued) = act(engine, &board, &cfg, &s, &track, step, &prompt, &cause, file_ref.as_deref());
-    retire(engine, &s, before.as_deref(), &rec);
+    retire(engine, &s, before.as_deref(), &mut rec);
     rec.name = name.filter(|_| rec.outcome == Outcome::Started);
     Some(Done {
-        thread: (s.run.to != To::New).then(|| to.clone()),
+        thread: thread_after(&s, &to),
         follows: (s.run.to == To::Session).then(|| s.run.session.trim().to_string()),
         queued: queued.map(Some),
         // Run now is how one that runs once is tried out, so it doesn't use up its run.
@@ -1293,10 +1329,23 @@ fn fire(engine: &Handle, id: &str, cause: Cause) -> Option<Done> {
 /// before, which is archived: its notes carry what that one knew, and nothing else would take the
 /// old one off your lists, where it would show as a session of yours once the new one is its
 /// orchestrator's.
-fn retire(engine: &Handle, s: &Schedule, before: Option<&str>, rec: &RunRecord) {
+fn retire(engine: &Handle, s: &Schedule, before: Option<&str>, rec: &mut RunRecord) {
     let Some(before) = before.filter(|_| s.orchestrates.is_some() && rec.outcome == Outcome::Started) else { return };
     if rec.session.as_deref().is_some_and(|k| k != before) {
-        mark_done(engine, before);
+        if let Err(why) = mark_done(engine, before) {
+            rec.said.push_str(&format!(" The session before it couldn't be marked done, so it's left a session of yours: {why}"));
+        }
+    }
+}
+
+/// What a run does to the session a schedule keeps going: the one it went to, or for an
+/// orchestrator whose start failed, or whose session its harness names later (`Note::Shown`),
+/// nothing yet, so the one it had stays its own until one has taken over.
+fn thread_after(s: &Schedule, to: &Option<String>) -> Option<Option<String>> {
+    match s.run.to {
+        To::New => None,
+        _ if s.orchestrates.is_some() && to.is_none() => None,
+        _ => Some(to.clone()),
     }
 }
 
@@ -1387,9 +1436,9 @@ fn deliver_queued(engine: &Handle, id: &str, q: Queued) -> Option<Done> {
     };
     let before = target(&board, &s, Some(&track));
     let (mut rec, went, _) = act(engine, &board, &cfg, &s, &track, step, &prompt, &cause, None);
-    retire(engine, &s, before.as_deref(), &rec);
+    retire(engine, &s, before.as_deref(), &mut rec);
     rec.name = run_name(&s, &cause).filter(|_| rec.outcome == Outcome::Started);
-    Some(Done { record: Some(rec), thread: (s.run.to != To::New).then_some(went), follows: (s.run.to == To::Session).then(|| s.run.session.trim().to_string()), delivered: true, ..Done::default() })
+    Some(Done { record: Some(rec), thread: thread_after(&s, &went), follows: (s.run.to == To::Session).then(|| s.run.session.trim().to_string()), delivered: true, ..Done::default() })
 }
 
 /// Runs a schedule now, as Run now does, on this thread, and notes it: for `--snapshot
@@ -1452,16 +1501,46 @@ mod tests {
         let track = Track { thread: Some("claude:claude:t".into()), queued: Some(Queued { at: now - 1000, why: vec!["run for a PR".into()], ..Queued::default() }), ..armed(now - 5000) };
         let runs = Runs { of: [("o".to_string(), track)].into(), fired: vec![Fired { id: "f".into(), schedule: "o".into(), by_hand: true, ..Fired::default() }] };
         let (jobs, notes) = plan(&File { schedules: vec![o], ..File::default() }, &runs, &b, &HashSet::new(), now, &z);
-        assert_eq!(jobs, vec![Job::Retire { key: "claude:claude:t".into() }]);
-        assert!(notes.contains(&Note::Retired { id: "o".into() }));
+        assert_eq!(jobs, vec![Job::Retire { id: "o".into(), key: "claude:claude:t".into(), off: true }]);
         assert!(notes.contains(&Note::Dropped { fired: vec!["f".into()] }), "Run now on one that's off runs nothing");
         let mut after = runs.clone();
         notes.iter().for_each(|n| apply(&mut after, n));
+        // Let go of once it's marked done, or once it couldn't be, with why.
+        retired(&mut after, "o", "claude:claude:t", true, Some("its terminal wouldn't close".into()));
         let t = &after.of["o"];
         assert!(t.thread.is_none() && t.queued.is_none());
+        assert!(t.runs.last().is_some_and(|r| r.outcome == Outcome::Failed && r.said.contains("wouldn't close")));
         // Once that's noted, nothing more is done.
         let (jobs, _) = plan(&File { schedules: vec![Schedule { id: "o".into(), paused: true, ..orchestrate::schedule(orchestrate::Orchestrates::default(), "", None) }], ..File::default() }, &after, &b, &HashSet::new(), now, &z);
         assert!(jobs.is_empty());
+    }
+
+    #[test]
+    fn a_turned_off_orchestrators_session_not_on_the_board_yet_is_waited_for() {
+        let z = Fake::utc();
+        let now = ms(&z, 2026, 10, 20, 9, 0);
+        let o = Schedule { id: "o".into(), paused: true, ..orchestrate::schedule(orchestrate::Orchestrates::default(), "", None) };
+        let file = File { schedules: vec![o], ..File::default() };
+        let fresh = Track { thread: Some("claude:claude:t".into()), thread_since: Some(now - 1000), ..armed(now - 5000) };
+        let (jobs, notes) = plan(&file, &Runs { of: [("o".to_string(), fresh.clone())].into(), ..Runs::default() }, &board(), &HashSet::new(), now, &z);
+        assert!(jobs.is_empty() && notes.is_empty());
+        // Long gone, it's only let go of.
+        let gone = Track { thread_since: Some(now - PENDING_MS - 1), ..fresh };
+        let (_, notes) = plan(&file, &Runs { of: [("o".to_string(), gone)].into(), ..Runs::default() }, &board(), &HashSet::new(), now, &z);
+        assert_eq!(notes, vec![Note::Retired { id: "o".into() }]);
+    }
+
+    #[test]
+    fn an_orchestrator_keeps_its_session_until_another_takes_over() {
+        let o = orchestrate::schedule(orchestrate::Orchestrates::default(), "", None);
+        assert_eq!(thread_after(&o, &None), None, "a failed or later-named start leaves the one it had");
+        assert_eq!(thread_after(&o, &Some("k".into())), Some(Some("k".into())));
+        let plain = Schedule { run: Run { to: To::Thread, ..Run::default() }, ..Schedule::default() };
+        assert_eq!(thread_after(&plain, &None), Some(None));
+        // Its retirement lets go only of the one it retired.
+        let mut runs = Runs { of: [("o".to_string(), Track { thread: Some("new".into()), ..Track::default() })].into(), ..Runs::default() };
+        retired(&mut runs, "o", "old", false, None);
+        assert_eq!(runs.of["o"].thread.as_deref(), Some("new"));
     }
 
     #[test]
