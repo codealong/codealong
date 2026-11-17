@@ -1248,6 +1248,9 @@ export function App() {
       setView('prs');
       clearFilters();
       if (prInDone(pr, prPins.set)) setShowDonePrs(true);
+      // Under its own tab when the one shown doesn't list it (a pinned one shows in every tab).
+      // Only as it's shown: a tab picked after it stays, with it selected out of sight.
+      if (!prPins.set.has(pr.key) && !inPrTab(pr, prTab)) setPrTab(pr.mine ? 'mine' : 'others');
       // One older than the age filter lets through: the filter widens as far as it.
       const wider = ageListingPr(pr, prPins.set, AGES, age, Date.now());
       if (wider) setAge(wider);
@@ -1837,20 +1840,6 @@ export function App() {
       if (r) opening(setOpenTodoGroups, [placeIn(r.lane, todoGroup).key]);
     }
   }, [loading, selectedKey, revealed, visible, view, sessionGroup, sessionStarted, prGroup, todoGroup, homes, lanes, prRows, todoItems]);
-  // A PR shown from elsewhere (a link, the queue, the history) that the PRs' tab doesn't list
-  // shows under its own tab, once as it's shown: a tab picked after it, another view or Group by
-  // leaves the tab you picked, with it selected out of sight.
-  const tabbedFor = useRef<string | null>(null);
-  useEffect(() => {
-    if (loading || view !== 'prs' || !selectedKey) return;
-    const r = prRows.find((x) => x.key === selectedKey);
-    const ask = `${selectedKey}#${revealed}`;
-    if (!r || tabbedFor.current === ask) return;
-    tabbedFor.current = ask;
-    if (inPrTab(r.pr, prTab)) return;
-    setPrTab(r.pr.mine ? 'mine' : 'others');
-    setScrollTo(selectedKey);
-  }, [loading, view, selectedKey, revealed, prRows, prTab, setPrTab]);
   useEffect(() => {
     if (!scrollTo) return;
     // Only while it's still the row selected: another selected meanwhile is scrolled to as it's

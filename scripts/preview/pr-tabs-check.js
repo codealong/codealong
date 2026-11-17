@@ -16,6 +16,8 @@
     if (cmd !== 'get_board') return p;
     return p.then(function (board) {
       var open = board.prs.filter(function (pr) { return pr.state !== 'merged' && pr.state !== 'closed'; });
+      // The PR made yours is by you, as your own are, so the sidebar's Authors call it you.
+      var me = (board.prs.filter(function (pr) { return pr.mine && pr.author; })[0] || {}).author;
       board.projects.forEach(function (project) {
         var three = open.filter(function (pr) { return pr.project === project.name; }).slice(0, 3);
         var base = { snoozedUntil: null, autoReview: undefined, turn: undefined, mergedAt: null, closedAt: null };
@@ -24,7 +26,7 @@
           made.asked.push(three[0]);
         }
         if (three[1]) {
-          Object.assign(three[1], base, { state: 'open', mine: true, reviewRequested: false, merge: 'clean', checks: { passed: 2, failed: 0, pending: 0, skipped: 0, failing: [] } });
+          Object.assign(three[1], base, { state: 'open', mine: true, author: me || three[1].author, reviewRequested: false, merge: 'clean', checks: { passed: 2, failed: 0, pending: 0, skipped: 0, failing: [] } });
           made.ready.push(three[1]);
         }
         if (three[2]) {
@@ -46,8 +48,11 @@
     return b ? all('.ca-prrow', b) : [];
   };
   var num = function (row) { return (q('.ca-prrow-num', row) || {}).textContent; };
-  var under = function (label, pr) { return rowsUnder(label).some(function (r) { return num(r) === '#' + pr.number; }); };
-  var listed = function (pr) { return all('.ca-board-list .ca-prrow').some(function (r) { return num(r) === '#' + pr.number; }); };
+  // A PR's row by its number and title: two repos of a project can each have a #12.
+  var isRow = function (pr) { return function (r) { return num(r) === '#' + pr.number && (q('.ca-lane-headline', r) || {}).textContent === pr.title; }; };
+  var under = function (label, pr) { return rowsUnder(label).some(isRow(pr)); };
+  var listed = function (pr) { return all('.ca-board-list .ca-prrow').some(isRow(pr)); };
+  var numbers = function () { return all('.ca-board-list .ca-prrow').map(num).join(' '); };
   var nav = function (label) { return all('.ca-side .ca-nav').filter(function (b) { return b.textContent.indexOf(label) === 0; })[0]; };
   /** The sidebar's Authors, each as its name and count run together (`you3`). */
   var authors = function () {
@@ -75,23 +80,25 @@
       var needing = rowsUnder('Review requested').length + rowsUnder('Ready to merge').length + rowsUnder('Needs work').length;
       check('All counts what needs you', countOf(tab('All')) === needing, countOf(tab('All')) + ' for ' + needing);
       tab('Yours').click();
-      return until(function () { return tab('Yours').getAttribute('aria-selected') === 'true' && !listed(asked); }, 5000, 'Yours shown').then(function () {
+      return until(function () { return tab('Yours').getAttribute('aria-selected') === 'true'; }, 5000, 'Yours picked').then(function () { return wait(200); }).then(function () {
+        check('Yours lists none of everyone else’s', !listed(asked) && !listed(held), '#' + asked.number + ', #' + held.number + ' among ' + numbers());
         check('Yours lists yours under its own headings', only(['Ready to merge', 'Needs work', 'Waiting on others', 'Drafts', 'Merged & closed']), headings().join(', '));
-        check('with your PR under Ready to merge, and no one else’s', under('Ready to merge', ready) && !listed(held), headings().join(', '));
+        check('with your PR under Ready to merge', under('Ready to merge', ready), headings().join(', '));
         check('Yours counts its own', countOf(tab('Yours')) === rowsUnder('Ready to merge').length + rowsUnder('Needs work').length, String(countOf(tab('Yours'))));
         check('the list is the tab’s panel', q('.ca-board-list').id === 'ca-prtabs-mine' && tab('Yours').getAttribute('aria-controls') === 'ca-prtabs-mine', q('.ca-board-list').id);
         var who = authors();
         if (who.length === 0) note('no Authors in the sidebar to count');
         else check('the sidebar’s Authors count only yours', who.every(function (a) { return /^you\d*$/.test(a); }), who.join(', '));
         tab('Others').click();
-        return until(function () { return tab('Others').getAttribute('aria-selected') === 'true' && !listed(ready); }, 5000, 'Others shown');
+        return until(function () { return tab('Others').getAttribute('aria-selected') === 'true'; }, 5000, 'Others picked').then(function () { return wait(200); });
       }).then(function () {
+        check('Others lists none of yours', !listed(ready), '#' + ready.number + ' among ' + numbers());
         check('Others lists everyone else’s under its own headings', only(['Review requested', 'Agent reviewing', 'Snoozed', 'Not asking you', 'Merged & closed']), headings().join(', '));
         check('with the review asked of you under Review requested, and the agent’s under Agent reviewing', under('Review requested', asked) && under('Agent reviewing', held), headings().join(', '));
         check('the tab picked is remembered', /others/.test(localStorage.getItem('codealong.prTab') || ''), localStorage.getItem('codealong.prTab'));
         window.__emit('reveal', { kind: 'pr', key: ready.key });
         return until(function () { return tab('Yours').getAttribute('aria-selected') === 'true' && listed(ready); }, 5000, 'Yours shown for a PR of yours shown from elsewhere').then(function () {
-          var row = all('.ca-board-list .ca-prrow').filter(function (r) { return num(r) === '#' + ready.number; })[0];
+          var row = all('.ca-board-list .ca-prrow').filter(isRow(ready))[0];
           check('a PR of yours shown from elsewhere switches to Yours, selected', row && row.classList.contains('is-selected'), row && row.className);
           tab('Others').click();
           return until(function () { return tab('Others').getAttribute('aria-selected') === 'true'; }, 5000, 'Others shown');
