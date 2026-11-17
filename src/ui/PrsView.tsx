@@ -22,7 +22,7 @@ import { absolute, ago, count } from '../format';
 import { groupOptions, groupsOf, placeIn, type GroupBy, type Grouped, type ListGroupBy, type Place } from '../groups';
 import { selectHow, type SelectHow } from '../picks';
 import { listedStatus } from '../lanes';
-import { agentReviewing, heldForAgent, prFlag, type PrPrimary } from '../prStatus';
+import { heldForAgent, prFlag, reviewUnderWay, type PrPrimary } from '../prStatus';
 import type { GitInfo, Lane, PrItem, Session } from '../types';
 import { rowsOptions, type RowLines } from './ListBar';
 import { PinnedSection } from './PinnedSection';
@@ -125,16 +125,23 @@ export type PrGroupBy = ListGroupBy | 'working';
 /** Group by's buttons over PRs (groups.ts). */
 export const PR_GROUPS: { id: PrGroupBy; label: string; icon: string; title: string }[] = [
   ...groupOptions('PRs'),
-  { id: 'working', label: 'Working', icon: 'robot', title: 'Group by whether an agent is working: in each section, the PRs a session or Codealong’s review is working on now, then the ones nothing is' },
+  { id: 'working', label: 'Working', icon: 'robot', title: 'Group by whether an agent is working: in each section, the PRs a session or Codealong’s review is working on now, then the rest' },
 ];
 
 /** What the heading over PRs that no worktree here holds says. */
 export const PR_NONE = 'No worktree here';
 
-/** An agent is working on the PR now: one of its sessions, here or on another machine, or
- *  Codealong's agent reviewing the commit it's at. */
+/** The sessions listed on a PR whose status it takes on (the status filters, Group by Working):
+ *  as on the board, not one from another worktree, since one agent that made many worktrees would
+ *  otherwise put all of their PRs in Working, nor an archived one. */
+export function prSessionsNow(r: Pick<PrRowItem, 'sessions'>): Session[] {
+  return r.sessions.flatMap(({ session }) => (session.visitor || session.archived ? [] : [session]));
+}
+
+/** An agent is working on the PR now: one of its sessions, here or on another machine
+ *  (`prSessionsNow`), or a round of Codealong's agent's review of the commit it's at. */
 export function prWorking(r: Pick<PrRowItem, 'pr' | 'sessions'>): boolean {
-  return r.sessions.some(({ session }) => listedStatus(session) === 'working') || agentReviewing(r.pr);
+  return prSessionsNow(r).some((s) => listedStatus(s) === 'working') || reviewUnderWay(r.pr);
 }
 
 /** Where a PR goes, grouped: the worktree that holds it, or none here; its repo, by its slug on

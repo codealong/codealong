@@ -52,8 +52,14 @@ export interface ListGroup<R> {
   /** The repo heading a repo's group. */
   repo: RepoName | null;
   rows: R[];
+  /** Every row of it, the ones folded away too: where a row selected out of sight is. */
+  all: R[];
   /** How many of its rows are folded away (`GROUP_SHOWN`). */
   folded: number;
+  /** What opens it past `GROUP_SHOWN` (`GroupOptions.opened`): its key, or for one of a section's
+   *  own groups (one apart, or the rows in none) the section's id with it, so that opening it
+   *  doesn't open its namesake in another section. */
+  fold: string;
   /** Opened past `GROUP_SHOWN`, so it can be folded again. */
   opened: boolean;
 }
@@ -96,7 +102,7 @@ export interface GroupOptions<R> {
   lanes: readonly Lane[];
   /** Whether a pinned group with no row listed shows. */
   empty: boolean;
-  /** The groups opened past `GROUP_SHOWN`. */
+  /** The groups opened past `GROUP_SHOWN`, by `ListGroup.fold`. */
   opened: ReadonlySet<string>;
   /** Every group lists all its rows: a search found them. */
   whole: boolean;
@@ -137,12 +143,12 @@ export function groupRows<S extends { id: string; rows: unknown[] }>(sections: S
       into.set(place.key, g);
     }
   });
-  const build = (key: string, place: Place, units: Unit[]): ListGroup<R> => {
+  const build = (key: string, place: Place, units: Unit[], fold = key): ListGroup<R> => {
     const away = o.whole ? [] : units.filter((u, i) => i >= GROUP_SHOWN && !awake(u.rows));
-    const opened = away.length > 0 && o.opened.has(key);
+    const opened = away.length > 0 && o.opened.has(fold);
     const shown = opened ? units : units.filter((u) => !away.includes(u));
     const folded = opened ? 0 : away.reduce((n, u) => n + u.rows.length, 0);
-    return { key, by, lane: place.lane, repo: place.repo, rows: shown.flatMap((u) => u.rows), folded, opened };
+    return { key, by, lane: place.lane, repo: place.repo, rows: shown.flatMap((u) => u.rows), all: units.flatMap((u) => u.rows), folded, fold, opened };
   };
   // A repo with no row listed is named by its main worktree, else by any of its worktrees. Nothing
   // pins whether an agent is working.
@@ -166,7 +172,7 @@ export function groupRows<S extends { id: string; rows: unknown[] }>(sections: S
     const ownRows = (g: Found) => g.units.filter((u) => u.from === s.id).reduce((n, u) => n + u.rows.length, 0);
     const count = [...mine, ...apart].reduce((n, [, g]) => n + ownRows(g), 0);
     const { rows: _rows, ...rest } = s;
-    return { ...rest, count, groups: [...mine, ...apart].map(([key, g]) => build(key, g.place, g.units)) };
+    return { ...rest, count, groups: [...mine.map(([key, g]) => build(key, g.place, g.units)), ...apart.map(([key, g]) => build(key, g.place, g.units, `${s.id}/${key}`))] };
   });
   return { by, pinned, sections: grouped.filter((s) => s.groups.length > 0) };
 }

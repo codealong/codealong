@@ -172,12 +172,25 @@ describe('grouped by whether an agent is working', () => {
     return { kind: 'pr', key: pr.key, pr, lane: null, sessions, places: [], primary: null };
   };
 
-  it('counts a session working on it, one set aside for its side conversation, and Codealong’s review', () => {
+  const one = (over: Partial<Session>) => ({ ...row(9), sessions: [{ lane: lane('w'), session: fx.session(over) }] });
+
+  it('counts a session working on it, and one set aside for its side conversation', () => {
     expect(prWorking(row(1, {}, ['idle', 'working']))).toBe(true);
     expect(prWorking(row(2, {}, ['unread', 'needs', 'stopped']))).toBe(false);
-    expect(prWorking({ ...row(3), sessions: [{ lane: lane('w'), session: fx.session({ status: 'needs', aside: 1 }) }] })).toBe(true);
-    expect(prWorking(row(4, { autoReview: { stage: 'reviewing', head: 'abc', at: 1, rounds: 1, holds: true } }))).toBe(true);
+    expect(prWorking(one({ status: 'needs', aside: 1 }))).toBe(true);
     expect(prWorking(row(5))).toBe(false);
+  });
+
+  it('leaves out a session that only made or visited its worktree, and an archived one, as the Working filter does', () => {
+    expect(prWorking(one({ status: 'working', visitor: 'made this worktree' }))).toBe(false);
+    expect(prWorking(one({ status: 'working', archived: true }))).toBe(false);
+  });
+
+  it('counts Codealong’s review under way on the commit the PR is at, not one waiting its turn', () => {
+    const review = (stage: 'queued' | 'reviewing', head: string) => ({ headOid: 'abc', autoReview: { stage, head, at: 1, rounds: 1, holds: true } });
+    expect(prWorking(row(1, review('reviewing', 'abc')))).toBe(true);
+    expect(prWorking(row(2, review('queued', 'abc')))).toBe(false);
+    expect(prWorking(row(3, review('reviewing', 'old')))).toBe(false);
   });
 
   it('splits every section into the PRs an agent is working on, then the rest', () => {

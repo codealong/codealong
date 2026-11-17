@@ -51,13 +51,13 @@ import { mayYetCome, opened } from './codealongLinks';
 import { linkHost, usePrLinks } from './ui/PrLink';
 import { reviewedWords } from './prDraft';
 import { mayApprove } from './prStatus';
-import { inPrTab, PR_GROUPS, PR_ROWS, PR_SORTS, PR_TABS, prPlace, PrsView, type PrGroupBy, type PrRowItem, type PrSort, type PrTab } from './ui/PrsView';
+import { inPrTab, PR_GROUPS, PR_ROWS, PR_SORTS, PR_TABS, PrsView, type PrGroupBy, type PrRowItem, type PrSort, type PrTab } from './ui/PrsView';
 import { Resizer, usePanelWidth } from './ui/Resizer';
 import { compassTitle, freeScopes, orchestratorOn, startOrchestrator } from './orchestrators';
 import { StartOrchestratorDialog } from './ui/StartOrchestrator';
 import { groupKeyOf, headItem, SESSION_GROUPS, SESSION_ROWS, SESSION_SORTS, SessionsBar, SessionsView, STARTED_PLACES, type SessionItem, type SessionSort, type StartedPlace } from './ui/SessionsView';
 import type { GroupActs } from './ui/Groups';
-import { placeIn, type ListGroupBy, type RepoName } from './groups';
+import { groupsOf, type ListGroupBy, type RepoName } from './groups';
 import { ListBar, ListFind, ListSeg, ListTools, RowsSeg, type RowLines } from './ui/ListBar';
 import { TODO_GROUPS, TODO_ROWS, TODO_SORTS, TodoComposer, TodoView } from './ui/TodoView';
 import { ScheduleDialog } from './ui/ScheduleDialog';
@@ -1836,14 +1836,14 @@ export function App() {
       const by = sessionGroup;
       const home = homes.get(selectedKey.split('::')[1] ?? '');
       if (home) opening(setOpenGroups, chainOf(sessionItemOf(home), sessionItemsOf(lanes), sessionStarted === 'under').map((r) => groupKeyOf(r.lane, by)));
-    } else if (view === 'prs' && prGroup !== 'none') {
-      const r = prRows.find((x) => x.key === selectedKey);
-      if (r) opening(setOpenPrGroups, [prPlace(r, prGroup).key]);
-    } else if (view === 'todo' && todoGroup !== 'none') {
-      const r = todoItems.find((x) => x.key === selectedKey);
-      if (r) opening(setOpenTodoGroups, [placeIn(r.lane, todoGroup).key]);
+    } else if (view === 'prs' && groupedPrs) {
+      const g = groupsOf(groupedPrs).find((x) => x.all.some((r) => r.key === selectedKey));
+      if (g) opening(setOpenPrGroups, [g.fold]);
+    } else if (view === 'todo' && groupedTodos) {
+      const g = groupsOf(groupedTodos).find((x) => x.all.some((r) => r.key === selectedKey));
+      if (g) opening(setOpenTodoGroups, [g.fold]);
     }
-  }, [loading, selectedKey, revealed, visible, view, sessionGroup, sessionStarted, prGroup, todoGroup, homes, lanes, prRows, todoItems]);
+  }, [loading, selectedKey, revealed, visible, view, sessionGroup, sessionStarted, prGroup, todoGroup, homes, lanes, groupedPrs, groupedTodos]);
   useEffect(() => {
     if (!scrollTo) return;
     // Only while it's still the row selected: another selected meanwhile is scrolled to as it's
@@ -2155,7 +2155,7 @@ export function App() {
     onPrOpen: (g) => {
       if (g.lane) openLanePr(g.lane);
     },
-    onToggle: (g) => toggle(g.key),
+    onToggle: (g) => toggle(g.fold),
     ...(rows && {
       onPlace: (key: string, index: number) => sessionGroupPins.place(pinnedGroups, key, index),
       onUnpin: sessionGroupPins.remove,

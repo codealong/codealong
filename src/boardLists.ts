@@ -20,7 +20,7 @@ import { orchestratorsIn } from './orchestrators';
 import { scheduleProject } from './schedules';
 import type { Board, DevicesView, HarnessSchedule, Label, Lane, PrItem, PrSession, ProjectSummary, ScheduleItem, Session, TextHit, Todo } from './types';
 import type { ActionCounts } from './ui/ProjectSwitcher';
-import { inPrTab, prIsOpen, prPlace, prPlaces, prSections, prTabCounts, waitsOnReview, type PrGroupBy, type PrRowItem, type PrSort, type PrTab } from './ui/PrsView';
+import { inPrTab, prIsOpen, prPlace, prPlaces, prSections, prSessionsNow, prTabCounts, waitsOnReview, type PrGroupBy, type PrRowItem, type PrSort, type PrTab } from './ui/PrsView';
 import { groupedRows, groupSessions, helpersUnder, sessionSections, waitingQueue, type SessionItem, type SessionSort, type StartedPlace } from './ui/SessionsView';
 import { groupRows, placeIn, type ListGroupBy } from './groups';
 
@@ -155,10 +155,7 @@ export function prIn(r: PrRowItem, f: Filter): boolean {
     case 'needs':
     case 'working':
     case 'unread':
-      // As on the board, a session from another lane doesn't lend its status: one agent that
-      // made many worktrees would otherwise put all of their PRs in Working. Nor does an
-      // archived one, listed on the PR as having worked on it.
-      return r.sessions.some(({ session }) => !session.visitor && !session.archived && AGENT_BAY[listedStatus(session)] === f);
+      return prSessionsNow(r).some((s) => AGENT_BAY[listedStatus(s)] === f);
     case 'review':
       return prIsOpen(p);
     case 'work':

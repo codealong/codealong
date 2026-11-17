@@ -81,6 +81,22 @@ describe('groupRows', () => {
     const [one] = groupsOf(g);
     expect([one.key, one.repo, one.lane]).toEqual(['acme/app', { name: 'app', slug: 'acme/app', project: 'Acme' }, null]);
     expect([keysOf(one.rows).slice(GROUP_SHOWN), one.folded]).toEqual([[`r${GROUP_SHOWN + 1}`], 1]);
+    expect(keysOf(one.all)).toEqual(keysOf(rows));
+  });
+
+  it('opens a section’s own group apart from its namesake in another section', () => {
+    const many = (prefix: string) => Array.from({ length: GROUP_SHOWN + 1 }, (_, i) => item(`${prefix}${i}`, null));
+    const sections = [
+      { id: 'mine', rows: [...many('m'), item('a1', a)] },
+      { id: 'done', rows: [...many('d'), item('a2', a)] },
+    ];
+    const g = groupRows(sections, 'worktree', (r) => placeIn(r.lane, 'worktree'), opts({ apart: (id) => id === 'done', opened: new Set(['mine/']) }));
+    expect(groupsOf(g).map((x) => [x.fold, x.folded, x.opened])).toEqual([
+      ['/r/a', 0, false],
+      ['mine/', 0, true],
+      ['done//r/a', 0, false],
+      ['done/', 1, false],
+    ]);
   });
 });
 
