@@ -4657,7 +4657,10 @@ them waiting, or memory critical), with a little slack between the levels so a m
 at each reading. Windows keeps no load average, so a Windows machine goes by its memory alone. The
 quick panel's machine menu (⌘D) says each machine's word, this one's too, with its numbers on
 hover, and so does each linked machine's card in Settings › Devices while it's connected; the
-usage bar says *Machine strained* while this one is. When the machine a start goes to is strained
+usage bar says *Machine strained* while this one is. Resting the pointer on that, or a Tab to it,
+opens a card: what the level means (as far as it was measured: on Windows, memory alone), the load
+per CPU and how much memory is free, and how busy each of your other machines is (or that it's
+away), with the quick panel's key for a calm one when there is one. When the machine a start goes to is strained
 and another that's calm has a checkout of the same GitHub repo (whatever each calls it, a renamed
 repo too; a folder with no GitHub repo by its project and name), or for a general chat any calm
 machine, the quick panel says so above its menus, and ⇧⌘D, or the note's button, switches the

@@ -2452,6 +2452,7 @@ export function App() {
         onSignIn={startSignIn}
         training={board?.training}
         load={board?.load}
+        machines={devices?.enabled ? devices.devices : undefined}
         onStopTraining={turnOffTraining}
         onOpenUrl={(url) => openUrl(url).catch((e: unknown) => setToast(String(e)))}
         onReorder={(accounts) =>

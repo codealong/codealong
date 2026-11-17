@@ -26,7 +26,7 @@ import { createPortal } from 'react-dom';
 import { agoPhrase, resetsPhrase, untilShort } from '../format';
 import { usageNote } from '../harness';
 import { cardTitle, flagged, readNote, trainingOf } from '../training';
-import type { Load, Meter, Severity, Training, Usage } from '../types';
+import type { DeviceView, Load, Meter, Severity, Training, Usage } from '../types';
 import { LoadTag } from './LoadTag';
 import { Button, cx, Icon } from './primitives';
 import { useDismiss } from './useDismiss';
@@ -392,9 +392,11 @@ interface UsageBarProps {
   onReorder?: (accounts: string[]) => Promise<void>;
   /** How busy this machine is (load.rs): said at the bar's end only while it's strained. */
   load?: Load | null;
+  /** Your other machines, for its card to say how busy each is. */
+  machines?: readonly DeviceView[];
 }
 
-export function UsageBar({ usage: board, now, onRefresh, onAccounts, onUsage, onSignIn, training, onStopTraining, onOpenUrl, loading, notices, toast, onReorder, load }: UsageBarProps) {
+export function UsageBar({ usage: board, now, onRefresh, onAccounts, onUsage, onSignIn, training, onStopTraining, onOpenUrl, loading, notices, toast, onReorder, load, machines }: UsageBarProps) {
   // The order a drag left the chips in, until the board lists them so.
   const [order, setOrder] = useState<string[] | null>(null);
   const usage = order ? inOrder(board, order) : board;
@@ -547,7 +549,7 @@ export function UsageBar({ usage: board, now, onRefresh, onAccounts, onUsage, on
         />
       )}
       <div className="ca-usagebar-end">
-        {load?.level === 'strained' && <LoadTag load={load} name="This machine" bar />}
+        {load?.level === 'strained' && <LoadTag load={load} name="This machine" bar others={machines} />}
         {notices}
         <Button
           variant="ghost"

@@ -272,7 +272,7 @@ function DeviceCard({ dev, now, busy, onColor, onUnlink }: { dev: DeviceView; no
         <span className="ca-ucard-name ca-device-name">{dev.name}</span>
         <span className="ca-ucard-plan">{where}</span>
         <span className="ca-acct-tags">
-          {dev.load && <LoadTag load={dev.load} name={dev.name} />}
+          {dev.load && <LoadTag load={dev.load} name={dev.name} plain />}
           {dev.automations && (
             <span className="ca-tag" title="Where it stands for the automations your machines share">
               {RANKS.find((r) => r.id === dev.automations)?.label}

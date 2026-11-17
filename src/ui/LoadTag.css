@@ -29,3 +29,37 @@
   background: var(--alert-tint);
   color: var(--alert);
 }
+/* The card on a load's tag: what its level means, its CPUs and memory, your other machines. */
+/* Over HoverCard.css's width, which comes later in the sheet. */
+.ca-hovercard.ca-loadcard {
+  width: 300px;
+}
+.ca-loadcard-title {
+  font: var(--type-body-strong);
+}
+.ca-loadcard-rows {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: 2px var(--space-3);
+  margin: var(--space-1) 0 0;
+}
+.ca-loadcard-rows dt {
+  color: var(--ink-3);
+}
+.ca-loadcard-rows dd {
+  margin: 0;
+  font-variant-numeric: tabular-nums;
+}
+.ca-loadcard-machine {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 22px;
+}
+.ca-loadcard-name {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}

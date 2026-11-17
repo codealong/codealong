@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { calmerMachine, loadNumbers, loadSentence } from './machineLoad';
+import { calmerMachine, loadNumbers, loadRows, loadSays, loadSentence } from './machineLoad';
 import * as fx from './testing/fixtures';
 import type { DeviceView, Lane, Load, LoadLevel } from './types';
 
@@ -86,6 +86,19 @@ describe('the machine the quick panel offers', () => {
 });
 
 describe('a load in words', () => {
+  it('says its CPUs and memory on the card', () => {
+    expect(loadRows({ level: 'strained', perCpu: 9, cpus: 10, memoryFree: 45, memoryShort: true })).toEqual({ cpu: '9 per CPU over five minutes, 10 CPUs', memory: '45% free, getting short' });
+    expect(loadRows({ level: 'calm', perCpu: null, cpus: 8, memoryFree: null, memoryShort: false })).toEqual({ cpu: '8 CPUs; Windows keeps no load average', memory: 'Not read' });
+  });
+
+  it('says what its level means only as far as it was measured', () => {
+    expect(loadSays({ level: 'calm', perCpu: 0.3, cpus: 8, memoryFree: 60, memoryShort: false })).toMatch(/^CPUs to spare/);
+    // Windows: its memory alone, never "CPUs to spare".
+    const windows = loadSays({ level: 'calm', perCpu: null, cpus: 8, memoryFree: 60, memoryShort: false });
+    expect(windows).not.toMatch(/CPUs to spare/);
+    expect(windows).toMatch(/isn’t known/);
+  });
+
   it('says its level and numbers', () => {
     expect(loadSentence({ level: 'strained', perCpu: 27, cpus: 10, memoryFree: 40, memoryShort: true }, 'Mac mini')).toBe('Mac mini is strained: load 27 per CPU of 10, 40% of memory free, memory getting short.');
     // Windows keeps no load average.

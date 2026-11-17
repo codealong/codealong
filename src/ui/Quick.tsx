@@ -2369,7 +2369,7 @@ export function Quick() {
       {
         key: 'macs',
         options: [
-          { id: HERE, text: `${here} this machine this mac`, label: here, detail: `This machine · ${count(null)}`, lead: <Icon name="device-desktop" size={14} />, trail: board?.load ? <LoadTag load={board.load} name={here} /> : undefined },
+          { id: HERE, text: `${here} this machine this mac`, label: here, detail: `This machine · ${count(null)}`, lead: <Icon name="device-desktop" size={14} />, trail: board?.load ? <LoadTag load={board.load} name={here} plain /> : undefined },
           ...macs.map((d) => {
             const { away, off, title } = macUnavailable(d, now);
             return {
@@ -2378,7 +2378,7 @@ export function Quick() {
               label: d.name,
               detail: away ?? off ?? count(d.short),
               lead: <i className={`ca-labeldot is-${d.color}`} aria-hidden="true" />,
-              trail: d.load && !away ? <LoadTag load={d.load} name={d.name} /> : undefined,
+              trail: d.load && !away ? <LoadTag load={d.load} name={d.name} plain /> : undefined,
               disabled: !!(away || off),
               title,
             };

@@ -13,6 +13,24 @@ export const CALMER_CHORD = 'Shift+Cmd+D';
 
 export const LOAD_WORDS: Record<LoadLevel, string> = { calm: 'Calm', busy: 'Busy', strained: 'Strained' };
 
+/** What a load's level means, for the card on its tag (LoadTag.tsx), as far as it was measured:
+ *  a machine whose OS keeps no load average (Windows) goes by its memory alone. */
+export function loadSays(l: Load): string {
+  if (l.perCpu === null) {
+    if (l.level === 'calm') return 'Memory enough. Windows keeps no load average, so how busy its CPUs are isn’t known.';
+    return l.level === 'busy' ? 'Memory is getting short. Windows keeps no load average, so its CPUs aren’t counted.' : 'Memory is critical: everything on it waits, a new session too.';
+  }
+  if (l.level === 'calm') return 'CPUs to spare and memory enough: a session started on it gets going at once.';
+  return l.level === 'busy' ? 'Every CPU has work, or memory is getting short, but it keeps up.' : 'Far more work than its CPUs can do, or memory critical: everything on it waits, a new session too.';
+}
+
+/** A load's CPUs and memory, each in words, for the card's rows. */
+export function loadRows(l: Load): { cpu: string; memory: string } {
+  const cpu = l.perCpu === null ? `${l.cpus} CPUs; Windows keeps no load average` : `${l.perCpu} per CPU over five minutes, ${l.cpus} CPUs`;
+  const memory = l.memoryFree === null ? (l.memoryShort ? 'Getting short' : 'Not read') : `${l.memoryFree}% free${l.memoryShort ? ', getting short' : ''}`;
+  return { cpu, memory };
+}
+
 /** A load's numbers, for a tooltip: "load 27 per CPU of 10, 40% of memory free". */
 export function loadNumbers(l: Load): string {
   const parts: string[] = [];
