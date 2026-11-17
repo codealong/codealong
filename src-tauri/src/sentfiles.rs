@@ -1,8 +1,13 @@
 //! The pictures, films and recordings a session sent you (Claude Code's `SendUserFile`), served to
 //! the windows at `codealong-file://localhost/<the full path, percent-encoded>` so a conversation
 //! shows them in place (src/ui/SentFiles.tsx). Only a file whose name says it's one of those
-//! (`mime`, which src/sentFiles.ts `mediaKind` mirrors) is read, so nothing else on the Mac can be
-//! read through it; every other file a session sends stays a link that opens it in its app.
+//! (`mime`, which src/sentFiles.ts `mediaKind` mirrors), and whose links lead to one too, is read,
+//! so nothing else on the machine can be read through it; every other file a session sends stays a
+//! link that opens it in its app.
+//!
+//! A file where macOS asks before Codealong reads it (`asks_first`) is served only once you've
+//! asked for it (`?asked=1`), so a conversation scrolled past never brings up the prompt. A window
+//! learns which files those are, and which are gone, from `states`, which only looks each up.
 //!
 //! WebKit asks for a film a range of bytes at a time: two bytes first, then a few here and there
 //! as it reads the film's index, a dozen asks before it can show a frame (macOS 26.6, an offscreen
@@ -14,7 +19,10 @@ use std::fs::File;
 use std::io::{Read, Seek, SeekFrom};
 use std::path::{Path, PathBuf};
 
+use serde::Serialize;
 use tauri::http::{header, Response, StatusCode};
+
+use crate::os;
 
 /// The most of a file one ranged request is answered with.
 const PART: u64 = 4 << 20;
@@ -47,6 +55,61 @@ fn requested(path: &str) -> Option<PathBuf> {
     let decoded = urlencoding::decode(path.strip_prefix('/')?).ok()?;
     let path = PathBuf::from(decoded.into_owned());
     path.is_absolute().then_some(path)
+}
+
+/// Whether macOS asks before Codealong reads a file there: in Desktop, Documents or Downloads, on
+/// another volume, in iCloud Drive or a cloud folder, or in another app's container (held.rs,
+/// .claude/rules/macos-privacy.md). Asked of where a file really is (`real`): a link into
+/// Downloads, or a path through `..`, reads Downloads all the same. No other OS asks.
+fn asks_first(real: &Path) -> bool {
+    if !os::is_macos() {
+        return false;
+    }
+    let mut parts = real.components().map(|c| c.as_os_str().to_string_lossy());
+    let (Some(_root), Some(top)) = (parts.next(), parts.next()) else { return false };
+    if top == "Volumes" {
+        return true;
+    }
+    let (Some(_user), Some(first), second) = (parts.next(), parts.next(), parts.next()) else { return false };
+    top == "Users"
+        && (matches!(first.as_ref(), "Desktop" | "Documents" | "Downloads")
+            || (first == "Library" && second.is_some_and(|s| matches!(s.as_ref(), "Mobile Documents" | "CloudStorage" | "Containers" | "Group Containers"))))
+}
+
+/// What a window can do with a file a session sent you, found by looking it up, never reading it,
+/// which macOS doesn't hold (held.rs).
+#[derive(Clone, Copy, Debug, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub enum State {
+    /// Show it.
+    Here,
+    /// Show it once you ask: macOS asks before it can be read (`asks_first`).
+    AsksFirst,
+    /// Name it alone: it isn't there, isn't a file, or isn't a picture, film or recording once its
+    /// links are followed.
+    Gone,
+}
+
+/// Where a file is once its links are followed, and that it's a picture, film or recording both
+/// as named and there.
+fn real_media(path: &Path) -> Option<PathBuf> {
+    mime(path)?;
+    let real = std::fs::canonicalize(path).ok()?;
+    mime(&real)?;
+    Some(real)
+}
+
+fn state(path: &str) -> State {
+    let path = Path::new(path);
+    match path.is_absolute().then(|| real_media(path)).flatten() {
+        Some(real) if std::fs::metadata(&real).is_ok_and(|m| m.is_file()) => if asks_first(&real) { State::AsksFirst } else { State::Here },
+        _ => State::Gone,
+    }
+}
+
+/// `state` for each of `paths`, in their order.
+pub fn states(paths: &[String]) -> Vec<State> {
+    paths.iter().map(|p| state(p)).collect()
 }
 
 /// What a `Range` header asks of a file `len` bytes long.
@@ -96,17 +159,26 @@ fn asked(range: Option<&str>, len: u64) -> Asked {
 /// Serves one request, on a thread of its own: a read on a slow volume shouldn't hold the others.
 pub fn serve(request: tauri::http::Request<Vec<u8>>, responder: tauri::UriSchemeResponder) {
     let path = request.uri().path().to_string();
+    let you_asked = request.uri().query().is_some_and(|q| q.split('&').any(|p| p == "asked=1"));
     let range = request.headers().get(header::RANGE).and_then(|v| v.to_str().ok()).map(String::from);
     std::thread::spawn(move || {
-        let response = respond(&path, range.as_deref()).unwrap_or_else(|status| status_only(status));
+        let response = respond(&path, you_asked, range.as_deref()).unwrap_or_else(|status| status_only(status));
         responder.respond(response);
     });
 }
 
-fn respond(path: &str, range: Option<&str>) -> Result<Response<Vec<u8>>, StatusCode> {
+fn respond(path: &str, you_asked: bool, range: Option<&str>) -> Result<Response<Vec<u8>>, StatusCode> {
     let path = requested(path).ok_or(StatusCode::BAD_REQUEST)?;
-    let mime = mime(&path).ok_or(StatusCode::FORBIDDEN)?;
-    let mut file = File::open(&path).map_err(|_| StatusCode::NOT_FOUND)?;
+    mime(&path).ok_or(StatusCode::FORBIDDEN)?;
+    let real = match std::fs::canonicalize(&path) {
+        Ok(real) => real,
+        Err(_) => return Err(StatusCode::NOT_FOUND),
+    };
+    let mime = mime(&real).ok_or(StatusCode::FORBIDDEN)?;
+    if asks_first(&real) && !you_asked {
+        return Err(StatusCode::FORBIDDEN);
+    }
+    let mut file = File::open(&real).map_err(|_| StatusCode::NOT_FOUND)?;
     let meta = file.metadata().map_err(|_| StatusCode::NOT_FOUND)?;
     if !meta.is_file() {
         return Err(StatusCode::NOT_FOUND);
@@ -189,6 +261,24 @@ mod tests {
     }
 
     #[test]
+    fn macos_asks_first_in_its_protected_places() {
+        let _mac = os::AsIf::new(os::Os::MacOs);
+        let asks = |p: &str| asks_first(Path::new(p));
+        assert!(asks("/Users/me/Downloads/clip.mp4"));
+        assert!(asks("/Users/me/Desktop/shot.png"));
+        assert!(asks("/Users/me/Documents/northwind/after.png"));
+        assert!(asks("/Users/me/Library/Mobile Documents/com~apple~CloudDocs/a.png"));
+        assert!(asks("/Users/me/Library/Containers/com.example.atlas/Data/a.png"));
+        assert!(asks("/Volumes/Atlas/renders/b.mov"));
+        assert!(!asks("/private/tmp/scratchpad/teaser.mp4"));
+        assert!(!asks("/Users/me/Library/Application Support/Codealong/chats/videos/a.mp4"));
+        assert!(!asks("/Users/me/projects/kestrel/Downloads/a.png"));
+        assert!(!asks("/Users/me/DownloadsArchive/a.png"));
+        assert!(!asks("/Users/me"));
+        os::as_if(os::Os::Linux, || assert!(!asks("/Users/me/Downloads/clip.mp4")));
+    }
+
+    #[test]
     fn a_file_is_answered_in_part_or_whole() {
         let dir = std::env::temp_dir().join(format!("codealong-sentfiles-{}", std::process::id()));
         std::fs::create_dir_all(&dir).unwrap();
@@ -196,23 +286,30 @@ mod tests {
         std::fs::write(&film, b"0123456789").unwrap();
         let url = format!("/{}", urlencoding::encode(film.to_str().unwrap()));
 
-        let part = respond(&url, Some("bytes=2-5")).unwrap();
+        let part = respond(&url, false, Some("bytes=2-5")).unwrap();
         assert_eq!(part.status(), StatusCode::PARTIAL_CONTENT);
         assert_eq!(part.headers()[header::CONTENT_RANGE], "bytes 2-5/10");
         assert_eq!(part.headers()[header::CONTENT_TYPE], "video/mp4");
         assert_eq!(part.body(), b"2345");
 
-        let whole = respond(&url, None).unwrap();
+        let whole = respond(&url, false, None).unwrap();
         assert_eq!(whole.status(), StatusCode::OK);
         assert_eq!(whole.body(), b"0123456789");
 
-        assert_eq!(respond(&url, Some("bytes=10-")).unwrap().status(), StatusCode::RANGE_NOT_SATISFIABLE);
+        assert_eq!(respond(&url, false, Some("bytes=10-")).unwrap().status(), StatusCode::RANGE_NOT_SATISFIABLE);
 
         let notes = dir.join("notes.txt");
         std::fs::write(&notes, b"secret").unwrap();
-        assert_eq!(respond(&format!("/{}", urlencoding::encode(notes.to_str().unwrap())), None).unwrap_err(), StatusCode::FORBIDDEN);
+        assert_eq!(respond(&format!("/{}", urlencoding::encode(notes.to_str().unwrap())), false, None).unwrap_err(), StatusCode::FORBIDDEN);
         let gone = format!("/{}", urlencoding::encode(dir.join("gone.png").to_str().unwrap()));
-        assert_eq!(respond(&gone, None).unwrap_err(), StatusCode::NOT_FOUND);
+        assert_eq!(respond(&gone, false, None).unwrap_err(), StatusCode::NOT_FOUND);
+
+        // A link named as a picture to a file that isn't one is neither shown nor served.
+        let link = dir.join("preview.png");
+        os::files::symlink(&notes, &link).unwrap();
+        assert_eq!(respond(&format!("/{}", urlencoding::encode(link.to_str().unwrap())), false, None).unwrap_err(), StatusCode::FORBIDDEN);
+        let states = states(&[film.to_str().unwrap().into(), link.to_str().unwrap().into(), notes.to_str().unwrap().into(), dir.join("gone.png").to_str().unwrap().into(), "shots/after.png".into()]);
+        assert_eq!(states, [State::Here, State::Gone, State::Gone, State::Gone, State::Gone]);
         std::fs::remove_dir_all(&dir).unwrap();
     }
 }

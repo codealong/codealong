@@ -1,10 +1,10 @@
 // The engine lives in Rust; this is the only place the UI talks to it. Outside Tauri (a
 // browser preview of a snapshot), the board comes from ./board.json and actions do nothing.
 
-import { invoke } from '@tauri-apps/api/core';
+import { convertFileSrc, invoke } from '@tauri-apps/api/core';
 import { emit, emitTo, listen } from '@tauri-apps/api/event';
 import { getCurrentWebviewWindow } from '@tauri-apps/api/webviewWindow';
-import type { AccountCfg, AccountInfo, AgentsStatus, Analytics, Answers, AtLogin, Attachment, BarFeed, BarNote, Board, CalendarStatus, ChromeProfile, CloseOutcome, Config, ConfigView, DesktopFeed, DesktopPinned, DeviceFound, DevicesView, EditorIcon, FolderLook, FoundAccount, Harness, HarnessSchedule, Hearing, HearingStatus, HostedStream, KeptMeeting, MeetingAhead, MeetingFiles, IdlePlan, JevReport, LabelColor, Lane, LineageFeed, ListenAsk, ListeningTail, MergeBox, MergeOp, ModeSwitched, Notice, PathKind, PeekOpen, PeekShown, Pending, Profile, PointerProbe, PrAt, PrDetail, PrItem, ResumeIn, Reviewed, Route, RouteNote, ScheduleOp, ScheduleTimes, Sent, Session, SessionSpent, Since, SetupView, ShortcutStatus, Side, SideKept, SkillsListed, StalePlan, StaleOutcome, Started, StartOptions, StartPlace, StartSpec, Talk, Talked, TerminalFrame, TerminalGlance, TerminalInput, TerminalSize, TerminalTheme, TextFound, Theme, TodoSuggested, TokenReport, Training, TranscriptPage, Unqueued, UpdateView, Verdict, Way, WrittenReview, YourReview } from './types';
+import type { AccountCfg, AccountInfo, AgentsStatus, Analytics, Answers, AtLogin, Attachment, BarFeed, BarNote, Board, CalendarStatus, ChromeProfile, CloseOutcome, Config, ConfigView, DesktopFeed, DesktopPinned, DeviceFound, DevicesView, EditorIcon, FolderLook, FoundAccount, Harness, HarnessSchedule, Hearing, HearingStatus, HostedStream, KeptMeeting, MeetingAhead, MeetingFiles, IdlePlan, JevReport, LabelColor, Lane, LineageFeed, ListenAsk, ListeningTail, MergeBox, MergeOp, ModeSwitched, Notice, PathKind, PeekOpen, PeekShown, Pending, Profile, PointerProbe, PrAt, PrDetail, PrItem, ResumeIn, Reviewed, Route, RouteNote, ScheduleOp, ScheduleTimes, Sent, SentState, Session, SessionSpent, Since, SetupView, ShortcutStatus, Side, SideKept, SkillsListed, StalePlan, StaleOutcome, Started, StartOptions, StartPlace, StartSpec, Talk, Talked, TerminalFrame, TerminalGlance, TerminalInput, TerminalSize, TerminalTheme, TextFound, Theme, TodoSuggested, TokenReport, Training, TranscriptPage, Unqueued, UpdateView, Verdict, Way, WrittenReview, YourReview } from './types';
 import type { PrTab } from './agentReview';
 import type { ListenAsked } from './listening';
 import type { AgentTask } from './agentTasks';
@@ -1464,13 +1464,20 @@ export function imageUrl(name: string, from: string | null = null, again = 0): s
   return `codealong-image://localhost/${name}${from ? `?from=${encodeURIComponent(from)}${again ? `&again=${again}` : ''}` : ''}`;
 }
 
+/** What each file a session sent you is on this Mac (sentfiles.rs `states`), each only looked up. */
+export async function sentFiles(paths: string[]): Promise<SentState[]> {
+  if (!inTauri) return paths.map(() => 'here');
+  return invoke<SentState[]>('sent_files', { paths });
+}
+
 /** Where a window loads a picture, film or recording a session sent you, to show it in place
- *  (sentfiles.rs): its full path, as one piece. `at` is the call that sent it: an agent often
- *  sends a file again once it's changed it, and a later call's loads anew rather than from what
- *  WebKit kept of an earlier one. A preview serves them from ./files. */
-export function sentFileUrl(path: string, at: number): string {
+ *  (sentfiles.rs): its full path, as one piece, in the form the platform's webview takes. `at` is
+ *  the call that sent it: an agent often sends a file again once it's changed it, and a later
+ *  call's loads anew rather than from what WebKit kept of an earlier one. `asked` says you asked
+ *  for one macOS asks about first. A preview serves them from ./files. */
+export function sentFileUrl(path: string, at: number, asked: boolean): string {
   if (!inTauri || inPreview) return `./files/${encodeURIComponent(path)}`;
-  return `codealong-file://localhost/${encodeURIComponent(path)}?at=${at}`;
+  return `${convertFileSrc(path, 'codealong-file')}?at=${at}${asked ? '&asked=1' : ''}`;
 }
 
 /** Calls `cb` with the paths of files dropped on this window and where they landed. */

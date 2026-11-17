@@ -781,6 +781,14 @@ window.__TAURI_INTERNALS__ = {
     if (cmd === 'path_kinds') {
       return Promise.resolve(((args || {}).paths || []).map(function (p) { return /gone/.test(p) ? null : /\/$|\/[^/.]+$/.test(p) ? 'folder' : 'file'; }));
     }
+    // The files a call sent you: in Desktop, Documents or Downloads they wait for a click (roughly
+    // sentfiles.rs `asks_first`); elsewhere they're here when preview.sh linked them under ./files.
+    if (cmd === 'sent_files') {
+      return Promise.all(((args || {}).paths || []).map(function (p) {
+        if (/^\/Users\/[^/]+\/(Desktop|Documents|Downloads)\//.test(p)) return 'asksFirst';
+        return fetch('./files/' + encodeURIComponent(p), { method: 'HEAD' }).then(function (r) { return r.ok ? 'here' : 'gone'; }, function () { return 'gone'; });
+      }));
+    }
     if (cmd === 'your_editor') return Promise.resolve({ id: 'cursor', name: 'Cursor' });
     // Chrome's profiles, for a link's menu and an account's pages: this Mac's, as Settings has them.
     if (cmd === 'chrome_profiles') return fetch('./config.json').then(function (r) { return r.ok ? r.json() : {}; }).then(function (v) { return v.chromeProfiles || []; });

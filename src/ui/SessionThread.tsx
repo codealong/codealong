@@ -69,7 +69,7 @@ import { selectedForMenu, type MenuSpec } from '../contextMenu';
 import { CodeBlock } from './CopyButton';
 import { DescriptionView, ImagesFrom } from './DescriptionEditor';
 import { FollowUpContext, Link, linked, Markdown } from './Markdown';
-import { SentFiles } from './SentFiles';
+import { SentFiles, ThreadGrows } from './SentFiles';
 import { Button, Chip, cx, Icon, Rich, StatusGlyph } from './primitives';
 import { useAside } from '../side';
 import { needOf, waitsInBackground } from '../lanes';
@@ -910,24 +910,33 @@ export function SessionThread({ session: s, now, onOpen, fallback, machine, onLo
   // A read that failed takes the conversation's place only when there's nothing of it to keep.
   const failedView = error !== null && items.length === 0;
 
-  // An image in a prompt takes its room when it loads, after the view was placed. One that loads
-  // while you're at the end keeps you there, and one above what's in view leaves that where it
-  // was. WebKit holds no place by itself as content above grows, and the thread asks Chrome not to
+  // An image in a prompt takes its room when it loads, after the view was placed, as the pictures
+  // and films a call sent you do. One that loads while you're at the end keeps you there, and one
+  // above what's in view leaves that where it was. WebKit holds no place by itself as content above grows, and the thread asks Chrome not to
   // (overflow-anchor), so the two go the same way.
+  const grew = useCallback(
+    (what: Element, by: number) => {
+      const el = scroller.current;
+      if (!el) return;
+      if (follows()) toEnd(el);
+      else if (what.getBoundingClientRect().top < el.getBoundingClientRect().top) el.scrollTop += by;
+    },
+    [follows, toEnd],
+  );
   useEffect(() => {
     const el = scroller.current;
     if (!el) return;
     const onImage = (e: Event) => {
       const img = e.target;
-      if (!(img instanceof HTMLImageElement)) return;
-      if (follows()) toEnd(el);
-      else if (img.getBoundingClientRect().top < el.getBoundingClientRect().top) el.scrollTop += img.offsetHeight;
+      // The files a call sent you say what they grew by themselves (SentFiles.tsx `ThreadGrows`).
+      if (!(img instanceof HTMLImageElement) || img.closest('.ca-thread-sent')) return;
+      grew(img, img.offsetHeight);
     };
     // A load doesn't bubble; it's heard on its way down.
     el.addEventListener('load', onImage, true);
     return () => el.removeEventListener('load', onImage, true);
     // The view is another element once an error has shown in its place.
-  }, [failedView, toEnd, follows]);
+  }, [failedView, grew]);
 
   // The view's own height changes with what's under it (the box as you write, a listening's strip
   // coming or going): one at the end stays there, rather than its last lines going under the edge
@@ -1197,6 +1206,7 @@ export function SessionThread({ session: s, now, onOpen, fallback, machine, onLo
     <RunContext.Provider value={run ?? null}>
       <FollowUpContext.Provider value={answeredBelow ? followUp : null}>
         <ImagesFrom.Provider value={shortOf(s.key)}>
+          <ThreadGrows.Provider value={grew}>
             <div className="ca-thread" ref={scroller} onScroll={onScroll}>
               {/* Takes no room: it floats over the top of the view while it has a prompt to show. */}
               <div className="ca-thread-pin">
@@ -1343,6 +1353,7 @@ export function SessionThread({ session: s, now, onOpen, fallback, machine, onLo
                 </div>
               )}
             </div>
+          </ThreadGrows.Provider>
         </ImagesFrom.Provider>
       </FollowUpContext.Provider>
     </RunContext.Provider>

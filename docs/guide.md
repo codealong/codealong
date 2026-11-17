@@ -637,7 +637,8 @@ click on Show image (or video, or audio), since reading a file there can bring u
 allow it. Any other file is listed by its name and folder. Click a name to open the file in the app
 that opens its kind, as a double-click in the Finder would; an app, a script or a program is shown
 in the Finder instead, so a click never runs anything. A file sent from a scratch folder is often
-cleared by the time you look: it's left as its name, which says so where you clicked. A session on
+cleared by the time you look: it's left as its name, which says so where you clicked. One
+Codealong can't play (a format its web view doesn't take) says so in its place. A session on
 another machine has its files there, so they're listed, not shown, and don't open. A full path an agent writes as code in a reply (`/private/tmp/…/plan.md`,
 `~/notes.md`) is underlined, as it's written, once Codealong has found something there, and opens
 the same way on a click; one with a line (`main.rs:42`) opens in your editor at that line. What only

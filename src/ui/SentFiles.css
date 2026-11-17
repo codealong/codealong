@@ -1,6 +1,6 @@
 /* The files a call sent you (SentFiles.tsx), under its line as a page it made is: what it said of
-   them, then each file. A picture, film or recording shows in place over its name, side by side
-   with the next as they fit; any other file takes a line of its own. */
+   them, then the pictures, films and recordings in place, each over its name and side by side as
+   they fit, then any other file on a line of its own. */
 .ca-thread-sent {
   min-width: 0;
   margin: 0 6px 3px 25px;
@@ -12,22 +12,23 @@
   overflow-wrap: anywhere;
 }
 .ca-thread-sent ul {
-  display: flex;
-  flex-wrap: wrap;
-  column-gap: var(--space-3);
   margin: 0;
   padding: 0;
   list-style: none;
 }
 .ca-thread-sent li {
-  flex: 1 0 100%;
   min-width: 0;
   padding: 1px 0;
 }
-.ca-thread-sent li.is-media {
-  flex: 0 1 auto;
-  max-width: 100%;
+.ca-thread-sent .ca-thread-sentmedia {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2) var(--space-3);
   padding: 4px 0 2px;
+}
+.ca-thread-sentmedia > li {
+  max-width: 100%;
+  padding: 0;
 }
 .ca-thread-sentfile {
   display: flex;
@@ -39,20 +40,38 @@
 }
 /* Each at most a few lines of the conversation tall, at its own shape: a portrait film narrow,
    a wide one wide. */
-.ca-thread-sentfile video,
-.ca-thread-sentfile .ca-desc-img img {
+.ca-thread-sentbox {
+  display: block;
+  max-width: 100%;
+  border-radius: var(--radius-sm);
+  background: var(--surface-sunken);
+}
+video.ca-thread-sentbox,
+.ca-thread-sentbox img {
   display: block;
   width: auto;
   max-width: 100%;
   height: auto;
   max-height: 240px;
 }
-.ca-thread-sentfile .ca-desc-img {
-  margin: 0;
+.ca-thread-sentbox.is-image {
+  padding: 0;
+  border: 1px solid var(--line);
+  overflow: hidden;
+  cursor: zoom-in;
 }
-.ca-thread-sentfile video {
-  border-radius: var(--radius-sm);
-  background: var(--surface-sunken);
+/* In its place, the way to show one macOS asks about first, or why one can't be shown. */
+.ca-thread-sentbox.is-note {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  width: 180px;
+  height: 100px;
+  padding: 0 var(--space-3);
+  border: 1px dashed var(--line-strong);
+  color: var(--ink-3);
+  text-align: center;
 }
 .ca-thread-sentfile audio {
   width: 320px;
