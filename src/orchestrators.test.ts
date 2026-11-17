@@ -83,8 +83,11 @@ describe('orchestrators', () => {
     const yours = [item('you', 'Anything new?'), item('agent', '—')];
     expect(foldQuietRuns(yours)).toEqual(yours);
     // Nor one of yours that quotes Codealong's line.
-    const quoting = [item('you', 'Why did it say this?\n\nThis comes from the schedule “Orchestrator”: run for a PR.'), item('agent', '—')];
+    const quoting = [item('you', 'Why did it say this?\n\nThis comes from the schedule “Orchestrator”: run for a PR.\n\nIt looked wrong.'), item('agent', '—')];
     expect(foldQuietRuns(quoting)).toEqual(quoting);
+    // A tick whose words were edited in its schedule still folds.
+    const edited = item('you', 'Keep an eye on the release.\n\nThis comes from the schedule “Orchestrator”: run for a PR. Its notes are in /n.md: read them first.');
+    expect(foldQuietRuns([edited, item('agent', '—')]).map((x) => x.text)).toEqual(['Looked: nothing new']);
     // A run that asked you something keeps it in view, with your answers.
     const asked = [tick(), item('tool', 'AskUserQuestion', { questions: [{ question: 'Merge it?', header: 'Merge', options: [], multiSelect: false }] }), item('result', '', { answers: { 'Merge it?': ['No'] } }), item('agent', '—')];
     expect(foldQuietRuns(asked)).toEqual(asked);

@@ -99,15 +99,14 @@ export function orchestratorActions(s: Session, report: Report): { look?: MenuAc
   };
 }
 
-/** How Codealong's message for an orchestrator's run begins (schedules/orchestrate.rs `prompt`),
- *  and the paragraph that says which schedule it's from (runner.rs `prompt_of`): a fresh
- *  session's first prompt, and a stopped one's resumed with it, are recorded as yours, so they're
- *  told by both. */
-const TICK = "You're Codealong's orchestrator for ";
-const FROM_SCHEDULE = '\n\nThis comes from the schedule “';
+/** The paragraph that ends Codealong's message for a schedule's run, saying which schedule it's
+ *  from (runner.rs `prompt_of`), whatever the schedule tells it before (its prompt can be edited):
+ *  a fresh session's first prompt, and a stopped one's resumed with it, are recorded as yours, so
+ *  they're told by it. */
+const FROM_SCHEDULE = /\n\nThis comes from the schedule “[^\n]*$/;
 
 /** Whether a message is one of Codealong's that starts an orchestrator's run. */
-const startsRun = (it: TranscriptItem) => it.kind === 'codealong' || (it.kind === 'you' && it.text.startsWith(TICK) && it.text.includes(FROM_SCHEDULE));
+const startsRun = (it: TranscriptItem) => it.kind === 'codealong' || (it.kind === 'you' && FROM_SCHEDULE.test(it.text));
 
 /** An orchestrator's conversation with each run that found nothing to tell you folded into a
  *  line: Codealong's message that woke it, what it did, and its reply, a dash (listening.ts

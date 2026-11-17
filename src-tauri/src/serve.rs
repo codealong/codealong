@@ -212,8 +212,11 @@ pub fn start() -> Result<Ctx, String> {
                     std::thread::sleep(std::time::Duration::from_millis((at - util::now_ms()).max(0) as u64));
                     let board = engine.board();
                     let Ok((due, next)) = reporter.lock().map(|mut r| r.woke(at, &origins::current().pending, &board, util::now_ms())) else { return };
+                    // On a thread of its own, so a send held up (its session's input taken) holds
+                    // up no other session's time.
                     if !due.is_empty() {
-                        helpers::send_now(&engine, &reporter, due);
+                        let (engine, reporter) = (engine.clone(), reporter.clone());
+                        std::thread::spawn(move || helpers::send_now(&engine, &reporter, due));
                     }
                     let Some(next) = next else { return };
                     at = next;

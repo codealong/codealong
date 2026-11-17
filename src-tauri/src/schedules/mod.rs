@@ -549,6 +549,10 @@ pub struct Found {
     /// The todo it is, which a new session is linked to.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub todo: Option<String>,
+    /// Noted as seen without a run of its own: an orchestrator's PR moving to a state that isn't
+    /// for you (orchestrate.rs `found`), noted so that what it moves to next is told against it.
+    #[serde(skip_serializing_if = "std::ops::Not::not")]
+    pub quiet: bool,
 }
 
 /// A schedule as the Schedules view shows it.
@@ -1015,7 +1019,7 @@ pub fn found_on(board: &Board, file: &File, s: &Schedule, since: i64, now: i64, 
             .prs
             .iter()
             .filter(|p| p.state == PrState::Merged && p.merged_at.is_some_and(|at| at > since) && in_repo(&p.repo_slug) && (!mine || p.mine))
-            .map(|p| Found { id: format!("pr-merged:{}", p.key), title: format!("#{} {} merged in {}", p.number, p.title, p.repo_slug), url: p.url.clone(), text: String::new(), todo: None })
+            .map(|p| Found { id: format!("pr-merged:{}", p.key), title: format!("#{} {} merged in {}", p.number, p.title, p.repo_slug), url: p.url.clone(), text: String::new(), todo: None, ..Found::default() })
             .collect(),
         Event::ChecksFailed => board
             .prs
@@ -1027,6 +1031,7 @@ pub fn found_on(board: &Board, file: &File, s: &Schedule, since: i64, now: i64, 
                 url: p.url.clone(),
                 text: if p.checks.failing.is_empty() { String::new() } else { format!("Failing: {}", p.checks.failing.join(", ")) },
                 todo: None,
+                ..Found::default()
             })
             .collect(),
         Event::TodoReady => board
@@ -1035,7 +1040,7 @@ pub fn found_on(board: &Board, file: &File, s: &Schedule, since: i64, now: i64, 
             .filter(|t| t.status == crate::todos::TodoStatus::Todo && crate::todos::is_ready(t, &board.todos))
             // A todo keeps its labels' ids; the schedule may name one by its name.
             .filter(|t| label.trim().is_empty() || t.labels.iter().any(|id| id.eq_ignore_ascii_case(label.trim()) || board.labels.iter().any(|l| &l.id == id && l.name.trim().eq_ignore_ascii_case(label.trim()))))
-            .map(|t| Found { id: format!("todo:{}", t.id), title: t.title.clone(), url: String::new(), text: String::new(), todo: Some(t.id.clone()) })
+            .map(|t| Found { id: format!("todo:{}", t.id), title: t.title.clone(), url: String::new(), text: String::new(), todo: Some(t.id.clone()), ..Found::default() })
             .collect(),
         Event::Changes => orchestrate::found(board, file, s, now, seen),
     }
@@ -1053,9 +1058,9 @@ pub fn found_in(output: &str) -> Vec<Found> {
                 let text = |k: &str| v.get(k).map(|x| x.as_str().map(str::to_string).unwrap_or_else(|| x.to_string())).unwrap_or_default();
                 let id = text("id");
                 let title = Some(text("title")).filter(|t| !t.is_empty()).unwrap_or_else(|| id.clone());
-                Found { id, title, url: text("url"), text: text("text"), todo: None }
+                Found { id, title, url: text("url"), text: text("text"), todo: None, ..Found::default() }
             }
-            None => Found { id: line_id(line), title: crate::util::one_line(line, 200), url: String::new(), text: line.to_string(), todo: None },
+            None => Found { id: line_id(line), title: crate::util::one_line(line, 200), url: String::new(), text: line.to_string(), todo: None, ..Found::default() },
         };
         if !out.iter().any(|f| f.id == found.id) {
             out.push(found);

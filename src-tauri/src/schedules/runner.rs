@@ -167,6 +167,8 @@ pub enum Note {
     Resumed { id: String, at: i64 },
     /// A turned-off orchestrator keeps no session and nothing waiting for one (`Job::Retire`).
     Retired { id: String },
+    /// What it found that's only to note (`Found::quiet`): seen from now on, without a run.
+    Seen { id: String, seen: Vec<String> },
 }
 
 /// What a run came to, to note.
@@ -423,7 +425,7 @@ pub fn plan_in(file: &File, runs: &Runs, board: &Board, busy: &HashSet<String>, 
                 [_] => ("Fired".to_string(), "fired by a script".to_string()),
                 more => (format!("Fired {} times", more.len()), format!("fired {} times", more.len())),
             };
-            let found = fresh.iter().filter(|f| !f.title.trim().is_empty() || !f.text.trim().is_empty() || !f.key.is_empty()).map(|f| Found { id: f.key.clone(), title: f.title.clone(), url: String::new(), text: f.text.clone(), todo: None }).collect();
+            let found = fresh.iter().filter(|f| !f.title.trim().is_empty() || !f.text.trim().is_empty() || !f.key.is_empty()).map(|f| Found { id: f.key.clone(), title: f.title.clone(), url: String::new(), text: f.text.clone(), todo: None, ..Found::default() }).collect();
             if fresh.is_empty() {
                 notes.push(Note::Dropped { fired: go.iter().map(|f| f.id.clone()).collect() });
             } else {
@@ -514,6 +516,12 @@ pub fn plan_in(file: &File, runs: &Runs, board: &Board, busy: &HashSet<String>, 
                 }
                 let theirs = if line.is_some() { machines::their_seen(&board.machines, &s.id) } else { HashSet::new() };
                 let found: Vec<Found> = found_on(board, file, s, track.armed_at, now, &track.seen).into_iter().filter(|f| !track.seen.contains(&f.id) && !theirs.contains(f.id.as_str())).collect();
+                // What's only to note is seen now, with no run (an orchestrator's PR moving to what
+                // isn't for you).
+                let (quiet, found): (Vec<Found>, Vec<Found>) = found.into_iter().partition(|f| f.quiet);
+                if !quiet.is_empty() {
+                    notes.push(Note::Seen { id: s.id.clone(), seen: quiet.into_iter().map(|f| f.id).collect() });
+                }
                 // An orchestrator that looked lately waits out its gap, what it found unclaimed for
                 // the run after it (orchestrate.rs `resting`).
                 if s.orchestrates.is_some() && orchestrate::resting(&track.runs, &found, now) {
@@ -695,6 +703,7 @@ pub fn apply(runs: &mut Runs, note: &Note) {
             t.armed_at = *at;
             note_seen(t, seen.iter().cloned());
         }
+        Note::Seen { id, seen } => note_seen(runs.of.entry(id.clone()).or_default(), seen.iter().cloned()),
         Note::Passed { id, due, missed } => {
             let t = runs.of.entry(id.clone()).or_default();
             // Planned before a later cutoff was written (a resume between the plan and its note),
@@ -970,7 +979,7 @@ fn watch(engine: &Handle, id: &str) {
                 moved = base.changed_to(&v);
                 let changed = seeded_before && moved;
                 if changed {
-                    found.push(Found { id: format!("value:{}", crate::util::one_line(&v, 120)), title: crate::util::one_line(&v, 120), url: String::new(), text: v.clone(), todo: None });
+                    found.push(Found { id: format!("value:{}", crate::util::one_line(&v, 120)), title: crate::util::one_line(&v, 120), url: String::new(), text: v.clone(), todo: None, ..Found::default() });
                 }
                 let said = match (seeded_before, changed) {
                     (false, _) => "First look: its output noted".to_string(),
@@ -1298,7 +1307,7 @@ fn fire(engine: &Handle, id: &str, cause: Cause) -> Option<Done> {
     let mut cause = cause;
     if !s.only_if.trim().is_empty() {
         match run_command(&s, &s.only_if, track.runs.last().map(|r| r.at), &command_dir(&s, &board)) {
-            Ok(out) if !out.trim().is_empty() => cause.found.push(Found { id: String::new(), title: "What its check printed".into(), url: String::new(), text: out.trim().to_string(), todo: None }),
+            Ok(out) if !out.trim().is_empty() => cause.found.push(Found { id: String::new(), title: "What its check printed".into(), url: String::new(), text: out.trim().to_string(), todo: None, ..Found::default() }),
             Ok(_) => return skipped(&cause, "Its check printed nothing."),
             Err(why) => return skipped(&cause, format!("Its check failed: {why}")),
         }
@@ -1629,6 +1638,14 @@ mod tests {
         assert!(plan(&file, &runs, &b, &HashSet::new(), now, &z).0.is_empty());
         let runs = Runs { of: [("o".to_string(), looked(now - orchestrate::GAP_MS))].into(), ..Runs::default() };
         assert_eq!(plan(&file, &runs, &b, &HashSet::new(), now, &z).0.len(), 1);
+        // A PR of its project opened: noted as seen, with no run, resting or not.
+        let mut pr = crate::schedules::tests::pr("acme/web#4", crate::model::PrState::Open, None);
+        (pr.project, pr.mine) = ("Web".into(), true);
+        let opened = Board { prs: vec![pr], ..b.clone() };
+        let runs = Runs { of: [("o".to_string(), looked(now - 60_000))].into(), ..Runs::default() };
+        let (jobs, notes) = plan(&file, &runs, &opened, &HashSet::new(), now, &z);
+        assert!(jobs.is_empty(), "{jobs:?}");
+        assert!(notes.iter().any(|n| matches!(n, Note::Seen { id, seen } if id == "o" && seen == &[format!("pr:acme/web#4:{now}:open")])), "{notes:?}");
     }
 
     fn old_seen(now: i64) -> String {

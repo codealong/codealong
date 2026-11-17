@@ -6015,6 +6015,9 @@ fn resolve_worktree(c: &mut Client, w: &str) -> Result<String> {
     let path = if w == "." { std::env::current_dir()? } else { expand(w) };
     let board = c.loaded_board()?;
     match start::lane_at(board, &path) {
+        // A folder inside a worktree is that worktree's only when it's there: a path mistyped
+        // (a new worktree's name) would otherwise start in the checkout around it.
+        Some(l) if Path::new(&l.id) != path && !path.exists() => bail!("{} isn't there.", tilde(&path)),
         Some(l) if start::unlisted_checkout(board, &path) => bail!("{} is in a checkout the board doesn't list yet, inside {}: a worktree just made shows in Codealong a few seconds on. Try again once `codealong worktrees` lists it.", tilde(&path), tilde(Path::new(&l.path))),
         Some(l) => Ok(l.id.clone()),
         None if board.loading => bail!("Codealong is still reading its worktrees after a start, so whether {} is one can't be said yet: try again in a moment.", tilde(&path)),
