@@ -131,16 +131,17 @@ describe('helpers in Sessions', () => {
   const helper = (r: SessionItem, parent: string): SessionItem => ({ ...r, session: { ...r.session, helper: { parent } } });
   const rows = (s: SessionSection[]) => s.flatMap((x) => x.rows.map((r) => `${x.id} ${r.nested ? '  ' : ''}${r.session.key}`));
 
-  it('lists each helper under the session it works for, in the engine’s order, where that session goes', () => {
+  it('lists each helper under the session it works for, in the headings’ order, where that session goes', () => {
     const list = [
       item('boss', at(13), 'idle', at(13)),
       helper(item('slow', at(14), 'working', at(10), at(10)), 'boss'),
       helper(item('quick', at(14), 'working', at(12), at(12)), 'boss'),
       item('other', at(12), 'working', at(11), at(11)),
     ];
-    expect(rows(sessionSections(list, 'status', now))).toEqual(['working other', 'today boss', 'today   quick', 'today   slow']);
+    // The longest at work first, as Working lists them.
+    expect(rows(sessionSections(list, 'status', now))).toEqual(['working other', 'today boss', 'today   slow', 'today   quick']);
     // By start too, under the day the session started.
-    expect(rows(sessionSections(list, 'started', now)).filter((r) => r.includes('boss') || r.includes('  '))).toEqual(['today boss', 'today   quick', 'today   slow']);
+    expect(rows(sessionSections(list, 'started', now)).filter((r) => r.includes('boss') || r.includes('  '))).toEqual(['today boss', 'today   slow', 'today   quick']);
   });
 
   it('takes the session into Needs you with a helper that waits on you, by the helper’s wait', () => {
@@ -160,7 +161,7 @@ describe('helpers in Sessions', () => {
     const elsewhere = helper(item('there', at(14), 'working', at(12), at(12)), 'boss');
     const list = [item('boss', at(13), 'idle', at(13)), helper(item('here', at(14), 'working', at(11), at(11)), 'boss'), { ...elsewhere, lane: fx.lane({ id: 'other' }) }];
     const under = sessionSections(list, 'status', now).flatMap((s) => s.rows).filter((r) => r.nested);
-    expect(under.map((r) => `${r.session.key} ${r.elsewhere ? 'elsewhere' : 'here'}`)).toEqual(['there elsewhere', 'here here']);
+    expect(under.map((r) => `${r.session.key} ${r.elsewhere ? 'elsewhere' : 'here'}`)).toEqual(['here here', 'there elsewhere']);
   });
 });
 
@@ -191,6 +192,28 @@ describe('sessions another one started, in Sessions', () => {
     const check = helper(item('check', at(14), 'working', at(12), at(12)), 'kid');
     const idleKid = from(item('kid', at(11), 'idle', at(11)), 'boss');
     expect(rows(sessionSections([boss, idleKid, check, other], 'status', now, 'under'))).toEqual(['working other', 'today boss', 'today   check', 'today   kid']);
+  });
+
+  it('lists the ones under a session as its headings list sessions: Needs you, Your turn, Working, Snoozed, the rest', () => {
+    const boss = item('boss', at(8), 'idle', at(8));
+    const kid = (key: string, status: Session['status'], since: number, over: Partial<Session> = {}) => {
+      const r = item(key, at(since), status, at(since), at(since));
+      return from({ ...r, session: { ...r.session, ...over } }, 'boss');
+    };
+    const list = [
+      boss,
+      kid('done', 'idle', 9),
+      kid('late', 'working', 12),
+      kid('dozing', 'unread', 10, { snoozedUntil: at(18) }),
+      kid('turn', 'unread', 13),
+      kid('busy', 'working', 9),
+      kid('asks', 'needs', 14),
+    ];
+    const order = ['asks', 'turn', 'busy', 'late', 'dozing', 'done'];
+    expect(rows(sessionSections(list, 'status', now, 'under'))).toEqual(['needs boss', ...order.map((k) => `needs   ${k}`)]);
+    // By start, and under a pinned session, the same.
+    expect(rows(sessionSections(list, 'started', now, 'under')).filter((r) => r.includes('  ')).map((r) => r.split(' ').pop())).toEqual(order);
+    expect(keys(helpersUnder(list, new Set(['boss']), 'under').get('boss') ?? [])).toEqual(order);
   });
 
   it('lists every one of a long chain under the session at its top', () => {

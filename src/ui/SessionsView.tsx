@@ -136,6 +136,20 @@ const urgency = (s: Session) => {
   const i = ATTENTION.findIndex(({ statuses }) => statuses.includes(listedStatus(s)) && !snoozedApart(s));
   return i < 0 ? ATTENTION.length : i;
 };
+/** Snoozed ones, the soonest back first. */
+const bySnooze = (a: SessionItem, b: SessionItem) => (a.session.snoozedUntil ?? 0) - (b.session.snoozedUntil ?? 0) || a.key.localeCompare(b.key);
+
+/**
+ * The rows listed under a session, in the order its headings list sessions on their own: Needs
+ * you, Your turn and Working, each the longest first, then snoozed ones, the soonest back first,
+ * then the rest as a lane lists them (lanes.ts `bySession`). Each group goes by when its status
+ * began, so a row moves when its status changes, never as its agent works.
+ */
+export function byHeading(a: SessionItem, b: SessionItem): number {
+  const rank = (s: Session) => urgency(s) + Number(urgency(s) === ATTENTION.length && !snoozedApart(s));
+  const at = rank(a.session);
+  return at - rank(b.session) || (at < ATTENTION.length ? byGroupTime(a, b) : at === ATTENTION.length ? bySnooze(a, b) : bySession(a.session, b.session));
+}
 
 /**
  * What a session's panel works through with ⌘⏎, `e` and ⌘]: the sessions listed that wait on you,
@@ -154,10 +168,10 @@ export function waitingQueue(rows: SessionItem[]): SessionItem[] {
  * the newest first.
  *
  * A helper or headless run listed with the session it works for (lanes.ts `workingFor`) goes
- * under that session (`nested`), its own the most urgent first, and with `place` under, so does a
- * session it started (`listedUnder`). The two go where the session would, unless the helper waits
- * on you and the session doesn't: then they're in Needs you, by the helper's wait, so what it asks
- * is seen beside the work it's for. A session it started takes them as far up as it is itself
+ * under that session (`nested`), its own in the headings' order (`byHeading`), and with `place`
+ * under, so does a session it started (`listedUnder`). The two go where the session would, unless
+ * the helper waits on you and the session doesn't: then they're in Needs you, by the helper's wait,
+ * so what it asks is seen beside the work it's for. A session it started takes them as far up as it is itself
  * (Your turn, Working), as it would be on its own.
  */
 export function sessionSections(rows: SessionItem[], sort: SessionSort, now: number, place: StartedPlace = 'apart'): SessionSection[] {
@@ -183,14 +197,13 @@ export function sessionSections(rows: SessionItem[], sort: SessionSort, now: num
   const ranked = top.map((r) => ({ ...r, session: lead(r), row: r }));
   const rowsOf = (rs: typeof ranked) => rs.map((r) => r.row);
   const attention = ATTENTION.map(({ bay, statuses }) => ({ id: bay, label: BAY_WORD[bay], bay, rows: rowsOf(ranked.filter(inGroup(statuses)).sort(byGroupTime)) }));
-  const until = (r: SessionItem) => r.session.snoozedUntil ?? 0;
-  const snoozed = { id: 'snoozed', label: 'Snoozed', icon: 'zzz', rows: rowsOf(ranked.filter((r) => snoozedApart(r.session)).sort((a, b) => until(a) - until(b) || a.key.localeCompare(b.key))) };
+  const snoozed = { id: 'snoozed', label: 'Snoozed', icon: 'zzz', rows: rowsOf(ranked.filter((r) => snoozedApart(r.session)).sort(bySnooze)) };
   const rest = rowsOf(ranked.filter((r) => !snoozedApart(r.session) && !ATTENTION.some((g) => g.statuses.includes(listedStatus(r.session)))).sort((a, b) => bySession(a.session, b.session)));
   return [...attention, snoozed, ...byDay(rest, (r) => r.session.lastActivity, now)].filter((s) => s.rows.length > 0).map(withHelpers);
 }
 
 /** The helpers listed under each of `heads` (pinned sessions, which Pinned lists apart), as
- *  `sessionSections` would list them under those sessions, the most urgent first: each under the
+ *  `sessionSections` would list them under those sessions, in the headings' order: each under the
  *  nearest of its sessions that's one of them. One that's a head itself (pinned too) isn't, so
  *  it's listed once; a pinned helper's own helpers go under it. With `place` under, the sessions
  *  each started go under it too. */
@@ -213,12 +226,12 @@ export function helpersUnder(rows: SessionItem[], heads: ReadonlySet<string>, pl
       at = parent;
     }
   }
-  for (const kids of under.values()) kids.sort((a, b) => bySession(a.session, b.session));
+  for (const kids of under.values()) kids.sort(byHeading);
   return under;
 }
 
 /** The rows that lead, and under each session's key the helpers listed with it (and with
- *  `started`, the sessions it started), the most urgent first. Only one deep: a helper's own
+ *  `started`, the sessions it started), in the headings' order. Only one deep: a helper's own
  *  helpers go under the session at the top. */
 function families(rows: SessionItem[], started: boolean): { top: SessionItem[]; under: Map<string, SessionItem[]> } {
   const under = new Map<string, SessionItem[]>();
@@ -244,7 +257,7 @@ function families(rows: SessionItem[], started: boolean): { top: SessionItem[]; 
     if (!head) top.push(r);
     else under.set(head.session.key, [...(under.get(head.session.key) ?? []), { ...r, nested: true, elsewhere: r.lane.id !== head.lane.id }]);
   }
-  for (const kids of under.values()) kids.sort((a, b) => bySession(a.session, b.session));
+  for (const kids of under.values()) kids.sort(byHeading);
   return { top, under };
 }
 

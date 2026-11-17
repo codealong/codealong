@@ -4137,7 +4137,10 @@ mark. Started without `--in`, it runs out of sight, as automatic reviews do.
 
 In Sessions a helper is listed under the session it works for while it works or waits on you: on
 one line, set in, joined to the session by a thread from the session's status, and naming its
-worktree only when it isn't the session's. The session's row has a chip with each of its
+worktree only when it isn't the session's. What's listed under a session (its helpers, and the
+sessions it started when they go under it) is in the order the headings list sessions: what needs
+you, then your turns, then what's working, each the longest first, then snoozed ones, then the
+rest. A row moves only when its status changes, never as its agent works. The session's row has a chip with each of its
 helpers' status glyphs, the most urgent first (three, then +N). Resting the pointer on the chip
 brings up a card with every one of them: what it's called (*Review of #204* for an automatic
 review), where it stands since when (*Working for 3m*, *Done 12m ago*), what it's doing, asking you

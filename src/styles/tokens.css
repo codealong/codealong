@@ -28,6 +28,7 @@
   --surface-selected: #e2e6e1;
   --nav-hover: #e2e6e1;
   --nav-selected: #ffffff;
+  --seg-selected: #ffffff;
   --line: #dde0dc;
   --line-strong: #7b827d;
   --ink: #141817;
@@ -198,6 +199,7 @@
     --surface-selected: #262b2d;
     --nav-hover: #1a1d1f;
     --nav-selected: #262b2d;
+    --seg-selected: rgba(255, 255, 255, 0.14);
     --line: #272c2e;
     --line-strong: #717a76;
     --ink: #e8ebe7;
@@ -305,6 +307,7 @@
   --surface-selected: #262b2d;
   --nav-hover: #1a1d1f;
   --nav-selected: #262b2d;
+  --seg-selected: rgba(255, 255, 255, 0.14);
   --line: #272c2e;
   --line-strong: #717a76;
   --ink: #e8ebe7;
