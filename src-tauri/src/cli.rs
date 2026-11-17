@@ -1309,7 +1309,7 @@ struct StartArgs {
     /// A model for a terminal or background start: fable, opus, sonnet, haiku, or a full name.
     #[arg(long)]
     model: Option<String>,
-    /// How hard Claude Code thinks (`claude --effort`); without it, the account's own setting. xhigh is what Claude Code's picker calls Extra.
+    /// How hard Claude Code thinks (`claude --effort`); without it, the account's own setting, which is your user's choice: leave it out unless they named a level. xhigh is what Claude Code's picker calls Extra.
     #[arg(long, value_parser = clap::builder::PossibleValuesParser::new(start::effort_levels()))]
     effort: Option<String>,
     /// Start it as a helper of the session running this command: work for that session's agent, not for your user (a review, a check, a second opinion on another account or model). Its finished turns don't wait on your user: the app lists it under this session, out of their lists and queues, and shows it to them only when it needs them (a call to allow, a question, an error). Without --in it runs out of sight: Claude Code's background service, else in Codealong, else in Codealong's tmux with no window (a terminal behind their windows without tmux). `session wait <key>` waits for its turn to end and prints its reply; `session done <key>` once you have what you need from it.

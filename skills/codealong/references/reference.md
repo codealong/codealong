@@ -4106,7 +4106,8 @@ Options:
 
       --effort <EFFORT>
           How hard Claude Code thinks (`claude --effort`); without it, the account's own
-          setting. xhigh is what Claude Code's picker calls Extra
+          setting, which is your user's choice: leave it out unless they named a level.
+          xhigh is what Claude Code's picker calls Extra
           
           [possible values: low, medium, high, xhigh, max, ultra]
 
