@@ -66,13 +66,17 @@ pub fn codex_start_request(request_id: &str, client_id: &str, owner: &str, threa
         "version": 2,
         "method": "thread-follower-start-turn",
         "targetClientId": owner,
-        "timeoutMs": 10_000,
+        "timeoutMs": WINDOW_WAIT.as_millis() as u64,
         "params": {
             "conversationId": thread,
             "turnStart": { "request": request, "context": {} },
         },
     })
 }
+
+/// How long the router gives the window a request goes to (each request's `timeoutMs`), after
+/// which it answers `request-timeout` for it.
+const WINDOW_WAIT: Duration = Duration::from_secs(10);
 
 struct Ipc {
     stream: UnixStream,
@@ -113,6 +117,16 @@ impl Ipc {
             }
             self.buf.extend_from_slice(&chunk[..n]);
         }
+    }
+
+    /// Waits for the answer to `request_id`, a request just sent to a window: the window's, or
+    /// the router's `request-timeout`, for as long as the router gives the window (`WINDOW_WAIT`)
+    /// from now, however long finding the window took. A window that loaded a new thread slowly,
+    /// its MCP servers starting, took it 15 s into a start's 18: the turn it was then asked to
+    /// start ran, and Codealong, out of time before the window could answer, took it for one
+    /// that hadn't (2026-11-17).
+    fn answer(&mut self, request_id: &str) -> Result<Value> {
+        self.response(request_id, Instant::now() + WINDOW_WAIT + Duration::from_secs(2))
     }
 }
 
@@ -259,16 +273,25 @@ fn handed_on(why: &str) -> bool {
 /// Starts a turn with `text` in a Codex thread, through the socket the app's windows use to
 /// reach each other. The window that owns the thread runs the turn in the app's own app-server,
 /// so the app shows it as if you'd sent it there. A thread no window has loaded is opened in the
-/// app after a short wait, which loads it and takes it within a couple of seconds, and asked
-/// about again. Once the window has the request, no answer may mean it went (`MayHaveArrived`).
+/// app after a short wait, which loads it and takes it, and asked about again: within a couple of
+/// seconds usually, but a new thread's window took it 13 s after the open, once the thread's MCP
+/// servers had started (2026-11-17). The search stops at 18 s, so that with the window's own
+/// time to answer (`Ipc::answer`) a start asked from another device, which waits 40 s for it all
+/// (codealong-peer's `ACT_WAIT`), still hears how it went. Once the window has the request, no
+/// answer may mean it went (`MayHaveArrived`).
 pub fn codex_start_turn(codex_home: &Path, thread: &str, text: &str, model: Option<(&str, Option<&str>)>) -> Result<()> {
-    let deadline = Instant::now() + Duration::from_secs(18);
+    start_turn_within(codex_home, thread, text, model, Duration::from_secs(18))
+}
+
+/// `codex_start_turn`, its search for the window given `search`.
+fn start_turn_within(codex_home: &Path, thread: &str, text: &str, model: Option<(&str, Option<&str>)>, search: Duration) -> Result<()> {
+    let deadline = Instant::now() + search;
     let mut ipc = Ipc::connect(codex_home, deadline)?;
     let client = ipc.client_id.clone();
     let owner = ipc.owner_opening(codex_home, thread, deadline)?;
     let turn = crate::start::new_session_id();
     ipc.send(&codex_start_request(&turn, &client, &owner, thread, text, &crate::start::new_session_id(), model))?;
-    let r = ipc.response(&turn, deadline).map_err(|e| unheard("start a turn with this", &e.to_string()))?;
+    let r = ipc.answer(&turn).map_err(|e| unheard("start a turn with this", &e.to_string()))?;
     if r.get("resultType").and_then(Value::as_str) != Some("success") {
         let why = r.get("error").and_then(Value::as_str).unwrap_or("no reason given");
         if handed_on(why) {
@@ -292,7 +315,7 @@ pub fn codex_steer_request(request_id: &str, client_id: &str, owner: &str, threa
         "version": 1,
         "method": "thread-follower-steer-turn",
         "targetClientId": owner,
-        "timeoutMs": 10_000,
+        "timeoutMs": WINDOW_WAIT.as_millis() as u64,
         "params": {
             "conversationId": thread,
             "clientUserMessageId": message_id,
@@ -328,7 +351,7 @@ fn steer(codex_home: &Path, thread: &str, prose: &str, input: Value, message_id:
     let id = crate::start::new_session_id();
     ipc.send(&codex_steer_request(&id, &ipc.client_id.clone(), &owner, thread, prose, input, message_id, cwd, crate::util::now_ms()))?;
     let asked = "send this into its running turn";
-    let r = ipc.response(&id, deadline).map_err(|e| unheard(asked, &e.to_string()))?;
+    let r = ipc.answer(&id).map_err(|e| unheard(asked, &e.to_string()))?;
     if r.get("resultType").and_then(Value::as_str) != Some("success") {
         let why = r.get("error").and_then(Value::as_str).unwrap_or("no reason given");
         if handed_on(why) {
@@ -395,7 +418,7 @@ pub fn codex_interrupt_request(request_id: &str, client_id: &str, owner: &str, t
         "version": 3,
         "method": "thread-follower-interrupt-turn",
         "targetClientId": owner,
-        "timeoutMs": 10_000,
+        "timeoutMs": WINDOW_WAIT.as_millis() as u64,
         "params": { "conversationId": thread, "mode": "user-stop" },
     })
 }
@@ -409,7 +432,7 @@ pub fn codex_interrupt_turn(codex_home: &Path, thread: &str) -> Result<()> {
     };
     let id = crate::start::new_session_id();
     ipc.send(&codex_interrupt_request(&id, &ipc.client_id.clone(), &owner, thread))?;
-    let r = ipc.response(&id, deadline)?;
+    let r = ipc.answer(&id)?;
     if r.get("resultType").and_then(Value::as_str) != Some("success") {
         bail!("Codex didn't stop the turn: {}", r.get("error").and_then(Value::as_str).unwrap_or("no reason given"));
     }
@@ -439,7 +462,7 @@ pub fn codex_settings_request(request_id: &str, client_id: &str, owner: &str, th
         "version": 2,
         "method": "thread-follower-update-thread-settings",
         "targetClientId": owner,
-        "timeoutMs": 10_000,
+        "timeoutMs": WINDOW_WAIT.as_millis() as u64,
         "params": { "conversationId": thread, "threadSettings": settings },
     })
 }
@@ -451,15 +474,15 @@ pub fn codex_update_settings(codex_home: &Path, thread: &str, model: Option<&str
     let deadline = Instant::now() + Duration::from_secs(18);
     let mut ipc = Ipc::connect(codex_home, deadline)?;
     let owner = ipc.owner_opening(codex_home, thread, deadline)?;
-    ipc.update_settings(&owner, thread, model, effort, deadline)
+    ipc.update_settings(&owner, thread, model, effort)
 }
 
 impl Ipc {
     /// Sets what `thread`'s next turn runs on, through `owner`, the window that has it.
-    fn update_settings(&mut self, owner: &str, thread: &str, model: Option<&str>, effort: Option<&str>, deadline: Instant) -> Result<()> {
+    fn update_settings(&mut self, owner: &str, thread: &str, model: Option<&str>, effort: Option<&str>) -> Result<()> {
         let id = crate::start::new_session_id();
         self.send(&codex_settings_request(&id, &self.client_id.clone(), owner, thread, model, effort))?;
-        let r = self.response(&id, deadline)?;
+        let r = self.answer(&id)?;
         if r.get("resultType").and_then(Value::as_str) != Some("success") {
             bail!("Codex didn't take it: {}", r.get("error").and_then(Value::as_str).unwrap_or("no reason given"));
         }
@@ -640,6 +663,11 @@ mod tests {
     /// A router on `home`'s socket whose window "window" has every thread: it takes Codealong
     /// in, and answers the first request for the window with `result`, handing that request back.
     fn window_router(home: &Path, result: Value) -> std::thread::JoinHandle<Value> {
+        window_router_after(home, result, Duration::ZERO)
+    }
+
+    /// `window_router`, its window answering `after` the request comes.
+    fn window_router_after(home: &Path, result: Value, after: Duration) -> std::thread::JoinHandle<Value> {
         std::fs::create_dir_all(home.join("ipc")).unwrap();
         let listener = crate::os::sock::UnixListener::bind(home.join("ipc/ipc.sock")).unwrap();
         std::thread::spawn(move || {
@@ -653,6 +681,7 @@ mod tests {
                         Some("initialize") => json!({ "type": "response", "requestId": id, "resultType": "success", "result": { "clientId": "me" } }),
                         Some("thread-owner-discovery") => json!({ "type": "response", "requestId": id, "resultType": "success", "handledByClientId": "window" }),
                         _ => {
+                            std::thread::sleep(after);
                             conn.write_all(&ipc_frame(&json!({ "type": "response", "requestId": id, "resultType": "success", "result": result }))).unwrap();
                             return m;
                         }
@@ -685,7 +714,24 @@ mod tests {
         let deadline = Instant::now() + Duration::from_secs(10);
         let mut ipc = Ipc::connect(home, deadline)?;
         let owner = ipc.owner("t1", deadline)?.expect("the router names the window");
-        ipc.update_settings(&owner, "t1", model, effort, deadline)
+        ipc.update_settings(&owner, "t1", model, effort)
+    }
+
+    /// A window that answers a start after the search for it has run out of time is still heard:
+    /// a start's window took its new thread 15 s into the 18, and the turn it was asked for ran
+    /// while Codealong, hearing nothing, filled the prompt in as well (2026-11-17). Links stand
+    /// in, so a busy Mac that misses the router's first answer opens nothing in the real app.
+    #[test]
+    fn a_window_that_answers_after_the_search_is_heard() {
+        let home = scratch("codex-late");
+        let router = window_router_after(&home, json!({}), Duration::from_secs(2));
+        let opened = stand_ins(&home, 1, false);
+        let went = start_turn_within(&home, "t1", "hello", None, Duration::from_secs(1));
+        crate::procs::stand_in::set(None);
+        went.unwrap();
+        assert_eq!(router.join().unwrap()["method"], "thread-follower-start-turn");
+        assert!(opened.borrow().is_empty(), "{:?}", opened.borrow());
+        let _ = std::fs::remove_dir_all(&home);
     }
 
     #[test]

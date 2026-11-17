@@ -47,6 +47,11 @@ const READ_WAIT: Duration = Duration::from_secs(15);
 /// Jev answers in a second or two, but the Mac may be busy.
 const ROUTE_WAIT: Duration = Duration::from_secs(20);
 const ACT_WAIT: Duration = Duration::from_secs(40);
+/// How long a start is given, here and by a Mac's own engine (actions.rs): one in the Codex app
+/// makes the thread (up to 20 s), finds the window that takes it (up to 18 s, and a new thread's
+/// window took 13 s once, its MCP servers starting), and waits for that window's answer (up to
+/// 12 s), as the engine's codex/ipc.rs `codex_start_turn` does.
+pub const START_WAIT: Duration = Duration::from_secs(60);
 /// How long being done with a session is given: removing a worktree its harness made can take
 /// most of a minute there, as the engine's actions.rs waits for it.
 const DONE_WAIT: Duration = Duration::from_secs(75);
@@ -561,7 +566,7 @@ impl Client {
 
     /// Starts a session on `device`, in one of its worktrees (`spec.lane_id`, its own id there).
     pub fn start_session(&self, device: &str, spec: &api::StartSpec) -> std::result::Result<api::Started, String> {
-        read(self.ask(device, api::START, of(params::Start { spec: spec.clone() }), ACT_WAIT)?)
+        read(self.ask(device, api::START, of(params::Start { spec: spec.clone() }), START_WAIT)?)
     }
 
     /// Forks a session on `device` into a copy that goes on without a window there, on `prompt`

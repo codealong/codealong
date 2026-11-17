@@ -7322,12 +7322,20 @@ fn start_cmd(c: &mut Client, a: &StartArgs, json: bool) -> Result<()> {
     if json {
         return print_json(&started);
     }
-    match (&started.key, &started.message) {
-        (Some(k), _) => println!("Started {k}."),
-        (None, Some(m)) => println!("{m}"),
-        (None, None) => println!("Started."),
-    }
+    println!("{}", started_line(&started, ""));
     Ok(())
+}
+
+/// What `start` prints for a session it started (`on` names the device, when it's another): its
+/// key, and what to do next when there's something, as when Codex may not have taken a start's
+/// prompt and it's for you to look.
+fn started_line(started: &start::Started, on: &str) -> String {
+    match (&started.key, &started.message) {
+        (Some(k), Some(m)) => format!("Started {k}{on}. {m}"),
+        (Some(k), None) => format!("Started {k}{on}."),
+        (None, Some(m)) => m.clone(),
+        (None, None) => format!("Started{on}."),
+    }
 }
 
 /// `start --device`: the device picks where the session starts and on what, as `codealong start`
@@ -7374,11 +7382,7 @@ fn start_on_device(c: &mut Client, a: &StartArgs, prompt: Option<String>, device
     if json {
         return print_json(&started);
     }
-    match (&started.key, &started.message) {
-        (Some(k), _) => println!("Started {k} on {name}."),
-        (None, Some(m)) => println!("{m}"),
-        (None, None) => println!("Started on {name}."),
-    }
+    println!("{}", started_line(&started, &format!(" on {name}")));
     Ok(())
 }
 
@@ -8854,6 +8858,18 @@ mod tests {
         assert_eq!(said("Codealong on this device doesn't know how to start-pick yet; update it here."), "Codealong on Mini is from before it could be asked to start a session by the command: update it there.");
         assert!(said("Codealong doesn't know how to start-pick.").starts_with("The Codealong that's running is older than this command"));
         assert!(said(&format!("{}: unknown variant `run`", server::UNKNOWN_REQUEST)).starts_with("The Codealong that's running is older than this command"));
+    }
+
+    /// A start says the session it started and, when there's something to do next, that too: a
+    /// Codex start whose turn may not have gone named only its session.
+    #[test]
+    fn a_start_says_its_session_and_what_to_do_next() {
+        let started = |key: Option<&str>, message: Option<&str>| start::Started { key: key.map(String::from), message: message.map(String::from) };
+        let look = "Codealong asked Codex to start a turn with this and didn't hear how it went: look there before sending it again.";
+        assert_eq!(started_line(&started(Some("codex:codex:t1"), Some(look)), ""), format!("Started codex:codex:t1. {look}"));
+        assert_eq!(started_line(&started(Some("codex:codex:t1"), None), " on Mini"), "Started codex:codex:t1 on Mini.");
+        assert_eq!(started_line(&started(None, Some("A new Codex thread is open in northwind.")), ""), "A new Codex thread is open in northwind.");
+        assert_eq!(started_line(&started(None, None), " on Mini"), "Started on Mini.");
     }
 
     #[test]

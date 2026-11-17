@@ -277,7 +277,7 @@ const REQUESTS: &[Request] = &[
     Request { name: api::ROUTE, here: route, ..ANY },
     Request { name: api::START_OPTIONS, here: start_options, ..ANY },
     Request { name: api::START_PICK, here: start_pick, ..ANY },
-    Request { name: api::START, here: start, there: start_there, back: started_back, prompt: Some("/spec/prompt"), ..ANY },
+    Request { name: api::START, here: start, there: start_there, back: started_back, prompt: Some("/spec/prompt"), wait: Some(codealong_peer::client::START_WAIT), ..ANY },
     // A fork answers as a start does, with the copy by the key it has on its device.
     Request { name: api::SESSION_FORK, here: fork, back: started_back, prompt: Some("/prompt"), knows: fork_with_side, ..ANY },
     Request { name: api::SESSION_EDIT, here: fork_from, back: started_back, prompt: Some("/prompt"), ..ANY },

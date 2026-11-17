@@ -191,7 +191,14 @@ checked on this Mac, most of them by reading the apps' own bundles and files. Pa
   `codex_start_request`). Starting a turn from an app-server of your own would make a second
   copy of the thread the app doesn't see.
 - A window owns only the threads it has loaded, and takes one as it starts loading it, before
-  its settings are in: `codex/ipc.rs` (`Ipc::owner`, `codex_start_turn`).
+  its settings are in: `codex/ipc.rs` (`Ipc::owner`, `codex_start_turn`). A thread its
+  app-server hasn't loaded is taken only once the window's `thread/resume` returns, which waits
+  for the thread's MCP servers to start: 10.5 s for a thread Codealong had just made, taken
+  13 s after its link opened (26.1111, 2026-11-17: `maybe_resume_started`, then
+  `response_routed … method=thread/resume durationMs=10537` and `thread_stream_role_changed …
+  role=owner` in the same millisecond). The router gives the window a request's `timeoutMs` to
+  answer whenever it's sent, so Codealong waits that long from the send (`Ipc::answer`), not what's
+  left of the time it spent finding the window.
 - The router runs in whichever process started it first: the app, or the Codex extension in VS
   Code or Cursor, which has the same code (26.908's `out/extension.js`). Each of the app's
   clients has a router manager of its own, and each that finds no router, as the app starts or

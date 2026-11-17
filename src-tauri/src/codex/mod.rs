@@ -655,8 +655,9 @@ impl crate::harness::Adapter for Codex {
     /// The app's new-thread link only fills a prompt in, so on a prompt Codealong makes the
     /// thread itself, on the model asked for, and the app, once it has the thread open, runs the
     /// first turn as if you'd sent it there, at the effort asked for. When that fails the link
-    /// still fills the prompt in: in the thread just made if there is one, else on the
-    /// new-thread page, where the app's own model is picked, as it is for a start with no prompt.
+    /// still fills the prompt in: in the thread just made if there is one (`first_turn`, not
+    /// when the turn may have started), else on the new-thread page, where the app's own model is
+    /// picked, as it is for a start with no prompt.
     fn start_in_app(&self, account: &AccountCfg, lane: &str, folder: &Path, ask: &crate::harness::StartAsk, link: &str) -> anyhow::Result<crate::start::Started> {
         use crate::start::Started;
         // What the app picks for itself, said where something else was asked for: the new-thread
@@ -674,30 +675,20 @@ impl crate::harness::Adapter for Codex {
             crate::launch::open_codex(link)?;
             return Ok(Started { key: None, message: Some(format!("A new Codex thread is open in {lane}.{}", unasked())) });
         }
-        let waiting = |then: String| Some(format!("Your prompt is waiting in a new Codex thread. Send it from there.{then}"));
         let home = account.home_path();
         let text = crate::attachments::expand(ask.prompt.trim(), crate::attachments::Style::Path);
         let thread = match appserver::new_thread(&home, folder, ask.model) {
             Ok(t) => t,
             Err(_) => {
                 crate::launch::open_codex(link)?;
-                return Ok(Started { key: None, message: waiting(unasked()) });
+                return Ok(Started { key: None, message: waiting(&unasked()) });
             }
         };
-        let key = Some(Session::key_for(Harness::Codex, &account.name, &thread.id));
         // The model the thread was made on (the one asked for, else the account's), which its
         // first turn names, or the window sends an empty one.
         let model = thread.model.as_deref().map(|m| (m, ask.effort.or(thread.effort.as_deref())));
-        match codex_start_turn(&home, &thread.id, &text, model) {
-            Ok(()) => Ok(Started { key, message: None }),
-            Err(_) => {
-                crate::launch::open_codex(&format!("{}?prompt={}", crate::launch::codex_thread_url(&thread.id), urlencoding::encode(&text)))?;
-                // The thread was made on the model; the effort goes with a turn, which the app's
-                // box sends at its own.
-                let effort = ask.effort.map(|e| format!(" Set its effort to {e} there first.")).unwrap_or_default();
-                Ok(Started { key, message: waiting(effort) })
-            }
-        }
+        let went = codex_start_turn(&home, &thread.id, &text, model);
+        first_turn(went, &Session::key_for(Harness::Codex, &account.name, &thread.id), &thread.id, &text, ask.effort)
     }
 
     /// Codealong makes the thread a start in the app runs (`start_in_app`), on the model asked
@@ -753,6 +744,32 @@ impl crate::harness::Adapter for Codex {
 
     fn reader(&self, _wake: crate::harness::Wake) -> Box<dyn crate::harness::Reader> {
         Box::new(Reader::default())
+    }
+}
+
+/// What a start in the app says when its prompt was only filled in, with `then` after it.
+fn waiting(then: &str) -> Option<String> {
+    Some(format!("Your prompt is waiting in a new Codex thread. Send it from there.{then}"))
+}
+
+/// What a start in the app (`start_in_app`) comes to once the first turn of the thread it made,
+/// `thread` with session key `key`, was asked for with `text` (`went`). When the window may have
+/// started it, it says so and leaves the box alone: filled in as well, the prompt sat in the box
+/// of the thread that was running it (2026-11-17). When the turn didn't start, the thread opens
+/// with the prompt filled in, to send from there.
+fn first_turn(went: anyhow::Result<()>, key: &str, thread: &str, text: &str, effort: Option<&str>) -> anyhow::Result<crate::start::Started> {
+    use crate::start::Started;
+    let key = Some(key.to_string());
+    match went {
+        Ok(()) => Ok(Started { key, message: None }),
+        Err(e) if e.is::<crate::send::MayHaveArrived>() => Ok(Started { key, message: Some(e.to_string()) }),
+        Err(_) => {
+            crate::launch::open_codex(&format!("{}?prompt={}", crate::launch::codex_thread_url(thread), urlencoding::encode(text)))?;
+            // The thread was made on the model; the effort goes with a turn, which the app's box
+            // sends at its own.
+            let effort = effort.map(|e| format!(" Set its effort to {e} there first.")).unwrap_or_default();
+            Ok(Started { key, message: waiting(&effort) })
+        }
     }
 }
 
@@ -1340,6 +1357,32 @@ fn walk_files(dir: &Path, depth: usize, visit: &mut dyn FnMut(&Path)) {
 mod tests {
     use super::*;
     use crate::codex::terminals::terminal_args;
+
+    /// A start whose first turn the window may have started leaves the app's box alone, and one
+    /// whose turn didn't start opens the thread with the prompt filled in: the links it opened,
+    /// kept by a stand-in for `open`, as the Codex app isn't running here.
+    #[test]
+    #[cfg(target_os = "macos")]
+    fn a_start_fills_the_prompt_in_only_when_its_turn_didnt_start() {
+        let opened = std::rc::Rc::new(std::cell::RefCell::new(Vec::<String>::new()));
+        let kept = opened.clone();
+        crate::procs::stand_in::set(Some(Box::new(move |program, args, _, _| match program {
+            "/usr/bin/open" => {
+                kept.borrow_mut().push(args.last().unwrap().to_string());
+                Ok(String::new())
+            }
+            _ => Err(anyhow::anyhow!("{program} isn't here")),
+        })));
+        let start = |went: anyhow::Result<()>| first_turn(went, "codex:codex:t1", "t1", "hi there", Some("high")).unwrap();
+        let unheard = start(Err(crate::send::MayHaveArrived("Codealong asked Codex to start a turn with this and didn't hear how it went.".into()).into()));
+        let refused = start(Err(anyhow::anyhow!("No Codex window took this thread.")));
+        let went = start(Ok(()));
+        crate::procs::stand_in::set(None);
+        assert_eq!(*opened.borrow(), ["codex://threads/t1?prompt=hi%20there"]);
+        assert_eq!((unheard.key.as_deref(), unheard.message.as_deref()), (Some("codex:codex:t1"), Some("Codealong asked Codex to start a turn with this and didn't hear how it went.")));
+        assert_eq!(refused.message.as_deref(), Some("Your prompt is waiting in a new Codex thread. Send it from there. Set its effort to high there first."));
+        assert_eq!((went.key.as_deref(), went.message), (Some("codex:codex:t1"), None));
+    }
 
     /// `/permissions` numbers what it lists, so a switch presses a mode's place there: Approve
     /// for me is left out where config.toml turns its feature off, at its top or in the profile
