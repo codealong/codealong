@@ -68,6 +68,9 @@ pub const ALL: &str = "All projects";
 pub const GAP_MS: i64 = 15 * 60_000;
 /// How what `shared` finds is told apart: two agents in one worktree, which don't wait out the gap.
 const SHARED: &str = "shared:";
+/// How a PR's move is told apart (`found`): one that's yours doesn't wait out the gap either, as
+/// its states in between would go unnoted, and the one it ends at be told against the last.
+const PR_MOVE: &str = "pr:";
 /// Its session is started afresh this often, its notes carrying what the last one knew.
 pub const FRESH_AFTER: &str = "1d";
 
@@ -245,9 +248,11 @@ fn watched(s: &Session) -> bool {
 
 /// Whether an orchestrator looked too lately to run again now for what it found (`GAP_MS`): what
 /// it found stays unseen, and its first run after the gap takes it with whatever else came. Two
-/// agents in one linked worktree (`shared`) don't wait: they overwrite each other's work meanwhile.
+/// agents in one linked worktree (`shared`) don't wait: they overwrite each other's work
+/// meanwhile. Nor does a PR's move that's yours: noted only by its run, the states it went through
+/// while it waited would be lost (approved, sent back and approved again, told as nothing new).
 pub fn resting(runs: &[RunRecord], found: &[Found], now: i64) -> bool {
-    !found.iter().any(|f| f.id.starts_with(SHARED)) && looked_at(runs.iter()).is_some_and(|at| now - at < GAP_MS)
+    !found.iter().any(|f| f.id.starts_with(SHARED) || f.id.starts_with(PR_MOVE)) && looked_at(runs.iter()).is_some_and(|at| now - at < GAP_MS)
 }
 
 /// What an orchestrator finds on the board to look at now, each by an id of its own that a run
@@ -297,7 +302,7 @@ pub fn found(board: &Board, file: &File, s: &Schedule, now: i64, seen: &[String]
         // from before can be, however many the list keeps. Only a move to what waits on you, of
         // which no session of its own is told (nudges.rs `tells`), is a run; the rest are noted
         // without one (`Found::quiet`).
-        let prefix = format!("pr:{}:", p.key);
+        let prefix = format!("{PR_MOVE}{}:", p.key);
         let last = seen.iter().filter_map(|x| x.strip_prefix(&prefix)?.split_once(':')).filter_map(|(at, was)| Some((at.parse::<i64>().ok()?, was))).max_by_key(|(at, _)| *at);
         if last.map(|(_, was)| was) != Some(state) {
             let quiet = !yours.is_some_and(|why| !tells(board, p, &why));
@@ -466,9 +471,11 @@ mod tests {
         assert!(!resting(&[ran(NOW - GAP_MS, Outcome::Sent)], &waits, NOW));
         assert!(!resting(&[], &waits, NOW));
         assert!(!resting(&[ran(NOW - 60_000, Outcome::Skipped)], &waits, NOW));
-        // Two agents in one worktree don't wait.
+        // Two agents in one worktree don't wait, nor a PR's move that's yours.
         let shared = vec![Found { id: format!("{SHARED}/w:a,b"), ..Found::default() }];
         assert!(!resting(&[ran(NOW - 60_000, Outcome::Sent)], &shared, NOW));
+        let approved = vec![Found { id: format!("{PR_MOVE}acme/web#4:{NOW}:approved"), ..Found::default() }];
+        assert!(!resting(&[ran(NOW - 60_000, Outcome::Sent)], &approved, NOW));
     }
 
     #[test]

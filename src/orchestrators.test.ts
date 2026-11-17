@@ -60,7 +60,7 @@ describe('orchestrators', () => {
     const quiet = () => [tick(), item('tool', 'codealong changes'), item('result'), item('agent', '—')];
     const told = [tick(), item('tool', 'codealong changes'), item('agent', 'Two sessions now work in one worktree.')];
     const items = [item('you', 'Keep watch'), item('agent', 'On it.'), ...quiet(), ...quiet(), ...told, ...quiet()];
-    const folded = foldQuietRuns(items);
+    const folded = foldQuietRuns(items, true);
     expect(folded.map((x) => [x.kind, x.text])).toEqual([
       ['you', 'Keep watch'],
       ['agent', 'On it.'],
@@ -72,24 +72,22 @@ describe('orchestrators', () => {
     expect(folded[2].n).toBe(items[2].n);
     // A run still going, its last step a call, stays.
     const going = [tick(), item('agent', '—'), item('tool', 'codealong changes')];
-    expect(foldQuietRuns(going)).toEqual(going);
+    expect(foldQuietRuns(going, true)).toEqual(going);
     // What came before the page's first message from Codealong stays too.
     const cut = [item('tool', 'codealong changes'), item('agent', '—')];
-    expect(foldQuietRuns(cut)).toEqual(cut);
-    // A fresh session's first run, its prompt recorded as yours, folds as the others do; a prompt
-    // that is yours doesn't.
-    const first = item('you', "You're Codealong's orchestrator for All projects: you keep watch.\n\nThis comes from the schedule “Orchestrator”: run for “Fix the docs” asks you a question.");
-    expect(foldQuietRuns([first, item('agent', '—')]).map((x) => x.text)).toEqual(['Looked: nothing new']);
-    const yours = [item('you', 'Anything new?'), item('agent', '—')];
-    expect(foldQuietRuns(yours)).toEqual(yours);
-    // Nor one of yours that quotes Codealong's line.
-    const quoting = [item('you', 'Why did it say this?\n\nThis comes from the schedule “Orchestrator”: run for a PR.\n\nIt looked wrong.'), item('agent', '—')];
-    expect(foldQuietRuns(quoting)).toEqual(quoting);
-    // A tick whose words were edited in its schedule still folds.
-    const edited = item('you', 'Keep an eye on the release.\n\nThis comes from the schedule “Orchestrator”: run for a PR. Its notes are in /n.md: read them first.');
-    expect(foldQuietRuns([edited, item('agent', '—')]).map((x) => x.text)).toEqual(['Looked: nothing new']);
+    expect(foldQuietRuns(cut, false)).toEqual(cut);
+    // A fresh session's first run, its prompt recorded as yours, folds as the others do, whatever
+    // words its schedule tells it first; only where the page begins with it.
+    const first = item('you', 'Keep an eye on the release.\n\nThis comes from the schedule “Orchestrator”: run for a PR. Its notes are in /n.md: read them first.');
+    expect(foldQuietRuns([first, item('agent', '—')], true).map((x) => x.text)).toEqual(['Looked: nothing new']);
+    expect(foldQuietRuns([first, item('agent', '—')], false)).toHaveLength(2);
+    // A prompt that is yours doesn't, even one that ends quoting Codealong's line.
+    const yours = [tick(), item('agent', '—'), item('you', 'Anything new?'), item('agent', '—')];
+    expect(foldQuietRuns(yours, true).slice(1)).toEqual(yours.slice(2));
+    const quoting = [tick(), item('agent', '—'), item('you', 'Why did it say this?\n\nThis comes from the schedule “Orchestrator”: run for a PR.'), item('agent', '—')];
+    expect(foldQuietRuns(quoting, true).slice(1)).toEqual(quoting.slice(2));
     // A run that asked you something keeps it in view, with your answers.
     const asked = [tick(), item('tool', 'AskUserQuestion', { questions: [{ question: 'Merge it?', header: 'Merge', options: [], multiSelect: false }] }), item('result', '', { answers: { 'Merge it?': ['No'] } }), item('agent', '—')];
-    expect(foldQuietRuns(asked)).toEqual(asked);
+    expect(foldQuietRuns(asked, true)).toEqual(asked);
   });
 });

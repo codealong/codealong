@@ -871,6 +871,11 @@ pub fn picked(board: &Board, cfg: &Config, asked: &codealong_peer::api::params::
         config::chats_dir().to_string_lossy().into_owned()
     } else if !asked.folder.is_empty() {
         let dir = crate::util::expand_in(&asked.folder, home);
+        // A folder inside a worktree is that worktree's only when it's there: a path mistyped
+        // would otherwise start in the checkout around it.
+        if lane_at(board, &dir).is_some_and(|l| Path::new(&l.id) != dir) && !dir.exists() {
+            bail!("{} isn't there.", asked.folder);
+        }
         if unlisted_checkout(board, &dir) {
             bail!("{} is in a checkout Codealong doesn't list yet: a worktree just made shows a few seconds on. Try again then.", asked.folder);
         }
@@ -2194,6 +2199,20 @@ mod tests {
         assert_eq!(e, "claude is turned off in Settings › Accounts.");
     }
 
+    #[test]
+    fn a_folder_another_device_asks_for_is_in_the_deepest_worktree_that_holds_it() {
+        use codealong_peer::api::params::StartPick;
+        let home = std::env::temp_dir().join(format!("codealong-picked-{}-{}", std::process::id(), crate::util::now_ms()));
+        std::fs::create_dir_all(home.join("northwind/src")).unwrap();
+        let worktree = home.join("northwind").to_string_lossy().into_owned();
+        let board = Board { lanes: vec![Lane::new(&worktree, "Northwind", "northwind")], ..Board::default() };
+        let cfg = Config { accounts: vec![account("claude", "claude", "/Users/sam/.claude", Some("claude"))], ..Config::default() };
+        let lane_of = |folder: &str| picked(&board, &cfg, &StartPick { folder: folder.into(), account: "claude".into(), ..StartPick::default() }, NOW, &home).map(|s| s.lane_id).map_err(|e| e.to_string());
+        assert_eq!(lane_of("~/northwind/src"), Ok(worktree.clone()));
+        assert_eq!(lane_of("~/northwind/typo"), Err("~/northwind/typo isn't there.".into()));
+        let _ = std::fs::remove_dir_all(&home);
+    }
+
     /// What `codealong start --device` asks of a device is picked there as `codealong start` run
     /// there would pick it, by its own folders, home and accounts.
     #[test]
@@ -2206,9 +2225,9 @@ mod tests {
         let mut cfg = Config { accounts: vec![claude, account("codex", "codex", "/Users/sam/.codex", None)], ..Config::default() };
         let asked = |folder: &str, repo: &str| StartPick { folder: folder.into(), repo: repo.into(), account: "claude".into(), ..StartPick::default() };
         let lane_of = |cfg: &Config, p: &StartPick| picked(&board, cfg, p, NOW, home).map(|s| s.lane_id).map_err(|e| e.to_string());
-        // A folder under its home, as the asking Mac sends one under its own, is in the deepest
-        // worktree that holds it; a worktree's own folder is that one.
-        assert_eq!(lane_of(&cfg, &asked("~/northwind-login/src", "")).as_deref(), Ok("/Users/sam/northwind-login"));
+        // A worktree's own folder is that one; a folder in one that isn't there is no folder of it
+        // (a_folder_another_device_asks_for_is_in_the_deepest_worktree_that_holds_it has one that is).
+        assert_eq!(lane_of(&cfg, &asked("~/northwind-login/src", "")), Err("~/northwind-login/src isn't there.".into()));
         assert_eq!(lane_of(&cfg, &asked("/Users/sam/northwind", "")).as_deref(), Ok("/Users/sam/northwind"));
         assert_eq!(lane_of(&cfg, &asked("~/elsewhere", "")), Err("~/elsewhere isn't in a worktree Codealong knows.".into()));
         // No folder: the repo's main checkout there, or why there's none to take.

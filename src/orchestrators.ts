@@ -100,13 +100,10 @@ export function orchestratorActions(s: Session, report: Report): { look?: MenuAc
 }
 
 /** The paragraph that ends Codealong's message for a schedule's run, saying which schedule it's
- *  from (runner.rs `prompt_of`), whatever the schedule tells it before (its prompt can be edited):
- *  a fresh session's first prompt, and a stopped one's resumed with it, are recorded as yours, so
- *  they're told by it. */
+ *  from (runner.rs `prompt_of`), whatever the schedule tells it before (its prompt can be edited).
+ *  A fresh session's first prompt is recorded as yours, so it's told by it; a stopped one's
+ *  resumed with it comes as Codealong's (`send::by_codealong`), as do the rest. */
 const FROM_SCHEDULE = /\n\nThis comes from the schedule “[^\n]*$/;
-
-/** Whether a message is one of Codealong's that starts an orchestrator's run. */
-const startsRun = (it: TranscriptItem) => it.kind === 'codealong' || (it.kind === 'you' && FROM_SCHEDULE.test(it.text));
 
 /** An orchestrator's conversation with each run that found nothing to tell you folded into a
  *  line: Codealong's message that woke it, what it did, and its reply, a dash (listening.ts
@@ -114,7 +111,10 @@ const startsRun = (it: TranscriptItem) => it.kind === 'codealong' || (it.kind ==
  *  engine says as its headline (board.rs `quiet_orchestrator`). Such runs in a row fold into one
  *  line. A run that told you something, asked you something (a question and your answers stay in
  *  view), or that's still going, stays as it is. */
-export function foldQuietRuns(items: TranscriptItem[]): TranscriptItem[] {
+export function foldQuietRuns(items: TranscriptItem[], fromStart: boolean): TranscriptItem[] {
+  // Codealong's messages, and the session's very first prompt where the page begins with it, the
+  // run that started it.
+  const startsRun = (it: TranscriptItem, i: number) => it.kind === 'codealong' || (fromStart && i === 0 && it.kind === 'you' && FROM_SCHEDULE.test(it.text));
   const out: TranscriptItem[] = [];
   // The line the last run folded into, while nothing has come after it.
   let fold: { line: TranscriptItem; runs: number } | null = null;
@@ -122,12 +122,12 @@ export function foldQuietRuns(items: TranscriptItem[]): TranscriptItem[] {
     const it = items[i];
     // A run is what Codealong told it and everything up to the next message to it.
     let end = i + 1;
-    if (startsRun(it)) while (end < items.length && !['codealong', 'you', 'peer'].includes(items[end].kind)) end++;
+    if (startsRun(it, i)) while (end < items.length && !['codealong', 'you', 'peer'].includes(items[end].kind)) end++;
     const run = items.slice(i, end);
     // Its last step: a reply that ends it, or a call it's still making.
     const last = [...run].reverse().find((x) => x.kind === 'agent' || x.kind === 'tool');
     const asked = run.some((x) => x.questions?.length || x.answers);
-    const quiet = startsRun(it) && !asked && last?.kind === 'agent' && saysNothing(last.text);
+    const quiet = startsRun(it, i) && !asked && last?.kind === 'agent' && saysNothing(last.text);
     if (!quiet) {
       out.push(...run);
       fold = null;

@@ -1092,7 +1092,8 @@ export function SessionThread({ session: s, now, onOpen, fallback, machine, onLo
   // An orchestrator's runs that found nothing fold into a line each (orchestrators.ts), which
   // starts afresh as any note does.
   const orchestrating = !!s.orchestrator;
-  const folded = useMemo(() => (orchestrating ? foldQuietRuns(items) : items), [items, orchestrating]);
+  const fromStart = before == null;
+  const folded = useMemo(() => (orchestrating ? foldQuietRuns(items, fromStart) : items), [items, orchestrating, fromStart]);
   const rows = useMemo(() => rowsOf(folded), [folded]);
   // A session that listens (listen.rs): what Codealong told it is drawn as what it is (the
   // meeting's lines, that it began, that it ended), and an answer that says there's nothing to
