@@ -121,12 +121,13 @@ fn moment(s: &Session, now: i64, recent: bool) -> Option<(Kind, String)> {
         let excerpt = s.excerpt.as_deref()?;
         (Kind::Approval, vec![command_in(excerpt).unwrap_or(excerpt), since.as_str()])
     } else if turn_ended(s) {
-        // A helper's last reply is for its agent to read (unless you're talking to it), and a
-        // headless run's for what ran it:
+        // A helper's last reply is for its agent to read (unless you're talking to it), a
+        // headless run's for what ran it, and an orchestrator's is its digest of what others want
+        // of you, which wait on you on their own (board.rs `apply_orchestrator`):
         // what it asks isn't asked of you, and a script's hundreds of runs would each be a read. A
         // turn its harness ended (the connection lost, a usage limit, cut off) has an error for a
         // reply, which Jev would take for the agent being blocked.
-        if (recent && now - s.last_activity > RECENT_MS) || s.helps_an_agent() || s.headless || s.connection_lost.is_some() || s.cut_off.is_some() || s.limit.is_some() {
+        if (recent && now - s.last_activity > RECENT_MS) || s.helps_an_agent() || s.headless || s.orchestrator.is_some() || s.connection_lost.is_some() || s.cut_off.is_some() || s.limit.is_some() {
             return None;
         }
         // The same reply to another prompt is another moment: finished is asked about the prompt.
@@ -628,6 +629,10 @@ mod tests {
         let headless = |status| Session { headless: true, ..session(status) };
         assert_eq!(ask(&headless(Status::Unread), NOW), None);
         assert_eq!(ask(&headless(Status::Needs), NOW).map(|a| a.0), Some(Kind::Approval));
+        // And an orchestrator's: its reply is its digest of what others want of you.
+        let orchestrator = |status| Session { orchestrator: Some(crate::model::Orchestrator { schedule: "orch".into(), ..Default::default() }), ..session(status) };
+        assert_eq!(ask(&orchestrator(Status::Unread), NOW), None);
+        assert_eq!(ask(&orchestrator(Status::Needs), NOW).map(|a| a.0), Some(Kind::Approval));
         // A turn its harness ended has an error for a reply, which would read as blocked.
         let mut lost = session(Status::Unread);
         lost.connection_lost = Some(crate::model::ConnectionLost { at: NOW - 1000, continues: false });

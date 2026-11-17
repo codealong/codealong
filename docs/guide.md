@@ -4706,8 +4706,10 @@ What it does is the codealong skill's `references/orchestrate.md`.
 
 Its session leads the Sessions of what it keeps watch over, above the pinned ones, under
 Orchestrator: under a project, that project's; under All projects, every one that runs. It's quiet:
-a turn it ends waits on you only when it asks you something, and is otherwise idle with its first
-line as its headline. Its header says so over its title (Orchestrator for, and when it last looked,
+its replies are digests of what other sessions want of you, which wait on you on their own, so no
+reply of its makes it wait on you (Jev doesn't read them); it waits on you only for what its
+harness holds it on, a question it asks with its question tool or a call to allow. A turn it ends is
+idle, with its first line as its headline. Its header says so over its title (Orchestrator for, and when it last looked,
 or off), a click away from its schedule. Its menu has Look now, Start afresh (its session is marked
 done, and a new one takes over now from its notes) and, in Mark as done's place and with its key
 (⇧⌘E), Turn off orchestrator, which pauses its schedule and marks its session done, so it leaves

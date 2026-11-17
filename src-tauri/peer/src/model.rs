@@ -579,6 +579,9 @@ pub struct Orchestrator {
     /// It's paused: it keeps watch over nothing until it's resumed.
     #[serde(skip_serializing_if = "std::ops::Not::not")]
     pub paused: bool,
+    /// When it last looked: its latest run that went to its session. None before its first.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub looked_at: Option<i64>,
 }
 
 /// What a helper session works for: the session whose agent started it, or the PR it reviews.

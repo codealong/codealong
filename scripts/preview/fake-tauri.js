@@ -444,7 +444,7 @@ function withExperiments(board) {
     var project = orch.project === '$first' ? ((out.projects || [])[0] || {}).name : orch.project || undefined;
     var id = 'orch-' + (project || 'all');
     if (latest && !orch.off) {
-      latest.orchestrator = { schedule: id, project: project };
+      latest.orchestrator = { schedule: id, project: project, lookedAt: Date.now() - 4 * 60e3 };
       latest.title = project ? project + ' orchestrator' : 'Orchestrator';
       latest.quiet = true;
     }

@@ -161,6 +161,13 @@ describe('sessionMenu', () => {
     const picked = sessionsActions([{ lane: lane(), session: o }, other], { report });
     expect(picked.takes.done).toBe(1);
     expect(picked.takes.archive).toBe(1);
+    // Turning it off leaves the window's list, as Mark as done does.
+    const left = vi.fn();
+    sessionActions(lane(), o, { ...base, left }).done?.run();
+    expect(left).toHaveBeenCalledWith('done');
+    // Another machine's is turned off there: nothing here acts on it.
+    const theirs = sessionActions(lane({ device: { short: 'mini', name: 'Mini' } as Lane['device'] }), o, base);
+    expect(theirs.done ?? theirs.look ?? theirs.fresh ?? theirs.archive).toBeUndefined();
     // Any other session keeps all of them.
     const plain = sessionActions(lane(), session(), { ...base, pin: { label: 'Pin', run: noop } });
     expect(plain.done?.label).toBe('Mark as done');

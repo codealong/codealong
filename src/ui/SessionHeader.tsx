@@ -110,7 +110,7 @@ export interface SessionHeaderProps {
   lineage?: Lineage;
   /** The schedule it came from (schedules.ts `scheduleBySession`), said over the title where
    *  nothing else is; `onShowSchedule` shows it in the Schedules view. */
-  schedule?: { id: string; name: string; lastAt?: number } | null;
+  schedule?: { id: string; name: string } | null;
   onShowSchedule?: (id: string) => void;
   onShowSession?: (lane: Lane, session: Session) => void;
   onSessionMenu?: (lane: Lane, session: Session) => void;
@@ -387,9 +387,9 @@ function SideKinRow({ sessionKey, side: g, now }: { sessionKey: string; side: Si
  *  helper's session names the one it works for (`KinRow`): a click opens the PR on GitHub. */
 /** Over the title of an orchestrator's session (`Session.orchestrator`): what it keeps watch
  *  over, and when it last looked, or that it's off; a click shows its schedule. */
-function OrchestratorOf({ o, lastAt, now, onShow }: { o: NonNullable<Session['orchestrator']>; lastAt?: number; now: number; onShow?: (id: string) => void }) {
+function OrchestratorOf({ o, now, onShow }: { o: NonNullable<Session['orchestrator']>; now: number; onShow?: (id: string) => void }) {
   const words = scopeWords(o.project);
-  const when = o.paused ? 'off' : lastAt ? `looked ${agoPhrase(lastAt, now)}` : null;
+  const when = o.paused ? 'off' : o.lookedAt ? `looked ${agoPhrase(o.lookedAt, now)}` : null;
   return (
     <button
       type="button"
@@ -570,7 +570,7 @@ export function SessionHeader({ lane, session: s, apps, now, onOpen, onShowLane,
       {back && <PanelBack back={back} />}
       {lineage?.from && <KinRow kin={lineage.from} now={now} parent onShow={onShowSession} onMenu={onSessionMenu} />}
       {!lineage?.from && s.helper?.pr && <ReviewOf pr={s.helper.pr} yours={!!s.helper.yours} prs={prs} onOpenPr={onOpenPr} />}
-      {s.orchestrator && <OrchestratorOf o={s.orchestrator} lastAt={schedule?.lastAt} now={now} onShow={onShowSchedule} />}
+      {s.orchestrator && <OrchestratorOf o={s.orchestrator} now={now} onShow={onShowSchedule} />}
       {!s.orchestrator && !lineage?.from && !s.helper?.pr && schedule && <FromSchedule schedule={schedule} onShow={onShowSchedule} />}
       <div className="ca-sessinsp-top">
         <SessionGlyph s={s} size={14} />

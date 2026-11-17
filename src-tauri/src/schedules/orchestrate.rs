@@ -349,12 +349,14 @@ fn shared(lane: &Lane, now: i64) -> Option<Found> {
 }
 
 /// Marks each orchestrator's session as its own (`Session::orchestrator`): the one it keeps going,
-/// as its next run finds it.
+/// as its next run finds it, with when it last looked (its latest run that went to a session), which
+/// every window and device then says without the schedules.
 pub fn mark(lanes: &mut [Lane], items: &[Item]) {
     for i in items {
         let (Some(scope), Some(key)) = (&i.schedule.orchestrates, &i.thread) else { continue };
+        let looked_at = i.runs.iter().filter(|r| matches!(r.outcome, Outcome::Started | Outcome::Sent | Outcome::Resumed | Outcome::Queued)).map(|r| r.at).max();
         for s in lanes.iter_mut().flat_map(|l| l.sessions.iter_mut()).filter(|s| &s.key == key) {
-            s.orchestrator = Some(crate::model::Orchestrator { schedule: i.schedule.id.clone(), project: scope.project.clone(), paused: i.schedule.paused });
+            crate::board::apply_orchestrator(s, crate::model::Orchestrator { schedule: i.schedule.id.clone(), project: scope.project.clone(), paused: i.schedule.paused, looked_at });
         }
     }
 }
@@ -429,7 +431,7 @@ mod tests {
     fn leaves_out_what_isnt_its_to_watch() {
         let file = File { schedules: vec![orch("web", Some("Web")), orch("all", None)], ..File::default() };
         let mut own = session("own", Status::Needs, NOW);
-        own.orchestrator = Some(crate::model::Orchestrator { schedule: "web".into(), project: Some("Web".into()), paused: false });
+        own.orchestrator = Some(crate::model::Orchestrator { schedule: "web".into(), project: Some("Web".into()), ..Default::default() });
         let mut snoozed = session("snoozed", Status::Needs, NOW);
         snoozed.snoozed_until = Some(NOW + 1000);
         let mut headless = session("headless", Status::Unread, 0);
@@ -489,10 +491,13 @@ mod tests {
     #[test]
     fn its_session_is_marked_as_its_own() {
         let s = orch("web", Some("Web"));
-        let item = Item { schedule: s, thread: Some("claude:claude:t".into()), ..Item::default() };
+        let ran = |at: i64, outcome: Outcome| RunRecord { at, outcome, ..RunRecord::default() };
+        let item = Item { schedule: s, thread: Some("claude:claude:t".into()), runs: vec![ran(30, Outcome::Skipped), ran(20, Outcome::Sent), ran(10, Outcome::Started)], ..Item::default() };
         let mut lanes = vec![lane("Web", "/w", vec![session("t", Status::Idle, 0), session("u", Status::Idle, 0)])];
         mark(&mut lanes, &[item]);
         assert_eq!(lanes[0].sessions[0].orchestrator.as_ref().map(|o| o.schedule.as_str()), Some("web"));
+        // When it last looked: a run that went to its session, not one skipped since.
+        assert_eq!(lanes[0].sessions[0].orchestrator.as_ref().and_then(|o| o.looked_at), Some(20));
         assert!(lanes[0].sessions[1].orchestrator.is_none());
     }
 

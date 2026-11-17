@@ -2834,6 +2834,8 @@ export interface Orchestrator {
   project?: string;
   /** Paused: it keeps watch over nothing until it's resumed. */
   paused?: boolean;
+  /** When it last looked: its latest run that went to its session. Missing before its first. */
+  lookedAt?: number;
 }
 
 export interface Helper {

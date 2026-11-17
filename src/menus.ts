@@ -474,8 +474,11 @@ export function sessionActions(lane: Lane, s: Session, can: SessionCan): Session
   };
   const merges = can.mergeDone && mergesWith(can.mergeDone.prs, s);
   const aside = asideable(s) ? { label: 'Set aside until its side conversation answers', run: () => settle('set aside')(asideAhead([s.key])) } : undefined;
-  // An orchestrator's own (orchestrators.ts), asked of the Mac it runs on, as its schedule is.
-  const orchestrating = s.visitor ? {} : orchestratorActions(s, report);
+  // An orchestrator's own (orchestrators.ts), on the Mac it runs on, where its schedule is: another
+  // machine's is turned off there, and isn't marked done or archived from here either, which would
+  // only have its next look start another.
+  const orchestrating = s.visitor || lane.device ? {} : orchestratorActions(s, report);
+  const turnOff = orchestrating.turnOff && { ...orchestrating.turnOff, run: () => (can.left?.('done'), orchestrating.turnOff?.run()) };
   const askAside = (ask: (seen: boolean) => Promise<boolean>) => {
     if (aside) return void ask(false).then((asked) => asked && aside.run());
     if (!seenable(s)) return void ask(false);
@@ -572,9 +575,9 @@ export function sessionActions(lane: Lane, s: Session, can: SessionCan): Session
     // with already.
     // An orchestrator's is turned off instead (orchestrators.ts `orchestratorActions`), and isn't
     // archived by hand: either would only have its next look start another.
-    done: s.archived ? undefined : (orchestrating.turnOff ?? { label: 'Mark as done', run: done }),
+    done: s.archived || (s.orchestrator && lane.device) ? undefined : (turnOff ?? { label: 'Mark as done', run: done }),
     mergeDone: merges ? { label: `Merge #${merges.number} and done…`, run: () => void askMerge(merges) } : undefined,
-    archive: orchestrating.turnOff ? undefined : { label: s.archived ? 'Unarchive' : s.harness === 'codex' ? 'Archive in Codex' : 'Archive', run: () => archive(!s.archived) },
+    archive: s.orchestrator && !s.archived ? undefined : { label: s.archived ? 'Unarchive' : s.harness === 'codex' ? 'Archive in Codex' : 'Archive', run: () => archive(!s.archived) },
     copyId: copyItem('Copy session ID', s.id, 'session ID', report) as MenuAction,
     copyResume: copyItem('Copy resume command', s.resumeCommand, 'resume command', report),
     look: orchestrating.look,

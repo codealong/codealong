@@ -125,6 +125,7 @@ export type Helper = Holds<Same<
 >>;
 
 export type Orchestrator = Holds<Same<
+  | "lookedAt"
   | "paused"
   | "project"
   | "schedule",

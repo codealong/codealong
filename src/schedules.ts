@@ -125,20 +125,18 @@ export function asksRunsOn(devices: DevicesView | null, runsOn: ScheduleRunsOn |
 
 /** The schedule each session came from, by its key: the session a run started or sent to, and
  *  the session a schedule keeps going. The latest run's schedule wins a session two ran. */
-export function scheduleBySession(items: ScheduleItem[] | undefined): Map<string, { id: string; name: string; lastAt?: number }> {
-  const out = new Map<string, { id: string; name: string; at: number; lastAt?: number }>();
+export function scheduleBySession(items: ScheduleItem[] | undefined): Map<string, { id: string; name: string }> {
+  const out = new Map<string, { id: string; name: string; at: number }>();
   for (const s of items ?? []) {
-    // When it last went to a session, which an orchestrator's header says as when it last looked.
-    const lastAt = s.runs.filter((r) => r.outcome === 'started' || r.outcome === 'sent' || r.outcome === 'resumed' || r.outcome === 'queued').reduce<number | undefined>((m, r) => (m == null || r.at > m ? r.at : m), undefined);
     const note = (key: string | undefined, at: number) => {
       if (!key) return;
       const had = out.get(key);
-      if (!had || had.at < at) out.set(key, { id: s.id, name: s.name, at, lastAt });
+      if (!had || had.at < at) out.set(key, { id: s.id, name: s.name, at });
     };
     for (const r of s.runs) if (r.outcome === 'started' || r.outcome === 'resumed') note(r.session, r.at);
     note(s.thread, 0);
   }
-  return new Map([...out].map(([k, { id, name, lastAt }]) => [k, lastAt == null ? { id, name } : { id, name, lastAt }]));
+  return new Map([...out].map(([k, { id, name }]) => [k, { id, name }]));
 }
 
 /** A new schedule, as the dialog starts one: weekdays at 9, a new session each time, in the

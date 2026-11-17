@@ -92,9 +92,11 @@ Codealong starts orchestrators itself, so you don't schedule a loop of your own:
 5. Look for overlaps among what changed (*Overlaps*).
 6. Update your notes where something changed (*The notes*).
 7. Note what in Codealong got in this tick's way (*Improving Codealong*).
-8. Reply (*Replying*). When the reply only reports, with nothing for your user to decide, end
-   with `codealong session seen me --note "<what it came to>"`: your session is quiet, and only
-   a reply that asks them something waits on them.
+8. Reply (*Replying*), then end with `codealong session seen me --note "<what it came to>"`.
+   Your reply never waits on your user, whatever it says: what waits on them already does, on
+   its own. When you need them to decide something, ask with your harness's question tool
+   (Claude Code's AskUserQuestion), which Codealong shows them to answer; that's the only way
+   your session waits on them.
 
 ## Reading, tagging and suggesting
 
@@ -296,10 +298,12 @@ for:
 The first line of your reply is what Codealong shows for this session: make it the headline.
 
 - Nothing that needs your user: "No coordination changes."
-- Otherwise a few lines, the most urgent first: sessions newly waiting on them (say suggestions
-  are ready), overlaps and duplicates, what your user's schedules started or found that needs
-  them, notable merges, approvals and reviews, and Codealong improvements you noticed or started
-  sessions for.
+- Otherwise a few lines, the most urgent first, of what's new since your last run: sessions
+  newly waiting on them (say suggestions are ready), overlaps and duplicates, what your user's
+  schedules started or found that needs them, notable merges, approvals and reviews, and
+  Codealong improvements you noticed or started sessions for. Don't list again what already
+  waited on them last time: those sessions are in Needs you on their own, so a reminder is only
+  noise. A count is enough ("3 still wait on you").
 - Name sessions by their title, each as a link to it (`[title](codealong://session/<key>)`, which
   Codealong draws as the session and shows on a click), and say what each needs; give a bare key
   only where they'd need it.
