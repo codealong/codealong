@@ -113,6 +113,8 @@
       var want = Math.min(needs(), 560);
       note('its words want ' + needs() + 'px; it has ' + (t.right - t.left) + 'px, and ' + tight() + ' of ' + chips() + ' chips show only a number');
       check('the chips step down to give it the room its words need, up to its limit', t.right - t.left >= want - 1 || tight() === chips(), JSON.stringify({ toast: t.right - t.left, wants: want, tight: tight(), chips: chips() }));
+      var row = document.querySelector('.ca-usagebar-accts');
+      check('and to fit beside it, none cut off while they can show less', row.scrollWidth <= row.clientWidth + 1 || tight() === chips(), JSON.stringify({ scroll: row.scrollWidth, room: row.clientWidth, tight: tight(), chips: chips() }));
       hover(true);
       return wait(9000);
     })
