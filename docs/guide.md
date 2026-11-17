@@ -4707,11 +4707,14 @@ What it does is the codealong skill's `references/orchestrate.md`.
 Its session leads the Sessions of what it keeps watch over, above the pinned ones, under
 Orchestrator: under a project, that project's; under All projects, every one that runs. It's quiet:
 a turn it ends waits on you only when it asks you something, and is otherwise idle with its first
-line as its headline. Its menu has Look now, Start afresh (its session is marked done, and a new one
-takes over now from its notes) and Turn off orchestrator, which pauses its schedule and marks its
-session done, so it leaves Sessions; its notes are kept for when it's started again, and what it
-kept watch over goes to All projects' orchestrator meanwhile. `codealong orchestrator
-list|stop|look|fresh` do the same.
+line as its headline. Its header says so over its title (Orchestrator for, and when it last looked,
+or off), a click away from its schedule. Its menu has Look now, Start afresh (its session is marked
+done, and a new one takes over now from its notes) and, in Mark as done's place and with its key
+(⇧⌘E), Turn off orchestrator, which pauses its schedule and marks its session done, so it leaves
+Sessions; its notes are kept for when it's started again, and what it kept watch over goes to All
+projects' orchestrator meanwhile. It has no Pin, Snooze or Archive: it leads the list and is quiet
+already, and an archived session would only have its next look start another. `codealong
+orchestrator list|stop|look|fresh` do the same.
 
 It never messages or starts a session for you unless you let it (`--may-send`, `--may-start`, or
 May message sessions and May start sessions in its schedule): Codealong turns down what it asks for

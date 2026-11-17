@@ -1,7 +1,8 @@
 // Checks an orchestrator's session in Sessions (orchestrators.ts): it leads the list in a section
 // of its own, is listed once, never among the rest, and the bar offers no compass while it runs;
-// its menu looks now, starts it afresh and turns it off, which pauses its schedule (its scheduler
-// then marks its session done: runner.rs `Job::Retire`).
+// selected, its header says it's the orchestrator for its project; its menu looks now, starts it
+// afresh and turns it off in Mark as done's place, which pauses its schedule (its scheduler then
+// marks its session done: runner.rs `Job::Retire`), with no pin, snooze or archive.
 //   scripts/preview.sh sessions '' scripts/preview/orchestrator-check.js
 (function () {
   // The first project's, which the view shows.
@@ -18,18 +19,26 @@
       var rows = all('[id^="row-"]').filter(function (r) { return keyOf(r) === key; });
       check('it is listed once', rows.length === 1, rows.length + ' rows');
       check('the bar offers no compass while it runs', !q('.ca-listbar-start'));
-      rightClick(row);
-      return wait(100).then(function () { return { row: row, key: key }; });
+      row.click();
+      return until(function () { return q('.ca-sessinsp-kin.is-orchestrator'); }, 5000, 'its header’s orchestrator line').then(function (line) { return { row: row, key: key, line: line }; });
+    })
+    .then(function (it) {
+      check('its header says it’s the orchestrator for its project', /^Orchestrator for\s*\S/.test(it.line.textContent.trim()), it.line.textContent);
+      check('and not that it came from a schedule', !q('.ca-sessinsp-head') || q('.ca-sessinsp-head').textContent.indexOf('From the schedule') < 0);
+      rightClick(it.row);
+      return wait(100).then(function () { return it; });
     })
     .then(function (it) {
       var labels = menuLabels();
       ['Look now', 'Start afresh', 'Turn off orchestrator'].forEach(function (l) { check('its menu has ' + l, labels.indexOf(l) >= 0, labels.join(' | ')); });
+      ['Mark as done', 'Archive', 'Pin', 'Snooze ›'].forEach(function (l) { check('its menu has no ' + l, labels.indexOf(l) < 0, labels.join(' | ')); });
       menuItem('Turn off orchestrator')();
       return until(function () { return calls('schedule_op').length > 0; }, 5000, 'its schedule changed').then(function () { return it; });
     })
     .then(function () {
       var ops = sent('schedule_op').map(function (a) { return a.op; });
       check('turning it off pauses its schedule', ops.some(function (o) { return o.op === 'pause' && /^orch-/.test(o.id) && o.paused === true; }), JSON.stringify(ops));
+      check('and doesn’t mark it done itself', sent('session_done').length === 0, JSON.stringify(sent('session_done')));
       rightClick(q('.ca-orchestrators [id^="row-"]'));
       return wait(100);
     })

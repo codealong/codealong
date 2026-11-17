@@ -86,9 +86,11 @@ describe('schedules', () => {
     const a = item({ id: 's-a', name: 'A', runs: [{ at: 10, why: '9:00', outcome: 'started', said: '', session: 'k1' }, { at: 5, why: '9:00', outcome: 'skipped', said: '', session: 'k2' }] });
     const b = item({ id: 's-b', name: 'B', thread: 'k3', runs: [{ at: 20, why: '9:00', outcome: 'started', said: '', session: 'k1' }] });
     const by = scheduleBySession([a, b]);
-    expect(by.get('k1')).toEqual({ id: 's-b', name: 'B' });
+    // With when it last went to a session, which an orchestrator's header says.
+    expect(by.get('k1')).toEqual({ id: 's-b', name: 'B', lastAt: 20 });
     expect(by.has('k2')).toBe(false);
-    expect(by.get('k3')).toEqual({ id: 's-b', name: 'B' });
+    expect(by.get('k3')).toEqual({ id: 's-b', name: 'B', lastAt: 20 });
+    expect(scheduleBySession([item({ id: 's-c', name: 'C', thread: 'k4' })]).get('k4')).toEqual({ id: 's-c', name: 'C' });
   });
 
   it('saves only what a schedule is', () => {

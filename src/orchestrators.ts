@@ -80,7 +80,9 @@ export function startOrchestrator(project: string | null, account = ''): Promise
 }
 
 /** What a session's menu offers for the orchestrator it's the session of: look now, start its
- *  session afresh, and turn it off. None for any other session. */
+ *  session afresh, and turn it off, which stands for Mark as done on it (menus.ts `done`, ⇧⌘E):
+ *  marking its session done or archiving it would only have its next look start another, and an
+ *  orchestrator is turned off on purpose. None for any other session. */
 export function orchestratorActions(s: Session, report: Report): { look?: MenuAction; fresh?: MenuAction; turnOff?: MenuAction } {
   const o = s.orchestrator;
   if (!o || s.archived) return {};

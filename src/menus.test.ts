@@ -146,6 +146,27 @@ describe('sessionMenu', () => {
     expect(main).toEqual(expect.arrayContaining(['Add to todo ›', 'Add to board ›', 'Pin session', 'Remove from desktop']));
   });
 
+  it('turns an orchestrator off in Mark as done’s place, and offers no pin, snooze or archive for its session', () => {
+    const o = session({ orchestrator: { schedule: 'orch-web', project: 'Web' } });
+    const acts = sessionActions(lane(), o, { ...base, pin: { label: 'Pin', run: noop } });
+    expect(acts.done?.label).toBe('Turn off orchestrator');
+    expect(acts.look?.label).toBe('Look now');
+    expect(acts.fresh?.label).toBe('Start afresh');
+    expect(acts.pin).toBeUndefined();
+    expect(acts.snooze).toBeUndefined();
+    expect(acts.archive).toBeUndefined();
+    expect(doneTitle(o)).toMatch(/^Turn off the orchestrator/);
+    // Picked with others, it's left to its own menu: neither marked done nor archived with them.
+    const other = { lane: lane(), session: session({ key: 'claude:c:2', id: 'c2' }) };
+    const picked = sessionsActions([{ lane: lane(), session: o }, other], { report });
+    expect(picked.takes.done).toBe(1);
+    expect(picked.takes.archive).toBe(1);
+    // Any other session keeps all of them.
+    const plain = sessionActions(lane(), session(), { ...base, pin: { label: 'Pin', run: noop } });
+    expect(plain.done?.label).toBe('Mark as done');
+    expect(plain.pin && plain.snooze && plain.archive).toBeTruthy();
+  });
+
   it('offers what the session allows', () => {
     const has = (s: Session, label: string, can: Partial<SessionCan> = {}) => labels(sessionMenu(lane(), s, { ...base, ...can })).includes(label);
     expect(has(session({ status: 'idle' }), 'Mark as seen')).toBe(false);

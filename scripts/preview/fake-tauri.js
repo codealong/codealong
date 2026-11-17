@@ -452,7 +452,9 @@ function withExperiments(board) {
       id: id, name: project ? project + ' orchestrator' : 'Orchestrator', paused: !!orch.off, when: { kind: 'event', event: 'changes', repo: '', label: '', mine: false },
       onlyIf: '', run: { to: 'thread', session: '', folder: '', worktree: false, account: '', prompt: 'Run a tick.', freshAfter: '1d' },
       quiet: true, overlap: 'skip', catchUp: 'skip', notes: true, createdAt: 0, updatedAt: 0, orchestrates: { project: project },
-      whenWords: project ? 'When something in ' + project + ' needs a look' : 'When something needs a look', thread: latest && !orch.off ? latest.key : undefined, runs: [], asked: 0,
+      whenWords: project ? 'When something in ' + project + ' needs a look' : 'When something needs a look', thread: latest && !orch.off ? latest.key : undefined, asked: 0,
+      // Its last look, four minutes ago, as its header says it.
+      runs: latest && !orch.off ? [{ at: Date.now() - 4 * 60e3, why: 'A session waits on you', outcome: 'sent', said: 'Sent.', session: latest.key }] : [],
     }]);
   }
   // The meeting on offer (meetings.rs `Offer`), and the one counted down to before its offer

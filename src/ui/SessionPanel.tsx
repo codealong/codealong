@@ -346,7 +346,7 @@ export function QueueStrip({ queue, notice, hotkeys, session, actions, onSeen, b
             : 'Mark as seen: it goes idle and leaves what waits on you',
       run: seen && (() => seen()),
     },
-    { label: 'Done', chord: CHORDS.done, title: done && session ? doneTitle(session) : 'It’s archived already', run: done && (() => done.run()) },
+    { label: session?.orchestrator ? 'Turn off' : 'Done', chord: CHORDS.done, title: done && session ? doneTitle(session) : 'It’s archived already', run: done && (() => done.run()) },
     { label: 'Snooze', keys: snoozeRange(), title: snooze ? `Snooze: it waits apart until its time comes. ${snoozeKeys(snooze)}` : 'It can’t be snoozed', menu: snooze?.items },
     // Short, as Done beside it is, so more of the strip shows before any goes into ⋯.
     { label: close?.label === 'End background job' ? 'End job' : 'Close', chord: CHORDS.close, title: close ? `${close.label}: the conversation stays, to go on with later` : 'It has no terminal of its own to close', run: close && (() => close.run()) },

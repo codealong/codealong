@@ -235,11 +235,10 @@ export function mergesWith(prs: readonly PrItem[], s: Pick<Session, 'key' | 'arc
  *  action is missing when the window can't do it or the session doesn't allow it, so the rule for
  *  when each applies is here and nowhere else. */
 export interface SessionActions {
-  /** For an orchestrator's session (orchestrators.ts `orchestratorActions`): it looks now, its
-   *  session starts afresh from its notes, or it's turned off. */
+  /** For an orchestrator's session (orchestrators.ts `orchestratorActions`): it looks now, or its
+   *  session starts afresh from its notes. Turning it off is its `done`. */
   look?: MenuAction;
   fresh?: MenuAction;
-  turnOff?: MenuAction;
   /** Where it lives: missing for one on another device, which opens on its own Mac. */
   open?: MenuAction;
   /** A session on this Mac that isn't running: each place its account's sessions go on in, on
@@ -325,7 +324,8 @@ export interface SessionActions {
    *  The window's dialog asks first and merges it, and then the engine marks it done as Mark as
    *  done does, work under way ended too, since the dialog said it would be. */
   mergeDone?: MenuAction;
-  archive: MenuAction;
+  /** None for an orchestrator's session, which is turned off instead (`done`). */
+  archive?: MenuAction;
   copyId: MenuAction;
   copyResume?: MenuAction;
 }
@@ -474,6 +474,8 @@ export function sessionActions(lane: Lane, s: Session, can: SessionCan): Session
   };
   const merges = can.mergeDone && mergesWith(can.mergeDone.prs, s);
   const aside = asideable(s) ? { label: 'Set aside until its side conversation answers', run: () => settle('set aside')(asideAhead([s.key])) } : undefined;
+  // An orchestrator's own (orchestrators.ts), asked of the Mac it runs on, as its schedule is.
+  const orchestrating = s.visitor ? {} : orchestratorActions(s, report);
   const askAside = (ask: (seen: boolean) => Promise<boolean>) => {
     if (aside) return void ask(false).then((asked) => asked && aside.run());
     if (!seenable(s)) return void ask(false);
@@ -526,14 +528,16 @@ export function sessionActions(lane: Lane, s: Session, can: SessionCan): Session
     askAside,
     // It joins what waits on you rather than leaving it, so a window working through that stays.
     unread: unreadable(s) ? { label: 'Mark as unread', run: () => void unreadAhead([s.key]).catch((e: unknown) => report.error(errorText(e))) } : undefined,
-    pin: s.archived ? undefined : can.pin,
+    // An orchestrator's session leads Sessions on its own, and is quiet unless it asks you
+    // something: pinning or snoozing it would change nothing.
+    pin: s.archived || s.orchestrator ? undefined : can.pin,
     desktop: !s.archived && can.desktop ? desktopItem('session', s.key, can.desktop, report) : undefined,
     // Kept on the Mac it runs on, so it's first on every device. It joins the top of what waits
     // on you rather than leaving it, so a window working through that stays.
     raise: s.archived ? undefined : { label: s.raised ? 'Back in line' : 'Move to top', run: () => void raiseAhead([s.key], !s.raised).catch((e: unknown) => report.error(errorText(e))) },
     // On the Mac it runs on, which keeps it, so it's snoozed on every device. The time its limit
     // lifts, or its last reply says the work goes on, is offered first.
-    snooze: s.archived ? undefined : snoozeMenu([s.key], Date.now(), { until: s.snoozedUntil, suggested: suggestedSnooze(s, Date.now()), onDone: settle('snoozed'), chords: !!can.keys }),
+    snooze: s.archived || s.orchestrator ? undefined : snoozeMenu([s.key], Date.now(), { until: s.snoozedUntil, suggested: suggestedSnooze(s, Date.now()), onDone: settle('snoozed'), chords: !!can.keys }),
     // Kept on the Mac it runs on too. Quieted, a turn that ended leaves what waits on you, and a
     // window working through that goes on; one that needs you stays.
     quiet: s.archived
@@ -566,18 +570,22 @@ export function sessionActions(lane: Lane, s: Session, can: SessionCan): Session
     // On any Mac: one that won't close it (it has remote control off, or an older Codealong)
     // still marks it seen and archives it (actions.rs `done_anyway`). An archived one is done
     // with already.
-    done: !s.archived ? { label: 'Mark as done', run: done } : undefined,
+    // An orchestrator's is turned off instead (orchestrators.ts `orchestratorActions`), and isn't
+    // archived by hand: either would only have its next look start another.
+    done: s.archived ? undefined : (orchestrating.turnOff ?? { label: 'Mark as done', run: done }),
     mergeDone: merges ? { label: `Merge #${merges.number} and done…`, run: () => void askMerge(merges) } : undefined,
-    archive: { label: s.archived ? 'Unarchive' : s.harness === 'codex' ? 'Archive in Codex' : 'Archive', run: () => archive(!s.archived) },
+    archive: orchestrating.turnOff ? undefined : { label: s.archived ? 'Unarchive' : s.harness === 'codex' ? 'Archive in Codex' : 'Archive', run: () => archive(!s.archived) },
     copyId: copyItem('Copy session ID', s.id, 'session ID', report) as MenuAction,
     copyResume: copyItem('Copy resume command', s.resumeCommand, 'resume command', report),
-    // Asked of the Mac the orchestrator runs on, as its schedule is.
-    ...(s.visitor ? {} : orchestratorActions(s, report)),
+    look: orchestrating.look,
+    fresh: orchestrating.fresh,
   };
 }
 
-/** What Mark as done does to `s`, for the tooltip of a button that runs it. */
+/** What Mark as done does to `s`, for the tooltip of a button that runs it: for an orchestrator's
+ *  session, turning the orchestrator off. */
 export function doneTitle(s: Session): string {
+  if (s.orchestrator) return 'Turn off the orchestrator: it stops keeping watch, and its session is marked done. Its notes are kept for when it’s started again.';
   return `Mark as done: ${whatDoneDoes(s)}`;
 }
 
@@ -678,8 +686,9 @@ export function folderMoves(from: Lane, worktrees: Lane[], run: (to: Lane) => vo
  *  copying it. */
 const SESSION_MENU = [
   ['heading'],
-  // An orchestrator's own (orchestrators.ts): first, since they're what its session is for.
-  ['look', 'fresh', 'turnOff'],
+  // An orchestrator's own (orchestrators.ts): first, since they're what its session is for. Its
+  // Turn off is in Mark as done's place, with its key.
+  ['look', 'fresh'],
   ['open', 'resume', 'folder', 'ownTerminal', 'pr', 'chrome', 'reveal', 'window', 'reply', 'newSession', 'fork', 'move', 'moveFolder'],
   ['todos', 'boards', 'labels'],
   ['stop', 'listen', 'rename', 'seen', 'unread', 'pin', 'desktop', 'raise', 'snooze', 'quiet', 'own', 'close', 'done', 'mergeDone', 'archive'],
@@ -788,14 +797,17 @@ export function sessionsActions(picked: { lane: Lane; session: Session }[], can:
   const those = (name: keyof SessionActions) => own.filter((x) => x.a[name]).map((x) => x.s);
   const keysOf = (list: Session[]) => list.map((s) => s.key);
   const all = own.map((x) => x.s);
-  const [stop, seen, unread, raise, snooze, quiet, close, done] = (['stop', 'seen', 'unread', 'raise', 'snooze', 'quiet', 'close', 'done'] as const).map(those);
+  const [stop, seen, unread, raise, snooze, quiet, close, doneOrOff] = (['stop', 'seen', 'unread', 'raise', 'snooze', 'quiet', 'close', 'done'] as const).map(those);
+  // An orchestrator's session picked with others is turned off from its own menu alone, never
+  // marked done with them.
+  const done = doneOrOff.filter((s) => !s.orchestrator);
   const allQuiet = quiet.length > 0 && quiet.every((s) => s.quiet);
   const allRaised = raise.length > 0 && raise.every((s) => s.raised);
   const carryOn = all.flatMap((s) => {
     const to = carriesOnIn(s);
     return to ? [{ s, to }] : [];
   });
-  const toArchive = all.filter((s) => !s.archived);
+  const toArchive = all.filter((s) => !s.archived && !s.orchestrator);
   const archive = can.archive ?? ((keys: string[], archived: boolean) => void Promise.all(keys.map((k) => archiveAhead(k, archived))).catch((e: unknown) => report.error(errorText(e))));
   const say = (said: { words: string; wrong: boolean }) => said.words && (said.wrong ? report.error(said.words) : report.info(said.words));
   // Work under way holds those it's in, as it holds one: the rest are done, and Mark as done

@@ -48,6 +48,7 @@ import { MOVES_ACCOUNTS, sessionName, sessionPlace } from '../harness';
 import { apiErrorWords, cutOffWords, endedOnApiError, limitWords, raisedBy, seenable, setAside, sideTitle } from '../lanes';
 import { cameLines, cameLineWords, cameWord, originWord, startingTitle, type CameLine, type Kin, type Lineage } from '../lineage';
 import { CHORDS, chordKeys, chordSigns, type SessionActions } from '../menus';
+import { scopeWords } from '../orchestrators';
 import { showSide } from '../side';
 import { SUGGESTED_CHORD, suggestedIn, suggestedSnooze, untilWords } from '../snooze';
 import { answerStart, openTarget, sessionTokens, stopStart } from '../api';
@@ -109,7 +110,7 @@ export interface SessionHeaderProps {
   lineage?: Lineage;
   /** The schedule it came from (schedules.ts `scheduleBySession`), said over the title where
    *  nothing else is; `onShowSchedule` shows it in the Schedules view. */
-  schedule?: { id: string; name: string } | null;
+  schedule?: { id: string; name: string; lastAt?: number } | null;
   onShowSchedule?: (id: string) => void;
   onShowSession?: (lane: Lane, session: Session) => void;
   onSessionMenu?: (lane: Lane, session: Session) => void;
@@ -384,6 +385,27 @@ function SideKinRow({ sessionKey, side: g, now }: { sessionKey: string; side: Si
 
 /** The PR an automatic review's session reviews (`Session.helper`), over its title where a
  *  helper's session names the one it works for (`KinRow`): a click opens the PR on GitHub. */
+/** Over the title of an orchestrator's session (`Session.orchestrator`): what it keeps watch
+ *  over, and when it last looked, or that it's off; a click shows its schedule. */
+function OrchestratorOf({ o, lastAt, now, onShow }: { o: NonNullable<Session['orchestrator']>; lastAt?: number; now: number; onShow?: (id: string) => void }) {
+  const words = scopeWords(o.project);
+  const when = o.paused ? 'off' : lastAt ? `looked ${agoPhrase(lastAt, now)}` : null;
+  return (
+    <button
+      type="button"
+      className="ca-sessinsp-kin is-parent is-orchestrator"
+      title={`The orchestrator for ${words}: it keeps watch over ${o.project ? `${o.project}’s` : 'your projects’'} sessions for you and looks whenever something needs a look.${onShow ? ' Click to show its schedule.' : ''}`}
+      disabled={!onShow}
+      onClick={() => onShow?.(o.schedule)}
+    >
+      <span className="ca-sessinsp-kin-phrase">Orchestrator for</span>
+      <Icon name="compass" size={11} />
+      <span className="ca-sessinsp-kin-title">{words}</span>
+      {when && <span className="ca-sessinsp-kin-age">{when}</span>}
+    </button>
+  );
+}
+
 /** Over the title of a session a schedule started or keeps going: which, a click away. */
 function FromSchedule({ schedule, onShow }: { schedule: { id: string; name: string }; onShow?: (id: string) => void }) {
   return (
@@ -548,7 +570,8 @@ export function SessionHeader({ lane, session: s, apps, now, onOpen, onShowLane,
       {back && <PanelBack back={back} />}
       {lineage?.from && <KinRow kin={lineage.from} now={now} parent onShow={onShowSession} onMenu={onSessionMenu} />}
       {!lineage?.from && s.helper?.pr && <ReviewOf pr={s.helper.pr} yours={!!s.helper.yours} prs={prs} onOpenPr={onOpenPr} />}
-      {!lineage?.from && !s.helper?.pr && schedule && <FromSchedule schedule={schedule} onShow={onShowSchedule} />}
+      {s.orchestrator && <OrchestratorOf o={s.orchestrator} lastAt={schedule?.lastAt} now={now} onShow={onShowSchedule} />}
+      {!s.orchestrator && !lineage?.from && !s.helper?.pr && schedule && <FromSchedule schedule={schedule} onShow={onShowSchedule} />}
       <div className="ca-sessinsp-top">
         <SessionGlyph s={s} size={14} />
         <SessionEmblem emblem={s.emblem} of={s.key} size={20} />
