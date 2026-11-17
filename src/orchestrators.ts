@@ -37,6 +37,15 @@ export function orchestratorsIn<T extends { lane: Lane; session: Session }>(rows
     .sort((a, b) => (a.session.orchestrator?.project ?? '').localeCompare(b.session.orchestrator?.project ?? ''));
 }
 
+/** Whether a view can have an orchestrator of its own: All projects, or a project of yours (the
+ *  board's `projects`). Elsewhere, the sessions in none, is All projects' to keep watch over. */
+export function orchestrates(current: string, projects: readonly { name: string }[] | undefined): boolean {
+  return current === ALL_PROJECTS || (current !== ELSEWHERE && !!projects?.some((p) => p.name === current));
+}
+
+/** The sessions in no project, as the engine names them (board.rs `ELSEWHERE`). */
+const ELSEWHERE = 'Elsewhere';
+
 /** The orchestrator for a scope, on or not, as the Schedules view has it. */
 export function orchestratorFor(items: ScheduleItem[] | undefined, project: string | null): ScheduleItem | undefined {
   return items?.find((i) => i.orchestrates && sameProject(i.orchestrates.project, project));

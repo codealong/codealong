@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { orchestratorFor, orchestratorOn, orchestratorsIn, scopeOfView } from './orchestrators';
+import { orchestrates, orchestratorFor, orchestratorOn, orchestratorsIn, scopeOfView } from './orchestrators';
 import { ALL_PROJECTS } from './quick';
 import { lane, session } from './testing/fixtures';
 import type { ScheduleItem } from './types';
@@ -15,6 +15,13 @@ describe('orchestrators', () => {
     expect(orchestratorsIn(rows, ALL_PROJECTS).map((r) => r.session.key)).toEqual(['all', 'docs', 'web']);
     // One that's archived (turned off, or started afresh) leads nothing.
     expect(orchestratorsIn([row('web', 'Web', true)], 'Web')).toEqual([]);
+  });
+
+  it('is offered for All projects and your projects, not Elsewhere', () => {
+    const projects = [{ name: 'Atlas' }, { name: 'Elsewhere' }];
+    expect(orchestrates(ALL_PROJECTS, projects)).toBe(true);
+    expect(orchestrates('Atlas', projects)).toBe(true);
+    expect(orchestrates('Elsewhere', projects)).toBe(false);
   });
 
   it('finds a scope’s orchestrator and whether it runs', () => {

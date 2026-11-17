@@ -53,7 +53,7 @@ import { reviewedWords } from './prDraft';
 import { mayApprove } from './prStatus';
 import { inPrTab, PR_GROUPS, PR_ROWS, PR_SORTS, PR_TABS, prPlace, PrsView, type PrRowItem, type PrSort, type PrTab } from './ui/PrsView';
 import { Resizer, usePanelWidth } from './ui/Resizer';
-import { orchestratorFor, orchestratorOn, scopeOfView, scopeWords, startOrchestrator } from './orchestrators';
+import { orchestrates, orchestratorFor, orchestratorOn, scopeOfView, scopeWords, startOrchestrator } from './orchestrators';
 import { StartOrchestratorDialog } from './ui/StartOrchestrator';
 import { groupKeyOf, headItem, SESSION_GROUPS, SESSION_ROWS, SESSION_SORTS, SessionsBar, SessionsView, STARTED_PLACES, type SessionItem, type SessionSort, type StartedPlace } from './ui/SessionsView';
 import type { GroupActs } from './ui/Groups';
@@ -2553,7 +2553,7 @@ export function App() {
                   onLines={setSessionLines}
                   // Offered while the view's project, or All projects, has none running: once one
                   // runs, its session leads the list and its menu turns it off.
-                  startOrchestrator={orchestratorOn(orchestratorFor(board?.schedules, scopeOfView(current))) ? null : { scope: scopeWords(scopeOfView(current)), run: () => setOrchestratorAsk({ project: scopeOfView(current) }) }}
+                  startOrchestrator={!orchestrates(current, board?.projects) || orchestratorOn(orchestratorFor(board?.schedules, scopeOfView(current))) ? null : { scope: scopeWords(scopeOfView(current)), run: () => setOrchestratorAsk({ project: scopeOfView(current) }) }}
                 />
               )}
               {view === 'prs' && (
