@@ -308,6 +308,12 @@ describe('what the notch works through', () => {
     const raised = notchRows([up, ...items], [...reviews, first]);
     expect(keys(raised)).toEqual(['n3', 'o/r#9', 'n1', 'n2', 'o/r#7', 'o/r#8', 'u1', 'w1']);
     expect(keys(inQueueOrder(waitingRows(raised), ROW_READS))).toEqual(keys(waitingRows(raised)));
+    // A turn that ended, moved to the top, goes first too, as the queue has it; one moved up while
+    // it runs stays with the running ones, after everything that waits.
+    const turn = { ...item('u2', 'unread', 35), raised: { at: 60 } };
+    const running = { ...item('w2', 'working', 1), raised: { at: 70 } };
+    expect(keys(notchRows([item('n1', 'needs', 10), turn], [first]))).toEqual(['u2', 'o/r#9', 'n1']);
+    expect(keys(notchRows([running], [first]))).toEqual(['o/r#9', 'w2']);
   });
 
   it('reads a row by its session or its PR', () => {
