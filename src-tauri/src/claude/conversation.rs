@@ -545,8 +545,9 @@ fn answers_of(result: Option<&Value>) -> std::collections::BTreeMap<String, Vec<
 /// Code joins them with ", " in the order they were picked, your words where you wrote them, first
 /// too ("red, Blue"; of 47 such answers here, 6 out of the choices' order). A label with a comma
 /// of its own is found whole, the longest that fits first; the words between picks are yours, one
-/// entry each run of them. Words of yours that are a choice's label between commas can't be told
-/// from a pick. Any other answer is one, as written.
+/// entry each run of them, and so is a label again, a choice being picked once. Joined with ", ",
+/// the entries are the answer as written. Words of yours that are a choice's label between commas
+/// can't be told from a pick. Any other answer is one, as written.
 fn picks_in(answer: &str, q: &crate::harness::Question) -> Vec<String> {
     if !q.multi_select || q.options.iter().any(|o| o.label == answer) {
         return vec![answer.to_string()];
@@ -554,23 +555,23 @@ fn picks_in(answer: &str, q: &crate::harness::Question) -> Vec<String> {
     let mut labels: Vec<&str> = q.options.iter().map(|o| o.label.as_str()).collect();
     labels.sort_by_key(|l| std::cmp::Reverse(l.len()));
     let mut out: Vec<String> = Vec::new();
+    let mut picked: Vec<&str> = Vec::new();
     let mut own: Vec<&str> = Vec::new();
     let mut rest = answer;
     while !rest.is_empty() {
-        let picked = labels.iter().find_map(|l| match rest.strip_prefix(l) {
+        let pick = labels.iter().filter(|l| !picked.contains(l)).find_map(|l| match rest.strip_prefix(l) {
             Some("") => Some((*l, "")),
             Some(after) => after.strip_prefix(", ").map(|after| (*l, after)),
             None => None,
         });
-        match picked {
+        match pick {
             Some((label, after)) => {
                 if !own.is_empty() {
                     out.push(own.join(", "));
                     own.clear();
                 }
-                if !out.iter().any(|o| o == label) {
-                    out.push(label.to_string());
-                }
+                picked.push(label);
+                out.push(label.to_string());
                 rest = after;
             }
             None => {
@@ -844,6 +845,12 @@ mod tests {
         // A label with a comma of its own is found whole.
         assert_eq!(days("Restart it, then quit, Mon".into()), ["Restart it, then quit", "Mon"]);
         assert_eq!(days("before lunch, if needed".into()), ["before lunch, if needed"]);
+        // A label again is words of yours: a choice is picked once.
+        assert_eq!(days("Mon, Wed, Mon".into()), ["Mon", "Wed, Mon"]);
+        // Joined again, the entries are the answer as Claude Code wrote it.
+        for answer in ["Mon, Tue, only mornings", "red, green, Tue, also blue", "Restart it, then quit, Mon", "Mon, Tue, Mon, Monday, Mon"] {
+            assert_eq!(days(answer.into()).join(", "), answer);
+        }
         // Listed, as 2.1.219 wrote them, each is as written.
         assert_eq!(days(serde_json::json!(["Tue", "before lunch, Mon"])), ["Tue", "before lunch, Mon"]);
         // A question that takes one, or one the result doesn't list, is answered as written.
