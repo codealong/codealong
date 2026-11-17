@@ -49,6 +49,16 @@ describe('queueRows', () => {
     expect(rows.map((r) => r.group)).toEqual(['firstReviews', 'firstReviews', 'needs', 'needs', 'needs', 'reviews', 'unread']);
     // Each heading counts what's under it.
     expect(counts).toEqual({ top: 0, firstReviews: 2, needs: 3, reviews: 1, unread: 1, working: 1 });
+    // With nothing that needs you between them, they're one Review requested, the first ones first.
+    const quiet = fx.board({ lanes: [lane('app2', [session('u1', 'unread', NOW - 10)])], prs: b2.prs });
+    const one = attentionRows(quiet, ALL_PROJECTS, Infinity);
+    expect(one.rows.map((r) => [r.key, r.group])).toEqual([
+      ['acme/app#3', 'reviews'],
+      ['acme/app#1', 'reviews'],
+      ['acme/app#100', 'reviews'],
+      ['u1', 'unread'],
+    ]);
+    expect(one.counts).toMatchObject({ firstReviews: 0, reviews: 3 });
   });
 });
 

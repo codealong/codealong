@@ -297,9 +297,11 @@ pub fn feed(shown: Shown) -> BarFeed {
     recent.truncate(RECENT_MAX);
     snoozed.sort_by(|(a_at, a), (b_at, b)| a_at.cmp(b_at).then_with(|| a.key.cmp(&b.key)));
 
+    // The ones whose repo puts reviews first lead, as the queue goes to them (src/queue.ts
+    // `byPlace`): the notch's count and the bar's reviews open the first of them.
     let mut prs: Vec<_> = board.prs.iter().filter(|p| p.waits_on_review()).collect();
     let since = |p: &PrItem| p.requested_at.unwrap_or(p.updated_at);
-    prs.sort_by(|a, b| since(a).cmp(&since(b)).then_with(|| a.key.cmp(&b.key)));
+    prs.sort_by(|a, b| b.review_first.cmp(&a.review_first).then(since(a).cmp(&since(b))).then_with(|| a.key.cmp(&b.key)));
     let reviews = prs
         .into_iter()
         .map(|p| BarReview {
@@ -705,5 +707,10 @@ mod tests {
         let b = board(vec![], vec![pr(2, None), pr(1, Some(20))]);
         let got: Vec<(u64, i64, i64, String, String)> = feed(Shown::here(&b)).reviews.into_iter().map(|r| (r.number, r.since, r.updated_at, r.repo_slug, r.url)).collect();
         assert_eq!(got, vec![(1, 20, 50, "o/r".into(), "https://github.com/o/r/pull/1".into()), (2, 50, 50, "o/r".into(), "https://github.com/o/r/pull/2".into())]);
+        // One whose repo puts reviews first leads, however short its wait.
+        let first = PrItem { review_first: true, ..pr(3, Some(40)) };
+        let b = board(vec![], vec![pr(2, None), pr(1, Some(20)), first]);
+        let got: Vec<(u64, bool)> = feed(Shown::here(&b)).reviews.into_iter().map(|r| (r.number, r.first)).collect();
+        assert_eq!(got, vec![(3, true), (1, false), (2, false)]);
     }
 }

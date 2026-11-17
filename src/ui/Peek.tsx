@@ -78,7 +78,8 @@ async function previewKey(board: Board): Promise<string | null> {
     // No storage: the first session that needs you.
   }
   if (key === '@') return (await getDevices())?.lanes.find((l) => l.device?.online)?.sessions.find((s) => !s.visitor)?.key ?? null;
-  return key || attentionRows(board, ALL_PROJECTS).rows.find((r) => r.kind === 'session')?.key || null;
+  // Every row: reviews can come ahead of the sessions (`[pull_requests] reviews_first`).
+  return key || attentionRows(board, ALL_PROJECTS, Infinity).rows.find((r) => r.kind === 'session')?.key || null;
 }
 
 /** A preview has no engine to open the peek: it opens on `previewKey`'s session. */

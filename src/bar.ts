@@ -281,13 +281,16 @@ export function reviewTitle(r: Pick<BarReview, 'number' | 'title'>): string {
 
 /** Everything the notch can show, in the order the closed notch counts it (`NOTCH_ORDER`): the
  *  sessions that need you, the PRs waiting on your review, the turns that ended, then the
- *  running ones, each group in the bar's own order; the reviews of a repo that puts them first
- *  ahead of it all, as the queue has them (queue.ts `byPlace`). ⌥↑ ⌥↓ step along all of it. */
+ *  running ones, each group in the bar's own order. The reviews of a repo that puts them first
+ *  go ahead of the sessions that need you, behind the ones moved to the top that lead them, as
+ *  the queue goes to them (queue.ts `byPlace`). ⌥↑ ⌥↓ step along all of it. */
 export function notchRows(items: BarItem[], reviews: BarReview[]): NotchRow[] {
   const session = (i: BarItem): NotchRow => ({ kind: 'session', key: i.key, item: i });
   const review = (r: BarReview): NotchRow => ({ kind: 'review', key: r.key, review: r });
-  const rest = NOTCH_ORDER.flatMap((k) => (k === 'reviews' ? reviews.filter((r) => !r.first).map(review) : items.filter((i) => i.group === k).map(session)));
-  return [...reviews.filter((r) => r.first).map(review), ...rest];
+  const rows = NOTCH_ORDER.flatMap((k) => (k === 'reviews' ? reviews.filter((r) => !r.first).map(review) : items.filter((i) => i.group === k).map(session)));
+  const raised = rows.findIndex((r) => r.kind !== 'session' || !r.item.raised);
+  const at = raised < 0 ? rows.length : raised;
+  return [...rows.slice(0, at), ...reviews.filter((r) => r.first).map(review), ...rows.slice(at)];
 }
 
 /** What the notch works through, as a session's panel in Sessions does: the rows that wait on

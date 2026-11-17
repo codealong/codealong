@@ -302,6 +302,12 @@ describe('what the notch works through', () => {
     const withFirst = notchRows(items, [...reviews, first]);
     expect(keys(withFirst)).toEqual(['o/r#9', 'n1', 'n2', 'o/r#7', 'o/r#8', 'u1', 'w1']);
     expect(waitingRow(withFirst, null)?.key).toBe('o/r#9');
+    // Behind a session moved to the top, which leads the sessions that need you, so ⌥↓ from it
+    // goes to the review as ⌘] does.
+    const up = { ...item('n3', 'needs', 30), raised: { at: 50 } };
+    const raised = notchRows([up, ...items], [...reviews, first]);
+    expect(keys(raised)).toEqual(['n3', 'o/r#9', 'n1', 'n2', 'o/r#7', 'o/r#8', 'u1', 'w1']);
+    expect(keys(inQueueOrder(waitingRows(raised), ROW_READS))).toEqual(keys(waitingRows(raised)));
   });
 
   it('reads a row by its session or its PR', () => {

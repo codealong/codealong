@@ -102,6 +102,7 @@ export function saidLine(hit: TextHit, words: string[]): SaidLine {
 export interface ReviewRow {
   kind: 'review';
   key: string;
+  /** `firstReviews` only in the empty panel's list (`attentionRows`). */
   group: 'firstReviews' | 'reviews';
   pr: PrItem;
   marks: [number, number][];
@@ -120,7 +121,7 @@ export function reviewRows(board: Board, project: string): ReviewRow[] {
   return (board.prs ?? [])
     .filter((p) => p.reviewRequested && p.state !== 'merged' && p.state !== 'closed' && !p.snoozedUntil && !heldForAgent(p) && (project === ALL_PROJECTS || p.project === project))
     .sort((a, b) => reviewSince(a) - reviewSince(b) || a.key.localeCompare(b.key))
-    .map((pr) => ({ kind: 'review' as const, key: pr.key, group: pr.reviewFirst ? ('firstReviews' as const) : ('reviews' as const), pr, marks: [] }));
+    .map((pr) => ({ kind: 'review' as const, key: pr.key, group: 'reviews' as const, pr, marks: [] }));
 }
 
 /** How many rows the panel lists at most: ⌘1 to ⌘9 reach them all. */
@@ -189,7 +190,10 @@ export function attentionRows(board: Board, project: string, limit = MAX_ROWS): 
       return group ? [{ kind: 'session' as const, key: session.key, group, lane, session, marks: [] }] : [];
     })
     .sort((a, b) => ORDER.indexOf(a.group) - ORDER.indexOf(b.group) || byStatusTime(a.session, b.session) || a.key.localeCompare(b.key));
-  const reviews = reviewRows(board, project);
+  // The reviews that go first have a heading of their own only where the sessions that need you
+  // come between them and the rest: with none, they're one Review requested.
+  const apart = sessions.some((r) => r.group === 'needs');
+  const reviews = reviewRows(board, project).map((r): ReviewRow => (apart && r.pr.reviewFirst ? { ...r, group: 'firstReviews' } : r));
   const counts = { top: 0, firstReviews: 0, needs: 0, reviews: 0, unread: 0, working: 0 };
   for (const r of [...sessions, ...reviews]) counts[r.group] += 1;
   const waiting = inQueueOrder<QueueRow>([...sessions.filter((r) => r.group !== 'working'), ...reviews], QUEUE_READS);
