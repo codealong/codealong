@@ -3,8 +3,8 @@
 // repos, labels, authors) and views you saved. Settings, the link to Codealong on GitHub and the
 // theme are in the window's status bar (App.tsx, at the end of UsageBar.tsx's bar), not here.
 // How Sessions, PRs and Todo are sorted, and how much a row says, is the bar over the list
-// (ListBar.tsx `ListTools`). Devices, statuses and facets toggle, any number of each: none picked
-// shows all. Collapsed, as it starts, it's a rail of the views and devices, whose filter button
+// (ListBar.tsx `ViewMenu`), which also shows the filters on as chips to take off (`FilterChips`).
+// Devices, statuses and facets toggle, any number of each: none picked shows all. Collapsed, as it starts, it's a rail of the views and devices, whose filter button
 // carries a badge while a filter narrows the view. The project stays in the switcher at top left.
 
 import { Fragment, useState, type CSSProperties, type ReactNode } from 'react';

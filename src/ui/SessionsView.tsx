@@ -23,7 +23,7 @@
 // end that takes them away again (`FoldRow`); and, with Started sessions under their session, the
 // sessions its agent started.
 
-import { Fragment } from 'react';
+import { Fragment, type ReactNode } from 'react';
 import { byDay, newestFirst } from '../days';
 import { groupOptions, groupRows, groupsOf, placeIn, type Grouped, type GroupOptions, type ListGroup, type ListGroupBy, type PlaceBy } from '../groups';
 import { bySession, byStatusTime, foldsOf, heldBack, listedStatus, listedUnder, runsShownKey, sidesListed, sidesShownKey, snoozedApart, startedOf, waitingSince, waitsFinished, workingFor, type Fold, type LaneItem } from '../lanes';
@@ -35,7 +35,7 @@ import type { HelperActions } from './HelpersCard';
 import { GroupBlock, PinnedGroups, useGroupDrag, type GroupActs } from './Groups';
 import { AgentRow, FoldRow, SideRow } from './LaneRow';
 import { PinnedSection } from './PinnedSection';
-import { ListSeg, ListTools, RowsSeg, rowsOptions, type RowLines } from './ListBar';
+import { byWords, ListTools, rowsOptions, rowsSetting, ViewMenu, viewSetting, type RowLines } from './ListBar';
 import { BAY_WORD, BayHeader, Button, SectionHeader } from './primitives';
 import { useRowDrag, type DragProps } from './useRowDrag';
 
@@ -284,29 +284,30 @@ export function sortSessions(rows: SessionItem[], sort: SessionSort, now: number
 /** Sessions' bar: how it's listed, and, while an orchestrator can be started from the view
  *  (orchestrators.ts `freeScopes`), a compass that starts one (StartOrchestrator.tsx), its tooltip
  *  saying what for. */
-export function SessionsBar({ sort, onSort, group, onGroup, started, onStarted, lines, onLines, startOrchestrator }: { sort: SessionSort; onSort: (sort: SessionSort) => void; group: SessionGroupBy; onGroup: (group: SessionGroupBy) => void; started: StartedPlace; onStarted: (place: StartedPlace) => void; lines: RowLines; onLines: (lines: RowLines) => void; startOrchestrator?: { title: string; run: () => void } | null }) {
+export function SessionsBar({ sort, onSort, group, plainGroup, onGroup, started, onStarted, lines, onLines, filters }: { sort: SessionSort; onSort: (sort: SessionSort) => void; group: SessionGroupBy; plainGroup: SessionGroupBy; onGroup: (group: SessionGroupBy) => void; started: StartedPlace; onStarted: (place: StartedPlace) => void; lines: RowLines; onLines: (lines: RowLines) => void; filters?: ReactNode }) {
   return (
-    <>
-      <ListTools label="How Sessions is listed">
-        <ListSeg label="Sort by" options={SESSION_SORTS} value={sort} onPick={onSort} />
-        <ListSeg label="Group by" options={SESSION_GROUPS} value={group} onPick={onGroup} />
-        <ListSeg label="Started sessions" options={STARTED_PLACES} value={started} onPick={onStarted} />
-        <RowsSeg options={SESSION_ROWS} value={lines} onPick={onLines} />
-      </ListTools>
-      {/* Beside the tools rather than among them: it does something, where they say how the list is shown. */}
-      {startOrchestrator && (
-        <Button
-          variant="ghost"
-          size="sm"
-          className="ca-listbar-start"
-          icon="compass"
-          title={startOrchestrator.title}
-          onClick={startOrchestrator.run}
-        >
-          Orchestrator
-        </Button>
-      )}
-    </>
+    <ListTools label="How Sessions is listed">
+      <ViewMenu
+        label="How Sessions is listed"
+        settings={[
+          viewSetting('Sort', SESSION_SORTS, sort, 'status', onSort, byWords),
+          viewSetting('Group', SESSION_GROUPS, group, plainGroup, onGroup, (label) => (label === 'no groups' ? 'no groups' : byWords(label))),
+          viewSetting('Started sessions', STARTED_PLACES, started, 'apart', onStarted, () => 'started under their session'),
+          rowsSetting(SESSION_ROWS, lines, onLines),
+        ]}
+      />
+      {filters}
+    </ListTools>
+  );
+}
+
+/** Start an orchestrator, at the strip's end: it does something, where the tools at its start
+ *  say how the list is shown. Offered while the view's project, or All projects, has none. */
+export function OrchestratorButton({ title, run }: { title: string; run: () => void }) {
+  return (
+    <Button variant="ghost" size="sm" className="ca-listbar-end" icon="compass" title={title} onClick={run}>
+      Orchestrator
+    </Button>
   );
 }
 

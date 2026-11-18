@@ -88,13 +88,18 @@ and size in every list, and none is cut off: on a row short of room a long name 
 chip, and the last chips drop out whole.
 
 Sessions, PRs and Todo list their rows alike: each row's status at the left, what it is, and its
-age at the right, with no lines between them. The bar over each of those lists has groups of
-icon buttons, each named in its tooltip. Sort by orders the list by status, as it starts, or
-newest first under the day each started, was opened or was added (Today, Yesterday, Last 7 days,
-Older), each row's age then saying when; Group by puts the rows under their worktrees or repos
-(see [Grouped by worktree or repo](#grouped-by-worktree-or-repo)); Rows puts each row on one line,
-as they start, or on two; and in Sessions, Started sessions says where a session another one
-started goes. Each list keeps its own choices. On
+age at the right, with no lines between them. The bar over each of those lists starts with View,
+which opens the list's settings, each a row of choices, and stays open while you change several:
+Sort orders the list by status, as it starts, or newest first under the day each started, was
+opened or was added (Today, Yesterday, Last 7 days, Older), each row's age then saying when; Group
+puts the rows under their worktrees or repos (see [Grouped by worktree or
+repo](#grouped-by-worktree-or-repo)); Rows puts each row on one line, as they start, or on two; and
+in Sessions, Started sessions says where a session another one started goes. The button names
+whichever of them isn't as it starts (View · by repo · two lines), so how the list is shown reads
+without opening it. After it, each filter narrowing the list (the sidebar's devices, age, statuses,
+agents, repos, labels and authors) is a chip, whose × takes it off, and with several, Clear takes
+them all off, so what hides rows shows with the sidebar folded away. Each list keeps its own
+choices. On
 one line a row leads with its title, then what it's doing or says while there's room, then its
 chips at the line's end, the last of them giving way first, then the title.
 
@@ -102,18 +107,18 @@ chips at the line's end, the last of them giving way first, then the title.
 
 Every session, under headings as the other views have them. Pinned ones come first in your order
 (drag or ⌃⌘↑ ⌃⌘↓). Drag any session up among them to pin it there,
-and a pinned one down to the rest to unpin it. The bar over the list has four groups of icon
-buttons, each named in its tooltip: Sort by, Group by (see [Grouped by worktree or
-repo](#grouped-by-worktree-or-repo)), Started sessions (see [Where a session came
-from](#where-a-session-came-from)) and Rows. Sort by orders the rest: Status puts Needs you, Your turn and Working
+and a pinned one down to the rest to unpin it. View, in the bar over the list, has its four
+settings: Sort, Group (see [Grouped by worktree or repo](#grouped-by-worktree-or-repo)), Started
+sessions (see [Where a session came from](#where-a-session-came-from)) and Rows. Sort orders the
+rest: Status puts Needs you, Your turn and Working
 first, as the floating bar orders them, then Snoozed, the soonest back first, then the rest under
 the day they were last active (Today, Yesterday, Last 7 days, Older), the one you last sent a prompt
 first. Started puts the newest session first, under the day it started, and each row's age then
 says when it started. A row leads with the session's title, then what it's doing or said last; one
 that needs you has a label beside its title for what it waits on (Asks you, Needs approval,
 Message, Stuck, Error). Its second line says where and why: its worktree, its todo, its
-[labels](#labels) and Jev's read, then its account, with the worktree's PR and diff at the right: that's on two lines (Rows, the
-last group). On one line, as it starts, a row is its title, then its status, worktree and PR chips at
+[labels](#labels) and Jev's read, then its account, with the worktree's PR and diff at the right: that's on two lines (Rows, in
+View). On one line, as it starts, a row is its title, then its status, worktree and PR chips at
 the line's end, and its status says its account when you point at it. A snoozed session's row says how long until it's
 back, and a quiet one's says Quiet. Here letters alone do nothing, so a word typed on the list by
 mistake doesn't pin, archive or rename: the keys are the chords, and they work from the panel's box
@@ -121,10 +126,10 @@ too. Sessions are pinned here, with ⌃⌘P or the right-click menu, and their p
 
 #### Grouped by worktree or repo
 
-Group by, in Sessions, PRs and Todo, lists the rows that aren't pinned under their worktree or
+Group, in View over Sessions, PRs and Todo, lists the rows that aren't pinned under their worktree or
 under their repo, or as one list, as it starts; each list keeps its own. Each worktree or repo
 heads its rows once, under the heading its first row is under: a worktree with a session that
-needs you is under Needs you, with all of its sessions in Sort by's order, and a heading counts
+needs you is under Needs you, with all of its sessions in Sort's order, and a heading counts
 only the rows under it for themselves. A group lists five rows and folds the rest behind Show N
 more (never a session that waits on you or is working, a review asked of you, or a todo in
 progress or in review, and none while a search is on), and a helper is in its session's group,
@@ -1132,7 +1137,9 @@ its conversation was, that it's in a window of its own, with Show its window to 
 
 A strip at the top of the panel says how the last one went, at its left, on one line beside its
 buttons, cut short where they leave it too little room, with all of it under the pointer (what the
-box has to say is in the box: *What the box says*). It has what's commonly done to a session as
+box has to say is in the box: *What the box says*). With nothing else to say it says how many wait
+on you after the session shown and which is next (*2 more waiting · next: Release notes*), so where
+Next goes reads without pointing at it. It has what's commonly done to a session as
 buttons that say their keys: Seen (⌘E), Done (⇧⌘E), Snooze (⌃⌘1 to ⌃⌘7, one for each of its menu's times: 15
 minutes, 30 minutes, 1 hour, 3 hours, 5 PM, the next morning, the next week), Close (⌃⌘W, which closes its terminal, or ends a
 background job where the session is one; the conversation stays, to go on with later), Archive (⌃⌘A)
@@ -1838,7 +1845,7 @@ inside their app: yours (`[apps] editor`) when it's one of them, else the first 
 Work you mean to hand an agent. Each todo has a title, a description that can hold screenshots and
 any other files (paste, drop or attach them; files copied in the Finder paste too), colored labels,
 and a status: Todo, In progress (an agent is on it) or Done. The list has In progress, In review,
-Ready, Waiting and Done, or, sorted by when they were added (Sort by, over the list), the ones not
+Ready, Waiting and Done, or, sorted by when they were added (Sort, in View over the list), the ones not
 done under the day each was added, the newest first, with Done still last; your order is kept
 for when they're sorted by status again. Add one in the box at the top (`n`), reorder by dragging
 or with ⌃⌘↑ ⌃⌘↓,
@@ -2272,7 +2279,8 @@ panel) clears what would hide it. Devices, statuses and these toggle; within one
 picks shows, none picked shows all, and Clear unpicks them. Save the view as it is under a name to
 come back to it; right-click a saved view to update or delete it (they're kept per Mac, not in
 config.toml), with the agents, repos and labels picked. It starts folded to a rail of the views and
-devices, whose filter button opens it and carries a badge while a filter narrows the view; ⌃⌘S, or
+devices, whose filter button opens it and carries a badge while a filter narrows the view (the
+strip over the list shows each of them as a chip, too); ⌃⌘S, or
 the button beside the traffic lights, opens and folds it, and it stays as you left it. Settings,
 the theme and a button that opens Codealong's repo on GitHub are at the far end of the status bar,
 open or folded.
@@ -2302,7 +2310,7 @@ Finding anything anywhere, and starting work, is the quick panel's (the box in t
 title bar, ⌘K), and finding in what a window shows is ⌘F's (*Find in the window*). Narrowing what
 the view lists is ⌥⌘F's or `/`'s, from anywhere in the window but among a PR's files, which ⌥⌘F
 filters instead (a panel taking the whole window gives the list its place back): a find opens in
-the strip over the list (beside Sessions' sort and rows buttons), saying the view it finds in.
+the strip over the list (after the View button and the filters), saying the view it finds in.
 What's typed narrows the view's list, and on the canvas fades the cards that don't match. ↓ hands
 the list the keyboard, ⏎ opens the selected row (on the canvas, zooms to what matches), Escape or
 its × clears it and puts it away. Left with nothing typed it goes away by itself; left with words it

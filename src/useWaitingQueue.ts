@@ -176,7 +176,7 @@ export function useWaitingQueue<T, H = undefined>(options: WaitingQueueOptions<T
   const stands = rules.standing(view, handled.current);
   const after = stands?.left[0];
   const queue: Queue | undefined = stands
-    ? { next: after !== undefined ? { title: view.reads.titleOf(after) } : null, onNext: next, waiting: stands.waiting }
+    ? { next: after !== undefined ? { title: view.reads.titleOf(after) } : null, left: stands.left.length, onNext: next, waiting: stands.waiting }
     : undefined;
   const notice = note && note.on === view.shown?.key ? { text: note.text, error: note.error } : null;
   const first = view.shown ? null : (rules.firstLeft(view, handled.current) ?? null);

@@ -91,7 +91,8 @@
     });
   };
 
-  var button = function (label) { return q('.ca-listtools [role="radiogroup"][aria-label="Group by"] button[aria-label="' + label + '"]'); };
+  // Group's choices, behind View over the list (prelude.js `viewChoice`).
+  var button = function (label) { return viewChoice(label, 'Group'); };
   var on = function (label) { var b = button(label); return !!b && b.classList.contains('is-on') && b.getAttribute('aria-checked') === 'true'; };
   var heads = function () { return all('.ca-sessionlist .ca-grouphead.is-worktree-head'); };
   var repoHeads = function () { return all('.ca-sessionlist .ca-grouphead.is-repo-head'); };
@@ -121,11 +122,11 @@
   var selectedId = function () { var s = q('.ca-board-list [role="option"][aria-selected="true"]'); return s ? s.id : ''; };
 
   say('group by check: waiting for Sessions');
-  until(function () { return board && button('No groups') && q('.ca-sessionlist .ca-lane.is-agent'); }, 20000, 'Sessions with Group by in its bar')
+  until(function () { return board && button('No groups') && q('.ca-sessionlist .ca-lane.is-agent'); }, 20000, 'Sessions with Group behind View in its bar')
     .then(function () { return wait(300); })
     .then(function () {
-      var labels = all('.ca-listtools [role="radiogroup"][aria-label="Group by"] button').map(function (b) { return b.getAttribute('aria-label'); });
-      check('Group by has its three buttons', labels.join('|') === 'No groups|Worktree|Repo', labels.join('|'));
+      var labels = viewChoices('Group');
+      check('Group has its three choices', labels.join('|') === 'No groups|Worktree|Repo', labels.join('|'));
       check('each says what it does', ['No groups', 'Worktree', 'Repo'].every(function (l) { return button(l) && button(l).title.length > 10; }));
       check('the list starts with no groups', on('No groups') && heads().length === 0 && repoHeads().length === 0);
       button('Worktree').click();

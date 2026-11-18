@@ -1,6 +1,7 @@
 // The strip over the main window's list, stuck to the top of the board as it scrolls: the view's
-// tools (`ListTools`: Sessions' sort, SessionsView.tsx `SessionsBar`, and Rows in Sessions, PRs
-// and Todo) and, in any view, the list's find while it's open. ⌥⌘F or / from anywhere in the
+// tools (`ListTools`: its View menu, `ViewMenu`, with how it's sorted and grouped and how much a
+// row says, and the filters narrowing it as chips, `FilterChips`), in any view the list's find
+// while it's open, and at its end what the strip does (Sessions' Orchestrator). ⌥⌘F or / from anywhere in the
 // window (mainKeys.ts) open it, as ⌥⌘F filters a PR's files where they show (findKeys.ts): ⌘F finds
 // in the whole window without narrowing anything (WindowFind.tsx). What's typed in it narrows the
 // view's list to what matches (boardLists.ts), and the canvas fades the
@@ -10,8 +11,9 @@
 // cleared. Finding sessions, todos and PRs anywhere, and starting work, is the quick panel's, the
 // box in the title bar.
 
-import type { ReactNode, RefObject } from 'react';
-import { Button, Icon, Seg } from './primitives';
+import { useRef, useState, type ReactNode, type RefObject } from 'react';
+import { Button, Chip, cx, Icon, Seg } from './primitives';
+import { useDismiss } from './useDismiss';
 
 export function ListBar({ children }: { children: ReactNode }) {
   return <div className="ca-listbar">{children}</div>;
@@ -45,14 +47,108 @@ export function rowsOptions(two: string, one: string): RowsOption[] {
   ];
 }
 
-/** Rows, among a view's tools: two lines a row, or one. */
-export function RowsSeg({ options, value, onPick }: { options: RowsOption[]; value: RowLines; onPick: (lines: RowLines) => void }) {
-  return <ListSeg label="Rows" options={options} value={value} onPick={onPick} />;
+/** One choice of a view's settings: how it sorts, groups or how much a row says. */
+export interface ListOption<T extends string> {
+  id: T;
+  label: string;
+  icon: string;
+  title: string;
 }
 
-/** One group of a view's tools. */
-export function ListSeg<T extends string>({ label, options, value, onPick }: { label: string; options: { id: T; label: string; icon: string; title: string }[]; value: T; onPick: (id: T) => void }) {
-  return <Seg className="ca-listtools-seg" label={label} look="icon" iconSize={16} options={options} value={value} onPick={onPick} />;
+/** One of a view's settings in its View menu: its name, its choices as a segmented control, and
+ *  what the View button says of it while it's off its default (`viewSetting`). */
+export interface ViewSetting {
+  label: string;
+  control: ReactNode;
+  /** The words the button adds for it, "by repo"; null at its default, where it says nothing. */
+  said: string | null;
+}
+
+/** A setting for the View menu. `plain` is its default, which the button leaves unsaid; `say`
+ *  words the choice that isn't, from its label. */
+export function viewSetting<T extends string>(label: string, options: ListOption<T>[], value: T, plain: T, onPick: (id: T) => void, say: (label: string) => string): ViewSetting {
+  const on = options.find((o) => o.id === value);
+  return {
+    label,
+    said: value !== plain && on ? say(on.label.toLowerCase()) : null,
+    control: <Seg className="ca-viewmenu-seg" label={label} look="text" options={options} value={value} onPick={onPick} />,
+  };
+}
+
+/** The words for a setting that's a sort or a grouping: "by repo". */
+export const byWords = (label: string) => `by ${label}`;
+
+/** Rows' setting: two lines a row, or one, the default. */
+export function rowsSetting(options: RowsOption[], value: RowLines, onPick: (lines: RowLines) => void): ViewSetting {
+  return viewSetting('Rows', options, value, 'one', onPick, (label) => label);
+}
+
+/** A view's settings behind one button at the strip's start: how its list is sorted and grouped
+ *  and how much a row says. The button names whatever isn't at its default, so the list's look
+ *  reads from the strip without opening it; the popover stays up while you change several, and a
+ *  press outside it or Escape puts it away. */
+export function ViewMenu({ label, settings }: { label: string; settings: ViewSetting[] }) {
+  const [open, setOpen] = useState(false);
+  const ref = useRef<HTMLDivElement>(null);
+  useDismiss(ref, () => setOpen(false), { when: open });
+  const said = settings.flatMap((s) => (s.said ? [s.said] : []));
+  return (
+    <div className="ca-viewmenu" ref={ref}>
+      <button
+        type="button"
+        className={cx('ca-viewmenu-btn', said.length > 0 && 'is-changed')}
+        aria-haspopup="dialog"
+        aria-expanded={open}
+        title={said.length ? `${label}: ${said.join(', ')}` : `${label}: sort, groups and rows`}
+        onClick={() => setOpen((o) => !o)}
+      >
+        <Icon name="adjustments-horizontal" size={15} />
+        <span>View</span>
+        {said.length > 0 && <span className="ca-viewmenu-said">{said.join(' · ')}</span>}
+        <Icon name="chevron-down" size={12} />
+      </button>
+      {open && (
+        <div className="ca-menu ca-viewmenu-pop" role="dialog" aria-label={label}>
+          {settings.map((s) => (
+            <div key={s.label} className="ca-viewmenu-row">
+              <span className="ca-viewmenu-label">{s.label}</span>
+              {s.control}
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+/** A filter narrowing the list, as a chip on the strip: its name, and how to take it off. */
+export interface ListFilter {
+  key: string;
+  label: string;
+  /** What it narrows to, for its tooltip: "Agents: Claude". */
+  title: string;
+  clear: () => void;
+}
+
+/** The filters that narrow the view's list now, the sidebar's, as chips after the View button:
+ *  each one's × takes it off, and with several, Clear takes them all. Nothing shows while none
+ *  is on. */
+export function FilterChips({ filters, onClearAll }: { filters: ListFilter[]; onClearAll: () => void }) {
+  if (filters.length === 0) return null;
+  return (
+    <div className="ca-listfilters" role="group" aria-label="Filters">
+      {filters.map((f) => (
+        <Chip key={f.key} className="ca-listfilter" title={`Filtered to ${f.title}`} remove={{ label: `Stop filtering to ${f.label}`, title: 'Stop filtering', run: f.clear }}>
+          {f.label}
+        </Chip>
+      ))}
+      {filters.length > 1 && (
+        <button type="button" className="ca-linkbtn ca-listfilters-clear" onClick={onClearAll}>
+          Clear
+        </button>
+      )}
+    </div>
+  );
 }
 
 interface ListFindProps {

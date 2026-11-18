@@ -1,5 +1,5 @@
 // Checks how PRs, Todo and Sessions are sorted and narrowed (PrsView.tsx, TodoView.tsx, Sidebar.tsx,
-// boardLists.ts `Facets`): Sort by over PRs and Todo lists them under the days they were opened or
+// boardLists.ts `Facets`): Sort, behind View over PRs and Todo, lists them under the days they were opened or
 // added, each row's age saying so, remembers it, and leaves Todo's order alone; every PR row has
 // its repo's chip, on one line and leading the second on two, whose double-click shows only that
 // repo's PRs and picks it in the sidebar, and again shows them all; the sidebar's Repos, Labels,
@@ -13,7 +13,8 @@
   var nav = function (label) {
     return all('.ca-side .ca-nav').filter(function (b) { var l = q('.ca-nav-label', b); return l && l.textContent === label; })[0];
   };
-  var tool = function (label) { return q('.ca-listtools button[aria-label="' + label + '"]'); };
+  // A choice behind View over the list (prelude.js `viewChoice`).
+  var tool = function (label) { return viewChoice(label); };
   var heads = function () { return all('.ca-board-list .ca-bay').map(function (h) { return q('span', h).textContent; }); };
   var DAYS = ['Pinned', 'Today', 'Yesterday', 'Last 7 days', 'Older', 'Merged & closed', 'Done', 'Archived'];
   var byDay = function () { var h = heads(); return h.length > 0 && h.every(function (x) { return DAYS.indexOf(x) >= 0; }); };
@@ -39,7 +40,8 @@
       await until(function () { return all('.ca-prrow').length > 0; }, 20000, 'PR rows');
 
       // Sorting PRs.
-      check('PRs: Sort by and Rows over the list', !!tool('Status') && !!tool('Opened') && !!tool('One line'));
+      await until(function () { return tool('Status'); }, 3000, 'View over the list');
+      check('PRs: Sort and Rows behind View over the list', !!tool('Status') && !!tool('Opened') && !!tool('One line'));
       check('sorted by status to begin with', tool('Status').classList.contains('is-on'));
       tool('Opened').click();
       await until(byDay, 3000, 'PRs under the days they were opened');

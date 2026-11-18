@@ -20,7 +20,7 @@
       check('its section is called Orchestrator', /Orchestrator/.test(q('.ca-bay', section).textContent), q('.ca-bay', section).textContent);
       var rows = all('[id^="row-"]').filter(function (r) { return keyOf(r) === key; });
       check('it is listed once', rows.length === 1, rows.length + ' rows');
-      check('the bar offers no compass while it runs', !q('.ca-listbar-start'));
+      check('the bar offers no compass while it runs', !q('.ca-listbar-end'));
       row.click();
       return until(function () { return q('.ca-sessinsp-kin.is-orchestrator'); }, 5000, 'its header’s orchestrator line').then(function (line) { return { row: row, key: key, line: line }; });
     })

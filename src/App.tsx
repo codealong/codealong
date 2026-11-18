@@ -56,10 +56,10 @@ import { inPrTab, PR_GROUPS, PR_ROWS, PR_SORTS, PR_TABS, PrsView, type PrGroupBy
 import { Resizer, usePanelWidth } from './ui/Resizer';
 import { compassTitle, freeScopes, orchestratorOn, startOrchestrator } from './orchestrators';
 import { StartOrchestratorDialog } from './ui/StartOrchestrator';
-import { groupKeyOf, headItem, SESSION_GROUPS, SESSION_ROWS, SESSION_SORTS, SessionsBar, SessionsView, STARTED_PLACES, type SessionItem, type SessionSort, type StartedPlace } from './ui/SessionsView';
+import { groupKeyOf, headItem, OrchestratorButton, SESSION_GROUPS, SESSION_ROWS, SESSION_SORTS, SessionsBar, SessionsView, STARTED_PLACES, type SessionItem, type SessionSort, type StartedPlace } from './ui/SessionsView';
 import type { GroupActs } from './ui/Groups';
 import { groupsOf, type ListGroupBy, type RepoName } from './groups';
-import { ListBar, ListFind, ListSeg, ListTools, RowsSeg, type RowLines } from './ui/ListBar';
+import { byWords, FilterChips, ListBar, ListFind, ListTools, rowsSetting, ViewMenu, viewSetting, type ListFilter, type RowLines } from './ui/ListBar';
 import { TODO_GROUPS, TODO_ROWS, TODO_SORTS, TodoComposer, TodoView } from './ui/TodoView';
 import { ScheduleDialog } from './ui/ScheduleDialog';
 import { HarnessSchedulePanel, SchedulePanel } from './ui/SchedulePanel';
@@ -2276,6 +2276,34 @@ export function App() {
   const viewNow: ViewState = { view, project: current, device: deviceFilter, age, filter: bayFilter, facets: facetsNow };
   const savedOn = savedViews.find((v) => sameView(v, viewNow))?.id ?? null;
   const deviceName = (id: string) => (id === 'here' ? devices?.me.name || 'This device' : (devices?.devices.find((d) => d.short === id)?.name ?? null));
+  // The same filters as chips on the list's strip (ListBar.tsx `FilterChips`), each with the way
+  // to take it off, so what narrows the list shows with the sidebar folded away.
+  const listFilters: ListFilter[] = [
+    ...deviceFilter.map((id) => {
+      const name = deviceName(id) ?? id;
+      return { key: `device:${id}`, label: name, title: `what runs on ${name}`, clear: () => toggleDevice(id) };
+    }),
+    ...(ageApplies && age !== 'all'
+      ? [{ key: 'age', label: (AGES.find((a) => a.id === age)?.title ?? age).replace(/^Active in the l/, 'L'), title: (AGES.find((a) => a.id === age)?.title ?? age).toLowerCase(), clear: () => setAge('all') }]
+      : []),
+    ...bayFilter.map((f) => {
+      const label = sideStatuses.find((x) => x.id === f)?.label ?? f;
+      return { key: `status:${f}`, label, title: label.toLowerCase(), clear: () => toggleBay(f) };
+    }),
+    ...sideFacets.flatMap((facet) =>
+      facet.picked.map((pick) => {
+        const label = facet.options.find((o) => o.id === pick)?.label ?? pick;
+        return { key: `${facet.id}:${pick}`, label, title: `${facet.label}: ${label}`, clear: () => setFacets((f) => togglePick(f, facet.id, pick)) };
+      }),
+    ),
+  ];
+  const clearListFilters = () => {
+    setDeviceFilter([]);
+    if (ageApplies) setAge('all');
+    setBayFilter([]);
+    setFacets((f) => ({ ...f, ...Object.fromEntries(facetsIn(view).map((id) => [id, []])) }));
+  };
+  const filterChips = <FilterChips filters={listFilters} onClearAll={clearListFilters} />;
   const either = (words: (string | null | undefined)[]) => words.filter(Boolean).join(' + ') || null;
   const viewSuggestion = suggestName([
     VIEWS.find((v) => v.id === view)?.label,
@@ -2481,19 +2509,19 @@ export function App() {
               {(view === 'kanban' || view === 'canvas') && shownBoard && (
                 <BoardBar board={shownBoard} project={shownBoard.project !== current ? shownBoard.project : null} layout={boardLayout} labels={todoStore.labels} onLayout={setView} onMenu={() => boardMenu()} onEdit={() => setBoardEdit({ board: shownBoard })} />
               )}
+              {(view === 'kanban' || view === 'canvas') && shownBoard && filterChips}
               {view === 'sessions' && (
                 <SessionsBar
                   sort={sessionSort}
                   onSort={setSessionSort}
                   group={sessionGroup}
+                  plainGroup={leftOnWorktrees ? 'worktree' : 'none'}
                   onGroup={setSessionGroup}
                   started={sessionStarted}
                   onStarted={setSessionStarted}
                   lines={sessionLines}
                   onLines={setSessionLines}
-                  // Offered while the view's project, or All projects, has none running: once one
-                  // runs, its session leads the list and its menu turns it off.
-                  startOrchestrator={freeOrchestrators.length > 0 ? { title: compassTitle(freeOrchestrators), run: () => setOrchestratorAsk({ scopes: freeOrchestrators }) } : null}
+                  filters={filterChips}
                 />
               )}
               {view === 'prs' && (
@@ -2508,16 +2536,20 @@ export function App() {
               )}
               {view === 'prs' && (
                 <ListTools label="How PRs are listed">
-                  <ListSeg label="Sort by" options={PR_SORTS} value={prSort} onPick={setPrSort} />
-                  <ListSeg label="Group by" options={PR_GROUPS} value={prGroup} onPick={setPrGroup} />
-                  <RowsSeg options={PR_ROWS} value={prLines} onPick={setPrLines} />
+                  <ViewMenu
+                    label="How PRs are listed"
+                    settings={[viewSetting('Sort', PR_SORTS, prSort, 'status', setPrSort, byWords), viewSetting('Group', PR_GROUPS, prGroup, 'none', setPrGroup, byWords), rowsSetting(PR_ROWS, prLines, setPrLines)]}
+                  />
+                  {filterChips}
                 </ListTools>
               )}
               {view === 'todo' && (
                 <ListTools label="How Todo is listed">
-                  <ListSeg label="Sort by" options={TODO_SORTS} value={todoSort} onPick={setTodoSort} />
-                  <ListSeg label="Group by" options={TODO_GROUPS} value={todoGroup} onPick={setTodoGroup} />
-                  <RowsSeg options={TODO_ROWS} value={todoLines} onPick={setTodoLines} />
+                  <ViewMenu
+                    label="How Todo is listed"
+                    settings={[viewSetting('Sort', TODO_SORTS, todoSort, 'status', setTodoSort, byWords), viewSetting('Group', TODO_GROUPS, todoGroup, 'none', setTodoGroup, byWords), rowsSetting(TODO_ROWS, todoLines, setTodoLines)]}
+                  />
+                  {filterChips}
                 </ListTools>
               )}
               {findShown && (
@@ -2533,6 +2565,9 @@ export function App() {
                   }}
                 />
               )}
+              {/* Offered while the view's project, or All projects, has none running: once one runs,
+                  its session leads the list and its menu turns it off. */}
+              {view === 'sessions' && freeOrchestrators.length > 0 && <OrchestratorButton title={compassTitle(freeOrchestrators)} run={() => setOrchestratorAsk({ scopes: freeOrchestrators })} />}
             </ListBar>
           )}
           {devices?.asks.map((a) => (

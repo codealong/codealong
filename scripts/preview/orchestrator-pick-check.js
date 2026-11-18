@@ -9,7 +9,7 @@
   window.__ORCHESTRATES__ = { project: '$first', off: true };
   var picked = null;
   say('orchestrator pick check: waiting for the compass');
-  until(function () { return q('.ca-listbar-start'); }, 20000, 'the compass in Sessions’ bar')
+  until(function () { return q('.ca-listbar-end'); }, 20000, 'the compass in Sessions’ bar')
     .then(function (button) {
       check('under All projects it offers All projects or a project', /All projects or one of your projects/.test(button.title), button.title);
       button.click();

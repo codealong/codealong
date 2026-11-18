@@ -102,6 +102,26 @@
 
   window.q = function (sel, root) { return (root || document).querySelector(sel); };
   window.all = function (sel, root) { return Array.prototype.slice.call((root || document).querySelectorAll(sel)); };
+  // A choice among a list's settings, behind the View button over the list (ListBar.tsx
+  // `ViewMenu`), by its words: `viewChoice('Two lines')`, or within one setting,
+  // `viewChoice('Repo', 'Group')`. The popover opens as it's asked for and stays up while choices
+  // are clicked, so until() can ask again: null while it isn't up yet.
+  window.viewChoice = function (words, setting) {
+    var pop = q('.ca-viewmenu-pop');
+    if (!pop) {
+      var btn = q('.ca-viewmenu-btn');
+      if (btn) btn.click();
+      return null;
+    }
+    var groups = all('[role="radiogroup"]', pop).filter(function (g) { return !setting || g.getAttribute('aria-label') === setting; });
+    var buttons = groups.reduce(function (a, g) { return a.concat(all('button', g)); }, []);
+    return buttons.filter(function (b) { return b.textContent.trim() === words; })[0] || null;
+  };
+  // A setting's choices behind View, by their words: `viewChoices('Group')`.
+  window.viewChoices = function (setting) {
+    var g = q('.ca-viewmenu-pop [role="radiogroup"][aria-label="' + setting + '"]');
+    return g ? all('button', g).map(function (b) { return b.textContent.trim(); }) : [];
+  };
   // Types into a field React controls: the value goes in under React, then the event it hears.
   window.type = function (el, text) {
     var proto = el instanceof HTMLTextAreaElement ? HTMLTextAreaElement.prototype : HTMLInputElement.prototype;

@@ -35,18 +35,123 @@
   scroll-padding-top: 31px;
 }
 
-/* A view's tools (`ListTools`): how Sessions is sorted, and how much a row says in Sessions, PRs
-   and Todo, groups of icon buttons. */
+/* A view's tools (`ListTools`): its View menu and the filters narrowing it. */
 .ca-listtools {
   display: flex;
+  flex: 0 1 auto;
   align-items: center;
   gap: var(--space-2);
+  min-width: 0;
 }
-.ca-listtools .ca-segctl button {
-  justify-content: center;
-  width: 28px;
-  height: 20px;
-  padding: 0;
+
+/* The View button (`ViewMenu`): quiet, as the ghost buttons are, naming after "View" whatever of
+   the view's settings isn't at its default, a shade quieter than the word. */
+.ca-viewmenu {
+  position: relative;
+  flex: none;
+}
+.ca-viewmenu-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  height: 24px;
+  padding: 0 6px;
+  border: 0;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--ink-2);
+  font: var(--type-meta-strong);
+  white-space: nowrap;
+  cursor: pointer;
+}
+.ca-viewmenu-btn:hover,
+.ca-viewmenu-btn[aria-expanded='true'] {
+  background: var(--surface-hover);
+  color: var(--ink);
+}
+.ca-viewmenu-btn:focus-visible {
+  outline: none;
+  box-shadow: var(--shadow-focus);
+}
+.ca-viewmenu-btn .ca-icon {
+  color: var(--ink-3);
+}
+.ca-viewmenu-said {
+  color: var(--ink-3);
+  font: var(--type-meta);
+}
+.ca-viewmenu-said::before {
+  content: '·';
+  margin-right: 5px;
+}
+/* Its popover: each setting's name, and its choices as words, in two columns. It stays up while
+   you change several. */
+.ca-viewmenu-pop {
+  display: grid;
+  grid-template-columns: auto auto;
+  align-items: center;
+  gap: var(--space-2) var(--space-3);
+  min-width: 0;
+  padding: var(--space-3);
+}
+.ca-viewmenu-row {
+  display: contents;
+}
+.ca-viewmenu-label {
+  color: var(--ink-2);
+  font: var(--type-meta);
+  white-space: nowrap;
+}
+.ca-viewmenu-seg {
+  justify-self: start;
+}
+.ca-viewmenu-seg button {
+  height: 22px;
+  padding: 0 10px;
+  white-space: nowrap;
+}
+
+/* The filters narrowing the list (`FilterChips`), drawn as the sidebar draws a filter that's on
+   (chips.css `.ca-side-chip.is-on`), so the two read as the same thing. */
+.ca-listfilters {
+  display: flex;
+  flex: 0 1 auto;
+  align-items: center;
+  gap: var(--space-1);
+  min-width: 0;
+  overflow: hidden;
+}
+.ca-listfilter.ca-chip {
+  gap: var(--space-1);
+  height: 22px;
+  padding: 0 6px 0 9px;
+  border: 1px solid var(--ink);
+  border-radius: var(--radius-pill);
+  background: var(--surface);
+  color: var(--ink);
+  font: var(--type-meta-strong);
+}
+.ca-listfilter > button {
+  display: inline-flex;
+  padding: 1px;
+  border: 0;
+  border-radius: 2px;
+  background: transparent;
+  color: var(--ink-3);
+  cursor: pointer;
+}
+.ca-listfilter > button:hover {
+  color: var(--ink);
+}
+.ca-listfilters-clear {
+  flex: none;
+  margin-left: var(--space-1);
+  font: var(--type-meta);
+}
+
+/* What the strip does rather than how it shows the list (start an orchestrator), at its end. */
+.ca-listbar-end {
+  margin-left: auto;
 }
 
 /* The find takes the rest of the strip, after the view's tools. Its field is the conversation

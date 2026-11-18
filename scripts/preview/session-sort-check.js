@@ -1,9 +1,9 @@
 // Checks the Sessions list (SessionsView.tsx, App.tsx): Pinned first, and a
 // drag still reorders them; the rest under the headings the other views have, by status or by
-// the day they started. Sort by, icon buttons in the bar over the list, switches between status
-// and start and remembers it. The bar stays at the top as the list scrolls, inside the board's
-// edge; its tools are each
-// view's own, so PRs has no Group by; the sidebar has no Sort by.
+// the day they started. Sort, behind View in the bar over the list (ListBar.tsx `ViewMenu`),
+// switches between status and start and remembers it, and View says so while it's off its
+// default. The bar stays at the top as the list scrolls, inside the board's edge; its tools are
+// each view's own, so PRs has its own Group; the sidebar has no Sort or Rows.
 //   scripts/preview.sh sessions '' scripts/preview/session-sort-check.js
 // It pins three of the shown project's latest sessions itself, in place of yours.
 (function () {
@@ -28,9 +28,8 @@
   };
   var rows = function () { return Array.prototype.slice.call(document.querySelectorAll('.ca-sessionlist .ca-lane')); };
   var ids = function () { return rows().map(function (r) { return r.id; }).join(','); };
-  var sortButton = function (label) {
-    return document.querySelector('.ca-listtools button[aria-label="' + label + '"]');
-  };
+  // Sort's choices, behind View over the list (prelude.js `viewChoice`).
+  var sortButton = function (label) { return viewChoice(label, 'Sort'); };
   // Each heading's words without its count, in the list's order.
   var headings = function () {
     return Array.prototype.map.call(document.querySelectorAll('.ca-sessionlist .ca-bay'), function (h) { return h.querySelector('span').textContent; });
@@ -73,9 +72,8 @@
         check('a row scrolled to shows under the bar, not behind it', second.getBoundingClientRect().top >= bar.getBoundingClientRect().bottom - 1, 'row ' + Math.round(second.getBoundingClientRect().top) + ', bar ends ' + Math.round(bar.getBoundingClientRect().bottom));
       }
       board.scrollTop = 0;
-      var sortIcons = Array.prototype.map.call(document.querySelectorAll('.ca-listtools button'), function (b) { return !!b.querySelector('svg') && !b.textContent.trim() && !!b.getAttribute('aria-label') && !!b.title; });
-      // Sort by's two, Group by's three, Started sessions' two and Rows' two.
-      check('the bar’s buttons are icons, each named and with a tooltip', sortIcons.length === 9 && sortIcons.every(Boolean), sortIcons.join(','));
+      var view = document.querySelector('.ca-listtools .ca-viewmenu-btn');
+      check('the bar starts with View, saying nothing more while all is as it starts', !!view && view.textContent.trim() === 'View' && !!view.title, view ? view.textContent : 'no View');
       check('headings by status, Pinned first, as the other views head them', headings()[0] === 'Pinned' && inOrderOf(headings(), STATUS_HEADS), headings().join(' | '));
       var counts = Array.prototype.map.call(document.querySelectorAll('.ca-sessionlist .ca-bayblock'), function (b) { return Number(b.querySelector('.ca-bay-count').textContent) === b.querySelectorAll('.ca-lane').length; });
       check('each heading counts the rows under it', counts.length > 1 && counts.every(Boolean));
@@ -109,13 +107,22 @@
       }, 2000, 'the list showing the dragged pin last');
     })
     .then(function () {
+      return until(function () { return sortButton('Status'); }, 2000, 'Sort behind View');
+    })
+    .then(function () {
       var before = ids();
+      var settings = Array.prototype.map.call(document.querySelectorAll('.ca-viewmenu-pop .ca-viewmenu-label'), function (l) { return l.textContent; });
+      check('View has Sessions’ four settings', settings.join('|') === 'Sort|Group|Started sessions|Rows', settings.join('|'));
+      var titled = Array.prototype.every.call(document.querySelectorAll('.ca-viewmenu-pop button'), function (b) { return !!b.textContent.trim() && !!b.title; });
+      check('each choice says its words and has a tooltip', titled);
       check('sorted by status to begin with', sortButton('Status') && sortButton('Status').classList.contains('is-on'));
       sortButton('Started').click();
       return until(function () { return ids() !== before; }, 2000).then(function () {
         check('Started reorders the list', true);
         check('under the days they started', inOrderOf(headings(), DAY_HEADS), headings().join(' | '));
         check('and is remembered', localStorage.getItem('codealong.sessionSort') === 'started');
+        var said = document.querySelector('.ca-viewmenu-said');
+        check('and View says so', !!said && said.textContent === 'by started', said ? said.textContent : 'nothing');
         var nowPinned = rows().filter(function (r) { return r.classList.contains('is-pinned'); });
         check('pinned rows stay first', nowPinned.every(function (r, i) { return rows()[i] === r; }));
         sortButton('Status').click();
@@ -127,9 +134,11 @@
       return until(function () { return !document.querySelector('.ca-sessionlist'); }, 2000);
     })
     .then(function () {
-      // Its own Group by, apart from Sessions': grouped there, PRs starts with none.
-      var group = document.querySelector('.ca-listtools [aria-label="Group by"] [aria-checked="true"]');
-      check('PRs has its own tools in the bar, its Group by its own', !!document.querySelector('.ca-listtools') && !!group && group.getAttribute('aria-label') === 'No groups', group ? group.getAttribute('aria-label') : 'no Group by');
+      return until(function () { return viewChoice('No groups', 'Group'); }, 2000, 'PRs’ View');
+    })
+    .then(function (none) {
+      // Its own Group, apart from Sessions': grouped there, PRs starts with none.
+      check('PRs has its own View in the bar, its Group its own', none.getAttribute('aria-checked') === 'true');
     })
     .then(done)
     .catch(stopped);

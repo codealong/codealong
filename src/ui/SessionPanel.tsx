@@ -64,6 +64,8 @@ import { errorText } from '../report';
 export interface Queue {
   /** The next one, by its title: a row's session, or a pill on the bar. */
   next: Pick<Session, 'title'> | null;
+  /** How many wait on you after this one, the next among them. */
+  left?: number;
   onNext: () => void;
   /** False when the session shown isn't itself one of those waiting (it runs, say): the strip
    *  still goes on to them, but sending doesn't go on. */
@@ -133,8 +135,15 @@ export interface SessionPanelProps extends Omit<SessionHeaderProps, 'seenAbove' 
  *  something done to this one went). It keeps to one line beside the buttons, which keep their
  *  place, cut short where they leave it too little room and all of it under the pointer, over the
  *  strip and down from it (primitives.tsx `OneLine`). */
-function StripNote({ notice }: { notice: Notice | null | undefined }) {
-  return <OneLine className={cx('ca-reply-queue-note', notice?.error && 'is-error')} role="status" down text={notice?.text ?? ''} />;
+function StripNote({ notice, queue }: { notice: Notice | null | undefined; queue?: Queue }) {
+  return <OneLine className={cx('ca-reply-queue-note', notice?.error && 'is-error')} role="status" down text={notice?.text ?? queueWords(queue)} />;
+}
+
+/** What the strip says while it has nothing else to: how many wait on you after the session
+ *  shown, and which goes next, so where Next (⌘]) goes reads without the pointer on it. */
+export function queueWords(queue: Queue | undefined): string {
+  if (!queue?.next || !queue.left) return '';
+  return `${queue.left} ${queue.waiting === false ? '' : 'more '}waiting · next: ${queue.next.title}`;
 }
 
 /** A Snooze menu's times with the chord for each, as a tooltip says them: `⌃⌘1 for 15 minutes`. */
@@ -391,7 +400,7 @@ export function QueueStrip({ queue, notice, hotkeys, session, actions, onSeen, b
   );
   return (
     <div ref={stripRef} className={cx('ca-reply-queue', 'has-keys', hotkeys.titleBar && 'is-titlebar')} data-tauri-drag-region={hotkeys.titleBar ? 'deep' : undefined}>
-      <StripNote notice={notice} />
+      <StripNote notice={notice} queue={queue} />
       {buttons}
     </div>
   );

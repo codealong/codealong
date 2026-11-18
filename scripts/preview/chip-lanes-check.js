@@ -114,7 +114,8 @@
     'Pull requests': { rows: '.ca-prrow', key: 'codealong.prRows' },
     Todos: { rows: '.ca-todorow', key: 'codealong.todoRows' },
   };
-  var rowsButton = function (label) { return document.querySelector('.ca-listtools button[aria-label="' + label + '"]'); };
+  // Rows is behind the View button over the list (prelude.js `viewChoice`).
+  var rowsButton = function (label) { return viewChoice(label, 'Rows'); };
   // No line between a row's parts: its status, what it is and its age share one ground.
   var ruled = function (rows) {
     return rows.filter(function (r) {
@@ -221,9 +222,12 @@
   };
   var rows = function (name) {
     var list = rowsOf(name);
-    oneLine(name, list());
-    report('one line');
-    return Promise.resolve(rightClicks())
+    return until(function () { return rowsButton('One line'); }, 3000, 'Rows behind View')
+      .then(function () {
+        oneLine(name, list());
+        report('one line');
+        return rightClicks();
+      })
       .then(function () {
         rowsButton('Two lines').click();
         return until(function () { return list().length > 0 && list().every(function (r) { return r.classList.contains('is-nested') || !r.classList.contains('is-slim'); }); }, 3000, 'two lines');
@@ -234,7 +238,8 @@
         report('two lines');
         rowsButton('One line').click();
         return until(function () { return localStorage.getItem(LISTS[name].key) === 'one'; }, 3000);
-      });
+      })
+      .then(function () { q('.ca-viewmenu-btn').click(); });
   };
 
   say('chip lanes check: waiting for the list');
@@ -242,7 +247,7 @@
     .then(function () { return wait(800); })
     .then(function () {
       var label = document.querySelector('[role="listbox"]').getAttribute('aria-label');
-      check('Rows shows in Sessions, PRs and Todo', !!rowsButton('One line') === !!LISTS[label], label);
+      check('View, with Rows, shows in Sessions, PRs and Todo', !!q('.ca-viewmenu-btn') === !!LISTS[label], label);
       if (LISTS[label]) return rows(label);
       report(label);
       return rightClicks();

@@ -1,5 +1,5 @@
-// Checks Group by in PRs and Todo (PrsView.tsx, TodoView.tsx; groups.ts, Groups.tsx): its
-// buttons in the bar over the list, remembered for each list. Grouped by worktree, every row is
+// Checks Group in PRs and Todo (PrsView.tsx, TodoView.tsx; groups.ts, Groups.tsx): its
+// choices behind View in the bar over the list (ListBar.tsx `ViewMenu`), remembered for each list. Grouped by worktree, every row is
 // under a heading, a worktree's or the one over rows in no worktree, last in its section; a row
 // leaves out the worktree its heading names; a worktree's heading isn't a row to select, and a
 // press on it shows the worktree's panel in place of the one beside the list, with the way back.
@@ -18,7 +18,7 @@
   var ROW = prs ? '.ca-prrow' : '.ca-todorow';
   localStorage.removeItem(KEY);
 
-  var button = function (label) { return q('.ca-listtools [role="radiogroup"][aria-label="Group by"] button[aria-label="' + label + '"]'); };
+  var button = function (label) { return viewChoice(label, 'Group'); };
   var on = function (label) { var b = button(label); return !!b && b.getAttribute('aria-checked') === 'true'; };
   var list = function () { return q('.ca-board-list'); };
   var rows = function () { return all(ROW, list()); };
@@ -33,12 +33,12 @@
   var foldCount = function () { var b = all('.ca-bayblock', list()).filter(function (x) { return /^(Merged & closed|Done)/i.test((q('.ca-bay', x) || {}).textContent || ''); })[0]; return b ? (q('.ca-bay-count', b) || {}).textContent : null; };
   var before = null;
   var countBefore = null;
-  until(function () { return button('No groups') && rows().length > 1; }, 20000, 'the list, with Group by in its bar')
+  until(function () { return button('No groups') && rows().length > 1; }, 20000, 'the list, with Group behind View in its bar')
     .then(function () {
       before = glyphs();
       countBefore = foldCount();
-      var labels = all('.ca-listtools [role="radiogroup"][aria-label="Group by"] button').map(function (b) { return b.getAttribute('aria-label'); });
-      check('Group by has its buttons', labels.join('|') === 'No groups|Worktree|Repo', labels.join('|'));
+      var labels = viewChoices('Group');
+      check('Group has its choices', labels.join('|') === 'No groups|Worktree|Repo', labels.join('|'));
       check('the list starts with no groups', on('No groups') && heads().length === 0);
       button('Worktree').click();
       return until(function () { return heads().length > 0; }, 3000, 'the worktrees’ headings');

@@ -14,12 +14,6 @@
   color: var(--alert);
 }
 
-/* The compass after Sessions' tools, there while no orchestrator runs for the view: a button with
-   its word, beside the groups of icon buttons rather than one of them. */
-.ca-listbar .ca-listbar-start {
-  height: 20px;
-}
-
 /* Under All projects, what it keeps watch over, above what it does. */
 .ca-startorch-scope {
   margin-bottom: var(--space-3);
