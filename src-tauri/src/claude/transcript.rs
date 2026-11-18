@@ -38,6 +38,9 @@ pub struct TailState {
     pub said_at: Option<i64>,
     /// What replaying Claude Code's queue carries from line to line (`hold_line`).
     pub holding: Holding,
+    /// Whether a prompt in what was read said which folder the session is in (`TranscriptInfo::cwd`):
+    /// a first read looks back for the folder only where none did (`prompt_before`).
+    pub cwd_said: bool,
 }
 
 /// What replaying what Claude Code holds carries from line to line (`hold_line`).
@@ -363,9 +366,7 @@ pub fn parse_transcript(path: &Path, mtime: i64, prev: Option<Parsed>) -> Option
             (head, info, TailState { said_at, ..TailState::default() }, tail)
         }
     };
-    // Only whole lines are read; a line still being written is read next time. A first read
-    // takes the folder from the turns its tail starts, else from before it, else the head's.
-    let head_cwd = if fresh { std::mem::take(&mut info.cwd) } else { String::new() };
+    // Only whole lines are read; a line still being written is read next time.
     apply_tail(&mut info, &mut state, &tail.text());
     // A name is written again only by a process that took it up, so it can be far behind by now.
     if fresh && info.title.is_none() {
@@ -374,12 +375,14 @@ pub fn parse_transcript(path: &Path, mtime: i64, prev: Option<Parsed>) -> Option
     // One turn can write far more than the tail holds, so the prompt that started it may be
     // further back, and so may the latest turn's folder, which a message Codealong resumed it
     // with (not your prompt) can have moved since. A first read looks back for each once;
-    // later reads carry them forward.
-    if fresh && (info.last_prompt_at.is_none() || info.cwd.is_empty()) {
+    // later reads carry them forward. Read with the head's folder for what its tail's commands
+    // ran in, it takes the folder from the turns its tail starts, else from before it, else
+    // keeps the head's.
+    if fresh && (info.last_prompt_at.is_none() || !state.cwd_said) {
         let (at, cwd) = prompt_before(path, tail.start);
         info.last_prompt_at = info.last_prompt_at.or(at);
-        if info.cwd.is_empty() {
-            info.cwd = cwd.unwrap_or(head_cwd);
+        if let Some(cwd) = cwd.filter(|_| !state.cwd_said) {
+            info.cwd = cwd;
         }
     }
     // So can whatever else started it (another session's message, a wakeup).
@@ -734,6 +737,7 @@ pub fn apply_tail(info: &mut TranscriptInfo, state: &mut TailState, tail: &str) 
                     }
                     if let Some(cwd) = str_of(&v, "cwd").filter(|c| !c.is_empty()) {
                         info.cwd = cwd;
+                        state.cwd_said = true;
                     }
                 }
             }
@@ -745,6 +749,7 @@ pub fn apply_tail(info: &mut TranscriptInfo, state: &mut TailState, tail: &str) 
                 }
                 if let Some(cwd) = str_of(&v, "cwd").filter(|c| !c.is_empty()) {
                     info.cwd = cwd;
+                    state.cwd_said = true;
                 }
             }
             _ => {}
@@ -2537,6 +2542,12 @@ pub(super) mod tests {
         let home = serde_json::json!({ "type": "user", "timestamp": "2026-10-21T11:00:00.000Z", "cwd": "/Users/me/projects/sparkhq/spark-portal", "origin": { "kind": "human" }, "message": { "content": crate::send::by_codealong("Your PR merged.") } });
         std::fs::write(&path, format!("{HEAD}{yours}\n{padding}\n{home}\n")).unwrap();
         assert_eq!(parse_transcript(&path, 4, None).unwrap().1.cwd, "/Users/me/projects/sparkhq/spark-portal");
+        // A command in the tail that names no folder of its own runs where the session was as it
+        // was read, as a later read has it.
+        let call = serde_json::json!({ "type": "assistant", "timestamp": "2026-10-21T10:30:00.000Z", "message": { "stop_reason": "tool_use", "content": [{ "type": "tool_use", "id": "t1", "name": "Bash", "input": { "command": "cd ../spark-admin && cargo test" } }] } });
+        std::fs::write(&path, format!("{HEAD}{yours}\n{padding}\n{call}\n")).unwrap();
+        let (_, info, _) = parse_transcript(&path, 5, None).unwrap();
+        assert!(info.work.iter().any(|w| w == "/Users/me/projects/sparkhq/spark-admin"), "{:?}", info.work);
         std::fs::remove_dir_all(dir).unwrap();
     }
 
