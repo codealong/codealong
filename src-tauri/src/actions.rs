@@ -1526,16 +1526,17 @@ fn close(engine: &Handle, c: &Call) -> Result<Value, String> {
 /// without ending more than it (`idle::ending`), one that holds a worktree its harness made for
 /// it by its harness's own exit, which cleans that up, and is marked seen and archived, so it leaves
 /// every list but Archived. Work under way holds it unless `stop` ends that too: then nothing is
-/// done, and the answer's `done` is false, with what's under way. Says what happened, with the
-/// time of the board that shows it, as `archive` does. From the command it goes by what an agent
-/// may mark done (`done_for_agent`).
+/// done, and the answer's `done` is false, with what's under way. Its helpers go with it, but
+/// for those whose work isn't over, which `end_helpers` ends too (`finish_helpers`). Says what
+/// happened, with the time of the board that shows it, as `archive` does. From the command it
+/// goes by what an agent may mark done (`done_for_agent`).
 fn done(engine: &Handle, c: &Call) -> Result<Value, String> {
     let p: params::Done = c.read()?;
     let key = c.session()?;
     if let From::Command(by) = c.from {
         return done_for_agent(engine, c, by.as_deref(), key, p.archive);
     }
-    finish(engine, c, key, p.stop, None)
+    finish(engine, c, key, p.stop, p.end_helpers, None)
 }
 
 /// Mark as done from the command (agentdone.rs): its own session is ended once its turn ends and
@@ -1559,15 +1560,15 @@ fn done_for_agent(engine: &Handle, c: &Call, by: Option<&str>, key: &str, archiv
         }
         Whose::Started => {
             let mine = by.and_then(|k| board.session(k)).map(|(_, me)| me.title.clone()).unwrap_or_else(|| "A session".into());
-            finish(engine, c, key, false, Some(&mine))
+            finish(engine, c, key, false, false, Some(&mine))
         }
     }
 }
 
 /// Ends `key` as far as `idle::ending` says, marks it seen and archives it (`done`), and its
-/// helpers with it (`finish_helpers`). `by` names the session that asked for it from the
-/// command, which the message says.
-fn finish(engine: &Handle, c: &Call, key: &str, stop: bool, by: Option<&str>) -> Result<Value, String> {
+/// helpers with it (`finish_helpers`, those whose work isn't over with `end_helpers`). `by` names
+/// the session that asked for it from the command, which the message says.
+fn finish(engine: &Handle, c: &Call, key: &str, stop: bool, end_helpers: bool, by: Option<&str>) -> Result<Value, String> {
     let cfg = cfg()?;
     let board = engine.board();
     let (s, account) = harness::find(&board, &cfg, key).map_err(words)?;
@@ -1587,7 +1588,7 @@ fn finish(engine: &Handle, c: &Call, key: &str, stop: bool, by: Option<&str>) ->
     // question up, or the session, where it was called off as Codealong waited. Its helpers'
     // work is done either way.
     if exits && crate::idle::exit_noted(key) {
-        let (helped, _) = finish_helpers(engine, &board, &cfg, key, stop, &who);
+        let (helped, _) = finish_helpers(engine, &board, &cfg, key, end_helpers, &who);
         let message = [note, helped].into_iter().flatten().collect::<Vec<_>>().join(" ");
         return to_value(api::Done { done: false, message, noted: true });
     }
@@ -1617,7 +1618,7 @@ fn finish(engine: &Handle, c: &Call, key: &str, stop: bool, by: Option<&str>) ->
     if let Some((words, _)) = &worktree {
         message = format!("{message} {words}");
     }
-    let (helped, later) = finish_helpers(engine, &board, &cfg, key, stop, &who);
+    let (helped, later) = finish_helpers(engine, &board, &cfg, key, end_helpers, &who);
     let at = later.or(at);
     if let Some(words) = &helped {
         message = format!("{message} {words}");
@@ -1632,14 +1633,20 @@ fn finish(engine: &Handle, c: &Call, key: &str, stop: bool, by: Option<&str>) ->
 }
 
 /// Marks done the helpers of `key`, a session just marked done: the work they did was for it.
-/// Each ends as Mark as done ends a session and is archived, but one at work (or waiting on its
-/// turn to end) is left to finish unless `stop` ends that too, as it did for `key`. What to say of
-/// them, and the time of the board that shows the last one archived. `who` marked `key` done.
-fn finish_helpers(engine: &Handle, board: &crate::model::Board, cfg: &config::Config, key: &str, stop: bool, who: &str) -> (Option<String>, Option<i64>) {
+/// Each whose work is over ends as Mark as done ends a session and is archived. One whose work
+/// isn't (`Session::unfinished`: at work, or waiting on you) ends too with `end_unfinished`, its
+/// work stopped; else it's made a session of your own (`Handle::make_own`), in your lists, its
+/// turns waiting on you, rather than left working for a session that's gone. The windows ask which
+/// first (menus.ts `doneHelpers`); a request that doesn't say, from the command or an older
+/// device, keeps it. What to say of them, and the time of the board that shows the last one
+/// archived or made yours. `who` marked `key` done.
+fn finish_helpers(engine: &Handle, board: &crate::model::Board, cfg: &config::Config, key: &str, end_unfinished: bool, who: &str) -> (Option<String>, Option<i64>) {
+    let (ending, kept) = helpers_leaving(board, key, end_unfinished);
     let (mut done, mut left, mut at) = (0, 0, None);
-    for h in crate::board::helpers_of(&board.lanes, key) {
+    for h in ending {
         let Some(account) = cfg.accounts.iter().find(|a| a.name == h.account) else { continue };
-        match crate::idle::ending(board, h, stop) {
+        // One whose work isn't over gets here only to be ended: its work stops too.
+        match crate::idle::ending(board, h, h.unfinished()) {
             Ok(ends) => {
                 // What didn't go for a helper is left unsaid: it's archived either way, and
                 // its own panel says how it stands.
@@ -1661,25 +1668,48 @@ fn finish_helpers(engine: &Handle, board: &crate::model::Board, cfg: &config::Co
             Err(_) => left += 1,
         }
     }
-    (helpers_done_words(done, left), at)
+    let made_own = kept.len();
+    if made_own > 0 {
+        at = engine.make_own(kept).or(at);
+    }
+    (helpers_done_words(done, made_own, left), at)
 }
 
-/// What Mark as done says of a session's helpers: the ones marked done with it, and the ones it
-/// left at work.
-fn helpers_done_words(done: usize, left: usize) -> Option<String> {
-    let done_words = match done {
-        0 => None,
-        1 => Some("Its helper is done too".to_string()),
-        n => Some(format!("Its {n} helpers are done too")),
-    };
-    match (done_words, left) {
-        (None, 0) => None,
-        (Some(d), 0) => Some(format!("{d}.")),
-        (Some(d), 1) => Some(format!("{d}; one still at work is left to finish.")),
-        (Some(d), n) => Some(format!("{d}; {n} still at work are left to finish.")),
-        (None, 1) => Some("Its helper still at work is left to finish.".into()),
-        (None, n) => Some(format!("Its {n} helpers still at work are left to finish.")),
+/// Which of `key`'s helpers end with it as it's marked done, and which are made yours by their
+/// keys (`finish_helpers`): one whose work isn't over (`Session::unfinished`) is made yours,
+/// unless `end_unfinished`.
+fn helpers_leaving<'a>(board: &'a crate::model::Board, key: &str, end_unfinished: bool) -> (Vec<&'a crate::model::Session>, Vec<String>) {
+    let (kept, ending): (Vec<_>, Vec<_>) = crate::board::helpers_of(&board.lanes, key).into_iter().partition(|h| h.unfinished() && !end_unfinished);
+    (ending, kept.into_iter().map(|h| h.key.clone()).collect())
+}
+
+/// What Mark as done says of a session's helpers: the ones marked done with it, the ones whose
+/// work wasn't over made your own, and the ones left to finish (one whose harness asks before it
+/// exits, or that went back to work meanwhile).
+fn helpers_done_words(done: usize, made_own: usize, left: usize) -> Option<String> {
+    let mut said: Vec<String> = Vec::new();
+    match done {
+        0 => {}
+        1 => said.push("Its helper is done too".into()),
+        n => said.push(format!("Its {n} helpers are done too")),
     }
+    let first = said.is_empty();
+    match (made_own, first) {
+        (0, _) => {}
+        (1, true) => said.push("Its unfinished helper is a session of your own now".into()),
+        (n, true) => said.push(format!("Its {n} unfinished helpers are sessions of your own now")),
+        (1, false) => said.push("one unfinished is a session of your own now".into()),
+        (n, false) => said.push(format!("{n} unfinished are sessions of your own now")),
+    }
+    let first = said.is_empty();
+    match (left, first) {
+        (0, _) => {}
+        (1, true) => said.push("Its helper is left to finish".into()),
+        (n, true) => said.push(format!("Its {n} helpers are left to finish")),
+        (1, false) => said.push("one is left to finish".into()),
+        (n, false) => said.push(format!("{n} are left to finish")),
+    }
+    (!said.is_empty()).then(|| format!("{}.", said.join("; ")))
 }
 
 /// Ends a session as `ends` says: what ended, and what's worth saying besides (why nothing did,
@@ -2663,14 +2693,42 @@ mod tests {
     }
 
     #[test]
+    fn mark_as_done_ends_helpers_whose_work_is_over_and_makes_the_rest_yours_unless_told() {
+        use crate::model::{Board, Helper, Session, Status};
+        let helper = |key: &str, status: Status, live: bool| Session { status, live, helper: Some(Helper { parent: Some("claude:c:boss".into()), report: true, ..Default::default() }), ..crate::fixtures::session(key) };
+        let sessions = vec![
+            crate::fixtures::session("claude:c:boss"),
+            helper("claude:c:working", Status::Working, true),
+            helper("claude:c:asks", Status::Needs, false),
+            helper("claude:c:failed", Status::Error, true),
+            Session { background: Some("npm test".into()), ..helper("claude:c:running", Status::Idle, true) },
+            helper("claude:c:done", Status::Idle, true),
+            // A turn that ended when its process did is over, whatever it was last seen doing.
+            helper("claude:c:gone", Status::Working, false),
+            Session { archived: true, ..helper("claude:c:archived", Status::Working, true) },
+            Session { helper: Some(Helper { parent: Some("claude:c:other".into()), ..Default::default() }), ..helper("claude:c:others", Status::Working, true) },
+        ];
+        let board = Board { lanes: vec![crate::fixtures::lane("/r/app", sessions)], ..Board::default() };
+        let keys = |list: Vec<&Session>| list.into_iter().map(|s| s.key.clone()).collect::<Vec<_>>();
+        let (ending, kept) = helpers_leaving(&board, "claude:c:boss", false);
+        assert_eq!(keys(ending), ["claude:c:done", "claude:c:gone"]);
+        assert_eq!(kept, ["claude:c:working", "claude:c:asks", "claude:c:failed", "claude:c:running"]);
+        let (ending, kept) = helpers_leaving(&board, "claude:c:boss", true);
+        assert_eq!(keys(ending), ["claude:c:working", "claude:c:asks", "claude:c:failed", "claude:c:running", "claude:c:done", "claude:c:gone"]);
+        assert!(kept.is_empty());
+    }
+
+    #[test]
     fn mark_as_done_says_what_became_of_its_helpers() {
-        assert_eq!(helpers_done_words(0, 0), None);
-        assert_eq!(helpers_done_words(1, 0).as_deref(), Some("Its helper is done too."));
-        assert_eq!(helpers_done_words(3, 0).as_deref(), Some("Its 3 helpers are done too."));
-        assert_eq!(helpers_done_words(2, 1).as_deref(), Some("Its 2 helpers are done too; one still at work is left to finish."));
-        assert_eq!(helpers_done_words(1, 2).as_deref(), Some("Its helper is done too; 2 still at work are left to finish."));
-        assert_eq!(helpers_done_words(0, 1).as_deref(), Some("Its helper still at work is left to finish."));
-        assert_eq!(helpers_done_words(0, 2).as_deref(), Some("Its 2 helpers still at work are left to finish."));
+        assert_eq!(helpers_done_words(0, 0, 0), None);
+        assert_eq!(helpers_done_words(1, 0, 0).as_deref(), Some("Its helper is done too."));
+        assert_eq!(helpers_done_words(3, 0, 0).as_deref(), Some("Its 3 helpers are done too."));
+        assert_eq!(helpers_done_words(2, 0, 1).as_deref(), Some("Its 2 helpers are done too; one is left to finish."));
+        assert_eq!(helpers_done_words(0, 0, 2).as_deref(), Some("Its 2 helpers are left to finish."));
+        // Those whose work wasn't over, kept as yours.
+        assert_eq!(helpers_done_words(0, 1, 0).as_deref(), Some("Its unfinished helper is a session of your own now."));
+        assert_eq!(helpers_done_words(0, 2, 1).as_deref(), Some("Its 2 unfinished helpers are sessions of your own now; one is left to finish."));
+        assert_eq!(helpers_done_words(1, 3, 0).as_deref(), Some("Its helper is done too; 3 unfinished are sessions of your own now."));
     }
 
     #[test]

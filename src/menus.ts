@@ -21,7 +21,7 @@ import { count } from './format';
 import { folderMenu, openInMenu, opensInEditor, terminalTarget, type AppIcons, type Apps } from './editors';
 import { EDITS, HARNESS_WORD, MOVES_ACCOUNTS, MOVES_FOLDERS, renames } from './harness';
 import { chromeLabel, openLabel } from './open';
-import { asideable, closable, endedOnApiError, endedSignedOut, exitsItsOwnWay, seenable, stoppable, unreadable, waitsInBackground } from './lanes';
+import { asideable, closable, endedOnApiError, endedSignedOut, exitsItsOwnWay, seenable, stoppable, unfinished, unreadable, waitsInBackground } from './lanes';
 import { chordPressed, QUEUE_CHORDS, type Key } from './queue';
 import { reviewsSnoozeMenu, SNOOZE_CHORDS, snoozeChordIndex, snoozeChorded as timeChorded, snoozeMenu, suggestedSnooze } from './snooze';
 import { rememberResumed, resumeAccount, resumedIn } from './start';
@@ -205,9 +205,47 @@ export interface SessionCan {
    *  away since you asked, so a refused merge it brings back is said where the window says things
    *  too. */
   mergeDone?: { prs: readonly PrItem[]; ask: (ask: MergeDoneAsk) => boolean };
+  /** This window's dialog that asks, as a session is marked done, what becomes of its helpers
+   *  whose work isn't over (ui/DoneHelpers.tsx), and the worktrees it finds them in. Without it
+   *  they're made sessions of your own without asking, as the engine does when it isn't told
+   *  (actions.rs `finish_helpers`). */
+  doneHelpers?: DoneHelpersCan;
   /** Shows the main window's keys beside the actions they run (`KEYS`), or its chords (`CHORDS`)
    *  where letters alone do nothing (Sessions). */
   keys?: boolean | 'chords';
+}
+
+/** A window's part in asking what becomes of helpers as their session is marked done
+ *  (`SessionCan.doneHelpers`): the board's worktrees, and its dialog. */
+export interface DoneHelpersCan {
+  lanes: readonly Lane[];
+  ask: (ask: DoneHelpersAsk) => void;
+}
+
+/** What the dialog asks about: the sessions being marked done, their helpers whose work isn't
+ *  over, and what comes of the answer (`end`: they end with them, their work stopped; else
+ *  they're made sessions of your own). Cancelled, nothing is done. */
+export interface DoneHelpersAsk {
+  sessions: Session[];
+  helpers: Session[];
+  then: (end: boolean) => void;
+}
+
+/** The helpers of the sessions `keys` names whose work isn't over (lanes.ts `unfinished`), in
+ *  `lanes`, each once (not where it visits) and not one marked done with them: at work, or
+ *  waiting on you. Mark as done asks about
+ *  these, and about no others: a helper whose work is over ends with its session, as the review
+ *  it did is done. The engine sorts them so too (actions.rs `helpers_leaving`). */
+export function unfinishedHelpers(lanes: readonly Lane[], keys: readonly string[]): Session[] {
+  return lanes.flatMap((l) => l.sessions).filter((h) => !h.visitor && !h.archived && !keys.includes(h.key) && h.helper?.parent != null && keys.includes(h.helper.parent) && unfinished(h));
+}
+
+/** Marks done as `go` does, once a window has asked what becomes of the helpers of `sessions`
+ *  whose work isn't over, where there are any and the window has its dialog (`doneHelpers`). */
+function askingOfHelpers(sessions: Session[], doneHelpers: DoneHelpersCan | undefined, go: (endHelpers: boolean) => void) {
+  const helpers = doneHelpers ? unfinishedHelpers(doneHelpers.lanes, sessions.map((s) => s.key)) : [];
+  if (doneHelpers && helpers.length > 0) return doneHelpers.ask({ sessions, helpers, then: go });
+  go(false);
 }
 
 /** What a window's Merge and done… dialog asks about: the session, the PR it's the primary
@@ -218,6 +256,9 @@ export interface MergeDoneAsk {
   pr: PrItem;
   /** Brought back after GitHub refused the merge: the commit as it was written, and why. */
   refused?: { commit: MergeForm; why: string };
+  /** Its helpers whose work isn't over (`unfinishedHelpers`), where the window can find them:
+   *  the dialog offers to end them too, as Mark as done asks (`doneHelpers`). */
+  helpers?: Session[];
   /** Confirmed, and the dialog has gone: `merging` merges the PR and has the engine mark the
    *  session done with it (ahead.ts `mergeDoneAhead`), `merged` what to say once it has, the
    *  commit as written for the dialog to come back with where GitHub refuses it. */
@@ -447,14 +488,16 @@ export function sessionActions(lane: Lane, s: Session, can: SessionCan): Session
   const done = () => {
     const stop = held(s.key, Date.now());
     if (!stop && s.status === 'working' && !waitsInBackground(s)) return holds(`“${s.title}” is still working.`);
-    can.left?.('done');
-    busy(`Wrapping up ${s.title}…`, doneAhead(s.key, stop))
-      .then((r) => {
-        if (!r.done) holds(r.message);
-        else if (can.undoDone) can.undoDone(r.message);
-        else if (r.noted) report.info(r.message);
-      })
-      .catch((e: unknown) => report.error(errorText(e)));
+    askingOfHelpers([s], can.doneHelpers, (endHelpers) => {
+      can.left?.('done');
+      busy(`Wrapping up ${s.title}…`, doneAhead(s.key, stop, undefined, endHelpers))
+        .then((r) => {
+          if (!r.done) holds(r.message);
+          else if (can.undoDone) can.undoDone(r.message);
+          else if (r.noted) report.info(r.message);
+        })
+        .catch((e: unknown) => report.error(errorText(e)));
+    });
   };
   // Merged from the window's dialog and marked done with it, ahead of GitHub: the session has left
   // as the dialog goes, and the window goes on, as from Mark as done. How it went is said as Mark
@@ -462,7 +505,10 @@ export function sessionActions(lane: Lane, s: Session, can: SessionCan): Session
   // refuses brings the dialog back with the commit as it was written and why (MergeDone.tsx
   // `useMergeDone` says where), the session as it was and round again (`failed`); where the
   // dialog isn't surely in front of you, the window says why too.
-  const askMerge = (pr: PrItem, refused?: MergeDoneAsk['refused']): boolean => can.mergeDone?.ask({ lane, session: s, pr, refused, then: afterMerge(pr) }) ?? false;
+  const askMerge = (pr: PrItem, refused?: MergeDoneAsk['refused']): boolean => {
+    const helpers = can.doneHelpers ? unfinishedHelpers(can.doneHelpers.lanes, [s.key]) : [];
+    return can.mergeDone?.ask({ lane, session: s, pr, refused, helpers, then: afterMerge(pr) }) ?? false;
+  };
   const afterMerge = (pr: PrItem) => (merging: Promise<MergeDone>, merged: string, commit: MergeForm) => {
     can.left?.('done');
     merging.then(
@@ -747,6 +793,9 @@ export interface SessionsCan {
   boards?: MenuSpec;
   /** The labels todos wear, for Labels, as one session's menu has them (`SessionCan.labels`). */
   labels?: readonly Label[];
+  /** What becomes of their helpers whose work isn't over, asked once for them all, as one
+   *  session's Mark as done asks it (`SessionCan.doneHelpers`). */
+  doneHelpers?: DoneHelpersCan;
   keys?: boolean | 'chords';
 }
 
@@ -836,11 +885,14 @@ export function sessionsActions(picked: { lane: Lane; session: Session }[], can:
     const asked = going.filter((g) => !working.includes(g.s));
     const still = working.length > 0 ? `${titles(working)} ${working.length === 1 ? 'is' : 'are'} still working.` : '';
     if (asked.length === 0) return report.info(`${still} ${working.length === 1 ? DONE_AGAIN : DONE_AGAIN_MANY}`);
+    askingOfHelpers(asked.map((g) => g.s), can.doneHelpers, (endHelpers) => doneThese(asked, working, still, endHelpers));
+  };
+  const doneThese = (asked: { s: Session; stop: boolean }[], working: Session[], still: string, endHelpers: boolean) => {
     can.left?.('done', asked.map((g) => g.s.key));
     // They all show as done at once, and the engine ends them one after another.
     let before: Promise<unknown> | undefined;
     const answers = asked.map(({ s, stop }) => {
-      const answer = doneAhead(s.key, stop, before);
+      const answer = doneAhead(s.key, stop, before, endHelpers);
       before = answer;
       return answer.then(
         (ok) => ({ s, ok }),

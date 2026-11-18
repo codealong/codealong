@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { asideAhead, doneAhead, labelAhead, quietAhead, raiseAhead, seenAhead } from './ahead';
 import { getAccounts, moveSession, moveSessionTo, openInChrome, openUrl, resumeSession, sendToSession, setPrPrimary, type Done, type MergeDone } from './api';
 import type { MenuAction, MenuGroup, MenuSpec } from './contextMenu';
-import { carryOnIn, chordLetter, chordSigns, chorded, CHORDS, DONE_HOLD_MS, SUGGESTION_CHORDS, suggestionChord, doneTitle, fileMenu, keyed, laneActions, laneMenu, lanesActions, lanesMenu, mergesWith, prMenu, prsActions, prsMenu, repoMenu, sessionActions, sessionMenu, sessionsActions, sessionsMenu, todoMenu, todoPanelMenu, todosMenu, toggleWaiting, TRY_AGAIN, linkMenu, type MergeDoneAsk, type SessionCan, type SessionsCan, type TodoEdit } from './menus';
+import { carryOnIn, chordLetter, chordSigns, chorded, CHORDS, DONE_HOLD_MS, SUGGESTION_CHORDS, suggestionChord, doneTitle, fileMenu, keyed, laneActions, laneMenu, lanesActions, lanesMenu, mergesWith, prMenu, prsActions, prsMenu, repoMenu, sessionActions, sessionMenu, sessionsActions, sessionsMenu, todoMenu, todoPanelMenu, todosMenu, toggleWaiting, TRY_AGAIN, linkMenu, unfinishedHelpers, type DoneHelpersAsk, type MergeDoneAsk, type SessionCan, type SessionsCan, type TodoEdit } from './menus';
 import type { MergeForm } from './merge';
 import { openLabel } from './open';
 import { setPlatform } from './platform';
@@ -639,7 +639,7 @@ describe('several sessions picked together', () => {
       ask.mockClear();
       sessionsActions([busy], can).done?.run();
       await settled();
-      expect(ask).toHaveBeenLastCalledWith('claude:c:5', true, undefined);
+      expect(ask).toHaveBeenLastCalledWith('claude:c:5', true, undefined, false);
       // All of them working: nothing's asked, and it says so.
       ask.mockClear();
       said.length = 0;
@@ -1340,6 +1340,64 @@ describe('actions by name', () => {
     expect(chorded(sessionActions(lane(), { ...session(), live: false }, can), { key: 'w', code: '', metaKey: true, ctrlKey: true, altKey: false, shiftKey: false })).toBeNull();
   });
 
+  it('asks first what becomes of helpers whose work isn’t over, and ends them only when told', async () => {
+    const ask = vi.mocked(doneAhead);
+    ask.mockReset();
+    ask.mockResolvedValue({ done: true, message: 'Done.', at: 5 });
+    const settled = () => new Promise((r) => setTimeout(r, 0));
+    const boss = session();
+    const helper = (key: string, over: Partial<Session>) => session({ key, id: key, title: key, helper: { parent: boss.key }, ...over });
+    const finished = helper('claude:c:f', { status: 'idle' });
+    const sessions = [
+      boss,
+      helper('claude:c:w', { status: 'working' }),
+      helper('claude:c:n', { status: 'needs', live: false }),
+      helper('claude:c:bg', { status: 'idle', background: 'npm test' }),
+      finished,
+      helper('claude:c:a', { status: 'working', archived: true }),
+      helper('claude:c:o', { status: 'working', helper: { parent: 'claude:c:other' } }),
+    ];
+    const lanes = [lane({ sessions })];
+    // At work, waiting on you, or with a command left running; not one done, archived or another's.
+    expect(unfinishedHelpers(lanes, [boss.key]).map((s) => s.key)).toEqual(['claude:c:w', 'claude:c:n', 'claude:c:bg']);
+    // Nor one picked to be marked done with it.
+    expect(unfinishedHelpers(lanes, [boss.key, 'claude:c:w']).map((s) => s.key)).toEqual(['claude:c:n', 'claude:c:bg']);
+    const asked: DoneHelpersAsk[] = [];
+    const doneHelpers = { lanes, ask: (a: DoneHelpersAsk) => void asked.push(a) };
+    const left: string[] = [];
+    sessionActions(lane(), boss, { ...base, doneHelpers, left: (d) => left.push(d) }).done?.run();
+    await settled();
+    // Nothing goes until it's answered.
+    expect(ask).not.toHaveBeenCalled();
+    expect(left).toEqual([]);
+    expect(asked.map((a) => [a.sessions.map((s) => s.key), a.helpers.map((h) => h.key)])).toEqual([[[boss.key], ['claude:c:w', 'claude:c:n', 'claude:c:bg']]]);
+    asked[0].then(true);
+    await settled();
+    expect(ask).toHaveBeenLastCalledWith(boss.key, false, undefined, true);
+    expect(left).toEqual(['done']);
+    // With none whose work isn't over, or no dialog to ask in, it goes at once, and they're kept.
+    ask.mockClear();
+    sessionActions(lane(), boss, { ...base, doneHelpers: { lanes: [lane({ sessions: [boss, finished] })], ask: doneHelpers.ask } }).done?.run();
+    sessionActions(lane(), boss, base).done?.run();
+    await settled();
+    expect(ask.mock.calls).toEqual([
+      [boss.key, false, undefined, false],
+      [boss.key, false, undefined, false],
+    ]);
+    expect(asked).toHaveLength(1);
+    // Picked together, they're asked about once, and the answer goes for each.
+    ask.mockClear();
+    const other = session({ key: 'claude:c:9', id: 'e9', title: 'Other' });
+    sessionsActions([{ lane: lane(), session: boss }, { lane: lane(), session: other }], { report, doneHelpers }).done?.run();
+    expect(asked[1].sessions.map((s) => s.key)).toEqual([boss.key, other.key]);
+    asked[1].then(false);
+    await settled();
+    expect(ask.mock.calls.map((c) => [c[0], c[3]])).toEqual([
+      [boss.key, false],
+      [other.key, false],
+    ]);
+  });
+
   it('marks done on ⇧⌘E, held by work under way until it’s asked again', async () => {
     const ask = vi.mocked(doneAhead);
     ask.mockReset();
@@ -1357,7 +1415,7 @@ describe('actions by name', () => {
       answer({ done: true, message: 'Done with “Fix login”: its terminal is closed and it’s archived.', at: 5 });
       sessionActions(lane(), session(), can).done?.run();
       await settled();
-      expect(ask).toHaveBeenLastCalledWith('claude:c:1', false);
+      expect(ask).toHaveBeenLastCalledWith('claude:c:1', false, undefined, false);
       expect(left).toEqual(['done']);
       expect(said).toEqual([]);
       answer({ done: true, message: 'Done with “Fix login”: it’s archived. It’s still open in the Claude app.', noted: true, at: 5 });
@@ -1382,7 +1440,7 @@ describe('actions by name', () => {
       answer({ done: true, message: 'Done with “Fix login”: its terminal is closed and it’s archived.', at: 7 });
       sessionActions(lane(), busy, can).done?.run();
       await settled();
-      expect(ask).toHaveBeenLastCalledWith('claude:c:2', true);
+      expect(ask).toHaveBeenLastCalledWith('claude:c:2', true, undefined, false);
       expect(left).toEqual(['done']);
 
       // Held by the engine (a command left running in the background), then asked too late: held
@@ -1398,11 +1456,11 @@ describe('actions by name', () => {
       answer({ done: false, message: '“Fix login” left `npm run dev` running in the background.' });
       sessionActions(lane(), bg, can).done?.run();
       await settled();
-      expect(ask).toHaveBeenLastCalledWith('claude:c:3', false);
+      expect(ask).toHaveBeenLastCalledWith('claude:c:3', false, undefined, false);
       answer({ done: true, message: 'Done with “Fix login”: its terminal is closed and it’s archived.', at: 8 });
       sessionActions(lane(), bg, can).done?.run();
       await settled();
-      expect(ask).toHaveBeenLastCalledWith('claude:c:3', true);
+      expect(ask).toHaveBeenLastCalledWith('claude:c:3', true, undefined, false);
 
       // What the engine turns down is said as an error.
       said.length = 0;

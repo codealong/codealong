@@ -65,7 +65,7 @@ const MODES: &[Mode] = &[
     Mode { flag: "--stop", takes: "<session key>", run: stop },
     Mode { flag: "--steer", takes: "<session key> <queued message id>", run: steer },
     Mode { flag: "--unqueue", takes: "<session key> <queued message id>", run: unqueue },
-    Mode { flag: "--done", takes: "<session key> [--stop]", run: done },
+    Mode { flag: "--done", takes: "<session key> [--stop] [--end-helpers]", run: done },
     Mode { flag: "--remove-worktree", takes: "<worktree folder> [--dry-run]", run: remove_worktree },
     Mode { flag: "--send", takes: "<session key> <text> [--now]", run: send_text },
     Mode { flag: "--tell", takes: "<session key> <text>", run: tell },
@@ -574,7 +574,7 @@ fn unqueue(_: &Args, rest: &[String]) -> Done {
 
 fn done(args: &Args, rest: &[String]) -> Done {
     let [key, ..] = rest else { return Err(Stop::Usage) };
-    let v = act(api::SESSION_DONE, key, params::Done { stop: args.has("--stop"), ..Default::default() })?;
+    let v = act(api::SESSION_DONE, key, params::Done { stop: args.has("--stop"), end_helpers: args.has("--end-helpers"), ..Default::default() })?;
     Ok(v.get("message").and_then(Value::as_str).unwrap_or_default().to_string())
 }
 

@@ -69,7 +69,9 @@ the question to answer. A yes to something else isn't a yes to starting sessions
    a child's prompt is all it has to go on.
 5. `codealong start --helper --report --account <account> --worktree <path> --prompt-file
    <file>`. Then end your turn: don't wait in a loop. Codealong messages you as each turn ends,
-   several at once in one message.
+   several at once in one message, and about a child whose session hasn't shown up ten minutes
+   after its start, which likely failed: start that part again, or tell your user if it fails
+   again.
 
 ## When a child reports
 
@@ -106,7 +108,8 @@ the question to answer. A yes to something else isn't a yes to starting sessions
 When the parts are done: see that their work landed as the repo's rules say (each child lands
 its own, or you bring it together), end each child (`codealong session done <key>`), and reply
 with the outcome: what landed (commits, PRs), what's left and who has it, and any decision still
-open. Your user marking your session done ends your children too.
+open. Your user marking your session done ends your children whose work is over; Codealong asks
+them about the ones still at work or waiting on them, which they can make their own instead.
 
 ## Ground rules
 

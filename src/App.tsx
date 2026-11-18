@@ -41,6 +41,7 @@ import { PreviewDialog } from './ui/PreviewBits';
 import { RenameDialog } from './ui/RenameDialog';
 import { SnoozeDialog } from './ui/SnoozeDialog';
 import { useMergeDone } from './ui/MergeDone';
+import { useDoneHelpers } from './ui/DoneHelpers';
 import type { HelperActions } from './ui/HelpersCard';
 import { Button, cx, Icon, Kbd, Seg, Tabs } from './ui/primitives';
 import { ALL_PROJECTS, ProjectSwitcher } from './ui/ProjectSwitcher';
@@ -421,6 +422,9 @@ export function App() {
   // Merge and done…'s dialog (ui/MergeDone.tsx), over whatever the window shows, so one GitHub
   // refused comes back in front of you.
   const mergingDone = useMergeDone(true);
+  // Mark as done's question about helpers whose work isn't over (menus.ts `doneHelpers`).
+  const askingHelpers = useDoneHelpers();
+  const doneHelpers = board ? { lanes: board.lanes, ask: askingHelpers.ask } : undefined;
   useEffect(() => onCloseIdle(() => setCloseIdle(true)), []);
   useEffect(() => onCloseStale(() => setCloseStale(true)), []);
   // ⌘= ⌘- ⌘0 (mainKeys.ts) and View's zoom items zoom every board window: the engine saves the
@@ -1536,6 +1540,7 @@ export function App() {
     cleanUp: setCleaning,
     boardItems,
     labels: todoStore.labels,
+    doneHelpers,
   });
 
   // A session moved from Sessions' panel (`moving`): once the board lists its copy, the copy is
@@ -1701,6 +1706,7 @@ export function App() {
         if (why) report.error(why);
       },
       mergeDone: board ? { prs: board.prs, ask: mergingDone.ask } : undefined,
+      doneHelpers,
       // Moved from its panel in Sessions, it stays there until its copy takes its place, rather
       // than the panel going on to the next that waits.
       moving: (copy) => {
@@ -3034,6 +3040,7 @@ export function App() {
       {renamed && <RenameDialog lane={renamed.lane} session={renamed.session} onClose={() => setRenaming(null)} onFailed={setToast} />}
       {snoozing && <SnoozeDialog ask={snoozing} what={askWords(snoozing, (key) => homeOf([...(board?.lanes ?? []), ...deviceLanes], key)?.session.title)} onClose={() => setSnoozing(null)} onFailed={setToast} />}
       {mergingDone.dialog}
+      {askingHelpers.dialog}
       {scheduleEdit && board && <ScheduleDialog schedule={scheduleEdit} board={board} devices={devices} now={now} onClose={() => setScheduleEdit(null)} onSaved={setScheduleId} />}
       {boardEdit && <BoardDialog board={boardEdit.board} project={current} onSave={saveBoard} onClose={() => setBoardEdit(null)} {...ruleChoices} />}
       {columnEdit && <ColumnDialog column={columnEdit.column} onSave={saveColumn} onClose={() => setColumnEdit(null)} {...ruleChoices} />}

@@ -33,6 +33,7 @@ import type { Board, Lane, Pr, PrItem, Session, TerminalGlance, Todo } from '../
 import { reloadKey, zoomKey } from './cardHost';
 import { dialogUp } from './focusTrap';
 import { useMergeDone } from './MergeDone';
+import { useDoneHelpers } from './DoneHelpers';
 import { runFolder } from './RunButton';
 import { SessionPanel, type SessionPanelProps } from './SessionPanel';
 
@@ -98,6 +99,8 @@ export function SessionCard({ lane, session, apps, now, board, can, canFor, outg
   // have gone on, or been put away, by then, so the window says why too (menus.ts
   // `SessionCan.mergeDone`).
   const mergingDone = useMergeDone(false, session.key);
+  // Mark as done's question about helpers whose work isn't over (menus.ts `doneHelpers`).
+  const askingHelpers = useDoneHelpers();
   // Whether its side conversation answers, for ⌘E on one that needs you (menus.ts `answering`).
   const answering = useSideAnswering(session.key);
   /** A window's part for a session, with the card's: the same menu in every window. */
@@ -108,6 +111,7 @@ export function SessionCard({ lane, session, apps, now, board, can, canFor, outg
     desktop: onDesktop,
     pin: pinItem(board, s, report),
     mergeDone: board ? { prs: board.prs, ask: mergingDone.ask } : undefined,
+    doneHelpers: board ? { lanes: board.lanes, ask: askingHelpers.ask } : undefined,
     labels: board?.labels,
     // Its terminal under its box, for the session shown; another the header names opens its
     // folder in your terminal app, as it has no drawer here. The terminal it runs in isn't in a
@@ -190,7 +194,12 @@ export function SessionCard({ lane, session, apps, now, board, can, canFor, outg
       onShowSession={onShowSession}
       onSessionMenu={(l, s) => show(menus.sessionMenu(l, s, whole(s, canFor(l, s))))}
       terminals={board?.terminals?.[session.key] ?? NO_TERMINALS}
-      dialog={mergingDone.dialog}
+      dialog={
+        <>
+          {mergingDone.dialog}
+          {askingHelpers.dialog}
+        </>
+      }
     />
   );
 }

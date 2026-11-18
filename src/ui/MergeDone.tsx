@@ -30,7 +30,7 @@ import { useReloads } from '../reload';
 import { errorText } from '../report';
 import type { MergeBox as Box, MergeMethod, Session } from '../types';
 import { CommitFields, MethodChip, RECHECK_MS, RECHECKS, TONE_ICON, useCommit, useMethod } from './MergeBox';
-import { Button, cx, Dialog, Icon } from './primitives';
+import { Button, CheckBox, cx, Dialog, Icon } from './primitives';
 
 /** What the dialog says it does: merges the PR into its base, then marks the session done, and
  *  what that ends of it, the work under way first. */
@@ -191,6 +191,10 @@ function Ready({ ask, box, checking, onClose }: { ask: MergeDoneAsk; box: Box; c
     commit.fill(m);
   };
   const [error, setError] = useState<string | null>(refused?.why ?? null);
+  // Its helpers whose work isn't over end with it only when ticked, else they're made yours, as
+  // Mark as done's own question leaves them by default (DoneHelpers.tsx).
+  const helpers = ask.helpers ?? [];
+  const [endHelpers, setEndHelpers] = useState(false);
   // Only a merge now, as GitHub would do it from its box without waiting: the box has the rest.
   const merges = offers(box).merge && method != null;
   const said = standing(box, pr);
@@ -207,7 +211,7 @@ function Ready({ ask, box, checking, onClose }: { ask: MergeDoneAsk; box: Box; c
     if (op.op !== 'merge') return;
     // It goes as GitHub is asked; menus.ts says how it went, or brings it back with `form`.
     onClose();
-    ask.then(mergeDoneAhead(pr, box.id, op, ask.session.key), doneWords(op, pr.number, box.branch), form);
+    ask.then(mergeDoneAhead(pr, box.id, op, ask.session.key, endHelpers), doneWords(op, pr.number, box.branch), form);
   };
 
   return (
@@ -234,6 +238,12 @@ function Ready({ ask, box, checking, onClose }: { ask: MergeDoneAsk; box: Box; c
           <>
             <MethodChip box={box} method={method} pick={pick} onError={setError} />
             <CommitFields box={box} mode="merge" method={method} commit={commit} busy={false} onError={setError} />
+            {helpers.length > 0 && (
+              <label className="ca-check" title={`Unticked, ${helpers.length === 1 ? 'it’s made a session' : 'they’re made sessions'} of your own, to go on with in your lists.`}>
+                <CheckBox checked={endHelpers} onChange={setEndHelpers} />
+                {helpers.length === 1 ? `End its helper “${helpers[0].title}” too: its work isn’t over` : `End its ${helpers.length} helpers whose work isn’t over too`}
+              </label>
+            )}
           </>
         ) : (
           <div className={`ca-merge-standing is-${box.state === 'MERGED' ? 'merged' : said.tone}`}>

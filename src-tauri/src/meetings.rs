@@ -827,7 +827,7 @@ pub fn stray(l: &Listening) -> bool {
 /// session was asked to make before anything was said.
 pub fn put_away(engine: &Handle, l: &Listening) {
     use codealong_peer::api;
-    let done = crate::actions::local(engine, &crate::actions::From::Here, api::SESSION_DONE, &l.session, api::params::Done { key: String::new(), stop: true, archive: false });
+    let done = crate::actions::local(engine, &crate::actions::From::Here, api::SESSION_DONE, &l.session, api::params::Done { stop: true, ..Default::default() });
     if let Err(e) = done {
         eprintln!("meetings: the session of a meeting started by mistake wasn't put away: {e}");
     }

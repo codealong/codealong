@@ -196,10 +196,11 @@ pub fn start() -> Result<Ctx, String> {
             }
         }
         // And sessions whose helpers report to them (helpers.rs): a turn that ended, a wait on you
-        // that began, or a start stuck before its session. One thread for the batch.
+        // that began, or a start stuck before its session or that never made one. One thread for
+        // the batch.
         if let Some(engine) = reports_with.get() {
-            let pending = &origins::current().pending;
-            let (due, wake) = reporter.lock().map(|mut r| (r.due(pending, board, board.generated_at), r.wake())).unwrap_or_default();
+            let starts = origins::current();
+            let (due, wake) = reporter.lock().map(|mut r| (r.due(&starts, board, board.generated_at), r.wake())).unwrap_or_default();
             if !due.is_empty() {
                 let (engine, reporter) = (engine.clone(), reporter.clone());
                 std::thread::spawn(move || helpers::send_now(&engine, &reporter, due));
@@ -211,7 +212,7 @@ pub fn start() -> Result<Ctx, String> {
                 std::thread::spawn(move || loop {
                     std::thread::sleep(std::time::Duration::from_millis((at - util::now_ms()).max(0) as u64));
                     let board = engine.board();
-                    let Ok((due, next)) = reporter.lock().map(|mut r| r.woke(at, &origins::current().pending, &board, util::now_ms())) else { return };
+                    let Ok((due, next)) = reporter.lock().map(|mut r| r.woke(at, &origins::current(), &board, util::now_ms())) else { return };
                     // On a thread of its own, so a send held up (its session's input taken) holds
                     // up no other session's time.
                     if !due.is_empty() {

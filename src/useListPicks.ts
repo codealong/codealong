@@ -50,6 +50,8 @@ export interface ListPicksInput {
   boardItems: (ref: RefKind, keys: string[]) => MenuSpec;
   /** The labels todos wear, for the sessions' Labels ›, as one's menu has them. */
   labels: readonly Label[];
+  /** Mark as done's question about their helpers whose work isn't over, as one's has it. */
+  doneHelpers?: menus.DoneHelpersCan;
 }
 
 /** One list's picks: the rows, in the list's order, and what's done to them. */
@@ -78,7 +80,7 @@ export interface ListPicksKeys {
 }
 
 export function useListPicks(input: ListPicksInput) {
-  const { view, loading, selected, setSelectedKey, sessionRows, prVisible, showArchived, report, setToast, sessionPins, lanePins, prPins, archive, undoArchive, approve, cleanUp, boardItems, labels } = input;
+  const { view, loading, selected, setSelectedKey, sessionRows, prVisible, showArchived, report, setToast, sessionPins, lanePins, prPins, archive, undoArchive, approve, cleanUp, boardItems, labels, doneHelpers } = input;
   const sessionItems = useMemo(() => (view === 'sessions' && !loading ? sessionRows.filter((r): r is SessionItem => r.kind === 'agent') : null), [view, loading, sessionRows]);
   const laneItems = useMemo(() => (view === 'sessions' && !loading ? sessionRows.filter((r): r is LaneItem => r.kind === 'lane') : null), [view, loading, sessionRows]);
   const prItems = useMemo(() => (view === 'prs' && !loading ? prVisible.filter((r): r is PrRowItem => r.kind === 'pr') : null), [view, loading, prVisible]);
@@ -107,6 +109,7 @@ export function useListPicks(input: ListPicksInput) {
     // Not one shown in a worktree it doesn't run in (a visitor), which one's menu leaves out too.
     boards: boardItems('session', rows.filter((r) => !r.session.visitor).map((r) => r.session.key)),
     labels,
+    doneHelpers,
     archive: (keys, archived) => archive(keys, archived, rows.find((r) => r.session.key === keys[0])?.session.title ?? ''),
     // Undo takes them out of the archive, as it does one.
     undoDone: (keys, message) => undoArchive({ keys, title: '', message }),

@@ -1,0 +1,39 @@
+/* Mark as done's question about a session's helpers whose work isn't over (DoneHelpers.tsx): a
+   row for each, its status glyph, its name over where it stands and who runs it, as a session's
+   helpers card lists them (HelpersCard.css). */
+.ca-dialog.ca-donehelpers {
+  width: min(520px, 100%);
+}
+.ca-donehelpers-list {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: var(--space-1);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.ca-donehelpers-row {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-2);
+  min-width: 0;
+}
+.ca-donehelpers-row .ca-glyph {
+  flex: none;
+  margin-top: 3px;
+}
+.ca-donehelpers-text {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  min-width: 0;
+}
+.ca-donehelpers-title {
+  font: var(--type-meta-strong);
+  color: var(--ink);
+  overflow-wrap: anywhere;
+}
+.ca-donehelpers-stands {
+  font: var(--type-meta);
+  color: var(--ink-3);
+}

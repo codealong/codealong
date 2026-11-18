@@ -368,14 +368,19 @@ pub mod params {
     /// running in the background), and, for a session the `codealong` command ends once its own
     /// turn has (`session done me --archive`), whether its user asked it to close, so it's
     /// marked seen and archived then too. A window's or another device's Done archives anyway.
+    /// `end_helpers`: its helpers whose work isn't over (`Session::unfinished`) end with it, their
+    /// work stopped, where without it they go on as your own sessions; one that asks nothing
+    /// (older builds, the command) keeps them.
     #[derive(Serialize, Deserialize, Clone, Debug, Default, PartialEq)]
-    #[serde(default)]
+    #[serde(default, rename_all = "camelCase")]
     pub struct Done {
         #[serde(skip_serializing_if = "String::is_empty")]
         pub key: String,
         pub stop: bool,
         #[serde(skip_serializing_if = "std::ops::Not::not")]
         pub archive: bool,
+        #[serde(skip_serializing_if = "std::ops::Not::not")]
+        pub end_helpers: bool,
     }
 
     /// `session-rename`.

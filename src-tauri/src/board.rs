@@ -7546,6 +7546,7 @@ mod tests {
                     "helpsAnAgent": s.helps_an_agent(),
                     "waitsInBackground": s.waits_in_background(),
                     "waitsAtAPrompt": s.waits_at_a_prompt(),
+                    "unfinished": s.unfinished(),
                 });
                 (s.key.clone(), said)
             })

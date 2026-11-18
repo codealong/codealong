@@ -8,7 +8,7 @@
 // it's stale.
 import { describe, expect, it } from 'vitest';
 import cases from './testing/ruleCases.json';
-import { bySession, helpsAnAgent, needOf, relaned, sessionHeadline, unattended, waitsInBackground, waitsOnYou } from './lanes';
+import { bySession, helpsAnAgent, needOf, relaned, sessionHeadline, unattended, unfinished, waitsInBackground, waitsOnYou } from './lanes';
 import type { Bay, Lane, Session, Status } from './types';
 
 /** What the engine's own rules say of a session that it isn't sent with. */
@@ -17,6 +17,7 @@ interface Says {
   helpsAnAgent: boolean;
   waitsInBackground: boolean;
   waitsAtAPrompt: boolean;
+  unfinished: boolean;
 }
 
 /** A worktree as the engine has it once one of its sessions is gone. */
@@ -64,6 +65,7 @@ describe('the windows work out what the engine does', () => {
             helpsAnAgent: helpsAnAgent(s),
             waitsInBackground: waitsInBackground(s),
             waitsAtAPrompt: waitsOnYou(s),
+            unfinished: unfinished(s),
           }).toEqual(says[s.key]);
         });
 

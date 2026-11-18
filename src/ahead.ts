@@ -934,9 +934,9 @@ export function mergeAhead(pr: Pick<PrItem, 'key' | 'repoSlug' | 'number'>, id: 
  *  the window that asked has gone by then. The session shows seen and archived as it's asked, as
  *  Mark as done does (`doneAhead`), and is back as it was where GitHub refuses the merge or the
  *  engine didn't mark it done. */
-export function mergeDoneAhead(pr: Pick<PrItem, 'key' | 'repoSlug' | 'number'>, id: string, op: MergeOp & { op: 'merge' }, key: string): Promise<MergeDone> {
+export function mergeDoneAhead(pr: Pick<PrItem, 'key' | 'repoSlug' | 'number'>, id: string, op: MergeOp & { op: 'merge' }, key: string, endHelpers = false): Promise<MergeDone> {
   const shown = doneShown(key);
-  return merging(pr, id, op, key).then(
+  return merging(pr, id, op, key, endHelpers).then(
     (d) => {
       shown.answered(d.done);
       return d;
@@ -949,10 +949,10 @@ export function mergeDoneAhead(pr: Pick<PrItem, 'key' | 'repoSlug' | 'number'>, 
 }
 
 /** A merge, shown merged in every window as it's asked, and back with why when GitHub refuses it. */
-function merging(pr: Pick<PrItem, 'key' | 'repoSlug' | 'number'>, id: string, op: MergeOp, done?: string): Promise<MergeDone> {
+function merging(pr: Pick<PrItem, 'key' | 'repoSlug' | 'number'>, id: string, op: MergeOp, done?: string, endHelpers = false): Promise<MergeDone> {
   const a = made({ kind: 'pr-merge', key: pr.key });
   put(a, true);
-  return mergePr(pr.repoSlug, pr.number, id, op, done).then(
+  return mergePr(pr.repoSlug, pr.number, id, op, done, endHelpers).then(
     (d) => {
       answered(a.id, d.shownAt);
       return d;
@@ -1000,10 +1000,12 @@ export function archiveAhead(key: string, archived: boolean): Promise<void> {
 /** Done with a session: marked seen and archived in every window at once, as the engine ends
  *  it (actions.rs `done`). One the engine held for work under way comes back, and so does one it
  *  couldn't do, which rejects with why. With `after`, the engine is asked once that settles:
- *  several done together all show at once, and their terminals close one after another. */
-export function doneAhead(key: string, stop: boolean, after?: Promise<unknown>): Promise<Done> {
+ *  several done together all show at once, and their terminals close one after another.
+ *  `endHelpers` ends its helpers whose work isn't over, which are otherwise made your own. */
+export function doneAhead(key: string, stop: boolean, after?: Promise<unknown>, endHelpers = false): Promise<Done> {
   const shown = doneShown(key);
-  const asked = after ? after.then(() => sessionDone(key, stop), () => sessionDone(key, stop)) : sessionDone(key, stop);
+  const ask = () => sessionDone(key, stop, endHelpers);
+  const asked = after ? after.then(ask, ask) : ask();
   return asked.then(
     (r) => {
       shown.answered(r);

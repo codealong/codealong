@@ -4262,7 +4262,10 @@ Codealong can't tell which tab is its, *Forget it* stops waiting for it. On your
 session shows *Helper waits* too, to answer on the Mac it runs on. A helper started with `--report` is told of to its session once, so its
 agent can tell you. One you started yourself has a notice instead (*Codex hasn't started in …*),
 with what its terminal shows, until its session shows, and so does an agent's while its session is
-taking a turn.
+taking a turn. A helper started with `--report` whose start knew its session's key (in Claude
+Code's background service, say) and whose session still hasn't shown up ten minutes on is told of
+to its session too, once: its start likely failed before it made one (a worktree its repo's hook
+couldn't make, say), and the agent that started it can start that part again or tell you.
 
 A helper's message to the session that started it (`codealong session send`) isn't held for
 you to allow when that session is a Claude Code one that skips permission prompts: it's work the
@@ -4292,8 +4295,13 @@ queue your own follow-ups. One to an OpenCode session, or to a session Codealong
 its turn to end.
 
 Mark as done on a session marks its helpers done too, as their work was for it: each ends as far
-as Codealong can end it and is archived, and one still at work is left to finish, unless you
-chose to stop the session's work too. *Make it my own* in a helper's menu makes it a session of
+as Codealong can end it and is archived. One whose work isn't over (still at work, or waiting on
+you for a call to allow, a question or an error) would be cut off, so Mark as done asks first, in a
+dialog that lists them: **Make them my own** (the default) makes each a session of yours, to go on
+with in your lists, and **End them** ends them too, stopping a turn under way and leaving a question
+unanswered. Sessions picked together are asked about once, and Merge and done's dialog has a box to
+end them too. A window that can't ask (the bar's menus, another device, the `codealong` command)
+makes them yours. *Make it my own* in a helper's menu makes it a session of
 yours for good: listed, counted and waiting on you as any of yours, and no longer told of to the
 session that started it. A helper whose session is gone from the board is a session of your own
 again. Macs from before helpers show another Mac's helpers as sessions of their own.
@@ -4863,7 +4871,10 @@ go-ahead you give the coordinator is quoted to the child it's for, word for word
 while another of its children is still at work are gathered for up to a minute, so it hears of
 several in one message. It speaks for the work: what the parts come to, and the decisions only you
 can make, which it asks with its question tool; a turn that only moves the work on is marked seen,
-so it doesn't wait on you. What it follows is the codealong skill's `references/coordinate.md`.
+so it doesn't wait on you. A child whose start never made a session is told of to it ten minutes
+on, so a part doesn't sit unstarted. Marking the coordinator done asks what becomes of its children
+whose work isn't over (*Helpers*). What it follows is the codealong skill's
+`references/coordinate.md`.
 Unlike an orchestrator, which keeps watch over every session in a project, a coordinator hears only
 from its own children, and an orchestrator leaves them to it.
 

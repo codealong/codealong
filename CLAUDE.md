@@ -108,7 +108,7 @@ with `--usage`, and its endpoint rate-limits: don't loop it.
   (a queued message into the running turn), `--snapshot --unqueue <key> <id>` (one taken out of
   the queue), `--snapshot --training-off
   <account>` (turns training off at its provider, as the usage bar's flag does),
-  `--snapshot --done <key> [--stop]` (ends it as Mark as done does, without archiving),
+  `--snapshot --done <key> [--stop] [--end-helpers]` (ends it as Mark as done does, without archiving),
   `--snapshot --remove-worktree <folder> [--dry-run]` (only where nothing would be lost),
   `--snapshot --fork <key> [prompt] [--from <cursor>]` (a copy to remove after),
   `--snapshot --move <key> <account | worktree folder>`, `--snapshot --resume <key> <place>
