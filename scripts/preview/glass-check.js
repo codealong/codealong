@@ -3,7 +3,7 @@
 // what sits on the glass (the title bar, the usage bar, the sidebar, the strip over the list, the
 // group headers) draws its wells, hovers, selections and lines see-through, so they take the
 // glass's tint (styles/glass.css), while a white control there keeps its white under the pointer,
-// and a usage chip while it's dragged over the others; the strip over the list hides the rows that
+// a usage chip too (flat at rest, as a status bar's items are) and while it's dragged over the others; the strip over the list hides the rows that
 // scroll under it, the strip over a session's panel has its ground and line, and nothing draws a blur of its own (WebKit's, stacked on the glass, flickers as
 // the window moves). In the quick panel the card draws no ground of its own, which would cover the
 // glass under it, its parts above the bar draw it, the bar is see-through, its chips keep their
@@ -118,8 +118,10 @@
     hovers('.ca-sidetoggle:hover', q('.ca-win-bar'), false, 'the sidebar toggle’s hover is see-through');
     hovers('.ca-btn:hover', q('.ca-win-bar'), true, 'a button keeps its white under the pointer');
     hovers('.ca-uchip:hover', q('.ca-usagebar'), true, 'a usage chip keeps its white under the pointer');
-    var chip = q('.ca-usagebar .ca-uchip');
-    check('a usage chip keeps its white', alpha(bg(chip)) === 1, bg(chip));
+    // At rest a usage chip is flat, as a status bar's items are: the glass shows through it.
+    var chip = q('.ca-usagebar .ca-uchip:not(.is-attn):not(.is-training)');
+    if (chip) check('a usage chip at rest draws no ground of its own', alpha(bg(chip)) === 0, bg(chip));
+    else note('no usage chip at rest to look at');
     var row = q('.ca-board .ca-lane');
     if (row) check('a row keeps its ground', alpha(bg(row)) === 1, bg(row));
     else note('no row to look at');
