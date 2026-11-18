@@ -5673,7 +5673,7 @@ mod tests {
         for name in ["stuck", "late", "plain"] {
             git(&main, &["worktree", "add", "-q", &path(name).to_string_lossy(), "-b", name]);
         }
-        let project = crate::config::ProjectCfg { name: "Team".into(), repos: vec!["example.com/team/*".into()], folders: vec![], chrome_profile: None };
+        let project = crate::config::ProjectCfg { name: "Team".into(), repos: vec!["example.com/team/*".into()], folders: vec![], chrome_profile: None, default: None };
         config::write(&Config { scan: vec!["~/projects".into()], projects: vec![project], ..Config::default() }).unwrap();
 
         let boards: Arc<Mutex<Vec<Board>>> = Arc::default();

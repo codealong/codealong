@@ -2476,12 +2476,13 @@ fn start_words(start: ReviewStart) -> &'static str {
 /// Auto or the routing group it names picks among the accounts that can start one where
 /// `[reviews] start` says, of another harness than `avoid` when one of them can, and another
 /// account than `seat`'s `instead_of` when one with room can), model and effort, else the effort
-/// the group's member names.
-fn reviewer_place(cfg: &Config, board: &Board, seat: &Seat, avoid: Option<Harness>) -> Result<(String, Option<String>, Option<String>, Place), String> {
+/// the group's member names. Auto starts from the group `project`, the review's worktree's, has
+/// for it (`config::auto_group`).
+fn reviewer_place(cfg: &Config, board: &Board, seat: &Seat, avoid: Option<Harness>, project: Option<&str>) -> Result<(String, Option<String>, Option<String>, Place), String> {
     let start = cfg.reviews.start;
     let can = |a: &AccountCfg| review_place(a, start).is_some();
     let pick = |group: &str| {
-        let among = |keep: &dyn Fn(&AccountCfg) -> bool| crate::start::resolve_group(cfg, Some(board), group, &[], seat.model.as_deref(), avoid, true, now_ms(), keep).and_then(std::result::Result::ok);
+        let among = |keep: &dyn Fn(&AccountCfg) -> bool| crate::start::resolve_group(cfg, Some(board), group, project, &[], seat.model.as_deref(), avoid, true, now_ms(), keep).and_then(std::result::Result::ok);
         // Another that can't take it either is no better: the group's own pick, which goes by
         // room, decides then.
         let elsewhere = seat.instead_of.as_deref().and_then(|off| among(&|a| can(a) && a.name != off));
@@ -2651,8 +2652,9 @@ fn new_start(board: &Board, cfg: &Config, pr: &PrItem, head: &str, since: Option
     let reviews = board.repo_settings.reviews(&cfg.reviews, pr);
     let other_harness = if pr.mine { reviews.own.other_harness } else { reviews.other_harness };
     let avoid = seat.avoid.or_else(|| other_harness.then(|| pr_harness(&board.lanes, pr)).flatten());
-    let (account, model, effort, place) = reviewer_place(cfg, board, seat, avoid)?;
-    let (lane, holds) = crate::side::pr_lane(board, pr).ok_or_else(|| format!("there's no checkout of {} on this machine", pr.repo_slug))?;
+    let in_lane = crate::side::pr_lane(board, pr);
+    let (account, model, effort, place) = reviewer_place(cfg, board, seat, avoid, in_lane.as_ref().map(|(l, _)| l.project.as_str()))?;
+    let (lane, holds) = in_lane.ok_or_else(|| format!("there's no checkout of {} on this machine", pr.repo_slug))?;
     let prompt = first_prompt(pr, head, since, holds, login, &goes(&reviews, &board.lanes, pr), &instructions_for(&reviews, pr), files);
     Ok(StartSpec { lane_id: lane.id.clone(), account, place, prompt, model, effort, worktree: false, todos: Vec::new(), from: None, helper: false, report: false })
 }
@@ -5034,7 +5036,7 @@ mod tests {
         let mut b = board(vec![pr(7, HEAD)], vec![]);
         b.usage = vec![Usage { account: "claude".into(), harness: Harness::Claude, plan: None, meters: vec![sonnet], as_of: Some(NOW), error: None, needs_sign_in: false, loading: false, no_limits: false, preferred: false, rate_limited: false }];
         let seat = Seat { instead_of: Some("codex".into()), ..named_seat("reviewers", "", "", None) };
-        assert_eq!(reviewer_place(&cfg, &b, &seat, None).map(|(account, ..)| account).as_deref(), Ok("claude"));
+        assert_eq!(reviewer_place(&cfg, &b, &seat, None, None).map(|(account, ..)| account).as_deref(), Ok("claude"));
     }
 
     /// A review tried again after its reviewer's turn stopped with an error starts on another of
@@ -5049,7 +5051,7 @@ mod tests {
         let mut b = board(vec![pr(7, HEAD)], vec![]);
         let picks = |cfg: &Config, b: &Board, instead_of: Option<&str>| {
             let seat = Seat { instead_of: instead_of.map(String::from), ..named_seat("reviewers", "", "", None) };
-            reviewer_place(cfg, b, &seat, None).map(|(account, ..)| account)
+            reviewer_place(cfg, b, &seat, None, None).map(|(account, ..)| account)
         };
         assert_eq!(picks(&cfg, &b, None).as_deref(), Ok("claude"));
         assert_eq!(picks(&cfg, &b, Some("claude")).as_deref(), Ok("codex"));

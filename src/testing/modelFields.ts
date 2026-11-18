@@ -972,6 +972,7 @@ export type Profile = Holds<Same<
 
 export type ProjectCfg = Holds<Same<
   | "chrome_profile"
+  | "default"
   | "folders"
   | "name"
   | "repos",
@@ -1220,7 +1221,8 @@ export type StartOptions = Holds<Same<
   | "claudeEfforts"
   | "claudeModels"
   | "codexProjects"
-  | "groups",
+  | "groups"
+  | "projectDefaults",
   Names<Types.StartOptions>
 >>;
 

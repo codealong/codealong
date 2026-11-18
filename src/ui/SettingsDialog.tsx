@@ -14,7 +14,7 @@ import { calendarsByAccount, calendarSays, calendarsOff } from '../meetings';
 import { REUSE_STATE, REUSE_WORDS } from '../reusable';
 import { groupReviewWords, reviewsRunIn } from '../review';
 import { type Field, mineOf, offerWords, pullRequestsFor, repoChoices, reviewsEverywhere, reviewsFor, type Reviews, sourceOf, type Source, teamFileOf, withOwn, withPullRequests, withRepo, withReviews, without, PULL_REQUESTS_OFF } from '../repoSettings';
-import { BUFFER, modelName, withLists } from '../start';
+import { BUFFER, modelName, withGroupRenamed, withLists } from '../start';
 import type { AtLogin, CalendarStatus, ChromeProfile, Config, ConfigView, EmblemKind, EmblemsCfg, ExperimentalCfg, GroupMemberCfg, JevCfg, Lane, Mcp, NewTerminal, NudgeAbout, OwnReviewsCfg, Profile, ProjectCfg, PullRequestsCfg, RepoCfg, ReviewPost, ReviewsCfg, ReviewStart, ReviewSubmit, RoutingCfg, RoutingGroup, RoutingGroupCfg, RoutingStrategy, SessionsCfg, ShortcutStatus, SignIn, SoundsCfg, StartAccount, TeamCfg, TeamFile, Theme, TmuxUse, Training, Usage, Verdict, VoiceCfg, WhenLimited } from '../types';
 import { outsideMembers } from '../boundary';
 import { AccountsSection } from './AccountsSection';
@@ -928,7 +928,9 @@ function AutomationPane({ cfg, disabled, onSave, onReload, defaultPrompt, usage,
       })),
     [cfg.routing?.groups],
   );
-  const autoGroup = cfg.routing?.auto ?? '';
+  // A repo's reviews on Auto start from the group its project names (config.rs `auto_group`).
+  const projectOfRepo = repo ? choices.find((c) => c.repo === repo)?.project : undefined;
+  const autoGroup = (projectOfRepo ? cfg.projects.find((p) => p.name === projectOfRepo)?.default : undefined) || (cfg.routing?.auto ?? '');
   return (
     <>
       <p className="ca-settings-lede">What Codealong does by itself: for your sessions when something stops them, and for your pull requests, everywhere or in one repo.</p>
@@ -1376,6 +1378,7 @@ function RoutingPane({ cfg, disabled, onSave, usage, now, signIns }: PaneProps &
     void onSave({
       ...cfg,
       routing: { ...routing, auto: nextAuto, groups: nextGroups },
+      projects: draft.original ? withGroupRenamed(cfg.projects, draft.original, entry.name) : cfg.projects,
       reviews: {
         ...reviews,
         account: nextReviewAcct,
@@ -1458,6 +1461,7 @@ function RoutingPane({ cfg, disabled, onSave, usage, now, signIns }: PaneProps &
                           void onSave({
                             ...cfg,
                             routing: { ...routing, auto: nextAuto, groups: nextGroups },
+                            projects: withGroupRenamed(cfg.projects, g.name, null),
                             reviews: {
                               ...reviews,
                               account: removingReviews ? '' : reviews.account,
@@ -2140,11 +2144,19 @@ interface ProjectDraft {
   folders: string[];
   /** '' opens its previews in the default browser. */
   chromeProfile: string;
+  /** The routing group Auto starts from here; '' for Routing's. */
+  group: string;
 }
 
-const NO_DRAFT: ProjectDraft = { original: null, name: '', repos: [], folders: [], chromeProfile: '' };
+const NO_DRAFT: ProjectDraft = { original: null, name: '', repos: [], folders: [], chromeProfile: '', group: '' };
+
+/** The groups a project's Auto can start from, after Routing's own (''), which says what that is. */
+function projectGroupProfiles(groups: RoutingGroupCfg[], auto: string): Profile[] {
+  return [{ id: '', name: auto ? `As Routing says (group: ${auto})` : 'As Routing says' }, ...groups.map((g) => ({ id: g.name, name: `Group: ${g.name}` }))];
+}
 
 function ProjectsPane({ cfg, chromeProfiles, disabled, onSave, lanes, adding }: PaneProps & { chromeProfiles: ChromeProfile[]; lanes: Lane[]; adding: boolean }) {
+  const groups = cfg.routing?.groups ?? [];
   const [draft, setDraft] = useState<ProjectDraft | null>(adding ? NO_DRAFT : null);
   const [removing, setRemoving] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
@@ -2158,7 +2170,13 @@ function ProjectsPane({ cfg, chromeProfiles, disabled, onSave, lanes, adding }: 
 
   const submit = async () => {
     if (!draft) return;
-    const entry: ProjectCfg = { name: draft.name.trim(), repos: draft.repos, folders: draft.folders, ...(draft.chromeProfile.trim() ? { chrome_profile: draft.chromeProfile.trim() } : {}) };
+    const entry: ProjectCfg = {
+      name: draft.name.trim(),
+      repos: draft.repos,
+      folders: draft.folders,
+      ...(draft.chromeProfile.trim() ? { chrome_profile: draft.chromeProfile.trim() } : {}),
+      ...(draft.group ? { default: draft.group } : {}),
+    };
     const next = draft.original ? cfg.projects.map((p) => (p.name === draft.original ? entry : p)) : [...cfg.projects, entry];
     if (await commit(next)) setDraft(null);
   };
@@ -2202,6 +2220,13 @@ function ProjectsPane({ cfg, chromeProfiles, disabled, onSave, lanes, adding }: 
           <small>Its worktrees’ previews, and links to them in conversations, open in this profile, with its sign-in and cookies. A worktree can pick its own in its Preview URL sheet.</small>
         </label>
       )}
+      {(groups.length > 0 || draft.group) && (
+        <label className="ca-field">
+          <span>Auto starts on</span>
+          <ProfileSelect value={draft.group} profiles={projectGroupProfiles(groups, cfg.routing?.auto ?? '')} onChange={(group) => setDraft({ ...draft, group })} />
+          <small>The routing group a session started here on Auto goes on, from the quick panel, codealong start, a schedule, a review or a meeting, in place of the one Routing sets. Picking an account or a group yourself still goes where you pick.</small>
+        </label>
+      )}
       <div className="ca-acct-actions">
         <Button variant="primary" size="sm" type="submit" disabled={busy || !draft.name.trim()}>
           {draft.original ? 'Save' : 'Add project'}
@@ -2238,6 +2263,12 @@ function ProjectsPane({ cfg, chromeProfiles, disabled, onSave, lanes, adding }: 
                     <dd>Chrome · {p.chrome_profile}</dd>
                   </>
                 )}
+                {p.default && (
+                  <>
+                    <dt>Auto</dt>
+                    <dd>Group: {p.default}</dd>
+                  </>
+                )}
               </dl>
               {removing === p.name ? (
                 <div className="ca-acct-confirm" role="alert">
@@ -2258,7 +2289,7 @@ function ProjectsPane({ cfg, chromeProfiles, disabled, onSave, lanes, adding }: 
                     size="sm"
                     onClick={() => {
                       setRemoving(null);
-                      setDraft({ original: p.name, name: p.name, repos: p.repos, folders: p.folders, chromeProfile: p.chrome_profile ?? '' });
+                      setDraft({ original: p.name, name: p.name, repos: p.repos, folders: p.folders, chromeProfile: p.chrome_profile ?? '', group: p.default ?? '' });
                     }}
                   >
                     Edit

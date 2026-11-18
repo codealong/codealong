@@ -57,11 +57,11 @@ pub fn able(s: &Schedule, board: &Board, cfg: &Config, zone: &dyn Zone) -> std::
         if let Some(a) = cfg.accounts.iter().find(|a| a.name == account && a.disabled) {
             return Err(format!("{} is turned off here.", a.name));
         }
-        // The routing group it starts from: its own, or Auto's when `[routing] auto` names one, as
-        // a start picks (start.rs `resolve_group`); with members, one of them on here, and else
-        // (Auto, a group of every account) any account.
+        // The routing group it starts from: its own, or Auto's when its project's `default` or
+        // `[routing] auto` names one, as a start picks (start.rs `resolve_group`); with members,
+        // one of them on here, and else (Auto, a group of every account) any account.
         let auto = account.is_empty() || account == "auto";
-        let named = if auto { cfg.routing.auto.trim() } else { account };
+        let named = if auto { crate::config::auto_group(cfg, place(s, board).map(|l| l.project.as_str())) } else { account };
         let group = (!named.is_empty()).then(|| cfg.routing.groups.iter().find(|g| g.name.trim() == named)).flatten();
         let none_on = match cfg.accounts.is_empty() {
             true => Some("No account is set up here."),

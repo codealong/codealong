@@ -1199,7 +1199,7 @@ fn start_step(board: &Board, cfg: &crate::config::Config, s: &Schedule, prompt: 
         }
     };
     let account = Some(s.run.account.trim()).filter(|a| !a.is_empty()).unwrap_or("auto");
-    let pick = match crate::start::pick(cfg, Some(board), account, s.run.place, s.run.model.as_deref(), s.run.effort.as_deref(), s.run.place.is_none(), now, home) {
+    let pick = match crate::start::pick(cfg, Some(board), account, crate::start::project_at(board, &lane_id), s.run.place, s.run.model.as_deref(), s.run.effort.as_deref(), s.run.place.is_none(), now, home) {
         Ok(p) => p,
         Err(e) => return Step::Fail { why: crate::util::words(e) },
     };

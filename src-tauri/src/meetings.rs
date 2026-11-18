@@ -756,7 +756,7 @@ fn placed(cfg: &Config, board: &crate::model::Board, lane: &str, now: i64) -> Re
     };
     let account = Some(cfg.voice.meeting_account.trim()).filter(|a| !a.is_empty()).unwrap_or("auto");
     let model = Some(cfg.voice.meeting_model.trim()).filter(|m| !m.is_empty());
-    let pick = crate::start::pick(cfg, Some(board), account, None, model, None, true, now, &util::home())?;
+    let pick = crate::start::pick(cfg, Some(board), account, crate::start::project_at(board, &lane), None, model, None, true, now, &util::home())?;
     Ok((lane, pick))
 }
 

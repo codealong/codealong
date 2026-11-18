@@ -8,6 +8,7 @@ import {
   agentId,
   agentOptions,
   agentOptionWords,
+  autoGroupIn,
   autoModel,
   autoOptionWords,
   autoPick,
@@ -49,6 +50,7 @@ import {
   startTitleWords,
   startWhereWords,
   takesModel,
+  withGroupRenamed,
   withLists,
   withChosen,
   type AutoPick,
@@ -190,6 +192,36 @@ describe('Auto', () => {
     expect(accountFor(AUTO, p)).toBe('claude2');
     expect(accountFor('codex', p)).toBe('codex');
     expect(accountFor(AUTO, null)).toBeNull();
+  });
+
+  // config.rs `auto_group`: a project's group, else `[routing] auto`'s, else Auto's own rule.
+  it('starts from the group the start’s project names, else Routing’s', () => {
+    const options = { accounts: ACCOUNTS, codexProjects: [], claudeModels: [], autoGroup: 'personal', projectDefaults: { Northwind: 'work' } };
+    expect(autoGroupIn(options, 'Northwind')).toBe('work');
+    expect(autoGroupIn(options, 'Atlas')).toBe('personal');
+    expect(autoGroupIn(options, null)).toBe('personal');
+    expect(autoGroupIn({ ...options, autoGroup: undefined }, 'Atlas')).toBe('');
+    expect(autoGroupIn({ ...options, projectDefaults: undefined }, 'Northwind')).toBe('personal');
+    expect(autoGroupIn(null, 'Northwind')).toBe('');
+    const groups: RoutingGroup[] = [
+      { name: 'personal', strategy: 'usage', members: [{ account: 'claude', model: '' }] },
+      { name: 'work', strategy: 'usage', members: [{ account: 'claude2', model: '' }] },
+    ];
+    const group = (name: string) => groups.find((g) => g.name === name) ?? null;
+    expect(autoPick(ACCOUNTS, [], NOW, null, group(autoGroupIn(options, 'Northwind')))?.account).toBe('claude2');
+    expect(autoPick(ACCOUNTS, [], NOW, null, group(autoGroupIn(options, 'Atlas')))?.account).toBe('claude');
+  });
+
+  it('carries projects along as their group is renamed or removed', () => {
+    const projects = [
+      { name: 'Northwind', repos: [], folders: [], default: 'work' },
+      { name: 'Atlas', repos: [], folders: [], default: 'personal' },
+      { name: 'Kestrel', repos: [], folders: [] },
+    ];
+    expect(withGroupRenamed(projects, 'work', 'office').map((p) => p.default)).toEqual(['office', 'personal', undefined]);
+    const removed = withGroupRenamed(projects, 'work', null);
+    expect(removed[0]).toEqual({ name: 'Northwind', repos: [], folders: [] });
+    expect(removed.slice(1)).toEqual(projects.slice(1));
   });
 });
 

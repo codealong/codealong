@@ -1062,6 +1062,9 @@ export interface ProjectCfg {
   /** The Chrome profile its worktrees' previews open in; missing opens them in the default
    *  browser. */
   chrome_profile?: string;
+  /** The routing group a start here on Auto goes on, over `[routing] auto`; missing for
+   *  `[routing] auto`'s. */
+  default?: string;
 }
 
 /** config.toml, as the engine parses it (src-tauri/src/config.rs). Keys are the file's own. */
@@ -2911,6 +2914,9 @@ export interface StartOptions {
   groups?: RoutingGroup[];
   /** The routing group `[routing] auto` names, or empty. */
   autoGroup?: string;
+  /** The routing group Auto starts from in a project, by its name, over `autoGroup` there
+   *  (`[[projects]] default`; start.ts `autoGroupIn`). */
+  projectDefaults?: Record<string, string>;
 }
 
 /** What a helper session works for: the session whose agent started it, or the PR it reviews. */

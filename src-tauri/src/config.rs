@@ -1585,6 +1585,18 @@ pub struct ProjectCfg {
     /// default browser.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub chrome_profile: Option<String>,
+    /// The routing group a start in this project goes on when it's left on Auto, in place of
+    /// `[routing] auto` (`auto_group`): the quick panel's, `codealong start`'s, a helper's, a
+    /// schedule's run, a review, a meeting's session. None is `[routing] auto`'s.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub default: Option<String>,
+}
+
+/// The routing group Auto starts from in `project`: the project's `default`, else
+/// `[routing] auto`; empty for Auto's own rule (the first account's harness by room).
+pub fn auto_group<'a>(cfg: &'a Config, project: Option<&str>) -> &'a str {
+    let own = project.and_then(|p| cfg.projects.iter().find(|x| x.name.trim() == p.trim())).and_then(|p| p.default.as_deref()).map(str::trim).filter(|d| !d.is_empty());
+    own.unwrap_or_else(|| cfg.routing.auto.trim())
 }
 
 fn default_scan() -> Vec<String> {
@@ -1904,6 +1916,12 @@ pub fn check_routing(cfg: &Config) -> std::result::Result<(), String> {
     let auto = cfg.routing.auto.trim();
     if !auto.is_empty() && !group_names.contains(auto) {
         return Err(format!("[routing] auto is {auto:?}, which isn't one of the [[routing.groups]]; use one of them, or \"\" for the default."));
+    }
+    for p in &cfg.projects {
+        let Some(d) = p.default.as_deref().map(str::trim) else { continue };
+        if !group_names.contains(d) {
+            return Err(format!("Project {}'s default is {d:?}, which isn't one of the [[routing.groups]]; use one of them, or take the line out for [routing] auto's.", p.name.trim()));
+        }
     }
     Ok(())
 }
@@ -2765,6 +2783,9 @@ fn set_projects(doc: &mut toml_edit::DocumentMut, projects: &[ProjectCfg]) {
             if let Some(c) = p.chrome_profile.as_deref().map(str::trim).filter(|c| !c.is_empty()) {
                 t["chrome_profile"] = Item::Value(Value::from(c));
             }
+            if let Some(d) = p.default.as_deref().map(str::trim).filter(|d| !d.is_empty()) {
+                t["default"] = Item::Value(Value::from(d));
+            }
             t
         })
         .collect();
@@ -2798,7 +2819,7 @@ pub fn with_folder(text: &str, folder: &str, project: Option<&str>) -> Result<(S
     match cfg.projects.iter_mut().find(|p| p.name.trim() == name) {
         Some(p) => p.folders.push(folder.to_string()),
         None if project.is_some() => return Err(anyhow!("There's no project named {name} any more.")),
-        None => cfg.projects.push(ProjectCfg { name: name.clone(), repos: Vec::new(), folders: vec![folder.to_string()], chrome_profile: None }),
+        None => cfg.projects.push(ProjectCfg { name: name.clone(), repos: Vec::new(), folders: vec![folder.to_string()], chrome_profile: None, default: None }),
     }
     check_projects(&cfg.projects).map_err(anyhow::Error::msg)?;
     let mut doc: toml_edit::DocumentMut = text.parse().context("config.toml has an error; fix it before adding a folder")?;
@@ -3045,6 +3066,7 @@ pub fn suggest_projects(owners: &BTreeMap<String, usize>, display_name: impl Fn(
             repos: vec![format!("github.com/{owner}/*")],
             folders: vec![],
             chrome_profile: None,
+            default: None,
         })
         .collect()
 }
@@ -3377,6 +3399,7 @@ mod tests {
                 repos: vec!["github.com/sprucehq/*".into()],
                 folders: vec!["~/projects/sparkhq/vault".into()],
                 chrome_profile: Some("Work".into()),
+                default: Some("authorized".into()),
             }],
             jev: JevCfg { model: "jev-1.13.0".into(), quick_panel: true, sessions: false, todos: true, pull_requests: false, prompts: false, emblems: false },
             router: None,
@@ -3421,7 +3444,7 @@ mod tests {
     fn saving_accounts_keeps_the_rest_of_the_file() {
         let text = render(&Config {
             accounts: vec![AccountCfg { name: "claude".into(), harness: "claude".into(), home: "~/.claude".into(), command: Some("claude".into()), start: None, acp: None, monthly: None, per_token: false, usage_cap: None, disabled: false, chrome_profile: None }],
-            projects: vec![ProjectCfg { name: "Spruce".into(), repos: vec!["github.com/sprucehq/*".into()], folders: vec![], chrome_profile: None }],
+            projects: vec![ProjectCfg { name: "Spruce".into(), repos: vec!["github.com/sprucehq/*".into()], folders: vec![], chrome_profile: None, default: None }],
             ..Config::default()
         });
         let text = text.replace("[apps]\n", "[apps]\n# my editor of choice\n");
@@ -3479,7 +3502,7 @@ mod tests {
         // A file written before there was a theme: no [appearance] table.
         let text = render(&Config {
             accounts: vec![AccountCfg { name: "claude".into(), harness: "claude".into(), home: "~/.claude".into(), command: Some("claude".into()), start: None, acp: None, monthly: None, per_token: false, usage_cap: None, disabled: false, chrome_profile: None }],
-            projects: vec![ProjectCfg { name: "Spruce".into(), repos: vec!["github.com/sprucehq/*".into()], folders: vec![], chrome_profile: None }],
+            projects: vec![ProjectCfg { name: "Spruce".into(), repos: vec!["github.com/sprucehq/*".into()], folders: vec![], chrome_profile: None, default: None }],
             ..Config::default()
         });
         let start = text.find(APPEARANCE_COMMENT).unwrap();
@@ -3735,8 +3758,8 @@ mod tests {
                 AccountCfg { name: "codex".into(), harness: "codex".into(), home: "~/.codex".into(), command: None, start: None, acp: None, monthly: None, per_token: false, usage_cap: None, disabled: false, chrome_profile: None },
             ],
             projects: vec![
-                ProjectCfg { name: "Spruce".into(), repos: vec!["github.com/sprucehq/*".into()], folders: vec!["~/projects/sparkhq/vault".into()], chrome_profile: None },
-                ProjectCfg { name: "Spur".into(), repos: vec!["github.com/spurhq/*".into()], folders: vec![], chrome_profile: None },
+                ProjectCfg { name: "Spruce".into(), repos: vec!["github.com/sprucehq/*".into()], folders: vec!["~/projects/sparkhq/vault".into()], chrome_profile: None, default: None },
+                ProjectCfg { name: "Spur".into(), repos: vec!["github.com/spurhq/*".into()], folders: vec![], chrome_profile: None, default: None },
             ],
             jev: JevCfg::default(),
             router: None,
@@ -4483,6 +4506,35 @@ mod tests {
         assert_eq!(parse(&out).unwrap(), unset);
     }
 
+    /// A project's `default` is the group Auto starts from there, over `[routing] auto`; it's
+    /// saved with the project and has to name a group.
+    #[test]
+    fn a_projects_default_group_is_autos_there() {
+        let mut cfg = full();
+        cfg.routing.auto = "everyone".into();
+        cfg.routing.groups = vec![
+            RoutingGroupCfg { name: "everyone".into(), ..RoutingGroupCfg::default() },
+            RoutingGroupCfg { name: "work".into(), members: vec![GroupMemberCfg { account: "codex".into(), model: String::new(), effort: String::new() }], ..RoutingGroupCfg::default() },
+        ];
+        cfg.projects[0].default = Some("work".into());
+        let (with, without) = (cfg.projects[0].name.clone(), cfg.projects[1].name.clone());
+        assert_eq!(auto_group(&cfg, Some(&with)), "work");
+        assert_eq!(auto_group(&cfg, Some(&without)), "everyone", "a project without one goes by [routing] auto");
+        assert_eq!(auto_group(&cfg, None), "everyone");
+        assert_eq!(auto_group(&cfg, Some("Elsewhere")), "everyone");
+        assert_eq!(check(&cfg), Ok(()));
+        let out = with_config(&render(&full()), &cfg).unwrap();
+        assert!(out.contains("default = \"work\""), "{out}");
+        assert_eq!(parse(&out).unwrap(), cfg);
+
+        let mut missing = cfg.clone();
+        missing.projects[0].default = Some("gone".into());
+        assert!(check(&missing).unwrap_err().contains("'s default is \"gone\""), "{:?}", check(&missing));
+        let mut cleared = cfg.clone();
+        cleared.projects[0].default = None;
+        assert!(!with_config(&out, &cleared).unwrap().contains("default = "));
+    }
+
     #[test]
     fn search_days_are_added_when_changed_and_capped() {
         let old = render(&full()).replace(&format!("\n{SEARCH_COMMENT}[search]\ndays = 14\n"), "");
@@ -4583,7 +4635,7 @@ mod tests {
         next.accounts.pop();
         next.projects[1].folders.push("~/extra".into());
         next.projects[0].chrome_profile = Some("Work".into());
-        next.projects.push(ProjectCfg { name: "Codealong".into(), repos: vec!["github.com/codealong/*".into()], folders: vec![], chrome_profile: None });
+        next.projects.push(ProjectCfg { name: "Codealong".into(), repos: vec!["github.com/codealong/*".into()], folders: vec![], chrome_profile: None, default: None });
         let out = with_config(&text, &next).unwrap();
         assert_eq!(toml::from_str::<Config>(&out).unwrap(), next);
         for kept in ["# my editor of choice", "# roots", "# Harness accounts.", "# Projects group repos", APPS_COMMENT, &debug_comment()] {

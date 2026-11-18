@@ -10,7 +10,7 @@ import { GENERAL_CHAT } from './quick';
 import { failedNotice } from './notices';
 import { errorText } from './report';
 import { readStored, writeStored, type Codec } from './stored';
-import type { Harness, Lane, Meter, Notice, ResumeIn, RoutingGroup, StartAccount, StartOptions, StartPlace, Usage } from './types';
+import type { Harness, Lane, Meter, Notice, ProjectCfg, ResumeIn, RoutingGroup, StartAccount, StartOptions, StartPlace, Usage } from './types';
 
 /** The notice while where each account can start a session can't be read (the main window's
  *  Review with and the quick panel ask), which ends once it's read. */
@@ -42,6 +42,23 @@ export function isAuto(c: Choice | null): boolean {
 
 export function isGroup(c: Choice | null, groups: RoutingGroup[] = []): RoutingGroup | undefined {
   return c ? groups.find((g) => g.name === c) : undefined;
+}
+
+/** The name of the routing group Auto starts from in `project`: the project's `default`, else
+ *  `[routing] auto`'s; empty for Auto's own rule (config.rs `auto_group`). */
+export function autoGroupIn(options: StartOptions | null | undefined, project?: string | null): string {
+  return (project ? options?.projectDefaults?.[project] : undefined) || options?.autoGroup || '';
+}
+
+/** `projects` with those whose Auto starts from group `from` on `to` instead, or on
+ *  `[routing] auto`'s once it's gone (null): what renaming or removing a group in Settings ›
+ *  Routing does to them. */
+export function withGroupRenamed(projects: ProjectCfg[], from: string, to: string | null): ProjectCfg[] {
+  return projects.map((p) => {
+    if (p.default !== from) return p;
+    const { default: _gone, ...rest } = p;
+    return to ? { ...rest, default: to } : rest;
+  });
 }
 
 export function capOf(usageCap?: number | null): number {

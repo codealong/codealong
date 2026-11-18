@@ -257,8 +257,8 @@ fn startable(cfg: &crate::config::Config) -> impl Iterator<Item = &crate::config
 }
 
 /// The agent and model options offered to Jev when `[routing] prompt` is set, with an account
-/// that has room for each.
-fn agent_candidates(board: &Board, cfg: &crate::config::Config, now: i64) -> (Map<String, Value>, Vec<(String, Option<String>)>) {
+/// that has room for each, from the group Auto starts from in the panel's `project`.
+fn agent_candidates(board: &Board, cfg: &crate::config::Config, project: Option<&str>, now: i64) -> (Map<String, Value>, Vec<(String, Option<String>)>) {
     let mut cards = Map::new();
     let mut picks = Vec::new();
     if cfg.routing.prompt.trim().is_empty() {
@@ -277,13 +277,13 @@ fn agent_candidates(board: &Board, cfg: &crate::config::Config, now: i64) -> (Ma
         if adapter.takes_model() {
             let Some(sample) = cfg.accounts.iter().find(|a| !a.disabled && crate::model::Harness::from_config(&a.harness) == h) else { continue };
             for m in adapter.models(sample) {
-                let Some(acct) = crate::start::pick_account_where(cfg, &board.usage, &[], Some(&m.id), now, |a| crate::model::Harness::from_config(&a.harness) == h) else { continue };
+                let Some(acct) = crate::start::pick_account_where(cfg, project, &board.usage, &[], Some(&m.id), now, |a| crate::model::Harness::from_config(&a.harness) == h) else { continue };
                 let key = format!("a{}", picks.len() + 1);
                 cards.insert(key, json!({ "agent": word, "model": m.id, "description": m.label }));
                 picks.push((acct, Some(m.id)));
             }
         } else {
-            let Some(acct) = crate::start::pick_account_where(cfg, &board.usage, &[], None, now, |a| crate::model::Harness::from_config(&a.harness) == h) else { continue };
+            let Some(acct) = crate::start::pick_account_where(cfg, project, &board.usage, &[], None, now, |a| crate::model::Harness::from_config(&a.harness) == h) else { continue };
             let key = format!("a{}", picks.len() + 1);
             cards.insert(key, json!({ "agent": word }));
             picks.push((acct, None));
@@ -353,7 +353,8 @@ fn led_by_auto(board: &Board, cfg: &crate::config::Config, now: i64, services: V
     services
         .into_iter()
         .map(|mut s| {
-            if let Some(Ok(first)) = crate::start::resolve_group(cfg, Some(board), "auto", &[], None, None, false, now, |a| s.accounts.contains(&a.name)) {
+            // In no project: what an agent asks for here may be for any of them.
+            if let Some(Ok(first)) = crate::start::resolve_group(cfg, Some(board), "auto", None, &[], None, None, false, now, |a| s.accounts.contains(&a.name)) {
                 s.accounts.retain(|a| *a != first.account);
                 s.accounts.insert(0, first.account);
                 s.model = first.model;
@@ -423,7 +424,8 @@ pub fn request_with_routing(board: &Board, cfg: Option<&crate::config::Config>, 
         "todo": "The message is a note to do something later rather than now, and says so (for example 'later', 'todo', 'remember to', 'at some point', 'next week').",
     });
 
-    let (agent_cards, agents) = cfg.map(|c| agent_candidates(board, c, now)).unwrap_or_default();
+    let in_project = Some(project).filter(|p| *p != ALL_PROJECTS);
+    let (agent_cards, agents) = cfg.map(|c| agent_candidates(board, c, in_project, now)).unwrap_or_default();
     let services = cfg.map(|c| service_candidates(board, c, now)).unwrap_or_default();
 
     let mut body = json!({

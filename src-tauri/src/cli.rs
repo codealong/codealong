@@ -7626,6 +7626,8 @@ fn start_cmd(c: &mut Client, a: &StartArgs, json: bool) -> Result<()> {
         }
         _ => None,
     };
+    // Auto starts from the group the worktree's project names as its default.
+    let project = start::project_at(c.raw_board()?, &lane_id).map(str::to_string);
     // Auto and the routing groups pick by the board's usage, which only the app's board has.
     let board = match c.app.is_some() {
         true => Some(c.board()?),
@@ -7639,7 +7641,7 @@ fn start_cmd(c: &mut Client, a: &StartArgs, json: bool) -> Result<()> {
         }
         _ => a.account.clone(),
     };
-    let picked = start::pick(&cfg, board, &account, a.place.map(place_of), a.model.as_deref(), a.effort.as_deref(), a.helper, now_ms(), &crate::util::home())?;
+    let picked = start::pick(&cfg, board, &account, project.as_deref(), a.place.map(place_of), a.model.as_deref(), a.effort.as_deref(), a.helper, now_ms(), &crate::util::home())?;
     let spec = StartSpec { lane_id, account: picked.account, place: picked.place, prompt, model: picked.model, effort: picked.effort, worktree: a.new_worktree, todos: todo_ids, from, helper: a.helper, report: a.report };
     if a.dry_run {
         let account = cfg.accounts.iter().find(|x| x.name == spec.account).ok_or_else(|| anyhow!("There's no account named {}.", spec.account))?;

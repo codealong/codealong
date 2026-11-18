@@ -1373,6 +1373,11 @@ pub struct StartOptions {
     /// The group Auto starts from (`[routing] auto`), when one is set.
     #[serde(default, skip_serializing_if = "String::is_empty")]
     pub auto_group: String,
+    /// The group Auto starts from in a project, by the project's name, over `auto_group` there
+    /// (`[[projects]] default`). Missing from devices that don't know it, whose Auto goes by
+    /// `auto_group` everywhere.
+    #[serde(default, skip_serializing_if = "std::collections::BTreeMap::is_empty")]
+    pub project_defaults: std::collections::BTreeMap<String, String>,
 }
 
 /// What the sheet asks for.

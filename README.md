@@ -853,7 +853,7 @@ live_replies = false           # Claude Code sessions hand Codealong a reply as 
 hibernate_after = 0            # minutes a session in a terminal, or a Claude Code background job, sits idle, wanting nothing from you, before its tab closes or its job stops to free what its agent holds; opening it or replying resumes it; 0 is off (Settings › Automation)
 
 [routing]                      # Settings › Routing
-auto = ""                      # the routing group Auto uses for new sessions and reviews; "" picks among accounts of the first harness with room
+auto = ""                      # the routing group Auto uses for new sessions and reviews, where a project's `default` names none; "" picks among accounts of the first harness with room
 prompt = ""                    # instructions for Jev in the quick panel to suggest an agent, model or routing group for what you type
 buffer = 5                     # percent below each account's usage_cap left for the sessions already running there: Auto stops favoring its soonest reset, and a fallback group moves on, once it's this close (0 to 50)
 
@@ -975,6 +975,7 @@ name = "Acme"
 repos = ["github.com/acme/*"]
 folders = []                   # folders that belong to it too; a repo in one is this project's, whatever its remote
 chrome_profile = "Work"        # its worktrees' previews, and links into them, open in this Chrome profile; without it, the default browser
+default = "authorized"         # the routing group a start here on Auto goes on (sessions, schedules, reviews, meetings), in place of [routing] auto; without it, [routing] auto's
 ```
 
 </details>

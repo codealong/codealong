@@ -683,12 +683,15 @@ pub fn pick_from_group_in(
 }
 
 /// Resolves `"auto"` (or empty) or a routing group's name in `cfg.routing.groups` to the account
-/// and model it picks; None when `name` is a single account rather than Auto or a group.
+/// and model it picks; None when `name` is a single account rather than Auto or a group. Auto
+/// starts from the group that `project`'s `default` names, else `[routing] auto`'s
+/// (`config::auto_group`).
 #[allow(clippy::too_many_arguments)]
 pub fn resolve_group(
     cfg: &Config,
     board: Option<&Board>,
     name: &str,
+    project: Option<&str>,
     places: &[Place],
     model: Option<&str>,
     avoid: Option<Harness>,
@@ -699,7 +702,7 @@ pub fn resolve_group(
     let trimmed = name.trim();
     let default_group;
     let group = if trimmed.is_empty() || trimmed == "auto" {
-        let auto_name = cfg.routing.auto.trim();
+        let auto_name = config::auto_group(cfg, project);
         if !auto_name.is_empty() {
             cfg.routing.groups.iter().find(|g| g.name == auto_name)?
         } else {
@@ -737,20 +740,20 @@ fn with_auto_model(p: GroupPick, cfg: &Config, usages: &[Usage]) -> GroupPick {
     GroupPick { model, ..p }
 }
 
-/// Auto's account, by the quick panel's rule (`auto_pick` or `[routing] auto`): among the accounts
-/// that can start a session (in one of `places`, when any are given; on `model`, when given, for
-/// the accounts whose command line takes it), those of the first account's harness with room first,
-/// and among those the one whose week resets soonest.
+/// Auto's account, by the quick panel's rule (`auto_pick`, or the group `config::auto_group` names
+/// for `project`): among the accounts that can start a session (in one of `places`, when any are
+/// given; on `model`, when given, for the accounts whose command line takes it), those of the first
+/// account's harness with room first, and among those the one whose week resets soonest.
 #[cfg(test)]
 pub fn pick_account(cfg: &Config, usages: &[Usage], places: &[Place], model: Option<&str>, now: i64) -> Option<String> {
-    pick_account_where(cfg, usages, places, model, now, |_| true)
+    pick_account_where(cfg, None, usages, places, model, now, |_| true)
 }
 
-/// `pick_account` among the accounts `keep` takes: the reviewer of a PR of yours, among those of
-/// another harness than its primary session (autoreview.rs).
-pub fn pick_account_where(cfg: &Config, usages: &[Usage], places: &[Place], model: Option<&str>, now: i64, keep: impl Fn(&AccountCfg) -> bool) -> Option<String> {
+/// `pick_account` among the accounts `keep` takes: those of one harness, for an agent Jev
+/// suggests (route.rs).
+pub fn pick_account_where(cfg: &Config, project: Option<&str>, usages: &[Usage], places: &[Place], model: Option<&str>, now: i64, keep: impl Fn(&AccountCfg) -> bool) -> Option<String> {
     let default_group = config::RoutingGroupCfg { name: "auto".into(), strategy: config::RoutingStrategy::Usage, members: Vec::new(), ..config::RoutingGroupCfg::default() };
-    let group = Some(cfg.routing.auto.trim())
+    let group = Some(config::auto_group(cfg, project))
         .filter(|s| !s.is_empty())
         .and_then(|n| cfg.routing.groups.iter().find(|g| g.name == n))
         .unwrap_or(&default_group);
@@ -782,6 +785,7 @@ pub fn options_for(cfg: &Config) -> StartOptions {
     let projects = on.iter().flat_map(|a| crate::harness::of(a).map(|h| h.app_projects(a)).unwrap_or_default()).collect();
     let mut out = options(&on, &launch::terminal_name(&cfg.apps.terminal), projects, &home(), |a| crate::harness::of(a).and_then(|h| h.default_model(a)));
     out.auto_group = cfg.routing.auto.trim().to_string();
+    out.project_defaults = cfg.projects.iter().filter_map(|p| Some((p.name.trim().to_string(), p.default.as_deref().map(str::trim).filter(|d| !d.is_empty())?.to_string()))).collect();
     // Where tmux holds what's out of sight, Background opens no tab behind your windows either.
     let in_tmux = launch::out_of_sight_in_tmux(&cfg.apps.terminal, cfg.apps.tmux);
     for a in &mut out.accounts {
@@ -841,11 +845,11 @@ pub struct Pick {
 
 /// What `codealong start` starts on, run here or by another device's (`picked`): `account` is an
 /// account, a routing group or `auto`, which picks as the quick panel does (`resolve_group`, by
-/// `board`'s usage and sessions when there's one), with `model` and `effort` over the group's.
-/// Without `place`, the account's own first place (the one its `start` names), or for a helper
-/// one out of sight.
+/// `board`'s usage and sessions when there's one, from the group `project` has for Auto), with
+/// `model` and `effort` over the group's. Without `place`, the account's own first place (the one
+/// its `start` names), or for a helper one out of sight.
 #[allow(clippy::too_many_arguments)]
-pub fn pick(cfg: &Config, board: Option<&Board>, account: &str, place: Option<Place>, model: Option<&str>, effort: Option<&str>, helper: bool, now: i64, home: &Path) -> Result<Pick> {
+pub fn pick(cfg: &Config, board: Option<&Board>, account: &str, project: Option<&str>, place: Option<Place>, model: Option<&str>, effort: Option<&str>, helper: bool, now: i64, home: &Path) -> Result<Pick> {
     let (account, model, effort) = if account == "auto" || cfg.routing.groups.iter().any(|g| g.name == account) {
         // A helper without a place goes where it starts out of sight.
         let places = match (place, helper) {
@@ -856,14 +860,14 @@ pub fn pick(cfg: &Config, board: Option<&Board>, account: &str, place: Option<Pl
         // With no server's board to say where a boundary group's members stand, they're asked
         // here, for `resolve_group` to find kept.
         if board.is_none() {
-            let group = if account == "auto" { cfg.routing.auto.trim() } else { account };
+            let group = if account == "auto" { config::auto_group(cfg, project) } else { account };
             for m in cfg.routing.groups.iter().filter(|g| g.boundary && g.name.trim() == group).flat_map(|g| &g.members) {
                 if let Some(a) = cfg.accounts.iter().find(|a| a.name == m.account.trim()) {
                     crate::signin::current(a, now, crate::signin::Ask::IfStale);
                 }
             }
         }
-        let picked = match resolve_group(cfg, board, account, &places, model, None, false, now, |_| true) {
+        let picked = match resolve_group(cfg, board, account, project, &places, model, None, false, now, |_| true) {
             Some(Ok(p)) => p,
             Some(Err(why)) if why.starts_with("no member of the boundary") => bail!("N{}.", &why[1..]),
             _ => bail!("No account can start a session there. `codealong accounts` lists them."),
@@ -907,7 +911,7 @@ pub fn picked(board: &Board, cfg: &Config, asked: &codealong_peer::api::params::
     } else {
         main_checkout(board, &asked.repo)?
     };
-    let p = pick(cfg, Some(board), &asked.account, asked.place, asked.model.as_deref(), asked.effort.as_deref(), false, now, home)?;
+    let p = pick(cfg, Some(board), &asked.account, project_at(board, &lane_id), asked.place, asked.model.as_deref(), asked.effort.as_deref(), false, now, home)?;
     Ok(StartSpec { lane_id, account: p.account, place: p.place, prompt: String::new(), model: p.model, effort: p.effort, worktree: false, todos: Vec::new(), from: None, helper: false, report: false })
 }
 
@@ -931,6 +935,12 @@ fn main_checkout(board: &Board, repo: &str) -> Result<String> {
 /// The worktree a folder is in: the one it is, else the deepest whose folder holds it.
 pub fn lane_at<'a>(board: &'a Board, dir: &Path) -> Option<&'a Lane> {
     board.lanes.iter().find(|l| Path::new(&l.id) == dir).or_else(|| lane_for_path(board, dir))
+}
+
+/// The project of the worktree a start goes in (`lane_at`), for the group Auto starts from there
+/// (`config::auto_group`).
+pub fn project_at<'a>(board: &'a Board, lane_id: &str) -> Option<&'a str> {
+    lane_at(board, Path::new(lane_id)).map(|l| l.project.as_str())
 }
 
 /// Whether `dir` is in a checkout of its own (a `.git` there or in a folder above it) that the
@@ -2213,7 +2223,7 @@ mod tests {
         cfg.routing.groups = vec![RoutingGroupCfg { name: "authorized".into(), boundary: true, members: vec![member("claude"), member("claude2")], ..RoutingGroupCfg::default() }];
         let signed = |account: &str, ok: bool| crate::signin::SignIn { account: account.into(), commercial: ok, verified: ok, ..Default::default() };
         let board = Board { sign_ins: vec![signed("claude", false), signed("claude2", true)], ..Board::default() };
-        let picked = |cfg: &Config, name: &str, board: &Board| resolve_group(cfg, Some(board), name, &[], None, None, false, NOW, |_| true).map(|r| r.map(|p| p.account));
+        let picked = |cfg: &Config, name: &str, board: &Board| resolve_group(cfg, Some(board), name, None, &[], None, None, false, NOW, |_| true).map(|r| r.map(|p| p.account));
         for _ in 0..3 {
             assert_eq!(picked(&cfg, "authorized", &board), Some(Ok("claude2".to_string())));
         }
@@ -2221,6 +2231,28 @@ mod tests {
         assert_eq!(picked(&cfg, "auto", &board), Some(Ok("claude2".to_string())), "as Auto's group too");
         let none = Board { sign_ins: vec![signed("claude", false), signed("claude2", false)], ..Board::default() };
         assert!(picked(&cfg, "authorized", &none).is_some_and(|r| r.is_err_and(|e| e.starts_with("no member of the boundary group authorized"))));
+    }
+
+    /// Auto in a project whose `default` names a group starts from that group, and anywhere else
+    /// from `[routing] auto`'s; an account or a group named still starts where it says. The
+    /// windows get each project's group, to say whom Auto would start there.
+    #[test]
+    fn auto_in_a_project_starts_from_its_group() {
+        use config::{GroupMemberCfg, ProjectCfg, RoutingGroupCfg};
+        let member = |a: &str| GroupMemberCfg { account: a.into(), model: String::new(), effort: String::new() };
+        let mut cfg = Config { accounts: vec![account("claude", "claude", "/Users/me/.claude", Some("claude")), account("claude2", "claude", "/Users/me/.claude2", Some("claude2"))], ..Config::default() };
+        cfg.routing.groups = vec![RoutingGroupCfg { name: "personal".into(), members: vec![member("claude")], ..RoutingGroupCfg::default() }, RoutingGroupCfg { name: "work".into(), members: vec![member("claude2")], ..RoutingGroupCfg::default() }];
+        cfg.routing.auto = "personal".into();
+        cfg.projects = vec![ProjectCfg { name: "Northwind".into(), repos: vec!["github.com/northwind/*".into()], folders: Vec::new(), chrome_profile: None, default: Some("work".into()) }];
+        let board = Board::default();
+        let on = |account: &str, project: Option<&str>| pick(&cfg, Some(&board), account, project, Some(Place::Terminal), None, None, false, NOW, Path::new("/Users/me")).map(|p| p.account).unwrap();
+        assert_eq!(on("auto", Some("Northwind")), "claude2");
+        assert_eq!(on("auto", Some("Atlas")), "claude", "a project without a group of its own");
+        assert_eq!(on("auto", None), "claude");
+        assert_eq!(on("personal", Some("Northwind")), "claude");
+        assert_eq!(on("claude", Some("Northwind")), "claude");
+        assert_eq!(pick_account_where(&cfg, Some("Northwind"), &[], &[], None, NOW, |_| true).as_deref(), Some("claude2"));
+        assert_eq!(options_for(&cfg).project_defaults, std::collections::BTreeMap::from([("Northwind".to_string(), "work".to_string())]));
     }
 
     #[test]

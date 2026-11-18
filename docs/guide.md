@@ -3038,6 +3038,17 @@ it. Codealong only launches:
 the session shows on the board like any other, and the panel stays on whatever you're looking at
 when it appears.
 
+A project can have a routing group of its own for Auto: *Auto starts on* in its Edit form in
+Settings › Projects, `default = "<group>"` in its `[[projects]]` table. A start on Auto in one of
+its worktrees goes on that group in place of `[routing] auto`'s: the quick panel's (the agent menu's
+Auto line says whom it would start there), `codealong start` and its helpers, a schedule's run in
+its folder, a review of one of its repos' PRs whose reviewer is left on Auto (Settings › Automation
+with the repo picked shows it), and a meeting's session started there. Naming an account or a group
+yourself still starts there, so a project's group is where its work goes by default, not a fence:
+to keep an account for one project's work, make `[routing] auto` a group without it and give that
+project a group with it. Renaming or removing a group in Settings › Routing carries the project
+along, and `codealong config check` turns down a project whose group isn't one.
+
 #### Boundary groups
 
 Some teams let agents on personal subscriptions work on code but keep production or customer data

@@ -101,6 +101,7 @@ import { prPills } from '../prStatus';
 import { ALL_PROJECTS, CHATS, GENERAL_CHAT, attachmentsNote, attentionRows, draftCodec, findPrs, foldedWords, holdsPrompt as holdsAPrompt, findSessions, findTodos, folderChoices, folderStart, FOUND_SESSIONS, inProject, isFolderPath, macUnavailable, MAX_ROWS, nextDraft, primaryRunningWords, projectCounts, projectLabel, projectShownIn, QUICK_PLACEHOLDER, queryWords, readyTodos, recallList, pickInProject, recentRows, repoChoices, repoKey, repoWorktrees, SEND_TO_PLACEHOLDER, sendTargets, shortcutLabel, startLaneIn, startTitle, todosStayNote, worktreeCount, worktreeName, type Machines, type PrRow, type QuickDraft, type ReviewRow, type RowGroup, type SessionRow, type TodoRow, withPrompt as historyWith } from '../quick';
 import {
   agentChipWords,
+  autoGroupIn,
   isAuto,
   isGroup,
   keepPlaceFailed,
@@ -881,7 +882,23 @@ export function Quick() {
   // Another Mac's usage comes with its feed.
   const usage = useMemo(() => (deviceNow ? (deviceInfo?.usage ?? []) : (board?.usage ?? [])), [deviceNow, deviceInfo?.usage, board?.usage]);
   const allLanes = useMemo(() => (deviceNow ? (devices?.lanes ?? []).filter((l) => shortOf(l.id) === deviceNow) : (board?.lanes ?? [])), [deviceNow, devices?.lanes, board?.lanes]);
-  // The account, model, effort and place a new session starts with (useStartChoice.ts).
+  // Without a worktree asked for, where new work starts in the repo picked, else the first on the
+  // list: one with a pinned worktree, else the latest (quick.ts `startLaneIn`), the main
+  // checkout where the place picked (`isolates`) moves the session out of it before it changes
+  // anything.
+  // Opened by the chat shortcut or on General chat, the chats lane, once the board has it: a
+  // panel opened before the first scan finished gets it with the board that has it.
+  // Improving Codealong with no source on the board goes to no worktree by default (the note
+  // says why), never to the project's first, which would start it in some other repo, nor to
+  // General chat's chats.
+  const repoPicked = laneId?.startsWith(REPO) ? repoList.find((r) => `${REPO}${r.key}` === laneId) : undefined;
+  const laneWith = (isolates: string[]) =>
+    lanes.find((l) => l.id === laneId) ??
+    (chatLane && (chatLane.id === laneId || ((asChat || (chatting && !improve)) && !laneId)) ? chatLane : null) ??
+    (improve && !repoPicked ? null : startLaneIn((repoPicked ?? repoList[0])?.lanes ?? [], false, isolates));
+  // The account, model, effort and place a new session starts with (useStartChoice.ts), Auto
+  // from the group the start's project names: a repo's worktrees are all in its project, so
+  // whichever the place picks.
   const {
     accounts,
     groups: routingGroups,
@@ -912,20 +929,8 @@ export function Quick() {
     stepEffort,
     pickEffort,
     effortShown,
-  } = useStartChoice(startPicks, optionsForStart, usage, now, allLanes);
-  // Without a worktree asked for, where new work starts in the repo picked, else the first on the
-  // list: one with a pinned worktree, else the latest (quick.ts `startLaneIn`), the main
-  // checkout where the place picked moves the session out of it before it changes anything.
-  // Opened by the chat shortcut or on General chat, the chats lane, once the board has it: a
-  // panel opened before the first scan finished gets it with the board that has it.
-  // Improving Codealong with no source on the board goes to no worktree by default (the note
-  // says why), never to the project's first, which would start it in some other repo, nor to
-  // General chat's chats.
-  const repoPicked = laneId?.startsWith(REPO) ? repoList.find((r) => `${REPO}${r.key}` === laneId) : undefined;
-  const lane =
-    lanes.find((l) => l.id === laneId) ??
-    (chatLane && (chatLane.id === laneId || ((asChat || (chatting && !improve)) && !laneId)) ? chatLane : null) ??
-    (improve && !repoPicked ? null : startLaneIn((repoPicked ?? repoList[0])?.lanes ?? [], false, isolatesIn));
+  } = useStartChoice(startPicks, optionsForStart, usage, now, allLanes, laneWith([])?.project ?? null);
+  const lane = laneWith(isolatesIn);
   // The repo it starts in, whose worktrees the worktree menu lists.
   const repoNow = lane && !lane.startsChats ? (repoList.find((r) => r.key === repoKey(lane)) ?? null) : null;
   // While the machine a start goes to is strained, a calm one with its repo (or chats), which
@@ -2376,7 +2381,7 @@ export function Quick() {
   };
 
   // Where it runs is for this start alone; Make default keeps it as its accounts' own (on this Mac).
-  const keepers = choice && placeNow && !deviceNow ? keepPlaceFor(choice, accounts, placeNow, routingGroups, optionsForStart?.autoGroup) : [];
+  const keepers = choice && placeNow && !deviceNow ? keepPlaceFor(choice, accounts, placeNow, routingGroups, autoGroupIn(optionsForStart, lane?.project)) : [];
   const agentFoot = (
     <AgentFoot
       effort={{ efforts, value: effortShown, onPick: pickEffort, harness, model: effortModel, takesEffort: (accountInfo?.efforts?.length ?? 0) > 0 }}

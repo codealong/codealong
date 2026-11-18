@@ -4,7 +4,7 @@
 // what the picks come to is start.ts `startChoice`.
 
 import { useMemo, useState } from 'react';
-import { agentId, agentOptions, autoPick, effortStep, initialChoice, OWN_EFFORT, parseAgent, placeTakesModel, settledPlace, startChoice, withLists } from './start';
+import { agentId, agentOptions, autoGroupIn, autoPick, effortStep, initialChoice, OWN_EFFORT, parseAgent, placeTakesModel, settledPlace, startChoice, withLists } from './start';
 import type { Lane, StartOptions, StartPlace, Usage } from './types';
 
 /** What's picked, with its setters. The quick panel keeps these from one open to the next only
@@ -19,13 +19,15 @@ export function useStartPicks() {
   return { agent, setAgent, effort, setEffort, place, setPlace, newWorktree, setNewWorktree };
 }
 
-/** What the picks come to among what `options` offers, and the agent menu's and places' steps. */
-export function useStartChoice(picks: ReturnType<typeof useStartPicks>, options: StartOptions | null, usage: Usage[], now: number, lanes: Lane[] = []) {
+/** What the picks come to among what `options` offers, and the agent menu's and places' steps.
+ *  Auto starts from the group `project`, the one the start goes in, has for it (`autoGroupIn`). */
+export function useStartChoice(picks: ReturnType<typeof useStartPicks>, options: StartOptions | null, usage: Usage[], now: number, lanes: Lane[] = [], project: string | null = null) {
   const { agent, setAgent, effort, setEffort, place, setPlace, newWorktree } = picks;
 
   const accounts = useMemo(() => (options ? withLists(options) : []), [options]);
   const groups = useMemo(() => options?.groups ?? [], [options]);
-  const autoGroup = useMemo(() => (options?.autoGroup ? groups.find((g) => g.name === options.autoGroup) ?? null : null), [options, groups]);
+  const autoName = autoGroupIn(options, project);
+  const autoGroup = useMemo(() => (autoName ? (groups.find((g) => g.name === autoName) ?? null) : null), [autoName, groups]);
   // Every account's models, for saying one by its name; each account lists its own.
   const models = useMemo(() => accounts.flatMap((a) => a.models ?? []).filter((m, i, all) => all.findIndex((x) => x.id === m.id) === i), [accounts]);
   // The effort levels the agent menu offers for an account that lists none of its own: those of the
