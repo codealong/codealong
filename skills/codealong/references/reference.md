@@ -2595,7 +2595,9 @@ Commands:
   snooze      Snooze a session, as Snooze in its menu in Codealong does: it leaves Needs
               you and Your turn on every device, and the mark stops counting it, until
               WHEN, when it's back as it is then (as Your turn when nothing else would
-              bring it). A prompt sent to it ends the snooze, and --wake ends it now.
+              bring it). A prompt sent to it ends the snooze, as does a turn it takes by
+              itself (a scheduled wakeup, another session's message) that leaves it
+              waiting on its user; one that only reports doesn't. --wake ends it now.
               WHEN is on this machine's clock: a span from now (30m, 2h, 3d), a time
               (5pm, 17:30: the next one), a day (tomorrow, fri, next week, 2026-11-03:
               at 9 AM) or a day and a time (tomorrow 2pm, fri 17:00, 2026-11-03 15:00).
@@ -3178,16 +3180,17 @@ Options:
           UTC's as it is (`utc` after it, the day UTC's too). Its words count from when
           the reply was written, as the reply means them and as Jev reads them:
           "tomorrow" in a reply from last night is this morning. Where the session takes
-          a turn by itself before then (a check-in, a scheduled wakeup), give the time
-          of that: only its user's prompt ends a snooze. A time that has passed is
-          turned down: its work is due, so leave it out and say --finished no. Codealong
-          then offers its user a snooze until then, in the session's Snooze menu and
-          above its box, saying you read it so, and the session isn't Finished. Say it
-          with how the reply ends (--ending): an ending given without it says the reply
-          waits for no time, which takes away a time Jev read. Not with an ending that
-          asks its user something (question, blocked), which waits on them now. Only
-          where the reply says so ("nothing to do until Thursday's cutover", "the freeze
-          lifts Monday"): not a deadline it's working to, nor a day it merely names
+          a turn by itself before then (a check-in, a scheduled wakeup) whose report its
+          user should see, give the time of that: such a turn ends a snooze only when it
+          leaves the session waiting on them. A time that has passed is turned down: its
+          work is due, so leave it out and say --finished no. Codealong then offers its
+          user a snooze until then, in the session's Snooze menu and above its box,
+          saying you read it so, and the session isn't Finished. Say it with how the
+          reply ends (--ending): an ending given without it says the reply waits for no
+          time, which takes away a time Jev read. Not with an ending that asks its user
+          something (question, blocked), which waits on them now. Only where the reply
+          says so ("nothing to do until Thursday's cutover", "the freeze lifts Monday"):
+          not a deadline it's working to, nor a day it merely names
 
       --note <NOTE>
           Why, in a sentence or two; shown with the tag
@@ -3251,10 +3254,12 @@ Options:
 Snooze a session, as Snooze in its menu in Codealong does: it leaves Needs you and Your
 turn on every device, and the mark stops counting it, until WHEN, when it's back as it
 is then (as Your turn when nothing else would bring it). A prompt sent to it ends the
-snooze, and --wake ends it now. WHEN is on this machine's clock: a span from now (30m,
-2h, 3d), a time (5pm, 17:30: the next one), a day (tomorrow, fri, next week, 2026-11-03:
-at 9 AM) or a day and a time (tomorrow 2pm, fri 17:00, 2026-11-03 15:00). A session on
-another device is snoozed on its machine
+snooze, as does a turn it takes by itself (a scheduled wakeup, another session's
+message) that leaves it waiting on its user; one that only reports doesn't. --wake ends
+it now. WHEN is on this machine's clock: a span from now (30m, 2h, 3d), a time (5pm,
+17:30: the next one), a day (tomorrow, fri, next week, 2026-11-03: at 9 AM) or a day and
+a time (tomorrow 2pm, fri 17:00, 2026-11-03 15:00). A session on another device is
+snoozed on its machine
 
 Usage: codealong session snooze [OPTIONS] <KEY> [WHEN]...
 

@@ -3548,7 +3548,11 @@ window), and the mark stops counting it; the snoozed pill
 lists it with when it's back, to show it in Codealong, open it or wake it early. When the time comes
 it's back as it is then, and one with nothing new (its turn already seen, or its process gone) comes
 back as Your turn, so a snooze always brings its session back. A running session stays in Working
-while snoozed, and sending a session a prompt ends its snooze. A session on another device is
+while snoozed, and sending a session a prompt ends its snooze. So does a turn a Claude Code
+session takes by itself since you snoozed it (a scheduled check-in or wakeup, another session's
+message, a background task's report) when it leaves the session waiting on you: its reply asks
+you something or it's blocked on you, or it waits for you to allow a call or answer a question.
+A turn that only reports keeps it snoozed until its time. A session on another device is
 snoozed on its Mac, so it's snoozed there too.
 
 When a session's last reply says its work goes on at a later time, with nothing for you or it to
@@ -3568,9 +3572,10 @@ this morning. When the reply waits for and how it ends are one read, so an agent
 only with how the reply ends, and its tag stands over Jev's day, taking it away when the agent
 read no time; under a tag that only says something else (how far the work got, say), the day
 stays Jev's and is said as Jev's. A reply read as asking you something is offered none: it waits
-on you now. Only a prompt of yours ends a snooze, not a turn the session takes by itself (a
-scheduled check-in, say): an orchestrator tagging a session that will is asked to give the time of
-that turn where it comes first, while Jev's day doesn't know of it. The offer is for the reply it read: it goes once the session
+on you now. A turn the session takes by itself before the time ends the snooze only when it
+leaves the session waiting on you, so where what such a turn reports matters (a scheduled
+check-in, say), an orchestrator tagging the session is asked to give the time of that turn, while
+Jev's day doesn't know of it. The offer is for the reply it read: it goes once the session
 is sent something or takes a turn, once it's snoozed, and when the time comes. Such a session isn't [Finished](#finished-sessions), before the time or after it: the
 work it put off is then due. A session stopped at its usage limit is offered a snooze until the
 limit lifts the same way, its Limit's button in place of the line above its box

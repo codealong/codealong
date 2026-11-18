@@ -2077,6 +2077,21 @@ impl Engine {
         self.save_state();
     }
 
+    /// Wakes the snoozes of sessions a turn of their own has left waiting on you
+    /// (`board::snooze_called_back`), which the board already shows awake: for good, so that
+    /// once you've answered, the snooze doesn't take the session back off your list.
+    fn wake_called_back(&mut self, board: &Board) {
+        let now = now_ms();
+        let called: Vec<String> = self.seen.snoozed.iter().filter(|z| z.until > now && board.session(&z.key).is_some_and(|(_, s)| board::snooze_called_back(s, z.at))).map(|z| z.key.clone()).collect();
+        if called.is_empty() {
+            return;
+        }
+        for k in &called {
+            self.seen.wake(k, now);
+        }
+        self.save_state();
+    }
+
     fn forget_spent_agent_seen(&mut self, board: &Board) {
         let spent: Vec<String> = self.seen.agent_seen.iter().filter(|m| board.session(&m.key).is_some_and(|(_, s)| board::agent_seen_spent(s, m.seen.at))).map(|m| m.key.clone()).collect();
         if spent.is_empty() {
@@ -4513,6 +4528,7 @@ fn waiting_call(s: &Session, account: Option<&config::AccountCfg>) -> Option<Str
         self.forget_stale_tags(&board);
         self.forget_spent_agent_seen(&board);
         self.forget_spent_aside(&board);
+        self.wake_called_back(&board);
         self.jev_look(&board);
         // Rare too: a schedule's emblem coming, or a session of it showing.
         if self.look_emblems(&board) {

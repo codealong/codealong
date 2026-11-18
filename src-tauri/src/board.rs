@@ -1958,10 +1958,12 @@ pub fn apply_suggestions(s: &mut Session, suggested: Option<&Suggestions>) {
 /// floating bar and the mark leave it out of Needs you and Your turn. When the time comes it's
 /// back as it is then, and one with nothing to show for itself (its turn seen, or its process
 /// gone) is Your turn from then until you've seen it: a snooze always brings its session back. A
-/// prompt you sent it after snoozing it ends the snooze without that: you took it up.
+/// prompt you sent it after snoozing it ends the snooze without that: you took it up. So does a
+/// turn it took by itself since that left it waiting on you (`snooze_called_back`), which the
+/// engine then wakes for good.
 pub fn apply_snooze(s: &mut Session, snooze: Option<&Snooze>, seen_at: i64, now: i64) {
     let Some(z) = snooze else { return };
-    if s.last_prompt_at > z.at || s.archived {
+    if s.last_prompt_at > z.at || s.archived || snooze_called_back(s, z.at) {
         return;
     }
     if now < z.until {
@@ -1970,6 +1972,17 @@ pub fn apply_snooze(s: &mut Session, snooze: Option<&Snooze>, seen_at: i64, now:
         s.status = Status::Unread;
         s.status_since = Some(z.until);
     }
+}
+
+/// Whether a turn a session took without you since it was snoozed at `at` (a scheduled wakeup or
+/// check-in, another session's message, a background task's report: `Session::input_at`, where
+/// its harness says) has left it waiting on you: its reply asks you something or it's blocked on
+/// you, a call it wants to make or a question it put waits for your answer. What you put off has
+/// come to you, so the snooze ends, as it does for a prompt of yours. A turn that only reports
+/// keeps it snoozed until its time (asked 2026-11-18), as does a turn of its own begun before
+/// the snooze.
+pub fn snooze_called_back(s: &Session, at: i64) -> bool {
+    s.status == Status::Needs && s.input_at.is_some_and(|t| t > at)
 }
 
 /// Applies a move to the top from Codealong to a session (`Session::raised`), after its snooze,
@@ -4929,6 +4942,14 @@ mod tests {
         assert_eq!(snoozed(&prompted, NOW - 30 * MIN, z.until + MIN).0, Status::Idle);
         let archived = Session { archived: true, ..idle.clone() };
         assert_eq!(snoozed(&archived, NOW - 30 * MIN, z.until + MIN).0, Status::Idle);
+        // A turn it took by itself since (a scheduled check-in) that left it waiting on you ends
+        // it; one that only reports, or one begun before the snooze, doesn't.
+        let woke = |status: Status, input: i64| Session { status, status_since: Some(NOW - MIN), input_at: Some(input), ..unread.clone() };
+        assert_eq!(snoozed(&woke(Status::Needs, NOW - 5 * MIN), NOW - 30 * MIN, NOW), (Status::Needs, None, Some(NOW - MIN)));
+        assert!(snooze_called_back(&woke(Status::Needs, NOW - 5 * MIN), z.at));
+        assert_eq!(snoozed(&woke(Status::Unread, NOW - 5 * MIN), NOW - 30 * MIN, NOW).1, Some(z.until), "a report");
+        assert_eq!(snoozed(&woke(Status::Needs, NOW - 15 * MIN), NOW - 30 * MIN, NOW).1, Some(z.until), "a turn from before the snooze");
+        assert_eq!(snoozed(&Session { input_at: None, ..woke(Status::Needs, 0) }, NOW - 30 * MIN, NOW).1, Some(z.until), "a harness that doesn't say");
         let mut untouched = idle.clone();
         apply_snooze(&mut untouched, None, 0, NOW);
         assert_eq!((untouched.status, untouched.snoozed_until), (Status::Idle, None));

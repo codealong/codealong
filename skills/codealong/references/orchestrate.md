@@ -136,9 +136,9 @@ Go over each session in `waiting` that `changed` this tick or has neither `sugge
     meant them ("tomorrow" in last night's reply is this morning). Give the hour where it names
     one, and a UTC time as it is (`thu 15:00 utc`), never worked out into this Mac's by hand.
   - Where the session will take a turn by itself first (a check-in, a scheduled wakeup, a
-    background job's report), the time of that turn. Only a prompt from your user ends a
-    snooze, so one that runs past that turn hides what it brings, a question included, until
-    the snooze is over.
+    background job's report) whose report your user should see, the time of that turn. Such a
+    turn ends the snooze only when it leaves the session waiting on them (a question, a block,
+    a call to allow); one that only reports stays out of sight until the snooze is over.
   - It goes with how the reply ends. A tag with `--ending` and no `--waits-until` says the reply
     waits for no time, and takes away a day Jev read (`insight.waitsUntil` with no `by`, or with
     `waitsByJev` under another agent's tag that said something else, in
