@@ -43,10 +43,15 @@ paths:
   with one worktree changed, as most publishes are), the quick panel's open, keys and pushes
   `quick-bench.js`, and its keys after a prompt of up to 12,000 characters `quick-long-bench.js`
   (a key cost 48 ms there until the session search stopped marking titles it didn't match),
-  and typing in the notch's box `notch-keys-bench.js`; each header has its command. Rows of the
+  typing in the notch's box `notch-keys-bench.js`, and a reply streaming into an open
+  conversation, then pushes while it's open, `stream-bench.js`; each header has its command. Rows of the
   board and the sidebar skip rendering when nothing they show changed (`reuse.ts` keeps
   unchanged parts of a push as the same objects, `ui/memoRow.ts` compares rows), which
-  `rows-check.js` checks.
+  `rows-check.js` checks, and so do a conversation's (SessionThread.tsx), its reply streaming in
+  drawn on its own at most once a frame (`liveReply.ts`): 500 chunks of a 12,500-character reply
+  over 160 rows took 2,000 ms of the page's work and 80,500 row renders before that, 625 ms and
+  300 after, and a push 6 ms and 170 row renders, 3 ms and 1 (2026-11-18, in Chrome). The reply's
+  Markdown is still drawn whole each frame.
 - Every window's typed keys go to the log as `ui[<window>] keys:` lines (perf.ts `useKeyPerf`):
   from the time macOS had each key to the frame after it, and, from 2026-11-16, how much of that
   came before the page had the key. Before then only the quick panel and the peek wrote them, so

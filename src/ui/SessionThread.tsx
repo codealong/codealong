@@ -58,7 +58,7 @@
 // `FIND_IN` names is what's searched, the whole conversation's pages read for it, and a run of
 // calls opens to show the ones it finds.
 
-import { useCallback, useContext, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from 'react';
+import { useCallback, useContext, useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore, type ReactNode } from 'react';
 import { delivered, dismiss, heldWords, inRecord, steerAhead, unqueueAhead, useAhead, type Ahead } from '../ahead';
 import { onHostedStream, sessionNewer, sessionPage, sessionStream } from '../api';
 import { shortOf } from '../devices';
@@ -66,7 +66,7 @@ import { addToDraft, putBack } from '../drafts';
 import { snippet } from '../todos';
 import { absolute, agoPhrase } from '../format';
 import { editsHeld, harnessOfKey, heldUntil, removesHeld, sendsHeldNow } from '../harness';
-import type { DeviceTag, Harness, HostedStream, Question, QueuedMessage, Session, Status, TranscriptItem, TranscriptPage } from '../types';
+import type { DeviceTag, Harness, Question, QueuedMessage, Session, TranscriptItem, TranscriptPage } from '../types';
 import { selectedForMenu, type MenuSpec } from '../contextMenu';
 import { CodeBlock } from './CopyButton';
 import { DescriptionView, ImagesFrom } from './DescriptionEditor';
@@ -84,6 +84,8 @@ import { useReloads } from '../reload';
 import { errorText } from '../report';
 import { clearNotice, failedNotice, reportNotice } from '../notices';
 import { useLatest } from '../latest';
+import { LiveReply } from '../liveReply';
+import { memoRow } from './memoRow';
 import { shownText } from '../threadFind';
 import { says } from '../windowFind';
 import { scaleOf } from '../zoom';
@@ -322,7 +324,7 @@ function MadeLine({ link }: { link: NonNullable<TranscriptItem['link']> }) {
   );
 }
 
-function ToolLine({ item, result, state, onOpen }: { item: TranscriptItem; result?: TranscriptItem; state: 'done' | 'running' | 'asks' | 'open'; onOpen?: () => void }) {
+function ToolLineView({ item, result, state, onOpen }: { item: TranscriptItem; result?: TranscriptItem; state: 'done' | 'running' | 'asks' | 'open'; onOpen?: () => void }) {
   const questions = item.questions?.length ? item.questions : null;
   // Questions it waits on you for show without a click, unless the reply area below shows them.
   const [open, setOpen] = useState(!!questions && state === 'asks' && !!onOpen);
@@ -434,7 +436,7 @@ function ToolLine({ item, result, state, onOpen }: { item: TranscriptItem; resul
   );
 }
 
-function ToolRun({ calls, stateOf, inBox, onOpen }: { calls: { item: TranscriptItem; result?: TranscriptItem }[]; stateOf: (it: TranscriptItem) => 'done' | 'running' | 'asks' | 'open'; inBox: (it: TranscriptItem) => boolean; onOpen?: () => void }) {
+function ToolRunView({ calls, stateOf, inBox, onOpen }: { calls: { item: TranscriptItem; result?: TranscriptItem }[]; stateOf: (it: TranscriptItem) => 'done' | 'running' | 'asks' | 'open'; inBox: (it: TranscriptItem) => boolean; onOpen?: () => void }) {
   // Folded until you open it, or while ⌘F finds one of the calls it folds away; a click says
   // which from then on.
   const [opened, setOpen] = useState<boolean | null>(null);
@@ -469,7 +471,7 @@ function ToolRun({ calls, stateOf, inBox, onOpen }: { calls: { item: TranscriptI
  *  Edit from here… (`onEdit`). A command has its own Copy. Your answers to questions (`asked`,
  *  with `item` the call's result) are a message of yours too, whose `onEdit` is Rewind to this
  *  question…. */
-function Said({ item, result, asked, now, label, who, head, onPutBack, onMenu, onEdit }: { item: TranscriptItem; result?: TranscriptItem; asked?: Question[]; now: number; label?: ReactNode; who: string; head?: number; onPutBack?: () => void; onMenu?: (items: MenuSpec) => void; onEdit?: () => void }) {
+function SaidView({ item, result, asked, now, label, from, who, head, onPutBack, onMenu, onEdit }: { item: TranscriptItem; result?: TranscriptItem; asked?: Question[]; now: number; label?: string; from?: TranscriptItem; who: string; head?: number; onPutBack?: () => void; onMenu?: (items: MenuSpec) => void; onEdit?: () => void }) {
   const ran = item.kind === 'you' && item.input != null;
   const answers = item.kind === 'result' ? answeredOf(asked ?? [], item.answers ?? {}) : null;
   const words = answers ? answers.map((a) => `${a.header ?? a.question}: ${a.answer}`).join('\n') : item.text;
@@ -501,8 +503,18 @@ function Said({ item, result, asked, now, label, who, head, onPutBack, onMenu, o
     <div className={cx('ca-thread-said', answers ? 'is-you' : `is-${item.kind}`, item.withdrawn && 'is-withdrawn')} data-prompt={item.kind === 'you' ? keyOf(item) : undefined} onContextMenu={menu}>
       {head !== undefined && (
         <div className="ca-thread-meta">
-          {/* Who said it, out of sight but for a screen reader where no name shows. */}
-          {label ? <span className="ca-thread-who">{label}</span> : <span className="ca-sr">{who}</span>}
+          {/* Who said it, out of sight but for a screen reader where no name shows. A message
+              from another session names it (`from`), a string or item rather than an element, so
+              the row's memo can tell it's the same. */}
+          {from ? (
+            <span className="ca-thread-who">
+              <PeerLabel item={from} />
+            </span>
+          ) : label ? (
+            <span className="ca-thread-who">{label}</span>
+          ) : (
+            <span className="ca-sr">{who}</span>
+          )}
           {(head > 0 || item.withdrawn) && (
             <span className="ca-meta" title={head > 0 ? absolute(head) : undefined}>
               {[item.withdrawn && 'Taken back', head > 0 && agoPhrase(head, now)].filter(Boolean).join(' · ')}
@@ -556,6 +568,36 @@ function Said({ item, result, asked, now, label, who, head, onPutBack, onMenu, o
     </div>
   );
 }
+
+// The conversation's rows render again only when what they show changed, not with each board
+// pushed or each frame of a reply streaming in. `stateOf` and `inBox` are kept while their answers
+// are (SessionThread's `useCallback`s), so they're compared as they are.
+const ToolLine = memoRow(ToolLineView);
+const ToolRun = memoRow(ToolRunView, ['stateOf', 'inBox']);
+const Said = memoRow(SaidView);
+
+/** The reply a session is writing, at the conversation's end until its record has it (`active`
+ *  while it's working or waits on you), or the call it's running before it has written anything,
+ *  unless the conversation shows that call (`pending`). It reads `reply` itself, so it's all that
+ *  renders as the reply grows, at most once a frame, and has the view land as `onShown` says once
+ *  the reply has laid out. A `memoRow` row, so the rest of the conversation rendering leaves it be. */
+function WritingView({ reply, active, now, label, who, head, pending, onMenu, onShown }: { reply: LiveReply; active: boolean; now: number; label?: string; who: string; head?: number; pending: boolean; onMenu?: (items: MenuSpec) => void; onShown: () => void }) {
+  const written = useSyncExternalStore(reply.subscribe, reply.get);
+  useLayoutEffect(() => onShown(), [written, onShown]);
+  const streaming = active ? written : null;
+  const text = streaming?.text;
+  const item = useMemo<TranscriptItem | null>(() => (text ? { at: now, kind: 'agent', text, failed: false, cursor: 0, n: 0 } : null), [text, now]);
+  if (item) return <Said item={item} now={now} label={label} who={who} head={head} onMenu={onMenu} />;
+  if (streaming?.tool && !pending) {
+    return (
+      <div className="ca-thread-note">
+        <Rich text={`Running \`${streaming.tool.replace(/`/g, '')}\``} now={now} />
+      </div>
+    );
+  }
+  return null;
+}
+const Writing = memoRow(WritingView);
 
 /** Another session's message, written as an agent's reply is. One longer than the cut shows its
  *  first lines until Show all (Show less cuts it again), and whole while ⌘F finds something in it,
@@ -797,28 +839,40 @@ export function SessionThread({ session: s, now, onOpen, fallback, machine, onLo
   // goes on (`sessionNewer` below), since the engine drops a message once its record has it, and
   // a session on another device pushes no batches here. A question waiting on you keeps what
   // came with it in view.
-  const [stream, setStream] = useState<HostedStream | null>(null);
-  const askStream = useCallback((key: string, live: () => boolean) => {
-    sessionStream(key)
-      .then((st) => live() && setStream(st))
-      // Only the reply ahead of its record: the record shows it once it's written.
-      .catch(() => {});
-  }, []);
+  // It's held in a `LiveReply` and drawn by `Writing` alone, at most once a frame, so a reply
+  // coming in a chunk at a time doesn't render the conversation again with each one.
+  const [reply] = useState(() => new LiveReply());
+  const askStream = useCallback(
+    (key: string, live: () => boolean) => {
+      sessionStream(key)
+        .then((st) => live() && reply.put(st, false))
+        // Only the reply ahead of its record: the record shows it once it's written.
+        .catch(() => {});
+    },
+    [reply],
+  );
   useEffect(() => {
-    setStream(null);
+    reply.onFollow = () => {
+      if (follows()) anchor.current = { kind: 'end' };
+    };
+    return () => {
+      reply.onFollow = null;
+    };
+  }, [reply, follows]);
+  useEffect(() => {
+    reply.clear();
     let live = true;
     askStream(s.key, () => live);
     const off = onHostedStream((st) => {
-      if (st.key !== s.key) return;
-      if (follows()) anchor.current = { kind: 'end' };
-      setStream(st);
+      if (st.key === s.key) reply.put(st, true);
     });
     return () => {
       live = false;
       off();
     };
-  }, [s.key, askStream, follows]);
-  const streaming = (s.status === 'working' || s.status === 'needs') && stream ? stream : null;
+  }, [s.key, askStream, reply]);
+  const active = s.status === 'working' || s.status === 'needs';
+  const writes = useSyncExternalStore(reply.subscribe, () => active && !!reply.get()?.text);
 
   // Each read from the start: cursors are places in one record, and a job that went on from
   // another session's conversation writes its own at its next prompt, so the view reads from
@@ -962,7 +1016,9 @@ export function SessionThread({ session: s, now, onOpen, fallback, machine, onLo
     };
   }, [s.lastActivity, s.status, s.title, loaded, error, current, s.key, askStream, follows, reloads]);
 
-  useLayoutEffect(() => {
+  /** Lands the view as `anchor` says, once what was read or written in has laid out: after the
+   *  items here, and after the reply streaming in (`Writing`). */
+  const place = useCallback(() => {
     const el = scroller.current;
     const a = anchor.current;
     if (!el || !a) return;
@@ -971,7 +1027,8 @@ export function SessionThread({ session: s, now, onOpen, fallback, machine, onLo
     else el.scrollTop = el.scrollHeight - a.fromEnd;
     // A first page too short to scroll can't be scrolled up to load more: load it now.
     if (el.scrollHeight <= el.clientHeight + NEAR_TOP) loadOlder();
-  }, [items, loadOlder, stream, toEnd]);
+  }, [loadOlder, toEnd]);
+  useLayoutEffect(place, [items, place]);
 
   // A read that failed takes the conversation's place only when there's nothing of it to keep.
   const failedView = error !== null && items.length === 0;
@@ -1247,16 +1304,20 @@ export function SessionThread({ session: s, now, onOpen, fallback, machine, onLo
     if (!last || last.kind !== 'tool' || last.output != null || (last.id && answered.has(last.id))) return null;
     return keyOf(last);
   }, [items]);
-  const busy: Status[] = ['needs', 'working'];
   const askHere = answeredBelow ? undefined : onOpen;
-  const stateOf = (it: TranscriptItem): 'done' | 'running' | 'asks' | 'open' => {
-    if (keyOf(it) !== pending || !busy.includes(s.status)) return 'done';
-    return s.status === 'needs' ? 'asks' : 'running';
-  };
+  // Kept while their answers are, which the rows that call them render by (`memoRow`'s reads).
+  const status = s.status;
+  const stateOf = useCallback(
+    (it: TranscriptItem): 'done' | 'running' | 'asks' | 'open' => {
+      if (keyOf(it) !== pending || (status !== 'needs' && status !== 'working')) return 'done';
+      return status === 'needs' ? 'asks' : 'running';
+    },
+    [pending, status],
+  );
   // The call the box below shows, questions to answer or a call to allow, has no line here: the box
   // stands in its place at the conversation's end (questionsBox.ts).
   const shownBelow = useShownCall(s.key);
-  const inBox = (it: TranscriptItem) => stateOf(it) === 'asks' && showsCall(shownBelow, it);
+  const inBox = useCallback((it: TranscriptItem) => stateOf(it) === 'asks' && showsCall(shownBelow, it), [stateOf, shownBelow]);
 
   // A follow-up Codex offers (Markdown.tsx FollowUp) goes in the box below, where there is one, as
   // a prompt taken back does.
@@ -1302,7 +1363,8 @@ export function SessionThread({ session: s, now, onOpen, fallback, machine, onLo
                 if (r.kind === 'tools') return <ToolRun key={keyOf(r.calls[0].item)} calls={r.calls} stateOf={stateOf} inBox={inBox} onOpen={askHere} />;
                 if (r.kind === 'answers') {
                   const rewind = onRewind && r.questions.length > 0 ? () => onRewind(r.result, r.questions) : undefined;
-                  return <Said key={keyOf(r.result)} item={r.result} asked={r.questions} now={now} who="You" head={headings.headed.get(keyOf(r.result))} onMenu={onMenu} onEdit={rewind} />;
+                  const head = headings.headed.get(keyOf(r.result));
+                  return <Said key={keyOf(r.result)} item={r.result} asked={r.questions} now={head === undefined ? 0 : now} who="You" head={head} onMenu={onMenu} onEdit={rewind} />;
                 }
                 const it = r.item;
                 if (it.kind === 'tool') return inBox(it) ? null : <ToolLine key={keyOf(it)} item={it} result={r.result} state={stateOf(it)} onOpen={askHere} />;
@@ -1323,30 +1385,29 @@ export function SessionThread({ session: s, now, onOpen, fallback, machine, onLo
                 const again = it.withdrawn && answeredBelow ? () => putBack(s.key, keyOf(it), it.text, true) : undefined;
                 // What Codealong or another session sent says who sent it. Yours and the agent's
                 // say nothing: your bubble says it's yours, and the header names its account.
-                const label = it.kind === 'codealong' ? 'Codealong' : it.kind === 'peer' ? <PeerLabel item={it} /> : undefined;
+                const label = it.kind === 'codealong' ? 'Codealong' : undefined;
                 const edit = onEdit && editable.has(keyOf(it)) ? () => onEdit(it) : undefined;
-                return <Said key={keyOf(it)} item={shown} result={r.result} now={now} label={label} who={it.kind === 'you' ? 'You' : s.account} head={headings.headed.get(keyOf(it))} onPutBack={again} onMenu={onMenu} onEdit={edit} />;
+                // The clock only for one with a heading, which says how long ago: the others needn't
+                // render as it moves.
+                const head = headings.headed.get(keyOf(it));
+                return <Said key={keyOf(it)} item={shown} result={r.result} now={head === undefined ? 0 : now} label={label} from={it.kind === 'peer' ? it : undefined} who={it.kind === 'you' ? 'You' : s.account} head={head} onPutBack={again} onMenu={onMenu} onEdit={edit} />;
               })}
               {showing.map((a) => (
                 <Unsaid key={a.id} ahead={a} onOpen={onOpen} />
               ))}
-              {streaming?.text && (
-                <Said
-                  item={{ at: now, kind: 'agent', text: streaming.text, failed: false, cursor: 0, n: 0 }}
-                  now={now}
-                  label={s.status === 'working' ? 'Writing' : undefined}
-                  who={s.account}
-                  // Yours on their way are above it.
-                  head={showing.length > 0 || heads(headings.last, 'agent', now) ? now : undefined}
-                  onMenu={onMenu}
-                />
-              )}
-              {streaming && !streaming.text && streaming.tool && !pending && (
-                <div className="ca-thread-note">
-                  <Rich text={`Running \`${streaming.tool.replace(/`/g, '')}\``} now={now} />
-                </div>
-              )}
-              {loaded && items.length === 0 && yours === 0 && !streaming?.text && <p className="ca-empty">Nothing said yet.</p>}
+              <Writing
+                reply={reply}
+                active={active}
+                now={now}
+                label={s.status === 'working' ? 'Writing' : undefined}
+                who={s.account}
+                // Yours on their way are above it.
+                head={showing.length > 0 || heads(headings.last, 'agent', now) ? now : undefined}
+                pending={pending != null}
+                onMenu={onMenu}
+                onShown={place}
+              />
+              {loaded && items.length === 0 && yours === 0 && !writes && <p className="ca-empty">Nothing said yet.</p>}
               {/* Not for one gone silent, which its header speaks for. One that waits on a command
                   you allowed in your terminal, or whose turn is over and waits on a command it left
                   running in the background, says what it waits on. */}
