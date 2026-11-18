@@ -98,7 +98,7 @@ import { ago, tildePath } from '../format';
 import { useLogo } from '../logo';
 import { useRowDrag } from './useRowDrag';
 import { prPills } from '../prStatus';
-import { ALL_PROJECTS, CHATS, GENERAL_CHAT, attachmentsNote, attentionRows, draftCodec, findPrs, foldedWords, holdsPrompt as holdsAPrompt, findSessions, findTodos, folderChoices, folderStart, FOUND_SESSIONS, inProject, isFolderPath, macUnavailable, MAX_ROWS, nextDraft, primaryRunningWords, projectCounts, projectLabel, projectShownIn, QUICK_PLACEHOLDER, queryWords, readyTodos, recallList, recentRows, repoChoices, repoKey, repoWorktrees, SEND_TO_PLACEHOLDER, sendTargets, shortcutLabel, startLaneIn, startTitle, todosStayNote, worktreeCount, worktreeName, type Machines, type PrRow, type QuickDraft, type ReviewRow, type RowGroup, type SessionRow, type TodoRow, withPrompt as historyWith } from '../quick';
+import { ALL_PROJECTS, CHATS, GENERAL_CHAT, attachmentsNote, attentionRows, draftCodec, findPrs, foldedWords, holdsPrompt as holdsAPrompt, findSessions, findTodos, folderChoices, folderStart, FOUND_SESSIONS, inProject, isFolderPath, macUnavailable, MAX_ROWS, nextDraft, primaryRunningWords, projectCounts, projectLabel, projectShownIn, QUICK_PLACEHOLDER, queryWords, readyTodos, recallList, pickInProject, recentRows, repoChoices, repoKey, repoWorktrees, SEND_TO_PLACEHOLDER, sendTargets, shortcutLabel, startLaneIn, startTitle, todosStayNote, worktreeCount, worktreeName, type Machines, type PrRow, type QuickDraft, type ReviewRow, type RowGroup, type SessionRow, type TodoRow, withPrompt as historyWith } from '../quick';
 import {
   agentChipWords,
   isAuto,
@@ -735,6 +735,14 @@ export function Quick() {
     if (name !== current && (name === CHATS || (chatting && lane?.startsChats))) {
       setLaneId(null);
       setAsChat(false);
+    } else if (name !== current) {
+      // A worktree of the project left doesn't come along: the start goes to the new one's
+      // first repo, so the repo menu lists that project's alone (quick.ts `repoForProject`).
+      // Picked by its repo, which is what moves Improve Codealong off its source too.
+      setLaneId(pickInProject(laneId, lane, lanesOn, name, pinnedWorktrees ?? [], REPO));
+      // A project picked is a pick since a skill moved the start, as a worktree picked is: what
+      // the skill's repo took the place of doesn't come back once the skill's gone from the input.
+      beforeSkill.current = null;
     }
     setProject(name);
     setActiveKey(null);
@@ -772,18 +780,20 @@ export function Quick() {
   }, [shown, deviceNow, remote]);
   const startOptionsNow = deviceNow ? (remote?.options ?? null) : options;
 
-  // Where a session can start: the project's worktrees on that Mac, and the one a window asked
-  // for or picked before another project was, with its repo's, which its worktree menu lists.
-  // Codealong's chats are apart from them, as General chat, whatever the project; on General chat
-  // there are no worktrees but one picked.
-  const { lanes, chatLane } = useMemo(() => {
+  // Where a session can start: the project's worktrees on that Mac, and one of another project
+  // that a window, a todo or a skill asked for, or that was picked on General chat, with its
+  // repo's, which its worktree menu lists (picking another project moves the start into that
+  // project: `pickProject`). Codealong's chats are apart from them, as General chat, whatever the
+  // project; on General chat there are no worktrees but one picked. `lanesOn`: every project's
+  // on that Mac, its chats too.
+  const { lanes, chatLane, lanesOn } = useMemo(() => {
     const all = deviceNow ? (devices?.lanes ?? []).filter((l) => shortOf(l.id) === deviceNow) : (board?.lanes ?? []);
     const worktrees = all.filter((l) => !l.startsChats);
     const mine = current === CHATS ? [] : worktrees.filter((l) => inProject(l, current));
     const isAsked = (l: Lane) => l.id === laneId || `${REPO}${repoKey(l)}` === laneId;
     const asked = laneId && !mine.some(isAsked) ? worktrees.find(isAsked) : undefined;
     const extra = asked ? worktrees.filter((l) => repoKey(l) === repoKey(asked)) : [];
-    return { lanes: [...mine, ...extra], chatLane: all.find((l) => l.startsChats) ?? null };
+    return { lanes: [...mine, ...extra], chatLane: all.find((l) => l.startsChats) ?? null, lanesOn: all };
   }, [board?.lanes, devices?.lanes, deviceNow, current, laneId]);
   const pinnedWorktrees = board?.pinnedWorktrees;
   const repoList = useMemo(() => repoChoices(lanes, pinnedWorktrees ?? []), [lanes, pinnedWorktrees]);
@@ -836,7 +846,7 @@ export function Quick() {
     const repo = skillLaneNow.current;
     if (!skillNowKey || !repo) {
       // Only while the worktree is still the one the skill put there: an open that asks for a
-      // worktree, or one you picked since, stays.
+      // worktree, or one or a project you picked since (`pickProject`), stays.
       if (beforeSkill.current && laneIdNow.current === beforeSkill.current.put) {
         setLaneId(beforeSkill.current.laneId);
         setNewWorktree(beforeSkill.current.newWorktree);

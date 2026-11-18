@@ -593,6 +593,31 @@ export function repoChoices(lanes: Lane[], pinned: string[]): RepoChoice[] {
   return [...repos.values()].sort((a, b) => pin(a) - pin(b) || b.lanes[0].lastActivity - a.lanes[0].lastActivity);
 }
 
+/** Where the quick panel starts once you pick another project, as the key of a repo of it
+ *  (`repoChoices`). `picked`: whether a worktree or repo was picked or asked for, rather than the
+ *  start being the project's default; `lane`, the worktree it names (null while it isn't on the
+ *  board yet), or with nothing picked, where the start is by default. A worktree the new project doesn't have doesn't come along, nor a pick that
+ *  isn't there to say its project: the new project's first repo, as its repo menu lists them,
+ *  takes its place (null when it has none on that Mac). One the project has stays, a pick as it
+ *  is (undefined) and the default by its repo, so a project with more repos (All projects)
+ *  doesn't move it. A chat, and nothing to start in with nothing picked, stay (undefined).
+ *  `worktrees` are the Mac's, every project's. */
+export function repoForProject(lane: Lane | null, picked: boolean, worktrees: Lane[], project: string, pinned: string[]): string | null | undefined {
+  if (lane?.startsChats || (!lane && !picked)) return undefined;
+  if (lane && inProject(lane, project)) return picked ? undefined : repoKey(lane);
+  return repoChoices(worktrees.filter((l) => inProject(l, project)), pinned)[0]?.key ?? null;
+}
+
+/** The quick panel's pick once you pick another project (`repoForProject`). `laneId` is the pick:
+ *  a worktree's or a chat's id, a repo's key after `repoPrefix`, or null for none, when the start
+ *  is `shown`, the project's default. A pick is judged by what it names, never by the repo shown
+ *  while that isn't on the board yet. `lanes` are the Mac's, every project's, chats too. */
+export function pickInProject(laneId: string | null, shown: Lane | null, lanes: Lane[], project: string, pinned: string[], repoPrefix: string): string | null {
+  const named = laneId === null ? shown : (lanes.find((l) => l.id === laneId || (!l.startsChats && `${repoPrefix}${repoKey(l)}` === laneId)) ?? null);
+  const to = repoForProject(named, laneId !== null, lanes.filter((l) => !l.startsChats), project, pinned);
+  return to === undefined ? laneId : to === null ? null : `${repoPrefix}${to}`;
+}
+
 /** A repo's worktrees as its worktree menu lists them. First the main checkout, the one you
  *  know the repo by (asked 2026-11-13), then where else a new session starts on new work: a new
  *  worktree made from `from`, the reusable worktrees ready for it (free before landed), and the

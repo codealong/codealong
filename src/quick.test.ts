@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it } from 'vitest';
 import { agoPhrase } from './format';
-import { ALL_PROJECTS, CHATS, GENERAL_CHAT, attachmentsNote, attentionRows, draftCodec, folderChoices, foldedWords, holdsPrompt, folderStart, isFolderPath, macUnavailable, nextDraft, primaryRunningWords, queueRows, recallList, startTitle, todosStayNote, withPrompt, findPrs, findSessions, findTodos, heldSaid, laneGroups, projectCounts, repoChoices, repoWorktrees, startLaneIn, worktreeName, readyTodos, recentRows, sendTargets, shortcutFromKey, shortcutKeys, shortcutLabel, stillSaid, TAKEN, takenFor, titleMarks, worktreeCount, deviceHits, inProject, projectLabel, projectShownIn } from './quick';
+import { ALL_PROJECTS, CHATS, GENERAL_CHAT, attachmentsNote, attentionRows, draftCodec, folderChoices, foldedWords, holdsPrompt, folderStart, isFolderPath, macUnavailable, nextDraft, primaryRunningWords, queueRows, recallList, startTitle, todosStayNote, withPrompt, findPrs, findSessions, findTodos, heldSaid, laneGroups, projectCounts, pickInProject, repoChoices, repoForProject, repoKey, repoWorktrees, startLaneIn, worktreeName, readyTodos, recentRows, sendTargets, shortcutFromKey, shortcutKeys, shortcutLabel, stillSaid, TAKEN, takenFor, titleMarks, worktreeCount, deviceHits, inProject, projectLabel, projectShownIn } from './quick';
 import { setPlatform } from './platform';
 import * as fx from './testing/fixtures';
 import type { Board, FolderLook, Label, Lane, PrItem, Session, Todo } from './types';
@@ -552,6 +552,56 @@ describe('repoChoices', () => {
     expect(repoChoices(lanes, ['gone', 'p', 'a']).map((r) => r.repo)).toEqual(['c', 'a', 'b']);
     // The same name in two projects is two repos.
     expect(repoChoices([lane('x', [], { repo: 'r' }), lane('y', [], { repo: 'r', project: 'Globex' })], []).map((r) => r.project).sort()).toEqual(['Acme', 'Globex']);
+  });
+});
+
+describe('repoForProject', () => {
+  const acme = lane('acme', [], { repo: 'site', origin: 'main', lastActivity: 1 });
+  const globex = lane('globex', [], { repo: 'api', project: 'Globex', origin: 'main', lastActivity: 2 });
+  const tools = lane('tools', [], { repo: 'tools', project: 'Globex', origin: 'main', lastActivity: 9 });
+  const all = [acme, globex, tools];
+
+  it('moves a worktree of another project to the new one\'s first repo, pinned before the latest', () => {
+    for (const picked of [true, false]) {
+      expect(repoForProject(acme, picked, all, 'Globex', [])).toBe(repoKey(tools));
+      expect(repoForProject(acme, picked, all, 'Globex', ['globex'])).toBe(repoKey(globex));
+      // A project with no worktrees on that Mac: no repo.
+      expect(repoForProject(acme, picked, all, 'Initech', [])).toBeNull();
+    }
+    // A pick that isn't on the board yet (another Mac's, still being read) can't say its
+    // project, so it gives way too.
+    expect(repoForProject(null, true, all, 'Globex', [])).toBe(repoKey(tools));
+  });
+
+  it('keeps a worktree the new project has: a pick as it is, the default by its repo', () => {
+    expect(repoForProject(globex, true, all, 'Globex', [])).toBeUndefined();
+    expect(repoForProject(acme, true, all, ALL_PROJECTS, [])).toBeUndefined();
+    // All projects lists more repos, whose first could be another: the default one stays.
+    expect(repoForProject(acme, false, all, ALL_PROJECTS, [])).toBe(repoKey(acme));
+  });
+
+  it('leaves a chat, and nothing to start in with nothing picked, where they are', () => {
+    expect(repoForProject(lane('chats', [], { startsChats: true }), true, all, 'Globex', [])).toBeUndefined();
+    expect(repoForProject(null, false, all, 'Globex', [])).toBeUndefined();
+  });
+
+  it('judges a pick by what it names, not by the repo shown meanwhile (pickInProject)', () => {
+    const chats = lane('chats', [], { startsChats: true, project: '' });
+    const on = [...all, chats];
+    const R = 'repo:';
+    // An Acme worktree asked for and not on the board yet, a Globex repo shown meanwhile:
+    // picking Globex starts in Globex, rather than in the Acme worktree once it's read.
+    expect(pickInProject('acme-task', globex, on, 'Globex', [], R)).toBe(`${R}${repoKey(tools)}`);
+    // A worktree and a repo picked in the new project stay as they were picked.
+    expect(pickInProject('globex', globex, on, 'Globex', [], R)).toBe('globex');
+    expect(pickInProject(`${R}${repoKey(globex)}`, globex, on, 'Globex', [], R)).toBe(`${R}${repoKey(globex)}`);
+    // General chat picked stays, and isn't taken for a repo.
+    expect(pickInProject('chats', chats, on, 'Globex', [], R)).toBe('chats');
+    // With nothing picked, the default shown stays by its repo where the new project has it,
+    // and gives way where it hasn't.
+    expect(pickInProject(null, acme, on, ALL_PROJECTS, [], R)).toBe(`${R}${repoKey(acme)}`);
+    expect(pickInProject(null, acme, on, 'Globex', [], R)).toBe(`${R}${repoKey(tools)}`);
+    expect(pickInProject(null, null, on, 'Globex', [], R)).toBeNull();
   });
 });
 
