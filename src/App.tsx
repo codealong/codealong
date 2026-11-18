@@ -1310,13 +1310,12 @@ export function App() {
     (prs: PrItem[]) => {
       const wrong: string[] = [];
       let approved = 0;
+      // All of them show approved, and on their way, at once; GitHub is asked one after another.
       const each = prs.reduce<Promise<void>>(
         (before, p) =>
-          before.then(() =>
-            reviewAhead(p, 'approve', '').then(
-              () => void approved++,
-              (e: unknown) => void wrong.push(`Couldn’t approve #${p.number}: ${errorText(e).replace(/\.$/, '')}.`),
-            ),
+          reviewAhead(p, 'approve', '', false, null, before).then(
+            () => void approved++,
+            (e: unknown) => void wrong.push(`Couldn’t approve #${p.number}: ${errorText(e).replace(/\.$/, '')}.`),
           ),
         Promise.resolve(),
       );

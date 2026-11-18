@@ -29,10 +29,13 @@
 //
 // A window says what a verdict does to it (`PrBoxHost`): a card goes on to what waits next at
 // once and brings the PR back with what was written if GitHub refuses it; the panel stays, the
-// box sending, then empty, or saying why GitHub refused it with what was written still there.
+// box empty and sending, what was written back in it with why if GitHub refuses it. A verdict on
+// its way is the PR's, not the box's (ahead.ts `reviewOnItsWay`): a box shown for the PR again
+// before GitHub answers is still sending and takes no second one, and what was written, kept by
+// PR, comes back to whichever box shows the PR then; with none, the window says why.
 
 import { useEffect, useRef, useState, useSyncExternalStore, type RefObject } from 'react';
-import { reviewAhead } from '../ahead';
+import { reviewAhead, reviewOnItsWay, useReviewOnItsWay } from '../ahead';
 import { agentsVerdict, agentsWords, type PrTab } from '../agentReview';
 import { prSideAsk } from '../api';
 import { agoPhrase } from '../format';
@@ -53,30 +56,26 @@ import { prSides, SideStrip } from './SideStrip';
 import { bare, chordPressed, keysIn } from '../platform';
 
 /** What's written for each PR, kept while the window goes from one to the next and back: the
- *  review, and the question being written on Ask. */
+ *  review, and the question being written on Ask. The review's is every box's for the PR, so one
+ *  that comes back after GitHub refused it shows in whichever box shows the PR. */
 const drafts = new Map<string, string>();
+const draftWatchers = new Set<() => void>();
 const askDrafts = new Map<string, string>();
+
+function watchDrafts(cb: () => void): () => void {
+  draftWatchers.add(cb);
+  return () => void draftWatchers.delete(cb);
+}
+
+function setDraft(key: string, text: string) {
+  if (text) drafts.set(key, text);
+  else drafts.delete(key);
+  for (const cb of draftWatchers) cb();
+}
 
 /** Which side each PR's box is on, kept the same way. */
 type BoxSide = 'review' | 'ask';
 const boxSides = new Map<string, BoxSide>();
-
-/** The verdict on its way to GitHub from a box that stays (the panel's), by PR, kept while the
- *  window shows another PR: back on it before GitHub answers, the box is still sending and takes
- *  no second verdict. */
-const sendingNow = new Map<string, Verdict>();
-const sendWatchers = new Set<() => void>();
-
-function watchSending(cb: () => void): () => void {
-  sendWatchers.add(cb);
-  return () => void sendWatchers.delete(cb);
-}
-
-function setSendingNow(key: string, verdict: Verdict | null) {
-  if (verdict) sendingNow.set(key, verdict);
-  else sendingNow.delete(key);
-  for (const cb of sendWatchers) cb();
-}
 
 /** The account picked to answer questions about PRs, in every window, none for Auto's; and the
  *  model and effort picked with it, none for the account's own. */
@@ -156,11 +155,12 @@ export interface PrBox {
 export function usePrBox(pr: PrItem, { report, usage, now, onSent, onFailed, autoFocus }: PrBoxHost): PrBox {
   const [side, setSide] = useState<BoxSide>(() => boxSides.get(pr.key) ?? 'review');
   const asking = side === 'ask';
-  const [reviewText, setReviewText] = useState(() => drafts.get(pr.key) ?? '');
+  const reviewText = useSyncExternalStore(watchDrafts, () => drafts.get(pr.key) ?? '');
+  const setReviewText = (text: string) => setDraft(pr.key, text);
   const [askText, setAskText] = useState(() => askDrafts.get(pr.key) ?? '');
   // A verdict went from a card: it's on its way out, and a second ⌘⏎ sends nothing.
   const sent = useRef(false);
-  const sending = useSyncExternalStore(watchSending, () => sendingNow.get(pr.key) ?? null);
+  const sending = useReviewOnItsWay(pr.key);
   // Whether this box is still up as GitHub answers: one that isn't can't say why it refused.
   const up = useRef(true);
   useEffect(() => {
@@ -175,9 +175,6 @@ export function usePrBox(pr: PrItem, { report, usage, now, onSent, onFailed, aut
   const stillOpen = prIsOpen(pr);
   const draft = useYourReview(pr, stillOpen)?.review?.draft ?? null;
 
-  useEffect(() => {
-    drafts.set(pr.key, reviewText);
-  }, [pr.key, reviewText]);
   useEffect(() => {
     askDrafts.set(pr.key, askText);
   }, [pr.key, askText]);
@@ -215,7 +212,7 @@ export function usePrBox(pr: PrItem, { report, usage, now, onSent, onFailed, aut
   // it needs nothing written, the review saying it (agentReview.ts `agentsVerdict`).
   const agents = agentsVerdict(pr, !!draft);
   const review = (verdict: Verdict) => {
-    if (sent.current || sending) return;
+    if (sent.current || reviewOnItsWay(pr.key)) return;
     const body = reviewText.trim();
     const withAgents = verdict === agents;
     if (!withAgents && !saysSomething(verdict, body, draft)) {
@@ -225,39 +222,32 @@ export function usePrBox(pr: PrItem, { report, usage, now, onSent, onFailed, aut
       return;
     }
     setNote(null);
+    // What's written goes with it: out of the box now, and back if GitHub refuses it.
+    setDraft(pr.key, '');
     if (onSent) {
       sent.current = true;
-      drafts.delete(pr.key);
       onSent(verdict);
-    } else {
-      setSendingNow(pr.key, verdict);
     }
     reviewAhead(pr, verdict, body, withAgents, draft?.commit ?? (withAgents ? (pr.autoReview?.head ?? null) : null))
       .then(
         (done) => {
           report.info(reviewedWords(verdict, pr.number, done, withAgents));
-          if (!onSent) {
-            setReviewText('');
-            drafts.delete(pr.key);
-            readAgain(pr);
-          }
+          if (!onSent) readAgain(pr);
         },
         (e: unknown) => {
           const why = `Didn’t ${verdict === 'approve' ? 'approve' : verdict === 'comment' ? 'comment on' : 'request changes on'} #${pr.number}: ${errorText(e)}`;
+          // Before anything written since.
+          setDraft(pr.key, [reviewText, drafts.get(pr.key) ?? ''].filter((t) => t.trim()).join('\n\n'));
           if (!onSent) {
             // The window shows another PR now: it says why, with what was written kept for this one.
             if (up.current) setNote({ text: why, error: true });
             else report.error(why);
             return;
           }
-          drafts.set(pr.key, reviewText);
           if (onFailed) onFailed(why);
           else report.error(why);
         },
-      )
-      .finally(() => {
-        if (!onSent) setSendingNow(pr.key, null);
-      });
+      );
   };
 
   /** Asks the PR's conversation `question` (on Ask, or `/side` from Review), making one on the

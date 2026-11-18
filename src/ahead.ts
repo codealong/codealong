@@ -721,6 +721,18 @@ export function useAhead(): Ahead[] {
   return useSyncExternalStore(subscribe, snapshot, snapshot);
 }
 
+/** The verdict on its way to GitHub for the PR `key`, from any window and whatever asked it (a
+ *  PR's box or strip, its menu, PRs approved together): none once GitHub has answered. A second
+ *  verdict waits until then. */
+export function reviewOnItsWay(key: string): Verdict | null {
+  const a = all.find((x) => x.change.kind === 'pr-review' && x.change.key === key && x.doneAt == null);
+  return a?.change.kind === 'pr-review' ? a.change.verdict : null;
+}
+
+export function useReviewOnItsWay(key: string): Verdict | null {
+  return useSyncExternalStore(subscribe, () => reviewOnItsWay(key));
+}
+
 /** What the window shows now, as the engine has it: its changes go as boards show them. */
 export function observe(v: View): void {
   view = v;
@@ -967,11 +979,14 @@ function merging(pr: Pick<PrItem, 'key' | 'repoSlug' | 'number'>, id: string, op
 /** Reviews a PR as you (`reviewPr`): it's out of what waits on your review in every window as
  *  it's asked, showing your review (of `commit`, a draft's, where that isn't the commit the PR's
  *  at), and back, with why, if GitHub refuses it. The engine does the same as GitHub has it
- *  (ghpoll.rs `on_approved`) and shows that before it answers, so the change goes a while after. */
-export function reviewAhead(pr: Pick<PrItem, 'key' | 'repoSlug' | 'number'>, verdict: Verdict, body: string, agents = false, commit: string | null = null): Promise<Reviewed> {
+ *  (ghpoll.rs `on_approved`) and shows that before it answers, so the change goes a while after.
+ *  With `after`, GitHub is asked once that settles: several approved together all show at once,
+ *  and are on their way (`reviewOnItsWay`) until each is answered. */
+export function reviewAhead(pr: Pick<PrItem, 'key' | 'repoSlug' | 'number'>, verdict: Verdict, body: string, agents = false, commit: string | null = null, after?: Promise<unknown>): Promise<Reviewed> {
   const a = made({ kind: 'pr-review', key: pr.key, verdict, commit });
   put(a, true);
-  return reviewPr(pr.repoSlug, pr.number, verdict, body, agents).then(
+  const ask = () => reviewPr(pr.repoSlug, pr.number, verdict, body, agents);
+  return (after ? after.then(ask, ask) : ask()).then(
     (done) => {
       answered(a.id, null);
       return done;

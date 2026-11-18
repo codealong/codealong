@@ -3,11 +3,13 @@
 // and no Next, which is the list's; Approve is there for an open PR that isn't yours though your
 // review wasn't asked for, and approves it; Snooze is dimmed with no review asked; the merge box's
 // button leads the row under the PR's title (MergeBox.tsx), the strip having the rest; the PR's
-// menu has Approve too. An approval GitHub is slow to answer is still on its way after another PR
-// was shown and this one again: Approve is dimmed, and ⌘⏎ in the box sends no second one; refused
-// while another PR shows, the window says why. Your own PR's Approve is dimmed and says why, and
-// its menu has none (GitHub doesn't let you approve your own). In each project shown, the latest
-// open PR is made someone else's that doesn't ask for your review, and the next your own.
+// menu has Approve too. An approval GitHub is slow to answer takes what's written out of the box as
+// it goes, and is still on its way after another PR was shown and this one again: Approve is
+// dimmed, and ⌘⏎ in the box sends no second one; refused while another PR shows, the window says
+// why, and what was written is back in the box before what was written since. One that goes
+// leaves what was written since alone. Your own PR's Approve is dimmed and says why, and its menu
+// has none (GitHub doesn't let you approve your own). In each project shown, the latest open PR is
+// made someone else's that doesn't ask for your review, and the next your own.
 //   PREVIEW_WAIT=60000 scripts/preview.sh prs '' scripts/preview/pr-approve-check.js
 (function () {
   var press = function (el) {
@@ -17,14 +19,15 @@
   };
   var others = [];
   var yours = [];
-  // While `slow`, GitHub takes two seconds over a review and refuses it.
+  // While `slow`, GitHub answers a review only when the check says (`answer`).
   var slow = false;
   var asked = 0;
+  var answer = null;
   var real = window.__TAURI_INTERNALS__.invoke;
   window.__TAURI_INTERNALS__.invoke = function (cmd, args, options) {
     if (cmd === 'review_pr' && slow) {
       asked += 1;
-      return new Promise(function (_, reject) { setTimeout(function () { reject('GitHub took too long'); }, 2000); });
+      return new Promise(function (resolve, reject) { answer = { yes: function () { resolve({ draft: null }); }, no: reject }; });
     }
     var p = real(cmd, args, options);
     if (cmd !== 'get_board') return p;
@@ -56,6 +59,16 @@
   var buttons = function () { return all('.ca-prinsp .ca-insp-actions > .ca-btn, .ca-prinsp .ca-insp-actions > .ca-split > .ca-btn:first-child'); };
   var merge = function () { return q('.ca-prinsp .ca-insp-actions .ca-merge-main'); };
   var toast = function () { var t = q('.ca-toast:not(.is-busy)'); return t ? t.textContent : ''; };
+  var box = function () { return q('.ca-prpanel .ca-prreview-box textarea'); };
+  // Writes in the box as typing does, which React hears.
+  var write = function (text) {
+    Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value').set.call(box(), text);
+    box().dispatchEvent(new Event('input', { bubbles: true }));
+  };
+  var showPr = function (n) {
+    press(row(n));
+    return until(function () { return shown() === n && !!hotkey('Approve') && !!box(); }, 3000, n + '’s panel');
+  };
   var theirs, mineN;
 
   say('pr approve check: waiting for PR rows');
@@ -92,26 +105,47 @@
       slow = true;
       return until(function () { return !hotkey('Approve').disabled; }, 3000, 'Approve after the first approval')
         .then(function () {
+          write('Looks good');
           hotkey('Approve').click();
-          press(row(away));
-          return until(function () { return shown() === away; }, 3000, 'another PR’s panel');
+          return until(function () { return asked === 1 && box().value === ''; }, 2000, 'the approval going, out of the box');
         })
         .then(function () {
-          press(row(theirs));
-          return until(function () { return shown() === theirs && !!hotkey('Approve'); }, 3000, 'the PR again');
+          check('what’s written leaves the box as the approval goes', true);
+          return showPr(away);
         })
+        .then(function () { return showPr(theirs); })
         .then(function () {
           check('back on it before GitHub answers, Approve is dimmed: one is on its way', hotkey('Approve').disabled && /^Sending/.test(hotkey('Approve').title), hotkey('Approve').title);
-          var box = q('.ca-prpanel .ca-prreview-box textarea');
-          box.focus();
-          box.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', code: 'Enter', metaKey: true, bubbles: true, cancelable: true }));
+          box().focus();
+          box().dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', code: 'Enter', metaKey: true, bubbles: true, cancelable: true }));
           check('and ⌘⏎ in its box sends no second one', asked === 1, String(asked));
-          press(row(away));
-          return until(function () { return /^Didn’t approve /.test(toast()); }, 4000, 'the refusal said while another PR shows');
+          write('And one more thing');
+          return showPr(away);
+        })
+        .then(function () {
+          answer.no('GitHub took too long');
+          return until(function () { return /^Didn’t approve /.test(toast()); }, 3000, 'the refusal said while another PR shows');
         })
         .then(function () {
           check('refused while another PR shows, the window says why', /GitHub took too long/.test(toast()), toast());
+          return showPr(theirs);
+        })
+        .then(function () {
+          check('and what was written is back, before what was written since', box().value === 'Looks good\n\nAnd one more thing', JSON.stringify(box().value));
+          check('Approve is there again', !hotkey('Approve').disabled, hotkey('Approve').title);
+          hotkey('Approve').click();
+          return showPr(away);
+        })
+        .then(function () { return showPr(theirs); })
+        .then(function () {
+          write('Later');
+          answer.yes();
+          return until(function () { return !hotkey('Approve').disabled; }, 3000, 'the approval answered');
+        })
+        .then(function () {
+          check('one that goes leaves what was written since alone', box().value === 'Later' && asked === 2, JSON.stringify(box().value) + ' / ' + asked);
           slow = false;
+          write('');
         });
     })
     .then(function () {

@@ -19,6 +19,7 @@ import { useEffect } from 'react';
 import { openUrl } from '../api';
 import { useLatest } from '../latest';
 import * as menus from '../menus';
+import { agentsWords } from '../agentReview';
 import { verdictWords } from '../prDraft';
 import { errorText, type Report } from '../report';
 import { reviewItems } from '../review';
@@ -119,11 +120,12 @@ export function PrStrip({ pr, actions, box, after, queue, notice, hotkeys, panel
   const then = after ? `, and go ${after}` : '';
   // Where the verdicts' keys are the box's, the buttons say so.
   const fromBox = (name: 'approve' | 'comment') => (panel ? ` (${sign(name)} from the box)` : '');
-  // What a verdict submits, as the box's buttons say it: the agent's review, your draft review on
-  // GitHub with its comments, or what's written on Review alone.
+  // What a verdict submits, as the box's buttons say it: the agent's review (your draft review, or
+  // a link to the review posted), your draft review on GitHub with its comments, or what's written
+  // on Review alone.
   const says = (verdict: 'approve' | 'comment', alone: string) =>
     box.agents === verdict
-      ? `${verdict === 'approve' ? 'Approve' : 'Comment'} with the agent’s review, what’s written on Review going first`
+      ? `${verdict === 'approve' ? 'Approve' : 'Comment'} ${agentsWords(pr.autoReview?.stage ?? '', box.draft ? box.draft.count : null)}${box.reviewText.trim() ? ', what you wrote before it' : ''}`
       : box.draft
         ? `${verdictWords(verdict, box.draft) ?? ''}, what’s written on Review going first`
         : alone;
