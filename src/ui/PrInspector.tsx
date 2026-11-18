@@ -211,7 +211,7 @@ export function PrInspector({ report, lanes, usage, reviews, ...details }: PrIns
       <div className="ca-prinsp ca-prpanel-body">
         <PrDetails {...details} keys report={report} tabs={tabs} />
       </div>
-      <PrBoxView pr={pr} box={box} keys={{ approve: keysSaid('⌘⏎'), comment: keysSaid('⌥⌘⏎') }} ownKeys onShow={tabs.show} />
+      <PrBoxView pr={pr} box={box} keys={{ approve: keysSaid('⌘⏎'), comment: keysSaid('⌥⌘⏎') }} ownKeys onShow={tabs.show} tab={tabs.tab} />
     </aside>
   );
 }

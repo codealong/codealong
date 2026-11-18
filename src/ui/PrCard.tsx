@@ -169,7 +169,7 @@ export function PrCard({ item, now, lanes, usage, reviews, can, outgoing = false
         <div className="ca-prreview-body ca-prinsp">
           <PrDetails item={item} now={now} onMenu={menu} keys goesOn={goesOn} back={back} tabs={tabs} report={report} apps={apps} teamFiles={teamFiles} onShowSession={onShowSession} onOpenSession={onOpenSession} onShowLane={onShowLane} onLaneMenu={onLaneMenu} onSessionMenu={onSessionMenu} />
         </div>
-        <PrBoxView pr={pr} box={box} keys={{ approve: sign('approve'), comment: sign('comment') }} after={after} onShow={tabs.show} />
+        <PrBoxView pr={pr} box={box} keys={{ approve: sign('approve'), comment: sign('comment') }} after={after} onShow={tabs.show} tab={tabs.tab} />
       </DialogHostContext.Provider>
     </div>
   );

@@ -307,7 +307,7 @@ function conversationOn(c: Side, accounts: StartAccount[]): string | null {
  *  review leads once you've given one, and where commits came after it, a pill says how many and
  *  shows what they changed under Changes (since.ts). An agent review that didn't get done says why
  *  on hover, and has Try again beside it (`againFor`). */
-function ReviewLine({ pr, draft, now, onShow, onTryAgain }: { pr: PrItem; draft: Draft | null; now: number; onShow: (tab: PrTab) => void; onTryAgain: () => void }) {
+function ReviewLine({ pr, draft, now, onShow, onTryAgain, reviewsShown }: { pr: PrItem; draft: Draft | null; now: number; onShow: (tab: PrTab) => void; onTryAgain: () => void; reviewsShown: boolean }) {
   const { icon, says, busy, approved, agent, since } = reviewLineWords(pr, draft);
   const changed = useSince(pr.repoSlug, since, since ? (pr.headOid ?? null) : null);
   // The agent's suggestion, unless your own approval or request for changes of the commit the
@@ -349,10 +349,13 @@ function ReviewLine({ pr, draft, now, onShow, onTryAgain }: { pr: PrItem; draft:
           {pill.text}
         </button>
       )}
-      <button type="button" className="ca-prbox-line-go" title="Show its Reviews tab" tabIndex={-1} onClick={() => onShow('review')}>
-        Review
-        <Icon name="chevron-right" size={11} />
-      </button>
+      {/* Not while the Reviews tab is what shows: it would show what's there. */}
+      {!reviewsShown && (
+        <button type="button" className="ca-prbox-line-go" title="Show its Reviews tab" tabIndex={-1} onClick={() => onShow('review')}>
+          Review
+          <Icon name="chevron-right" size={11} />
+        </button>
+      )}
       {again && (
         <button type="button" className="ca-linkbtn ca-prbox-again" title={againTitle(again)} onClick={onTryAgain}>
           Try again
@@ -375,13 +378,15 @@ export interface PrBoxProps {
   after?: 'on' | 'back';
   /** Shows one of the PR's tabs: Reviews from the line over the box, Changes from its pill. */
   onShow: (tab: PrTab) => void;
+  /** The tab the PR's panel or card shows. */
+  tab?: PrTab;
   className?: string;
 }
 
 /** What Auto means beside Ask, on its line. */
 const ASK_AUTO = 'The account the quick panel’s Auto would start, among those that can answer: one with room, the one whose week resets soonest. On its own model and effort.';
 
-export function PrBoxView({ pr, box: b, keys, ownKeys = false, after, onShow, className }: PrBoxProps) {
+export function PrBoxView({ pr, box: b, keys, ownKeys = false, after, onShow, tab, className }: PrBoxProps) {
   const { asking, draft, reviewable, stillOpen, conversation, shown, kept, answerer, starting, note, sending, agents } = b;
   const text = asking ? b.askText : b.reviewText;
   const setText = asking ? b.setAskText : b.setReviewText;
@@ -407,6 +412,8 @@ export function PrBoxView({ pr, box: b, keys, ownKeys = false, after, onShow, cl
             : 'It’s closed; a comment still goes to the PR';
   const answering = conversation?.running && !asking ? `${conversation.account ?? 'Ask'} is answering on Ask · ` : '';
   const said = note?.text ?? (sending ? 'Sending to GitHub…' : starting ? 'Reading the PR…' : asking ? [keysIn(`⏎ asks${answerer ? ` ${answerer}` : ''}`), reviewable && `${keys.approve} approves${onward}`].filter(Boolean).join(' · ') : answering + verdicts);
+  // It says only keys: not what's happening, nor what the agent's review or your draft does.
+  const keysOnly = !note && !sending && !starting && !answering && !draft && (asking || (reviewable && !agents));
   // Ask's earlier questions, while nothing about them shows above the box.
   const earlier = kept.filter((k) => k.id !== conversation?.id);
   const sideShown = !!conversation || (!!shown && shown.kind !== 'starting') || starting;
@@ -427,7 +434,7 @@ export function PrBoxView({ pr, box: b, keys, ownKeys = false, after, onShow, cl
     <>
       {asking && <SideStrip key={`side:${pr.key}`} sideKey={pr.key} words={prSides(pr, answerer)} />}
       <div className={cx('ca-composer', 'ca-prreview-box', asking && 'is-aside', className)}>
-        <ReviewLine pr={pr} draft={draft} now={b.now} onShow={onShow} onTryAgain={b.tryAgain} />
+        <ReviewLine pr={pr} draft={draft} now={b.now} onShow={onShow} onTryAgain={b.tryAgain} reviewsShown={tab === 'review'} />
         <div
           className="ca-composer-field"
           onMouseDown={(e) => {
@@ -528,7 +535,8 @@ export function PrBoxView({ pr, box: b, keys, ownKeys = false, after, onShow, cl
             </div>
           )}
         </div>
-        <span className={cx('ca-composer-note', note?.error && 'is-error')} role="status">
+        {/* A line of nothing but keys shows where keys do (keysShown.ts). */}
+        <span className={cx('ca-composer-note', note?.error && 'is-error', keysOnly && 'ca-keyhint')} role="status">
           {said}
         </span>
       </div>
