@@ -77,6 +77,11 @@
   font: var(--type-meta-strong);
   white-space: nowrap;
 }
+/* In the status bar's end, which gives way itself, cut at its left (UsageBar.css), the line keeps
+   its width: given way there, it went past its buttons, which spilled over the notice beside it. */
+.ca-usagebar-end > .ca-meeting.is-line {
+  flex: none;
+}
 .ca-meeting.is-line.is-failed .ca-meeting-when {
   min-width: 0;
   overflow: hidden;
