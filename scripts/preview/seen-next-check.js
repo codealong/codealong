@@ -181,7 +181,8 @@
       var btn = document.querySelector('.ca-sessinsp-max');
       check('⇧⌘F expands the panel', body().classList.contains('is-panel-max'));
       check('the list and sidebar step aside', getComputedStyle(board).display === 'none' && getComputedStyle(document.querySelector('.ca-side, .ca-rail')).display === 'none');
-      check('the panel takes the window', panel.width >= window.innerWidth - 2, panel.width + ' of ' + window.innerWidth);
+      // Less the card's gutters either side (App.css), 8px each.
+      check('the panel takes the window', panel.width >= window.innerWidth - 18, panel.width + ' of ' + window.innerWidth);
       check('its button says how to go back', !!btn && btn.getAttribute('aria-pressed') === 'true' && /Show the list again \(⇧⌘F\)/.test(btn.title), btn && btn.title);
       check('and it’s remembered', localStorage.getItem('codealong.sessionPanelMax') === '1');
       var head = document.querySelector('.ca-sessinsp-head');

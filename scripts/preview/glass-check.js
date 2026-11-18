@@ -1,5 +1,7 @@
 // Checks glass (`[appearance] glass`, src/glass.ts) as the pages draw it. In the main window the
-// root says is-glass and draws no ground of its own, and the board's ground is frosted, not clear;
+// root says is-glass and draws no ground of its own, the window a see-through tint that the title
+// bar, the sidebar and the usage bar draw nothing over (one pane of glass), and the board's ground
+// is frosted, not clear;
 // what sits on the glass (the title bar, the usage bar, the sidebar, the strip over the list, the
 // group headers) draws its wells, hovers, selections and lines see-through, so they take the
 // glass's tint (styles/glass.css), while a white control there keeps its white under the pointer,
@@ -92,7 +94,9 @@
       return;
     }
     check('the page says is-glass', root.classList.contains('is-glass'), root.className);
-    check('the page draws no ground of its own', alpha(bg(document.body)) === 0 && alpha(bg(q('.ca-win'))) === 0, bg(document.body) + ' | ' + bg(q('.ca-win')));
+    check('the page draws no ground of its own, the window only a see-through tint', alpha(bg(document.body)) === 0 && alpha(bg(q('.ca-win'))) < 0.5, bg(document.body) + ' | ' + bg(q('.ca-win')));
+    var over = ['.ca-win-bar', '.ca-usagebar', '.ca-side'].filter(function (sel) { return alpha(bg(q(sel))) !== 0; });
+    check('the title bar, the usage bar and the sidebar are one pane: none draws over the window’s tint', over.length === 0, over.map(function (sel) { return sel + ' ' + bg(q(sel)); }).join(', '));
     var frost = alpha(bg(board));
     check('the board’s ground is frosted: mostly opaque, not clear', frost > 0.6 && frost < 1, bg(board));
     ['.ca-win-bar', '.ca-usagebar', '.ca-side', '.ca-listbar', '.ca-bay'].forEach(function (sel) {
@@ -115,7 +119,7 @@
     check('nothing on the page draws a blur of its own over the glass', blurred.length === 0, blurred.slice(0, 3).map(function (el) { return el.className; }).join(', '));
     // Under the pointer, what's on the glass is a shade of it, not near white; a white control there
     // stays white, and a usage chip so while it's dragged over the others.
-    hovers('.ca-search:hover', q('.ca-win-bar'), false, 'the search box’s hover is see-through');
+    hovers('.is-glass .ca-search:hover', q('.ca-win-bar'), false, 'the search box’s hover is see-through');
     hovers('.ca-sidetoggle:hover', q('.ca-win-bar'), false, 'the sidebar toggle’s hover is see-through');
     hovers('.ca-btn:hover', q('.ca-win-bar'), true, 'a button keeps its white under the pointer');
     hovers('.ca-uchip:hover', q('.ca-usagebar'), true, 'a usage chip keeps its white under the pointer');

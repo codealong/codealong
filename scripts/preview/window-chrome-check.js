@@ -3,14 +3,40 @@
 // it, rounded at its four corners, with a gutter at the window's right edge. And the window's own
 // controls at the status bar's far end, after Accounts: the theme switch, the GitHub link and
 // Settings, icons alone, the last two named for the keyboard and screen readers. A click on the
-// GitHub link opens Codealong's repo, and the rail the sidebar folds to has neither.
+// GitHub link opens Codealong's repo, and the rail the sidebar folds to has neither. While the
+// board is read there's no panel, and the board alone rounds all four corners. At the window's
+// least width (980) the grid and its gutter fit, and the status bar's end keeps Settings in the
+// window.
 //   scripts/preview.sh sessions '' scripts/preview/window-chrome-check.js
 //   PREVIEW_GLASS=1 scripts/preview.sh sessions '' scripts/preview/window-chrome-check.js
+//   PREVIEW_LOADING=1 scripts/preview.sh sessions '' scripts/preview/window-chrome-check.js
+//   PREVIEW_SIZE=980,700 scripts/preview.sh sessions '' scripts/preview/window-chrome-check.js
 (function () {
   var REPO = 'https://github.com/codealong/codealong';
   var style = function (el) { return getComputedStyle(el); };
   var clear = function (el) { var b = style(el).backgroundColor; return b === 'rgba(0, 0, 0, 0)' || b === 'transparent'; };
+  var rounded = function (el, corners) { return corners.every(function (c) { return parseFloat(style(el)['border' + c + 'Radius']) > 0; }); };
+  // The board as the card alone, while the board is being read.
+  var alone = async function () {
+    var board = await until(function () { return q('.ca-win-body.is-loading > .ca-board'); }, 20000, 'the board, reading');
+    check('nothing comes after the board while it reads', board.parentElement.lastElementChild === board, board.parentElement.lastElementChild.className);
+    check('the board alone rounds all four corners', rounded(board, ['TopLeft', 'TopRight', 'BottomLeft', 'BottomRight']), ['TopLeft', 'TopRight', 'BottomRight', 'BottomLeft'].map(function (c) { return style(board)['border' + c + 'Radius']; }).join(' '));
+    check('and draws its hairline on the right too', style(board).borderRightWidth === '1px', style(board).borderRightWidth);
+    check('its clip-path rounds them', /round/.test(style(board).clipPath), style(board).clipPath);
+    var edge = window.innerWidth - board.getBoundingClientRect().right;
+    check('with the gutter at the window’s right edge', edge >= 4 && edge <= 12, Math.round(edge) + 'px');
+    done();
+  };
+  // The window at its least width: everything in it.
+  var narrow = function () {
+    var body = q('.ca-win-body');
+    var right = Math.max.apply(null, Array.prototype.map.call(body.children, function (c) { return c.getBoundingClientRect().right; }));
+    check('at its least width the board, the panel and the gutter fit the window', body.scrollWidth <= body.clientWidth && right <= window.innerWidth - 4, 'children reach ' + Math.round(right) + ' of ' + window.innerWidth + ', scroll ' + body.scrollWidth + ' of ' + body.clientWidth);
+    var gear = q('.ca-usagebar-settings').getBoundingClientRect();
+    check('and Settings stays in the window', gear.right <= window.innerWidth, Math.round(gear.right) + ' of ' + window.innerWidth);
+  };
   var run = async function () {
+    if (q('.ca-win-body.is-loading') || window.__PREVIEW_LOADING__) return alone();
     // The window lays itself out again once the board is read, so it's looked at after that.
     await until(function () { return q('.ca-sessionlist .ca-lane') && q('.ca-sidetoggle'); }, 20000, 'the sessions');
     await wait(300);
@@ -38,13 +64,14 @@
     check('with a gutter at the window’s right edge', edge >= 4 && edge <= 12, Math.round(edge) + 'px');
     check('the card meets the title bar and the status bar', Math.abs(board.getBoundingClientRect().top - bar.getBoundingClientRect().bottom) <= 1 && Math.abs(board.getBoundingClientRect().bottom - foot.getBoundingClientRect().top) <= 1, JSON.stringify({ board: board.getBoundingClientRect(), bar: bar.getBoundingClientRect().bottom, foot: foot.getBoundingClientRect().top }));
 
+    if (window.innerWidth <= 1000) narrow();
     var end = q('.ca-usagebar-end');
     var github = end.querySelector('.ca-usagebar-github');
     var gear = end.querySelector('.ca-usagebar-settings');
     var theme = end.querySelector('.ca-theme');
     check('Settings, the GitHub link and the theme are at the status bar’s end', !!github && !!gear && !!theme, end.innerHTML.slice(0, 200));
     check('Settings is the last of them', end.lastElementChild === gear, end.lastElementChild && end.lastElementChild.className);
-    var accounts = Array.from(end.querySelectorAll('button')).find(function (x) { return x.textContent.trim() === 'Accounts'; });
+    var accounts = end.querySelector('button[aria-label="Accounts"]');
     check('after Analytics and Accounts', !!accounts && theme.getBoundingClientRect().left > accounts.getBoundingClientRect().right, accounts ? 'ok' : 'no Accounts');
     check('Settings and the GitHub link are icons, named', gear.textContent.trim() === '' && gear.getAttribute('aria-label') === 'Settings' && github.textContent.trim() === '' && github.getAttribute('aria-label') === 'Codealong on GitHub', gear.textContent + '|' + github.textContent);
     var icon = function (el) { var svg = el && el.querySelector('svg'); return svg ? svg.innerHTML : ''; };

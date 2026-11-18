@@ -59,11 +59,13 @@
       // Stuck to the top of the board as the list scrolls: layout places it, so no frame is needed.
       var board = document.querySelector('.ca-board');
       board.scrollTop = 400;
-      var stuck = board.scrollTop === 0 || Math.abs(bar.getBoundingClientRect().top - board.getBoundingClientRect().top) < 1;
+      // At the top of its padding box, inside the card's hairline (App.css).
+      var inner = board.getBoundingClientRect().top + board.clientTop;
+      var stuck = board.scrollTop === 0 || Math.abs(bar.getBoundingClientRect().top - inner) < 1;
       check('the bar stays at the top as the list scrolls', stuck, 'scrolled ' + board.scrollTop + ', bar ' + Math.round(bar.getBoundingClientRect().top) + ', board ' + Math.round(board.getBoundingClientRect().top));
       // Stuck, WebKit draws it on a layer of its own, which at 110% its overflow let reach a device
       // pixel over the line above the board; clip-path holds it to the board's edge (App.css).
-      check('the board clips what’s stuck in it to its own box', /inset\(0(px)?\)/.test(getComputedStyle(board).clipPath), getComputedStyle(board).clipPath);
+      check('the board clips what’s stuck in it to its own box', /^inset\(0(px)?( round [^)]*)?\)$/.test(getComputedStyle(board).clipPath), getComputedStyle(board).clipPath);
       // A row scrolled to from below, as the keyboard's ↑ scrolls to it (App.tsx), shows whole under the bar.
       var second = rows()[1];
       if (board.scrollTop > 0 && second) {

@@ -230,7 +230,6 @@ body:has(.ca-scrim) .ca-usagebar-toast {
   gap: 2px;
   flex: none;
 }
-
 /* Popup styles stay separate from the account and project cards in Settings. */
 .ca-usage-popover {
   position: fixed;

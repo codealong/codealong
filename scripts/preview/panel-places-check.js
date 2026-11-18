@@ -118,7 +118,8 @@
         press(max);
         return until(function () { return q('.ca-win-body.is-panel-max'); }, 3000, 'the panel taking the window').then(function () {
           var w = q('.ca-prpanel').getBoundingClientRect().width;
-          check('the panel takes the window’s width', w > window.innerWidth - 4, Math.round(w) + ' of ' + window.innerWidth);
+          // Less the card's gutters either side (App.css), 8px each.
+          check('the panel takes the window’s width', w > window.innerWidth - 20, Math.round(w) + ' of ' + window.innerWidth);
           check('the list and the sidebar step aside', !shown(q('.ca-board')) && !shown(q('.ca-side')));
           key({ key: 'F', code: 'KeyF', metaKey: true, shiftKey: true });
           return wait(100);
