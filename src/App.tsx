@@ -2448,40 +2448,6 @@ export function App() {
           <Button icon="bulb" className="ca-improve" aria-label="Improve Codealong" title={improveTitle(shortcutLabel(board?.improveShortcut))} onClick={() => void showQuick({ improve: true, project: projectNow.current, opener: windowLabel() })} />
         </div>
       </div>
-      <UsageBar
-        usage={board?.usage ?? []}
-        loading={loading}
-        now={now}
-        onRefresh={() => void refreshUsage()}
-        onAccounts={(account) => openSettings('accounts', account ?? null)}
-        onUsage={(account) => setUsageOf({ account: account ?? null })}
-        onSignIn={startSignIn}
-        training={board?.training}
-        load={board?.load}
-        machines={devices?.enabled ? devices.devices : undefined}
-        onStopTraining={turnOffTraining}
-        onOpenUrl={(url) => openUrl(url).catch((e: unknown) => setToast(String(e)))}
-        onReorder={(accounts) =>
-          orderAccounts(accounts).catch((e: unknown) => {
-            setToast(String(e));
-            throw e;
-          })
-        }
-        toast={<Toasts state={toasts} onUnarchive={(u) => setArchived(u.keys, false, u.title)} />}
-        notices={
-          <>
-            {/* The meeting about to start (meetings.rs), to take its notes: where there's room for it
-                whatever the window's width, beside what else the window has to say. */}
-            {board?.meeting && <MeetingOffered offer={board.meeting} look="line" />}
-            <Notices
-            notices={notices}
-            now={now}
-            onDismiss={(n) => setDismissed((d) => [...d, noticeId(n)])}
-            onAction={(a) => ('opens' in a ? openSettings('file') : 'signsIn' in a ? startSignIn(a.signsIn) : tryAgain(a.reviews, { error: setToast, info: setToast, busy: track }))}
-          />
-          </>
-        }
-      />
       <div
         className={cx('ca-win-body', sideCollapsed && 'is-railed', panelKind === 'pr' && 'is-prs', panelKind === 'todo' && 'is-todo', panelKind === 'schedule' && 'is-schedule', panelKind === 'session' && 'is-session', maxed && 'is-panel-max', view === 'canvas' && 'is-canvas', view === 'canvas' && canvasPick && 'has-panel', boardless && 'is-boardless', reading && 'is-loading')}
         style={{ '--sidebar-w': widthVar(sidebarWidth), '--panel-w': widthVar(panelKind ? panelWidth[panelKind] : null) } as CSSProperties}
@@ -2988,6 +2954,42 @@ export function App() {
           />
         )}
       </div>
+      {/* The usage bar is the window's status bar: what every account has left, what's under way
+          and what isn't working, at its foot, out of the way of what you read and act on. */}
+      <UsageBar
+        usage={board?.usage ?? []}
+        loading={loading}
+        now={now}
+        onRefresh={() => void refreshUsage()}
+        onAccounts={(account) => openSettings('accounts', account ?? null)}
+        onUsage={(account) => setUsageOf({ account: account ?? null })}
+        onSignIn={startSignIn}
+        training={board?.training}
+        load={board?.load}
+        machines={devices?.enabled ? devices.devices : undefined}
+        onStopTraining={turnOffTraining}
+        onOpenUrl={(url) => openUrl(url).catch((e: unknown) => setToast(String(e)))}
+        onReorder={(accounts) =>
+          orderAccounts(accounts).catch((e: unknown) => {
+            setToast(String(e));
+            throw e;
+          })
+        }
+        toast={<Toasts state={toasts} onUnarchive={(u) => setArchived(u.keys, false, u.title)} />}
+        notices={
+          <>
+            {/* The meeting about to start (meetings.rs), to take its notes: where there's room for it
+                whatever the window's width, beside what else the window has to say. */}
+            {board?.meeting && <MeetingOffered offer={board.meeting} look="line" />}
+            <Notices
+            notices={notices}
+            now={now}
+            onDismiss={(n) => setDismissed((d) => [...d, noticeId(n)])}
+            onAction={(a) => ('opens' in a ? openSettings('file') : 'signsIn' in a ? startSignIn(a.signsIn) : tryAgain(a.reviews, { error: setToast, info: setToast, busy: track }))}
+          />
+          </>
+        }
+      />
       {settings && (
         <SettingsDialog
           section={settings.section}

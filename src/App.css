@@ -183,8 +183,9 @@
   color: var(--ink-3);
 }
 
+/* The title bar, the body, and the usage bar at the foot as the window's status bar. */
 .ca-win--app {
-  grid-template-rows: var(--titlebar-h) auto minmax(0, 1fr);
+  grid-template-rows: var(--titlebar-h) minmax(0, 1fr) auto;
 }
 
 /* Collapsed: a rail of the views and devices. Its filter button carries a badge while a filter

@@ -1,4 +1,4 @@
-// The usage bar under the title bar: one chip per account, in config order. Each limit shows
+// The usage bar, the main window's status bar along its foot: one chip per account, in config order. Each limit shows
 // how full it is and, after the clock, how long until it resets. Per-model limits, like
 // Fable's weekly limit, are marked with sparkles. Claude numbers are read every 2 minutes;
 // Codex numbers arrive with each Codex turn.
@@ -233,18 +233,18 @@ interface CardProps {
   onLeave?: () => void;
 }
 
-/** A chip's card under it: a collapsed chip's limits, all of them, and for an account its
+/** A chip's card over it: a collapsed chip's limits, all of them, and for an account its
  *  provider may train on, why, with Turn off training and Open settings. Its limits are only a
  *  picture: the chip's label already reads them out. */
 function UsageCard({ usage: u, now, anchor, meters, training: t, onStopTraining, onOpenUrl, onEnter, onLeave }: CardProps) {
   const ref = useRef<HTMLDivElement>(null);
-  // Under the chip, kept inside the window.
+  // Over the chip, as the bar is at the window's foot, kept inside the window.
   useLayoutEffect(() => {
     const card = ref.current;
     if (!card) return;
     const r = anchor.getBoundingClientRect();
     card.style.left = `${Math.max(8, Math.min(r.left, window.innerWidth - card.offsetWidth - 8))}px`;
-    card.style.top = `${r.bottom + 6}px`;
+    card.style.top = `${Math.max(8, r.top - card.offsetHeight - 6)}px`;
   });
   const stale = isStale(u);
   const asOf = asOfPhrase(u, now);

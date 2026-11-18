@@ -64,13 +64,16 @@ export function Notices({ notices, now, onDismiss, onAction }: NoticesProps) {
 
 function NoticeCard({ notices, now, anchor, onDismiss, onAction }: { notices: Notice[]; now: number; anchor: HTMLElement; onDismiss: (n: Notice) => void; onAction: (action: NoticeAction) => void }) {
   const ref = useRef<HTMLDivElement>(null);
-  // Under the chip, its right edge on the chip's, kept inside the window.
+  // Over the chip, as the usage bar it's in is at the window's foot, its right edge on the chip's,
+  // kept inside the window.
   useLayoutEffect(() => {
     const card = ref.current;
     if (!card) return;
     const r = anchor.getBoundingClientRect();
+    // No taller than the room over the chip: a long one scrolls within itself.
+    card.style.maxHeight = `${Math.max(0, r.top - 14)}px`;
     card.style.left = `${Math.max(8, Math.min(r.right - card.offsetWidth, window.innerWidth - card.offsetWidth - 8))}px`;
-    card.style.top = `${r.bottom + 6}px`;
+    card.style.top = `${Math.max(8, r.top - card.offsetHeight - 6)}px`;
   });
   return createPortal(
     <div ref={ref} className="ca-notice-card" role="dialog" aria-label="What isn't working">

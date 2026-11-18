@@ -3,9 +3,10 @@
 // this window), and the way back from an archive or a todo change, yours or a session an agent
 // marked done. One shows at a time, in that order. What goes wrong in the background is a notice
 // instead (notices.ts).
-// A toast is a line in the usage bar (UsageBar.tsx `toast`), beside the notices: floating over the
-// window's foot, it covered the list's last rows, and before that the session panel's message box.
-// Its words fit one line there, all of them under it on hover (primitives.tsx `OneLine`), and it
+// A toast is a line in the usage bar along the window's foot (UsageBar.tsx `toast`), beside the
+// notices: floating over the foot, it covered the list's last rows, and before that the session
+// panel's message box.
+// Its words fit one line there, all of them over it on hover (primitives.tsx `OneLine`), and it
 // stays while the pointer is on it.
 
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
@@ -187,5 +188,5 @@ function Pill({ busy = false, setHeld, onClick, children }: { busy?: boolean; se
 
 /** A toast's words, on one line: cut short, they're all there under it on hover. */
 function Words({ text }: { text: string }) {
-  return <OneLine className="ca-toast-text" down text={text} />;
+  return <OneLine className="ca-toast-text" text={text} />;
 }

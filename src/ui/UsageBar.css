@@ -1,5 +1,6 @@
-/* Plan usage under the title bar (UsageBar.tsx): one chip per account, the meters, and the
-   popover, which for an account its provider may train on says why and has buttons. */
+/* Plan usage in the window's status bar, along its foot (UsageBar.tsx): one chip per account,
+   the meters, and the popover over a chip, which for an account its provider may train on says
+   why and has buttons. */
 
 .ca-meter { display: grid; gap: 6px; min-width: 0; }
 .ca-meter-head { display: flex; align-items: baseline; justify-content: space-between; gap: var(--space-2); }
@@ -20,12 +21,13 @@
   align-items: center;
   gap: var(--space-2);
   min-width: 0;
-  height: 38px;
-  padding: 0 var(--space-3);
+  height: 30px;
+  padding: 0 var(--space-2);
+  box-sizing: border-box;
   background: var(--surface-sunken);
-  border-bottom: 1px solid var(--line);
+  border-top: 1px solid var(--line);
 }
-/* With glass on (src/glass.ts), see-through over macOS's glass as the sidebar is, which it meets. */
+/* With glass on (src/glass.ts), see-through over macOS's glass as the sidebar is, which it runs under. */
 .is-glass .ca-usagebar {
   background: var(--glass-sunken);
 }
@@ -36,9 +38,9 @@
   align-self: stretch;
   display: flex;
   align-items: center;
-  gap: var(--space-2);
+  gap: var(--space-1);
   min-width: 0;
-  padding: 0 var(--space-1);
+  padding: 0;
   overflow-x: auto;
   overflow-y: hidden;
   overscroll-behavior-x: contain;
@@ -62,29 +64,31 @@
   top: -100px;
   left: 0;
   display: flex;
-  gap: var(--space-2);
+  gap: var(--space-1);
   width: max-content;
   visibility: hidden;
   pointer-events: none;
 }
+/* Flat, as a status bar's items are: the pill shows under the pointer, while it's dragged, and
+   on an account that wants you (signed out, or trained on). */
 .ca-uchip {
   display: inline-flex;
   align-items: center;
-  gap: var(--space-3);
+  gap: var(--space-2);
   flex: none;
-  height: 26px;
-  padding: 0 11px 0 10px;
+  height: 22px;
+  padding: 0 8px;
   box-sizing: border-box;
-  border: 1px solid var(--line);
+  border: 1px solid transparent;
   border-radius: var(--radius-pill);
-  background: var(--surface);
+  background: transparent;
   color: var(--ink);
   font: inherit;
   cursor: pointer;
   transition: background var(--dur-fast) ease-out, border-color var(--dur-fast) ease-out;
 }
-/* Laid over the chip's white, which a see-through surface-hover (on the glass, styles/glass.css)
-   would otherwise show through, and the chips under it as it's dragged. */
+/* Laid over white, which a see-through surface-hover (on the glass, styles/glass.css) would
+   otherwise let the bar show through, and the chips under it as it's dragged. */
 .ca-uchip:hover {
   background: linear-gradient(var(--surface-hover), var(--surface-hover)), var(--surface);
   border-color: var(--line-strong);
@@ -97,6 +101,8 @@
 .ca-usagebar-accts.is-sorting .ca-uchip.is-lifted {
   position: relative;
   z-index: var(--z-sorting);
+  border-color: var(--line);
+  background: var(--surface);
   box-shadow: var(--shadow-hud);
   transition: none;
 }
@@ -179,7 +185,8 @@
   color: var(--alert);
 }
 /* The window's toast (Toasts.tsx), between the chips and the end: as wide as its words up to a
-   limit, the chips having what's left (UsageBar.tsx `fitFor`); with none up, it takes no room. */
+   limit, the chips having what's left (UsageBar.tsx `fitFor`); with none up, it takes no room.
+   Cut short, its whole words grow up from it, over the window above the bar. */
 .ca-usagebar-toast {
   display: flex;
   flex: 0 1 auto;

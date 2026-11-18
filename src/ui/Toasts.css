@@ -1,13 +1,13 @@
-/* The main window's toast (Toasts.tsx): a line in the usage bar, as high as the account chips
-   beside it and lifted off the bar as a dragged chip is, its words cut to one line. It comes in
-   gently, as a chip would that had been there. */
+/* The main window's toast (Toasts.tsx): a line in the usage bar at the window's foot, as high as
+   the account chips beside it and lifted off the bar as a dragged chip is, its words cut to one
+   line. It comes in gently, rising into the bar. */
 
 .ca-toast {
   display: flex;
   align-items: center;
   gap: var(--space-2);
   min-width: 0;
-  height: 26px;
+  height: 22px;
   padding: 0 12px 0 10px;
   box-sizing: border-box;
   border-radius: var(--radius-pill);
@@ -21,14 +21,14 @@
 @keyframes ca-toast-in {
   from {
     opacity: 0;
-    transform: translateY(-3px);
+    transform: translateY(3px);
   }
 }
 .ca-toast .ca-icon {
   flex: none;
   color: var(--alert);
 }
-/* Cut short, the whole of it shows under the line as wide as the toast can be (base.css
+/* Cut short, the whole of it shows over the line as wide as the toast can be (base.css
    `.ca-oneline`). */
 .ca-toast-text {
   flex: 0 1 auto;
@@ -40,7 +40,7 @@
 }
 .ca-toast-action {
   flex: none;
-  height: 20px;
+  height: 18px;
   margin-left: var(--space-1);
   padding: 0 8px;
   border: 1px solid var(--line-strong);
