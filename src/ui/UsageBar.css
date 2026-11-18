@@ -1,7 +1,8 @@
 /* Plan usage in the window's status bar, along its foot (UsageBar.tsx): one chip per account,
    the meters, and the popover over a chip, which for an account its provider may train on says
-   why and has buttons. The bar has the title bar's ground, so the window's top and foot match,
-   and the meters' tracks, a tint of it, read on it. */
+   why and has buttons; at its far end, the window's own controls. The bar draws on the window's
+   ground, the chrome's, as the title bar and the sidebar do (App.css), and the meters' tracks, a
+   tint, read on it. */
 
 .ca-meter { display: grid; gap: 6px; min-width: 0; }
 .ca-meter-head { display: flex; align-items: baseline; justify-content: space-between; gap: var(--space-2); }
@@ -25,12 +26,6 @@
   height: 30px;
   padding: 0 var(--space-2);
   box-sizing: border-box;
-  background: var(--surface);
-  border-top: 1px solid var(--line);
-}
-/* With glass on (src/glass.ts), half see-through over macOS's glass as the title bar is. */
-.is-glass .ca-usagebar {
-  background: var(--glass-chrome);
 }
 /* Chips that don't fit scroll sideways. The scrollbar is hidden: where macOS always shows
    scrollbars it would take most of the bar's height. Fades mark the ends with more past them. */

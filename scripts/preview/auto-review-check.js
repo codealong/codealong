@@ -419,7 +419,7 @@
         note('no PR panel with Review with… open');
       }
 
-      q('.ca-side-config').click();
+      q('.ca-usagebar-settings').click();
       await until(function () { return !!nav('Automation'); }, 3000, 'no Automation in Settings');
       var on = /Review pull requests that wait on your review/;
       nav('Accounts').click();

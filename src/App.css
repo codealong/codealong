@@ -1,20 +1,24 @@
 /* The main window (App.tsx): the title bar with the quick panel's box, the sidebar toggle, the
    history buttons and the bar placement; the body's grid in each of its states; the board and
-   its empty and loading notes; toasts; device groups. */
+   its empty and loading notes; toasts; device groups.
+
+   The chrome (the title bar, the sidebar or its rail, and the status bar at the foot) is one
+   ground, the window's own, with no line between its parts; the board and the panel beside it
+   are a card on it, rounded, with a hairline round it (*The card*, below). */
 
 .ca-win { display: grid; grid-template-rows: var(--titlebar-h) minmax(0, 1fr); height: 100%; min-height: 0; box-sizing: border-box; overflow: hidden; background: var(--ground); color: var(--ink); border-radius: var(--radius-lg); box-shadow: var(--shadow-popover); font: var(--type-body); }
 /* Its two ends share what the box in the middle leaves them equally, so the box is centered in
    the window while both fit; past that, each end keeps what it holds and the box moves over. */
-.ca-win-bar { display: grid; grid-template-columns: minmax(max-content, 1fr) minmax(160px, 420px) minmax(max-content, 1fr); align-items: center; gap: var(--space-4); min-width: 0; padding: 0 var(--space-4); background: var(--surface); border-bottom: 1px solid var(--line); }
+.ca-win-bar { display: grid; grid-template-columns: minmax(max-content, 1fr) minmax(160px, 420px) minmax(max-content, 1fr); align-items: center; gap: var(--space-4); min-width: 0; padding: 0 var(--space-4); }
 .ca-win-bar-start,
 .ca-win-bar-end { display: flex; align-items: center; gap: var(--space-4); min-width: 0; }
 .ca-win-bar-end { justify-content: flex-end; gap: var(--space-2); }
 
 /* The quick panel's box (ui/Quick.tsx), as a button that opens it: what the panel's box says,
-   and its shortcut. */
-.ca-search { appearance: none; display: flex; align-items: center; gap: var(--space-2); min-width: 0; height: 28px; padding: 0 6px 0 9px; box-sizing: border-box; border: 0; border-radius: var(--radius-sm); background: var(--surface-sunken); color: var(--ink-3); font: var(--type-body); text-align: left; white-space: nowrap; overflow: hidden; cursor: text; }
+   and its shortcut. A field of the card's ground on the chrome's, as an input is. */
+.ca-search { appearance: none; display: flex; align-items: center; gap: var(--space-2); min-width: 0; height: 28px; padding: 0 6px 0 9px; box-sizing: border-box; border: 0; border-radius: var(--radius-sm); background: var(--surface); box-shadow: inset 0 0 0 1px var(--line); color: var(--ink-3); font: var(--type-body); text-align: left; white-space: nowrap; overflow: hidden; cursor: text; }
 .ca-search > span:not(.ca-kbds) { flex: 1; overflow: hidden; text-overflow: ellipsis; }
-.ca-search:hover { background: var(--surface-hover); }
+.ca-search:hover { color: var(--ink-2); box-shadow: inset 0 0 0 1px var(--line-strong); }
 .ca-search:focus-visible { outline: none; box-shadow: var(--shadow-focus); }
 .ca-win-body { display: grid; grid-template-columns: var(--sidebar-w) minmax(0, 1fr) var(--inspector-w); min-height: 0; }
 
@@ -37,24 +41,30 @@
    the board's edge. The board is still scrolled off the main thread, with the same layers. */
 .ca-board { clip-path: inset(0); }
 
-/* Native window: no rounded corners or shadow of our own; room for the traffic lights. */
+/* Native window: no rounded corners or shadow of our own; room for the traffic lights. Its
+   ground is the chrome's, the sidebar's gray, which the title bar, the sidebar and the status bar
+   draw nothing over. */
 .ca-win--app {
   height: 100%;
   border-radius: 0;
   box-shadow: none;
+  background: var(--surface-sunken);
 }
-/* With glass on (src/glass.ts), the title bar is half see-through over macOS's glass, as the
-   Finder's toolbar is, and the board's ground is the glass frosted: what showed gray between the
-   rows and below them is tinted by the glass without showing the wallpaper through it, and the
-   rows keep their own ground, so what you read stays as legible. */
+/* What's hovered on the chrome takes a shade of it, as the sidebar's rows do (nav.css), rather
+   than the white's that's meant for the card. */
+.ca-win-bar,
+.ca-usagebar {
+  --surface-hover: var(--nav-hover);
+}
+/* With glass on (src/glass.ts), the chrome is one pane of macOS's glass, mostly see-through, as
+   the Finder's sidebar is, and the board's ground is the glass frosted: what showed gray between
+   the rows and below them is tinted by the glass without showing the wallpaper through it, and
+   the rows keep their own ground, so what you read stays as legible. */
 .is-glass .ca-win {
-  background: transparent;
+  background: var(--glass-sunken);
 }
 .is-glass .ca-board {
   background: var(--glass-ground);
-}
-.is-glass .ca-win-bar {
-  background: var(--glass-chrome);
 }
 /* The traffic lights' room is the left end's own, so the bar's padding stays even and its middle
    is the window's. */
@@ -260,13 +270,43 @@
 
 /* Expanded to the whole window (⇧⌘F; a session's panel in Sessions, a PR's in PRs): the sidebar
    and the list step aside, and the panel's parts keep to a column in the middle (SessionPanel.css,
-   PrInspector.css), their backgrounds and lines still reaching the edges. */
+   PrInspector.css), their backgrounds and lines still reaching the card's edges. */
 .ca-win--app .ca-win-body.is-panel-max {
   grid-template-columns: minmax(0, 1fr);
 }
 .ca-win--app .ca-win-body.is-panel-max > :not(.ca-insp) {
   display: none;
 }
+
+/* The card: the board and the panel beside it as one, on the chrome's ground. The board rounds
+   the card's left corners and the panel its right ones, the panel's own line between them; with
+   no panel (the canvas with nothing picked, a project with no board, while reading), the board
+   rounds all four, and so does the panel when it takes the whole window. A gutter at the
+   window's right edge, and at its left once the sidebar steps aside, lets the corners there show.
+   The board's corners are its clip-path's (the board's rule above says why it clips that way);
+   the panel's, its overflow's. */
+.ca-win--app .ca-win-body {
+  --card-r: var(--radius-md);
+  padding-right: var(--space-2);
+}
+.ca-win--app .ca-win-body.is-panel-max {
+  padding-left: var(--space-2);
+}
+.ca-win--app .ca-board {
+  border: 1px solid var(--line);
+  border-right: 0;
+  border-radius: var(--card-r) 0 0 var(--card-r);
+  clip-path: inset(0 round var(--card-r) 0 0 var(--card-r));
+}
+.ca-win--app .ca-board:last-child {
+  border-right: 1px solid var(--line);
+  border-radius: var(--card-r);
+  clip-path: inset(0 round var(--card-r));
+}
+.ca-win--app .ca-insp {
+  border: 1px solid var(--line);
+  border-radius: 0 var(--card-r) var(--card-r) 0;
+}
 .ca-win--app .ca-win-body.is-panel-max > .ca-insp {
-  border-left: 0;
+  border-radius: var(--card-r);
 }

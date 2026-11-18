@@ -40,7 +40,7 @@
 
   (async function () {
     try {
-      (await until(function () { return q('.ca-side-config'); }, 20000, 'the settings button')).click();
+      (await until(function () { return q('.ca-usagebar-settings'); }, 20000, 'the settings button')).click();
       (await until(function () { return nav('Routing'); }, 20000, 'Routing in Settings')).click();
       var buffer = await until(function () { return field(/^Room kept for running sessions/); }, 20000, 'Room kept for running sessions');
       var select = q('select', buffer);

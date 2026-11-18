@@ -6,7 +6,7 @@
 //   PREVIEW_PLATFORM=linux scripts/preview.sh sessions '' scripts/preview/settings-awake-check.js
 (function () {
   if (window.__CODEALONG_PLATFORM__ === 'linux' || /\bLinux\b/.test(navigator.userAgent)) {
-    until(function () { return q('.ca-side-config'); }, 20000, 'the settings button')
+    until(function () { return q('.ca-usagebar-settings'); }, 20000, 'the settings button')
       .then(function (gear) {
         gear.click();
         return until(function () { return all('.ca-settings-pane .ca-field > span').filter(function (s) { return s.textContent === 'Terminal'; })[0]; }, 20000, 'the Terminal picker');
@@ -33,7 +33,7 @@
     return all('.ca-settings-pane .ca-field').filter(function (f) { var s = f.querySelector(':scope > span'); return s && s.textContent === 'Terminal'; })[0];
   };
 
-  until(function () { return q('.ca-side-config'); }, 20000, 'the settings button')
+  until(function () { return q('.ca-usagebar-settings'); }, 20000, 'the settings button')
     .then(function (gear) {
       gear.click();
       return until(field, 20000, 'Keep … awake in General');

@@ -3,7 +3,7 @@
 //   PREVIEW_INIT=scripts/preview/close-stale-init.js PREVIEW_NAME=close-stale scripts/preview.sh
 (function () {
   var open = function () {
-    if (document.querySelector('.ca-side-config')) window.__emit('close-stale', null);
+    if (document.querySelector('.ca-usagebar-settings')) window.__emit('close-stale', null);
     else setTimeout(open, 50);
   };
   open();

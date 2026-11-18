@@ -70,7 +70,7 @@
     return wait(100);
   };
 
-  until(function () { return q('.ca-side-config'); }, 20000, 'the settings button')
+  until(function () { return q('.ca-usagebar-settings'); }, 20000, 'the settings button')
     .then(function (gear) {
       gear.click();
       return until(function () { return field() && all('.ca-settings-pane .ca-field').length; }, 20000, 'Settings and its search');

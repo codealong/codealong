@@ -390,6 +390,8 @@ interface UsageBarProps {
   notices?: ReactNode;
   /** The window's toast (Toasts.tsx), over the end of the chips' row, which stays as it is under it. */
   toast?: ReactNode;
+  /** The window's own controls (Settings, the theme), after Analytics and Accounts at the far end. */
+  end?: ReactNode;
   /** Puts the accounts in this order in config.toml; a failure is the caller's to say, and the
    *  chips go back. */
   onReorder?: (accounts: string[]) => Promise<void>;
@@ -399,7 +401,7 @@ interface UsageBarProps {
   machines?: readonly DeviceView[];
 }
 
-export function UsageBar({ usage: board, now, onRefresh, onAccounts, onUsage, onSignIn, training, onStopTraining, onOpenUrl, loading, notices, toast, onReorder, load, machines }: UsageBarProps) {
+export function UsageBar({ usage: board, now, onRefresh, onAccounts, onUsage, onSignIn, training, onStopTraining, onOpenUrl, loading, notices, toast, end, onReorder, load, machines }: UsageBarProps) {
   // The order a drag left the chips in, until the board lists them so.
   const [order, setOrder] = useState<string[] | null>(null);
   const usage = order ? inOrder(board, order) : board;
@@ -564,9 +566,11 @@ export function UsageBar({ usage: board, now, onRefresh, onAccounts, onUsage, on
           title={lastRead ? `Claude usage read ${agoPhrase(lastRead, now)}; it refreshes every 2 minutes. Refresh now` : 'Refresh usage'}
           onClick={onRefresh}
         />
-        {/* Icons, as Refresh beside them is: what each opens is under the pointer. */}
+        {/* Icons, as Refresh beside them is: what each opens is under the pointer. Accounts is the
+            people, so the gear after it is Settings' alone. */}
         <Button variant="ghost" size="sm" icon="chart-bar" aria-label="Analytics" title={keysIn('Analytics: what sessions used and cost (⇧⌘U)')} onClick={() => onUsage()} />
-        <Button variant="ghost" size="sm" icon="settings" aria-label="Accounts" title={keysIn('Accounts, in Settings (⌘,)')} onClick={() => onAccounts()} />
+        <Button variant="ghost" size="sm" icon="users" aria-label="Accounts" title={keysIn('Accounts, in Settings (⌘,)')} onClick={() => onAccounts()} />
+        {end}
       </div>
     </div>
   );

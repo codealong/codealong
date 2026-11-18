@@ -110,7 +110,7 @@ const canvasDoc = `(() => {
 })();`;
 const quickReady = `await sd.waitFor(() => window.__calls.some((c) => c[0] === 'quick_ready'));`;
 const pngPaste = (selector) => `const box = await sd.waitFor(${JSON.stringify(selector)}); box.focus(); const dt = new DataTransfer(); dt.items.add(new File([new Uint8Array([0x89, 0x50, 0x4e, 0x47])], 'shot.png', { type: 'image/png' })); dt.items.add(new File(['log'], 'send.log', { type: 'text/plain' })); box.dispatchEvent(new ClipboardEvent('paste', { clipboardData: dt, bubbles: true, cancelable: true }));`;
-const settings = (section) => [`await sd.click('.ca-side-config'); await sd.waitFor('.ca-settings');`, `await sd.click(sd.byText('.ca-settings-nav button', ${JSON.stringify(section)})); await sd.sleep(300);`];
+const settings = (section) => [`await sd.click('.ca-usagebar-settings'); await sd.waitFor('.ca-settings');`, `await sd.click(sd.byText('.ca-settings-nav button', ${JSON.stringify(section)})); await sd.sleep(300);`];
 const first = (selector) => `await sd.click(await sd.waitFor(${JSON.stringify(selector)}));`;
 const openTools = `for (const b of document.querySelectorAll('.ca-thread-toolhead:not(:disabled), .ca-thread-tooltoggle, .ca-thread-runhead')) if (b.getAttribute('aria-expanded') === 'false') b.click();`;
 
@@ -180,7 +180,7 @@ export function scenes(board) {
     { name: 'settings-projects', view: 'sessions', steps: [...settings('Projects'), `const b = sd.byText('.ca-settings-pane button', 'Edit'); if (b) b.click();`] },
     { name: 'settings-jev', view: 'sessions', steps: settings('Jev') },
     { name: 'settings-advanced', view: 'sessions', steps: settings('Advanced') },
-    { name: 'settings-file', view: 'sessions', steps: [`await sd.click('.ca-side-config'); await sd.waitFor('.ca-settings');`, `await sd.click([...document.querySelectorAll('.ca-settings-nav button')].pop());`] },
+    { name: 'settings-file', view: 'sessions', steps: [`await sd.click('.ca-usagebar-settings'); await sd.waitFor('.ca-settings');`, `await sd.click([...document.querySelectorAll('.ca-settings-nav button')].pop());`] },
     { name: 'close-idle', view: 'sessions', steps: [`sd.emit('close-idle', null); await sd.waitFor('.ca-dialog');`] },
     // The other windows.
     { name: 'quick', view: 'quick' },

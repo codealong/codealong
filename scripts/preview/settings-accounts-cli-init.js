@@ -23,8 +23,8 @@
     tries += 1;
     var nav = document.querySelector('.ca-settings-nav');
     var card = document.getElementById('ca-acct-cursor');
-    if (step === 0 && document.querySelector('.ca-side-config')) {
-      document.querySelector('.ca-side-config').click();
+    if (step === 0 && document.querySelector('.ca-usagebar-settings')) {
+      document.querySelector('.ca-usagebar-settings').click();
       step = 1;
     } else if (step === 1 && nav && button('Accounts', nav)) {
       button('Accounts', nav).click();

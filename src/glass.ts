@@ -1,8 +1,8 @@
 // Glass (`[appearance] glass`, Settings › Appearance): the app puts macOS's
 // glass behind a board window's page (glass.rs), where it shows only through what the page leaves
 // see-through. So while it's on the page's root says `is-glass`, and what was gray lets it through,
-// as the Finder's chrome does: the title bar (App.css), the usage bar (UsageBar.css), the sidebar
-// (Sidebar.css) and Kanban's columns (KanbanView.css), over a page with no ground of its own
+// as the Finder's chrome does: the title bar, the sidebar and the usage bar, one pane of it on the
+// window's ground (App.css), and Kanban's columns (KanbanView.css), over a page with no ground of its own
 // (base.css), with the board's ground frosted (App.css) and the strip over the list, which rows
 // scroll under, opaque (ListBar.css). The page draws no blur of its own: WebKit's,
 // stacked on the glass, flickers as the window moves. What sits on

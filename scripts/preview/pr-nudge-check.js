@@ -230,7 +230,7 @@
       check('a merged PR has no switch', !card() || !toggle());
       if (card()) leave(card());
 
-      q('.ca-side-config').click();
+      q('.ca-usagebar-settings').click();
       await until(function () { return !!nav('Automation'); }, 3000, 'no Automation in Settings');
       nav('Automation').click();
       var setting = /Nudge a pull request’s primary session/;

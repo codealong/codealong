@@ -19,9 +19,9 @@
   };
 
   say('devices automations check: waiting for Settings');
-  until(function () { return !!q('.ca-side-config'); }, 20000, 'no Settings button')
+  until(function () { return !!q('.ca-usagebar-settings'); }, 20000, 'no Settings button')
     .then(function () {
-      q('.ca-side-config').click();
+      q('.ca-usagebar-settings').click();
       return until(function () { return !!nav('Devices'); }, 3000, 'no Devices in Settings');
     })
     .then(function () {

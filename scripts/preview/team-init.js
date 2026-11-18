@@ -63,9 +63,9 @@
 
   // For a screenshot: Settings › Automation, the repo picked as a worktree's menu picks it.
   (async function () {
-    await until(function () { return !!q('.ca-side-config') && !!place; }, 20000, 'the board never came');
+    await until(function () { return !!q('.ca-usagebar-settings') && !!place; }, 20000, 'the board never came');
     if (document.querySelector('script[src="./check.js"]') || localStorage.getItem('codealong.view') !== 'sessions' || !place.repo) return;
-    q('.ca-side-config').click();
+    q('.ca-usagebar-settings').click();
     var nav = function () { return all('.ca-settings-nav button').filter(function (b) { return b.textContent.trim() === 'Automation'; })[0]; };
     await until(function () { return !!nav(); }, 3000, 'no Automation in Settings');
     nav().click();

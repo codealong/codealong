@@ -59,7 +59,7 @@
     })
     .then(function () {
       if (off) check('nor does ⇧⌘B', shown() === 'Sessions', shown());
-      q('.ca-side-config').click();
+      q('.ca-usagebar-settings').click();
       return until(function () { return nav('.ca-settings-nav', 'Experimental'); }, 10000, 'Settings › Experimental');
     })
     .then(function (section) {

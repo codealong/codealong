@@ -28,7 +28,7 @@
     return Array.prototype.filter.call(named('Session emblems').querySelectorAll('button'), function (b) { return b.textContent.trim() === label; })[0];
   };
   var run = async function () {
-    (await until(function () { return q('.ca-side-config'); }, 20000, 'the settings button')).click();
+    (await until(function () { return q('.ca-usagebar-settings'); }, 20000, 'the settings button')).click();
     (await until(function () { return all('.ca-settings-nav button').filter(function (b) { return b.textContent.trim() === 'Appearance'; })[0]; }, 20000, 'Appearance in Settings')).click();
     var field = await until(function () { return named('Session emblems'); }, 20000, 'Session emblems in Appearance');
     var cfg = (await window.__TAURI_INTERNALS__.invoke('get_config', {})).config;

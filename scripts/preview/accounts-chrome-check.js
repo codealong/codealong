@@ -39,8 +39,8 @@
 
   (async function () {
     try {
-      await until(function () { return q('.ca-side-config'); }, 20000, 'no settings button');
-      q('.ca-side-config').click();
+      await until(function () { return q('.ca-usagebar-settings'); }, 20000, 'no settings button');
+      q('.ca-usagebar-settings').click();
       await until(function () { return button('Accounts', q('.ca-settings-nav')); }, 5000, 'Settings didn’t open');
       button('Accounts', q('.ca-settings-nav')).click();
       await until(function () { return card('codex'); }, 5000, 'Settings › Accounts listed no accounts');

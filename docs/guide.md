@@ -2264,8 +2264,12 @@ picks shows, none picked shows all, and Clear unpicks them. Save the view as it 
 come back to it; right-click a saved view to update or delete it (they're kept per Mac, not in
 config.toml), with the agents, repos and labels picked. It starts folded to a rail of the views and
 devices, whose filter button opens it and carries a badge while a filter narrows the view; ⌃⌘S, or
-the button beside the traffic lights, opens and folds it, and it stays as you left it. Its foot,
-open or folded, has Settings and a button that opens Codealong's repo on GitHub.
+the button beside the traffic lights, opens and folds it, and it stays as you left it. Settings,
+the theme and a button that opens Codealong's repo on GitHub are at the far end of the status bar,
+open or folded.
+
+The title bar, the sidebar and the status bar are one ground, with no line between them, and the
+list and the panel beside it are a card on it with rounded corners.
 
 ### Find in the window
 
@@ -2339,8 +2343,8 @@ each time it opens.
 
 ### Light or dark
 
-Follows macOS unless you pick light or dark with the buttons at the foot of the sidebar. The choice
-is saved in config.toml, and every window follows it.
+Follows macOS unless you pick light or dark with the buttons at the end of the status bar. The
+choice is saved in config.toml, and every window follows it.
 
 ### Zoom
 
@@ -2369,8 +2373,8 @@ show all the time.
 
 With glass on, the main window and the project windows show what's behind them through macOS's own
 glass, as the Finder does: Liquid Glass from macOS 26, and the sidebar's blur on earlier versions.
-The title bar, the usage bar, the sidebar and Kanban's columns let it through, in light and in
-dark; the bands between the list's groups are frosted, so they take the glass's tint without
+The title bar, the sidebar and the usage bar, one pane of it, and Kanban's columns let it
+through, in light and in dark; the bands between the list's groups are frosted, so they take the glass's tint without
 showing the wallpaper, and the strip over the list, which the rows scroll under, is a solid shade
 under them, so nothing shows through it; the strip over a session's conversation is the same shade,
 so the two read as one toolbar across the window. What
@@ -2463,7 +2467,7 @@ it later.
 
 ### Settings window
 
-*⌘, (comma), the app menu, or the foot of the sidebar*
+*⌘, (comma), the app menu, or the gear at the end of the status bar*
 
 A form for everything in config.toml. General has the folders searched for repos, the shortcuts
 that work in any app, the terminal and editor, Keep \<terminal> awake (on macOS: whether macOS may

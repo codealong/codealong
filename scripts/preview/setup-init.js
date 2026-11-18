@@ -3,7 +3,7 @@
 //   PREVIEW_SETUP=scripts/preview/setup-sample.json PREVIEW_INIT=scripts/preview/setup-init.js PREVIEW_NAME=setup scripts/preview.sh
 (function () {
   var open = function () {
-    if (document.querySelector('.ca-side-config')) window.__emit('setup', null);
+    if (document.querySelector('.ca-usagebar-settings')) window.__emit('setup', null);
     else setTimeout(open, 50);
   };
   open();

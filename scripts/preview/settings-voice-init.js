@@ -17,7 +17,7 @@
   var tries = 0;
   var open = setInterval(function () {
     tries += 1;
-    var gear = document.querySelector('.ca-side-config');
+    var gear = document.querySelector('.ca-usagebar-settings');
     var nav = Array.prototype.filter.call(document.querySelectorAll('.ca-settings .ca-nav, .ca-settings-nav button'), function (b) { return b.textContent.trim() === 'Experimental'; })[0];
     var voice = Array.prototype.filter.call(document.querySelectorAll('.ca-settings-pane .ca-field > span:not(.ca-checkbox)'), function (s) { return s.textContent === 'Voice'; })[0];
     if (voice) clearInterval(open);

@@ -7,8 +7,8 @@
   var button = function (label) { return Array.prototype.filter.call(document.querySelectorAll('button'), function (b) { return b.textContent.trim() === label; })[0]; };
   var step = 0;
   var go = setInterval(function () {
-    if (step === 0 && document.querySelector('.ca-side-config')) {
-      document.querySelector('.ca-side-config').click();
+    if (step === 0 && document.querySelector('.ca-usagebar-settings')) {
+      document.querySelector('.ca-usagebar-settings').click();
       step = 1;
     } else if (step === 1 && button('Routing')) {
       button('Routing').click();
