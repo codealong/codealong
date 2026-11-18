@@ -19,11 +19,12 @@ Times are epoch milliseconds. Ids take a unique prefix. A session is named by it
 (claude:claude2:<uuid>) or its id; `me` means the session running this command (see
 whoami). A worktree is named by its path; `.` means the one the current folder is in.
 
-A session or a todo named in a reply Codealong shows is written as a link to it, with
-its title: `[title](codealong://session/<key>)`, `[title](codealong://todo/<id>)`.
-Codealong draws it as what it names, as it stands now, and a click shows it. Leave links
-out of what leaves Codealong (a commit, a PR, another service), where they open nothing.
-A command that takes a key or an id takes its link too.
+A session or a todo named in what Codealong shows (a reply, a message to another
+session) is written as a link to it, with its title, every time:
+`[title](codealong://session/<key>)`, `[title](codealong://todo/<id>)`. Codealong draws
+it as what it names, as it stands now, and a click shows it. Leave links out of what
+leaves Codealong (a commit, a PR, another service), where they open nothing. A command
+that takes a key or an id takes its link too.
 
 Usage: codealong [OPTIONS] <COMMAND>
 
@@ -2370,30 +2371,31 @@ Commands:
               it when it isn't open
   send        Send a message to another session where it runs, on any account or
               harness. It's never your user's word: the message starts by saying it's
-              from another agent and not the user, which session sent it, and how to
-              answer (`codealong session send <sender's key> "…"`), so an answer arrives
-              in your session as a new message. Claude Code sessions get it on their
-              socket for messages between sessions; one that skips permission prompts
-              takes it at once only from a session that skips them too, and otherwise
-              asks its user first (a Claude app session can't, so nothing is sent).
-              Codex sessions get it as a prompt, typed into their terminal or sent to
-              the Codex app, and one taking a turn there reads it at its next step, as a
-              Claude Code session does. OpenCode sessions get it posted to their
-              service, and sessions Codealong runs get it from Codealong, queued while
-              they work. Antigravity's command line (`agy`) gets it typed into its
-              terminal, and holds one that comes while it works until its turn ends (its
-              `Queued Messages` setting, Queue by default). One waiting on its user to
-              answer a prompt gets it once they have: Codealong holds it until then, in
-              the order sent, for up to a day, the answer says it's held (don't send it
-              again), and your session is told if it can't be sent. Nothing is sent to a
-              conversation in the Antigravity app, which takes no prompts from outside.
-              One that isn't running (`status` stopped, `live` false) Codealong resumes
-              out of sight with the message, telling it it had stopped, and the answer
-              says so: it takes a while to start, and spends its account's usage. Its
-              user can turn that off (`[sessions] resume_for_any_session`), and with
-              only `resume_for_sessions_it_started` on it's done just for the session
-              that started yours and the ones yours started (`codealong start`); the
-              error says why when nothing was sent
+              from another agent and not the user, which session sent it, how to answer
+              (`codealong session send <sender's key> "…"`) and the link that names that
+              session to its user, so an answer arrives in your session as a new
+              message. Claude Code sessions get it on their socket for messages between
+              sessions; one that skips permission prompts takes it at once only from a
+              session that skips them too, and otherwise asks its user first (a Claude
+              app session can't, so nothing is sent). Codex sessions get it as a prompt,
+              typed into their terminal or sent to the Codex app, and one taking a turn
+              there reads it at its next step, as a Claude Code session does. OpenCode
+              sessions get it posted to their service, and sessions Codealong runs get
+              it from Codealong, queued while they work. Antigravity's command line
+              (`agy`) gets it typed into its terminal, and holds one that comes while it
+              works until its turn ends (its `Queued Messages` setting, Queue by
+              default). One waiting on its user to answer a prompt gets it once they
+              have: Codealong holds it until then, in the order sent, for up to a day,
+              the answer says it's held (don't send it again), and your session is told
+              if it can't be sent. Nothing is sent to a conversation in the Antigravity
+              app, which takes no prompts from outside. One that isn't running (`status`
+              stopped, `live` false) Codealong resumes out of sight with the message,
+              telling it it had stopped, and the answer says so: it takes a while to
+              start, and spends its account's usage. Its user can turn that off
+              (`[sessions] resume_for_any_session`), and with only
+              `resume_for_sessions_it_started` on it's done just for the session that
+              started yours and the ones yours started (`codealong start`); the error
+              says why when nothing was sent
   pending     What a session waits on its user for, when Codealong can see it
               (`pending`): the tool call it asks to run (`id`, which `session answer`
               names; `label`, the call in a line; `input`, all of it; `cannot`, why
@@ -2612,26 +2614,26 @@ Options:
 ```
 Send a message to another session where it runs, on any account or harness. It's never
 your user's word: the message starts by saying it's from another agent and not the user,
-which session sent it, and how to answer (`codealong session send <sender's key> "…"`),
-so an answer arrives in your session as a new message. Claude Code sessions get it on
-their socket for messages between sessions; one that skips permission prompts takes it
-at once only from a session that skips them too, and otherwise asks its user first (a
-Claude app session can't, so nothing is sent). Codex sessions get it as a prompt, typed
-into their terminal or sent to the Codex app, and one taking a turn there reads it at
-its next step, as a Claude Code session does. OpenCode sessions get it posted to their
-service, and sessions Codealong runs get it from Codealong, queued while they work.
-Antigravity's command line (`agy`) gets it typed into its terminal, and holds one that
-comes while it works until its turn ends (its `Queued Messages` setting, Queue by
-default). One waiting on its user to answer a prompt gets it once they have: Codealong
-holds it until then, in the order sent, for up to a day, the answer says it's held
-(don't send it again), and your session is told if it can't be sent. Nothing is sent to
-a conversation in the Antigravity app, which takes no prompts from outside. One that
-isn't running (`status` stopped, `live` false) Codealong resumes out of sight with the
-message, telling it it had stopped, and the answer says so: it takes a while to start,
-and spends its account's usage. Its user can turn that off (`[sessions]
-resume_for_any_session`), and with only `resume_for_sessions_it_started` on it's done
-just for the session that started yours and the ones yours started (`codealong start`);
-the error says why when nothing was sent
+which session sent it, how to answer (`codealong session send <sender's key> "…"`) and
+the link that names that session to its user, so an answer arrives in your session as a
+new message. Claude Code sessions get it on their socket for messages between sessions;
+one that skips permission prompts takes it at once only from a session that skips them
+too, and otherwise asks its user first (a Claude app session can't, so nothing is sent).
+Codex sessions get it as a prompt, typed into their terminal or sent to the Codex app,
+and one taking a turn there reads it at its next step, as a Claude Code session does.
+OpenCode sessions get it posted to their service, and sessions Codealong runs get it
+from Codealong, queued while they work. Antigravity's command line (`agy`) gets it typed
+into its terminal, and holds one that comes while it works until its turn ends (its
+`Queued Messages` setting, Queue by default). One waiting on its user to answer a prompt
+gets it once they have: Codealong holds it until then, in the order sent, for up to a
+day, the answer says it's held (don't send it again), and your session is told if it
+can't be sent. Nothing is sent to a conversation in the Antigravity app, which takes no
+prompts from outside. One that isn't running (`status` stopped, `live` false) Codealong
+resumes out of sight with the message, telling it it had stopped, and the answer says
+so: it takes a while to start, and spends its account's usage. Its user can turn that
+off (`[sessions] resume_for_any_session`), and with only
+`resume_for_sessions_it_started` on it's done just for the session that started yours
+and the ones yours started (`codealong start`); the error says why when nothing was sent
 
 Usage: codealong session send [OPTIONS] <KEY> [MESSAGE]
 

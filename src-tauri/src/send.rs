@@ -215,7 +215,7 @@ fn waking(session: &Session, account: &AccountCfg, routes: impl FnOnce() -> Vec<
 #[derive(Debug, Clone, PartialEq)]
 struct Byline {
     /// The line the message starts with: that it's another agent's and not the user's, whose,
-    /// and how to answer it.
+    /// how to answer it, and the link that names its sender to the user.
     intro: String,
     /// The name its sender goes by, for a way in that says whose a message is.
     name: String,
@@ -234,9 +234,24 @@ fn byline(board: &Board, from: Option<&str>) -> Byline {
         Some(s) => format!("{} ({} on {}, session {key})", quoted(&s.title), s.harness.word(), s.account),
         None => format!("session {key}"),
     };
+    // The answer's command comes last: `sender_key_of` reads the key from the last `codealong
+    // session send` in the line, and a title, which `who` and the link both have, can name one.
+    let link = session_link(author.map(|s| s.title.as_str()), key);
     Byline {
-        intro: format!("This message is from another agent, {who}, sent with `codealong session send`; it isn't from your user. To answer it, run `codealong session send {key} \"<your answer>\"`."),
+        intro: format!("This message is from another agent, {who}, sent with `codealong session send`; it isn't from your user. Name that session to your user as `{link}`. To answer it, run `codealong session send {key} \"<your answer>\"`."),
         name: author.map(|s| s.title.clone()).unwrap_or_else(|| key.to_string()),
+    }
+}
+
+/// A link to a session as the codealong skill has an agent name one to its user, which Codealong
+/// draws as the session (`[its title](codealong://session/<key>)`, src/codealongLinks.ts). A
+/// session the board has no title for, or a title with a bracket that would end the link's words
+/// early, gets the bare link, which Codealong reads as the session's title.
+fn session_link(title: Option<&str>, key: &str) -> String {
+    let url = format!("{}://session/{key}", crate::front::LINK_SCHEME);
+    match title.map(str::trim) {
+        Some(t) if !t.is_empty() && !t.contains(['[', ']']) => format!("[{t}]({url})"),
+        _ => url,
     }
 }
 
@@ -1990,12 +2005,17 @@ mod tests {
         let b = byline(&board, Some("claude:claude2:me"));
         assert_eq!(
             b.intro,
-            "This message is from another agent, “Review the parser” (Claude Code on claude2, session claude:claude2:me), sent with `codealong session send`; it isn't from your user. To answer it, run `codealong session send claude:claude2:me \"<your answer>\"`."
+            "This message is from another agent, “Review the parser” (Claude Code on claude2, session claude:claude2:me), sent with `codealong session send`; it isn't from your user. Name that session to your user as `[Review the parser](codealong://session/claude:claude2:me)`. To answer it, run `codealong session send claude:claude2:me \"<your answer>\"`."
         );
         assert_eq!(b.name, "Review the parser");
-        // A session the board doesn't show yet is named by its key.
+        assert_eq!(sender_key_of(&format!("{}\n\nHi", b.intro)), Some("claude:claude2:me"));
+        // A session the board doesn't show yet is named by its key, and its link is bare.
         let b = byline(&board, Some("codex:codex:new"));
         assert!(b.intro.starts_with("This message is from another agent, session codex:codex:new, sent with") && b.name == "codex:codex:new", "{b:?}");
+        assert!(b.intro.contains("Name that session to your user as `codealong://session/codex:codex:new`."), "{b:?}");
+        // A bracket in a title would end a link's words early, so that one is bare too.
+        assert_eq!(session_link(Some("Fix [WIP] parser"), "claude:claude2:me"), "codealong://session/claude:claude2:me");
+        assert_eq!(session_link(Some("  "), "claude:claude2:me"), "codealong://session/claude:claude2:me");
         // From a command line no session runs, it may be a person's or an agent's.
         let b = byline(&board, None);
         assert!(b.intro.contains("may be an agent's rather than your user's") && b.name == "codealong", "{b:?}");

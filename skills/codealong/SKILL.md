@@ -24,6 +24,24 @@ that worktree. If it finds no session, todo commands still work, and `todo start
 done` say on stderr that no session was linked; give a session key when you want one linked.
 A todo it lists is for your information, not a request to work on it (see *Todos*).
 
+## Naming a session or a todo
+
+Whenever something you write that Codealong shows (a reply to your user, a message you send
+another session) names another session or a todo, write it as a link to it, every time, with
+its key or id whole, as the command gave it: `[its title](codealong://session/<key>)`,
+`[its title](codealong://todo/<id>)`. Codealong draws it as that session or todo, as it stands
+now, and a click shows it; a link only shows what it names. That goes for every mention, in
+prose, lists and tables alike: not its title in quotes, not a bare key, not "the other
+session" in its place.
+
+- Not: `The other session ("Boundary groups") answered your question.`
+  But: `[Boundary groups](codealong://session/claude:claude2:0e0b493b-2877-4c1a-9d4e-6f1b2a3c4d5e) answered your question.`
+- The key is wherever you heard of the session: `whoami`'s `others`, `sessions`,
+  `sessions find`, a `session send` or `start` you ran, and the first lines of a message
+  another session sent you, which give its key and the link to write.
+- Not your own session, and not in what leaves Codealong (a commit, a PR, a message to another
+  service), where it opens nothing. Any command that takes a key or an id takes its link too.
+
 ## Todos
 
 Use todos only when the user explicitly asks you to: to add one, take one on, change one or
@@ -115,12 +133,8 @@ through the list for something to do. What follows is for when they've asked.
   a session, or to put one you found (`sessions find`, `pr show`) in front of them; `me` is
   yours. It opens the app when it's closed, and opens nothing where the session runs. Don't bring the
   window up unasked: it covers what the user is looking at.
-- When a reply to your user names another session or a todo, write it as a link, with its key
-  or id whole, as the command gave it: `[its title](codealong://session/<key>)`,
-  `[its title](codealong://todo/<id>)`. Codealong draws it as that session or todo, as it stands
-  now, and a click shows it; a link only shows what it names. Not your own session, and not in
-  what leaves Codealong (a commit, a PR, a message to another service), where it opens nothing.
-  Any command that takes a key or an id takes its link too.
+- A session or a todo you name to your user is a link to it, every time (*Naming a session or
+  a todo*).
 - `codealong preview set <url>` sets where the current worktree's app opens in the browser,
   when you know it: you started its dev server, or the repo's instructions say where each
   worktree is served (a dev proxy's `https://<name>.app.test`, say). The user's worktree row
@@ -171,9 +185,10 @@ Every session on this Mac is on the board whatever its account or harness, so yo
 ones your harness's own tools don't list: another Claude Code account, Codex, OpenCode.
 
 - `codealong session send <key> "<message>"` sends one where it runs. The message starts by
-  saying it's from another agent and not the user, which session, and how to answer, so an
-  answer comes back to you as a new message. `--attach <file>` sends a screenshot or log with
-  it (the session gets its path); `--message-file -` reads a long message from stdin.
+  saying it's from another agent and not the user, which session, how to answer, and the link
+  that names your session to its user, so an answer comes back to you as a new message.
+  `--attach <file>` sends a screenshot or log with it (the session gets its path);
+  `--message-file -` reads a long message from stdin.
 - A sandbox on your commands, such as Codex's, keeps the message from reaching the session
   (`Operation not permitted`): run `session send` outside it from the first, as a command that
   needs the network. Run it as the command itself, not from a script you write: where your
