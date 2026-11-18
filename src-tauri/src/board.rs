@@ -1983,10 +1983,12 @@ pub fn apply_snooze(s: &mut Session, snooze: Option<&Snooze>, seen_at: i64, now:
 /// you, a call it wants to make or a question it put waits for your answer. What you put off has
 /// come to you, so the snooze ends, as it does for a prompt of yours. A turn that only reports
 /// keeps it snoozed until its time (asked 2026-11-18), as does a turn of its own begun before
-/// the snooze, and a wait that began before it (a call it was snoozed waiting on, with a report
-/// come in since).
+/// the snooze, and a wait that began before what came in (a call it waits on, from before the
+/// snooze or from the turn it was snoozed in, with a report come in since). It began waiting
+/// when its status did, or where only its record is read, when its turn ended.
 pub fn snooze_called_back(s: &Session, at: i64) -> bool {
-    s.status == Status::Needs && s.input_at.is_some_and(|t| t > at) && s.status_since.is_some_and(|t| t > at)
+    let waits = s.status_since.or(s.turn_ended);
+    s.status == Status::Needs && s.input_at.is_some_and(|came| came > at && waits.is_some_and(|w| w >= came))
 }
 
 /// Applies a move to the top from Codealong to a session (`Session::raised`), after its snooze,
@@ -4956,6 +4958,11 @@ mod tests {
         assert_eq!(snoozed(&Session { input_at: None, ..woke(Status::Needs, 0) }, NOW - 30 * MIN, NOW).1, Some(z.until), "a harness that doesn't say");
         let waited = Session { status_since: Some(NOW - 20 * MIN), ..woke(Status::Needs, NOW - 5 * MIN) };
         assert_eq!(snoozed(&waited, NOW - 30 * MIN, NOW).1, Some(z.until), "a call it was snoozed waiting on, a report come in since");
+        let asked_mid_turn = Session { status_since: Some(NOW - 4 * MIN), ..woke(Status::Needs, NOW - 2 * MIN) };
+        assert!(!snooze_called_back(&asked_mid_turn, z.at), "a call the turn it was snoozed in asked for, a report come in since");
+        // Read from its record alone (its process gone), it began waiting as its turn ended.
+        let recorded = Session { status_since: None, turn_ended: Some(NOW - MIN), ..woke(Status::Needs, NOW - 5 * MIN) };
+        assert!(snooze_called_back(&recorded, z.at));
         let mut untouched = idle.clone();
         apply_snooze(&mut untouched, None, 0, NOW);
         assert_eq!((untouched.status, untouched.snoozed_until), (Status::Idle, None));
