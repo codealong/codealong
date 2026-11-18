@@ -1564,7 +1564,7 @@ function Approval({ session: s, terminal, onOpen, onAnswered, keys, onKeys, onNe
         ? 'Its agent allows calls like this only from now on'
         : 'Its agent offers no way to allow this'
       : null;
-  const denies = run || plan ? 'Tell it no, or write below what to do instead' : message ? 'Drop it: its sender is told it was declined' : s.hosted || pending.noOnce ? 'Tell it no, and it carries on' : 'Stop the turn, or write below what to do instead';
+  const denies = plan ? 'Keep it planning, or write below what to change' : run ? 'Tell it no, or write below what to do instead' : message ? 'Drop it: its sender is told it was declined' : s.hosted || pending.noOnce ? 'Tell it no, and it carries on' : 'Stop the turn, or write below what to do instead';
   const allows = run ? 'Run it: what it prints goes back to its agent' : message ? 'Give it to the session as that session’s message' : plan ? 'Approve the plan' : 'Allow this call once';
   return (
     <div className="ca-composer is-approval">

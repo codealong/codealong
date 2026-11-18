@@ -163,7 +163,8 @@
 .ca-todoinsp-adds {
   position: relative;
 }
-.ca-labelpick-anchor.ca-waitpick-anchor {
+.ca-labelpick-anchor.ca-waitpick-anchor,
+.ca-todoinsp-adds > .ca-labelpick-anchor {
   position: static;
 }
 .ca-menu.ca-waitpick {

@@ -171,10 +171,15 @@ export function useNoteOpen(g: Suggestions | null | undefined): NoteOpen {
   return { open: at !== null && openAt === at, toggle: () => setOpenAt((was) => (was === at ? null : at)) };
 }
 
-/** The note the suggestions came with, once their mark opened it. */
+/** The note the suggestions came with, and who wrote it, once their mark opened it. */
 export function SuggestionNote({ suggestions: g, note }: { suggestions: Suggestions | null | undefined; note: NoteOpen }) {
   if (!g?.note || !note.open) return null;
-  return <p className="ca-suggest-note">{g.note}</p>;
+  return (
+    <p className="ca-suggest-note">
+      {g.byTitle && <span className="ca-suggest-by">{g.byTitle}: </span>}
+      {g.note}
+    </p>
+  );
 }
 
 /** Takes the suggestions away, here at once and on the session's Mac after. */

@@ -40,6 +40,17 @@ describe('holding ⌘ or ⌃ to see the keys', () => {
     expect(h.at(1000 + HOLD_MS)).toBe(true);
   });
 
+  it('keeps them while ⌃ is still held once ⌘ is let go, and goes when both are', () => {
+    const h = new Hold();
+    h.down('Control', 0);
+    h.down('Meta', 100);
+    expect(h.at(HOLD_MS)).toBe(true);
+    h.up('Meta', true);
+    expect(h.at(HOLD_MS + 10)).toBe(true);
+    h.up('Control');
+    expect(h.at(HOLD_MS + 20)).toBe(false);
+  });
+
   it('ignores a repeat of the key it holds', () => {
     const h = new Hold();
     h.down('Meta', 0);

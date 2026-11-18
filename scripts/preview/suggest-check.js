@@ -147,6 +147,9 @@
       return wait(50);
     })
     .then(function () {
+      // Out of sight by default, each keeps its arrow, which says a click sends it.
+      var arrows = rows().map(function (r) { var i = r.querySelector('.ca-kbds + .ca-icon'); return !!i && getComputedStyle(i).display !== 'none'; });
+      check('with keys out of sight, each reply keeps its arrow with the box’s keyboard', arrows.length === 3 && arrows.every(Boolean), arrows.join(' '));
       // Where keys show (keysShown.ts: by Settings, or while ⌘ is held).
       document.documentElement.dataset.keys = 'held';
       var shown = rows().map(function (r) { var k = r.querySelector('.ca-kbds'); return k && getComputedStyle(k).display !== 'none' ? k.textContent : ''; });

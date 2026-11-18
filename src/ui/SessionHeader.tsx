@@ -45,7 +45,8 @@ import { below } from '../contextMenu';
 import { folderTargets, opensInEditor, useEditorIcons } from '../editors';
 import { absolute, ago, agoPhrase, duration, middleTruncate, tildePath } from '../format';
 import { MOVES_ACCOUNTS, sessionName, sessionPlace } from '../harness';
-import { apiErrorWords, cutOffWords, endedOnApiError, endedPhrase, endedSignedOut, limitPhrase, limitWords, raisedBy, seenable, setAside, sideTitle, signedOutWords } from '../lanes';
+import { apiErrorWords, archivedShows, cutOffWords, endedOnApiError, endedPhrase, endedSignedOut, limitPhrase, limitWords, raisedBy, seenable, setAside, sideTitle, signedOutWords } from '../lanes';
+import { hearingShows } from '../listening';
 import { cameLines, cameLineWords, cameWord, originWord, startingTitle, type CameLine, type Kin, type Lineage } from '../lineage';
 import { CHORDS, chordKeys, chordSigns, type SessionActions } from '../menus';
 import { scopeWords } from '../orchestrators';
@@ -553,7 +554,9 @@ export function SessionHeader({ lane, session: s, apps, now, onOpen, onShowLane,
   const agentSeen = s.agentSeen ? ' · seen by its agent' : '';
   const raised = s.raised ? ` · moved to the top${raisedBy(s.raised)}` : '';
   // Set aside, it says since when it has waited on its side conversation rather than on you.
-  const said = s.aside != null && setAside(s) ? `On the side · ${agoPhrase(s.aside, now)}` : since.charAt(0).toUpperCase() + since.slice(1);
+  // Where the glyph shows something else (archived, listening), the line says the status too.
+  const glyphSays = !archivedShows(s) && !(s.listening && hearingShows(s.status));
+  const said = s.aside != null && setAside(s) ? `On the side · ${agoPhrase(s.aside, now)}` : glyphSays ? since.charAt(0).toUpperCase() + since.slice(1) : `${s.asks ? 'Asks you' : STATUS_WORD[s.status]} · ${since}`;
   const status = (s.stalledSince ? `Silent since ${agoPhrase(s.stalledSince, now)}` : said) + raised + snoozed + quiet + agentSeen;
   const naming = !!renaming && !!onRename;
   // A double-click on the name renames it as the window's Rename does (`actions.rename`, there

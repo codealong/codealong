@@ -30,8 +30,9 @@ export class Hold {
     }
   }
 
-  up(key: string): void {
-    if (SHOWS.has(key)) this.lost();
+  /** `still`: ⌘ or ⌃ is still held, the other one let go. */
+  up(key: string, still = false): void {
+    if (SHOWS.has(key) && !still) this.lost();
   }
 
   lost(): void {
@@ -70,23 +71,32 @@ export function useKeysShown(on: boolean | undefined) {
     const hold = new Hold();
     let timer: number | undefined;
     const show = () => say(hold.at(Date.now()));
+    const wait = () => {
+      window.clearTimeout(timer);
+      timer = undefined;
+    };
     const down = (e: KeyboardEvent) => {
       hold.down(e.key, Date.now());
       // ⇧ and ⌥ held with it wait on, as `Hold` has them, and a key held down repeats.
       if (WAITS.has(e.key) || e.repeat) return;
-      window.clearTimeout(timer);
-      if (SHOWS.has(e.key)) timer = window.setTimeout(show, HOLD_MS);
+      // The wait runs from the first of ⌘ and ⌃: the second doesn't start it again.
+      if (SHOWS.has(e.key)) {
+        if (timer === undefined) timer = window.setTimeout(() => (wait(), show()), HOLD_MS);
+        return;
+      }
+      wait();
     };
     const up = (e: KeyboardEvent) => {
-      hold.up(e.key);
-      if (SHOWS.has(e.key)) {
-        window.clearTimeout(timer);
-        say(false);
-      }
+      if (!SHOWS.has(e.key)) return;
+      const still = e.metaKey || e.ctrlKey;
+      hold.up(e.key, still);
+      if (still) return;
+      wait();
+      say(false);
     };
     const lost = () => {
       hold.lost();
-      window.clearTimeout(timer);
+      wait();
       say(false);
     };
     // Capturing, so a key a field or a list takes for itself still counts.
@@ -98,7 +108,7 @@ export function useKeysShown(on: boolean | undefined) {
       window.removeEventListener('keydown', down, true);
       window.removeEventListener('keyup', up, true);
       window.removeEventListener('blur', lost);
-      window.clearTimeout(timer);
+      wait();
     };
   }, []);
 }

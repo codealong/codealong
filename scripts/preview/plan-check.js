@@ -65,7 +65,7 @@
       check('not as a command', !a.querySelector('.ca-approval-input') && !a.querySelector('.ca-approval-label'));
       check('allow, always and deny', !!button('Allow') && !!button('Always') && !!button('Deny'));
       check('always says what it does', button('Always').getAttribute('title') === rule, button('Always').getAttribute('title'));
-      check('deny says on it that it keeps planning', button('Deny').title.indexOf('Tell it no') >= 0 && button('Allow').title === 'Approve the plan' && !a.querySelector('.ca-composer-note').textContent, button('Deny').title);
+      check('deny says on it that it keeps planning', /keep it planning/i.test(button('Deny').title) && button('Allow').title === 'Approve the plan' && !a.querySelector('.ca-composer-note').textContent, button('Deny').title);
       if (window.__plan_screenshot) return;
       button('Always').click();
       return until(function () { return answered().length > 0; }, 3000).then(function () {
