@@ -20,6 +20,17 @@ const EXAMPLES: &str = "Give a span (30m, 2h, 3d), a time (5pm, 17:30, 15:00 utc
 
 /// When a snooze typed as `text` ends, after `now`, or why it can't be read or has passed.
 pub fn until(text: &str, now: i64, zone: &dyn Zone) -> Result<i64, String> {
+    let t = when(text, now, zone)?;
+    if t <= now {
+        return Err(format!("{} has passed.", words_at(t, now, zone)));
+    }
+    Ok(t)
+}
+
+/// The time `text` names, counted from `now` as `until` counts it, whether or not that has
+/// passed: only what doesn't read is an error. For words whose passing is said elsewhere (an
+/// agent's tag, by the session's Mac: tags.rs `waits_until`).
+pub fn when(text: &str, now: i64, zone: &dyn Zone) -> Result<i64, String> {
     let lower = text.trim().to_lowercase();
     // `at` reads as nothing more: `tomorrow at 2pm`.
     let mut words: Vec<&str> = lower.split_whitespace().filter(|&w| w != "at").collect();
@@ -73,11 +84,7 @@ pub fn until(text: &str, now: i64, zone: &dyn Zone) -> Result<i64, String> {
         return [today, today + 1].into_iter().filter_map(|d| at(d, minutes)).find(|&t| t > now).ok_or_else(unread);
     }
     let day = crate::todos::due_from_words(&day_words.join(" "), today).ok().and_then(|d| crate::todos::due_day(&d)).ok_or_else(unread)?;
-    let t = at(day, minutes.unwrap_or(MORNING * 60)).ok_or_else(unread)?;
-    if t <= now {
-        return Err(format!("{} has passed.", words_at(t, now, zone)));
-    }
-    Ok(t)
+    at(day, minutes.unwrap_or(MORNING * 60)).ok_or_else(unread)
 }
 
 /// A time as the app's menus say when a snooze ends (snooze.ts `untilWords`): `3:40 PM` today,

@@ -5053,10 +5053,10 @@ fn tag_said(a: TagArgs, replied: i64, zone: &dyn crate::schedules::rule::Zone) -
         bail!("Say how its reply ends too (--ending): when its work goes on is part of that read.");
     }
     // Read here so that what doesn't read is said at once, counted from when its reply was
-    // written as far as this board says, for a Mac from before 2026-11-18. The session's Mac
-    // reads the words again (`waits_words`, tags.rs `waits_until`), knowing when that was, and
-    // says on its own clock whether the time has passed.
-    let waits_until = a.waits_until.as_deref().map(|when| crate::snoozewhen::until(when, replied, zone).map_err(|e| anyhow!(e))).transpose()?;
+    // written as far as this board says, for a Mac from before 2026-11-18. Whether it has passed
+    // isn't this clock's to say: the session's Mac reads the words again (`waits_words`, tags.rs
+    // `waits_until`), knowing when that was, on its own clock, which can be another zone's.
+    let waits_until = a.waits_until.as_deref().map(|when| crate::snoozewhen::when(when, replied, zone).map_err(|e| anyhow!(e))).transpose()?;
     let unit = |b: Option<bool>| b.map(|b| if b { 1.0 } else { 0.0 });
     // An ending says whether the reply asks, and that goes with it: a Mac from before endings
     // reads only that, and would take a tag that says nothing else for one taking its tag away.
@@ -9057,8 +9057,11 @@ mod tests {
             assert_eq!(from_last_night("20h").unwrap().waits_until, Some(ms(&zone, 2026, 11, 11, 19, 0)));
             assert_eq!(from_last_night("thu 15:00 utc").unwrap().waits_until, Some(ms(&zone, 2026, 11, 12, 7, 0)));
             // Whether it has passed is the session's Mac's to say, on its own clock: a time gone by
-            // here can be still to come there.
+            // here can be still to come there, and one before the reply here, in a zone ahead of
+            // the session's, still sends its words.
             assert_eq!(from_last_night("tomorrow").unwrap().waits_until, Some(ms(&zone, 2026, 11, 11, 9, 0)));
+            let tag = from_last_night("today 3pm").unwrap();
+            assert_eq!((tag.waits_until, tag.waits_words.as_deref()), (Some(ms(&zone, 2026, 11, 10, 15, 0)), Some("today 3pm")));
         }
         // The finished ones, alone or among what waits.
         let cli = parse_from(["codealong", "sessions", "--finished", "--waiting"]).unwrap();

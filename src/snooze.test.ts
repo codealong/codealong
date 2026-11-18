@@ -103,8 +103,6 @@ describe('snooze', () => {
     expect(suggestedSnooze({ archived: false, insight: { waitsUntil: at(28, 9) } }, NOW)).toBeNull();
     expect(suggestedSnooze({ ...read, snoozedUntil: at(28, 15) }, NOW)).toBeNull();
     expect(suggestedSnooze({ ...read, archived: true }, NOW)).toBeNull();
-    // Nor for a reply that asks you something, as an older Mac may still send with a day.
-    expect(suggestedSnooze({ ...read, asks: true }, NOW)).toBeNull();
   });
 
   it('offers a snooze until the usage limit that stopped a session lifts, ahead of its reply’s time', () => {

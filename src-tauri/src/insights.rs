@@ -463,7 +463,9 @@ pub fn merged(jev: Option<&SessionInsight>, said: Option<&str>, tag: Option<&Ses
         // end: an agent that said how it ends said when too, or by leaving it out that it waits
         // for no time, and Jev's day doesn't stand under it. Under a tag that read something
         // else (a landing, a risk), Jev's day stands, and is said as Jev's.
-        if t.waits_until.is_some() || t.ending.is_some() || t.asks_you.is_some() {
+        // A tag's time said without how the reply ends (one from before tags.rs `read` turned
+        // that down) isn't a read of the end, and doesn't stand.
+        if t.ending.is_some() || t.asks_you.is_some() {
             o.waits_until = t.waits_until;
         } else {
             o.waits_by_jev = o.waits_until.is_some();
@@ -486,8 +488,7 @@ pub fn merged(jev: Option<&SessionInsight>, said: Option<&str>, tag: Option<&Ses
         o.note = t.note.clone();
     }
     if let Some(o) = out.as_mut() {
-        o.waits_until = put_off_to(o);
-        o.waits_by_jev &= o.waits_until.is_some();
+        settle_put_off(o);
     }
     out
 }
@@ -495,9 +496,18 @@ pub fn merged(jev: Option<&SessionInsight>, said: Option<&str>, tag: Option<&Ses
 /// The time a read puts its reply's work off to, unless it reads the reply as asking you
 /// something: that waits on you now, whatever day it names, so no snooze is offered beside its
 /// question. Held of whatever is shown (Jev's read, an agent's tag, the two merged, either kept
-/// from an older build), where tags.rs `read` only turns a new tag that says both away.
+/// from an older build, another device's), where tags.rs `read` only turns a new tag that says
+/// both away.
 fn put_off_to(i: &SessionInsight) -> Option<i64> {
     i.waits_until.filter(|_| i.asks_you.is_none_or(|p| p < crate::board::ASKS_YOU))
+}
+
+/// A read as it's shown: no time its work is put off to beside a question (`put_off_to`). For
+/// this Mac's sessions (`merged`) and another device's (peerfeed.rs `for_windows`), whose Mac
+/// may be older than the rule.
+pub fn settle_put_off(i: &mut SessionInsight) {
+    i.waits_until = put_off_to(i);
+    i.waits_by_jev &= i.waits_until.is_some();
 }
 
 /// When a session's last reply was written: when its turn ended, where its harness says, else
@@ -860,7 +870,11 @@ mod tests {
         // When the reply says the work goes on is the agent's where it said, and Jev's otherwise.
         let waits = |until: i64| SessionInsight { waits_until: Some(until), ..Default::default() };
         assert_eq!(merged(Some(&waits(5)), None, Some(&tag)).unwrap().waits_until, Some(5));
-        assert_eq!(merged(Some(&waits(5)), None, Some(&SessionInsight { by: tag.by.clone(), ..waits(9) })).unwrap().waits_until, Some(9));
+        // Only with how the reply ends: a tag's time alone or under another read (one kept from
+        // before that was turned down) doesn't stand, over Jev's day or once Jev's read lapses.
+        let alone = SessionInsight { by: tag.by.clone(), finished: Some(0.0), ..waits(9) };
+        assert_eq!(merged(Some(&waits(5)), None, Some(&alone)).unwrap().waits_until, Some(5));
+        assert_eq!(merged(None, None, Some(&alone)).unwrap().waits_until, None);
         // An agent that said how the reply ends said when its work goes on with it: leaving the
         // time out says it waits for none, and Jev's day goes.
         let ending = SessionInsight { asks_you: Some(0.0), ending: Some("report".into()), by: tag.by.clone(), ..Default::default() };

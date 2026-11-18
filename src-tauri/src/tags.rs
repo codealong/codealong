@@ -79,7 +79,7 @@ pub fn moved_on(s: &Session, t: &Tag) -> Option<MovedOn> {
 /// names, so "tomorrow" in last night's reply is this morning. An error says what doesn't read,
 /// or that the time has passed at `now`.
 pub fn waits_until(words: &str, replied: i64, now: i64, zone: &dyn Zone) -> Result<i64> {
-    let t = crate::snoozewhen::until(words, replied, zone).map_err(|e| anyhow!(e))?;
+    let t = crate::snoozewhen::when(words, replied, zone).map_err(|e| anyhow!(e))?;
     if t <= now {
         let said = |t| crate::snoozewhen::words_at(t, now, zone);
         // Due now, it isn't done: left out with nothing more said, the session could pass for
@@ -296,6 +296,8 @@ mod tests {
         assert_eq!(waits_until("thu", replied, now, &zone).unwrap(), ms(&zone, 2026, 11, 12, 9, 0));
         let passed = waits_until("tomorrow", replied, now, &zone).unwrap_err().to_string();
         assert_eq!(passed, "9 AM has passed: when its work goes on is counted from when its reply was written (Nov 10, 11 PM). If what it put off is due now, leave the time out and say it isn't finished (--finished no).");
+        // A time before the reply itself has passed too, said the same way.
+        assert!(waits_until("today 3pm", replied, now, &zone).unwrap_err().to_string().starts_with("Nov 10, 3 PM has passed: when its work goes on"));
         assert!(waits_until("whenever", replied, now, &zone).unwrap_err().to_string().starts_with("Couldn't read"));
     }
 

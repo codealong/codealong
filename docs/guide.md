@@ -3553,7 +3553,8 @@ only with how the reply ends, and its tag stands over Jev's day, taking it away 
 read no time; under a tag that only says something else (how far the work got, say), the day
 stays Jev's and is said as Jev's. A reply read as asking you something is offered none: it waits
 on you now. Only a prompt of yours ends a snooze, not a turn the session takes by itself (a
-scheduled check-in, say), so the offer is until that turn where it comes first. The offer is for the reply it read: it goes once the session
+scheduled check-in, say): an orchestrator tagging a session that will is asked to give the time of
+that turn where it comes first, while Jev's day doesn't know of it. The offer is for the reply it read: it goes once the session
 is sent something or takes a turn, once it's snoozed, and when the time comes. Such a session isn't [Finished](#finished-sessions), before the time or after it: the
 work it put off is then due. A session stopped at its usage limit is offered a snooze until the
 limit lifts the same way, its Limit's button in place of the line above its box

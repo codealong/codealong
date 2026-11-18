@@ -370,6 +370,10 @@ pub fn for_windows(short: &str, tag: &DeviceTag, replica: &Replica) -> Vec<Lane>
                 if let Some(p) = s.helper.as_mut().and_then(|h| h.parent.as_mut()) {
                     *p = remote_key(short, p);
                 }
+                // Its read as this Mac shows one, whatever an older Mac's held of it.
+                if let Some(i) = s.insight.as_mut() {
+                    crate::insights::settle_put_off(i);
+                }
             }
             l
         })
@@ -747,6 +751,16 @@ mod tests {
         assert_eq!(split_remote("claude:claude:9f"), None);
         // The windows split row keys on `::` and target ids on `|`; neither may appear.
         assert!(!lanes[0].id.contains("::") && !lanes[0].sessions[0].key.contains('|'));
+        // An older Mac's read of a reply that asks something and puts its work off both is shown
+        // as this Mac shows one: no time beside the question.
+        let read = |asks_you: f64| crate::model::SessionInsight { asks_you: Some(asks_you), waits_until: Some(9), ..Default::default() };
+        let mut replica = Replica::default();
+        let asking = Session { insight: Some(read(1.0)), ..session("claude:claude:q", Status::Idle) };
+        let reporting = Session { insight: Some(read(0.0)), ..session("claude:claude:r", Status::Idle) };
+        replica.apply(FeedMsg { rev: 1, full: true, lanes: vec![lane("/a", vec![asking, reporting])], ..Default::default() });
+        let lanes = for_windows("a1b2c3d4e5", &tag, &replica);
+        let waits: Vec<Option<i64>> = lanes[0].sessions.iter().map(|s| s.insight.as_ref().and_then(|i| i.waits_until)).collect();
+        assert_eq!(waits, [None, Some(9)]);
     }
 
     #[test]
