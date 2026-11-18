@@ -31,9 +31,13 @@
 //! cancel (the auto mode offer's is "No, keep …"). A digit picks only where the choices are
 //! numbered, and that offer, with `hideIndexes` and `disablePrintableKeybindings`, takes none
 //! (2.1.327's code), so a choice is picked by moving to it and pressing Return, the screen read
-//! again in between so that Return goes to the choice you picked and no other. The offer turns
-//! down a key that comes as it opens (`refuseInput`: you typing on into the prompt it covered),
-//! which a pick from Codealong never is.
+//! again in between so that Return goes to the same dialog with the cursor on the choice you
+//! picked, and after, so that the answer is said to be given only once the dialog has gone. The
+//! offer turns down a key that comes as it opens (`refuseInput`: you typing on into the prompt it
+//! covered), which a pick from Codealong never is, and takes no Return after letters were typed
+//! into it until an arrow key is pressed, so the cursor is always moved, away and back where it's
+//! on the pick already. A command's panels can follow one another while the registry says the
+//! same, so an answer names the dialog by what it says and offers too (`id_of`).
 
 use std::path::Path;
 use std::time::{Duration, Instant};
@@ -81,10 +85,15 @@ pub fn read(screen: &str) -> Option<Dialog> {
     under(rest[title].trim(), &rest[title + 1..])
 }
 
-/// The dialog titled `title` at the foot of a terminal's text, where its title is known.
+/// The dialog titled `title` at the foot of a terminal's text, where its title is known. A rule
+/// drawn under the title is another panel's top: the title is an old dialog's, in the scrollback
+/// above the one that's up.
 pub fn titled(screen: &str, title: &str) -> Option<Dialog> {
     let lines = lines_of(screen);
     let at = lines.iter().rposition(|l| l.trim() == title)?;
+    if lines[at + 1..].iter().any(|l| is_rule(l)) {
+        return None;
+    }
     under(title, &lines[at + 1..])
 }
 
@@ -220,9 +229,28 @@ pub fn open(home: &Path, s: &Session) -> Option<(RegistryEntry, Option<String>)>
     Some((reg, screen))
 }
 
-/// The id an answer names the dialog up in its registry entry `reg` by.
-fn id_of(reg: &RegistryEntry) -> String {
-    format!("{DIALOG_ID}{}:{}", reg.pid, reg.status_updated_at.unwrap_or(0))
+/// The id an answer names the dialog `d` up in its registry entry `reg` by: its process, when it
+/// began waiting, and what the dialog says and offers, since a command's panels follow one
+/// another with the registry saying the same all the while.
+fn id_of(reg: &RegistryEntry, d: &Dialog) -> String {
+    format!("{DIALOG_ID}{}:{}:{}", reg.pid, reg.status_updated_at.unwrap_or(0), fingerprint(d))
+}
+
+/// What a dialog says and offers, in a few characters: not where its cursor is.
+fn fingerprint(d: &Dialog) -> String {
+    use sha2::{Digest, Sha256};
+    let labels = d.choices.iter().map(|c| c.label.as_str()).collect::<Vec<_>>().join("\n");
+    Sha256::digest(format!("{}\n{}\n{labels}", d.title, d.says).as_bytes()).iter().take(8).map(|b| format!("{b:02x}")).collect()
+}
+
+/// The same dialog: the same title, words and choices, wherever its cursor is.
+fn same(a: &Dialog, b: &Dialog) -> bool {
+    fingerprint(a) == fingerprint(b)
+}
+
+/// The dialog its terminal shows now, if it still waits on one.
+fn showing(home: &Path, s: &Session) -> Option<Dialog> {
+    open(home, s).and_then(|(_, screen)| read(screen.as_deref()?))
 }
 
 /// The dialog as a question, its title first: an answer is keyed by it, so one given to a dialog
@@ -241,7 +269,7 @@ pub fn pending(ctx: &Ctx, s: &Session) -> Option<Pending> {
     }
     let dialog = read(screen.as_deref()?)?;
     Some(Pending {
-        id: id_of(&reg),
+        id: id_of(&reg, &dialog),
         label: dialog.title.clone(),
         input: None,
         cannot: super::cannot_press(ctx, &reg),
@@ -262,16 +290,32 @@ pub fn pending(ctx: &Ctx, s: &Session) -> Option<Pending> {
 fn still_up(ctx: &Ctx, s: &Session, id: &str) -> Result<(Dialog, RegistryEntry)> {
     let gone = || anyhow!("It isn't showing that dialog any more.");
     let (reg, screen) = open(&ctx.account.home_path(), s).ok_or_else(gone)?;
-    if id_of(&reg) != id {
+    let screen = screen.ok_or_else(|| anyhow!("Codealong can't read its terminal now. Answer it there."))?;
+    let dialog = read(&screen).ok_or_else(gone)?;
+    if id_of(&reg, &dialog) != id {
         bail!("It's asking something else now. Look again before answering.");
     }
-    let screen = screen.ok_or_else(|| anyhow!("Codealong can't read its terminal now. Answer it there."))?;
-    Ok((read(&screen).ok_or_else(gone)?, reg))
+    Ok((dialog, reg))
+}
+
+/// Waits for what its terminal shows to come to `done`, reading it again until then or until
+/// `MOVED_WAIT` runs out: whether it did.
+fn comes_to(home: &Path, s: &Session, done: impl Fn(Option<&Dialog>) -> bool) -> bool {
+    let deadline = Instant::now() + MOVED_WAIT;
+    loop {
+        if done(showing(home, s).as_ref()) {
+            return true;
+        }
+        if Instant::now() >= deadline {
+            return false;
+        }
+        std::thread::sleep(MOVED_EVERY);
+    }
 }
 
 /// Picks the choice `answers` names (its question's, keyed by the question as `pending` gave
 /// it): the arrow keys from the choice the cursor is on to it, then, once its terminal shows the
-/// cursor there, Return.
+/// same dialog with the cursor there, Return, which has answered it once the dialog is gone.
 pub fn answer(ctx: &Ctx, s: &Session, id: &str, answers: &Value) -> Result<String> {
     let (dialog, reg) = still_up(ctx, s, id)?;
     let asked = question_of(&dialog).question;
@@ -283,25 +327,26 @@ pub fn answer(ctx: &Ctx, s: &Session, id: &str, answers: &Value) -> Result<Strin
     let Some(to) = dialog.choices.iter().position(|c| c.label == picked) else {
         bail!("It takes one of its choices, nothing else: {}.", labels());
     };
-    let cwd = Path::new(&s.cwd);
+    let (home, cwd) = (ctx.account.home_path(), Path::new(&s.cwd));
     crate::launch::press_all(reg.pid, cwd, &moves(dialog.on, to))?;
-    let deadline = Instant::now() + MOVED_WAIT;
-    loop {
-        let now = crate::launch::screen_of(reg.pid, cwd).ok().flatten().as_deref().and_then(read);
-        if now.as_ref().is_some_and(|d| d.title == dialog.title && d.choices.get(d.on).is_some_and(|c| c.label == picked)) {
-            break;
-        }
-        if Instant::now() >= deadline {
-            bail!("Its cursor didn't come to {picked}, so Codealong didn't press Return. Answer it in its terminal.");
-        }
-        std::thread::sleep(MOVED_EVERY);
+    if !comes_to(&home, s, |d| d.is_some_and(|d| same(d, &dialog) && d.choices.get(d.on).is_some_and(|c| c.label == picked))) {
+        bail!("Its cursor didn't come to {picked}, so Codealong didn't press Return. Answer it in its terminal.");
     }
     crate::launch::press_all(reg.pid, cwd, &[Press::Key(Key::Return)])?;
+    if !comes_to(&home, s, |d| !d.is_some_and(|d| same(d, &dialog))) {
+        bail!("It's still showing the dialog after Return. Answer it in its terminal.");
+    }
     Ok(format!("Picked {picked}."))
 }
 
-/// The arrow keys that take a list's cursor from choice `from` to choice `to`.
+/// The arrow keys that take a list's cursor from choice `from` to choice `to`. Where it's there
+/// already, one step away and back: the auto mode offer takes no Return after you typed into it,
+/// until an arrow key is pressed (2.1.327's code).
 fn moves(from: usize, to: usize) -> Vec<Press> {
+    if from == to {
+        let (away, back) = if from > 0 { (Key::Up, Key::Down) } else { (Key::Down, Key::Up) };
+        return vec![Press::Key(away), Press::Key(back)];
+    }
     let key = if to > from { Key::Down } else { Key::Up };
     std::iter::repeat_n(Press::Key(key), from.abs_diff(to)).collect()
 }
@@ -417,8 +462,30 @@ mod tests {
 
     #[test]
     fn moves_with_the_arrows() {
-        assert_eq!(moves(0, 0), []);
         assert_eq!(moves(0, 2), [Press::Key(Key::Down), Press::Key(Key::Down)]);
         assert_eq!(moves(2, 1), [Press::Key(Key::Up)]);
+        // Already there: away and back, which frees a Return held after typing.
+        assert_eq!(moves(0, 0), [Press::Key(Key::Down), Press::Key(Key::Up)]);
+        assert_eq!(moves(1, 1), [Press::Key(Key::Up), Press::Key(Key::Down)]);
+    }
+
+    #[test]
+    fn knows_a_dialog_by_what_it_says_not_its_cursor() {
+        let d = read(AUTO).unwrap();
+        let moved = read(&AUTO.replace("  ❯ Yes", "    Yes").replace("    No, keep", "  ❯ No, keep")).unwrap();
+        assert!(same(&d, &moved));
+        let other = read(&AUTO.replace("keep bypass permissions", "keep manual approvals")).unwrap();
+        assert!(!same(&d, &other));
+        assert_ne!(fingerprint(&d), fingerprint(&other));
+    }
+
+    #[test]
+    fn an_old_title_in_the_scrollback_isnt_the_dialog_up() {
+        let exit = "   Exiting worktree session\n   You have 1 commit on worktree-kestrel.\n   ❯ 1. Keep worktree    Stays at /w\n     2. Remove worktree  All changes and commits will be lost.\n   Enter to confirm · Esc to cancel\n";
+        assert!(titled(exit, "Exiting worktree session").is_some());
+        // The exit was called off, and the auto mode offer came up under it.
+        let both = format!("{exit}\n{AUTO}");
+        assert_eq!(titled(&both, "Exiting worktree session"), None);
+        assert_eq!(read(&both).unwrap().title, "Make auto mode your default permission mode?");
     }
 }
