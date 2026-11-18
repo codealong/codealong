@@ -1,6 +1,7 @@
 /* Plan usage in the window's status bar, along its foot (UsageBar.tsx): one chip per account,
    the meters, and the popover over a chip, which for an account its provider may train on says
-   why and has buttons. */
+   why and has buttons. The bar has the title bar's ground, so the window's top and foot match,
+   and the meters' tracks, a tint of it, read on it. */
 
 .ca-meter { display: grid; gap: 6px; min-width: 0; }
 .ca-meter-head { display: flex; align-items: baseline; justify-content: space-between; gap: var(--space-2); }
@@ -24,7 +25,7 @@
   height: 30px;
   padding: 0 var(--space-2);
   box-sizing: border-box;
-  background: var(--surface-sunken);
+  background: var(--surface);
   border-top: 1px solid var(--line);
 }
 /* With glass on (src/glass.ts), see-through over macOS's glass as the sidebar is, which it runs under. */
