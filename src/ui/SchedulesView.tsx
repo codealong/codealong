@@ -13,7 +13,7 @@ import { Fragment, useRef, type KeyboardEvent } from 'react';
 import { ago, absolute } from '../format';
 import { HARNESS_WORD } from '../harness';
 import type { Placed } from '../lanes';
-import { doesWords, nextWords, OUTCOME_WORD, scheduleSections, whenIcon } from '../schedules';
+import { doesWords, nextWords, OUTCOME_WORD, scheduleName, scheduleSections, whenIcon } from '../schedules';
 import type { HarnessSchedule, ScheduleItem } from '../types';
 import { AgentRow } from './LaneRow';
 import { Chip, cx, Icon, Row, SectionHeader, SessionEmblem } from './primitives';
@@ -124,7 +124,7 @@ export function SchedulesView(props: SchedulesViewProps) {
       <Fragment key={s.id}>
         <Row
           id={scheduleRowId(s.id)}
-          label={s.name}
+          label={scheduleName(s)}
           selected={s.id === selectedId && !selectedSession}
           className={cx('ca-lane', 'is-item', 'ca-schedrow', (s.paused || done) && 'is-paused', !done && !!s.problem && 'is-problem')}
           onSelect={() => onSelect(s.id)}
@@ -137,7 +137,7 @@ export function SchedulesView(props: SchedulesViewProps) {
           <div className="ca-seg ca-seg-main">
             <div className="ca-lane-line1">
               <SessionEmblem emblem={s.emblem} of={s.id} />
-              <span className="ca-lane-headline ca-schedrow-name">{s.name}</span>
+              <span className="ca-lane-headline ca-schedrow-name">{scheduleName(s)}</span>
               <span className="ca-lane-detail">{s.whenWords}</span>
             </div>
             <div className="ca-lane-line2">

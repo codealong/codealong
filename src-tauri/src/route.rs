@@ -148,7 +148,11 @@ fn session_card(lane: &Lane, s: &Session, related: Option<&crate::search::Relate
     let mut card = Map::new();
     card.insert("title".into(), json!(clip(&s.title)));
     card.insert("agent".into(), json!(s.account));
-    card.insert("project".into(), json!(lane.project));
+    // An orchestrator's session is in Codealong's chats; it's for the project it keeps watch over.
+    match &s.orchestrator {
+        Some(o) => card.insert("project".into(), json!(o.project.as_deref().unwrap_or("All projects"))),
+        None => card.insert("project".into(), json!(lane.project)),
+    };
     card.insert("repo".into(), json!(lane.repo));
     card.insert("worktree".into(), json!(lane_name(lane)));
     if let Some(b) = s.branch.as_deref().or(lane.branch.as_deref()) {

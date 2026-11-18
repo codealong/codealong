@@ -1094,7 +1094,8 @@ fn skipped(cause: &Cause, why: impl Into<String>) -> Option<Done> {
 /// thing has what that is after it, so two at once read apart. None where it starts in place of a
 /// session the schedule sends to, which went by a name of its own.
 fn run_name(s: &Schedule, cause: &Cause) -> Option<String> {
-    let name = s.name.trim();
+    // An orchestrator's session is called Orchestrator, whatever project its schedule names.
+    let name = if s.orchestrates.is_some() { super::orchestrate::NAME } else { s.name.trim() };
     if s.run.to == To::Session || name.is_empty() {
         return None;
     }

@@ -379,6 +379,10 @@ pub fn for_windows(short: &str, tag: &DeviceTag, replica: &Replica) -> Vec<Lane>
                 if let Some(o) = &s.orchestrator {
                     let title = crate::schedules::orchestrate::session_title(&s.title, o.project.as_deref());
                     if title != s.title {
+                        // Its headline ends with its title (board.rs `session_headline`).
+                        if let Some(lead) = s.headline.strip_suffix(s.title.as_str()) {
+                            s.headline = format!("{lead}{title}");
+                        }
                         s.title = title.to_string();
                     }
                 }
@@ -769,6 +773,18 @@ mod tests {
         let lanes = for_windows("a1b2c3d4e5", &tag, &replica);
         let waits: Vec<Option<i64>> = lanes[0].sessions.iter().map(|s| s.insight.as_ref().and_then(|i| i.waits_until)).collect();
         assert_eq!(waits, [None, Some(9)]);
+        // An older Mac's orchestrator, named for its project, is called Orchestrator here, its
+        // headline too.
+        let mut replica = Replica::default();
+        let orchestrator = Session {
+            title: "Northwind orchestrator".into(),
+            headline: "`claude` · Northwind orchestrator".into(),
+            orchestrator: Some(crate::model::Orchestrator { schedule: "s-1".into(), project: Some("Northwind".into()), ..Default::default() }),
+            ..session("claude:claude:o", Status::Idle)
+        };
+        replica.apply(FeedMsg { rev: 1, full: true, lanes: vec![lane("/a", vec![orchestrator])], ..Default::default() });
+        let lanes = for_windows("a1b2c3d4e5", &tag, &replica);
+        assert_eq!((lanes[0].sessions[0].title.as_str(), lanes[0].sessions[0].headline.as_str()), ("Orchestrator", "`claude` · Orchestrator"));
     }
 
     #[test]

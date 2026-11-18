@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { ALL_PROJECTS } from './quick';
-import { asksRunsOn, blankSchedule, doesWords, fireCommand, firstSchedule, newScheduleFolder, nextWords, preferOptions, runsOnce, scheduleBySession, scheduleLanes, scheduleOf, scheduleProject, scheduleSections, scheduleSessions, sessionFolder } from './schedules';
+import { asksRunsOn, blankSchedule, doesWords, fireCommand, firstSchedule, newScheduleFolder, nextWords, preferOptions, runsOnce, scheduleBySession, scheduleLanes, scheduleName, scheduleOf, scheduleProject, scheduleSections, scheduleSessions, sessionFolder } from './schedules';
 import * as fx from './testing/fixtures';
 import type { DevicesView, Schedule, ScheduleItem } from './types';
 
@@ -179,5 +179,13 @@ describe('schedules', () => {
     expect(newScheduleFolder(lanes, ALL_PROJECTS, { ...atlas }, [])).toBe('/w/atlas');
     expect(newScheduleFolder(lanes, ALL_PROJECTS, null, [])).toBe('');
     expect(newScheduleFolder(lanes, 'Northwind', chats, [])).toBe('/w/app');
+  });
+});
+
+describe('scheduleName', () => {
+  it('calls an orchestrator Orchestrator, whatever project its stored name says, and the rest by their names', () => {
+    expect(scheduleName({ name: 'Northwind orchestrator', orchestrates: { project: 'Northwind' } })).toBe('Orchestrator');
+    expect(scheduleName({ name: 'Orchestrator', orchestrates: {} })).toBe('Orchestrator');
+    expect(scheduleName({ name: 'Weekly hygiene' })).toBe('Weekly hygiene');
   });
 });

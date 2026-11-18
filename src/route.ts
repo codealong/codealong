@@ -9,6 +9,7 @@ import { repoWorktrees, startLaneIn } from './quick';
 import { JOIN_AT, joinsWork, newWorkIn } from './reusable';
 import { agentId, autoPick, pickFromGroup, startChoice, startDoes, startTitleWords, startWhereWords, type AgentOption, type AutoPick, type ChosenStart, type ModelOption, type StartPicks } from './start';
 import type { Board, Lane, NeedPick, Route, RouteChoice, RoutePick, RoutingGroup, Session, StartAccount, StartPlace, Usage } from './types';
+import { scopeWords } from './orchestrators';
 
 /** How likely a suggestion is, as the panel says it. */
 export type Sureness = 'sure' | 'likely' | 'unsure';
@@ -369,7 +370,8 @@ export interface SuggestionContext {
 export function suggestionWords(sg: Suggestion, c: SuggestionContext): { icon: string; title: string; why: string; where: string } {
   if (sg.kind === 'send' || sg.kind === 'open') {
     const x = sg.session;
-    const where = `${x.account} · ${sg.lane.callsign}`;
+    // Every orchestrator is called Orchestrator: what it keeps watch over tells them apart.
+    const where = `${x.account} · ${x.orchestrator ? scopeWords(x.orchestrator.project) : sg.lane.callsign}`;
     // How old it is leads, so an old session isn't mistaken for the one you started this morning.
     const age = x.startedAt != null ? `Started ${agoPhrase(x.startedAt, c.now)}. ` : '';
     if (sg.kind === 'open') {

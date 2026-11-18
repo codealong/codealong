@@ -745,8 +745,8 @@ it only then. A session Codealong runs shows its reply as it's written, under it
 written (`[sessions] live_replies`), so does a Claude Code session in any terminal or background
 job: the Codealong plugin gets a `MessageDisplay` hook that hands Codealong each paragraph as the
 terminal shows it. It also shows what the agent wrote with a question that waits on you, which
-Claude Code often saves only once the question is answered; without the setting, the question says
-its terminal has that text. The cost is in the terminal: with any such hook, Claude Code shows a
+Claude Code often saves only once the question is answered; without the setting, that text shows
+in its terminal, and in the conversation once the question is answered. The cost is in the terminal: with any such hook, Claude Code shows a
 reply a paragraph at a time rather than a line at a time, so a paragraph's start shows there a
 moment later, though the reply ends at the same time. It applies to sessions started after it's
 turned on, since Claude Code reads hooks as a session starts, and Codealong updates the plugin in

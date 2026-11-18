@@ -13,6 +13,7 @@ import { REUSE_STATE } from '../reusable';
 import type { Lane, Session } from '../types';
 import type { PickerOption, PickerSection } from './Picker';
 import { Icon, SessionGlyph, StatusGlyph } from './primitives';
+import { scopeWords } from '../orchestrators';
 
 /** A worktree, picked by `id` (its lane id in the quick panel, its folder in a schedule). */
 export function laneOption(l: Lane, id: string = l.id): PickerOption {
@@ -113,10 +114,12 @@ export function anotherFolderOption(start: string): PickerOption {
 
 /** A session, with the worktree it works in. */
 export function sessionOption(lane: Lane, s: Session, now: number): PickerOption {
-  const where = lane.startsChats ? GENERAL_CHAT : `${lane.project} · ${lane.callsign}`;
+  // An orchestrator is in Codealong's chats, and called Orchestrator: it's for what it keeps watch over.
+  const scope = s.orchestrator ? scopeWords(s.orchestrator.project) : null;
+  const where = scope ?? (lane.startsChats ? GENERAL_CHAT : `${lane.project} · ${lane.callsign}`);
   return {
     id: s.key,
-    text: [s.title, lane.project, lane.repo, lane.callsign, lane.branch ?? '', s.account, lane.startsChats ? 'chat' : ''].join(' '),
+    text: [s.title, scope ?? '', lane.project, lane.repo, lane.callsign, lane.branch ?? '', s.account, lane.startsChats ? 'chat' : ''].join(' '),
     label: s.title,
     detail: `${where} · ${s.account}`,
     lead: <SessionGlyph s={s} size={10} title="" />,
