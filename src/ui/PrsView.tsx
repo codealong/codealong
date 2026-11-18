@@ -3,8 +3,9 @@
 // in every tab, in your order; then, sorted by status, what needs you, flagged: the reviews asked of
 // you (Approve is in the PR's panel and its menu), then your own PRs ready to merge, then your own
 // that need work; then the reviews Codealong's agent is still on, which are yours once it's done;
-// then the rest under headings of the tab's own (`prSections`), the reviews you snoozed among them,
-// the soonest back first.
+// then the PRs an agent of yours is at work on, Fixing what came of their review and Working on
+// the ones not ready for it (`prAgentWork`); then the rest under headings of the tab's own
+// (`prSections`), the reviews you snoozed among them, the soonest back first.
 // Sorted by when opened (`PR_SORTS`, in the bar over the list), the open ones go under the days
 // they were opened. Merged and closed ones fold at the end. Each row names its repo (a chip whose
 // double-click shows only that repo's PRs), the local worktree and the sessions that worked on
@@ -14,15 +15,14 @@
 // PrPickPanel.tsx). Rows, in the bar over the list, puts each PR on one line (`PR_ROWS`), and Group
 // by puts the PRs under the worktrees that hold them or under their repos (groups.ts, Groups.tsx;
 // `prPlace`), the ones no worktree here holds under a heading of their own, and Merged & closed
-// grouped among themselves; or splits each section into the PRs an agent is working on now and the
-// rest (`prWorking`).
+// grouped among themselves.
 
 import { byDay, newestFirst, type DayId } from '../days';
 import { absolute, ago, count } from '../format';
 import { groupOptions, groupsOf, placeIn, type GroupBy, type Grouped, type ListGroupBy, type Place } from '../groups';
 import { selectHow, type SelectHow } from '../picks';
 import { listedStatus } from '../lanes';
-import { heldForAgent, prFlag, reviewUnderWay, type PrPrimary } from '../prStatus';
+import { heldForAgent, prFlag, type PrPrimary } from '../prStatus';
 import type { GitInfo, Lane, PrItem, Session } from '../types';
 import { rowsOptions, type RowLines } from './ListBar';
 import { PinnedSection } from './PinnedSection';
@@ -118,44 +118,42 @@ export const PR_SORTS: { id: PrSort; label: string; icon: string; title: string 
   { id: 'opened', label: 'Opened', icon: 'sort-descending-numbers', title: 'Sort by when opened: the newest PR first, under the day it was opened' },
 ];
 
-/** Whether PRs are grouped, and by what: as the other lists are, or by whether an agent is
- *  working on each now. */
-export type PrGroupBy = ListGroupBy | 'working';
+/** Whether PRs are grouped, and by what, as the other lists are. */
+export type PrGroupBy = ListGroupBy;
 
 /** Group by's buttons over PRs (groups.ts). */
-export const PR_GROUPS: { id: PrGroupBy; label: string; icon: string; title: string }[] = [
-  ...groupOptions('PRs'),
-  { id: 'working', label: 'Working', icon: 'robot', title: 'Group by whether an agent is working: in each section, the PRs a session or Codealong’s review is working on now, then the rest' },
-];
+export const PR_GROUPS: { id: PrGroupBy; label: string; icon: string; title: string }[] = groupOptions('PRs');
 
 /** What the heading over PRs that no worktree here holds says. */
 export const PR_NONE = 'No worktree here';
 
-/** The sessions listed on a PR whose status it takes on (the status filters, Group by Working):
+/** The sessions listed on a PR whose status it takes on (the status filters, Fixing and Working):
  *  as on the board, not one from another worktree, since one agent that made many worktrees would
  *  otherwise put all of their PRs in Working, nor an archived one. */
 export function prSessionsNow(r: Pick<PrRowItem, 'sessions'>): Session[] {
   return r.sessions.flatMap(({ session }) => (session.visitor || session.archived ? [] : [session]));
 }
 
-/** An agent is working on the PR now: one of its sessions, here or on another machine
- *  (`prSessionsNow`), or a round of Codealong's agent's review of the commit it's at. */
-export function prWorking(r: Pick<PrRowItem, 'pr' | 'sessions'>): boolean {
-  return prSessionsNow(r).some((s) => listedStatus(s) === 'working') || reviewUnderWay(r.pr);
+/** What an agent of yours is doing on an open PR, while one of its sessions, here or on another
+ *  machine (`prSessionsNow`), is working: Working on it while it isn't ready for review (a draft),
+ *  or Fixing it once it's out for review, where what an agent does is answer what came of that
+ *  (changes asked for, comments, failing checks, a conflict or a branch behind its base). Not
+ *  Codealong's own review of it, which is Agent reviewing's. None with no session working. */
+export function prAgentWork(r: Pick<PrRowItem, 'pr' | 'sessions'>): 'fixing' | 'working' | null {
+  if (!prIsOpen(r.pr) || !prSessionsNow(r).some((s) => listedStatus(s) === 'working')) return null;
+  return r.pr.state === 'draft' ? 'working' : 'fixing';
 }
 
-/** Where a PR goes, grouped: the worktree that holds it, or none here; its repo, by its slug on
- *  GitHub, whether or not a worktree here has it; or with the PRs an agent is working on, else
- *  with the rest (key empty). */
+/** Where a PR goes, grouped: the worktree that holds it, or none here; or its repo, by its slug on
+ *  GitHub, whether or not a worktree here has it. */
 export function prPlace(r: PrRowItem, by: GroupBy): Place {
-  if (by === 'working') return { key: prWorking(r) ? 'working' : '', lane: null, repo: null };
   if (by === 'worktree') return placeIn(r.lane, by);
   const slug = r.pr.repoSlug;
   return { key: slug, lane: null, repo: { name: r.pr.repo, slug, project: r.pr.project } };
 }
 
 export interface PrSection {
-  id: 'requested' | 'ready' | 'work' | 'agent' | 'mine' | 'others' | 'waiting' | 'drafts' | 'unasked' | 'snoozed' | 'done' | DayId;
+  id: 'requested' | 'ready' | 'work' | 'agent' | 'fixing' | 'working' | 'mine' | 'others' | 'waiting' | 'drafts' | 'unasked' | 'snoozed' | 'done' | DayId;
   label: string;
   rows: PrRowItem[];
 }
@@ -175,14 +173,18 @@ export function reviewSnoozed(pr: PrItem): pr is PrItem & { snoozedUntil: number
   return pr.reviewRequested && !!pr.snoozedUntil && prIsOpen(pr);
 }
 
-type Standing = 'requested' | 'ready' | 'work' | 'agent' | 'rest';
+type Standing = 'requested' | 'ready' | 'work' | 'agent' | 'fixing' | 'working' | 'rest';
 
-/** Where an open PR whose review isn't snoozed stands, sorted by status: by what it needs of you
- *  (`prFlag`), a review, a merge or work; asked of you but with Codealong's agent's review to come
- *  first; or nothing yet. */
-function standing(pr: PrItem): Standing {
+/** Where an open PR whose review isn't snoozed stands, sorted by status: a review asked of you
+ *  (`prFlag`); an agent of yours at work on it (`prAgentWork`), which a merge or work of yours
+ *  waits on; by what else it needs of you, a merge or work; asked of you but with Codealong's
+ *  agent's review to come first; or nothing yet. */
+function standing(r: PrRowItem): Standing {
+  const { pr } = r;
   const flag = prFlag(pr);
   if (flag && pr.reviewRequested) return 'requested';
+  const work = prAgentWork(r);
+  if (work) return work;
   if (flag === 'ready') return 'ready';
   if (flag) return 'work';
   if (pr.reviewRequested && heldForAgent(pr)) return 'agent';
@@ -193,7 +195,9 @@ function standing(pr: PrItem): Standing {
  *  Review requested (the reviews asked of you), Ready to merge and Needs work (your own PRs that
  *  could be merged now, or whose checks fail, with changes asked for, conflicts or an out-of-date
  *  branch); then Agent reviewing (asked of you, but the agent's review comes first:
- *  `heldForAgent`); then the rest under headings of the tab's own: All under Yours and Others,
+ *  `heldForAgent`); then Fixing and Working, the PRs an agent of yours is at work on
+ *  (`prAgentWork`), out of the sections above but Review requested, since what they'd ask of you
+ *  waits on the agent; then the rest under headings of the tab's own: All under Yours and Others,
  *  Yours under Waiting on others and Drafts, Others under Not asking you, after Snoozed (the
  *  soonest back first) there. By when opened: the open ones under the day each was opened, the
  *  newest first, snoozed ones too. Either way Merged & closed (newest first) come last. */
@@ -206,13 +210,15 @@ export function prSections(rows: PrRowItem[], sort: PrSort = 'status', now = Dat
     return [...byDay(newest, (r) => r.pr.createdAt, now), doneSection].filter((s) => s.rows.length > 0);
   }
   const open = listed.filter((r) => prIsOpen(r.pr) && !reviewSnoozed(r.pr));
-  const under = (id: Standing) => open.filter((r) => standing(r.pr) === id);
+  const under = (id: Standing) => open.filter((r) => standing(r) === id);
   const rest = under('rest');
   const needs: PrSection[] = [
     { id: 'requested', label: 'Review requested', rows: under('requested') },
     { id: 'ready', label: 'Ready to merge', rows: under('ready') },
     { id: 'work', label: 'Needs work', rows: under('work') },
     { id: 'agent', label: 'Agent reviewing', rows: under('agent') },
+    { id: 'fixing', label: 'Fixing', rows: under('fixing') },
+    { id: 'working', label: 'Working', rows: under('working') },
   ];
   const snoozed: PrSection = {
     id: 'snoozed',

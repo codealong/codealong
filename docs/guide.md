@@ -137,13 +137,6 @@ The ones in no worktree here go under No worktree here (No worktree in Todo), la
 section rather than pulled under the first one's heading, and Merged & closed (Done in Todo) stays
 folded, grouped among its own. Grouped, todos keep your order but aren't reordered by hand.
 
-PRs can also be grouped by Working: every section splits its own PRs into the ones an agent is
-working on now, under Agent working, and the rest, under No agent working. An agent is working on
-a PR while one of its sessions, here or on another machine, is working (one set aside for its side
-conversation too; as with the Working filter, not one that only made or visited its worktree, nor
-an archived one), or while Codealong's agent reviews the commit it's at (not while that review only
-waits its turn). Nothing pins these groups.
-
 A worktree's heading is one line of what belongs to the worktree: its name, then where it is (its
 device, its repo and its branch), Free when it's a reusable worktree new work can start in
 (Landed once its work merged, else Reusable, its tooltip saying what it holds; see [Reusable
@@ -1170,12 +1163,18 @@ replied, or once someone assigned you to it after your last review, see Assigned
 your own that GitHub would merge now; and Needs work, your own whose checks fail, or that have
 changes asked of them (until their reviewer is asked to look again), conflicts or an out-of-date
 branch. Then Agent reviewing has the PRs that ask for your review while Codealong's agent reviews
-them first (see `[reviews] auto`); each moves up to Review requested once its review is done. The
-rest go under headings of the tab's own: in All, Yours, Others and Snoozed; in Yours, Waiting on
-others (on a review, or checks still running) and Drafts; in Others, Snoozed and Not asking you.
-Grouped by worktree or repo, a group goes under the heading of its first PR, and a PR that needs
-you is never folded away in it; grouped by Working, each heading splits its own PRs into the ones
-an agent is working on and the rest (see [Grouped by worktree or
+them first (see `[reviews] auto`); each moves up to Review requested once its review is done.
+Then the PRs an agent of yours is at work on, while one of their sessions, here or on another
+machine, is working (as the Working filter counts them: one set aside for its side conversation
+too, not one that only made or visited its worktree, nor an archived one): Fixing, the ones out
+for review, where what an agent does is answer what came of it (changes asked for, comments,
+failing checks, a conflict, a branch behind its base); and Working, the drafts, not ready for
+review yet. They leave Ready to merge and Needs work while the agent works, since what those ask
+of you waits on it; a review asked of you stays under Review requested. Codealong's own review of
+a PR isn't an agent at work on it. The rest go under headings of the tab's own: in All, Yours,
+Others and Snoozed; in Yours, Waiting on others (on a review, or checks still running) and Drafts;
+in Others, Snoozed and Not asking you. Grouped by worktree or repo, a group goes under the heading
+of its first PR, and a PR that needs you is never folded away in it (see [Grouped by worktree or
 repo](#grouped-by-worktree-or-repo)). Sorted by when they were opened, the tab's open PRs are under the
 day each was opened, the newest first, snoozed ones too. Merged & closed is folded at the end
 either way.

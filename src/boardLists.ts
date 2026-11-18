@@ -817,7 +817,6 @@ export function columnFolds(c: Pick<KanbanColumn, 'column' | 'stage' | 'cards'>)
 /** How far back Done goes when the age filter says all: as far as sessions do. */
 const DONE_SPAN = 14 * 86_400_000;
 const NO_PINS: Set<string> = new Set();
-const NO_GROUP_PINS: readonly string[] = [];
 
 /** How a card's session stands in its column, as Sessions sorts by status: Needs you, Your turn,
  *  Working, then the rest; a snoozed one that isn't working waits with the rest, and one set aside
@@ -1082,8 +1081,7 @@ export function useBoardLists(input: ListsInput) {
   const projects = useMemo(() => projectsOf(board?.projects ?? [], deviceLanes), [board?.projects, deviceLanes]);
   const current = currentProject(project, projects, loading);
   // The pins of a list's groups: the same worktrees, or repos, lead every list grouped by them.
-  // Whether an agent is working isn't pinned.
-  const pinnedOf = (by: PrGroupBy) => (by === 'repo' ? repoPins.keys : by === 'working' ? NO_GROUP_PINS : lanePins.keys);
+  const pinnedOf = (by: ListGroupBy) => (by === 'repo' ? repoPins.keys : lanePins.keys);
   const sessionGroupPins = pinnedOf(sessionGroup);
   const prGroupPins = pinnedOf(prGroup);
   const todoGroupPins = pinnedOf(todoGroup);
@@ -1161,10 +1159,9 @@ export function useBoardLists(input: ListsInput) {
   const prSecs = useMemo(() => prSections(prRows.filter((r) => !prPins.set.has(r.pr.key)), prSort, now, prTab), [prRows, prPins.set, prSort, now, prTab]);
   const prCounts = useMemo(() => prTabCounts(prRows), [prRows]);
   // Grouped by worktree or repo (groups.ts): the pinned groups after the pinned PRs, a PR that's
-  // needs you never folded away, Merged & closed grouped among themselves. Grouped by whether an
-  // agent is working, every section splits its own PRs.
+  // needs you never folded away, Merged & closed grouped among themselves.
   const groupedPrs = useMemo(
-    () => (prGroup === 'none' ? null : groupRows(prSecs, prGroup, (r) => prPlace(r, prGroup), { pinned: prGroupPins, lanes: projectLanes, empty: false, opened: openPrGroups, whole: !!query, awake: ([r]) => prFlag(r.pr) !== null, apart: (id) => prGroup === 'working' || id === 'done' })),
+    () => (prGroup === 'none' ? null : groupRows(prSecs, prGroup, (r) => prPlace(r, prGroup), { pinned: prGroupPins, lanes: projectLanes, empty: false, opened: openPrGroups, whole: !!query, awake: ([r]) => prFlag(r.pr) !== null, apart: (id) => id === 'done' })),
     [prGroup, prSecs, prGroupPins, projectLanes, openPrGroups, query],
   );
   const prVisible = useMemo<ListRow[]>(

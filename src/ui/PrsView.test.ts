@@ -1,8 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import * as fx from '../testing/fixtures';
 import type { GitInfo, PrItem, Session } from '../types';
-import { groupRows } from '../groups';
-import { inPrTab, prPlace, prPlaces, prSections, prTabCounts, prWorking, syncWords, type PrRowItem } from './PrsView';
+import { inPrTab, prAgentWork, prPlaces, prSections, prTabCounts, syncWords, type PrRowItem } from './PrsView';
 
 const lane = (id: string) => fx.lane({ id });
 const session = (key: string) => fx.session({ key });
@@ -165,43 +164,63 @@ describe('prSections', () => {
   });
 });
 
-describe('grouped by whether an agent is working', () => {
+describe('Fixing and Working', () => {
   const row = (number: number, over: Partial<PrItem> = {}, statuses: Session['status'][] = []): PrRowItem => {
     const pr = fx.prItem({ number, ...over });
     const sessions = statuses.map((status, i) => ({ lane: lane('w'), session: fx.session({ key: `s${number}-${i}`, status }) }));
     return { kind: 'pr', key: pr.key, pr, lane: null, sessions, places: [], primary: null };
   };
 
-  const one = (over: Partial<Session>) => ({ ...row(9), sessions: [{ lane: lane('w'), session: fx.session(over) }] });
+  const one = (over: Partial<Session>, pr: Partial<PrItem> = {}) => ({ ...row(9, pr), sessions: [{ lane: lane('w'), session: fx.session(over) }] });
 
-  it('counts a session working on it, and one set aside for its side conversation', () => {
-    expect(prWorking(row(1, {}, ['idle', 'working']))).toBe(true);
-    expect(prWorking(row(2, {}, ['unread', 'needs', 'stopped']))).toBe(false);
-    expect(prWorking(one({ status: 'needs', aside: 1 }))).toBe(true);
-    expect(prWorking(row(5))).toBe(false);
+  it('is Working on a draft and Fixing once it’s out for review, while a session works on it', () => {
+    expect(prAgentWork(row(1, { state: 'draft' }, ['idle', 'working']))).toBe('working');
+    expect(prAgentWork(row(2, { state: 'open' }, ['working']))).toBe('fixing');
+    expect(prAgentWork(row(3, { state: 'changes' }, ['working']))).toBe('fixing');
+    expect(prAgentWork(row(4, { state: 'approved' }, ['working']))).toBe('fixing');
+    expect(prAgentWork(row(5, { state: 'open' }, ['unread', 'needs', 'stopped']))).toBeNull();
+    expect(prAgentWork(row(6, { state: 'merged' }, ['working']))).toBeNull();
+    // One set aside for its side conversation is at work too, as the Working filter says.
+    expect(prAgentWork(one({ status: 'needs', aside: 1 }))).toBe('fixing');
   });
 
-  it('leaves out a session that only made or visited its worktree, and an archived one, as the Working filter does', () => {
-    expect(prWorking(one({ status: 'working', visitor: 'made this worktree' }))).toBe(false);
-    expect(prWorking(one({ status: 'working', archived: true }))).toBe(false);
+  it('leaves out a session that only made or visited its worktree, an archived one, and Codealong’s own review', () => {
+    expect(prAgentWork(one({ status: 'working', visitor: 'made this worktree' }))).toBeNull();
+    expect(prAgentWork(one({ status: 'working', archived: true }))).toBeNull();
+    expect(prAgentWork(row(7, { headOid: 'abc', autoReview: { stage: 'reviewing', head: 'abc', at: 1, rounds: 1, holds: false } }))).toBeNull();
   });
 
-  it('counts Codealong’s review under way on the commit the PR is at, not one waiting its turn', () => {
-    const review = (stage: 'queued' | 'reviewing', head: string) => ({ headOid: 'abc', autoReview: { stage, head, at: 1, rounds: 1, holds: true } });
-    expect(prWorking(row(1, review('reviewing', 'abc')))).toBe(true);
-    expect(prWorking(row(2, review('queued', 'abc')))).toBe(false);
-    expect(prWorking(row(3, review('reviewing', 'old')))).toBe(false);
-  });
-
-  it('splits every section into the PRs an agent is working on, then the rest', () => {
-    const rows = [row(1, { mine: true }), row(2, { mine: true }, ['working']), row(3, { mine: true, state: 'draft' }, ['working']), row(4, { mine: true, state: 'draft' }), row(5, { mine: true, state: 'merged', mergedAt: 5 }, ['working'])];
-    const sections = prSections(rows, 'status', 0, 'mine');
-    const g = groupRows(sections, 'working', (r) => prPlace(r, 'working'), { pinned: [], lanes: [], empty: false, opened: new Set(), whole: false, apart: () => true });
-    expect(g.pinned).toEqual([]);
-    expect(g.sections.map((s) => [s.label, s.count, s.groups.map((x) => [x.key, x.rows.map((r) => r.pr.number)])])).toEqual([
-      ['Waiting on others', 2, [['working', [2]], ['', [1]]]],
-      ['Drafts', 2, [['working', [3]], ['', [4]]]],
-      ['Merged & closed', 1, [['working', [5]]]],
+  it('are sections of their own, out of what a merge or work of yours would put them under, never a review asked of you', () => {
+    const ready = { mine: true, state: 'approved' as const, merge: 'clean' as const, checks: { passed: 3, failed: 0, pending: 0, skipped: 0, failing: [] } };
+    const failing = { mine: true, checks: { passed: 1, failed: 1, pending: 0, skipped: 0, failing: [] } };
+    const rows = [
+      row(1, { mine: true }),
+      row(2, failing, ['working']),
+      row(3, { mine: true, state: 'draft' }, ['working']),
+      row(4, { mine: true, state: 'draft' }),
+      row(5, ready, ['working']),
+      row(6, { reviewRequested: true }, ['working']),
+      row(7, failing),
+      row(8, { mine: true, state: 'merged', mergedAt: 5 }, ['working']),
+    ];
+    const ids = (tab: 'all' | 'mine' | 'others') => prSections(rows, 'status', 0, tab).map((s) => [s.id, s.rows.map((r) => r.pr.number)]);
+    expect(ids('all')).toEqual([
+      ['requested', [6]],
+      ['work', [7]],
+      ['fixing', [2, 5]],
+      ['working', [3]],
+      ['mine', [1, 4]],
+      ['done', [8]],
     ]);
+    expect(ids('mine')).toEqual([
+      ['work', [7]],
+      ['fixing', [2, 5]],
+      ['working', [3]],
+      ['waiting', [1]],
+      ['drafts', [4]],
+      ['done', [8]],
+    ]);
+    // Sorted by when opened, there are no such sections.
+    expect(prSections(rows, 'opened', 0, 'all').some((s) => s.id === 'fixing' || s.id === 'working')).toBe(false);
   });
 });
