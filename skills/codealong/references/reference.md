@@ -2573,13 +2573,14 @@ Commands:
               offered until the time it waits for…), over Jev's for the same moment,
               with who tagged it and the note; an orchestrator going over its sessions
               tags them so the user sees at a glance where each stands, with `[jev]
-              sessions` on or off. Say only what you read: a field left out stays Jev's.
-              Give --prompt-at the session's `lastPromptAt` as you read it: the tag is
-              turned down if the user replied since, or while it takes a turn, and goes
-              once anything is sent to it or a turn of its starts (`changes` says which,
-              as `untagged`); tagging again replaces it, and --clear takes it away. The
-              session's `insight` in `session show` and `sessions` is the read it shows
-              now, Jev's, yours (`by`) or both
+              sessions` on or off. Say only what you read: a field left out stays Jev's,
+              except when the work goes on, which goes with how the reply ends
+              (--waits-until). Give --prompt-at the session's `lastPromptAt` as you read
+              it: the tag is turned down if the user replied since, or while it takes a
+              turn, and goes once anything is sent to it or a turn of its starts
+              (`changes` says which, as `untagged`); tagging again replaces it, and
+              --clear takes it away. The session's `insight` in `session show` and
+              `sessions` is the read it shows now, Jev's, yours (`by`) or both
   label       Put labels on a session, or take them off, as Labels in its menu in
               Codealong does: the labels todos wear (`todo labels`), by name, any case,
               a new name made a label in the next color. They sort the work for your
@@ -3099,7 +3100,8 @@ Jev's read does (Asks you, Landed, Pushed, Destructive, Looks finished, a snooze
 until the time it waits for…), over Jev's for the same moment, with who tagged it and
 the note; an orchestrator going over its sessions tags them so the user sees at a glance
 where each stands, with `[jev] sessions` on or off. Say only what you read: a field left
-out stays Jev's. Give --prompt-at the session's `lastPromptAt` as you read it: the tag
+out stays Jev's, except when the work goes on, which goes with how the reply ends
+(--waits-until). Give --prompt-at the session's `lastPromptAt` as you read it: the tag
 is turned down if the user replied since, or while it takes a turn, and goes once
 anything is sent to it or a turn of its starts (`changes` says which, as `untagged`);
 tagging again replaces it, and --clear takes it away. The session's `insight` in
@@ -3171,12 +3173,18 @@ Options:
       --waits-until <WHEN>
           When its last reply says the work goes on, with nothing for it or its user to
           do before then, as `session snooze` reads a time: a day (thu, tomorrow, next
-          week, 2026-11-16: that morning at 9), a day and a time (thu 2pm), a time (5pm)
-          or a span (3h). Codealong then offers its user a snooze until then, in the
-          session's Snooze menu and above its box, and the session isn't Finished. Say
-          it with how the reply ends (--ending) or another of these, not alone. Only
-          where the reply says so ("nothing to do until Thursday's cutover", "the freeze
-          lifts Monday"): not a deadline it's working to, nor a day it merely names
+          week, 2026-11-16: that morning at 9), a day and a time (thu 2pm, thu 15:00
+          utc), a time (5pm) or a span (3h). Give the hour where the reply names one,
+          UTC's as it is (`utc` after it). Its words count from when the reply was
+          written, as the reply means them and as Jev reads them: "tomorrow" in a reply
+          from last night is this morning. Codealong then offers its user a snooze until
+          then, in the session's Snooze menu and above its box, saying you read it so,
+          and the session isn't Finished. Say it with how the reply ends (--ending): an
+          ending given without it says the reply waits for no time, which takes away a
+          time Jev read. Not with an ending that asks its user something (question,
+          blocked), which waits on them now. Only where the reply says so ("nothing to
+          do until Thursday's cutover", "the freeze lifts Monday"): not a deadline it's
+          working to, nor a day it merely names
 
       --note <NOTE>
           Why, in a sentence or two; shown with the tag

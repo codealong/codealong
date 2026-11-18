@@ -1,6 +1,7 @@
 // Checks the snooze offered for a session whose last reply says its work goes on at a later time
 // (snooze.ts `suggestedSnooze`, ui/SnoozeSuggestion.tsx): a line above its box says the time and
-// who read the reply that way, and always shows its key; the session's Snooze menu has the time
+// who read the reply that way (Jev or the agent that tagged it), and always shows its key; the
+// session's Snooze menu has the time
 // first, apart from the rest; ⌃⌘8 snoozes it until then from the list, and a click on the line
 // does; a session whose reply names no time has no line, and ⌃⌘8 does nothing for it; and once
 // snoozed, the offer is gone.
@@ -82,10 +83,10 @@
     .then(function () {
       var l = line();
       check('a session whose reply waits for a later time is offered a snooze until then, above its box', !!l && /^Snooze until \S/.test(l.textContent) && !!l.closest('.ca-composer'), l ? l.textContent : 'no line');
-      check('which says why, and who read it that way, under the pointer', !!l && /as its reply says/.test(l.title) && /\(⌃⌘8\)\. Jev’s read$/.test(l.title), l ? l.title : '');
+      check('which says who read the reply that way, under the pointer', !!l && /, as Jev read its reply: /.test(l.title), l ? l.title : '');
       var card = l && l.closest('.ca-suggest');
       var mark = card && card.querySelector('.ca-suggest-mark');
-      check('in suggestions’ card, its sparkle saying whose read it is', !!mark && mark.title === 'Jev’s read' && !/as its reply says/.test(card.textContent), mark ? mark.title : 'no mark');
+      check('in suggestions’ card, its sparkle saying whose read it is', !!mark && mark.title === 'Jev’s read' && !/read its reply/.test(card.textContent), mark ? mark.title : 'no mark');
       var keys = l && l.querySelector('.ca-kbds');
       // Keys show where Settings or a held ⌘ says (keysShown.ts): out of sight until then.
       check('its key is out of sight until keys show', !!keys && getComputedStyle(keys).display === 'none', keys ? getComputedStyle(keys).display : 'no keys');
@@ -97,7 +98,7 @@
     .then(function () {
       var group = lastMenu().filter(function (i) { return i.text === 'Snooze' && i.items; })[0];
       var items = texts(group && group.items);
-      check('its Snooze menu has the time first, apart from the rest', /^Until .+, as its reply says$/.test(items[0] || '') && items[1] === '-' && items[2] === 'For 15 minutes', items.join(' | '));
+      check('its Snooze menu has the time first, apart from the rest, saying who read it', /^Until .+, as Jev read its reply$/.test(items[0] || '') && items[1] === '-' && items[2] === 'For 15 minutes', items.join(' | '));
       return show(1);
     })
     .then(function () {
@@ -111,7 +112,9 @@
     })
     .then(function () {
       var l = line();
-      check('an agent’s tag is said as its own, with its note', !!l && /Tagged by Orchestrator: The release is on that day$/.test(l.title), l ? l.title : 'no line');
+      var mark = l && l.closest('.ca-suggest').querySelector('.ca-suggest-mark');
+      check('an agent’s tag is said as its own', !!l && /, as Orchestrator read its reply: /.test(l.title), l ? l.title : 'no line');
+      check('with its note under its sparkle', !!mark && mark.title === 'Tagged by Orchestrator: The release is on that day', mark ? mark.title : 'no mark');
       var before = snoozes().length;
       chord('8', 'Digit8');
       return until(function () { return snoozes().length > before; }, 3000, 'a snooze asked for by ⌃⌘8').then(function () { return wait(150); });

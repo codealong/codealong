@@ -1279,7 +1279,7 @@ describe('actions by name', () => {
     const press = (acts: ReturnType<typeof sessionActions>) => chorded(acts, { key: '8', code: '', metaKey: true, ctrlKey: true, altKey: false, shiftKey: false });
     const acts = sessionActions(lane(), waits, can);
     const [first, rule] = acts.snooze?.items ?? [];
-    expect(first !== 'separator' && first.label).toMatch(/^Until .+, as its reply says$/);
+    expect(first !== 'separator' && first.label).toMatch(/^Until .+, as Jev read its reply$/);
     expect(first !== 'separator' && !('items' in first) && first.accelerator).toBe('Ctrl+Cmd+8');
     expect(rule).toBe('separator');
     expect(press(acts)).toBe(first);

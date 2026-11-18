@@ -660,7 +660,7 @@ enum SessionCmd {
     Wait(SessionWaitArgs),
     /// Suggest replies to a session for its user to send with one click: what they might answer it, written by an agent that read it (a supervisor going over the sessions that wait on its user: `codealong sessions --waiting`, then `session transcript` for each). Codealong shows them above the session's box, wherever that shows; picking one sends it as the user's own message, and the user can type their own instead. Nothing reaches the session until they pick. Give --prompt-at the session's `lastPromptAt` as you read it: they're turned down if the user replied since (they'd answer the turn before), or while it takes a turn. They stay until something is sent to the session or a turn of its starts (`changes` says which, as `unsuggested`); suggesting again replaces them, and --clear takes them away. Write each as the user would send it, in their words and ready to go as it is: short, and the best first. Say why, or what to weigh, in --note. A session that asks its user questions (`session pending` shows them, with their choices) takes no replies, which would only decline them: --pick picks one of a question's own choices instead, with why in a few words after it, and its question box shows it picked, with why beside it, to answer with one click. The session's `suggestions` in `session show` and `sessions` are the ones it has now.
     Suggest(SuggestArgs),
-    /// Tag a session with your read of where it stands, in the words Codealong's rows use, after reading its conversation (`session transcript`): whether its last reply asks its user something, how far its code change got, whether what was asked for is done, how risky the call it waits on looks, what a command it left running in the background does, and when its reply says the work goes on. Each shows on the session in Codealong as Jev's read does (Asks you, Landed, Pushed, Destructive, Looks finished, a snooze offered until the time it waits for…), over Jev's for the same moment, with who tagged it and the note; an orchestrator going over its sessions tags them so the user sees at a glance where each stands, with `[jev] sessions` on or off. Say only what you read: a field left out stays Jev's. Give --prompt-at the session's `lastPromptAt` as you read it: the tag is turned down if the user replied since, or while it takes a turn, and goes once anything is sent to it or a turn of its starts (`changes` says which, as `untagged`); tagging again replaces it, and --clear takes it away. The session's `insight` in `session show` and `sessions` is the read it shows now, Jev's, yours (`by`) or both.
+    /// Tag a session with your read of where it stands, in the words Codealong's rows use, after reading its conversation (`session transcript`): whether its last reply asks its user something, how far its code change got, whether what was asked for is done, how risky the call it waits on looks, what a command it left running in the background does, and when its reply says the work goes on. Each shows on the session in Codealong as Jev's read does (Asks you, Landed, Pushed, Destructive, Looks finished, a snooze offered until the time it waits for…), over Jev's for the same moment, with who tagged it and the note; an orchestrator going over its sessions tags them so the user sees at a glance where each stands, with `[jev] sessions` on or off. Say only what you read: a field left out stays Jev's, except when the work goes on, which goes with how the reply ends (--waits-until). Give --prompt-at the session's `lastPromptAt` as you read it: the tag is turned down if the user replied since, or while it takes a turn, and goes once anything is sent to it or a turn of its starts (`changes` says which, as `untagged`); tagging again replaces it, and --clear takes it away. The session's `insight` in `session show` and `sessions` is the read it shows now, Jev's, yours (`by`) or both.
     Tag(TagArgs),
     /// Put labels on a session, or take them off, as Labels in its menu in Codealong does: the labels todos wear (`todo labels`), by name, any case, a new name made a label in the next color. They sort the work for your user: they show on its row, its Sessions view filters by them, and a board whose rule names a label takes in the sessions with it (`board rule --label`). Unlike a tag (`session tag`), which is a read of one turn and goes when the next starts, a label stays until it's taken off; put one on only when your user asked, or an orchestrator's labelling is what they set it to do. A session on another of your machines is labelled there, with that machine's labels. Prints the labels it has now; `session show`, `sessions` (`--label` to list only those with one) say them too.
     Label(LabelArgs),
@@ -795,7 +795,7 @@ struct TagArgs {
     /// What the command its turn left running in the background does: polling (checks again and again for something outside), job (one long piece of work that ends by itself), server (keeps running until stopped; its turn is over) or stalled (stuck, or waiting on its user).
     #[arg(long, value_name = "KIND", value_parser = clap::builder::PossibleValuesParser::new(insights::BACKGROUND.map(|(k, _)| k)))]
     background: Option<String>,
-    /// When its last reply says the work goes on, with nothing for it or its user to do before then, as `session snooze` reads a time: a day (thu, tomorrow, next week, 2026-11-16: that morning at 9), a day and a time (thu 2pm), a time (5pm) or a span (3h). Codealong then offers its user a snooze until then, in the session's Snooze menu and above its box, and the session isn't Finished. Say it with how the reply ends (--ending) or another of these, not alone. Only where the reply says so ("nothing to do until Thursday's cutover", "the freeze lifts Monday"): not a deadline it's working to, nor a day it merely names.
+    /// When its last reply says the work goes on, with nothing for it or its user to do before then, as `session snooze` reads a time: a day (thu, tomorrow, next week, 2026-11-16: that morning at 9), a day and a time (thu 2pm, thu 15:00 utc), a time (5pm) or a span (3h). Give the hour where the reply names one, UTC's as it is (`utc` after it). Its words count from when the reply was written, as the reply means them and as Jev reads them: "tomorrow" in a reply from last night is this morning. Codealong then offers its user a snooze until then, in the session's Snooze menu and above its box, saying you read it so, and the session isn't Finished. Say it with how the reply ends (--ending): an ending given without it says the reply waits for no time, which takes away a time Jev read. Not with an ending that asks its user something (question, blocked), which waits on them now. Only where the reply says so ("nothing to do until Thursday's cutover", "the freeze lifts Monday"): not a deadline it's working to, nor a day it merely names.
     #[arg(long, value_name = "WHEN")]
     waits_until: Option<String>,
     /// Why, in a sentence or two; shown with the tag.
@@ -5034,9 +5034,10 @@ fn insight_words(i: &crate::model::SessionInsight) -> String {
     format!("{}{by}", parts.join(" · "))
 }
 
-/// What `session tag`'s arguments say of a session, at `now` on `zone`'s clock: nothing for
-/// --clear, which takes its tag away. An error says what's missing or doesn't read.
-fn tag_said(a: TagArgs, now: i64, zone: &dyn crate::schedules::rule::Zone) -> Result<params::Tag> {
+/// What `session tag`'s arguments say of a session whose last reply was written at `replied`, at
+/// `now` on `zone`'s clock: nothing for --clear, which takes its tag away. An error says what's
+/// missing or doesn't read.
+fn tag_said(a: TagArgs, replied: i64, now: i64, zone: &dyn crate::schedules::rule::Zone) -> Result<params::Tag> {
     if a.clear {
         return Ok(params::Tag::default());
     }
@@ -5049,8 +5050,20 @@ fn tag_said(a: TagArgs, now: i64, zone: &dyn crate::schedules::rule::Zone) -> Re
     if !read {
         bail!("Say how its reply ends too (--ending), or another of --asks-you, --landing, --finished, --risk and --background: when its work goes on isn't a tag by itself.");
     }
-    // Read on this Mac's clock, as a snooze's time is.
-    let waits_until = a.waits_until.as_deref().map(|when| crate::snoozewhen::until(when, now, zone).map_err(|e| anyhow!(e))).transpose()?;
+    // Read on this Mac's clock, as a snooze's time is, and counted from when its reply was
+    // written, as the reply's own words are and as Jev counts the days a reply names (insights.rs
+    // `reply_day`): "tomorrow" in a reply from last night is this morning, whenever it's read.
+    let waits_until = match a.waits_until.as_deref() {
+        None => None,
+        Some(when) => {
+            let t = crate::snoozewhen::until(when, replied, zone).map_err(|e| anyhow!(e))?;
+            if t <= now {
+                let said = |t| crate::snoozewhen::words_at(t, now, zone);
+                bail!("{} has passed: when its work goes on is counted from when its reply was written ({}). Leave it out where what it put off is due now.", said(t), said(replied));
+            }
+            Some(t)
+        }
+    };
     let unit = |b: Option<bool>| b.map(|b| if b { 1.0 } else { 0.0 });
     // An ending says whether the reply asks, and that goes with it: a Mac from before endings
     // reads only that, and would take a tag that says nothing else for one taking its tag away.
@@ -5065,7 +5078,12 @@ fn session_tag(c: &mut Client, a: TagArgs, json: bool) -> Result<()> {
     let key = resolve_any_session(c, &a.key)?;
     let me = find_me(c)?.0;
     let by_title = me.as_deref().and_then(|k| all_sessions(c.board().ok()?).into_iter().find(|(s, _)| s.key == k).map(|(s, _)| s.title.clone())).filter(|t| !t.is_empty());
-    let params = params::Tag { by: me.clone(), by_title, ..tag_said(a, crate::util::now_ms(), &crate::schedules::rule::Local)? };
+    // When its last reply was written, which its words count from (`tag_said`): its last
+    // activity, here or on the device it runs on.
+    let now = crate::util::now_ms();
+    let elsewhere = c.elsewhere().to_vec();
+    let replied = all_sessions(c.board()?).into_iter().chain(all_in(&elsewhere)).find(|(s, _)| s.key == key).map_or(now, |(s, _)| s.last_activity);
+    let params = params::Tag { by: me.clone(), by_title, ..tag_said(a, replied, now, &crate::schedules::rule::Local)? };
     let got = c.act(api::SESSION_TAG, &key, params, me)?;
     let out = ActOut { session: key, said: got.as_str().map(String::from), copy: None };
     if json {
@@ -9024,7 +9042,7 @@ mod tests {
             let now = ms(&zone, 2026, 11, 11, 14, 10);
             let said = |args: &[&str]| {
                 let Cmd::Session { cmd: SessionCmd::Tag(a) } = parse_from([&["codealong", "session", "tag", "abc", "--prompt-at", "4"][..], args].concat()).unwrap().cmd else { panic!() };
-                tag_said(a, now, &zone)
+                tag_said(a, now, now, &zone)
             };
             let tag = said(&["--ending", "report", "--waits-until", "thu 2pm"]).unwrap();
             assert_eq!((tag.waits_until, tag.ending.as_deref(), tag.asks_you), (Some(ms(&zone, 2026, 11, 12, 14, 0)), Some("report"), Some(0.0)));
@@ -9032,6 +9050,18 @@ mod tests {
             assert!(said(&["--waits-until", "thu"]).unwrap_err().to_string().starts_with("Say how its reply ends too"));
             assert!(said(&["--ending", "report", "--waits-until", "whenever"]).unwrap_err().to_string().starts_with("Couldn't read"));
             assert!(said(&["--note", "nothing read"]).unwrap_err().to_string().starts_with("Say something about it"));
+            // A reply's words count from when it was written, as Jev counts them: one from 11 PM
+            // last night that waits till tomorrow waited till this morning.
+            let late = ms(&zone, 2026, 11, 10, 23, 0);
+            let from_last_night = |when: &str| {
+                let Cmd::Session { cmd: SessionCmd::Tag(a) } = parse_from(["codealong", "session", "tag", "abc", "--prompt-at", "4", "--ending", "report", "--waits-until", when]).unwrap().cmd else { panic!() };
+                tag_said(a, late, now, &zone)
+            };
+            assert_eq!(from_last_night("tomorrow 3pm").unwrap().waits_until, Some(ms(&zone, 2026, 11, 11, 15, 0)));
+            assert_eq!(from_last_night("20h").unwrap().waits_until, Some(ms(&zone, 2026, 11, 11, 19, 0)));
+            assert_eq!(from_last_night("thu 15:00 utc").unwrap().waits_until, Some(ms(&zone, 2026, 11, 12, 7, 0)));
+            let passed = from_last_night("tomorrow").unwrap_err().to_string();
+            assert_eq!(passed, "9 AM has passed: when its work goes on is counted from when its reply was written (Nov 10, 11 PM). Leave it out where what it put off is due now.");
         }
         // The finished ones, alone or among what waits.
         let cli = parse_from(["codealong", "sessions", "--finished", "--waiting"]).unwrap();

@@ -88,7 +88,7 @@ export const TIPS: readonly Tip[] = [
   { id: 'finished', places: BOARD, says: says`A session whose work is done, with nothing left for you, says Finished. Select N finished, over Your turn, picks them all to mark done at once.` },
   { id: 'mark-seen', places: SESSION_KEYS, says: says`${key(CHORDS.seen)} marks a finished turn seen, which takes it off the bar and out of what waits on you.` },
   { id: 'snooze', places: SESSION_KEYS, says: says`${key(SNOOZE_CHORDS[0])} to ${key(SNOOZE_CHORDS[SNOOZE_CHORDS.length - 1])} snooze a session for one of the Snooze menu's times. It comes back when the time is up.` },
-  { id: 'snooze-suggested', places: SESSION_KEYS, says: says`When a reply says its work waits for a later day, ${key(SUGGESTED_CHORD)} snoozes the session until that morning.` },
+  { id: 'snooze-suggested', places: SESSION_KEYS, says: says`When a reply says its work waits for a later time, ${key(SUGGESTED_CHORD)} snoozes the session until then.` },
   { id: 'bar-peek', places: ['board', 'session', 'working'], says: says`Click a session's pill in the notch, or rest the pointer on one in the floating bar, to read and answer it without leaving your app.` },
   { id: 'history', places: SESSION_KEYS, says: says`${key(QUEUE_CHORDS.historyBack[0])} goes back to the session you looked at before, and ${key(QUEUE_CHORDS.historyForward[0])} forward again.` },
   { id: 'terminal', places: ['board', 'session'], says: says`${key(CHORDS.terminal)} opens a terminal in the folder of what's shown, as VS Code does: for a session, in a drawer under its box by default.` },

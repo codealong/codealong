@@ -22,10 +22,15 @@ const LANDING: Record<string, { label: string; tone: Tone; says: string }> = {
   blocked: { label: 'Blocked', tone: 'bad', says: 'the agent couldn’t finish' },
 };
 
+/** Who read the session, by name: the agent that tagged it, else Jev. */
+export function readerOf(i: SessionInsight | undefined): string {
+  return i?.by ? i.byTitle || 'an agent' : 'Jev';
+}
+
 /** Who read the session, for a tooltip: the agent that tagged it, else Jev. */
 export function readBy(i: SessionInsight | undefined): string {
   if (!i?.by) return 'Jev’s read';
-  return `Tagged by ${i.byTitle || 'an agent'}`;
+  return `Tagged by ${readerOf(i)}`;
 }
 
 /** What the agent that tagged it said, for the end of a tooltip; nothing for Jev's read. */

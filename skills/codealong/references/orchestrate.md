@@ -128,9 +128,19 @@ Go over each session in `waiting` that `changed` this tick or has neither `sugge
   before then ("nothing more to do here until Thursday's cutover", "the freeze lifts Monday",
   "the vendor answers tomorrow"), add `--waits-until <when>` to its tag, as `session snooze`
   reads a time (`thu`, `tomorrow 2pm`, `2026-11-16`, `3h`): Codealong offers your user a snooze
-  until then, on the session and first in its Snooze menu, which they take with a click. Don't
-  snooze it yourself: whether it leaves their list is theirs to say. Only where the reply says
-  so, not for a deadline it's working to, a day it merely names, or a wait with no time.
+  until then, on the session and first in its Snooze menu, saying you read it so, which they
+  take with a click. Don't snooze it yourself: whether it leaves their list is theirs to say.
+  Only where the reply says so, not for a deadline it's working to, a day it merely names, or a
+  wait with no time.
+  - Give it in the reply's own words: they count from when the reply was written, as the reply
+    meant them ("tomorrow" in last night's reply is this morning). Give the hour where it names
+    one, and a UTC time as it is (`thu 15:00 utc`), never worked out into this Mac's by hand.
+    Where the session's own check-in or wakeup comes first, the time of that: a turn it starts
+    ends the snooze anyway.
+  - It goes with how the reply ends. A tag with `--ending` and no `--waits-until` says the reply
+    waits for no time, and takes away a day Jev read (`insight.waitsUntil` without `by` in
+    `session show`): leave it out only when you read it that way. A reply that asks your user
+    something (`question`, `blocked`) waits on them now and takes none.
 - A row in `waiting` with `finished` is only your user's to read: Codealong worked out that its
   work is done and nothing is left for them (its PRs merged, its todos done, a reply that asks
   nothing; `why` says which, and `sure` is false when only the read of its reply says so), and

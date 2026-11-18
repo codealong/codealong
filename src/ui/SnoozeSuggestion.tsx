@@ -2,16 +2,17 @@
 // (snooze.ts `suggestedSnooze`): one line above its box, in every window that shows a session
 // with one, that snoozes it until then with a click. It's the first line of the session's Snooze
 // menu, run from there (`suggestedIn`), so the click does what the menu and its chord do
-// (`SUGGESTED_CHORD`, ⌃⌘8): a window working through what waits on you goes on to the next. Who
-// read the reply that way is under the pointer: Jev (insights.rs `waits_question`), or the agent
-// that tagged it (`codealong session tag --waits-until`). Nothing snoozes by itself, and the line
-// goes with the reply it read: once the session is sent something, a turn of its starts, it's
-// snoozed, or the time comes. A snooze until a usage limit lifts is its banner's button instead
-// (SessionHeader.tsx), beside what the banner says of the limit.
+// (`SUGGESTED_CHORD`, ⌃⌘8): a window working through what waits on you goes on to the next. Its
+// sparkle says who read the reply that way under the pointer, as a suggested reply's does, and
+// the menu in words (`suggestedWhy`): Jev (insights.rs `waits_question`), or the agent that
+// tagged it (`codealong session tag --waits-until`), with its note. Nothing snoozes by itself,
+// and the line goes with the reply it read: once the session is sent something, a turn of its
+// starts, it's snoozed, or the time comes. A snooze until a usage limit lifts is its banner's
+// button instead (SessionHeader.tsx), beside what the banner says of the limit.
 
 import type { MenuGroup } from '../contextMenu';
 import { chordKeys, chordSigns } from '../menus';
-import { SUGGESTED_CHORD, suggestedIn, suggestedSnooze, untilWords } from '../snooze';
+import { SUGGESTED_CHORD, suggestedIn, suggestedSnooze, suggestedWhy, untilWords } from '../snooze';
 import type { Session } from '../types';
 import { Icon, Kbd } from './primitives';
 
@@ -29,14 +30,14 @@ export function SnoozeSuggestion({ session, snooze, now }: Props) {
   const when = untilWords(suggested.until, now);
   return (
     <div className="ca-suggest ca-snoozesuggest" role="group" aria-label="Suggested snooze">
-      <span className="ca-suggest-mark" title={suggested.by}>
+      <span className="ca-suggest-mark" title={suggested.by} role="img" aria-label={suggested.by}>
         <Icon name="sparkles" size={13} />
       </span>
       <div className="ca-suggest-replies">
         <button
           type="button"
           className="ca-suggest-reply"
-          title={`Snooze it until ${when}, as its reply says: it leaves what waits on you until then (${chordSigns(SUGGESTED_CHORD)}). ${suggested.by}`}
+          title={`Snooze it until ${when}, ${suggestedWhy(suggested)}: it leaves what waits on you until then (${chordSigns(SUGGESTED_CHORD)}).`}
           aria-keyshortcuts={SUGGESTED_CHORD.replace('Cmd', 'Meta')}
           onClick={() => action.run()}
         >

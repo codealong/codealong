@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { askWords, reviewSnoozeMenu, snoozeChoices, snoozeChorded, snoozeMenu, suggestedIn, suggestedSnooze, untilWords } from './snooze';
+import { askWords, reviewSnoozeMenu, snoozeChoices, snoozeChorded, snoozeMenu, suggestedIn, suggestedSnooze, suggestedWhy, untilWords } from './snooze';
 import type { MenuAction, MenuGroup } from './contextMenu';
 
 // Local times, so the tests read the same in any time zone.
@@ -85,10 +85,14 @@ describe('snooze', () => {
   it('offers a snooze until the time a session’s last reply says its work goes on', () => {
     const thursday = oct(1, 9);
     const read = { archived: false, insight: { waitsUntil: thursday } };
-    expect(suggestedSnooze(read, NOW)).toEqual({ until: thursday, why: 'reply', by: 'Jev’s read' });
+    expect(suggestedSnooze(read, NOW)).toEqual({ until: thursday, why: 'reply', reader: 'Jev', by: 'Jev’s read' });
     // An agent's tag says who, and why where it said.
     const tagged = { archived: false, insight: { waitsUntil: thursday, by: 'claude:claude:boss', byTitle: 'Orchestrator', note: 'The release is Thursday' } };
-    expect(suggestedSnooze(tagged, NOW)?.by).toBe('Tagged by Orchestrator: The release is Thursday');
+    expect(suggestedSnooze(tagged, NOW)).toMatchObject({ reader: 'Orchestrator', by: 'Tagged by Orchestrator: The release is Thursday' });
+    // Who read it is said with the time, whichever reader it was: the two never read alike.
+    expect(suggestedWhy(suggestedSnooze(read, NOW)!)).toBe('as Jev read its reply');
+    expect(suggestedWhy(suggestedSnooze(tagged, NOW)!)).toBe('as Orchestrator read its reply');
+    expect(suggestedSnooze({ archived: false, insight: { ...tagged.insight, byTitle: undefined } }, NOW)?.reader).toBe('an agent');
     // Not for a reply that names no time, a time all but here or gone by, nor a session that's
     // snoozed already or archived.
     expect(suggestedSnooze({ archived: false, insight: { landing: 'pushed' } }, NOW)).toBeNull();
@@ -125,8 +129,8 @@ describe('snooze', () => {
 
   it('puts the suggested time first in the menu, with a chord of its own', () => {
     const onDone = () => {};
-    const menu = snoozeMenu(['k'], NOW, { onDone, suggested: { until: oct(1, 9), why: 'reply' }, chords: true });
-    expect(labels(menu).slice(0, 3)).toEqual(['Until Thu 9 AM, as its reply says', '-', 'For 15 minutes']);
+    const menu = snoozeMenu(['k'], NOW, { onDone, suggested: { until: oct(1, 9), why: 'reply', reader: 'Orchestrator' }, chords: true });
+    expect(labels(menu).slice(0, 3)).toEqual(['Until Thu 9 AM, as Orchestrator read its reply', '-', 'For 15 minutes']);
     expect(labels(menu)).toHaveLength(10);
     const first = menu.items[0] as MenuAction;
     expect(first.accelerator).toBe('Ctrl+Cmd+8');

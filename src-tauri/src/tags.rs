@@ -112,6 +112,11 @@ pub fn read(p: &crate::actions::params::Tag, now: i64) -> Result<Option<SessionI
         (Some(e), None) => Some(if crate::insights::asking(e) { 1.0 } else { 0.0 }),
         (_, asks) => asks,
     };
+    // A reply that asks its user something waits on them now: a snooze offered beside its
+    // question would say the opposite, as Jev's read never does (insights.rs `read_in`).
+    if p.waits_until.is_some() && asks_you.is_some_and(|p| p >= 0.5) {
+        bail!("A reply that asks its user something waits on them now, not until a later time: leave out when its work goes on, or say it ends some other way.");
+    }
     let tag = SessionInsight {
         asks_you,
         landing: named(p.landing.clone(), &LANDING, "landing")?,
@@ -244,6 +249,12 @@ mod tests {
         let waits = |until: i64| read(&params::Tag { waits_until: Some(until), ..Default::default() });
         assert_eq!(waits(5_000).unwrap().unwrap().waits_until, Some(5_000));
         assert!(waits(1_000).unwrap_err().to_string().contains("has passed"));
+        // Not with a reply that asks its user something: that waits on them now.
+        let asks_and_waits = |ending: &str, asks_you: Option<f64>| read(&params::Tag { ending: Some(ending.into()), asks_you, waits_until: Some(5_000), ..Default::default() });
+        assert!(asks_and_waits("question", None).unwrap_err().to_string().contains("waits on them now"));
+        assert!(asks_and_waits("blocked", Some(1.0)).is_err());
+        assert!(read(&params::Tag { asks_you: Some(1.0), waits_until: Some(5_000), ..Default::default() }).is_err());
+        assert_eq!(asks_and_waits("handoff", None).unwrap().unwrap().waits_until, Some(5_000), "a next step of theirs can wait for it");
     }
 
     #[test]

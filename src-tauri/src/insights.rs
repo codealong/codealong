@@ -408,8 +408,10 @@ fn read_in(kind: Kind, response: &Value, zone: &dyn Zone) -> SessionInsight {
             out.landing = jev::choice(response, "landing").first().map(|(k, _)| k.clone());
             out.finished = jev::noul(response, "finished");
             // Not among the answers whose least sure one is the read's confidence: its own
-            // chance is what it's offered by.
-            out.waits_until = waits_until(response, zone);
+            // chance is what it's offered by. A reply read as asking you something waits on you
+            // now, whatever day it names: no snooze is offered beside its question, as an
+            // agent's tag can't say both (tags.rs `read`).
+            out.waits_until = waits_until(response, zone).filter(|_| out.asks_you.is_none_or(|p| p < crate::board::ASKS_YOU));
             &["asks_you", "landing", "finished"]
         }
         Kind::Quiet => {
@@ -459,7 +461,11 @@ pub fn merged(jev: Option<&SessionInsight>, said: Option<&str>, tag: Option<&Ses
         if t.finished.is_some() {
             o.finished = t.finished;
         }
-        if t.waits_until.is_some() {
+        // How its reply ends and when the work it puts off goes on are one read of the reply's
+        // end: an agent that said how it ends said when too, or by leaving it out that it waits
+        // for no time, and Jev's day doesn't stand under it. So the snooze offered and the
+        // reply's ending always come from the same reader.
+        if t.waits_until.is_some() || t.ending.is_some() || t.asks_you.is_some() {
             o.waits_until = t.waits_until;
         }
         if t.risk.is_some() {
@@ -809,6 +815,10 @@ mod tests {
         assert_eq!(until(json!({ "today": 0.97, "none": 0.03 })), None, "later the same day has no hour to snooze to");
         assert_eq!(until(json!({ "later": 1.0 })), None);
         assert_eq!(read_in(Kind::Turn, &json!({ "answers": {} }), &z).waits_until, None);
+        // A reply read as asking you something waits on you now, not until the day it names.
+        let asking = |ending: Value| json!({ "answers": { "asks_you": { "probabilities": ending }, "waits_until": { "probabilities": { "2026-11-12": 0.9, "none": 0.1 } } } });
+        assert_eq!(read_in(Kind::Turn, &asking(json!({ "question": 0.8, "report": 0.2 })), &z).waits_until, None);
+        assert_eq!(read_in(Kind::Turn, &asking(json!({ "handoff": 0.8, "question": 0.2 })), &z).waits_until, Some(ms(&z, 2026, 11, 12, 9, 0)), "a next step of yours can wait for the day");
         // How sure it is of the day is no part of how sure the read is.
         let both = json!({ "answers": { "finished": { "noul": 0.9, "confidence": 0.8 }, "waits_until": { "probabilities": { "2026-11-12": 0.7, "none": 0.3 }, "confidence": 0.2 } } });
         assert_eq!(read_in(Kind::Turn, &both, &z).confidence, Some(0.8));
@@ -832,6 +842,12 @@ mod tests {
         let waits = |until: i64| SessionInsight { waits_until: Some(until), ..Default::default() };
         assert_eq!(merged(Some(&waits(5)), None, Some(&tag)).unwrap().waits_until, Some(5));
         assert_eq!(merged(Some(&waits(5)), None, Some(&SessionInsight { by: tag.by.clone(), ..waits(9) })).unwrap().waits_until, Some(9));
+        // An agent that said how the reply ends said when its work goes on with it: leaving the
+        // time out says it waits for none, and Jev's day goes.
+        let ending = SessionInsight { asks_you: Some(0.0), ending: Some("report".into()), by: tag.by.clone(), ..Default::default() };
+        assert_eq!(merged(Some(&waits(5)), None, Some(&ending)).unwrap().waits_until, None);
+        assert_eq!(merged(Some(&waits(5)), None, Some(&SessionInsight { ending: None, ..ending.clone() })).unwrap().waits_until, None, "whether it asks is a read of its end too");
+        assert_eq!(merged(Some(&waits(5)), None, Some(&SessionInsight { waits_until: Some(9), ..ending })).unwrap().waits_until, Some(9));
         // How the reply ends is Jev's to say under an agent's word on whether it asks, while the
         // two agree; the agent's own ending stands over both.
         let ends = |ending: &str| SessionInsight { asks_you: Some(0.1), ending: Some(ending.into()), ..Default::default() };

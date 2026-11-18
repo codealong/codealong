@@ -5,28 +5,35 @@
 //! `time_of_day`), a day (`tomorrow`, `fri`, `next week`, `2026-11-03`: read as a todo's due day
 //! is, todos.rs `due_from_words`) at 9 AM, the hour the menus' next morning ends at, or a day and a
 //! time (`tomorrow 2pm`, `fri 17:00`, `2026-11-03 15:00`). Times are on this Mac's clock, a `Zone`
-//! so the rules are tested on made-up ones.
+//! so the rules are tested on made-up ones, or on UTC's where `utc` follows the time (`thu 15:00
+//! utc`): replies, and the agents that read them, often give a time that way, and turning it into
+//! this Mac's by hand is where a wrong hour comes from. A day's words are still this Mac's.
 
 use crate::schedules::rule::{time_of_day, Zone};
-use crate::util::{civil_from_days, days_from_civil};
+use crate::util::{civil_from_days, days_from_civil, DAY_MS};
 
 /// The hour a snooze to a day ends at, as the menus' next morning does, and the hour of the day
 /// a reply says its work waits for (insights.rs `waits_until`).
 pub const MORNING: i64 = 9;
 
-const EXAMPLES: &str = "Give a span (30m, 2h, 3d), a time (5pm, 17:30), a day (tomorrow, fri, next week, 2026-11-03) or both (tomorrow 2pm, fri 17:00).";
+const EXAMPLES: &str = "Give a span (30m, 2h, 3d), a time (5pm, 17:30, 15:00 utc), a day (tomorrow, fri, next week, 2026-11-03) or both (tomorrow 2pm, fri 17:00).";
 
 /// When a snooze typed as `text` ends, after `now`, or why it can't be read or has passed.
 pub fn until(text: &str, now: i64, zone: &dyn Zone) -> Result<i64, String> {
     let lower = text.trim().to_lowercase();
     // `at` reads as nothing more: `tomorrow at 2pm`.
-    let words: Vec<&str> = lower.split_whitespace().filter(|&w| w != "at").collect();
+    let mut words: Vec<&str> = lower.split_whitespace().filter(|&w| w != "at").collect();
+    // The time before it is UTC's: `15:00 utc`.
+    let utc = words.len() > 1 && matches!(words.last(), Some(&("utc" | "gmt")));
+    if utc {
+        words.pop();
+    }
     if words.is_empty() {
         return Err(format!("Say when it comes back. {EXAMPLES}"));
     }
     let span = words.strip_prefix(&["in"]).unwrap_or(&words);
     if let [one] = span {
-        if let Some(ms) = crate::idle::parse_after(one) {
+        if let Some(ms) = crate::idle::parse_after(one).filter(|_| !utc) {
             return Ok(now + ms);
         }
     }
@@ -44,13 +51,22 @@ pub fn until(text: &str, now: i64, zone: &dyn Zone) -> Result<i64, String> {
     let now_civil = zone.civil(now);
     let today = days_from_civil(now_civil.year, now_civil.month, now_civil.day);
     let at = |days: i64, minutes: i64| {
+        if utc {
+            return Some(days * DAY_MS + minutes * 60_000);
+        }
         let (y, m, d) = civil_from_days(days);
         zone.at(y, m, d, minutes / 60, minutes % 60)
     };
-    // A time alone is the next one: today's while it's still ahead, else tomorrow's.
+    // UTC's clock is for a time: a day alone ends at 9 on this Mac's.
+    if utc && minutes.is_none() {
+        return Err(unread());
+    }
+    // A time alone is the next one: today's while it's still ahead, else tomorrow's. UTC's day
+    // can be a day either side of this Mac's, so the days around it are tried too; on this Mac's
+    // clock the day before is never ahead, nor is the day after tomorrow reached.
     if day_words.is_empty() {
         let minutes = minutes.ok_or_else(unread)?;
-        return [today, today + 1].into_iter().filter_map(|d| at(d, minutes)).find(|&t| t > now).ok_or_else(unread);
+        return (today - 1..=today + 2).filter_map(|d| at(d, minutes)).find(|&t| t > now).ok_or_else(unread);
     }
     let day = crate::todos::due_from_words(&day_words.join(" "), today).ok().and_then(|d| crate::todos::due_day(&d)).ok_or_else(unread)?;
     let t = at(day, minutes.unwrap_or(MORNING * 60)).ok_or_else(unread)?;
@@ -128,6 +144,26 @@ mod tests {
         assert_eq!(until_at("2026-11-03 15:00"), Ok(ms(&z, 2026, 11, 3, 15, 0)));
         assert_eq!(until_at("2026-11-03"), Ok(ms(&z, 2026, 11, 3, 9, 0)));
         assert_eq!(until_at("today 6pm"), Ok(ms(&z, 2026, 10, 28, 18, 0)));
+    }
+
+    #[test]
+    fn reads_a_time_on_utcs_clock() {
+        let z = zone();
+        // 2:10 PM here is 9:10 PM in UTC: its next 3 PM is tomorrow's, its 10 PM tonight's.
+        assert_eq!(until_at("15:00 utc"), Ok(ms(&z, 2026, 10, 29, 8, 0)));
+        assert_eq!(until_at("22:00 UTC"), Ok(ms(&z, 2026, 10, 28, 15, 0)));
+        assert_eq!(until_at("thu 3pm utc"), Ok(ms(&z, 2026, 10, 29, 8, 0)));
+        assert_eq!(until_at("Fri at 15:00 GMT"), Ok(ms(&z, 2026, 10, 30, 8, 0)));
+        assert_eq!(until_at("2026-11-03 15:00 utc"), Ok(ms(&z, 2026, 11, 3, 8, 0)));
+        assert_eq!(until_at("today 15:00 utc"), Err("8 AM has passed.".into()));
+        // Ahead of UTC, its next time can be on the day before this Mac's.
+        let east = Fake { offset_hours: 10, summer: None };
+        let early = ms(&east, 2026, 10, 29, 1, 0);
+        assert_eq!(until("16:00 utc", early, &east), Ok(early + 3_600_000));
+        // A zone goes with a time: not with a day alone, a span, or nothing.
+        assert!(until_at("thu utc").unwrap_err().starts_with("Couldn't read"));
+        assert!(until_at("3h utc").unwrap_err().starts_with("Couldn't read"));
+        assert!(until_at("utc").unwrap_err().starts_with("Couldn't read"));
     }
 
     #[test]

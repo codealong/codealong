@@ -12,7 +12,7 @@
 import { snoozeAhead, snoozedFrom, snoozeReviewsAhead } from './ahead';
 import { showMain } from './api';
 import type { MenuAction, MenuGroup } from './contextMenu';
-import { readBy } from './insights';
+import { readBy, readerOf } from './insights';
 import type { PrItem, Session } from './types';
 
 const MIN = 60_000;
@@ -47,13 +47,20 @@ export interface SuggestedSnooze {
   /** What comes then: its last reply says the work goes on (`reply`), or the usage limit that
    *  stopped it lifts (`limit`). */
   why: 'reply' | 'limit';
-  /** Who read the reply that way: Jev, or the agent that tagged it (insights.ts `readBy`), with
-   *  the agent's note. None for a limit, which its harness said. */
+  /** Who read the reply that way, by name: Jev, or the agent that tagged it (insights.ts
+   *  `readerOf`), said with the time wherever it's offered (`suggestedWhy`). None for a limit,
+   *  which its harness said. */
+  reader?: string;
+  /** That read, for a tooltip (insights.ts `readBy`), with the agent's note. */
   by?: string;
 }
 
-/** What ends a suggested time's line in a Snooze menu, by why it's suggested. */
-const SUGGESTED_WHY: Record<SuggestedSnooze['why'], string> = { reply: 'as its reply says', limit: 'when its limit lifts' };
+/** What ends a suggested time's line wherever it's offered, by why it's suggested: who read the
+ *  reply that way, as two readers can (Jev, or the agent that tagged it), or the limit that
+ *  lifts then. */
+export function suggestedWhy(s: Pick<SuggestedSnooze, 'why' | 'reader'>): string {
+  return s.why === 'limit' ? 'when its limit lifts' : `as ${s.reader ?? 'Jev'} read its reply`;
+}
 
 /** A suggested time less than this far off isn't worth a snooze. */
 const WORTH = 5 * MIN;
@@ -75,7 +82,7 @@ export function suggestedSnooze(s: Pick<Session, 'insight' | 'snoozedUntil' | 'a
   const until = s.insight?.waitsUntil;
   if (!until || until - now < WORTH) return null;
   const note = s.insight?.by && s.insight.note ? `: ${s.insight.note}` : '';
-  return { until, why: 'reply', by: `${readBy(s.insight)}${note}` };
+  return { until, why: 'reply', reader: readerOf(s.insight), by: `${readBy(s.insight)}${note}` };
 }
 
 /** The next morning at nine: this morning's in the small hours. */
@@ -176,7 +183,7 @@ interface SnoozeOpts {
   chords?: boolean;
   /** The time suggested for one session, and why (`suggestedSnooze`): offered first, with a chord
    *  of its own. */
-  suggested?: Pick<SuggestedSnooze, 'until' | 'why'> | null;
+  suggested?: Pick<SuggestedSnooze, 'until' | 'why' | 'reader'> | null;
 }
 
 /** A snooze's times as a submenu, each setting it with `set`; Pick a time…, which asks the main
@@ -187,7 +194,7 @@ function timesMenu(set: (until: number | null) => Promise<void>, ask: SnoozeAsk,
   const time = (c: SnoozeChoice): TimeAction => ({ label: c.label, run: () => done(set(c.until)), chord: c.chord, ...(opts.chords ? { accelerator: c.chord } : {}) });
   const items: (TimeAction | MenuAction | 'separator')[] = snoozeChoices(now).map(time);
   const suggested = opts.suggested;
-  if (suggested) items.unshift(time({ label: `Until ${untilWords(suggested.until, now)}, ${SUGGESTED_WHY[suggested.why]}`, until: suggested.until, chord: SUGGESTED_CHORD }), 'separator');
+  if (suggested) items.unshift(time({ label: `Until ${untilWords(suggested.until, now)}, ${suggestedWhy(suggested)}`, until: suggested.until, chord: SUGGESTED_CHORD }), 'separator');
   items.push({
     label: 'Pick a time…',
     run: () => {
