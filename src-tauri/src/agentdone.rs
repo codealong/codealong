@@ -128,11 +128,11 @@ impl Waiting {
 const READ_WAIT_MS: i64 = 2 * 60 * 1000;
 
 /// Whether a session whose user asked it to close may be archived now that its turn has ended:
-/// not when its harness cut the turn short (a lost connection, a usage limit), whose reply is an
-/// error, nor when its reply may ask its user something (`board::reply_asks`). None while
+/// not when its harness cut the turn short (`Session::cut_short`), whose reply is an error, nor
+/// when its reply may ask its user something (`board::reply_asks`). None while
 /// Jev's read of that is still to come, `jev` saying whether Jev reads sessions.
 fn may_archive(s: &Session, jev: bool, now: i64) -> Option<bool> {
-    if s.connection_lost.is_some() || s.limit.is_some() || s.cut_off.is_some() {
+    if s.cut_short() {
         return Some(false);
     }
     let read = s.insight.as_ref().is_some_and(|i| i.asks_you.is_some());

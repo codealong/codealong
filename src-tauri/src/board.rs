@@ -414,6 +414,9 @@ pub fn claude_session(
     let connection_lost = tr.and_then(|t| t.connection_lost).filter(|_| status != Status::Working).map(|at| ConnectionLost { at, continues: false });
     // What went wrong, for a window to show and offer to try again.
     let api_error = tr.and_then(|t| t.api_error.clone()).filter(|_| status != Status::Working);
+    // A sign-in turned down, which only a sign-in mends; whether Codealong carries it on once
+    // there's one is the engine's to say (`engine::with_sign_ins`).
+    let signed_out = tr.and_then(|t| t.signed_out.clone()).filter(|_| status != Status::Working).map(|e| SignedOut { at: e.at, said: e.said, continues: false });
     // Its process went away partway through a turn: its terminal closed, the Mac restarted, it
     // was killed. Read only for terminal sessions (background jobs too), whose turns were checked
     // to end the ways `transcript::turn_step` knows; the Claude app restarts its own sessions.
@@ -538,6 +541,7 @@ pub fn claude_session(
         limit,
         connection_lost,
         api_error,
+        signed_out,
         cut_off,
         flagged: tr.is_some_and(|t| t.flagged),
         model: tr.and_then(|t| t.model.clone()),
@@ -1739,15 +1743,14 @@ pub fn apply_labels(s: &mut Session, ids: &[String], labels: &[Label]) {
 /// and before what you do to it yourself: a turn whose agent said it needs nothing from you is
 /// idle rather than Your turn, and says so (`Session::agent_seen`). Only a turn that ended as
 /// Your turn: a reply Jev reads as asking you something is Needs you by then, and a call to
-/// allow, a question or an error still wait on you, as does a turn its harness ended (the
-/// connection lost, a usage limit, cut off), which isn't the reply its agent spoke for. The agent
-/// marks the turn it's taking, and what came after the mark is past what it spoke for
+/// allow, a question or an error still wait on you, as does a turn its harness ended short
+/// (`Session::cut_short`), which isn't the reply its agent spoke for. The agent marks the turn
+/// it's taking, and what came after the mark is past what it spoke for
 /// (`agent_seen_spent`). Your Mark as unread, a side conversation's answer and a snooze that ends
 /// still bring it back, as they come after (`settle_agent_seen`).
 pub fn apply_agent_seen(s: &mut Session, mark: Option<&AgentSeen>) {
     let Some(m) = mark else { return };
-    let cut_short = s.connection_lost.is_some() || s.limit.is_some() || s.cut_off.is_some();
-    if s.status != Status::Unread || cut_short || agent_seen_spent(s, m.at) {
+    if s.status != Status::Unread || s.cut_short() || agent_seen_spent(s, m.at) {
         return;
     }
     s.status = Status::Idle;
@@ -2532,7 +2535,7 @@ pub fn standing_of(s: &Session, work: &Work) -> Standing {
         Status::Error => return Standing::Error,
         Status::Unread | Status::Idle | Status::Stopped => {}
     }
-    if s.limit.is_some() || s.connection_lost.is_some() || s.cut_off.is_some() {
+    if s.cut_short() {
         return Standing::CutShort;
     }
     if s.background.is_some() || s.running.is_some() || s.stalled_since.is_some() || s.queued_at.is_some() || !s.queued.is_empty() || s.snoozed_until.is_some() {
@@ -2957,6 +2960,42 @@ pub fn targets(seed: &LaneSeed, sessions: &[Session], pr: Option<&Pr>, preview: 
         .map(|x| x.id.clone())
         .or_else(|| Some("l|terminal".to_string()));
     (t, default)
+}
+
+/// A notice for each account here whose usage reads signed out while sessions of it here are
+/// stopped on its sign-in being turned down (`Session::signed_out`), offering to sign it in: one
+/// sign-in mends them all. An account that reads signed in gets none: its sessions are told to
+/// carry on (reconnect.rs), and a sign-in renewed by another process moments later is the usual
+/// case (claude/transcript.rs `signed_out_of`).
+pub fn signed_out_notices(board: &Board) -> Vec<Notice> {
+    board
+        .usage
+        .iter()
+        .filter(|u| u.needs_sign_in)
+        .filter_map(|u| {
+            let mut stopped: Vec<&Session> = board
+                .lanes
+                .iter()
+                .filter(|l| l.device.is_none())
+                .flat_map(|l| &l.sessions)
+                .filter(|s| s.account == u.account && s.visitor.is_none() && !s.archived && s.status != Status::Working && s.signed_out.is_some())
+                .collect();
+            stopped.sort_by(|a, b| a.key.cmp(&b.key));
+            stopped.dedup_by(|a, b| a.key == b.key);
+            let (them, it) = match stopped.as_slice() {
+                [] => return None,
+                [one] => (crate::send::quoted(&one.title), "it"),
+                many => (format!("{} sessions", many.len()), "them"),
+            };
+            let then = if stopped.iter().all(|s| s.signed_out.as_ref().is_some_and(|o| o.continues)) {
+                format!("Sign in, and Codealong tells {it} to carry on.")
+            } else {
+                format!("Sign in, then send {it} something to go on.")
+            };
+            let account = &u.account;
+            Some(Notice { key: format!("signed-out:{account}"), title: format!("Signed out of {account}"), text: format!("{them} stopped because {account}'s sign-in was turned down. {then}"), sign_in: Some(account.clone()), ..Default::default() })
+        })
+        .collect()
 }
 
 pub fn compose(inp: Inputs) -> Board {
@@ -7528,5 +7567,33 @@ mod tests {
         }
         let kept: serde_json::Value = std::fs::read_to_string(&path).ok().and_then(|t| serde_json::from_str(&t).ok()).unwrap_or_default();
         assert!(kept == made, "src/testing/ruleCases.json is stale: a rule of the board's changed, or what a session or worktree is sent as did. Write it again with `CODEALONG_WRITE_FIXTURES=1 cargo test rule_cases`, then `npm test rules` says which rule of lanes.ts no longer agrees.");
+    }
+
+    #[test]
+    fn an_account_that_reads_signed_out_with_sessions_stopped_on_it_offers_a_sign_in() {
+        let out = |key: &str, continues: bool| Session { title: key.into(), signed_out: Some(SignedOut { at: NOW - 60_000, said: "OAuth token revoked · Please run /login".into(), continues }), ..crate::fixtures::session(key) };
+        let usage = |account: &str, signed_in: bool| Usage { account: account.into(), harness: Harness::Claude, plan: None, meters: Vec::new(), as_of: Some(NOW), error: None, needs_sign_in: !signed_in, loading: false, no_limits: false, preferred: false, rate_limited: false };
+        let mut board = Board { lanes: vec![crate::fixtures::lane("/r", vec![out("a", true), out("b", true), crate::fixtures::session("c")])], usage: vec![usage("claude", false)], ..Board::default() };
+        let said = signed_out_notices(&board);
+        assert_eq!(said.len(), 1);
+        assert_eq!((said[0].key.as_str(), said[0].title.as_str(), said[0].sign_in.as_deref()), ("signed-out:claude", "Signed out of claude", Some("claude")));
+        assert_eq!(said[0].text, "2 sessions stopped because claude's sign-in was turned down. Sign in, and Codealong tells them to carry on.");
+        // One alone is named; one Codealong won't carry on is yours to send on.
+        board.lanes[0].sessions = vec![out("a", false)];
+        assert_eq!(signed_out_notices(&board)[0].text, "“a” stopped because claude's sign-in was turned down. Sign in, then send it something to go on.");
+        // None while the account reads signed in (they're carried on), for another account's
+        // sessions, one that works again, one archived, or another Mac's.
+        board.usage = vec![usage("claude", true)];
+        assert!(signed_out_notices(&board).is_empty());
+        board.usage = vec![usage("claude2", false)];
+        assert!(signed_out_notices(&board).is_empty());
+        board.usage = vec![usage("claude", false)];
+        for s in [Session { status: Status::Working, ..out("a", true) }, Session { archived: true, ..out("a", true) }] {
+            board.lanes[0].sessions = vec![s];
+            assert!(signed_out_notices(&board).is_empty());
+        }
+        board.lanes[0].sessions = vec![out("a", true)];
+        board.lanes[0].device = Some(DeviceTag { name: "Studio".into(), short: "st".into(), color: "blue".into(), online: true, last_seen: None });
+        assert!(signed_out_notices(&board).is_empty());
     }
 }

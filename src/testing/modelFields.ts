@@ -85,6 +85,7 @@ export type Session = Holds<Same<
   | "running"
   | "shortId"
   | "sideAnswer"
+  | "signedOut"
   | "snoozedUntil"
   | "stalledSince"
   | "startedAt"
@@ -174,6 +175,13 @@ export type ApiError = Holds<Same<
   | "at"
   | "said",
   Names<Types.ApiError>
+>>;
+
+export type SignedOut = Holds<Same<
+  | "at"
+  | "continues"
+  | "said",
+  Names<Types.SignedOut>
 >>;
 
 export type Suggestions = Holds<Same<
@@ -481,6 +489,7 @@ export type Notice = Holds<Same<
   | "key"
   | "reviewAgain"
   | "screen"
+  | "signIn"
   | "text"
   | "title"
   | "until",
@@ -1015,6 +1024,7 @@ export type SessionsCfg = Holds<Same<
   | "block_flagged_sessions"
   | "continue_after_network_error"
   | "continue_after_restart"
+  | "continue_after_sign_in"
   | "hibernate_after"
   | "live_replies"
   | "resume_for_any_session"

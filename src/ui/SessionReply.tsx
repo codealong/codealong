@@ -132,7 +132,7 @@ import { useVoice } from '../listening';
 import { shortcutLabel } from '../quick';
 import { dropBegunIn, goingNow, talkedInto, talkInto, talksHere, useGoing } from '../talk';
 import { Level } from './Said';
-import type { AccountMoves } from '../menus';
+import { signInTo, type AccountMoves } from '../menus';
 import { errorText } from '../report';
 import { bare, chordPressed, cmd, held, keysIn, platform, typed } from '../platform';
 
@@ -696,6 +696,22 @@ function Composer({ session: s, terminal, autoFocus, onlyAside = false, waiting,
       .finally(() => setForking(false));
   };
 
+  // Its account signed in again in your terminal, as the usage bar's chip does: the session isn't
+  // sent anything, and those its sign-in stopped are told to carry on once it's done
+  // (reconnect.rs).
+  const signInHere = () => {
+    const key = s.key;
+    setNote(null);
+    setText('');
+    signInTo(s.account).then(
+      (said) => land(key, { text: said, error: false }),
+      (e: unknown) => {
+        const why = errorText(e);
+        if (!land(key, { text: why, error: true })) onFailed?.(why);
+      },
+    );
+  };
+
   // A command led by `!`, which runs in a new tab of yours for the session to be told what it
   // printed once it ends, as Run on a `!` block does. It doesn't reach the session meanwhile, so
   // it goes while the session waits on you too. The box clears at once, and has it back, with
@@ -817,6 +833,7 @@ function Composer({ session: s, terminal, autoFocus, onlyAside = false, waiting,
     if (!command) return send();
     if (command.command.name === 'fork') fork(command.rest);
     if (command.command.name === 'side') askAside(command.rest, command.rest.trim() ? asked : undefined);
+    if (command.command.name === 'login') signInHere();
     return true;
   };
 

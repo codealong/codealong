@@ -16,7 +16,7 @@ import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, typ
 import { below, showContextMenu, type MenuAction, type MenuSpec } from './contextMenu';
 import { useEditorIcons } from './editors';
 import { homeOf, narrowed, runsShownKey, sidesShownKey, type BoardRow, type Filter } from './lanes';
-import { answerLink, barMode, harnessSchedules, onBarMode, onCloseIdle, onCloseStale, onUsageMenu, onWebsiteMenu, onWindowToast, onNewWindow, onReveal, takeOpenedLink, onSettings, onSetupMenu, onCheckUpdates, openConfig, openHarnessLink, openProjectWindow, openUrl, orderAccounts, refresh, refreshUsage, scheduleOp, setBarMode, startOptions, setPinned, setPinnedPrs, setPinnedRepos, setPinnedWorktrees, setTheme, setupNeeded, showQuick, startFromQuick, signIn, stopTraining, terminalWindow, windowLabel, zoomWindows, onZoomMenu, onReloadMenu, WEBSITE, type BarMode, type Reveal } from './api';
+import { answerLink, barMode, harnessSchedules, onBarMode, onCloseIdle, onCloseStale, onUsageMenu, onWebsiteMenu, onWindowToast, onNewWindow, onReveal, takeOpenedLink, onSettings, onSetupMenu, onCheckUpdates, openConfig, openHarnessLink, openProjectWindow, openUrl, orderAccounts, refresh, refreshUsage, scheduleOp, setBarMode, startOptions, setPinned, setPinnedPrs, setPinnedRepos, setPinnedWorktrees, setTheme, setupNeeded, showQuick, startFromQuick, stopTraining, terminalWindow, windowLabel, zoomWindows, onZoomMenu, onReloadMenu, WEBSITE, type BarMode, type Reveal } from './api';
 import { count, middleTruncate } from './format';
 import * as menus from './menus';
 import { prRefOf } from './prLinks';
@@ -2007,7 +2007,7 @@ export function App() {
     openConfig().catch((e: unknown) => setToast(String(e)));
   };
   const startSignIn = (account: string) => {
-    signIn(account).catch((e: unknown) => setToast(String(e)));
+    menus.signInTo(account).then(setToast, (e: unknown) => setToast(String(e)));
   };
   // The card it was asked from has gone by the time it's done, so how it went is a toast.
   const turnOffTraining = (account: string) => {
@@ -2471,7 +2471,7 @@ export function App() {
             notices={notices}
             now={now}
             onDismiss={(n) => setDismissed((d) => [...d, noticeId(n)])}
-            onAction={(a) => ('opens' in a ? openSettings('file') : tryAgain(a.reviews, { error: setToast, info: setToast, busy: track }))}
+            onAction={(a) => ('opens' in a ? openSettings('file') : 'signsIn' in a ? startSignIn(a.signsIn) : tryAgain(a.reviews, { error: setToast, info: setToast, busy: track }))}
           />
           </>
         }

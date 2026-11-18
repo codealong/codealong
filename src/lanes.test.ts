@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { asideable, ageFiltered, apiErrorWords, archivedShows, bayOf, branchLabel, bySession, byStatusTime, waitsFinished, raisedBy, closable, cutOffWords, endedOnApiError, exitsItsOwnWay, filterByAge, foldsOf, foldWords, helperLine, helperName, helperStands, homeOf, inboxCounts, laneWaits, limitWords, liveOrLatest, narrowed, relaned, runsShownKey, seenable, sessionFlag, sessionHeadline, sessionPrs, sidesListed, sidesShownKey, stoppable, unattended, waitsInBackground, withoutAccount, workingFor, workingSince } from './lanes';
+import { asideable, ageFiltered, apiErrorWords, archivedShows, bayOf, branchLabel, bySession, byStatusTime, waitsFinished, raisedBy, closable, cutOffWords, endedOnApiError, endedSignedOut, exitsItsOwnWay, filterByAge, foldsOf, foldWords, helperLine, helperName, helperStands, homeOf, inboxCounts, laneWaits, limitWords, liveOrLatest, narrowed, relaned, runsShownKey, seenable, sessionFlag, sessionHeadline, sessionPrs, sidesListed, sidesShownKey, signedOutWords, stoppable, unattended, waitsInBackground, withoutAccount, workingFor, workingSince } from './lanes';
 import * as fx from './testing/fixtures';
 import type { Lane, Pr, PrItem, Session, SideGlance } from './types';
 
@@ -407,6 +407,21 @@ describe('sessionFlag', () => {
     expect(sessionFlag({ ...errored, status: 'working', excerpt: null })).toBeNull();
     // One its harness calls an error (Antigravity's) stays Error, its words on hover.
     expect(sessionFlag({ ...errored, status: 'error' })).toMatchObject({ label: 'Error', tone: 'bad', title: apiErrorWords(errored) });
+  });
+
+  it('says a sign-in turned down ended its turn, and who carries it on', () => {
+    const out = s({ status: 'unread', excerpt: 'OAuth token revoked · Please run /login', signedOut: { at: NOW - 60_000, said: 'OAuth token revoked · Please run /login', continues: true } });
+    expect(endedSignedOut(out)).toBe(true);
+    expect(endedOnApiError(out)).toBe(false);
+    expect(sessionFlag(out)).toMatchObject({ label: 'Signed out', tone: 'bad' });
+    expect(signedOutWords(out)).toBe('Its last turn ended because claude2’s sign-in was turned down: OAuth token revoked · Please run /login. Codealong tells it to carry on once the account is signed in again, which often comes right by itself in a minute or two.');
+    // One Codealong won't carry on is yours to send on, signed in from its chip, or its button.
+    const left = { ...out, signedOut: { at: NOW - 60_000, said: 'Login expired · Please run /login.' } };
+    expect(signedOutWords(left)).toBe('Its last turn ended because claude2’s sign-in was turned down: Login expired · Please run /login. Sign in to it from its chip in the usage bar, then send it something to go on.');
+    expect(signedOutWords(left, true)).toBe('Its last turn ended because claude2’s sign-in was turned down: Login expired · Please run /login. Once you’ve signed in, send it something to go on.');
+    // Carried on, it's working: nothing to flag.
+    expect(sessionFlag({ ...out, status: 'working', excerpt: null })).toBeNull();
+    expect(endedSignedOut({ ...out, status: 'working' })).toBe(false);
   });
 
   it('says a turn was cut off, as news until seen and as a flag after', () => {

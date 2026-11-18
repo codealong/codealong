@@ -769,7 +769,8 @@ function SoundsPane({ cfg, names, disabled, onSave, onError }: PaneProps & { nam
 
 /** `[limits] when_hit` and `continue_when_lifted`: what's done about a session its account's
  *  usage limit stopped; `[sessions] continue_after_network_error`, about one a lost connection
- *  stopped; `[sessions] continue_after_restart`, about one Codealong runs that its quitting cut
+ *  stopped; `continue_after_sign_in`, about one its account's sign-in stopped;
+ *  `[sessions] continue_after_restart`, about one Codealong runs that its quitting cut
  *  off; `[sessions] resume_for_any_session` and `resume_for_sessions_it_started`, about one
  *  that stopped before another session sent it a message; `resume_for_pr_news`, about a PR's
  *  primary session that stopped before its PR had news for it; and `hibernate_after`, about one
@@ -779,8 +780,9 @@ function LimitsField({ cfg, disabled, onSave }: PaneProps) {
   const value = limits.when_hit;
   const lifted = limits.continue_when_lifted ?? true;
   const agents = MOVES_ACCOUNTS.map((h) => HARNESS_WORD[h]).join(', ');
-  const sessions: SessionsCfg = { block_flagged_sessions: true, continue_after_network_error: true, continue_after_restart: true, resume_for_sessions_it_started: true, resume_for_any_session: true, resume_for_pr_news: true, ...cfg.sessions };
+  const sessions: SessionsCfg = { block_flagged_sessions: true, continue_after_network_error: true, continue_after_sign_in: true, continue_after_restart: true, resume_for_sessions_it_started: true, resume_for_any_session: true, resume_for_pr_news: true, ...cfg.sessions };
   const continues = sessions.continue_after_network_error;
+  const signsIn = sessions.continue_after_sign_in ?? true;
   const restarts = sessions.continue_after_restart ?? true;
   const resumes = sessions.resume_for_sessions_it_started ?? true;
   const resumesAny = sessions.resume_for_any_session ?? true;
@@ -810,6 +812,11 @@ function LimitsField({ cfg, disabled, onSave }: PaneProps) {
         <CheckBox checked={continues} onChange={(on) => saveSessions({ continue_after_network_error: on })} />
         <span>Carry on after a network error</span>
         <small>When a session’s turn ends because it couldn’t reach its API, as happens when the machine sleeps with the lid closed or the network drops, Codealong tells it to carry on once the API can be reached again. Claude Code sessions, and Antigravity’s in its command line, for now.</small>
+      </label>
+      <label className="ca-field ca-settings-check">
+        <CheckBox checked={signsIn} onChange={(on) => saveSessions({ continue_after_sign_in: on })} />
+        <span>Carry on after signing in again</span>
+        <small>When a session’s turn ends because its account’s sign-in was turned down, Codealong tells it to carry on once the account is signed in again. Most often the sign-in was renewed by itself a moment later; otherwise sign in from its chip in the usage bar, from Sign in on the session, or with /login in its box. Claude Code sessions, for now.</small>
       </label>
       <label className="ca-field ca-settings-check">
         <CheckBox checked={restarts} onChange={(on) => saveSessions({ continue_after_restart: on })} />

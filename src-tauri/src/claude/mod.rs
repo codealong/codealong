@@ -134,6 +134,19 @@ impl crate::harness::Adapter for ClaudeCode {
         (usage::claude_signed_in(home), email)
     }
 
+    /// `auth login`, which only signs in and then ends, where the bare command would start a
+    /// session that, with a sign-in still kept but turned down (revoked, or past renewing), asks
+    /// for none until a prompt fails and you type `/login`. It fills in the email the account last
+    /// signed in with where its state file still has it (`--email`, 2.1.327's help). Its
+    /// background service names it too: "headless daemon cannot complete OAuth —
+    /// run `claude auth login` to refresh" (`daemon.log`). The account's command, a script that
+    /// sets its folder (`CLAUDE_CONFIG_DIR`), takes it through to Claude Code as it takes a
+    /// session's arguments.
+    fn sign_in_command(&self, account: &AccountCfg) -> String {
+        let email = self.signed_in(&account.home_path()).1.map(|e| format!(" --email {}", crate::util::sh_quote(&e))).unwrap_or_default();
+        format!("{} auth login{email}", account.command())
+    }
+
     fn installed(&self, home: &Path, on_path: &dyn Fn(&str) -> bool) -> bool {
         on_path("claude") || crate::detect::is_executable(&home.join(".local/bin/claude")) || crate::detect::is_executable(&home.join(".claude/local/claude"))
     }
@@ -1297,7 +1310,7 @@ impl Reader {
         for key in origins.sessions.keys() {
             let Some(id) = key.strip_prefix(&prefix).filter(|id| !known.contains(id)) else { continue };
             let Some(from) = self.moved_copy(&a.name, origins.origin_of(key)) else { continue };
-            let info = TranscriptInfo { session_id: id.to_string(), limit: None, connection_lost: None, api_error: None, ..from.transcript.1.clone() };
+            let info = TranscriptInfo { session_id: id.to_string(), limit: None, connection_lost: None, api_error: None, signed_out: None, ..from.transcript.1.clone() };
             let seen_at = look.seen.seen_at(&from.key).max(look.seen.seen_at(key));
             let Some(mut s) = crate::board::claude_session(a, None, Some(&info), seen_at, look.now, &crate::board::Quiet::default()) else { continue };
             s.archived = look.archived_here(key, s.last_activity);
@@ -1528,13 +1541,13 @@ impl crate::harness::Reader for Reader {
             let reg = moved.as_ref().or(reg);
             let seen_at = from.as_ref().map(|f| look.seen.seen_at(&f.key)).unwrap_or(0).max(look.seen.seen_at(&key));
             let info = tr.map(|(_, t)| t);
-            // A limit or an API error in the conversation it goes on from stopped that session's
-            // turn, maybe on another account; this one hasn't taken a turn yet.
+            // A limit, an API error or a sign-in in the conversation it goes on from stopped that
+            // session's turn, maybe on another account; this one hasn't taken a turn yet.
             let unlimited = from
                 .as_ref()
                 .and(info)
-                .filter(|t| t.limit.is_some() || t.connection_lost.is_some() || t.api_error.is_some())
-                .map(|t| TranscriptInfo { limit: None, connection_lost: None, api_error: None, ..t.clone() });
+                .filter(|t| t.limit.is_some() || t.connection_lost.is_some() || t.api_error.is_some() || t.signed_out.is_some())
+                .map(|t| TranscriptInfo { limit: None, connection_lost: None, api_error: None, signed_out: None, ..t.clone() });
             let info = unlimited.as_ref().or(info);
             // Only a busy session that's gone quiet costs a look outside its transcript,
             // and one whose turn left a command running in the background (read once
@@ -2704,6 +2717,16 @@ mod tests {
         assert!(source.transcript.1.api_error.is_some() && source.transcript.1.connection_lost.is_some());
         let copy = &reader.closed_copies(&to, &HashSet::new(), &origins, &look)[0];
         assert_eq!((copy.api_error.as_ref(), copy.connection_lost.as_ref(), copy.limit.as_ref()), (None, None, None));
+    }
+
+    #[test]
+    fn signing_in_runs_auth_login_with_the_email_it_last_signed_in_with() {
+        use crate::harness::Adapter as _;
+        let home = crate::fixtures::scratch("sign-in");
+        let account = AccountCfg { name: "claude2".into(), harness: "claude".into(), home: home.to_string_lossy().into(), command: Some("claude2".into()), start: None, acp: None, monthly: None, per_token: false, usage_cap: None, disabled: false, chrome_profile: None };
+        assert_eq!(ClaudeCode.sign_in_command(&account), "claude2 auth login");
+        std::fs::write(home.join(".claude.json"), r#"{"oauthAccount":{"emailAddress":"sam@example.com"}}"#).unwrap();
+        assert_eq!(ClaudeCode.sign_in_command(&account), "claude2 auth login --email 'sam@example.com'");
     }
 
     #[test]

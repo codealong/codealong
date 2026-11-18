@@ -366,9 +366,9 @@ fn fail(p: &mut Part, why: &str) {
 }
 
 /// Session `s`'s last turn stopped on an error its harness recorded: not a usage limit, a lost
-/// connection or a cut, which go their own ways.
+/// connection, a sign-in or a cut, which go their own ways (`Session::cut_short`).
 pub(crate) fn stopped_on_error(s: &Session) -> bool {
-    s.status == Status::Error && s.limit.is_none() && s.connection_lost.is_none() && s.cut_off.is_none()
+    s.status == Status::Error && !s.cut_short()
 }
 
 /// Why a part whose start named no session failed when its session didn't show in time
@@ -1101,7 +1101,7 @@ fn turn_ended(s: &Session, at: i64) -> bool {
         Status::Needs => s.asks,
         Status::Working | Status::Error => false,
     };
-    ended && s.last_activity >= at && s.limit.is_none() && s.connection_lost.is_none() && s.cut_off.is_none()
+    ended && s.last_activity >= at && !s.cut_short()
 }
 
 /// A session at work on a turn: working, or waiting on you to allow something partway.

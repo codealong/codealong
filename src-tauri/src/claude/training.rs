@@ -11,10 +11,10 @@
 use anyhow::{anyhow, bail, Result};
 use serde_json::{json, Value};
 
-use super::usage::{read_sign_in, request, Fetch};
+use super::usage::{read_sign_in, request, sign_in_fix, Fetch};
 use crate::config::AccountCfg;
 use crate::training::{State, Training};
-use crate::util::{code, now_ms};
+use crate::util::now_ms;
 
 const SETTINGS_URL: &str = "https://api.anthropic.com/api/oauth/account/settings";
 /// Where a person changes it by hand.
@@ -26,7 +26,7 @@ fn commercial(subscription: &str) -> bool {
 }
 
 pub fn read(account: &AccountCfg) -> Training {
-    let fix = format!("run {} once to sign in again", code(account.command()));
+    let fix = sign_in_fix(account);
     let Some(sign_in) = read_sign_in(&account.home_path()) else {
         return Training::unknown(account, format!("Not signed in: {fix}.")).at(PAGE);
     };
@@ -57,10 +57,11 @@ pub fn from_settings(account: &AccountCfg, settings: &Value) -> Training {
 
 /// Turns Help improve Claude off.
 pub fn stop(account: &AccountCfg) -> Result<()> {
-    let sign_in = read_sign_in(&account.home_path()).ok_or_else(|| anyhow!("{} isn't signed in: run {} once to sign in.", account.name, code(account.command())))?;
+    let fix = sign_in_fix(account);
+    let sign_in = read_sign_in(&account.home_path()).ok_or_else(|| anyhow!("{} isn't signed in: {fix}.", account.name))?;
     match request(&sign_in.token, "PATCH", SETTINGS_URL, Some(&json!({ "grove_enabled": false }))) {
         Ok(_) => Ok(()),
-        Err(Fetch::SignedOut) => bail!("{}'s sign-in has expired: run {} once to sign in again.", account.name, code(account.command())),
+        Err(Fetch::SignedOut) => bail!("{}'s sign-in has expired: {fix}.", account.name),
         Err(Fetch::RateLimited) => bail!("Anthropic asked Codealong to slow down; try again in a minute."),
         Err(Fetch::Failed(why)) => bail!("Couldn't change {}'s privacy settings: {why}.", account.name),
     }

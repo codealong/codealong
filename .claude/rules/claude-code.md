@@ -324,7 +324,14 @@ on this Mac; read it before changing the Claude adapter (paths are under `src-ta
   stopped arriving…"; `rate_limit` without a 429 for a model that's unavailable;
   `authentication_failed` for "Login expired · Please run /login"; `invalid_request` for the
   safeguards' flags). A window shows them with Try again, but for those that trying again doesn't
-  mend: `claude/transcript.rs` (`api_error_of`).
+  mend: `claude/transcript.rs` (`api_error_of`). A sign-in turned down (`authentication_failed`,
+  `apiErrorStatus: 401`, also "OAuth token revoked · Please run /login"), how often it came right
+  by itself as another process renewed the sign-in, what the background service's `daemon.log`
+  says as its renewal fails and a sign-in turns up again, and a running process taking up the new
+  one unprompted: `claude/transcript.rs` (`signed_out_of`), reconnect.rs. `claude auth login`
+  (`--email`, `--sso`, `--console`; 2.1.327's help) only signs in, then ends, where a bare `claude`
+  with a revoked sign-in still kept asks for none until a prompt fails: `claude/mod.rs`
+  (`sign_in_command`).
 - `--resume <id>` run in another folder goes on as the same session, its transcript staying in
   the first folder's project with the new folder on its lines, and `--bg --resume <id>` keeps
   the ID only for a session no background job has had, copying one that has into a new job

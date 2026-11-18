@@ -13,10 +13,10 @@
 use serde_json::Value;
 
 use super::trust::state_file;
-use super::usage::{read_sign_in, request_with, Fetch};
+use super::usage::{read_sign_in, request_with, sign_in_fix, Fetch};
 use crate::config::AccountCfg;
 use crate::mcp::{json_file, plugin_folder, servers_in, Mcp, Server};
-use crate::util::{code, now_ms, tilde};
+use crate::util::{now_ms, tilde};
 
 const CONNECTORS_URL: &str = "https://api.anthropic.com/v1/mcp_servers?limit=1000&include_additional_installs=true";
 const CONNECTOR: &str = "claude.ai connector";
@@ -39,7 +39,7 @@ pub fn read(account: &AccountCfg) -> Mcp {
 
 /// The claude.ai connectors the account has connected, or why they couldn't be read.
 fn connectors(account: &AccountCfg) -> Result<Vec<Server>, String> {
-    let fix = format!("run {} once to sign in again", code(account.command()));
+    let fix = sign_in_fix(account);
     let sign_in = read_sign_in(&account.home_path()).ok_or_else(|| format!("Couldn't read its claude.ai connectors: not signed in, {fix}"))?;
     if sign_in.expires_at.is_some_and(|t| t <= now_ms() + 60_000) {
         return Err(format!("Couldn't read its claude.ai connectors: sign-in expired, {fix}"));

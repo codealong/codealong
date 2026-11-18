@@ -185,6 +185,9 @@ pub struct TranscriptInfo {
     /// The API error the last turn ended on (`api_error_of`), a lost connection's included, until
     /// a reply or a prompt of yours comes after.
     pub api_error: Option<ApiError>,
+    /// The sign-in the account was turned down for that ended the last turn (`signed_out_of`),
+    /// until a reply or a prompt of yours comes after.
+    pub signed_out: Option<ApiError>,
     /// A provider refusal anywhere in the conversation, including before the current tail.
     pub flagged: bool,
     /// When the last turn last did something, while it hasn't ended (`turn_step`). A session
@@ -632,6 +635,7 @@ pub fn apply_tail(info: &mut TranscriptInfo, state: &mut TailState, tail: &str) 
                 info.limit = limit_of(&v).map(|l| SessionLimit { model: info.model.clone(), ..l });
                 info.connection_lost = connection_lost_at(&v);
                 info.api_error = api_error_of(&v);
+                info.signed_out = signed_out_of(&v);
                 // A subagent's reply, in transcripts from before their own logs, is its model and
                 // its context, not this session's.
                 let sidechain = v.get("isSidechain").and_then(Value::as_bool) == Some(true);
@@ -700,6 +704,7 @@ pub fn apply_tail(info: &mut TranscriptInfo, state: &mut TailState, tail: &str) 
                     info.limit = None;
                     info.connection_lost = None;
                     info.api_error = None;
+                    info.signed_out = None;
                     info.last_tool = None;
                     // Its `last-prompt` line often comes only after the reply has begun (in 104 of
                     // 191 prompts here, 2026-10-15), so the prompt itself says what it's on now.
@@ -852,8 +857,9 @@ pub(super) fn connection_lost_at(v: &Value) -> Option<i64> {
 /// Overloaded…"), 16 `rate_limit`s (all but 3 a usage limit's 429; those said the model was
 /// unavailable), 11 `invalid_request`s, the safeguards' flags, and 9 `authentication_failed`s
 /// ("Login expired · Please run /login"). Left out: a usage limit's refusal (`limit_of`), said
-/// apart; a sign-in that needs `/login`, which trying again doesn't mend; a request the API turned
-/// down for what it held (`flagged`), which shouldn't go again at a click; and a subagent's.
+/// apart; a sign-in that needs `/login`, which trying again doesn't mend (`signed_out_of`); a
+/// request the API turned down for what it held (`flagged`), which shouldn't go again at a click;
+/// and a subagent's.
 pub(super) fn api_error_of(v: &Value) -> Option<ApiError> {
     let sidechain = v.get("isSidechain").and_then(Value::as_bool) == Some(true);
     if v.get("isApiErrorMessage").and_then(Value::as_bool) != Some(true) || sidechain || limit_of(v).is_some() || flagged(v) {
@@ -866,6 +872,27 @@ pub(super) fn api_error_of(v: &Value) -> Option<ApiError> {
     let said = one_line(text.strip_prefix("API Error: ").unwrap_or(text), 200);
     let at = str_of(v, "timestamp").as_deref().and_then(parse_rfc3339_ms).unwrap_or(0);
     (!said.is_empty()).then_some(ApiError { at, said })
+}
+
+/// The sign-in an assistant line says the account was turned down for, ending the turn: Claude
+/// Code writes it as an API error (above) with `error: "authentication_failed"` and
+/// `apiErrorStatus: 401`, its text "Login expired · Please run /login", "OAuth token revoked ·
+/// Please run /login" or "Not logged in · Please run /login" (2.1.257 to 2.1.327, 10 in this
+/// Mac's transcripts by 2026-11-17). Most often the background service's renewal of the sign-in
+/// failed: its `daemon.log` says "proactive refresh failed, signalling re-auth required", then
+/// "token found via keychain re-check" once a sign-in is there again. That took 30 seconds when
+/// another process had renewed it (2026-11-17, a job's turn refused 8 seconds after the new one
+/// was found) and six hours when it waited on you (2026-11-06, five background jobs refused).
+/// A process that's running takes up the new sign-in by itself: the job refused on 2026-11-17
+/// worked through its next turn, 18 minutes on, with nothing done to it. A subagent's is its own.
+pub(super) fn signed_out_of(v: &Value) -> Option<ApiError> {
+    let sidechain = v.get("isSidechain").and_then(Value::as_bool) == Some(true);
+    if v.get("isApiErrorMessage").and_then(Value::as_bool) != Some(true) || sidechain || v.get("error").and_then(Value::as_str) != Some("authentication_failed") {
+        return None;
+    }
+    let text = v.pointer("/message/content")?.as_array()?.iter().find_map(|i| i.get("text")?.as_str()).unwrap_or_default();
+    let at = str_of(v, "timestamp").as_deref().and_then(parse_rfc3339_ms).unwrap_or(0);
+    Some(ApiError { at, said: one_line(text.strip_prefix("API Error: ").unwrap_or(text), 200) })
 }
 
 /// What a line says about whether the turn it's in has ended (`TranscriptInfo::unfinished`):
@@ -2707,6 +2734,29 @@ pub(super) mod tests {
         assert_eq!(parse_lines(HEAD, &format!("{overloaded}\n{prompt}\n")).api_error, None);
         let reply = r#"{"type":"assistant","timestamp":"2026-10-08T00:23:46.497Z","message":{"model":"claude-opus-5-5","content":[{"type":"text","text":"Going on."}]}}"#;
         assert_eq!(parse_lines(HEAD, &format!("{overloaded}\n{reply}\n")).api_error, None);
+    }
+
+    /// As Claude Code 2.1.327 wrote it in a background job on 2026-11-17, cut to the fields that
+    /// matter here.
+    #[test]
+    fn a_turn_its_sign_in_was_turned_down_for_says_so_until_something_comes_after() {
+        let revoked = r#"{"type":"assistant","timestamp":"2026-11-18T00:38:12.321Z","error":"authentication_failed","isApiErrorMessage":true,"apiErrorStatus":401,"apiErrorType":"authentication_error","sessionKind":"bg","message":{"model":"<synthetic>","stop_reason":"stop_sequence","content":[{"type":"text","text":"OAuth token revoked · Please run /login"}]}}"#;
+        let at = parse_rfc3339_ms("2026-11-18T00:38:12.321Z").unwrap();
+        let info = parse_lines(HEAD, &format!("{revoked}\n"));
+        assert_eq!(info.signed_out, Some(ApiError { at, said: "OAuth token revoked · Please run /login".into() }));
+        assert_eq!((info.api_error, info.connection_lost, info.limit), (None, None, None), "it's none of those");
+        // Any other error isn't one, nor a subagent's.
+        let overloaded = lost("API Error: 529 Overloaded.");
+        assert_eq!(parse_lines(HEAD, &format!("{overloaded}\n")).signed_out, None);
+        let subagent = revoked.replace(r#""type":"assistant","#, r#""type":"assistant","isSidechain":true,"#);
+        assert_eq!(parse_lines(HEAD, &format!("{subagent}\n")).signed_out, None);
+        // A task's notice leaves it; a prompt of yours, Codealong's carry on, or a reply ends it.
+        let notice = r#"{"type":"user","timestamp":"2026-11-18T00:39:00.000Z","origin":{"kind":"task-notification"},"message":{"content":"<task-notification>done</task-notification>"}}"#;
+        assert!(parse_lines(HEAD, &format!("{revoked}\n{notice}\n")).signed_out.is_some());
+        let prompt = r#"{"type":"user","timestamp":"2026-11-18T00:56:36.000Z","origin":{"kind":"human"},"message":{"content":"carry on"}}"#;
+        assert_eq!(parse_lines(HEAD, &format!("{revoked}\n{prompt}\n")).signed_out, None);
+        let reply = r#"{"type":"assistant","timestamp":"2026-11-18T00:56:50.000Z","message":{"model":"claude-opus-5-5","content":[{"type":"text","text":"Going on."}]}}"#;
+        assert_eq!(parse_lines(HEAD, &format!("{revoked}\n{reply}\n")).signed_out, None);
     }
 
     /// A turn killed in a foreground command and one stopped with Escape there, as Claude Code

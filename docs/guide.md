@@ -329,7 +329,8 @@ coming forward, and you stay on the session: a Claude Code copy is a background 
 copy runs in its service, and a Codex copy runs In Codealong (over its ACP adapter). Whatever
 follows `/fork` is the copy's first prompt; with nothing, the copy waits for one. Typed in a side
 conversation's box, `/fork` and what to do hands the copy what was said on the side too
-([Side conversations](#side-conversations)).
+([Side conversations](#side-conversations)). `/login` there signs the session's account in again
+([Signed out](#signed-out)).
 
 #### Edit from here
 
@@ -430,8 +431,30 @@ lists. Try again sends the session a message of yours saying its last turn ended
 and to carry on where it left off, as if you'd typed it; one that isn't running is resumed where
 Carry on would resume it (*Cut off*). Where Codealong is to carry it on by itself
 once the API can be reached, the button is **Try now**. A usage limit has its own note (*Usage
-limits*), and Claude Code's errors that trying again doesn't mend get none: a sign-in that needs
-`/login`, and a request the API turned down for what it held.
+limits*), and so does a sign-in turned down (*Signed out*); a request the API turned down for what
+it held gets none, since trying again doesn't mend it.
+
+#### Signed out
+
+A Claude Code session whose turn ended because its account's sign-in was turned down ("OAuth token
+revoked · Please run /login", "Login expired…") says Signed out in the lists, and its panel says so
+in Claude Code's words, with **Sign in** beside it. Most often nothing needs doing: Claude Code's
+background service failed to renew the sign-in while another of its processes renewed it, and the
+turn was refused in the moment between. Codealong reads each account's usage every couple of
+minutes with its sign-in, and once a read since the turn ended goes through, it tells the session
+to carry on, as it does after a lost connection (and leaves it for you, with a notice, when it's
+turned down again straight after a few times running). A running session takes up the new sign-in
+by itself; one that isn't running is carried on only where Codealong runs it, as after a usage
+limit. `[sessions] continue_after_sign_in = false` (Settings › Automation) turns that off.
+
+When the account really is signed out, its chip in the usage bar says **Sign in**, and a notice
+says which sessions it stopped (*Signed out of claude: 3 sessions stopped…*) with **Sign in** too.
+Each of those, the session's **Sign in**, and `/login` in a session's box open a terminal that
+runs the account's own sign-in: for Claude Code `claude auth login` (by the account's command)
+with the email it last signed in with filled in, which opens the browser and ends once you're
+signed in. Every session it stopped then carries on at the next read. `/login` is Codealong's own
+in any session's box on this Mac, so it never reaches the session: typed into a background job,
+Claude Code's own `/login` opens its sign-in in a terminal you can't see, and the job waits there.
 
 #### Cut off
 
@@ -2393,8 +2416,8 @@ a wizard over the main window has you confirm it, and offers session emblems, in
   harness where one can start, the ones your sessions open, handing what it finds back to them;
   Set up reviews opens Settings › Automation on them), then Jev, your other
   devices, and the rest of automation, its nudges to a pull request's session and its moves to an
-  account with room (carrying on after a lost connection, a restart or a lifted usage limit is on
-  already). Each one's button finishes as Done does and opens it in Settings.
+  account with room (carrying on after a lost connection, a sign-in, a restart or a lifted usage
+  limit is on already). Each one's button finishes as Done does and opens it in Settings.
 
 Nothing goes into config.toml until **Done** (a key saved for Jev goes to the keychain as you save
 it). **Skip setup**, Escape or the ✕ keep what the first run wrote.
@@ -2425,8 +2448,8 @@ with a click (with the agent skill, unless you untick it); Routing has Auto's ru
 the agent that reviews the pull requests that wait on your review (the account, model and effort it
 runs on, picked in the agent menu at the foot of a box like a session's that holds what it's told,
 and where its review goes), nudging a pull request's
-primary session, moving a session that hits its usage limit, and telling one a lost connection
-stopped to carry on, everywhere or for one repo with its team's settings (see *Settings for one
+primary session, moving a session that hits its usage limit, and telling one a lost connection or
+a sign-in stopped to carry on, everywhere or for one repo with its team's settings (see *Settings for one
 repo, and its team's*); Projects groups repos by pattern; Advanced turns
 the performance log on and shows where the files are; Experimental turns on features still being
 tried out, each off until you do and each in a part of its own: boards (see *Boards*); voice,
@@ -4321,7 +4344,9 @@ its buttons: the chips step down to make room for it and come back once it goes,
 there under it on hover, and it stays while the pointer is on it. A read
 that fails keeps the last numbers, dimmed, with why on hover, and they outlast a relaunch (those of
 the last hour). With no numbers to keep the chip says why it has none: *Rate limited* when Claude
-turned the read away, which clears when it's read again a few minutes later. Antigravity's are its weekly
+turned the read away, which clears when it's read again a few minutes later. An account whose
+sign-in is missing or turned down says **Sign in**, which opens a terminal that signs it in
+([Signed out](#signed-out)). Antigravity's are its weekly
 limits for each group of models (Gemini; Claude and GPT), read through its command line, `agy`,
 every couple of minutes; with only the app installed it has none to show. Cursor's are its monthly
 limits, asked of Cursor with the app's sign-in every couple of minutes: on a plan that spills over

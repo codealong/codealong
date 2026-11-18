@@ -16,6 +16,9 @@ export interface SessionsCfg {
   /** Block automatic messages, resumes and moves after a provider flag. Defaults to true. */
   block_flagged_sessions?: boolean;
   continue_after_network_error: boolean;
+  /** A session whose account's sign-in was turned down is told to carry on once the account reads
+   *  signed in again (reconnect.rs). Files from before it have none: on. */
+  continue_after_sign_in?: boolean;
   /** A session Codealong runs, cut off by Codealong quitting, is told to carry on as it comes back
    *  (reconnect.rs). Files from before it have none: on. */
   continue_after_restart?: boolean;
@@ -54,6 +57,17 @@ export interface ApiError {
   at: number;
   /** What went wrong, in a line, in the harness's words. */
   said: string;
+}
+
+/** A turn its account's sign-in was turned down for (peer/src/model.rs `SignedOut`). */
+export interface SignedOut {
+  /** When the turn ended. */
+  at: number;
+  /** What the harness said, in a line. */
+  said: string;
+  /** Codealong on its Mac tells it to carry on once its account reads signed in again
+   *  (config.toml's `[sessions] continue_after_sign_in`, reconnect.rs). */
+  continues?: boolean;
 }
 
 /** A message a session's harness holds until the turn it's taking ends (peer/src/model.rs
@@ -303,6 +317,9 @@ export interface Session {
   /** Its last turn ended on an error from its API, a lost connection included, and nothing has
    *  been said since: what the harness said. Missing from older Macs. */
   apiError?: ApiError;
+  /** Its last turn ended because its account's sign-in was turned down (expired, revoked or
+   *  signed out), and nothing has been said since. Missing from older Macs. */
+  signedOut?: SignedOut;
   /** Its last turn was cut off: what ran it ended partway through (its terminal closed, the Mac
    *  restarted, it was killed), and nothing has gone on since. When the turn last did something.
    *  Missing from older Macs. */
@@ -1837,6 +1854,9 @@ export interface Notice {
   /** The PR (`owner/name#number`) whose review didn't start or wasn't posted, which the notice
    *  offers to try again (review.ts `tryAgain`). */
   reviewAgain?: string | null;
+  /** The account whose sign-in was turned down, which the notice offers to sign in
+   *  (board.rs `signed_out_notices`). */
+  signIn?: string;
   /** What a terminal shows that the notice is about, drawn as it's laid out: the screen a start
    *  that never made its session waits on (origins.rs `stuck_notices`). */
   screen?: string;

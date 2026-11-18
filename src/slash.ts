@@ -6,7 +6,10 @@
 // what's typed goes to the copy, they run too, and those with words for it there are offered
 // (`aside`): `/fork` has a copy of the session take on what was worked out on the side, which
 // neither harness's own `/fork` does from a side conversation (a headless copy has none).
+// `/login` is the harnesses' own name too: typed into a background job's box from here, Claude
+// Code's opened its sign-in in a terminal nobody could see, and held the job there.
 
+import { shortOf } from './devices';
 import type { Session } from './types';
 
 export interface SlashCommand {
@@ -46,6 +49,15 @@ export const COMMANDS: SlashCommand[] = [
     icon: 'help',
     // The copy runs beside the session, on its machine (side.rs), wherever it's asked from.
     takes: (s) => s.harness === 'claude' || s.harness === 'codex',
+  },
+  {
+    name: 'login',
+    args: '',
+    about: 'signs its account in again, in your terminal; sessions its sign-in stopped then carry on',
+    icon: 'terminal',
+    // Its account is on this Mac only when the session is; every harness has a sign-in
+    // (`Adapter::sign_in_command`).
+    takes: (s) => !shortOf(s.key),
   },
 ];
 

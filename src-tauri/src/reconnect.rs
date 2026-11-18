@@ -1,7 +1,8 @@
 //! Telling a session to carry on once what stopped its turn is over: a lost connection, unless
 //! config.toml turns it off (`[sessions] continue_after_network_error`), its account's usage
-//! limit, once the limit lifts (`[limits] continue_when_lifted`), or Codealong quitting, for a
-//! session Codealong runs itself (`[sessions] continue_after_restart`). A harness retries a request
+//! limit, once the limit lifts (`[limits] continue_when_lifted`), its account's sign-in turned
+//! down, once the account reads signed in again (`[sessions] continue_after_sign_in`), or
+//! Codealong quitting, for a session Codealong runs itself (`[sessions] continue_after_restart`). A harness retries a request
 //! that can't connect for only a few minutes of the Mac being awake, and with the lid closed the
 //! Mac wakes for a few seconds every minute or two without DNS: the retries run out there, and the
 //! session waits for a prompt when the lid opens (claude/transcript.rs `connection_lost_at`). A
@@ -10,10 +11,18 @@
 //! Codealong runs is its adapter's, a child of the app (acp.rs), so every relaunch cuts off the
 //! turns it was taking: other sessions relaunch the app many times a day as they land their work.
 //!
+//! A sign-in is most often turned down because the harness's renewal of it failed, and another
+//! process renews it moments later; else it waits on you to sign in (claude/transcript.rs
+//! `signed_out_of`). Either way a running agent takes up the new one by itself, and only needs
+//! telling to go on. That the account is signed in again is read from its usage, which is read
+//! every couple of minutes with the account's sign-in: a read since the turn ended that wasn't
+//! turned away for want of one says so.
+//!
 //! Every board the engine publishes is looked at for sessions here with such a turn
-//! (`Session::connection_lost` and `Session::limit`, which the engine marks `continues`, and
-//! `cut_off_here`). Once their API can be reached from here (the harness's `api_address`,
-//! connected to for a moment), a few minutes after their limit lifted, or at once after a cut, each
+//! (`Session::connection_lost`, `Session::limit` and `Session::signed_out`, which the engine
+//! marks `continues`, and `cut_off_here`). Once their API can be reached from here (the harness's
+//! `api_address`, connected to for a moment), a few minutes after their limit lifted, once their
+//! account reads signed in after the turn ended, or at once after a cut, each
 //! is sent a message saying to carry on, as a message of yours from a window is (actions.rs
 //! `session-send`), on a thread of its own, since connecting and sending take a moment. A cut-off
 //! session isn't running, and the message picks it up again in a new process of its adapter.
@@ -29,7 +38,7 @@ use std::sync::Mutex;
 use std::time::Duration;
 
 use crate::engine::{Handle, Trouble};
-use crate::model::{Board, Session};
+use crate::model::{Board, Session, Usage};
 
 /// A connection lost, or a limit lifted, longer ago than this is left as it is: you've seen it,
 /// or it ended a turn that no longer matters. A night with the lid closed is well inside it.
@@ -71,6 +80,8 @@ pub enum Why {
     Connection,
     /// Its account's usage limit (`Session::limit`).
     Limit,
+    /// Its account's sign-in turned down (`Session::signed_out`).
+    SignIn,
     /// Codealong quitting, or its agent's process ending (`cut_off_here`).
     CutOff,
 }
@@ -81,6 +92,7 @@ impl Why {
         match self {
             Why::Connection => "Your last turn ended because the API couldn't be reached (the machine slept or lost its connection). It can be reached again, so carry on where you left off.",
             Why::Limit => "Your last turn stopped at your account's usage limit, which has lifted now, so carry on where you left off.",
+            Why::SignIn => "Your last turn ended because your account's sign-in was turned down. It's signed in again now, so carry on where you left off.",
             Why::CutOff => crate::start::CARRY_ON,
         }
     }
@@ -90,6 +102,7 @@ impl Why {
         match self {
             Why::Connection => "lost its connection",
             Why::Limit => "stopped at its usage limit",
+            Why::SignIn => "was signed out",
             Why::CutOff => "was cut off partway",
         }
     }
@@ -173,11 +186,12 @@ pub fn open_where_it_stopped(s: &Session) -> bool {
 /// What `s` is owed at `now` (ms), when anything: what stopped it and when, and where its API is
 /// to try first. A cut, while `cut_offs` (`[sessions] continue_after_restart`) is on, is owed an
 /// answer at once, in the hour after (`CUT_MAX_AGE_MS`); a lost connection at once, in the day
-/// after; a limit once it's lifted and Claude Code's own carrying on has had time to show
-/// (`LIFTED_GRACE_MS`), in the day after that. Only a cut, or a limit of a session still open
-/// where it stopped (`open_where_it_stopped`), is owed to a session that isn't running, which the
-/// answer picks up again.
-fn owed(s: &Session, now: i64, cut_offs: bool, ended_with_server: Option<i64>) -> Option<(Why, i64, Option<&'static str>)> {
+/// after; a sign-in once `usage` says its account is signed in again (`signed_in_since`), in the
+/// day after; a limit once it's lifted and Claude Code's own carrying on has had time to show
+/// (`LIFTED_GRACE_MS`), in the day after that. Only a cut, or a limit or a sign-in of a session
+/// still open where it stopped (`open_where_it_stopped`), is owed to a session that isn't running,
+/// which the answer picks up again.
+fn owed(s: &Session, usage: &[Usage], now: i64, cut_offs: bool, ended_with_server: Option<i64>) -> Option<(Why, i64, Option<&'static str>)> {
     let ours = cut_off_here(s) || (!s.live && s.cut_off.zip(ended_with_server).is_some_and(|(cut, ended)| cut <= ended));
     if cut_offs && ours && s.helper.as_ref().is_none_or(|h| h.pr.is_none()) {
         let at = s.cut_off?;
@@ -190,9 +204,19 @@ fn owed(s: &Session, now: i64, cut_offs: bool, ended_with_server: Option<i64>) -
         let address = crate::harness::adapter(s.harness).api_address()?;
         return Some((Why::Connection, lost.at, Some(address)));
     }
+    if let Some(out) = s.signed_out.as_ref().filter(|o| o.continues && now - o.at <= MAX_AGE_MS) {
+        return signed_in_since(usage, &s.account, out.at).then_some((Why::SignIn, out.at, None));
+    }
     let limit = s.limit.as_ref().filter(|l| l.continues)?;
     let lifted = limit.resets_at? + LIFTED_GRACE_MS;
     (now >= lifted && now - lifted <= MAX_AGE_MS).then_some((Why::Limit, limit.at, None))
+}
+
+/// Whether `usage` says `account` is signed in since `at` (ms): its usage was read after then with
+/// the account's sign-in, and wasn't turned away for want of one. A read that failed for another
+/// reason keeps the time of the last good one (engine.rs `keep_last_good`), so it says nothing.
+fn signed_in_since(usage: &[Usage], account: &str, at: i64) -> bool {
+    usage.iter().any(|u| u.account == account && !u.needs_sign_in && u.as_of.is_some_and(|t| t > at))
 }
 
 /// The sessions on `board` whose limit has lifted long enough at `now` to be carried on
@@ -200,7 +224,7 @@ fn owed(s: &Session, now: i64, cut_offs: bool, ended_with_server: Option<i64>) -
 /// takes it in (engine.rs `board_hash`): the board that's composed then goes out, and `due` runs
 /// on it.
 pub fn lifted(board: &Board, now: i64) -> Vec<String> {
-    board.lanes.iter().flat_map(|l| &l.sessions).filter(|s| matches!(owed(s, now, false, None), Some((Why::Limit, ..)))).map(|s| s.key.clone()).collect()
+    board.lanes.iter().flat_map(|l| &l.sessions).filter(|s| matches!(owed(s, &board.usage, now, false, None), Some((Why::Limit, ..)))).map(|s| s.key.clone()).collect()
 }
 
 /// Where each session that stopped stands, so each stop is answered once.
@@ -214,7 +238,7 @@ pub struct Continuer {
 
 impl Continuer {
     /// What's due at `now` (ms): each session here whose last turn a lost connection, a limit that
-    /// has lifted or a cut (with `cut_offs` on) stopped (`owed`) and that Codealong is to carry on,
+    /// has lifted, a sign-in its account has again or a cut (with `cut_offs` on) stopped (`owed`) and that Codealong is to carry on,
     /// unless it's been answered, waits on you, has a job under way or a wait that isn't over. A
     /// session the board no longer lists is forgotten; one that stopped running and came back
     /// keeps its answers, so no stop is answered twice. They're kept only while the app runs, so
@@ -236,7 +260,7 @@ impl Continuer {
             if s.archived || board.automation_blocked(&s.key) {
                 continue;
             }
-            let Some((why, at, address)) = owed(s, now, cut_offs, self.ended.get(&s.key).copied()) else { continue };
+            let Some((why, at, address)) = owed(s, &board.usage, now, cut_offs, self.ended.get(&s.key).copied()) else { continue };
             let run = self.runs.entry(s.key.clone()).or_default();
             if run.at != at {
                 // A stop not seen before: stopped again straight after the last answer, or afresh.
@@ -324,7 +348,7 @@ pub fn send_now(engine: &Handle, continuer: &Mutex<Continuer>, due: Due) {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::model::{ConnectionLost, SessionLimit, Status};
+    use crate::model::{ConnectionLost, Harness, SessionLimit, SignedOut, Status};
 
     const NOW: i64 = 1_800_000_000_000;
     const A: &str = "claude:claude:a";
@@ -343,6 +367,17 @@ mod tests {
     /// A session Codealong runs whose turn was cut off, its last doing at `at`.
     fn cut(key: &str, at: i64) -> Session {
         Session { hosted: true, live: false, status: Status::Error, title: key.rsplit(':').next().unwrap().into(), cut_off: Some(at), ..crate::fixtures::session(key) }
+    }
+
+    /// A session whose account's sign-in was turned down at `at`.
+    fn signed_out(key: &str, at: i64) -> Session {
+        let out = SignedOut { at, said: "OAuth token revoked · Please run /login".into(), continues: true };
+        Session { live: true, status: Status::Unread, title: key.rsplit(':').next().unwrap().into(), signed_out: Some(out), ..crate::fixtures::session(key) }
+    }
+
+    /// The account `claude`'s usage, read at `as_of`, signed in or not.
+    fn read(as_of: i64, signed_in: bool) -> Usage {
+        Usage { account: "claude".into(), harness: Harness::Claude, plan: None, meters: Vec::new(), as_of: Some(as_of), error: None, needs_sign_in: !signed_in, loading: false, no_limits: false, preferred: false, rate_limited: false }
     }
 
     fn board(sessions: Vec<Session>) -> Board {
@@ -454,6 +489,55 @@ mod tests {
         }
         let due = c.due(&board(vec![limited(A, at, at - LIFTED_GRACE_MS)]), at, true);
         assert_eq!((due.jobs.len(), due.left), (0, vec![("a".to_string(), Why::Limit)]));
+    }
+
+    /// As it was found: a background job's turn was refused 8 seconds after another process had
+    /// renewed the account's sign-in, and it waited on you for the next 18 minutes.
+    #[test]
+    fn a_sign_in_turned_down_is_answered_once_its_account_reads_signed_in_after_it() {
+        let mut c = Continuer::default();
+        let mut b = board(vec![signed_out(A, NOW - 60_000)]);
+        b.usage = vec![read(NOW - 90_000, true)];
+        assert!(c.due(&b, NOW, true).is_empty(), "read before it was turned down");
+        b.usage = vec![read(NOW - 30_000, false)];
+        assert!(c.due(&b, NOW, true).is_empty(), "still signed out");
+        b.usage = vec![Usage { account: "claude2".into(), ..read(NOW - 30_000, true) }];
+        assert!(c.due(&b, NOW, true).is_empty(), "another account's sign-in is no use to it");
+        b.usage = vec![read(NOW - 30_000, true)];
+        let due = c.due(&b, NOW, true);
+        assert_eq!(due.jobs, vec![Job { session: A.into(), at: NOW - 60_000, why: Why::SignIn, address: None }]);
+        assert!(!c.told(&due.jobs[0], Went::Sent, NOW));
+        assert!(c.due(&b, NOW + 60_000, true).is_empty(), "answered once");
+        // Not with the setting off, nor one archived, one turned down long ago, or one that
+        // stopped in a terminal that's closed; one Codealong runs is picked up again.
+        let off = Session { signed_out: Some(SignedOut { continues: false, ..signed_out(A, NOW - 60_000).signed_out.unwrap() }), ..signed_out(A, NOW - 60_000) };
+        let archived = Session { archived: true, ..signed_out(A, NOW - 60_000) };
+        let old = signed_out(A, NOW - MAX_AGE_MS - 1);
+        let closed = Session { live: false, ..signed_out(A, NOW - 60_000) };
+        for s in [off, archived, old, closed] {
+            let mut b = board(vec![s.clone()]);
+            b.usage = vec![read(NOW - 1_000, true)];
+            assert!(Continuer::default().due(&b, NOW, true).is_empty(), "{s:?}");
+        }
+        let hosted = Session { hosted: true, live: false, ..signed_out(B, NOW - 60_000) };
+        let mut b = board(vec![hosted]);
+        b.usage = vec![read(NOW - 1_000, true)];
+        assert_eq!(keys(&Continuer::default().due(&b, NOW, true)), [B]);
+        // Turned down again straight after a few times, it's left for you.
+        let mut c = Continuer::default();
+        let mut at = NOW;
+        for _ in 0..AGAIN_MAX {
+            let mut b = board(vec![signed_out(A, at)]);
+            b.usage = vec![read(at + 1_000, true)];
+            let due = c.due(&b, at + 1_000, true);
+            assert_eq!(keys(&due), [A]);
+            c.told(&due.jobs[0], Went::Sent, at + 1_000);
+            at += 60_000;
+        }
+        let mut b = board(vec![signed_out(A, at)]);
+        b.usage = vec![read(at + 1_000, true)];
+        let due = c.due(&b, at + 1_000, true);
+        assert_eq!((due.jobs.len(), due.left), (0, vec![("a".to_string(), Why::SignIn)]));
     }
 
     #[test]

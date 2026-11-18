@@ -33,6 +33,13 @@ describe('slashCommand', () => {
     expect(slashCommand('/fork', session('claude', '@ab12:claude:a:1'))).not.toBeNull();
   });
 
+  it('takes /login for a session on this Mac, whatever its harness, whose account signs in here', () => {
+    expect(slashCommand('/login', claude)?.command.name).toBe('login');
+    expect(slashCommand('/login', session('antigravity'))?.command.name).toBe('login');
+    expect(slashCommand('/login', session('claude', '@ab12:claude:a:1'))).toBeNull();
+    expect(slashCommand('/logout', claude)).toBeNull();
+  });
+
   it('is only a command where the harness can fork', () => {
     expect(slashCommand('/fork', session('codex'))).not.toBeNull();
     expect(slashCommand('/fork', session('opencode'))).not.toBeNull();
@@ -42,11 +49,12 @@ describe('slashCommand', () => {
 
 describe('slashMatches', () => {
   it('offers the commands a name being typed could become', () => {
-    expect(slashMatches('/', claude).map((c) => c.name)).toEqual(['fork', 'side']);
+    expect(slashMatches('/', claude).map((c) => c.name)).toEqual(['fork', 'side', 'login']);
     expect(slashMatches('/s', claude).map((c) => c.name)).toEqual(['side']);
     expect(slashMatches('/bt', claude).map((c) => c.name)).toEqual(['side']);
     expect(slashMatches('/btw what about', claude).map((c) => c.name)).toEqual(['side']);
-    expect(slashMatches('/', session('opencode')).map((c) => c.name)).toEqual(['fork']);
+    expect(slashMatches('/', session('opencode')).map((c) => c.name)).toEqual(['fork', 'login']);
+    expect(slashMatches('/lo', claude).map((c) => c.name)).toEqual(['login']);
     expect(slashMatches('/fo', claude).map((c) => c.name)).toEqual(['fork']);
     expect(slashMatches('/fork and go on', claude).map((c) => c.name)).toEqual(['fork']);
     expect(slashMatches('/co', claude)).toEqual([]);

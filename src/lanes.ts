@@ -584,6 +584,26 @@ export function apiErrorWords(s: Pick<Session, 'apiError' | 'connectionLost'>, o
   return `${what}${then}`;
 }
 
+/** Whether its account's sign-in was turned down at the end of its last turn, and nothing has gone
+ *  on since (`Session.signedOut`). */
+export function endedSignedOut(s: Pick<Session, 'signedOut' | 'status'>): boolean {
+  return !!s.signedOut && s.status !== 'working';
+}
+
+/** What a turn its account's sign-in was turned down for comes to, in its harness's words, and who
+ *  carries it on: Codealong, once the account is signed in again, else you. `offered` leaves out
+ *  the sign-in where a button beside it offers that. */
+export function signedOutWords(s: Pick<Session, 'signedOut' | 'account'>, offered = false): string {
+  const said = s.signedOut?.said.trim().replace(/[\s.]+$/, '');
+  const what = `Its last turn ended because ${s.account}’s sign-in was turned down${said ? `: ${said}` : ''}.`;
+  const then = s.signedOut?.continues
+    ? ' Codealong tells it to carry on once the account is signed in again, which often comes right by itself in a minute or two.'
+    : offered
+      ? ' Once you’ve signed in, send it something to go on.'
+      : ' Sign in to it from its chip in the usage bar, then send it something to go on.';
+  return `${what}${then}`;
+}
+
 /** What a cut-off turn comes to (`Session.cutOff`), and how it goes on (left out where a button
  *  beside it offers that). */
 export function cutOffWords(offered = false): string {
@@ -600,6 +620,7 @@ export function sessionFlag(s: Session): InsightLabel | null {
   const need = needOf(s);
   if (need === 'stuck') return { label: 'Stuck', tone: 'warn', title: 'It says it’s busy, but nothing has happened for a while. It may be waiting on something.' };
   if (s.limit && s.status !== 'working') return { label: 'Limit', tone: 'bad', title: limitWords(s.account, s.limit, Date.now(), false, MOVES_ACCOUNTS.includes(s.harness)) };
+  if (endedSignedOut(s)) return { label: 'Signed out', tone: 'bad', title: signedOutWords(s) };
   if (s.connectionLost && s.status !== 'working') return { label: 'Network error', tone: 'warn', title: apiErrorWords(s) };
   if (s.cutOff != null && s.status !== 'working') return { label: 'Cut off', tone: 'bad', title: cutOffWords() };
   if (s.status === 'error') return { label: 'Error', tone: 'bad', title: s.apiError ? apiErrorWords(s) : 'It stopped with an error.' };

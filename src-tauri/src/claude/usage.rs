@@ -106,10 +106,16 @@ pub fn claude_plan(subscription: Option<&str>, tier: Option<&str>) -> Option<Str
     })
 }
 
+/// What a window says to do about an account whose sign-in is missing or turned down: what its
+/// Sign in runs (`ClaudeCode::sign_in_command`), without the email it fills in.
+pub(super) fn sign_in_fix(account: &AccountCfg) -> String {
+    format!("run {} to sign in again", code(&format!("{} auth login", account.command())))
+}
+
 /// Reads one Claude account's usage. Blocks for up to 15 seconds; call it off the engine thread.
 pub fn claude(account: &AccountCfg, now: i64) -> Usage {
     let mut u = Usage { loading: false, ..loading(account) };
-    let fix = format!("run {} once to sign in again", code(account.command()));
+    let fix = sign_in_fix(account);
     let Some(sign_in) = read_sign_in(&account.home_path()) else {
         u.error = Some(format!("Not signed in: {fix}"));
         u.needs_sign_in = true;

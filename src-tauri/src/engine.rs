@@ -771,7 +771,7 @@ pub enum Trouble {
     /// Why a session wasn't told what a command you ran for it printed (terminal.rs
     /// `report_ended`).
     TerminalRuns,
-    /// Why a session wasn't told to carry on after a lost connection or a usage limit
+    /// Why a session wasn't told to carry on after a lost connection, a usage limit or a sign-in
     /// (reconnect.rs).
     Reconnect,
     /// Why a reviewer wasn't asked to look again at a PR of yours after its fixes
@@ -2188,6 +2188,20 @@ fn waiting_call(s: &Session, account: Option<&config::AccountCfg>) -> Option<Str
             let live = s.live && !self.cfg.sessions.blocks(s);
             if let Some(lost) = s.connection_lost.as_mut() {
                 lost.continues = on && live && harness::adapter(s.harness).api_address().is_some();
+            }
+        }
+        sessions
+    }
+
+    /// Sessions whose account's sign-in was turned down, each saying whether Codealong tells it to
+    /// carry on once the account reads signed in again (reconnect.rs): when config.toml says to,
+    /// and it's still open where it stopped, a process that takes up the new sign-in by itself.
+    fn with_sign_ins(&self, mut sessions: Vec<Session>) -> Vec<Session> {
+        let on = self.cfg.sessions.continue_after_sign_in;
+        for s in &mut sessions {
+            let open = crate::reconnect::open_where_it_stopped(s) && !self.cfg.sessions.blocks(s);
+            if let Some(out) = s.signed_out.as_mut() {
+                out.continues = on && open;
             }
         }
         sessions
@@ -4006,8 +4020,8 @@ fn waiting_call(s: &Session, account: Option<&config::AccountCfg>) -> Option<Str
     /// (`settled`). The order is the rule where two stages speak of one thing: a later one has
     /// the last word. So what Jev reads of a session comes before what terminal.rs knows it
     /// waits on, which Jev can only guess at; your own marks (seen, unread, snoozed, raised)
-    /// come after both, over whatever a turn is doing; and a usage limit and a lost connection
-    /// are read off where all of that left the session.
+    /// come after both, over whatever a turn is doing; and a usage limit, a lost connection and a
+    /// sign-in turned down are read off where all of that left the session.
     fn laid_over(&self, built: Vec<Session>, now: i64, usage: &[Usage], sides: &std::collections::BTreeMap<String, Vec<crate::side::Glance>>, listenings: &std::collections::BTreeMap<String, crate::listen::Glance>) -> Vec<Session> {
         let sessions = with_terminals(built);
         let sessions = self.with_origins(sessions);
@@ -4026,6 +4040,7 @@ fn waiting_call(s: &Session, account: Option<&config::AccountCfg>) -> Option<Str
         let sessions = self.with_snoozes(sessions, sides, listenings, now);
         let sessions = self.with_limits(sessions, usage, now);
         let sessions = self.with_connections(sessions);
+        let sessions = self.with_sign_ins(sessions);
         self.settled(sessions)
     }
 
@@ -4271,6 +4286,8 @@ fn waiting_call(s: &Session, account: Option<&config::AccountCfg>) -> Option<Str
         board.notices.extend(stuck);
         board.starting = crate::starting::by_session(&waiting, &board, &self.screens, word_of, now);
         board.usage = usage;
+        let signed_out = board::signed_out_notices(&board);
+        board.notices.extend(signed_out);
         board.training = self.training.list(&self.cfg.accounts);
         board.mcp = self.mcp.list(&self.cfg.accounts);
         board.sides = sides;

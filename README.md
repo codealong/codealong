@@ -843,6 +843,7 @@ continue_when_lifted = true    # tell a session still stopped at its limit to ca
 [sessions]
 block_flagged_sessions = true # block automatic messages, resumes and account moves after a recorded provider flag (Settings › Automation)
 continue_after_network_error = true  # tell a session a lost connection stopped to carry on once it's back (Settings › Automation)
+continue_after_sign_in = true  # tell a session its account's sign-in stopped to carry on once the account is signed in again (Settings › Automation)
 continue_after_restart = true  # tell a session Codealong runs to carry on when Codealong quitting cut off its turn (Settings › Automation)
 resume_for_sessions_it_started = true  # resume a session that isn't running, out of sight, when one it started, or the one that started it, sends it a message (Settings › Automation)
 resume_for_any_session = true  # the same for any session's message, telling it it had stopped; the line above is part of it while it's on (Settings › Automation)

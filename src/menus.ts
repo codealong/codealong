@@ -11,7 +11,7 @@
 // back where GitHub refuses the merge) is here.
 
 import { useEffect, useState } from 'react';
-import { chromeProfiles, closeSession, desktopPins, expandAttachments, forkSession, getAccounts, inPreview, moveSession, moveSessionTo, onDesktopPins, openInChrome, openUrl, ownSessions, pinToDesktop, resumeSession, sessionCancel, sessionWindow, stopListening, setPrNudge, setPrPrimary, setReusable, showQuick, unpinFromDesktop, type MergeDone } from './api';
+import { chromeProfiles, closeSession, desktopPins, expandAttachments, forkSession, getAccounts, inPreview, moveSession, moveSessionTo, onDesktopPins, openInChrome, openUrl, ownSessions, pinToDesktop, resumeSession, sessionCancel, sessionWindow, signIn, stopListening, setPrNudge, setPrPrimary, setReusable, showQuick, unpinFromDesktop, type MergeDone } from './api';
 import { archiveAhead, asideAhead, doneAhead, labelAhead, quietAhead, raiseAhead, seenAhead, sendAhead, sentWorthSaying, unreadAhead } from './ahead';
 import { copyText } from './clipboard';
 import { showContextMenu, type MenuAction, type MenuGroup, type MenuImage, type MenuSpec } from './contextMenu';
@@ -21,7 +21,7 @@ import { count } from './format';
 import { folderMenu, openInMenu, opensInEditor, terminalTarget, type AppIcons, type Apps } from './editors';
 import { EDITS, HARNESS_WORD, MOVES_ACCOUNTS, MOVES_FOLDERS, renames } from './harness';
 import { chromeLabel, openLabel } from './open';
-import { asideable, closable, endedOnApiError, exitsItsOwnWay, seenable, stoppable, unreadable, waitsInBackground } from './lanes';
+import { asideable, closable, endedOnApiError, endedSignedOut, exitsItsOwnWay, seenable, stoppable, unreadable, waitsInBackground } from './lanes';
 import { chordPressed, QUEUE_CHORDS, type Key } from './queue';
 import { reviewsSnoozeMenu, SNOOZE_CHORDS, snoozeChordIndex, snoozeChorded as timeChorded, snoozeMenu, suggestedSnooze } from './snooze';
 import { rememberResumed, resumeAccount, resumedIn } from './start';
@@ -278,6 +278,9 @@ export interface SessionActions {
    *  (`Session.apiError`). Try now where Codealong carries it on by itself once its API can be
    *  reached (`ConnectionLost.continues`). */
   tryAgain?: MenuAction;
+  /** Opens a terminal that signs its account in (`signInTo`), for a turn its account's sign-in was
+   *  turned down for (`Session.signedOut`), on this Mac. */
+  signIn?: MenuAction;
   stop?: MenuAction;
   /** Listen…, which asks what to listen to and what for, or Stop listening while it hears
    *  (listen.rs): for a session on this Mac, while voice is turned on. */
@@ -345,6 +348,13 @@ export interface AccountMoves {
 /** What Try again sends a session whose turn an API error ended, as yours (`tryAgain`): it says
  *  why, whether or not the harness hands its agent the error. */
 export const TRY_AGAIN = 'Your last turn ended on an API error. Try again, carrying on where you left off.';
+
+/** Opens a terminal on this Mac that signs `account` in, with its harness's own sign-in (engine.rs
+ *  `sign_in`), and says so. The usage bar's chip, a signed-out session's Sign in and `/login` in
+ *  its box all go this way. */
+export function signInTo(account: string): Promise<string> {
+  return signIn(account).then(() => `Signing in to ${account} in your terminal.`);
+}
 
 export function sessionActions(lane: Lane, s: Session, can: SessionCan): SessionActions {
   readAccounts();
@@ -523,6 +533,8 @@ export function sessionActions(lane: Lane, s: Session, can: SessionCan): Session
     // where it's news (opened to paste, say). One that isn't running goes on where Carry on would
     // take it.
     tryAgain: endedOnApiError(s) && !s.archived ? { label: s.connectionLost?.continues ? 'Try now' : 'Try again', run: () => void tryAgain() } : undefined,
+    // Its account is on this Mac only when it is.
+    signIn: here && endedSignedOut(s) ? { label: 'Sign in', run: () => void said(`Signing in to ${s.account}…`, signInTo(s.account)) } : undefined,
     // The session carries on, waiting for you.
     stop: stoppable(s) ? { label: 'Stop turn', run: () => void said(`Stopping ${s.title}…`, sessionCancel(s.key)) } : undefined,
     listen: listenItem(lane, s, report),

@@ -45,14 +45,15 @@ export function untilPhrase(n: Notice, now: number): string | null {
   return n.until && n.until > now ? `Until ${clock(n.until)}, in ${duration(now, n.until)}` : null;
 }
 
-/** What a notice offers: a file to open, or a review that didn't start or wasn't posted to try
- *  again. */
-export type NoticeAction = { label: string; opens: 'settings-file' } | { label: string; reviews: { key: string; number: number } };
+/** What a notice offers: a file to open, a review that didn't start or wasn't posted to try
+ *  again, or an account to sign in. */
+export type NoticeAction = { label: string; opens: 'settings-file' } | { label: string; reviews: { key: string; number: number } } | { label: string; signsIn: string };
 
 /** What a notice offers, by what it's about. */
 export function noticeAction(n: Notice): NoticeAction | null {
   if (n.key === 'config') return { label: 'Open config.toml', opens: 'settings-file' };
   if (n.reviewAgain) return { label: 'Try again', reviews: { key: n.reviewAgain, number: Number(n.reviewAgain.split('#')[1]) } };
+  if (n.signIn) return { label: 'Sign in', signsIn: n.signIn };
   return null;
 }
 

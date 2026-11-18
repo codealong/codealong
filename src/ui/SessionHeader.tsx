@@ -45,7 +45,7 @@ import { below } from '../contextMenu';
 import { folderTargets, opensInEditor, useEditorIcons } from '../editors';
 import { absolute, ago, agoPhrase, duration, middleTruncate, tildePath } from '../format';
 import { MOVES_ACCOUNTS, sessionName, sessionPlace } from '../harness';
-import { apiErrorWords, cutOffWords, endedOnApiError, limitWords, raisedBy, seenable, setAside, sideTitle } from '../lanes';
+import { apiErrorWords, cutOffWords, endedOnApiError, endedSignedOut, limitWords, raisedBy, seenable, setAside, sideTitle, signedOutWords } from '../lanes';
 import { cameLines, cameLineWords, cameWord, originWord, startingTitle, type CameLine, type Kin, type Lineage } from '../lineage';
 import { CHORDS, chordKeys, chordSigns, type SessionActions } from '../menus';
 import { scopeWords } from '../orchestrators';
@@ -709,6 +709,17 @@ export function SessionHeader({ lane, session: s, apps, now, onOpen, onShowLane,
             </Button>
           )}
           {onMove && <MoveButton onMove={onMove} />}
+        </div>
+      )}
+      {endedSignedOut(s) && (
+        <div className="ca-sessinsp-limit" role="note">
+          <Icon name="alert" size={12} />
+          <span className="ca-sessinsp-limit-words">{signedOutWords(s, !!actions?.signIn)}</span>
+          {actions?.signIn && (
+            <Button size="sm" icon="terminal" title={`Opens a terminal that signs ${s.account} in`} onClick={() => actions.signIn?.run()}>
+              {actions.signIn.label}
+            </Button>
+          )}
         </div>
       )}
       {endedOnApiError(s) && (

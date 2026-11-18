@@ -117,6 +117,10 @@ pub struct Notice {
     /// offers to try again (autoreview.rs `again`).
     #[serde(default)]
     pub review_again: Option<String>,
+    /// The account whose sign-in was turned down, which the notice offers to sign in
+    /// (`board::signed_out_notices`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub sign_in: Option<String>,
     /// What a terminal shows that the notice is about, to be drawn as it's laid out: the screen a
     /// start that never made its session waits on (origins.rs `stuck_notices`).
     #[serde(default, skip_serializing_if = "Option::is_none")]

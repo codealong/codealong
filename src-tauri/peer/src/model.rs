@@ -435,6 +435,11 @@ pub struct Session {
     /// words here; a usage limit's refusal is `limit` instead. None from Macs before 2026-11-11.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub api_error: Option<ApiError>,
+    /// Its last turn ended because its account's sign-in was turned down (expired, revoked or
+    /// signed out), and nothing has been said since. Not an `api_error`: trying again doesn't
+    /// mend it, a sign-in does. None from Macs before 2026-11-17.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub signed_out: Option<SignedOut>,
     /// Its last turn was cut off: what ran it ended partway through (its terminal closed, the
     /// Mac restarted, it was killed), and nothing has gone on since. When the turn last did
     /// something. None from Macs before 2026-10-12.
@@ -706,6 +711,13 @@ impl Session {
         self.status == Status::Needs && !matches!(self.need(), Some(Need::Reply | Need::Stuck | Need::Input | Need::Start))
     }
 
+    /// Whether its harness ended its last turn short, before the agent was done: a lost
+    /// connection, its account's usage limit, a sign-in turned down, or what ran it ending partway.
+    /// What's last in its conversation is then an error, not a reply its agent spoke for.
+    pub fn cut_short(&self) -> bool {
+        self.connection_lost.is_some() || self.limit.is_some() || self.signed_out.is_some() || self.cut_off.is_some()
+    }
+
     /// A helper whose turns are for what it helps, not for you: every helper, but one you're
     /// talking to (`Helper::yours`). `src/lanes.ts` `helpsAnAgent` says the same for the windows.
     pub fn helps_an_agent(&self) -> bool {
@@ -808,6 +820,7 @@ impl Session {
             limit: None,
             connection_lost: None,
             api_error: None,
+            signed_out: None,
             cut_off: None,
             flagged: false,
             model: None,
@@ -952,6 +965,20 @@ pub struct ApiError {
     /// What went wrong, in a line, in the harness's words ("529 Overloaded. This is a
     /// server-side issue, usually temporary.").
     pub said: String,
+}
+
+/// A turn its account's sign-in was turned down for, as its harness recorded it.
+#[derive(Serialize, Deserialize, Clone, Debug, Default, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct SignedOut {
+    /// When the turn ended.
+    pub at: i64,
+    /// What the harness said, in a line ("OAuth token revoked · Please run /login").
+    pub said: String,
+    /// Codealong on its Mac tells it to carry on once its account reads signed in again
+    /// (config.toml's `[sessions] continue_after_sign_in`).
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub continues: bool,
 }
 
 /// Replies suggested for a session by another session that read it (a supervisor going over the
