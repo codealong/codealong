@@ -30,9 +30,11 @@
       failCopy = false;
       return Promise.reject('reading ~/.claude/settings.json: Permission denied');
     }
-    // A copy makes the new account's folder, which saving it didn't.
-    if (cmd === 'copy_account_settings') {
-      accounts = accounts.map(function (a) { return a.name === args.to ? Object.assign({}, a, { folderExists: true }) : a; });
+    // A copy, or putting Codealong's plugin in, makes the new account's folder, which saving it
+    // didn't.
+    if (cmd === 'copy_account_settings' || cmd === 'install_agents') {
+      var made = cmd === 'install_agents' ? args.accounts : [args.to];
+      accounts = accounts.map(function (a) { return made.indexOf(a.name) >= 0 ? Object.assign({}, a, { folderExists: true }) : a; });
     }
     // What's saved is what's read back, as config.toml would have it.
     if (cmd === 'save_accounts') {
@@ -79,6 +81,7 @@
       check('the account just added is offered too, and one whose folder isn’t there isn’t', choices(field('Settings from')).indexOf(name) >= 0 && choices(field('Settings from')).indexOf('claude-old') < 0, choices(field('Settings from')));
       button('None', field('Settings from')).click();
       await wait(100);
+      var plain = nameField().value;
       check('None says the folder starts empty', /starts with an empty folder/.test(field('Settings from').textContent), field('Settings from').textContent);
       button('Add account', q('.ca-acct-form')).click();
       await until(function () { return calls('install_agents').length > 1; }, 3000, 'the second account wasn’t added');
@@ -87,6 +90,7 @@
       await until(function () { return button('Add Claude Code account'); }, 3000, 'the form didn’t close after the second');
       button('Add Claude Code account').click();
       await until(function () { return field('Settings from'); }, 3000, 'the third account was offered no settings');
+      await until(function () { return choices(field('Settings from')).indexOf(plain) >= 0; }, 3000, 'one added with None wasn’t offered once the plugin made its folder');
       failCopy = true;
       var installs = calls('install_agents').length;
       button('Add account', q('.ca-acct-form')).click();

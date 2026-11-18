@@ -43,25 +43,18 @@ const SYNCED: &str = "synced";
 /// Settings that say how the account signs in or what pays for it.
 const SIGN_IN: &[&str] = &["apiKeyHelper", "awsAuthRefresh", "awsCredentialExport", "gcpAuthRefresh", "forceLoginMethod", "forceLoginOrgUUID"];
 
-/// What in the settings' `env` signs the account in, or sends it to another provider than its
-/// own sign-in (Bedrock's setup saves its AWS keys or profile there).
-const SIGN_IN_ENV: &[&str] = &[
-    "ANTHROPIC_API_KEY",
-    "ANTHROPIC_AUTH_TOKEN",
-    "CLAUDE_CODE_OAUTH_TOKEN",
-    "ANTHROPIC_BASE_URL",
-    "CLAUDE_CODE_USE_BEDROCK",
-    "AWS_BEARER_TOKEN_BEDROCK",
-    "AWS_ACCESS_KEY_ID",
-    "AWS_SECRET_ACCESS_KEY",
-    "AWS_SESSION_TOKEN",
-    "AWS_PROFILE",
-    "CLAUDE_CODE_USE_VERTEX",
-    "GOOGLE_APPLICATION_CREDENTIALS",
-    "ANTHROPIC_VERTEX_PROJECT_ID",
-    "CLAUDE_CODE_USE_FOUNDRY",
-    "ANTHROPIC_FOUNDRY_API_KEY",
-];
+/// Whether a variable in the settings' `env` signs the account in or sends it to another
+/// provider than its own sign-in: a key, token, secret, credentials or headers by the words of
+/// its name (`ANTHROPIC_API_KEY`, `CLAUDE_CODE_OAUTH_REFRESH_TOKEN`, `AWS_SECRET_ACCESS_KEY`,
+/// `ANTHROPIC_CUSTOM_HEADERS`), a cloud provider's switch, profile or project
+/// (`CLAUDE_CODE_USE_BEDROCK`, `AWS_PROFILE`; Bedrock's setup saves its keys there), or where
+/// requests go (`ANTHROPIC_BASE_URL`). By words, so a count of tokens (`MAX_THINKING_TOKENS`)
+/// stays.
+fn signs_in(name: &str) -> bool {
+    const WORDS: &[&str] = &["KEY", "TOKEN", "SECRET", "PASSWORD", "AUTH", "OAUTH", "CREDENTIAL", "CREDENTIALS", "HEADERS", "PROFILE"];
+    let name = name.to_ascii_uppercase();
+    name.split('_').any(|w| WORDS.contains(&w)) || name.starts_with("CLAUDE_CODE_USE_") || name.ends_with("_BASE_URL") || name.ends_with("_PROJECT_ID")
+}
 
 /// Where in the folder a command can run what isn't yours: what plugins installed, and what
 /// claude.ai synced for the account's sign-in.
@@ -80,6 +73,11 @@ pub fn copy(from: &Path, to: &Path) -> Result<()> {
 fn copy_in(from: &Path, to: &Path, user_home: &Path) -> Result<()> {
     if !from.is_dir() {
         anyhow::bail!("{} isn't there", tilde(from));
+    }
+    // Its folders are made by name, which a `..` after one that isn't there yet would take
+    // somewhere other than where `resolved` says.
+    if to.components().any(|c| c == Component::ParentDir) {
+        anyhow::bail!("{} has a .. in it: name the folder itself", tilde(to));
     }
     let (a, b) = (dunce::canonicalize(from)?, resolved(to));
     if a == b {
@@ -154,7 +152,7 @@ fn copy_settings(from: &Path, to: &Path, user_home: &Path) -> Result<()> {
 fn settings_for(text: &str, from: &Path, to: &Path, ways: &[(String, String)]) -> Result<(String, Vec<PathBuf>)> {
     let mut top = Node::entries(text)?;
     top.retain(|(k, _)| !SIGN_IN.contains(&k.as_str()));
-    drop_in(&mut top, "env", |k| SIGN_IN_ENV.contains(&k))?;
+    drop_in(&mut top, "env", signs_in)?;
     drop_in(&mut top, "enabledPlugins", |k| k == crate::install::PLUGIN)?;
     drop_in(&mut top, "extraKnownMarketplaces", |k| k == crate::install::MARKETPLACE)?;
     let mut runs: Vec<PathBuf> = Vec::new();
@@ -164,15 +162,17 @@ fn settings_for(text: &str, from: &Path, to: &Path, ways: &[(String, String)]) -
         let mut value: Value = serde_json::from_str(raw.get())?;
         let mut changed = false;
         commands(&mut value, &mut |command| {
+            // A command can name a script it now runs from the old folder, and one under
+            // `$CLAUDE_CONFIG_DIR` runs the copy without a change.
             let (next, files) = follow_paths(command, ways, from, to);
-            if !files.is_empty() {
+            for file in files {
+                if !runs.contains(&file) {
+                    runs.push(file);
+                }
+            }
+            if next != *command {
                 *command = next;
                 changed = true;
-                for file in files {
-                    if !runs.contains(&file) {
-                        runs.push(file);
-                    }
-                }
             }
         });
         if changed {
@@ -220,7 +220,7 @@ fn ways(from: &Path, to: &Path, user_home: &Path) -> Vec<(String, String)> {
     let whole = |dir: &Path| dir.to_string_lossy().into_owned();
     let in_home = |dir: &Path| crate::util::tilde_in(dir, user_home).strip_prefix("~/").map(str::to_string);
     let mut ways = vec![(whole(from), whole(to))];
-    for own in ["$CLAUDE_CONFIG_DIR", "${CLAUDE_CONFIG_DIR}"] {
+    for own in ["$CLAUDE_CONFIG_DIR", "${CLAUDE_CONFIG_DIR}", "\"$CLAUDE_CONFIG_DIR\"", "\"${CLAUDE_CONFIG_DIR}\""] {
         ways.push((own.to_string(), own.to_string()));
     }
     if let Some(rest) = in_home(from) {
@@ -234,36 +234,56 @@ fn ways(from: &Path, to: &Path, user_home: &Path) -> Vec<(String, String)> {
 
 /// `command` with each path to a script of yours in the folder `from`, written one of `ways`,
 /// turned to the same file in `to` written the same way, and those scripts (from the folder). A
-/// path counts from where one can start, and to a file that runs (`runs`): not a hidden one, nor
-/// one a plugin installed or claude.ai synced, nor one a copy can't land in `to` (through a
-/// link there). A new folder whose name a command line would split isn't followed into.
+/// path counts from where one can start, to the end of its name or, inside quotes, to the
+/// quote; and to a file that runs (`runs`): not a hidden one, nor one a plugin installed or
+/// claude.ai synced, by its name or where it leads. One whose copy can't land in `to` (`lands`)
+/// is run from `from`: as it was, or named whole where it's written `$CLAUDE_CONFIG_DIR`, which
+/// the new account would read as its own. A new folder whose name a command line would split
+/// isn't followed into.
 fn follow_paths(command: &str, ways: &[(String, String)], from: &Path, to: &Path) -> (String, Vec<PathBuf>) {
     let in_path = |c: char| c.is_alphanumeric() || "/._-~$}".contains(c);
+    let in_name = |c: char| c.is_alphanumeric() || "._-/".contains(c);
     let plain = |s: &str| s.chars().all(|c| c.is_alphanumeric() || "/._-~${}".contains(c));
+    let real_from = dunce::canonicalize(from).unwrap_or_else(|_| from.to_path_buf());
+    let theirs = |dir: &Path, path: &Path| NOT_YOURS.iter().any(|under| path.starts_with(under.iter().fold(dir.to_path_buf(), |p, part| p.join(part))));
     let yours = |rel: &Path| {
-        let parts: Vec<String> = rel.components().map(|c| c.as_os_str().to_string_lossy().into_owned()).collect();
         let named = rel.components().all(|c| matches!(c, Component::Normal(n) if !n.to_string_lossy().starts_with('.')));
-        let theirs = NOT_YOURS.iter().any(|under| parts.len() > under.len() && parts.iter().zip(under.iter()).all(|(p, u)| p == u));
-        !parts.is_empty() && named && !theirs && runs(&from.join(rel)) && lands(to, rel)
+        let file = from.join(rel);
+        let leads = dunce::canonicalize(&file).is_ok_and(|real| !theirs(&real_from, &real));
+        rel.components().next().is_some() && named && !theirs(from, &file) && leads && runs(&file)
     };
+    let whole_from = from.to_string_lossy().into_owned();
     let mut out = command.to_string();
     let mut files: Vec<PathBuf> = Vec::new();
-    for (f, t) in ways.iter().filter(|(_, t)| plain(t)) {
+    // A way that stays as it's written isn't the new folder's name.
+    for (f, t) in ways.iter().filter(|(f, t)| f == t || plain(t)) {
         let lead = format!("{f}/");
         let mut at = 0;
         while let Some(found) = out[at..].find(&lead).map(|i| at + i) {
             let start = found + lead.len();
-            let len = out[start..].find(|c: char| !(c.is_alphanumeric() || "._-/".contains(c))).unwrap_or(out.len() - start);
-            let rel = PathBuf::from(&out[start..start + len]);
-            if !out[..found].chars().next_back().is_some_and(in_path) && yours(&rel) {
-                let with = format!("{t}/{}", &out[start..start + len]);
-                out.replace_range(found..start + len, &with);
-                at = found + with.len();
+            let before = out[..found].chars().next_back();
+            let quoted = before.filter(|q| *q == '"' || *q == '\'').and_then(|q| out[start..].find(q));
+            let len = quoted.unwrap_or_else(|| out[start..].find(|c: char| !in_name(c)).unwrap_or(out.len() - start));
+            let rel_text = out[start..start + len].to_string();
+            let rel = PathBuf::from(&rel_text);
+            let with = if before.is_some_and(in_path) || !yours(&rel) {
+                None
+            } else if lands(to, &rel) {
                 if !files.contains(&rel) {
                     files.push(rel);
                 }
+                Some(format!("{t}/{rel_text}"))
+            } else if f == t && (quoted.is_some() || plain(&whole_from)) {
+                Some(format!("{}/{rel_text}", f.replace("${CLAUDE_CONFIG_DIR}", &whole_from).replace("$CLAUDE_CONFIG_DIR", &whole_from)))
             } else {
-                at = start;
+                None
+            };
+            match with {
+                Some(with) => {
+                    out.replace_range(found..start + len, &with);
+                    at = found + with.len();
+                }
+                None => at = start,
             }
         }
     }
@@ -276,8 +296,9 @@ fn runs(path: &Path) -> bool {
     path.is_file() && (script || crate::detect::is_executable(path))
 }
 
-/// Whether a copy of the file `rel` lands in `to` (or one is there already): every folder on the
-/// way that's there is a folder of `to`'s own, not a link to one elsewhere (`own_dir`).
+/// Whether a copy of the file `rel` lands in `to`, or one is there already: every folder on the
+/// way that's there is a folder of `to`'s own, not a link to one elsewhere (`own_dir`), and
+/// what's at its name, if anything, is a file (a link to one too, not one that leads nowhere).
 fn lands(to: &Path, rel: &Path) -> bool {
     let mut dir = to.to_path_buf();
     for part in rel.parent().into_iter().flat_map(Path::components) {
@@ -288,7 +309,8 @@ fn lands(to: &Path, rel: &Path) -> bool {
             Err(_) => return true,
         }
     }
-    true
+    let file = to.join(rel);
+    std::fs::symlink_metadata(&file).is_err() || file.is_file()
 }
 
 /// Whether `path` is a folder of the new account's own to copy into, making it when it isn't
@@ -366,8 +388,10 @@ fn copy_entry(from: &Path, to: &Path, root: &Path) -> Result<()> {
 fn link_target(link: &Path, root: &Path) -> Result<PathBuf> {
     let target = std::fs::read_link(link)?;
     let Some(dir) = link.parent().filter(|_| target.is_relative()) else { return Ok(target) };
-    let whole = lexical(&dir.join(&target));
-    Ok(if whole.starts_with(lexical(root)) { target } else { whole })
+    // From the folder it's really in: the skills folder may itself be a link.
+    let real = |p: &Path| dunce::canonicalize(p).unwrap_or_else(|_| p.to_path_buf());
+    let whole = lexical(&real(dir).join(&target));
+    Ok(if whole.starts_with(real(root)) { target } else { whole })
 }
 
 /// `path` with its `.` and `..` worked out from its names alone, as a link's target is read
@@ -386,40 +410,41 @@ fn lexical(path: &Path) -> PathBuf {
     out
 }
 
-/// A file copied to `to` unless something's there, keeping whether it runs. One that couldn't
-/// be copied whole isn't left behind, where a second try would take it for yours.
+/// A file copied to `to` unless something's there, keeping whether it runs (`publish`).
 fn copy_new(from: &Path, to: &Path) -> Result<()> {
     let mut src = std::fs::File::open(from).with_context(|| format!("reading {}", tilde(from)))?;
     let permissions = src.metadata()?.permissions();
-    let mut dst = match std::fs::OpenOptions::new().write(true).create_new(true).open(to) {
-        Ok(f) => f,
-        Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => return Ok(()),
-        Err(e) => return Err(e).with_context(|| format!("copying {} to {}", tilde(from), tilde(to))),
-    };
-    let copied = std::io::copy(&mut src, &mut dst).and_then(|_| dst.set_permissions(permissions));
-    if let Err(e) = copied {
-        drop(dst);
-        let _ = std::fs::remove_file(to);
-        return Err(e).with_context(|| format!("copying {} to {}", tilde(from), tilde(to)));
-    }
-    Ok(())
+    publish(to, |file| std::io::copy(&mut src, &mut *file).and_then(|_| file.set_permissions(permissions))).with_context(|| format!("copying {} to {}", tilde(from), tilde(to)))
 }
 
 /// A file written at `to` unless something's there, for you alone, as Claude Code writes its
-/// settings; one that couldn't be written whole isn't left behind.
+/// settings (`publish`).
 fn write_new(to: &Path, text: &str) -> Result<()> {
     use std::io::Write;
-    let mut file = match crate::os::files::create_mode(std::fs::OpenOptions::new().write(true).create_new(true), 0o600).open(to) {
-        Ok(f) => f,
-        Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => return Ok(()),
-        Err(e) => return Err(e).with_context(|| format!("writing {}", tilde(to))),
-    };
-    if let Err(e) = file.write_all(text.as_bytes()) {
-        drop(file);
-        let _ = std::fs::remove_file(to);
-        return Err(e).with_context(|| format!("writing {}", tilde(to)));
+    publish(to, |file| file.write_all(text.as_bytes())).with_context(|| format!("writing {}", tilde(to)))
+}
+
+/// Puts a file at `to`, unless something's there, made whole by `fill` under a hidden name
+/// beside it first (for you alone, until `fill` says otherwise), then linked to its name, which
+/// a link never takes over: a copy cut short is never there to be taken for one that's done.
+fn publish(to: &Path, fill: impl FnOnce(&mut std::fs::File) -> std::io::Result<()>) -> std::io::Result<()> {
+    if std::fs::symlink_metadata(to).is_ok() {
+        return Ok(());
     }
-    Ok(())
+    let name = to.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
+    let temp = to.with_file_name(format!(".{name}.codealong-{}", std::process::id()));
+    let made = (|| {
+        let mut file = crate::os::files::create_mode(std::fs::OpenOptions::new().write(true).create(true).truncate(true), 0o600).open(&temp)?;
+        fill(&mut file)?;
+        file.sync_all()?;
+        drop(file);
+        match std::fs::hard_link(&temp, to) {
+            Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => Ok(()),
+            other => other,
+        }
+    })();
+    let _ = std::fs::remove_file(&temp);
+    made
 }
 
 /// The MCP servers `from`'s state file has for every folder, into `to`'s when it has none. A
@@ -486,6 +511,10 @@ mod tests {
     "ANTHROPIC_API_KEY": "sk-atlas",
     "CLAUDE_CODE_USE_BEDROCK": "1",
     "AWS_PROFILE": "atlas",
+    "CLAUDE_CODE_OAUTH_REFRESH_TOKEN": "rt-atlas",
+    "CLAUDE_CODE_OAUTH_SCOPES": "user:inference",
+    "ANTHROPIC_CUSTOM_HEADERS": "X-Atlas-Key: k",
+    "MAX_THINKING_TOKENS": "8000",
     "CLAUDE_CODE_ENABLE_TELEMETRY": "1"
   },
   "permissions": {
@@ -506,6 +535,10 @@ mod tests {
           {
             "type": "command",
             "command": "$CLAUDE_CONFIG_DIR/hooks/note.py"
+          },
+          {
+            "type": "command",
+            "command": "bash \"$CLAUDE_CONFIG_DIR/hooks/post stop.sh\" && \"$CLAUDE_CONFIG_DIR\"/hooks/check.sh && ~/.claude-a/hooks/linked.sh"
           }
         ]
       }
@@ -525,6 +558,10 @@ mod tests {
         write(&from.join("statusline.sh"), "echo a");
         write(&from.join("hooks/done.sh"), "echo done");
         write(&from.join("hooks/note.py"), "print()");
+        write(&from.join("hooks/post stop.sh"), "echo stop");
+        write(&from.join("hooks/check.sh"), "echo check");
+        #[cfg(unix)]
+        crate::os::files::symlink(from.join("plugins/cache/kestrel/hook.sh"), from.join("hooks/linked.sh")).unwrap();
         write(&from.join("skills/synced/org_user/notes/run.sh"), "the other sign-in's");
         write(&from.join("plugins/cache/kestrel/hook.sh"), "a plugin's");
         write(&from.join("CLAUDE.md"), "Be brief.");
@@ -560,9 +597,16 @@ mod tests {
         );
         assert_eq!(v["hooks"]["Stop"][0]["hooks"][1]["command"], "$CLAUDE_CONFIG_DIR/hooks/note.py", "each account's own folder");
         assert_eq!(read(&to.join("hooks/note.py")), "print()");
+        assert_eq!(read(&to.join("hooks/post stop.sh")), "echo stop", "a quoted path, to its quote");
+        assert_eq!(read(&to.join("hooks/check.sh")), "echo check", "the folder quoted on its own");
+        #[cfg(unix)]
+        {
+            assert_eq!(v["hooks"]["Stop"][0]["hooks"][2]["command"], "bash \"$CLAUDE_CONFIG_DIR/hooks/post stop.sh\" && \"$CLAUDE_CONFIG_DIR\"/hooks/check.sh && ~/.claude-a/hooks/linked.sh");
+            assert!(!to.join("hooks/linked.sh").exists(), "a link to a plugin's script is the plugin's");
+        }
         assert_eq!(v["permissions"]["deny"][0], "Read(~/.claude-a/.credentials.json)", "a permission's file is about that file");
         assert!(v.get("apiKeyHelper").is_none(), "{copied}");
-        assert_eq!(v["env"], serde_json::json!({"CLAUDE_CODE_ENABLE_TELEMETRY": "1"}));
+        assert_eq!(v["env"], serde_json::json!({"MAX_THINKING_TOKENS": "8000", "CLAUDE_CODE_ENABLE_TELEMETRY": "1"}));
         assert_eq!(v["enabledPlugins"], serde_json::json!({"kestrel@atlas": true}));
         assert_eq!(v["extraKnownMarketplaces"].as_object().unwrap().keys().collect::<Vec<_>>(), ["atlas"]);
         assert!(copied.starts_with("{\n  \"model\": \"opus\",\n  \"env\": {"), "in its order: {copied}");
@@ -578,7 +622,7 @@ mod tests {
         #[cfg(unix)]
         {
             assert_eq!(std::fs::read_link(to.join("skills/linked")).unwrap(), home.join("elsewhere/skill"));
-            assert_eq!(std::fs::read_link(to.join("skills/plan")).unwrap(), home.join("shared/plan"), "a relative link out goes where it went");
+            assert_eq!(std::fs::read_link(to.join("skills/plan")).unwrap(), dunce::canonicalize(&*home).unwrap().join("shared/plan"), "a relative link out goes where it went");
             assert_eq!(std::fs::read_link(to.join("skills/also.md")).unwrap(), Path::new("review/SKILL.md"), "one within goes to the copy");
         }
         for left in ["skills/synced", "skills/.trash", "history.jsonl", "projects", "plugins", ".credentials.json", "atlas-credentials.json"] {
@@ -646,13 +690,20 @@ mod tests {
     fn a_script_that_cant_land_in_the_new_folder_is_run_from_the_old_one() {
         let home = crate::fixtures::scratch("seed-shared-hooks");
         let (from, to) = (home.join(".claude-a"), home.join(".claude-b"));
-        write(&from.join("settings.json"), r#"{"hooks":{"Stop":[{"hooks":[{"command":"~/.claude-a/hooks/done.sh"}]}]}}"#);
+        write(&from.join("settings.json"), r#"{"hooks":{"Stop":[{"hooks":[{"command":"~/.claude-a/hooks/done.sh"},{"command":"$CLAUDE_CONFIG_DIR/hooks/done.sh"},{"command":"~/.claude-a/lost.sh"}]}]}}"#);
+        write(&from.join("lost.sh"), "echo lost");
         write(&from.join("hooks/done.sh"), "echo done");
         std::fs::create_dir_all(home.join("shared-hooks")).unwrap();
         std::fs::create_dir_all(&to).unwrap();
         crate::os::files::symlink(home.join("shared-hooks"), to.join("hooks")).unwrap();
+        // A link at the script's own name that leads nowhere is no script to run.
+        crate::os::files::symlink(home.join("gone.sh"), to.join("lost.sh")).unwrap();
         copy_in(&from, &to, &home).unwrap();
-        assert!(read(&to.join("settings.json")).contains("~/.claude-a/hooks/done.sh"));
+        let v: Value = serde_json::from_str(&read(&to.join("settings.json"))).unwrap();
+        let hooks = &v["hooks"]["Stop"][0]["hooks"];
+        assert_eq!(hooks[0]["command"], "~/.claude-a/hooks/done.sh");
+        assert_eq!(hooks[1]["command"], format!("{}/hooks/done.sh", from.display()), "named whole, as the new account's own folder isn't it");
+        assert_eq!(hooks[2]["command"], "~/.claude-a/lost.sh");
         assert!(!home.join("shared-hooks/done.sh").exists());
     }
 
@@ -668,7 +719,8 @@ mod tests {
 
     #[test]
     fn a_path_is_followed_only_whole_and_only_to_a_file_of_yours() {
-        let from = crate::fixtures::scratch("seed-paths").join(".claude");
+        let root = crate::fixtures::scratch("seed-paths");
+        let from = root.join(".claude");
         write(&from.join("statusline.sh"), "echo");
         write(&from.join("hooks/check.sh"), "echo");
         write(&from.join(".credentials.json"), "{}");
@@ -704,6 +756,8 @@ mod tests {
                 ("/Users/me/.claude", "/Users/me/.claude-work"),
                 ("$CLAUDE_CONFIG_DIR", "$CLAUDE_CONFIG_DIR"),
                 ("${CLAUDE_CONFIG_DIR}", "${CLAUDE_CONFIG_DIR}"),
+                ("\"$CLAUDE_CONFIG_DIR\"", "\"$CLAUDE_CONFIG_DIR\""),
+                ("\"${CLAUDE_CONFIG_DIR}\"", "\"${CLAUDE_CONFIG_DIR}\""),
                 ("~/.claude", "~/.claude-work"),
                 ("$HOME/.claude", "$HOME/.claude-work"),
                 ("${HOME}/.claude", "${HOME}/.claude-work")
@@ -711,7 +765,7 @@ mod tests {
         );
         // A new folder outside the home folder is written whole however the old one was.
         let outside = super::ways(&home.join(".claude"), Path::new("/opt/claude-b"), home);
-        assert!(outside.iter().skip(3).all(|(_, t)| t == &Path::new("/opt/claude-b").to_string_lossy()));
+        assert!(outside.iter().skip(5).all(|(_, t)| t == &Path::new("/opt/claude-b").to_string_lossy()));
     }
 
     #[test]
@@ -722,6 +776,8 @@ mod tests {
         assert!(copy_in(&from, &from, &home).is_err());
         assert!(copy_in(&from, &from.join("skills/b"), &home).is_err(), "it would copy what it copies");
         assert!(copy_in(&home.join(".claude-none"), &home.join(".claude-b"), &home).is_err());
+        assert!(copy_in(&from, &home.join("not-yet/../.claude-a/skills/b"), &home).is_err(), "a .. after a folder that isn't there");
+        assert!(!home.join("not-yet").exists());
         assert!(!home.join(".claude-b").exists());
         assert!(!from.join("skills/b").exists());
         // A skills folder that's a link to one holding the new account.
