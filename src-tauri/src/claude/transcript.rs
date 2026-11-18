@@ -364,17 +364,20 @@ pub fn parse_transcript(path: &Path, mtime: i64, prev: Option<Parsed>) -> Option
         }
     };
     // Only whole lines are read; a line still being written is read next time.
+    let head_cwd = info.cwd.clone();
     apply_tail(&mut info, &mut state, &tail.text());
     // A name is written again only by a process that took it up, so it can be far behind by now.
     if fresh && info.title.is_none() {
         info.title = super::names::kept_name(path).map(|name| one_line(&name, 90));
     }
     // One turn can write far more than the tail holds, so the prompt that started it may be
-    // further back. A first read looks back for it once; later reads carry it forward.
+    // further back. A first read looks back for it once; later reads carry it forward. Its
+    // folder is the session's only where the tail started no turn of its own (a message
+    // Codealong resumed it with in another folder, which isn't your prompt, says where it is).
     if fresh && info.last_prompt_at.is_none() {
         if let Some((at, cwd)) = prompt_before(path, tail.start) {
             info.last_prompt_at = Some(at);
-            if let Some(cwd) = cwd {
+            if let Some(cwd) = cwd.filter(|_| info.cwd == head_cwd) {
                 info.cwd = cwd;
             }
         }
@@ -453,7 +456,7 @@ fn prompt_before(path: &Path, end: u64) -> Option<(i64, Option<String>)> {
             return false;
         }
         let Ok(v) = serde_json::from_str::<Value>(line) else { return false };
-        if (!you_typed(&v) || not_your_prompt(&v)) && !you_sent_while_working(&v) {
+        if !(you_typed(&v) || you_sent_while_working(&v)) || not_your_prompt(&v) {
             return false;
         }
         at = str_of(&v, "timestamp").as_deref().and_then(parse_rfc3339_ms).map(|t| (t, str_of(&v, "cwd").filter(|c| !c.is_empty())));
@@ -730,7 +733,7 @@ pub fn apply_tail(info: &mut TranscriptInfo, state: &mut TailState, tail: &str) 
             // A message you sent while it worked is a new ask too. It's written once the turn
             // takes it in, timed when it came, so lines before it can be timed after it.
             Some("attachment") if you_sent_while_working(&v) => {
-                if let Some(ts) = str_of(&v, "timestamp").as_deref().and_then(parse_rfc3339_ms) {
+                if let Some(ts) = str_of(&v, "timestamp").as_deref().and_then(parse_rfc3339_ms).filter(|_| !not_your_prompt(&v)) {
                     info.last_prompt_at = info.last_prompt_at.max(Some(ts));
                 }
                 if let Some(cwd) = str_of(&v, "cwd").filter(|c| !c.is_empty()) {
@@ -975,9 +978,9 @@ fn brings_input(v: &Value) -> bool {
     }
     match v.get("type").and_then(Value::as_str) {
         // Not a command of Claude Code's own that takes no turn (`/model`, `/effort`), which
-        // before 2.1.302 wrote its line and its output as `user` lines: a turn starts with what
-        // comes in, and a tag on the reply before it stands (board.rs `moved_on`).
-        Some("user") if unmarked_command(v).is_some() || (v.pointer("/message/content").and_then(Value::as_str).is_some_and(|t| t.trim_start().starts_with("<local-command-stdout>")) && !ran_a_turn(v)) => false,
+        // before 2.1.302 wrote its line, a caveat and its output as `user` lines: a turn starts
+        // with what comes in, and a tag on the reply before it stands (board.rs `moved_on`).
+        Some("user") if unmarked_command(v).is_some() || (v.pointer("/message/content").and_then(Value::as_str).is_some_and(|t| t.trim_start().starts_with("<local-command-")) && !ran_a_turn(v)) => false,
         Some("user") => !v.pointer("/message/content").and_then(Value::as_array).is_some_and(|items| items.iter().any(|i| i.get("type").and_then(Value::as_str) == Some("tool_result"))),
         Some("attachment") => v.pointer("/attachment/type").and_then(Value::as_str) == Some("queued_command"),
         Some("system") => str_of(v, "subtype").as_deref() == Some("scheduled_task_fire"),
@@ -1555,11 +1558,16 @@ fn unwrap_pastes(text: &str) -> String {
 /// session scheduled for itself (a `ScheduleWakeup` or `CronCreate` firing: `turnOrigin:
 /// "scheduled"`, from 2.1.322), which Claude Code writes as a `user` line with no `origin` as an
 /// older prompt of yours, one in words (`/loop check the deploy`) passing for typed; and the
-/// message Codealong resumed a stopped session with, its own or another agent's, marked `human`
-/// and told by the line it opens with (`turns::whose`). An older wakeup is told only by the
-/// `scheduled_task_fire` line before it (turns.rs), and still passes for yours here.
+/// message Codealong resumed a stopped session with or typed into its busy terminal (a
+/// `queued_command`), its own or another agent's, marked `human` and told by the line it opens
+/// with (`turns::whose`). An older wakeup is told only by the `scheduled_task_fire` line before
+/// it (turns.rs), and still passes for yours here.
 fn not_your_prompt(v: &Value) -> bool {
-    v.get("turnOrigin").and_then(Value::as_str) == Some("scheduled") || typed_text(v).is_some_and(|t| crate::turns::whose(&t).0 != crate::turns::Source::You)
+    let queued = || {
+        let p = v.pointer("/attachment/prompt")?;
+        p.as_str().or_else(|| p.as_array()?.iter().find_map(|i| i.get("text")?.as_str())).map(String::from)
+    };
+    v.get("turnOrigin").and_then(Value::as_str) == Some("scheduled") || typed_text(v).or_else(queued).is_some_and(|t| crate::turns::whose(&t).0 != crate::turns::Source::You)
 }
 
 /// A turn you took: a prompt you typed, pasted or ran as a slash command, or sent from
@@ -2500,6 +2508,24 @@ pub(super) mod tests {
         std::fs::remove_dir_all(dir).unwrap();
     }
 
+    /// Your last prompt far behind the tail, and a message Codealong resumed the session with in
+    /// another folder in it: the prompt says when, the message where it is now.
+    #[test]
+    fn a_first_read_keeps_the_folder_a_resume_moved_it_to() {
+        let dir = crate::fixtures::scratch("claude-resumed-folder");
+        let path = dir.join("s.jsonl");
+        let yours = serde_json::json!({ "type": "user", "timestamp": "2026-10-21T10:00:00.000Z", "cwd": "/r/app", "origin": { "kind": "human" }, "message": { "content": "Fix the build" } });
+        let padding = serde_json::json!({ "type": "progress", "timestamp": "2026-10-21T10:00:02.000Z", "data": "x".repeat(300_000) });
+        let resumed = serde_json::json!({ "type": "user", "timestamp": "2026-10-21T11:00:00.000Z", "cwd": "/r/app-fix", "origin": { "kind": "human" }, "message": { "content": crate::send::by_codealong("Your PR merged.") } });
+        std::fs::write(&path, format!("{HEAD}{yours}\n{padding}\n{resumed}\n")).unwrap();
+        let (_, info, _) = parse_transcript(&path, 1, None).unwrap();
+        assert_eq!((info.last_prompt_at, info.cwd.as_str()), (parse_rfc3339_ms("2026-10-21T10:00:00.000Z"), "/r/app-fix"));
+        // With nothing in the tail to say, the prompt says where too.
+        std::fs::write(&path, format!("{HEAD}{yours}\n{padding}\n")).unwrap();
+        assert_eq!(parse_transcript(&path, 2, None).unwrap().1.cwd, "/r/app");
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
     #[test]
     fn a_first_read_finds_what_was_held_before_its_tail() {
         let dir = crate::fixtures::scratch("claude-held-before");
@@ -2558,8 +2584,9 @@ pub(super) mod tests {
         let sidechain = line(serde_json::json!({ "type": "user", "timestamp": "2026-10-30T10:00:07.000Z", "isSidechain": true, "message": { "content": "Look at the logs" } }));
         // Nor is a command of Claude Code's own that takes no turn, as one before 2.1.302 wrote it.
         let model = line(serde_json::json!({ "type": "user", "timestamp": "2026-10-30T10:00:10.000Z", "message": { "content": "<command-name>/model</command-name>\n<command-message>model</command-message>\n<command-args>haiku</command-args>" } }));
+        let caveat = line(serde_json::json!({ "type": "user", "timestamp": "2026-10-30T10:00:10.050Z", "message": { "content": "<local-command-caveat>The command below was run directly in Claude Code.</local-command-caveat>" } }));
         let set = line(serde_json::json!({ "type": "user", "timestamp": "2026-10-30T10:00:10.100Z", "message": { "content": "<local-command-stdout>Set model to haiku</local-command-stdout>" } }));
-        let turn = [prompt.clone(), call.clone(), result.clone(), sidechain, model, set].join("\n") + "\n";
+        let turn = [prompt.clone(), call.clone(), result.clone(), sidechain, model, caveat, set].join("\n") + "\n";
         // A call's result and a subagent's prompt are the agent's own doing.
         assert_eq!(parse_lines(HEAD, &turn).input_at, parse_rfc3339_ms("2026-10-30T10:00:00.000Z"));
         // Another session's message taken in while it ran, timed when it came, moves no
@@ -2595,9 +2622,13 @@ pub(super) mod tests {
         // Nor is a message Codealong resumed it with, its own or another agent's.
         let resumed = |text: String| line(serde_json::json!({ "type": "user", "timestamp": "2026-10-30T10:20:00.000Z", "origin": { "kind": "human" }, "message": { "content": text } }));
         let agents = format!("{} This message is from another agent, “Review the parser” (Codex), sent with `codealong session send`; it isn't from your user.\n\nTwo findings.", crate::send::RESUMED_FOR_A_MESSAGE);
+        let yours = line(serde_json::json!({ "type": "user", "timestamp": "2026-10-30T10:00:00.000Z", "origin": { "kind": "human" }, "message": { "content": "Watch the deploy" } }));
         for text in [agents, crate::send::by_codealong("Check the deploy.")] {
-            let info = parse_lines(HEAD, &([line(serde_json::json!({ "type": "user", "timestamp": "2026-10-30T10:00:00.000Z", "origin": { "kind": "human" }, "message": { "content": "Watch the deploy" } })), resumed(text)].join("\n") + "\n"));
+            let info = parse_lines(HEAD, &([yours.clone(), resumed(text.clone())].join("\n") + "\n"));
             assert_eq!((info.last_prompt_at, info.input_at), (parse_rfc3339_ms("2026-10-30T10:00:00.000Z"), parse_rfc3339_ms("2026-10-30T10:20:00.000Z")));
+            // Nor when it's typed into its terminal as it works, held for the turn to take in.
+            let queued = line(serde_json::json!({ "type": "attachment", "timestamp": "2026-10-30T10:20:00.000Z", "attachment": { "type": "queued_command", "prompt": text, "origin": { "kind": "human" } } }));
+            assert_eq!(parse_lines(HEAD, &([yours.clone(), queued].join("\n") + "\n")).last_prompt_at, parse_rfc3339_ms("2026-10-30T10:00:00.000Z"));
         }
     }
 

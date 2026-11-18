@@ -1985,9 +1985,10 @@ pub fn apply_snooze(s: &mut Session, snooze: Option<&Snooze>, seen_at: i64, now:
 /// keeps it snoozed until its time (asked 2026-11-18), as does a turn of its own begun before
 /// the snooze, and a wait that began before what came in (a call it waits on, from before the
 /// snooze or from the turn it was snoozed in, with a report come in since). It began waiting
+/// when a command it runs stalled (`stalled_since`, its status having begun with the turn), else
 /// when its status did, or where only its record is read, when its turn ended.
 pub fn snooze_called_back(s: &Session, at: i64) -> bool {
-    let waits = s.status_since.or(s.turn_ended);
+    let waits = s.stalled_since.or(s.status_since).or(s.turn_ended);
     s.status == Status::Needs && s.input_at.is_some_and(|came| came > at && waits.is_some_and(|w| w >= came))
 }
 
@@ -4963,6 +4964,9 @@ mod tests {
         // Read from its record alone (its process gone), it began waiting as its turn ended.
         let recorded = Session { status_since: None, turn_ended: Some(NOW - MIN), ..woke(Status::Needs, NOW - 5 * MIN) };
         assert!(snooze_called_back(&recorded, z.at));
+        // A command that stalled on you in the turn a wakeup started, its status begun with the turn.
+        let stalled = Session { status_since: Some(NOW - 6 * MIN), stalled_since: Some(NOW - 2 * MIN), ..woke(Status::Needs, NOW - 5 * MIN) };
+        assert!(snooze_called_back(&stalled, z.at));
         let mut untouched = idle.clone();
         apply_snooze(&mut untouched, None, 0, NOW);
         assert_eq!((untouched.status, untouched.snoozed_until), (Status::Idle, None));

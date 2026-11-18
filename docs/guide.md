@@ -3552,8 +3552,9 @@ while snoozed, and sending a session a prompt ends its snooze. So does a turn a 
 session takes by itself since you snoozed it (a scheduled check-in or wakeup, another session's
 message, a background task's report) when it leaves the session waiting on you: its reply asks
 you something or it's blocked on you, or it waits for you to allow a call or answer a question.
-A turn that only reports keeps it snoozed until its time. A session on another device is
-snoozed on its Mac, so it's snoozed there too.
+A turn that only reports keeps it snoozed until its time, but for a wakeup's on Claude Code
+before 2.1.322, which wrote it as a prompt of yours, so it ends the snooze as yours does. A
+session on another device is snoozed on its Mac, so it's snoozed there too.
 
 When a session's last reply says its work goes on at a later time, with nothing for you or it to
 do before then ("nothing more to do here until Thursday's cutover", "the freeze lifts
