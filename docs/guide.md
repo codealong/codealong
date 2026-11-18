@@ -655,9 +655,11 @@ on this machine; and a running one has *Stop* (see *Commands left running*). Bel
 (Claude Code's transcript, Codex's rollout, OpenCode's database): your prompts and the agent's
 replies, their Markdown drawn (a prompt keeps its line breaks and indentation as you typed them,
 and a glob written without backticks, `apps/*` or `*.ts`, isn't read as italics), and every tool call, which opens to its input and output; runs of calls fold into one
-line. Who said what and when heads a run of messages, not each one: your prompt, then the agent's
-reply, whose later messages between its calls go on under that heading; it heads one again after a
-note in the conversation or a pause of ten minutes (the agent woken by a background job's report).
+line. When it was heads a run of messages, not each one: your prompt, then the agent's reply, whose
+later messages between its calls go on under that heading; it heads one again after a note in the
+conversation or a pause of ten minutes (the agent woken by a background job's report). Your
+prompts are in a bubble of their own and the header names the agent's account, so neither says who
+wrote it; Codealong's messages and another session's do.
 Another session's message (an agent's, sent with `codealong session send`) shows whole, under who
 it's from and set apart by a rule at its left, in any harness: one Claude Code took on its
 cross-session socket, and one typed into a session of another harness, without the line saying

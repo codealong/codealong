@@ -124,7 +124,7 @@ export function SchedulesView(props: SchedulesViewProps) {
       <Fragment key={s.id}>
         <Row
           id={scheduleRowId(s.id)}
-          label={s.orchestrates && scheduleName(s) !== s.name ? `Orchestrator for ${s.orchestrates.project ?? 'All projects'}` : s.name}
+          label={s.orchestrates ? `${scheduleName(s)}, for ${s.orchestrates.project ?? 'All projects'}` : s.name}
           selected={s.id === selectedId && !selectedSession}
           className={cx('ca-lane', 'is-item', 'ca-schedrow', (s.paused || done) && 'is-paused', !done && !!s.problem && 'is-problem')}
           onSelect={() => onSelect(s.id)}

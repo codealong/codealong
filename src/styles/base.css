@@ -98,3 +98,14 @@ body.is-resizing * {
 .ca-empty .ca-kbds {
   vertical-align: -3px;
 }
+
+/* Words for a screen reader alone, where what they say shows another way (who said a message, by
+   its bubble). */
+.ca-sr {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}

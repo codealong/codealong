@@ -469,7 +469,7 @@ function ToolRun({ calls, stateOf, inBox, onOpen }: { calls: { item: TranscriptI
  *  Edit from here… (`onEdit`). A command has its own Copy. Your answers to questions (`asked`,
  *  with `item` the call's result) are a message of yours too, whose `onEdit` is Rewind to this
  *  question…. */
-function Said({ item, result, asked, now, label, head, onPutBack, onMenu, onEdit }: { item: TranscriptItem; result?: TranscriptItem; asked?: Question[]; now: number; label?: ReactNode; head?: number; onPutBack?: () => void; onMenu?: (items: MenuSpec) => void; onEdit?: () => void }) {
+function Said({ item, result, asked, now, label, who, head, onPutBack, onMenu, onEdit }: { item: TranscriptItem; result?: TranscriptItem; asked?: Question[]; now: number; label?: ReactNode; who: string; head?: number; onPutBack?: () => void; onMenu?: (items: MenuSpec) => void; onEdit?: () => void }) {
   const ran = item.kind === 'you' && item.input != null;
   const answers = item.kind === 'result' ? answeredOf(asked ?? [], item.answers ?? {}) : null;
   const words = answers ? answers.map((a) => `${a.header ?? a.question}: ${a.answer}`).join('\n') : item.text;
@@ -501,7 +501,8 @@ function Said({ item, result, asked, now, label, head, onPutBack, onMenu, onEdit
     <div className={cx('ca-thread-said', answers ? 'is-you' : `is-${item.kind}`, item.withdrawn && 'is-withdrawn')} data-prompt={item.kind === 'you' ? keyOf(item) : undefined} onContextMenu={menu}>
       {head !== undefined && (
         <div className="ca-thread-meta">
-          {label && <span className="ca-thread-who">{label}</span>}
+          {/* Who said it, out of sight but for a screen reader where no name shows. */}
+          {label ? <span className="ca-thread-who">{label}</span> : <span className="ca-sr">{who}</span>}
           {(head > 0 || item.withdrawn) && (
             <span className="ca-meta" title={head > 0 ? absolute(head) : undefined}>
               {[item.withdrawn && 'Taken back', head > 0 && agoPhrase(head, now)].filter(Boolean).join(' · ')}
@@ -650,7 +651,7 @@ function NotYetSaid({ prompt, text, state, action, className, children }: { prom
   return (
     <div className={cx('ca-thread-said', 'is-you', 'is-ahead', className)} data-prompt={prompt}>
       <div className="ca-thread-meta">
-        <span>You</span>
+        <span className="ca-sr">You</span>
         <span className="ca-meta">{state}</span>
         {action}
       </div>
@@ -1301,7 +1302,7 @@ export function SessionThread({ session: s, now, onOpen, fallback, machine, onLo
                 if (r.kind === 'tools') return <ToolRun key={keyOf(r.calls[0].item)} calls={r.calls} stateOf={stateOf} inBox={inBox} onOpen={askHere} />;
                 if (r.kind === 'answers') {
                   const rewind = onRewind && r.questions.length > 0 ? () => onRewind(r.result, r.questions) : undefined;
-                  return <Said key={keyOf(r.result)} item={r.result} asked={r.questions} now={now} head={headings.headed.get(keyOf(r.result))} onMenu={onMenu} onEdit={rewind} />;
+                  return <Said key={keyOf(r.result)} item={r.result} asked={r.questions} now={now} who="You" head={headings.headed.get(keyOf(r.result))} onMenu={onMenu} onEdit={rewind} />;
                 }
                 const it = r.item;
                 if (it.kind === 'tool') return inBox(it) ? null : <ToolLine key={keyOf(it)} item={it} result={r.result} state={stateOf(it)} onOpen={askHere} />;
@@ -1324,7 +1325,7 @@ export function SessionThread({ session: s, now, onOpen, fallback, machine, onLo
                 // say nothing: your bubble says it's yours, and the header names its account.
                 const label = it.kind === 'codealong' ? 'Codealong' : it.kind === 'peer' ? <PeerLabel item={it} /> : undefined;
                 const edit = onEdit && editable.has(keyOf(it)) ? () => onEdit(it) : undefined;
-                return <Said key={keyOf(it)} item={shown} result={r.result} now={now} label={label} head={headings.headed.get(keyOf(it))} onPutBack={again} onMenu={onMenu} onEdit={edit} />;
+                return <Said key={keyOf(it)} item={shown} result={r.result} now={now} label={label} who={it.kind === 'you' ? 'You' : s.account} head={headings.headed.get(keyOf(it))} onPutBack={again} onMenu={onMenu} onEdit={edit} />;
               })}
               {showing.map((a) => (
                 <Unsaid key={a.id} ahead={a} onOpen={onOpen} />
@@ -1334,6 +1335,7 @@ export function SessionThread({ session: s, now, onOpen, fallback, machine, onLo
                   item={{ at: now, kind: 'agent', text: streaming.text, failed: false, cursor: 0, n: 0 }}
                   now={now}
                   label={s.status === 'working' ? 'Writing' : undefined}
+                  who={s.account}
                   // Yours on their way are above it.
                   head={showing.length > 0 || heads(headings.last, 'agent', now) ? now : undefined}
                   onMenu={onMenu}

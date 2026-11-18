@@ -104,11 +104,6 @@
   color: var(--ink-3);
   font: var(--type-caption-strong);
 }
-/* When it was, at the head's end, whether or not a name leads it (only Codealong's and another
-   session's messages say who sent them). */
-.ca-thread-meta > .ca-meta {
-  margin-left: auto;
-}
 .ca-thread-you {
   padding: 8px 10px;
   border-radius: var(--radius-md);

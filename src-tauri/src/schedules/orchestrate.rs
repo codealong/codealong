@@ -144,8 +144,10 @@ pub const NAME: &str = "Orchestrator";
 /// The title an orchestrator's session called `title` shows: `NAME` for the one its runs gave it,
 /// its schedule's name (`name`). A title you gave it yourself stays yours.
 pub fn session_title<'a>(title: &'a str, project: Option<&str>) -> &'a str {
+    // Any case, and spaces as one, as a harness may save a title with its runs of spaces collapsed.
+    let said = |s: &str| s.split_whitespace().collect::<Vec<_>>().join(" ").to_lowercase();
     match project {
-        Some(p) if title.trim().eq_ignore_ascii_case(&format!("{p} orchestrator")) => NAME,
+        Some(p) if said(title) == said(&format!("{p} orchestrator")) => NAME,
         _ => title,
     }
 }
@@ -439,6 +441,9 @@ mod tests {
         assert_eq!(session_title("Night watch", Some("Northwind")), "Night watch");
         assert_eq!(session_title("Atlas orchestrator", Some("Northwind")), "Atlas orchestrator");
         assert_eq!(session_title("Orchestrator", None), "Orchestrator");
+        // Spaces a harness collapsed, and a project's name in another case, still match.
+        assert_eq!(session_title("Northwind Ops orchestrator", Some("Northwind  Ops")), "Orchestrator");
+        assert_eq!(session_title("élan orchestrator", Some("Élan")), "Orchestrator");
     }
     use crate::model::{Harness, PrItem, PrState};
     use crate::schedules::{File, Item, Runs, Track};
