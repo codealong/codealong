@@ -10,14 +10,16 @@
 //! skills folder you share) is left as it is.
 //!
 //! What signs the other account in or pays for it stays out of the new one's settings
-//! (`apiKeyHelper` and the like, and the keys and tokens in its `env`), as a second account is
-//! there to be signed in to another; so does Codealong's own plugin, which install.rs puts in
-//! as the form's box says. The files in the folder that its status line and hooks run
-//! (`~/.claude/hooks/check.sh`) are copied, and the new settings run the copies, so changing one
-//! account's leaves the other's alone. Nothing else the settings name is followed: a permission
-//! rule that names a file is about that file. A path Codealong can't follow (one with `\`s, as
-//! Windows writes them, or into a new folder whose name a command line would split) still runs
-//! the other folder's file, which works as long as it's there.
+//! (`apiKeyHelper` and the like, and in its `env` the keys, tokens and cloud credentials, and
+//! what sends it to another provider), as a second account is there to be signed in to another;
+//! so does Codealong's own plugin, which install.rs puts in as the form's box says. The scripts
+//! in the folder that its status line and hooks run (`~/.claude/hooks/check.sh`, a file that
+//! runs or is a script by its extension) are copied, and the new settings run the copies, so
+//! changing one account's leaves the other's alone. Nothing else the settings name is followed:
+//! a permission rule that names a file is about that file, and a file a command reads (its
+//! `history.jsonl`) is the account's own. A path Codealong can't follow (one with `\`s, as
+//! Windows writes them, into a new folder whose name a command line would split, or through a
+//! link there) still runs the other folder's file, which works as long as it's there.
 
 use std::path::{Component, Path, PathBuf};
 
@@ -41,11 +43,32 @@ const SYNCED: &str = "synced";
 /// Settings that say how the account signs in or what pays for it.
 const SIGN_IN: &[&str] = &["apiKeyHelper", "awsAuthRefresh", "awsCredentialExport", "gcpAuthRefresh", "forceLoginMethod", "forceLoginOrgUUID"];
 
-/// What in the settings' `env` signs the account in.
-const SIGN_IN_ENV: &[&str] = &["ANTHROPIC_API_KEY", "ANTHROPIC_AUTH_TOKEN", "CLAUDE_CODE_OAUTH_TOKEN", "AWS_BEARER_TOKEN_BEDROCK", "ANTHROPIC_FOUNDRY_API_KEY"];
+/// What in the settings' `env` signs the account in, or sends it to another provider than its
+/// own sign-in (Bedrock's setup saves its AWS keys or profile there).
+const SIGN_IN_ENV: &[&str] = &[
+    "ANTHROPIC_API_KEY",
+    "ANTHROPIC_AUTH_TOKEN",
+    "CLAUDE_CODE_OAUTH_TOKEN",
+    "ANTHROPIC_BASE_URL",
+    "CLAUDE_CODE_USE_BEDROCK",
+    "AWS_BEARER_TOKEN_BEDROCK",
+    "AWS_ACCESS_KEY_ID",
+    "AWS_SECRET_ACCESS_KEY",
+    "AWS_SESSION_TOKEN",
+    "AWS_PROFILE",
+    "CLAUDE_CODE_USE_VERTEX",
+    "GOOGLE_APPLICATION_CREDENTIALS",
+    "ANTHROPIC_VERTEX_PROJECT_ID",
+    "CLAUDE_CODE_USE_FOUNDRY",
+    "ANTHROPIC_FOUNDRY_API_KEY",
+];
 
-/// What a command can run in the folder that isn't yours: what plugins installed.
-const NOT_YOURS: &[&str] = &["plugins"];
+/// Where in the folder a command can run what isn't yours: what plugins installed, and what
+/// claude.ai synced for the account's sign-in.
+const NOT_YOURS: &[&[&str]] = &[&["plugins"], &["skills", SYNCED]];
+
+/// What a status line or hook runs by an interpreter (`bash x.sh`) without it being a program.
+const SCRIPTS: &[&str] = &["sh", "bash", "zsh", "fish", "py", "js", "mjs", "cjs", "ts", "rb", "pl", "ps1", "cmd", "bat"];
 
 /// Copies what you made yourself in the account folder `from` into `to`, a new account's,
 /// making `to` when it isn't there. Nothing already in `to` is replaced.
@@ -62,9 +85,17 @@ fn copy_in(from: &Path, to: &Path, user_home: &Path) -> Result<()> {
     if a == b {
         anyhow::bail!("{} is the folder it would copy into", tilde(from));
     }
-    // One inside the other would copy into what it's copying.
+    // One inside the other would copy into what it's copying, and so would a folder of yours
+    // that's a link to one holding the new folder.
     if a.starts_with(&b) || b.starts_with(&a) {
         anyhow::bail!("{} and {} are one inside the other", tilde(from), tilde(to));
+    }
+    for name in FOLDERS {
+        if let Ok(real) = dunce::canonicalize(from.join(name)) {
+            if b.starts_with(&real) {
+                anyhow::bail!("{} holds {}", tilde(&from.join(name)), tilde(to));
+            }
+        }
     }
     // Claude Code makes its folder for you alone.
     crate::os::files::dir_mode(std::fs::DirBuilder::new().recursive(true), 0o700).create(to).with_context(|| format!("making {}", tilde(to)))?;
@@ -107,7 +138,7 @@ fn copy_settings(from: &Path, to: &Path, user_home: &Path) -> Result<()> {
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(()),
         Err(e) => return Err(e).with_context(|| format!("reading {}", tilde(&src))),
     };
-    let (text, runs) = settings_for(&text, from, &ways(from, to, user_home)).with_context(|| format!("reading {}", tilde(&src)))?;
+    let (text, runs) = settings_for(&text, from, to, &ways(from, to, user_home)).with_context(|| format!("reading {}", tilde(&src)))?;
     for file in &runs {
         if own_dirs(to, file.parent().unwrap_or(Path::new("")))? {
             copy_new(&from.join(file), &to.join(file))?;
@@ -117,10 +148,10 @@ fn copy_settings(from: &Path, to: &Path, user_home: &Path) -> Result<()> {
 }
 
 /// `settings.json`'s text for the new account: without what signs the other in or pays for it,
-/// without Codealong's plugin, and running the new folder's copies of the files in `from` that
-/// its status line and hooks run; and those files, from the folder. The rest keeps its text and
+/// without Codealong's plugin, and running `to`'s copies of the scripts in `from` that its
+/// status line and hooks run; and those scripts, from the folder. The rest keeps its text and
 /// its order.
-fn settings_for(text: &str, from: &Path, ways: &[(String, String)]) -> Result<(String, Vec<PathBuf>)> {
+fn settings_for(text: &str, from: &Path, to: &Path, ways: &[(String, String)]) -> Result<(String, Vec<PathBuf>)> {
     let mut top = Node::entries(text)?;
     top.retain(|(k, _)| !SIGN_IN.contains(&k.as_str()));
     drop_in(&mut top, "env", |k| SIGN_IN_ENV.contains(&k))?;
@@ -133,7 +164,7 @@ fn settings_for(text: &str, from: &Path, ways: &[(String, String)]) -> Result<(S
         let mut value: Value = serde_json::from_str(raw.get())?;
         let mut changed = false;
         commands(&mut value, &mut |command| {
-            let (next, files) = follow_paths(command, ways, from);
+            let (next, files) = follow_paths(command, ways, from, to);
             if !files.is_empty() {
                 *command = next;
                 changed = true;
@@ -183,11 +214,15 @@ fn commands(value: &mut Value, each: &mut dyn FnMut(&mut String)) {
 
 /// The ways `settings.json` can write the folder `from`, each with the same way of writing `to`:
 /// whole, and from the home folder as `~`, `$HOME` and `${HOME}` when `from` is in there (`to`
-/// whole when it isn't). Each with `/`s, as a command line takes them.
+/// whole when it isn't). Each with `/`s, as a command line takes them. `$CLAUDE_CONFIG_DIR` is
+/// each account's own folder already, so it stays as it's written, its scripts copied.
 fn ways(from: &Path, to: &Path, user_home: &Path) -> Vec<(String, String)> {
     let whole = |dir: &Path| dir.to_string_lossy().into_owned();
     let in_home = |dir: &Path| crate::util::tilde_in(dir, user_home).strip_prefix("~/").map(str::to_string);
     let mut ways = vec![(whole(from), whole(to))];
+    for own in ["$CLAUDE_CONFIG_DIR", "${CLAUDE_CONFIG_DIR}"] {
+        ways.push((own.to_string(), own.to_string()));
+    }
     if let Some(rest) = in_home(from) {
         let to_rest = in_home(to);
         for prefix in ["~/", "$HOME/", "${HOME}/"] {
@@ -197,18 +232,19 @@ fn ways(from: &Path, to: &Path, user_home: &Path) -> Vec<(String, String)> {
     ways
 }
 
-/// `command` with each path to a file of yours in the folder `from`, written one of `ways`,
-/// turned to the same file in the other folder written the same way, and those files (from
-/// the folder). A path counts from where one can start, and to a file: not a hidden one, nor
-/// one a plugin installed. A new folder whose name a command line would split isn't followed
-/// into.
-fn follow_paths(command: &str, ways: &[(String, String)], from: &Path) -> (String, Vec<PathBuf>) {
+/// `command` with each path to a script of yours in the folder `from`, written one of `ways`,
+/// turned to the same file in `to` written the same way, and those scripts (from the folder). A
+/// path counts from where one can start, and to a file that runs (`runs`): not a hidden one, nor
+/// one a plugin installed or claude.ai synced, nor one a copy can't land in `to` (through a
+/// link there). A new folder whose name a command line would split isn't followed into.
+fn follow_paths(command: &str, ways: &[(String, String)], from: &Path, to: &Path) -> (String, Vec<PathBuf>) {
     let in_path = |c: char| c.is_alphanumeric() || "/._-~$}".contains(c);
     let plain = |s: &str| s.chars().all(|c| c.is_alphanumeric() || "/._-~${}".contains(c));
     let yours = |rel: &Path| {
-        let parts: Vec<_> = rel.components().collect();
-        let named = |c: &Component| matches!(c, Component::Normal(n) if !n.to_string_lossy().starts_with('.'));
-        !parts.is_empty() && parts.iter().all(named) && !NOT_YOURS.iter().any(|n| parts[0].as_os_str() == *n) && from.join(rel).is_file()
+        let parts: Vec<String> = rel.components().map(|c| c.as_os_str().to_string_lossy().into_owned()).collect();
+        let named = rel.components().all(|c| matches!(c, Component::Normal(n) if !n.to_string_lossy().starts_with('.')));
+        let theirs = NOT_YOURS.iter().any(|under| parts.len() > under.len() && parts.iter().zip(under.iter()).all(|(p, u)| p == u));
+        !parts.is_empty() && named && !theirs && runs(&from.join(rel)) && lands(to, rel)
     };
     let mut out = command.to_string();
     let mut files: Vec<PathBuf> = Vec::new();
@@ -232,6 +268,27 @@ fn follow_paths(command: &str, ways: &[(String, String)], from: &Path) -> (Strin
         }
     }
     (out, files)
+}
+
+/// Whether a file is a script a command runs: a program, or a script by its extension.
+fn runs(path: &Path) -> bool {
+    let script = path.extension().and_then(|e| e.to_str()).is_some_and(|e| SCRIPTS.contains(&e.to_ascii_lowercase().as_str()));
+    path.is_file() && (script || crate::detect::is_executable(path))
+}
+
+/// Whether a copy of the file `rel` lands in `to` (or one is there already): every folder on the
+/// way that's there is a folder of `to`'s own, not a link to one elsewhere (`own_dir`).
+fn lands(to: &Path, rel: &Path) -> bool {
+    let mut dir = to.to_path_buf();
+    for part in rel.parent().into_iter().flat_map(Path::components) {
+        dir.push(part);
+        match std::fs::symlink_metadata(&dir) {
+            Ok(m) if m.is_dir() => {}
+            Ok(_) => return false,
+            Err(_) => return true,
+        }
+    }
+    true
 }
 
 /// Whether `path` is a folder of the new account's own to copy into, making it when it isn't
@@ -272,19 +329,20 @@ fn copy_folder(from: &Path, to: &Path, skills: bool) -> Result<()> {
         if hidden || (skills && name == SYNCED) {
             continue;
         }
-        copy_entry(&entry.path(), &to.join(&name))?;
+        copy_entry(&entry.path(), &to.join(&name), from)?;
     }
     Ok(())
 }
 
 /// A file, a link or a folder and all it holds, copied to `to`, which nothing there is
-/// replaced by.
-fn copy_entry(from: &Path, to: &Path) -> Result<()> {
+/// replaced by; `root` is the folder of yours it's in (`skills`). What's neither (a pipe, a
+/// socket) isn't copied.
+fn copy_entry(from: &Path, to: &Path, root: &Path) -> Result<()> {
     let kind = std::fs::symlink_metadata(from)?.file_type();
     if kind.is_dir() {
         if own_dir(to)? {
             for entry in std::fs::read_dir(from)?.flatten() {
-                copy_entry(&entry.path(), &to.join(entry.file_name()))?;
+                copy_entry(&entry.path(), &to.join(entry.file_name()), root)?;
             }
         }
         return Ok(());
@@ -293,17 +351,39 @@ fn copy_entry(from: &Path, to: &Path) -> Result<()> {
         return Ok(());
     }
     if kind.is_symlink() {
-        // A link you made (to a skill kept elsewhere) goes where it went; a relative one went
-        // from where it was, which the copy isn't.
-        let target = std::fs::read_link(from)?;
-        let target = match from.parent() {
-            Some(dir) if target.is_relative() => dir.join(target),
-            _ => target,
-        };
-        crate::os::files::symlink(target, to).with_context(|| format!("linking {}", tilde(to)))?;
+        crate::os::files::symlink(link_target(from, root)?, to).with_context(|| format!("linking {}", tilde(to)))?;
         return Ok(());
     }
-    copy_new(from, to)
+    if kind.is_file() {
+        copy_new(from, to)?;
+    }
+    Ok(())
+}
+
+/// Where a copy of the link `link` goes: a link you made to a skill kept elsewhere goes where it
+/// went, named whole, as a relative one went from where it was; one to something in `root`
+/// keeps going to it in the copy, as it's written.
+fn link_target(link: &Path, root: &Path) -> Result<PathBuf> {
+    let target = std::fs::read_link(link)?;
+    let Some(dir) = link.parent().filter(|_| target.is_relative()) else { return Ok(target) };
+    let whole = lexical(&dir.join(&target));
+    Ok(if whole.starts_with(lexical(root)) { target } else { whole })
+}
+
+/// `path` with its `.` and `..` worked out from its names alone, as a link's target is read
+/// before what it names may be there.
+fn lexical(path: &Path) -> PathBuf {
+    let mut out = PathBuf::new();
+    for part in path.components() {
+        match part {
+            Component::CurDir => {}
+            Component::ParentDir => {
+                out.pop();
+            }
+            other => out.push(other),
+        }
+    }
+    out
 }
 
 /// A file copied to `to` unless something's there, keeping whether it runs. One that couldn't
@@ -352,6 +432,10 @@ fn copy_mcp_servers(from: &Path, to: &Path) -> Result<()> {
     };
     let state: Value = serde_json::from_str(&text).with_context(|| format!("reading {}", tilde(from)))?;
     let Some(servers) = state.get("mcpServers").filter(|s| s.as_object().is_some_and(|o| !o.is_empty())) else { return Ok(()) };
+    // A state file that's a link is another's, which write_whole would write through.
+    if std::fs::symlink_metadata(to).is_ok_and(|m| m.file_type().is_symlink()) {
+        return Ok(());
+    }
     let _lock = StateLock::take(to)?;
     let text = match std::fs::read_to_string(to) {
         Ok(t) => t,
@@ -400,6 +484,8 @@ mod tests {
   "apiKeyHelper": "~/bin/atlas-key",
   "env": {
     "ANTHROPIC_API_KEY": "sk-atlas",
+    "CLAUDE_CODE_USE_BEDROCK": "1",
+    "AWS_PROFILE": "atlas",
     "CLAUDE_CODE_ENABLE_TELEMETRY": "1"
   },
   "permissions": {
@@ -407,7 +493,7 @@ mod tests {
   },
   "statusLine": {
     "type": "command",
-    "command": "bash ~/.claude-a/statusline.sh"
+    "command": "bash ~/.claude-a/statusline.sh ~/.claude-a/history.jsonl"
   },
   "hooks": {
     "Stop": [
@@ -415,7 +501,11 @@ mod tests {
         "hooks": [
           {
             "type": "command",
-            "command": "$HOME/.claude-a/hooks/done.sh && ~/.claude-a/missing.sh && ~/.claude-a/plugins/cache/kestrel/hook.sh"
+            "command": "$HOME/.claude-a/hooks/done.sh && ~/.claude-a/missing.sh && ~/.claude-a/plugins/cache/kestrel/hook.sh && ~/.claude-a/skills/synced/org_user/notes/run.sh"
+          },
+          {
+            "type": "command",
+            "command": "$CLAUDE_CONFIG_DIR/hooks/note.py"
           }
         ]
       }
@@ -434,6 +524,8 @@ mod tests {
         write(&from.join("settings.json"), settings);
         write(&from.join("statusline.sh"), "echo a");
         write(&from.join("hooks/done.sh"), "echo done");
+        write(&from.join("hooks/note.py"), "print()");
+        write(&from.join("skills/synced/org_user/notes/run.sh"), "the other sign-in's");
         write(&from.join("plugins/cache/kestrel/hook.sh"), "a plugin's");
         write(&from.join("CLAUDE.md"), "Be brief.");
         write(&from.join("keybindings.json"), "{}");
@@ -453,13 +545,21 @@ mod tests {
         crate::os::files::symlink(home.join("elsewhere/skill"), from.join("skills/linked")).unwrap();
         #[cfg(unix)]
         crate::os::files::symlink("../../shared/plan", from.join("skills/plan")).unwrap();
+        #[cfg(unix)]
+        crate::os::files::symlink("review/SKILL.md", from.join("skills/also.md")).unwrap();
 
         copy_in(&from, &to, &home).unwrap();
 
         let copied = read(&to.join("settings.json"));
         let v: Value = serde_json::from_str(&copied).unwrap();
-        assert_eq!(v["statusLine"]["command"], "bash ~/.claude-b/statusline.sh");
-        assert_eq!(v["hooks"]["Stop"][0]["hooks"][0]["command"], "$HOME/.claude-b/hooks/done.sh && ~/.claude-a/missing.sh && ~/.claude-a/plugins/cache/kestrel/hook.sh", "only files of yours that are there");
+        assert_eq!(v["statusLine"]["command"], "bash ~/.claude-b/statusline.sh ~/.claude-a/history.jsonl", "a script, not a file it reads");
+        assert_eq!(
+            v["hooks"]["Stop"][0]["hooks"][0]["command"],
+            "$HOME/.claude-b/hooks/done.sh && ~/.claude-a/missing.sh && ~/.claude-a/plugins/cache/kestrel/hook.sh && ~/.claude-a/skills/synced/org_user/notes/run.sh",
+            "only scripts of yours that are there"
+        );
+        assert_eq!(v["hooks"]["Stop"][0]["hooks"][1]["command"], "$CLAUDE_CONFIG_DIR/hooks/note.py", "each account's own folder");
+        assert_eq!(read(&to.join("hooks/note.py")), "print()");
         assert_eq!(v["permissions"]["deny"][0], "Read(~/.claude-a/.credentials.json)", "a permission's file is about that file");
         assert!(v.get("apiKeyHelper").is_none(), "{copied}");
         assert_eq!(v["env"], serde_json::json!({"CLAUDE_CODE_ENABLE_TELEMETRY": "1"}));
@@ -478,7 +578,8 @@ mod tests {
         #[cfg(unix)]
         {
             assert_eq!(std::fs::read_link(to.join("skills/linked")).unwrap(), home.join("elsewhere/skill"));
-            assert_eq!(std::fs::read_link(to.join("skills/plan")).unwrap(), from.join("skills/../../shared/plan"), "a relative link goes where it went");
+            assert_eq!(std::fs::read_link(to.join("skills/plan")).unwrap(), home.join("shared/plan"), "a relative link out goes where it went");
+            assert_eq!(std::fs::read_link(to.join("skills/also.md")).unwrap(), Path::new("review/SKILL.md"), "one within goes to the copy");
         }
         for left in ["skills/synced", "skills/.trash", "history.jsonl", "projects", "plugins", ".credentials.json", "atlas-credentials.json"] {
             assert!(!to.join(left).exists(), "{left} is the other account's own");
@@ -502,10 +603,16 @@ mod tests {
         write(&to.join("CLAUDE.md"), "Mine.");
         write(&to.join("skills/review/SKILL.md"), "my review");
         write(&to.join(".claude.json"), "{\n  \"numStartups\": 3,\n  \"mcpServers\": {\n    \"mine\": {}\n  }\n}\n");
-        // A commands folder shared with other accounts, by a link, isn't written into.
+        // A commands folder shared with other accounts, by a link, isn't written into, nor is a
+        // state file that's a link to another.
         write(&home.join("shared-commands/mine.md"), "mine");
+        write(&home.join("other-state.json"), "{}");
         #[cfg(unix)]
-        crate::os::files::symlink(home.join("shared-commands"), to.join("commands")).unwrap();
+        {
+            crate::os::files::symlink(home.join("shared-commands"), to.join("commands")).unwrap();
+            std::fs::remove_file(to.join(".claude.json")).unwrap();
+            crate::os::files::symlink(home.join("other-state.json"), to.join(".claude.json")).unwrap();
+        }
 
         copy_in(&from, &to, &home).unwrap();
 
@@ -514,10 +621,13 @@ mod tests {
         assert_eq!(read(&to.join("CLAUDE.md")), "Mine.");
         assert_eq!(read(&to.join("skills/review/SKILL.md")), "my review");
         assert_eq!(read(&to.join("skills/plan/SKILL.md")), "plan");
-        assert!(read(&to.join(".claude.json")).contains("\"mine\""));
-        assert!(!read(&to.join(".claude.json")).contains("kestrel"));
+        #[cfg(not(unix))]
+        assert!(read(&to.join(".claude.json")).contains("\"mine\"") && !read(&to.join(".claude.json")).contains("kestrel"));
         #[cfg(unix)]
-        assert!(!home.join("shared-commands/ship.md").exists(), "nothing goes through a link");
+        {
+            assert!(!home.join("shared-commands/ship.md").exists(), "nothing goes through a link");
+            assert_eq!(read(&home.join("other-state.json")), "{}");
+        }
     }
 
     #[test]
@@ -529,6 +639,21 @@ mod tests {
         copy_in(&from, &to, &home).unwrap();
         assert!(read(&to.join("settings.json")).contains("bash ~/.claude-a/statusline.sh"));
         assert!(!to.join("statusline.sh").exists());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_script_that_cant_land_in_the_new_folder_is_run_from_the_old_one() {
+        let home = crate::fixtures::scratch("seed-shared-hooks");
+        let (from, to) = (home.join(".claude-a"), home.join(".claude-b"));
+        write(&from.join("settings.json"), r#"{"hooks":{"Stop":[{"hooks":[{"command":"~/.claude-a/hooks/done.sh"}]}]}}"#);
+        write(&from.join("hooks/done.sh"), "echo done");
+        std::fs::create_dir_all(home.join("shared-hooks")).unwrap();
+        std::fs::create_dir_all(&to).unwrap();
+        crate::os::files::symlink(home.join("shared-hooks"), to.join("hooks")).unwrap();
+        copy_in(&from, &to, &home).unwrap();
+        assert!(read(&to.join("settings.json")).contains("~/.claude-a/hooks/done.sh"));
+        assert!(!home.join("shared-hooks/done.sh").exists());
     }
 
     #[test]
@@ -547,8 +672,10 @@ mod tests {
         write(&from.join("statusline.sh"), "echo");
         write(&from.join("hooks/check.sh"), "echo");
         write(&from.join(".credentials.json"), "{}");
+        write(&from.join("history.jsonl"), "{}");
+        let to = from.with_file_name(".claude-work");
         let tilde = vec![("~/.claude".to_string(), "~/.claude-work".to_string())];
-        let follow = |text: &str| follow_paths(text, &tilde, &from).0;
+        let follow = |text: &str| follow_paths(text, &tilde, &from, &to).0;
         assert_eq!(follow("bash ~/.claude/statusline.sh"), "bash ~/.claude-work/statusline.sh");
         assert_eq!(follow("\"~/.claude/statusline.sh\" \"~/.claude/statusline.sh\""), "\"~/.claude-work/statusline.sh\" \"~/.claude-work/statusline.sh\"");
         assert_eq!(follow("~/.claude/hooks/check.sh --all"), "~/.claude-work/hooks/check.sh --all");
@@ -557,9 +684,10 @@ mod tests {
         assert_eq!(follow("/x~/.claude/statusline.sh"), "/x~/.claude/statusline.sh", "inside a longer path");
         assert_eq!(follow("cat ~/.claude/.credentials.json"), "cat ~/.claude/.credentials.json", "a hidden file");
         assert_eq!(follow("~/.claude/hooks/../statusline.sh"), "~/.claude/hooks/../statusline.sh", "a way out and back");
+        assert_eq!(follow("tail ~/.claude/history.jsonl"), "tail ~/.claude/history.jsonl", "a file it reads");
         let whole = vec![(from.to_string_lossy().into_owned(), "/Users/me/.claude-work".to_string())];
         let text = format!("sh {0}/statusline.sh; /opt{0}/statusline.sh", from.display());
-        let (text, files) = follow_paths(&text, &whole, &from);
+        let (text, files) = follow_paths(&text, &whole, &from, &to);
         assert_eq!(text, format!("sh /Users/me/.claude-work/statusline.sh; /opt{}/statusline.sh", from.display()));
         assert_eq!(files, [PathBuf::from("statusline.sh")]);
     }
@@ -570,10 +698,20 @@ mod tests {
         let ways = ways(&home.join(".claude"), &home.join(".claude-work"), home);
         let pairs: Vec<(&str, &str)> = ways.iter().map(|(f, t)| (f.as_str(), t.as_str())).collect();
         #[cfg(unix)]
-        assert_eq!(pairs, [("/Users/me/.claude", "/Users/me/.claude-work"), ("~/.claude", "~/.claude-work"), ("$HOME/.claude", "$HOME/.claude-work"), ("${HOME}/.claude", "${HOME}/.claude-work")]);
+        assert_eq!(
+            pairs,
+            [
+                ("/Users/me/.claude", "/Users/me/.claude-work"),
+                ("$CLAUDE_CONFIG_DIR", "$CLAUDE_CONFIG_DIR"),
+                ("${CLAUDE_CONFIG_DIR}", "${CLAUDE_CONFIG_DIR}"),
+                ("~/.claude", "~/.claude-work"),
+                ("$HOME/.claude", "$HOME/.claude-work"),
+                ("${HOME}/.claude", "${HOME}/.claude-work")
+            ]
+        );
         // A new folder outside the home folder is written whole however the old one was.
         let outside = super::ways(&home.join(".claude"), Path::new("/opt/claude-b"), home);
-        assert!(outside.iter().skip(1).all(|(_, t)| t == &Path::new("/opt/claude-b").to_string_lossy()));
+        assert!(outside.iter().skip(3).all(|(_, t)| t == &Path::new("/opt/claude-b").to_string_lossy()));
     }
 
     #[test]
@@ -586,19 +724,25 @@ mod tests {
         assert!(copy_in(&home.join(".claude-none"), &home.join(".claude-b"), &home).is_err());
         assert!(!home.join(".claude-b").exists());
         assert!(!from.join("skills/b").exists());
+        // A skills folder that's a link to one holding the new account.
+        #[cfg(unix)]
+        {
+            let linked = home.join(".claude-c");
+            write(&home.join("shared/review/SKILL.md"), "review");
+            std::fs::create_dir_all(&linked).unwrap();
+            crate::os::files::symlink(home.join("shared"), linked.join("skills")).unwrap();
+            assert!(copy_in(&linked, &home.join("shared/new"), &home).is_err());
+            assert!(!home.join("shared/new").exists());
+        }
     }
 
-    #[cfg(unix)]
     #[test]
     fn settings_it_cant_read_are_said_not_skipped() {
-        use std::os::unix::fs::PermissionsExt;
         let home = crate::fixtures::scratch("seed-unreadable");
         let (from, to) = (home.join(".claude-a"), home.join(".claude-b"));
-        write(&from.join("settings.json"), "{}");
-        std::fs::set_permissions(from.join("settings.json"), std::fs::Permissions::from_mode(0o000)).unwrap();
-        let copied = copy_in(&from, &to, &home);
-        std::fs::set_permissions(from.join("settings.json"), std::fs::Permissions::from_mode(0o600)).unwrap();
-        assert!(copied.is_err());
+        std::fs::create_dir_all(&from).unwrap();
+        std::fs::write(from.join("settings.json"), [0xff, 0xfe, b'{']).unwrap();
+        assert!(copy_in(&from, &to, &home).is_err());
         assert!(!to.join("settings.json").exists());
     }
 }

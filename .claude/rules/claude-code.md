@@ -847,9 +847,9 @@ on this Mac; read it before changing the Claude adapter (paths are under `src-ta
   `mcpServers` are the servers added for every folder. `skills/synced/<sign-in>` and
   `plugins/synced/<sign-in>` belong to the sign-in, and settings that sign in or pay
   (`apiKeyHelper`, `awsAuthRefresh`, `awsCredentialExport`, `gcpAuthRefresh`,
-  `forceLoginMethod`, `forceLoginOrgUUID`, and in `env` `ANTHROPIC_API_KEY`,
-  `ANTHROPIC_AUTH_TOKEN`, `CLAUDE_CODE_OAUTH_TOKEN`, `AWS_BEARER_TOKEN_BEDROCK`,
-  `ANTHROPIC_FOUNDRY_API_KEY`) to the account. A new account whose `settings.json` turns
+  `forceLoginMethod`, `forceLoginOrgUUID`, and in `env` the keys and tokens, the cloud
+  providers' switches and credentials, which Bedrock's setup saves there, and
+  `ANTHROPIC_BASE_URL`: `SIGN_IN_ENV`) to the account. A new account whose `settings.json` turns
   on plugins of marketplaces it lists (`enabledPlugins`, `extraKnownMarketplaces`) gets them
   added and installed by Claude Code itself once it runs (seen with a copied settings.json,
   2026-11-17), so the plugins themselves aren't copied.

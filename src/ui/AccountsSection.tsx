@@ -396,12 +396,16 @@ export function AccountsSection({ focus, usage, training, mcp, terminal, now, on
       // Before Codealong goes in, which writes the settings file the copy would bring. One that
       // fails leaves it out, so adding the account again copies the rest, the settings with it.
       if (draft.copyFrom) {
+        let copied = true;
         try {
           await copyAccountSettings(draft.copyFrom, entry.name);
         } catch (e) {
+          copied = false;
           setError(`${entry.name} is added, but not all of ${draft.copyFrom}’s settings copied: ${String(e)}. Remove it and add it again to copy the rest; Codealong goes into it then.`);
-          return;
         }
+        // The list was read before the copy made the folder.
+        void load();
+        if (!copied) return;
       }
       await installSkill(entry.name);
     }

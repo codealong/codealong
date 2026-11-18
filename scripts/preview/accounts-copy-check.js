@@ -30,9 +30,13 @@
       failCopy = false;
       return Promise.reject('reading ~/.claude/settings.json: Permission denied');
     }
+    // A copy makes the new account's folder, which saving it didn't.
+    if (cmd === 'copy_account_settings') {
+      accounts = accounts.map(function (a) { return a.name === args.to ? Object.assign({}, a, { folderExists: true }) : a; });
+    }
     // What's saved is what's read back, as config.toml would have it.
     if (cmd === 'save_accounts') {
-      accounts = args.accounts.map(function (a) { return Object.assign({ makesPages: a.harness === 'claude', copiesSettings: a.harness === 'claude', folderExists: true, signedIn: false, email: null, signInNote: null }, accounts.filter(function (b) { return b.name === a.name; })[0], a); });
+      accounts = args.accounts.map(function (a) { return Object.assign({ makesPages: a.harness === 'claude', copiesSettings: a.harness === 'claude', folderExists: false, signedIn: false, email: null, signInNote: null }, accounts.filter(function (b) { return b.name === a.name; })[0], a); });
     }
     return real(cmd, args, options);
   };
@@ -71,6 +75,7 @@
       await until(function () { return button('Add Claude Code account'); }, 3000, 'the form didn’t close after adding');
       button('Add Claude Code account').click();
       await until(function () { return field('Settings from'); }, 3000, 'the next account was offered no settings');
+      await until(function () { var c = document.getElementById('ca-acct-' + name); return c && /Not signed in/.test(c.textContent); }, 3000, 'the new account’s card never said it was set up once the copy made its folder');
       check('the account just added is offered too, and one whose folder isn’t there isn’t', choices(field('Settings from')).indexOf(name) >= 0 && choices(field('Settings from')).indexOf('claude-old') < 0, choices(field('Settings from')));
       button('None', field('Settings from')).click();
       await wait(100);

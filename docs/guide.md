@@ -2554,7 +2554,7 @@ with the variable pointing at it. To add one:
    They're copies from then on: a change in one account isn't made in the other. Nothing already
    in the new folder is replaced, and a link there (a skills folder you share between accounts)
    is left as it is. What signs it in or pays for it stays with it: its sign-in, and an API key,
-   token or key helper in its settings. So do its sessions and history, and the skills and
+   token, key helper or cloud provider's credentials (Bedrock's, Vertex's) in its settings. So do its sessions and history, and the skills and
    plugins claude.ai syncs to its sign-in, which the new account gets from its own. Codealong's
    own plugin goes in as step 3's box says, whatever the other account has. **None** leaves the
    folder for Claude Code to set up from nothing. Only Claude Code accounts offer it so far.
