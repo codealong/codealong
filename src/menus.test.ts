@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { asideAhead, doneAhead, labelAhead, quietAhead, raiseAhead, seenAhead } from './ahead';
 import { getAccounts, moveSession, moveSessionTo, openInChrome, openUrl, resumeSession, sendToSession, setPrPrimary, type Done, type MergeDone, NONE_CHOSEN } from './api';
 import type { MenuAction, MenuGroup, MenuSpec } from './contextMenu';
-import { carryOnIn, chordLetter, chordSigns, chorded, CHORDS, DONE_HOLD_MS, SUGGESTION_CHORDS, suggestionChord, doneTitle, fileMenu, keyed, laneActions, laneMenu, lanesActions, lanesMenu, mergesWith, prMenu, prsActions, prsMenu, repoMenu, sessionActions, sessionMenu, sessionsActions, sessionsMenu, todoMenu, todoPanelMenu, todosMenu, toggleWaiting, TRY_AGAIN, linkMenu, unfinishedHelpers, type DoneHelpersAsk, type MergeDoneAsk, type SessionCan, type SessionsCan, type TodoEdit } from './menus';
+import { carryOnIn, chordLetter, chordSigns, chorded, CHORDS, DONE_HOLD_MS, SUGGESTION_CHORDS, suggestionChord, doneTitle, fileMenu, keyed, laneActions, laneMenu, lanesActions, lanesMenu, mergesWith, prMenu, prsActions, prsMenu, repoMenu, sessionActions, sessionMenu, sessionsActions, sessionsMenu, todoMenu, todoPanelMenu, todosMenu, toggleWaiting, TRY_AGAIN, linkMenu, unfinishedHelpers, helpersChosen, type DoneHelpersAsk, type MergeDoneAsk, type SessionCan, type SessionsCan, type TodoEdit } from './menus';
 import type { MergeForm } from './merge';
 import { openLabel } from './open';
 import { setPlatform } from './platform';
@@ -1366,6 +1366,10 @@ describe('actions by name', () => {
     // that's kept stays its.
     const nested = [...sessions, helper('claude:c:review', { status: 'working', helper: { parent: 'claude:c:f' } }), helper('claude:c:inner', { status: 'working', helper: { parent: 'claude:c:w' } })];
     expect(unfinishedHelpers([lane({ sessions: nested })], [boss.key]).map((s) => s.key)).toEqual(['claude:c:w', 'claude:c:n', 'claude:c:bg', 'claude:c:review']);
+    // Ended, the helpers a shown one started go too; kept, they stay its.
+    const shown = unfinishedHelpers([lane({ sessions: nested })], [boss.key]);
+    expect(helpersChosen([lane({ sessions: nested })], shown, true).end).toEqual(['claude:c:w', 'claude:c:n', 'claude:c:bg', 'claude:c:review', 'claude:c:inner']);
+    expect(helpersChosen([lane({ sessions: nested })], shown, false)).toEqual({ end: [], keep: ['claude:c:w', 'claude:c:n', 'claude:c:bg', 'claude:c:review'] });
     const asked: DoneHelpersAsk[] = [];
     const doneHelpers = { lanes, ask: (a: DoneHelpersAsk) => void asked.push(a) };
     const left: string[] = [];

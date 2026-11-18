@@ -1694,13 +1694,15 @@ fn ends_with_it(h: &crate::model::Session, chosen: Chosen) -> bool {
 /// while, and one may go back to work meanwhile. `who` marked `key` done.
 fn finish_helpers(engine: &Handle, cfg: &config::Config, key: &str, chosen: Chosen, who: &str) -> Helped {
     let (mut done, mut left, mut at) = (0, 0, None);
-    let (mut kept, mut unstopped) = (Vec::new(), Vec::new());
+    // Kept as yours, and why for those you chose to end that couldn't be.
+    let (mut kept, mut why_kept) = (Vec::new(), Vec::new());
     let mut parents = vec![key.to_string()];
     while let Some(parent) = parents.pop() {
         let helpers: Vec<String> = crate::board::helpers_of(&engine.board().lanes, &parent).iter().map(|h| h.key.clone()).collect();
         for helper in helpers {
+            // Still its helper: not archived meanwhile, nor made yours.
             let board = engine.board();
-            let Some((_, h)) = board.session(&helper).filter(|(_, h)| !h.archived) else { continue };
+            let Some((_, h)) = board.session(&helper).filter(|(_, h)| !h.archived && h.helper.as_ref().and_then(|x| x.parent.as_deref()) == Some(parent.as_str())) else { continue };
             if !ends_with_it(h, chosen) {
                 kept.push(helper);
                 continue;
@@ -1713,22 +1715,33 @@ fn finish_helpers(engine: &Handle, cfg: &config::Config, key: &str, chosen: Chos
                     let exits = matches!(ends, crate::idle::Ending::Exit(_));
                     let (ended, note) = end(engine, h, account, ends, who, true, None);
                     // What didn't go for one whose work was over is left unsaid: it's archived
-                    // either way, and its own panel says how it stands. Work that goes on isn't.
-                    if let (true, None, Some(note)) = (unfinished, &ended, note) {
-                        unstopped.push(format!("“{}” couldn't be ended ({}), so it's a session of your own now.", h.title, note.trim_end_matches('.')));
-                        kept.push(helper);
-                        continue;
+                    // either way, and its own panel says how it stands. Work that goes on isn't:
+                    // an app's thread, a job that didn't stop, a command you ran for it.
+                    if unfinished && ended.is_none() {
+                        if let Some(why) = note.or_else(|| h.left_running().then(|| "what it was running goes on".to_string())) {
+                            why_kept.push(format!("“{}” couldn't be ended ({}), so it's a session of your own now.", h.title, why.trim_end_matches('.')));
+                            kept.push(helper);
+                            continue;
+                        }
                     }
                     // Its harness asks first: it's archived once that's answered, as a session is.
                     if exits && crate::idle::exit_noted(&h.key) {
                         left += 1;
                         continue;
                     }
-                    engine.mark_seen(vec![helper.clone()]);
-                    if let Ok(shown) = engine.archive(&helper, true) {
-                        done += 1;
-                        at = shown.or(at);
-                        parents.push(helper.clone());
+                    // Archived first: one its harness won't archive is said, and made yours
+                    // rather than left under a session that's gone.
+                    match engine.archive(&helper, true) {
+                        Ok(shown) => {
+                            engine.mark_seen(vec![helper.clone()]);
+                            done += 1;
+                            at = shown.or(at);
+                            parents.push(helper.clone());
+                        }
+                        Err(e) => {
+                            why_kept.push(format!("“{}” couldn't be archived ({}), so it's a session of your own now.", h.title, words(e).trim_end_matches('.')));
+                            kept.push(helper.clone());
+                        }
                     }
                     let _ = job_worktree(engine, cfg, h, job && ended.is_some());
                 }
@@ -1740,7 +1753,7 @@ fn finish_helpers(engine: &Handle, cfg: &config::Config, key: &str, chosen: Chos
     if made_own > 0 {
         at = engine.make_own(kept).or(at);
     }
-    let said = [helpers_done_words(done, made_own - unstopped.len(), left)].into_iter().flatten().chain(unstopped).collect::<Vec<_>>().join(" ");
+    let said = [helpers_done_words(done, made_own - why_kept.len(), left)].into_iter().flatten().chain(why_kept).collect::<Vec<_>>().join(" ");
     Helped { said: (!said.is_empty()).then_some(said), at, made_own: made_own > 0 }
 }
 

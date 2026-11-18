@@ -4300,8 +4300,9 @@ you for a call to allow, a question or an error) would be cut off, so Mark as do
 dialog that lists them: **Make them my own** (the default) makes each a session of yours, to go on
 with in your lists, and **End them** ends them too, stopping a turn under way and leaving a question
 unanswered. Sessions picked together are asked about once, and Merge and done's dialog has a box to
-end them too. A helper of one that ends is asked about too, and one you chose to end whose work
-can't be stopped from Codealong (a thread in the Codex app) is made yours instead, saying why. A
+end them too. A helper started by one whose work is over is asked about too, and ending one ends
+the helpers it started; one you chose to end whose work can't be stopped from Codealong (a thread
+in the Codex app, a command you ran for it) is made yours instead, saying why. A
 window that can't ask (the bar's menus, the `codealong` command) makes them yours; another Mac
 whose Codealong is older ends them as it did before. *Make it my own* in a helper's menu makes it a session of
 yours for good: listed, counted and waiting on you as any of yours, and no longer told of to the

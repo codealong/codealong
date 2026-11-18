@@ -259,14 +259,21 @@ export function unfinishedHelpers(lanes: readonly Lane[], keys: readonly string[
  *  came since the dialog showed among them. */
 function askingOfHelpers(sessions: Session[], doneHelpers: DoneHelpersCan | undefined, go: (helpers: HelpersChosen) => void) {
   const helpers = doneHelpers ? unfinishedHelpers(doneHelpers.lanes, sessions.map((s) => s.key)) : [];
-  if (doneHelpers && helpers.length > 0) return doneHelpers.ask({ sessions, helpers, then: (end) => go(helpersChosen(helpers, end)) });
+  if (doneHelpers && helpers.length > 0) return doneHelpers.ask({ sessions, helpers, then: (end) => go(helpersChosen(doneHelpers.lanes, helpers, end)) });
   go(NONE_CHOSEN);
 }
 
-/** The helpers shown, chosen to end (`end`) or to make your own. */
-export function helpersChosen(helpers: readonly Session[], end: boolean): HelpersChosen {
+/** The helpers shown, chosen to make your own, or to end (`end`), and with them the helpers
+ *  they started in turn, at any depth: their work was for those, and the engine would otherwise
+ *  make the unfinished ones yours as they end. */
+export function helpersChosen(lanes: readonly Lane[], helpers: readonly Session[], end: boolean): HelpersChosen {
   const keys = helpers.map((h) => h.key);
-  return end ? { end: keys, keep: [] } : { end: [], keep: keys };
+  if (!end) return { end: [], keep: keys };
+  const all = lanes.flatMap((l) => l.sessions).filter((h) => !h.visitor && !h.archived);
+  for (let i = 0; i < keys.length; i++) {
+    for (const h of all) if (h.helper?.parent === keys[i] && !keys.includes(h.key)) keys.push(h.key);
+  }
+  return { end: keys, keep: [] };
 }
 
 /** What a window's Merge and done… dialog asks about: the session, the PR it's the primary
@@ -278,8 +285,10 @@ export interface MergeDoneAsk {
   /** Brought back after GitHub refused the merge: the commit as it was written, and why. */
   refused?: { commit: MergeForm; why: string };
   /** Its helpers whose work isn't over (`unfinishedHelpers`), where the window can find them:
-   *  the dialog offers to end them too, as Mark as done asks (`doneHelpers`). */
+   *  the dialog offers to end them too, as Mark as done asks (`doneHelpers`), and `choose` says
+   *  what that names (`helpersChosen`). */
   helpers?: Session[];
+  choose?: (end: boolean) => HelpersChosen;
   /** Confirmed, and the dialog has gone: `merging` merges the PR and has the engine mark the
    *  session done with it (ahead.ts `mergeDoneAhead`), `merged` what to say once it has, the
    *  commit as written for the dialog to come back with where GitHub refuses it. */
@@ -527,8 +536,9 @@ export function sessionActions(lane: Lane, s: Session, can: SessionCan): Session
   // `useMergeDone` says where), the session as it was and round again (`failed`); where the
   // dialog isn't surely in front of you, the window says why too.
   const askMerge = (pr: PrItem, refused?: MergeDoneAsk['refused']): boolean => {
-    const helpers = can.doneHelpers ? unfinishedHelpers(can.doneHelpers.lanes, [s.key]) : [];
-    return can.mergeDone?.ask({ lane, session: s, pr, refused, helpers, then: afterMerge(pr) }) ?? false;
+    const lanes = can.doneHelpers?.lanes ?? [];
+    const helpers = unfinishedHelpers(lanes, [s.key]);
+    return can.mergeDone?.ask({ lane, session: s, pr, refused, helpers, choose: (end) => helpersChosen(lanes, helpers, end), then: afterMerge(pr) }) ?? false;
   };
   const afterMerge = (pr: PrItem) => (merging: Promise<MergeDone>, merged: string, commit: MergeForm) => {
     can.left?.('done');

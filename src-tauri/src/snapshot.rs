@@ -574,8 +574,20 @@ fn unqueue(_: &Args, rest: &[String]) -> Done {
 
 fn done(args: &Args, rest: &[String]) -> Done {
     let [key, ..] = rest else { return Err(Stop::Usage) };
-    // Its helpers whose work isn't over, as a window that asked and was told to end them names them.
-    let end_helpers = if args.has("--end-helpers") { crate::board::helpers_of(&engine::snapshot(false, false).lanes, key).into_iter().filter(|h| h.unfinished()).map(|h| h.key.clone()).collect() } else { Vec::new() };
+    // Every helper under it, at any depth, as a window told to end them names them (menus.ts
+    // `helpersChosen`).
+    let end_helpers = if args.has("--end-helpers") {
+        let board = engine::snapshot(false, false);
+        let mut under = vec![key.clone()];
+        let mut i = 0;
+        while let Some(parent) = under.get(i).cloned() {
+            under.extend(crate::board::helpers_of(&board.lanes, &parent).into_iter().map(|h| h.key.clone()));
+            i += 1;
+        }
+        under.split_off(1)
+    } else {
+        Vec::new()
+    };
     let v = act(api::SESSION_DONE, key, params::Done { stop: args.has("--stop"), end_helpers, ..Default::default() })?;
     Ok(v.get("message").and_then(Value::as_str).unwrap_or_default().to_string())
 }

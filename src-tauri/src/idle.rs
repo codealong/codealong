@@ -403,12 +403,15 @@ pub fn ending(board: &Board, s: &Session, stop: bool) -> Result<Ending, String> 
     })
 }
 
-/// Whether another session runs in the worktree its harness made for `s` (`own_worktree`, found
-/// by its path, as cleanup.rs `after_job` finds it: `s` may be listed where it worked last), not
-/// one that only visits it; archived or not, a running one counts.
+/// Whether another session works in the worktree its harness made for `s` (`own_worktree`, found
+/// by its path, as cleanup.rs `after_job` finds it, links and all: `s` may be listed where it
+/// worked last), not one that only visits it: one that runs, archived or not, or one whose work
+/// isn't over though it doesn't run (an app's thread between turns, waiting on you).
 fn shares_its_worktree(board: &Board, s: &Session) -> bool {
     let Some(own) = s.own_worktree.as_deref().map(Path::new) else { return false };
-    board.lanes.iter().filter(|l| l.device.is_none() && Path::new(&l.path) == own).flat_map(|l| &l.sessions).any(|o| o.key != s.key && o.live && o.visitor.is_none())
+    let real = dunce::canonicalize(own).ok();
+    let holds = |l: &&Lane| l.device.is_none() && (Path::new(&l.path) == own || real.as_deref().is_some_and(|r| dunce::canonicalize(&l.path).is_ok_and(|p| p == r)));
+    board.lanes.iter().filter(holds).flat_map(|l| &l.sessions).any(|o| o.key != s.key && o.visitor.is_none() && (o.live || (!o.archived && o.unfinished())))
 }
 
 /// Whether being done with `s` types its harness's exit command rather than hanging it up: it
@@ -966,8 +969,11 @@ mod tests {
         assert_eq!(ending(&worktree(vec![helper.clone()]), &own, false), Ok(Ending::Terminal(1)));
         let archived = Session { archived: true, ..helper.clone() };
         assert_eq!(ending(&worktree(vec![archived]), &own, false), Ok(Ending::Terminal(1)), "archived, it still runs there");
-        let gone = Session { live: false, ..helper.clone() };
-        assert_eq!(ending(&worktree(vec![gone]), &own, false), Ok(Ending::Exit(1)));
+        let gone = Session { live: false, status: Status::Idle, ..helper.clone() };
+        assert_eq!(ending(&worktree(vec![gone.clone()]), &own, false), Ok(Ending::Exit(1)));
+        // One that doesn't run but whose work isn't over (an app's thread waiting on you) counts.
+        let waits = Session { status: Status::Needs, ..gone };
+        assert_eq!(ending(&worktree(vec![waits]), &own, false), Ok(Ending::Terminal(1)));
         // Where it's listed doesn't matter: only who runs in the worktree it holds.
         assert_eq!(ending(&board(vec![own.clone(), helper]), &own, false), Ok(Ending::Exit(1)));
     }
