@@ -1,7 +1,7 @@
 // The sidebar: what the window shows and what narrows it. The view, the devices, how recently
 // things were active, their statuses, what else the view narrows by (`SideFacetChips`: agents,
-// repos, labels, authors) and views you saved. Settings, the link to Codealong on GitHub and the
-// theme are in the window's status bar (App.tsx, at the end of UsageBar.tsx's bar), not here.
+// repos, labels, authors) and views you saved, above Settings, Analytics, the link to Codealong on
+// GitHub and the theme switch at its foot.
 // How Sessions, PRs and Todo are sorted, and how much a row says, is the bar over the list
 // (ListBar.tsx `ViewMenu`), which also shows the filters on as chips to take off (`FilterChips`).
 // Devices, statuses and facets toggle, any number of each: none picked shows all. Collapsed, as it starts, it's a rail of the views and devices, whose filter button
@@ -111,6 +111,13 @@ interface SidebarProps {
   onSave: (name: string) => void;
   /** The filters narrowing the view (age, statuses, facets), for the rail's badge and tooltip. */
   filters: string[];
+  onSettings: () => void;
+  /** Opens the Analytics window (UsageDialog.tsx), from the rail; the open sidebar's foot has it. */
+  onAnalytics: () => void;
+  /** Opens Codealong's repo on GitHub, from the rail; the open sidebar's foot has it. */
+  onGitHub: () => void;
+  /** Settings, Analytics, the GitHub link and the theme switch, at the foot of the open sidebar. */
+  foot: ReactNode;
   /** This Mac's board hasn't been read yet: no counts show, since they'd be other devices' alone. */
   loading: boolean;
 }
@@ -264,6 +271,7 @@ function Open(p: SidebarProps) {
         )}
       </div>
       <SidebarUpdate />
+      {p.foot}
     </nav>
   );
 }
@@ -382,6 +390,9 @@ function Rail(p: SidebarProps) {
       <RailButton icon="filter" label={filtered ? `Filtered: ${p.filters.join(', ')}. Show the sidebar` : 'Filters: show the sidebar'} active={filtered} badge={p.filters.length} tone="ink" onClick={p.onExpand} />
       <span className="ca-rail-fill" />
       <SidebarUpdate compact />
+      <RailButton icon="chart-bar" label={keysIn('Analytics: what sessions used and cost (⇧⌘U)')} onClick={p.onAnalytics} />
+      <RailButton icon="brand-github" label="Codealong on GitHub" onClick={p.onGitHub} />
+      <RailButton icon="settings" label={keysIn('Settings (⌘,)')} onClick={p.onSettings} />
     </nav>
   );
 }

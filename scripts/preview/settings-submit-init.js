@@ -18,7 +18,7 @@
   var tries = 0;
   var open = setInterval(function () {
     tries += 1;
-    var gear = document.querySelector('.ca-usagebar-settings');
+    var gear = document.querySelector('.ca-side-config');
     var nav = Array.prototype.filter.call(document.querySelectorAll('.ca-settings-nav button'), function (b) { return b.textContent.trim() === 'Automation'; })[0];
     if (nav) {
       nav.click();

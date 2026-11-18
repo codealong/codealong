@@ -8,7 +8,7 @@
   };
   var box = function () { return field().querySelector('input[type=checkbox]'); };
 
-  until(function () { return q('.ca-usagebar-settings'); }, 20000, 'the settings button')
+  until(function () { return q('.ca-side-config'); }, 20000, 'the settings button')
     .then(function (gear) {
       gear.click();
       return until(field, 20000, 'Open at login in General');

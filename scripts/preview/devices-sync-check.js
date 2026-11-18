@@ -13,8 +13,8 @@
 
   (async function () {
     try {
-      await until(function () { return q('.ca-usagebar-settings'); }, 20000, 'no Settings button');
-      q('.ca-usagebar-settings').click();
+      await until(function () { return q('.ca-side-config'); }, 20000, 'no Settings button');
+      q('.ca-side-config').click();
       await until(function () { return nav('Devices'); }, 3000, 'no Devices in Settings');
       nav('Devices').click();
       await until(function () { return card('Mac mini') && button('Sync projects…', card('Mac mini')); }, 5000, 'no Sync projects on Mac mini’s card');

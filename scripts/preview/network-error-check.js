@@ -64,7 +64,7 @@
       check('and that Codealong carries it on', flag && /tells it to carry on once the API can be reached again/.test(flag.title), flag ? flag.title : 'no chip');
       check('not Jev’s Blocked, which read the error', chips.indexOf('Blocked') < 0, chips.join(', '));
 
-      q('.ca-usagebar-settings').click();
+      q('.ca-side-config').click();
       await until(function () { return !!nav('Automation'); }, 3000, 'no Automation in Settings');
       nav('Automation').click();
       await until(function () { return !!box(); }, 5000, 'no carry-on setting in Settings › Automation');

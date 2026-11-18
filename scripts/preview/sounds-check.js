@@ -29,8 +29,8 @@
 
   (async function () {
     try {
-      await until(function () { return !!q('.ca-usagebar-settings'); }, 20000, 'no Settings button in the status bar');
-      q('.ca-usagebar-settings').click();
+      await until(function () { return !!q('.ca-side-config'); }, 20000, 'no Settings button in the sidebar');
+      q('.ca-side-config').click();
       await until(function () { return !!nav('Sounds'); }, 5000, 'no Sounds in Settings');
       nav('Sounds').click();
       await until(function () { return !!field('A session needs you'); }, 5000, 'no sounds in Settings › Sounds');

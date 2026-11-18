@@ -2276,12 +2276,12 @@ come back to it; right-click a saved view to update or delete it (they're kept p
 config.toml), with the agents, repos and labels picked. It starts folded to a rail of the views and
 devices, whose filter button opens it and carries a badge while a filter narrows the view (the
 strip over the list shows each of them as a chip, too); ⌃⌘S, or
-the button beside the traffic lights, opens and folds it, and it stays as you left it. Settings,
-the theme and a button that opens Codealong's repo on GitHub are at the far end of the status bar,
-open or folded.
+the button beside the traffic lights, opens and folds it, and it stays as you left it. Its foot
+has Settings, Analytics, a button that opens Codealong's repo on GitHub and the theme switch;
+folded, the rail keeps the first three.
 
 The title bar, the sidebar and the status bar are one ground, with no line between them, and the
-list and the panel beside it are a card on it with rounded corners.
+list and the panel beside it are a card lying on it, with rounded corners and a soft shadow.
 
 ### Find in the window
 
@@ -2355,8 +2355,8 @@ each time it opens.
 
 ### Light or dark
 
-Follows macOS unless you pick light or dark with the buttons at the end of the status bar. The
-choice is saved in config.toml, and every window follows it.
+Follows macOS unless you pick light or dark with the buttons at the foot of the sidebar. The choice
+is saved in config.toml, and every window follows it.
 
 ### Zoom
 
@@ -2479,7 +2479,7 @@ it later.
 
 ### Settings window
 
-*⌘, (comma), the app menu, or the gear at the end of the status bar*
+*⌘, (comma), the app menu, or the foot of the sidebar*
 
 A form for everything in config.toml. General has the folders searched for repos, the shortcuts
 that work in any app, the terminal and editor, Keep \<terminal> awake (on macOS: whether macOS may
@@ -4581,8 +4581,10 @@ limits, asked of Cursor with the app's sign-in every couple of minutes: on a pla
 as the usage line under Cursor's chat box has them; on Express only the first; on any other plan
 the total Cursor's Settings shows; and on-demand spend once you've set a limit on it. OpenCode (bring your own provider) has none, and
 its chip says so with a crossed-out gauge after the name. Codex's come with each of its turns, and
-with each read of the account's [limit resets](#limit-resets). Add accounts in Settings › Accounts, and
-turn off one you'd rather not see here.
+with each read of the account's [limit resets](#limit-resets). A model's own limit (Fable's weekly,
+Antigravity's Gemini group, Cursor's models) is marked with sparkles and the model's name beside
+the chip's other limits; a chip that shows only that one doesn't name it, and its card on hover
+does. Add accounts in Settings › Accounts, and turn off one you'd rather not see here.
 
 The chips are in the order config.toml lists the accounts. Drag one sideways to put it in another
 place: the others make way as it goes, Escape puts it back, and letting go moves its
@@ -4645,7 +4647,7 @@ which has the count on its card and leaves using one to its own app.
 
 #### What sessions used and cost
 
-*View › Analytics… (⇧⌘U), the bar's Analytics button, or a click on an account's chip*
+*View › Analytics… (⇧⌘U), the button at the foot of the sidebar, or a click on an account's chip*
 
 The Analytics window says what your sessions used over the last 7, 30 or 90 days or the year, for every
 account or one: what the work would have cost at API prices, what you paid, how many dollars of

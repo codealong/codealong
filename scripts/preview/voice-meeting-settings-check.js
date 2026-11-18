@@ -28,7 +28,7 @@
   var says = function () { var f = offer(); var all = f ? f.querySelectorAll('small') : []; return all.length > 1 ? all[all.length - 1].textContent : ''; };
   var asks = function () { return all('.ca-settings-pane button').filter(function (b) { return b.textContent.trim() === 'Ask macOS for my calendar'; })[0]; };
   var open = function () {
-    var gear = q('.ca-usagebar-settings');
+    var gear = q('.ca-side-config');
     var nav = all('.ca-settings .ca-nav, .ca-settings-nav button').filter(function (b) { return b.textContent.trim() === 'Experimental'; })[0];
     if (offer()) return true;
     if (nav) nav.click();

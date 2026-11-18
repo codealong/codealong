@@ -52,7 +52,7 @@
       check('the flag explains the automation guard and manual replies', /blocked by default/.test(chip.title) && /reply yourself/.test(chip.title), chip.title);
       var rect = chip.getBoundingClientRect();
       check('the badge fits in the window', rect.left >= 0 && rect.right <= innerWidth && rect.width > 0);
-      q('.ca-usagebar-settings').click();
+      q('.ca-side-config').click();
       var automation = await until(function () { return all('.ca-settings-nav button').find(function (b) { return b.textContent.trim() === 'Automation'; }); }, 5000, 'Automation tab');
       automation.click();
       await until(setting, 5000, 'flagged session setting');

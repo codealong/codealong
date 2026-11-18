@@ -2493,7 +2493,24 @@ export function App() {
           suggestion={viewSuggestion}
           onSave={(name) => keepSaved([...savedViews, { id: newSavedId(), name, ...viewNow }])}
           filters={sideFilters}
+          onSettings={() => openSettings()}
+          onAnalytics={() => setUsageOf({ account: null })}
+          onGitHub={openRepo}
           loading={loading}
+          foot={
+            <div className="ca-side-foot">
+              <button type="button" className="ca-linkbtn ca-side-config" title={keysIn('Settings (⌘,)')} aria-label="Settings" onClick={() => openSettings()}>
+                <Icon name="settings" size={14} />
+              </button>
+              <button type="button" className="ca-linkbtn ca-side-analytics" title={keysIn('Analytics: what sessions used and cost (⇧⌘U)')} aria-label="Analytics" onClick={() => setUsageOf({ account: null })}>
+                <Icon name="chart-bar" size={14} />
+              </button>
+              <button type="button" className="ca-linkbtn ca-side-github" title="Codealong on GitHub" aria-label="Codealong on GitHub" onClick={openRepo}>
+                <Icon name="brand-github" size={14} />
+              </button>
+              <ThemeSwitch theme={theme} onPick={pickTheme} />
+            </div>
+          }
         />
         {sideCollapsed ? <span aria-hidden="true" /> : <Resizer panel="before" cssVar="--sidebar-w" onResize={setSidebarWidth} />}
         {/* Where you are for the finds (findKeys.ts): ⌘F starts here, and ⌥⌘F filters the list from here, but not while a panel takes the whole window. */}
@@ -2958,7 +2975,6 @@ export function App() {
         loading={loading}
         now={now}
         onRefresh={() => void refreshUsage()}
-        onAccounts={(account) => openSettings('accounts', account ?? null)}
         onUsage={(account) => setUsageOf({ account: account ?? null })}
         onSignIn={startSignIn}
         training={board?.training}
@@ -2975,15 +2991,6 @@ export function App() {
           })
         }
         toast={<Toasts state={toasts} onUnarchive={(u) => setArchived(u.keys, false, u.title)} />}
-        // Settings, the theme and the link to Codealong on GitHub, at the bar's far end, where the
-        // sidebar's foot had them: the chrome is one ground, and the status bar is its foot.
-        end={
-          <>
-            <ThemeSwitch theme={theme} onPick={pickTheme} />
-            <Button variant="ghost" size="sm" icon="brand-github" className="ca-usagebar-github" aria-label="Codealong on GitHub" title="Codealong on GitHub" onClick={openRepo} />
-            <Button variant="ghost" size="sm" icon="settings" className="ca-usagebar-settings" aria-label="Settings" title={keysIn('Settings (⌘,)')} onClick={() => openSettings()} />
-          </>
-        }
         notices={
           <>
             {/* The meeting about to start (meetings.rs), to take its notes: where there's room for it

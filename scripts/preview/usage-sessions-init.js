@@ -4,7 +4,7 @@ window.__USAGE_VIEW__ = 'Sessions';
   var view = 'Sessions';
   var tries = 0;
   var open = setInterval(function () {
-    var button = document.querySelector('.ca-usagebar-end button[aria-label="Analytics"]');
+    var button = document.querySelector('.ca-side-analytics, .ca-rail-btn[aria-label^="Analytics"]');
     var tab = Array.from(document.querySelectorAll('.ca-usage-filters button')).find(function (b) { return b.textContent.trim() === view; });
     if (tab) {
       clearInterval(open);

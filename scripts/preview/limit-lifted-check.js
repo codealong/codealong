@@ -10,8 +10,8 @@
 
   (async function () {
     try {
-      await until(function () { return !!q('.ca-usagebar-settings'); }, 20000, 'no Settings in the status bar');
-      q('.ca-usagebar-settings').click();
+      await until(function () { return !!q('.ca-side-config'); }, 20000, 'no Settings in the sidebar');
+      q('.ca-side-config').click();
       await until(function () { return !!nav('Automation'); }, 3000, 'no Automation in Settings');
       nav('Automation').click();
       await until(function () { return !!box(); }, 5000, 'no setting to carry on when the limit lifts in Settings › Automation');

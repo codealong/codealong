@@ -57,7 +57,7 @@
     })
     .then(function () {
       // Settings › Devices: the Mac mini's tag has a card of its own.
-      q('.ca-usagebar-settings').click();
+      q('.ca-side-config').click();
       return wait(400).then(function () {
         var nav = all('.ca-settings-nav button').filter(function (b) { return b.textContent.trim() === 'Devices'; })[0];
         if (nav) nav.click();

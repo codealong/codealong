@@ -12,7 +12,7 @@
     tries += 1;
     if (tries > 2000) return clearInterval(step);
     if (!dialog()) {
-      if (document.querySelector('.ca-usagebar-settings')) window.__emit('setup', null);
+      if (document.querySelector('.ca-side-config')) window.__emit('setup', null);
       return;
     }
     if (heading() === 'Set up Codealong') return;

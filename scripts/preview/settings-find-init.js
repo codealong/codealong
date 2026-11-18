@@ -7,7 +7,7 @@
   var tries = 0;
   var open = setInterval(function () {
     tries += 1;
-    var gear = document.querySelector('.ca-usagebar-settings');
+    var gear = document.querySelector('.ca-side-config');
     var field = document.querySelector('.ca-settings-find input');
     if (field && document.querySelector('.ca-settings-pane .ca-field')) {
       Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value').set.call(field, words);

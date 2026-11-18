@@ -25,7 +25,7 @@
     .then(function (r) { return r.json(); })
     .then(function (view) {
       holds = (view.holdsSessions || []).indexOf(view.config.apps.terminal) >= 0;
-      return until(function () { return q('.ca-usagebar-settings'); }, 20000, 'the settings button');
+      return until(function () { return q('.ca-side-config'); }, 20000, 'the settings button');
     })
     .then(function (gear) {
       gear.click();

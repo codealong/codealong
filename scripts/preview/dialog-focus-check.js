@@ -53,10 +53,10 @@
 
   var opener = null;
   say('dialog focus check: waiting for the list');
-  until(function () { return q('[role="listbox"] [role="option"]') && q('.ca-usagebar-settings'); }, 20000, 'the list and Settings')
+  until(function () { return q('[role="listbox"] [role="option"]') && q('.ca-side-config'); }, 20000, 'the list and Settings')
     .then(function () { return wait(300); })
     .then(function () {
-      opener = q('.ca-usagebar-settings');
+      opener = q('.ca-side-config');
       opener.focus();
       opener.click();
       return until(dialog, 5000);

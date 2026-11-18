@@ -1,4 +1,4 @@
-// Light or dark, at the end of the window's status bar. The choice is the theme in config.toml, so every
+// Light or dark, at the foot of the sidebar. The choice is the theme in config.toml, so every
 // window follows it and it lasts.
 
 import { useEffect } from 'react';
@@ -6,7 +6,7 @@ import { systemName } from '../platform';
 import type { Theme } from '../types';
 import { Seg, type SegOption } from './primitives';
 
-/** The themes, as the status bar's switch draws them (icons) and Settings names them (words). */
+/** The themes, as the sidebar's switch draws them (icons) and Settings names them (words). */
 export const THEMES: SegOption<Theme>[] = [
   {
     id: 'system',

@@ -43,7 +43,7 @@
 
   (async function () {
     try {
-      var gear = await until(function () { return q('.ca-usagebar-settings'); }, 20000, 'no settings button');
+      var gear = await until(function () { return q('.ca-side-config'); }, 20000, 'no settings button');
       gear.click();
       (await until(function () { return nav('Jev'); }, 10000, 'no Jev in Settings')).click();
       await until(function () { return field() && q('.ca-jev-usage-cost', field()); }, 10000, 'the usage never showed');

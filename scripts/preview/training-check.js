@@ -68,8 +68,13 @@
     })
     .then(function () {
       check('an account not trained on has no card', !card());
-      q('.ca-usagebar-end button[aria-label="Accounts"]').click();
-      return until(function () { return q('#ca-acct-claude .ca-acct-tags'); }, 5000);
+      // Settings › Accounts, from the sidebar's gear.
+      q('.ca-side-config').click();
+      return until(function () { return all('.ca-settings-nav button').filter(function (b) { return b.textContent.trim() === 'Accounts'; })[0]; }, 5000)
+        .then(function (nav) {
+          nav.click();
+          return until(function () { return q('#ca-acct-claude .ca-acct-tags'); }, 5000);
+        });
     })
     .then(function () {
       var tags = function (account) { return all('#ca-acct-' + account + ' .ca-acct-tags .ca-tag').map(function (t) { return t.textContent; }).slice(1).join(','); };

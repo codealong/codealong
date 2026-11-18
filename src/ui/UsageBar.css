@@ -1,6 +1,6 @@
 /* Plan usage in the window's status bar, along its foot (UsageBar.tsx): one chip per account,
    the meters, and the popover over a chip, which for an account its provider may train on says
-   why and has buttons; at its far end, the window's own controls. The bar draws on the window's
+   why and has buttons; at its far end, what's wrong and Refresh. The bar draws on the window's
    ground, the chrome's, as the title bar and the sidebar do (App.css), and the meters' tracks, a
    tint, read on it. */
 
@@ -147,9 +147,19 @@
   font: var(--type-meta-strong);
   color: var(--attn);
 }
+/* A row, not the compact meter's grid: a chip leaves out a model's name when it's the only limit it
+   shows, and when a limit resets while it has room left (UsageBar.tsx), and what's left closes up. */
 .ca-uchip .ca-meter.is-compact {
-  grid-template-columns: auto 30px auto auto;
+  display: flex;
+  align-items: center;
   gap: 5px;
+}
+.ca-uchip .ca-meter.is-compact .ca-meter-track {
+  flex: none;
+  width: 30px;
+}
+.ca-uchip .ca-meter-reset:empty {
+  display: none;
 }
 .ca-meter-label {
   display: inline-flex;
@@ -223,15 +233,12 @@ body:has(.ca-scrim) .ca-usagebar-toast {
   z-index: var(--z-toast);
 }
 /* Only the limit's bar and number: its window and reset are on hover, with the others. */
-.ca-uchip.is-tight .ca-meter.is-compact {
-  grid-template-columns: 30px auto;
-}
 .ca-uchip.is-tight :is(.ca-meter-label, .ca-meter-reset) {
   display: none;
 }
 /* The end keeps to the bar however much it has to say: past the room the chips leave it, what
-   it says first (the machine's load, a meeting, the notices) is cut at its left, and the buttons
-   after them, the window's own controls last, stay in the window. Clipped sideways only, and a
+   it says first (the machine's load, a meeting, the notices) is cut at its left, and Refresh
+   after them stays in the window. Clipped sideways only, and a
    focus ring's width in, so a ring isn't cut; what pops out of it (a notice, the load's card) is
    drawn over the page, outside it. */
 .ca-usagebar-end {

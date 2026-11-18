@@ -290,7 +290,7 @@
   display: none;
 }
 
-/* The card: the board and the panel beside it as one, on the chrome's ground. The board rounds
+/* The card: the board and the panel beside it as one, lying on the chrome's ground. The board rounds
    the card's left corners and the panel its right ones, the panel's own line between them; with
    no panel (the canvas with nothing picked, a project with no board, while reading), the board
    rounds all four, and so does the panel when it takes the whole window. A gutter at the
@@ -321,4 +321,28 @@
 }
 .ca-win--app .ca-win-body.is-panel-max > .ca-insp {
   border-radius: var(--card-r);
+}
+/* Its shadow, barely there: a box over the card's grid area (from the board's column to the last),
+   under everything in the window. The board can't cast it, since its clip-path clips its own
+   shadow, so a box of the body's own does, under the window's rows and buttons and over its
+   ground: the window is a stacking context so the shadow falls on its ground, not under it. */
+.ca-win--app {
+  isolation: isolate;
+}
+.ca-win--app .ca-win-body {
+  position: relative;
+}
+.ca-win--app .ca-win-body::before {
+  content: '';
+  position: absolute;
+  z-index: var(--z-under);
+  inset: 0;
+  grid-row: 1;
+  grid-column: 3 / -1;
+  border-radius: var(--card-r);
+  box-shadow: var(--shadow-card);
+  pointer-events: none;
+}
+.ca-win--app .ca-win-body.is-panel-max::before {
+  grid-column: 1 / -1;
 }

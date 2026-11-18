@@ -1,7 +1,11 @@
 // The usage bar, the main window's status bar along its foot: one chip per account, in config order. Each limit shows
 // how full it is and, after the clock, how long until it resets. Per-model limits, like
-// Fable's weekly limit, are marked with sparkles. Claude numbers are read every 2 minutes;
-// Codex numbers arrive with each Codex turn, and with each read of its resets.
+// Fable's weekly limit, are marked with sparkles and their model's name where a chip shows them
+// beside its others; a chip that shows just one doesn't name it (`cursor Cursor`, `antigravity
+// Gemini` said little), and its tooltip and card do. When a limit resets shows in its chip only
+// past RESET_SHOWN_ABOVE, where it's worth a glance; below that the tooltip and card say it.
+// Claude numbers are read every 2 minutes; Codex numbers arrive with each Codex turn, and with
+// each read of its resets.
 //
 // A chip dragged sideways puts its account in another place: the others make way as it goes, and
 // letting go writes the new order into config.toml (config.rs `with_account_order`), which
@@ -37,7 +41,7 @@ import { LoadTag } from './LoadTag';
 import { Button, cx, Icon } from './primitives';
 import { useDismiss } from './useDismiss';
 import { useSort, type SortProps } from './useSort';
-import { keysIn, pinch } from '../platform';
+import { pinch } from '../platform';
 
 /** How long the pointer rests on a chip before its card shows; moving between chips while a card
  *  is up, or just after, switches straight away. */
@@ -87,8 +91,13 @@ export function fitFor(now: Fit, needs: { all: number; one: number }, room: numb
   return 'tight';
 }
 
-/** Compact inside a chip; full, with its reset time underneath, in the Accounts dialog. */
-export function UsageMeter({ meter: m, now, compact = true, titled = true }: { meter: Meter; now: number; compact?: boolean; titled?: boolean }) {
+/** How full a limit is, in percent, before its chip says when it resets. */
+const RESET_SHOWN_ABOVE = 70;
+
+/** Compact inside a chip; full, with its reset time underneath, in the Accounts dialog. A compact
+ *  one `unnamed` leaves its label out (a model's limit alone in its chip), and one without `reset`
+ *  when it resets (a limit with room left in it). */
+export function UsageMeter({ meter: m, now, compact = true, titled = true, unnamed = false, reset = true }: { meter: Meter; now: number; compact?: boolean; titled?: boolean; unnamed?: boolean; reset?: boolean }) {
   const pct = Math.round(m.percent);
   const title = meterTitle(m, now);
   const fill = <span className="ca-meter-fill" style={{ width: `${Math.min(100, Math.max(0, m.percent))}%` }} />;
@@ -103,10 +112,10 @@ export function UsageMeter({ meter: m, now, compact = true, titled = true }: { m
     // Phrasing content only: the chip around it is a button, and names it for screen readers.
     return (
       <span className={cls} title={titled ? title : undefined}>
-        {label}
+        {!unnamed && label}
         <span className="ca-meter-track">{fill}</span>
         <span className="ca-meter-value">{pct}%</span>
-        {m.resetsAt ? (
+        {m.resetsAt && reset ? (
           <span className="ca-meter-reset">
             <Icon name="clock" size={10} stroke={2} />
             {untilShort(m.resetsAt, now)}
@@ -211,7 +220,7 @@ function AccountChip({ usage: u, now, fit = 'all', measure = false, onOpen, onSi
     >
       <span className="ca-uchip-name">{u.account}</span>
       {shown.length > 0 ? (
-        shown.map((m) => <UsageMeter key={m.key} meter={m} now={now} titled={!measure && !peeks} />)
+        shown.map((m) => <UsageMeter key={m.key} meter={m} now={now} titled={!measure && !peeks} unnamed={!!m.model && shown.length === 1} reset={m.percent > RESET_SHOWN_ABOVE} />)
       ) : u.noLimits ? (
         // Nothing will ever show here, so it takes no room to say so; the words, and why, are on
         // hover.
@@ -446,8 +455,6 @@ interface UsageBarProps {
   usage: Usage[];
   now: number;
   onRefresh: () => void;
-  /** Opens Settings at Accounts, at one account when given. */
-  onAccounts: (account?: string) => void;
   /** Opens the Analytics window (UsageDialog.tsx), at one account when given: what sessions used and
    *  cost. */
   onUsage: (account?: string) => void;
@@ -468,8 +475,6 @@ interface UsageBarProps {
   notices?: ReactNode;
   /** The window's toast (Toasts.tsx), over the end of the chips' row, which stays as it is under it. */
   toast?: ReactNode;
-  /** The window's own controls (Settings, the theme), after Analytics and Accounts at the far end. */
-  end?: ReactNode;
   /** Puts the accounts in this order in config.toml; a failure is the caller's to say, and the
    *  chips go back. */
   onReorder?: (accounts: string[]) => Promise<void>;
@@ -479,7 +484,7 @@ interface UsageBarProps {
   machines?: readonly DeviceView[];
 }
 
-export function UsageBar({ usage: board, now, onRefresh, onAccounts, onUsage, onSignIn, training, onStopTraining, resets, onUseReset, onOpenUrl, loading, notices, toast, end, onReorder, load, machines }: UsageBarProps) {
+export function UsageBar({ usage: board, now, onRefresh, onUsage, onSignIn, training, onStopTraining, resets, onUseReset, onOpenUrl, loading, notices, toast, onReorder, load, machines }: UsageBarProps) {
   // The order a drag left the chips in, until the board lists them so.
   const [order, setOrder] = useState<string[] | null>(null);
   const usage = order ? inOrder(board, order) : board;
@@ -660,11 +665,6 @@ export function UsageBar({ usage: board, now, onRefresh, onAccounts, onUsage, on
           title={lastRead ? `Claude usage read ${agoPhrase(lastRead, now)}; it refreshes every 2 minutes. Refresh now` : 'Refresh usage'}
           onClick={onRefresh}
         />
-        {/* Icons, as Refresh beside them is: what each opens is under the pointer. Accounts is the
-            people, so the gear after it is Settings' alone. */}
-        <Button variant="ghost" size="sm" icon="chart-bar" aria-label="Analytics" title={keysIn('Analytics: what sessions used and cost (⇧⌘U)')} onClick={() => onUsage()} />
-        <Button variant="ghost" size="sm" icon="users" aria-label="Accounts" title={keysIn('Accounts, in Settings (⌘,)')} onClick={() => onAccounts()} />
-        {end}
       </div>
     </div>
   );

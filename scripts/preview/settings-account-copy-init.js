@@ -9,8 +9,8 @@
   var go = setInterval(function () {
     tries += 1;
     var nav = document.querySelector('.ca-settings-nav');
-    if (step === 0 && document.querySelector('.ca-usagebar-settings')) {
-      document.querySelector('.ca-usagebar-settings').click();
+    if (step === 0 && document.querySelector('.ca-side-config')) {
+      document.querySelector('.ca-side-config').click();
       step = 1;
     } else if (step === 1 && nav && button('Accounts', nav)) {
       button('Accounts', nav).click();

@@ -107,6 +107,7 @@
   --scrim: #0a0c0d52;
   --shadow-popover: 0 12px 32px rgba(20, 24, 23, 0.18), 0 0 0 1px rgba(20, 24, 23, 0.08);
   --shadow-lift: 0 1px 2px rgba(20, 24, 23, 0.10);
+  --shadow-card: 0 1px 2px rgba(20, 24, 23, 0.04), 0 4px 16px rgba(20, 24, 23, 0.05);
   --shadow-hud: 0 3px 10px rgba(20, 24, 23, 0.16), 0 0 0 1px rgba(20, 24, 23, 0.10);
   --shadow-notch: 0 14px 24px -8px rgba(0, 0, 0, 0.45);
   --shadow-peek: 0 10px 24px -6px rgba(20, 24, 23, 0.24), 0 0 0 1px rgba(20, 24, 23, 0.08);
@@ -135,6 +136,7 @@
   --dur-sweep: 1200ms;
   --dur-tumble: 1600ms;
   --dur-pulse: 1600ms;
+  --z-under: -1;
   --z-dropline: 1;
   --z-sorting: 1;
   --z-find-marks: 1;
@@ -280,6 +282,7 @@
     --scrim: #00000085;
     --shadow-popover: 0 12px 32px rgba(0, 0, 0, 0.55), 0 0 0 1px rgba(255, 255, 255, 0.08);
     --shadow-lift: 0 1px 2px rgba(0, 0, 0, 0.5);
+    --shadow-card: 0 1px 2px rgba(0, 0, 0, 0.25), 0 4px 16px rgba(0, 0, 0, 0.3);
     --shadow-hud: 0 3px 10px rgba(0, 0, 0, 0.5), 0 0 0 1px rgba(255, 255, 255, 0.10);
     --shadow-notch: 0 14px 24px -8px rgba(0, 0, 0, 0.6);
     --shadow-peek: 0 10px 24px -6px rgba(0, 0, 0, 0.6), 0 0 0 1px rgba(255, 255, 255, 0.08);
@@ -389,6 +392,7 @@
   --scrim: #00000085;
   --shadow-popover: 0 12px 32px rgba(0, 0, 0, 0.55), 0 0 0 1px rgba(255, 255, 255, 0.08);
   --shadow-lift: 0 1px 2px rgba(0, 0, 0, 0.5);
+  --shadow-card: 0 1px 2px rgba(0, 0, 0, 0.25), 0 4px 16px rgba(0, 0, 0, 0.3);
   --shadow-hud: 0 3px 10px rgba(0, 0, 0, 0.5), 0 0 0 1px rgba(255, 255, 255, 0.10);
   --shadow-notch: 0 14px 24px -8px rgba(0, 0, 0, 0.6);
   --shadow-peek: 0 10px 24px -6px rgba(0, 0, 0, 0.6), 0 0 0 1px rgba(255, 255, 255, 0.08);

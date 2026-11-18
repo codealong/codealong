@@ -182,7 +182,7 @@
     })
     .then(function () {
       check('and goes once the pointer leaves', !toast(), toast() && toast().textContent);
-      document.querySelector('.ca-usagebar-end .ca-usagebar-settings').click();
+      document.querySelector('.ca-side-config').click();
       return until(function () { return q('.ca-scrim'); }, 3000, 'Settings');
     })
     .then(archived)

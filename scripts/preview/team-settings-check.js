@@ -77,7 +77,7 @@
         await until(function () { return !picker(); }, 3000, 'Settings didn’t close');
       }
 
-      q('.ca-usagebar-settings').click();
+      q('.ca-side-config').click();
       await until(function () { return !!nav('Automation'); }, 3000, 'no Automation in Settings');
       nav('Automation').click();
       await until(picker, 3000, 'no repo picker in Settings › Automation');
