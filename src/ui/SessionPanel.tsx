@@ -78,6 +78,9 @@ export interface Hotkeys {
   onBack?: (() => void) | null;
   /** Puts the session away (esc), where it can be. */
   onClose?: () => void;
+  /** False where the strip has no Next (⌘]): over a PR's panel in the main window, whose list
+   *  works through what waits on you for itself. */
+  next?: boolean;
   /** The strip is its window's title bar (the waiting window has no other): it drags the window,
    *  and leaves room at its start for the window's buttons. */
   titleBar?: boolean;
@@ -375,9 +378,9 @@ export function QueueStrip({ queue, notice, hotkeys, session, actions, onSeen, b
         <Hotkey key={action.label} label={action.label} icon={action.icon} keys={action.keys ?? (action.chord && chordSigns(action.chord))} title={action.title} run={action.menu ? drop(action.menu) : action.run} room={action.roomy ? fit.room : undefined} className={cx('is-foldable', i >= shown && 'is-folded')} />
       ))}
       <Hotkey icon="dots" title={over.length ? `More: ${over.map((action) => action.label).join(', ')}` : 'More'} run={over.length ? drop(over.map(itemOf)) : undefined} className={cx('is-more', !over.length && 'is-folded')} />
-      {gap}
+      {(hotkeys.onBack !== undefined || hotkeys.next !== false) && gap}
       {hotkeys.onBack !== undefined && <Hotkey label="Back" keys={queueSigns('historyBack')[0]} title={`Back to the session you looked at before; ${queueSigns('historyForward')[0]} goes forward again`} run={hotkeys.onBack ?? undefined} />}
-      <Hotkey label="Next" keys={nextKey} title={next ? `Next that waits on you: ${next.title}. ${nextToo} goes on too, and ${queueSigns('back')[0]} back` : 'Nothing else waits on you'} run={next && queue ? () => queue.onNext() : undefined} />
+      {hotkeys.next !== false && <Hotkey label="Next" keys={nextKey} title={next ? `Next that waits on you: ${next.title}. ${nextToo} goes on too, and ${queueSigns('back')[0]} back` : 'Nothing else waits on you'} run={next && queue ? () => queue.onNext() : undefined} />}
       {hotkeys.onClose && (
         <>
           {gap}

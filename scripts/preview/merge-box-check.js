@@ -1,5 +1,5 @@
 // Checks a PR's merge box (MergeBox.tsx, merge.ts) in its panel in the PRs view, whose row of
-// buttons, Approve's too, is right under the PR's title. A PR plainly ready to merge says so in
+// buttons is right under the PR's title. A PR plainly ready to merge says so in
 // its filled button, GitHub's pick for you, with a caret for the other ways and no line under the
 // row; pressing it opens a dialog over the window with the commit GitHub would write for that
 // way, which the caret's menu and the dialog's own chip switch (a rebase writes none), the email

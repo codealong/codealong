@@ -1,8 +1,9 @@
 // Checks snoozing a review in the PRs view (PrsView.tsx, PrInspector.tsx, snooze.ts): rows have
-// no Approve button (it's in the PR's panel and menu); a review asked of you has Snooze review in
-// its menu, which snoozes it and moves its row to Snoozed at once (ahead.ts); a snoozed review
-// waits under Snoozed with a chip that says when it's back; and its panel says until when, keeps
-// Approve first, and its Snooze… wakes it. Each project's two latest open PRs are made reviews
+// no Approve button (it's on the PR's panel's strip and in its menu); a review asked of you has
+// Snooze review in its menu, which snoozes it and moves its row to Snoozed at once (ahead.ts); a
+// snoozed review waits under Snoozed with a chip that says when it's back; and its panel says until
+// when, keeps Approve on its strip (PrStrip.tsx), and the strip's Snooze wakes it, as ⌃⌘1 to ⌃⌘7
+// snooze it from anywhere in the window. Each project's two latest open PRs are made reviews
 // asked of you, the second snoozed for three hours, since a snapshot seldom has a snoozed one;
 // others may wait on your review already.
 //   PREVIEW_WAIT=60000 scripts/preview.sh prs '' scripts/preview/pr-snooze-check.js
@@ -109,14 +110,13 @@
         var panel = q('.ca-prinsp');
         var tag = all('.ca-prinsp-status .ca-tag', panel).map(function (t) { return t.textContent; });
         check('its panel says until when its review is snoozed', tag.some(function (t) { return /^Review snoozed until /.test(t); }) && tag.indexOf('Your review requested') < 0, tag.join(' | '));
-        var buttons = all('.ca-insp-actions button', panel).map(function (b) { return b.textContent; });
-        check('and keeps Approve first, and Snooze…', buttons[0] === 'Approve' && buttons.indexOf('Snooze…') > 0, buttons.join(' | '));
-        var snooze = all('.ca-insp-actions button', panel).filter(function (b) { return b.textContent === 'Snooze…'; })[0];
+        var hotkey = function (name) { return all('.ca-prpanel > .ca-reply-queue .ca-hotkey').filter(function (b) { var s = q(':scope > span', b); return s && s.textContent === name; })[0]; };
+        check('and keeps Approve on its strip, and Snooze', !!hotkey('Approve') && !hotkey('Approve').disabled && !!hotkey('Snooze') && !hotkey('Snooze').disabled, hotkey('Snooze') ? hotkey('Snooze').title : 'no Snooze');
         var made = menus();
-        snooze.click();
-        return until(function () { return menus() > made; }, 3000, 'no menu from Snooze…').then(function () {
+        hotkey('Snooze').click();
+        return until(function () { return menus() > made; }, 3000, 'no menu from Snooze').then(function () {
           var labels = menuLabels();
-          check('Snooze… drops the times, Pick a time… and Wake now', labels.join('|').indexOf('For 15 minutes|For 30 minutes|For 1 hour|For 3 hours|Until ') === 0 && labels.slice(-2).join('|') === 'Pick a time…|Wake now', labels.join(' | '));
+          check('Snooze drops the times, Pick a time… and Wake now', labels.join('|').indexOf('For 15 minutes|For 30 minutes|For 1 hour|For 3 hours|Until ') === 0 && labels.slice(-2).join('|') === 'Pick a time…|Wake now', labels.join(' | '));
           menuItem('Wake now')();
           return wait(100);
         });

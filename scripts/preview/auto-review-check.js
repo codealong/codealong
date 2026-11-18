@@ -391,10 +391,12 @@
         check('a blocked review remains in the request for your review', !/Agent reviewing/.test(row(paused).textContent), row(paused).textContent);
       }
 
-      // Review with… starts the same review by hand (review_pr_now): on the reviewer Settings
-      // names, or an account picked, each where reviews run, out of sight.
-      var reviewWith = function () { return all('.ca-prpanel button').filter(function (b) { return b.textContent.trim() === 'Review with…'; })[0]; };
+      // Review with, on the strip over the panel, starts the same review by hand (review_pr_now):
+      // on the reviewer Settings names, or an account picked, each where reviews run, out of sight.
+      var reviewWith = function () { return all('.ca-prpanel > .ca-reply-queue .ca-hotkey').filter(function (b) { var s = q(':scope > span', b); return s && s.textContent === 'Review with'; })[0]; };
       if (reviewWith()) {
+        // Dimmed until the accounts that can start one are read.
+        await until(function () { return !reviewWith().disabled; }, 5000, 'Review with stays dimmed: ' + reviewWith().title);
         var withLabels = [];
         for (var tries = 0; tries < 5 && !withLabels.some(function (l) { return / in (the background|Codealong|a terminal behind your windows)/.test(l); }); tries++) {
           var menusBefore = menus();

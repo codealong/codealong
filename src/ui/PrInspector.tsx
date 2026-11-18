@@ -12,31 +12,31 @@
 // under them scrolls. A PR opens on the tab it showed last, else on its reviews when the agent's
 // is there to read and the PR waits on yours or someone asked for changes to yours
 // (agentReview.ts `openingTab`), else its description; a window keeps which (`usePrTab`), so the
-// line over its box can show the Reviews tab. Under the header is a row of buttons: the panel's
-// (Approve, Snooze, GitHub, Review with) with the merge box's (MergeBox.tsx) after Approve, so
-// merging is where approving is. `PrDetails` is that body on its own, which the panel and a PR's card (PrCard.tsx)
-// each scroll over the box that reviews it (PrBox.tsx), fixed at their foot; the card adds the
-// strip that works through what waits on you.
+// line over its box can show the Reviews tab. Under the header is the merge box's row of buttons
+// (MergeBox.tsx). `PrDetails` is that body on its own, which the panel and a PR's card
+// (PrCard.tsx) each scroll under the strip of what's commonly done to the PR (PrStrip.tsx:
+// Approve, Comment, Snooze, Review with, GitHub) and over the box that reviews it (PrBox.tsx),
+// fixed at their foot; the card's strip works through what waits on you too.
 //
 // The description is GitHub's own rendering (`bodyHTML`), which GitHub sanitizes; the page's
 // content security policy blocks scripts on top of that. Links in it open in the browser, but
 // for one to a PR the board lists, which shows here.
 
-import { useEffect, useId, useLayoutEffect, useRef, useState, useSyncExternalStore, type MouseEvent as ReactMouseEvent, type ReactNode } from 'react';
-import { agentsVerdict, openingTab, type PrTab } from '../agentReview';
+import { useEffect, useId, useLayoutEffect, useRef, useState, useSyncExternalStore, type MouseEvent as ReactMouseEvent } from 'react';
+import { openingTab, type PrTab } from '../agentReview';
 import { below, showContextMenu } from '../contextMenu';
 import { openPrFile, openUrl, prCommentAsks, prDetail } from '../api';
 import { useEditorIcons } from '../editors';
 import { absolute, ago, count } from '../format';
 import { prFileMenu } from '../menus';
 import { fileOnGitHub, firstChanged, parsePatch } from '../prFiles';
-import { asksFor, commentsToAsk, mayApprove, primaryWords, reviewedBefore, yourApproval } from '../prStatus';
+import { asksFor, commentsToAsk, primaryWords, reviewedBefore } from '../prStatus';
 import { openFromOthers, reviewersOf, reviewsCount } from '../prReviews';
-import { useYourReview, verdictWords } from '../prDraft';
-import { approvedWords, sinceNote } from '../review';
+import { useYourReview } from '../prDraft';
+import { sinceNote } from '../review';
 import { readSinceAgain, showSince, useSince, useSinceShown } from '../since';
 import type { Report } from '../report';
-import type { Board, Lane, PrDetail, PrFile, PrItem, Session, TeamFile, Usage } from '../types';
+import type { Board, Lane, PrDetail, PrFile, PrItem, ReviewsCfg, Session, TeamFile, Usage } from '../types';
 import { PrReview } from './AgentReview';
 import { PrBoxView, usePrBox } from './PrBox';
 import { MergeBox, type MergeGoesOn } from './MergeBox';
@@ -45,9 +45,11 @@ import { PrFiles, type FileOpener, type FilesFinder } from './PrFiles';
 import { PrLabels } from './PrLabels';
 import { PrPills } from './PrPills';
 import { PrReviewers } from './PrReviewers';
+import { prActions, PrStrip } from './PrStrip';
 import { BranchLabel, Button, cx, headerMenu, Icon, PanelBack, Tabs, type PanelBackTo } from './primitives';
 import { ProjectPrefix } from './ProjectSaid';
 import { PrGlyph, prIsOpen, reviewSnoozed, syncWords, type PrPlace, type PrRowItem } from './PrsView';
+import type { Hotkeys } from './SessionPanel';
 import { Tip } from './Tip';
 import { untilWords } from '../snooze';
 import { errorText } from '../report';
@@ -117,10 +119,6 @@ function placeNote({ lane, holds }: PrPlace, prNumber: number, head: string): st
 export interface PrDetailsProps {
   item: PrRowItem;
   now: number;
-  /** The panel's buttons, in the row under the header with the merge box's (MergeBox.tsx):
-   *  Approve before them, the rest after. */
-  lead?: ReactNode;
-  trail?: ReactNode;
   /** The PR's menu, as its row has it: from the ⋯ button on the title's line, below it, and at
    *  the pointer from a right-click on the header (a PR's card, PrCard.tsx, takes one anywhere
    *  on it too). */
@@ -189,53 +187,29 @@ function fileOpener(item: PrRowItem, apps: Board['apps'] | undefined, icons: Ret
   };
 }
 
-interface PrInspectorProps extends Omit<PrDetailsProps, 'lead' | 'trail' | 'tabs'> {
+interface PrInspectorProps extends Omit<PrDetailsProps, 'tabs'> {
   /** How the box says a verdict went. */
   report: Report;
+  /** The board's worktrees and plan usage, for where a review starts and on which account. */
+  lanes: Lane[];
   usage: Usage[];
-  approving: boolean;
-  onApprove: () => void;
-  /** Drops Review with… from the button. */
-  onReview: (button: Element) => void;
-  /** Drops Snooze review's times from the button. */
-  onSnooze: (button: Element) => void;
+  /** The board's `[reviews]` for the PR's repo, for whom Review with… starts on by default. */
+  reviews?: ReviewsCfg | null;
 }
 
-export function PrInspector({ approving, onApprove, onReview, onSnooze, report, usage, ...details }: PrInspectorProps) {
+/** The strip's own: none of the queue's (the list has those). */
+const PANEL_KEYS: Hotkeys = { next: false };
+
+export function PrInspector({ report, lanes, usage, reviews, ...details }: PrInspectorProps) {
   const { pr } = details.item;
   const tabs = usePrTab(pr);
   const box = usePrBox(pr, { report, usage, now: details.now });
-  const requested = pr.reviewRequested && prIsOpen(pr);
-  // What's read of your draft by the details below: approving submits it.
-  const draft = useYourReview(pr, false)?.review?.draft;
-  // Approve is for any open PR but yours, asked for or not; it's filled when it's asked of you,
-  // unless the agent suggests otherwise and its review goes from the box in one press. Where you
-  // approved the commit it's at, it reads Approved, and another press is another approval.
-  const approved = mayApprove(pr) ? yourApproval(pr) : null;
-  const lead = mayApprove(pr) && (
-    <Button variant={requested && !approved && !agentsVerdict(pr, !!draft) ? 'primary' : 'secondary'} icon="check" disabled={approving} title={approved ? approvedWords(approved, details.now) : (verdictWords('approve', draft) ?? (requested ? undefined : 'Approve it as you, though your review wasn’t asked for'))} onClick={onApprove}>
-      {approving ? 'Approving…' : approved ? 'Approved' : 'Approve'}
-    </Button>
-  );
-  const trail = (
-    <>
-      {requested && (
-        <Button icon="zzz" title="Out of Review requested and off the floating bar until the time you pick" onClick={(e) => onSnooze(e.currentTarget)}>
-          Snooze…
-        </Button>
-      )}
-      <Button icon="external" onClick={() => void openUrl(pr.url)}>
-        GitHub
-      </Button>
-      <Button icon="eye" onClick={(e) => onReview(e.currentTarget)}>
-        Review with…
-      </Button>
-    </>
-  );
+  const actions = prActions(pr, box, { report, lanes, usage, reviews, now: details.now });
   return (
     <aside className="ca-insp ca-prpanel" aria-label={`#${pr.number} details`} data-find="files">
+      <PrStrip pr={pr} actions={actions} hotkeys={PANEL_KEYS} panel />
       <div className="ca-prinsp ca-prpanel-body">
-        <PrDetails {...details} keys report={report} tabs={tabs} lead={lead} trail={trail} />
+        <PrDetails {...details} keys report={report} tabs={tabs} />
       </div>
       <PrBoxView pr={pr} box={box} keys={{ approve: keysSaid('⌘⏎'), comment: keysSaid('⌥⌘⏎') }} ownKeys onShow={tabs.show} />
     </aside>
@@ -244,7 +218,7 @@ export function PrInspector({ approving, onApprove, onReview, onSnooze, report, 
 
 /** The PR itself: its header with where it lives on this Mac, the merge box, its details when
  *  they're open, then its tabs: its description, its files, your review and everyone's. */
-export function PrDetails({ item, now, lead, trail, onMenu, onShowSession, onOpenSession, onShowLane, onLaneMenu, onSessionMenu, keys, goesOn, tabs, maximized, onMaximize, back, report, apps, teamFiles }: PrDetailsProps) {
+export function PrDetails({ item, now, onMenu, onShowSession, onOpenSession, onShowLane, onLaneMenu, onSessionMenu, keys, goesOn, tabs, maximized, onMaximize, back, report, apps, teamFiles }: PrDetailsProps) {
   const { pr } = item;
   // Its details, open or not as you left them for every PR.
   const [open, toggleOpen] = useDetailsOpen(DETAILS_KEY);
@@ -463,7 +437,7 @@ export function PrDetails({ item, now, lead, trail, onMenu, onShowSession, onOpe
         </div>
         {places.length > 0 && !open && <PanelPlaces {...placesProps} open={false} />}
       </header>
-      <MergeBox key={pr.key} pr={pr} lead={lead} trail={trail} goesOn={goesOn} report={report} />
+      <MergeBox key={pr.key} pr={pr} goesOn={goesOn} report={report} />
 
       {open && (
         <dl className="ca-kv ca-prinsp-kv">

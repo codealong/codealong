@@ -388,6 +388,9 @@ export function onMainKey<V extends string>(e: KeyboardEvent, keys: MainKeys<V>)
     listPicks?.clear();
     return;
   }
+  // A ⌃⌘ chord the panel took for what it shows (a PR's strip, PrStrip.tsx) isn't also the row's,
+  // which in Sessions is the session the PR was shown from.
+  if (chord && e.defaultPrevented) return;
   // The canvas's keys, unless the keyboard is in the panel beside it; the Kanban view's arrows.
   if (view === 'canvas' && !document.activeElement?.closest('.ca-insp') && canvasKeys.current(e)) return;
   if (kanbanKeys.current(e)) return;

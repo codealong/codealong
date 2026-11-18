@@ -1462,14 +1462,18 @@ export interface PrActions {
  *  by mistake. Snoozing has ⌃⌘1 to ⌃⌘7, as a session's does. */
 export const PR_CHORDS: Partial<Record<keyof PrActions, string>> = { approve: 'Cmd+Enter', comment: 'Alt+Cmd+Enter', review: 'Ctrl+Cmd+R', github: 'Ctrl+Cmd+G' };
 
+/** Which of a PR card's actions a key is the chord of (`PR_CHORDS`, and the snooze digits),
+ *  whether or not it applies to the PR now. */
+export function prChordOf(e: Pick<KeyboardEvent, 'key' | 'code' | 'metaKey' | 'ctrlKey' | 'altKey' | 'shiftKey'>): keyof PrActions | null {
+  if (modsHeld(e, 'Ctrl', 'Cmd') && snoozeChordIndex(e.key) >= 0) return 'snooze';
+  return (Object.keys(PR_CHORDS) as (keyof PrActions)[]).find((n) => chordPressed(PR_CHORDS[n] ?? '', e)) ?? null;
+}
+
 /** The action a chord runs among a PR card's (`PR_CHORDS`, and the snooze digits), when it
  *  applies to the PR now. Review with runs its first choice. */
 export function prChorded(actions: PrActions, e: Pick<KeyboardEvent, 'key' | 'code' | 'metaKey' | 'ctrlKey' | 'altKey' | 'shiftKey'>): MenuAction | null {
-  if (modsHeld(e, 'Ctrl', 'Cmd')) {
-    const snooze = snoozeChorded(actions, e.key);
-    if (snooze) return snooze;
-  }
-  const name = (Object.keys(PR_CHORDS) as (keyof PrActions)[]).find((n) => chordPressed(PR_CHORDS[n] ?? '', e));
+  const name = prChordOf(e);
+  if (name === 'snooze') return snoozeChorded(actions, e.key);
   const it = name ? actions[name] : undefined;
   if (!it) return null;
   if ('items' in it) {

@@ -238,14 +238,16 @@
   width: calc(80px / var(--card-zoom, 1) - 20px);
   height: 22px;
 }
-/* In a session's panel (Sessions), lined up with the panel's header. */
-.ca-sessinsp .ca-reply-queue {
+/* In a session's panel (Sessions) and a PR's (PrStrip.tsx), lined up with the panel's header. */
+.ca-sessinsp .ca-reply-queue,
+.ca-prpanel > .ca-reply-queue {
   padding: 4px 12px 4px var(--space-4);
 }
 /* With glass on (src/glass.ts), the strip over the list's own shade (ListBar.css), and its lines,
    hovers and keycaps the same see-through shades of it (styles/glass.css), so the two strips read
    as one across the window, as they do without glass, where both are sunken (2026-11-16). */
-.is-glass .ca-sessinsp .ca-reply-queue {
+.is-glass .ca-sessinsp .ca-reply-queue,
+.is-glass .ca-prpanel > .ca-reply-queue {
   background: var(--glass-cover);
 }
 .ca-reply .ca-thread {

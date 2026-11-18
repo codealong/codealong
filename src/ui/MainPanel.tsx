@@ -18,6 +18,7 @@ import { deviceOf } from '../devices';
 import { middleTruncate } from '../format';
 import { sessionPrs, type Placed } from '../lanes';
 import { lineageOf } from '../lineage';
+import { repoReviews } from '../repoSettings';
 import { errorText } from '../report';
 import { scheduleBySession } from '../schedules';
 import type * as menus from '../menus';
@@ -101,7 +102,6 @@ export interface MainPanelProps {
   /** Rows picked together in Sessions (sessions, or worktrees' headings) and in PRs
    *  (useListPicks.ts): their panel shows in place of one row's. */
   picks: ReturnType<typeof useListPicks>;
-  approving: Set<string>;
   /** What a panel shows in its place, and from which: the session a PR's or todo's panel shows,
    *  the PR (`pr`) a session's, worktree's or todo's does, or the worktree (`lane`) any of them does. */
   drill: Drill | null;
@@ -140,10 +140,7 @@ export interface MainPanelProps {
   /** A PR's right-click menu, as its row in PRs has it: at the pointer, or `at` (below a button). */
   prMenu: (r: PrRowItem, at?: { x: number; y: number }) => void;
   prChipMenu: (lane: Lane, pr: Pr) => void;
-  approve: (pr: PrItem) => void;
   reviewMenuFrom: (pr: Pick<PrItem, 'number' | 'url' | 'repoSlug' | 'lanes'> & Partial<Pick<PrItem, 'key' | 'mine'>>, el: Element) => void;
-  /** Drops Snooze review's times from a button. */
-  snoozeMenuFrom: (pr: PrItem, el: Element) => void;
   reviewedPr: (lane: Lane, pr: Pr) => Pick<PrItem, 'number' | 'title' | 'url' | 'repoSlug' | 'lanes'>;
   setPreviewFor: (laneId: string) => void;
   markSeen: (keys: string[]) => void;
@@ -155,7 +152,7 @@ export interface MainPanelProps {
 }
 
 export function MainPanel(props: MainPanelProps) {
-  const { view, selected, selectedLane, canvasPicked, board, now, loading, laneById, homes, devices, projectTodos, todoStore, todoLinks, todosFor, prRowOf, pickedRows, picks, approving, drill, setDrill, queue, boxFocus, panelMax, togglePanelMax, prPanelMax, togglePrPanelMax, actionsRef, open, newSession, newSessionPanel, showLaneFromPanel, showSessionFromPanel, showSchedule, schedulePanel, scheduleSession, showTodoFromPanel, laneMenu, sessionMenu, sessionMenuSpec, lanePrMenu, showPr, prMenu, prChipMenu, approve, reviewMenuFrom, snoozeMenuFrom, reviewedPr, setPreviewFor, markSeen, setToast, findIn } = props;
+  const { view, selected, selectedLane, canvasPicked, board, now, loading, laneById, homes, devices, projectTodos, todoStore, todoLinks, todosFor, prRowOf, pickedRows, picks, drill, setDrill, queue, boxFocus, panelMax, togglePanelMax, prPanelMax, togglePrPanelMax, actionsRef, open, newSession, newSessionPanel, showLaneFromPanel, showSessionFromPanel, showSchedule, schedulePanel, scheduleSession, showTodoFromPanel, laneMenu, sessionMenu, sessionMenuSpec, lanePrMenu, showPr, prMenu, prChipMenu, reviewMenuFrom, reviewedPr, setPreviewFor, markSeen, setToast, findIn } = props;
   const { startForTodo, startForTodos, todoMenu, todoLinkMenu, todoMoreMenu, labelMenu, projectsForTodos, duePick, duePicked, selectTodoRow, pickMenu } = props.todo;
   const runTodo = todoStore.run;
   const { run: runQueue } = queue;
@@ -240,14 +237,12 @@ export function MainPanel(props: MainPanelProps) {
         key={item.pr.key}
         item={item}
         now={now}
-        approving={approving.has(item.pr.key)}
-        onApprove={() => approve(item.pr)}
         report={{ error: setToast, info: setToast }}
+        lanes={board?.lanes ?? []}
         usage={board?.usage ?? []}
+        reviews={repoReviews(board, item.pr.repoSlug)}
         apps={board?.apps}
         teamFiles={board?.teamFiles}
-        onReview={(el) => reviewMenuFrom(item.pr, el)}
-        onSnooze={(el) => snoozeMenuFrom(item.pr, el)}
         onMenu={(at) => prMenu(item, at)}
         onShowSession={showFromPanel}
         onOpenSession={openFromPanel}

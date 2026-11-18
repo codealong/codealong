@@ -1358,7 +1358,7 @@ and post nothing, and how to lay out its last message: a summary, then its comme
 lines. The session is linked to the PR, and is a helper of it (see *Helpers*): out of Sessions,
 the bar and the queues while it doesn't need you, its turns never Your turn.
 
-Review with… on a PR (its panel's header, its menu, its card's strip, ⌃⌘R) starts the same review
+Review with… on a PR (the strip over its panel or card, ⌃⌘R, or its menu) starts the same review
 by hand, whatever `[reviews] auto` says: first the reviewer Settings names (Auto's account when it
 names none), then each routing group and account that can run one where reviews run, saying where. It's a round like
 any other, on the PR's card and in its Reviews tab, its review posted where `[reviews] post` says and
@@ -1521,11 +1521,11 @@ lines around it from the PR's diff, and Outdated on one whose line has changed s
 a comment's Edit change them on GitHub at once (⌘⏎ saves, Escape leaves it), and Remove takes a
 comment out on a second click; only you see any of it until it's submitted. A verdict submits the
 draft, its comments and all, as GitHub's Finish your review does, from the box at the foot of the
-PR's panel or card (Request changes, Comment, Approve; in the panel ⌘⏎ approves and ⌥⌘⏎ comments
-from the box, in a card its keys work anywhere). What you write there goes before the draft's text,
-and with nothing written the draft goes as it is; a comment or a request for changes needs something
-to say, which the draft's text or comments are. Approve in the panel's row of buttons, in a PR's
-menu and on PRs picked together submits your draft the same way, as GitHub's own page does, rather
+PR's panel or card (Request changes, Comment, Approve, and Approve and Comment on the strip over
+them; in the panel ⌘⏎ approves and ⌥⌘⏎ comments from the box, in a card its keys work anywhere).
+What you write there goes before the draft's text, and with nothing written the draft goes as it
+is; a comment or a request for changes needs something to say, which the draft's text or comments
+are. Approve in a PR's menu and on PRs picked together submits your draft the same way, as GitHub's own page does, rather
 than leave it behind a review of its own. The button's tooltip, the line under a card's box and the
 toast after say when a draft goes with it. Without a draft, the box gives a review of its own. The
 box stays at the foot of the panel and the card while the details scroll over it, with Review and
@@ -1573,8 +1573,8 @@ Codealong keeps the review you last submitted on each PR, from GitHub (a draft d
 the commit it was of, so a PR that asks for your review again says whether you've reviewed what's
 there now. Once you've reviewed a PR, the line over its box leads with your review: "You approved
 c0ffee1, its latest commit" and when, where it's of the commit the PR's at, the agent's suggestion
-gone and Approve, in the box and in the panel's row of buttons, reading Approved (another press is
-another approval: ⌘⏎ approves again); or "You approved 1234567" where commits came after it, with
+gone and Approve in the box reading Approved (another press is another approval: ⌘⏎ approves
+again); or "You approved 1234567" where commits came after it, with
 the agent's suggestion for them and a pill saying how many ("2 new commits"). The review shows as
 you give it, before GitHub is asked again. A dismissed review says so. The pill shows the Changes
 tab with only what changed since your review: the commits after it, compared on GitHub, which a
@@ -1627,10 +1627,10 @@ newer one's) is passed over and said, so teammates on other versions still read 
 The PRs you pinned come first, in your order (`p`, Pin PR in its menu, or drag its row up to the
 top; drag a pinned one down to unpin it, or ⌃⌘↑ ⌃⌘↓ to reorder), whatever the age filter says. Then
 reviews asked of you; they're listed for every repo a project has here, one checked out only on its
-default branch too, whose other PRs aren't read. Approve is in a PR's panel and its menu, not on its
-row, for any open PR but your own (GitHub doesn't let you approve that), your review asked for or
-not; it's filled when it was asked. Snooze review (in the menu, or Snooze… in the panel) puts one
-off for one of the times a session's Snooze offers, or until a day and time you pick: it leaves Review requested,
+default branch too, whose other PRs aren't read. Approve is on the strip over a PR's panel and in
+its menu, not on its row, for any open PR but your own (GitHub doesn't let you approve that), your
+review asked for or not. Snooze review (in the menu, or Snooze on the panel's strip, ⌃⌘1 to ⌃⌘7)
+puts one off for one of the times a session's Snooze offers, or until a day and time you pick: it leaves Review requested,
 the bar's reviews pill, the mark and the sidebar's count, and waits under Snoozed with when it's
 back, the soonest first, until its time or Wake now. PRs picked together open on GitHub one after
 another (⌘O), pin (`p`) and copy their links and branch names; the open ones that aren't yours are
@@ -1638,8 +1638,8 @@ approved one after another with one toast, and the ones that ask for your review
 
 #### Merging
 
-A PR's panel, and its card in the notch and the waiting window, has GitHub's merge box where Approve
-is, in the row of buttons under its title, right after Approve; so does the card that hovering an
+A PR's panel, and its card in the notch and the waiting window, has GitHub's merge box in the row
+of buttons under its title; so does the card that hovering an
 open PR's chip or a link to it brings up, at its foot before Open on GitHub, so a session's PR
 merges from the session. It's what you may do now, and under the
 row where it stands for merging when it isn't plainly ready (blocked and why, behind its base,
@@ -1731,8 +1731,14 @@ one of its sessions, its worktree and its size. A double-click on the repo's chi
 repo's PRs, and another shows them all again. A label shows with a dot in its color on GitHub and its description on hover; on two
 lines as many as fit in a little under half the line. All of them show in its header and on a
 link's card. The search finds a PR by a label's name. A label added on GitHub shows within ten minutes,
-when the repo's PRs are next read in full. Selecting a PR shows a short header: its number and
-title, one line of its repo, branch, author and last update, one of where it stands on GitHub
+when the repo's PRs are next read in full. Selecting a PR shows, along the panel's top, the strip
+its card has in the notch and the waiting window: Approve (⌘⏎), Comment (⌥⌘⏎), Snooze (⌃⌘1 to
+⌃⌘7), Review with (⌃⌘R) and GitHub (⌃⌘G), each a button that says its key, dimmed where it doesn't
+apply to the PR (Approve on your own, Snooze with no review asked of you). Approve and Comment go
+with what's written in the box at the panel's foot, and their keys work from the box, since ⌘⏎
+elsewhere is the list's; the others work from anywhere in the window while the panel shows the PR,
+one shown in place of a session's too, rather than acting on the row selected. Under it, a short
+header: its number and title, one line of its repo, branch, author and last update, one of where it stands on GitHub
 (its pills, the names of any checks that fail, its size and its labels, wrapping as one), and one
 of the worktrees and sessions behind it on this Mac as chips (a worktree's
 chip, then its sessions', each named by its title with its account on hover, the PR's primary

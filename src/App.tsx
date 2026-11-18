@@ -335,8 +335,6 @@ export function App() {
   const helpersShown = useMemo(() => new Set(helpersShownList), [helpersShownList]);
   const toggleHelpers = useCallback((key: string) => setHelpersShownList((prev) => toggleShown(prev, key)), [setHelpersShownList]);
   const [showDonePrs, setShowDonePrs] = useState(false);
-  // PRs being approved, by key: the button waits on GitHub.
-  const [approving, setApproving] = useState<Set<string>>(() => new Set());
   // What went wrong with something you did here, what's under way, and the ways back (Toasts.tsx),
   // said in the usage bar.
   const toasts = useToasts();
@@ -1302,24 +1300,14 @@ export function App() {
 
   /** Approves a PR as you, in one click. */
   const approve = useCallback((pr: PrItem) => {
-    setApproving((a) => new Set(a).add(pr.key));
     reviewAhead(pr, 'approve', '')
       .then((done) => setToast(reviewedWords('approve', pr.number, done)))
-      .catch((e: unknown) => setToast(errorText(e)))
-      .finally(() =>
-        setApproving((a) => {
-          const next = new Set(a);
-          next.delete(pr.key);
-          return next;
-        }),
-      );
+      .catch((e: unknown) => setToast(errorText(e)));
   }, [setToast]);
 
   /** Approves several PRs as you, one after another, and says how it went. */
   const approveAll = useCallback(
     (prs: PrItem[]) => {
-      const keys = prs.map((p) => p.key);
-      setApproving((a) => new Set([...a, ...keys]));
       const wrong: string[] = [];
       let approved = 0;
       const each = prs.reduce<Promise<void>>(
@@ -1332,15 +1320,7 @@ export function App() {
           ),
         Promise.resolve(),
       );
-      track(`Approving ${count(prs.length, 'PR')}…`, each)
-        .then(() => setToast([approved > 0 ? `Approved ${count(approved, 'PR')}.` : '', ...wrong].filter(Boolean).join(' ')))
-        .finally(() =>
-          setApproving((a) => {
-            const next = new Set(a);
-            for (const k of keys) next.delete(k);
-            return next;
-          }),
-        );
+      void track(`Approving ${count(prs.length, 'PR')}…`, each).then(() => setToast([approved > 0 ? `Approved ${count(approved, 'PR')}.` : '', ...wrong].filter(Boolean).join(' ')));
     },
     [setToast, track],
   );
@@ -1602,11 +1582,6 @@ export function App() {
 
   /** Snooze review, for a PR that asks for your review: the times it can wait, and Wake now. */
   const snoozeReview = (p: PrItem) => reviewSnoozeMenu(p, Date.now(), (act) => void act.catch((e: unknown) => setToast(errorText(e))));
-  /** Drops Snooze review's times from a button, as the PR panel has it. */
-  const snoozeMenuFrom = (p: PrItem, el: Element) => {
-    const menu = snoozeReview(p);
-    if (menu) void showContextMenu(menu.items, below(el)).catch((e: unknown) => setToast(String(e)));
-  };
 
   /** A PR's right-click menu, as every window has it (menus.ts), with this window's own. */
   const prMenuSpec = (r: PrRowItem): MenuSpec => {
@@ -2890,7 +2865,6 @@ export function App() {
             pickedRows={pickedRows}
             picks={picks}
             todo={{ startForTodo, startForTodos, todoMenu, todoLinkMenu, todoMoreMenu, labelMenu, projectsForTodos, duePick, duePicked, selectTodoRow, pickMenu }}
-            approving={approving}
             drill={drill}
             setDrill={setDrill}
             queue={queue}
@@ -2926,9 +2900,7 @@ export function App() {
             showPr={showPrOf}
             prMenu={prMenu}
             prChipMenu={prChipMenu}
-            approve={approve}
             reviewMenuFrom={reviewMenuFrom}
-            snoozeMenuFrom={snoozeMenuFrom}
             reviewedPr={reviewedPr}
             setPreviewFor={setPreviewFor}
             markSeen={markSeen}

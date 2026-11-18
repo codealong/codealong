@@ -1,7 +1,7 @@
 // A PR's merge box, under its title wherever its details show (PrInspector.tsx `PrDetails`: the
-// PR panel, and a PR's card in the notch and the waiting window). Its buttons share one row with
-// the window's own for the PR, Approve before them and the rest after (`lead`, `trail`), so
-// merging is where approving is. It's GitHub's merge box: what you may do about the PR now
+// PR panel, and a PR's card in the notch and the waiting window, whose strip has what else is
+// done to the PR, PrStrip.tsx). Its buttons share one row with the window's own for the PR after
+// them, where it has any (`trail`: the card a PR's link shows on hover). It's GitHub's merge box: what you may do about the PR now
 // (merge.ts says which), and under the row where it stands for merging, unless that's plainly
 // ready. The main button merges with the method beside it, picked from its caret and kept per
 // repo, or turns on auto-merge, or adds it to the merge queue; a box under the row merges past
@@ -55,9 +55,7 @@ type Note = { text: string; error?: boolean } | null;
 
 /** The window's own buttons for the PR, in the row with the merge's. */
 interface Row {
-  /** Before the merge's: Approve. */
-  lead?: ReactNode;
-  /** After them: Snooze, GitHub, Review with. */
+  /** After them: Open on GitHub, say. */
   trail?: ReactNode;
   /** A window that goes on to the next PR as one is merged (a PR's card in a queue): the merge
    *  shows at once (ahead.ts `mergeAhead`), so the PR has left what waits on you as it's asked,
@@ -73,12 +71,11 @@ export interface MergeGoesOn {
   failed: (why: string) => void;
 }
 
-/** The row: the window's buttons with the merge's between them, when there's any. */
-function Actions({ lead, trail, children }: Row & { children?: ReactNode }) {
-  if (!lead && !trail && !children) return null;
+/** The row: the merge's buttons and then the window's, when there's any. */
+function Actions({ trail, children }: Row & { children?: ReactNode }) {
+  if (!trail && !children) return null;
   return (
     <div className="ca-insp-actions">
-      {lead}
       {children}
       {trail}
     </div>
@@ -86,7 +83,7 @@ function Actions({ lead, trail, children }: Row & { children?: ReactNode }) {
 }
 
 /** One PR's box: its details give each PR one of its own (`key`). */
-export function MergeBox({ pr, lead, trail, goesOn, report }: { pr: PrItem } & Row) {
+export function MergeBox({ pr, trail, goesOn, report }: { pr: PrItem } & Row) {
   // Read again as the board's word on where the PR stands changes, as when its checks finish,
   // which doesn't update the PR: else it said blocked while its pills said ready to merge.
   const key = boxKey(pr);
@@ -137,7 +134,7 @@ export function MergeBox({ pr, lead, trail, goesOn, report }: { pr: PrItem } & R
 
   // A merged or closed PR has nothing left to do here but delete its branch.
   if (!box || (box.state !== 'OPEN' && !offers(box).deleteBranch && !note)) {
-    const row = <Actions lead={lead} trail={trail} />;
+    const row = <Actions trail={trail} />;
     return error && !box ? (
       <div className="ca-merge">
         {row}
@@ -147,10 +144,10 @@ export function MergeBox({ pr, lead, trail, goesOn, report }: { pr: PrItem } & R
       row
     );
   }
-  return <Loaded pr={pr} box={box} note={note} setNote={setNote} reread={() => setAgain((n) => n + 1)} lead={lead} trail={trail} goesOn={goesOn} report={report} />;
+  return <Loaded pr={pr} box={box} note={note} setNote={setNote} reread={() => setAgain((n) => n + 1)} trail={trail} goesOn={goesOn} report={report} />;
 }
 
-function Loaded({ pr, box, note, setNote, reread, lead, trail, goesOn, report }: { pr: PrItem; box: Box; note: Note; setNote: (n: Note) => void; reread: () => void } & Row) {
+function Loaded({ pr, box, note, setNote, reread, trail, goesOn, report }: { pr: PrItem; box: Box; note: Note; setNote: (n: Note) => void; reread: () => void } & Row) {
   const [doing, setDoing] = useState<Doing>(null);
   // The box as it was read when GitHub said it merged the PR, until it's read again.
   const [mergedOver, setMergedOver] = useState<Box | null>(null);
@@ -335,7 +332,7 @@ function Loaded({ pr, box, note, setNote, reread, lead, trail, goesOn, report }:
 
   return (
     <div className="ca-merge">
-      <Actions lead={lead} trail={trail}>
+      <Actions trail={trail}>
         {buttons}
       </Actions>
       {!plain && (

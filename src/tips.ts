@@ -119,7 +119,7 @@ export const TIPS: readonly Tip[] = [
   { id: 'waiting-allow', places: ['waiting'], says: says`When a session asks to run something, ${key('Cmd+Enter')} allows it and ${key('Cmd+Backspace')} denies it.` },
   { id: 'pr-approve', places: ['waiting', 'pr'], says: says`In the waiting window, ${key(PR_CHORDS.approve)} approves a PR and goes on, and ${key(PR_CHORDS.comment)} comments.` },
   { id: 'pr-ask', places: ['waiting', 'pr'], says: says`Ask, beside Review in a PR's box, puts questions about it to an agent that reads the whole diff. No one on GitHub sees them.` },
-  { id: 'review-with', places: ['pr', 'waiting'], says: says`Review with, in a PR's menu or ${key(PR_CHORDS.review)} on its card, has an agent review it now, whatever Settings › Automation says.` },
+  { id: 'review-with', places: ['pr', 'waiting'], says: says`Review with, in a PR's menu or ${key(PR_CHORDS.review)} on its panel or card, has an agent review it now, whatever Settings › Automation says.` },
   { id: 'pr-files', places: ['pr'], says: says`${key('Alt+Cmd+F')} filters a PR's files: words keep the ones that mention them, and ${code('-word')} leaves some out.` },
   { id: 'pr-diffs', places: ['pr'], says: says`A PR's diffs show unified or side by side, and a file's editor button opens its diff in your editor, beside your copy when a worktree has it.` },
   { id: 'pr-merge', places: ['pr'], says: says`A PR's merge box has GitHub's choices: how to merge, auto-merge and the merge queue.` },
