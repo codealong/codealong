@@ -5052,6 +5052,10 @@ fn tag_said(a: TagArgs, replied: i64, zone: &dyn crate::schedules::rule::Zone) -
     if a.waits_until.is_some() && a.ending.is_none() && a.asks_you.is_none() {
         bail!("Say how its reply ends too (--ending): when its work goes on is part of that read.");
     }
+    // Turned down here as well as on the session's Mac (tags.rs `read`), which may be older.
+    if a.waits_until.is_some() && (a.asks_you == Some(true) || a.ending.as_deref().is_some_and(insights::asking)) {
+        bail!("A reply that asks its user something waits on them now, not until a later time: leave out --waits-until, or say it ends some other way.");
+    }
     // Read here so that what doesn't read is said at once, counted from when its reply was
     // written as far as this board says, for a Mac from before 2026-11-18. Whether it has passed
     // isn't this clock's to say: the session's Mac reads the words again (`waits_words`, tags.rs
@@ -9043,6 +9047,10 @@ mod tests {
             // Said with how the reply ends, of which it's part: not alone, nor under another read.
             assert!(said(&["--waits-until", "thu"]).unwrap_err().to_string().starts_with("Say how its reply ends too"));
             assert!(said(&["--finished", "no", "--waits-until", "mon"]).unwrap_err().to_string().starts_with("Say how its reply ends too"));
+            // Nor with a reply that asks: that waits on its user now, whatever Mac it's on.
+            assert!(said(&["--ending", "question", "--waits-until", "mon"]).unwrap_err().to_string().contains("waits on them now"));
+            assert!(said(&["--asks-you", "yes", "--waits-until", "mon"]).is_err());
+            assert!(said(&["--ending", "handoff", "--waits-until", "mon"]).is_ok());
             assert!(said(&["--ending", "report", "--waits-until", "whenever"]).unwrap_err().to_string().starts_with("Couldn't read"));
             assert!(said(&["--note", "nothing read"]).unwrap_err().to_string().starts_with("Say something about it"));
             // A reply's words count from when it was written, as Jev counts them: one from 11 PM
