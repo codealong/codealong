@@ -235,28 +235,30 @@ fn ways(from: &Path, to: &Path, user_home: &Path) -> Vec<(String, String)> {
 /// `command` with each path to a script of yours in the folder `from`, written one of `ways`,
 /// turned to the same file in `to` written the same way, and those scripts (from the folder). A
 /// path counts from where one can start, to the end of its name or, inside quotes, to the
-/// quote; and to a file that runs (`runs`): not a hidden one, nor one a plugin installed or
-/// claude.ai synced, by its name or where it leads. One whose copy can't land in `to` (`lands`)
-/// is run from `from`: as it was, or named whole where it's written `$CLAUDE_CONFIG_DIR`, which
-/// the new account would read as its own. A new folder whose name a command line would split
-/// isn't followed into.
+/// quote; and to a script of yours (`runs`) by where it really is: in `from`, not hidden, nor
+/// what a plugin installed or claude.ai synced. One whose copy can't land in `to` (`lands`) is
+/// run from `from`: as it was, or named whole where it's written `$CLAUDE_CONFIG_DIR`, which the
+/// new account would read as its own. A folder whose name a command line would read as more than
+/// a name (a space, a quote, a `$`) is neither followed into nor written into a command.
 fn follow_paths(command: &str, ways: &[(String, String)], from: &Path, to: &Path) -> (String, Vec<PathBuf>) {
     let in_path = |c: char| c.is_alphanumeric() || "/._-~$}".contains(c);
     let in_name = |c: char| c.is_alphanumeric() || "._-/".contains(c);
-    let plain = |s: &str| s.chars().all(|c| c.is_alphanumeric() || "/._-~${}".contains(c));
+    let safe = |s: &str| !s.is_empty() && s.chars().all(|c| c.is_alphanumeric() || "/._-".contains(c));
     let real_from = dunce::canonicalize(from).unwrap_or_else(|_| from.to_path_buf());
-    let theirs = |dir: &Path, path: &Path| NOT_YOURS.iter().any(|under| path.starts_with(under.iter().fold(dir.to_path_buf(), |p, part| p.join(part))));
+    let theirs = |path: &Path| NOT_YOURS.iter().any(|under| path.starts_with(under.iter().collect::<PathBuf>()));
+    let shown = |rel: &Path| rel.components().next().is_some() && rel.components().all(|c| matches!(c, Component::Normal(n) if !n.to_string_lossy().starts_with('.')));
     let yours = |rel: &Path| {
-        let named = rel.components().all(|c| matches!(c, Component::Normal(n) if !n.to_string_lossy().starts_with('.')));
-        let file = from.join(rel);
-        let leads = dunce::canonicalize(&file).is_ok_and(|real| !theirs(&real_from, &real));
-        rel.components().next().is_some() && named && !theirs(from, &file) && leads && runs(&file)
+        // Where it leads, as well as how it's named: a link there can lead anywhere.
+        let real = dunce::canonicalize(from.join(rel)).ok();
+        let real_rel = real.as_ref().and_then(|r| r.strip_prefix(&real_from).ok());
+        shown(rel) && !theirs(rel) && real_rel.is_some_and(|r| shown(r) && !theirs(r)) && real.is_some_and(|r| runs(&r))
     };
     let whole_from = from.to_string_lossy().into_owned();
+    let into_to = safe(&to.to_string_lossy());
     let mut out = command.to_string();
     let mut files: Vec<PathBuf> = Vec::new();
     // A way that stays as it's written isn't the new folder's name.
-    for (f, t) in ways.iter().filter(|(f, t)| f == t || plain(t)) {
+    for (f, t) in ways.iter().filter(|(f, t)| f == t || into_to) {
         let lead = format!("{f}/");
         let mut at = 0;
         while let Some(found) = out[at..].find(&lead).map(|i| at + i) {
@@ -273,7 +275,7 @@ fn follow_paths(command: &str, ways: &[(String, String)], from: &Path, to: &Path
                     files.push(rel);
                 }
                 Some(format!("{t}/{rel_text}"))
-            } else if f == t && (quoted.is_some() || plain(&whole_from)) {
+            } else if f == t && safe(&whole_from) {
                 Some(format!("{}/{rel_text}", f.replace("${CLAUDE_CONFIG_DIR}", &whole_from).replace("$CLAUDE_CONFIG_DIR", &whole_from)))
             } else {
                 None
@@ -431,10 +433,19 @@ fn publish(to: &Path, fill: impl FnOnce(&mut std::fs::File) -> std::io::Result<(
     if std::fs::symlink_metadata(to).is_ok() {
         return Ok(());
     }
+    static N: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
     let name = to.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
-    let temp = to.with_file_name(format!(".{name}.codealong-{}", std::process::id()));
+    // A name of its own, made here and nowhere else: what's there already is someone else's.
+    let (temp, mut file) = loop {
+        let n = N.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        let temp = to.with_file_name(format!(".{name}.codealong-{}-{n}", std::process::id()));
+        match crate::os::files::create_mode(std::fs::OpenOptions::new().write(true).create_new(true), 0o600).open(&temp) {
+            Ok(file) => break (temp, file),
+            Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists && n < 1000 => continue,
+            Err(e) => return Err(e),
+        }
+    };
     let made = (|| {
-        let mut file = crate::os::files::create_mode(std::fs::OpenOptions::new().write(true).create(true).truncate(true), 0o600).open(&temp)?;
         fill(&mut file)?;
         file.sync_all()?;
         drop(file);
@@ -538,7 +549,7 @@ mod tests {
           },
           {
             "type": "command",
-            "command": "bash \"$CLAUDE_CONFIG_DIR/hooks/post stop.sh\" && \"$CLAUDE_CONFIG_DIR\"/hooks/check.sh && ~/.claude-a/hooks/linked.sh"
+            "command": "bash \"$CLAUDE_CONFIG_DIR/hooks/post stop.sh\" && \"$CLAUDE_CONFIG_DIR\"/hooks/check.sh && ~/.claude-a/hooks/linked.sh && ~/.claude-a/hooks/other.sh && ~/.claude-a/hooks/notes.sh"
           }
         ]
       }
@@ -560,8 +571,13 @@ mod tests {
         write(&from.join("hooks/note.py"), "print()");
         write(&from.join("hooks/post stop.sh"), "echo stop");
         write(&from.join("hooks/check.sh"), "echo check");
+        write(&home.join(".claude-z/run.sh"), "another account's");
         #[cfg(unix)]
-        crate::os::files::symlink(from.join("plugins/cache/kestrel/hook.sh"), from.join("hooks/linked.sh")).unwrap();
+        {
+            crate::os::files::symlink(from.join("plugins/cache/kestrel/hook.sh"), from.join("hooks/linked.sh")).unwrap();
+            crate::os::files::symlink(home.join(".claude-z/run.sh"), from.join("hooks/other.sh")).unwrap();
+            crate::os::files::symlink(from.join("history.jsonl"), from.join("hooks/notes.sh")).unwrap();
+        }
         write(&from.join("skills/synced/org_user/notes/run.sh"), "the other sign-in's");
         write(&from.join("plugins/cache/kestrel/hook.sh"), "a plugin's");
         write(&from.join("CLAUDE.md"), "Be brief.");
@@ -601,8 +617,13 @@ mod tests {
         assert_eq!(read(&to.join("hooks/check.sh")), "echo check", "the folder quoted on its own");
         #[cfg(unix)]
         {
-            assert_eq!(v["hooks"]["Stop"][0]["hooks"][2]["command"], "bash \"$CLAUDE_CONFIG_DIR/hooks/post stop.sh\" && \"$CLAUDE_CONFIG_DIR\"/hooks/check.sh && ~/.claude-a/hooks/linked.sh");
+            assert_eq!(
+                v["hooks"]["Stop"][0]["hooks"][2]["command"],
+                "bash \"$CLAUDE_CONFIG_DIR/hooks/post stop.sh\" && \"$CLAUDE_CONFIG_DIR\"/hooks/check.sh && ~/.claude-a/hooks/linked.sh && ~/.claude-a/hooks/other.sh && ~/.claude-a/hooks/notes.sh"
+            );
             assert!(!to.join("hooks/linked.sh").exists(), "a link to a plugin's script is the plugin's");
+            assert!(!to.join("hooks/other.sh").exists(), "a link to another account's is that account's");
+            assert!(!to.join("hooks/notes.sh").exists(), "a script by its link's name, the account's history by where it leads");
         }
         assert_eq!(v["permissions"]["deny"][0], "Read(~/.claude-a/.credentials.json)", "a permission's file is about that file");
         assert!(v.get("apiKeyHelper").is_none(), "{copied}");
@@ -705,6 +726,20 @@ mod tests {
         assert_eq!(hooks[1]["command"], format!("{}/hooks/done.sh", from.display()), "named whole, as the new account's own folder isn't it");
         assert_eq!(hooks[2]["command"], "~/.claude-a/lost.sh");
         assert!(!home.join("shared-hooks/done.sh").exists());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_folder_a_shell_would_read_as_more_than_a_name_isnt_written_into_a_command() {
+        let home = crate::fixtures::scratch("seed-unsafe-name");
+        let (from, to) = (home.join(".claude-$(touch x)"), home.join(".claude-b"));
+        write(&from.join("settings.json"), r#"{"hooks":{"Stop":[{"hooks":[{"command":"$CLAUDE_CONFIG_DIR/hooks/done.sh"}]}]}}"#);
+        write(&from.join("hooks/done.sh"), "echo done");
+        std::fs::create_dir_all(home.join("shared-hooks")).unwrap();
+        std::fs::create_dir_all(&to).unwrap();
+        crate::os::files::symlink(home.join("shared-hooks"), to.join("hooks")).unwrap();
+        copy_in(&from, &to, &home).unwrap();
+        assert!(read(&to.join("settings.json")).contains("\"$CLAUDE_CONFIG_DIR/hooks/done.sh\""));
     }
 
     #[test]
