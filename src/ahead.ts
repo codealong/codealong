@@ -981,11 +981,18 @@ function merging(pr: Pick<PrItem, 'key' | 'repoSlug' | 'number'>, id: string, op
  *  at), and back, with why, if GitHub refuses it. The engine does the same as GitHub has it
  *  (ghpoll.rs `on_approved`) and shows that before it answers, so the change goes a while after.
  *  With `after`, GitHub is asked once that settles: several approved together all show at once,
- *  and are on their way (`reviewOnItsWay`) until each is answered. */
+ *  and are on their way (`reviewOnItsWay`) until each is answered. One asked while another of the
+ *  same PR is on its way, from wherever, rejects with why rather than give a second review. */
 export function reviewAhead(pr: Pick<PrItem, 'key' | 'repoSlug' | 'number'>, verdict: Verdict, body: string, agents = false, commit: string | null = null, after?: Promise<unknown>): Promise<Reviewed> {
+  if (reviewOnItsWay(pr.key)) return Promise.reject(new Error(`A review of #${pr.number} is on its way to GitHub already`));
   const a = made({ kind: 'pr-review', key: pr.key, verdict, commit });
   put(a, true);
-  const ask = () => reviewPr(pr.repoSlug, pr.number, verdict, body, agents);
+  const ask = () => {
+    // One that waited its turn is on its way from now: what lapses one GitHub never answered
+    // counts from here.
+    if (after) put({ ...a, at: Date.now() }, true);
+    return reviewPr(pr.repoSlug, pr.number, verdict, body, agents);
+  };
   return (after ? after.then(ask, ask) : ask()).then(
     (done) => {
       answered(a.id, null);
