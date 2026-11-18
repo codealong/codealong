@@ -561,9 +561,11 @@ fn reference_to(path: &str) -> Option<String> {
 /// A prompt as a session's record has it, written as a window writes it: each kept file by its
 /// reference again, whichever way it went out, as a full path (`shorten`) or as Claude Code's
 /// file mention, `@"<path>"` (`@<path>` once Claude Code's own list of files has rewritten it).
-/// So its images show in place, as they did in the box it was sent from.
+/// So its images show in place, as they did in the box it was sent from. Only a mention of the
+/// full path is one: `@images/<hash>.png` typed as is names a file of the session's own folder,
+/// and written as a kept one it would go out again as that (Edit on a held message).
 pub fn written_in(text: &str, images: &Path, files: &Path) -> String {
-    let text = shorten_in(text, images, files);
+    let dirs = [(images, IMAGES), (files, FILES)].map(|(dir, prefix)| (dir.to_string_lossy().trim_end_matches(['/', '\\']).to_string(), prefix));
     let mut out = String::with_capacity(text.len());
     let mut last = 0;
     for (at, _) in text.match_indices('@') {
@@ -573,19 +575,27 @@ pub fn written_in(text: &str, images: &Path, files: &Path) -> String {
         }
         let quoted = text[at + 1..].starts_with('"');
         let body = at + 1 + quoted as usize;
-        let len = text[body..].find(|c: char| !(safe_char(c) || c == '/')).unwrap_or(text.len() - body);
-        if quoted && !text[body + len..].starts_with('"') {
+        // Its path is a folder's, then the separator either way (as `shorten_in` takes it).
+        let Some((prefix, name_at)) = dirs.iter().find_map(|(dir, prefix)| {
+            let rest = text[body..].strip_prefix(dir.as_str())?.strip_prefix(['/', '\\'])?;
+            Some((*prefix, text.len() - rest.len()))
+        }) else {
+            continue;
+        };
+        let len = text[name_at..].find(|c: char| !(safe_char(c) || c == '/')).unwrap_or(text.len() - name_at);
+        if quoted && !text[name_at + len..].starts_with('"') {
             continue;
         }
         // Without quotes, one at the end of a sentence doesn't take its full stop.
-        let path = if quoted { &text[body..body + len] } else { text[body..body + len].trim_end_matches('.') };
-        let Some(reference) = reference_to(path) else { continue };
+        let name = if quoted { &text[name_at..name_at + len] } else { text[name_at..name_at + len].trim_end_matches('.') };
+        let Some(reference) = reference_to(&format!("{prefix}{name}")) else { continue };
         out.push_str(&text[last..at]);
         out.push_str(&reference);
-        last = body + path.len() + quoted as usize;
+        last = name_at + name.len() + quoted as usize;
     }
     out.push_str(&text[last..]);
-    out
+    // What went by its full path without a mention.
+    shorten_in(&out, images, files)
 }
 
 /// A prompt's text with the images it came with, each by its reference (`images/…`) where the
@@ -877,6 +887,11 @@ mod tests {
         // Other mentions, an address, and a quote that never closes stay as they are.
         for same in ["See @src/lanes.ts and @\"my notes.md\"", "mail me@images/0123456789abcdef.png", "@\"images/0123456789abcdef.png", "@images/nope.png", "@\"/Users/me/Desktop/images/0123456789abcdef.png\""] {
             assert_eq!(written_in(same, images, files), same);
+        }
+        // So does a mention typed from the session's own folder, however like a kept file's its
+        // name: written as one, Edit on it would send Codealong's file in its place.
+        for typed in ["See @images/0123456789abcdef.png", "@\"images/0123456789abcdef.png\"", "@files/0123456789abcdef/notes.txt"] {
+            assert_eq!(written_in(typed, images, files), typed);
         }
     }
 

@@ -2410,10 +2410,12 @@ pub(super) mod tests {
         // the queue keeps as typed; the conversation shows it by its reference once it's taken in.
         let image = crate::attachments::images_dir().join("0123456789abcdef.png");
         let typed = format!("The text at the top of this card seems unnecessary.\n\n@\"{}\"", image.display());
-        let lines = [queue_line("2026-10-21T10:00:01.000Z", "enqueue", Some(&typed))];
+        // One of the project's own, mentioned from its folder, stays a mention.
+        let own = "And this one: @images/fedcba9876543210.png";
+        let lines = [queue_line("2026-10-21T10:00:01.000Z", "enqueue", Some(&typed)), queue_line("2026-10-21T10:00:02.000Z", "enqueue", Some(own))];
         let info = parse_lines(HEAD, &(lines.join("\n") + "\n"));
         let held = info.held();
-        assert_eq!(held.iter().map(|m| m.text.as_str()).collect::<Vec<_>>(), ["The text at the top of this card seems unnecessary.\n\n![image](images/0123456789abcdef.png)"]);
+        assert_eq!(held.iter().map(|m| m.text.as_str()).collect::<Vec<_>>(), ["The text at the top of this card seems unnecessary.\n\n![image](images/0123456789abcdef.png)", own]);
         // What's taken out by its words still goes by them as the queue has them.
         assert_eq!(info.queue[0].text, typed);
     }
