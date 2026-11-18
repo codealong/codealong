@@ -266,6 +266,14 @@ describe('what a listening’s strip shows as it’s heard', () => {
     expect(captionsHearing(c, { who: 'Them', text: '' }, 30)).toBe(c);
   });
 
+  it('lets words that were the Mac’s go at once', () => {
+    let c = captionsHearing(NO_CAPTIONS, { who: 'Them', text: 'budget review' }, 0);
+    c = captionsHearing(c, { who: 'You', text: 'budget review' }, 0);
+    c = captionsHearing(c, { who: 'You', gone: true }, 10);
+    expect(says(c)).toEqual(['Them: budget review']);
+    expect(captionsHearing(c, { who: 'You', gone: true }, 20)).toBe(c);
+  });
+
   it('lets settled words go when their line doesn’t come, unless they were taken up again', () => {
     let c = captionsHearing(NO_CAPTIONS, { who: 'You', text: 'um' }, 0);
     c = captionsHearing(c, { who: 'You', text: '' }, 10);

@@ -249,7 +249,7 @@ export function withLines(c: Captions, more: readonly NumberedLine[], first = mo
 
 /** Captions once `h` is heard, at `at`. How far the session has been told changes nothing: the
  *  strip shows what's heard, whether or not the conversation above has it yet. */
-export function captionsHearing(c: Captions, h: Pick<Hearing, 'who' | 'text' | 'line' | 'said'>, at: number): Captions {
+export function captionsHearing(c: Captions, h: Pick<Hearing, 'who' | 'text' | 'gone' | 'line' | 'said'>, at: number): Captions {
   if (h.line !== undefined && h.said !== undefined) {
     const next = withLines(c, [{ n: h.line, said: h.said }]);
     // The line takes the place of the words it settled from.
@@ -257,6 +257,8 @@ export function captionsHearing(c: Captions, h: Pick<Hearing, 'who' | 'text' | '
     return who !== null && next.saying.has(who) ? { ...next, saying: without(next.saying, who) } : next;
   }
   if (h.who === undefined) return c;
+  // Words that were the Mac's, heard through the microphone: no line comes for them.
+  if (h.gone) return c.saying.has(h.who) ? { ...c, saying: without(c.saying, h.who) } : c;
   const was = c.saying.get(h.who);
   if (!h.text) return was ? { ...c, saying: new Map(c.saying).set(h.who, { text: was.text, settled: at }) } : c;
   return { ...c, saying: new Map(c.saying).set(h.who, { text: h.text, settled: null }) };

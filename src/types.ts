@@ -1298,6 +1298,9 @@ export interface Hearing {
   session: string;
   who?: string;
   text?: string;
+  /** The words of `who` being said were the Mac's, heard through the microphone: they go at
+   *  once, with no line to come for them (echo.rs `Repeats::shown`). */
+  gone?: boolean;
   line?: number;
   said?: string;
   told?: number;

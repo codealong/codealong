@@ -693,7 +693,8 @@ fn changed() {
 }
 
 /// What a listening hears, for the windows that show its session, as it's heard (the `hearing`
-/// event): the words being said (`who` and `text`, empty once they're settled), a line written
+/// event): the words being said (`who` and `text`, empty once they're settled, `gone` when they
+/// were the Mac's, heard through the microphone, and no line will come for them), a line written
 /// to the transcript (`line`, its number, and `said`, the line), or how far its session has been
 /// told (`told`). Windows that weren't there for it read where things stand with `tail`.
 #[derive(Serialize, Clone, Debug, Default, PartialEq)]
@@ -704,6 +705,8 @@ pub struct Hearing {
     pub who: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub text: Option<String>,
+    #[serde(skip_serializing_if = "std::ops::Not::not")]
+    pub gone: bool,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub line: Option<u64>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -845,7 +848,7 @@ fn held<'a>(state: &'a mut State, id: &str, start: bool) -> Option<&'a mut Repea
     }
     let held = state.held.get_mut(id)?;
     if let Some((speakers, output)) = echo {
-        held.on_speakers(speakers, output.as_deref());
+        held.on_speakers(speakers, output.as_deref(), util::now_ms());
     }
     Some(held)
 }
@@ -855,41 +858,56 @@ fn heard(id: &str, event: Event) {
     match event {
         Event::Partial { source, text } => {
             let mine = source == YOU;
-            let (session, text) = {
+            let now = util::now_ms();
+            let mut sent = Vec::new();
+            {
                 let mut state = state();
-                let now = util::now_ms();
-                let running = state.running.get(id);
-                // The words settling (empty) always go; the ones still changing, every so often.
-                let sent = running.is_some_and(|r| text.is_empty() || r.said_at.is_none_or(|at| at.elapsed() >= PARTIAL_EVERY));
                 // Held from the first words said, for one that hears both, as `Final` does.
-                let start = running.is_some_and(|r| r.both) && !state.ended.contains(id);
-                let shown = match held(&mut state, id, start) {
-                    Some(held) => {
-                        held.saying(mine, &text, now);
-                        // Your words being said, without what repeats theirs (echo.rs `Repeats::shown`).
-                        if mine && sent && !text.is_empty() {
-                            held.shown(&text, now)
-                        } else {
-                            text.clone()
+                let start = state.running.get(id).is_some_and(|r| r.both) && !state.ended.contains(id);
+                if let Some(held) = held(&mut state, id, start) {
+                    held.saying(mine, &text, now);
+                }
+                let Some(running) = state.running.get(id) else { return };
+                // The words settling (empty) always go; the ones still changing, every so often.
+                if !text.is_empty() && running.said_at.is_some_and(|at| at.elapsed() < PARTIAL_EVERY) {
+                    return;
+                }
+                // Yours as they're to be shown, without what repeats theirs (echo.rs
+                // `Repeats::shown`): looked at as yours change, and as theirs do while yours show,
+                // since yours may have come first.
+                let looked = if mine { !text.is_empty() } else { running.mine_shown };
+                let yours = looked.then(|| state.held.get(id).map(|held| held.shown(now))).flatten();
+                let Some(running) = state.running.get_mut(id) else { return };
+                running.said_at = Some(Instant::now());
+                let session = running.session.clone();
+                let words = |text: String| Hearing { session: session.clone(), who: Some(YOU.into()), text: Some(text), ..Hearing::default() };
+                if !mine {
+                    sent.push(Hearing { who: Some(source), text: Some(text.clone()), ..words(String::new()) });
+                }
+                match (mine, yours) {
+                    // Settled, or being said: what isn't the Mac's of it.
+                    (true, None) => {
+                        running.mine_shown = !text.is_empty();
+                        sent.push(words(text));
+                    }
+                    (_, Some(yours)) if !yours.is_empty() => {
+                        running.mine_shown = true;
+                        if mine {
+                            sent.push(words(yours));
                         }
                     }
-                    None => text.clone(),
-                };
-                let Some(running) = state.running.get_mut(id) else { return };
-                if !sent {
-                    return;
+                    // All of it theirs: what was showing of yours goes at once.
+                    (_, Some(_)) => {
+                        if std::mem::take(&mut running.mine_shown) {
+                            sent.push(Hearing { gone: true, text: None, ..words(String::new()) });
+                        }
+                    }
+                    (false, None) => {}
                 }
-                // All of it theirs: what's showing of yours goes, as words that settled do, once.
-                if shown.is_empty() && !text.is_empty() && !std::mem::take(&mut running.mine_shown) {
-                    return;
-                }
-                running.said_at = Some(Instant::now());
-                if mine {
-                    running.mine_shown = !shown.is_empty();
-                }
-                (running.session.clone(), shown)
-            };
-            crate::views::emit(HEARING, &Hearing { session, who: Some(source), text: Some(text), ..Hearing::default() });
+            }
+            for hearing in sent {
+                crate::views::emit(HEARING, &hearing);
+            }
         }
         // Punctuation the speech model wrote for a sound it made no words of: nothing said.
         Event::Final { text, .. } if !text.chars().any(char::is_alphanumeric) => {}
