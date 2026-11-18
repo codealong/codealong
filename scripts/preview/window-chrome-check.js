@@ -119,10 +119,17 @@
     var full = meters.filter(function (m) { return parseFloat(m.querySelector('.ca-meter-value').textContent) > 70; });
     var resets = function (m) { var r = m.querySelector('.ca-meter-reset'); return !!r && !!r.textContent.trim(); };
     var early = meters.filter(function (m) { return resets(m) && parseFloat(m.querySelector('.ca-meter-value').textContent) <= 70; });
-    // One over 70% with a reset to tell (its chip's label says so) shows it, but in a tight chip.
+    // One over 70% with a reset to tell shows it, but in a tight chip. The chip's label says each of
+    // its limits in order, a reset with each that has one: a chip showing them all lines up with
+    // them; one showing one is matched by its percent, and passed over where two share it.
     var due = full.filter(function (m) {
       var chip = m.closest('.ca-uchip');
-      return !chip.classList.contains('is-tight') && (chip.getAttribute('aria-label') || '').indexOf(m.querySelector('.ca-meter-value').textContent + ' used, resets') >= 0;
+      if (chip.classList.contains('is-tight')) return false;
+      var said = (chip.getAttribute('aria-label') || '').split('; ');
+      var shown = Array.prototype.slice.call(chip.querySelectorAll('.ca-meter'));
+      var pct = m.querySelector('.ca-meter-value').textContent + ' used';
+      var mine = shown.length === said.length ? [said[shown.indexOf(m)]] : said.filter(function (x) { return x.indexOf(pct) >= 0; });
+      return mine.length === 1 && mine[0].indexOf(pct + ', resets') >= 0;
     });
     var missing = due.filter(function (m) { return !resets(m); });
     note(meters.length + ' limits in the chips, ' + full.length + ' over 70%, ' + due.length + ' with a reset to show');

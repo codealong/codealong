@@ -82,7 +82,7 @@ import { Reading } from './ui/Tip';
 import { UsageBar } from './ui/UsageBar';
 import { Notices } from './ui/Notices';
 import { clearNotice, keptDismissals, noticeId, reportNotice, shownNotices, useReportedNotices } from './notices';
-import { Sidebar, type SideBoard, type SideStatus } from './ui/Sidebar';
+import { analyticsTitle, Sidebar, type SideBoard, type SideStatus } from './ui/Sidebar';
 import { checkedSays, untilChecked } from './ui/Updates';
 import { loadSaved, newSavedId, onSavedChange, sameView, storeSaved, suggestName, type SavedView, type ViewState } from './savedViews';
 import { useNow } from './ui/useNow';
@@ -2500,7 +2500,7 @@ export function App() {
           foot={
             <div className="ca-side-foot">
               <Button variant="ghost" size="sm" icon="settings" className="ca-side-config" aria-label="Settings" title={keysIn('Settings (⌘,)')} onClick={() => openSettings()} />
-              <Button variant="ghost" size="sm" icon="chart-bar" className="ca-side-analytics" aria-label="Analytics" title={keysIn('Analytics: what sessions used and cost (⇧⌘U)')} onClick={() => setUsageOf({ account: null })} />
+              <Button variant="ghost" size="sm" icon="chart-bar" className="ca-side-analytics" aria-label="Analytics" title={analyticsTitle()} onClick={() => setUsageOf({ account: null })} />
               <Button variant="ghost" size="sm" icon="brand-github" className="ca-side-github" aria-label="Codealong on GitHub" title="Codealong on GitHub" onClick={openRepo} />
               <ThemeSwitch theme={theme} onPick={pickTheme} />
             </div>

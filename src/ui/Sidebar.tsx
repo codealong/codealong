@@ -17,7 +17,7 @@ import type { DevicesView, LabelColor, Status } from '../types';
 import { cx, Icon, NavItem, PickChip, Seg, StatusGlyph } from './primitives';
 import { LabelDot } from './TodoBits';
 import { SidebarUpdate } from './Updates';
-import { joinKeys, keysIn } from '../platform';
+import { joinKeys, keysIn, platform } from '../platform';
 
 export interface SideView {
   id: string;
@@ -120,6 +120,13 @@ interface SidebarProps {
   foot: ReactNode;
   /** This Mac's board hasn't been read yet: no counts show, since they'd be other devices' alone. */
   loading: boolean;
+}
+
+/** What the Analytics buttons at the sidebar's foot and on its rail say. Its key is the View menu's,
+ *  which only macOS has (the README's keys for Linux), so it's said only there. */
+export function analyticsTitle(): string {
+  const what = 'Analytics: what sessions used and cost';
+  return platform() === 'mac' ? keysIn(`${what} (⇧⌘U)`) : what;
 }
 
 export function Sidebar(props: SidebarProps) {
@@ -390,7 +397,7 @@ function Rail(p: SidebarProps) {
       <RailButton icon="filter" label={filtered ? `Filtered: ${p.filters.join(', ')}. Show the sidebar` : 'Filters: show the sidebar'} active={filtered} badge={p.filters.length} tone="ink" onClick={p.onExpand} />
       <span className="ca-rail-fill" />
       <SidebarUpdate compact />
-      <RailButton icon="chart-bar" label={keysIn('Analytics: what sessions used and cost (⇧⌘U)')} onClick={p.onAnalytics} />
+      <RailButton icon="chart-bar" label={analyticsTitle()} onClick={p.onAnalytics} />
       <RailButton icon="brand-github" label="Codealong on GitHub" onClick={p.onGitHub} />
       <RailButton icon="settings" label={keysIn('Settings (⌘,)')} onClick={p.onSettings} />
     </nav>

@@ -94,6 +94,12 @@ export function fitFor(now: Fit, needs: { all: number; one: number }, room: numb
 /** How full a limit is, in percent as its chip shows it, before the chip says when it resets. */
 const RESET_SHOWN_ABOVE = 70;
 
+/** Whether a chip says when a limit resets: when it has a reset, and once the percent the chip
+ *  shows is over RESET_SHOWN_ABOVE (70.2% reads 70% and doesn't; 70.6% reads 71% and does). */
+export function chipShowsReset(m: Meter): boolean {
+  return !!m.resetsAt && Math.round(m.percent) > RESET_SHOWN_ABOVE;
+}
+
 /** Compact inside a chip; full, with its reset time underneath, in the Accounts dialog. A compact
  *  one `unnamed` leaves its label out (a model's limit alone in its chip), and one without `reset`
  *  when it resets (a limit with room left in it). */
@@ -220,7 +226,7 @@ function AccountChip({ usage: u, now, fit = 'all', measure = false, onOpen, onSi
     >
       <span className="ca-uchip-name">{u.account}</span>
       {shown.length > 0 ? (
-        shown.map((m) => <UsageMeter key={m.key} meter={m} now={now} titled={!measure && !peeks} unnamed={!!m.model && shown.length === 1} reset={Math.round(m.percent) > RESET_SHOWN_ABOVE} />)
+        shown.map((m) => <UsageMeter key={m.key} meter={m} now={now} titled={!measure && !peeks} unnamed={!!m.model && shown.length === 1} reset={chipShowsReset(m)} />)
       ) : u.noLimits ? (
         // Nothing will ever show here, so it takes no room to say so; the words, and why, are on
         // hover.
