@@ -122,18 +122,19 @@ pub fn thresholds(overrides: &BTreeMap<String, Price>) -> Vec<u64> {
     out
 }
 
-/// A model's prices: config.toml's, over the bundled list's where it names the same model.
+/// A model's prices: config.toml's over the bundled list's, each found by the first of the
+/// model's names it has, so `[prices."claude-haiku-4-5"]` covers `claude-haiku-4-5-20251001`
+/// though the list has that one under its own name, and a field config.toml leaves out is the
+/// list's.
 pub fn price_of(model: &str, overrides: &BTreeMap<String, Price>) -> Option<Price> {
-    for name in names(model) {
-        let base = bundled().get(&name);
-        let mine = overrides.get(&name);
-        match (base, mine) {
-            (None, None) => continue,
-            (Some(b), None) => return Some(b.clone()),
-            (base, Some(m)) => return Some(over(base.cloned().unwrap_or_default(), m)),
-        }
+    let names = names(model);
+    let base = names.iter().find_map(|n| bundled().get(n));
+    let mine = names.iter().find_map(|n| overrides.get(n));
+    match (base, mine) {
+        (None, None) => None,
+        (Some(b), None) => Some(b.clone()),
+        (base, Some(m)) => Some(over(base.cloned().unwrap_or_default(), m)),
     }
-    None
 }
 
 fn over(base: Price, mine: &Price) -> Price {
@@ -159,7 +160,7 @@ fn over(base: Price, mine: &Price) -> Price {
 /// list's, so a model the list doesn't have yet gets its meter's limit there, and none for a
 /// model neither knows.
 pub fn context_window(model: &str) -> Option<u64> {
-    window_with(model, &crate::config::prices())
+    crate::config::with_prices(|mine| window_with(model, mine))
 }
 
 fn window_with(model: &str, overrides: &BTreeMap<String, Price>) -> Option<u64> {
@@ -300,6 +301,18 @@ mod tests {
         assert_eq!(window_with("claude-haiku-4-5-20251001", &mine), Some(400_000));
         assert_eq!(window_with("claude-haiku-4-5[1m]", &mine), Some(1_000_000));
         assert_eq!(window_with("claude-new-7", &mine), None);
+    }
+
+    #[test]
+    fn config_tomls_prices_go_over_the_lists_field_by_field_whatever_name_finds_each() {
+        let mut mine = BTreeMap::new();
+        mine.insert("anthropic/claude-fable-5-2".to_string(), Price { rates: Rates { input: Some(9.0), ..Default::default() }, ..Default::default() });
+        let p = price_of("anthropic/claude-fable-5-2", &mine).unwrap();
+        assert_eq!((p.rates.input, p.rates.output, p.context), (Some(9.0), Some(40.0), Some(1_000_000)));
+        let mut mine = BTreeMap::new();
+        mine.insert("claude-haiku-4-5".to_string(), Price { rates: Rates { output: Some(6.0), ..Default::default() }, ..Default::default() });
+        let p = price_of("claude-haiku-4-5-20251001", &mine).unwrap();
+        assert_eq!((p.rates.input, p.rates.output), (Some(1.0), Some(6.0)));
     }
 
     #[test]

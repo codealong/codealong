@@ -1770,19 +1770,19 @@ fn runs_on_written(path: &Path, text: &str) {
     }
 }
 
-/// `[prices]`, for what asks with every session it reads (its context meter's window, prices.rs),
-/// so neither copies all the settings nor reads the file each time: the ones the app runs on, else
-/// config.toml's as this process first read it (the command and `--snapshot`, which don't live
-/// long), and none in tests, which mustn't depend on this Mac's.
-pub fn prices() -> BTreeMap<String, crate::prices::Price> {
+/// `f` of `[prices]`, for what asks with every session it reads (its context meter's window,
+/// prices.rs), so it neither copies the settings nor reads the file each time: the ones the app
+/// runs on, else config.toml's as this process first read it (the command and `--snapshot`, which
+/// don't live long), and none in tests, which mustn't depend on this Mac's.
+pub fn with_prices<T>(f: impl FnOnce(&BTreeMap<String, crate::prices::Price>) -> T) -> T {
     if let Some(cfg) = RUNNING.read().unwrap_or_else(|e| e.into_inner()).as_ref() {
-        return cfg.prices.clone();
+        return f(&cfg.prices);
     }
     if cfg!(test) {
-        return BTreeMap::new();
+        return f(&BTreeMap::new());
     }
     static READ: std::sync::OnceLock<BTreeMap<String, crate::prices::Price>> = std::sync::OnceLock::new();
-    READ.get_or_init(|| current().map(|c| c.prices).unwrap_or_default()).clone()
+    f(READ.get_or_init(|| current().map(|c| c.prices).unwrap_or_default()))
 }
 
 /// Whether the app's engine has read config.toml, or written a first run's: until then the
