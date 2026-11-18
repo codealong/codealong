@@ -527,7 +527,7 @@ session itself can without asking (a Claude Code session that skips permission p
 thread's sandbox), and what would have to ask you is refused. The harness keeps nothing of the copy:
 no transcript, no session on the board. While the copy answers, the command or tool it runs shows
 under your question, and under that the working line a session's conversation has while its agent
-works (the mark breathing, a word, and how long since you asked), so a copy busy for minutes on a
+works (the square tumbling, and how long since you asked), so a copy busy for minutes on a
 slow command still reads as working. While it shows, the box under it asks the side conversation,
 not the session (its placeholder says Ask on the side): type a follow-up and press ⏎; one asked
 while the copy answers says it waits for the answer above, and is answered next. Close gives
@@ -763,13 +763,8 @@ every Claude Code account that has its copy when you change it.
 #### While it works
 
 While a session's agent works, the end of its conversation says so, wherever the conversation
-shows: the Codealong mark, its C a light gray and its node breathing, then a word for what the
-agent's up to (Tinkering…, Untangling…, Sharpening pencils…), the dots of its ellipsis lighting one
-after another, and how long it has worked on what you last asked. Pointing at the line turns the
-mark as pointing at the bar's does. The word is for fun, not news; a new one
-comes every 30 seconds, each session with its words in an order of its own, the same in every
-window, and a turn past a quarter of an hour gets one that says so now and then (Still at it…).
-A session gone silent mid-turn has no line: its header says how long it's been silent. One whose
+shows: a small gray square tumbling, top over bottom and then side to side, and how long it has
+worked on what you last asked. A session gone silent mid-turn has no line: its header says how long it's been silent. One whose
 turn is over but that waits on a command it left running in the background (a CI watch or a
 Claude Code Monitor, say), in a terminal, in the Claude app or started from Codealong, says so in
 the line's place, with the clock the list draws for it: Waiting on and the command, all of it on
@@ -781,7 +776,7 @@ box that starts a new turn rather than sending into one. Unless its last reply a
 (see *Jev*), in which case it's *Needs you* until you've seen it, while the agents carry on.
 
 Now and then, in the main window, a tip on using Codealong sits quietly on the line's right
-(*Tips*): beside the word when all of it fits there on one line, else under it on the right: only
+(*Tips*): beside the time when all of it fits there on one line, else under it on the right: only
 once a turn has gone on 20 seconds, and no more than one every 20 minutes, wherever the last
 showed. A turn keeps the tip it got until it ends, when you look at another session and come back,
 in another window, and while other turns get theirs.

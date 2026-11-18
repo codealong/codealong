@@ -29,7 +29,7 @@
 /* A session that's hearing a meeting (SessionGlyph): a recording light in a ring, beating as the
    strip's does (Listening.css `ca-live-pulse`), in place of the working and idle glyphs it
    would change between every few seconds. */
-.ca-g-hearing { fill: var(--alert-solid); animation: ca-live-pulse var(--dur-ellipsis) ease-in-out infinite; }
+.ca-g-hearing { fill: var(--alert-solid); animation: ca-live-pulse var(--dur-pulse) ease-in-out infinite; }
 .ca-g-hearing-ring { fill: none; stroke: var(--alert-solid); stroke-width: 1.2; opacity: 0.45; }
 /* A PR waiting on your review, where what waits is counted (WaitsGlyph). */
 .ca-glyph-review { color: var(--attn); }

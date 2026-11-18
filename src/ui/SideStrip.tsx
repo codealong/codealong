@@ -146,9 +146,8 @@ function keepEnd(el: HTMLElement, atEnd: { current: boolean }, heard: { current:
   heard.current = heardOf(el);
 }
 
-/** Questions and their answers. `current` is the turn the copy is on, in an open one; `id` is the
- *  conversation's, whose working line says its words in an order of its own. */
-function Turns({ id, turns, current }: { id: string; turns: SideTurn[]; current: number }) {
+/** Questions and their answers. `current` is the turn the copy is on, in an open one. */
+function Turns({ turns, current }: { turns: SideTurn[]; current: number }) {
   return (
     <>
       {turns.map((t, i) => {
@@ -177,7 +176,7 @@ function Turns({ id, turns, current }: { id: string; turns: SideTurn[]; current:
               </div>
             )}
             {/* How long since it was asked: a turn kept from before Codealong noted that has none. */}
-            {state?.kind === 'working' && <WorkingLine seed={id} since={t.at || null} word={state.word} />}
+            {state?.kind === 'working' && <WorkingLine since={t.at || null} word={state.word} />}
             {state?.kind === 'waits' && (
               <div className="ca-sidestrip-doing" role="status">
                 {state.words}
@@ -316,7 +315,7 @@ export function SideStrip({ sideKey: key, words, inWindow }: { sideKey: string; 
         />
         {hide}
       </Head>,
-      <Turns id={read.id} turns={read.turns} current={read.current} />,
+      <Turns turns={read.turns} current={read.current} />,
     );
   }
 
@@ -376,7 +375,7 @@ export function SideStrip({ sideKey: key, words, inWindow }: { sideKey: string; 
         }
       />
     </Head>,
-    <Turns id={side.id} turns={side.turns} current={side.turns.findIndex((t) => !t.done)} />,
+    <Turns turns={side.turns} current={side.turns.findIndex((t) => !t.done)} />,
     true,
   );
 }

@@ -1,9 +1,9 @@
 // Checks the line at the end of a conversation while its agent works (Working.tsx, working.ts):
-// the mark quiet (its C a light gray) and its node breathing, turning as the bar's does once pointed at, a word for
-// what it's up to with an ellipsis whose dots light in turn, and how long it has worked, held still,
-// last in the conversation. A turn that has worked a while gets a tip on its right in the main
-// window's panel, its first line level with the word, or under it once the line has no room, kept for the turn in every window; another session's turn soon after gets
-// none. A new word comes round in time. The line goes once the turn ends, and for a session gone
+// a small gray square tumbling, the only thing that moves, with no word beside it, and how long it
+// has worked, held still, last in the conversation. A turn that has worked a while gets a tip on
+// its right in the main window's panel, its first line level with the time, or under it once the
+// line has no room, kept for the turn in every window; another session's turn soon after gets
+// none. The line goes once the turn ends, and for a session gone
 // silent mid-turn, which its header speaks for. One whose turn is over that waits on a command it
 // left running in the background says what it waits on in the line's place, with its clock, or
 // that it waits on a command when the command couldn't be read. One that waits on a command you
@@ -88,58 +88,35 @@
     })
     .then(function () {
       var l = line();
-      check('the mark beside it', !!l.querySelector('.ca-lmark[data-status="working"]'));
+      var square = l.querySelector('.ca-working-head > .ca-working-tumble > i');
+      check('a square at its head, said as working', !!square && square.parentElement.getAttribute('aria-label') === 'Working');
       var gray = document.createElement('span');
-      gray.style.color = 'var(--logo-quiet)';
+      gray.style.color = 'var(--ink-2)';
       l.appendChild(gray);
-      var fill = getComputedStyle(l.querySelector('.ca-lmark-c')).fill;
-      check('quiet, its C a light gray', !!l.querySelector('.ca-lmark.is-quiet') && fill === getComputedStyle(gray).color, fill + ' vs ' + getComputedStyle(gray).color);
+      var fill = getComputedStyle(square).backgroundColor;
+      check('in the gray of the text', fill === getComputedStyle(gray).color, fill + ' vs ' + getComputedStyle(gray).color);
       gray.remove();
-      // Only its node moves, breathing as the bar's does.
-      var moving = l.querySelector('.ca-lmark').getAnimations({ subtree: true });
-      check('its node breathing, nothing else moving', moving.length === 1 && moving[0].animationName === 'ca-mark-breath' && moving[0].effect.target.matches('.ca-lmark-node'),
-        moving.map(function (a) { return a.animationName || a.transitionProperty; }).join(', '));
-      // Pointed at, it turns as the bar's mark does: the line's rules for pointing, with a class
-      // for :hover, which a page can't put on, and its turn played to the end.
-      var copies = [];
-      Array.prototype.forEach.call(document.styleSheets, function (sheet) {
-        var rules;
-        try { rules = sheet.cssRules; } catch (e) { return; }
-        Array.prototype.forEach.call(rules, function (r) {
-          if (r.selectorText && r.selectorText.indexOf('.ca-working-head:hover') >= 0) copies.push(r.cssText.split('.ca-working-head:hover').join('.ca-working-head.is-pointed'));
-        });
-      });
-      var pointing = document.createElement('style');
-      pointing.textContent = copies.join('\n');
-      document.head.appendChild(pointing);
-      var lead = l.querySelector('.ca-working-head');
-      lead.classList.add('is-pointed');
-      var c = l.querySelector('.ca-lmark-c');
-      var pop = l.querySelector('.ca-lmark-pop');
-      [c, pop].forEach(function (e) { e.getAnimations().forEach(function (a) { a.finish(); }); });
-      var turn = getComputedStyle(c).rotate + ' · ' + getComputedStyle(pop).scale;
-      lead.classList.remove('is-pointed');
-      pointing.remove();
-      check('pointed at, it turns as the bar’s mark does', turn === '360deg · 1.15', copies.length + ' rules · ' + turn);
-      check('a word with an ellipsis', /^[A-Z][a-z].*\.\.\.$/.test(word()), word());
-      // Its dots light in turn, and the time after them holds still.
+      check('with no word beside it', !l.querySelector('.ca-working-word'), word());
+      // Only the square moves: top over bottom by half its round (its y flipped), then side to
+      // side (its x flipped too), and the time after it holds still throughout.
       var took = q('.ca-sessinsp .ca-working-for');
-      var dots = Array.prototype.slice.call(l.querySelectorAll('.ca-working-dots > span'));
+      var moving = l.querySelector('.ca-working-head').getAnimations({ subtree: true });
       var at = function (t) {
-        dots.forEach(function (d) { d.getAnimations().forEach(function (a) { a.pause(); a.currentTime = t; }); });
-        var lit = dots.map(function (d) { return Number(getComputedStyle(d).opacity); });
-        return { lit: lit.indexOf(Math.max.apply(null, lit)), left: took.getBoundingClientRect().left };
+        moving.forEach(function (a) { a.pause(); a.currentTime = t; });
+        var m = new DOMMatrix(getComputedStyle(square).transform);
+        return { pose: Math.round(m.m11) + ',' + Math.round(m.m22), left: took.getBoundingClientRect().left };
       };
-      var beats = [400, 600, 800, 1400].map(at);
-      dots.forEach(function (d) { d.getAnimations().forEach(function (a) { a.play(); }); });
-      var still = beats.every(function (b) { return b.left === beats[0].left; });
-      check('its dots lighting in turn, the time holding still', beats.slice(0, 3).map(function (b) { return b.lit; }).join(' ') === '0 1 2' && still,
-        beats.map(function (b) { return b.lit + '@' + b.left; }).join(' '));
+      var poses = [0, 800, 1590].map(at);
+      moving.forEach(function (a) { a.play(); });
+      var still = poses.every(function (p) { return p.left === poses[0].left; });
+      check('only the square moving, top over bottom, then side to side, the time holding still',
+        moving.length === 1 && moving[0].animationName === 'ca-working-tumble' && moving[0].effect.target === square && poses.map(function (p) { return p.pose; }).join(' ') === '1,1 1,-1 -1,-1' && still,
+        moving.map(function (a) { return a.animationName || a.transitionProperty; }).join(', ') + ' · ' + poses.map(function (p) { return p.pose + '@' + p.left; }).join(' '));
       check('and how long it has worked', took && took.textContent === '1m', took && took.textContent);
       var thread = q('.ca-sessinsp .ca-thread');
       check('last in the conversation', thread.lastElementChild === l, thread.lastElementChild && thread.lastElementChild.className);
       check('a tip, as a tip', /^Tip\s/.test(tip().textContent), tip().textContent);
-      // Its words end at the line's right edge, and start beside the word, on one line, or under it.
+      // Its words end at the line's right edge, and start beside the time, on one line, or under it.
       var head = l.querySelector('.ca-working-head').getBoundingClientRect();
       var box = tip().getBoundingClientRect();
       var words = document.createRange();
@@ -152,28 +129,6 @@
         (beside ? 'beside' : 'under') + ' · ends ' + Math.round(right) + ' of ' + Math.round(box.right) + ' · ' + Math.round(box.height) + 'px high');
       var c = claim();
       check('kept for the turn', !!c && c.id === tip().getAttribute('data-tip'), JSON.stringify(c));
-      var first = word();
-      // The tip, cut to a short line, sits beside the word, and the next word comes long enough to
-      // leave it no room there: the line grows, and a conversation read at its end stays there.
-      q('.ca-sessinsp .ca-working-word').setAttribute('data-was', '');
-      var long = document.createElement('style');
-      long.textContent = '.ca-sessinsp .ca-thread { max-height: 200px; } .ca-sessinsp .ca-working-tip { max-width: 12em; white-space: nowrap; overflow: hidden; }' +
-        ' .ca-sessinsp .ca-working-word:not([data-was]) { display: inline-block; min-width: ' + (l.clientWidth - 100) + 'px; }';
-      document.head.appendChild(long);
-      var tall = l.getBoundingClientRect().height;
-      return wait(300)
-        .then(function () {
-          thread.scrollTop = thread.scrollHeight;
-          return wait(31e3);
-        })
-        .then(function () {
-          check('another word in time', word() !== first && /\.\.\.$/.test(word()), first + ' → ' + word());
-          var off = thread.scrollHeight - thread.scrollTop - thread.clientHeight;
-          var under = tip().getBoundingClientRect().top >= l.querySelector('.ca-working-head').getBoundingClientRect().bottom;
-          check('a longer word puts the tip under it, the view kept at the end', under && line().getBoundingClientRect().height > tall && thread.scrollHeight > thread.clientHeight && off < 1,
-            (under ? 'under' : 'beside') + ' · ' + Math.round(tall) + ' → ' + Math.round(line().getBoundingClientRect().height) + 'px · ' + Math.round(off) + 'px from the end');
-          long.remove();
-        });
     })
     .then(function () {
       var kept = claim();
@@ -215,7 +170,7 @@
       check('on one line, all of it on hover as it was written', oneLine && cmd.getAttribute('title') === COMMAND, said.getBoundingClientRect().height + 'px words');
       var narrow = fitsNarrow();
       check('fitting a narrow panel', narrow === true, narrow);
-      check('with its clock, not the mark or a tip', !!w.querySelector('.ca-glyph--waiting') && !w.querySelector('.ca-lmark') && !tip());
+      check('with its clock, not the square or a tip', !!w.querySelector('.ca-glyph--waiting') && !w.querySelector('.ca-working-tumble') && !tip());
       check('last in the conversation', q('.ca-sessinsp .ca-thread').lastElementChild === w);
       shape[picked[0].key] = { background: '' };
       return push().then(function () { return until(function () { return waiting() && !waiting().querySelector('code'); }, 5000, 'the waiting line without a command'); });

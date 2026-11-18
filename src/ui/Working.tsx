@@ -1,10 +1,9 @@
-// The line at the end of a conversation while its agent works (working.ts says what it says, and
-// when a tip comes): the mark, quiet (a light gray C, its node breathing), a word for
-// what the agent's up to, its ellipsis lighting dot by dot, and how long it has worked on what you
-// last asked, quiet, where its words will come. Now and then a tip, on the
-// line's right, out of the way of the agent's words; only in the main window's panel, since a
-// card is read at a glance. A session whose turn is over that only waits on a command it left
-// running in the background has another line in its place (`Waiting`): its clock and the command.
+// The line at the end of a conversation while its agent works (working.ts says when a tip comes):
+// a small square tumbling, and how long it has worked on what you last asked, quiet, where its
+// words will come. Now and then a tip, on the line's right, out of the way of the agent's words;
+// only in the main window's panel, since a card is read at a glance. A session whose turn is over
+// that only waits on a command it left running in the background has another line in its place
+// (`Waiting`): its clock and the command.
 
 import { useEffect, useLayoutEffect, useState } from 'react';
 import { duration } from '../format';
@@ -12,8 +11,7 @@ import { workingSince } from '../lanes';
 import { readStored, writeStored, type Codec } from '../stored';
 import { TIPS, tipShows } from '../tips';
 import type { Session } from '../types';
-import { claimed, turnOf, workingTip, workingWord, type TipClaim } from '../working';
-import { MarkLive } from './MarkLive';
+import { claimed, turnOf, workingTip, type TipClaim } from '../working';
 import { SessionGlyph } from './primitives';
 import { takeTip, TipWords, useTipShortcuts } from './Tip';
 
@@ -33,7 +31,7 @@ const CLAIMS: Codec<TipClaim[]> = {
   format: (claims) => JSON.stringify(claims),
 };
 const readClaims = () => readStored<TipClaim[]>(CLAIMS_KEY, CLAIMS, []);
-/** How often the line looks at the clock: on the clock's own beat, so windows change word together. */
+/** How often the line looks at the clock: on the clock's own beat, so windows move on together. */
 const TICK_MS = 10_000;
 
 /** The time, again at each multiple of `everyMs` on the clock. */
@@ -56,21 +54,20 @@ function useClock(everyMs: number): number {
   return now;
 }
 
-/** The line's head: the mark, `word` with its ellipsis, and how long it has gone on since `since`
- *  (none where that isn't known). */
-function Head({ word, since, now }: { word: string; since: number | null; now: number }) {
+/** The line's head: the square tumbling, `word` where there's news to say, and how long it has gone
+ *  on since `since` (none where that isn't known). */
+function Head({ word, since, now }: { word?: string; since: number | null; now: number }) {
   return (
     <span className="ca-working-head">
-      <MarkLive size={14} status="working" moment={null} quiet />
+      <span className="ca-working-tumble" role="img" aria-label="Working">
+        <i />
+      </span>
       <span className="ca-working-line">
-        <span key={word} className="ca-working-word">
-          {word}
-          <span className="ca-working-dots">
-            <span>.</span>
-            <span>.</span>
-            <span>.</span>
+        {word && (
+          <span key={word} className="ca-working-word">
+            {word}
           </span>
-        </span>
+        )}
         {since !== null && <span className="ca-working-for">{duration(since, now)}</span>}
       </span>
     </span>
@@ -80,30 +77,27 @@ function Head({ word, since, now }: { word: string; since: number | null; now: n
 export function Working({ session: s, tips, onGrow }: { session: Session; tips: boolean; onGrow: () => void }) {
   const now = useClock(TICK_MS);
   const since = workingSince(s) ?? s.lastPromptAt;
-  const word = workingWord(s.key, since, now);
   const turn = turnOf(s.key, s.lastPromptAt);
   // Read again at each beat: another window may have given this turn its tip. A window that can't
   // be seen takes none, so none counts as seen.
   const due = tips ? workingTip(readClaims(), turn, now - since, now) : null;
-  // A longer word can leave the tip no room beside it, and put it under the word.
-  useLayoutEffect(onGrow, [onGrow, word]);
+  useLayoutEffect(onGrow, [onGrow]);
   return (
     <div className="ca-working">
-      <Head word={word} since={since} now={now} />
+      <Head since={since} now={now} />
       {due && (due !== 'take' || !document.hidden) && <WorkingTip kept={due === 'take' ? null : due.keep} turn={turn} since={since} onGrow={onGrow} />}
     </div>
   );
 }
 
 /** The line under a side conversation's question while its copy answers it (SideStrip.tsx), so
- *  a copy at work for minutes on a command reads as working: `word` while there's one to say,
- *  else the line's own words, in an order of `seed`'s, and how long since it was asked. No tips:
- *  the conversation beside it has its own line for those. */
-export function WorkingLine({ seed, since, word }: { seed: string; since: number | null; word?: string }) {
+ *  a copy at work for minutes on a command reads as working: `word` while there's one to say, and
+ *  how long since it was asked. No tips: the conversation beside it has its own line for those. */
+export function WorkingLine({ since, word }: { since: number | null; word?: string }) {
   const now = useClock(TICK_MS);
   return (
     <div className="ca-working" role="status">
-      <Head word={word ?? workingWord(seed, since ?? now, now)} since={since} now={now} />
+      <Head word={word} since={since} now={now} />
     </div>
   );
 }

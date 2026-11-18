@@ -14,11 +14,10 @@ const C_MASK = `url("data:image/svg+xml,${encodeURIComponent(`<svg xmlns="http:/
 /** A moment older than this was played by an earlier drawing of the mark. */
 const NEW_MS = 500;
 
-/** `quiet` is the mark beside a line of text: its C a quiet gray, the node breathing while agents
- *  work, and turning as you point at the line (MarkLive.css). `hearing` is the mark while a session
- *  listens (listen.rs): its center red and beating slowly, as a recording light, whatever the
- *  status would color it, since that something is being heard is never left unsaid. */
-export function MarkLive({ size = 16, status = 'idle', moment, quiet = false, hearing = false }: { size?: number; status?: LogoStatus; moment: Moment | null; quiet?: boolean; hearing?: boolean }) {
+/** `hearing` is the mark while a session listens (listen.rs): its center red and beating slowly,
+ *  as a recording light, whatever the status would color it, since that something is being heard
+ *  is never left unsaid. */
+export function MarkLive({ size = 16, status = 'idle', moment, hearing = false }: { size?: number; status?: LogoStatus; moment: Moment | null; hearing?: boolean }) {
   const el = useRef<HTMLSpanElement>(null);
   // A moment is a class on the mark for as long as it plays; React never writes the class, so
   // drawing the bar again leaves it. Taking it off and reading the layout starts one over.
@@ -35,7 +34,7 @@ export function MarkLive({ size = 16, status = 'idle', moment, quiet = false, he
   return (
     <span
       ref={el}
-      className={quiet ? 'ca-lmark is-quiet' : 'ca-lmark'}
+      className="ca-lmark"
       data-status={status}
       data-hearing={hearing || undefined}
       role="img"

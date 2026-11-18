@@ -97,7 +97,7 @@
       check('the strip sits right above the box', strip().nextElementSibling === document.querySelector('.ca-composer:last-child'));
       // The working line a conversation has while its agent works, under the turn the copy is on.
       var working = function (n) { var t = document.querySelectorAll('.ca-sidestrip-turn')[n]; return t && t.querySelector('.ca-working'); };
-      check('under it, the working line says the copy reads the conversation', !!working(0) && /^Reading the conversation\.\.\./.test(working(0).textContent) && !!working(0).querySelector('.ca-lmark'), working(0) ? working(0).textContent : 'none');
+      check('under it, the working line says the copy reads the conversation', !!working(0) && /^Reading the conversation/.test(working(0).textContent) && !!working(0).querySelector('.ca-working-tumble'), working(0) ? working(0).textContent : 'none');
 
       // Asked three minutes ago, and on a slow command since.
       var asked = Date.now() - 3.5 * 60000;
@@ -105,7 +105,7 @@
       await wait(50);
       check('shows the tool the copy runs', turns()[0].indexOf('Bash · git log -3') > 0 && turns()[0].indexOf('Reading the conversation') < 0, turns()[0]);
       var line = working(0);
-      check('and under it the working line, in its own words, with how long since it was asked', !!line && !!line.querySelector('.ca-lmark') && line.querySelector('.ca-working-for').textContent === '3m' && line.compareDocumentPosition(strip().querySelector('.ca-sidestrip-doing')) === Node.DOCUMENT_POSITION_PRECEDING, line ? line.textContent : 'none');
+      check('and under it the working line, its square and how long since it was asked, no word', !!line && !!line.querySelector('.ca-working-tumble') && !line.querySelector('.ca-working-word') && line.querySelector('.ca-working-for').textContent === '3m' && line.compareDocumentPosition(strip().querySelector('.ca-sidestrip-doing')) === Node.DOCUMENT_POSITION_PRECEDING, line ? line.textContent : 'none');
       tell({ turns: [{ question: 'why a queue?', answer: 'Because sends must keep their **order**.', tools: ['Bash · `git log -3`'], done: false, at: asked }] });
       await wait(50);
       check('then its answer as it comes', turns()[0].indexOf('Because sends must keep their order.') > 0 && !!strip().querySelector('.ca-sidestrip-a strong'), turns()[0]);

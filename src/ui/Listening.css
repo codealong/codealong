@@ -105,7 +105,7 @@
   height: 8px;
   border-radius: var(--radius-pill);
   background: var(--alert-solid);
-  animation: ca-live-pulse var(--dur-ellipsis) ease-in-out infinite;
+  animation: ca-live-pulse var(--dur-pulse) ease-in-out infinite;
 }
 @keyframes ca-live-pulse {
   50% {

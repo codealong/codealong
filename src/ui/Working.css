@@ -1,9 +1,10 @@
-/* The line at the end of a conversation while its agent works (Working.tsx): the mark breathing,
-   then a word for what it's up to and how long it has gone on, in quiet text where the agent's
-   words will come. A tip, now and then, goes on the line's right, quieter still: beside the word
-   while all of it fits there on one line, else under it, still on the right. Each word fades in.
-   One waiting on a command in the background has its clock and the command in the mark's and the
-   word's places, the command cut to the room there is. */
+/* The line at the end of a conversation while its agent works (Working.tsx): a small square
+   tumbling, then how long it has gone on, in quiet text where the agent's words will come. A tip,
+   now and then, goes on the line's right, quieter still: beside the time while all of it fits
+   there on one line, else under it, still on the right. A side conversation's line says what its
+   copy is doing, when there's news, before the time. One waiting on a command in the background
+   has its clock and the command in the square's and the time's places, the command cut to the
+   room there is. */
 
 .ca-working {
   display: flex;
@@ -14,12 +15,41 @@
   color: var(--ink-3);
   font: var(--type-meta);
 }
-/* One line high, so a tip's first line sits level with the word. */
+/* One line high, so a tip's first line sits level with the time. */
 .ca-working-head {
   display: flex;
   flex: none;
   align-items: center;
   gap: var(--space-2);
+}
+/* The square, half the head's 14px box, flips top over bottom and then side to side, without a
+   pause; a square looks the same after both, so the loop doesn't show. Only its transform changes,
+   which WebKit runs on the compositor, with the perspective in it (four times the box) so the
+   flip has depth without a 3D context around it. */
+.ca-working-tumble {
+  position: relative;
+  flex: none;
+  width: 14px;
+  height: 14px;
+}
+.ca-working-tumble > i {
+  position: absolute;
+  inset: 25%;
+  border-radius: 20%;
+  background: var(--ink-2);
+  animation: ca-working-tumble var(--dur-tumble) cubic-bezier(0.45, 0, 0.55, 1) infinite;
+  will-change: transform;
+}
+@keyframes ca-working-tumble {
+  0% {
+    transform: perspective(56px) rotateX(0deg) rotateY(0deg);
+  }
+  50% {
+    transform: perspective(56px) rotateX(-180deg) rotateY(0deg);
+  }
+  100% {
+    transform: perspective(56px) rotateX(-180deg) rotateY(-180deg);
+  }
 }
 .ca-working-line {
   display: flex;
@@ -30,28 +60,6 @@
 .ca-working-word {
   color: var(--ink-2);
   animation: ca-working-in var(--dur-base) ease-out;
-}
-/* The ellipsis's dots light in turn, left to right, then rest. Only their opacity changes, so the
-   time after them holds still. */
-.ca-working-dots > span {
-  opacity: 0.3;
-  animation: ca-working-dot var(--dur-ellipsis) ease-in-out infinite both;
-}
-.ca-working-dots > span:nth-child(2) {
-  animation-delay: calc(var(--dur-ellipsis) / 8);
-}
-.ca-working-dots > span:nth-child(3) {
-  animation-delay: calc(var(--dur-ellipsis) / 4);
-}
-@keyframes ca-working-dot {
-  0%,
-  50%,
-  100% {
-    opacity: 0.3;
-  }
-  25% {
-    opacity: 1;
-  }
 }
 .ca-working-for {
   font-variant-numeric: tabular-nums;
@@ -108,8 +116,8 @@
   .ca-working-tip {
     animation: none;
   }
-  .ca-working-dots > span {
+  .ca-working-tumble > i {
     animation: none;
-    opacity: 1;
+    will-change: auto;
   }
 }
