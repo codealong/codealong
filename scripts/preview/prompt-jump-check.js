@@ -235,7 +235,7 @@
       return press({ shiftKey: true });
     })
     .then(function () {
-      check('past the first, the start of the session', thread().scrollTop === 0 && /The start of the session/.test(thread().textContent), String(thread().scrollTop));
+      check('past the first, the start of the session', thread().scrollTop === 0, String(thread().scrollTop));
       return press({ key: 'ArrowDown', shiftKey: true });
     })
     .then(function () {

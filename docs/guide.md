@@ -3589,9 +3589,10 @@ An agent that reads your sessions for you can suggest what you might answer each
 session and ask it to go over what waits on you (`codealong sessions --waiting`, then `codealong
 session transcript` for each), and it suggests replies with `codealong session suggest`. They show
 above the session's box, in every window that has it (Sessions' panel, the peek, the notch, the
-waiting window), in a card of suggestions' own color (a snooze Jev or an agent suggests is one
-too), with no heading: who suggested them, and the note it left, are under the pointer on its
-sparkle, and its × dismisses them. A click sends one as yours, as it
+waiting window), in a card of suggestions' own color with no heading: who suggested them, and the
+note it left, are under the pointer on its sparkle, which a click or the keyboard opens to read, and
+its × dismisses them. A snooze Jev or an agent suggests is in a card of the same color, which goes
+once its session moves on. A click sends one as yours, as it
 is, the way ⏎ sends what's typed, leaving what you'd typed in the box; ⌘-click sends it and goes on
 to the next that waits on you, as ⌘⏎ does; ⌥-click puts it in the box to change first; ↑ from the
 empty box goes through them, ⏎ sending the one you're on. **⌘1** to **⌘6** send them from the

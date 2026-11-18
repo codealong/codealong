@@ -14,7 +14,7 @@
 // their own, which its question box shows picked (SessionReply.tsx `Questions`), with the same
 // mark and dismiss (`SuggestionMark`, `DismissSuggestions`) in its top row.
 
-import { forwardRef, type KeyboardEvent, type MouseEvent } from 'react';
+import { forwardRef, useState, type KeyboardEvent, type MouseEvent } from 'react';
 import { showContextMenu } from '../contextMenu';
 import { chordKeys, chordSigns, SUGGESTION_CHORDS, suggestionChord } from '../menus';
 import type { Key } from '../queue';
@@ -102,9 +102,10 @@ export const SuggestedReplies = forwardRef<HTMLDivElement, Props>(function Sugge
     e.preventDefault();
     e.stopPropagation();
   };
+  const note = useNoteOpen(g);
   return (
     <div ref={ref} className={cx('ca-suggest', keyed && 'is-keyed')} role="group" aria-label="Suggested replies">
-      <SuggestionMark suggestions={g} />
+      <SuggestionMark suggestions={g} note={note} />
       <DismissSuggestions onDismiss={onDismiss} />
       <div className="ca-suggest-replies">
         {g.replies.map((text, i) => {
@@ -129,6 +130,7 @@ export const SuggestedReplies = forwardRef<HTMLDivElement, Props>(function Sugge
           );
         })}
       </div>
+      <SuggestionNote suggestions={g} note={note} />
     </div>
   );
 });
@@ -136,15 +138,43 @@ export const SuggestedReplies = forwardRef<HTMLDivElement, Props>(function Sugge
 /** The sparkle that marks what another session suggested: at the start of suggested replies' card,
  *  and in a question box's top row with the choices picked for it. Who suggested them and their
  *  note are under the pointer: the card's tint and the sparkle already say they're suggestions,
- *  and the note, written for you to weigh, read as clutter over every reply. */
-export function SuggestionMark({ suggestions: g }: { suggestions: Suggestions }) {
+ *  and the note, written for you to weigh, read as clutter over every reply. With a note it's a
+ *  button, which shows the note under them (`useNoteOpen`, `SuggestionNote`), so the keyboard and
+ *  a screen reader get to it too. */
+export function SuggestionMark({ suggestions: g, note }: { suggestions: Suggestions; note?: NoteOpen }) {
   const by = g.byTitle ? `Suggested by ${g.byTitle}` : g.replies.length ? 'Suggested replies' : 'Suggested';
   const who = g.by ? `${by} (${g.by})` : by;
+  if (!g.note || !note) {
+    return (
+      <span className="ca-suggest-mark" title={who} role="img" aria-label={who}>
+        <Icon name="sparkles" size={13} />
+      </span>
+    );
+  }
   return (
-    <span className={cx('ca-suggest-mark', g.note && 'has-note')} title={g.note ? `${who}\n\n${g.note}` : who}>
+    <button type="button" className={cx('ca-suggest-mark', 'has-note', note.open && 'is-open')} title={`${who}\n\n${g.note}`} aria-label={`${who}: ${note.open ? 'hide' : 'show'} its note`} aria-expanded={note.open} onClick={note.toggle}>
       <Icon name="sparkles" size={13} />
-    </span>
+    </button>
   );
+}
+
+/** Whether the note of the suggestions shown is open, for their mark and the note under them. A
+ *  new set of suggestions starts closed. */
+export interface NoteOpen {
+  open: boolean;
+  toggle: () => void;
+}
+
+export function useNoteOpen(g: Suggestions | null | undefined): NoteOpen {
+  const [openAt, setOpenAt] = useState<number | null>(null);
+  const at = g?.at ?? null;
+  return { open: at !== null && openAt === at, toggle: () => setOpenAt((was) => (was === at ? null : at)) };
+}
+
+/** The note the suggestions came with, once their mark opened it. */
+export function SuggestionNote({ suggestions: g, note }: { suggestions: Suggestions | null | undefined; note: NoteOpen }) {
+  if (!g?.note || !note.open) return null;
+  return <p className="ca-suggest-note">{g.note}</p>;
 }
 
 /** Takes the suggestions away, here at once and on the session's Mac after. */
@@ -154,10 +184,10 @@ export function DismissSuggestions({ onDismiss }: { onDismiss: () => void }) {
 
 /** Choices another session picked for questions it asks: their mark and their dismiss together, in
  *  the question box's top row, tinted as suggested replies' card is. */
-export function SuggestedPicks({ suggestions, onDismiss }: { suggestions: Suggestions; onDismiss: () => void }) {
+export function SuggestedPicks({ suggestions, note, onDismiss }: { suggestions: Suggestions; note: NoteOpen; onDismiss: () => void }) {
   return (
     <span className="ca-suggest-picks" role="group" aria-label="Suggested choices">
-      <SuggestionMark suggestions={suggestions} />
+      <SuggestionMark suggestions={suggestions} note={note} />
       <DismissSuggestions onDismiss={onDismiss} />
     </span>
   );

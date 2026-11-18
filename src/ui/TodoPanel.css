@@ -157,8 +157,10 @@
   color: var(--ink-3);
 }
 /* The picker hangs from the whole row, not the add button, so it stays inside the panel
-   however many todos come before the button. */
-.ca-todoinsp-waits {
+   however many todos come before the button: Waits on's row, or the row of ways to add what a
+   todo has none of yet (TodoPanel.tsx), where its add button is while it waits on nothing. */
+.ca-todoinsp-waits,
+.ca-todoinsp-adds {
   position: relative;
 }
 .ca-labelpick-anchor.ca-waitpick-anchor {

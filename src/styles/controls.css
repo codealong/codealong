@@ -6,11 +6,11 @@
 .ca-kbd.is-mark { font: 700 15px/1 var(--font-mono); }
 /* Keys beside what they do, and lines that only say keys (`.ca-keyhint`), show where the page says
    (keysShown.ts): always, by Settings, or while ⌘ or ⌃ is held. Tooltips and menus say them
-   either way. What teaches a key shows it whatever the setting: a tip, an empty view's hint, a
-   dialog's words, and the sidebar's, which show on hover already. Important, as a hidden key is
-   hidden wherever a view's own rule would show it (a suggested reply's while the box has the
-   keyboard). */
-:root:not([data-keys]) :is(.ca-kbds, .ca-hotkey > kbd, .ca-keyhint):not(:is(.ca-tip-text, .ca-working-tip, .ca-empty, .ca-nav, .ca-dialog) *) { display: none !important; }
+   either way, a menu of the app's own (`.ca-menu`, Open in's) as the native ones do. What teaches
+   a key shows it whatever the setting: a tip, an empty view's hint, a dialog's words, and the
+   sidebar's, which show on hover already. Important, as a hidden key is hidden wherever a view's
+   own rule would show it (a suggested reply's while the box has the keyboard). */
+:root:not([data-keys]) :is(.ca-kbds, .ca-hotkey > kbd, .ca-keyhint):not(:is(.ca-tip-text, .ca-working-tip, .ca-empty, .ca-nav, .ca-dialog, .ca-menu) *) { display: none !important; }
 
 .ca-btn { appearance: none; display: inline-flex; align-items: center; justify-content: center; gap: 6px; height: 28px; padding: 0 10px; box-sizing: border-box; border: 1px solid var(--line-strong); border-radius: var(--radius-sm); background: var(--surface); color: var(--ink); font: var(--type-body-strong); white-space: nowrap; cursor: pointer; transition: background var(--dur-fast) ease-out, color var(--dur-fast) ease-out; }
 /* Laid over the button's white, which a see-through surface-hover (on the glass, styles/glass.css)

@@ -1,6 +1,6 @@
 // Checks questions a session asks that Codealong can't answer (Claude Code's AskUserQuestion when
 // the plugin's hook didn't hand them over): the reply area shows each question with its numbered
-// choices and their descriptions, no Answer, and Open in the session's terminal; the thread names
+// choices and their descriptions, no Answer, and Answer in the session's terminal; the thread names
 // a question call by its headers and, opened, shows an earlier call's questions with your picks,
 // and has no line for the call the reply area shows (questionsBox.ts).
 //   PREVIEW_WAIT=30000 scripts/preview.sh sessions '' scripts/preview/questions-elsewhere-check.js
@@ -96,9 +96,9 @@
       check('descriptions shown', /A quarter and a bit/.test(text(first)));
       var buttons = Array.prototype.map.call(b.querySelectorAll('button'), text);
       check('no answering here', buttons.indexOf('Answer') < 0 && buttons.indexOf('Decline') < 0 && !b.querySelector('input'), buttons.join('|'));
-      var open = Array.prototype.filter.call(b.querySelectorAll('button'), function (x) { return /^Open in /.test(text(x)); })[0];
-      check('open where it runs', !!open, buttons.join('|'));
-      check('says where', /^Answer them in /.test(text(b.querySelector('.ca-composer-note'))), text(b.querySelector('.ca-composer-note')));
+      var open = Array.prototype.filter.call(b.querySelectorAll('button'), function (x) { return /^Answer in /.test(text(x)); })[0];
+      check('a way to answer where it runs', !!open, buttons.join('|'));
+      check('which says why on it', !!open && open.title === pending.cannot, open ? open.title : 'none');
       var labels = Array.prototype.map.call(tools(), function (t) { return text(t.querySelector('.ca-thread-toollabel')); });
       check('a line by its headers', labels[0] === 'Asks you · INR-AAR, Days', labels.join('|'));
       // The waiting call has no line: the reply area below says it.

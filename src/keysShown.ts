@@ -72,6 +72,8 @@ export function useKeysShown(on: boolean | undefined) {
     const show = () => say(hold.at(Date.now()));
     const down = (e: KeyboardEvent) => {
       hold.down(e.key, Date.now());
+      // ⇧ and ⌥ held with it wait on, as `Hold` has them, and a key held down repeats.
+      if (WAITS.has(e.key) || e.repeat) return;
       window.clearTimeout(timer);
       if (SHOWS.has(e.key)) timer = window.setTimeout(show, HOLD_MS);
     };

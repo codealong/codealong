@@ -3,8 +3,8 @@
 // under it, in the panel and expanded to the window, where both keep to the centered column; the
 // message box has no rule or strip over it of its own; and the conversation has no line for the
 // call the card shows, though it keeps one for another call of the same tool waiting at once with
-// other input (an MCP tool's label is its name alone). A wait Codealong can read nothing of ("It's
-// waiting on you. Answer it in …") is the same card, as wide as the message box and over it.
+// other input (an MCP tool's label is its name alone). A wait Codealong can read nothing of (its
+// Answer in … button) is the same card, as wide as the message box and over it.
 //   PREVIEW_WAIT=30000 scripts/preview.sh sessions '' scripts/preview/approval-card-check.js
 (function () {
   localStorage.setItem('codealong.project', 'All projects');
@@ -115,7 +115,7 @@
     .then(function () { return wait(300); })
     .then(function () {
       var w = waitCard();
-      check('a wait it can say nothing of says where to answer it', /Answer it in/.test(w.textContent), w.textContent.slice(0, 80));
+      check('a wait it can say nothing of says where to answer it', /Answer in /.test(w.textContent), w.textContent.slice(0, 80));
       check('that wait is a card as wide as the message box', level(w, field()), sides(w));
       check('the wait card has rounded corners', getComputedStyle(w).borderTopLeftRadius !== '0px', getComputedStyle(w).borderTopLeftRadius);
       check('the wait card has no rule over it', getComputedStyle(w).borderTopWidth === '0px', getComputedStyle(w).borderTopWidth);

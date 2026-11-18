@@ -1,6 +1,7 @@
 // Checks keyboard shortcuts show as Settings says (src/keysShown.ts, `[appearance] show_keys`): off,
 // as a new config.toml has it, the session strip's keys are hidden, holding ⌘ alone a moment shows
-// them, letting go hides them, and a chord pressed at once shows nothing; on, they show all along.
+// them, ⇧ pressed during the hold doesn't call it off, letting go hides them, and a chord pressed
+// at once shows nothing; on, they show all along.
 //   scripts/preview.sh sessions '' scripts/preview/keys-shown-check.js
 //   PREVIEW_KEYS=1 scripts/preview.sh sessions '' scripts/preview/keys-shown-check.js
 (function () {
@@ -40,6 +41,24 @@
     .then(function (end) {
       if (end) return end;
       check('and letting go hides them', !shows(key()));
+      // ⇧ pressed during the hold, for a chord worth seeing, waits on.
+      press('keydown', 'Meta');
+      return wait(200);
+    })
+    .then(function (end) {
+      if (end) return end;
+      press('keydown', 'Shift');
+      return wait(400);
+    })
+    .then(function (end) {
+      if (end) return end;
+      check('⇧ pressed during the hold still shows them', shows(key()));
+      press('keyup', 'Shift');
+      press('keyup', 'Meta');
+      return wait(20);
+    })
+    .then(function (end) {
+      if (end) return end;
       press('keydown', 'Meta');
       press('keydown', 'F19');
       return wait(700);

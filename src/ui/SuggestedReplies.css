@@ -20,16 +20,33 @@
   grid-column: 3;
   grid-row: 1;
 }
-/* The sparkle, in line with a reply's first line; the help pointer says it has a note to read. */
+/* The sparkle, in line with a reply's first line. With a note it's a button, which shows the note
+   under the replies (or under a question box's top row). */
 .ca-suggest-mark {
   display: inline-flex;
   flex: none;
-  padding-block: 7px;
+  margin: 0;
+  padding: 7px 0;
+  border: 0;
+  border-radius: var(--radius-sm);
+  background: transparent;
   color: var(--suggest);
   cursor: default;
 }
 .ca-suggest-mark.has-note {
-  cursor: help;
+  cursor: pointer;
+}
+.ca-suggest-mark:focus-visible {
+  outline: none;
+  box-shadow: var(--shadow-focus);
+}
+/* The note the suggestions came with, once their sparkle opened it: across the card, under them. */
+.ca-suggest-note {
+  grid-column: 1 / -1;
+  margin: var(--space-1) 0 0;
+  color: var(--ink-2);
+  font: var(--type-caption);
+  overflow-wrap: anywhere;
 }
 .ca-suggest-dismiss {
   margin-block: 1px;

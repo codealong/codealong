@@ -1,7 +1,7 @@
 // Checks suggested replies (SuggestedReplies.tsx, SessionReply.tsx, `codealong session suggest`):
 // a session with replies another session suggested has a Suggested chip on its row, whose tooltip
 // lists them, and its panel shows them above the box in a card of their own color, who suggested
-// them and the note on its sparkle. A
+// them and the note on its sparkle, which a click opens to read. A
 // click sends one as it is, leaving the draft in the box, and they go at once; ⌥-click puts one in
 // the box after the draft and sends nothing; ↑ in the empty box goes to the nearest one and ⏎
 // there sends it, and so does its number alone; each shows its key, ⌘ and its number, while the
@@ -83,6 +83,19 @@
       check('with who suggested them and the note on its sparkle', !!mark && /^Suggested by Supervisor/.test(mark.title) && /asks whether to push/.test(mark.title) && mark.classList.contains('has-note'), mark ? mark.title : 'no mark');
       check('and no head or note in words', !q('.ca-sessinsp .ca-suggest-head') && !q('.ca-sessinsp .ca-suggest-note') && strip().textContent.indexOf('Supervisor') < 0, strip().textContent.slice(0, 60));
       check('the box’s foot says ↑ in the box goes to them', /↑ suggested replies/.test(note()), note());
+      // The sparkle is a button, so the keyboard gets to the note too: a click shows it, another hides it.
+      mark.click();
+      return wait(50);
+    })
+    .then(function () {
+      var mark = q('.ca-sessinsp .ca-suggest > .ca-suggest-mark');
+      var n = q('.ca-sessinsp .ca-suggest-note');
+      check('a click on the sparkle shows the note under them', mark.getAttribute('aria-expanded') === 'true' && !!n && /asks whether to push/.test(n.textContent), n ? n.textContent : 'no note');
+      mark.click();
+      return wait(50);
+    })
+    .then(function () {
+      check('and another hides it', !q('.ca-sessinsp .ca-suggest-note'));
       type(box(), 'My own draft');
       return wait(50);
     })

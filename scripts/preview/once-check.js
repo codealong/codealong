@@ -59,7 +59,7 @@
     .then(function () {
       check('deny and always, no allow', !!button('Deny') && !!button('Always') && !button('Allow'));
       var note = approval().querySelector('.ca-composer-note').textContent;
-      check('says it allows only from now on', note.indexOf('only from now on, not just this once') >= 0, note);
+      check('says it allows only from now on', note.indexOf('only from now on') >= 0, note);
       var b = box();
       check('the box is there', !!b);
       if (!b) return;

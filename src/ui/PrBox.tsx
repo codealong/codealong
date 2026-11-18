@@ -412,8 +412,9 @@ export function PrBoxView({ pr, box: b, keys, ownKeys = false, after, onShow, ta
             : 'It’s closed; a comment still goes to the PR';
   const answering = conversation?.running && !asking ? `${conversation.account ?? 'Ask'} is answering on Ask · ` : '';
   const said = note?.text ?? (sending ? 'Sending to GitHub…' : starting ? 'Reading the PR…' : asking ? [keysIn(`⏎ asks${answerer ? ` ${answerer}` : ''}`), reviewable && `${keys.approve} approves${onward}`].filter(Boolean).join(' · ') : answering + verdicts);
-  // It says only keys: not what's happening, nor what the agent's review or your draft does.
-  const keysOnly = !note && !sending && !starting && !answering && !draft && (asking || (reviewable && !agents));
+  // It says only keys: not what's happening, nor what the agent's review or your draft does, nor,
+  // on Ask, that ⏎ asks where ⌘⏎ approves on GitHub.
+  const keysOnly = !note && !sending && !starting && !answering && !draft && !asking && reviewable && !agents;
   // Ask's earlier questions, while nothing about them shows above the box.
   const earlier = kept.filter((k) => k.id !== conversation?.id);
   const sideShown = !!conversation || (!!shown && shown.kind !== 'starting') || starting;

@@ -126,7 +126,7 @@ import { ContextMeter } from './ContextMeter';
 import { dialogUp } from './focusTrap';
 import { SESSION_SIDES, SideStrip, type SideWindowCan } from './SideStrip';
 import { SlashList, type SlashOption } from './SlashList';
-import { chordedReply, SuggestedPicks, SuggestedReplies, type Denies, type PickHow } from './SuggestedReplies';
+import { chordedReply, SuggestedPicks, SuggestedReplies, SuggestionNote, useNoteOpen, type Denies, type PickHow } from './SuggestedReplies';
 import { useLatest } from '../latest';
 import { useVoice } from '../listening';
 import { shortcutLabel } from '../quick';
@@ -283,7 +283,10 @@ type Note = { text: string; error: boolean };
 interface BoxSays {
   text: string;
   error: boolean;
+  /** It says keys, so it shows only in a window that says them (`sayKeys`). */
   keys: boolean;
+  /** It says nothing but keys, so it shows only where keys do (keysShown.ts). */
+  keysOnly?: boolean;
   attn?: boolean;
 }
 
@@ -960,7 +963,7 @@ function Composer({ session: s, terminal, autoFocus, onlyAside = false, waiting,
   const keysAlways = useKeysAlways();
   // Into the turn it's taking at once, where it can be reached that way.
   const canSendNow = !!s.steerable && !waiting && !aside;
-  const said = (text: string, keys = false): BoxSays => ({ text, error: false, keys });
+  const said = (text: string, keys = false, keysOnly = keys): BoxSays => ({ text, error: false, keys, keysOnly });
   const keys = hint(waiting, !!onNext, !!onAllow, canSendNow, denies, !empty, !!suggested && !text);
   const says: BoxSays | null = stopsAgain
     ? { text: 'Esc again stops its turn', error: false, keys: false, attn: true }
@@ -994,7 +997,9 @@ function Composer({ session: s, terminal, autoFocus, onlyAside = false, waiting,
             ? said(keysIn('⌘⏎ asks and goes on: the session’s back once it answers'), true)
             : null
           : keys
-          ? said(keys, true)
+          ? // While it waits on you the line says what ⏎ does to that (denies it), and when what you
+            // write goes: not keys alone, so it shows whatever the setting.
+            said(keys, true, !waiting)
           : null;
   const saying = says && (!says.keys || sayKeys) ? says : null;
   return (
@@ -1162,7 +1167,7 @@ function Composer({ session: s, terminal, autoFocus, onlyAside = false, waiting,
             </div>
           )}
           {/* A line of keys shows where keys do (keysShown.ts). */}
-          {saying && <OneLine className={cx('ca-composer-note', saying.error && 'is-error', saying.attn && 'is-attn', saying.keys && 'ca-keyhint')} role="status" text={saying.text} />}
+          {saying && <OneLine className={cx('ca-composer-note', saying.error && 'is-error', saying.attn && 'is-attn', saying.keysOnly && 'ca-keyhint')} role="status" text={saying.text} />}
           <div className="ca-composer-buttons">
             {!aside && <ContextMeter session={s} />}
             {/* A side conversation's copy runs on the session's account, model and effort: said, not picked. */}
@@ -1440,6 +1445,7 @@ function Approval({ session: s, terminal, onOpen, onAnswered, keys, onKeys, onNe
   // --pick`), until you dismiss them: they go from here at once, and from the session's Mac after.
   const [dismissed, setDismissed] = useState<number | null>(null);
   const picked = s.suggestions?.picks && Object.keys(s.suggestions.picks).length > 0 && dismissed !== s.suggestions.at ? s.suggestions : null;
+  const pickedNote = useNoteOpen(picked);
   const dismissPicked = () => {
     if (!picked) return;
     setDismissed(picked.at);
@@ -1470,9 +1476,10 @@ function Approval({ session: s, terminal, onOpen, onAnswered, keys, onKeys, onNe
         ) : (
           <>
             <div className="ca-approval-head">
-              {picked && <SuggestedPicks suggestions={picked} onDismiss={dismissPicked} />}
+              {picked && <SuggestedPicks suggestions={picked} note={pickedNote} onDismiss={dismissPicked} />}
               <FoldQuestions folded={false} onFold={fold} />
             </div>
+            <SuggestionNote suggestions={picked} note={pickedNote} />
             <QuestionList questions={pending.questions} suggested={picked?.picks} why={picked?.why} />
             <div className="ca-composer-foot">
               <span className="ca-composer-note">{note?.text}</span>
@@ -1673,6 +1680,8 @@ function Questions({ questions, draft, call, unwritten, keys, busy, note, given,
   const { picks, own, at, asked, setPicks, setOwn, setStep } = p;
   const questionsNow = useLatest(questions);
   const suggesting = !!suggested && questions.some((q) => offered(q).length > 0);
+  // The note the picks came with, opened from their sparkle.
+  const pickNote = useNoteOpen(suggested);
   // What you pick, write and go on to is kept as it changes, for wherever the box shows next. What
   // another window kept (a peek and the main window on the same session) shows here as it's
   // written there, and isn't written back: it may be older by then than what that window has.
@@ -1743,12 +1752,13 @@ function Questions({ questions, draft, call, unwritten, keys, busy, note, given,
         suggested={suggested}
         tools={
           <>
-            {suggesting && suggested && onDismissSuggested && <SuggestedPicks suggestions={suggested} onDismiss={onDismissSuggested} />}
+            {suggesting && suggested && onDismissSuggested && <SuggestedPicks suggestions={suggested} note={pickNote} onDismiss={onDismissSuggested} />}
             <FoldQuestions folded={false} onFold={onFold} />
           </>
         }
         onAnswer={() => answerRef.current(true)}
       />
+      {suggesting && <SuggestionNote suggestions={suggested} note={pickNote} />}
       <div className="ca-composer-foot">
         <span className={cx('ca-composer-note', note?.error && 'is-error')}>{busy ? 'Answering…' : note?.text}</span>
         <Button

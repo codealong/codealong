@@ -1707,9 +1707,10 @@ pub fn glass() -> bool {
     load().ok().flatten().map_or_else(default_glass, |c| c.appearance.glass)
 }
 
-/// Whether keyboard shortcuts show all the time (`[appearance] show_keys`).
+/// Whether keyboard shortcuts show all the time (`[appearance] show_keys`), as the settings in use
+/// say: the last good ones while a save doesn't parse.
 pub fn show_keys() -> bool {
-    load().ok().flatten().is_some_and(|c| c.appearance.show_keys)
+    current().is_ok_and(|c| c.appearance.show_keys)
 }
 
 pub fn experimental() -> ExperimentalCfg {

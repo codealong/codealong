@@ -74,13 +74,14 @@
     })
     .then(function () {
       var label = box().querySelector('.ca-question .ca-approval-label');
-      check('its question, named', !!label && label.textContent.indexOf(question) >= 0 && /Exiting/.test(label.textContent), label ? label.textContent : 'none');
+      // Its header is in the box's first row, beside the button that minimizes it.
+      var header = box().querySelector('.ca-question-top .ca-question-header');
+      check('its question, named', !!label && label.textContent.indexOf(question) >= 0 && !!header && /Exiting/.test(header.textContent), (header ? header.textContent : 'no header') + ' / ' + (label ? label.textContent : 'none'));
       var descs = Array.prototype.map.call(box().querySelectorAll('.ca-question-desc'), function (d) { return d.textContent; });
       check('each choice says what it does', !!button('Keep worktree') && !!button('Remove worktree') && descs.length === 2 && /Stays at/.test(descs[0]) && /will be lost/.test(descs[1]), descs.join(' | '));
       check('no box for words of your own', !box().querySelector('.ca-question-own'));
       check('cancel, not decline', !!button('Cancel') && !button('Decline'));
-      var note = box().querySelector('.ca-composer-foot .ca-composer-note');
-      check('says what cancel does', !!note && /Cancel keeps it open, at its prompt/.test(note.textContent), note ? note.textContent : 'none');
+      check('says what cancel does, on it', /stays open at its prompt/.test(button('Cancel').title), button('Cancel').title);
       button('Remove worktree').click();
       return tick();
     })
