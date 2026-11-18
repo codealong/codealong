@@ -939,7 +939,9 @@ it, counted as its harness counts it for its own meter: Claude Code's input,
 cache reads and cache writes against the model's window (a million tokens for the 1M models),
 Codex's tokens against the window its rollout names, OpenCode's last message. It turns amber past
 80% and red past 95%, when the agent is about to compact or run out of room; where the window
-isn't known it shows the tokens. Hovering it shows the tokens of the window, the model, and what the
+isn't known (a model newer than the list that comes with Codealong) it shows the tokens, until
+`context` under the model's `[prices]` in config.toml gives it (see *What sessions used and
+cost*). Hovering it shows the tokens of the window, the model, and what the
 session has cost so far at API prices (see *What sessions used and cost*). Cursor and Antigravity
 don't say, so their sessions have none.
 
@@ -4584,6 +4586,7 @@ output = 15
 cache_read = 0.3
 cache_write = 3.75
 cache_write_1h = 6
+context = 1000000            # its context window in tokens, which a session's context pie fills
 ```
 
 `codealong tokens [--days N] [--account <name>] [--by account|model|folder|session|day]` prints

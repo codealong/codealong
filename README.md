@@ -932,6 +932,7 @@ perf_log = false               # true logs timings to ~/Library/Logs/Codealong/p
 [prices."some-new-model"]      # API prices for a model Codealong has none for yet, dollars per million tokens (the Analytics window)
 input = 3
 output = 15
+context = 1000000              # its context window in tokens, which a session's context pie fills
 
 [[accounts]]                   # in the usage bar's order: dragging a chip there moves its table
 name = "claude-work"           # what the board shows

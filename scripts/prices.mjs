@@ -5,16 +5,17 @@
 //
 //   node scripts/prices.mjs [litellm.json]
 //
-// Without a file it downloads the list. Claude's fast mode isn't in LiteLLM's list, so its
-// multiples are kept here (FAST), from Anthropic's pricing: 2x on Opus 5.5, 5 and 4.8, 6x on 4.6.
-// FIXES are prices LiteLLM has wrong, checked against Anthropic's own (2026-10-12).
+// Without a file it downloads the list. Claude's fast mode is a multiple LiteLLM gives as
+// `provider_specific_entry.fast`; FAST has the ones its list lacks, from Anthropic's pricing (6x
+// on Opus 4.6). FIXES are prices LiteLLM has wrong, checked against Anthropic's own (2026-10-12,
+// and Sonnet 5.5's still on 2026-11-18).
 import { readFileSync, writeFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 
 const root = resolve(import.meta.dirname, '..');
 const SOURCE = 'https://raw.githubusercontent.com/BerriAI/litellm/main/model_prices_and_context_window.json';
 const PROVIDERS = new Set(['anthropic', 'openai']);
-const FAST = { 'claude-opus-5-5': 2, 'claude-opus-5': 2, 'claude-opus-4-8': 2, 'claude-opus-4-6': 6 };
+const FAST = { 'claude-opus-4-6': 6 };
 const FIXES = { 'claude-sonnet-5-5': { cache_read: 0.2 } };
 // Models a harness records under a name of its own: Codex's automatic approval reviews name the
 // server's alias, which has run GPT-5.6 Luna since 2026-07-30 (as ccusage's Codex notes have it).
@@ -55,7 +56,8 @@ export function entry(name, m) {
   if (typeof m.input_cost_per_token_priority === 'number') out.priority = price(m, '_priority');
   // Its context window, what a session's context meter fills.
   if (typeof m.max_input_tokens === 'number') out.context = m.max_input_tokens;
-  if (FAST[name]) out.fast = FAST[name];
+  const fast = FAST[name] ?? m.provider_specific_entry?.fast;
+  if (typeof fast === 'number' && fast > 1) out.fast = fast;
   return { ...out, ...FIXES[name] };
 }
 

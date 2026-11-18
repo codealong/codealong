@@ -1770,6 +1770,21 @@ fn runs_on_written(path: &Path, text: &str) {
     }
 }
 
+/// `[prices]`, for what asks with every session it reads (its context meter's window, prices.rs),
+/// so neither copies all the settings nor reads the file each time: the ones the app runs on, else
+/// config.toml's as this process first read it (the command and `--snapshot`, which don't live
+/// long), and none in tests, which mustn't depend on this Mac's.
+pub fn prices() -> BTreeMap<String, crate::prices::Price> {
+    if let Some(cfg) = RUNNING.read().unwrap_or_else(|e| e.into_inner()).as_ref() {
+        return cfg.prices.clone();
+    }
+    if cfg!(test) {
+        return BTreeMap::new();
+    }
+    static READ: std::sync::OnceLock<BTreeMap<String, crate::prices::Price>> = std::sync::OnceLock::new();
+    READ.get_or_init(|| current().map(|c| c.prices).unwrap_or_default()).clone()
+}
+
 /// Whether the app's engine has read config.toml, or written a first run's: until then the
 /// settings are the defaults, which a first run is about to replace.
 pub fn read_by_the_app() -> bool {

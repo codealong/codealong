@@ -154,13 +154,19 @@ fn over(base: Price, mine: &Price) -> Price {
     }
 }
 
-/// A model's context window in tokens, as the bundled list has it: a million for one named with
-/// `[1m]` (Claude Code's 1M-context variant), and none for a model the list doesn't know.
+/// A model's context window in tokens: a million for one named with `[1m]` (Claude Code's
+/// 1M-context variant), else `context` in config.toml's `[prices."<model>"]` over the bundled
+/// list's, so a model the list doesn't have yet gets its meter's limit there, and none for a
+/// model neither knows.
 pub fn context_window(model: &str) -> Option<u64> {
+    window_with(model, &crate::config::prices())
+}
+
+fn window_with(model: &str, overrides: &BTreeMap<String, Price>) -> Option<u64> {
     if model.contains("[1m]") {
         return Some(1_000_000);
     }
-    price_of(model, &BTreeMap::new()).and_then(|p| p.context)
+    price_of(model, overrides).and_then(|p| p.context)
 }
 
 /// What `used` costs at `price`, in dollars, or none when the price lacks input or output.
@@ -283,6 +289,17 @@ mod tests {
         assert_eq!(context_window("claude-haiku-4-5-20251001"), Some(200_000));
         assert_eq!(context_window("claude-sonnet-4-5[1m]"), Some(1_000_000));
         assert_eq!(context_window("gpt-0-unknown"), None);
+    }
+
+    #[test]
+    fn config_tomls_context_window_goes_over_the_lists() {
+        let mut mine = BTreeMap::new();
+        mine.insert("claude-new-6".to_string(), Price { context: Some(1_000_000), ..Default::default() });
+        mine.insert("claude-haiku-4-5".to_string(), Price { context: Some(400_000), ..Default::default() });
+        assert_eq!(window_with("claude-new-6-20270101", &mine), Some(1_000_000));
+        assert_eq!(window_with("claude-haiku-4-5-20251001", &mine), Some(400_000));
+        assert_eq!(window_with("claude-haiku-4-5[1m]", &mine), Some(1_000_000));
+        assert_eq!(window_with("claude-new-7", &mine), None);
     }
 
     #[test]
