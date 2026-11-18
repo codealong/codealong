@@ -287,7 +287,8 @@ export function YourPart(props: Props) {
   const lines = markLines(part);
   const hands = segments(HANDS, byKey(part.hands));
   const spent = segments(HANDS, cost);
-  if (turns === 0) {
+  // A turn begun before these days can cost in them though none began: its cost still shows.
+  if (turns === 0 && spent.length === 0) {
     return <p className="ca-empty">{analytics.filling || !analytics.asOf ? 'Reading what came in to your sessions…' : 'Nothing came in to a session in these days.'}</p>;
   }
   return (
@@ -296,7 +297,7 @@ export function YourPart(props: Props) {
         <Stat label="Your prompts" value={count(prompts)} note={`about ${count(Math.round(prompts / Math.max(1, part.days.length)))} a day`} />
         <Stat label="Turns you started" value={percent(countOf(part.hands, 'you'), turns)} note={`${count(countOf(part.hands, 'you'))} of ${count(turns)} turns`} />
         <Stat label="Cost of your turns" value={mine ? percent(mine.yours, mine.known) : '—'} note={mine ? `${money(mine.yours)} of ${money(mine.known)} at API prices` : 'once the cost is read'} />
-        <Stat label="Replies that agreed" value={went.all > 0 ? percent(went.agreed, went.all) : '—'} note={went.all > 0 ? `${count(went.agreed)} of the ${count(went.all)} that agreed, steered or redirected` : part.unread > 0 ? 'once your prompts are read' : 'none agreed, steered or redirected'} />
+        <Stat label="Replies that agreed" value={went.all > 0 ? percent(went.agreed, went.all) : '—'} note={went.all > 0 ? `${count(went.agreed)} of the ${count(went.all)} that agreed, steered or redirected` : 'none read as agreed, steered or redirected'} />
       </div>
       <StanceDays days={part.days} />
       <div className="ca-usage-chart">

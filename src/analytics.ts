@@ -20,7 +20,7 @@ export interface Series {
 export const STANCES: Series[] = [
   { id: 'sets-out', label: 'Set out new work', color: 'var(--chart-1)', about: 'Work not about its last reply: a new task, or the next one once the last was finished' },
   { id: 'agrees', label: 'Agreed', color: 'var(--chart-2)', about: 'Went along with it: go ahead, carry on, try again, or do what it offered or recommended' },
-  { id: 'steers', label: 'Steered', color: 'var(--chart-3)', about: 'Kept its direction and adjusted it: a correction, a requirement, a choice between its options, a fact it needed' },
+  { id: 'steers', label: 'Steered', color: 'var(--chart-3)', about: 'Kept its direction and adjusted it: a correction, a requirement, an option other than the one it recommended, a fact it needed' },
   { id: 'redirects', label: 'Redirected', color: 'var(--chart-4)', about: 'Rejected what it did or proposed: it was wrong, hold off, undo it, or do something else' },
   { id: 'asks', label: 'Asked something', color: 'var(--chart-5)', about: 'A question, telling it to change nothing' },
   { id: 'command', label: 'Ran a command', color: 'var(--chart-6)', about: 'A slash command, or a command you ran for the session' },
@@ -33,7 +33,7 @@ export const STANCES: Series[] = [
  *  command's `hand_words` says the same). */
 export const HANDS: Series[] = [
   { id: 'you', label: 'You', color: 'var(--chart-1)', about: 'A prompt of yours: typed, a suggested reply you picked, or sent by a schedule you made' },
-  { id: 'agent', label: 'Delegated', color: 'var(--chart-2)', about: 'Another agent: a message it sent the session, or the start of a session it began' },
+  { id: 'agent', label: 'Delegated', color: 'var(--chart-2)', about: 'A message sent with codealong session send, mostly by another agent, or the start of a session an agent began' },
   { id: 'codealong', label: 'Automation', color: 'var(--chart-3)', about: 'Codealong’s own messages: a PR’s news or review, an orchestrator, a session a schedule started, word that a helper finished' },
   { id: '', label: 'Not known', color: 'var(--line-strong)', about: 'Its record doesn’t say' },
 ];
@@ -48,7 +48,7 @@ export const BEGAN: Series[] = [
   { id: 'fork', label: 'You: forked from another', color: 'var(--chart-1)', about: 'A copy of another session’s conversation' },
   { id: 'helper', label: 'Delegated: helper', color: 'var(--chart-2)', about: 'An agent started it to work for it, and reads its replies' },
   { id: 'agent', label: 'Delegated: new session', color: 'var(--chart-2)', about: 'An agent started it as a session of its own' },
-  { id: 'review', label: 'Automation: PR review', color: 'var(--chart-3)', about: 'Codealong’s automatic review of a pull request' },
+  { id: 'review', label: 'Automation: PR review', color: 'var(--chart-3)', about: 'A review of a pull request Codealong ran, by itself or when asked' },
   { id: 'schedule', label: 'Automation: scheduled run', color: 'var(--chart-3)', about: 'A schedule’s run' },
   { id: 'headless', label: 'Headless run', color: 'var(--chart-4)', about: 'claude -p or codex exec, from a script or an agent' },
   { id: '', label: 'Not known', color: 'var(--line-strong)', about: 'Its record doesn’t say' },

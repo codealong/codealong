@@ -35,7 +35,7 @@
         .then(function () {
           var rows = names();
           check('Cost lists what turns cost by who began them', rows.indexOf('You') >= 0 && rows.indexOf('Delegated') >= 0 && rows.indexOf('Automation') >= 0, rows.join(', '));
-          check('each saying what it means', all('.ca-usage-table tbody th .ca-usage-note').some(function (n) { return /^Another agent/.test(n.textContent); }));
+          check('each saying what it means', all('.ca-usage-table tbody th .ca-usage-note').some(function (n) { return /codealong session send/.test(n.textContent); }));
           button('.ca-usage-filters', 'Your part').click();
           return until(function () { return /Your prompts/.test(tiles()[0] || ''); }, 5000, 'Your part');
         })
