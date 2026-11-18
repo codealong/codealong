@@ -5652,6 +5652,50 @@ mod tests {
         std::fs::write(home().join("ran"), "").unwrap();
     }
 
+    /// A snooze a turn of the session's own called back (`board::snooze_called_back`) is taken
+    /// away for good: once you've answered, the session back at work isn't snoozed again.
+    #[test]
+    fn a_called_back_snooze_is_taken_away() {
+        use super::*;
+
+        let Some(own) = std::env::var_os("CODEALONG_TEST_HOME") else {
+            let home = std::env::temp_dir().join(format!("codealong-called-back-{}", std::process::id()));
+            let _ = std::fs::remove_dir_all(&home);
+            std::fs::create_dir_all(&home).unwrap();
+            let run = std::process::Command::new(std::env::current_exe().unwrap())
+                .args(["engine::tests::a_called_back_snooze_is_taken_away", "--exact", "--nocapture"])
+                .env("HOME", &home)
+                .env("CODEALONG_TEST_HOME", &home)
+                .output()
+                .unwrap();
+            let ran = home.join("ran").exists();
+            std::fs::remove_dir_all(&home).unwrap();
+            assert!(run.status.success() && ran, "{}{}", String::from_utf8_lossy(&run.stdout), String::from_utf8_lossy(&run.stderr));
+            return;
+        };
+        assert_eq!(home(), PathBuf::from(own), "never the real home folder");
+
+        config::write(&Config { scan: vec![], ..Config::default() }).unwrap();
+        let (tx, _rx) = channel();
+        let mut e = Engine::new(Box::new(|_| {}), tx, Arc::new(RwLock::new(Board::default())));
+        e.load_config();
+        const MIN: i64 = 60_000;
+        let now = now_ms();
+        let key = "claude:claude:a";
+        e.seen.snooze(key, now - 10 * MIN, now + 60 * MIN);
+        // A scheduled wakeup five minutes ago, its turn ended a minute ago.
+        let after_wakeup = |status| Session { status, status_since: Some(now - MIN), input_at: Some(now - 5 * MIN), ..crate::fixtures::session(key) };
+        let on_board = |s| Board { lanes: vec![crate::fixtures::lane("/a", vec![s])], ..Board::default() };
+        e.wake_called_back(&on_board(after_wakeup(Status::Unread)));
+        assert!(e.seen.snooze_of(key).is_some(), "a report keeps it");
+        e.wake_called_back(&on_board(after_wakeup(Status::Needs)));
+        assert!(e.seen.snooze_of(key).is_none(), "a question takes it away");
+        let mut answered = after_wakeup(Status::Working);
+        board::apply_snooze(&mut answered, e.seen.snooze_of(key), 0, now);
+        assert_eq!(answered.snoozed_until, None, "answered, it isn't snoozed again");
+        std::fs::write(home().join("ran"), "").unwrap();
+    }
+
     /// A label put on a session by a name that's none yet is made, with the todos' labels, and one
     /// taken off by its name comes off.
     #[test]

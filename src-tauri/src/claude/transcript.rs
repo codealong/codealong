@@ -363,23 +363,23 @@ pub fn parse_transcript(path: &Path, mtime: i64, prev: Option<Parsed>) -> Option
             (head, info, TailState { said_at, ..TailState::default() }, tail)
         }
     };
-    // Only whole lines are read; a line still being written is read next time.
-    let head_cwd = info.cwd.clone();
+    // Only whole lines are read; a line still being written is read next time. A first read
+    // takes the folder from the turns its tail starts, else from before it, else the head's.
+    let head_cwd = if fresh { std::mem::take(&mut info.cwd) } else { String::new() };
     apply_tail(&mut info, &mut state, &tail.text());
     // A name is written again only by a process that took it up, so it can be far behind by now.
     if fresh && info.title.is_none() {
         info.title = super::names::kept_name(path).map(|name| one_line(&name, 90));
     }
     // One turn can write far more than the tail holds, so the prompt that started it may be
-    // further back. A first read looks back for it once; later reads carry it forward. Its
-    // folder is the session's only where the tail started no turn of its own (a message
-    // Codealong resumed it with in another folder, which isn't your prompt, says where it is).
-    if fresh && info.last_prompt_at.is_none() {
-        if let Some((at, cwd)) = prompt_before(path, tail.start) {
-            info.last_prompt_at = Some(at);
-            if let Some(cwd) = cwd.filter(|_| info.cwd == head_cwd) {
-                info.cwd = cwd;
-            }
+    // further back, and so may the latest turn's folder, which a message Codealong resumed it
+    // with (not your prompt) can have moved since. A first read looks back for each once;
+    // later reads carry them forward.
+    if fresh && (info.last_prompt_at.is_none() || info.cwd.is_empty()) {
+        let (at, cwd) = prompt_before(path, tail.start);
+        info.last_prompt_at = info.last_prompt_at.or(at);
+        if info.cwd.is_empty() {
+            info.cwd = cwd.unwrap_or(head_cwd);
         }
     }
     // So can whatever else started it (another session's message, a wakeup).
@@ -444,10 +444,11 @@ fn line_work(line: &str, cwd: &str) -> Vec<String> {
     calls.filter_map(|i| work_path(&str_of(i, "name").unwrap_or_default(), i.get("input").unwrap_or(&Value::Null), &at)).collect()
 }
 
-/// When the last prompt you typed (or message you sent while it worked) before `end` (a line
-/// start) was sent, and the folder it was sent in, reading backwards.
-fn prompt_before(path: &Path, end: u64) -> Option<(i64, Option<String>)> {
-    let mut at = None;
+/// Reading backwards from `end` (a line start): when the last prompt you typed (or message you
+/// sent while it worked) was sent, and the folder the latest prompt that started a turn was sent
+/// in, yours or not (a message Codealong resumed it with: `not_your_prompt`).
+fn prompt_before(path: &Path, end: u64) -> (Option<i64>, Option<String>) {
+    let (mut at, mut cwd) = (None, None);
     scan_lines_back(path, 0, end, |line| {
         // Most lines are tool calls and their results; only a prompt, or a message you sent
         // while it worked, can pass these checks.
@@ -456,13 +457,19 @@ fn prompt_before(path: &Path, end: u64) -> Option<(i64, Option<String>)> {
             return false;
         }
         let Ok(v) = serde_json::from_str::<Value>(line) else { return false };
-        if !(you_typed(&v) || you_sent_while_working(&v)) || not_your_prompt(&v) {
+        if !(you_typed(&v) || you_sent_while_working(&v)) {
             return false;
         }
-        at = str_of(&v, "timestamp").as_deref().and_then(parse_rfc3339_ms).map(|t| (t, str_of(&v, "cwd").filter(|c| !c.is_empty())));
+        if cwd.is_none() {
+            cwd = str_of(&v, "cwd").filter(|c| !c.is_empty());
+        }
+        if not_your_prompt(&v) {
+            return false;
+        }
+        at = str_of(&v, "timestamp").as_deref().and_then(parse_rfc3339_ms);
         at.is_some()
     });
-    at
+    (at, cwd)
 }
 
 /// When the latest input before `end` (a line start) came (`brings_input`), reading backwards.
@@ -2520,9 +2527,16 @@ pub(super) mod tests {
         std::fs::write(&path, format!("{HEAD}{yours}\n{padding}\n{resumed}\n")).unwrap();
         let (_, info, _) = parse_transcript(&path, 1, None).unwrap();
         assert_eq!((info.last_prompt_at, info.cwd.as_str()), (parse_rfc3339_ms("2026-10-21T10:00:00.000Z"), "/r/app-fix"));
-        // With nothing in the tail to say, the prompt says where too.
+        // With nothing in the tail to say, the prompt says where too, or the message after it.
         std::fs::write(&path, format!("{HEAD}{yours}\n{padding}\n")).unwrap();
         assert_eq!(parse_transcript(&path, 2, None).unwrap().1.cwd, "/r/app");
+        std::fs::write(&path, format!("{HEAD}{yours}\n{resumed}\n{padding}\n")).unwrap();
+        let (_, info, _) = parse_transcript(&path, 3, None).unwrap();
+        assert_eq!((info.last_prompt_at, info.cwd.as_str()), (parse_rfc3339_ms("2026-10-21T10:00:00.000Z"), "/r/app-fix"));
+        // One that moved it back to where it began is where it is.
+        let home = serde_json::json!({ "type": "user", "timestamp": "2026-10-21T11:00:00.000Z", "cwd": "/Users/me/projects/sparkhq/spark-portal", "origin": { "kind": "human" }, "message": { "content": crate::send::by_codealong("Your PR merged.") } });
+        std::fs::write(&path, format!("{HEAD}{yours}\n{padding}\n{home}\n")).unwrap();
+        assert_eq!(parse_transcript(&path, 4, None).unwrap().1.cwd, "/Users/me/projects/sparkhq/spark-portal");
         std::fs::remove_dir_all(dir).unwrap();
     }
 

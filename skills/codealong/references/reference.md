@@ -2596,13 +2596,13 @@ Commands:
               you and Your turn on every device, and the mark stops counting it, until
               WHEN, when it's back as it is then (as Your turn when nothing else would
               bring it). A prompt sent to it ends the snooze, as does, for a Claude Code
-              session (a wakeup's from 2.1.322), a turn it takes by itself (a scheduled
-              wakeup, another session's message) that leaves it waiting on its user; one
-              that only reports doesn't. --wake ends it now. WHEN is on this machine's
-              clock: a span from now (30m, 2h, 3d), a time (5pm, 17:30: the next one), a
-              day (tomorrow, fri, next week, 2026-11-03: at 9 AM) or a day and a time
-              (tomorrow 2pm, fri 17:00, 2026-11-03 15:00). A session on another device
-              is snoozed on its machine
+              session (before 2.1.322, a wakeup in words ends it however its turn goes),
+              a turn it takes by itself (a scheduled wakeup, another session's message)
+              that leaves it waiting on its user; one that only reports doesn't. --wake
+              ends it now. WHEN is on this machine's clock: a span from now (30m, 2h,
+              3d), a time (5pm, 17:30: the next one), a day (tomorrow, fri, next week,
+              2026-11-03: at 9 AM) or a day and a time (tomorrow 2pm, fri 17:00,
+              2026-11-03 15:00). A session on another device is snoozed on its machine
   raise       Move a session to the top of what waits on your user, as Move to top in
               its menu in Codealong does: the notch, the waiting window, the floating
               bar and the next key in every window go to it first, after any your user
@@ -3256,12 +3256,13 @@ Options:
 Snooze a session, as Snooze in its menu in Codealong does: it leaves Needs you and Your
 turn on every device, and the mark stops counting it, until WHEN, when it's back as it
 is then (as Your turn when nothing else would bring it). A prompt sent to it ends the
-snooze, as does, for a Claude Code session (a wakeup's from 2.1.322), a turn it takes by
-itself (a scheduled wakeup, another session's message) that leaves it waiting on its
-user; one that only reports doesn't. --wake ends it now. WHEN is on this machine's
-clock: a span from now (30m, 2h, 3d), a time (5pm, 17:30: the next one), a day
-(tomorrow, fri, next week, 2026-11-03: at 9 AM) or a day and a time (tomorrow 2pm, fri
-17:00, 2026-11-03 15:00). A session on another device is snoozed on its machine
+snooze, as does, for a Claude Code session (before 2.1.322, a wakeup in words ends it
+however its turn goes), a turn it takes by itself (a scheduled wakeup, another session's
+message) that leaves it waiting on its user; one that only reports doesn't. --wake ends
+it now. WHEN is on this machine's clock: a span from now (30m, 2h, 3d), a time (5pm,
+17:30: the next one), a day (tomorrow, fri, next week, 2026-11-03: at 9 AM) or a day and
+a time (tomorrow 2pm, fri 17:00, 2026-11-03 15:00). A session on another device is
+snoozed on its machine
 
 Usage: codealong session snooze [OPTIONS] <KEY> [WHEN]...
 
