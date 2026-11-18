@@ -73,7 +73,7 @@
   var last = function () { var all = said(); return all[all.length - 1]; };
   var lastText = function () { var l = last(); var body = l && l.querySelector('.ca-md'); return ((body || l || {}).textContent || '').trim(); };
   var times = function (words) { return said().filter(function (s) { return s.textContent.indexOf(words) >= 0; }).length; };
-  var labelOf = function (el) { var m = el && el.querySelector('.ca-thread-meta > span'); return m ? m.textContent : null; };
+  var labelOf = function (el) { var m = el && el.querySelector('.ca-thread-meta > .ca-thread-who'); return m ? m.textContent : null; };
   var push = function () { return window.__TAURI_INTERNALS__.invoke('get_board').then(function (b) { window.__emit('board', b); }); };
 
   say('live reply check: waiting for the list');
@@ -86,7 +86,7 @@
     .then(function () {
       check('what it wrote with the question is at the end', /^Your first three answers are recorded/.test(lastText()), lastText());
       var label = labelOf(last());
-      check('under its account, not writing', label === null || label.indexOf('writing') < 0, String(label));
+      check('not writing', label === null || label.indexOf('Writing') < 0, String(label));
       check('the question no longer says where to read it', !document.querySelector('.ca-sessinsp .ca-approval-unwritten'));
       window.__emit('hosted-stream', { key: picked.key, text: MORE, tool: null });
       window.__emit('hosted-stream', { key: picked.key + '-other', text: 'Another session.', tool: null });
@@ -115,7 +115,7 @@
     })
     .then(function () {
       var label = labelOf(last());
-      check('a working session says it’s writing', label === null || label === picked.account + ' · writing', String(label));
+      check('a working session says it’s writing', label === null || label === 'Writing', String(label));
       done();
     })
     .catch(function (e) {

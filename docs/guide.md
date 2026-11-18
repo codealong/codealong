@@ -740,8 +740,9 @@ it up under the dialog until the dialog has gone.
 #### Replies as they're written
 
 A session's record has a reply only once the agent has written all of it, so the panel would show
-it only then. A session Codealong runs shows its reply as it's written, under its account and
-"writing", until its record has it. With Settings › Agents › Show Claude Code replies as they're
+it only then. A session Codealong runs shows its reply as it's written, under "Writing", until its
+record has it. (Your messages and the agent's say only when they were: your bubble says it's
+yours, and the header names the account; Codealong's and another session's say who sent them.) With Settings › Agents › Show Claude Code replies as they're
 written (`[sessions] live_replies`), so does a Claude Code session in any terminal or background
 job: the Codealong plugin gets a `MessageDisplay` hook that hands Codealong each paragraph as the
 terminal shows it. It also shows what the agent wrote with a question that waits on you, which

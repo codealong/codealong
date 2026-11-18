@@ -62,7 +62,7 @@
   var title = function () { var t = q('.ca-sessinsp .ca-sessinsp-title'); return t ? t.textContent : null; };
   var reply = function () { return q('.ca-sessinsp .ca-thread-agent'); };
   var sessions = function () { return all('.ca-sessinsp .ca-thread-agent a.ca-sesslink'); };
-  var heads = function () { return all('.ca-sessinsp .ca-thread-said.is-peer .ca-thread-meta > span:first-child'); };
+  var heads = function () { return all('.ca-sessinsp .ca-thread-said.is-peer .ca-thread-meta > .ca-thread-who'); };
   var todos = function () { return all('.ca-sessinsp .ca-thread-agent a.ca-todolink'); };
   var card = function () { return q('.ca-sesshover'); };
   var hover = function (el) { el.dispatchEvent(new MouseEvent('mouseover', { bubbles: true, relatedTarget: document.body })); };

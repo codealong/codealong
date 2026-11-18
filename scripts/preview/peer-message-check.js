@@ -44,7 +44,7 @@
 
   var row = function () { return picked && document.getElementById('row-' + picked.lane + '::' + picked.key); };
   var peers = function () { return Array.prototype.slice.call(document.querySelectorAll('.ca-sessinsp .ca-thread-said.is-peer')); };
-  var heading = function (el) { var m = el && el.querySelector(':scope > .ca-thread-meta > span'); return m ? m.textContent : null; };
+  var heading = function (el) { var m = el && el.querySelector(':scope > .ca-thread-meta > .ca-thread-who'); return m ? m.textContent : null; };
   var text = function (el) { return el.querySelector('.ca-thread-peertext'); };
   var toggle = function (el) { return el.querySelector('.ca-thread-peer > .ca-linkbtn'); };
   var cut = function (el) { return text(el).classList.contains('is-cut'); };

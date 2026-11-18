@@ -469,7 +469,7 @@ function ToolRun({ calls, stateOf, inBox, onOpen }: { calls: { item: TranscriptI
  *  Edit from here… (`onEdit`). A command has its own Copy. Your answers to questions (`asked`,
  *  with `item` the call's result) are a message of yours too, whose `onEdit` is Rewind to this
  *  question…. */
-function Said({ item, result, asked, now, label, head, onPutBack, onMenu, onEdit }: { item: TranscriptItem; result?: TranscriptItem; asked?: Question[]; now: number; label: ReactNode; head?: number; onPutBack?: () => void; onMenu?: (items: MenuSpec) => void; onEdit?: () => void }) {
+function Said({ item, result, asked, now, label, head, onPutBack, onMenu, onEdit }: { item: TranscriptItem; result?: TranscriptItem; asked?: Question[]; now: number; label?: ReactNode; head?: number; onPutBack?: () => void; onMenu?: (items: MenuSpec) => void; onEdit?: () => void }) {
   const ran = item.kind === 'you' && item.input != null;
   const answers = item.kind === 'result' ? answeredOf(asked ?? [], item.answers ?? {}) : null;
   const words = answers ? answers.map((a) => `${a.header ?? a.question}: ${a.answer}`).join('\n') : item.text;
@@ -501,7 +501,7 @@ function Said({ item, result, asked, now, label, head, onPutBack, onMenu, onEdit
     <div className={cx('ca-thread-said', answers ? 'is-you' : `is-${item.kind}`, item.withdrawn && 'is-withdrawn')} data-prompt={item.kind === 'you' ? keyOf(item) : undefined} onContextMenu={menu}>
       {head !== undefined && (
         <div className="ca-thread-meta">
-          <span>{label}</span>
+          {label && <span className="ca-thread-who">{label}</span>}
           {(head > 0 || item.withdrawn) && (
             <span className="ca-meta" title={head > 0 ? absolute(head) : undefined}>
               {[item.withdrawn && 'Taken back', head > 0 && agoPhrase(head, now)].filter(Boolean).join(' · ')}
@@ -1301,7 +1301,7 @@ export function SessionThread({ session: s, now, onOpen, fallback, machine, onLo
                 if (r.kind === 'tools') return <ToolRun key={keyOf(r.calls[0].item)} calls={r.calls} stateOf={stateOf} inBox={inBox} onOpen={askHere} />;
                 if (r.kind === 'answers') {
                   const rewind = onRewind && r.questions.length > 0 ? () => onRewind(r.result, r.questions) : undefined;
-                  return <Said key={keyOf(r.result)} item={r.result} asked={r.questions} now={now} label="You" head={headings.headed.get(keyOf(r.result))} onMenu={onMenu} onEdit={rewind} />;
+                  return <Said key={keyOf(r.result)} item={r.result} asked={r.questions} now={now} head={headings.headed.get(keyOf(r.result))} onMenu={onMenu} onEdit={rewind} />;
                 }
                 const it = r.item;
                 if (it.kind === 'tool') return inBox(it) ? null : <ToolLine key={keyOf(it)} item={it} result={r.result} state={stateOf(it)} onOpen={askHere} />;
@@ -1320,8 +1320,9 @@ export function SessionThread({ session: s, now, onOpen, fallback, machine, onLo
                 if (told.size > 0 && it.kind === 'agent' && saysNothing(it.text)) return null;
                 const shown = told.size > 0 && it.kind === 'agent' ? { ...it, text: asCue(it.text) } : it;
                 const again = it.withdrawn && answeredBelow ? () => putBack(s.key, keyOf(it), it.text, true) : undefined;
-                // What Codealong or another session sent says so, apart from yours and the agent's.
-                const label = it.kind === 'you' ? 'You' : it.kind === 'codealong' ? 'Codealong' : it.kind === 'peer' ? <PeerLabel item={it} /> : s.account;
+                // What Codealong or another session sent says who sent it. Yours and the agent's
+                // say nothing: your bubble says it's yours, and the header names its account.
+                const label = it.kind === 'codealong' ? 'Codealong' : it.kind === 'peer' ? <PeerLabel item={it} /> : undefined;
                 const edit = onEdit && editable.has(keyOf(it)) ? () => onEdit(it) : undefined;
                 return <Said key={keyOf(it)} item={shown} result={r.result} now={now} label={label} head={headings.headed.get(keyOf(it))} onPutBack={again} onMenu={onMenu} onEdit={edit} />;
               })}
@@ -1332,7 +1333,7 @@ export function SessionThread({ session: s, now, onOpen, fallback, machine, onLo
                 <Said
                   item={{ at: now, kind: 'agent', text: streaming.text, failed: false, cursor: 0, n: 0 }}
                   now={now}
-                  label={s.status === 'working' ? `${s.account} · writing` : s.account}
+                  label={s.status === 'working' ? 'Writing' : undefined}
                   // Yours on their way are above it.
                   head={showing.length > 0 || heads(headings.last, 'agent', now) ? now : undefined}
                   onMenu={onMenu}
