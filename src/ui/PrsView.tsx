@@ -21,7 +21,7 @@ import { byDay, newestFirst, type DayId } from '../days';
 import { absolute, ago, count } from '../format';
 import { groupOptions, groupsOf, placeIn, type GroupBy, type Grouped, type ListGroupBy, type Place } from '../groups';
 import { selectHow, type SelectHow } from '../picks';
-import { listedStatus } from '../lanes';
+import { helpsAnAgent, listedStatus } from '../lanes';
 import { heldForAgent, prFlag, type PrPrimary } from '../prStatus';
 import type { GitInfo, Lane, PrItem, Session } from '../types';
 import { rowsOptions, type RowLines } from './ListBar';
@@ -138,10 +138,12 @@ export function prSessionsNow(r: Pick<PrRowItem, 'sessions'>): Session[] {
  *  machine (`prSessionsNow`), is working: Working on it while it isn't ready for review (a draft),
  *  or Fixing it once it's out for review, where what an agent does is answer what came of that
  *  (changes asked for, comments, failing checks, a conflict or a branch behind its base). Not a
- *  session of Codealong's own review of it (`Helper.pr`), which is Agent reviewing's. None with no
+ *  session of Codealong's own review of it (`Helper.pr`) while it works for that review, which is
+ *  Agent reviewing's; one you're talking to works for you (lanes.ts `helpsAnAgent`). None with no
  *  session working. */
 export function prAgentWork(r: Pick<PrRowItem, 'pr' | 'sessions'>): 'fixing' | 'working' | null {
-  if (!prIsOpen(r.pr) || !prSessionsNow(r).some((s) => !s.helper?.pr && listedStatus(s) === 'working')) return null;
+  const reviewing = (s: Session) => !!s.helper?.pr && helpsAnAgent(s);
+  if (!prIsOpen(r.pr) || !prSessionsNow(r).some((s) => !reviewing(s) && listedStatus(s) === 'working')) return null;
   return r.pr.state === 'draft' ? 'working' : 'fixing';
 }
 

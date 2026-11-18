@@ -192,8 +192,12 @@ describe('Fixing and Working', () => {
     const reviewing = { headOid: 'abc', autoReview: { stage: 'reviewing' as const, head: 'abc', at: 1, rounds: 1, holds: true } };
     const reviewer = { status: 'working' as const, helper: { pr: 'o/r#9' } };
     expect(prAgentWork(one(reviewer, { mine: true, ...reviewing }))).toBeNull();
-    // So a review held for the agent stays under Agent reviewing while it works.
+    // Once you talk to it, it works for you: asked to fix the PR, it's at work on it.
+    expect(prAgentWork(one({ ...reviewer, helper: { pr: 'o/r#9', yours: true } }, { mine: true }))).toBe('fixing');
+    // A review held for the agent stays under Agent reviewing, whatever else works on it.
     const held = one(reviewer, { reviewRequested: true, ...reviewing });
+    held.sessions.push({ lane: lane('w'), session: fx.session({ key: 'other', status: 'working' }) });
+    expect(prAgentWork(held)).toBe('fixing');
     expect(prSections([held], 'status', 0, 'all').map((s) => s.id)).toEqual(['agent']);
   });
 
