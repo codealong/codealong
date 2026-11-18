@@ -15,12 +15,12 @@ import { columnsOf, inPrLoop, stageOfColumn, type BoardColumn, type BoardDoc, ty
 import { columnOf, memberTest, ownLabels, sessionStage, subjectsOf, todoStage, type Subject } from './boards/rules';
 import { ALL_PROJECTS, hasWords, inProject, queryWords, saidLine, type SaidLine } from './quick';
 import { isOpen, itemSection, todoIndex, todoInFilter, todoItem, todoSections, type TodoItem, type TodoSectionId, type TodoSort } from './todos';
-import { prFlag, primaryHere } from './prStatus';
+import { primaryHere } from './prStatus';
 import { orchestratorsIn } from './orchestrators';
 import { scheduleProject } from './schedules';
 import type { Board, DevicesView, HarnessSchedule, Label, Lane, PrItem, PrSession, ProjectSummary, ScheduleItem, Session, TextHit, Todo } from './types';
 import type { ActionCounts } from './ui/ProjectSwitcher';
-import { inPrTab, prIsOpen, prPlace, prPlaces, prSections, prSessionsNow, prTabCounts, waitsOnReview, type PrGroupBy, type PrRowItem, type PrSort, type PrTab } from './ui/PrsView';
+import { inPrTab, prIsOpen, prMove, prPlace, prPlaces, prSections, prSessionsNow, prTabCounts, waitsOnReview, type PrGroupBy, type PrRowItem, type PrSort, type PrTab } from './ui/PrsView';
 import { groupedRows, groupSessions, helpersUnder, sessionSections, waitingQueue, type SessionItem, type SessionSort, type StartedPlace } from './ui/SessionsView';
 import { groupRows, placeIn, type ListGroupBy } from './groups';
 
@@ -1161,7 +1161,7 @@ export function useBoardLists(input: ListsInput) {
   // Grouped by worktree or repo (groups.ts): the pinned groups after the pinned PRs, a PR that's
   // needs you never folded away, Merged & closed grouped among themselves.
   const groupedPrs = useMemo(
-    () => (prGroup === 'none' ? null : groupRows(prSecs, prGroup, (r) => prPlace(r, prGroup), { pinned: prGroupPins, lanes: projectLanes, empty: false, opened: openPrGroups, whole: !!query, awake: ([r]) => prFlag(r.pr) !== null, apart: (id) => id === 'done' })),
+    () => (prGroup === 'none' ? null : groupRows(prSecs, prGroup, (r) => prPlace(r, prGroup), { pinned: prGroupPins, lanes: projectLanes, empty: false, opened: openPrGroups, whole: !!query, awake: ([r]) => prMove(r) !== null, apart: (id) => id === 'done' })),
     [prGroup, prSecs, prGroupPins, projectLanes, openPrGroups, query],
   );
   const prVisible = useMemo<ListRow[]>(

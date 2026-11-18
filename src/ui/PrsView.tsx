@@ -107,9 +107,9 @@ export function inPrTab(pr: Pick<PrItem, 'mine'>, tab: PrTab): boolean {
   return tab === 'all' || (tab === 'mine') === pr.mine;
 }
 
-/** How many PRs under each tab need you (`prFlag`), as the tab counts them. */
+/** How many PRs under each tab need you (`prMove`), as the tab counts them. */
 export function prTabCounts(rows: PrRowItem[]): Record<PrTab, number> {
-  const move = rows.filter((r) => prFlag(r.pr) !== null);
+  const move = rows.filter((r) => prMove(r) !== null);
   return { all: move.length, mine: move.filter((r) => r.pr.mine).length, others: move.filter((r) => !r.pr.mine).length };
 }
 
@@ -137,11 +137,21 @@ export function prSessionsNow(r: Pick<PrRowItem, 'sessions'>): Session[] {
 /** What an agent of yours is doing on an open PR, while one of its sessions, here or on another
  *  machine (`prSessionsNow`), is working: Working on it while it isn't ready for review (a draft),
  *  or Fixing it once it's out for review, where what an agent does is answer what came of that
- *  (changes asked for, comments, failing checks, a conflict or a branch behind its base). Not
- *  Codealong's own review of it, which is Agent reviewing's. None with no session working. */
+ *  (changes asked for, comments, failing checks, a conflict or a branch behind its base). Not a
+ *  session of Codealong's own review of it (`Helper.pr`), which is Agent reviewing's. None with no
+ *  session working. */
 export function prAgentWork(r: Pick<PrRowItem, 'pr' | 'sessions'>): 'fixing' | 'working' | null {
-  if (!prIsOpen(r.pr) || !prSessionsNow(r).some((s) => listedStatus(s) === 'working')) return null;
+  if (!prIsOpen(r.pr) || !prSessionsNow(r).some((s) => !s.helper?.pr && listedStatus(s) === 'working')) return null;
   return r.pr.state === 'draft' ? 'working' : 'fixing';
+}
+
+/** Why a PR is your move in the list (`prFlag`): a review asked of you whatever else is going on,
+ *  but not a merge or work of yours while an agent of yours is at work on it (`prAgentWork`),
+ *  which that waits on. Its section, its tab's count, its row's mark and whether its group folds it
+ *  away all go by this. */
+export function prMove(r: Pick<PrRowItem, 'pr' | 'sessions'>): ReturnType<typeof prFlag> {
+  const flag = prFlag(r.pr);
+  return flag && (r.pr.reviewRequested || !prAgentWork(r)) ? flag : null;
 }
 
 /** Where a PR goes, grouped: the worktree that holds it, or none here; or its repo, by its slug on
@@ -175,20 +185,17 @@ export function reviewSnoozed(pr: PrItem): pr is PrItem & { snoozedUntil: number
 
 type Standing = 'requested' | 'ready' | 'work' | 'agent' | 'fixing' | 'working' | 'rest';
 
-/** Where an open PR whose review isn't snoozed stands, sorted by status: a review asked of you
- *  (`prFlag`); an agent of yours at work on it (`prAgentWork`), which a merge or work of yours
- *  waits on; by what else it needs of you, a merge or work; asked of you but with Codealong's
- *  agent's review to come first; or nothing yet. */
+/** Where an open PR whose review isn't snoozed stands, sorted by status: by what it needs of you
+ *  (`prMove`), a review, a merge or work; asked of you but with Codealong's agent's review to come
+ *  first; an agent of yours at work on it (`prAgentWork`); or nothing yet. */
 function standing(r: PrRowItem): Standing {
   const { pr } = r;
-  const flag = prFlag(pr);
+  const flag = prMove(r);
   if (flag && pr.reviewRequested) return 'requested';
-  const work = prAgentWork(r);
-  if (work) return work;
   if (flag === 'ready') return 'ready';
   if (flag) return 'work';
   if (pr.reviewRequested && heldForAgent(pr)) return 'agent';
-  return 'rest';
+  return prAgentWork(r) ?? 'rest';
 }
 
 /** The PRs of a tab (`PR_TABS`). By status, what needs you comes first, under what it needs:
@@ -209,8 +216,9 @@ export function prSections(rows: PrRowItem[], sort: PrSort = 'status', now = Dat
     const newest = newestFirst(listed.filter((r) => prIsOpen(r.pr)), (r) => r.pr.createdAt, (r) => r.key);
     return [...byDay(newest, (r) => r.pr.createdAt, now), doneSection].filter((s) => s.rows.length > 0);
   }
-  const open = listed.filter((r) => prIsOpen(r.pr) && !reviewSnoozed(r.pr));
-  const under = (id: Standing) => open.filter((r) => standing(r) === id);
+  // Each row's standing once: it reads the PR's sessions.
+  const stood = listed.filter((r) => prIsOpen(r.pr) && !reviewSnoozed(r.pr)).map((r) => ({ r, at: standing(r) }));
+  const under = (id: Standing) => stood.filter((x) => x.at === id).map((x) => x.r);
   const rest = under('rest');
   const needs: PrSection[] = [
     { id: 'requested', label: 'Review requested', rows: under('requested') },
@@ -271,7 +279,7 @@ interface PrRowProps {
 function PrRow({ item, domId, now, slim, opened, onShowRepo, selected, onSelect, onOpen, onOpenSession, onContextMenu, drag, under }: PrRowProps) {
   const { pr } = item;
   const requested = waitsOnReview(pr);
-  const flag = prFlag(pr);
+  const flag = prMove(item);
   // One session, named by its title: the PR's primary one, else the first. Two titles side by side
   // leave neither readable on a row's line; the +n names the rest, and the PR panel lists them all.
   const primary = item.primary?.key;

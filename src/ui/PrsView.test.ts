@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import * as fx from '../testing/fixtures';
 import type { GitInfo, PrItem, Session } from '../types';
-import { inPrTab, prAgentWork, prPlaces, prSections, prTabCounts, syncWords, type PrRowItem } from './PrsView';
+import { inPrTab, prAgentWork, prMove, prPlaces, prSections, prTabCounts, syncWords, type PrRowItem } from './PrsView';
 
 const lane = (id: string) => fx.lane({ id });
 const session = (key: string) => fx.session({ key });
@@ -188,6 +188,22 @@ describe('Fixing and Working', () => {
     expect(prAgentWork(one({ status: 'working', visitor: 'made this worktree' }))).toBeNull();
     expect(prAgentWork(one({ status: 'working', archived: true }))).toBeNull();
     expect(prAgentWork(row(7, { headOid: 'abc', autoReview: { stage: 'reviewing', head: 'abc', at: 1, rounds: 1, holds: false } }))).toBeNull();
+    // The review's own session, listed on the PR as having worked on it, isn't an agent at work.
+    const reviewing = { headOid: 'abc', autoReview: { stage: 'reviewing' as const, head: 'abc', at: 1, rounds: 1, holds: true } };
+    const reviewer = { status: 'working' as const, helper: { pr: 'o/r#9' } };
+    expect(prAgentWork(one(reviewer, { mine: true, ...reviewing }))).toBeNull();
+    // So a review held for the agent stays under Agent reviewing while it works.
+    const held = one(reviewer, { reviewRequested: true, ...reviewing });
+    expect(prSections([held], 'status', 0, 'all').map((s) => s.id)).toEqual(['agent']);
+  });
+
+  it('isn’t your move while an agent is at work on it, unless your review is asked for', () => {
+    const failing = { mine: true, checks: { passed: 1, failed: 1, pending: 0, skipped: 0, failing: [] } };
+    expect(prMove(row(1, failing))).toBe('alert');
+    expect(prMove(row(2, failing, ['working']))).toBeNull();
+    expect(prMove(row(3, { reviewRequested: true }, ['working']))).toBe('attn');
+    // The tabs count what's your move.
+    expect(prTabCounts([row(1, failing), row(2, failing, ['working']), row(3, { reviewRequested: true }, ['working'])])).toEqual({ all: 2, mine: 1, others: 1 });
   });
 
   it('are sections of their own, out of what a merge or work of yours would put them under, never a review asked of you', () => {

@@ -38,8 +38,7 @@
       before = glyphs();
       countBefore = foldCount();
       var labels = all('.ca-listtools [role="radiogroup"][aria-label="Group by"] button').map(function (b) { return b.getAttribute('aria-label'); });
-      var want = prs ? 'No groups|Worktree|Repo|Working' : 'No groups|Worktree|Repo';
-      check('Group by has its buttons', labels.join('|') === want, labels.join('|'));
+      check('Group by has its buttons', labels.join('|') === 'No groups|Worktree|Repo', labels.join('|'));
       check('the list starts with no groups', on('No groups') && heads().length === 0);
       button('Worktree').click();
       return until(function () { return heads().length > 0; }, 3000, 'the worktrees’ headings');

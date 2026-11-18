@@ -1,13 +1,15 @@
 // Checks the PRs view's tabs (PrsView.tsx `PR_TABS`, `prSections`): All, Yours and Others over the
 // list, All shown first, each counting the PRs in it that need you; All leads with Review
 // requested, then Ready to merge, then Agent reviewing; Yours lists only yours, under Ready to
-// merge, Needs work, Waiting on others and Drafts; Others only everyone else's, under Review
-// requested, Agent reviewing, Snoozed and Not asking you; the sidebar's Authors count only the tab's
+// merge, Needs work, Fixing, Working, Waiting on others and Drafts; Others only everyone else's,
+// under Review requested, Agent reviewing, Fixing, Working, Snoozed and Not asking you; the
+// sidebar's Authors count only the tab's
 // PRs; the tab picked is remembered; a PR shown from elsewhere that the tab doesn't list switches
 // to its own tab, once: a tab picked after it stays through a visit to Sessions, and shown again,
 // it switches back and the list goes to it. In each project the three
 // latest open PRs are made a review asked of you, a PR of yours ready to merge, and a review
-// Codealong's agent is still on, since a snapshot seldom has all three.
+// Codealong's agent is still on, since a snapshot seldom has all three, with none of their
+// sessions, which working would put them under Fixing or Working.
 //   scripts/preview.sh prs '' scripts/preview/pr-tabs-check.js
 (function () {
   var made = { asked: [], ready: [], held: [] };
@@ -21,7 +23,7 @@
       var me = (board.prs.filter(function (pr) { return pr.mine && pr.author; })[0] || {}).author;
       board.projects.forEach(function (project) {
         var three = open.filter(function (pr) { return pr.project === project.name; }).slice(0, 3);
-        var base = { snoozedUntil: null, autoReview: undefined, turn: undefined, mergedAt: null, closedAt: null };
+        var base = { snoozedUntil: null, autoReview: undefined, turn: undefined, mergedAt: null, closedAt: null, sessions: [] };
         if (three[0]) {
           Object.assign(three[0], base, { state: 'open', mine: false, reviewRequested: true });
           made.asked.push(three[0]);
@@ -83,7 +85,7 @@
       tab('Yours').click();
       return until(function () { return tab('Yours').getAttribute('aria-selected') === 'true'; }, 5000, 'Yours picked').then(function () { return wait(200); }).then(function () {
         check('Yours lists none of everyone else’s', !listed(asked) && !listed(held), '#' + asked.number + ', #' + held.number + ' among ' + numbers());
-        check('Yours lists yours under its own headings', only(['Ready to merge', 'Needs work', 'Waiting on others', 'Drafts', 'Merged & closed']), headings().join(', '));
+        check('Yours lists yours under its own headings', only(['Ready to merge', 'Needs work', 'Fixing', 'Working', 'Waiting on others', 'Drafts', 'Merged & closed']), headings().join(', '));
         check('with your PR under Ready to merge', under('Ready to merge', ready), headings().join(', '));
         check('Yours counts its own', countOf(tab('Yours')) === rowsUnder('Ready to merge').length + rowsUnder('Needs work').length, String(countOf(tab('Yours'))));
         check('the list is the tab’s panel', q('.ca-board-list').id === 'ca-prtabs-mine' && tab('Yours').getAttribute('aria-controls') === 'ca-prtabs-mine', q('.ca-board-list').id);
@@ -94,7 +96,7 @@
         return until(function () { return tab('Others').getAttribute('aria-selected') === 'true'; }, 5000, 'Others picked').then(function () { return wait(200); });
       }).then(function () {
         check('Others lists none of yours', !listed(ready), '#' + ready.number + ' among ' + numbers());
-        check('Others lists everyone else’s under its own headings', only(['Review requested', 'Agent reviewing', 'Snoozed', 'Not asking you', 'Merged & closed']), headings().join(', '));
+        check('Others lists everyone else’s under its own headings', only(['Review requested', 'Agent reviewing', 'Fixing', 'Working', 'Snoozed', 'Not asking you', 'Merged & closed']), headings().join(', '));
         check('with the review asked of you under Review requested, and the agent’s under Agent reviewing', under('Review requested', asked) && under('Agent reviewing', held), headings().join(', '));
         check('the tab picked is remembered', /others/.test(localStorage.getItem('codealong.prTab') || ''), localStorage.getItem('codealong.prTab'));
         window.__emit('reveal', { kind: 'pr', key: ready.key });
