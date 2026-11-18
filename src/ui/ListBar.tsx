@@ -125,7 +125,7 @@ export function ViewMenu({ label, settings }: { label: string; settings: ViewSet
 export interface ListFilter {
   key: string;
   label: string;
-  /** What it narrows to, for its tooltip: "Agents: Claude". */
+  /** What it narrows to, for its tooltip and its ×'s name: "Repos: owner/api". */
   title: string;
   clear: () => void;
 }
@@ -138,8 +138,8 @@ export function FilterChips({ filters, onClearAll }: { filters: ListFilter[]; on
   return (
     <div className="ca-listfilters" role="group" aria-label="Filters">
       {filters.map((f) => (
-        <Chip key={f.key} className="ca-listfilter" title={`Filtered to ${f.title}`} remove={{ label: `Stop filtering to ${f.label}`, title: 'Stop filtering', run: f.clear }}>
-          {f.label}
+        <Chip key={f.key} className="ca-listfilter" title={`Filtered to ${f.title}`} remove={{ label: `Stop filtering to ${f.title}`, title: 'Stop filtering', run: f.clear }}>
+          <span className="ca-listfilter-label">{f.label}</span>
         </Chip>
       ))}
       {filters.length > 1 && (

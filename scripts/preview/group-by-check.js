@@ -93,6 +93,9 @@
 
   // Group's choices, behind View over the list (prelude.js `viewChoice`).
   var button = function (label) { return viewChoice(label, 'Group'); };
+  // Clicks one of Group's choices once View shows them: an Escape on the way (a menu put away)
+  // takes the popover down too, and asking again brings it back.
+  var choose = function (label) { return until(function () { return button(label); }, 3000, 'Group’s ' + label).then(function (b) { b.click(); }); };
   var on = function (label) { var b = button(label); return !!b && b.classList.contains('is-on') && b.getAttribute('aria-checked') === 'true'; };
   var heads = function () { return all('.ca-sessionlist .ca-grouphead.is-worktree-head'); };
   var repoHeads = function () { return all('.ca-sessionlist .ca-grouphead.is-repo-head'); };
@@ -129,8 +132,7 @@
       check('Group has its three choices', labels.join('|') === 'No groups|Worktree|Repo', labels.join('|'));
       check('each says what it does', ['No groups', 'Worktree', 'Repo'].every(function (l) { return button(l) && button(l).title.length > 10; }));
       check('the list starts with no groups', on('No groups') && heads().length === 0 && repoHeads().length === 0);
-      button('Worktree').click();
-      return until(function () { return heads().length > 0; }, 3000, 'the worktrees’ headings');
+      return choose('Worktree').then(function () { return until(function () { return heads().length > 0; }, 3000, 'the worktrees’ headings'); });
     })
     .then(function () {
       check('Worktree groups the list, and is remembered', on('Worktree') && localStorage.getItem('codealong.sessionGroup') === 'worktree', localStorage.getItem('codealong.sessionGroup'));
@@ -234,13 +236,11 @@
         check('shown again while selected, it opens its group again', document.getElementById(id).getAttribute('aria-selected') === 'true');
         // Selected with no groups, then grouped: its group opens with it.
         q('.ca-groupfold button', groupOf(folding)).click();
-        button('No groups').click();
-        return until(function () { return heads().length === 0 && document.getElementById(id); }, 3000, 'the list with no groups');
+        return choose('No groups').then(function () { return until(function () { return heads().length === 0 && document.getElementById(id); }, 3000, 'the list with no groups'); });
       }).then(function () {
         press(document.getElementById(id));
         return wait(200).then(function () {
-          button('Worktree').click();
-          return until(function () { return heads().length > 0; }, 3000, 'grouped again');
+          return choose('Worktree').then(function () { return until(function () { return heads().length > 0; }, 3000, 'grouped again'); });
         });
       }).then(function () {
         var r = document.getElementById(id);
@@ -248,8 +248,7 @@
       });
     })
     .then(function () {
-      button('Repo').click();
-      return until(function () { return repoHeads().length > 0; }, 3000, 'the repos’ headings');
+      return choose('Repo').then(function () { return until(function () { return repoHeads().length > 0; }, 3000, 'the repos’ headings'); });
     })
     .then(function () {
       check('Repo groups the list by repo, and is remembered', on('Repo') && heads().length === 0 && localStorage.getItem('codealong.sessionGroup') === 'repo', localStorage.getItem('codealong.sessionGroup'));
@@ -266,8 +265,7 @@
     })
     .then(function (labels) {
       check('its menu pins it', labels.indexOf('Pin repo') >= 0 || labels.indexOf('Unpin repo') >= 0, labels.join(' | '));
-      button('No groups').click();
-      return until(function () { return heads().length === 0 && repoHeads().length === 0; }, 3000, 'the list without groups');
+      return choose('No groups').then(function () { return until(function () { return heads().length === 0 && repoHeads().length === 0; }, 3000, 'the list without groups'); });
     })
     .then(function () {
       check('No groups lists the sessions alone again, and is remembered', on('No groups') && localStorage.getItem('codealong.sessionGroup') === 'none', localStorage.getItem('codealong.sessionGroup'));

@@ -115,7 +115,7 @@ import { MeetingCountdown, MeetingOffered } from './ui/Meeting';
 import { meetingWhen } from './meetings';
 import { MeetingsDialog } from './ui/Meetings';
 import { hearingNow } from './listening';
-import { ageListingChain, ageListingPr, chainOf, columnShown, currentProject, FACET_WORD, facetsIn, facetsOn, harnessSchedulesIn, labelPick, laneInQuery, onlyPick, prInDone, prInFilter, prInQuery, projectOfCard, revealing, unarchived, scheduleSessions, schedulesIn, sessionInFacets, sessionInFilter, sessionInQuery, sessionItemOf, sessionItemsOf, showingHelper, todoInQuery, togglePick, toggleShown, useBoardLists, projectsOf, type Facets, type KanbanColumn } from './boardLists';
+import { ageListingChain, ageListingPr, chainOf, columnShown, currentProject, FACET_WORD, facetChips, facetsIn, facetsOn, harnessSchedulesIn, labelPick, laneInQuery, onlyPick, prInDone, prInFilter, prInQuery, projectOfCard, revealing, unarchived, scheduleSessions, schedulesIn, sessionInFacets, sessionInFilter, sessionInQuery, sessionItemOf, sessionItemsOf, showingHelper, todoInQuery, togglePick, toggleShown, useBoardLists, projectsOf, type Facets, type KanbanColumn } from './boardLists';
 import { inProject, QUICK_PLACEHOLDER, queryWords, shortcutKeys, shortcutLabel } from './quick';
 import { findFor } from './threadFind';
 import { CODEALONG_REPO, improveTitle } from './improve';
@@ -2290,12 +2290,7 @@ export function App() {
       const label = sideStatuses.find((x) => x.id === f)?.label ?? f;
       return { key: `status:${f}`, label, title: label.toLowerCase(), clear: () => toggleBay(f) };
     }),
-    ...sideFacets.flatMap((facet) =>
-      facet.picked.map((pick) => {
-        const label = facet.options.find((o) => o.id === pick)?.label ?? pick;
-        return { key: `${facet.id}:${pick}`, label, title: `${facet.label}: ${label}`, clear: () => setFacets((f) => togglePick(f, facet.id, pick)) };
-      }),
-    ),
+    ...facetChips(sideFacets).map((c) => ({ key: `${c.facet}:${c.pick}`, label: c.label, title: c.title, clear: () => setFacets((f) => togglePick(f, c.facet, c.pick)) })),
   ];
   const clearListFilters = () => {
     setDeviceFilter([]);

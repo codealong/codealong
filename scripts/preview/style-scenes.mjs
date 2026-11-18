@@ -112,6 +112,13 @@ const quickReady = `await sd.waitFor(() => window.__calls.some((c) => c[0] === '
 const pngPaste = (selector) => `const box = await sd.waitFor(${JSON.stringify(selector)}); box.focus(); const dt = new DataTransfer(); dt.items.add(new File([new Uint8Array([0x89, 0x50, 0x4e, 0x47])], 'shot.png', { type: 'image/png' })); dt.items.add(new File(['log'], 'send.log', { type: 'text/plain' })); box.dispatchEvent(new ClipboardEvent('paste', { clipboardData: dt, bubbles: true, cancelable: true }));`;
 const settings = (section) => [`await sd.click('button[aria-label="Settings"]'); await sd.waitFor('.ca-settings');`, `await sd.click(sd.byText('.ca-settings-nav button', ${JSON.stringify(section)})); await sd.sleep(300);`];
 const first = (selector) => `await sd.click(await sd.waitFor(${JSON.stringify(selector)}));`;
+// Picks choices behind the View button over the list (ListBar.tsx `ViewMenu`), by their words, and
+// puts the popover away again, so the scene shows the list as they leave it.
+const viewChoices = (...words) => [
+  `await sd.click('.ca-viewmenu-btn');`,
+  ...words.map((w) => `await sd.click(await sd.waitFor(() => sd.byText('.ca-viewmenu-pop button', ${JSON.stringify(w)})));`),
+  `await sd.click('.ca-viewmenu-btn');`,
+];
 const openTools = `for (const b of document.querySelectorAll('.ca-thread-toolhead:not(:disabled), .ca-thread-tooltoggle, .ca-thread-runhead')) if (b.getAttribute('aria-expanded') === 'false') b.click();`;
 
 // Run in every page just before it's recorded. A conversation shows the prompt above what's
@@ -148,7 +155,7 @@ export function scenes(board) {
     { name: 'sessions-allow', view: 'sessions', setup: sampled + needy('allow'), steps: [first('.ca-lane.is-agent:has(.ca-glyph--needs)'), openTools, openTools] },
     { name: 'sessions-questions', view: 'sessions', setup: sampled + needy('questions'), steps: [first('.ca-lane.is-agent:has(.ca-glyph--needs)'), `const o = await sd.waitFor('.ca-question-choices button, .ca-question-choices label, .ca-question input'); o.click();`] },
     { name: 'sessions-insights', view: 'sessions', insights: all.insights, todos: all.todos, devices: all.devices },
-    { name: 'sessions-twolines', view: 'sessions', steps: [`await sd.click('.ca-listtools button[aria-label="Two lines"]');`, `await sd.click('.ca-listtools button[aria-label="Started"]');`] },
+    { name: 'sessions-twolines', view: 'sessions', steps: viewChoices('Two lines', 'Started') },
     { name: 'sessions-max', view: 'sessions', setup: sampled, steps: [first('.ca-sessinsp-max')] },
     { name: 'sessions-details', view: 'sessions', setup: sampled, todos: all.todos, steps: [first('.ca-sessinsp-detailsbtn')] },
     { name: 'sessions-side', view: 'sessions', setup: sampled, init: S + 'side-open.js' },
@@ -160,9 +167,9 @@ export function scenes(board) {
     { name: 'prs-pr', view: 'prs', setup: sampled, steps: [first('.ca-prrow'), `for (const b of document.querySelectorAll('.ca-prfile-head, .ca-more-btn')) b.click();`] },
     { name: 'prs-real', view: 'prs', project: 'All projects', steps: [first('.ca-prrow'), `const b = sd.byText('.ca-linkbtn', 'Show'); if (b) b.click();`] },
     { name: 'prs-narrow', view: 'prs', size: '900,700', setup: sampled, steps: [first('.ca-prrow')] },
-    { name: 'prs-twolines', view: 'prs', steps: [`await sd.click('.ca-listtools button[aria-label="Two lines"]');`] },
+    { name: 'prs-twolines', view: 'prs', steps: viewChoices('Two lines') },
     { name: 'todo', view: 'todo' },
-    { name: 'todo-twolines', view: 'todo', todos: all.todos, steps: [`await sd.click('.ca-listtools button[aria-label="Two lines"]');`] },
+    { name: 'todo-twolines', view: 'todo', todos: all.todos, steps: viewChoices('Two lines') },
     { name: 'todo-samples', view: 'todo', todos: all.todos, steps: [`const r = await sd.waitFor('.ca-todorow'); r.dispatchEvent(new MouseEvent('mousedown', { bubbles: true, button: 0 }));`] },
     { name: 'todo-jev', view: 'todo', todos: S + 'todos-jev-sample.json', steps: [`const r = [...document.querySelectorAll('.ca-todorow')].find((x) => x.querySelector('.ca-todorow-done')) || document.querySelector('.ca-todorow'); r.dispatchEvent(new MouseEvent('mousedown', { bubbles: true, button: 0 }));`] },
     { name: 'todo-labels', view: 'todo', todos: all.todos, steps: [`const r = await sd.waitFor('.ca-todorow'); r.dispatchEvent(new MouseEvent('mousedown', { bubbles: true, button: 0 }));`, first('.ca-labelpick-anchor .ca-labelchip--add, .ca-labelchip--add')] },

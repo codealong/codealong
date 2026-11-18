@@ -9,6 +9,7 @@ import {
   chainOf,
   currentProject,
   deviceCountsOf,
+  facetChips,
   helperCounts,
   HELPERS_SHOWN_MAX,
   inPinOrder,
@@ -1441,5 +1442,25 @@ describe('the Schedules view’s list', () => {
     const archivedHead = sessionHomes([fx.lane({ id: '/w/app', sessions: [session('claude:claude:old', { archived: true, status: 'idle' }), started('claude:claude:busy', 'claude:claude:old', { status: 'working' })] })]);
     const later = { runs: [run('claude:claude:today', 2), run('claude:claude:old', 1)] };
     expect(scheduleSessions(later, archivedHead, false).rows.map((p) => p.session.key)).toEqual(['claude:claude:busy']);
+  });
+});
+
+describe('facetChips', () => {
+  const repos = (picked: string[]) => [{ id: 'repos' as const, label: 'Repos', picked, options: [
+    { id: 'northwind/api', label: 'api', title: 'northwind/api', count: 3 },
+    { id: 'atlas/api', label: 'api', title: 'atlas/api', count: 2 },
+    { id: 'atlas/web', label: 'web', title: 'atlas/web', count: 1 },
+  ] }];
+
+  it('names a pick as the sidebar does, with its full name in its title', () => {
+    expect(facetChips(repos(['atlas/web']))).toEqual([{ facet: 'repos', pick: 'atlas/web', label: 'web', title: 'Repos: atlas/web' }]);
+  });
+
+  it('gives picks of the same name their full names, so each chip says which it takes off', () => {
+    expect(facetChips(repos(['northwind/api', 'atlas/api', 'atlas/web'])).map((c) => c.label)).toEqual(['northwind/api', 'atlas/api', 'web']);
+  });
+
+  it('keeps a pick no option lists any more by its id', () => {
+    expect(facetChips(repos(['kestrel/app']))[0]).toMatchObject({ label: 'kestrel/app', title: 'Repos: kestrel/app' });
   });
 });

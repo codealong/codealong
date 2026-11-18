@@ -210,6 +210,31 @@ export function facetsOn(f: Facets, view: string): FacetId[] {
   return facetsIn(view).filter((id) => (f[id]?.length ?? 0) > 0);
 }
 
+/** A facet's pick as a chip on the strip over the list (ListBar.tsx `FilterChips`). */
+export interface FacetChip {
+  facet: FacetId;
+  pick: string;
+  /** What the chip says: the pick's name, or its full name (`owner/api`) where another pick of
+   *  the facet has the same name, so each chip says which it takes off. */
+  label: string;
+  /** What it narrows to, with the facet's word: `Repos: owner/api`. */
+  title: string;
+}
+
+/** The picks of the facets the sidebar shows, as the strip's chips, in the sidebar's order. */
+export function facetChips(facets: { id: FacetId; label: string; options: FacetOption[]; picked: readonly string[] }[]): FacetChip[] {
+  return facets.flatMap((f) => {
+    const picks = f.picked.map((pick) => {
+      const o = f.options.find((x) => x.id === pick);
+      return { pick, name: o?.label ?? pick, full: o?.title ?? o?.label ?? pick };
+    });
+    return picks.map(({ pick, name, full }) => {
+      const label = picks.some((p) => p.pick !== pick && p.name === name) ? full : name;
+      return { facet: f.id, pick, label, title: `${f.label}: ${full}` };
+    });
+  });
+}
+
 /** A session label's pick: its name in lower case. */
 export const labelPick = (l: Pick<Label, 'name'>) => l.name.toLowerCase();
 

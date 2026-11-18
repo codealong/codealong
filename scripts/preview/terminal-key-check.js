@@ -116,10 +116,13 @@
     .then(function () {
       if (peek) return;
       // Grouped by worktree, a worktree's heading selected: a terminal in the worktree.
-      var group = q('.ca-listtools [aria-label="Group by"] button[aria-label="Worktree"]');
-      if (!group) { check('Sessions can be grouped by worktree', false, 'no Group by in the bar'); return; }
-      group.click();
-      return until(function () { return all('.ca-board .ca-grouphead.is-worktree-head[id^="row-"]').filter(function (h) { return !h.classList.contains('is-away'); })[0]; }, 5000, 'a worktree’s heading')
+      // Group, behind View over the list (prelude.js `viewChoice`).
+      return until(function () { return viewChoice('Worktree', 'Group'); }, 3000, 'Group behind View in the bar')
+        .then(function (group) {
+          group.click();
+          q('.ca-viewmenu-btn').click();
+          return until(function () { return all('.ca-board .ca-grouphead.is-worktree-head[id^="row-"]').filter(function (h) { return !h.classList.contains('is-away'); })[0]; }, 5000, 'a worktree’s heading');
+        })
         .then(function (head) {
           var id = head.id.slice(4);
           down(head);

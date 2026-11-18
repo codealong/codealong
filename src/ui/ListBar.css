@@ -112,17 +112,22 @@
 }
 
 /* The filters narrowing the list (`FilterChips`), drawn as the sidebar draws a filter that's on
-   (chips.css `.ca-side-chip.is-on`), so the two read as the same thing. */
+   (chips.css `.ca-side-chip.is-on`), so the two read as the same thing. On a narrow list a chip's
+   name gives way first, its × and Clear never: each is how to take a filter off with the sidebar
+   folded away. Past that they wrap onto another line of the strip rather than go out of sight. */
 .ca-listfilters {
   display: flex;
   flex: 0 1 auto;
+  flex-wrap: wrap;
   align-items: center;
   gap: var(--space-1);
   min-width: 0;
-  overflow: hidden;
 }
 .ca-listfilter.ca-chip {
+  flex: 0 1 auto;
   gap: var(--space-1);
+  min-width: 0;
+  max-width: 220px;
   height: 22px;
   padding: 0 6px 0 9px;
   border: 1px solid var(--ink);
@@ -131,7 +136,14 @@
   color: var(--ink);
   font: var(--type-meta-strong);
 }
+.ca-listfilter-label {
+  min-width: 3ch;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
 .ca-listfilter > button {
+  flex: none;
   display: inline-flex;
   padding: 1px;
   border: 0;
