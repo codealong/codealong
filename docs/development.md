@@ -124,7 +124,7 @@ What Linux goes without: the notch, the focus outline round a terminal on anothe
 (flash.rs), app icons in the editor menus, pictures of the windows for Improve Codealong, the
 Dock icon's status, the Claude and Codex apps (macOS's), Antigravity's and Cursor's sign-ins
 for their usage, and the menu bar (Tauri makes none on Linux), so what only it has: New window
-(⇧⌘N), Analytics… (⇧⌘U; the usage bar's Analytics button opens it too), Set up Codealong… and Close idle
+(⇧⌘N), Analytics… (⇧⌘U; the Analytics button at the foot of the sidebar opens it too), Set up Codealong… and Close idle
 sessions…. The windows' keys are written for macOS, and `src/platform.ts` presses and says
 them as Linux has them (⌘ is Ctrl, ⌥ and ⌃ are Alt); `PREVIEW_PLATFORM=linux` previews them.
 `.claude/rules/linux.md` has what was found there.

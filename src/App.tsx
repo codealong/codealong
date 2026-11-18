@@ -2499,15 +2499,9 @@ export function App() {
           loading={loading}
           foot={
             <div className="ca-side-foot">
-              <button type="button" className="ca-linkbtn ca-side-config" title={keysIn('Settings (⌘,)')} aria-label="Settings" onClick={() => openSettings()}>
-                <Icon name="settings" size={14} />
-              </button>
-              <button type="button" className="ca-linkbtn ca-side-analytics" title={keysIn('Analytics: what sessions used and cost (⇧⌘U)')} aria-label="Analytics" onClick={() => setUsageOf({ account: null })}>
-                <Icon name="chart-bar" size={14} />
-              </button>
-              <button type="button" className="ca-linkbtn ca-side-github" title="Codealong on GitHub" aria-label="Codealong on GitHub" onClick={openRepo}>
-                <Icon name="brand-github" size={14} />
-              </button>
+              <Button variant="ghost" size="sm" icon="settings" className="ca-side-config" aria-label="Settings" title={keysIn('Settings (⌘,)')} onClick={() => openSettings()} />
+              <Button variant="ghost" size="sm" icon="chart-bar" className="ca-side-analytics" aria-label="Analytics" title={keysIn('Analytics: what sessions used and cost (⇧⌘U)')} onClick={() => setUsageOf({ account: null })} />
+              <Button variant="ghost" size="sm" icon="brand-github" className="ca-side-github" aria-label="Codealong on GitHub" title="Codealong on GitHub" onClick={openRepo} />
               <ThemeSwitch theme={theme} onPick={pickTheme} />
             </div>
           }

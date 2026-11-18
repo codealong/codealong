@@ -744,7 +744,7 @@ show every action's keys.
 On Linux, ⌘ is Ctrl, and ⌥ and ⌃ are Alt, but for a few keys that would clash there: ⌥⌘1 – ⌥⌘9
 are Alt and the digit, ⌃⏎ is Ctrl+Shift+Enter, ⌃\` is Ctrl+\`, and ⌃⌘↑ / ⌃⌘↓ are
 Ctrl+Shift+PageUp / PageDown. The menus and buttons show every key as Linux has it. ⇧⌘N and ⇧⌘U
-are the macOS menu bar's, which Linux doesn't have; the usage bar's Analytics button opens Analytics there.
+are the macOS menu bar's, which Linux doesn't have; the Analytics button at the foot of the sidebar opens Analytics there.
 
 ## Settings
 

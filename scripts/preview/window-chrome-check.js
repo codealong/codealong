@@ -5,15 +5,16 @@
 // icons at the sidebar's foot, named for the keyboard and screen readers, with the theme switch
 // after them, and the rail the sidebar folds to has the three; the status bar ends with Refresh,
 // with no Accounts; a chip names a model's own limit only beside its others, and says when a
-// limit resets only once it's over 70%. A click on the GitHub link opens Codealong's repo, and one
-// on Analytics opens its window. While the board is read there's no panel, and the board alone
-// rounds all four corners. At the window's least width (980) the grid and its gutter fit, and the
-// status bar's end keeps Refresh in the window beside notices, a meeting and the machine's load.
+// limit resets only once it's over 70%, a flagged chip's card naming them all. A click on the
+// GitHub link opens Codealong's repo, and one on Analytics opens its window. While the board is
+// read there's no panel, and the board alone rounds all four corners. At the window's least width
+// (980) the grid and its gutter fit, and the status bar's end keeps Refresh in the window beside
+// notices, a meeting and the machine's load.
 //   scripts/preview.sh sessions '' scripts/preview/window-chrome-check.js
 //   PREVIEW_GLASS=1 scripts/preview.sh sessions '' scripts/preview/window-chrome-check.js
 //   PREVIEW_SCHEME=dark scripts/preview.sh sessions '' scripts/preview/window-chrome-check.js
 //   PREVIEW_USAGE=scripts/preview/usage-sample.json scripts/preview.sh sessions '' scripts/preview/window-chrome-check.js
-//   PREVIEW_SIZE=2600,900 PREVIEW_USAGE=scripts/preview/usage-sample.json scripts/preview.sh sessions '' scripts/preview/window-chrome-check.js
+//   PREVIEW_SIZE=2600,900 PREVIEW_USAGE=scripts/preview/usage-sample.json PREVIEW_TRAINING=scripts/preview/training-sample.json scripts/preview.sh sessions '' scripts/preview/window-chrome-check.js
 //   PREVIEW_LOADING=1 scripts/preview.sh sessions '' scripts/preview/window-chrome-check.js
 //   PREVIEW_SIZE=980,700 PREVIEW_NOTICES=scripts/preview/notices-sample.json PREVIEW_INIT=scripts/preview/window-chrome-crowded-init.js scripts/preview.sh sessions '' scripts/preview/window-chrome-check.js
 (function () {
@@ -88,13 +89,11 @@
     var cardWidth = panel.getBoundingClientRect().right - board.getBoundingClientRect().left;
     check('the card casts a shadow', s.content !== 'none' && s.boxShadow !== 'none' && /\d/.test(s.boxShadow), s.content + ' ' + s.boxShadow);
     check('as wide as the board and the panel together', Math.abs(parseFloat(s.width) - cardWidth) <= 1 && Math.abs(parseFloat(s.height) - board.getBoundingClientRect().height) <= 1, s.width + ' × ' + s.height + ' for ' + cardWidth);
-    check('under the window’s rows and buttons, on its ground', parseInt(s.zIndex, 10) < 0 && style(win).isolation === 'isolate' && s.pointerEvents === 'none', s.zIndex + ' ' + style(win).isolation + ' ' + s.pointerEvents);
-    var row = q('.ca-side .ca-nav.is-active') || q('.ca-side .ca-nav');
-    if (row) {
-      var r = row.getBoundingClientRect();
-      var at = document.elementFromPoint(r.right - 2, r.top + r.height / 2);
-      check('a sidebar row beside the card is over the shadow', !!at && row.contains(at), at && at.className);
-    }
+    check('it takes no clicks', s.pointerEvents === 'none', s.pointerEvents);
+    // The window isn't a stacking context: one would hold its dialogs under what's portalled to the page.
+    check('and the window stays no stacking context of its own', style(win).isolation !== 'isolate' && style(win).zIndex === 'auto' && style(win).transform === 'none', style(win).isolation + ' ' + style(win).zIndex);
+    // The shadow is first in the body; the sidebar and the status bar, positioned, paint after it.
+    check('the sidebar and the status bar paint over the shadow', style(side).position === 'relative' && style(foot).position === 'relative', style(side).position + ' ' + style(foot).position);
 
     if (window.innerWidth <= 1000) narrow();
     var end = q('.ca-usagebar-end');
@@ -118,9 +117,27 @@
     // When a limit resets shows only once it's over 70% (UsageBar.tsx RESET_SHOWN_ABOVE).
     var meters = all('.ca-usagebar-accts .ca-uchip .ca-meter');
     var full = meters.filter(function (m) { return parseFloat(m.querySelector('.ca-meter-value').textContent) > 70; });
-    var early = meters.filter(function (m) { var r = m.querySelector('.ca-meter-reset'); return r && r.textContent.trim() && parseFloat(m.querySelector('.ca-meter-value').textContent) <= 70; });
-    note(meters.length + ' limits in the chips, ' + full.length + ' over 70%');
+    var resets = function (m) { var r = m.querySelector('.ca-meter-reset'); return !!r && !!r.textContent.trim(); };
+    var early = meters.filter(function (m) { return resets(m) && parseFloat(m.querySelector('.ca-meter-value').textContent) <= 70; });
+    // One over 70% with a reset to tell (its chip's label says so) shows it, but in a tight chip.
+    var due = full.filter(function (m) {
+      var chip = m.closest('.ca-uchip');
+      return !chip.classList.contains('is-tight') && (chip.getAttribute('aria-label') || '').indexOf(m.querySelector('.ca-meter-value').textContent + ' used, resets') >= 0;
+    });
+    var missing = due.filter(function (m) { return !resets(m); });
+    note(meters.length + ' limits in the chips, ' + full.length + ' over 70%, ' + due.length + ' with a reset to show');
     check('a limit says when it resets only once it’s over 70%', early.length === 0, early.map(function (m) { return m.textContent.trim(); }).join(' | '));
+    check('and then it does', missing.length === 0, missing.map(function (m) { return m.textContent.trim(); }).join(' | '));
+    // A chip flagged for training has a card in place of its tooltip, so the card names its limits
+    // and says when they reset, though the chip shows them all.
+    var flagged = q('.ca-usagebar-accts .ca-uchip.is-training');
+    if (flagged && flagged.querySelector('.ca-meter')) {
+      flagged.dispatchEvent(new MouseEvent('mouseover', { bubbles: true, relatedTarget: document.body }));
+      var trainingCard = await until(function () { return q('.ca-usage-popover.is-training'); }, 3000, 'the flagged chip’s card');
+      check('a flagged chip’s card lists its limits', !!trainingCard.querySelector('.ca-ucard-meters .ca-meter'), trainingCard.textContent.slice(0, 120));
+      flagged.dispatchEvent(new MouseEvent('mouseout', { bubbles: true, relatedTarget: document.body }));
+      await until(function () { return !q('.ca-usage-popover'); }, 3000, 'the card gone');
+    } else note('no flagged chip with limits to look at');
 
     var feet = q('.ca-side .ca-side-foot');
     var gear = feet && feet.querySelector('.ca-side-config');

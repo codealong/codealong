@@ -91,7 +91,7 @@ export function fitFor(now: Fit, needs: { all: number; one: number }, room: numb
   return 'tight';
 }
 
-/** How full a limit is, in percent, before its chip says when it resets. */
+/** How full a limit is, in percent as its chip shows it, before the chip says when it resets. */
 const RESET_SHOWN_ABOVE = 70;
 
 /** Compact inside a chip; full, with its reset time underneath, in the Accounts dialog. A compact
@@ -220,7 +220,7 @@ function AccountChip({ usage: u, now, fit = 'all', measure = false, onOpen, onSi
     >
       <span className="ca-uchip-name">{u.account}</span>
       {shown.length > 0 ? (
-        shown.map((m) => <UsageMeter key={m.key} meter={m} now={now} titled={!measure && !peeks} unnamed={!!m.model && shown.length === 1} reset={m.percent > RESET_SHOWN_ABOVE} />)
+        shown.map((m) => <UsageMeter key={m.key} meter={m} now={now} titled={!measure && !peeks} unnamed={!!m.model && shown.length === 1} reset={Math.round(m.percent) > RESET_SHOWN_ABOVE} />)
       ) : u.noLimits ? (
         // Nothing will ever show here, so it takes no room to say so; the words, and why, are on
         // hover.
@@ -585,7 +585,9 @@ export function UsageBar({ usage: board, now, onRefresh, onUsage, onSignIn, trai
   const flaggedPeek = flagged(peekedTraining) ? peekedTraining : undefined;
   const peekedResets = peeked && resetsOf(resets, peeked.account);
   const heldPeek = holds(peekedResets) && !peeked?.needsSignIn ? peekedResets : undefined;
-  const peekMeters = fit !== 'all' && !!peeked && peeked.meters.length > 0;
+  // A card in place of the chip's tooltip (flagged for training, or holding resets) lists its limits
+  // even when the chip shows them all, since the chip may leave a model's name and a reset out.
+  const peekMeters = (fit !== 'all' || !!flaggedPeek || !!heldPeek) && !!peeked && peeked.meters.length > 0;
   // A card with buttons stays up while the pointer is on it.
   const peekActs = !!flaggedPeek || usable(heldPeek);
   // A signed-out chip has no card for its resets: signing in comes first.
