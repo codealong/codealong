@@ -36,9 +36,12 @@ session" in its place.
 
 - Not: `The other session ("Boundary groups") answered your question.`
   But: `[Boundary groups](codealong://session/claude:claude2:0e0b493b-2877-4c1a-9d4e-6f1b2a3c4d5e) answered your question.`
+- A title with a bracket or a `|` in it would break the link: write the bare link
+  (`codealong://session/<key>`, `codealong://todo/<id>`), which Codealong reads as its title.
 - The key is wherever you heard of the session: `whoami`'s `others`, `sessions`,
-  `sessions find`, a `session send` or `start` you ran, and the first lines of a message
-  another session sent you, which give its key and the link to write.
+  `sessions find`, a `session send` you ran, a `start` once it gives one (a start in a terminal
+  can come back without a key: see *Helpers*), and the first lines of a message another session
+  sent you, which give its key and the link to write.
 - Not your own session, and not in what leaves Codealong (a commit, a PR, a message to another
   service), where it opens nothing. Any command that takes a key or an id takes its link too.
 

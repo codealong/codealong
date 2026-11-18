@@ -246,11 +246,12 @@ fn byline(board: &Board, from: Option<&str>) -> Byline {
 /// A link to a session as the codealong skill has an agent name one to its user, which Codealong
 /// draws as the session (`[its title](codealong://session/<key>)`, src/codealongLinks.ts). A
 /// session the board has no title for, or a title with a bracket that would end the link's words
-/// early, gets the bare link, which Codealong reads as the session's title.
+/// early or a `|` that would end a table's cell, gets the bare link, which Codealong reads as the
+/// session's title.
 fn session_link(title: Option<&str>, key: &str) -> String {
     let url = format!("{}://session/{key}", crate::front::LINK_SCHEME);
     match title.map(str::trim) {
-        Some(t) if !t.is_empty() && !t.contains(['[', ']']) => format!("[{t}]({url})"),
+        Some(t) if !t.is_empty() && !t.contains(['[', ']', '|']) => format!("[{t}]({url})"),
         _ => url,
     }
 }
@@ -2013,8 +2014,10 @@ mod tests {
         let b = byline(&board, Some("codex:codex:new"));
         assert!(b.intro.starts_with("This message is from another agent, session codex:codex:new, sent with") && b.name == "codex:codex:new", "{b:?}");
         assert!(b.intro.contains("Name that session to your user as `codealong://session/codex:codex:new`."), "{b:?}");
-        // A bracket in a title would end a link's words early, so that one is bare too.
+        // A bracket in a title would end a link's words early, and a `|` a table's cell, so those
+        // are bare too.
         assert_eq!(session_link(Some("Fix [WIP] parser"), "claude:claude2:me"), "codealong://session/claude:claude2:me");
+        assert_eq!(session_link(Some("Build | test"), "claude:claude2:me"), "codealong://session/claude:claude2:me");
         assert_eq!(session_link(Some("  "), "claude:claude2:me"), "codealong://session/claude:claude2:me");
         // From a command line no session runs, it may be a person's or an agent's.
         let b = byline(&board, None);
