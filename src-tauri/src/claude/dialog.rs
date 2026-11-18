@@ -236,21 +236,69 @@ fn id_of(reg: &RegistryEntry, d: &Dialog) -> String {
     format!("{DIALOG_ID}{}:{}:{}", reg.pid, reg.status_updated_at.unwrap_or(0), fingerprint(d))
 }
 
-/// What a dialog says and offers, in a few characters: not where its cursor is.
+/// What a dialog says and offers, each choice with what it does, in a few characters: not where
+/// its cursor is.
 fn fingerprint(d: &Dialog) -> String {
     use sha2::{Digest, Sha256};
-    let labels = d.choices.iter().map(|c| c.label.as_str()).collect::<Vec<_>>().join("\n");
-    Sha256::digest(format!("{}\n{}\n{labels}", d.title, d.says).as_bytes()).iter().take(8).map(|b| format!("{b:02x}")).collect()
+    let choices = d.choices.iter().map(|c| format!("{}\t{}", c.label, c.description.as_deref().unwrap_or_default())).collect::<Vec<_>>().join("\n");
+    Sha256::digest(format!("{}\n{}\n{choices}", d.title, d.says).as_bytes()).iter().take(8).map(|b| format!("{b:02x}")).collect()
 }
 
-/// The same dialog: the same title, words and choices, wherever its cursor is.
-fn same(a: &Dialog, b: &Dialog) -> bool {
-    fingerprint(a) == fingerprint(b)
+/// What its terminal shows as Codealong reads it again while answering.
+#[derive(Debug, Clone, PartialEq)]
+enum Seen {
+    /// It waits on no dialog Codealong reads as one: none, or a panel that isn't a list.
+    Gone,
+    /// A dialog, with the id an answer names it by (`id_of`).
+    Up(String, Dialog),
+    /// Its screen couldn't be read, so the dialog may be up or gone.
+    Unread,
 }
 
-/// The dialog its terminal shows now, if it still waits on one.
-fn showing(home: &Path, s: &Session) -> Option<Dialog> {
-    open(home, s).and_then(|(_, screen)| read(screen.as_deref()?))
+fn seen(home: &Path, s: &Session) -> Seen {
+    match open(home, s) {
+        None => Seen::Gone,
+        Some((_, None)) => Seen::Unread,
+        Some((reg, Some(screen))) => read(&screen).map_or(Seen::Gone, |d| Seen::Up(id_of(&reg, &d), d)),
+    }
+}
+
+/// The dialog `id` names is up, its cursor on `picked`.
+fn on_pick(seen: &Seen, id: &str, picked: &str) -> bool {
+    matches!(seen, Seen::Up(at, d) if at == id && d.choices.get(d.on).is_some_and(|c| c.label == picked))
+}
+
+/// The dialog `id` names has gone, as a key that answers it leaves it. A screen that couldn't be
+/// read says neither.
+fn gone(seen: &Seen, id: &str) -> bool {
+    match seen {
+        Seen::Gone => true,
+        Seen::Up(at, _) => at != id,
+        Seen::Unread => false,
+    }
+}
+
+/// Reads its terminal again until `done` holds for what it shows, or until `MOVED_WAIT` runs out:
+/// whether it came to that, and what it showed last.
+fn wait_for(home: &Path, s: &Session, done: impl Fn(&Seen) -> bool) -> (bool, Seen) {
+    let deadline = Instant::now() + MOVED_WAIT;
+    loop {
+        let now = seen(home, s);
+        if done(&now) || Instant::now() >= deadline {
+            return (done(&now), now);
+        }
+        std::thread::sleep(MOVED_EVERY);
+    }
+}
+
+/// After `key` (Return or Escape) was pressed at the dialog `id` names: an error unless its
+/// terminal shows it gone.
+fn took(home: &Path, s: &Session, id: &str, key: &str) -> Result<()> {
+    match wait_for(home, s, |v| gone(v, id)) {
+        (true, _) => Ok(()),
+        (false, Seen::Unread) => bail!("Pressed {key}, but Codealong couldn't read its terminal to see that it took it. Look there."),
+        (false, _) => bail!("It's still showing the dialog after {key}. Answer it in its terminal."),
+    }
 }
 
 /// The dialog as a question, its title first: an answer is keyed by it, so one given to a dialog
@@ -298,24 +346,10 @@ fn still_up(ctx: &Ctx, s: &Session, id: &str) -> Result<(Dialog, RegistryEntry)>
     Ok((dialog, reg))
 }
 
-/// Waits for what its terminal shows to come to `done`, reading it again until then or until
-/// `MOVED_WAIT` runs out: whether it did.
-fn comes_to(home: &Path, s: &Session, done: impl Fn(Option<&Dialog>) -> bool) -> bool {
-    let deadline = Instant::now() + MOVED_WAIT;
-    loop {
-        if done(showing(home, s).as_ref()) {
-            return true;
-        }
-        if Instant::now() >= deadline {
-            return false;
-        }
-        std::thread::sleep(MOVED_EVERY);
-    }
-}
-
 /// Picks the choice `answers` names (its question's, keyed by the question as `pending` gave
 /// it): the arrow keys from the choice the cursor is on to it, then, once its terminal shows the
-/// same dialog with the cursor there, Return, which has answered it once the dialog is gone.
+/// dialog `id` names still up with the cursor there, Return, which has answered it once the
+/// dialog is gone.
 pub fn answer(ctx: &Ctx, s: &Session, id: &str, answers: &Value) -> Result<String> {
     let (dialog, reg) = still_up(ctx, s, id)?;
     let asked = question_of(&dialog).question;
@@ -329,13 +363,13 @@ pub fn answer(ctx: &Ctx, s: &Session, id: &str, answers: &Value) -> Result<Strin
     };
     let (home, cwd) = (ctx.account.home_path(), Path::new(&s.cwd));
     crate::launch::press_all(reg.pid, cwd, &moves(dialog.on, to))?;
-    if !comes_to(&home, s, |d| d.is_some_and(|d| same(d, &dialog) && d.choices.get(d.on).is_some_and(|c| c.label == picked))) {
-        bail!("Its cursor didn't come to {picked}, so Codealong didn't press Return. Answer it in its terminal.");
+    match wait_for(&home, s, |v| on_pick(v, id, picked)) {
+        (true, _) => {}
+        (false, Seen::Unread) => bail!("Codealong couldn't read its terminal to see its cursor on {picked}, so it didn't press Return. Answer it there."),
+        (false, _) => bail!("Its cursor didn't come to {picked}, so Codealong didn't press Return. Answer it in its terminal."),
     }
     crate::launch::press_all(reg.pid, cwd, &[Press::Key(Key::Return)])?;
-    if !comes_to(&home, s, |d| !d.is_some_and(|d| same(d, &dialog))) {
-        bail!("It's still showing the dialog after Return. Answer it in its terminal.");
-    }
+    took(&home, s, id, "Return")?;
     Ok(format!("Picked {picked}."))
 }
 
@@ -354,7 +388,9 @@ fn moves(from: usize, to: usize) -> Vec<Press> {
 /// Presses Escape, which closes it as its own cancel does.
 pub fn decline(ctx: &Ctx, s: &Session, id: &str) -> Result<String> {
     let (dialog, reg) = still_up(ctx, s, id)?;
-    super::press_in(&ctx.account.home_path(), s, &reg, Key::Escape, "Open it to answer.")?;
+    let home = ctx.account.home_path();
+    super::press_in(&home, s, &reg, Key::Escape, "Open it to answer.")?;
+    took(&home, s, id, "Escape")?;
     Ok(format!("Closed {}, as Escape does there.", dialog.title))
 }
 
@@ -473,10 +509,34 @@ mod tests {
     fn knows_a_dialog_by_what_it_says_not_its_cursor() {
         let d = read(AUTO).unwrap();
         let moved = read(&AUTO.replace("  ❯ Yes", "    Yes").replace("    No, keep", "  ❯ No, keep")).unwrap();
-        assert!(same(&d, &moved));
+        assert_eq!(fingerprint(&d), fingerprint(&moved));
         let other = read(&AUTO.replace("keep bypass permissions", "keep manual approvals")).unwrap();
-        assert!(!same(&d, &other));
         assert_ne!(fingerprint(&d), fingerprint(&other));
+        // What a choice does is part of it too.
+        let go = |to: &str| read(&format!("──────────\nSwitch folder?\n❯ Continue  Use {to}\n  Stay\n")).unwrap();
+        assert_ne!(fingerprint(&go("atlas")), fingerprint(&go("kestrel")));
+    }
+
+    #[test]
+    fn presses_return_only_at_the_dialog_it_was_asked_about() {
+        let d = read(AUTO).unwrap();
+        let id = "dialog:42:1000:abc";
+        let up = |at: &str, on: usize| Seen::Up(at.into(), Dialog { on, ..d.clone() });
+        assert!(on_pick(&up(id, 1), id, "No, keep bypass permissions"));
+        assert!(!on_pick(&up(id, 0), id, "No, keep bypass permissions"));
+        // The same words in a dialog that came up again since, or a screen that couldn't be read.
+        assert!(!on_pick(&up("dialog:42:2000:abc", 1), id, "No, keep bypass permissions"));
+        assert!(!on_pick(&Seen::Unread, id, "No, keep bypass permissions"));
+    }
+
+    #[test]
+    fn is_answered_only_once_it_has_gone() {
+        let d = read(AUTO).unwrap();
+        let id = "dialog:42:1000:abc";
+        assert!(gone(&Seen::Gone, id));
+        assert!(gone(&Seen::Up("dialog:42:1000:def".into(), d.clone()), id), "another dialog came after it");
+        assert!(!gone(&Seen::Up(id.into(), d), id), "still up");
+        assert!(!gone(&Seen::Unread, id), "a screen that couldn't be read says nothing");
     }
 
     #[test]
