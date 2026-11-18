@@ -16,6 +16,8 @@
   var SENT = ['/Users/me/projects/halyard/tmp/dashboard.png', '/private/tmp/claude-501/-Users-me-projects-halyard/20898bb3/scratchpad/gone/before.png'];
   var CAPTION = 'The refreshed dashboard, and the one it replaces';
   var READ = '/Users/me/projects/halyard/config/slots.json';
+  var CONFIG = '/Users/me/projects/halyard/config.toml';
+  var SUMMARY = 'Reading the configuration before updating the development environment';
   var picked = null;
   var real = window.__TAURI_INTERNALS__.invoke;
   window.__TAURI_INTERNALS__.invoke = function (cmd, args, options) {
@@ -38,6 +40,9 @@
         item('tool', 'SendUserFile · `dashboard.png` and 1 more', 12, { id: 't6', input: JSON.stringify({ files: SENT, caption: CAPTION, status: 'normal', display: 'render' }, null, 2), sent: { files: SENT, caption: CAPTION } }),
         item('result', '', 13, { id: 't6', output: '2 files delivered to user.' }),
         item('agent', 'Everything checks out, and the dashboard is published.', 14),
+        // A line that says what the call was for (Antigravity's) has the file after it.
+        item('tool', 'View file · ' + SUMMARY, 15, { id: 't7', input: CONFIG, file: CONFIG }),
+        item('result', '', 16, { id: 't7', output: '[server]' }),
       ] });
     }
     // A sent file in a scratch folder that's been cleared since.
@@ -76,7 +81,7 @@
       check('under its own call’s line', /^Artifact · security-dashboard\.html/.test(tool.querySelector('.ca-thread-toollabel').textContent));
       // Three calls ahead of it fold into a line and the latest of them; it and the one after show.
       var heads = panel('.ca-thread-toollabel').map(function (h) { return h.textContent.split(' · ')[0]; });
-      check('the calls before it fold and it stays in view', panel('.ca-thread-runhead').length === 1 && /^2 tool calls/.test(panel('.ca-thread-runhead')[0].textContent.trim()) && heads.join(',') === 'Bash,Artifact,Bash,SendUserFile', heads.join(','));
+      check('the calls before it fold and it stays in view', panel('.ca-thread-runhead').length === 1 && /^2 tool calls/.test(panel('.ca-thread-runhead')[0].textContent.trim()) && heads.join(',') === 'Bash,Artifact,Bash,SendUserFile,View file', heads.join(','));
       made[0].querySelector('a').click();
       return until(function () { return opened().length === 1; }, 3000).then(function () {
         check('a click on it opens the page', opened()[0][1].url === URL, JSON.stringify(opened()[0][1]));
@@ -116,7 +121,7 @@
     .then(function () {
       // The folded calls, opened: a link in JSON ends where its string does.
       panel('.ca-thread-runhead')[0].click();
-      return until(function () { return panel('.ca-thread-toollabel').length === 6; }, 3000).then(function () {
+      return until(function () { return panel('.ca-thread-toollabel').length === 7; }, 3000).then(function () {
         var read = panel('.ca-thread-toolhead').filter(function (h) { return /^Read/.test(h.textContent.trim()); })[0];
         read.click();
         return until(function () { return read.parentElement.querySelector('.ca-thread-out'); }, 3000).then(function () {
@@ -151,6 +156,14 @@
             var cut = name.querySelector('code').scrollWidth > name.querySelector('code').clientWidth;
             check('a narrow line cuts the name’s end, keeping its start', shown > 12 && cut, 'shown ' + shown + 'px, cut ' + cut);
             line.style.width = '';
+            // A long summary before the name gives up its room first.
+            var view = panel('.ca-thread-toolhead').filter(function (h) { return /^View file/.test(h.textContent.trim()); })[0];
+            var viewName = view && view.querySelector('.ca-thread-toolfile');
+            check('a line that names its file after what it was for names it', !!viewName && viewName.textContent === 'config.toml', view ? view.textContent : 'none');
+            view.parentElement.style.width = '320px';
+            var room = viewName.getBoundingClientRect().width;
+            check('and keeps the name in view on a narrow line, cutting the words before it', room > 40 && view.querySelector('.ca-thread-toolpart').scrollWidth > view.querySelector('.ca-thread-toolpart').clientWidth, 'name ' + room + 'px');
+            view.parentElement.style.width = '';
             return menuOf(read);
           }).then(function (labels) {
             check('a right-click on its line offers the file’s menu', labels.indexOf('Open') >= 0 && labels.indexOf('Reveal in Finder') >= 0 && labels.indexOf('Copy path') >= 0, labels.join(' | '));

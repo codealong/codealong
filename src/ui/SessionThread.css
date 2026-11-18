@@ -271,28 +271,26 @@
   display: flex;
   color: var(--ink-3);
 }
-/* Its label is a row, so what's cut in a narrow panel is the end of the name, with an ellipsis, as
-   a line's text is, rather than the whole name at once: the words before it keep their room, and
-   the name and any words after it give theirs up. */
+/* Its label is a row, so in a narrow panel each part is cut at its end with an ellipsis, as a
+   line's text is, rather than one part pushing another out of sight: the name keeps its room, up
+   to most of the line, and the words around it (a long summary of what the call was for, say)
+   give theirs up first. */
 .ca-thread-toollabel.is-file {
   display: flex;
   align-items: baseline;
 }
-.ca-thread-toollabel.is-file > .ca-thread-toolpart {
-  flex: none;
-  white-space: pre;
-}
-.ca-thread-toollabel.is-file > .ca-thread-toolpart:last-child,
-.ca-thread-toolfile,
+.ca-thread-toollabel.is-file > .ca-thread-toolpart,
 .ca-thread-toolfile > code {
   flex: 0 1 auto;
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
-  white-space: nowrap;
+  white-space: pre;
 }
 .ca-thread-toolfile {
   display: flex;
+  flex: none;
+  max-width: 70%;
 }
 .ca-thread-toolfile:focus-visible,
 .ca-thread-tooltoggle:focus-visible {
