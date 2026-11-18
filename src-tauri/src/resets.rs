@@ -7,7 +7,10 @@
 //! after Codealong uses one. The usage bar marks an account that holds one, and its card lists
 //! them with Use a reset (src/ui/UsageBar.tsx).
 
-use anyhow::{anyhow, Result};
+use std::collections::BTreeSet;
+use std::sync::Mutex;
+
+use anyhow::{anyhow, bail, Result};
 use serde::{Deserialize, Serialize};
 
 use crate::config::AccountCfg;
@@ -108,12 +111,39 @@ pub fn read_all(accounts: &[AccountCfg]) -> Vec<Resets> {
 }
 
 /// Uses one of the account's resets, `credit` when it names one, else the one its provider picks,
-/// then reads what it holds after.
+/// then reads what it holds after. A second use of the account's while one is under way is turned
+/// away.
 pub fn use_one(account: &AccountCfg, credit: Option<&str>) -> Result<ResetUsed> {
     let h = crate::harness::of(account).ok_or_else(|| anyhow!("Codealong doesn't know {}'s harness.", account.name))?;
+    let _using = Using::begin(account)?;
     let outcome = h.use_reset(account, credit)?;
     let after = after_use(outcome, h.resets(account));
     Ok(ResetUsed { account: account.name.clone(), reset: outcome == Outcome::Reset, message: said(&account.name, outcome, &after), after })
+}
+
+/// The accounts a use is under way for, by `accountpoll::identity`.
+static USING: Mutex<BTreeSet<String>> = Mutex::new(BTreeSet::new());
+
+/// A use under way, until it's dropped.
+struct Using(String);
+
+impl Using {
+    fn begin(account: &AccountCfg) -> Result<Using> {
+        let id = crate::accountpoll::identity(account);
+        let mut using = USING.lock().map_err(|_| anyhow!("Codealong couldn't tell whether a reset of {}'s is being used.", account.name))?;
+        if !using.insert(id.clone()) {
+            bail!("A reset of {}'s is being used already.", account.name);
+        }
+        Ok(Using(id))
+    }
+}
+
+impl Drop for Using {
+    fn drop(&mut self) {
+        if let Ok(mut using) = USING.lock() {
+            using.remove(&self.0);
+        }
+    }
 }
 
 /// What the account holds after a use that failed, read again: it may have gone through
@@ -122,12 +152,12 @@ pub fn read_after_failure(account: &AccountCfg) -> Resets {
     after_use(Outcome::Reset, read(account))
 }
 
-/// What the account holds after a use, as read: when one was spent and that read failed, nothing
-/// Codealong can use until a read works, rather than the count from before it (which a failed
-/// read would keep, `keeping`) offering a reset that's gone.
+/// What the account holds after a use, as read: when one was spent, or the provider said there
+/// were none, and that read failed, nothing Codealong can use until a read works, rather than the
+/// count from before it (which a failed read would keep, `keeping`) offering a reset that's gone.
 fn after_use(outcome: Outcome, read: Resets) -> Resets {
-    let spent = matches!(outcome, Outcome::Reset | Outcome::AlreadyRedeemed);
-    if spent && read.as_of.is_none() {
+    let fewer = matches!(outcome, Outcome::Reset | Outcome::AlreadyRedeemed | Outcome::NoCredit);
+    if fewer && read.as_of.is_none() {
         return Resets { can_use: false, ..read };
     }
     read
@@ -226,6 +256,7 @@ mod tests {
         poll.on_changed(&identity(&a), after);
         let shown = &poll.list(&accounts)[0];
         assert_eq!((shown.can_use, shown.available), (false, 0), "not the one from before");
+        assert!(!after_use(Outcome::NoCredit, Resets::failed(&a, "x")).can_use, "none left, as the provider said");
         // Nothing spent, or a read that worked: as read.
         assert!(after_use(Outcome::NothingToReset, Resets::failed(&a, "x")).can_use);
         assert_eq!(after_use(Outcome::Reset, Resets::held(&a, vec![], 0, 200)).as_of, Some(200));
@@ -239,6 +270,16 @@ mod tests {
         assert_eq!(said("codex", Outcome::Reset, &Resets::held(&a, vec![], 0, 1)), "codex's limits are reset. None left.");
         assert_eq!(said("codex", Outcome::Reset, &Resets::none(&a, "failed")), "codex's limits are reset.", "unread after: no count");
         assert_eq!(said("codex", Outcome::NothingToReset, &two), "codex has no limit to reset yet, so no reset was used.");
+    }
+
+    #[test]
+    fn a_second_use_while_one_is_under_way_is_turned_away() {
+        let a = AccountCfg { home: "~/.codex-using-test".into(), ..account("codex") };
+        let first = Using::begin(&a).unwrap();
+        assert!(Using::begin(&a).is_err());
+        assert!(Using::begin(&AccountCfg { home: "~/.codex-using-test2".into(), ..account("codex2") }).is_ok(), "another account's is its own");
+        drop(first);
+        assert!(Using::begin(&a).is_ok(), "once it's over");
     }
 
     #[test]

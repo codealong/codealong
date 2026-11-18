@@ -361,19 +361,27 @@ fn training_off(_: &Args, rest: &[String]) -> Done {
 /// resets, as the usage bar's card does, and prints how it went. Real: it spends the reset, so
 /// only that line goes: anything else on it (a `--dry-run`, say, which nothing here reads) is a
 /// usage error rather than a reset spent.
-fn use_reset(args: &Args, rest: &[String]) -> Done {
-    let others = args.0.iter().filter(|a| *a != "--snapshot" && *a != "--use-reset").count();
-    if others != rest.len() || rest.iter().any(|a| a.starts_with('-')) {
-        return Err(Stop::Usage);
-    }
-    let (name, credit) = match rest {
-        [name] => (name, None),
-        [name, credit] => (name, Some(credit.as_str())),
-        _ => return Err(Stop::Usage),
-    };
+fn use_reset(args: &Args, _: &[String]) -> Done {
+    let (name, credit) = reset_line(args).ok_or(Stop::Usage)?;
     let cfg = config::current().map_err(failed)?;
     let a = cfg.accounts.iter().find(|a| &a.name == name).ok_or_else(|| Stop::Failed(format!("There's no account named {name}.")))?;
     Ok(pretty(&crate::resets::use_one(a, credit).map_err(failed)?))
+}
+
+/// The account and credit of a `--use-reset` line: the program, `--snapshot`, the flag, the
+/// account and maybe a credit, and nothing else on it.
+fn reset_line<'a>(args: &Args<'a>) -> Option<(&'a String, Option<&'a str>)> {
+    let at = args.0.iter().position(|a| a == "--use-reset")?;
+    let before = &args.0[..at];
+    // What comes before is the program, wherever it is, and `--snapshot`.
+    if before.iter().any(|a| a.starts_with('-') && a != "--snapshot") || before.iter().filter(|a| !a.starts_with('-')).count() > 1 {
+        return None;
+    }
+    match &args.0[at + 1..] {
+        [name] if !name.starts_with('-') => Some((name, None)),
+        [name, credit] if !name.starts_with('-') && !credit.starts_with('-') => Some((name, Some(credit.as_str()))),
+        _ => None,
+    }
 }
 
 /// `codealong --snapshot --tokens [days]`: what the Analytics window shows for the last `days` days
@@ -904,6 +912,12 @@ mod tests {
         for words in [&["--snapshot", "--use-reset"][..], &["--snapshot", "--dry-run", "--use-reset", "atlas"], &["--snapshot", "--use-reset", "atlas", "--dry-run"], &["--snapshot", "--help", "--use-reset", "atlas"], &["--snapshot", "--use-reset", "atlas", "c1", "c2"]] {
             assert_eq!(cli(&line(words)), 2, "{words:?}");
         }
+        // As a real line has it, the program first (`line` puts it there).
+        let reset = |l: Vec<String>| reset_line(&Args(&l)).map(|(name, credit)| (name.clone(), credit.map(str::to_string)));
+        assert_eq!(reset(line(&["--snapshot", "--use-reset", "atlas"])), Some(("atlas".into(), None)));
+        assert_eq!(reset(line(&["--snapshot", "--use-reset", "atlas", "c1"])), Some(("atlas".into(), Some("c1".into()))));
+        assert_eq!(reset(["--snapshot", "--use-reset", "atlas"].map(String::from).to_vec()), Some(("atlas".into(), None)), "or without it");
+        assert_eq!(reset(line(&["--snapshot", "kestrel", "--use-reset", "atlas"])), None, "a word of its own before the flag");
         for words in [&["--snapshot", "--send", "claude:claude:abc"][..], &["--snapshot", "--stop"], &["--snapshot", "--answer", "k", "id"], &["--snapshot", "--answer", "k", "id", "maybe"], &["--snapshot", "--rename", "k"], &["--snapshot", "--pr", "o/r", "seven"], &["--snapshot", "--start-plan", "/r", "claude", "the moon"], &["--snapshot", "--side", "k"]] {
             assert_eq!(cli(&line(words)), 2, "{words:?}");
         }

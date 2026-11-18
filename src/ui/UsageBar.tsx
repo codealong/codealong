@@ -264,7 +264,11 @@ function UsageCard({ usage: u, now, anchor, meters, training: t, onStopTraining,
   // keyed by its account, so another chip's card never opens asking.
   const [asking, setAsking] = useState<{ credit: string | undefined; at: number } | null>(null);
   const shown = r?.credits[0]?.id;
-  // The one it asked about went (used elsewhere, or expired): it asks again from the start.
+  // What it offers changed (the one it asked about was used elsewhere or expired, or the count
+  // moved, which is all a provider that names none says): it asks again from the start, then and
+  // for any offer after.
+  const offer = r ? `${shown ?? ''}\n${r.available}` : null;
+  useEffect(() => setAsking(null), [offer]);
   const stillAsking = asking && asking.credit === shown ? asking : null;
   const ref = useRef<HTMLDivElement>(null);
   // Over the chip, as the bar is at the window's foot, kept inside the window: no taller than the

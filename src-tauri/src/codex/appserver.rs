@@ -49,24 +49,19 @@ pub(super) struct Server {
 
 impl Server {
     pub(super) fn request(&self, method: &str, params: Value) -> Result<Value> {
-        self.answer(method, params).map_err(failure)
+        self.answer(method, params).map_err(|e| match e {
+            Failure::Timeout => anyhow!("Codex didn't answer in time."),
+            Failure::Closed(said) if said.is_empty() => anyhow!("Codex stopped before it answered."),
+            Failure::Closed(said) => anyhow!("Codex stopped before it answered: {}", truncate(&said.join(" "), 300)),
+            Failure::Refused(e) => anyhow!("Codex: {}", e.get("message").and_then(Value::as_str).unwrap_or("unknown error")),
+            Failure::Write(e) => e.into(),
+        })
     }
 
     /// The answer as it came, for a caller that tells a refusal from silence.
-    pub(super) fn answer(&self, method: &str, params: Value) -> std::result::Result<Value, Failure> {
+    fn answer(&self, method: &str, params: Value) -> std::result::Result<Value, Failure> {
         let left = self.deadline.saturating_duration_since(Instant::now());
         self.client.request(method, params, Some(left))
-    }
-}
-
-/// What went wrong with a request, in words.
-pub(super) fn failure(e: Failure) -> anyhow::Error {
-    match e {
-        Failure::Timeout => anyhow!("Codex didn't answer in time."),
-        Failure::Closed(said) if said.is_empty() => anyhow!("Codex stopped before it answered."),
-        Failure::Closed(said) => anyhow!("Codex stopped before it answered: {}", truncate(&said.join(" "), 300)),
-        Failure::Refused(e) => anyhow!("Codex: {}", e.get("message").and_then(Value::as_str).unwrap_or("unknown error")),
-        Failure::Write(e) => e.into(),
     }
 }
 

@@ -24,10 +24,10 @@ use std::path::{Path, PathBuf};
 use std::sync::Mutex;
 
 use anyhow::{anyhow, bail, Result};
+use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 
 use super::appserver;
-use crate::rpc::Failure;
 use super::rollout::{RateLimit, RateWindow};
 use crate::config::AccountCfg;
 use crate::resets::{Outcome, ResetCredit, Resets};
@@ -43,10 +43,27 @@ const TOO_OLD: &str = "Your Codex doesn't offer limit resets: Codex 0.169 or lat
 /// asked earlier that answers later (the hourly one, out as a reset is used) doesn't replace it.
 static REPORTS: Mutex<BTreeMap<PathBuf, BTreeMap<String, RateLimit>>> = Mutex::new(BTreeMap::new());
 
-/// A use that went unanswered, by the account's folder: its key and the credit it named. The next
-/// use of the same credit sends that key again, so if the first went through the backend answers
-/// `alreadyRedeemed` rather than spending another (which, with no credit named, it could).
-static UNANSWERED: Mutex<BTreeMap<PathBuf, (String, Option<String>)>> = Mutex::new(BTreeMap::new());
+/// A use Codex hasn't answered yet, or never did, by the account's folder: its key, the credit it
+/// named and when it began, written before anything is sent. The next use of the same credit
+/// within `RETRY_MS` sends that key again (one alongside it too), so if the first went through the
+/// backend answers `alreadyRedeemed` rather than spending another, which with no credit named it
+/// could. It's on disk, beside the config, so a restart or a snapshot's own process finds it.
+#[derive(Serialize, Deserialize, Clone, PartialEq, Debug)]
+struct Attempt {
+    key: String,
+    credit: Option<String>,
+    at: i64,
+}
+
+/// How long a use may be taken up again under its key.
+const RETRY_MS: i64 = 60 * 60 * 1000;
+
+fn attempts_file() -> PathBuf {
+    crate::config::support_dir().join("reset-attempts.json")
+}
+
+/// Keeps this process's reads and writes of the file from crossing.
+static ATTEMPTS: Mutex<()> = Mutex::new(());
 
 /// The limits the account's last read here answered, for its usage.
 pub fn report(account: &AccountCfg) -> Option<BTreeMap<String, RateLimit>> {
@@ -84,34 +101,51 @@ pub fn read(account: &AccountCfg) -> Resets {
 
 /// Uses one of the account's resets through the first CLI that knows them, asking it for the
 /// credits first. Every attempt sends the same key, and so does the next use of the same credit
-/// after one that wasn't answered (`UNANSWERED`), so one that went through isn't spent twice.
+/// while one is unanswered (`Attempt`), so one that went through isn't spent twice.
 pub fn use_one(account: &AccountCfg, credit: Option<&str>) -> Result<Outcome> {
-    let home = account.home_path();
-    let key = key_for(&home, credit);
+    let (file, home) = (attempts_file(), account.home_path());
+    let key = begin(&file, &home, credit, now_ms());
     let used = use_with(&home, credit, &key);
-    settle(&home, key, credit, &used);
+    if let Used::Answered(_) = used {
+        answered(&file, &home, &key);
+    }
     match used {
         Used::Answered(outcome) => Ok(outcome),
         Used::Unanswered(e) => Err(anyhow!("Codex didn't say whether the reset went through: {e}")),
-        Used::Failed(e) => Err(e),
+        Used::NotSent(e) => Err(e),
     }
 }
 
-/// The key a use sends: the unanswered one's for the same credit, else a new one.
-fn key_for(home: &Path, credit: Option<&str>) -> String {
-    let kept = UNANSWERED.lock().ok().and_then(|u| u.get(home).filter(|(_, c)| c.as_deref() == credit).map(|(k, _)| k.clone()));
-    kept.unwrap_or_else(crate::start::new_session_id)
+/// The key for a use of `credit`, noted before anything is sent: an attempt's at the same credit
+/// still within `RETRY_MS`, else a new one. Attempts older than that are let go.
+fn begin(file: &Path, home: &Path, credit: Option<&str>, now: i64) -> String {
+    let _held = ATTEMPTS.lock();
+    let mut all: BTreeMap<String, Attempt> = crate::store::read_or_default(file);
+    all.retain(|_, a| now - a.at < RETRY_MS);
+    let id = home.to_string_lossy().into_owned();
+    let key = match all.get(&id) {
+        Some(a) if a.credit.as_deref() == credit => a.key.clone(),
+        _ => crate::start::new_session_id(),
+    };
+    all.insert(id, Attempt { key: key.clone(), credit: credit.map(str::to_string), at: now });
+    // Unwritten, a retry after an unanswered use gets a new key; with a credit named that can't
+    // spend another, and Codex has always named them here.
+    let _ = crate::store::save(file, &all);
+    key
 }
 
-/// Notes how a use went for the next one's key: one unanswered keeps its key, one answered lets
-/// it go, and one that never reached Codex's backend leaves what was kept as it was.
-fn settle(home: &Path, key: String, credit: Option<&str>, used: &Used) {
-    if let Ok(mut unanswered) = UNANSWERED.lock() {
-        match used {
-            Used::Unanswered(_) => unanswered.insert(home.to_path_buf(), (key, credit.map(str::to_string))),
-            Used::Answered(_) => unanswered.remove(home),
-            Used::Failed(_) => None,
-        };
+/// Codex answered the use under `key`: its attempt is let go, unless another has taken its place.
+/// One unanswered, or never sent, stays for the next use of its credit, which costs nothing when
+/// the backend never saw it.
+fn answered(file: &Path, home: &Path, key: &str) {
+    let _held = ATTEMPTS.lock();
+    let mut all: BTreeMap<String, Attempt> = crate::store::read_or_default(file);
+    let id = home.to_string_lossy().into_owned();
+    if all.get(&id).is_some_and(|a| a.key == key) {
+        all.remove(&id);
+        // Left behind, it only gives the next use of that credit this key, which answers as the
+        // backend has it.
+        let _ = crate::store::save(file, &all);
     }
 }
 
@@ -119,14 +153,15 @@ fn settle(home: &Path, key: String, credit: Option<&str>, used: &Used) {
 enum Used {
     /// Codex answered it.
     Answered(Outcome),
-    /// It was sent and no answer came (or one Codealong can't read): it may have gone through.
+    /// It was sent and no answer came, or one saying something failed, which may have been the
+    /// backend's after it had spent one: it may have gone through.
     Unanswered(anyhow::Error),
-    /// Nothing was spent: it never got as far as the use, or Codex turned it down.
-    Failed(anyhow::Error),
+    /// It never got as far as the use: nothing was spent.
+    NotSent(anyhow::Error),
 }
 
 fn use_with(home: &Path, credit: Option<&str>, key: &str) -> Used {
-    let (mut unanswered, mut failed) = (None, None);
+    let (mut unanswered, mut not_sent) = (None, None);
     for cli in clis() {
         let sent = Cell::new(false);
         let tried = appserver::with_cli(&cli, home, |s| {
@@ -134,26 +169,20 @@ fn use_with(home: &Path, credit: Option<&str>, key: &str) -> Used {
                 return Ok(None);
             }
             sent.set(true);
-            Ok(Some(match s.answer(CONSUME, json!({ "idempotencyKey": key, "creditId": credit })) {
-                Ok(answer) => outcome_of(&answer).map_err(|e| (true, e)),
-                // A refusal spent nothing; silence may have.
-                Err(e) => Err((!matches!(e, Failure::Refused(_)), appserver::failure(e))),
-            }))
+            Ok(Some(outcome_of(&s.request(CONSUME, json!({ "idempotencyKey": key, "creditId": credit }))?)?))
         });
         match tried {
-            Ok(Some(Ok(outcome))) => return Used::Answered(outcome),
-            Ok(Some(Err((false, refused)))) => return Used::Failed(refused),
-            // The next CLI is asked with the same key, which the backend takes as the same use.
-            Ok(Some(Err((true, e)))) => unanswered = Some(e),
+            Ok(Some(outcome)) => return Used::Answered(outcome),
             Ok(None) => {}
+            // The next CLI is asked with the same key, which the backend takes as the same use.
             Err(e) if sent.get() => unanswered = Some(e),
-            Err(e) => failed = Some(e),
+            Err(e) => not_sent = Some(e),
         }
     }
-    match (unanswered, failed) {
+    match (unanswered, not_sent) {
         (Some(e), _) => Used::Unanswered(e),
-        (None, Some(e)) => Used::Failed(e),
-        (None, None) => Used::Failed(anyhow!(TOO_OLD)),
+        (None, Some(e)) => Used::NotSent(e),
+        (None, None) => Used::NotSent(anyhow!(TOO_OLD)),
     }
 }
 
@@ -276,20 +305,26 @@ mod tests {
         assert!(o("later").is_err());
     }
 
-    /// A use that went unanswered may have spent one: the next use of the same credit sends its
-    /// key again, so the backend answers `alreadyRedeemed` rather than spending another, until a
-    /// use is answered. One that never reached the backend changes nothing.
+    /// A use not yet answered may have spent one: until Codex answers one, the next use of the
+    /// same credit sends its key again, one alongside it or from another process (it's in a file),
+    /// so the backend answers `alreadyRedeemed` rather than spending another. An answer to another
+    /// use doesn't let it go, and after `RETRY_MS` a use is a new one.
     #[test]
-    fn a_use_left_unanswered_is_retried_under_its_key() {
-        let home = PathBuf::from("/Users/me/.codex-unanswered-test");
-        let first = key_for(&home, None);
-        settle(&home, first.clone(), None, &Used::Unanswered(anyhow!("Codex didn't answer in time.")));
-        assert_eq!(key_for(&home, None), first, "the same use again");
-        assert_ne!(key_for(&home, Some("RateLimitResetCredit_b")), first, "another credit is another use");
-        settle(&home, "never-sent".into(), None, &Used::Failed(anyhow!("Couldn't start Codex.")));
-        assert_eq!(key_for(&home, None), first, "nothing reached the backend");
-        settle(&home, first.clone(), None, &Used::Answered(Outcome::AlreadyRedeemed));
-        assert_ne!(key_for(&home, None), first, "answered: the next use is a new one");
+    fn a_use_not_yet_answered_is_taken_up_again_under_its_key() {
+        let file = crate::store::test_dir("reset-attempts").join("reset-attempts.json");
+        let home = Path::new("/Users/me/.codex");
+        let first = begin(&file, home, None, 1_000);
+        assert_eq!(begin(&file, home, None, 2_000), first, "alongside it, or after it went unanswered");
+        assert_eq!(begin(&file, Path::new("/Users/me/.codex2"), None, 2_000).len(), first.len());
+        assert_ne!(begin(&file, Path::new("/Users/me/.codex2"), None, 2_000), first, "another account's is its own");
+        let other = begin(&file, home, Some("RateLimitResetCredit_b"), 3_000);
+        assert_ne!(other, first, "another credit is another use");
+        answered(&file, home, &first);
+        assert_eq!(begin(&file, home, Some("RateLimitResetCredit_b"), 4_000), other, "an answer to another use leaves it");
+        answered(&file, home, &other);
+        assert_ne!(begin(&file, home, Some("RateLimitResetCredit_b"), 5_000), other, "answered: the next use is a new one");
+        let late = begin(&file, home, None, 6_000);
+        assert_ne!(begin(&file, home, None, 6_000 + RETRY_MS), late, "too long ago to be the same use");
     }
 
     /// The hourly read, asked before a reset was used and answered after, doesn't put back the
