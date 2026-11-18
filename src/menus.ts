@@ -232,11 +232,11 @@ export interface DoneHelpersAsk {
 }
 
 /** The helpers of the sessions `keys` names whose work isn't over (lanes.ts `unfinished`), in
- *  `lanes`, each once (not where it visits) and not one marked done with them: at work, or
- *  waiting on you. Mark as done asks about these, and about no others: a helper whose work is
- *  over ends with its session, as the review it did is done, and so are its own helpers, so
- *  those whose work isn't over are asked about too. The engine sorts them so (actions.rs
- *  `finish_helpers`). */
+ *  `lanes`, at any depth (the helpers those started too), each once (not where it visits) and
+ *  not one marked done with them: at work, or waiting on you. Mark as done asks about these,
+ *  and about no others: a helper whose work is over ends with its session, as the review it did
+ *  is done. Ending one ends those under it, so each is shown (`helpersChosen`). The engine sorts
+ *  them so (actions.rs `finish_helpers`). */
 export function unfinishedHelpers(lanes: readonly Lane[], keys: readonly string[]): Session[] {
   const all = lanes.flatMap((l) => l.sessions).filter((h) => !h.visitor && !h.archived);
   const seen = new Set(keys);
@@ -247,7 +247,7 @@ export function unfinishedHelpers(lanes: readonly Lane[], keys: readonly string[
       if (h.helper?.parent !== parent || seen.has(h.key)) continue;
       seen.add(h.key);
       if (unfinished(h)) out.push(h);
-      else parents.push(h.key);
+      parents.push(h.key);
     }
   }
   return out;

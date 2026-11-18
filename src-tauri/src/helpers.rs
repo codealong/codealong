@@ -434,12 +434,12 @@ mod tests {
     fn a_helper_stopped_on_its_sign_in_waits_on_its_user() {
         let mut r = Reporter::default();
         let out = |activity| Session { signed_out: Some(crate::model::SignedOut { at: activity, said: "OAuth token revoked · Please run /login".into(), continues: true }), ..rev(Status::Idle, 10, activity) };
-        assert!(r.due(&[], &board(vec![boss(Status::Idle), rev(Status::Working, 10, 20)]), NOW).is_empty());
-        let jobs = r.due(&[], &board(vec![boss(Status::Idle), out(30)]), NOW);
+        assert!(r.due(&starts(&[]), &board(vec![boss(Status::Idle), rev(Status::Working, 10, 20)]), NOW).is_empty());
+        let jobs = r.due(&starts(&[]), &board(vec![boss(Status::Idle), out(30)]), NOW);
         assert!(matches!(news(&jobs)[..], [(_, News::OnUser(_))]), "{:?}", news(&jobs));
         r.told(&jobs[0], true, NOW);
-        assert!(r.due(&[], &board(vec![boss(Status::Idle), rev(Status::Working, 10, 40)]), NOW).is_empty());
-        let jobs = r.due(&[], &board(vec![boss(Status::Idle), rev(Status::Idle, 10, 50)]), NOW);
+        assert!(r.due(&starts(&[]), &board(vec![boss(Status::Idle), rev(Status::Working, 10, 40)]), NOW).is_empty());
+        let jobs = r.due(&starts(&[]), &board(vec![boss(Status::Idle), rev(Status::Idle, 10, 50)]), NOW);
         assert_eq!(news(&jobs), [(BOSS.to_string(), News::Ended)]);
     }
 

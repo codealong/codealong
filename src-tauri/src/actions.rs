@@ -1597,6 +1597,10 @@ fn finish(engine: &Handle, c: &Call, key: &str, stop: bool, helpers: Chosen, by:
     let board = engine.board();
     let (s, account) = harness::find(&board, &cfg, key).map_err(words)?;
     let ends = match crate::idle::ending(&board, s, stop) {
+        // Helpers you chose to keep may work in the worktree its harness made for it, which its
+        // own exit would remove when clean, though one finished its turn as you chose: it hangs
+        // up instead, leaving the worktree.
+        Ok(crate::idle::Ending::Exit(pid)) if !helpers.keep.is_empty() => crate::idle::Ending::Terminal(pid),
         Ok(ends) => ends,
         Err(busy) => return to_value(api::Done { done: false, message: busy, noted: false }),
     };
@@ -1716,13 +1720,14 @@ fn finish_helpers(engine: &Handle, cfg: &config::Config, key: &str, chosen: Chos
                     let (ended, note) = end(engine, h, account, ends, who, true, None);
                     // What didn't go for one whose work was over is left unsaid: it's archived
                     // either way, and its own panel says how it stands. Work that goes on isn't:
-                    // an app's thread, a job that didn't stop, a command you ran for it.
-                    if unfinished && ended.is_none() {
-                        if let Some(why) = note.or_else(|| h.left_running().then(|| "what it was running goes on".to_string())) {
-                            why_kept.push(format!("“{}” couldn't be ended ({}), so it's a session of your own now.", h.title, why.trim_end_matches('.')));
-                            kept.push(helper);
-                            continue;
-                        }
+                    // an app's thread or a job that didn't stop, and a command you ran for it in
+                    // a terminal app of yours, which nothing here closes (one in Codealong's own
+                    // closes as it's archived).
+                    let goes_on = h.running.as_ref().filter(|r| r.yours && r.terminal != crate::terminal::OWN).map(|r| format!("`{}` goes on in {}", r.command, r.terminal));
+                    if let Some(why) = goes_on.or(note.filter(|_| ended.is_none())).filter(|_| unfinished) {
+                        why_kept.push(format!("“{}” couldn't be ended ({}), so it's a session of your own now.", h.title, why.trim_end_matches('.')));
+                        kept.push(helper);
+                        continue;
                     }
                     // Its harness asks first: it's archived once that's answered, as a session is.
                     if exits && crate::idle::exit_noted(&h.key) {

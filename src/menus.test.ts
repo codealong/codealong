@@ -1362,14 +1362,14 @@ describe('actions by name', () => {
     expect(unfinishedHelpers(lanes, [boss.key]).map((s) => s.key)).toEqual(['claude:c:w', 'claude:c:n', 'claude:c:bg']);
     // Nor one picked to be marked done with it.
     expect(unfinishedHelpers(lanes, [boss.key, 'claude:c:w']).map((s) => s.key)).toEqual(['claude:c:n', 'claude:c:bg']);
-    // One of a helper whose work is over, which ends with it, is asked about too; one of a helper
-    // that's kept stays its.
-    const nested = [...sessions, helper('claude:c:review', { status: 'working', helper: { parent: 'claude:c:f' } }), helper('claude:c:inner', { status: 'working', helper: { parent: 'claude:c:w' } })];
-    expect(unfinishedHelpers([lane({ sessions: nested })], [boss.key]).map((s) => s.key)).toEqual(['claude:c:w', 'claude:c:n', 'claude:c:bg', 'claude:c:review']);
-    // Ended, the helpers a shown one started go too; kept, they stay its.
+    // Those the helpers started are asked about too, at any depth: under one whose work is over,
+    // which ends with it, and under one whose work isn't, which ending would stop.
+    const nested = [...sessions, helper('claude:c:review', { status: 'working', helper: { parent: 'claude:c:f' } }), helper('claude:c:inner', { status: 'working', helper: { parent: 'claude:c:w' } }), helper('claude:c:check', { status: 'idle', helper: { parent: 'claude:c:w' } })];
     const shown = unfinishedHelpers([lane({ sessions: nested })], [boss.key]);
-    expect(helpersChosen([lane({ sessions: nested })], shown, true).end).toEqual(['claude:c:w', 'claude:c:n', 'claude:c:bg', 'claude:c:review', 'claude:c:inner']);
-    expect(helpersChosen([lane({ sessions: nested })], shown, false)).toEqual({ end: [], keep: ['claude:c:w', 'claude:c:n', 'claude:c:bg', 'claude:c:review'] });
+    expect(shown.map((s) => s.key)).toEqual(['claude:c:w', 'claude:c:n', 'claude:c:bg', 'claude:c:inner', 'claude:c:review']);
+    // Ended, everything under them goes, done or not; kept, as shown.
+    expect(helpersChosen([lane({ sessions: nested })], shown, true).end).toEqual(['claude:c:w', 'claude:c:n', 'claude:c:bg', 'claude:c:inner', 'claude:c:review', 'claude:c:check']);
+    expect(helpersChosen([lane({ sessions: nested })], shown, false)).toEqual({ end: [], keep: ['claude:c:w', 'claude:c:n', 'claude:c:bg', 'claude:c:inner', 'claude:c:review'] });
     const asked: DoneHelpersAsk[] = [];
     const doneHelpers = { lanes, ask: (a: DoneHelpersAsk) => void asked.push(a) };
     const left: string[] = [];

@@ -42,6 +42,8 @@
           if (s.status === 'needs' || s.status === 'error' || s.status === 'unread') s.status = 'idle';
           s.snoozedUntil = undefined;
           s.raised = undefined;
+          // No helpers, so Mark as done asks nothing about them (done-helpers-check.js does).
+          s.helper = undefined;
           if (l.hidden || l.device || s.visitor || s.archived || seen[s.key] || picked.length >= plan.length) return;
           seen[s.key] = true;
           var p = plan[picked.length];

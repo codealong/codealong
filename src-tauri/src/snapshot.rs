@@ -574,17 +574,26 @@ fn unqueue(_: &Args, rest: &[String]) -> Done {
 
 fn done(args: &Args, rest: &[String]) -> Done {
     let [key, ..] = rest else { return Err(Stop::Usage) };
-    // Every helper under it, at any depth, as a window told to end them names them (menus.ts
-    // `helpersChosen`).
+    // As a window told to end them names them (menus.ts `unfinishedHelpers`, `helpersChosen`):
+    // each helper under it whose work isn't over, at any depth, and every helper under one of
+    // those. Each once, though origins name each other.
     let end_helpers = if args.has("--end-helpers") {
         let board = engine::snapshot(false, false);
-        let mut under = vec![key.clone()];
-        let mut i = 0;
-        while let Some(parent) = under.get(i).cloned() {
-            under.extend(crate::board::helpers_of(&board.lanes, &parent).into_iter().map(|h| h.key.clone()));
-            i += 1;
+        let (mut seen, mut ending) = (std::collections::HashSet::from([key.clone()]), std::collections::HashSet::new());
+        let (mut walk, mut named) = (vec![key.clone()], Vec::new());
+        while let Some(parent) = walk.pop() {
+            for h in crate::board::helpers_of(&board.lanes, &parent) {
+                if !seen.insert(h.key.clone()) {
+                    continue;
+                }
+                walk.push(h.key.clone());
+                if h.unfinished() || ending.contains(&parent) {
+                    ending.insert(h.key.clone());
+                    named.push(h.key.clone());
+                }
+            }
         }
-        under.split_off(1)
+        named
     } else {
         Vec::new()
     };
