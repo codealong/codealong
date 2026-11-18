@@ -135,12 +135,15 @@ Go over each session in `waiting` that `changed` this tick or has neither `sugge
   - Give it in the reply's own words: they count from when the reply was written, as the reply
     meant them ("tomorrow" in last night's reply is this morning). Give the hour where it names
     one, and a UTC time as it is (`thu 15:00 utc`), never worked out into this Mac's by hand.
-    Where the session's own check-in or wakeup comes first, the time of that: a turn it starts
-    ends the snooze anyway.
+  - Where the session will take a turn by itself first (a check-in, a scheduled wakeup, a
+    background job's report), the time of that turn. Only a prompt from your user ends a
+    snooze, so one that runs past that turn hides what it brings, a question included, until
+    the snooze is over.
   - It goes with how the reply ends. A tag with `--ending` and no `--waits-until` says the reply
     waits for no time, and takes away a day Jev read (`insight.waitsUntil` without `by` in
     `session show`): leave it out only when you read it that way. A reply that asks your user
-    something (`question`, `blocked`) waits on them now and takes none.
+    something (`question`, `blocked`) waits on them now and takes none. Where the time it waited
+    for has passed, its work is due: leave the time out and tag it `--finished no`.
 - A row in `waiting` with `finished` is only your user's to read: Codealong worked out that its
   work is done and nothing is left for them (its PRs merged, its todos done, a reply that asks
   nothing; `why` says which, and `sure` is false when only the read of its reply says so), and

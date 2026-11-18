@@ -1228,6 +1228,11 @@ pub struct SessionInsight {
     /// reply names none, and from Macs before 2026-11-11.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub waits_until: Option<i64>,
+    /// That `waits_until` is Jev's read, under an agent's tag that didn't say how the reply ends
+    /// (insights.rs `merged`): the agent in `by` didn't read it, and the windows say Jev did.
+    /// False from Macs before 2026-11-18.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub waits_by_jev: bool,
 }
 
 /// That a session's work is done with nothing left for you, and why (`Session::finished`).

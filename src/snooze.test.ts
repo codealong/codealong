@@ -93,6 +93,8 @@ describe('snooze', () => {
     expect(suggestedWhy(suggestedSnooze(read, NOW)!)).toBe('as Jev read its reply');
     expect(suggestedWhy(suggestedSnooze(tagged, NOW)!)).toBe('as Orchestrator read its reply');
     expect(suggestedSnooze({ archived: false, insight: { ...tagged.insight, byTitle: undefined } }, NOW)?.reader).toBe('an agent');
+    // Jev's day under a tag that read something else is Jev's, without the agent's note.
+    expect(suggestedSnooze({ archived: false, insight: { ...tagged.insight, waitsByJev: true } }, NOW)).toMatchObject({ reader: 'Jev', by: 'Jev’s read' });
     // Not for a reply that names no time, a time all but here or gone by, nor a session that's
     // snoozed already or archived.
     expect(suggestedSnooze({ archived: false, insight: { landing: 'pushed' } }, NOW)).toBeNull();

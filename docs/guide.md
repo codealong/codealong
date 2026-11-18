@@ -3548,7 +3548,8 @@ read the session, such as an orchestrator, can say any time, an hour the reply n
 *its title* read its reply**, and its note is under the pointer. Either way, the reply's words
 count from when it was written: "tomorrow" in last night's reply is this morning. When the reply
 waits for and how it ends are one read, so an agent's tag that says how it ends stands over Jev's
-day, and takes it away when the agent read no time. A reply read as asking you something is
+day, and takes it away when the agent read no time; under a tag that only says something else
+(how far the work got, say), the day stays Jev's and is said as Jev's. A reply read as asking you something is
 offered none: it waits on you now. The offer is for the reply it read: it goes once the session
 is sent something or takes a turn, once it's snoozed, and when the time comes. Such a session isn't [Finished](#finished-sessions), before the time or after it: the
 work it put off is then due. A session stopped at its usage limit is offered a snooze until the

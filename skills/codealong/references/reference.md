@@ -3175,16 +3175,19 @@ Options:
           do before then, as `session snooze` reads a time: a day (thu, tomorrow, next
           week, 2026-11-16: that morning at 9), a day and a time (thu 2pm, thu 15:00
           utc), a time (5pm) or a span (3h). Give the hour where the reply names one,
-          UTC's as it is (`utc` after it). Its words count from when the reply was
-          written, as the reply means them and as Jev reads them: "tomorrow" in a reply
-          from last night is this morning. Codealong then offers its user a snooze until
-          then, in the session's Snooze menu and above its box, saying you read it so,
-          and the session isn't Finished. Say it with how the reply ends (--ending): an
-          ending given without it says the reply waits for no time, which takes away a
-          time Jev read. Not with an ending that asks its user something (question,
-          blocked), which waits on them now. Only where the reply says so ("nothing to
-          do until Thursday's cutover", "the freeze lifts Monday"): not a deadline it's
-          working to, nor a day it merely names
+          UTC's as it is (`utc` after it, the day UTC's too). Its words count from when
+          the reply was written, as the reply means them and as Jev reads them:
+          "tomorrow" in a reply from last night is this morning. Where the session takes
+          a turn by itself before then (a check-in, a scheduled wakeup), give the time
+          of that: only its user's prompt ends a snooze. A time that has passed is
+          turned down: its work is due, so leave it out and say --finished no. Codealong
+          then offers its user a snooze until then, in the session's Snooze menu and
+          above its box, saying you read it so, and the session isn't Finished. Say it
+          with how the reply ends (--ending): an ending given without it says the reply
+          waits for no time, which takes away a time Jev read. Not with an ending that
+          asks its user something (question, blocked), which waits on them now. Only
+          where the reply says so ("nothing to do until Thursday's cutover", "the freeze
+          lifts Monday"): not a deadline it's working to, nor a day it merely names
 
       --note <NOTE>
           Why, in a sentence or two; shown with the tag

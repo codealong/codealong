@@ -795,7 +795,7 @@ struct TagArgs {
     /// What the command its turn left running in the background does: polling (checks again and again for something outside), job (one long piece of work that ends by itself), server (keeps running until stopped; its turn is over) or stalled (stuck, or waiting on its user).
     #[arg(long, value_name = "KIND", value_parser = clap::builder::PossibleValuesParser::new(insights::BACKGROUND.map(|(k, _)| k)))]
     background: Option<String>,
-    /// When its last reply says the work goes on, with nothing for it or its user to do before then, as `session snooze` reads a time: a day (thu, tomorrow, next week, 2026-11-16: that morning at 9), a day and a time (thu 2pm, thu 15:00 utc), a time (5pm) or a span (3h). Give the hour where the reply names one, UTC's as it is (`utc` after it). Its words count from when the reply was written, as the reply means them and as Jev reads them: "tomorrow" in a reply from last night is this morning. Codealong then offers its user a snooze until then, in the session's Snooze menu and above its box, saying you read it so, and the session isn't Finished. Say it with how the reply ends (--ending): an ending given without it says the reply waits for no time, which takes away a time Jev read. Not with an ending that asks its user something (question, blocked), which waits on them now. Only where the reply says so ("nothing to do until Thursday's cutover", "the freeze lifts Monday"): not a deadline it's working to, nor a day it merely names.
+    /// When its last reply says the work goes on, with nothing for it or its user to do before then, as `session snooze` reads a time: a day (thu, tomorrow, next week, 2026-11-16: that morning at 9), a day and a time (thu 2pm, thu 15:00 utc), a time (5pm) or a span (3h). Give the hour where the reply names one, UTC's as it is (`utc` after it, the day UTC's too). Its words count from when the reply was written, as the reply means them and as Jev reads them: "tomorrow" in a reply from last night is this morning. Where the session takes a turn by itself before then (a check-in, a scheduled wakeup), give the time of that: only its user's prompt ends a snooze. A time that has passed is turned down: its work is due, so leave it out and say --finished no. Codealong then offers its user a snooze until then, in the session's Snooze menu and above its box, saying you read it so, and the session isn't Finished. Say it with how the reply ends (--ending): an ending given without it says the reply waits for no time, which takes away a time Jev read. Not with an ending that asks its user something (question, blocked), which waits on them now. Only where the reply says so ("nothing to do until Thursday's cutover", "the freeze lifts Monday"): not a deadline it's working to, nor a day it merely names.
     #[arg(long, value_name = "WHEN")]
     waits_until: Option<String>,
     /// Why, in a sentence or two; shown with the tag.
@@ -5050,25 +5050,15 @@ fn tag_said(a: TagArgs, replied: i64, now: i64, zone: &dyn crate::schedules::rul
     if !read {
         bail!("Say how its reply ends too (--ending), or another of --asks-you, --landing, --finished, --risk and --background: when its work goes on isn't a tag by itself.");
     }
-    // Read on this Mac's clock, as a snooze's time is, and counted from when its reply was
-    // written, as the reply's own words are and as Jev counts the days a reply names (insights.rs
-    // `reply_day`): "tomorrow" in a reply from last night is this morning, whenever it's read.
-    let waits_until = match a.waits_until.as_deref() {
-        None => None,
-        Some(when) => {
-            let t = crate::snoozewhen::until(when, replied, zone).map_err(|e| anyhow!(e))?;
-            if t <= now {
-                let said = |t| crate::snoozewhen::words_at(t, now, zone);
-                bail!("{} has passed: when its work goes on is counted from when its reply was written ({}). Leave it out where what it put off is due now.", said(t), said(replied));
-            }
-            Some(t)
-        }
-    };
+    // Counted from when its reply was written (tags.rs `waits_until`), and read again by the
+    // session's Mac, which knows that better (`waits_words`); read here too, so what doesn't read
+    // is said at once, and for a Mac from before that.
+    let waits_until = a.waits_until.as_deref().map(|when| crate::tags::waits_until(when, replied, now, zone)).transpose()?;
     let unit = |b: Option<bool>| b.map(|b| if b { 1.0 } else { 0.0 });
     // An ending says whether the reply asks, and that goes with it: a Mac from before endings
     // reads only that, and would take a tag that says nothing else for one taking its tag away.
     let asks_you = unit(a.asks_you).or_else(|| a.ending.as_deref().map(|e| if insights::asking(e) { 1.0 } else { 0.0 }));
-    Ok(params::Tag { asks_you, ending: a.ending, landing: a.landing, finished: unit(a.finished), risk: a.risk.map(f64::from), background: a.background, waits_until, note: a.note, prompt_at: a.prompt_at, ..Default::default() })
+    Ok(params::Tag { asks_you, ending: a.ending, landing: a.landing, finished: unit(a.finished), risk: a.risk.map(f64::from), background: a.background, waits_until, waits_words: a.waits_until, note: a.note, prompt_at: a.prompt_at, ..Default::default() })
 }
 
 /// `session tag`: asked as the session running the command, which is named with it, on
@@ -5078,11 +5068,11 @@ fn session_tag(c: &mut Client, a: TagArgs, json: bool) -> Result<()> {
     let key = resolve_any_session(c, &a.key)?;
     let me = find_me(c)?.0;
     let by_title = me.as_deref().and_then(|k| all_sessions(c.board().ok()?).into_iter().find(|(s, _)| s.key == k).map(|(s, _)| s.title.clone())).filter(|t| !t.is_empty());
-    // When its last reply was written, which its words count from (`tag_said`): its last
-    // activity, here or on the device it runs on.
+    // When its last reply was written, as far as the board says (`tag_said`): here or on the
+    // device it runs on.
     let now = crate::util::now_ms();
     let elsewhere = c.elsewhere().to_vec();
-    let replied = all_sessions(c.board()?).into_iter().chain(all_in(&elsewhere)).find(|(s, _)| s.key == key).map_or(now, |(s, _)| s.last_activity);
+    let replied = all_sessions(c.board()?).into_iter().chain(all_in(&elsewhere)).find(|(s, _)| s.key == key).map_or(now, |(s, _)| crate::insights::replied_at(s));
     let params = params::Tag { by: me.clone(), by_title, ..tag_said(a, replied, now, &crate::schedules::rule::Local)? };
     let got = c.act(api::SESSION_TAG, &key, params, me)?;
     let out = ActOut { session: key, said: got.as_str().map(String::from), copy: None };
@@ -9057,11 +9047,12 @@ mod tests {
                 let Cmd::Session { cmd: SessionCmd::Tag(a) } = parse_from(["codealong", "session", "tag", "abc", "--prompt-at", "4", "--ending", "report", "--waits-until", when]).unwrap().cmd else { panic!() };
                 tag_said(a, late, now, &zone)
             };
-            assert_eq!(from_last_night("tomorrow 3pm").unwrap().waits_until, Some(ms(&zone, 2026, 11, 11, 15, 0)));
+            let tag = from_last_night("tomorrow 3pm").unwrap();
+            assert_eq!((tag.waits_until, tag.waits_words.as_deref()), (Some(ms(&zone, 2026, 11, 11, 15, 0)), Some("tomorrow 3pm")), "with the words, for the session's Mac to read again");
             assert_eq!(from_last_night("20h").unwrap().waits_until, Some(ms(&zone, 2026, 11, 11, 19, 0)));
             assert_eq!(from_last_night("thu 15:00 utc").unwrap().waits_until, Some(ms(&zone, 2026, 11, 12, 7, 0)));
             let passed = from_last_night("tomorrow").unwrap_err().to_string();
-            assert_eq!(passed, "9 AM has passed: when its work goes on is counted from when its reply was written (Nov 10, 11 PM). Leave it out where what it put off is due now.");
+            assert_eq!(passed, "9 AM has passed: when its work goes on is counted from when its reply was written (Nov 10, 11 PM). If what it put off is due now, leave the time out and say it isn't finished (--finished no).");
         }
         // The finished ones, alone or among what waits.
         let cli = parse_from(["codealong", "sessions", "--finished", "--waiting"]).unwrap();

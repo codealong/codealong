@@ -17,13 +17,14 @@ use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 
-use anyhow::{bail, Result};
+use anyhow::{anyhow, bail, Result};
 use serde::{Deserialize, Serialize};
 
 use crate::board::MovedOn;
 use crate::config::support_dir;
 use crate::insights::{BACKGROUND, ENDINGS, LANDING};
 use crate::model::{Session, SessionInsight};
+use crate::schedules::rule::Zone;
 use crate::store;
 use crate::util::DAY_MS;
 
@@ -70,6 +71,22 @@ pub fn holds(s: &Session, t: &Tag) -> bool {
 /// What moved its session on since the tag was put on, if anything did (`board::moved_on`).
 pub fn moved_on(s: &Session, t: &Tag) -> Option<MovedOn> {
     crate::board::moved_on(s, t.prompt_at, t.at)
+}
+
+/// When a tag's words say its session's work goes on (`codealong session tag --waits-until`),
+/// read as `session snooze` reads a time but counted from `replied`, when its last reply was
+/// written (`insights::replied_at`): as the reply meant them, and as Jev counts the days a reply
+/// names, so "tomorrow" in last night's reply is this morning. An error says what doesn't read,
+/// or that the time has passed at `now`.
+pub fn waits_until(words: &str, replied: i64, now: i64, zone: &dyn Zone) -> Result<i64> {
+    let t = crate::snoozewhen::until(words, replied, zone).map_err(|e| anyhow!(e))?;
+    if t <= now {
+        let said = |t| crate::snoozewhen::words_at(t, now, zone);
+        // Due now, it isn't done: left out with nothing more said, the session could pass for
+        // finished (board.rs `standing_of`).
+        bail!("{} has passed: when its work goes on is counted from when its reply was written ({}). If what it put off is due now, leave the time out and say it isn't finished (--finished no).", said(t), said(replied));
+    }
+    Ok(t)
 }
 
 /// An agent's read as the request gives it at `now`, checked: each field as `SessionInsight` has

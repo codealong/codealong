@@ -266,6 +266,7 @@ export type SessionInsight = Holds<Same<
   | "landing"
   | "note"
   | "risk"
+  | "waitsByJev"
   | "waitsForInput"
   | "waitsUntil",
   Names<Types.SessionInsight>

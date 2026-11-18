@@ -6,8 +6,8 @@
 //! is, todos.rs `due_from_words`) at 9 AM, the hour the menus' next morning ends at, or a day and a
 //! time (`tomorrow 2pm`, `fri 17:00`, `2026-11-03 15:00`). Times are on this Mac's clock, a `Zone`
 //! so the rules are tested on made-up ones, or on UTC's where `utc` follows the time (`thu 15:00
-//! utc`): replies, and the agents that read them, often give a time that way, and turning it into
-//! this Mac's by hand is where a wrong hour comes from. A day's words are still this Mac's.
+//! utc`, the day UTC's too): replies, and the agents that read them, often give a time that way,
+//! and turning it into this Mac's by hand is where a wrong hour comes from.
 
 use crate::schedules::rule::{time_of_day, Zone};
 use crate::util::{civil_from_days, days_from_civil, DAY_MS};
@@ -48,8 +48,14 @@ pub fn until(text: &str, now: i64, zone: &dyn Zone) -> Result<i64, String> {
         None => (None, &words[..]),
     };
     let unread = || format!("Couldn't read “{}”. {EXAMPLES}", text.trim());
-    let now_civil = zone.civil(now);
-    let today = days_from_civil(now_civil.year, now_civil.month, now_civil.day);
+    // The day a day's words count from, on the clock the time is on.
+    let today = match utc {
+        true => now.div_euclid(DAY_MS),
+        false => {
+            let c = zone.civil(now);
+            days_from_civil(c.year, c.month, c.day)
+        }
+    };
     let at = |days: i64, minutes: i64| {
         if utc {
             return Some(days * DAY_MS + minutes * 60_000);
@@ -61,12 +67,10 @@ pub fn until(text: &str, now: i64, zone: &dyn Zone) -> Result<i64, String> {
     if utc && minutes.is_none() {
         return Err(unread());
     }
-    // A time alone is the next one: today's while it's still ahead, else tomorrow's. UTC's day
-    // can be a day either side of this Mac's, so the days around it are tried too; on this Mac's
-    // clock the day before is never ahead, nor is the day after tomorrow reached.
+    // A time alone is the next one: today's while it's still ahead, else tomorrow's.
     if day_words.is_empty() {
         let minutes = minutes.ok_or_else(unread)?;
-        return (today - 1..=today + 2).filter_map(|d| at(d, minutes)).find(|&t| t > now).ok_or_else(unread);
+        return [today, today + 1].into_iter().filter_map(|d| at(d, minutes)).find(|&t| t > now).ok_or_else(unread);
     }
     let day = crate::todos::due_from_words(&day_words.join(" "), today).ok().and_then(|d| crate::todos::due_day(&d)).ok_or_else(unread)?;
     let t = at(day, minutes.unwrap_or(MORNING * 60)).ok_or_else(unread)?;
@@ -156,10 +160,14 @@ mod tests {
         assert_eq!(until_at("Fri at 15:00 GMT"), Ok(ms(&z, 2026, 10, 30, 8, 0)));
         assert_eq!(until_at("2026-11-03 15:00 utc"), Ok(ms(&z, 2026, 11, 3, 8, 0)));
         assert_eq!(until_at("today 15:00 utc"), Err("8 AM has passed.".into()));
-        // Ahead of UTC, its next time can be on the day before this Mac's.
+        // Ahead of UTC, UTC's day can be the one before this Mac's: Thursday 1 AM here is
+        // Wednesday 3 PM there, so its Thursday is tomorrow's, not a week off.
         let east = Fake { offset_hours: 10, summer: None };
         let early = ms(&east, 2026, 10, 29, 1, 0);
         assert_eq!(until("16:00 utc", early, &east), Ok(early + 3_600_000));
+        assert_eq!(until("thu 15:00 utc", early, &east), Ok(early + 24 * 3_600_000));
+        assert_eq!(until("tomorrow 15:00 utc", early, &east), Ok(early + 24 * 3_600_000));
+        assert_eq!(until("wed 16:00 utc", early, &east), Ok(early + 7 * 24 * 3_600_000 + 3_600_000), "a weekday that's UTC's today is next week's, as on this Mac's clock");
         // A zone goes with a time: not with a day alone, a span, or nothing.
         assert!(until_at("thu utc").unwrap_err().starts_with("Couldn't read"));
         assert!(until_at("3h utc").unwrap_err().starts_with("Couldn't read"));

@@ -455,6 +455,11 @@ pub mod params {
         pub ending: Option<String>,
         #[serde(skip_serializing_if = "Option::is_none")]
         pub waits_until: Option<i64>,
+        /// The words `waits_until` was read from (`--waits-until`): the session's Mac reads them
+        /// again from when its last reply was written, which only it knows (tags.rs
+        /// `waits_until`). A Mac from before 2026-11-18 takes `waits_until` as sent.
+        #[serde(skip_serializing_if = "Option::is_none")]
+        pub waits_words: Option<String>,
         #[serde(skip_serializing_if = "Option::is_none")]
         pub note: Option<String>,
         #[serde(skip_serializing_if = "Option::is_none")]

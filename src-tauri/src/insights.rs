@@ -207,7 +207,7 @@ const WAITS_DAYS: i64 = 7;
 /// the days the reply names are counted from, whenever it's asked about, and so part of the
 /// moment it's kept under (`ask`).
 fn reply_day(s: &Session, zone: &dyn Zone) -> i64 {
-    let at = zone.civil(s.turn_ended.unwrap_or(s.last_activity));
+    let at = zone.civil(replied_at(s));
     days_from_civil(at.year, at.month, at.day)
 }
 
@@ -408,10 +408,8 @@ fn read_in(kind: Kind, response: &Value, zone: &dyn Zone) -> SessionInsight {
             out.landing = jev::choice(response, "landing").first().map(|(k, _)| k.clone());
             out.finished = jev::noul(response, "finished");
             // Not among the answers whose least sure one is the read's confidence: its own
-            // chance is what it's offered by. A reply read as asking you something waits on you
-            // now, whatever day it names: no snooze is offered beside its question, as an
-            // agent's tag can't say both (tags.rs `read`).
-            out.waits_until = waits_until(response, zone).filter(|_| out.asks_you.is_none_or(|p| p < crate::board::ASKS_YOU));
+            // chance is what it's offered by.
+            out.waits_until = waits_until(response, zone);
             &["asks_you", "landing", "finished"]
         }
         Kind::Quiet => {
@@ -463,10 +461,12 @@ pub fn merged(jev: Option<&SessionInsight>, said: Option<&str>, tag: Option<&Ses
         }
         // How its reply ends and when the work it puts off goes on are one read of the reply's
         // end: an agent that said how it ends said when too, or by leaving it out that it waits
-        // for no time, and Jev's day doesn't stand under it. So the snooze offered and the
-        // reply's ending always come from the same reader.
+        // for no time, and Jev's day doesn't stand under it. Under a tag that read something
+        // else (a landing, a risk), Jev's day stands, and is said as Jev's.
         if t.waits_until.is_some() || t.ending.is_some() || t.asks_you.is_some() {
             o.waits_until = t.waits_until;
+        } else {
+            o.waits_by_jev = o.waits_until.is_some();
         }
         if t.risk.is_some() {
             o.risk = t.risk;
@@ -485,7 +485,26 @@ pub fn merged(jev: Option<&SessionInsight>, said: Option<&str>, tag: Option<&Ses
         o.by_title = t.by_title.clone();
         o.note = t.note.clone();
     }
+    if let Some(o) = out.as_mut() {
+        o.waits_until = put_off_to(o);
+        o.waits_by_jev &= o.waits_until.is_some();
+    }
     out
+}
+
+/// The time a read puts its reply's work off to, unless it reads the reply as asking you
+/// something: that waits on you now, whatever day it names, so no snooze is offered beside its
+/// question. Held of whatever is shown (Jev's read, an agent's tag, the two merged, either kept
+/// from an older build), where tags.rs `read` only turns a new tag that says both away.
+fn put_off_to(i: &SessionInsight) -> Option<i64> {
+    i.waits_until.filter(|_| i.asks_you.is_none_or(|p| p < crate::board::ASKS_YOU))
+}
+
+/// When a session's last reply was written: when its turn ended, where its harness says, else
+/// its last activity. What the days and times a reply names are counted from, by Jev
+/// (`reply_day`) and in an agent's tag (tags.rs `waits_until`).
+pub fn replied_at(s: &Session) -> i64 {
+    s.turn_ended.unwrap_or(s.last_activity)
 }
 
 /* ---- Kept answers ---- */
@@ -532,7 +551,7 @@ impl Store {
     /// out, as it did.
     pub fn put_off(&self, s: &Session, now: i64) -> Option<i64> {
         let (kind, signature) = moment(s, now, false)?;
-        self.for_session(&s.key, &signature).filter(|_| kind == Kind::Turn)?.waits_until
+        self.for_session(&s.key, &signature).filter(|_| kind == Kind::Turn).and_then(put_off_to)
     }
 
     /// Whether to ask now: not answered for this moment, and not failed a moment ago.
@@ -816,9 +835,9 @@ mod tests {
         assert_eq!(until(json!({ "later": 1.0 })), None);
         assert_eq!(read_in(Kind::Turn, &json!({ "answers": {} }), &z).waits_until, None);
         // A reply read as asking you something waits on you now, not until the day it names.
-        let asking = |ending: Value| json!({ "answers": { "asks_you": { "probabilities": ending }, "waits_until": { "probabilities": { "2026-11-12": 0.9, "none": 0.1 } } } });
-        assert_eq!(read_in(Kind::Turn, &asking(json!({ "question": 0.8, "report": 0.2 })), &z).waits_until, None);
-        assert_eq!(read_in(Kind::Turn, &asking(json!({ "handoff": 0.8, "question": 0.2 })), &z).waits_until, Some(ms(&z, 2026, 11, 12, 9, 0)), "a next step of yours can wait for the day");
+        let asking = |ending: Value| merged(Some(&read_in(Kind::Turn, &json!({ "answers": { "asks_you": { "probabilities": ending }, "waits_until": { "probabilities": { "2026-11-12": 0.9, "none": 0.1 } } } }), &z)), None, None).unwrap().waits_until;
+        assert_eq!(asking(json!({ "question": 0.8, "report": 0.2 })), None);
+        assert_eq!(asking(json!({ "handoff": 0.8, "question": 0.2 })), Some(ms(&z, 2026, 11, 12, 9, 0)), "a next step of yours can wait for the day");
         // How sure it is of the day is no part of how sure the read is.
         let both = json!({ "answers": { "finished": { "noul": 0.9, "confidence": 0.8 }, "waits_until": { "probabilities": { "2026-11-12": 0.7, "none": 0.3 }, "confidence": 0.2 } } });
         assert_eq!(read_in(Kind::Turn, &both, &z).confidence, Some(0.8));
@@ -847,7 +866,17 @@ mod tests {
         let ending = SessionInsight { asks_you: Some(0.0), ending: Some("report".into()), by: tag.by.clone(), ..Default::default() };
         assert_eq!(merged(Some(&waits(5)), None, Some(&ending)).unwrap().waits_until, None);
         assert_eq!(merged(Some(&waits(5)), None, Some(&SessionInsight { ending: None, ..ending.clone() })).unwrap().waits_until, None, "whether it asks is a read of its end too");
-        assert_eq!(merged(Some(&waits(5)), None, Some(&SessionInsight { waits_until: Some(9), ..ending })).unwrap().waits_until, Some(9));
+        let theirs = merged(Some(&waits(5)), None, Some(&SessionInsight { waits_until: Some(9), ..ending })).unwrap();
+        assert_eq!((theirs.waits_until, theirs.waits_by_jev), (Some(9), false));
+        // Jev's day under a tag that read something else is said as Jev's, not the agent's.
+        let mine = merged(Some(&waits(5)), None, Some(&tag)).unwrap();
+        assert_eq!((mine.waits_until, mine.waits_by_jev), (Some(5), true));
+        assert!(!merged(None, None, Some(&tag)).unwrap().waits_by_jev, "no day, no one read it");
+        // A read that asks you something offers none, whoever read which: a tag's day over Jev's
+        // question, or a question and a day kept together from an older build.
+        let question = SessionInsight { asks_you: Some(0.9), ending: Some("question".into()), ..Default::default() };
+        assert_eq!(merged(Some(&question), None, Some(&SessionInsight { by: tag.by.clone(), finished: Some(0.0), ..waits(9) })).unwrap().waits_until, None);
+        assert_eq!(merged(Some(&SessionInsight { waits_until: Some(5), ..question }), None, None).unwrap().waits_until, None);
         // How the reply ends is Jev's to say under an agent's word on whether it asks, while the
         // two agree; the agent's own ending stands over both.
         let ends = |ending: &str| SessionInsight { asks_you: Some(0.1), ending: Some(ending.into()), ..Default::default() };
@@ -877,6 +906,9 @@ mod tests {
         next.reply_tail = Some("Done.".into());
         assert_eq!(store.put_off(&next, later), None);
         store.answered(s.key.clone(), ask(&s, NOW).unwrap().1, SessionInsight { landing: Some("pushed".into()), ..Default::default() }, NOW);
+        assert_eq!(store.put_off(&s, later), None);
+        // Nor for one that read the reply as asking you something, kept from an older build.
+        store.answered(s.key.clone(), ask(&s, NOW).unwrap().1, SessionInsight { asks_you: Some(0.9), waits_until: Some(monday), ..Default::default() }, NOW);
         assert_eq!(store.put_off(&s, later), None);
         // An archived session, or a helper, has no turn of yours to keep a read of.
         assert_eq!(store.put_off(&Session { archived: true, ..session(Status::Unread) }, later), None);

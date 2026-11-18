@@ -1130,11 +1130,17 @@ fn suggest(engine: &Handle, c: &Call) -> Result<Value, String> {
 /// or a turn of its starts. Says what was done, in a sentence.
 fn tag(engine: &Handle, c: &Call) -> Result<Value, String> {
     let key = c.session()?;
-    let p: params::Tag = c.read()?;
+    let mut p: params::Tag = c.read()?;
     let Some(session) = engine.read(|b| b.session(key).map(|(_, s)| s.clone())) else {
         return Err("Codealong doesn't list that session.".into());
     };
-    let insight = crate::tags::read(&p, crate::util::now_ms()).map_err(words)?;
+    let now = crate::util::now_ms();
+    // The words again, from when its last reply was written, which only this Mac knows: what
+    // the command counted them from may have moved since.
+    if let Some(said) = p.waits_words.as_deref() {
+        p.waits_until = Some(crate::tags::waits_until(said, crate::insights::replied_at(&session), now, &crate::schedules::rule::Local).map_err(words)?);
+    }
+    let insight = crate::tags::read(&p, now).map_err(words)?;
     // What was read is where the tag speaks from; without it (an older Mac's agent), where it stands.
     let read = p.prompt_at.unwrap_or(session.last_prompt_at);
     if insight.is_some() {

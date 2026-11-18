@@ -81,8 +81,10 @@ export function suggestedSnooze(s: Pick<Session, 'insight' | 'snoozedUntil' | 'a
   if (lifts && lifts - now >= WORTH) return { until: lifts, why: 'limit' };
   const until = s.insight?.waitsUntil;
   if (!until || until - now < WORTH) return null;
-  const note = s.insight?.by && s.insight.note ? `: ${s.insight.note}` : '';
-  return { until, why: 'reply', reader: readerOf(s.insight), by: `${readBy(s.insight)}${note}` };
+  // Who read the day: Jev's, under a tag that read something else, is said as Jev's.
+  const read = s.insight?.waitsByJev ? undefined : s.insight;
+  const note = read?.by && read.note ? `: ${read.note}` : '';
+  return { until, why: 'reply', reader: readerOf(read), by: `${readBy(read)}${note}` };
 }
 
 /** The next morning at nine: this morning's in the small hours. */

@@ -2120,6 +2120,9 @@ export interface SessionInsight {
    *  morning; an agent's tag says any time. It stays once the time has come, when nothing is
    *  offered. Missing where the reply names none, and from older Macs. */
   waitsUntil?: number;
+  /** That `waitsUntil` is Jev's read under an agent's tag that didn't say how the reply ends:
+   *  the agent in `by` didn't read it (insights.rs `merged`). */
+  waitsByJev?: boolean;
 }
 
 /** How a reply can leave things with you: it asks you something, can't go on until you do
