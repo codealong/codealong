@@ -3702,17 +3702,25 @@ mid-meeting are followed; speakers that say they are (the Mac's own, a display's
 Nothing is taken out of the microphone's sound: macOS's voice processing, which would, left the
 Mac's audio silent and turned the call down for you and for the others (tried on 2026-11-13).
 
-What's taken out is the second copy of their words. Each line the microphone settles on is held
-back about three seconds and matched against what the Mac played at the same moment: words in the
-same order at the same time are theirs, heard through your speakers, and are left out of the
-transcript, a word misheard or a sentence cut in other places included. Words of yours before or
-after them stay, as your line, when there are four or more, or when they go on past the end of
-theirs or start before it: you answering as they finish ("No, I can't."). Until a close repeat or
-the speakers' sound has shown that the microphone hears the Mac, only a line that's nearly all
-theirs is left out; after that, a looser one is too, and a "Yeah." they said at that moment as
-well. The Mac's lines are never left out, and lines are written in the order they settled, so
-one of theirs waits behind one of yours that's held back. The words being said still show as
-they're heard, yours included, before they settle.
+What's taken out is the second copy of their words. The microphone hears the Mac faintly, so that
+copy is mostly their words misheard: the end of a sentence, "Kestral" for "Kestrel", "the at last
+report" for "the Atlas report". Each line the microphone settles on is held back about three seconds and
+compared with what the Mac played at the same moment by how the words sound, not how they're
+spelled, so a word misheard as one that sounds like it, words run together or split apart, and
+words the microphone didn't catch still match. A line that sounds like a stretch of theirs, and
+was over by the time they'd said it, is theirs, heard through your speakers, and is left out of
+the transcript. Words of yours before or after a close repeat stay, as your line, when there are
+four or more, or when they go on past the end of theirs or start before it: you answering as they
+finish ("No, I can't."). Nothing is taken from the middle of a line of yours, and a line that ends
+well after they said the words it shares with them is you taking them up ("we're certainly taking
+on new projects"), and stays. Until a close repeat or the speakers' sound has shown that the
+microphone hears the Mac, only a line that sounds nearly all theirs is left out; after that, a
+looser one is too, and a "Yeah." they said at that moment as well, for half an hour after the
+last close repeat or until what the Mac plays through changes. A line of nothing but punctuation
+(the speech model's "." for a sound it made no words of) is never written. The Mac's lines are
+never left out, and lines are written in the order they settled, so one of theirs waits behind
+one of yours that's held back. The words being said show as they're heard, before they settle;
+once the microphone is known to hear the Mac, yours show without what repeats theirs.
 
 Codealong writes what's said to a transcript, a line for each thing said: the time, who (You for
 the microphone, Them for what the Mac plays), and the words. At a pause in the talk, and no more

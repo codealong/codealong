@@ -580,6 +580,9 @@ struct Running {
     waiting: Option<String>,
     /// When the words being said were last sent to the windows.
     said_at: Option<Instant>,
+    /// Whether words of yours being said are showing in the windows: ones that repeat theirs
+    /// aren't sent (echo.rs `Repeats::shown`), and what was showing goes once.
+    mine_shown: bool,
     /// Its session's last reply as it was at the last look, to know a new one by; None until the
     /// first look, whose reply was written before the listening and is no cue.
     reply: Option<Option<String>>,
@@ -829,16 +832,16 @@ fn say(id: &str, f: impl FnOnce(&mut Running)) {
 }
 
 /// Listening `id`'s lines on their way to its transcript (`State::held`), begun when `start` and
-/// there are none, and told whether you're on speakers while its helper is there to say: once an
-/// ending has taken that, they're judged as it last said.
+/// there are none, and told whether you're on speakers, and what the Mac plays through, while its
+/// helper is there to say: once an ending has taken that, they're judged as it last said.
 fn held<'a>(state: &'a mut State, id: &str, start: bool) -> Option<&'a mut Repeats> {
-    let speakers = state.running.get(id).map(|r| r.echo.speakers());
+    let echo = state.running.get(id).map(|r| (r.echo.speakers(), r.echo.output().map(str::to_string)));
     if start {
         state.held.entry(id.to_string()).or_default();
     }
     let held = state.held.get_mut(id)?;
-    if let Some(speakers) = speakers {
-        held.on_speakers(speakers);
+    if let Some((speakers, output)) = echo {
+        held.on_speakers(speakers, output.as_deref());
     }
     Some(held)
 }
@@ -847,21 +850,42 @@ fn held<'a>(state: &'a mut State, id: &str, start: bool) -> Option<&'a mut Repea
 fn heard(id: &str, event: Event) {
     match event {
         Event::Partial { source, text } => {
-            let session = {
+            let mine = source == YOU;
+            let (session, text) = {
                 let mut state = state();
-                if let Some(held) = state.held.get_mut(id) {
-                    held.saying(source == YOU, &text, util::now_ms());
-                }
+                let now = util::now_ms();
+                // Your words being said, without what repeats theirs (echo.rs `Repeats::shown`).
+                let shown = match held(&mut state, id, false) {
+                    Some(held) => {
+                        held.saying(mine, &text, now);
+                        if mine && !text.is_empty() {
+                            held.shown(&text, now)
+                        } else {
+                            text.clone()
+                        }
+                    }
+                    None => text.clone(),
+                };
                 let Some(running) = state.running.get_mut(id) else { return };
-                // The words settling (empty) always go; the ones still changing, every so often.
-                if !text.is_empty() && running.said_at.is_some_and(|at| at.elapsed() < PARTIAL_EVERY) {
+                // All of it theirs: what's showing of yours goes, as words that settled do, once.
+                if shown.is_empty() && !text.is_empty() {
+                    if !std::mem::take(&mut running.mine_shown) {
+                        return;
+                    }
+                } else if !shown.is_empty() && running.said_at.is_some_and(|at| at.elapsed() < PARTIAL_EVERY) {
+                    // The words settling (empty) always go; the ones still changing, every so often.
                     return;
                 }
                 running.said_at = Some(Instant::now());
-                running.session.clone()
+                if mine {
+                    running.mine_shown = !shown.is_empty();
+                }
+                (running.session.clone(), shown)
             };
             crate::views::emit(HEARING, &Hearing { session, who: Some(source), text: Some(text), ..Hearing::default() });
         }
+        // Punctuation the speech model wrote for a sound it made no words of: nothing said.
+        Event::Final { text, .. } if !text.chars().any(char::is_alphanumeric) => {}
         Event::Final { source, text, at, until } => {
             let Some(l) = list().into_iter().find(|l| l.id == id) else { return };
             let said = Said { mine: source == YOU, text, at, until };

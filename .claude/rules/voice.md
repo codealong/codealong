@@ -92,6 +92,14 @@ What macOS's speech recognition and audio capture take and give, as codealong-ea
   and nothing is taken out of the microphone's sound on speakers; the engine leaves its words that
   repeat the Mac's out of the transcript instead (echo.rs `Repeats`). Whether a tap in another process than
   the voice processing stays audible wasn't tried; the turning down rules it out anyway.
+- What the microphone writes of the Mac on speakers, two real calls (2026-11-17, Teams, a dock's
+  USB speakers): mostly not the others' lines over again but scraps of them, misheard: a few
+  words from the end of a sentence, a name or an idiom heard as words that sound like it, words
+  run together or split apart, and lines of nothing but punctuation (`.`, `?`). A scrap's line
+  starts about when theirs does, give or take a second, and ends with it; but one line started
+  twelve seconds before the words it made out, the model's stretch running from a faint sound it
+  made nothing of. Words compared as written missed some fifty of them in an hour, which is why
+  `Repeats` compares how they sound.
 - The camera, run once (2026-11-13, macOS 26.6.2, Teams' Mac app opened while a listening heard
   the microphone and the Mac's audio): Teams showed its camera before joining. The camera went off
   as it joined the call and didn't come back until Teams was quit and opened again, by then with
