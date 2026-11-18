@@ -408,7 +408,7 @@ interface PrsViewProps {
 }
 
 /** The status headings' icons; the days' have none, as in Sessions. */
-const SECTION_ICON: Partial<Record<PrSection['id'], string>> = { requested: 'eye', ready: 'circle-check', work: 'tool', agent: 'hourglass', mine: 'user', others: 'pr', waiting: 'clock', drafts: 'pr-draft', unasked: 'pr', snoozed: 'zzz', done: 'merge' };
+const SECTION_ICON: Partial<Record<PrSection['id'], string>> = { requested: 'eye', ready: 'circle-check', work: 'tool', agent: 'hourglass', fixing: 'refresh', working: 'code', mine: 'user', others: 'pr', waiting: 'clock', drafts: 'pr-draft', unasked: 'pr', snoozed: 'zzz', done: 'merge' };
 
 export function PrsView(props: PrsViewProps) {
   const { pinned, sections, groups, groupActs, sort, onShowRepo, lines, now, selectedKey, picked, domId, showDone, onToggleDone, onSelect, onOpen, onOpenSession, onContextMenu, onPlacePinned, onUnpin } = props;
