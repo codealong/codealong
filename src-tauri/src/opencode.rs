@@ -1039,6 +1039,26 @@ struct Polled {
     inflight: bool,
 }
 
+impl Polled {
+    /// Takes in a poll's answers, each account's, or none where its service didn't answer. True
+    /// when what the board shows of them changed: which sessions run and what each waits on, not
+    /// the poll's own time (`Live::at`), which moves every poll.
+    fn take(&mut self, results: Vec<(String, Option<Live>)>) -> bool {
+        let mut changed = false;
+        for (account, live) in results {
+            match live {
+                Some(l) => {
+                    let l = l.dated(self.seen.entry(account.clone()).or_default());
+                    changed |= !self.live.get(&account).is_some_and(|was| was.active == l.active && was.pending == l.pending);
+                    self.live.insert(account, l);
+                }
+                None => changed |= self.live.remove(&account).is_some(),
+            }
+        }
+        changed
+    }
+}
+
 /// OpenCode's sessions for the board (`harness::Reader`): the database's rows, what the service
 /// says is running and waiting, and the terminals that show sessions.
 pub struct Reader {
@@ -1143,20 +1163,16 @@ impl crate::harness::Reader for Reader {
             crate::os::system::utility_thread();
             let now = crate::util::now_ms();
             let results: Vec<(String, Option<Live>)> = accounts.into_iter().map(|a| (a.name.clone(), service(&a.home_path()).and_then(|svc| poll(&svc, now)))).collect();
-            {
+            let changed = {
                 let mut polled = polled.lock().unwrap_or_else(|e| e.into_inner());
                 polled.inflight = false;
-                for (account, live) in results {
-                    match live {
-                        Some(l) => {
-                            let l = l.dated(polled.seen.entry(account.clone()).or_default());
-                            polled.live.insert(account, l)
-                        }
-                        None => polled.live.remove(&account),
-                    };
-                }
+                polled.take(results)
+            };
+            // Most polls find what the last one did: the board is composed again only when what
+            // it shows of them moved, as Cursor's prompts are.
+            if changed {
+                wake();
             }
-            wake();
         });
     }
 
@@ -1642,6 +1658,28 @@ mod tests {
         // Forgotten after a long while unseen.
         let later = 8_000 + FORGET_ASKED_MS;
         assert_eq!(since(&poll(later, vec![("s1", "per_1")]).dated(&mut seen), "s1"), later);
+    }
+
+    /// A poll wakes the engine only when what it found moved: a poll that finds what the last one
+    /// did, at a later time, composes nothing (the perf log had one every 2 seconds).
+    #[test]
+    fn a_poll_that_finds_the_same_wakes_nothing() {
+        let asked = |id: &str, at: i64| Asked { id: id.into(), ask: "Bash · `npm test`".into(), since: at };
+        let live = |at: i64, active: &[&str], pending: &[(&str, &str)]| Live {
+            at,
+            active: active.iter().map(|s| s.to_string()).collect(),
+            pending: pending.iter().map(|(s, id)| (s.to_string(), asked(id, at))).collect(),
+        };
+        let one = |l: Option<Live>| vec![("oc".to_string(), l)];
+        let mut polled = Polled::default();
+        assert!(polled.take(one(Some(live(1_000, &["s1"], &[])))), "the first answer");
+        assert!(!polled.take(one(Some(live(3_000, &["s1"], &[])))), "the same, later");
+        assert!(polled.take(one(Some(live(5_000, &["s1", "s2"], &[])))), "another runs");
+        assert!(polled.take(one(Some(live(7_000, &["s1", "s2"], &[("s2", "per_1")])))), "one asks");
+        // The same request, polled again: its first time is kept, so nothing moved.
+        assert!(!polled.take(one(Some(live(9_000, &["s1", "s2"], &[("s2", "per_1")])))));
+        assert!(polled.take(one(None)), "the service went away");
+        assert!(!polled.take(one(None)), "and is still away");
     }
 
     /// The tables read, with the columns read.

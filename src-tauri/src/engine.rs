@@ -1729,7 +1729,7 @@ impl Engine {
         let Some(p) = jev::noul(&response, "done") else { return };
         self.jev_todos.done.insert(id, todojev::DoneAnswer { sig, p, why });
         self.jev_todos.save();
-        self.dirty = true;
+        self.mark_dirty("Jev on a todo");
     }
 
     /// Says a todo doesn't look done after all, until something linked to it moves on.
@@ -1737,7 +1737,7 @@ impl Engine {
         if let Some(a) = self.jev_todos.done.get(&id) {
             self.jev_todos.dismissed.insert(id, a.sig.clone());
             self.jev_todos.save();
-            self.dirty = true;
+            self.mark_dirty("a todo hint dismissed");
         }
     }
 
@@ -1891,7 +1891,7 @@ impl Engine {
                 self.set_trouble(Trouble::Emblems, Some(why));
             }
         }
-        self.dirty = true;
+        self.mark_dirty("an emblem drawn");
         self.emblems.save(now);
     }
 
@@ -1901,7 +1901,7 @@ impl Engine {
         match answer {
             Ok(response) if self.emblems.answered_emoji(key, &jev::choice(&response, "emoji"), now) => {
                 self.emblems.save(now);
-                self.dirty = true;
+                self.mark_dirty("an emblem's emoji");
             }
             Ok(_) => {}
             Err(_) => self.emblems.failed(key, now),
@@ -1964,7 +1964,7 @@ impl Engine {
             (Ok(v), Some(kind)) => {
                 self.insights.answered(key.to_string(), signature.to_string(), crate::insights::read(kind, &v), now);
                 self.insights.save(now);
-                self.dirty = true;
+                self.mark_dirty("Jev's insight");
             }
             _ => self.insights.failed(signature.to_string(), now),
         }
@@ -2406,7 +2406,7 @@ fn waiting_call(s: &Session, account: Option<&config::AccountCfg>) -> Option<Str
         // once the watcher runs.
         self.load_reviews();
         self.loading = false;
-        self.publish();
+        self.publish_for("first board");
         self.queue_git_all();
         self.github.poll(&self.seeds, true, Now::real());
         self.fetch_usage();
@@ -2439,6 +2439,7 @@ fn waiting_call(s: &Session, account: Option<&config::AccountCfg>) -> Option<Str
     /// Takes in what a read came to: the board is to be published again, and the lines sessions
     /// wrote are checked. True when a session appeared, which may need a lane (`place_sessions`).
     fn take(&mut self, applied: harness::Applied) -> bool {
+        // Its callers name the reads that asked (`asked`), by harness or account.
         self.dirty |= applied.dirty;
         for l in applied.lines {
             self.check_new_lines(&l.path, l.from, l.to, &l.key);
@@ -2650,7 +2651,7 @@ fn waiting_call(s: &Session, account: Option<&config::AccountCfg>) -> Option<Str
         if !cfg!(test) {
             usage::keep(&self.cfg.accounts, &self.usage);
         }
-        self.dirty = true;
+        self.mark_dirty("usage");
     }
 
     /// Everything that depends on config.toml, read again. When nothing but the theme, the
@@ -2684,7 +2685,7 @@ fn waiting_call(s: &Session, account: Option<&config::AccountCfg>) -> Option<Str
         rest.voice = before.voice.clone();
         rest.experimental = before.experimental.clone();
         if rest == before {
-            self.dirty = true;
+            self.mark_dirty("config");
             return;
         }
         self.scan_sessions();
@@ -2701,7 +2702,7 @@ fn waiting_call(s: &Session, account: Option<&config::AccountCfg>) -> Option<Str
         self.mcp.keep_only(&self.cfg.accounts);
         self.fetch_usage();
         self.watch();
-        self.dirty = true;
+        self.mark_dirty("config");
     }
 
     fn run(&mut self, rx: Receiver<Msg>) {
@@ -2742,18 +2743,23 @@ fn waiting_call(s: &Session, account: Option<&config::AccountCfg>) -> Option<Str
                 Ok(Msg::RefreshGithub) => self.github.poll(&self.seeds, false, Now::real()),
                 Ok(Msg::PrChanged) => self.github.on_changed(&self.seeds, Now::real()),
                 Ok(Msg::Merged(slug, number, reply)) => {
-                    self.dirty |= self.github.on_merged(slug, number, &self.seeds, Now::real());
+                    let changed = self.github.on_merged(slug, number, &self.seeds, Now::real());
+                    self.dirty_if(changed, "merged");
                     // Now rather than on the next tick: the window shows it merged meanwhile.
-                    self.publish();
+                    self.publish_for("merged");
                     let _ = reply.send(self.board.read().map(|b| b.generated_at).unwrap_or(0));
                 }
                 Ok(Msg::Approved(slug, number, verdict, commit, reply)) => {
-                    self.dirty |= self.github.on_approved(slug, number, verdict, commit, &self.seeds, Now::real());
+                    let changed = self.github.on_approved(slug, number, verdict, commit, &self.seeds, Now::real());
+                    self.dirty_if(changed, "approved");
                     // Now rather than on the next tick: the button waits for it.
-                    self.publish();
+                    self.publish_for("approved");
                     let _ = reply.send(self.board.read().map(|b| b.generated_at).unwrap_or(0));
                 }
-                Ok(Msg::Visitors(scan, found)) => self.dirty |= self.visitors.scanned(scan, found),
+                Ok(Msg::Visitors(scan, found)) => {
+                    let changed = self.visitors.scanned(scan, found);
+                    self.dirty_if(changed, "visitors");
+                }
                 Ok(Msg::PrMarks(found, pushed)) => {
                     // Marks and pushes read from new lines while the scan ran are kept.
                     for (key, prs) in found {
@@ -2768,7 +2774,7 @@ fn waiting_call(s: &Session, account: Option<&config::AccountCfg>) -> Option<Str
                             prlinks::add_push(have, branch, at);
                         }
                     }
-                    self.dirty = true;
+                    self.mark_dirty("PR marks scan");
                 }
                 Ok(Msg::Artifacts(found)) => {
                     // Lines read as they were written while the scan ran are kept, or taken
@@ -2779,7 +2785,7 @@ fn waiting_call(s: &Session, account: Option<&config::AccountCfg>) -> Option<Str
                             artifacts::add(have, a);
                         }
                     }
-                    self.dirty = true;
+                    self.mark_dirty("artifacts scan");
                 }
                 Ok(Msg::ChromeUse(found, profiles)) => self.take_chrome_use(found, profiles),
                 Ok(Msg::ChromeProfile(key, group, dir, profiles)) => {
@@ -2787,7 +2793,7 @@ fn waiting_call(s: &Session, account: Option<&config::AccountCfg>) -> Option<Str
                     if let Some(u) = self.chrome_use.get_mut(&key).filter(|u| u.group == group) {
                         if dir.is_some() && u.profile != dir {
                             u.profile = dir;
-                            self.dirty = true;
+                            self.mark_dirty("Chrome profile");
                         }
                     }
                 }
@@ -2802,34 +2808,38 @@ fn waiting_call(s: &Session, account: Option<&config::AccountCfg>) -> Option<Str
                 }
                 Ok(Msg::Went(what, why)) => {
                     self.set_trouble(what, why);
-                    self.dirty = true;
+                    self.mark_dirty("a background job went");
                 }
                 Ok(Msg::PrLinksChanged) => {
                     self.load_pr_links();
-                    self.dirty = true;
+                    self.mark_dirty("PR links");
                 }
                 // Another device's board comes often; only what it runs on PRs is looked at.
                 Ok(Msg::RunningElsewhere(prs)) if prs != self.running_elsewhere => {
                     self.running_elsewhere = prs;
-                    self.dirty = true;
+                    self.mark_dirty("running elsewhere");
                 }
                 Ok(Msg::RunningElsewhere(_)) => {}
                 Ok(Msg::Machines(m)) if m != *self.machines => {
                     self.machines = std::sync::Arc::new(m);
-                    self.dirty = true;
+                    self.mark_dirty("machines");
                 }
                 Ok(Msg::Machines(_)) => {}
                 Ok(Msg::ShownUnlocked(why, deferred)) => {
                     self.tab_looks.on_looked(deferred);
                     self.set_trouble(Trouble::Unlocked, why);
-                    self.dirty = true;
+                    self.mark_dirty("unlocked");
                 }
                 Ok(Msg::Reviewed(why)) => {
                     self.review_warning = why;
                     self.load_reviews();
-                    self.dirty = true;
+                    self.mark_dirty("reviews");
                 }
-                Ok(Msg::Hosted) | Ok(Msg::Read) | Ok(Msg::Sides) | Ok(Msg::Terminals) | Ok(Msg::Listenings) => self.dirty = true,
+                Ok(Msg::Hosted) => self.mark_dirty("hosted sessions"),
+                Ok(Msg::Read) => self.mark_dirty("a reader's poll"),
+                Ok(Msg::Sides) => self.mark_dirty("side conversations"),
+                Ok(Msg::Terminals) => self.mark_dirty("Codealong's terminals"),
+                Ok(Msg::Listenings) => self.mark_dirty("listenings"),
                 Ok(Msg::SetArchived(keys, archived, reply)) => {
                     let now = now_ms();
                     for key in &keys {
@@ -2843,37 +2853,37 @@ fn waiting_call(s: &Session, account: Option<&config::AccountCfg>) -> Option<Str
                         r.archives_changed(&harness::accounts_of(&self.cfg, r.harness()), &look);
                     }
                     // Now rather than on the next tick: the window shows it already, and waits for it.
-                    self.publish();
+                    self.publish_for("archived");
                     let _ = reply.send(self.board.read().map(|b| b.generated_at).unwrap_or(0));
                 }
                 Ok(Msg::SetPinned(keys)) => {
                     self.seen.set_pinned(keys);
                     self.save_state();
-                    self.dirty = true;
+                    self.mark_dirty("pins");
                 }
                 Ok(Msg::SetPinnedWorktrees(ids)) => {
                     self.seen.set_pinned_worktrees(ids);
                     self.save_state();
-                    self.dirty = true;
+                    self.mark_dirty("pinned worktrees");
                 }
                 Ok(Msg::SetPinnedPrs(keys)) => {
                     self.seen.set_pinned_prs(keys);
                     self.save_state();
-                    self.dirty = true;
+                    self.mark_dirty("pinned PRs");
                 }
                 Ok(Msg::SetPinnedRepos(keys)) => {
                     self.seen.set_pinned_repos(keys);
                     self.save_state();
-                    self.dirty = true;
+                    self.mark_dirty("pinned repos");
                 }
                 Ok(Msg::SetTheme(theme)) => {
                     // Published now, not on the next tick: the app's appearance follows the board.
                     self.cfg.appearance.theme = theme;
-                    self.publish();
+                    self.publish_for("theme");
                 }
                 Ok(Msg::SetZoom(zoom)) => {
                     self.cfg.appearance.zoom = zoom;
-                    self.publish();
+                    self.publish_for("zoom");
                 }
                 Ok(Msg::Ping(sent)) => perf::lag("engine", sent.elapsed()),
                 Ok(Msg::Todo(op, reply)) => {
@@ -2885,17 +2895,17 @@ fn waiting_call(s: &Session, account: Option<&config::AccountCfg>) -> Option<Str
                 Ok(Msg::Landed) => self.landed_at = Some(Instant::now()),
                 Ok(Msg::Servers(servers)) => {
                     self.previews.servers = servers;
-                    self.dirty = true;
+                    self.mark_dirty("preview servers");
                 }
                 Ok(Msg::Previews(reply)) => {
                     self.load_previews();
                     // Now rather than on the next tick: the window waits for it.
-                    self.publish();
+                    self.publish_for("previews");
                     let _ = reply.send(self.board.read().map(|b| b.generated_at).unwrap_or(0));
                 }
                 Ok(Msg::Reusable(reply)) => {
                     self.load_reusable();
-                    self.publish();
+                    self.publish_for("reusable");
                     let _ = reply.send(self.board.read().map(|b| b.generated_at).unwrap_or(0));
                 }
                 Ok(Msg::PrCard(slug, raw, login, reply)) => {
@@ -2908,20 +2918,44 @@ fn waiting_call(s: &Session, account: Option<&config::AccountCfg>) -> Option<Str
                 Ok(Msg::Reread(paths, reply)) => {
                     self.apply_fs(paths);
                     // Now rather than on the next tick: the window shows it already, and waits for it.
-                    self.publish();
+                    self.publish_for("reread");
                     let _ = reply.send(self.board.read().map(|b| b.generated_at).unwrap_or(0));
                 }
                 Ok(Msg::TodoStarted { ids, lane, session, pending }) => self.todos_started(ids, lane, session, pending),
                 Ok(Msg::UsageDone(list)) => self.on_usage(list),
                 Ok(Msg::Processes(listed)) => self.on_processes(listed),
-                Ok(Msg::TeamFiles(answers)) => self.dirty |= self.team_files.on_read(answers),
-                Ok(Msg::TrainingRead(list)) => self.dirty |= self.training.on_read(list),
-                Ok(Msg::SignInsRead(list)) => self.dirty |= self.sign_ins.on_read(list),
-                Ok(Msg::TrainingOne(asked_as, t)) => self.dirty |= self.training.on_changed(&asked_as, t),
-                Ok(Msg::ResetsRead(list)) => self.dirty |= self.resets.on_read(list),
-                Ok(Msg::ResetsOne(asked_as, r)) => self.dirty |= self.resets.on_changed(&asked_as, r),
-                Ok(Msg::McpRead(list)) => self.dirty |= self.mcp.on_read(list),
-                Ok(Msg::Screens(found)) => self.dirty |= self.screens.on_read(found),
+                Ok(Msg::TeamFiles(answers)) => {
+                    let changed = self.team_files.on_read(answers);
+                    self.dirty_if(changed, "team files");
+                }
+                Ok(Msg::TrainingRead(list)) => {
+                    let changed = self.training.on_read(list);
+                    self.dirty_if(changed, "training");
+                }
+                Ok(Msg::SignInsRead(list)) => {
+                    let changed = self.sign_ins.on_read(list);
+                    self.dirty_if(changed, "sign-ins");
+                }
+                Ok(Msg::TrainingOne(asked_as, t)) => {
+                    let changed = self.training.on_changed(&asked_as, t);
+                    self.dirty_if(changed, "training");
+                }
+                Ok(Msg::ResetsRead(list)) => {
+                    let changed = self.resets.on_read(list);
+                    self.dirty_if(changed, "limit resets");
+                }
+                Ok(Msg::ResetsOne(asked_as, r)) => {
+                    let changed = self.resets.on_changed(&asked_as, r);
+                    self.dirty_if(changed, "limit resets");
+                }
+                Ok(Msg::McpRead(list)) => {
+                    let changed = self.mcp.on_read(list);
+                    self.dirty_if(changed, "MCP");
+                }
+                Ok(Msg::Screens(found)) => {
+                    let changed = self.screens.on_read(found);
+                    self.dirty_if(changed, "screens");
+                }
                 Ok(Msg::StartAnswered(at)) => self.screens.again(at),
                 Ok(Msg::EmblemDrawn(key, drawn)) => self.on_emblem_drawn(&key, drawn),
                 Ok(Msg::MarkSeen(keys, at, reply)) => {
@@ -2936,7 +2970,7 @@ fn waiting_call(s: &Session, account: Option<&config::AccountCfg>) -> Option<Str
                         self.seen.take_up(&k);
                     }
                     self.save_state();
-                    self.publish();
+                    self.publish_for("taken up");
                     if let Some(reply) = reply {
                         let _ = reply.send(self.board.read().map(|b| b.generated_at).unwrap_or(0));
                     }
@@ -2947,7 +2981,7 @@ fn waiting_call(s: &Session, account: Option<&config::AccountCfg>) -> Option<Str
                         self.seen.mark_unread(&k, now);
                     }
                     self.save_state();
-                    self.publish();
+                    self.publish_for("marked unread");
                     if let Some(reply) = reply {
                         let _ = reply.send(self.board.read().map(|b| b.generated_at).unwrap_or(0));
                     }
@@ -2955,7 +2989,7 @@ fn waiting_call(s: &Session, account: Option<&config::AccountCfg>) -> Option<Str
                 Ok(Msg::AgentSeen(key, seen, reply)) => {
                     self.seen.mark_agent_seen(&key, AgentSeen { at: now_ms(), ..seen });
                     self.save_state();
-                    self.publish();
+                    self.publish_for("agent seen");
                     let _ = reply.send(self.board.read().map(|b| b.generated_at).unwrap_or(0));
                 }
                 Ok(Msg::Snooze(keys, until, reply)) => {
@@ -2972,7 +3006,7 @@ fn waiting_call(s: &Session, account: Option<&config::AccountCfg>) -> Option<Str
                     }
                     self.save_state();
                     // Now rather than on the next tick: the window shows it already, and waits for it.
-                    self.publish();
+                    self.publish_for("seen");
                     let _ = reply.send(self.board.read().map(|b| b.generated_at).unwrap_or(0));
                 }
                 Ok(Msg::Aside(keys, reply)) => {
@@ -2981,7 +3015,7 @@ fn waiting_call(s: &Session, account: Option<&config::AccountCfg>) -> Option<Str
                         self.seen.set_aside(&k, now);
                     }
                     self.save_state();
-                    self.publish();
+                    self.publish_for("set aside");
                     let _ = reply.send(self.board.read().map(|b| b.generated_at).unwrap_or(0));
                 }
                 Ok(Msg::SnoozeReviews(keys, until, reply)) => {
@@ -2993,11 +3027,11 @@ fn waiting_call(s: &Session, account: Option<&config::AccountCfg>) -> Option<Str
                         }
                     }
                     self.save_state();
-                    self.publish();
+                    self.publish_for("snoozed");
                     let _ = reply.send(self.board.read().map(|b| b.generated_at).unwrap_or(0));
                 }
                 Ok(Msg::Suggested(reply)) => {
-                    self.publish();
+                    self.publish_for("suggested");
                     let _ = reply.send(self.board.read().map(|b| b.generated_at).unwrap_or(0));
                 }
                 Ok(Msg::Quiet(keys, quiet, reply)) => {
@@ -3007,7 +3041,7 @@ fn waiting_call(s: &Session, account: Option<&config::AccountCfg>) -> Option<Str
                     }
                     if changed {
                         self.save_state();
-                        self.publish();
+                        self.publish_for("quiet");
                     }
                     let _ = reply.send(self.board.read().map(|b| b.generated_at).unwrap_or(0));
                 }
@@ -3015,7 +3049,7 @@ fn waiting_call(s: &Session, account: Option<&config::AccountCfg>) -> Option<Str
                     let answer = self.on_label(&keys, &add, &remove);
                     if answer == Ok(true) {
                         self.save_state();
-                        self.publish();
+                        self.publish_for("label");
                     }
                     let _ = reply.send(answer.map(|_| self.board.read().map(|b| b.generated_at).unwrap_or(0)));
                 }
@@ -3023,7 +3057,7 @@ fn waiting_call(s: &Session, account: Option<&config::AccountCfg>) -> Option<Str
                     let answer = self.on_raise(&keys, raised, by, now_ms());
                     if answer == Ok(true) {
                         self.save_state();
-                        self.publish();
+                        self.publish_for("raised");
                     }
                     let _ = reply.send(answer.map(|_| self.board.read().map(|b| b.generated_at).unwrap_or(0)));
                 }
@@ -3036,7 +3070,7 @@ fn waiting_call(s: &Session, account: Option<&config::AccountCfg>) -> Option<Str
                     }
                     if changed {
                         self.save_state();
-                        self.publish();
+                        self.publish_for("pinned");
                     }
                     let _ = reply.send(self.board.read().map(|b| b.generated_at).unwrap_or(0));
                 }
@@ -3047,7 +3081,7 @@ fn waiting_call(s: &Session, account: Option<&config::AccountCfg>) -> Option<Str
                     }
                     if changed {
                         self.save_state();
-                        self.publish();
+                        self.publish_for("made own");
                     }
                     let _ = reply.send(self.board.read().map(|b| b.generated_at).unwrap_or(0));
                 }
@@ -3057,7 +3091,7 @@ fn waiting_call(s: &Session, account: Option<&config::AccountCfg>) -> Option<Str
                     let helper = self.board.read().is_ok_and(|b| b.session(&key).is_some_and(|(_, s)| s.helper.is_some()));
                     if (helper || !yours) && self.seen.set_talking(&key, yours) {
                         self.save_state();
-                        self.publish();
+                        self.publish_for("talking");
                     }
                 }
                 Ok(Msg::SetupDone) => {
@@ -3111,8 +3145,7 @@ fn waiting_call(s: &Session, account: Option<&config::AccountCfg>) -> Option<Str
             if last_heartbeat.elapsed() >= Duration::from_secs(30) {
                 // Codex turns go stale with time alone; republishing picks that up.
                 last_heartbeat = Instant::now();
-                self.dirty = true;
-                self.asked(|| "heartbeat".into());
+                self.mark_dirty("heartbeat");
             }
             if throttle::publish_now(self.dirty, self.dirty_git, self.last_publish.map(|t| t.elapsed()), PUBLISH_EVERY) {
                 self.publish();
@@ -3417,6 +3450,27 @@ fn waiting_call(s: &Session, account: Option<&config::AccountCfg>) -> Option<Str
         }
     }
 
+    /// Has the board composed again, saying why: every mark names its cause, so a publish that
+    /// changed nothing says in the perf log what asked for it (`publish`).
+    fn mark_dirty(&mut self, why: &'static str) {
+        self.dirty = true;
+        self.asked(|| why.into());
+    }
+
+    /// `mark_dirty` when `changed`.
+    fn dirty_if(&mut self, changed: bool, why: &'static str) {
+        if changed {
+            self.mark_dirty(why);
+        }
+    }
+
+    /// Publishes now rather than on the next tick (a window waits for it, or shows it already),
+    /// saying why as `mark_dirty` does.
+    fn publish_for(&mut self, why: &'static str) {
+        self.asked(|| why.into());
+        self.publish();
+    }
+
     fn on_git(&mut self, path: PathBuf, info: Option<GitInfo>) {
         self.perf.git_jobs += 1;
         // A run that fell over leaves what was known of the worktree as it is, and one that found
@@ -3436,8 +3490,7 @@ fn waiting_call(s: &Session, account: Option<&config::AccountCfg>) -> Option<Str
     /// Takes in what GitHub was asked in the background (ghpoll.rs).
     fn on_github(&mut self, event: ghpoll::Event) {
         if self.github.on_event(event, &self.seeds, Now::real()) {
-            self.dirty = true;
-            self.asked(|| "github".into());
+            self.mark_dirty("github");
         }
     }
 
@@ -3531,7 +3584,7 @@ fn waiting_call(s: &Session, account: Option<&config::AccountCfg>) -> Option<Str
         self.read_mcp();
         self.read_screens();
         if self.load.on_tick(now_ms(), crate::os::system::system) {
-            self.dirty = true;
+            self.mark_dirty("load");
         }
         // Sessions that started in tmux while the screen was locked open in your terminal once
         // it isn't, those started while Codealong was closed too (`launch::TabLooks`).
@@ -3550,12 +3603,12 @@ fn waiting_call(s: &Session, account: Option<&config::AccountCfg>) -> Option<Str
         }
         // Reads still out after a while are said on the board (held_warning).
         if !self.reads.out_for(HELD_WARN_AFTER).is_empty() {
-            self.dirty = true;
+            self.mark_dirty("reads held");
         }
         // A run whose command stopped waiting on it is no longer shown on its session, nor a run
         // of yours whose session was told what it printed, or that couldn't be.
         if crate::terminal::forget_unwaited(now_ms()) | crate::terminal::forget_told(now_ms()) {
-            self.dirty = true;
+            self.mark_dirty("terminal runs");
         }
         perf::took(|| "engine tick".into(), t.elapsed());
     }
@@ -3717,33 +3770,33 @@ fn waiting_call(s: &Session, account: Option<&config::AccountCfg>) -> Option<Str
                         self.scan_sessions();
                         self.scan_pr_marks(false);
                     }
-                    self.dirty = true;
+                    self.mark_dirty("state.json");
                 }
                 continue;
             }
             if p == pr_links_path {
                 self.load_pr_links();
-                self.dirty = true;
+                self.mark_dirty("PR links file");
                 continue;
             }
             if p == reviews_path {
                 self.load_reviews();
-                self.dirty = true;
+                self.mark_dirty("reviews file");
                 continue;
             }
             if p == crate::schedules::path() || p == crate::schedules::runs_path() {
                 self.load_schedules();
-                self.dirty = true;
+                self.mark_dirty("schedules file");
                 continue;
             }
             if p == previews_path {
                 self.load_previews();
-                self.dirty = true;
+                self.mark_dirty("previews file");
                 continue;
             }
             if p == reusable_path {
                 self.load_reusable();
-                self.dirty = true;
+                self.mark_dirty("reusable file");
                 continue;
             }
             for (i, r) in self.readers.iter().enumerate() {
@@ -3814,7 +3867,7 @@ fn waiting_call(s: &Session, account: Option<&config::AccountCfg>) -> Option<Str
         self.watch();
         let watched = w.elapsed();
         self.refresh_visitors(false);
-        self.dirty = true;
+        self.mark_dirty("rescan repos");
         perf::took(|| format!("rescan repos ({} worktrees, loading {} ms, watching {} ms), in all", self.seeds.len(), loaded.as_millis(), watched.as_millis()), t.elapsed());
     }
 
@@ -3957,7 +4010,7 @@ fn waiting_call(s: &Session, account: Option<&config::AccountCfg>) -> Option<Str
                 }
             }
         }
-        self.dirty = true;
+        self.mark_dirty("Chrome use");
     }
 
     /// Looks up which Chrome profile a session's tabs are in, off the engine's thread: when its
@@ -4036,29 +4089,35 @@ fn waiting_call(s: &Session, account: Option<&config::AccountCfg>) -> Option<Str
             return;
         }
         let Some(text) = crate::util::read_range(path, from, to) else { return };
+        let mut marked = false;
         for (pr, at) in prlinks::pr_marks(&text) {
             let have = self.pr_marks.entry(key.to_string()).or_default();
-            self.dirty |= prlinks::add_mark(have, pr, at);
+            marked |= prlinks::add_mark(have, pr, at);
         }
+        self.dirty_if(marked, "a PR mark in a line");
+        let mut pushed = false;
         for (branch, at) in text.lines().filter_map(prlinks::line_push) {
             let have = self.pr_pushes.entry(key.to_string()).or_default();
-            self.dirty |= prlinks::add_push(have, branch, at);
+            pushed |= prlinks::add_push(have, branch, at);
         }
+        self.dirty_if(pushed, "a push in a line");
+        let mut made = false;
         for a in artifacts::in_text(&text) {
             let have = self.artifacts.entry(key.to_string()).or_default();
-            self.dirty |= artifacts::add(have, a);
+            made |= artifacts::add(have, a);
         }
+        self.dirty_if(made, "an artifact in a line");
         let mut chrome = self.chrome_use.get(key).cloned().unwrap_or_default();
         if chrometabs::fold_text(&mut chrome, &text) {
             self.chrome_use.insert(key.to_string(), chrome);
             self.look_up_chrome_profile(key);
-            self.dirty = true;
+            self.mark_dirty("Chrome tabs in a line");
         }
+        let mut visited = false;
         for (lane, needle, _) in &self.needles {
-            if worked_in(&text, needle) && self.visitors.saw(lane, key) {
-                self.dirty = true;
-            }
+            visited |= worked_in(&text, needle) && self.visitors.saw(lane, key);
         }
+        self.dirty_if(visited, "a visitor in a line");
     }
 
     fn watch(&mut self) {
@@ -4216,7 +4275,7 @@ fn waiting_call(s: &Session, account: Option<&config::AccountCfg>) -> Option<Str
         let warning = self.seen.save().err().map(|e| format!("Couldn't save state.json: {e:#}"));
         if warning.as_ref() != self.trouble(Trouble::State) {
             self.set_trouble(Trouble::State, warning);
-            self.dirty = true;
+            self.mark_dirty("state.json trouble");
         }
     }
 
@@ -4228,7 +4287,7 @@ fn waiting_call(s: &Session, account: Option<&config::AccountCfg>) -> Option<Str
         let warning = lock.as_ref().err().cloned();
         if warning.as_ref() != self.trouble(Trouble::TodosLock) {
             self.set_trouble(Trouble::TodosLock, warning);
-            self.dirty = true;
+            self.mark_dirty("todos lock");
         }
         lock
     }
@@ -4250,7 +4309,7 @@ fn waiting_call(s: &Session, account: Option<&config::AccountCfg>) -> Option<Str
             self.save_todos();
             drop(lock);
             // Now rather than on the next tick: the window waits for it.
-            self.publish();
+            self.publish_for("todos changed");
         }
         Ok(self.board.read().map(|b| b.generated_at).unwrap_or(0))
     }
@@ -4289,11 +4348,11 @@ fn waiting_call(s: &Session, account: Option<&config::AccountCfg>) -> Option<Str
             return;
         }
         self.load_todos();
-        self.dirty = true;
+        self.mark_dirty("todos file");
     }
 
     fn save_todos(&mut self) {
-        self.dirty = true;
+        self.mark_dirty("todos saved");
         // A file that didn't read is left for you to fix, not replaced.
         if self.todos_unreadable {
             return;
