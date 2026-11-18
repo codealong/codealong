@@ -59,13 +59,13 @@ Commands:
                 account, model, folder, session or day; JSON has them all
   analytics     Your part in the work, an experiment (`[experimental] analytics`,
                 Settings › Experimental): what came in to your sessions and who from
-                (you, another agent, Codealong, the session itself), what your prompts
-                did with what the agent had said (set out new work, agreed, steered,
-                redirected, asked), how sessions began, and how the ones you marked done
-                stood (finished, or left asking you something, not landed…). The
-                Analytics window's Your part and Sessions show the same; JSON has it
-                all. `prompts` lists prompts of yours nothing has read yet, and `tag`
-                says what one did
+                (you; Delegated, another session's agent; Automation, Codealong by
+                itself; the session itself), what your prompts did with what the agent
+                had said (set out new work, agreed, steered, redirected, asked), how
+                sessions began, and how the ones you marked done stood (finished, or
+                left asking you something, not landed…). The Analytics window's Your
+                part and Sessions show the same; JSON has it all. `prompts` lists
+                prompts of yours nothing has read yet, and `tag` says what one did
   whoami        Which session runs this command, its worktree, the other agents running
                 in that worktree now (`others`: none means no other agent shares the
                 checkout, however many sessions worked there before), and its open
@@ -536,12 +536,13 @@ Options:
 
 ```
 Your part in the work, an experiment (`[experimental] analytics`, Settings ›
-Experimental): what came in to your sessions and who from (you, another agent,
-Codealong, the session itself), what your prompts did with what the agent had said (set
-out new work, agreed, steered, redirected, asked), how sessions began, and how the ones
-you marked done stood (finished, or left asking you something, not landed…). The
-Analytics window's Your part and Sessions show the same; JSON has it all. `prompts`
-lists prompts of yours nothing has read yet, and `tag` says what one did
+Experimental): what came in to your sessions and who from (you; Delegated, another
+session's agent; Automation, Codealong by itself; the session itself), what your prompts
+did with what the agent had said (set out new work, agreed, steered, redirected, asked),
+how sessions began, and how the ones you marked done stood (finished, or left asking you
+something, not landed…). The Analytics window's Your part and Sessions show the same;
+JSON has it all. `prompts` lists prompts of yours nothing has read yet, and `tag` says
+what one did
 
 Usage: codealong analytics [OPTIONS] [COMMAND]
 
