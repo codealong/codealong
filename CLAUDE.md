@@ -331,9 +331,9 @@ Each rule names the file whose header has the rest.
   session as a card (the peek, a kept session, the notch, the waiting window) goes
   through `ui/SessionCard.tsx`, the ones that aren't the board's reading through
   `ui/cardHost.ts`; a PR waiting on your review, shown with a box to review it in the notch and
-  the waiting window, is `ui/PrCard.tsx` the same way (the PR panel's `PrDetails`, the strip,
-  `ui/PrStrip.tsx`, which the panel has too, the box, its chords in `menus.ts` `PR_CHORDS`; a
-  review is one engine command, `review_pr`). A change goes there, never into one window's file.
+  the waiting window, is `ui/PrCard.tsx` the same way (the PR panel's `PrDetails`, `PrStrip.tsx`, the
+  box, its chords in `menus.ts` `PR_CHORDS`; a review is one engine command, `review_pr`). A
+  change goes there, never into one window's file.
 - Keys for getting about what waits on you are `src/queue.ts`'s (`QUEUE_CHORDS`, `keyStep`),
   which `useWaitingQueue` runs for each window over its rows: sessions and the PRs waiting on
   your review as one list (`bar.ts` `notchRows` for the notch, `quick.ts` `queueRows` for

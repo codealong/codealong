@@ -31,7 +31,7 @@
 // once and brings the PR back with what was written if GitHub refuses it; the panel stays, the
 // box sending, then empty, or saying why GitHub refused it with what was written still there.
 
-import { useEffect, useRef, useState, type RefObject } from 'react';
+import { useEffect, useRef, useState, useSyncExternalStore, type RefObject } from 'react';
 import { reviewAhead } from '../ahead';
 import { agentsVerdict, agentsWords, type PrTab } from '../agentReview';
 import { prSideAsk } from '../api';
@@ -60,6 +60,23 @@ const askDrafts = new Map<string, string>();
 /** Which side each PR's box is on, kept the same way. */
 type BoxSide = 'review' | 'ask';
 const boxSides = new Map<string, BoxSide>();
+
+/** The verdict on its way to GitHub from a box that stays (the panel's), by PR, kept while the
+ *  window shows another PR: back on it before GitHub answers, the box is still sending and takes
+ *  no second verdict. */
+const sendingNow = new Map<string, Verdict>();
+const sendWatchers = new Set<() => void>();
+
+function watchSending(cb: () => void): () => void {
+  sendWatchers.add(cb);
+  return () => void sendWatchers.delete(cb);
+}
+
+function setSendingNow(key: string, verdict: Verdict | null) {
+  if (verdict) sendingNow.set(key, verdict);
+  else sendingNow.delete(key);
+  for (const cb of sendWatchers) cb();
+}
 
 /** The account picked to answer questions about PRs, in every window, none for Auto's; and the
  *  model and effort picked with it, none for the account's own. */
@@ -143,7 +160,13 @@ export function usePrBox(pr: PrItem, { report, usage, now, onSent, onFailed, aut
   const [askText, setAskText] = useState(() => askDrafts.get(pr.key) ?? '');
   // A verdict went from a card: it's on its way out, and a second ⌘⏎ sends nothing.
   const sent = useRef(false);
-  const [sending, setSending] = useState<Verdict | null>(null);
+  const sending = useSyncExternalStore(watchSending, () => sendingNow.get(pr.key) ?? null);
+  // Whether this box is still up as GitHub answers: one that isn't can't say why it refused.
+  const up = useRef(true);
+  useEffect(() => {
+    up.current = true;
+    return () => void (up.current = false);
+  }, []);
   const [note, setNote] = useState<{ text: string; error?: boolean } | null>(null);
   const box = useRef<HTMLTextAreaElement>(null);
   const accounts = useStartAccounts();
@@ -207,7 +230,7 @@ export function usePrBox(pr: PrItem, { report, usage, now, onSent, onFailed, aut
       drafts.delete(pr.key);
       onSent(verdict);
     } else {
-      setSending(verdict);
+      setSendingNow(pr.key, verdict);
     }
     reviewAhead(pr, verdict, body, withAgents, draft?.commit ?? (withAgents ? (pr.autoReview?.head ?? null) : null))
       .then(
@@ -222,7 +245,9 @@ export function usePrBox(pr: PrItem, { report, usage, now, onSent, onFailed, aut
         (e: unknown) => {
           const why = `Didn’t ${verdict === 'approve' ? 'approve' : verdict === 'comment' ? 'comment on' : 'request changes on'} #${pr.number}: ${errorText(e)}`;
           if (!onSent) {
-            setNote({ text: why, error: true });
+            // The window shows another PR now: it says why, with what was written kept for this one.
+            if (up.current) setNote({ text: why, error: true });
+            else report.error(why);
             return;
           }
           drafts.set(pr.key, reviewText);
@@ -230,7 +255,9 @@ export function usePrBox(pr: PrItem, { report, usage, now, onSent, onFailed, aut
           else report.error(why);
         },
       )
-      .finally(() => setSending(null));
+      .finally(() => {
+        if (!onSent) setSendingNow(pr.key, null);
+      });
   };
 
   /** Asks the PR's conversation `question` (on Ask, or `/side` from Review), making one on the

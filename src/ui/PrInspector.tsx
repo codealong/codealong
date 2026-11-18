@@ -207,7 +207,7 @@ export function PrInspector({ report, lanes, usage, reviews, ...details }: PrIns
   const actions = prActions(pr, box, { report, lanes, usage, reviews, now: details.now });
   return (
     <aside className="ca-insp ca-prpanel" aria-label={`#${pr.number} details`} data-find="files">
-      <PrStrip pr={pr} actions={actions} hotkeys={PANEL_KEYS} panel />
+      <PrStrip pr={pr} actions={actions} box={box} hotkeys={PANEL_KEYS} panel />
       <div className="ca-prinsp ca-prpanel-body">
         <PrDetails {...details} keys report={report} tabs={tabs} />
       </div>

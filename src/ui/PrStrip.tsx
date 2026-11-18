@@ -19,6 +19,7 @@ import { useEffect } from 'react';
 import { openUrl } from '../api';
 import { useLatest } from '../latest';
 import * as menus from '../menus';
+import { verdictWords } from '../prDraft';
 import { errorText, type Report } from '../report';
 import { reviewItems } from '../review';
 import { reviewSnoozeMenu } from '../snooze';
@@ -47,11 +48,12 @@ export const LEFT: Record<Verdict, menus.Left> = { approve: 'approved', comment:
 /** What's commonly done to a PR shown with its box, by name: what its strip, its keys and its
  *  menu run. A verdict goes with what's written on Review. */
 export function prActions(pr: PrItem, box: PrBox, { report, lanes, usage, reviews, now, leave }: PrActionsHost): menus.PrActions {
-  const { reviewable, stillOpen, review } = box;
+  const { reviewable, review } = box;
   const reviewWith = reviewItems(pr, lanes, box.accounts, usage, report, () => leave?.('review started'), now, reviews, box.groups);
   return {
     approve: reviewable ? { label: `Approve #${pr.number}`, run: () => review('approve') } : undefined,
-    comment: stillOpen ? { label: 'Comment', run: () => review('comment') } : undefined,
+    // A comment still goes to a PR that's closed, as from the box.
+    comment: { label: 'Comment', run: () => review('comment') },
     changes: reviewable ? { label: 'Request changes', run: () => review('request-changes') } : undefined,
     review: reviewWith.length > 0 ? { label: 'Review with', items: reviewWith } : undefined,
     // As a session's snooze settles (menus.ts `settle`): the review has left what waits on you
@@ -72,6 +74,9 @@ export function prActions(pr: PrItem, box: PrBox, { report, lanes, usage, review
 interface PrStripProps {
   pr: PrItem;
   actions: menus.PrActions;
+  /** The box the verdicts go from: what they'd submit with what's written, and whether one is on
+   *  its way. */
+  box: PrBox;
   /** Where the window goes once a verdict takes the PR off it: on to what waits next, or back to
    *  the session it was shown from. None where it stays (the panel). */
   after?: 'on' | 'back';
@@ -86,7 +91,7 @@ interface PrStripProps {
   outgoing?: boolean;
 }
 
-export function PrStrip({ pr, actions, after, queue, notice, hotkeys, panel = false, outgoing = false }: PrStripProps) {
+export function PrStrip({ pr, actions, box, after, queue, notice, hotkeys, panel = false, outgoing = false }: PrStripProps) {
   const latest = useLatest(actions);
   const leaving = useLatest(outgoing);
   useEffect(() => {
@@ -114,11 +119,20 @@ export function PrStrip({ pr, actions, after, queue, notice, hotkeys, panel = fa
   const then = after ? `, and go ${after}` : '';
   // Where the verdicts' keys are the box's, the buttons say so.
   const fromBox = (name: 'approve' | 'comment') => (panel ? ` (${sign(name)} from the box)` : '');
+  // What a verdict submits, as the box's buttons say it: the agent's review, your draft review on
+  // GitHub with its comments, or what's written on Review alone.
+  const says = (verdict: 'approve' | 'comment', alone: string) =>
+    box.agents === verdict
+      ? `${verdict === 'approve' ? 'Approve' : 'Comment'} with the agent’s review, what’s written on Review going first`
+      : box.draft
+        ? `${verdictWords(verdict, box.draft) ?? ''}, what’s written on Review going first`
+        : alone;
   const { approve, comment, snooze, review, github } = actions;
   const first = review?.items[0];
+  const sending = box.sending ? 'Sending a review to GitHub' : null;
   const buttons: StripAction[] = [
-    { label: 'Approve', chord: menus.PR_CHORDS.approve, title: approve ? `Approve it, with what’s written on Review as the review’s text${then}${fromBox('approve')}` : notReviewable, run: approve && (() => approve.run()) },
-    { label: 'Comment', chord: menus.PR_CHORDS.comment, title: comment ? `Comment on it with what’s written on Review${then}${fromBox('comment')}` : 'It’s closed', run: comment && (() => comment.run()) },
+    { label: 'Approve', chord: menus.PR_CHORDS.approve, title: sending ?? (approve ? `${says('approve', 'Approve it, with what’s written on Review as the review’s text')}${then}${fromBox('approve')}` : notReviewable), run: approve && !sending ? () => approve.run() : undefined },
+    { label: 'Comment', chord: menus.PR_CHORDS.comment, title: sending ?? `${box.stillOpen ? '' : 'It’s closed, and a comment still goes to it. '}${says('comment', 'Comment on it with what’s written on Review')}${then}${fromBox('comment')}`, run: comment && !sending ? () => comment.run() : undefined },
     { label: 'Snooze', keys: snoozeRange(), title: snooze ? `Snooze the review: it waits apart until its time comes. ${snoozeKeys(snooze)}` : pr.reviewRequested ? 'The review can’t be snoozed' : 'Your review isn’t asked for: there’s nothing to snooze', menu: snooze?.items },
     { label: 'Review with', chord: menus.PR_CHORDS.review, title: review ? `Start Codealong’s review of it on an account${first && first !== 'separator' && !('items' in first) ? `; the key starts it: ${first.label}` : ''}` : 'No account can start a review here', menu: review?.items },
     { label: 'GitHub', chord: menus.PR_CHORDS.github, title: 'Open it on GitHub', run: () => github.run() },

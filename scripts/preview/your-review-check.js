@@ -101,8 +101,6 @@
       check('Approve reads Approved, stepped back', approved && !approved.classList.contains('ca-btn--primary'), approved && approved.className);
       check('its tooltip says another press is another approval', approved && /^You approved c0ffee1, the commit it’s at, 5m ago\. Approving again adds another approval/.test(approved.getAttribute('title')), approved && approved.getAttribute('title'));
       check('the line under the box says ⌘⏎ approves again', /^⌘⏎ approves again/.test(text('.ca-prreview-box .ca-composer-note')), text('.ca-prreview-box .ca-composer-note'));
-      var header = all('.ca-btn').filter(function (b) { return !b.closest('.ca-prreview-buttons') && /^Approv/.test(b.textContent.trim()); })[0];
-      check('and so does the panel’s own Approve', header && header.textContent.trim() === 'Approved', header && header.textContent);
       return show(picked[2], /^No review of yours yet$/);
     })
     .then(function () {

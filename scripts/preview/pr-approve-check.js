@@ -3,9 +3,11 @@
 // and no Next, which is the list's; Approve is there for an open PR that isn't yours though your
 // review wasn't asked for, and approves it; Snooze is dimmed with no review asked; the merge box's
 // button leads the row under the PR's title (MergeBox.tsx), the strip having the rest; the PR's
-// menu has Approve too. Your own PR's Approve is dimmed and says why, and its menu has none (GitHub
-// doesn't let you approve your own). In each project shown, the latest open PR is made someone
-// else's that doesn't ask for your review, and the next your own.
+// menu has Approve too. An approval GitHub is slow to answer is still on its way after another PR
+// was shown and this one again: Approve is dimmed, and ⌘⏎ in the box sends no second one; refused
+// while another PR shows, the window says why. Your own PR's Approve is dimmed and says why, and
+// its menu has none (GitHub doesn't let you approve your own). In each project shown, the latest
+// open PR is made someone else's that doesn't ask for your review, and the next your own.
 //   PREVIEW_WAIT=60000 scripts/preview.sh prs '' scripts/preview/pr-approve-check.js
 (function () {
   var press = function (el) {
@@ -15,8 +17,15 @@
   };
   var others = [];
   var yours = [];
+  // While `slow`, GitHub takes two seconds over a review and refuses it.
+  var slow = false;
+  var asked = 0;
   var real = window.__TAURI_INTERNALS__.invoke;
   window.__TAURI_INTERNALS__.invoke = function (cmd, args, options) {
+    if (cmd === 'review_pr' && slow) {
+      asked += 1;
+      return new Promise(function (_, reject) { setTimeout(function () { reject('GitHub took too long'); }, 2000); });
+    }
     var p = real(cmd, args, options);
     if (cmd !== 'get_board') return p;
     return p.then(function (board) {
@@ -46,6 +55,7 @@
   var shown = function () { return q('.ca-prinsp .ca-insp-call') && q('.ca-prinsp .ca-insp-call').textContent; };
   var buttons = function () { return all('.ca-prinsp .ca-insp-actions > .ca-btn, .ca-prinsp .ca-insp-actions > .ca-split > .ca-btn:first-child'); };
   var merge = function () { return q('.ca-prinsp .ca-insp-actions .ca-merge-main'); };
+  var toast = function () { var t = q('.ca-toast:not(.is-busy)'); return t ? t.textContent : ''; };
   var theirs, mineN;
 
   say('pr approve check: waiting for PR rows');
@@ -76,6 +86,35 @@
     })
     .then(function (items) {
       check('its menu has Approve', items.indexOf('Approve ' + theirs) >= 0, items.join(' | '));
+      // Another PR to show meanwhile: yours, else any other listed.
+      var away = mineN || all('.ca-prrow').map(number).filter(function (n) { return n !== theirs; })[0];
+      if (!away) return note('one PR listed: no other to show while an approval is on its way');
+      slow = true;
+      return until(function () { return !hotkey('Approve').disabled; }, 3000, 'Approve after the first approval')
+        .then(function () {
+          hotkey('Approve').click();
+          press(row(away));
+          return until(function () { return shown() === away; }, 3000, 'another PR’s panel');
+        })
+        .then(function () {
+          press(row(theirs));
+          return until(function () { return shown() === theirs && !!hotkey('Approve'); }, 3000, 'the PR again');
+        })
+        .then(function () {
+          check('back on it before GitHub answers, Approve is dimmed: one is on its way', hotkey('Approve').disabled && /^Sending/.test(hotkey('Approve').title), hotkey('Approve').title);
+          var box = q('.ca-prpanel .ca-prreview-box textarea');
+          box.focus();
+          box.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', code: 'Enter', metaKey: true, bubbles: true, cancelable: true }));
+          check('and ⌘⏎ in its box sends no second one', asked === 1, String(asked));
+          press(row(away));
+          return until(function () { return /^Didn’t approve /.test(toast()); }, 4000, 'the refusal said while another PR shows');
+        })
+        .then(function () {
+          check('refused while another PR shows, the window says why', /GitHub took too long/.test(toast()), toast());
+          slow = false;
+        });
+    })
+    .then(function () {
       if (!mineN) {
         note('the project shown has one open PR, so none is yours');
         return null;

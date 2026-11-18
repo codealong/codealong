@@ -165,7 +165,7 @@ export function PrCard({ item, now, lanes, usage, reviews, can, outgoing = false
       }}
     >
       <DialogHostContext.Provider value={dialogHost}>
-        <PrStrip pr={pr} actions={actions} after={after} queue={queue} notice={notice} hotkeys={hotkeys} outgoing={outgoing} />
+        <PrStrip pr={pr} actions={actions} box={box} after={after} queue={queue} notice={notice} hotkeys={hotkeys} outgoing={outgoing} />
         <div className="ca-prreview-body ca-prinsp">
           <PrDetails item={item} now={now} onMenu={menu} keys goesOn={goesOn} back={back} tabs={tabs} report={report} apps={apps} teamFiles={teamFiles} onShowSession={onShowSession} onOpenSession={onOpenSession} onShowLane={onShowLane} onLaneMenu={onLaneMenu} onSessionMenu={onSessionMenu} />
         </div>

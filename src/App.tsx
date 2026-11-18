@@ -2905,6 +2905,7 @@ export function App() {
             setPreviewFor={setPreviewFor}
             markSeen={markSeen}
             setToast={setToast}
+            report={report}
             showSchedule={(id) => reveal.current({ kind: 'schedule', id })}
             scheduleSession={scheduleSessionShown && (selectedSchedule || selectedHarness) ? { ...scheduleSessionShown, back: { label: selectedHarness?.name ?? selectedSchedule?.name ?? '', onBack: () => setScheduleSession(null) } } : null}
             schedulePanel={
