@@ -117,9 +117,9 @@ pub struct Item {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub sent: Option<crate::harness::SentFiles>,
     /// The file a call read or changed (a read, a write, an edit), as a full path on the
-    /// session's Mac (`call_file`): its line in the panel opens it on a click and offers the
-    /// file's menu. It opens only there, so other devices read past it, as they do a command's
-    /// folder.
+    /// session's Mac (`call_file`; a reader may leave one its record names from the session's
+    /// folder for `files_from`): its line in the panel opens it on a click and offers the file's
+    /// menu. It opens only there, so other devices read past it, as they do a command's folder.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub file: Option<String>,
     /// The images a prompt of yours came with, as its record has them, until `shown` keeps them
@@ -150,13 +150,17 @@ pub type Parse = fn(&Value, i64) -> Vec<Item>;
 /// Up to about `limit` items of a session's conversation before `before` (from the newest when none).
 pub fn page(board: &Board, cfg: &Config, key: &str, before: Option<u64>, limit: usize) -> Result<Page> {
     let (s, account) = find(board, cfg, key)?;
-    Ok(shown(adapter(s.harness).conversation(&Ctx { account }, s, before, limit)?, key))
+    let mut page = adapter(s.harness).conversation(&Ctx { account }, s, before, limit)?;
+    files_from(&mut page, &s.cwd);
+    Ok(shown(page, key))
 }
 
 /// What came after `after`, oldest first.
 pub fn newer(board: &Board, cfg: &Config, key: &str, after: u64) -> Result<Page> {
     let (s, account) = find(board, cfg, key)?;
-    Ok(shown(adapter(s.harness).conversation_after(&Ctx { account }, s, after)?, key))
+    let mut page = adapter(s.harness).conversation_after(&Ctx { account }, s, after)?;
+    files_from(&mut page, &s.cwd);
+    Ok(shown(page, key))
 }
 
 /// What a stop note says when nothing here says who stopped the turn (stops.rs `attribute`).
@@ -364,18 +368,30 @@ pub fn item(at: i64, kind: &'static str, text: impl Into<String>) -> Item {
 }
 
 /// A file a call names (`Item::file`), as a full path: one named from the folder the call worked
-/// in (`cwd`, where its record says) is taken from there, `~` as your home. None for a path that
-/// can't be made a full one.
+/// in (`cwd`, where its record says) is taken from there, `~` as your home. A path written the
+/// POSIX way is a full one wherever it's read, as `util::resolve` takes it. None for a path that
+/// can't be made a full one. It's kept as recorded, a name that ends in a space included.
 pub fn call_file(path: &str, cwd: &str) -> Option<String> {
-    let path = path.trim();
-    if path.is_empty() {
+    if path.trim().is_empty() {
         return None;
+    }
+    if path.starts_with('/') {
+        return Some(path.to_string());
     }
     let full = crate::util::expand(path);
     if full.is_absolute() {
         return Some(full.to_string_lossy().into_owned());
     }
     (!cwd.is_empty()).then(|| crate::util::resolve(cwd, path))
+}
+
+/// The files a page's calls worked on as full paths (`call_file`): one a record names from the
+/// folder the session works in, without saying which (Codex's changes, OpenCode's tools), is
+/// taken from the session's. A reader that knows a call's own folder has made its file full.
+fn files_from(page: &mut Page, folder: &str) {
+    for it in page.items.iter_mut() {
+        it.file = it.file.take().and_then(|f| call_file(&f, folder));
+    }
 }
 
 /// The tool calls among `items` that have no result yet, oldest first, for records that keep a
@@ -493,6 +509,21 @@ mod tests {
         let theirs: codealong_peer::api::Page = serde_json::from_value(serde_json::to_value(&page).unwrap()).unwrap();
         assert!(theirs.items[0].stop);
         assert_eq!(serde_json::to_value(&theirs).unwrap(), serde_json::to_value(&page).unwrap());
+    }
+
+    /// The file a call worked on opens from its line as a full path: one named from the session's
+    /// folder is taken from there, one written the POSIX way is full wherever it's read, and a
+    /// name is kept as recorded.
+    #[test]
+    fn a_calls_file_is_a_full_path() {
+        assert_eq!(call_file("/Users/me/app/notes ", "").as_deref(), Some("/Users/me/app/notes "));
+        assert_eq!(call_file("src/lib.rs", "/Users/me/app").as_deref(), Some("/Users/me/app/src/lib.rs"));
+        assert_eq!(call_file("src/lib.rs", ""), None);
+        assert_eq!(call_file("  ", "/Users/me/app"), None);
+        let tool = |file: &str| Item { file: Some(file.into()), ..item(1, "tool", "Edit") };
+        let mut page = Page { items: vec![tool("src/a.ts"), tool("/Users/me/other/b.ts"), item(2, "agent", "Done.")], before: None, after: 0 };
+        files_from(&mut page, "/Users/me/projects/kestrel");
+        assert_eq!(page.items.iter().map(|i| i.file.as_deref()).collect::<Vec<_>>(), [Some("/Users/me/projects/kestrel/src/a.ts"), Some("/Users/me/other/b.ts"), None]);
     }
 
     fn write(lines: &[&str]) -> PathBuf {

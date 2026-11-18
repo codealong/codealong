@@ -132,6 +132,13 @@
           return until(function () { return opens().length === 1; }, 3000).then(function () {
             check('a click on the name opens the file', true);
             check('and leaves its call open as it was', !!read.parentElement.querySelector('.ca-thread-out'));
+            // The keyboard gets there too: the name takes focus, and Enter there opens the file.
+            name.focus();
+            check('the name takes focus', document.activeElement === name, document.activeElement && document.activeElement.outerHTML.slice(0, 80));
+            name.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true }));
+            return until(function () { return opens().length === 2; }, 3000);
+          }).then(function () {
+            check('and Enter on it opens the file, leaving its call as it was', !!read.parentElement.querySelector('.ca-thread-out'));
             return menuOf(read);
           }).then(function (labels) {
             check('a right-click on its line offers the file’s menu', labels.indexOf('Open') >= 0 && labels.indexOf('Reveal in Finder') >= 0 && labels.indexOf('Copy path') >= 0, labels.join(' | '));

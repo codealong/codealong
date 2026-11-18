@@ -356,9 +356,26 @@ function ToolLine({ item, result, state, onOpen }: { item: TranscriptItem; resul
           {named ? (
             <>
               <Rich text={named.before} now={0} />
-              <code className={cx('ca-ic', file && 'ca-ic-path ca-thread-toolfile')} title={file ? `Open ${file}` : undefined}>
-                {named.name}
-              </code>
+              {file ? (
+                // Its own stop for the keyboard, as a path in a reply is: Enter there opens the
+                // file, where Enter on the line opens the call.
+                <code
+                  className="ca-ic ca-ic-path ca-thread-toolfile"
+                  role="link"
+                  tabIndex={0}
+                  title={`Open ${file}`}
+                  onKeyDown={(e) => {
+                    if (e.key !== 'Enter') return;
+                    e.preventDefault();
+                    e.stopPropagation();
+                    files.open();
+                  }}
+                >
+                  {named.name}
+                </code>
+              ) : (
+                <code className="ca-ic">{named.name}</code>
+              )}
               <Rich text={named.after} now={0} />
             </>
           ) : (
@@ -430,7 +447,8 @@ function ToolRun({ calls, stateOf, inBox, onOpen }: { calls: { item: TranscriptI
       </button>
       {open && earlier.map((c) => <ToolLine key={keyOf(c.item)} item={c.item} result={c.result} state={stateOf(c.item)} onOpen={onOpen} />)}
       {/* The call it waits on, once the box below shows it, is the box's (questionsBox.ts). */}
-      {!inBox(last.item) && <ToolLine item={last.item} result={last.result} state={stateOf(last.item)} onOpen={onOpen} />}
+      {/* Keyed, so a call that comes in after it starts as its own line, not as this one was left. */}
+      {!inBox(last.item) && <ToolLine key={keyOf(last.item)} item={last.item} result={last.result} state={stateOf(last.item)} onOpen={onOpen} />}
     </div>
   );
 }

@@ -87,7 +87,8 @@ export function usePathKind(path: string | null): PathKind | null {
  *  by the file's name in backticks, for the name to open the file (SessionThread.tsx `ToolLine`).
  *  A line that doesn't name it (Antigravity's says what the call is for) has it after it. */
 export function fileInLine(text: string, file: string): { before: string; name: string; after: string } {
-  const name = file.slice(file.lastIndexOf('/') + 1) || file;
+  // A Windows path's name follows its last backslash.
+  const name = file.slice(Math.max(file.lastIndexOf('/'), file.lastIndexOf('\\')) + 1) || file;
   const at = text.lastIndexOf(`\`${name}\``);
   if (at < 0) return { before: `${text} · `, name, after: '' };
   return { before: text.slice(0, at), name, after: text.slice(at + name.length + 2) };

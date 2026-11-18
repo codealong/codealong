@@ -964,8 +964,9 @@ pub fn conversation_items(v: &Value, seq: u64, at: i64) -> Vec<Item> {
                     (None, Some(f)) => format!("{name} · {}", code(&crate::util::file_name(Path::new(f)))),
                     (None, None) => name,
                 };
-                // The record doesn't repeat the session's folder, so only a full path opens.
-                let file = named.and_then(|f| crate::transcript::call_file(f, ""));
+                // One named from the session's folder, which the record doesn't repeat, is taken
+                // from there by transcript.rs (`files_from`).
+                let file = named.map(String::from);
                 out.push(Item {
                     input: input.map(|i| clip_input(&command.map(String::from).unwrap_or_else(|| serde_json::to_string_pretty(i).unwrap_or_default()))),
                     output: output.map(|o| clip_output(&o)),
@@ -1586,9 +1587,9 @@ mod tests {
         assert_eq!(crate::mcp::servers_in(&Value::Object(mcp_servers(&v["mcp"])), "f").iter().map(|s| s.name.as_str()).collect::<Vec<_>>(), ["northwind"]);
     }
 
-    /// A read, an edit or a write names its file on its line, by name in its label and in full
-    /// for the panel to open; one named from the session's folder, which the record doesn't
-    /// repeat, by name alone.
+    /// A read, an edit or a write names its file on its line, by name in its label and as
+    /// recorded for the panel to open; one named from the session's folder, which the record
+    /// doesn't repeat, is left so for transcript.rs to take from there.
     #[test]
     fn a_file_a_tool_works_on_is_on_its_line() {
         let tool = |name: &str, input: Value| {
@@ -1600,7 +1601,7 @@ mod tests {
         let older = tool("edit", serde_json::json!({ "filePath": "/Users/me/projects/kestrel/notes.md", "oldString": "a", "newString": "b" }));
         assert_eq!((older.text.as_str(), older.file.as_deref()), ("Edit · `notes.md`", Some("/Users/me/projects/kestrel/notes.md")));
         let relative = tool("write", serde_json::json!({ "path": "out.txt", "content": "hi" }));
-        assert_eq!((relative.text.as_str(), relative.file), ("Write · `out.txt`", None));
+        assert_eq!((relative.text.as_str(), relative.file.as_deref()), ("Write · `out.txt`", Some("out.txt")));
         let shell = tool("shell", serde_json::json!({ "command": "cat /Users/me/x" }));
         assert_eq!(shell.file, None);
     }

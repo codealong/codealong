@@ -701,7 +701,8 @@ pub struct Call {
     pub looks: bool,
     /// What an `ask_question` call asks you.
     pub questions: Vec<Question>,
-    /// The file it views or writes (`TargetFile`, `AbsolutePath`), for its line to open.
+    /// The file it views or writes (`TargetFile`, `AbsolutePath`) as recorded, for its line to
+    /// open once transcript.rs has it in full (`files_from`).
     pub file: Option<String>,
 }
 
@@ -772,7 +773,7 @@ fn call(c: &Value, result_step: i64) -> Call {
     };
     let looks = command.as_deref().is_some_and(only_looks);
     let questions = if name == ASK_QUESTION { questions_of(&args) } else { Vec::new() };
-    let file = ["TargetFile", "AbsolutePath"].iter().find_map(|k| arg(&args, k)).and_then(|p| crate::transcript::call_file(&p, ""));
+    let file = ["TargetFile", "AbsolutePath"].iter().find_map(|k| arg(&args, k));
     Call { result_step, label, input: command.clone().unwrap_or_else(rest), command, cwd, work, looks, questions, file }
 }
 

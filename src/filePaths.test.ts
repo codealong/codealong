@@ -6,6 +6,7 @@ describe('fileInLine', () => {
     expect(fileInLine('Read · `statusbar-rest.png`', '/Users/me/projects/atlas/shots/statusbar-rest.png')).toEqual({ before: 'Read · ', name: 'statusbar-rest.png', after: '' });
     // The last of two the same, which is the file where a line names something else first.
     expect(fileInLine('Edit · `a.ts` in `a.ts`', '/Users/me/a.ts')).toEqual({ before: 'Edit · `a.ts` in ', name: 'a.ts', after: '' });
+    expect(fileInLine('Read · `main.rs`', 'C:\\demo\\src\\main.rs')).toEqual({ before: 'Read · ', name: 'main.rs', after: '' });
   });
 
   it('puts it after a line that does not name it', () => {

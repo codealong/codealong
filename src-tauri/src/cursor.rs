@@ -630,7 +630,8 @@ pub struct Call {
     pub waits: bool,
     pub output: Option<String>,
     pub failed: bool,
-    /// The file it reads or edits, for its line to open.
+    /// The file it reads or edits as recorded, for its line to open once transcript.rs has it in
+    /// full (`files_from`).
     pub file: Option<String>,
 }
 
@@ -742,7 +743,9 @@ fn call(t: &Value) -> Call {
         waits: open && (review == "Requested" || asking),
         output,
         failed: matches!(status, "error" | "cancelled") || rejected,
-        file: file.filter(|_| matches!(base, "read_file" | "edit_file" | "search_replace" | "write")),
+        // As recorded, a Windows path too; one named from the chat's folder is taken from there
+        // by transcript.rs (`files_from`).
+        file: ["targetFile", "relativeWorkspacePath", "path"].iter().find_map(|k| text(&params, k)).filter(|_| matches!(base, "read_file" | "edit_file" | "search_replace" | "write")),
     }
 }
 

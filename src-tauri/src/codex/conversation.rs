@@ -59,16 +59,18 @@ pub fn conversation_items(v: &Value, at: i64) -> Vec<Item> {
                     }]
                 }
                 Some("FileChange") => {
-                    let paths: Vec<String> = it.get("changes").and_then(Value::as_object).map(|m| m.keys().cloned().collect()).unwrap_or_default();
-                    let label = match paths.as_slice() {
-                        [one] => format!("Edit · {}", code(&crate::util::file_name(Path::new(one)))),
-                        many => format!("Edit · {} files", many.len()),
-                    };
-                    // One file changed opens from its line; the rollout names it in full or from
-                    // the thread's folder, which the line doesn't say, so only a full one does.
-                    let file = match paths.as_slice() {
-                        [one] => crate::transcript::call_file(one, ""),
+                    let changes = it.get("changes").and_then(Value::as_object);
+                    let paths: Vec<String> = changes.map(|m| m.keys().cloned().collect()).unwrap_or_default();
+                    // One file changed opens from its line, where it went when the change moved it
+                    // (an update's `move_path`). The rollout names it in full or from the thread's
+                    // folder, which transcript.rs takes it from (`files_from`).
+                    let file = match changes.map(|m| m.iter().collect::<Vec<_>>()).as_deref() {
+                        Some([(path, change)]) => Some(change.get("move_path").and_then(Value::as_str).unwrap_or(path).to_string()),
                         _ => None,
+                    };
+                    let label = match &file {
+                        Some(f) => format!("Edit · {}", code(&crate::util::file_name(Path::new(f)))),
+                        None => format!("Edit · {} files", paths.len()),
                     };
                     vec![Item { input: Some(paths.join("\n")), failed: s("status") == "failed", file, ..item(at, "tool", label) }]
                 }
@@ -101,7 +103,7 @@ pub fn conversation_items(v: &Value, at: i64) -> Vec<Item> {
                 Some("ImageView") => {
                     let path = it.get("path").and_then(Value::as_str).map(file_path_of);
                     let label = format!("Viewed an image{}", path.as_deref().map(|p| format!(" · {}", code(&crate::util::file_name(Path::new(p))))).unwrap_or_default());
-                    vec![Item { file: path.and_then(|p| crate::transcript::call_file(&p, "")), ..item(at, "tool", label) }]
+                    vec![Item { file: path, ..item(at, "tool", label) }]
                 }
                 Some("ContextCompaction") => vec![item(at, "note", "The conversation was compacted here")],
                 _ => Vec::new(),
@@ -236,16 +238,19 @@ mod tests {
     }
 
     /// A change to one file, and an image it looked at, name the file on their line for the
-    /// panel to open; a change to several, or to a file named from the thread's folder, none.
+    /// panel to open, where a move took it; a change to several, none. One named from the
+    /// thread's folder is left so, for transcript.rs to take from there.
     #[test]
     fn a_file_a_call_changed_or_viewed_is_on_its_line() {
         let done = |it: Value| conversation_items(&serde_json::json!({ "timestamp": "2026-11-04T00:34:18.843Z", "type": "event_msg", "payload": { "type": "item_completed", "item": it } }), 0).remove(0);
         let one = done(serde_json::json!({ "type": "FileChange", "changes": { "/Users/me/projects/kestrel/src/a.ts": { "type": "update" } }, "status": "completed" }));
         assert_eq!((one.text.as_str(), one.file.as_deref()), ("Edit · `a.ts`", Some("/Users/me/projects/kestrel/src/a.ts")));
+        let moved = done(serde_json::json!({ "type": "FileChange", "changes": { "/Users/me/projects/kestrel/src/a.ts": { "type": "update", "unified_diff": "", "move_path": "/Users/me/projects/kestrel/src/b.ts" } } }));
+        assert_eq!((moved.text.as_str(), moved.file.as_deref()), ("Edit · `b.ts`", Some("/Users/me/projects/kestrel/src/b.ts")));
         let two = done(serde_json::json!({ "type": "FileChange", "changes": { "/Users/me/a.ts": {}, "/Users/me/b.ts": {} } }));
-        assert_eq!(two.file, None);
+        assert_eq!((two.text.as_str(), two.file), ("Edit · 2 files", None));
         let relative = done(serde_json::json!({ "type": "FileChange", "changes": { "src/a.ts": {} } }));
-        assert_eq!(relative.file, None);
+        assert_eq!(relative.file.as_deref(), Some("src/a.ts"));
         let image = done(serde_json::json!({ "type": "ImageView", "id": "exec-1", "path": "file:///Users/me/projects/kestrel/shots/after%20fix.png" }));
         assert_eq!((image.text.as_str(), image.file.as_deref()), ("Viewed an image · `after fix.png`", Some("/Users/me/projects/kestrel/shots/after fix.png")));
     }
