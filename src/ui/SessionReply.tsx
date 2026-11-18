@@ -135,6 +135,7 @@ import { Level } from './Said';
 import { signInTo, type AccountMoves } from '../menus';
 import { errorText } from '../report';
 import { bare, chordPressed, cmd, held, keysIn, platform, typed } from '../platform';
+import { useKeysAlways } from '../keysShown';
 
 /** Nothing picked for a resume: it goes on where it went on last, on the account's own model. */
 const NO_PICKS: ResumePicks = { agent: null, effort: null, place: null };
@@ -160,8 +161,8 @@ export function typesCommands(way: Way | null | undefined): boolean {
   return way?.kind === 'typed' || way?.kind === 'background';
 }
 
-/** What the box asks for, and how a message gets there (`way`, once the engine has said): typed
- *  into its terminal, pasted into its background job, a message from Codealong, or its app; or,
+/** What the box asks for, and how a message gets there (`way`, once the engine has said) where the
+ *  place chip under the box doesn't say it (a message from Codealong, OpenCode's app); or,
  *  where it can't reach the session itself, what happens instead. A session that isn't running
  *  goes on where its place chip says (`resuming`), else in a terminal. */
 export function replyPlaceholder(s: Session, terminal: string, way?: Way | null, resuming?: { place: StartPlace; behind: boolean } | null): string {
@@ -170,14 +171,13 @@ export function replyPlaceholder(s: Session, terminal: string, way?: Way | null,
   // One working only on what its turn left in the background sits at its prompt: this starts a turn.
   const working = s.status === 'working' && !waitsInBackground(s) ? ': it takes this in as it works' : stuckMidTurn(s) ? ': it takes this once the step it’s stuck on ends' : '';
   switch (way?.kind) {
+    // Where it goes is the place chip's under the box (`boxPlace`): the box says it no more.
     case 'typed':
-      return `${to} via ${way.app}${working}`;
     case 'background':
-      return `${to} via its background job${working}`;
+    case 'codex-app':
+      return `${to}${working}`;
     case 'message':
       return `${to} as a message from Codealong${working}`;
-    case 'codex-app':
-      return `${to} via the Codex app${working}`;
     case 'opencode':
       return `${to} via OpenCode${working}`;
     case 'resume':
@@ -956,6 +956,8 @@ function Composer({ session: s, terminal, autoFocus, onlyAside = false, waiting,
   // sends, the turn taking the message in as it works. Not while the box is the side
   // conversation's: what's done there leaves the session's turn alone.
   const stopButton = canStop && empty && !aside;
+  // Escape and ⌘. stopping a turn are said in the placeholder only where keys show all the time.
+  const keysAlways = useKeysAlways();
   // Into the turn it's taking at once, where it can be reached that way.
   const canSendNow = !!s.steerable && !waiting && !aside;
   const said = (text: string, keys = false): BoxSays => ({ text, error: false, keys });
@@ -986,10 +988,11 @@ function Composer({ session: s, terminal, autoFocus, onlyAside = false, waiting,
           ? said(note.text)
           : stopping
           ? said('Stopping…')
-          : onlyAside
-          ? said(SESSION_SIDES.open)
           : aside
-          ? said(`To the side conversation, not ${s.account}.${onAsked && (seenable(s) || asideable(s)) ? keysIn(' ⌘⏎ asks and goes on: the session’s back once it answers.') : ''} Close it or pop it out above to message ${s.account}.`)
+          ? // The placeholder and the strip above say it asks on the side: only its key is left to say.
+            !onlyAside && onAsked && (seenable(s) || asideable(s))
+            ? said(keysIn('⌘⏎ asks and goes on: the session’s back once it answers'), true)
+            : null
           : keys
           ? said(keys, true)
           : null;
@@ -1026,7 +1029,7 @@ function Composer({ session: s, terminal, autoFocus, onlyAside = false, waiting,
           ref={box}
           value={text}
           lines={LINES}
-          hint={aside ? 'Ask on the side' : denies === 'question' ? `Or decline it, and write to ${s.account} instead` : denies ? `Or deny it, and tell ${s.account} what to do instead` : replyPlaceholder(s, terminal, way, resumeWhere) + (canStop ? keysIn(' · esc twice or ⌘. stops its turn') : '')}
+          hint={aside ? 'Ask on the side' : denies === 'question' ? `Or decline it, and write to ${s.account} instead` : denies ? `Or deny it, and tell ${s.account} what to do instead` : replyPlaceholder(s, terminal, way, resumeWhere) + (canStop && keysAlways ? keysIn(' · esc twice or ⌘. stops its turn') : '')}
           onChange={(e) => {
             setText(e.target.value);
             setCaret(e.target.selectionStart);
@@ -1158,7 +1161,8 @@ function Composer({ session: s, terminal, autoFocus, onlyAside = false, waiting,
               {!aside && <BoxPlace {...place} />}
             </div>
           )}
-          {saying && <OneLine className={cx('ca-composer-note', saying.error && 'is-error', saying.attn && 'is-attn')} role="status" text={saying.text} />}
+          {/* A line of keys shows where keys do (keysShown.ts). */}
+          {saying && <OneLine className={cx('ca-composer-note', saying.error && 'is-error', saying.attn && 'is-attn', saying.keys && 'ca-keyhint')} role="status" text={saying.text} />}
           <div className="ca-composer-buttons">
             {!aside && <ContextMeter session={s} />}
             {/* A side conversation's copy runs on the session's account, model and effort: said, not picked. */}

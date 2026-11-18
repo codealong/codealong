@@ -17,6 +17,7 @@ import { Icon } from '../primitives';
 import { useTheme } from '../ThemeSwitch';
 import { useSizeGrips } from '../useSizeGrips';
 import { TerminalView } from './TerminalView';
+import { useKeysShown } from '../../keysShown';
 
 export function TerminalWindow() {
   const [ids, setIds] = useState<{ key: string; id: string } | null>(null);
@@ -31,6 +32,7 @@ export function TerminalWindow() {
   });
   // Light or dark as Codealong is, not only as macOS is: the terminal's colors come from it.
   useTheme(board?.theme ?? 'system');
+  useKeysShown(board?.showKeys);
 
   useEffect(() => {
     void Promise.all([keptSession(), keptTerminal()]).then(([key, id]) => {

@@ -539,6 +539,7 @@ export type Board = Holds<Same<
   | "schedules"
   | "schedulesProblem"
   | "sessions"
+  | "showKeys"
   | "sides"
   | "signIns"
   | "starting"

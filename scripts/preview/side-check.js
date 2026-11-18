@@ -124,13 +124,14 @@
       // As one asked while the copy still answers the first shows.
       tell({ turns: [{ question: 'why a queue?', answer: '', tool: 'Bash · `git log -3`', done: false }, { question: 'and without one?', answer: '', done: false }] });
       await wait(50);
-      check('one asked while the copy answers says it waits for the answer above', turns()[1].indexOf('Waits for the answer above') > 0 && !working(1) && !!working(0), turns().join(' / '));
+      check('one asked while the copy answers says it’s queued', turns()[1].indexOf('Queued') > 0 && !working(1) && !!working(0), turns().join(' / '));
       tell({ turns: [{ question: 'why a queue?', answer: 'Because.', done: true }, { question: 'and without one?', answer: '', done: true, error: 'The copy stopped: usage limit reached' }], running: false, ended: true });
       await wait(50);
-      check('a copy that stops says why', turns()[1].indexOf('The copy stopped: usage limit reached') > 0 && strip().textContent.indexOf('Its copy has ended') > 0, strip().textContent);
+      var title = q('.ca-sidestrip-title');
+      check('a copy that stops says why, that it ended, and the rest under the pointer', turns()[1].indexOf('The copy stopped: usage limit reached') > 0 && q('.ca-sidestrip-about').textContent === 'Ended' && !!title && title.title.indexOf('Its copy has ended') === 0, strip().textContent);
 
       // While it shows, the box is the side conversation's.
-      check('while it shows, the box says it asks on the side', box().getAttribute('aria-placeholder') === 'Ask on the side' && button().getAttribute('aria-label') === 'Ask on the side' && noteText().indexOf('To the side conversation, not ') === 0 && !!document.querySelector('.ca-composer.is-aside'), box().getAttribute('aria-placeholder') + ' / ' + noteText());
+      check('while it shows, the box says it asks on the side', box().getAttribute('aria-placeholder') === 'Ask on the side' && button().getAttribute('aria-label') === 'Ask on the side' && noteText().indexOf('To the side conversation') < 0 && !!document.querySelector('.ca-composer.is-aside'), box().getAttribute('aria-placeholder') + ' / ' + noteText());
       var account = document.querySelector('.ca-composer.is-aside .ca-composer-buttons .ca-account-name');
       check('and still says the account in its foot, which its copy runs on', !!account && account.textContent === picked.account, account ? account.textContent : 'none');
       check('as words, not a menu: its copy runs on the session’s account, model and effort', !document.querySelector('.ca-composer.is-aside .ca-composer-buttons .ca-modelmenu-chip'), 'a menu');
@@ -158,7 +159,7 @@
       check('the header names the one kept under its title', sideLines()[0].textContent.indexOf('why a queue?') >= 0 && !sideLines()[0].querySelector('.ca-glyph--working'), sideLines()[0].textContent);
       sideLines()[0].click();
       await until(function () { return turns().length === 3; }, 5000);
-      check('which a click shows, to read', turns()[0].indexOf('why a queue?') === 0 && strip().textContent.indexOf('closed') > 0, strip().textContent.slice(0, 120));
+      check('which a click shows, to read', turns()[0].indexOf('why a queue?') === 0 && q('.ca-sidestrip-title').title.indexOf('closed') > 0, strip().textContent.slice(0, 120));
       headButton('Close').click();
       await until(function () { return !strip(); }, 5000);
       check('and its Close puts away', calls('side_ask').length === 3);
@@ -181,7 +182,7 @@
       check('while the list shows, the box asks on the side too', box().getAttribute('aria-placeholder') === 'Ask on the side');
       strip().querySelectorAll('.ca-sidestrip-kept')[1].click();
       await until(function () { return turns().length === 1; }, 5000);
-      check('one opens to read', turns()[0].indexOf('is the queue tested?') === 0 && turns()[0].indexOf('In send.rs.') > 0 && strip().textContent.indexOf('closed') > 0 && !!strip().querySelector('.ca-sidestrip-steps'), strip().textContent);
+      check('one opens to read', turns()[0].indexOf('is the queue tested?') === 0 && turns()[0].indexOf('In send.rs.') > 0 && q('.ca-sidestrip-title').title.indexOf('closed') > 0 && !!strip().querySelector('.ca-sidestrip-steps'), strip().textContent);
       headButton('Delete').click();
       await until(function () { return strip().querySelectorAll('.ca-sidestrip-kept').length === 1; }, 5000);
       check('Delete forgets it and goes back to the list', calls('side_forget').length === 1 && calls('side_forget')[0][1].id === 'old');
@@ -208,7 +209,7 @@
       await until(function () { return sideLines().length === 2; }, 5000);
       sideLine('why a queue?').click();
       await until(function () { return turns().length === 3; }, 5000);
-      check('with one open, a click on one before it shows that one to read', turns()[0].indexOf('why a queue?') === 0 && strip().textContent.indexOf('closed') > 0, strip().textContent.slice(0, 120));
+      check('with one open, a click on one before it shows that one to read', turns()[0].indexOf('why a queue?') === 0 && q('.ca-sidestrip-title').title.indexOf('closed') > 0, strip().textContent.slice(0, 120));
       sideLine('once more?').click();
       await until(function () { return turns().length === 1; }, 5000);
       check('and one on the open one goes back to it', turns()[0].indexOf('once more?') === 0);

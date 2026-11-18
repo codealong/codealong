@@ -39,7 +39,6 @@
   var inWindow = window.__CODEALONG_SIDE__ === true;
 
   var box = function () { return q('.ca-composer textarea'); };
-  var noteText = function () { var n = q('.ca-composer-note'); return n ? n.textContent : ''; };
   var strip = function () { return q('.ca-sidestrip'); };
   var turns = function () { return all('.ca-sidestrip-turn').map(function (t) { return t.textContent; }); };
   var aside = function () { return !!q('.ca-composer.is-aside'); };
@@ -110,7 +109,7 @@
     var shown = calls('show_main')[0][1];
     check('a click on its title shows the session in Codealong, and the window stays', !!title && shown.reveal && shown.reveal.kind === 'session' && shown.reveal.key === key && calls('kept_close').length === 0, JSON.stringify(shown));
     check('with nothing open it says so', /^Nothing open on the side/.test(q('.ca-sidestrip-doing').textContent) && labels() === 'Close', labels());
-    check('over a box that asks on the side', aside() && box().getAttribute('aria-placeholder') === 'Ask on the side' && /throwaway copy/.test(noteText()), noteText());
+    check('over a box that asks on the side, the window saying what answers', aside() && box().getAttribute('aria-placeholder') === 'Ask on the side' && /throwaway copy/.test(q('.ca-sidestrip').textContent), q('.ca-sidestrip').textContent);
     // The copy's account, model and effort are said, not picked, on one line: measured by their
     // words, since each one's box is the chip's height whatever line its words are on.
     var words = function (el) { var r = document.createRange(); r.selectNodeContents(el); return r.getBoundingClientRect(); };

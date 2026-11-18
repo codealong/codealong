@@ -68,7 +68,7 @@
     })
     .then(function () {
       check('an account not trained on has no card', !card());
-      all('.ca-usagebar-end button').filter(function (b) { return /Accounts/.test(b.textContent); })[0].click();
+      q('.ca-usagebar-end button[aria-label="Accounts"]').click();
       return until(function () { return q('#ca-acct-claude .ca-acct-tags'); }, 5000);
     })
     .then(function () {

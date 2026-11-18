@@ -494,7 +494,7 @@ export type TurnState = { kind: 'working'; word?: string } | { kind: 'waits'; wo
 
 export function turnState(turn: SideTurn, current: boolean): TurnState {
   if (turn.done) return null;
-  if (!current) return { kind: 'waits', words: 'Waits for the answer above' };
+  if (!current) return { kind: 'waits', words: 'Queued' };
   const begun = turn.answer || turn.tool || (turn.tools?.length ?? 0) > 0;
   return begun ? { kind: 'working' } : { kind: 'working', word: 'Reading the conversation' };
 }

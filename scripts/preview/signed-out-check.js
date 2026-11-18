@@ -67,8 +67,8 @@
   var title = function () { var t = document.querySelector('.ca-sessinsp-title'); return t ? t.textContent : null; };
   var row = function (i) { return document.getElementById('row-' + picked[i].lane + '::' + picked[i].key); };
   var flags = function (i) { return all('.ca-insight', row(i)).map(function (c) { return c.textContent; }); };
-  var note = function () { return all('.ca-sessinsp-head .ca-sessinsp-limit').filter(function (n) { return /sign-in was turned down/.test(n.textContent); })[0]; };
-  var words = function () { return note().querySelector('.ca-sessinsp-limit-words').textContent; };
+  var note = function () { return all('.ca-sessinsp-head .ca-sessinsp-limit').filter(function (n) { var w = n.querySelector('.ca-sessinsp-limit-words'); return !!w && /sign-in was turned down/.test(w.title); })[0]; };
+  var words = function () { return note().querySelector('.ca-sessinsp-limit-words').title; };
   var button = function () { return note().querySelector('button'); };
   var box = function () { return document.querySelector('.ca-sessinsp .ca-composer textarea') || document.querySelector('.ca-composer textarea'); };
   var noteText = function () { var n = document.querySelector('.ca-composer-note'); return n ? n.textContent : ''; };

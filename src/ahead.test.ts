@@ -57,7 +57,7 @@ describe('lanesAhead', () => {
     const lanes = [lane([session('a', 'unread')])];
     const [l] = lanesAhead(lanes, [change({ kind: 'seen', keys: ['a'] })]);
     expect(l.sessions[0].status).toBe('idle');
-    expect([l.sessions[0].headline, l.sessions[0].detail]).toEqual(['`claude` · Task a', `last turn {ago:${NOW - 60_000}}`]);
+    expect([l.sessions[0].headline, l.sessions[0].detail]).toEqual(['`claude` · Task a', l.sessions[0].excerpt]);
     expect([l.bay, l.glyph, l.headline]).toEqual(['idle', 'idle', '`claude` · Task a']);
   });
 

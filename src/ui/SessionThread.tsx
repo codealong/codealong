@@ -1295,7 +1295,7 @@ export function SessionThread({ session: s, now, onOpen, fallback, machine, onLo
                 )}
               </div>
               {!loaded && <Reading what="Reading the conversation…" place="session" late />}
-              {loaded && before == null && items.length > 0 && <div className="ca-thread-start">The start of the session</div>}
+              {/* The start of the session says itself: the first prompt is at the top. */}
               {loaded && before != null && <div className="ca-thread-start">Loading earlier…</div>}
               {rows.map((r) => {
                 if (r.kind === 'tools') return <ToolRun key={keyOf(r.calls[0].item)} calls={r.calls} stateOf={stateOf} inBox={inBox} onOpen={askHere} />;

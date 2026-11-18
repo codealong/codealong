@@ -82,7 +82,7 @@
       return show(0);
     })
     .then(function () {
-      check('its header says it’s quiet', /Idle · .+ · quiet/.test(status()), status());
+      check('its header says it’s quiet', / ago · quiet/.test(status()), status());
       return menuOf(row(0));
     })
     .then(function (labels) {

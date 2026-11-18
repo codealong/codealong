@@ -2352,6 +2352,17 @@ you're typing in it. The session or PR shown in the notch, the peek, a kept sess
 window draws at the same zoom, and the keys work there too; the notch and the peek open as much
 bigger, while the notch's shape and the bar's pills stay at actual size.
 
+### Keyboard shortcuts beside what they do
+
+*Settings › Appearance › Always show keyboard shortcuts, or `show_keys` under `[appearance]`; off by default*
+
+Off, the keys that work a button or a row (the session strip's, the quick panel's ⌘1 to ⌘9, a
+suggested reply's, Allow's ⌘⏎) and the lines under the message box that only say keys are out of
+sight until you hold ⌘ or ⌃ alone a moment: then every window shows them, as a cheat sheet, until
+you let go. A chord pressed at once shows nothing. Tooltips and menus say the keys either way, and
+what teaches a key (a tip, an empty view's hint, a dialog) shows it whatever the setting. On, they
+show all the time.
+
 ### Glass
 
 *Settings › Appearance › Glass, or `glass` under `[appearance]`; on by default on macOS, the only one that has it*
@@ -2460,7 +2471,8 @@ nap your terminal while other apps' windows cover it; see *How a prompt gets to 
 Open at login (off until you turn it
 on; the system keeps it rather than config.toml: on macOS System Settings › General › Login Items
 lists Codealong, and on Linux it's an entry in `~/.config/autostart`, and turning it off there
-shows here); Appearance has the theme, glass (see *Glass*) and session emblems (see *Emblems*),
+shows here); Appearance has the theme, glass (see *Glass*), whether keyboard shortcuts always show (see
+*Keyboard shortcuts beside what they do*) and session emblems (see *Emblems*),
 and says the keys that zoom (see *Zoom*); Sounds has the sound for each thing that starts to
 wait on you, and how loud (see *Sounds*); Jev has the TypeSafe key (kept in the keychain),
 what Jev's requests used and cost (see *What sessions used and cost*), and a switch per feature,
@@ -3405,8 +3417,8 @@ Ctrl+\ lets go, leaving it running in Codealong. It takes a terminal's id or a s
 An agent can ask to run a command in a terminal of yours, as you (`codealong terminal run`): a
 sign-in that opens a browser or asks for a password (`gcloud auth login`, `aws sso login`), a
 command that needs your identity rather than the agent's, a dev server you should see. Its session
-waits on you for it, wherever that shows (its panel, the notch, Waiting on you, the bar), under
-"Wants to run in your terminal", with the exact command and where it would run. Allow runs it in
+waits on you for it, wherever that shows (its panel, the notch, Waiting on you, the bar), in a card
+headed "Run in your terminal", with the exact command and where it would run. Allow runs it in
 a terminal under the session (*Terminals under a session*; or, with `run_in = "terminal"`, a new
 tab of your terminal beside the session's), in that folder, in your login shell
 (zsh or bash, interactive, with your aliases and your sign-ins, outside any sandbox): you can watch
@@ -3577,21 +3589,23 @@ An agent that reads your sessions for you can suggest what you might answer each
 session and ask it to go over what waits on you (`codealong sessions --waiting`, then `codealong
 session transcript` for each), and it suggests replies with `codealong session suggest`. They show
 above the session's box, in every window that has it (Sessions' panel, the peek, the notch, the
-waiting window), under who suggested them and the note it left. A click sends one as yours, as it
+waiting window), in a card of suggestions' own color (a snooze Jev or an agent suggests is one
+too), with no heading: who suggested them, and the note it left, are under the pointer on its
+sparkle, and its × dismisses them. A click sends one as yours, as it
 is, the way ⏎ sends what's typed, leaving what you'd typed in the box; ⌘-click sends it and goes on
 to the next that waits on you, as ⌘⏎ does; ⌥-click puts it in the box to change first; ↑ from the
 empty box goes through them, ⏎ sending the one you're on. **⌘1** to **⌘6** send them from the
 box, as the quick panel's ⌘1 to ⌘9 pick its rows, and from anywhere in the notch and the waiting
 window; once ↑ has taken you into them, a number alone does. Each shows its key while it works; from
 Sessions' list, where ⌘ and a digit open the row's places, they show their arrows instead. A reply's right-click menu has the same,
-and Dismiss takes them all away. The box stays yours to type in instead, and nothing reaches the
+and × takes them all away. The box stays yours to type in instead, and nothing reaches the
 session until you pick. While it waits on a call to allow, a reply denies the call and is sent
 instead, as what you type would be. For questions it asks you, the agent picks among their own
 choices instead (`codealong session suggest --pick "<choice>" "<why>"`): the question box shows
-them picked, each with a Suggested chip and its why in a few words, and who picked them and any
-note under the choices, so one click on Answer answers with them, and a choice of yours takes a
-pick's place (Dismiss takes away the ones you haven't touched). Its row has a
-Suggested chip, whose tooltip lists them. They answer the reply the agent read: one
+them picked, each with a sparkle and its why in a few words, and the box's top row has the sparkle
+with who picked them and any note under the pointer, and × beside it, so one click on Answer
+answers with them, and a choice of yours takes a pick's place (× takes away the ones you haven't
+touched). Its row has a sparkle chip, whose tooltip lists them. They answer the reply the agent read: one
 written after you'd replied since is turned down, as is one while the session takes a turn, so a
 suggestion for the turn before never appears after your answer. They go once anything is sent to
 the session or a turn of its starts, and suggesting again replaces them. A

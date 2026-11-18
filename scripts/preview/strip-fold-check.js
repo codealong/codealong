@@ -4,10 +4,11 @@
 // fit. ⋯ drops a menu of just those, each with its key, a submenu's on its first choice, which
 // the key runs (Review with's ⌃⌘R), and picking one does what its button does. What it says keeps
 // room for a word and its ellipsis throughout. The third run has a PR's card in the waiting
-// window (PrCard.tsx), whose strip is its own five.
-//   PREVIEW_WAIT=60000 scripts/preview.sh sessions '' scripts/preview/strip-fold-check.js
-//   PREVIEW_WAIT=60000 PREVIEW_PLATFORM=linux scripts/preview.sh sessions '' scripts/preview/strip-fold-check.js
-//   PREVIEW_WAIT=60000 PREVIEW_INIT=scripts/preview/waiting-review-init.js scripts/preview.sh waiting '' scripts/preview/strip-fold-check.js
+// window (PrCard.tsx), whose strip is its own five. Keys show all along (PREVIEW_KEYS), where they
+// take the most room.
+//   PREVIEW_WAIT=60000 PREVIEW_KEYS=1 scripts/preview.sh sessions '' scripts/preview/strip-fold-check.js
+//   PREVIEW_WAIT=60000 PREVIEW_KEYS=1 PREVIEW_PLATFORM=linux scripts/preview.sh sessions '' scripts/preview/strip-fold-check.js
+//   PREVIEW_WAIT=60000 PREVIEW_KEYS=1 PREVIEW_INIT=scripts/preview/waiting-review-init.js scripts/preview.sh waiting '' scripts/preview/strip-fold-check.js
 (function () {
   localStorage.removeItem('codealong.sessionPanelMax');
 

@@ -46,6 +46,8 @@ export interface LiveSession {
   theme: Theme | null;
   /** The zoom, in percent, once a board has said. */
   zoom: number | null;
+  /** Whether keyboard shortcuts show all the time, as the board last said (keysShown.ts). */
+  showKeys: boolean;
   /** The board's PRs, worktrees and todos, for what the header says around the session and for
    *  PR links in the conversation, and its terminals of Codealong's own, for the drawer under its
    *  box. The last ones stay for the next session shown. */
@@ -138,7 +140,7 @@ export function useLiveSession(told: Told | null, shown: boolean): LiveSession {
     if (following.current) following.current.read(failed);
     else void getBoard().then(takeBoard, failed);
   }, [takeBoard]);
-  return { lane, session, theme: now?.theme ?? (elsewhere ? look?.theme : null) ?? null, zoom: now?.zoom ?? (elsewhere ? look?.zoom : null) ?? null, board, device: elsewhere && key ? deviceOf(devices, key) : null, needBoard, there: elsewhere ? devices?.lanes : undefined, perfLog };
+  return { lane, session, theme: now?.theme ?? (elsewhere ? look?.theme : null) ?? null, zoom: now?.zoom ?? (elsewhere ? look?.zoom : null) ?? null, showKeys: !!engine?.showKeys, board, device: elsewhere && key ? deviceOf(devices, key) : null, needBoard, there: elsewhere ? devices?.lanes : undefined, perfLog };
 }
 
 /** ⌘= ⌘- ⌘0 on a card in a window that floats: they zoom every window, as in the board's, and

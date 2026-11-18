@@ -106,13 +106,18 @@ export interface SideWindowCan {
   close: () => void;
 }
 
-/** The strip's top line: what this is, a few words about it, and what can be done with it. In a
- *  window of its own the words are the session's title, which `onAbout` shows. */
-function Head({ title, about, aboutTitle, onAbout, children }: { title: string; about: string; aboutTitle?: string; onAbout?: () => void; children: ReactNode }) {
+/** The strip's top line: what this is, and what can be done with it. What it is about (that a
+ *  throwaway copy answers, which the session never sees) is under the pointer on its title, and
+ *  only a `note` of where it stands shows beside it (ended, when one kept was): a sentence under
+ *  every side conversation read as clutter. In a window of its own the words beside it are the
+ *  session's title, which `onAbout` shows. */
+function Head({ title, about, note, aboutTitle, onAbout, children }: { title: string; about: string; note?: string; aboutTitle?: string; onAbout?: () => void; children: ReactNode }) {
   return (
     <header className="ca-sidestrip-head">
       <Icon name="help" size={14} />
-      <span className="ca-sidestrip-title">{title}</span>
+      <span className="ca-sidestrip-title" title={onAbout ? undefined : about}>
+        {title}
+      </span>
       {onAbout ? (
         <span className="ca-sidestrip-about has-link">
           <button type="button" className="ca-sidestrip-session" title={aboutTitle ?? about} onClick={onAbout}>
@@ -120,9 +125,7 @@ function Head({ title, about, aboutTitle, onAbout, children }: { title: string; 
           </button>
         </span>
       ) : (
-        <span className="ca-sidestrip-about" title={aboutTitle ?? about}>
-          {about}
-        </span>
+        <span className="ca-sidestrip-about">{note}</span>
       )}
       <span className="ca-sidestrip-acts">{children}</span>
     </header>
@@ -259,7 +262,7 @@ export function SideStrip({ sideKey: key, words, inWindow }: { sideKey: string; 
       <Act icon="x" label="Close" onClick={() => showSides(key, null)} />
     </>
   );
-  const about = (said: string) => (inWindow ? { about: inWindow.about, aboutTitle: `Show “${inWindow.about}” in Codealong. ${said}`, onAbout: inWindow.show } : { about: said });
+  const about = (said: string, note?: string) => (inWindow ? { about: inWindow.about, aboutTitle: `Show “${inWindow.about}” in Codealong. ${said}`, onAbout: inWindow.show } : { about: said, note });
   const section = (label: string, head: ReactNode, body: ReactNode, scrolls?: boolean) => (
     <section className={cx('ca-sidestrip', inWindow && 'is-window')} aria-label={label}>
       {head}
@@ -294,11 +297,12 @@ export function SideStrip({ sideKey: key, words, inWindow }: { sideKey: string; 
     turns: readable.turns,
     current: answering ? readable.turns.findIndex((t) => !t.done) : -1,
     said: answering ? words.answering : `${agoPhrase(reading?.lastAt ?? now, now)} · ${words.closed}`,
+    note: answering ? 'Answering' : agoPhrase(reading?.lastAt ?? now, now),
   };
   if (read) {
     return section(
       'Side conversation',
-      <Head title={words.title} {...about(read.said)}>
+      <Head title={words.title} {...about(read.said, read.note)}>
         <Act icon="history" label="Earlier" title="The others from before" onClick={() => showSides(key, { kind: 'list' })} />
         <Act
           icon="trash"
@@ -355,7 +359,7 @@ export function SideStrip({ sideKey: key, words, inWindow }: { sideKey: string; 
   }
   return section(
     'Side conversation',
-    <Head title={words.title} {...about(side.ended ? words.ended : words.open)}>
+    <Head title={words.title} {...about(side.ended ? words.ended : words.open, side.ended ? 'Ended' : undefined)}>
       {earlierAct}
       {place}
       <Act

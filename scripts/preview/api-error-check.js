@@ -59,8 +59,8 @@
   var title = function () { var t = document.querySelector('.ca-sessinsp-title'); return t ? t.textContent : null; };
   var row = function (i) { return document.getElementById('row-' + picked[i].lane + '::' + picked[i].key); };
   var flags = function (i) { return all('.ca-insight', row(i)).map(function (c) { return c.textContent; }); };
-  var errorNote = function () { return all('.ca-sessinsp-head .ca-sessinsp-limit').filter(function (n) { return /API error/.test(n.textContent); })[0]; };
-  var words = function () { return errorNote().querySelector('.ca-sessinsp-limit-words').textContent; };
+  var errorNote = function () { return all('.ca-sessinsp-head .ca-sessinsp-limit').filter(function (n) { var w = n.querySelector('.ca-sessinsp-limit-words'); return !!w && /API/.test(w.title); })[0]; };
+  var words = function () { return errorNote().querySelector('.ca-sessinsp-limit-words').title; };
   var button = function () { return errorNote().querySelector('button'); };
   var show = function (i) {
     row(i).dispatchEvent(new MouseEvent('mousedown', { bubbles: true }));

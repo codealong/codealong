@@ -352,9 +352,65 @@ export function TodoPanel({ item, todos, onShowTodo, labels, lanes, now, onRun, 
   const update = (patch: Extract<TodoOp, { op: 'update' }>['patch']) => onRun({ op: 'update', id: todo.id, patch });
   const toggleLabel = (id: string) => update({ labels: todo.labels.includes(id) ? todo.labels.filter((l) => l !== id) : [...todo.labels, id] });
   const shownLabels = todo.labels.flatMap((id) => labels.find((l) => l.id === id) ?? []);
+  // The section where it says more than the status switch (STATUS_WORD's In progress and Done).
+  const sectionSays = SECTION_WORD[section] !== STATUS_WORD[todo.status];
+  const changedApart = todo.updatedAt > todo.createdAt && ago(todo.updatedAt, now) !== ago(todo.createdAt, now);
   const waiting = todo.pending.map((p) => ({ p, lane: lanes.get(p.lane) }));
   const suggested = useSuggested(todo, suggest);
   const offer = suggested ? todoSuggestions(suggested, todo, labels, todos, projects) : null;
+  // A field it has none of yet shows only its way to add one, gathered with the others in one row:
+  // a heading over nothing but "Add due date" said the same thing twice.
+  const hasLabels = shownLabels.length > 0 || (offer?.labels.length ?? 0) > 0;
+  const hasWaits = waitsOn.length > 0 || !!todo.waiting || (offer?.dependsOn.length ?? 0) > 0 || neededBy.length > 0;
+  const addLabel = (
+    <span className="ca-labelpick-anchor">
+      <AddChip icon="tag" label={hasLabels ? 'Label' : 'Add label'} open={picking} onToggle={() => setPicking(!picking)} />
+      {picking && (
+        <LabelPicker
+          labels={labels}
+          chosen={todo.labels}
+          onToggle={toggleLabel}
+          onCreate={(name) => {
+            const label: Label = { id: newId('l'), name, color: nextColor(labels) };
+            onRun({ op: 'labels', labels: [...labels, label] });
+            update({ labels: [...todo.labels, label.id] });
+          }}
+          onRename={(id, name) => onRun({ op: 'labels', labels: labels.map((l) => (l.id === id ? { ...l, name } : l)) })}
+          onMenu={onLabelMenu}
+          onClose={() => setPicking(false)}
+        />
+      )}
+    </span>
+  );
+  const addDue = (
+    <span className="ca-labelpick-anchor ca-duepick-anchor">
+      {due ? (
+        <Chip kind="label" className={cx('ca-duenote', todo.status !== 'done' && `is-${due.tone}`)} remove={{ label: 'Remove the due date', title: 'Remove the due date', run: () => update({ due: null }) }}>
+          <button type="button" className="ca-duenote-show" aria-expanded={pickingDue} title="Change the due date (D)" onClick={() => setPickingDue(!pickingDue)}>
+            <Icon name="calendar" size={12} />
+            <span>{due.long}</span>
+          </button>
+        </Chip>
+      ) : (
+        <AddChip icon="calendar" label="Add due date" title="Add a due date (D)" open={pickingDue} onToggle={() => setPickingDue(!pickingDue)} />
+      )}
+      {pickingDue && <DuePicker due={todo.due ?? null} now={now} onPick={(d) => update({ due: d })} onClose={() => setPickingDue(false)} />}
+    </span>
+  );
+  const addWait = (
+    <span className="ca-labelpick-anchor ca-waitpick-anchor">
+      <AddChip icon="lock" label={hasWaits ? 'Add' : 'Add what it waits on'} open={pickingWait} onToggle={() => setPickingWait(!pickingWait)} />
+      {pickingWait && (
+        <WaitPicker
+          todo={todo}
+          todos={todos}
+          onPick={(id) => setDeps([...depsOf(todo), id])}
+          onWaitFor={(note) => update({ waiting: { note, since: 0 } })}
+          onClose={() => setPickingWait(false)}
+        />
+      )}
+    </span>
+  );
   // Its worktrees and sessions as chips, or with their details as a tree, as you left them.
   const [placesOpen, togglePlaces] = useDetailsOpen(PLACES_KEY);
 
@@ -385,17 +441,23 @@ export function TodoPanel({ item, todos, onShowTodo, labels, lanes, now, onRun, 
           </div>
         </div>
         <div className="ca-todoinsp-meta">
-          <span>{SECTION_WORD[section]}</span>
-          {todo.project && (
+          {/* Its section where that says more than the status switch below (Ready, Waiting, In
+              review), and when it changed where that's another time than when it was added. */}
+          {sectionSays && (
             <>
+              <span>{SECTION_WORD[section]}</span>
               <span aria-hidden="true">·</span>
-              <span>{todo.project}</span>
             </>
           )}
-          <span aria-hidden="true">·</span>
+          {todo.project && (
+            <>
+              <span>{todo.project}</span>
+              <span aria-hidden="true">·</span>
+            </>
+          )}
           <span title={absolute(todo.createdAt)}>added {ago(todo.createdAt, now)} ago</span>
-          {(todo.doneAt || todo.updatedAt > todo.createdAt) && <span aria-hidden="true">·</span>}
-          {todo.doneAt ? <span title={absolute(todo.doneAt)}>done {ago(todo.doneAt, now)} ago</span> : todo.updatedAt > todo.createdAt ? <span title={absolute(todo.updatedAt)}>changed {ago(todo.updatedAt, now)} ago</span> : null}
+          {(todo.doneAt || changedApart) && <span aria-hidden="true">·</span>}
+          {todo.doneAt ? <span title={absolute(todo.doneAt)}>done {ago(todo.doneAt, now)} ago</span> : changedApart ? <span title={absolute(todo.updatedAt)}>changed {ago(todo.updatedAt, now)} ago</span> : null}
           {offer?.project && (
             <button type="button" className="ca-tag ca-suggestchip" title="Suggested by Jev. Click to move it there." onClick={() => update({ project: offer.project ?? undefined })}>
               <Icon name="sparkles" size={11} />
@@ -464,6 +526,7 @@ export function TodoPanel({ item, todos, onShowTodo, labels, lanes, now, onRun, 
         </section>
       )}
 
+      {hasLabels && (
       <section className="ca-insp-sec">
         <h4 className="ca-label">Labels</h4>
         <div className="ca-todoinsp-labels">
@@ -473,46 +536,19 @@ export function TodoPanel({ item, todos, onShowTodo, labels, lanes, now, onRun, 
           {offer?.labels.map((l) => (
             <LabelChip key={l.id} label={l} suggested title={`Suggested by Jev. Click to add “${l.name}”.`} onClick={() => toggleLabel(l.id)} />
           ))}
-          <span className="ca-labelpick-anchor">
-            <AddChip icon="tag" label={shownLabels.length ? 'Label' : 'Add label'} open={picking} onToggle={() => setPicking(!picking)} />
-            {picking && (
-              <LabelPicker
-                labels={labels}
-                chosen={todo.labels}
-                onToggle={toggleLabel}
-                onCreate={(name) => {
-                  const label: Label = { id: newId('l'), name, color: nextColor(labels) };
-                  onRun({ op: 'labels', labels: [...labels, label] });
-                  update({ labels: [...todo.labels, label.id] });
-                }}
-                onRename={(id, name) => onRun({ op: 'labels', labels: labels.map((l) => (l.id === id ? { ...l, name } : l)) })}
-                onMenu={onLabelMenu}
-                onClose={() => setPicking(false)}
-              />
-            )}
-          </span>
+          {addLabel}
         </div>
       </section>
+      )}
 
+      {due && (
       <section className="ca-insp-sec">
         <h4 className="ca-label">Due</h4>
-        <div className="ca-todoinsp-labels">
-          <span className="ca-labelpick-anchor ca-duepick-anchor">
-            {due ? (
-              <Chip kind="label" className={cx('ca-duenote', todo.status !== 'done' && `is-${due.tone}`)} remove={{ label: 'Remove the due date', title: 'Remove the due date', run: () => update({ due: null }) }}>
-                <button type="button" className="ca-duenote-show" aria-expanded={pickingDue} title="Change the due date (D)" onClick={() => setPickingDue(!pickingDue)}>
-                  <Icon name="calendar" size={12} />
-                  <span>{due.long}</span>
-                </button>
-              </Chip>
-            ) : (
-              <AddChip icon="calendar" label="Add due date" title="Add a due date (D)" open={pickingDue} onToggle={() => setPickingDue(!pickingDue)} />
-            )}
-            {pickingDue && <DuePicker due={todo.due ?? null} now={now} onPick={(d) => update({ due: d })} onClose={() => setPickingDue(false)} />}
-          </span>
-        </div>
+        <div className="ca-todoinsp-labels">{addDue}</div>
       </section>
+      )}
 
+      {hasWaits && (
       <section className="ca-insp-sec">
         <h4 className="ca-label">Waits on</h4>
         <div className="ca-todoinsp-labels ca-todoinsp-waits">
@@ -536,18 +572,7 @@ export function TodoPanel({ item, todos, onShowTodo, labels, lanes, now, onRun, 
               <span className="ca-waitnote-text">{middleTruncate(t.title || 'Untitled', 40)}?</span>
             </Chip>
           ))}
-          <span className="ca-labelpick-anchor ca-waitpick-anchor">
-            <AddChip icon="lock" label={waitsOn.length || todo.waiting ? 'Add' : 'Add what it waits on'} open={pickingWait} onToggle={() => setPickingWait(!pickingWait)} />
-            {pickingWait && (
-              <WaitPicker
-                todo={todo}
-                todos={todos}
-                onPick={(id) => setDeps([...depsOf(todo), id])}
-                onWaitFor={(note) => update({ waiting: { note, since: 0 } })}
-                onClose={() => setPickingWait(false)}
-              />
-            )}
-          </span>
+          {addWait}
         </div>
         {neededBy.length > 0 && (
           <div className="ca-todoinsp-neededby">
@@ -558,7 +583,18 @@ export function TodoPanel({ item, todos, onShowTodo, labels, lanes, now, onRun, 
           </div>
         )}
       </section>
+      )}
 
+      {/* What it has none of yet, as one row of ways to add it rather than a heading each. */}
+      {(!hasLabels || !due || !hasWaits) && (
+        <section className="ca-insp-sec">
+          <div className="ca-todoinsp-labels ca-todoinsp-adds">
+            {!hasLabels && addLabel}
+            {!due && addDue}
+            {!hasWaits && addWait}
+          </div>
+        </section>
+      )}
       <section className="ca-insp-sec">
         <h4 className="ca-label">Description</h4>
         <DescriptionEditor key={todo.id} value={todo.description} onSave={(description) => update({ description })} onError={onError} />

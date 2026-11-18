@@ -168,6 +168,8 @@ pub struct Feed {
     /// The board's time, for settling changes the windows show ahead of the engine (ahead.ts).
     pub generated_at: i64,
     pub theme: Theme,
+    /// Whether keyboard shortcuts show all the time (`[appearance] show_keys`, src/keysShown.ts).
+    pub show_keys: bool,
     /// The terminal app's name, for menu items such as "Show in Ghostty".
     pub terminal: String,
     /// Your editor and the others installed, as the board has them, for the Open in menus.
@@ -258,6 +260,7 @@ pub fn feed(shown: Shown, pin: &Pinned, last_title: Option<&str>) -> Feed {
         loading: board.loading,
         generated_at: board.generated_at,
         theme: board.theme,
+        show_keys: board.show_keys,
         terminal: board.apps.terminal.clone(),
         editor: board.apps.editor.clone(),
         editor_id: board.apps.editor_id.clone(),

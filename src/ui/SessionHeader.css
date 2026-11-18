@@ -104,10 +104,15 @@
 .ca-sessinsp-limit > .ca-icon {
   flex: none;
 }
+/* A few words: the sentence that says what it comes to and how it goes on is under the pointer. */
 .ca-sessinsp-limit-words {
-  flex: 1 1 200px;
+  flex: 1 1 120px;
   min-width: 0;
+  overflow: hidden;
   color: var(--ink-2);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  cursor: default;
 }
 .ca-sessinsp-limit > .ca-btn {
   flex: none;

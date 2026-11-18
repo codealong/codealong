@@ -564,12 +564,9 @@ export function UsageBar({ usage: board, now, onRefresh, onAccounts, onUsage, on
           title={lastRead ? `Claude usage read ${agoPhrase(lastRead, now)}; it refreshes every 2 minutes. Refresh now` : 'Refresh usage'}
           onClick={onRefresh}
         />
-        <Button variant="ghost" size="sm" icon="chart-bar" title={keysIn('What sessions used and cost (⇧⌘U)')} onClick={() => onUsage()}>
-          Analytics
-        </Button>
-        <Button variant="ghost" size="sm" icon="settings" title={keysIn('Accounts, in Settings (⌘,)')} onClick={() => onAccounts()}>
-          Accounts
-        </Button>
+        {/* Icons, as Refresh beside them is: what each opens is under the pointer. */}
+        <Button variant="ghost" size="sm" icon="chart-bar" aria-label="Analytics" title={keysIn('Analytics: what sessions used and cost (⇧⌘U)')} onClick={() => onUsage()} />
+        <Button variant="ghost" size="sm" icon="settings" aria-label="Accounts" title={keysIn('Accounts, in Settings (⌘,)')} onClick={() => onAccounts()} />
       </div>
     </div>
   );

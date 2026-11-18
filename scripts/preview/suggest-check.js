@@ -134,8 +134,11 @@
       return wait(50);
     })
     .then(function () {
+      // Where keys show (keysShown.ts: by Settings, or while ⌘ is held).
+      document.documentElement.dataset.keys = 'held';
       var shown = rows().map(function (r) { var k = r.querySelector('.ca-kbds'); return k && getComputedStyle(k).display !== 'none' ? k.textContent : ''; });
-      check('with the box’s keyboard each reply shows its key', shown.join(' ') === '⌘1 ⌘2 ⌘3', shown.join(' '));
+      delete document.documentElement.dataset.keys;
+      check('with the box’s keyboard each reply shows its key, where keys show', shown.join(' ') === '⌘1 ⌘2 ⌘3', shown.join(' '));
       key(box(), { key: '2', code: 'Digit2', metaKey: true });
       return until(function () { return sends().length === 3; }, 3000, '⌘2 sending it');
     })

@@ -45,7 +45,7 @@ import { below } from '../contextMenu';
 import { folderTargets, opensInEditor, useEditorIcons } from '../editors';
 import { absolute, ago, agoPhrase, duration, middleTruncate, tildePath } from '../format';
 import { MOVES_ACCOUNTS, sessionName, sessionPlace } from '../harness';
-import { apiErrorWords, cutOffWords, endedOnApiError, endedSignedOut, limitWords, raisedBy, seenable, setAside, sideTitle, signedOutWords } from '../lanes';
+import { apiErrorWords, cutOffWords, endedOnApiError, endedPhrase, endedSignedOut, limitPhrase, limitWords, raisedBy, seenable, setAside, sideTitle, signedOutWords } from '../lanes';
 import { cameLines, cameLineWords, cameWord, originWord, startingTitle, type CameLine, type Kin, type Lineage } from '../lineage';
 import { CHORDS, chordKeys, chordSigns, type SessionActions } from '../menus';
 import { scopeWords } from '../orchestrators';
@@ -541,7 +541,8 @@ export function SessionHeader({ lane, session: s, apps, now, onOpen, onShowLane,
   const targets = folder.length > 0 ? [...(own.length > 0 || shownHere ? own : [place]), ...folder] : own;
   // Your editor, which comes first of them, when it's shown where it lives.
   const leads = shownHere ? (folder.find((t) => t.id.startsWith('l|editor|'))?.id ?? null) : s.openTarget;
-  const since = s.statusSince ? (s.status === 'working' ? `for ${duration(s.statusSince, now)}` : agoPhrase(s.statusSince, now)) : agoPhrase(s.lastActivity, now);
+  // Its glyph beside the title says how it stands, so the line under it says only since when.
+  const since = s.statusSince ? (s.status === 'working' ? `For ${duration(s.statusSince, now)}` : agoPhrase(s.statusSince, now)) : agoPhrase(s.lastActivity, now);
   const snoozed = s.snoozedUntil ? ` · snoozed until ${untilWords(s.snoozedUntil, now)}` : '';
   // A snooze until its usage limit lifts, beside what the banner says of the limit: the first line
   // of its Snooze menu, run from there (snooze.ts `suggestedIn`), so a window working through what
@@ -552,7 +553,7 @@ export function SessionHeader({ lane, session: s, apps, now, onOpen, onShowLane,
   const agentSeen = s.agentSeen ? ' · seen by its agent' : '';
   const raised = s.raised ? ` · moved to the top${raisedBy(s.raised)}` : '';
   // Set aside, it says since when it has waited on its side conversation rather than on you.
-  const said = s.aside != null && setAside(s) ? `Set aside for its side conversation · ${agoPhrase(s.aside, now)}` : `${s.asks ? 'Asks you' : STATUS_WORD[s.status]} · ${since}`;
+  const said = s.aside != null && setAside(s) ? `On the side · ${agoPhrase(s.aside, now)}` : since.charAt(0).toUpperCase() + since.slice(1);
   const status = (s.stalledSince ? `Silent since ${agoPhrase(s.stalledSince, now)}` : said) + raised + snoozed + quiet + agentSeen;
   const naming = !!renaming && !!onRename;
   // A double-click on the name renames it as the window's Rename does (`actions.rename`, there
@@ -684,7 +685,9 @@ export function SessionHeader({ lane, session: s, apps, now, onOpen, onShowLane,
       {s.limit && s.status !== 'working' && (
         <div className="ca-sessinsp-limit" role="note">
           <Icon name="alert" size={12} />
-          <span className="ca-sessinsp-limit-words">{limitWords(s.account, s.limit, now, !!actions?.moveOn, MOVES_ACCOUNTS.includes(s.harness))}</span>
+          <span className="ca-sessinsp-limit-words" title={limitWords(s.account, s.limit, now, !!actions?.moveOn, MOVES_ACCOUNTS.includes(s.harness))}>
+            {limitPhrase(s.limit, now)}
+          </span>
           {snoozeTillLifted && liftsAt && (
             <Button size="sm" title={`It leaves what waits on you until ${untilWords(liftsAt.until, now)}, when the limit lifts (${chordSigns(SUGGESTED_CHORD)})`} onClick={() => snoozeTillLifted.run()}>
               Snooze until it lifts
@@ -702,7 +705,9 @@ export function SessionHeader({ lane, session: s, apps, now, onOpen, onShowLane,
       {s.cutOff != null && s.status !== 'working' && (
         <div className="ca-sessinsp-limit" role="note">
           <Icon name="alert" size={12} />
-          <span className="ca-sessinsp-limit-words">{cutOffWords(!!actions?.carryOn)}</span>
+          <span className="ca-sessinsp-limit-words" title={cutOffWords(!!actions?.carryOn)}>
+            {endedPhrase(s, 'cut-off')}
+          </span>
           {actions?.carryOn && (
             <Button size="sm" title="It goes on where its account’s last session did, told to carry on the turn that was cut off" onClick={() => actions.carryOn?.run()}>
               {actions.carryOn.label}
@@ -714,7 +719,9 @@ export function SessionHeader({ lane, session: s, apps, now, onOpen, onShowLane,
       {endedSignedOut(s) && (
         <div className="ca-sessinsp-limit" role="note">
           <Icon name="alert" size={12} />
-          <span className="ca-sessinsp-limit-words">{signedOutWords(s, !!actions?.signIn)}</span>
+          <span className="ca-sessinsp-limit-words" title={signedOutWords(s, !!actions?.signIn)}>
+            {endedPhrase(s, 'signed-out')}
+          </span>
           {actions?.signIn && (
             <Button size="sm" icon="terminal" title={`Opens a terminal that signs ${s.account} in`} onClick={() => actions.signIn?.run()}>
               {actions.signIn.label}
@@ -725,7 +732,9 @@ export function SessionHeader({ lane, session: s, apps, now, onOpen, onShowLane,
       {endedOnApiError(s) && (
         <div className="ca-sessinsp-limit" role="note">
           <Icon name="alert" size={12} />
-          <span className="ca-sessinsp-limit-words">{apiErrorWords(s, !!actions?.tryAgain)}</span>
+          <span className="ca-sessinsp-limit-words" title={apiErrorWords(s, !!actions?.tryAgain)}>
+            {endedPhrase(s, 'api')}
+          </span>
           {actions?.tryAgain && (
             <Button size="sm" title="It’s sent a message saying its last turn ended on an API error, to try again where it left off" onClick={() => actions.tryAgain?.run()}>
               {actions.tryAgain.label}

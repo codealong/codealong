@@ -121,6 +121,7 @@ import { findFor } from './threadFind';
 import { CODEALONG_REPO, improveTitle } from './improve';
 import { setPageZoom, type ZoomStep } from './zoom';
 import { bare, keysIn } from './platform';
+import { useKeysShown } from './keysShown';
 
 /** No worktrees yet, as one list, so Settings doesn't see a new one on every render. */
 const NO_LANES: Lane[] = [];
@@ -485,6 +486,7 @@ export function App() {
   const logoStatus = useLogo(board?.logoStatus);
   useTheme(theme);
   useGlass(!!board?.glass);
+  useKeysShown(board?.showKeys);
   useEffect(() => {
     if (pickedTheme && board?.theme === pickedTheme) setPickedTheme(null);
   }, [board?.theme, pickedTheme]);

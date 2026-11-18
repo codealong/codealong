@@ -489,6 +489,11 @@ function AppearancePane({ cfg, theme, onPickTheme, disabled, onSave }: PaneProps
             <small>The main window and the project windows show what’s behind them through macOS’s glass, Liquid Glass from macOS 26 and the sidebar’s blur before it: the title bar, the sidebar and the quick panel’s bar let it through, as the Finder’s do, what sits on it takes its tint, and the bands between a list’s groups are frosted, while the rows, the cards and the panel keep their own ground.</small>
           </label>
         )}
+        <label className="ca-field ca-settings-check">
+          <CheckBox checked={!!cfg.appearance.show_keys} onChange={(on) => void onSave({ ...cfg, appearance: { ...cfg.appearance, show_keys: on } })} />
+          <span>Always show keyboard shortcuts</span>
+          <small>{keysIn('Beside the buttons and rows they work, and in the lines under the message box. Off, they show while you hold ⌘ or ⌃, and tooltips and menus say them either way.')}</small>
+        </label>
         <EmblemsFields cfg={cfg} disabled={disabled} onSave={(next) => void onSave(next)} />
       </fieldset>
     </>

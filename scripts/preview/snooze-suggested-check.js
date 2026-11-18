@@ -87,7 +87,11 @@
       var mark = card && card.querySelector('.ca-suggest-mark');
       check('in suggestions’ card, its sparkle saying whose read it is', !!mark && mark.title === 'Jev’s read' && !/as its reply says/.test(card.textContent), mark ? mark.title : 'no mark');
       var keys = l && l.querySelector('.ca-kbds');
-      check('its key shows wherever the keyboard is', !!keys && getComputedStyle(keys).display !== 'none' && keys.textContent.replace(/\s/g, '') === '⌃⌘8', keys ? getComputedStyle(keys).display + ' ' + keys.textContent : 'no keys');
+      // Keys show where Settings or a held ⌘ says (keysShown.ts): out of sight until then.
+      check('its key is out of sight until keys show', !!keys && getComputedStyle(keys).display === 'none', keys ? getComputedStyle(keys).display : 'no keys');
+      document.documentElement.dataset.keys = 'held';
+      check('then it shows wherever the keyboard is', !!keys && getComputedStyle(keys).display !== 'none' && keys.textContent.replace(/\s/g, '') === '⌃⌘8', keys ? getComputedStyle(keys).display + ' ' + keys.textContent : 'no keys');
+      delete document.documentElement.dataset.keys;
       return menuOf(row(0));
     })
     .then(function () {

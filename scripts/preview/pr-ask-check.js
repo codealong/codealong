@@ -84,7 +84,7 @@
     .then(function () {
       check('the box is on Ask, emptied', on() === 'Ask' && box().value === '', box().value);
       check('the question shows above it', q('.ca-sidestrip-q').textContent === 'Why a new table?');
-      check('the strip says what it’s about and who answers', /About #\d+/.test(q('.ca-sidestrip-title').textContent) && q('.ca-sidestrip-about').textContent.indexOf(auto + ' reads the PR') === 0, q('.ca-sidestrip-about').textContent);
+      check('the strip says what it’s about, and who answers under the pointer', /About #\d+/.test(q('.ca-sidestrip-title').textContent) && q('.ca-sidestrip-title').title.indexOf(auto + ' reads the PR') === 0, q('.ca-sidestrip-title').title);
       check('the open conversation’s account is said, not picked', !chip() && (q('.ca-prreview-who') || {}).textContent === auto);
       answer([{ question: 'Why a new table?', answer: 'Teams need their own rows.', done: true, at: Date.now() }]);
       return until(function () { return !!q('.ca-sidestrip-a'); }, 3000, 'the answer');

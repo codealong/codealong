@@ -48,6 +48,7 @@ import { asText, readStored, writeStored } from '../stored';
 import { SaidCard, SaidLine, useSaid } from './Said';
 import { MeetingOffered, MeetingSoon } from './Meeting';
 import { hearingSays } from '../said';
+import { useKeysShown } from '../keysShown';
 
 /** Room around the bar for its shadow: the window is this much bigger on every side. */
 const MARGIN = 12;
@@ -458,6 +459,7 @@ export function Bar() {
 
   // The theme from config.toml, as in the board's windows.
   const theme = feed?.theme ?? 'system';
+  useKeysShown(feed?.showKeys);
   const logoStatus = useLogo(feed?.logoStatus);
   // What the mark plays as something happens (mark.ts).
   const moment = useMarkMoment(feed, ahead);

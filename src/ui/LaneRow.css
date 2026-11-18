@@ -42,6 +42,15 @@
   font: var(--type-caption-heading);
   color: var(--ink-3);
 }
+/* Quiet and Suggested say themselves by their icon, and the rest under the pointer. */
+.ca-chip.ca-quietchip,
+.ca-chip.ca-suggestedchip {
+  padding: 0 5px;
+}
+.ca-chip.ca-suggestedchip {
+  background: var(--suggest-tint);
+  color: var(--suggest);
+}
 /* A helper of the session that waits on you: in the attention color, as the row it's under
    would be. */
 .ca-chip.ca-helperschip.is-waiting {

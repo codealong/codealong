@@ -2730,11 +2730,10 @@ pub fn session_headline(s: &Session) -> (String, Option<String>) {
         // Its glyph and its bay (Your turn) already say it finished, and the word on every row
         // there was noise: the title stands alone, as a working session's does.
         Status::Unread => (format!("{acct} · {}", s.title), s.excerpt.clone()),
-        // An orchestrator's turns end quiet: its row says what its last run came to (Nothing new,
-        // `quiet_orchestrator`), and its header when it looked.
-        Status::Idle if s.orchestrator.is_some() && s.excerpt.is_some() => (format!("{acct} · {}", s.title), s.excerpt.clone()),
-        Status::Idle => (format!("{acct} · {}", s.title), Some(format!("last turn {{ago:{}}}", s.last_activity))),
-        Status::Stopped => (format!("{acct} · {}", s.title), Some(format!("stopped {{ago:{}}}", s.last_activity))),
+        // What it last said, as a finished turn's row says (an orchestrator's, what its last run
+        // came to: Nothing new, `quiet_orchestrator`): when it was is the row's own time, and
+        // "last turn 20m ago" beside "20m" only said it twice.
+        Status::Idle | Status::Stopped => (format!("{acct} · {}", s.title), s.excerpt.clone()),
     }
 }
 
@@ -3219,6 +3218,7 @@ pub fn compose(inp: Inputs) -> Board {
         theme: Default::default(),
         zoom: crate::zoom::ACTUAL,
         glass: false,
+        show_keys: false,
         perf_log: false,
         todos: Vec::new(),
         todos_unreadable: false,
@@ -3371,7 +3371,7 @@ mod tests {
         let mut nothing = Session { status: Status::Idle, reply_tail: Some("—".into()), excerpt: Some("—".into()), orchestrator: o, ..Session::new(Harness::Claude, "claude", "o") };
         quiet_orchestrator(&mut nothing);
         assert_eq!(nothing.excerpt.as_deref(), Some(NOTHING_NEW));
-        // Which its row says, where another idle session's says when its last turn was.
+        // Which its row says, as another idle session's says what it last said.
         assert_eq!(session_headline(&nothing).1.as_deref(), Some(NOTHING_NEW));
         // Any other session is left as it is.
         let mut other = Session { status: Status::Needs, asks: true, ..Session::new(Harness::Claude, "claude", "x") };

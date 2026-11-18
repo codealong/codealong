@@ -1070,8 +1070,9 @@ export interface Config {
   apps: { terminal: string; editor: string; new_terminal?: NewTerminal; move_pointer?: boolean; close_command_tabs_after?: number; tmux?: TmuxUse; run_in?: 'codealong' | 'terminal' };
   /** `zoom` is a percent; Settings leaves it as config.toml has it. */
   /** `glass`: the board's windows show what's behind them through macOS's glass (glass.rs); on by
-   *  default on macOS, and the engine sends what it comes to. */
-  appearance: { theme: Theme; zoom?: number; glass?: boolean };
+   *  default on macOS, and the engine sends what it comes to. `show_keys`: keyboard shortcuts show
+   *  all the time, not only while ⌘ or ⌃ is held (keysShown.ts). */
+  appearance: { theme: Theme; zoom?: number; glass?: boolean; show_keys?: boolean };
   /** Shortcuts that work in any app, as config.toml writes them (`Option+Cmd+/`); empty is off. */
   shortcuts: { quick_panel: string; chat?: string; waiting: string; improve?: string; main_window?: string; talk?: string; talk_orchestrator?: string; listen?: string };
   /** What Codealong asks TypeSafe's Jev, feature by feature. Older files have none: all off. */
@@ -1966,6 +1967,9 @@ export interface Board {
   /** Whether the board's windows show what's behind them through macOS's glass, from
    *  `[appearance] glass` (src/glass.ts); off when it's missing. */
   glass?: boolean;
+  /** Whether keyboard shortcuts show all the time, from `[appearance] show_keys` (keysShown.ts);
+   *  off when it's missing, when they show while ⌘ or ⌃ is held. */
+  showKeys?: boolean;
   /** Every todo, in your order (src-tauri/src/todos.rs). */
   todos: Todo[];
   /** todos.json didn't read the last time it was read: `todos` is what it held before, and a
@@ -2991,6 +2995,8 @@ export interface BarFeed {
   theme: Theme;
   /** The zoom, in percent: the session or PR the notch shows draws at it (zoom.ts). */
   zoom?: number;
+  /** Whether keyboard shortcuts show all the time (keysShown.ts); missing from an older app's. */
+  showKeys?: boolean;
   /** What the mark's colors say, as on the board, with your other devices' sessions it lists. */
   logoStatus: LogoStatus;
   perfLog: boolean;
@@ -3220,6 +3226,8 @@ export interface DesktopFeed {
   loading: boolean;
   generatedAt: number;
   theme: Theme;
+  /** Whether keyboard shortcuts show all the time (keysShown.ts); missing from an older app's. */
+  showKeys?: boolean;
   /** The terminal app's name, for menu items such as "Show in Ghostty". */
   terminal: string;
   /** Your editor and the others installed, as the board has them, for the Open in menus. */

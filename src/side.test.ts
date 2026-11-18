@@ -17,7 +17,7 @@ describe('turnState', () => {
   });
 
   it('says one asked after the turn the copy is on waits for it', () => {
-    expect(turnState(turn({}), false)).toEqual({ kind: 'waits', words: 'Waits for the answer above' });
+    expect(turnState(turn({}), false)).toEqual({ kind: 'waits', words: 'Queued' });
   });
 
   it('says nothing once a turn is answered, or ended without one', () => {

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { asideable, ageFiltered, apiErrorWords, archivedShows, bayOf, branchLabel, bySession, byStatusTime, waitsFinished, raisedBy, closable, cutOffWords, endedOnApiError, endedSignedOut, exitsItsOwnWay, filterByAge, foldsOf, foldWords, helperLine, helperName, helperStands, homeOf, inboxCounts, laneWaits, limitWords, liveOrLatest, narrowed, relaned, runsShownKey, seenable, sessionFlag, sessionHeadline, sessionPrs, sidesListed, sidesShownKey, signedOutWords, stoppable, unattended, waitsInBackground, withoutAccount, workingFor, workingSince } from './lanes';
+import { asideable, ageFiltered, apiErrorWords, archivedShows, bayOf, branchLabel, bySession, byStatusTime, waitsFinished, raisedBy, closable, cutOffWords, endedOnApiError, endedPhrase, endedSignedOut, exitsItsOwnWay, filterByAge, foldsOf, foldWords, helperLine, helperName, helperStands, homeOf, inboxCounts, laneWaits, limitPhrase, limitWords, liveOrLatest, narrowed, relaned, runsShownKey, seenable, sessionFlag, sessionHeadline, sessionPrs, sidesListed, sidesShownKey, signedOutWords, stoppable, unattended, waitsInBackground, withoutAccount, workingFor, workingSince } from './lanes';
 import * as fx from './testing/fixtures';
 import type { Lane, Pr, PrItem, Session, SideGlance } from './types';
 
@@ -440,12 +440,23 @@ describe('sessionFlag', () => {
     expect(seenable({ ...cut, cutOff: undefined })).toBe(false);
   });
 
+  it('says why a turn ended badly in a few words, for its banner', () => {
+    expect(endedPhrase(s({}), 'cut-off')).toBe('Cut off partway');
+    expect(endedPhrase(s({}), 'signed-out')).toBe('Signed out');
+    expect(endedPhrase(s({ apiError: { said: 'Overloaded.', at: NOW } }), 'api')).toBe('API error: Overloaded');
+    expect(endedPhrase(s({}), 'api')).toBe('Couldn’t reach its API');
+  });
+
   it('says which usage limit stopped a session, when it lifts and where it could go on', () => {
     const limit = { meter: 'week', resetsAt: NOW + 3 * 3_600_000, spendCapped: true, at: NOW - 60_000, moveTo: 'claude' };
     const stopped = s({ status: 'error', limit, excerpt: 'You’ve hit your monthly spend limit' });
     expect(sessionFlag(stopped)).toMatchObject({ label: 'Limit', tone: 'bad' });
     expect(sessionHeadline(stopped)).toEqual(['`claude2` hit its usage limit · Fix the test', 'You’ve hit your monthly spend limit']);
     expect(limitWords('claude2', limit, NOW)).toBe('It stopped at claude2’s weekly limit, with no extra usage to carry it. It lifts in 3h. claude has room: move it there to go on now.');
+    // Its banner says which and when in a few words, the sentence under the pointer.
+    expect(limitPhrase(limit, NOW)).toBe('Weekly limit · lifts in 3h');
+    expect(limitPhrase({ ...limit, meter: 'session', resetsAt: NOW - 1 }, NOW)).toBe('5-hour limit · lifted');
+    expect(limitPhrase({ ...limit, meter: 'model:Opus', resetsAt: null }, NOW)).toBe('Weekly Opus limit');
     // Beside a button that offers the move, the move goes unsaid.
     expect(limitWords('claude2', { ...limit, spendCapped: false, meter: 'session' }, NOW, true)).toBe('It stopped at claude2’s 5-hour limit. It lifts in 3h.');
     expect(limitWords('claude2', { ...limit, meter: 'model:Opus', spendCapped: false, resetsAt: null, moveTo: null }, NOW)).toBe('It stopped at claude2’s weekly Opus limit. No other account has room.');

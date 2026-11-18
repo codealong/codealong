@@ -28,6 +28,7 @@ import { useNow } from './useNow';
 import { errorText, type Report } from '../report';
 import { reviewSnoozeMenu } from '../snooze';
 import { openWhere, where } from '../open';
+import { useKeysShown } from '../keysShown';
 
 /** Room around the card for its shadow: the window is this much bigger on every side. */
 const MARGIN = 12;
@@ -97,6 +98,7 @@ export function DesktopPin() {
 
   const theme = feed?.theme ?? 'system';
   useTheme(theme);
+  useKeysShown(feed?.showKeys);
 
   useEffect(() => {
     if (!failed) return;

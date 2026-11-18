@@ -8,26 +8,26 @@ import { givenBack, stillOffered } from './QuestionList';
 const session = (over: Partial<Session> = {}): Session => fx.session({ live: true, asks: false, hosted: false, ...over });
 
 describe('replyPlaceholder', () => {
-  it('says how a message gets there once the engine has said', () => {
-    expect(replyPlaceholder(session(), 'Ghostty', { kind: 'typed', app: 'iTerm2' })).toBe('Send to claude via iTerm2');
-    expect(replyPlaceholder(session({ status: 'working' }), 'Ghostty', { kind: 'background' })).toBe('Send to claude via its background job: it takes this in as it works');
+  it('says how a message gets there once the engine has said, where the place chip under the box doesn’t', () => {
+    expect(replyPlaceholder(session(), 'Ghostty', { kind: 'typed', app: 'iTerm2' })).toBe('Send to claude');
+    expect(replyPlaceholder(session({ status: 'working' }), 'Ghostty', { kind: 'background' })).toBe('Send to claude: it takes this in as it works');
     expect(replyPlaceholder(session({ surface: 'app' }), 'Ghostty', { kind: 'message' })).toBe('Send to claude as a message from Codealong');
-    expect(replyPlaceholder(session({ asks: true, status: 'needs' }), 'Ghostty', { kind: 'typed', app: 'tmux' })).toBe('Answer claude via tmux');
+    expect(replyPlaceholder(session({ asks: true, status: 'needs' }), 'Ghostty', { kind: 'typed', app: 'tmux' })).toBe('Answer claude');
     expect(replyPlaceholder(session({ live: false }), 'Ghostty', { kind: 'resume', app: 'Terminal' })).toBe('Send to claude: it isn’t running, so this resumes it in Terminal');
   });
 
   it('goes by the session alone until then', () => {
     expect(replyPlaceholder(session({ status: 'working' }), 'Ghostty')).toBe('Send to claude: it takes this in as it works');
     // One working only on the agents or command its turn left running sits at its prompt.
-    expect(replyPlaceholder(session({ status: 'working', agents: ['Draft the release notes'] }), 'Ghostty', { kind: 'background' })).toBe('Send to claude via its background job');
+    expect(replyPlaceholder(session({ status: 'working', agents: ['Draft the release notes'] }), 'Ghostty', { kind: 'background' })).toBe('Send to claude');
     expect(replyPlaceholder(session({ status: 'working', background: 'gh pr checks --watch' }), 'Ghostty')).toBe('Send to claude');
     expect(replyPlaceholder(session({ live: false }), 'Ghostty', null)).toBe('Send to claude: it isn’t running, so this resumes it in Ghostty');
   });
 
   it('says a session stuck mid-turn takes it once that step ends', () => {
-    expect(replyPlaceholder(session({ status: 'needs', stalledSince: 1, need: 'stuck' }), 'Ghostty', { kind: 'background' })).toBe('Send to claude via its background job: it takes this once the step it’s stuck on ends');
+    expect(replyPlaceholder(session({ status: 'needs', stalledSince: 1, need: 'stuck' }), 'Ghostty', { kind: 'background' })).toBe('Send to claude: it takes this once the step it’s stuck on ends');
     // One whose turn ended on a command left in the background sits at its prompt.
-    expect(replyPlaceholder(session({ status: 'needs', stalledSince: 1, need: 'stuck', background: 'acme login --device' }), 'Ghostty', { kind: 'typed', app: 'Ghostty' })).toBe('Send to claude via Ghostty');
+    expect(replyPlaceholder(session({ status: 'needs', stalledSince: 1, need: 'stuck', background: 'acme login --device' }), 'Ghostty', { kind: 'typed', app: 'Ghostty' })).toBe('Send to claude');
   });
 
   it('keeps its own words for a session Codealong runs', () => {

@@ -333,6 +333,7 @@
         "resume_for_pr_news": true,
         "resume_for_sessions_it_started": true
       },
+      "showKeys": false,
       "sides": {},
       "talkOrchestratorShortcut": "",
       "talkShortcut": "",
@@ -680,6 +681,7 @@
           "resume_for_pr_news": true,
           "resume_for_sessions_it_started": true
         },
+        "showKeys": false,
         "sides": {},
         "talkOrchestratorShortcut": "",
         "talkShortcut": "",
@@ -1030,6 +1032,7 @@
         "resume_for_pr_news": true,
         "resume_for_sessions_it_started": true
       },
+      "showKeys": false,
       "sides": {},
       "talkOrchestratorShortcut": "",
       "talkShortcut": "",
@@ -1418,6 +1421,7 @@
         "resume_for_pr_news": true,
         "resume_for_sessions_it_started": true
       },
+      "showKeys": false,
       "sides": {},
       "talkOrchestratorShortcut": "",
       "talkShortcut": "",
@@ -1805,6 +1809,7 @@
         "resume_for_pr_news": true,
         "resume_for_sessions_it_started": true
       },
+      "showKeys": false,
       "sides": {},
       "talkOrchestratorShortcut": "",
       "talkShortcut": "",
@@ -2258,6 +2263,7 @@
         "resume_for_pr_news": true,
         "resume_for_sessions_it_started": true
       },
+      "showKeys": false,
       "sides": {},
       "talkOrchestratorShortcut": "",
       "talkShortcut": "",
@@ -2686,6 +2692,7 @@
         "resume_for_pr_news": true,
         "resume_for_sessions_it_started": true
       },
+      "showKeys": false,
       "sides": {},
       "talkOrchestratorShortcut": "",
       "talkShortcut": "",

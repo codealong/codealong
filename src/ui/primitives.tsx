@@ -1097,12 +1097,13 @@ export function SectionHeader({ icon, label, count, hint }: { icon?: string; lab
 }
 
 /** A section header's hint for rows in your order (Pinned, a todo section): each chord on one
- *  cap, as the hotkey strip says its keys. */
+ *  cap, as the hotkey strip says its keys. It shows where keys do (keysShown.ts): dragging is
+ *  what anyone tries. */
 export function ReorderHint() {
   return (
-    <>
+    <span className="ca-keyhint">
       Drag or <Kbd keys={['⌃⌘↑']} /> <Kbd keys={['⌃⌘↓']} /> to reorder
-    </>
+    </span>
   );
 }
 

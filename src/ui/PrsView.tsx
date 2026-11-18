@@ -272,14 +272,18 @@ interface PrRowProps {
   drag?: DragProps;
   /** Under its worktree's or its repo's heading, which says that for it. */
   under?: GroupBy;
+  /** The status section it's listed in, whose heading may say what one of its pills would. */
+  section?: PrSection['id'];
 }
 
 /** A PR in the list: its number, title and labels, then its repo's chip, its standing (pills), its
  *  branch and author, a session that worked on it and its worktree, and its size. On one line
  *  (`slim`): its number and title, then its labels as they fit, and its repo, standing and size at
  *  the line's end. */
-function PrRow({ item, domId, now, slim, opened, onShowRepo, selected, onSelect, onOpen, onOpenSession, onContextMenu, drag, under }: PrRowProps) {
+function PrRow({ item, domId, now, slim, opened, onShowRepo, selected, onSelect, onOpen, onOpenSession, onContextMenu, drag, under, section }: PrRowProps) {
   const { pr } = item;
+  // Under Ready to merge, its Ready to merge pill only said the heading again.
+  const omit = section === 'ready' ? 'ready' : undefined;
   const requested = waitsOnReview(pr);
   const flag = prMove(item);
   // One session, named by its title: the PR's primary one, else the first. Two titles side by side
@@ -324,7 +328,7 @@ function PrRow({ item, domId, now, slim, opened, onShowRepo, selected, onSelect,
               </span>
               <span className="ca-prrow-end">
                 {repo}
-                <PrPills pr={pr} />
+                <PrPills pr={pr} omit={omit} />
                 {diff}
               </span>
             </>
@@ -342,7 +346,7 @@ function PrRow({ item, domId, now, slim, opened, onShowRepo, selected, onSelect,
               <span className="ca-prrow-lead">
                 {repo}
                 {snooze}
-                <PrPills pr={pr} />
+                <PrPills pr={pr} omit={omit} />
                 <span className="ca-prrow-meta" title={`${pr.head}${pr.base ? ` → ${pr.base}` : ''}`}>
                   {pr.head} · {pr.mine ? 'you' : (pr.author ?? 'unknown')}
                 </span>
@@ -423,8 +427,9 @@ export function PrsView(props: PrsViewProps) {
       return r ? `#${r.pr.number} ${r.pr.title}` : '';
     },
   });
-  /** A PR's row: `index` is its place among the pinned ones; `under`, the heading it's under. */
-  const row = (r: PrRowItem, index: number | null, under?: GroupBy) => (
+  /** A PR's row: `index` is its place among the pinned ones; `under`, the heading it's under, and
+   *  `section` the status section, whose heading says what a pill of the row's would again. */
+  const row = (r: PrRowItem, index: number | null, under?: GroupBy, section?: PrSection['id']) => (
     <PrRow
       key={r.key}
       item={r}
@@ -440,6 +445,7 @@ export function PrsView(props: PrsViewProps) {
       onContextMenu={() => onContextMenu(r)}
       drag={drag.rowProps(r.pr.key, index, pinned.length)}
       under={under}
+      section={section}
     />
   );
   /** A section's heading, with Merged & closed's way to show or hide its PRs. */
@@ -458,9 +464,9 @@ export function PrsView(props: PrsViewProps) {
     />
   );
   /** A group: its heading and its PRs. A press on a worktree's heading shows the worktree. */
-  const group = (g: Grouped<PrSection, PrRowItem>['pinned'][number], acts: GroupActs, pin: boolean) => (
+  const group = (g: Grouped<PrSection, PrRowItem>['pinned'][number], acts: GroupActs, pin: boolean, section?: PrSection['id']) => (
     <GroupBlock key={`group:${g.key}`} g={g} acts={acts} now={now} rows={false} pinned={pin} none={PR_NONE}>
-      {g.rows.map((r) => row(r, null, g.key ? g.by : undefined))}
+      {g.rows.map((r) => row(r, null, g.key ? g.by : undefined, section))}
     </GroupBlock>
   );
   return (
@@ -479,7 +485,7 @@ export function PrsView(props: PrsViewProps) {
           {groups.sections.map((s) => (
             <section key={s.id} className="ca-bayblock">
               {header(s, s.count)}
-              {(s.id !== 'done' || showDone) && <div className="ca-bay-lanes">{s.groups.map((g) => group(g, groupActs, false))}</div>}
+              {(s.id !== 'done' || showDone) && <div className="ca-bay-lanes">{s.groups.map((g) => group(g, groupActs, false, s.id))}</div>}
             </section>
           ))}
         </>
@@ -487,7 +493,7 @@ export function PrsView(props: PrsViewProps) {
         sections.map((s) => (
           <section key={s.id} className="ca-bayblock">
             {header(s, s.rows.length)}
-            {(s.id !== 'done' || showDone) && <div className="ca-bay-lanes">{s.rows.map((r) => row(r, null))}</div>}
+            {(s.id !== 'done' || showDone) && <div className="ca-bay-lanes">{s.rows.map((r) => row(r, null, undefined, s.id))}</div>}
           </section>
         ))
       )}

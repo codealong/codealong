@@ -533,11 +533,10 @@ export function sessionHeadline(s: Session): [string, string | null] {
       // Its glyph and bay already say it finished, so the title stands alone, as a working one's does.
       return [`${acct} · ${s.title}`, s.excerpt];
     case 'idle':
-      // An orchestrator's turns end quiet: its row says what its last run came to (board.rs).
-      if (s.orchestrator && s.excerpt != null) return [`${acct} · ${s.title}`, s.excerpt];
-      return [`${acct} · ${s.title}`, `last turn {ago:${s.lastActivity}}`];
     case 'stopped':
-      return [`${acct} · ${s.title}`, `stopped {ago:${s.lastActivity}}`];
+      // What it last said, as a finished turn's row says (an orchestrator's, what its last run came
+      // to): when it was is the row's own time, which "last turn 20m ago" only said again.
+      return [`${acct} · ${s.title}`, s.excerpt];
   }
 }
 
@@ -566,6 +565,25 @@ export function limitWords(account: string, limit: SessionLimit, now: number, of
       : '';
   const where = lifted || offered || !moves ? '' : limit.moveTo ? ` ${limit.moveTo} has room: move it there to go on now.` : ' No other account has room.';
   return `It stopped at ${account}’s ${limitName(limit.meter)}${spent}.${when}${where}`;
+}
+
+/** What a usage limit that stopped a session comes to, in a few words for its banner: which limit,
+ *  and when it lifts. `limitWords` says the rest, under the pointer. */
+export function limitPhrase(limit: SessionLimit, now: number): string {
+  const name = limitName(limit.meter);
+  const said = `${name.charAt(0).toUpperCase()}${name.slice(1)}`;
+  if (limit.resetsAt == null) return said;
+  return limit.resetsAt <= now ? `${said} · lifted` : `${said} · lifts ${resetsPhrase(limit.resetsAt, now)}`;
+}
+
+/** Why a session's last turn ended, in a few words for its banner, where the session's glyph
+ *  already says it ended badly: the whole sentence (`cutOffWords`, `apiErrorWords`,
+ *  `signedOutWords`) is under the pointer. */
+export function endedPhrase(s: Pick<Session, 'apiError'>, why: 'cut-off' | 'api' | 'signed-out'): string {
+  if (why === 'cut-off') return 'Cut off partway';
+  if (why === 'signed-out') return 'Signed out';
+  const said = s.apiError?.said.trim().replace(/[\s.]+$/, '');
+  return said ? `API error: ${said}` : 'Couldn’t reach its API';
 }
 
 /** Whether an API error ended a session's last turn and nothing has gone on since (`Session.apiError`,

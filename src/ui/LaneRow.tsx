@@ -398,8 +398,7 @@ export function QuietChip({ quiet }: { quiet: boolean | undefined }) {
   if (!quiet) return null;
   return (
     <Chip className="ca-quietchip" title="Quiet: its turns don’t wait on you. It does when it needs you: a question, a call to allow, an error">
-      <Icon name="bell-off" size={12} />
-      Quiet
+      <Icon name="bell-off" size={12} title="Quiet" />
     </Chip>
   );
 }
@@ -545,8 +544,8 @@ function SessionLabelChips({ labels, onFilter }: { labels: Label[] | undefined; 
   );
 }
 
-/** A chip for the replies another session suggested you send it, which its box shows: its tooltip
- *  says who suggested them and what they are. */
+/** A sparkle for the replies another session suggested you send it, which its box shows, in
+ *  suggestions' color: its tooltip says who suggested them and what they are. */
 export function SuggestedChip({ suggestions: g }: { suggestions: Suggestions | undefined }) {
   const picks = Object.entries(g?.picks ?? {});
   if (!g || (g.replies.length === 0 && picks.length === 0)) return null;
@@ -556,8 +555,7 @@ export function SuggestedChip({ suggestions: g }: { suggestions: Suggestions | u
   const title = g.replies.length ? `${by}, to send from its box:\n${g.replies.map((r) => `· ${cut(r)}`).join('\n')}` : `${by}, picked to answer its ${picks.length > 1 ? 'questions' : 'question'} with:\n${picks.map(([q, labels]) => `· ${cut(q)} ${labels.join(', ')}${g.why?.[q] ? ` (${g.why[q]})` : ''}`).join('\n')}`;
   return (
     <Chip className="ca-suggestedchip" title={title}>
-      <Icon name="sparkles" size={12} />
-      Suggested
+      <Icon name="sparkles" size={12} title="Suggested" />
     </Chip>
   );
 }

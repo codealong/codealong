@@ -126,6 +126,8 @@
 # `"drawn"` would once they were drawn.
 # PREVIEW_ANALYTICS=1 turns `[experimental] analytics` on, with a made-up report for the Analytics
 # window's Your part and Sessions (scripts/preview/usage-part-init.js opens them).
+# PREVIEW_KEYS=1 turns `[appearance] show_keys` on: keyboard shortcuts show all the time. Off, as a
+# new config.toml has it, they show while ⌘ or ⌃ is held (src/keysShown.ts).
 # PREVIEW_GLASS=1 turns `[appearance] glass` on. It's off otherwise, though macOS has it on by
 # default, so the checks see the windows as they're drawn without it. With it the main window's chrome
 # and board are see-through, over a stand-in for the glass macOS draws behind them: the theme's
@@ -265,6 +267,7 @@ setup="localStorage.setItem('codealong.view','$view');localStorage.setItem('code
 [ -n "${PREVIEW_EMBLEMS:-}" ] && setup="$setup window.__PREVIEW_EMBLEMS__='$PREVIEW_EMBLEMS';"
 [ -n "${PREVIEW_ANALYTICS:-}" ] && setup="$setup window.__PREVIEW_ANALYTICS__=true;"
 [ -n "${PREVIEW_GLASS:-}" ] && setup="$setup window.__PREVIEW_GLASS__=true;"
+[ -n "${PREVIEW_KEYS:-}" ] && setup="$setup window.__PREVIEW_KEYS__=true;"
 # The window remembers whether boards were on, for before the board comes: as the stub has them.
 if [ -n "${PREVIEW_BOARDS_OFF:-}" ]; then
   setup="$setup window.__PREVIEW_BOARDS_OFF__=true; localStorage.setItem('codealong.boardsOn','0');"

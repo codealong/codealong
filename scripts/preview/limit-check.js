@@ -53,7 +53,7 @@
   (async function () {
     try {
       var line = await until(function () { return document.querySelector('.ca-sessinsp-head .ca-sessinsp-limit'); }, 20000);
-      var words = line.querySelector('.ca-sessinsp-limit-words').textContent;
+      var words = line.querySelector('.ca-sessinsp-limit-words').title;
       check('its header says which limit stopped it', words.indexOf(picked.account + '’s weekly limit') >= 0, words);
       check('and when it lifts, and that Codealong carries it on then', /It lifts in 3h \d+m, and Codealong tells it to carry on then\./.test(words), words);
       check('and leaves the move to the button', words.indexOf('has room') < 0, words);

@@ -1,11 +1,12 @@
 // A PR's standing as colored pills (see prStatus.ts): its review, its checks and anything else
 // in the way of a merge, or one "Ready to merge". In a PR row short of room they say less.
 
-import { prPills, type PrFacts } from '../prStatus';
+import { prPills, type PrFacts, type PrPill } from '../prStatus';
 import { cx, Icon } from './primitives';
 
-export function PrPills({ pr }: { pr: PrFacts }) {
-  const pills = prPills(pr);
+/** `omit` leaves out the pill the row's section heading says already (Ready to merge). */
+export function PrPills({ pr, omit }: { pr: PrFacts; omit?: PrPill['key'] }) {
+  const pills = prPills(pr).filter((p) => p.key !== omit);
   return (
     <span className="ca-prpills" data-count={pills.length}>
       {pills.map((p) => (

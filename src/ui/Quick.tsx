@@ -162,6 +162,7 @@ import { findFor } from '../threadFind';
 import { useTextSearch } from '../useTextSearch';
 import { cardHeight, HEIGHT, LISTEN_HEIGHT, MARGIN, useQuickSize } from './useQuickSize';
 import { bare, chordKeys, chordPressed, cmd, emacsCtrl, held as modsHeld, keysIn } from '../platform';
+import { useKeysShown } from '../keysShown';
 
 declare global {
   interface Window {
@@ -704,6 +705,7 @@ export function Quick() {
   const theme = board?.theme ?? 'system';
   useTheme(theme);
   useGlass(!!board?.glass);
+  useKeysShown(board?.showKeys);
   const logoStatus = useLogo(board?.logoStatus);
 
   // The input grows with what you write. At its tallest with more than it shows there's nothing
@@ -2942,7 +2944,7 @@ export function Quick() {
                           <RowPlace lead={s2.account} project={r.lane.project} place={r.lane.callsign} />
                           {sendLikely && sendsTo && <span className={cx('ca-quick-sure', r.p != null && `is-${sureness(r.p)}`)}>{r.p != null ? `${Math.round(r.p * 100)}%` : ''}</span>}
                           <span className="ca-quick-row-age">{ago(s2.statusSince ?? s2.lastActivity, now)}</span>
-                          {active === r.key && tab && <span className="ca-quick-row-tab">{keysIn(tab)}</span>}
+                          {active === r.key && tab && <span className="ca-quick-row-tab ca-keyhint">{keysIn(tab)}</span>}
                           {n <= 9 && <Kbd keys={['⌘', String(n)]} />}
                         </div>
                       );

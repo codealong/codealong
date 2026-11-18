@@ -1052,6 +1052,7 @@ pub fn starting_board() -> Board {
         theme: config::theme(),
         zoom: config::zoom(),
         glass: config::glass(),
+        show_keys: config::show_keys(),
         experimental: config::experimental(),
         quick_shortcut: shortcuts.quick_panel,
         chat_shortcut: shortcuts.chat,
@@ -4377,6 +4378,7 @@ fn waiting_call(s: &Session, account: Option<&config::AccountCfg>) -> Option<Str
         board.theme = self.cfg.appearance.theme;
         board.zoom = self.cfg.appearance.zoom;
         board.glass = self.cfg.appearance.glass;
+        board.show_keys = self.cfg.appearance.show_keys;
         board.quick_shortcut = self.cfg.shortcuts.quick_panel.clone();
         board.chat_shortcut = self.cfg.shortcuts.chat.clone();
         board.waiting_shortcut = self.cfg.shortcuts.waiting.clone();
