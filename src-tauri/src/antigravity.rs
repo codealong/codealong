@@ -701,6 +701,8 @@ pub struct Call {
     pub looks: bool,
     /// What an `ask_question` call asks you.
     pub questions: Vec<Question>,
+    /// The file it views or writes (`TargetFile`, `AbsolutePath`), for its line to open.
+    pub file: Option<String>,
 }
 
 impl Call {
@@ -770,7 +772,8 @@ fn call(c: &Value, result_step: i64) -> Call {
     };
     let looks = command.as_deref().is_some_and(only_looks);
     let questions = if name == ASK_QUESTION { questions_of(&args) } else { Vec::new() };
-    Call { result_step, label, input: command.clone().unwrap_or_else(rest), command, cwd, work, looks, questions }
+    let file = ["TargetFile", "AbsolutePath"].iter().find_map(|k| arg(&args, k)).and_then(|p| crate::transcript::call_file(&p, ""));
+    Call { result_step, label, input: command.clone().unwrap_or_else(rest), command, cwd, work, looks, questions, file }
 }
 
 /// The tool that asks you questions, each with choices to pick from.
@@ -915,7 +918,7 @@ pub fn conversation_items(v: &Value, _at: i64) -> Vec<Item> {
             }
             for c in &s.calls {
                 let shell = c.command.as_deref().is_some_and(|cmd| !cmd.trim().is_empty() && kept_whole(cmd));
-                out.push(Item { id: Some(c.result_step.to_string()), input: Some(clip_input(&c.input)), shell, cwd: c.cwd.clone().filter(|_| shell), questions: c.questions.clone(), ..item(s.at, "tool", c.label.clone()) });
+                out.push(Item { id: Some(c.result_step.to_string()), input: Some(clip_input(&c.input)), shell, cwd: c.cwd.clone().filter(|_| shell), questions: c.questions.clone(), file: c.file.clone(), ..item(s.at, "tool", c.label.clone()) });
             }
             out
         }
@@ -2508,6 +2511,11 @@ mod tests {
         assert_eq!(work("write_to_file", serde_json::json!({"TargetFile": "/Users/me/app-fix/new.txt"})).as_deref(), Some("/Users/me/app-fix/new.txt"));
         // A view still says which file on its line.
         assert_eq!(call(&serde_json::json!({"name": "view_file", "args": {"AbsolutePath": "/Users/me/app-fix/notes.txt"}}), 1).label, "View file · `notes.txt`");
+        // A view and a write name their file for their line to open; a listing doesn't.
+        let file = |name: &str, args: Value| call(&serde_json::json!({"name": name, "args": args}), 1).file;
+        assert_eq!(file("view_file", serde_json::json!({"AbsolutePath": "/Users/me/app-fix/notes.txt"})).as_deref(), Some("/Users/me/app-fix/notes.txt"));
+        assert_eq!(file("write_to_file", serde_json::json!({"TargetFile": "/Users/me/app-fix/new.txt"})).as_deref(), Some("/Users/me/app-fix/new.txt"));
+        assert_eq!(file("list_dir", serde_json::json!({"DirectoryPath": "/Users/me/app-fix"})), None);
     }
 
     #[test]

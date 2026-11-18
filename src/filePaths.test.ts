@@ -1,5 +1,17 @@
 import { describe, expect, it } from 'vitest';
-import { pathIn } from './filePaths';
+import { fileInLine, pathIn } from './filePaths';
+
+describe('fileInLine', () => {
+  it('finds the file a call worked on where its line names it', () => {
+    expect(fileInLine('Read · `statusbar-rest.png`', '/Users/me/projects/atlas/shots/statusbar-rest.png')).toEqual({ before: 'Read · ', name: 'statusbar-rest.png', after: '' });
+    // The last of two the same, which is the file where a line names something else first.
+    expect(fileInLine('Edit · `a.ts` in `a.ts`', '/Users/me/a.ts')).toEqual({ before: 'Edit · `a.ts` in ', name: 'a.ts', after: '' });
+  });
+
+  it('puts it after a line that does not name it', () => {
+    expect(fileInLine('View file · Reading the config', '/Users/me/projects/atlas/config.toml')).toEqual({ before: 'View file · Reading the config · ', name: 'config.toml', after: '' });
+  });
+});
 
 describe('pathIn', () => {
   it('takes a full path, or one under home, as it is written', () => {

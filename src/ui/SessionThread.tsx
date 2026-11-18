@@ -12,7 +12,9 @@
 // a message copies it as it was written, markdown and all, or what you'd selected in it; in a
 // card the session's own menu follows.
 //
-// A tool call is a line; click it for its input and output. A run of calls folds into one line
+// A tool call is a line; click it for its input and output. A call that read or changed a file
+// names it in its line, and a click on the name opens it as a double-click in the Finder would,
+// a right-click on the line offering your editor, the Finder and its path too. A run of calls folds into one line
 // that keeps its latest call in view. Questions it asks you (Claude Code's AskUserQuestion) open
 // as questions with their choices rather than the call's input, marked with your picks once
 // they're answered, and stay out of a fold: what you answer steers the work as a prompt does, so
@@ -68,7 +70,8 @@ import type { DeviceTag, Harness, HostedStream, Question, QueuedMessage, Session
 import { selectedForMenu, type MenuSpec } from '../contextMenu';
 import { CodeBlock } from './CopyButton';
 import { DescriptionView, ImagesFrom } from './DescriptionEditor';
-import { FollowUpContext, Link, linked, Markdown } from './Markdown';
+import { FileWhy, FollowUpContext, Link, linked, Markdown, useFileActions } from './Markdown';
+import { fileInLine } from '../filePaths';
 import { SentFiles, ThreadGrows } from './SentFiles';
 import { Button, Chip, cx, Icon, Rich, StatusGlyph } from './primitives';
 import { useAside } from '../side';
@@ -327,12 +330,40 @@ function ToolLine({ item, result, state, onOpen }: { item: TranscriptItem; resul
   const failed = item.failed || !!result?.failed;
   const detail = questions || item.input || output;
   const link = item.link ?? result?.link;
+  // The file it read or changed, by its name in the line, which opens it on a click and offers
+  // its menu on a right-click (Markdown.tsx `useFileActions`). A session on another device has
+  // its files there, so there it's only named.
+  const away = useContext(ImagesFrom);
+  const file = away ? undefined : item.file;
+  const files = useFileActions({ path: file ?? '', line: null }, 'file');
+  const named = item.file && !questions ? fileInLine(item.text, item.file) : null;
   return (
     <div className={cx('ca-thread-tool', failed && 'is-failed', state === 'asks' && 'is-asks')}>
-      <button type="button" className="ca-thread-toolhead" aria-expanded={open} disabled={!detail} onClick={() => setOpen(!open)}>
+      <button
+        type="button"
+        className="ca-thread-toolhead"
+        aria-expanded={open}
+        disabled={!detail && !file}
+        onClick={(e) => {
+          // A click on the name opens the file, and so does one anywhere on a line with nothing more to show.
+          if (file && (!detail || (e.target as Element).closest('.ca-thread-toolfile'))) files.open();
+          else setOpen(!open);
+        }}
+        onContextMenu={file ? files.menu : undefined}
+      >
         <Icon name={questions ? 'help' : item.sent ? 'paperclip' : toolIcon(item.text)} size={13} />
         <span className="ca-thread-toollabel">
-          <Rich text={questions ? questionsLine(questions) : item.text} now={0} />
+          {named ? (
+            <>
+              <Rich text={named.before} now={0} />
+              <code className={cx('ca-ic', file && 'ca-ic-path ca-thread-toolfile')} title={file ? `Open ${file}` : undefined}>
+                {named.name}
+              </code>
+              <Rich text={named.after} now={0} />
+            </>
+          ) : (
+            <Rich text={questions ? questionsLine(questions) : item.text} now={0} />
+          )}
         </span>
         {state === 'running' ? (
           <StatusGlyph status="working" size={11} />
@@ -345,6 +376,7 @@ function ToolLine({ item, result, state, onOpen }: { item: TranscriptItem; resul
         ) : null}
         {detail && <Icon name={open ? 'chevron-down' : 'chevron-right'} size={12} />}
       </button>
+      <FileWhy why={files.why} />
       {link && <MadeLine link={link} />}
       {item.sent && <SentFiles sent={item.sent} at={item.cursor} />}
       {state === 'asks' && onOpen && (

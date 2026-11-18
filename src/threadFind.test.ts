@@ -36,6 +36,9 @@ describe('shownText', () => {
     expect(shownText(item('result', '', { answers: { 'Which files?': ['*.ts and __init__.py'] } }))).toBe('*.ts and __init__.py');
     const sent = { files: ['/tmp/shots/before.png', '/tmp/shots/after.png'], caption: 'Before and after' };
     expect(shownText(item('tool', 'SendUserFile · `before.png` and 1 more', { sent }))).toBe('SendUserFile · before.png and 1 more\nBefore and after\nbefore.png\nafter.png');
+    // A call names the file it worked on, after a line that says what it was for.
+    expect(shownText(item('tool', 'Read · `notes.md`', { file: '/Users/me/notes.md' }))).toBe('Read · notes.md');
+    expect(shownText(item('tool', 'View file · Reading the config', { file: '/Users/me/config.toml' }))).toBe('View file · Reading the config · config.toml');
   });
 
   it('reads Codex directives as they’re drawn, in a reply or a prompt, and Codealong’s as written', () => {

@@ -3345,6 +3345,9 @@ export interface TranscriptItem {
   /** The files the call handed you to look at (Claude Code's `SendUserFile`), on the call: each a
    *  full path on the session's Mac, with what the agent said of them. */
   sent?: { files: string[]; caption?: string };
+  /** The file the call read or changed (a read, a write, an edit), as a full path on the
+   *  session's Mac: its line opens it on a click and offers the file's menu. */
+  file?: string;
   /** Where its line starts (or its message number in OpenCode); with `n`, unique in the session. */
   cursor: number;
   n: number;

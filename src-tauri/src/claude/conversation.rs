@@ -114,6 +114,7 @@ pub fn conversation_items(v: &Value, at: i64) -> Vec<Item> {
                             input: Some(clip_input(&whole)),
                             questions: if name == super::asks::QUESTIONS { questions_of(&input) } else { Vec::new() },
                             sent: if name == SEND_FILE { sent_of(&input, v.get("cwd").and_then(Value::as_str).unwrap_or("")) } else { None },
+                            file: file_of(name, &input, v.get("cwd").and_then(Value::as_str).unwrap_or("")),
                             shell,
                             // The line's folder is the shell's, where the command ran.
                             cwd: shell.then(|| v.get("cwd").and_then(Value::as_str).map(String::from)).flatten(),
@@ -479,6 +480,17 @@ pub(super) fn claude_input(name: &str, input: &Value) -> String {
         "ExitPlanMode" => s("plan"),
         _ => serde_json::to_string_pretty(input).unwrap_or_default(),
     }
+}
+
+/// The file a call reads or changes, as a full path (`transcript::call_file`): one it names
+/// from the folder it works in is taken from the line's `cwd`, as Claude Code takes it.
+fn file_of(name: &str, input: &Value, cwd: &str) -> Option<String> {
+    let key = match name {
+        "Read" | "Write" | "Edit" | "MultiEdit" => "file_path",
+        "NotebookEdit" => "notebook_path",
+        _ => return None,
+    };
+    crate::transcript::call_file(input.get(key)?.as_str()?, cwd)
 }
 
 /// The questions in an `AskUserQuestion` call's input.
@@ -1065,6 +1077,23 @@ mod tests {
         assert_eq!(sent.caption.as_deref(), Some("Before and after"));
         assert_eq!(items[0].text, "SendUserFile · `teaser.mp4` and 1 more");
         assert_eq!((items[1].sent.is_none(), items[2].sent.is_none()), (true, true));
+    }
+
+    /// A call that reads or changes a file names it on its line, as a full path, for the panel to
+    /// open: a relative one is from the folder the line ran in. Other calls name none.
+    #[test]
+    fn a_file_a_call_reads_or_changes_is_on_its_line() {
+        let call = serde_json::json!({ "type": "assistant", "cwd": "/Users/me/app", "message": { "content": [
+            { "type": "tool_use", "id": "t1", "name": "Read", "input": { "file_path": "/Users/me/app/shots/after.png" } },
+            { "type": "tool_use", "id": "t2", "name": "Edit", "input": { "file_path": "src/lib.rs", "old_string": "a", "new_string": "b" } },
+            { "type": "tool_use", "id": "t3", "name": "Write", "input": { "file_path": "../notes.md", "content": "hi" } },
+            { "type": "tool_use", "id": "t4", "name": "NotebookEdit", "input": { "notebook_path": "/Users/me/app/plot.ipynb" } },
+            { "type": "tool_use", "id": "t5", "name": "Bash", "input": { "command": "cat /Users/me/app/README.md" } },
+            { "type": "tool_use", "id": "t6", "name": "Read", "input": { "file_path": " " } },
+        ] } });
+        let files: Vec<Option<String>> = conversation_items(&call, 0).into_iter().map(|i| i.file).collect();
+        let full = |p: &str| Some(p.to_string());
+        assert_eq!(files, [full("/Users/me/app/shots/after.png"), full("/Users/me/app/src/lib.rs"), full("/Users/me/notes.md"), full("/Users/me/app/plot.ipynb"), None, None]);
     }
 
     /// What Codealong sends a terminal session is pasted, and a long one comes back wrapped in

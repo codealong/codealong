@@ -2,7 +2,8 @@
 // the web (an artifact Claude Code published) says so under its line, as a link that opens it,
 // and stays in view while the calls around it fold; web links in a tool's output open too, with
 // the output's text as it was; and a call that sent you files lists them under its line with its
-// caption, each opening on a click, and one that's gone says so in place. The conversation is a
+// caption, each opening on a click, and one that's gone says so in place; a call that read a file
+// names it in its line, the name opening it and the line offering its menu. The conversation is a
 // stand-in, on the first session:
 //   PREVIEW_WAIT=30000 scripts/preview.sh sessions '' scripts/preview/thread-links-check.js
 // As PREVIEW_INIT (with PREVIEW_NAME=thread-links) it leaves the panel open on it, the publish's
@@ -14,6 +15,7 @@
   var PUBLISHED = 'Published ' + FILE + ' at ' + URL + ' (Version 9, version id 1790960406-8f4f)\n\nLive subscription: already connected from earlier in this session.\n\nTo update: publish the same file path here (keeps this URL).';
   var SENT = ['/Users/me/projects/halyard/tmp/dashboard.png', '/private/tmp/claude-501/-Users-me-projects-halyard/20898bb3/scratchpad/gone/before.png'];
   var CAPTION = 'The refreshed dashboard, and the one it replaces';
+  var READ = '/Users/me/projects/halyard/config/slots.json';
   var picked = null;
   var real = window.__TAURI_INTERNALS__.invoke;
   window.__TAURI_INTERNALS__.invoke = function (cmd, args, options) {
@@ -25,7 +27,7 @@
         item('agent', 'The verification build is running now. I’ll publish the refreshed dashboard when it finishes.', 1),
         item('tool', 'Bash · `npm run verify`', 2, { id: 't1', input: 'npm run verify' }),
         item('result', '', 3, { id: 't1', output: 'ok' }),
-        item('tool', 'Read · `slots.json`', 4, { id: 't2', input: '/x/slots.json' }),
+        item('tool', 'Read · `slots.json`', 4, { id: 't2', input: READ, file: READ }),
         item('result', '', 5, { id: 't2', output: '{"docs":"https://example.com/a_b","next":"https://example.com/c"}' }),
         item('tool', 'Bash · `tail -12 build.log`', 6, { id: 't3', input: 'tail -12 build.log' }),
         item('result', '', 7, { id: 't3', output: 'done' }),
@@ -121,8 +123,21 @@
           var links = Array.prototype.slice.call(read.parentElement.querySelectorAll('.ca-thread-out a')).map(function (a) { return a.textContent; });
           check('links in JSON end at their quotes', links.join(' ') === 'https://example.com/a_b https://example.com/c', links.join(' '));
           check('a call’s input has no links', read.parentElement.querySelectorAll('.ca-thread-in a').length === 0);
-          // Closed again, so a screenshot shows the fold.
-          panel('.ca-thread-runhead')[0].click();
+          // The file it read, by its name in its line: a click on the name opens it and leaves
+          // the call as it was; a right-click on the line offers the file's menu.
+          var name = read.querySelector('.ca-thread-toolfile');
+          check('a call that read a file names it as a link', !!name && name.textContent === 'slots.json' && name.title === 'Open ' + READ, name ? name.outerHTML : 'none');
+          var opens = function () { return window.__calls.filter(function (c) { return c[0] === 'open_file' && c[1].path === READ; }); };
+          name.click();
+          return until(function () { return opens().length === 1; }, 3000).then(function () {
+            check('a click on the name opens the file', true);
+            check('and leaves its call open as it was', !!read.parentElement.querySelector('.ca-thread-out'));
+            return menuOf(read);
+          }).then(function (labels) {
+            check('a right-click on its line offers the file’s menu', labels.indexOf('Open') >= 0 && labels.indexOf('Reveal in Finder') >= 0 && labels.indexOf('Copy path') >= 0, labels.join(' | '));
+            // Closed again, so a screenshot shows the fold.
+            panel('.ca-thread-runhead')[0].click();
+          });
         });
       });
     })

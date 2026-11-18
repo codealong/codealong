@@ -630,6 +630,8 @@ pub struct Call {
     pub waits: bool,
     pub output: Option<String>,
     pub failed: bool,
+    /// The file it reads or edits, for its line to open.
+    pub file: Option<String>,
 }
 
 /// Arguments the app keeps as a string of JSON, or as they are.
@@ -740,6 +742,7 @@ fn call(t: &Value) -> Call {
         waits: open && (review == "Requested" || asking),
         output,
         failed: matches!(status, "error" | "cancelled") || rejected,
+        file: file.filter(|_| matches!(base, "read_file" | "edit_file" | "search_replace" | "write")),
     }
 }
 
@@ -798,6 +801,7 @@ fn bubble_items(v: &Value) -> Vec<Item> {
             failed: c.failed,
             shell,
             cwd: c.cwd.clone().filter(|_| shell),
+            file: c.file.clone(),
             ..item(b.at, "tool", c.label.clone())
         });
     } else if !b.text.is_empty() {
@@ -1150,7 +1154,7 @@ fn transcript_items(v: &Value, at: i64) -> Vec<Item> {
             }
             for c in calls {
                 let shell = c.command.as_deref().is_some_and(|cmd| !cmd.trim().is_empty() && kept_whole(cmd));
-                out.push(Item { input: Some(clip_input(&c.input)).filter(|i| !i.is_empty()), shell, cwd: c.cwd.clone().filter(|_| shell), ..item(at, "tool", c.label) });
+                out.push(Item { input: Some(clip_input(&c.input)).filter(|i| !i.is_empty()), shell, cwd: c.cwd.clone().filter(|_| shell), file: c.file, ..item(at, "tool", c.label) });
             }
             out
         }
@@ -2843,6 +2847,11 @@ mod tests {
         // An edit is work where it writes; a read isn't.
         assert_eq!(call(&json!({ "name": "edit_file_v2", "params": "{\"relativeWorkspacePath\":\"/a/src/lib.rs\"}" })).work.as_deref(), Some("/a/src/lib.rs"));
         assert_eq!(call(&json!({ "name": "read_file_v2", "params": "{\"targetFile\":\"/b/x.rs\"}" })).work, None);
+        // A read and an edit name their file for their line to open; a search and a delete don't.
+        assert_eq!(call(&json!({ "name": "read_file_v2", "params": "{\"targetFile\":\"/b/x.rs\"}" })).file.as_deref(), Some("/b/x.rs"));
+        assert_eq!(call(&json!({ "name": "edit_file_v2", "params": "{\"relativeWorkspacePath\":\"/a/src/lib.rs\"}" })).file.as_deref(), Some("/a/src/lib.rs"));
+        assert_eq!(call(&json!({ "name": "ripgrep_raw_search", "params": "{\"pattern\":\"fn main\",\"path\":\"/a\"}" })).file, None);
+        assert_eq!(call(&json!({ "name": "delete_file", "params": "{\"targetFile\":\"/a/old.rs\"}" })).file, None);
         // Turned down at its prompt.
         assert!(call(&json!({ "name": "switch_mode", "status": "cancelled", "userDecision": "rejected" })).failed);
         let asked = call(&json!({ "name": "ask_question", "status": "loading", "additionalData": { "status": "pending" } }));

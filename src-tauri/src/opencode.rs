@@ -956,17 +956,22 @@ pub fn conversation_items(v: &Value, seq: u64, at: i64) -> Vec<Item> {
                 // Its shell tool (`bash` before 2.0) runs in the session's folder, which the record
                 // doesn't repeat.
                 let shell = matches!(name, "shell" | "bash") && command.is_some_and(|c| !c.trim().is_empty() && kept_whole(c));
+                let named = file_of(name, input);
                 // OpenCode names its tools in lower case; the panel names them as the others do.
                 let name = title_case(name);
-                let label = match command {
-                    Some(c) => format!("{name} · {}", code(&one_line(c, 80))),
-                    None => name,
+                let label = match (command, named) {
+                    (Some(c), _) => format!("{name} · {}", code(&one_line(c, 80))),
+                    (None, Some(f)) => format!("{name} · {}", code(&crate::util::file_name(Path::new(f)))),
+                    (None, None) => name,
                 };
+                // The record doesn't repeat the session's folder, so only a full path opens.
+                let file = named.and_then(|f| crate::transcript::call_file(f, ""));
                 out.push(Item {
                     input: input.map(|i| clip_input(&command.map(String::from).unwrap_or_else(|| serde_json::to_string_pretty(i).unwrap_or_default()))),
                     output: output.map(|o| clip_output(&o)),
                     failed,
                     shell,
+                    file,
                     ..item(at, "tool", label)
                 });
             }
@@ -974,6 +979,17 @@ pub fn conversation_items(v: &Value, seq: u64, at: i64) -> Vec<Item> {
         }
     }
     crate::transcript::placed(out, seq)
+}
+
+/// The file a read, an edit or a write works on, as its input names it, for its line to name and
+/// open. 2.0.16's tools take it as `path`, which they resolve from the session's folder (its write
+/// tool's code); older ones as `filePath`.
+fn file_of<'a>(tool: &str, input: Option<&'a Value>) -> Option<&'a str> {
+    if !matches!(tool, "read" | "edit" | "write") {
+        return None;
+    }
+    let input = input?;
+    ["path", "filePath"].iter().find_map(|k| input.get(*k).and_then(Value::as_str)).map(str::trim).filter(|p| !p.is_empty())
 }
 
 /// A command you ran in the session's shell (its TUI's `!`, or the service's, `run_shell`), as
@@ -1568,6 +1584,25 @@ mod tests {
         let v: Value = serde_json::from_str(&without_comments(text)).unwrap();
         assert_eq!(v["mcp"]["northwind"]["command"][1], "--url=http://x//y");
         assert_eq!(crate::mcp::servers_in(&Value::Object(mcp_servers(&v["mcp"])), "f").iter().map(|s| s.name.as_str()).collect::<Vec<_>>(), ["northwind"]);
+    }
+
+    /// A read, an edit or a write names its file on its line, by name in its label and in full
+    /// for the panel to open; one named from the session's folder, which the record doesn't
+    /// repeat, by name alone.
+    #[test]
+    fn a_file_a_tool_works_on_is_on_its_line() {
+        let tool = |name: &str, input: Value| {
+            let v = serde_json::json!({ "content": [{ "type": "tool", "id": "c1", "name": name, "state": { "status": "completed", "input": input } }] });
+            conversation_items(&v, 3, 0).remove(0)
+        };
+        let read = tool("read", serde_json::json!({ "path": "/Users/me/projects/kestrel/src/main.ts", "offset": 1 }));
+        assert_eq!((read.text.as_str(), read.file.as_deref()), ("Read · `main.ts`", Some("/Users/me/projects/kestrel/src/main.ts")));
+        let older = tool("edit", serde_json::json!({ "filePath": "/Users/me/projects/kestrel/notes.md", "oldString": "a", "newString": "b" }));
+        assert_eq!((older.text.as_str(), older.file.as_deref()), ("Edit · `notes.md`", Some("/Users/me/projects/kestrel/notes.md")));
+        let relative = tool("write", serde_json::json!({ "path": "out.txt", "content": "hi" }));
+        assert_eq!((relative.text.as_str(), relative.file), ("Write · `out.txt`", None));
+        let shell = tool("shell", serde_json::json!({ "command": "cat /Users/me/x" }));
+        assert_eq!(shell.file, None);
     }
 
     #[test]

@@ -684,7 +684,10 @@ another machine has its files there, so they're listed, not shown, and don't ope
 the same way on a click; one with a line (`main.rs:42`) opens in your editor at that line. What only
 looks like a path (a route such as `/api/v1/users`, a skill, a command, a file that isn't here)
 stays plain code: each path is only looked up, never read, so one in Documents or Downloads asks
-for no permission. Right-click one, or a file sent or cited, for Open, Open in your editor (`[apps]
+for no permission. A tool call that read or changed a file (Read, Edit, Write, and their likes in
+each harness) names it in its line, underlined: a click on the name opens it the same way, and a
+click elsewhere on the line still opens its input and output. Right-click a path, a file sent or
+cited, or such a call's line, for Open, Open in your editor (`[apps]
 editor`), Reveal in Finder and Copy path. A Markdown file opens in the app macOS has for `.md`
 files: to have a click open it in your editor, choose it in the Finder's Get Info › Open with and
 Change All, or right-click and use Open in. A prompt shows the images you sent with it in place, whether you sent them from

@@ -295,6 +295,12 @@
 .ca-thread-tooldetail .ca-thread-out.is-failed {
   color: var(--alert);
 }
+/* Why the file a call worked on didn't open (it's often gone from a scratch folder), under the
+   call's line and in line with its label. */
+.ca-thread-tool > .ca-md-file-why {
+  display: block;
+  margin: 0 6px 3px 25px;
+}
 /* A page on the web the call made (an artifact Claude Code published): its title, a link, under
    the call's line and in line with its label, then what the call did with it. */
 .ca-thread-made {
