@@ -55,7 +55,7 @@ export function autoGroupIn(options: StartOptions | null | undefined, project?: 
  *  Routing does to them. */
 export function withGroupRenamed(projects: ProjectCfg[], from: string, to: string | null): ProjectCfg[] {
   return projects.map((p) => {
-    if (p.default !== from) return p;
+    if (p.default?.trim() !== from) return p;
     const { default: _gone, ...rest } = p;
     return to ? { ...rest, default: to } : rest;
   });

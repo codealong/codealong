@@ -225,7 +225,7 @@ pub fn options(accounts_in: &[AccountCfg], terminal: &str, codex_projects: Vec<S
     // Devices that read the lists from here, before each account had its own, start Claude Code.
     let claude = crate::harness::adapter(Harness::Claude);
     let claude_models = accounts_in.iter().find(|a| harness_of(a) == Harness::Claude).map(|a| claude.models(a)).unwrap_or_default();
-    StartOptions { accounts, codex_projects, claude_models, claude_efforts: listed(claude.efforts()), groups: Vec::new(), auto_group: String::new() }
+    StartOptions { accounts, codex_projects, claude_models, claude_efforts: listed(claude.efforts()), groups: Vec::new(), auto_group: String::new(), project_defaults: Default::default() }
 }
 
 fn listed(list: &[(&str, &str)]) -> Vec<ModelOption> {
@@ -785,7 +785,8 @@ pub fn options_for(cfg: &Config) -> StartOptions {
     let projects = on.iter().flat_map(|a| crate::harness::of(a).map(|h| h.app_projects(a)).unwrap_or_default()).collect();
     let mut out = options(&on, &launch::terminal_name(&cfg.apps.terminal), projects, &home(), |a| crate::harness::of(a).and_then(|h| h.default_model(a)));
     out.auto_group = cfg.routing.auto.trim().to_string();
-    out.project_defaults = cfg.projects.iter().filter_map(|p| Some((p.name.trim().to_string(), p.default.as_deref().map(str::trim).filter(|d| !d.is_empty())?.to_string()))).collect();
+    // By the name as written, as lanes have it.
+    out.project_defaults = cfg.projects.iter().filter_map(|p| Some((p.name.clone(), p.default.as_deref().map(str::trim).filter(|d| !d.is_empty())?.to_string()))).collect();
     // Where tmux holds what's out of sight, Background opens no tab behind your windows either.
     let in_tmux = launch::out_of_sight_in_tmux(&cfg.apps.terminal, cfg.apps.tmux);
     for a in &mut out.accounts {
@@ -2245,7 +2246,7 @@ mod tests {
         cfg.routing.auto = "personal".into();
         cfg.projects = vec![ProjectCfg { name: "Northwind".into(), repos: vec!["github.com/northwind/*".into()], folders: Vec::new(), chrome_profile: None, default: Some("work".into()) }];
         let board = Board::default();
-        let on = |account: &str, project: Option<&str>| pick(&cfg, Some(&board), account, project, Some(Place::Terminal), None, None, false, NOW, Path::new("/Users/me")).map(|p| p.account).unwrap();
+        let on = |account: &str, project: Option<&str>| super::pick(&cfg, Some(&board), account, project, Some(Place::Terminal), None, None, false, NOW, Path::new("/Users/me")).map(|p| p.account).unwrap();
         assert_eq!(on("auto", Some("Northwind")), "claude2");
         assert_eq!(on("auto", Some("Atlas")), "claude", "a project without a group of its own");
         assert_eq!(on("auto", None), "claude");
@@ -2337,7 +2338,7 @@ mod tests {
         let nobody_there = StartPick { place: Some(Place::Background), ..nobody };
         assert_eq!(picked(&board, &cfg, &nobody_there, NOW, home).unwrap_err().to_string(), "There's no account named claude9.");
         // A helper here starts out of sight, without a place asked for.
-        assert_eq!(super::pick(&cfg, None, "claude", None, None, None, true, NOW, home).unwrap().place, Place::Background);
+        assert_eq!(super::pick(&cfg, None, "claude", None, None, None, None, true, NOW, home).unwrap().place, Place::Background);
     }
 
     #[test]

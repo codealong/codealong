@@ -219,6 +219,7 @@ describe('Auto', () => {
       { name: 'Kestrel', repos: [], folders: [] },
     ];
     expect(withGroupRenamed(projects, 'work', 'office').map((p) => p.default)).toEqual(['office', 'personal', undefined]);
+    expect(withGroupRenamed([{ ...projects[0], default: ' work ' }], 'work', 'office')[0].default, 'written with spaces, as config check takes it').toBe('office');
     const removed = withGroupRenamed(projects, 'work', null);
     expect(removed[0]).toEqual({ name: 'Northwind', repos: [], folders: [] });
     expect(removed.slice(1)).toEqual(projects.slice(1));

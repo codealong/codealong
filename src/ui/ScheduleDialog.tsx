@@ -13,7 +13,7 @@ import { scheduleOp, scheduleTimes } from '../api';
 import { tildePath } from '../format';
 import { laneBranch, laneGroups } from '../quick';
 import { asksRunsOn, fireCommand, preferOptions, scheduleLanes, scheduleSessions, sessionFolder } from '../schedules';
-import { useStartAccounts, useStartGroups } from '../startAccounts';
+import { useAutoGroupIn, useStartAccounts, useStartGroups } from '../startAccounts';
 import type { Board, DevicesView, Schedule, ScheduleEvent, ScheduleRunsOn, ScheduleTimes, ScheduleWhen, StartPlace } from '../types';
 import { AgentPromptBox } from './AgentPromptBox';
 import { FieldPicker } from './FieldPicker';
@@ -126,6 +126,8 @@ export function ScheduleDialog({ schedule, board, devices, now, onClose, onSaved
     return [{ key: 'none', options: [none] }, ...gone, ...laneSections(groups, (l) => l.path)];
   }, [worktrees, board.pinnedWorktrees, run.to, run.folder]);
   const worktree = worktrees.find((l) => l.path === run.folder);
+  // A run on Auto starts from the group its worktree's project has for it (runner.rs `start_step`).
+  const autoGroup = useAutoGroupIn(worktree?.project ?? null);
   // The session it sends to: those in its worktree first, then the rest, the latest first.
   const sessionSections = useMemo((): PickerSection[] => {
     const { here, rest } = scheduleSessions(board.lanes, run.folder, run.session);
@@ -334,6 +336,7 @@ export function ScheduleDialog({ schedule, board, devices, now, onClose, onSaved
             <AgentPromptBox
               accounts={accounts}
               groups={groups}
+              autoGroup={autoGroup}
               lanes={board.lanes}
               usage={board.usage}
               now={now}

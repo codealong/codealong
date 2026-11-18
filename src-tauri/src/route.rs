@@ -332,29 +332,29 @@ fn differing(services: Vec<Service>, startable: usize) -> Vec<Service> {
 }
 
 /// The services to ask about, for the accounts that can start a session, each led by the account
-/// Auto would start (`led_by_auto`).
-fn service_candidates(board: &Board, cfg: &crate::config::Config, now: i64) -> Vec<Service> {
+/// Auto would start in the panel's `project` (`led_by_auto`).
+fn service_candidates(board: &Board, cfg: &crate::config::Config, project: Option<&str>, now: i64) -> Vec<Service> {
     let names: Vec<&str> = startable(cfg).map(|a| a.name.as_str()).collect();
-    led_by_auto(board, cfg, now, differing(services(&board.mcp, &names), names.len()))
+    led_by_auto(board, cfg, project, now, differing(services(&board.mcp, &names), names.len()))
 }
 
 /// Every service the accounts that can start a session reach, given each account's reading
 /// (`readings`), each led by the account Auto would start: `codealong mcp`'s, for a session that
-/// needs a service its own account doesn't reach and starts a helper on one that does.
+/// needs a service its own account doesn't reach and starts a helper on one that does. In no
+/// project: what an agent asks for may be for any of them.
 pub fn reach(board: &Board, readings: &[crate::mcp::Mcp], cfg: &crate::config::Config, now: i64) -> Vec<Service> {
     let names: Vec<&str> = startable(cfg).map(|a| a.name.as_str()).collect();
-    led_by_auto(board, cfg, now, services(readings, &names))
+    led_by_auto(board, cfg, None, now, services(readings, &names))
 }
 
-/// Each service's accounts led by the one Auto would pick of them, on the model it would pick:
-/// its routing group, the board's sessions and history, and its model fallback, as a start on
-/// Auto has them (`start::resolve_group`).
-fn led_by_auto(board: &Board, cfg: &crate::config::Config, now: i64, services: Vec<Service>) -> Vec<Service> {
+/// Each service's accounts led by the one Auto would pick of them in `project`, on the model it
+/// would pick: its routing group, the board's sessions and history, and its model fallback, as a
+/// start on Auto has them (`start::resolve_group`).
+fn led_by_auto(board: &Board, cfg: &crate::config::Config, project: Option<&str>, now: i64, services: Vec<Service>) -> Vec<Service> {
     services
         .into_iter()
         .map(|mut s| {
-            // In no project: what an agent asks for here may be for any of them.
-            if let Some(Ok(first)) = crate::start::resolve_group(cfg, Some(board), "auto", None, &[], None, None, false, now, |a| s.accounts.contains(&a.name)) {
+            if let Some(Ok(first)) = crate::start::resolve_group(cfg, Some(board), "auto", project, &[], None, None, false, now, |a| s.accounts.contains(&a.name)) {
                 s.accounts.retain(|a| *a != first.account);
                 s.accounts.insert(0, first.account);
                 s.model = first.model;
@@ -426,7 +426,7 @@ pub fn request_with_routing(board: &Board, cfg: Option<&crate::config::Config>, 
 
     let in_project = Some(project).filter(|p| *p != ALL_PROJECTS);
     let (agent_cards, agents) = cfg.map(|c| agent_candidates(board, c, in_project, now)).unwrap_or_default();
-    let services = cfg.map(|c| service_candidates(board, c, now)).unwrap_or_default();
+    let services = cfg.map(|c| service_candidates(board, c, in_project, now)).unwrap_or_default();
 
     let mut body = json!({
         "model": model,
@@ -986,18 +986,18 @@ mod tests {
         // claude's week has room but its Fable limit is nearly used, so Auto starts it on another
         // model; claude2's week is nearly used.
         b.usage = vec![usage(&cfg.accounts[0], vec![meter("week", 10.0, None), meter("model:Fable", 95.0, Some("Fable"))]), usage(&cfg.accounts[1], vec![meter("week", 97.0, None)])];
-        let got = service_candidates(&b, &cfg, NOW);
+        let got = service_candidates(&b, &cfg, None, NOW);
         let lead = |name: &str| got.iter().find(|s| s.name == name).map(|s| (s.accounts.clone(), s.model.clone())).unwrap();
         assert_eq!(lead("Gmail"), (vec!["claude".to_string()], Some("opus".to_string())));
         assert_eq!(lead("Slack"), (vec!["claude".to_string(), "claude2".to_string()], Some("opus".to_string())));
         // With claude's week nearly used instead, claude2 leads, on its own default.
         b.usage = vec![usage(&cfg.accounts[0], vec![meter("week", 97.0, None)]), usage(&cfg.accounts[1], vec![meter("week", 10.0, None)])];
-        assert_eq!(service_candidates(&b, &cfg, NOW).iter().find(|s| s.name == "Slack").map(|s| (s.accounts[0].as_str(), s.model.clone())), Some(("claude2", None)));
+        assert_eq!(service_candidates(&b, &cfg, None, NOW).iter().find(|s| s.name == "Slack").map(|s| (s.accounts[0].as_str(), s.model.clone())), Some(("claude2", None)));
         // Both reaching the same: nothing for Jev to ask, but `codealong mcp` still lists them,
         // led by Auto's pick, from the readings it's given.
         let same = [reading("claude", &[("Slack", &[])]), reading("claude2", &[("Slack", &[])])];
         b.mcp = same.to_vec();
-        assert!(service_candidates(&b, &cfg, NOW).is_empty());
+        assert!(service_candidates(&b, &cfg, None, NOW).is_empty());
         let got = reach(&b, &same, &cfg, NOW);
         assert_eq!(got.iter().map(|s| (s.name.as_str(), s.accounts.clone())).collect::<Vec<_>>(), [("Slack", vec!["claude2".to_string(), "claude".to_string()])]);
         b.mcp = Vec::new();

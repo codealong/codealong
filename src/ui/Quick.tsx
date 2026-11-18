@@ -102,6 +102,7 @@ import { ALL_PROJECTS, CHATS, GENERAL_CHAT, attachmentsNote, attentionRows, draf
 import {
   agentChipWords,
   autoGroupIn,
+  autoPick,
   isAuto,
   isGroup,
   keepPlaceFailed,
@@ -117,6 +118,7 @@ import {
   startHappens,
   startingLabel,
   startsOnFirstSend,
+  startChoice,
   startOptionsFailed,
   startTitleWords,
   startWhereWords,
@@ -942,24 +944,21 @@ export function Quick() {
   const startsOnLoad = deviceNow ? deviceInfo?.load : board?.load;
   const calmer = devicesOn && !inSendTo && !listen && !improve && !skillNow && !text.trimStart().startsWith('/') ? calmerMachine({ on: deviceNow, lane }, { name: devices?.me.name || 'This machine', load: board?.load, lanes: board?.lanes ?? [] }, macs, devices?.lanes ?? []) : null;
   /** A suggested start's agent as it would start, among `only` when it needs a service only they
-   *  reach (route.ts `resolveSuggestedAgent`). */
-  const choiceForAgent = (suggestedAgent: string | undefined, overWorktree: boolean, only: string[] | null = null) =>
-    suggestedChoice(
-      suggestedAgent,
-      accounts,
-      models,
-      efforts,
-      usage,
-      pick,
-      agents,
-      first,
-      { agent: startPicks.agent, effort: startPicks.effort, place: placeNow, newWorktree: overWorktree },
-      () => undefined,
-      routingGroups,
-      now,
-      allLanes,
-      only,
-    );
+   *  reach (route.ts `resolveSuggestedAgent`). With none suggested, the start row's choice, but
+   *  Auto in another project (`at`'s) starts from the group that project has for it
+   *  (`autoGroupIn`); null where that's the start row's own. */
+  const choiceForAgent = (suggestedAgent: string | undefined, overWorktree: boolean, only: string[] | null = null, at: Lane | null = null) => {
+    const picks = { agent: startPicks.agent, effort: startPicks.effort, place: placeNow, newWorktree: overWorktree };
+    if (!suggestedAgent) {
+      const there = at && isAuto(choice) ? autoGroupIn(optionsForStart, at.project) : null;
+      if (there === null || there === autoGroupIn(optionsForStart, lane?.project)) return null;
+      const pickThere = autoPick(accounts, usage, now, null, routingGroups.find((g) => g.name === there) ?? null, allLanes);
+      // Only a place you picked goes along: the row's is its own account's, and another
+      // account opens where its settings say.
+      return startChoice(accounts, models, efforts, usage, pickThere, agents, first, { ...picks, place: startPicks.place }, () => undefined, routingGroups, now, allLanes);
+    }
+    return suggestedChoice(suggestedAgent, accounts, models, efforts, usage, pick, agents, first, picks, () => undefined, routingGroups, now, allLanes, only);
+  };
   // A chat has no repo to make a worktree of.
   const makesWorktree = harnessMakesWorktree && !lane?.startsChats;
   const inNewWorktree = newWorktreePicked && makesWorktree;
@@ -1169,7 +1168,7 @@ export function Quick() {
   /** Whether a suggested start makes a new worktree, as `start` makes it: only where its account
    *  makes worktrees and the worktree isn't for chats. */
   const startsTree = (sg: Suggestion & { kind: 'start' }) => {
-    const c = sg.agent ? choiceForAgent(sg.agent, sg.newWorktree, sg.needs?.accounts) : null;
+    const c = choiceForAgent(sg.agent, sg.newWorktree, sg.needs?.accounts, sg.lane);
     return (c ? c.makesWorktree : harnessMakesWorktree) && !sg.lane.startsChats && sg.newWorktree;
   };
   // A start Jev suggests that would start just what the start row does is left out: the start row
@@ -1178,7 +1177,7 @@ export function Quick() {
   const startRowFacts: StartFacts | null = startLane ? { laneId: startLane.id, newWorktree: inNewWorktree, account, model: modelNow, effort: effortNow, place: placeNow } : null;
   const isStartRow = (sg: Suggestion) => {
     if (sg.kind !== 'start' || !startRowFacts) return false;
-    const c = sg.agent ? choiceForAgent(sg.agent, sg.newWorktree, sg.needs?.accounts) : null;
+    const c = choiceForAgent(sg.agent, sg.newWorktree, sg.needs?.accounts, sg.lane);
     return sameStart({ laneId: sg.lane.id, newWorktree: startsTree(sg), account: c ? c.account : account, model: c ? c.modelNow : modelNow, effort: c ? c.effortNow : effortNow, place: c ? c.placeNow : placeNow }, startRowFacts);
   };
   const startRowSuggested = jevSuggested.find((r) => isStartRow(r.s))?.s ?? null;
@@ -1588,7 +1587,7 @@ export function Quick() {
     // Not while a press is heard into the box: what it shows isn't what it holds yet.
     if (hearingHere) return;
     const where = over?.lane ?? startLane;
-    const sgChoice = over?.agent ? choiceForAgent(over.agent, over.newWorktree, over.only) : null;
+    const sgChoice = over ? choiceForAgent(over.agent, over.newWorktree, over.only, over.lane) : null;
     const targetAccount = sgChoice ? sgChoice.account : account;
     const targetPlace = sgChoice ? sgChoice.placeNow : placeNow;
     const targetModel = sgChoice ? sgChoice.modelNow : modelNow;
@@ -2449,7 +2448,7 @@ export function Quick() {
 
   /** A suggestion's row: what ⏎ does, and where. */
   const describe = (sg: Suggestion) => {
-    const sgChoice = sg.kind === 'start' && sg.agent ? choiceForAgent(sg.agent, sg.newWorktree, sg.needs?.accounts) : null;
+    const sgChoice = sg.kind === 'start' ? choiceForAgent(sg.agent, sg.newWorktree, sg.needs?.accounts, sg.lane) : null;
     const sgAccount = sgChoice ? sgChoice.account : account;
     const sgPlace = sgChoice ? sgChoice.placeNow : placeNow;
     const sgMakesWorktree = (sgChoice ? sgChoice.makesWorktree : harnessMakesWorktree) && !sg.lane.startsChats;

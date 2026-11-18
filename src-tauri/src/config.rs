@@ -3339,6 +3339,9 @@ pub fn render(cfg: &Config) -> String {
         if let Some(c) = &p.chrome_profile {
             s.push_str(&format!("chrome_profile = {}\n", q(c)));
         }
+        if let Some(d) = &p.default {
+            s.push_str(&format!("default = {}\n", q(d)));
+        }
     }
     if !cfg.repos.is_empty() {
         let mut repos = toml_edit::DocumentMut::new();

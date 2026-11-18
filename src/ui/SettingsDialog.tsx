@@ -2289,7 +2289,7 @@ function ProjectsPane({ cfg, chromeProfiles, disabled, onSave, lanes, adding }: 
                     size="sm"
                     onClick={() => {
                       setRemoving(null);
-                      setDraft({ original: p.name, name: p.name, repos: p.repos, folders: p.folders, chromeProfile: p.chrome_profile ?? '', group: p.default ?? '' });
+                      setDraft({ original: p.name, name: p.name, repos: p.repos, folders: p.folders, chromeProfile: p.chrome_profile ?? '', group: p.default?.trim() ?? '' });
                     }}
                   >
                     Edit

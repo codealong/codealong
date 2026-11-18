@@ -6,25 +6,26 @@
 
 import { useEffect, useState } from 'react';
 import { deviceStartOptions, startOptions } from './api';
-import { withLists } from './start';
-import type { RoutingGroup, Session, StartAccount } from './types';
+import { autoGroupIn, withLists } from './start';
+import type { RoutingGroup, Session, StartAccount, StartOptions } from './types';
 
 const FRESH_MS = 60_000;
-let read: { at: number; accounts: StartAccount[]; groups: RoutingGroup[] } | null = null;
-let reading: Promise<{ accounts: StartAccount[]; groups: RoutingGroup[] }> | null = null;
+type Read = { accounts: StartAccount[]; groups: RoutingGroup[]; options: StartOptions | null };
+let read: (Read & { at: number }) | null = null;
+let reading: Promise<Read> | null = null;
 
 /** Reads them again once what's kept is a minute old, and resolves with what's kept. */
-function refresh(): Promise<{ accounts: StartAccount[]; groups: RoutingGroup[] }> {
-  if (read && Date.now() - read.at < FRESH_MS) return Promise.resolve({ accounts: read.accounts, groups: read.groups });
+function refresh(): Promise<Read> {
+  if (read && Date.now() - read.at < FRESH_MS) return Promise.resolve(read);
   reading ??= startOptions()
     .then(
       (o) => {
-        read = { at: Date.now(), accounts: withLists(o), groups: o.groups ?? [] };
-        return { accounts: read.accounts, groups: read.groups };
+        read = { at: Date.now(), accounts: withLists(o), groups: o.groups ?? [], options: o };
+        return read;
       },
       // The last read stands, and what offers them goes without until a read works: the quick
       // panel and the main window say so when start options can't be read.
-      () => ({ accounts: read?.accounts ?? [], groups: read?.groups ?? [] }),
+      () => ({ accounts: read?.accounts ?? [], groups: read?.groups ?? [], options: read?.options ?? null }),
     )
     .finally(() => {
       reading = null;
@@ -68,6 +69,23 @@ export function useStartGroups(wanted = true): RoutingGroup[] {
     };
   }, [wanted]);
   return groups;
+}
+
+/** The name of the routing group Auto starts from in `project` (start.ts `autoGroupIn`), read
+ *  alongside the accounts. */
+export function useAutoGroupIn(project: string | null, wanted = true): string {
+  const [options, setOptions] = useState<StartOptions | null>(() => read?.options ?? null);
+  useEffect(() => {
+    if (!wanted) return;
+    let live = true;
+    void refresh().then((r) => {
+      if (live) setOptions(r.options);
+    });
+    return () => {
+      live = false;
+    };
+  }, [wanted]);
+  return autoGroupIn(options, project);
 }
 
 /** Other devices' accounts, by their short ids, and the reads under way. */
