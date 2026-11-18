@@ -251,6 +251,6 @@ export function skillRows(listed: SkillsListed | null, repos: Lane[], word: stri
  *  `newWorkIn`): a reusable worktree of the repo that holds no work, else its main worktree
  *  when that's reusable; with no reusable worktree at all, a new one off the main checkout. */
 export function skillStart(repo: Lane, lanes: Lane[]): { lane: Lane; newWorktree: boolean } {
-  const reusable = newWorkIn(repo, 0, lanes, []);
+  const reusable = newWorkIn(repo, lanes);
   return { lane: reusable ?? repo, newWorktree: !reusable };
 }

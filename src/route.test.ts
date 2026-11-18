@@ -29,7 +29,19 @@ const route = (r: Partial<Route>): Route => ({
   ...r,
 });
 
-const rows = (r: Route) => suggestions(r, b).map((s) => [s.key, Math.round(s.p * 100) / 100]);
+/** The suggestions for a route, its worktree picks summed by repo as the engine sums them
+ *  (route.rs `read`) when it gives no repos of its own. */
+const suggest = (r: Route, on: Board, isolatesIn: string[] = []) => {
+  const sums = new Map<string, number>();
+  for (const pick of r.lanes) {
+    const l = on.lanes.find((x) => x.id === pick.id);
+    if (l) sums.set(`${l.project}/${l.repo}`, (sums.get(`${l.project}/${l.repo}`) ?? 0) + pick.p);
+  }
+  const repos = r.repos.length > 0 ? r.repos : [...sums].map(([id, p]) => ({ id, p })).sort((x, y) => y.p - x.p);
+  return suggestions({ ...r, repos }, on, isolatesIn);
+};
+
+const rows = (r: Route) => suggest(r, b).map((s) => [s.key, Math.round(s.p * 100) / 100]);
 
 describe('the routing log', () => {
   it('keeps each suggestion as what it does and to which session or worktree', () => {
@@ -42,7 +54,7 @@ describe('the routing log', () => {
       sessions: [{ id: 's:fix', p: 0.9 }],
       lanes: [{ id: '/api', p: 0.8 }],
     });
-    expect(suggestions(r, b).map(routeChoice)).toEqual([
+    expect(suggest(r, b).map(routeChoice)).toEqual([
       { kind: 'send', target: 's:fix', p: expect.closeTo(0.63) },
       { kind: 'start', target: '/api', newWorktree: false, p: expect.closeTo(0.24) },
     ]);
@@ -82,28 +94,28 @@ describe('suggestions', () => {
     const many = board([lane('/api', ['a', 'b', 'c', 'd', 'e', 'f', 'g'].map((k) => session(k, 'idle')))]);
     const picks = [0.4, 0.2, 0.12, 0.1, 0.08, 0.06, 0.02].map((p, i) => ({ id: 'abcdefg'[i], p }));
     const r = route({ action: 'send', actions: [['send', 1]], sessions: picks, lanes: [{ id: '/api', p: 1 }] });
-    expect(suggestions(r, many).map((x) => x.key)).toEqual(['send:a', 'send:b', 'send:c', 'send:d', 'send:e']);
+    expect(suggest(r, many).map((x) => x.key)).toEqual(['send:a', 'send:b', 'send:c', 'send:d', 'send:e']);
     // Not one Jev gave little chance.
-    expect(suggestions({ ...r, sessions: [picks[0], picks[6]] }, many).map((x) => x.key)).toEqual(['send:a']);
+    expect(suggest({ ...r, sessions: [picks[0], picks[6]] }, many).map((x) => x.key)).toEqual(['send:a']);
     // A search's more sessions are opened, as its first is.
-    expect(suggestions({ ...r, action: 'find', actions: [['find', 1]] }, many).every((x) => x.kind === 'open')).toBe(true);
+    expect(suggest({ ...r, action: 'find', actions: [['find', 1]] }, many).every((x) => x.kind === 'open')).toBe(true);
   });
 
   it('opens a session that needs you instead of typing into it', () => {
     const r = route({ action: 'send', actions: [['send', 1]], sessions: [{ id: 's:ask', p: 1 }], lanes: [{ id: '/api', p: 1 }] });
-    expect(suggestions(r, b)[0]).toMatchObject({ kind: 'open', key: 'open:s:ask' });
+    expect(suggest(r, b)[0]).toMatchObject({ kind: 'open', key: 'open:s:ask' });
   });
 
   it('sends the answer to a session whose reply asks you something', () => {
     const asking = board([lane('/api', [session('s:ask', 'needs', { asks: true, need: 'reply' })])]);
     const r = route({ action: 'send', actions: [['send', 1]], sessions: [{ id: 's:ask', p: 1 }], lanes: [{ id: '/api', p: 1 }] });
-    expect(suggestions(r, asking)[0]).toMatchObject({ kind: 'send', key: 'send:s:ask' });
+    expect(suggest(r, asking)[0]).toMatchObject({ kind: 'send', key: 'send:s:ask' });
     // And to one whose turn ended on a command in the background that looks stuck, or that's
     // stuck mid-turn: neither is at a prompt.
     const stuck = board([lane('/api', [session('s:ask', 'needs', { background: 'acme login --device', stalledSince: 1, need: 'stuck' })])]);
-    expect(suggestions(r, stuck)[0]).toMatchObject({ kind: 'send', key: 'send:s:ask' });
+    expect(suggest(r, stuck)[0]).toMatchObject({ kind: 'send', key: 'send:s:ask' });
     const midTurn = board([lane('/api', [session('s:ask', 'needs', { stalledSince: 1, need: 'stuck' })])]);
-    expect(suggestions(r, midTurn)[0]).toMatchObject({ kind: 'send', key: 'send:s:ask' });
+    expect(suggest(r, midTurn)[0]).toMatchObject({ kind: 'send', key: 'send:s:ask' });
   });
 
   it('sends to a session you pick by the same rule (Send to)', () => {
@@ -113,7 +125,7 @@ describe('suggestions', () => {
     expect(toSessionSuggestion(l, l.sessions[0], 0, true).kind).toBe('open');
   });
 
-  it('starts new work in the likeliest worktree, in a worktree of its own when it wants one', () => {
+  it('starts new work in the likeliest repo, in a worktree of its own when it wants one', () => {
     const r = route({
       action: 'start',
       actions: [
@@ -128,13 +140,13 @@ describe('suggestions', () => {
       ],
       ownWorktree: 0.8,
     });
-    const s = suggestions(r, b);
+    const s = suggest(r, b);
     // The session Jev weighed comes after, though sending isn't likely.
     expect(s.map((x) => x.key)).toEqual(['start:new:P//web', 'start:new:P//api', 'send:s:copy']);
     expect(s[0]).toMatchObject({ kind: 'start', newWorktree: true });
     // Two worktrees of one repo make one new-worktree row.
     const two = board([lane('/api', []), lane('/api-wt', [], '/api')]);
-    expect(suggestions({ ...r, lanes: [{ id: '/api', p: 0.6 }, { id: '/api-wt', p: 0.4 }] }, two).map((x) => x.key)).toEqual(['start:new:P//api']);
+    expect(suggest({ ...r, lanes: [{ id: '/api', p: 0.6 }, { id: '/api-wt', p: 0.4 }] }, two).map((x) => x.key)).toEqual(['start:new:P//api']);
   });
 
   it('offers the session too when sending is a real possibility', () => {
@@ -155,7 +167,7 @@ describe('suggestions', () => {
 
   it('finds sessions to open', () => {
     const r = route({ action: 'find', actions: [['find', 0.9]], sessions: [{ id: 's:copy', p: 0.9 }], lanes: [{ id: '/web', p: 1 }] });
-    expect(suggestions(r, b).map((x) => [x.kind, x.key])).toEqual([['open', 'open:s:copy']]);
+    expect(suggest(r, b).map((x) => [x.kind, x.key])).toEqual([['open', 'open:s:copy']]);
   });
 
   it('offers opening the session next when what’s typed may be a search for it, and sending to it when a search may be a prompt', () => {
@@ -235,12 +247,12 @@ describe('suggestions', () => {
       ],
       lanes: [{ id: '/api', p: 1 }],
     });
-    expect(suggestions(r, b).map((x) => x.key)).toEqual(['todo:/api', 'start:/api']);
+    expect(suggest(r, b).map((x) => x.key)).toEqual(['todo:/api', 'start:/api']);
   });
 
   it('skips sessions and worktrees the board no longer has', () => {
     const r = route({ action: 'send', actions: [['send', 1]], sessions: [{ id: 'gone', p: 1 }], lanes: [{ id: '/gone', p: 1 }] });
-    expect(suggestions(r, b)).toEqual([]);
+    expect(suggest(r, b)).toEqual([]);
   });
 });
 
@@ -250,30 +262,31 @@ describe('a question that needs no repo', () => {
   const start = (noRepo: number, lanes = [{ id: '/api', p: 0.3 }]) => route({ action: 'start', actions: [['start', 1]], lanes, noRepo });
 
   it('starts a chat of its own when Jev reads it as needing none of the worktrees', () => {
-    expect(suggestions(start(0.6), withChats).map((x) => [x.key, x.lane.id])).toEqual([
+    expect(suggest(start(0.6), withChats).map((x) => [x.key, x.lane.id])).toEqual([
       ['start:chat', '/chats'],
       ['start:/api', '/api'],
     ]);
-    expect(suggestions(start(0.6), withChats)[0]).toMatchObject({ kind: 'start', newWorktree: false, p: 0.6 });
+    expect(suggest(start(0.6), withChats)[0]).toMatchObject({ kind: 'start', newWorktree: false, p: 0.6 });
   });
 
-  it('offers a chat after the worktree Jev likes better, when it’s likely too', () => {
-    expect(suggestions(start(0.2, [{ id: '/api', p: 0.7 }]), withChats).map((x) => x.key)).toEqual(['start:/api', 'start:chat']);
-    expect(suggestions(start(0.05, [{ id: '/api', p: 0.7 }]), withChats).map((x) => x.key)).toEqual(['start:/api']);
+  it('offers a chat after the repo Jev likes better, when it’s likely too', () => {
+    expect(suggest(start(0.2, [{ id: '/api', p: 0.7 }]), withChats).map((x) => x.key)).toEqual(['start:/api', 'start:chat']);
+    expect(suggest(start(0.05, [{ id: '/api', p: 0.7 }]), withChats).map((x) => x.key)).toEqual(['start:/api']);
   });
 
-  it('goes by the worktrees where the board has no chats, or the Mac said nothing of them', () => {
-    expect(suggestions(start(0.6), b).map((x) => x.key)).toEqual(['start:/api']);
-    expect(suggestions(route({ action: 'start', actions: [['start', 1]], lanes: [{ id: '/api', p: 0.3 }] }), withChats).map((x) => x.key)).toEqual(['start:/api']);
+  it('goes by the repos where the board has no chats, or the Mac said nothing of them', () => {
+    expect(suggest(start(0.6), b).map((x) => x.key)).toEqual(['start:/api']);
+    expect(suggest(route({ action: 'start', actions: [['start', 1]], lanes: [{ id: '/api', p: 0.3 }] }), withChats).map((x) => x.key)).toEqual(['start:/api']);
   });
 });
 
-describe('new work in reusable worktrees', () => {
-  const start = (lanes: { id: string; p: number }[]) => route({ action: 'start', actions: [['start', 1]], noSession: 1, lanes });
+describe('new work in a repo', () => {
+  const start = (lanes: { id: string; p: number }[], over: Partial<Route> = {}) => route({ action: 'start', actions: [['start', 1]], noSession: 1, lanes, ...over });
   const kept = (id: string, repo: string, extra: Partial<Lane> = {}) => lane(id, [], repo, extra);
   const repo = board([
     kept('/app', 'app', { origin: 'main', reuse: 'open' }),
-    kept('/app-billing', 'app'),
+    // Kept for its own piece of work, which landed: nothing uncommitted or unlanded.
+    kept('/app-billing', 'app', { git: fx.git() }),
     kept('/app-2', 'app', { reuse: 'landed', lastActivity: 5 }),
     kept('/app-3', 'app', { reuse: 'free', lastActivity: 1 }),
     kept('/app-4', 'app', { reuse: 'free', lastActivity: 2 }),
@@ -281,39 +294,74 @@ describe('new work in reusable worktrees', () => {
     kept('/infra', 'infra', { origin: 'main' }),
     kept('/infra-tls', 'infra'),
   ]);
+  const keys = (r: Route, on = repo, isolatesIn: string[] = []) => suggest(r, on, isolatesIn).map((x) => x.key);
 
-  it('goes to a free reusable worktree of the repo when Jev picks one kept for its own work', () => {
-    // Free before landed, and of the free ones the latest active.
-    expect(suggestions(start([{ id: '/app-billing', p: 0.9 }]), repo).map((x) => x.key)).toEqual(['start:/app-4']);
-    // One Jev ranked leads, even landed.
-    expect(suggestions(start([{ id: '/app-billing', p: 0.6 }, { id: '/app-2', p: 0.3 }]), repo)[0].key).toBe('start:/app-2');
+  it('starts where the start row starts in the repo, whichever of its worktrees Jev liked', () => {
+    // The repo's main checkout holds work, so a reusable worktree ready for new work: free before
+    // landed, and of the free ones the latest active (quick.ts `startLaneIn`).
+    for (const lanes of [[{ id: '/app-billing', p: 0.9 }], [{ id: '/app-billing', p: 0.6 }, { id: '/app-2', p: 0.3 }], [{ id: '/app-3', p: 0.9 }], [{ id: '/app', p: 0.9 }]]) {
+      expect(keys(start(lanes))).toEqual(['start:/app-4']);
+    }
+    // Where the place moves the session out of the main checkout before it changes anything,
+    // there, as the start row does.
+    expect(keys(start([{ id: '/app-3', p: 0.9 }]), repo, ['/app'])).toEqual(['start:/app']);
   });
 
-  it('is as sure of a worktree chosen in the repo as of the repo', () => {
-    const r = { ...start([{ id: '/app-billing', p: 0.3 }]), repos: [{ id: 'P/app', p: 0.9 }] };
-    expect(suggestions(r, repo)[0]).toMatchObject({ key: 'start:/app-4', p: 0.9 });
-    // In the worktree Jev picked, as sure as of it.
-    expect(suggestions({ ...r, lanes: [{ id: '/app-3', p: 0.3 }] }, repo)[0]).toMatchObject({ key: 'start:/app-3', p: 0.3 });
+  it('is as sure as Jev is of the repo', () => {
+    const r = start([{ id: '/app-3', p: 0.3 }], { repos: [{ id: 'P/app', p: 0.9 }] });
+    expect(suggest(r, repo)[0]).toMatchObject({ key: 'start:/app-4', p: 0.9 });
   });
 
-  it('joins the work under way in a reusable worktree only when Jev is sure of it, and never in the main worktree', () => {
-    const busy = board([...repo.lanes, kept('/app-5', 'app', { reuse: 'review', lastActivity: 9 })]);
-    expect(suggestions(start([{ id: '/app-5', p: 0.8 }]), busy)[0]).toMatchObject({ key: 'start:/app-5', newWorktree: false });
-    // Less sure, Jev matched the repo more than the work: a free one.
-    expect(suggestions(start([{ id: '/app-5', p: 0.4 }]), busy)[0].key).toBe('start:/app-4');
-    // The main worktree with work under way is the repo, not the work.
-    expect(suggestions(start([{ id: '/app', p: 0.9 }]), repo)[0].key).toBe('start:/app-4');
+  it('offers the next likeliest repo after it, when that’s likely too', () => {
+    expect(keys(start([{ id: '/app-3', p: 0.4 }, { id: '/infra-tls', p: 0.35 }, { id: '/app-2', p: 0.25 }]))).toEqual(['start:/app-4', 'start:new:P/infra']);
+    expect(keys(start([{ id: '/app-3', p: 0.9 }, { id: '/infra-tls', p: 0.1 }]))).toEqual(['start:/app-4']);
   });
 
-  it('starts in the main worktree when none is free, and in a new worktree only where there is no reusable one', () => {
+  it('joins the work under way in a worktree only when Jev is sure of it, and never in the main checkout', () => {
+    const busy = board([
+      ...repo.lanes,
+      kept('/app-5', 'app', { reuse: 'review', lastActivity: 9 }),
+      // Kept for its own piece of work: a PR open, changes not yet committed, commits not on the
+      // default branch, and a PR that merged.
+      kept('/app-pr', 'app', { pr: fx.pr() }),
+      kept('/app-wip', 'app', { git: fx.git({ dirty: 2 }) }),
+      kept('/app-ahead', 'app', { git: fx.git({ baseAhead: 3 }) }),
+      kept('/app-merged', 'app', { pr: fx.pr({ state: 'merged' }), git: fx.git({ baseAhead: 3 }) }),
+    ]);
+    for (const id of ['/app-5', '/app-pr', '/app-wip', '/app-ahead']) {
+      expect(suggest(start([{ id, p: 0.8 }]), busy)[0]).toMatchObject({ key: `start:${id}`, newWorktree: false, p: 0.8 });
+    }
+    // Less sure, Jev matched the repo more than the work: where the repo starts it.
+    expect(keys(start([{ id: '/app-5', p: 0.6 }]), busy)[0]).toBe('start:/app-4');
+    // A worktree that holds no work has none to join, the main checkout's is the repo's, and a
+    // worktree asked for is a worktree of its own.
+    for (const id of ['/app-merged', '/app-billing', '/app-3', '/app']) expect(keys(start([{ id, p: 0.9 }]), busy)[0]).toBe('start:/app-4');
+    expect(keys(start([{ id: '/app-5', p: 0.9 }], { ownWorktree: 0.9 }), busy)[0]).toBe('start:new:P/app');
+  });
+
+  it('offers the rest of the repo after the worktree it joins, when the work may be new work there instead', () => {
+    const busy = board([...repo.lanes, kept('/app-5', 'app', { reuse: 'review' })]);
+    const s = suggest(start([{ id: '/app-5', p: 0.75 }, { id: '/app-3', p: 0.25 }]), busy);
+    expect(s.map((x) => [x.key, Math.round(x.p * 100) / 100])).toEqual([
+      ['start:/app-5', 0.75],
+      ['start:/app-4', 0.25],
+    ]);
+    expect(keys(start([{ id: '/app-5', p: 0.9 }, { id: '/app-3', p: 0.1 }]), busy)).toEqual(['start:/app-5']);
+  });
+
+  it('starts in the main checkout when nothing is free, and in a new worktree only where nothing is reusable', () => {
     const none = board(repo.lanes.filter((l) => l.reuse !== 'free' && l.reuse !== 'landed'));
-    expect(suggestions(start([{ id: '/app-billing', p: 0.9 }]), none)[0]).toMatchObject({ key: 'start:/app', newWorktree: false });
-  });
-
-  it('makes a new worktree from the main worktree when the repo has no reusable one', () => {
-    const s = suggestions(start([{ id: '/infra-tls', p: 0.9 }]), repo);
+    expect(suggest(start([{ id: '/app-billing', p: 0.9 }]), none)[0]).toMatchObject({ key: 'start:/app', newWorktree: false });
+    const s = suggest(start([{ id: '/infra-tls', p: 0.9 }]), repo);
     expect(s[0]).toMatchObject({ key: 'start:new:P/infra', newWorktree: true });
     expect(s[0].lane.id).toBe('/infra');
+  });
+
+  it('links a todo to the worktree whose work it joins, else to the repo’s main checkout', () => {
+    const later = (lanes: { id: string; p: number }[]) => route({ action: 'todo', actions: [['todo', 1]], lanes });
+    expect(keys(later([{ id: '/app-3', p: 0.9 }]))[0]).toBe('todo:/app');
+    const busy = board([...repo.lanes, kept('/app-5', 'app', { reuse: 'open' })]);
+    expect(keys(later([{ id: '/app-5', p: 0.9 }]), busy)[0]).toBe('todo:/app-5');
   });
 });
 
@@ -364,7 +412,7 @@ describe('duplicates', () => {
       ],
       duplicate: { id: 's:copy', p: 0.7 },
     });
-    expect(suggestions(r, b).map((x) => x.key)).toEqual(['start:/web', 'send:s:copy', 'start:/api']);
+    expect(suggest(r, b).map((x) => x.key)).toEqual(['start:/web', 'send:s:copy', 'start:/api']);
     expect(duplicateOf(r, b)?.session.key).toBe('s:copy');
     expect(duplicateOf(route({ duplicate: { id: 'gone', p: 1 } }), b)).toBeNull();
   });
@@ -490,7 +538,7 @@ describe('resolveSuggestedAgent', () => {
       lanes: [{ id: '/api', p: 1 }],
       agents: [{ account: 'claude', model: 'opus', p: 0.8 }],
     });
-    expect(suggestions(r, b)[0]).toMatchObject({ kind: 'start', agent: 'claude:opus' });
+    expect(suggest(r, b)[0]).toMatchObject({ kind: 'start', agent: 'claude:opus' });
     // claude is near its limit, so resolveSuggestedAgent picks claude2 on opus.
     const u = [fx.usage({ account: 'claude', meters: [fx.meter({ key: 'week', percent: 95, severity: 'critical' })] }), fx.usage({ account: 'claude2', meters: [fx.meter({ key: 'week', percent: 20 })] })];
     expect(resolveSuggestedAgent('claude:opus', accounts, [], u, fx.NOW)).toEqual({ account: 'claude2', model: 'opus' });
@@ -501,18 +549,18 @@ describe('resolveSuggestedAgent', () => {
       lanes: [{ id: '/api', p: 1 }],
       agents: [{ account: 'fast', model: null, p: 0.9 }],
     });
-    expect(suggestions(rGroup, b)[0]).toMatchObject({ kind: 'start', agent: 'fast' });
+    expect(suggest(rGroup, b)[0]).toMatchObject({ kind: 'start', agent: 'fast' });
     const groups = [{ name: 'fast', strategy: 'usage' as const, members: [{ account: 'claude2', model: 'sonnet' }] }];
     expect(resolveSuggestedAgent('fast', accounts, groups, u, fx.NOW)).toEqual({ account: 'claude2', model: 'sonnet' });
 
     // Work that needs a service only some accounts reach starts on one of them: without an agent
     // pick, the one Auto picked of them; with one whose harness has none, the one of them with room.
     const needing = route({ action: 'start', actions: [['start', 1]], lanes: [{ id: '/api', p: 1 }], needs: { name: 'Gmail', accounts: ['claude2', 'codex'], p: 0.9 } });
-    expect(suggestions(needing, b)[0]).toMatchObject({ kind: 'start', agent: 'claude2', needs: { name: 'Gmail', accounts: ['claude2', 'codex'] } });
+    expect(suggest(needing, b)[0]).toMatchObject({ kind: 'start', agent: 'claude2', needs: { name: 'Gmail', accounts: ['claude2', 'codex'] } });
     expect(resolveSuggestedAgent('claude2', accounts, [], u, fx.NOW, [], ['claude2', 'codex'])).toEqual({ account: 'claude2', model: null });
     // The engine's pick by Auto's rules stands, its model too, though another of them has more room.
     const autoOnSonnet = route({ action: 'start', actions: [['start', 1]], lanes: [{ id: '/api', p: 1 }], needs: { name: 'Gmail', accounts: ['claude', 'claude2'], model: 'sonnet', p: 0.9 } });
-    expect(suggestions(autoOnSonnet, b)[0]).toMatchObject({ agent: 'claude:sonnet' });
+    expect(suggest(autoOnSonnet, b)[0]).toMatchObject({ agent: 'claude:sonnet' });
     expect(resolveSuggestedAgent('claude:sonnet', accounts, [], u, fx.NOW, [], ['claude', 'claude2'])).toEqual({ account: 'claude', model: 'sonnet' });
     expect(resolveSuggestedAgent('claude:opus', accounts, [], u, fx.NOW, [], ['codex'])).toEqual({ account: 'codex', model: null });
     expect(resolveSuggestedAgent('fast', accounts, groups, u, fx.NOW, [], ['codex'])).toEqual({ account: 'codex', model: null });

@@ -1,6 +1,7 @@
 //! Worktrees marked reusable or not by hand: its menu's Reuse for new work, or `codealong
 //! reuse on|off`. A reusable worktree takes one piece of work after another, where others are
-//! kept for one piece of work each; Jev suggests new work only in reusable ones (src/route.ts).
+//! kept for one piece of work each; new work in a repo starts in reusable ones (src/quick.ts
+//! `startLaneIn`, which Jev's suggestions in src/route.ts go by too).
 //! A main checkout is reusable unless it's marked otherwise (`board::reusable`).
 //!
 //! Kept in `worktrees.json` next to the config, by path, and marked through `mark` from the menu

@@ -98,8 +98,9 @@ function prItem(lane: Lane, report: Report): MenuAction | undefined {
   return pr ? { label: `Open PR #${pr.number} on GitHub`, run: () => void openUrl(pr.url).catch((e: unknown) => report.error(errorText(e))) } : undefined;
 }
 
-/** Reuse for new work, checked while the worktree takes one piece of work after another: Jev
- *  suggests new work only in reusable worktrees. Only a repo's worktree in one of your projects
+/** Reuse for new work, checked while the worktree takes one piece of work after another: new work
+ *  in a repo starts in its reusable worktrees (quick.ts `startLaneIn`), from the quick panel's
+ *  start row and Jev's suggestions alike. Only a repo's worktree in one of your projects
  *  can be (board::can_reuse), and only this device's is marked here. */
 function reuseItem(lane: Lane, report: Report): MenuAction | undefined {
   if (lane.device || lane.project === 'Elsewhere' || lane.origin === 'folder') return undefined;

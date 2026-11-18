@@ -14,7 +14,7 @@
   localStorage.setItem('codealong.quick.project', 'All projects');
   // Where starts last opened, which a choice without a `start` setting would follow.
   localStorage.removeItem('codealong.start');
-  var picked = { lane: null, sessions: [] };
+  var picked = { lane: null, repo: null, sessions: [] };
   var real = window.__TAURI_INTERNALS__.invoke;
   window.__TAURI_INTERNALS__.invoke = function (cmd, args, options) {
     if (cmd === 'search_text') return Promise.resolve({ hits: [], building: false, off: false });
@@ -26,7 +26,7 @@
         sessions: picked.sessions.map(function (key, i) { return { id: key, p: [0.3, 0.2, 0.15, 0.1, 0.08][i] }; }),
         noSession: 0.2,
         lanes: [{ id: picked.lane, p: 0.9 }],
-        repos: [],
+        repos: [{ id: picked.repo, p: 0.9 }],
         ownWorktree: own ? 0.9 : 0,
         ownWorktreeAsked: own ? 0.9 : 0,
         habit: { new: 0, of: 0 },
@@ -59,6 +59,7 @@
         if (l.hidden || l.device || l.startsChats) return;
         if (!picked.lane || picked.lane === l.id) {
           picked.lane = l.id;
+          picked.repo = l.project + '/' + l.repo;
           l.reuse = 'free';
           board.pinnedWorktrees = [l.id];
         }

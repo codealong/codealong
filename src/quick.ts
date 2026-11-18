@@ -655,15 +655,16 @@ export function repoWorktrees(lanes: Lane[], pinned: string[]): RepoWorktrees {
  *  checkout it's made from; else the main checkout when the session moves out of it into a
  *  worktree of its own before it changes anything (`isolatesIn`, the start's place's: Claude
  *  Code's background jobs), as it joins no work there whatever is under way; else where new work
- *  goes from the main checkout (reusable.ts `newWorkIn`, which Jev's suggestions go by), never
- *  joining work under way; else the main checkout, else the latest worktree. */
+ *  goes from the main checkout (reusable.ts `newWorkIn`), never joining work under way; else the
+ *  main checkout, else the latest worktree. Jev's suggestions start new work in a repo here too
+ *  (route.ts `suggestions`). */
 export function startLaneIn(lanes: Lane[], newWorktree: boolean, isolatesIn: readonly string[] = []): Lane | null {
   const w = repoWorktrees(lanes, []);
   if (newWorktree && w.from) return w.from;
   if (w.main && isolatesIn.includes(w.main.path)) return w.main;
   const first = w.main ?? [...lanes].sort((a, b) => b.lastActivity - a.lastActivity)[0];
   if (!first) return null;
-  const to = newWorkIn(first, 0, lanes, []);
+  const to = newWorkIn(first, lanes);
   return to && (takesNewWork(to) || to === w.main) ? to : first;
 }
 

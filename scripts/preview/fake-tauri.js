@@ -985,6 +985,15 @@ window.__TAURI_INTERNALS__ = {
         var lanes = board.lanes.filter(function (l) { return !l.hidden; }).sort(function (a, b) { return b.lastActivity - a.lastActivity; });
         var sessions = lanes.flatMap(function (l) { return l.sessions.filter(function (s) { return !s.visitor && s.live && s.status !== 'needs'; }); }).sort(function (a, b) { return b.lastPromptAt - a.lastPromptAt; });
         var pick = function (list, id) { return function (x) { var m = /:(\d+)$/.exec(x.id); var hit = list[Number(m ? m[1] : 0)]; return hit ? { id: hit[id], p: x.p } : null; }; };
+        var lanePicks = (fx.lanes || []).map(pick(lanes, 'id')).filter(Boolean);
+        // The worktree picks summed by repo, as the engine sums them (route.rs `read`).
+        var sums = {};
+        lanePicks.forEach(function (x) {
+          var l = lanes.find(function (y) { return y.id === x.id; });
+          var key = l.project + '/' + l.repo;
+          sums[key] = (sums[key] || 0) + x.p;
+        });
+        var repos = Object.keys(sums).map(function (id) { return { id: id, p: sums[id] }; }).sort(function (a, b) { return b.p - a.p; });
         return new Promise(function (done) {
           setTimeout(function () {
             done({
@@ -992,8 +1001,8 @@ window.__TAURI_INTERNALS__ = {
               actions: fx.actions || [['send', 0.8], ['start', 0.2]],
               sessions: (fx.sessions || []).map(pick(sessions, 'key')).filter(Boolean),
               noSession: fx.noSession || 0,
-              lanes: (fx.lanes || []).map(pick(lanes, 'id')).filter(Boolean),
-              repos: [],
+              lanes: lanePicks,
+              repos: repos,
               ownWorktree: fx.ownWorktree || 0,
               duplicate: fx.duplicate ? pick(sessions, 'key')(fx.duplicate) : null,
               model: 'jev-1.13.0',

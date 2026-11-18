@@ -124,11 +124,12 @@ Commands:
                 its dev server, or the repo's instructions say where it's served): the
                 worktree's row in the app links to it and shows whether it's running
   reuse         Whether a worktree is reusable: it takes one piece of work after
-                another, where others are kept for one piece of work each. Jev suggests
-                new work only in reusable worktrees. A main checkout, and a worktree
-                that has taken new work three times or more (its reflog), are reusable
-                unless marked otherwise. The app's worktree menu has the same switch
-                (Reuse for new work)
+                another, where others are kept for one piece of work each. New work in a
+                repo starts in its reusable worktrees, from the quick panel and Jev's
+                suggestions alike. A main checkout, and a worktree that has taken new
+                work three times or more (its reflog), are reusable unless marked
+                otherwise. The app's worktree menu has the same switch (Reuse for new
+                work)
   start         Start a session for a todo (or several, on one prompt) or on a prompt,
                 the way the app's New session does, and link it to the todos
   config        Codealong's own settings (config.toml): show them as the app reads them,
@@ -3907,10 +3908,10 @@ Options:
 
 ```
 Whether a worktree is reusable: it takes one piece of work after another, where others
-are kept for one piece of work each. Jev suggests new work only in reusable worktrees. A
-main checkout, and a worktree that has taken new work three times or more (its reflog),
-are reusable unless marked otherwise. The app's worktree menu has the same switch (Reuse
-for new work)
+are kept for one piece of work each. New work in a repo starts in its reusable
+worktrees, from the quick panel and Jev's suggestions alike. A main checkout, and a
+worktree that has taken new work three times or more (its reflog), are reusable unless
+marked otherwise. The app's worktree menu has the same switch (Reuse for new work)
 
 Usage: codealong reuse [OPTIONS] <COMMAND>
 

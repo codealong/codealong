@@ -142,7 +142,7 @@ enum Cmd {
         #[command(subcommand)]
         cmd: PreviewCmd,
     },
-    /// Whether a worktree is reusable: it takes one piece of work after another, where others are kept for one piece of work each. Jev suggests new work only in reusable worktrees. A main checkout, and a worktree that has taken new work three times or more (its reflog), are reusable unless marked otherwise. The app's worktree menu has the same switch (Reuse for new work).
+    /// Whether a worktree is reusable: it takes one piece of work after another, where others are kept for one piece of work each. New work in a repo starts in its reusable worktrees, from the quick panel and Jev's suggestions alike. A main checkout, and a worktree that has taken new work three times or more (its reflog), are reusable unless marked otherwise. The app's worktree menu has the same switch (Reuse for new work).
     Reuse {
         #[command(subcommand)]
         cmd: ReuseCmd,

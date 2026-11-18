@@ -5,7 +5,8 @@
 
 import { agoPhrase } from './format';
 import { homeOf, sessionWhy, stuckMidTurn, waitsOnYou } from './lanes';
-import { mainCheckoutOf, newWorkIn } from './reusable';
+import { repoWorktrees, startLaneIn } from './quick';
+import { JOIN_AT, joinsWork, newWorkIn } from './reusable';
 import { agentId, autoPick, pickFromGroup, startChoice, startDoes, startTitleWords, startWhereWords, type AgentOption, type AutoPick, type ChosenStart, type ModelOption, type StartPicks } from './start';
 import type { Board, Lane, NeedPick, Route, RouteChoice, RoutePick, RoutingGroup, Session, StartAccount, StartPlace, Usage } from './types';
 
@@ -153,13 +154,14 @@ export function routeDone(sg: Suggestion, alt: boolean): RouteChoice {
  * waits on you for a prompt is opened, never sent to: what's typed would answer the prompt. One
  * whose reply asks you something is sent to: what's typed is its answer.
  *
- * New work starts only in a reusable worktree (reusable.ts `newWorkIn`): Jev matches it to a
- * worktree of the repo it's about, and it goes to one of the repo's reusable worktrees that holds
- * no work, or joins the work under way in the one Jev picked when Jev is sure of it. A new
- * worktree only where you often start in one (route.rs `with_habit`), or when the repo has no
- * reusable worktree at all.
+ * New work starts in a repo: Jev's likeliest, where the start row starts in it (quick.ts
+ * `startLaneIn`, with the place's `isolatesIn`), so it's the start row when that's the repo the
+ * panel has. A worktree of its own is the exception (asked 2026-11-17): Jev is sure the work
+ * belongs with the work under way in one (reusable.ts `JOIN_AT`, `joinsWork`), and it joins it
+ * there. A new worktree only where you often start in one (route.rs `with_habit`), or when the
+ * repo has no reusable worktree at all.
  */
-export function suggestions(route: Route, board: Board): Suggestion[] {
+export function suggestions(route: Route, board: Board, isolatesIn: readonly string[] = []): Suggestion[] {
   const prob = (a: string) => route.actions.find(([x]) => x === a)?.[1] ?? 0;
   const laneOf = (pick: RoutePick | undefined) => (pick ? (board.lanes.find((l) => l.id === pick.id) ?? null) : null);
   const out: Suggestion[] = [];
@@ -182,31 +184,40 @@ export function suggestions(route: Route, board: Board): Suggestion[] {
   const firstNeeding = route.needs?.accounts[0];
   const agentPick = topAgent ? agentFor(topAgent.account, topAgent.model) : firstNeeding ? agentFor(firstNeeding, route.needs?.model) : undefined;
   const startFor = { ...(agentPick ? { agent: agentPick } : {}), ...(needs ? { needs } : {}) };
-  /** Starting new work from Jev's worktree pick, `actionP` as likely as the action. In the very
-   *  worktree Jev picked, it's as likely as that worktree; one chosen for it in the repo, or a new
-   *  worktree, as likely as the repo. */
-  const startIn = (pick: RoutePick | undefined, actionP: number): Suggestion | null => {
-    const picked = laneOf(pick);
-    if (!picked || !pick) return null;
-    const reusable = newWorkIn(picked, pick.p, board.lanes, route.lanes);
-    const newWorktree = route.ownWorktree >= OWN_WORKTREE || !reusable;
-    // A new worktree is made from the repo's main worktree, so two of its worktrees make the
-    // same row.
-    const lane = newWorktree ? (mainCheckoutOf(picked, board.lanes) ?? picked) : (reusable ?? picked);
-    const repoP = route.repos.find((r) => r.id === `${picked.project}/${picked.repo}`)?.p;
-    const p = actionP * (!newWorktree && lane.id === picked.id ? pick.p : (repoP ?? pick.p));
-    return { kind: 'start', key: newWorktree ? `start:new:${lane.project}/${lane.repo}` : `start:${lane.id}`, lane, newWorktree, p, ...startFor };
-  };
   const [s1, s2] = route.sessions;
-  const [l1, l2] = route.lanes;
+  const [l1] = route.lanes;
+  const [r1, r2] = route.repos;
   const sessionP = (s: RoutePick | undefined) => s?.p ?? 0;
-  // New work that needs none of the worktrees, a question about nothing in them, goes to a chat
-  // of its own, in no project, when Jev thinks so more than it thinks of any one worktree.
+  const ownWorktree = route.ownWorktree >= OWN_WORKTREE;
+  // A repo's worktrees as the panel's repo menu has them (Quick.tsx `lanes`), by the id the engine
+  // sums Jev's picks under (route.rs `read`).
+  const repoLanes = (repo: RoutePick | undefined) => (repo ? board.lanes.filter((l) => !l.startsChats && `${l.project}/${l.repo}` === repo.id) : []);
+  /** Starting new work in a repo Jev weighed, `actionP` as likely as the action and `p` as the
+   *  repo: where the start row starts in it, or a new worktree made from its main checkout, so
+   *  two of its worktrees make one row. */
+  const startInRepo = (repo: RoutePick | undefined, actionP: number, p = sessionP(repo)): Suggestion | null => {
+    const lanes = repoLanes(repo);
+    if (!lanes[0]) return null;
+    const newWorktree = ownWorktree || !newWorkIn(lanes[0], lanes);
+    const lane = startLaneIn(lanes, newWorktree, isolatesIn);
+    return lane && { kind: 'start', key: newWorktree ? `start:new:${lane.project}/${lane.repo}` : `start:${lane.id}`, lane, newWorktree, p: actionP * p, ...startFor };
+  };
+  // The worktree whose work under way new work joins, when Jev is sure of it and nothing asks
+  // for a worktree of its own.
+  const joined = (() => {
+    const lane = laneOf(l1);
+    return lane && !ownWorktree && sessionP(l1) >= JOIN_AT && joinsWork(lane) ? lane : null;
+  })();
+  /** Starting new work: in the worktree it joins, as likely as Jev thinks that worktree is, else
+   *  in Jev's likeliest repo. */
+  const startWork = (actionP: number): Suggestion | null => (joined ? { kind: 'start', key: `start:${joined.id}`, lane: joined, newWorktree: false, p: actionP * sessionP(l1), ...startFor } : startInRepo(r1, actionP));
+  // New work that needs no repo, a question about nothing in them, goes to a chat of its own, in
+  // no project, when Jev thinks so more than it thinks of any one repo.
   const noRepo = route.noRepo ?? 0;
   const chats = board.lanes.find((l) => l.startsChats && !l.device);
   const startChat = (actionP: number): Suggestion | null => (chats && noRepo > 0 ? { kind: 'start', key: 'start:chat', lane: chats, newWorktree: false, p: actionP * noRepo, ...startFor } : null);
-  const inChat = !!chats && noRepo > sessionP(l1);
-  const startNew = (actionP: number) => (inChat ? startChat(actionP) : startIn(l1, actionP));
+  const inChat = !!chats && noRepo > sessionP(r1);
+  const startNew = (actionP: number) => (inChat ? startChat(actionP) : startWork(actionP));
 
   const find = route.action === 'find';
   // A search for none of the sessions: what the search found leads.
@@ -232,18 +243,22 @@ export function suggestions(route: Route, board: Board): Suggestion[] {
       // Its likelihood is that of sending at all, times that of this session doing the work, so
       // it reads on the same scale as the rows around it (the start row carries the warning).
       if (route.duplicate) add(toSession(route.duplicate, prob('send') * route.duplicate.p, false));
-      // The worktree Jev liked best after a chat, or a chat after it, when either is likely.
-      if (inChat && sessionP(l1) >= RUNNER_UP) add(startIn(l1, p));
+      // The repo Jev liked best after a chat, or a chat after it, when either is likely; after
+      // the worktree it joins, the rest of its repo, when the work may be new work there instead.
+      if (inChat && sessionP(r1) >= RUNNER_UP) add(startWork(p));
       if (!inChat && noRepo >= RUNNER_UP) add(startChat(p));
-      if (sessionP(l2) >= RUNNER_UP) add(startIn(l2, p));
+      if (joined && sessionP(r1) - sessionP(l1) >= RUNNER_UP) add(startInRepo(r1, p, sessionP(r1) - sessionP(l1)));
+      if (sessionP(r2) >= RUNNER_UP) add(startInRepo(r2, p));
       if (prob('send') >= RUNNER_UP && sessionP(s1) >= RUNNER_UP) add(toSession(s1, prob('send') * sessionP(s1), false));
       if (prob('find') >= RUNNER_UP && sessionP(s1) >= RUNNER_UP) add(toSession(s1, prob('find') * sessionP(s1), true));
       break;
     }
     case 'todo': {
-      const lane = laneOf(l1);
-      if (lane) add({ kind: 'todo', key: `todo:${lane.id}`, lane, p: prob('todo') * sessionP(l1) });
-      add(startIn(l1, prob('start')));
+      // Linked to the worktree whose work it's for, as a start would join it, else to its repo
+      // by the checkout you know the repo by.
+      const lane = joined ?? repoWorktrees(repoLanes(r1), []).from;
+      if (lane) add({ kind: 'todo', key: `todo:${lane.id}`, lane, p: prob('todo') * (joined ? sessionP(l1) : sessionP(r1)) });
+      add(startWork(prob('start')));
       break;
     }
   }

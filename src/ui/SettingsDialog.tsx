@@ -2301,7 +2301,7 @@ function ReusableWorktrees({ lanes }: { lanes: Lane[] }) {
       <div className="ca-settings-intro">
         <h3>Reusable worktrees</h3>
         <p>
-          A reusable worktree takes one piece of work after another; the rest are kept for one piece of work each. Jev suggests new work only in reusable worktrees, the ones free of work first.
+          A reusable worktree takes one piece of work after another; the rest are kept for one piece of work each. New work in a repo starts in its reusable worktrees, the ones free of work first.
           Main worktrees, and worktrees that have taken new work three times or more, are reusable unless you turn them off: a worktree's right-click menu has Reuse for new work.
         </p>
       </div>

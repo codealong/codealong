@@ -2601,9 +2601,14 @@ dialog.
 
 Once you pause typing, TypeSafe's Jev reads what you wrote against the project's sessions and
 worktrees and the panel leads with up to five suggestions, each with how likely it is: send it to a
-session that's already going, start new work in a worktree (a new one when it's a change of its own)
+session that's already going, start new work in a repo (a new worktree when it's a change of its own)
 or, for a question that needs none of your repos, in a chat of its own, open a session, or keep it
-as a todo. A session's title, or a few words of it, typed to find it is a search, and opens it. A
+as a todo. New work in a repo starts where the start row at the foot would start it with that repo
+picked, so for the repo the panel already has, it is the start row. It starts in another worktree
+only when Jev is sure (75% or more) the work belongs with the work under way there: a PR that's
+open, or changes not yet landed, in a worktree other than the main checkout. The rest of the repo is
+then the next row, when it's likely too. A todo is linked to that worktree, else to the repo's main
+checkout. A session's title, or a few words of it, typed to find it is a search, and opens it. A
 few words that could be a search for a session or a message to it get both rows, the likelier
 first, so Open is one ↓ from Send to, and the other way round. For a search, Send to another
 session sits under the sessions found, and a search that fits none of the sessions Jev weighed (a
@@ -3081,11 +3086,13 @@ A worktree that takes one piece of work after another (its right-click menu's Re
 more (another branch checked out, or its branch reset, as its HEAD's reflog says) are reusable
 unless turned off. Its heading in Sessions grouped by worktree says Free while it holds no work:
 nothing uncommitted or unlanded, and no agent at work; Landed once its PR merged, and Reusable
-while its work is under way or in review. Jev suggests new work only in reusable worktrees: the repo's free or
-landed ones first, joining the work under way in one only when Jev is sure the work belongs there,
-else the main worktree. A new worktree is suggested only in a repo where you often start in one from
-the quick panel (three or more, and half your latest starts there), and a repo named in what you
-type keeps other repos' worktrees out of the suggestions. When a reusable worktree takes new work,
+while its work is under way or in review. New work in a repo starts in its reusable worktrees, from
+the quick panel's start row and Jev's suggestions alike: the main worktree when it holds no work,
+else the repo's free or landed ones, else the main worktree. Jev's suggestions join the work under
+way in a worktree only when Jev is sure the work belongs there (see *Suggestions in the quick
+panel*). A new worktree is suggested only in a repo where you often start in one from the quick
+panel (three or more, and half your latest starts there), and a repo named in what you type keeps
+other repos out of the suggestions. When a reusable worktree takes new work,
 the sessions from before move to Earlier work in its panel, out of its status.
 Settings › Projects lists them, and suggests worktrees whose branch has carried several merged PRs.
 

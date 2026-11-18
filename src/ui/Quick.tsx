@@ -238,10 +238,11 @@ interface SendToRow {
 type Row = SessionRow | ReviewRow | TodoRow | PrRow | SuggestRow | MoreRow | SendToRow | SkillRow;
 
 /** Jev's suggestions as rows. Jev knows this Mac's worktrees, so it suggests starting only while a
- *  session would start here, not on another Mac. */
-function suggestRows(route: Route | null, board: Board | null, elsewhere: boolean): SuggestRow[] {
+ *  session would start here, not on another Mac. `isolated` is the place's `isolatesIn`, a line
+ *  each, so new work starts in a repo where the start row would. */
+function suggestRows(route: Route | null, board: Board | null, elsewhere: boolean, isolated: string): SuggestRow[] {
   if (!board || !route) return [];
-  return suggestions(route, board)
+  return suggestions(route, board, isolated ? isolated.split('\n') : [])
     .filter((sg) => !elsewhere || sg.kind !== 'start')
     .map((sg) => ({ kind: 'suggest', key: sg.key, group: 'suggested', s: sg }));
 }
@@ -1144,8 +1145,11 @@ export function Quick() {
   // they are, dimmed and doing nothing: they were for what you'd typed before. Taking them away at
   // every key moved every row under them twice each time typing paused.
   const lastRoute = routing && routed && routed.for.slice(0, routed.for.indexOf('\n')) === current ? routed.route : null;
-  const jevSuggested = useMemo(() => suggestRows(route, board, !!deviceNow), [board, route, deviceNow]);
-  const jevLastSuggested = useMemo(() => suggestRows(lastRoute, board, !!deviceNow), [board, lastRoute, deviceNow]);
+  // By what the place's checkouts are, not by the list, which is a new one at each render when
+  // the place has none.
+  const isolated = isolatesIn.join('\n');
+  const jevSuggested = useMemo(() => suggestRows(route, board, !!deviceNow, isolated), [board, route, deviceNow, isolated]);
+  const jevLastSuggested = useMemo(() => suggestRows(lastRoute, board, !!deviceNow, isolated), [board, lastRoute, deviceNow, isolated]);
   /** Whether a suggested start makes a new worktree, as `start` makes it: only where its account
    *  makes worktrees and the worktree isn't for chats. */
   const startsTree = (sg: Suggestion & { kind: 'start' }) => {

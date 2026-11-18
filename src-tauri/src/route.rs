@@ -185,8 +185,9 @@ fn lane_card(l: &Lane, now: i64) -> Value {
         card.insert("recent sessions".into(), json!(recent));
     }
     card.insert("last active".into(), json!(crate::jev::ago_words(l.last_activity, now)));
-    // New work starts only in reusable worktrees (src/route.ts), so Jev knows which are, and
-    // which of those hold no work.
+    // New work starts where new work goes in a repo, and in a worktree only to join the work
+    // under way there (src/route.ts `suggestions`), so Jev knows which are reusable, and which
+    // of those hold no work.
     card.insert(
         "reusable".into(),
         json!(match l.reuse {
