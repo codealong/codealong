@@ -39,60 +39,20 @@ use crate::harness::{Ctx, Pending, Question};
 use crate::launch::Key;
 use crate::model::Session;
 
-use super::registry::{registry_of, RegistryEntry, DIALOG_OPEN};
+use super::dialog::Dialog;
+use super::registry::{RegistryEntry, DIALOG_OPEN};
 
 /// The dialog's title, which starts it on the screen.
 const TITLE: &str = "Exiting worktree session";
-
-/// What its last line ends with.
-const LAST_LINE: &str = "Esc to cancel";
 
 /// How the id of the dialog's question starts: its process and when it began waiting follow, so
 /// an answer never goes to a dialog that came up after the one it was meant for.
 pub const EXIT_ID: &str = "exit-worktree:";
 
-/// The dialog as it shows: what removing the worktree would lose, and its choices.
-#[derive(Debug, Clone, PartialEq)]
-pub struct Dialog {
-    pub says: String,
-    pub choices: Vec<Choice>,
-}
-
-/// The dialog at the foot of a terminal's text (`launch::screen_of`), when that's what's up: its
-/// title, what it says, its numbered choices and its last line, with nothing but blank lines
-/// under that. A line that wraps goes on the next: what it says, or the choice before.
+/// The dialog at the foot of a terminal's text (`launch::screen_of`), when that's what's up, read
+/// from under its title as any of Claude Code's dialogs is (dialog.rs `titled`).
 pub fn read(screen: &str) -> Option<Dialog> {
-    let lines: Vec<&str> = screen.lines().map(|l| l.trim_matches(|c: char| c.is_whitespace() || c == '│')).collect();
-    let title = lines.iter().rposition(|l| *l == TITLE)?;
-    let rest = &lines[title + 1..];
-    let last = rest.iter().position(|l| l.ends_with(LAST_LINE))?;
-    if rest[last + 1..].iter().any(|l| !l.is_empty()) {
-        return None;
-    }
-    let mut says: Vec<&str> = Vec::new();
-    let mut choices: Vec<Choice> = Vec::new();
-    for line in &rest[..last] {
-        let line = line.trim_start_matches('❯').trim();
-        if line.is_empty() {
-            continue;
-        }
-        match numbered(line, choices.len() + 1) {
-            Some(choice) => choices.push(choice),
-            None => match choices.last_mut() {
-                Some(choice) => choice.description = Some(choice.description.take().map_or_else(|| line.to_string(), |d| format!("{d} {line}"))),
-                None => says.push(line),
-            },
-        }
-    }
-    (choices.len() >= 2).then(|| Dialog { says: says.join(" "), choices })
-}
-
-/// `n. Label  What it does`, as choice `n` shows: its label ends at the first run of two spaces.
-fn numbered(line: &str, n: usize) -> Option<Choice> {
-    let rest = line.strip_prefix(&format!("{n}."))?.trim_start();
-    let (label, does) = rest.split_once("  ").map_or((rest, ""), |(l, d)| (l, d.trim()));
-    let label = label.trim();
-    (!label.is_empty()).then(|| Choice { label: label.to_string(), description: (!does.is_empty()).then(|| does.to_string()) })
+    super::dialog::titled(screen, TITLE)
 }
 
 /// The dialog as Codealong knows it without reading it, where its terminal can't be read and
@@ -101,11 +61,13 @@ fn numbered(line: &str, n: usize) -> Option<Choice> {
 fn assumed(worktree: &str) -> Dialog {
     let name = crate::util::file_name(Path::new(worktree));
     Dialog {
+        title: TITLE.into(),
         says: format!("Claude Code asks whether to keep its worktree, {name}, before it exits: removing it would lose something, which its terminal says."),
         choices: vec![
             Choice { label: "Keep worktree".into(), description: Some(format!("Stays at {worktree}")) },
             Choice { label: "Remove worktree".into(), description: Some("Its folder and branch are deleted, with what's only there.".into()) },
         ],
+        on: 0,
     }
 }
 
@@ -127,22 +89,19 @@ pub fn saw(account: &str, entries: &[RegistryEntry]) {
     }
 }
 
-/// The dialog up in the live session `s`, with its registry entry: while the entry says a
-/// dialog is open, what its terminal shows, or, where that can't be read, the one the `/exit`
-/// Codealong typed brought up. A background job is stopped rather than exited, so it's never
-/// one's.
-fn up(home: &Path, s: &Session) -> Option<(Dialog, RegistryEntry)> {
-    let reg = registry_of(home, s.pid?).filter(|r| r.session_id == s.id && r.waits_on(DIALOG_OPEN) && r.kind.as_deref() != Some("bg"))?;
-    match crate::launch::screen_of(reg.pid, Path::new(&s.cwd)) {
-        Ok(Some(text)) => read(&text).map(|d| (d, reg)),
-        _ => {
-            let since = dialog_since(&reg)?;
-            // The registry as read now, should the board not have read it since it changed.
-            crate::idle::exit_dialog_seen(&s.key, Some(since), crate::util::now_ms());
-            crate::idle::exit_asked(&s.key).filter(|a| a.pid == reg.pid && a.dialog == Some(since))?;
-            Some((assumed(s.own_worktree.as_deref()?), reg))
-        }
+/// The dialog up in the live session `s`, whose registry entry `reg` says a dialog is open
+/// (`dialog::open`, which leaves out a background job: one is stopped rather than exited): what
+/// its terminal shows (`screen`), or, where that can't be read, the one the `/exit` Codealong
+/// typed brought up.
+fn up(s: &Session, reg: &RegistryEntry, screen: Option<&str>) -> Option<Dialog> {
+    if let Some(text) = screen {
+        return read(text);
     }
+    let since = dialog_since(reg)?;
+    // The registry as read now, should the board not have read it since it changed.
+    crate::idle::exit_dialog_seen(&s.key, Some(since), crate::util::now_ms());
+    crate::idle::exit_asked(&s.key).filter(|a| a.pid == reg.pid && a.dialog == Some(since))?;
+    Some(assumed(s.own_worktree.as_deref()?))
 }
 
 /// The id an answer names the dialog up in its registry entry `reg` by.
@@ -155,14 +114,15 @@ fn question_of(dialog: &Dialog) -> Question {
     Question { question: says, header: Some("Exiting".into()), options: dialog.choices.clone(), multi_select: false }
 }
 
-/// The dialog up in `s`, as a question to answer with one of its choices (`Pending::exiting`).
-pub fn pending(ctx: &Ctx, s: &Session) -> Option<Pending> {
-    let (dialog, reg) = up(&ctx.account.home_path(), s)?;
+/// The dialog up in `s`, as a question to answer with one of its choices (`Pending::exiting`):
+/// `reg` and `screen` as `dialog::open` read them.
+pub fn pending(ctx: &Ctx, s: &Session, reg: &RegistryEntry, screen: Option<&str>) -> Option<Pending> {
+    let dialog = up(s, reg, screen)?;
     Some(Pending {
-        id: id_of(&reg),
+        id: id_of(reg),
         label: TITLE.into(),
         input: None,
-        cannot: super::cannot_press(ctx, &reg),
+        cannot: super::cannot_press(ctx, reg),
         always: false,
         no_once: false,
         plan: false,
@@ -172,12 +132,15 @@ pub fn pending(ctx: &Ctx, s: &Session) -> Option<Pending> {
         unwritten: false,
         terminal: None,
         exiting: true,
+        dialog: false,
     })
 }
 
 /// The dialog `id` names, if it's still the one up in `s`.
 fn still_up(ctx: &Ctx, s: &Session, id: &str) -> Result<(Dialog, RegistryEntry)> {
-    let (dialog, reg) = up(&ctx.account.home_path(), s).ok_or_else(|| anyhow!("It isn't asking about its worktree any more."))?;
+    let gone = || anyhow!("It isn't asking about its worktree any more.");
+    let (reg, screen) = super::dialog::open(&ctx.account.home_path(), s).ok_or_else(gone)?;
+    let dialog = up(s, &reg, screen.as_deref()).ok_or_else(gone)?;
     if id_of(&reg) != id {
         bail!("It's asking something else now. Look again before answering.");
     }

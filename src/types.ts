@@ -3392,6 +3392,10 @@ export interface Pending {
    *  (Claude Code's "Exiting worktree session"): `questions` has the one question, whose choices
    *  are all it takes, and Deny calls the exit off, leaving the session at its prompt. */
   exiting?: boolean;
+  /** It's a dialog of its harness's own, read off the terminal it runs in (Claude Code's offer to
+   *  make auto mode the default, a command's list): `questions` has the one question, whose
+   *  choices are all it takes, picked there as you'd pick one, and Deny presses Escape there. */
+  dialog?: boolean;
 }
 
 /** A question an agent asks you, with choices to pick from. */

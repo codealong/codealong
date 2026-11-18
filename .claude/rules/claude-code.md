@@ -474,6 +474,12 @@ on this Mac; read it before changing the Claude adapter (paths are under `src-ta
   for any command's dialog, and the transcript nothing (`/exit` is written once it closes, not at
   all when it's called off); its screen, its keys (a digit picks, Escape calls the exit off) and
   answering it from Codealong: `claude/exiting.rs` (module header, 2.1.322 in tmux, 2026-11-10).
+  Any other dialog its terminal shows while the registry says `dialog open` (the offer to make
+  auto mode the default, "Make auto mode your default permission mode?", which came up at a
+  terminal session's start and between turns on 2.1.327 and, declined once, not at the next
+  start), read off its screen and answered with the arrow keys and Return: `claude/dialog.rs`
+  (module header). `/model`'s panel has two spaces after each number, and a More models row and
+  an effort control under its list, so it isn't read as one.
   Before it, a session Mark as done had exited came back as Needs you with nothing Codealong
   could show, and was answered only in its terminal. A hangup, as closing its tab gives, removes nothing, runs no
   `WorktreeRemove` hook and leaves the git lock (`claude session <name> (pid … start …)`) behind.

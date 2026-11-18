@@ -476,6 +476,7 @@ pub(super) fn asked_pending(a: &Asked) -> crate::harness::Pending {
         unwritten: false,
         terminal: None,
         exiting: false,
+        dialog: false,
     }
 }
 

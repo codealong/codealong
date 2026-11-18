@@ -19,6 +19,7 @@ pub mod asks;
 mod builtin;
 mod conversation;
 pub mod daemon;
+mod dialog;
 mod exiting;
 pub mod held;
 pub mod live;
@@ -335,6 +336,7 @@ impl crate::harness::Adapter for ClaudeCode {
                 unwritten: false,
                 terminal: None,
                 exiting: false,
+                dialog: false,
             });
         }
         // Another session's message it holds for you: its dialog comes before any call made
@@ -345,8 +347,9 @@ impl crate::harness::Adapter for ClaudeCode {
         if let Some(p) = app_pending(ctx, s) {
             return Some(p);
         }
-        // What `/exit` asks before it exits, whether to keep the worktree the session made.
-        if let Some(p) = exiting::pending(ctx, s) {
+        // A dialog of Claude Code's own: what `/exit` asks before it exits, whether to keep the
+        // worktree the session made, or any other its terminal shows.
+        if let Some(p) = dialog::pending(ctx, s) {
             return Some(p);
         }
         let (call, reg) = waiting_call(self, ctx, s)?;
@@ -356,13 +359,14 @@ impl crate::harness::Adapter for ClaudeCode {
         // Not every prompt has "Yes, and always allow" as its second choice, and a 2 pressed at
         // one without it is something else, so Always isn't offered in a terminal.
         let plan = call.text == PLAN;
-        Some(crate::harness::Pending { id: call.id.clone().unwrap_or_default(), label: call.text, input: call.input, cannot, always: false, no_once: false, plan, message: false, always_rule: None, questions: Vec::new(), unwritten: false, terminal: None, exiting: false })
+        Some(crate::harness::Pending { id: call.id.clone().unwrap_or_default(), label: call.text, input: call.input, cannot, always: false, no_once: false, plan, message: false, always_rule: None, questions: Vec::new(), unwritten: false, terminal: None, exiting: false, dialog: false })
     }
 
-    /// A held message denied is dropped while the turn goes on (held.rs), and an exit's
-    /// question declined calls the exit off (exiting.rs): neither stops a turn.
+    /// A held message denied is dropped while the turn goes on (held.rs), an exit's question
+    /// declined calls the exit off (exiting.rs), and another dialog declined is closed with
+    /// Escape (dialog.rs): none stops a turn.
     fn deny_stops(&self, id: &str) -> bool {
-        !id.starts_with(HELD_ID) && !id.starts_with(exiting::EXIT_ID)
+        !id.starts_with(HELD_ID) && !id.starts_with(exiting::EXIT_ID) && !id.starts_with(dialog::DIALOG_ID)
     }
 
     fn answer(&self, ctx: &crate::harness::Ctx, s: &crate::model::Session, id: &str, answer: crate::harness::Answer) -> anyhow::Result<String> {
@@ -377,6 +381,12 @@ impl crate::harness::Adapter for ClaudeCode {
                 anyhow::bail!("It asks whether to keep its worktree: pick a choice.");
             }
             return exiting::decline(ctx, s, id);
+        }
+        if id.starts_with(dialog::DIALOG_ID) {
+            if answer != crate::harness::Answer::Deny {
+                anyhow::bail!("It's a dialog: pick one of its choices.");
+            }
+            return dialog::decline(ctx, s, id);
         }
         if id.starts_with(APP_ASK_ID) {
             anyhow::bail!("{APP_ASKS} Answer it there.");
@@ -445,6 +455,9 @@ impl crate::harness::Adapter for ClaudeCode {
         }
         if id.starts_with(exiting::EXIT_ID) {
             return exiting::answer(ctx, s, id, answers);
+        }
+        if id.starts_with(dialog::DIALOG_ID) {
+            return dialog::answer(ctx, s, id, answers);
         }
         if let Some(asked) = asks::of_session(&s.id).filter(|a| a.id == id) {
             let answers = asks::picked(&questions_of(&asked.input), answers)?;
@@ -1951,6 +1964,7 @@ fn app_pending(ctx: &crate::harness::Ctx, s: &crate::model::Session) -> Option<c
         unwritten: false,
         terminal: None,
         exiting: false,
+        dialog: false,
     })
 }
 
@@ -1993,6 +2007,7 @@ fn held_pending(ctx: &crate::harness::Ctx, s: &crate::model::Session, held: &Hel
         unwritten: false,
         terminal: None,
         exiting: false,
+        dialog: false,
     }
 }
 
@@ -2121,6 +2136,7 @@ fn job_pending(a: &ClaudeCode, ctx: &crate::harness::Ctx, s: &crate::model::Sess
         questions,
         terminal: None,
         exiting: false,
+        dialog: false,
     })
 }
 

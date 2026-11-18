@@ -923,6 +923,13 @@ pub struct Pending {
     /// and words of your own for it are refused.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub exiting: bool,
+    /// It's a dialog of its harness's own, read off the terminal it runs in (Claude Code's offer
+    /// to make auto mode the default, a command's list of choices): `questions` has the one
+    /// question, its title and what it says, whose choices are all it takes, picked there as you'd
+    /// pick one; Deny presses Escape, which closes it as its own cancel does. Devices that don't
+    /// know it show it as questions, and words of your own for it are refused.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub dialog: bool,
 }
 
 /// Where a command a session asks to run in your terminal would run (`Pending::terminal`).

@@ -233,8 +233,9 @@ interface QuestionStepsProps {
   questions: Question[];
   picks: QuestionPicks;
   busy: boolean;
-  /** Its choices are all it takes (`Pending.exiting`): no box for your own answer. */
-  exiting?: boolean;
+  /** Its choices are all it takes (`Pending.exiting`, `Pending.dialog`): no box for your own
+   *  answer. */
+  choicesOnly?: boolean;
   /** Choices another session picked for them, each marked Suggested, with why under the first. */
   suggested?: Suggestions | null;
   /** What goes under the choices: the suggestions' head, to dismiss them. */
@@ -248,7 +249,7 @@ interface QuestionStepsProps {
  *  their headers to go between them: all at once, a few long ones ran off the bottom of the
  *  panel. Enter in your own answer goes on to the next question; it never answers, so a
  *  half-typed answer isn't sent. */
-export function QuestionSteps({ questions, picks: p, busy, exiting = false, suggested, after, onAnswer }: QuestionStepsProps) {
+export function QuestionSteps({ questions, picks: p, busy, choicesOnly = false, suggested, after, onAnswer }: QuestionStepsProps) {
   // The answer box to take the keyboard once Enter there went on to the next question.
   const ownRef = useRef<HTMLInputElement>(null);
   const typing = useRef(false);
@@ -317,8 +318,8 @@ export function QuestionSteps({ questions, picks: p, busy, exiting = false, sugg
           </div>
           {after}
         </div>
-        {/* What an exit asks takes nothing but its choices. */}
-        {!exiting && (
+        {/* What an exit or another dialog of its harness's asks takes nothing but its choices. */}
+        {!choicesOnly && (
           <input
             ref={ownRef}
             className="ca-question-own"

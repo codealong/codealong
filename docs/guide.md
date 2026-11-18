@@ -1039,7 +1039,14 @@ shows the answers it took. Another session's message that a Claude Code session 
 you to allow (it skips permission prompts and the sender didn't say it does too) shows the same way,
 all of it when Codealong sent it, with Deliver and Deny, pressed in its Ghostty, iTerm2, Rex, Codealong or tmux tab
 or typed into its background job; with several held, it opens where it runs, which shows them one at
-a time. Others open where they run to be answered. The box stays meanwhile, keeping what you'd
+a time. A dialog of Claude Code's own that it brings up between turns, as its offer to make auto
+mode your default permission mode, shows the same way while it runs in a Rex, Codealong or tmux tab,
+whose screen Codealong reads: its title and what it says, then its choices, and nothing to write.
+Answer moves its cursor to your pick with the arrow keys and presses Return once its screen shows
+the cursor there, and Cancel presses Escape, which closes it as its own cancel does. A panel that
+offers more than a list of choices (`/model`'s, with its effort and More models), one in a
+Ghostty, iTerm2 or Terminal tab, whose screen can't be read, and one in a background job say to
+answer it where it runs. Others open where they run to be answered. The box stays meanwhile, keeping what you'd
 written. Where the call can be answered here, sending what you wrote (⏎) denies it and tells the
 agent that instead, as Claude Code's own "No, and tell Claude what to do differently" does, and the
 panel shows your words as a message of yours; nothing is typed at a prompt that's up. Questions are

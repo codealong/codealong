@@ -1536,6 +1536,7 @@ function Approval({ session: s, terminal, onOpen, onAnswered, keys, onKeys, onNe
         onAnswer={(answers, on) => answer('allow', on ? andNext : undefined, answers)}
         onDecline={() => answer('deny')}
         exiting={!!pending.exiting}
+        dialog={!!pending.dialog}
         folded={folded}
         onFold={fold}
       />
@@ -1654,6 +1655,9 @@ interface QuestionsProps {
   /** It's its harness asking whether to keep its worktree as it exits (`Pending.exiting`): its
    *  choices are all it takes, and declining calls the exit off. */
   exiting?: boolean;
+  /** It's a dialog of its harness's own, read off its terminal (`Pending.dialog`): its choices
+   *  are all it takes, and declining presses Escape there. */
+  dialog?: boolean;
   /** Choices another session picked for them (`Suggestions.picks`), picked here until you pick
    *  otherwise, so one click on Answer answers with them. */
   suggested?: Suggestions | null;
@@ -1665,7 +1669,7 @@ interface QuestionsProps {
 
 /** Questions a session asks you (Claude Code's AskUserQuestion), answered as `QuestionSteps`
  *  has you answer them; your picks go back as its answer. */
-function Questions({ questions, draft, call, unwritten, where, onOpen, keys, busy, note, given, onAnswer, onDecline, exiting = false, suggested, onDismissSuggested, folded, onFold }: QuestionsProps) {
+function Questions({ questions, draft, call, unwritten, where, onOpen, keys, busy, note, given, onAnswer, onDecline, exiting = false, dialog = false, suggested, onDismissSuggested, folded, onFold }: QuestionsProps) {
   // Your picks and words as you left them, in this window or another, on the question you were
   // on. Kept as they change, they're as new as an answer that didn't go or newer, which has them
   // only where nothing was kept (storage turned down, or the suggested picks sent untouched).
@@ -1737,15 +1741,24 @@ function Questions({ questions, draft, call, unwritten, where, onOpen, keys, bus
         questions={questions}
         picks={p}
         busy={busy}
-        exiting={exiting}
+        choicesOnly={exiting || dialog}
         suggested={suggested}
         after={suggesting && suggested && onDismissSuggested && <SuggestionHead suggestions={suggested} onDismiss={onDismissSuggested} />}
         onAnswer={() => answerRef.current(true)}
       />
       <div className="ca-composer-foot">
-        <span className={cx('ca-composer-note', note?.error && 'is-error')}>{busy ? 'Answering…' : (note?.text ?? (exiting ? 'It’s exiting. Cancel keeps it open, at its prompt.' : `${q.multiSelect ? 'Pick one or more.' : 'Pick one, or type your own.'} Decline stops the turn, or write below to say something else.`))}</span>
-        <Button size="sm" disabled={busy} onClick={onDecline} title={exiting ? 'Call the exit off, as Escape in its terminal does' : undefined}>
-          {exiting ? 'Cancel' : 'Decline'}
+        <span className={cx('ca-composer-note', note?.error && 'is-error')}>
+          {busy
+            ? 'Answering…'
+            : (note?.text ??
+              (exiting
+                ? 'It’s exiting. Cancel keeps it open, at its prompt.'
+                : dialog
+                  ? 'Pick one, as you would in its terminal. Cancel presses Escape there.'
+                  : `${q.multiSelect ? 'Pick one or more.' : 'Pick one, or type your own.'} Decline stops the turn, or write below to say something else.`))}
+        </span>
+        <Button size="sm" disabled={busy} onClick={onDecline} title={exiting ? 'Call the exit off, as Escape in its terminal does' : dialog ? 'Close it, as Escape in its terminal does' : undefined}>
+          {exiting || dialog ? 'Cancel' : 'Decline'}
         </Button>
         {next !== null ? (
           <Button variant="primary" size="sm" kbd={keys ? ['⌘', '⏎'] : undefined} disabled={busy} onClick={() => go(next)}>
