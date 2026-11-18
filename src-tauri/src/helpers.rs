@@ -55,10 +55,8 @@ enum Stand {
 fn stand(s: &Session) -> Stand {
     match s.status {
         Status::Working => Stand::Working,
-        Status::Needs | Status::Error => Stand::OnUser(s.status_since.unwrap_or(s.last_activity)),
-        // Its turn didn't end: it waits on a sign-in, which renewed by itself or yours carries it on.
-        _ if s.signed_out.is_some() => Stand::OnUser(s.status_since.unwrap_or(s.last_activity)),
-        Status::Unread | Status::Idle | Status::Stopped => Stand::Still(s.last_prompt_at),
+        _ if s.waits_on_its_user() => Stand::OnUser(s.status_since.unwrap_or(s.last_activity)),
+        _ => Stand::Still(s.last_prompt_at),
     }
 }
 
@@ -365,6 +363,21 @@ mod tests {
         r.told(&jobs[0], true, NOW);
         // A prompt it hasn't answered yet isn't a turn's end.
         assert!(r.due(&[], &board(vec![boss(Status::Idle), rev(Status::Idle, 70, 70)]), NOW).is_empty());
+    }
+
+    /// A turn its account's sign-in stopped didn't end: its session hears it waits on its user,
+    /// and that its turn ended only once it's carried on and done.
+    #[test]
+    fn a_helper_stopped_on_its_sign_in_waits_on_its_user() {
+        let mut r = Reporter::default();
+        let out = |activity| Session { signed_out: Some(crate::model::SignedOut { at: activity, said: "OAuth token revoked · Please run /login".into(), continues: true }), ..rev(Status::Idle, 10, activity) };
+        assert!(r.due(&[], &board(vec![boss(Status::Idle), rev(Status::Working, 10, 20)]), NOW).is_empty());
+        let jobs = r.due(&[], &board(vec![boss(Status::Idle), out(30)]), NOW);
+        assert!(matches!(news(&jobs)[..], [(_, News::OnUser(_))]), "{:?}", news(&jobs));
+        r.told(&jobs[0], true, NOW);
+        assert!(r.due(&[], &board(vec![boss(Status::Idle), rev(Status::Working, 10, 40)]), NOW).is_empty());
+        let jobs = r.due(&[], &board(vec![boss(Status::Idle), rev(Status::Idle, 10, 50)]), NOW);
+        assert_eq!(news(&jobs), [(BOSS.to_string(), News::Ended)]);
     }
 
     #[test]

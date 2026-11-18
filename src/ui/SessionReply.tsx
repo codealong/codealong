@@ -699,8 +699,10 @@ function Composer({ session: s, terminal, autoFocus, onlyAside = false, waiting,
   // Its account signed in again in your terminal, as the usage bar's chip does: the session isn't
   // sent anything, and those its sign-in stopped are told to carry on once it's done
   // (reconnect.rs).
-  const signInHere = () => {
+  const signInHere = (rest: string) => {
     const key = s.key;
+    // It takes nothing after it, and what was typed stays to be sent another way.
+    if (rest) return void setNote({ text: '/login takes nothing after it: it signs the account in.', error: true });
     setNote(null);
     setText('');
     if (device) return void setNote({ text: `${s.account} signs in on the Mac this session runs on: /login in its box there, or its chip in the usage bar.`, error: true });
@@ -834,7 +836,7 @@ function Composer({ session: s, terminal, autoFocus, onlyAside = false, waiting,
     if (!command) return send();
     if (command.command.name === 'fork') fork(command.rest);
     if (command.command.name === 'side') askAside(command.rest, command.rest.trim() ? asked : undefined);
-    if (command.command.name === 'login') signInHere();
+    if (command.command.name === 'login') signInHere(command.rest);
     return true;
   };
 

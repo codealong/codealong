@@ -586,10 +586,12 @@ fn waits_on_user(s: &Session) -> bool {
 /// is told, unless the user is talking to it (`Helper::yours`).
 pub fn session_change(s: &Session, mark: Option<&SessionMark>, since: i64) -> Option<SessionChange> {
     use SessionChange::*;
-    if s.archived || (s.helps_an_agent() && !waits(s.status)) {
+    if s.archived || (s.helps_an_agent() && !s.waits_on_its_user()) {
         return None;
     }
     let now = match s.status {
+        // A sign-in turned down waits on its user too (`Session::waits_on_its_user`).
+        _ if s.waits_on_its_user() => Waiting,
         Status::Needs | Status::Error => Waiting,
         Status::Working => Working,
         Status::Unread | Status::Idle => Finished,

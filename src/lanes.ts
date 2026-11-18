@@ -593,14 +593,17 @@ export function endedSignedOut(s: Pick<Session, 'signedOut' | 'status'>): boolea
 /** What a turn its account's sign-in was turned down for comes to, in its harness's words, and who
  *  carries it on: Codealong, once the account is signed in again, else you. `offered` leaves out
  *  the sign-in where a button beside it offers that. */
-export function signedOutWords(s: Pick<Session, 'signedOut' | 'account'>, offered = false): string {
+export function signedOutWords(s: Pick<Session, 'signedOut' | 'account' | 'key'>, offered = false): string {
   const said = s.signedOut?.said.trim().replace(/[\s.]+$/, '');
   const what = `Its last turn ended because ${s.account}’s sign-in was turned down${said ? `: ${said}` : ''}.`;
+  // A session on another device (its key led by `@`, devices.ts `shortOf`) signs in there: this
+  // Mac's usage bar signs in its own accounts.
+  const where = s.key.startsWith('@') ? 'on the Mac it runs on' : 'from its chip in the usage bar';
   const then = s.signedOut?.continues
     ? ' Codealong tells it to carry on once the account is signed in again, which often comes right by itself in a minute or two.'
     : offered
       ? ' Once you’ve signed in, send it something to go on.'
-      : ' Sign in to it from its chip in the usage bar, then send it something to go on.';
+      : ` Sign in to it ${where}, then send it something to go on.`;
   return `${what}${then}`;
 }
 

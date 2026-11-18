@@ -47,7 +47,7 @@ pub fn may(board: &Board, by: Option<&str>, s: &Session) -> Result<Whose, String
     if s.status == Status::Working {
         return Err(format!("“{}” is still working: mark it done once its turn ends.", s.title));
     }
-    if s.status == Status::Needs || s.status == Status::Error {
+    if s.waits_on_its_user() {
         return Err(format!("“{}” is waiting on its user, so it's theirs to mark done.", s.title));
     }
     Ok(Whose::Started)
@@ -246,6 +246,11 @@ mod tests {
             waits.status = status;
             assert!(may(&b, Some("me"), &waits).unwrap_err().contains("waiting on its user"), "{status:?}");
         }
+        // Nor one stopped on its account's sign-in, whose turn didn't end.
+        let mut signed_out = started.clone();
+        signed_out.status = Status::Idle;
+        signed_out.signed_out = Some(crate::model::SignedOut { at: 1, said: "OAuth token revoked · Please run /login".into(), continues: true });
+        assert!(may(&b, Some("me"), &signed_out).unwrap_err().contains("waiting on its user"));
     }
 
     #[test]

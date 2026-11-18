@@ -4664,10 +4664,8 @@ enum Waited {
 fn waited(s: &Session) -> Waited {
     match s.status {
         Status::Working => Waited::Working,
-        Status::Needs | Status::Error => Waited::OnUser,
-        // Its turn didn't end: it waits on a sign-in (helpers.rs `stand`).
-        _ if s.signed_out.is_some() => Waited::OnUser,
-        Status::Unread | Status::Idle | Status::Stopped => Waited::Still,
+        _ if s.waits_on_its_user() => Waited::OnUser,
+        _ => Waited::Still,
     }
 }
 
@@ -4753,8 +4751,9 @@ impl Watch {
                 self.still = None;
                 Seen::Going
             }
-            // An error ends the turn, so it comes back whatever was asked.
-            Waited::OnUser if self.through_user && s.status == Status::Needs => {
+            // An error ends the turn, so it comes back whatever was asked. A sign-in turned down
+            // doesn't: once there's one, Codealong tells it to carry on (reconnect.rs).
+            Waited::OnUser if self.through_user && (s.status == Status::Needs || s.signed_out.is_some()) => {
                 self.was_working = true;
                 self.still = None;
                 Seen::Going
@@ -8958,6 +8957,14 @@ mod tests {
         assert_eq!(w.look(&s(Status::Needs, 1), 0, never), Seen::Going);
         assert_eq!(w.look(&s(Status::Idle, 1), 3_000, never), Seen::Ended);
         assert_eq!(Watch { through_user: true, ..Watch::default() }.look(&s(Status::Error, 1), 0, never), Seen::OnUser);
+        // A turn its account's sign-in stopped didn't end: it waits on its user, and with
+        // --until-done it's waited through until Codealong carries it on and it ends.
+        let out = |status| Session { signed_out: Some(crate::model::SignedOut { at: 1, said: "OAuth token revoked".into(), continues: true }), ..s(status, 1) };
+        assert_eq!(waited(&out(Status::Idle)), Waited::OnUser);
+        assert_eq!(Watch::default().look(&out(Status::Unread), 0, never), Seen::OnUser);
+        let mut w = Watch { through_user: true, ..Watch::default() };
+        assert_eq!(w.look(&out(Status::Unread), 0, never), Seen::Going);
+        assert_eq!(w.look(&s(Status::Unread, 2), 3_000, never), Seen::Ended);
         // Never seen working: a reply after the prompt counts on the second still look, not the first.
         let mut w = Watch::default();
         assert_eq!(w.look(&s(Status::Idle, 1), 0, never), Seen::Going);

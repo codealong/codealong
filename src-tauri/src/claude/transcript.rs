@@ -876,7 +876,7 @@ pub(super) fn api_error_of(v: &Value) -> Option<ApiError> {
 
 /// Words of an `authentication_failed` refusal that no sign-in to the account mends
 /// (`signed_out_of`).
-const NOT_A_SIGN_IN: [&str; 2] = ["Fix external API key", "signing in again won't change this"];
+const NOT_A_SIGN_IN: [&str; 3] = ["Fix external API key", "signing in again won't change this", "This may be a temporary network issue"];
 
 /// The sign-in an assistant line says the account was turned down for, ending the turn: Claude
 /// Code writes it as an API error (above) with `error: "authentication_failed"` and
@@ -893,7 +893,9 @@ const NOT_A_SIGN_IN: [&str; 2] = ["Fix external API key", "signing in again won'
 /// Claude Code says `authentication_failed` of credentials no sign-in to the account mends too
 /// (2.1.327's code), which are left out: an API key from outside ("Invalid API key · Fix external
 /// API key"), a cloud provider's (`apiError: "provider_credentials"`, Bedrock, Vertex and
-/// Foundry), and a gateway's refusal ("signing in again won't change this"). An organization
+/// Foundry), a gateway's refusal ("signing in again won't change this"), and in a cloud session
+/// (`CLAUDE_CODE_REMOTE`) one it takes for the network's ("This may be a temporary network
+/// issue, please try again"). An organization
 /// that turned API keys off does take a sign-in ("Sign in again with your claude.ai account").
 pub(super) fn signed_out_of(v: &Value) -> Option<ApiError> {
     let sidechain = v.get("isSidechain").and_then(Value::as_bool) == Some(true);
@@ -2760,7 +2762,7 @@ pub(super) mod tests {
         assert_eq!((info.api_error, info.connection_lost, info.limit), (None, None, None), "it's none of those");
         // Nor credentials no sign-in to the account mends; an organization that turned API keys
         // off asks for one.
-        for (said, api_error) in [("Invalid API key · Fix external API key", None), ("Bedrock auth failed · refresh your AWS credentials and retry", Some("provider_credentials")), ("Gateway refused the request · signing in again won't change this — check with your gateway administrator", None)] {
+        for (said, api_error) in [("Invalid API key · Fix external API key", None), ("Authentication error · This may be a temporary network issue, please try again", None), ("Bedrock auth failed · refresh your AWS credentials and retry", Some("provider_credentials")), ("Gateway refused the request · signing in again won't change this — check with your gateway administrator", None)] {
             let line = revoked.replace("OAuth token revoked · Please run /login", said).replace(r#""apiErrorStatus":401"#, &format!(r#""apiErrorStatus":401{}"#, api_error.map(|e| format!(r#","apiError":"{e}""#)).unwrap_or_default()));
             assert_eq!(parse_lines(HEAD, &format!("{line}\n")).signed_out, None, "{said}");
         }

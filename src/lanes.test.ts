@@ -419,6 +419,8 @@ describe('sessionFlag', () => {
     const left = { ...out, signedOut: { at: NOW - 60_000, said: 'Login expired · Please run /login.' } };
     expect(signedOutWords(left)).toBe('Its last turn ended because claude2’s sign-in was turned down: Login expired · Please run /login. Sign in to it from its chip in the usage bar, then send it something to go on.');
     expect(signedOutWords(left, true)).toBe('Its last turn ended because claude2’s sign-in was turned down: Login expired · Please run /login. Once you’ve signed in, send it something to go on.');
+    // One on another Mac signs in there, not from this Mac's usage bar.
+    expect(signedOutWords({ ...left, key: '@ab12:claude:claude2:1' })).toMatch(/ Sign in to it on the Mac it runs on, then send it something to go on\.$/);
     // Carried on, it's working: nothing to flag.
     expect(sessionFlag({ ...out, status: 'working', excerpt: null })).toBeNull();
     expect(endedSignedOut({ ...out, status: 'working' })).toBe(false);

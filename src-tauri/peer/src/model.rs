@@ -718,6 +718,14 @@ impl Session {
         self.connection_lost.is_some() || self.limit.is_some() || self.signed_out.is_some() || self.cut_off.is_some()
     }
 
+    /// Whether it waits on its user as an agent watching it hears (a helper's report, `codealong
+    /// session wait`, the changes feed), and so isn't its agent's to mark done: it needs them or
+    /// stopped on an error, or its account's sign-in was turned down, whose turn didn't end but
+    /// waits on a sign-in (theirs, unless it comes right by itself).
+    pub fn waits_on_its_user(&self) -> bool {
+        matches!(self.status, Status::Needs | Status::Error) || (self.signed_out.is_some() && self.status != Status::Working)
+    }
+
     /// A helper whose turns are for what it helps, not for you: every helper, but one you're
     /// talking to (`Helper::yours`). `src/lanes.ts` `helpsAnAgent` says the same for the windows.
     pub fn helps_an_agent(&self) -> bool {
