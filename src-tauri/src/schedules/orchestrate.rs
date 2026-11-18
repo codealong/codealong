@@ -134,10 +134,11 @@ pub fn name(scope: &Orchestrates) -> String {
     }
 }
 
-/// What an orchestrator's session is called wherever it shows: "Orchestrator", whatever project
-/// it keeps watch over, which its header, its row's chip and the quick panel say beside it. A
-/// project's name in front read as clutter everywhere it went ("Suggested by Northwind
-/// orchestrator").
+/// What an orchestrator's session is called wherever it shows while it's the one at work:
+/// "Orchestrator", whatever project it keeps watch over, which its header, its row's chip and the
+/// quick panel say beside it. A project's name in front read as clutter everywhere it went
+/// ("Suggested by Northwind orchestrator"). Its runs name it by its schedule, so one put away
+/// keeps the project's name in Archived, where yesterday's read apart by it.
 pub const NAME: &str = "Orchestrator";
 
 /// The title an orchestrator's session called `title` shows: `NAME` for the one its runs gave it,

@@ -152,6 +152,12 @@ describe('findSessions', () => {
     lane('login-flow', [session('s4', 'needs', NOW - 1000, { title: 'Tests for checkout' })], { branch: 'fix/login-flow' }),
   ]);
 
+  it('finds an orchestrator, called Orchestrator, by the project it keeps watch over', () => {
+    const o = board([lane('chats', [session('o1', 'idle', NOW - 5, { title: 'Orchestrator', orchestrator: { schedule: 's-1', project: 'Northwind' } }), session('o2', 'idle', NOW - 6, { title: 'Orchestrator', orchestrator: { schedule: 's-2' } })])]);
+    expect(findSessions(o, ALL_PROJECTS, 'northwind orchestrator', NOW).map((r) => r.key)).toEqual(['o1']);
+    expect(findSessions(o, ALL_PROJECTS, 'orchestrator', NOW).map((r) => r.key)).toEqual(['o1', 'o2']);
+  });
+
   it('needs every word somewhere: title, account, worktree, branch, repo or project', () => {
     expect(findSessions(b, ALL_PROJECTS, 'login', NOW).map((r) => r.key)).toEqual(['s2', 's1', 's4']);
     expect(findSessions(b, ALL_PROJECTS, 'login claude2', NOW).map((r) => r.key)).toEqual(['s2']);

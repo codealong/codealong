@@ -187,5 +187,7 @@ describe('scheduleName', () => {
     expect(scheduleName({ name: 'Northwind orchestrator', orchestrates: { project: 'Northwind' } })).toBe('Orchestrator');
     expect(scheduleName({ name: 'Orchestrator', orchestrates: {} })).toBe('Orchestrator');
     expect(scheduleName({ name: 'Weekly hygiene' })).toBe('Weekly hygiene');
+    // A name you gave one yourself stays.
+    expect(scheduleName({ name: 'Night watch', orchestrates: { project: 'Northwind' } })).toBe('Night watch');
   });
 });

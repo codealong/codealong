@@ -794,8 +794,9 @@ on this Mac; read it before changing the Claude adapter (paths are under `src-ta
   where the reply otherwise grew a row every 0.15 to 0.5 s). The reply ends at the same time
   either way, and nothing is slower but a paragraph's start in the terminal; the transcript got
   the whole reply 4.5 s after the hook had its first paragraph. Hence a setting, off by default
-  (the user chose it on for their accounts, 2026-10-16). Without it the panel only says where to
-  read what a question came with (`Pending.unwritten`, set by `asks::written_in`).
+  (the user chose it on for their accounts, 2026-10-16). Without it what a question came with
+  shows in the conversation once it's answered (`Pending.unwritten`, set by `asks::written_in`,
+  which the panel no longer says in words: asked 2026-11-18).
 - An image that came with a prompt is an `image` part (`source: {type: "base64", media_type,
   data}`; PNG, JPEG and WebP seen) in the prompt's own `message.content`, numbered by
   `imagePasteIds` and named `[Image #N]` in the text when pasted into the terminal:

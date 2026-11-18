@@ -45,11 +45,13 @@ export function whenIcon(when: ScheduleWhen): string {
 /** When it runs next, as its row says it: `in 42m`, `Fri 9:00 AM`; `Paused`, or nothing for one
  *  that runs only when something happens, or that's finished. A time that's come and not yet run
  *  is `due now`. */
-/** What the Schedules view calls a schedule: its name, or Orchestrator for an orchestrator, whose
- *  stored name ("Northwind orchestrator") stays its own so `codealong schedule` finds each by it,
- *  and whose when says which project (`whenWords`). */
+/** What the Schedules view calls a schedule: its name, or Orchestrator for an orchestrator with the
+ *  name it was given ("Northwind orchestrator", orchestrate.rs `name`), which stays its own so
+ *  `codealong schedule` finds each by it, its when saying which project (`whenWords`). A name you
+ *  gave one yourself stays. */
 export function scheduleName(s: Pick<ScheduleItem, 'name' | 'orchestrates'>): string {
-  return s.orchestrates ? 'Orchestrator' : s.name;
+  const given = s.orchestrates?.project ? `${s.orchestrates.project} orchestrator` : 'Orchestrator';
+  return s.orchestrates && s.name.trim().toLowerCase() === given.toLowerCase() ? 'Orchestrator' : s.name;
 }
 
 export function nextWords(item: Pick<ScheduleItem, 'paused' | 'nextAt' | 'when' | 'finished'>, now: number): string {
