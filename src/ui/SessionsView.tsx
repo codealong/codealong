@@ -516,10 +516,12 @@ export function SessionsView(props: SessionsViewProps) {
     <>
       {orchestrators.length > 0 && (
         // Above the list its rows are dragged in: an orchestrator's session isn't pinned, moved or
-        // grouped, and says no worktree, since it keeps watch from a chat of its own.
+        // grouped, and says no worktree, since it keeps watch from a chat of its own. Each is
+        // called Orchestrator, so where several are listed (All projects) their rows' chips say
+        // what each keeps watch over (LaneRow.tsx `PlaceChip`).
         <section className="ca-bayblock ca-orchestrators">
           <SectionHeader icon="compass" label={orchestrators.length === 1 ? 'Orchestrator' : 'Orchestrators'} count={orchestrators.length} />
-          <div className="ca-bay-lanes">{orchestrators.map((r) => family(r, [], null, () => undefined, true))}</div>
+          <div className="ca-bay-lanes">{orchestrators.map((r) => family(r, [], null, () => undefined, orchestrators.length === 1))}</div>
         </section>
       )}
       {listening.length > 0 && (

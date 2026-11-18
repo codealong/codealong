@@ -435,11 +435,11 @@ function sampleAnalytics(board, days, account) {
 // on with PREVIEW_ANALYTICS, which gives the Analytics window its Your part and Sessions
 // (`sampleAnalytics`). Glass (`[appearance] glass`) is off but with PREVIEW_GLASS, though macOS has
 // it on by default, so the checks see the windows as they're drawn without it. Keyboard shortcuts
-// show only while ⌘ or ⌃ is held (`[appearance] show_keys` off), as a new config.toml has it, and
-// all the time with PREVIEW_KEYS.
+// show all the time (`[appearance] show_keys`), as a new config.toml has them, and only while ⌘ or
+// ⌃ is held with PREVIEW_KEYS=held.
 function withExperiments(board) {
   var voice = !!window.__PREVIEW_VOICE__;
-  var out = Object.assign(board, { glass: !!window.__PREVIEW_GLASS__, showKeys: !!window.__PREVIEW_KEYS__, experimental: Object.assign({}, board.experimental, { boards: !window.__PREVIEW_BOARDS_OFF__, voice: voice, analytics: !!window.__PREVIEW_ANALYTICS__ }) });
+  var out = Object.assign(board, { glass: !!window.__PREVIEW_GLASS__, showKeys: !window.__PREVIEW_KEYS_HELD__, experimental: Object.assign({}, board.experimental, { boards: !window.__PREVIEW_BOARDS_OFF__, voice: voice, analytics: !!window.__PREVIEW_ANALYTICS__ }) });
   if (voice && window.__LISTENS__) {
     out.listenings = Object.assign({}, out.listenings, listeningSample(window.__LISTENS__));
     // Said on the session too, as the engine says it (board.rs `apply_listening`).
@@ -461,11 +461,11 @@ function withExperiments(board) {
       // Its conversation is an orchestrator's (`session_page`).
       window.__ORCHESTRATOR_KEY__ = latest.key;
       latest.orchestrator = { schedule: id, project: project, lookedAt: Date.now() - 4 * 60e3 };
-      latest.title = project ? project + ' orchestrator' : 'Orchestrator';
+      latest.title = 'Orchestrator';
       latest.quiet = true;
     }
     out.schedules = (out.schedules || []).concat([{
-      id: id, name: project ? project + ' orchestrator' : 'Orchestrator', paused: !!orch.off, when: { kind: 'event', event: 'changes', repo: '', label: '', mine: false },
+      id: id, name: 'Orchestrator', paused: !!orch.off, when: { kind: 'event', event: 'changes', repo: '', label: '', mine: false },
       onlyIf: '', run: { to: 'thread', session: '', folder: '', worktree: false, account: '', prompt: 'Run a tick.', freshAfter: '1d' },
       quiet: true, overlap: 'skip', catchUp: 'skip', notes: true, createdAt: 0, updatedAt: 0, orchestrates: { project: project },
       whenWords: project ? 'When something in ' + project + ' needs a look' : 'When something needs a look', thread: latest && !orch.off ? latest.key : undefined, asked: 0,
@@ -796,7 +796,7 @@ window.__TAURI_INTERNALS__ = {
         if (window.__PREVIEW_VOICE__ && window.__MEETING_SOON__) feed.meetingSoon = window.__MEETING_SOON__;
         if (window.__PREVIEW_EMBLEMS__) (feed.items || []).forEach(function (i) { i.emblem = emblemOf(i.key); });
         // Keys show as the board's windows have them (PREVIEW_KEYS).
-        feed.showKeys = !!window.__PREVIEW_KEYS__;
+        feed.showKeys = !window.__PREVIEW_KEYS_HELD__;
         if (!all[1] || all[1].cfg.in_bar === false) return feed;
         return window.__TAURI_INTERNALS__.invoke('devices').then(function (view) {
           var there = {};

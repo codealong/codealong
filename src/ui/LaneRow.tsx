@@ -29,6 +29,7 @@ import { LabelChip, TodoChips } from './TodoBits';
 import { cmd } from '../platform';
 import { useListening } from '../listening';
 import { ListeningChip } from './Listening';
+import { scopeWords } from '../orchestrators';
 
 /** `web · billing`: the repo, and the branch when the worktree's name doesn't already say it. */
 function laneSub(lane: Lane): { sub: string; branch: string | null } {
@@ -544,6 +545,21 @@ function SessionLabelChips({ labels, onFilter }: { labels: Label[] | undefined; 
   );
 }
 
+/** Where a session's row says it is: its worktree, or for an orchestrator, what it keeps watch over.
+ *  Every orchestrator is called Orchestrator and lives among Codealong's chats, so under All
+ *  projects, where each one leads Sessions, their rows read apart only by this. */
+function PlaceChip({ session: s, lane, short = false }: { session: Session; lane: Lane; short?: boolean }) {
+  const o = s.orchestrator;
+  if (!o) return <WorktreeChip lane={lane} short={short} />;
+  const words = scopeWords(o.project);
+  return (
+    <Chip className="ca-wtchip" title={`The orchestrator for ${words}: it keeps watch over ${o.project ? `${o.project}’s` : 'your projects’'} sessions for you`}>
+      <Icon name="compass" size={12} />
+      <span className="ca-wtchip-name">{words}</span>
+    </Chip>
+  );
+}
+
 /** A sparkle for the replies another session suggested you send it, which its box shows, in
  *  suggestions' color: its tooltip says who suggested them and what they are. */
 export function SuggestedChip({ suggestions: g }: { suggestions: Suggestions | undefined }) {
@@ -611,7 +627,7 @@ function AgentRowView({ lane, session: s, domId, now, age, slim = false, selecte
               <SuggestedChip suggestions={s.suggestions} />
               <SessionLabelChips labels={s.labels} onFilter={onFilterLabel} />
               <InsightChips session={s} />
-              {where && <WorktreeChip lane={lane} short />}
+              {where && <PlaceChip session={s} lane={lane} short />}
             </span>
             {pr}
           </div>
@@ -622,7 +638,7 @@ function AgentRowView({ lane, session: s, domId, now, age, slim = false, selecte
           <SessionLines
             s={s}
             now={now}
-            where={where && <WorktreeChip lane={lane} />}
+            where={where && <PlaceChip session={s} lane={lane} />}
             end={
               !inWorktree && (
                 <>

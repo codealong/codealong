@@ -17,11 +17,10 @@
 // box too, as ⇧⌘E does. Its keys are the platform's (PREVIEW_PLATFORM=linux: Ctrl+Shift+M).
 // On the strip it says its words, then its key, wherever they fit, from a strip 420 to 1100px
 // wide, the buttons on one line and inside it, the rest going into ⋯ only once it says no more
-// than its icon (strip-fold-check.js has ⋯); in the notch only that is checked. Those two show keys
-// all along (PREVIEW_KEYS), where they take room.
+// than its icon (strip-fold-check.js has ⋯); in the notch only that is checked.
 //   PREVIEW_WAIT=60000 scripts/preview.sh peek '' scripts/preview/merge-done-check.js
-//   PREVIEW_WAIT=60000 PREVIEW_KEYS=1 scripts/preview.sh sessions '' scripts/preview/merge-done-check.js
-//   PREVIEW_WAIT=60000 PREVIEW_KEYS=1 PREVIEW_SIZE=1512,720 scripts/preview.sh notch '' scripts/preview/merge-done-check.js
+//   PREVIEW_WAIT=60000 scripts/preview.sh sessions '' scripts/preview/merge-done-check.js
+//   PREVIEW_WAIT=60000 PREVIEW_SIZE=1512,720 scripts/preview.sh notch '' scripts/preview/merge-done-check.js
 (function () {
   var linux = window.__CODEALONG_PLATFORM__ === 'linux' || /\bLinux\b/.test(navigator.userAgent);
   localStorage.setItem('codealong.project', 'All projects');
@@ -193,7 +192,7 @@
         say('merge done check: waiting for the notch');
         var shape = await until(function () { return q('.ca-notch') && calls('notch_shape').length > 0 && q('.ca-notch-shape'); }, 15000, 'the notch');
         var item = Object.assign({}, fed[key], { group: 'unread', status: 'unread', asks: false, snoozedUntil: null, hidden: false });
-        window.__emit('bar-feed', Object.assign({}, feed, { showKeys: !!window.__PREVIEW_KEYS__, loading: false, items: [item], recent: [], snoozed: [], reviews: [], todos: [] }));
+        window.__emit('bar-feed', Object.assign({}, feed, { showKeys: !window.__PREVIEW_KEYS_HELD__, loading: false, items: [item], recent: [], snoozed: [], reviews: [], todos: [] }));
         shape.dispatchEvent(new PointerEvent('pointerover', { bubbles: true }));
         var pill = await until(function () { return q('.ca-notch-body .ca-hud-pill[data-key="' + key + '"]'); }, 10000, 'no pill for “' + picked.title + '” in the notch');
         // Once it's open, as the pointer would find it.

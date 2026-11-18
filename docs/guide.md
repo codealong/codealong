@@ -2364,14 +2364,14 @@ bigger, while the notch's shape and the bar's pills stay at actual size.
 
 ### Keyboard shortcuts beside what they do
 
-*Settings › Appearance › Always show keyboard shortcuts, or `show_keys` under `[appearance]`; off by default*
+*Settings › Appearance › Always show keyboard shortcuts, or `show_keys` under `[appearance]`; on by default*
 
-Off, the keys that work a button or a row (the session strip's, the quick panel's ⌘1 to ⌘9, a
-suggested reply's, Allow's ⌘⏎) and the lines under the message box that only say keys are out of
-sight until you hold ⌘ or ⌃ alone a moment: then every window shows them, as a cheat sheet, until
-you let go. A chord pressed at once shows nothing. Tooltips and menus say the keys either way, and
-what teaches a key (a tip, an empty view's hint, a dialog) shows it whatever the setting. On, they
-show all the time.
+On, the keys that work a button or a row (the session strip's, the quick panel's ⌘1 to ⌘9, a
+suggested reply's, Allow's ⌘⏎) show beside them all the time, and so do the lines under the message
+box that only say keys. Off, they're out of sight until you hold ⌘ or ⌃ (Ctrl on Linux and
+Windows) alone a moment: then every window shows them, as a cheat sheet, until you let go. A chord
+pressed at once shows nothing. Tooltips and menus say the keys either way, and what teaches a key
+(a tip, an empty view's hint, a dialog) shows it whatever the setting.
 
 ### Glass
 
@@ -5054,8 +5054,11 @@ touching the same code, a production change planned while a deploy runs. A proje
 its own orchestrator's while that one is on, else All projects', so two never read the same session.
 What it does is the codealong skill's `references/orchestrate.md`.
 
-Its session leads the Sessions of what it keeps watch over, above the pinned ones, under
-Orchestrator: under a project, that project's; under All projects, every one that runs. It's quiet:
+Every one is called Orchestrator, its schedule and its session (one named for its project before,
+"Northwind orchestrator", reads as Orchestrator too); which project it keeps watch over is on its
+row's chip, where Elsewhere's chats would be, and over its title in its header. Its session leads
+the Sessions of what it keeps watch over, above the pinned ones, under Orchestrator: under a
+project, that project's; under All projects, every one that runs. It's quiet:
 its replies are digests of what other sessions want of you, which wait on you on their own, so no
 reply of its makes it wait on you (Jev doesn't read them); it waits on you only for what its
 harness holds it on, a question it asks with its question tool or a call to allow. A turn it ends is

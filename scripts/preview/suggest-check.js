@@ -147,14 +147,15 @@
       return wait(50);
     })
     .then(function () {
-      // Out of sight by default, each keeps its arrow, which says a click sends it.
-      var arrows = rows().map(function (r) { var i = r.querySelector('.ca-kbds + .ca-icon'); return !!i && getComputedStyle(i).display !== 'none'; });
-      check('with keys out of sight, each reply keeps its arrow with the box’s keyboard', arrows.length === 3 && arrows.every(Boolean), arrows.join(' '));
-      // Where keys show (keysShown.ts: by Settings, or while ⌘ is held).
-      document.documentElement.dataset.keys = 'held';
+      // Keys show as Settings has them by default (keysShown.ts).
       var shown = rows().map(function (r) { var k = r.querySelector('.ca-kbds'); return k && getComputedStyle(k).display !== 'none' ? k.textContent : ''; });
+      check('with the box’s keyboard each reply shows its key', shown.join(' ') === '⌘1 ⌘2 ⌘3', shown.join(' '));
+      // With the setting off, each keeps its arrow, which says a click sends it.
+      var was = document.documentElement.dataset.keys;
       delete document.documentElement.dataset.keys;
-      check('with the box’s keyboard each reply shows its key, where keys show', shown.join(' ') === '⌘1 ⌘2 ⌘3', shown.join(' '));
+      var arrows = rows().map(function (r) { var i = r.querySelector('.ca-kbds + .ca-icon'); return !!i && getComputedStyle(i).display !== 'none'; });
+      if (was) document.documentElement.dataset.keys = was;
+      check('with keys out of sight, each reply keeps its arrow with the box’s keyboard', arrows.length === 3 && arrows.every(Boolean), arrows.join(' '));
       key(box(), { key: '2', code: 'Digit2', metaKey: true });
       return until(function () { return sends().length === 3; }, 3000, '⌘2 sending it');
     })

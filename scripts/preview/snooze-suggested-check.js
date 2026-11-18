@@ -88,11 +88,13 @@
       var mark = card && card.querySelector('.ca-suggest-mark');
       check('in suggestions’ card, its sparkle saying whose read it is', !!mark && mark.title === 'Jev’s read' && !/read its reply/.test(card.textContent), mark ? mark.title : 'no mark');
       var keys = l && l.querySelector('.ca-kbds');
-      // Keys show where Settings or a held ⌘ says (keysShown.ts): out of sight until then.
-      check('its key is out of sight until keys show', !!keys && getComputedStyle(keys).display === 'none', keys ? getComputedStyle(keys).display : 'no keys');
-      document.documentElement.dataset.keys = 'held';
-      check('then it shows wherever the keyboard is', !!keys && getComputedStyle(keys).display !== 'none' && keys.textContent.replace(/\s/g, '') === '⌃⌘8', keys ? getComputedStyle(keys).display + ' ' + keys.textContent : 'no keys');
+      // Keys show as Settings has them by default (keysShown.ts), and with the setting off, only
+      // while ⌘ is held.
+      check('its key shows wherever the keyboard is', !!keys && getComputedStyle(keys).display !== 'none' && keys.textContent.replace(/\s/g, '') === '⌃⌘8', keys ? getComputedStyle(keys).display + ' ' + keys.textContent : 'no keys');
+      var was = document.documentElement.dataset.keys;
       delete document.documentElement.dataset.keys;
+      check('and with the setting off it’s out of sight until ⌘ is held', !!keys && getComputedStyle(keys).display === 'none', keys ? getComputedStyle(keys).display : 'no keys');
+      if (was) document.documentElement.dataset.keys = was;
       return menuOf(row(0));
     })
     .then(function () {

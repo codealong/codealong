@@ -970,8 +970,13 @@ pub fn items(file: &File, runs: &Runs, board: &Board, cfg: &Config, now: i64, zo
                 (When::Watch { every, .. }, _) => next_check(every, track),
                 _ => None,
             };
+            // An orchestrator named for its project before they were all "Orchestrator".
+            let mut schedule = s.clone();
+            if let Some(scope) = &s.orchestrates {
+                schedule.name = orchestrate::called(&s.name, scope.project.as_deref()).to_string();
+            }
             Item {
-                schedule: s.clone(),
+                schedule,
                 when_words: s.orchestrates.as_ref().map_or_else(|| when_words(&s.when), orchestrate::when_words),
                 problem,
                 next_at,

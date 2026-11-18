@@ -124,12 +124,23 @@ pub fn prompt(scope: &Orchestrates) -> String {
     )
 }
 
-/// Its name in the Schedules view and on its session: "Orchestrator" for All projects, "Northwind
-/// orchestrator" for a project's.
-pub fn name(scope: &Orchestrates) -> String {
-    match &scope.project {
-        Some(p) => format!("{p} orchestrator"),
-        None => "Orchestrator".to_string(),
+/// What an orchestrator is called, in the Schedules view and on its session: "Orchestrator",
+/// whatever it keeps watch over. Which project it's for is said beside it where that matters (its
+/// session's header, its row's chip, its schedule's when), and a project's name in front read as
+/// clutter everywhere it went ("Suggested by Northwind orchestrator").
+pub const NAME: &str = "Orchestrator";
+
+pub fn name(_scope: &Orchestrates) -> String {
+    NAME.to_string()
+}
+
+/// What an orchestrator's schedule or session called `name` is called now: one made before
+/// orchestrators were all "Orchestrator" was named for its project ("Northwind orchestrator"),
+/// which reads as `NAME` too. A name you gave it yourself stays yours.
+pub fn called<'a>(name: &'a str, project: Option<&str>) -> &'a str {
+    match project {
+        Some(p) if name.trim().eq_ignore_ascii_case(&format!("{p} orchestrator")) => NAME,
+        _ => name,
     }
 }
 
@@ -410,6 +421,19 @@ pub fn mark(lanes: &mut [Lane], items: &[Item]) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn every_orchestrator_is_called_orchestrator_and_an_old_projects_name_reads_so_too() {
+        let project = Orchestrates { project: Some("Northwind".into()), ..Default::default() };
+        assert_eq!(name(&project), "Orchestrator");
+        assert_eq!(name(&Orchestrates::default()), "Orchestrator");
+        assert_eq!(called("Northwind orchestrator", Some("Northwind")), "Orchestrator");
+        assert_eq!(called("northwind Orchestrator ", Some("Northwind")), "Orchestrator");
+        // A name of your own, or another project's, stays as it is.
+        assert_eq!(called("Night watch", Some("Northwind")), "Night watch");
+        assert_eq!(called("Atlas orchestrator", Some("Northwind")), "Atlas orchestrator");
+        assert_eq!(called("Orchestrator", None), "Orchestrator");
+    }
     use crate::model::{Harness, PrItem, PrState};
     use crate::schedules::{File, Item, Runs, Track};
 

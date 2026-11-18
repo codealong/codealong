@@ -1251,16 +1251,21 @@ pub struct AppearanceCfg {
     #[serde(default = "default_glass")]
     pub glass: bool,
     /// Keyboard shortcuts show beside the buttons and rows they work, and in the lines that say
-    /// them, all the time. Off (the default), they show while ⌘ or ⌃ is held (src/keysShown.ts),
+    /// them, all the time: on by default. Off, they show while ⌘ or ⌃ is held (src/keysShown.ts),
     /// and tooltips and menus say them either way.
-    #[serde(default)]
+    #[serde(default = "default_show_keys")]
     pub show_keys: bool,
 }
 
 impl Default for AppearanceCfg {
     fn default() -> Self {
-        AppearanceCfg { theme: Theme::default(), zoom: default_zoom(), glass: default_glass(), show_keys: false }
+        AppearanceCfg { theme: Theme::default(), zoom: default_zoom(), glass: default_glass(), show_keys: default_show_keys() }
     }
+}
+
+/// Keys show all the time unless config.toml turns them off.
+fn default_show_keys() -> bool {
+    true
 }
 
 /// Glass is on unless config.toml turns it off, on macOS; elsewhere there's none to turn on.
@@ -1722,7 +1727,7 @@ pub fn glass() -> bool {
 /// Whether keyboard shortcuts show all the time (`[appearance] show_keys`), as the settings in use
 /// say: the last good ones while a save doesn't parse.
 pub fn show_keys() -> bool {
-    current().is_ok_and(|c| c.appearance.show_keys)
+    current().map_or_else(|_| default_show_keys(), |c| c.appearance.show_keys)
 }
 
 pub fn experimental() -> ExperimentalCfg {
@@ -2076,7 +2081,7 @@ fn set_accounts(doc: &mut toml_edit::DocumentMut, accounts: &[AccountCfg]) {
 }
 
 const APPS_COMMENT: &str = "# Where Codealong opens things. terminal: \"ghostty\", \"iterm2\", \"terminal\" or \"rex\". editor: \"vscode\", \"cursor\", \"zed\", \"xcode\" and the others\n# Settings lists, or any app's name. Picking another editor from an Open in menu sets it here.\n# new_terminal: \"window\", \"tab\" (in the front window), or \"project\" (a tab beside the same repo or project).\n# move_pointer: move the pointer to a terminal Codealong brings forward on another screen.\n# close_command_tabs_after: minutes after a command Codealong runs in your terminal ends that its tab\n# closes, unless you pressed Return for a shell there; 0 keeps it open.\n# tmux: when the sessions Codealong starts run in tmux, shown in your terminal: \"always\", \"when-locked\"\n# (only while the screen is locked, when Ghostty can't start a terminal) or \"never\".\n# run_in: where a session's new terminals (⌃`) and the commands you run from it open: \"codealong\", in a\n# terminal of Codealong's own under the session, or \"terminal\", in a tab of your terminal app.\n";
-const APPEARANCE_COMMENT: &str = "# Light or dark. \"system\" follows macOS. The buttons at the end of the status bar set this too.\n# zoom: how big the windows draw, in percent, 50 to 200. View › Zoom in and Zoom out (⌘= and ⌘-) set it.\n# glass: the main and the project windows show what's behind them through macOS's glass; on by default.\n# show_keys: keyboard shortcuts show beside what they do all the time; off, they show while you hold ⌘ or ⌃.\n";
+const APPEARANCE_COMMENT: &str = "# Light or dark. \"system\" follows macOS. The buttons at the end of the status bar set this too.\n# zoom: how big the windows draw, in percent, 50 to 200. View › Zoom in and Zoom out (⌘= and ⌘-) set it.\n# glass: the main and the project windows show what's behind them through macOS's glass; on by default.\n# show_keys: keyboard shortcuts show beside what they do; on by default. Off, they show while you hold ⌘ or ⌃.\n";
 const JEV_COMMENT: &str = "# What Codealong asks TypeSafe's Jev, feature by feature (Settings › Jev says what each one sends).\n# The API key is kept in the login keychain; set it in Settings.\n";
 const EMBLEMS_COMMENT: &str = "# Something to know each session by beside its title (Settings › Appearance): an emoji Jev picks\n# (`kind = \"emoji\"`), or a picture an account draws (`\"drawn\"`), as `prompt` says.\n";
 const SEARCH_COMMENT: &str = "# The quick panel, the main window's filter and `codealong sessions find` search what was said in\n# sessions active in the last `days` days, not just their titles. 0 turns it off; 14, the board's\n# reach, is the most.\n";
@@ -2474,7 +2479,7 @@ pub fn with_config(text: &str, cfg: &Config) -> Result<String> {
     if cfg.appearance.glass != default_glass() || doc["appearance"].get("glass").is_some() {
         set_value(&mut doc["appearance"]["glass"], Value::from(cfg.appearance.glass));
     }
-    if cfg.appearance.show_keys || doc["appearance"].get("show_keys").is_some() {
+    if cfg.appearance.show_keys != default_show_keys() || doc["appearance"].get("show_keys").is_some() {
         set_value(&mut doc["appearance"]["show_keys"], Value::from(cfg.appearance.show_keys));
     }
     set_shortcuts(&mut doc, &cfg.shortcuts, cfg.experimental.voice);
@@ -3112,8 +3117,8 @@ pub fn render(cfg: &Config) -> String {
     if cfg.appearance.glass != default_glass() {
         s.push_str(&format!("glass = {}\n", cfg.appearance.glass));
     }
-    if cfg.appearance.show_keys {
-        s.push_str("show_keys = true\n");
+    if cfg.appearance.show_keys != default_show_keys() {
+        s.push_str(&format!("show_keys = {}\n", cfg.appearance.show_keys));
     }
     s.push('\n');
     s.push_str(&shortcuts_comment());
@@ -3874,19 +3879,19 @@ mod tests {
     }
 
     #[test]
-    fn keys_show_while_held_by_default_and_a_file_says_so_only_once_turned_on() {
+    fn keys_show_by_default_and_a_file_says_so_only_once_turned_off() {
         let _mac = crate::os::AsIf::new(crate::os::Os::MacOs);
-        assert!(!toml::from_str::<Config>("").unwrap().appearance.show_keys);
+        assert!(toml::from_str::<Config>("").unwrap().appearance.show_keys);
         let old = render(&full());
         assert!(!old.contains("show_keys ="), "{old}");
-        let on = Config { appearance: AppearanceCfg { show_keys: true, ..full().appearance }, ..full() };
-        let out = with_config(&old, &on).unwrap();
-        assert!(out.contains("[appearance]\ntheme = \"dark\"\nshow_keys = true\n"), "{out}");
-        assert_eq!(from_text(&out).unwrap(), on);
-        assert_eq!(from_text(&render(&on)).unwrap(), on);
-        // Turned off again, the line it has stays, saying so.
+        let off = Config { appearance: AppearanceCfg { show_keys: false, ..full().appearance }, ..full() };
+        let out = with_config(&old, &off).unwrap();
+        assert!(out.contains("[appearance]\ntheme = \"dark\"\nshow_keys = false\n"), "{out}");
+        assert_eq!(from_text(&out).unwrap(), off);
+        assert_eq!(from_text(&render(&off)).unwrap(), off);
+        // Turned on again, the line it has stays, saying so.
         let back = with_config(&out, &full()).unwrap();
-        assert!(back.contains("show_keys = false\n"), "{back}");
+        assert!(back.contains("show_keys = true\n"), "{back}");
         assert_eq!(from_text(&back).unwrap(), full());
     }
 

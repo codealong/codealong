@@ -2012,7 +2012,7 @@ export interface Board {
    *  `[appearance] glass` (src/glass.ts); off when it's missing. */
   glass?: boolean;
   /** Whether keyboard shortcuts show all the time, from `[appearance] show_keys` (keysShown.ts);
-   *  off when it's missing, when they show while ⌘ or ⌃ is held. */
+   *  on when it's missing, as by default. Off, they show while ⌘ or ⌃ is held. */
   showKeys?: boolean;
   /** Every todo, in your order (src-tauri/src/todos.rs). */
   todos: Todo[];

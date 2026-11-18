@@ -1,5 +1,5 @@
-// Whether a window shows keyboard shortcuts beside what they do: all the time where Settings says
-// so (`[appearance] show_keys`, `Board.showKeys`), and otherwise only while ⌘ or ⌃ (Ctrl where
+// Whether a window shows keyboard shortcuts beside what they do: all the time, as Settings has it by
+// default (`[appearance] show_keys`, `Board.showKeys`), and otherwise only while ⌘ or ⌃ (Ctrl where
 // there's no ⌘) is held alone a moment, as a cheat sheet over the window. Tooltips and menus say
 // keys either way. The page's root says which (`data-keys`: `always`, `held`, or none), which
 // controls.css hides keycaps and the lines that only say keys (`.ca-keyhint`) by; what can't be
@@ -47,7 +47,7 @@ export class Hold {
   }
 }
 
-let always = false;
+let always = true;
 const heard = new Set<() => void>();
 
 function say(held: boolean) {
@@ -57,13 +57,13 @@ function say(held: boolean) {
   else delete root.dataset.keys;
 }
 
-/** Keeps the window's page showing keys as Settings says (`on`, the board's `showKeys`; a window
- *  without a board passes nothing, and its keys show only while held), and while ⌘ or ⌃ is held.
- *  Each window's root calls it once. */
+/** Keeps the window's page showing keys as Settings says (`on`, the board's `showKeys`; missing,
+ *  before a board has said or from an older engine's, it's the default, on), and while ⌘ or ⌃ is
+ *  held. Each window's root calls it once. */
 export function useKeysShown(on: boolean | undefined) {
   useEffect(() => {
-    if (always === !!on) return;
-    always = !!on;
+    if (always === (on ?? true)) return;
+    always = on ?? true;
     say(false);
     heard.forEach((f) => f());
   }, [on]);

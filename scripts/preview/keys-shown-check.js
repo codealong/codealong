@@ -1,13 +1,13 @@
-// Checks keyboard shortcuts show as Settings says (src/keysShown.ts, `[appearance] show_keys`): off,
-// as a new config.toml has it, the session strip's keys are hidden, holding ⌘ alone a moment shows
-// them, ⇧ pressed during the hold doesn't call it off, letting go hides them, and a chord pressed
-// at once shows nothing; on, they show all along.
+// Checks keyboard shortcuts show as Settings says (src/keysShown.ts, `[appearance] show_keys`): on,
+// as a new config.toml has it, they show all along; off, the session strip's keys are hidden,
+// holding ⌘ alone a moment shows them, ⇧ pressed during the hold doesn't call it off, letting go
+// hides them, and a chord pressed at once shows nothing.
 //   scripts/preview.sh sessions '' scripts/preview/keys-shown-check.js
-//   PREVIEW_KEYS=1 scripts/preview.sh sessions '' scripts/preview/keys-shown-check.js
+//   PREVIEW_KEYS=held scripts/preview.sh sessions '' scripts/preview/keys-shown-check.js
 (function () {
   localStorage.setItem('codealong.project', 'All projects');
   localStorage.setItem('codealong.view', 'sessions');
-  var always = !!window.__PREVIEW_KEYS__;
+  var always = !window.__PREVIEW_KEYS_HELD__;
   var key = function () { return q('.ca-reply-queue .ca-hotkey kbd'); };
   var shows = function (el) { return !!el && getComputedStyle(el).display !== 'none'; };
   // A key that does nothing in the app, to stand for the rest of a chord.
@@ -20,10 +20,10 @@
     })
     .then(function () {
       if (always) {
-        check('with the setting on, the strip’s keys show', shows(key()) && document.documentElement.dataset.keys === 'always', document.documentElement.dataset.keys);
+        check('with the setting on, as a new config.toml has it, the strip’s keys show', shows(key()) && document.documentElement.dataset.keys === 'always', document.documentElement.dataset.keys);
         return 'done';
       }
-      check('off, as a new config.toml has it, the strip’s keys are hidden', !shows(key()) && !document.documentElement.dataset.keys);
+      check('with the setting off, the strip’s keys are hidden', !shows(key()) && !document.documentElement.dataset.keys);
       press('keydown', 'Meta');
       return wait(200);
     })

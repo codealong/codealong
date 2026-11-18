@@ -233,7 +233,7 @@ pub struct Board {
     #[serde(default)]
     pub glass: bool,
     /// Whether keyboard shortcuts show all the time, from config.toml's `[appearance] show_keys`
-    /// (`src/keysShown.ts`); off, they show while ⌘ or ⌃ is held.
+    /// (`src/keysShown.ts`), on by default; off, they show while ⌘ or ⌃ is held.
     #[serde(default)]
     pub show_keys: bool,
     /// True while `[debug] perf_log` is on, so windows report their timings too.
