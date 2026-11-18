@@ -211,7 +211,7 @@ function Ready({ ask, box, checking, onClose }: { ask: MergeDoneAsk; box: Box; c
     if (op.op !== 'merge') return;
     // It goes as GitHub is asked; menus.ts says how it went, or brings it back with `form`.
     onClose();
-    ask.then(mergeDoneAhead(pr, box.id, op, ask.session.key, endHelpers), doneWords(op, pr.number, box.branch), form);
+    ask.then(mergeDoneAhead(pr, box.id, op, ask.session.key, endHelpers ? helpers.map((h) => h.key) : []), doneWords(op, pr.number, box.branch), form);
   };
 
   return (

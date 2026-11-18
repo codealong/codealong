@@ -23,6 +23,6 @@ describe('Mark as done’s question about helpers', () => {
     expect(at({ status: 'working' })).toBe('working for 3m');
     expect(at({ status: 'needs' })).toMatch(/^waits on you, /);
     expect(at({ status: 'idle', background: 'npm test' })).toBe('left a command running in the background');
-    expect(at({ status: 'idle', background: null, agents: ['Explore the repo'] })).toBe('left agents running in the background');
+    expect(at({ status: 'idle', background: undefined, agents: ['Explore the repo'] })).toBe('left agents running in the background');
   });
 });

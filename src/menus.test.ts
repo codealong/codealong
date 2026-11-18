@@ -639,7 +639,7 @@ describe('several sessions picked together', () => {
       ask.mockClear();
       sessionsActions([busy], can).done?.run();
       await settled();
-      expect(ask).toHaveBeenLastCalledWith('claude:c:5', true, undefined, false);
+      expect(ask).toHaveBeenLastCalledWith('claude:c:5', true, undefined, []);
       // All of them working: nothing's asked, and it says so.
       ask.mockClear();
       said.length = 0;
@@ -1373,7 +1373,7 @@ describe('actions by name', () => {
     expect(asked.map((a) => [a.sessions.map((s) => s.key), a.helpers.map((h) => h.key)])).toEqual([[[boss.key], ['claude:c:w', 'claude:c:n', 'claude:c:bg']]]);
     asked[0].then(true);
     await settled();
-    expect(ask).toHaveBeenLastCalledWith(boss.key, false, undefined, true);
+    expect(ask).toHaveBeenLastCalledWith(boss.key, false, undefined, ['claude:c:w', 'claude:c:n', 'claude:c:bg']);
     expect(left).toEqual(['done']);
     // With none whose work isn't over, or no dialog to ask in, it goes at once, and they're kept.
     ask.mockClear();
@@ -1381,8 +1381,8 @@ describe('actions by name', () => {
     sessionActions(lane(), boss, base).done?.run();
     await settled();
     expect(ask.mock.calls).toEqual([
-      [boss.key, false, undefined, false],
-      [boss.key, false, undefined, false],
+      [boss.key, false, undefined, []],
+      [boss.key, false, undefined, []],
     ]);
     expect(asked).toHaveLength(1);
     // Picked together, they're asked about once, and the answer goes for each.
@@ -1393,8 +1393,8 @@ describe('actions by name', () => {
     asked[1].then(false);
     await settled();
     expect(ask.mock.calls.map((c) => [c[0], c[3]])).toEqual([
-      [boss.key, false],
-      [other.key, false],
+      [boss.key, []],
+      [other.key, []],
     ]);
   });
 
@@ -1415,7 +1415,7 @@ describe('actions by name', () => {
       answer({ done: true, message: 'Done with “Fix login”: its terminal is closed and it’s archived.', at: 5 });
       sessionActions(lane(), session(), can).done?.run();
       await settled();
-      expect(ask).toHaveBeenLastCalledWith('claude:c:1', false, undefined, false);
+      expect(ask).toHaveBeenLastCalledWith('claude:c:1', false, undefined, []);
       expect(left).toEqual(['done']);
       expect(said).toEqual([]);
       answer({ done: true, message: 'Done with “Fix login”: it’s archived. It’s still open in the Claude app.', noted: true, at: 5 });
@@ -1440,7 +1440,7 @@ describe('actions by name', () => {
       answer({ done: true, message: 'Done with “Fix login”: its terminal is closed and it’s archived.', at: 7 });
       sessionActions(lane(), busy, can).done?.run();
       await settled();
-      expect(ask).toHaveBeenLastCalledWith('claude:c:2', true, undefined, false);
+      expect(ask).toHaveBeenLastCalledWith('claude:c:2', true, undefined, []);
       expect(left).toEqual(['done']);
 
       // Held by the engine (a command left running in the background), then asked too late: held
@@ -1456,11 +1456,11 @@ describe('actions by name', () => {
       answer({ done: false, message: '“Fix login” left `npm run dev` running in the background.' });
       sessionActions(lane(), bg, can).done?.run();
       await settled();
-      expect(ask).toHaveBeenLastCalledWith('claude:c:3', false, undefined, false);
+      expect(ask).toHaveBeenLastCalledWith('claude:c:3', false, undefined, []);
       answer({ done: true, message: 'Done with “Fix login”: its terminal is closed and it’s archived.', at: 8 });
       sessionActions(lane(), bg, can).done?.run();
       await settled();
-      expect(ask).toHaveBeenLastCalledWith('claude:c:3', true, undefined, false);
+      expect(ask).toHaveBeenLastCalledWith('claude:c:3', true, undefined, []);
 
       // What the engine turns down is said as an error.
       said.length = 0;

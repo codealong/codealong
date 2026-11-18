@@ -61,6 +61,7 @@ import { SessionCard, type WindowCan } from './SessionCard';
 import { useTheme } from './ThemeSwitch';
 import { Reading } from './Tip';
 import { useNow } from './useNow';
+import { useDoneHelpers } from './DoneHelpers';
 import { chordMod } from '../platform';
 
 /** Where the sessions looked at here are kept, for ⌃- and ⌃⇧- (history.ts), apart from the other
@@ -244,6 +245,9 @@ export function Waiting() {
 
   /** What the window does for a session's actions (SessionCard.tsx has the rest): the one shown
    *  goes on to the next that waits once it's left what waits on you; another is shown here. */
+  // Mark as done's question about helpers whose work isn't over, for a PR card's session menu
+  // (menus.ts `doneHelpers`); a session's card asks in its own (SessionCard.tsx).
+  const askingHelpers = useDoneHelpers();
   const can = (lane: Lane, s: Session): WindowCan => ({
     report,
     open: openHere,
@@ -266,7 +270,8 @@ export function Waiting() {
         : undefined,
     worktrees: board?.lanes,
   });
-  const sessionMenu = (lane: Lane, s: Session): MenuSpec => menus.sessionMenu(lane, s, { ...can(lane, s), terminal: board?.apps.terminal ?? 'Terminal', editors: board ? { apps: board.apps, icons } : undefined, desktop: onDesktop, labels: board?.labels });
+  const sessionMenu = (lane: Lane, s: Session): MenuSpec =>
+    menus.sessionMenu(lane, s, { ...can(lane, s), terminal: board?.apps.terminal ?? 'Terminal', editors: board ? { apps: board.apps, icons } : undefined, desktop: onDesktop, labels: board?.labels, doneHelpers: board ? { lanes: board.lanes, ask: askingHelpers.ask } : undefined });
   const showMenu = (spec: MenuSpec) => void showContextMenu(spec).catch((e: unknown) => report.error(errorText(e)));
 
   /** The latest session that worked on a PR, where it's listed. */
@@ -437,6 +442,7 @@ export function Waiting() {
       ) : (
         <QueueEnd said={way.ended} working={working} className="ca-waiting-empty" />
       )}
+      {askingHelpers.dialog}
     </div>
   );
   // What waits comes from every project, so a session says its project before its worktree.

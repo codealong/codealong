@@ -2420,9 +2420,11 @@ Commands:
               is marked seen and archived too; a prompt or message that comes to it
               before then calls that off. A session this one started with `codealong
               start`: it ends now and is marked seen and archived, and Codealong's main
-              window says which session did it, with an Undo. Never a session that's
-              working, waiting on its user, or on another machine; any other session is
-              its user's to mark done, in Codealong
+              window says which session did it, with an Undo. Where a session is
+              archived, its helpers whose work isn't over (at work, or waiting on its
+              user) are made its user's own sessions rather than ended. Never a session
+              that's working, waiting on its user, or on another machine; any other
+              session is its user's to mark done, in Codealong
   seen        Mark the turn this session is taking seen, from inside it, when its user
               needs to do nothing about it: a loop's tick or a check that found nothing
               new, a watch with nothing to report. Once the turn ends it's idle rather
@@ -2771,8 +2773,10 @@ and its last reply stays in Your turn for its user to read and mark done, or wit
 --archive is marked seen and archived too; a prompt or message that comes to it before
 then calls that off. A session this one started with `codealong start`: it ends now and
 is marked seen and archived, and Codealong's main window says which session did it, with
-an Undo. Never a session that's working, waiting on its user, or on another machine; any
-other session is its user's to mark done, in Codealong
+an Undo. Where a session is archived, its helpers whose work isn't over (at work, or
+waiting on its user) are made its user's own sessions rather than ended. Never a session
+that's working, waiting on its user, or on another machine; any other session is its
+user's to mark done, in Codealong
 
 Usage: codealong session done [OPTIONS] <KEY>
 
@@ -4129,9 +4133,10 @@ Options:
       --report
           With --helper: this session is sent a message when the helper's turn ends, or
           when it waits on your user, saying so and how to read its reply (`session wait
-          <key>`), so you can end your turn meanwhile. It's sent while this session runs
-          and isn't itself waiting on your user. Without it, wait for the helper with
-          `session wait`
+          <key>`), so you can end your turn meanwhile, and once if its session hasn't
+          shown up ten minutes after it started (its start likely failed). It's sent
+          while this session runs and isn't itself waiting on your user. Without it,
+          wait for the helper with `session wait`
 
       --dry-run
           Print what the start would do (the command and environment, or the link)

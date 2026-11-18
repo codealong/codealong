@@ -3,9 +3,9 @@
 // waiting on you and one done. ⇧⌘E from its panel asks nothing of the engine yet: a dialog lists
 // the two whose work isn't over (not the one that's done), says what each choice does, and has
 // Make them my own as its default. Cancel leaves everything as it was. Asked again, End them asks
-// the engine to end them too (which holds the session here, for a command left running, so it
-// stays to be asked about again); asked a third time, Return makes them yours, asking without
-// that.
+// the engine to end those two, by their keys (which holds the session here, for a command left
+// running, so it stays to be asked about again); asked a third time, the default button makes
+// them yours, naming none to end.
 //   PREVIEW_WAIT=60000 scripts/preview.sh sessions '' scripts/preview/done-helpers-check.js
 //   PREVIEW_WAIT=60000 PREVIEW_SCHEME=dark scripts/preview.sh sessions '' scripts/preview/done-helpers-check.js
 (function () {
@@ -111,18 +111,20 @@
     })
     .then(function () {
       var a = asked()[0];
-      check('End them asks the engine to end them too', !!a && a.key === picked[0].key && a.endHelpers === true && a.stop === false, JSON.stringify(a));
+      var named = a && (a.endHelpers || []).join('|');
+      check('End them asks the engine to end those two, by their keys', !!a && a.key === picked[0].key && named === picked[1].key + '|' + picked[2].key && a.stop === false, JSON.stringify(a));
       check('and the dialog goes', !dialog());
       return wait(300);
     })
     .then(open)
     .then(function () {
-      key({ key: 'Enter', code: 'Enter' });
+      // The default, the button that has the keyboard as it opens.
+      document.activeElement.click();
       return until(function () { return asked().length === 2; }, 3000, 'the engine asked again');
     })
     .then(function () {
       var a = asked()[1];
-      check('Return makes them yours: done without ending them', !!a && a.key === picked[0].key && a.endHelpers === false, JSON.stringify(a));
+      check('Make them my own: done, naming none to end', !!a && a.key === picked[0].key && (a.endHelpers || []).length === 0, JSON.stringify(a));
     })
     .catch(function (e) { check('ran', false, String(e) + ' at ' + title()); })
     .then(done);

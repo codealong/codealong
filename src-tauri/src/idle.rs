@@ -394,11 +394,19 @@ pub fn ending(board: &Board, s: &Session, stop: bool) -> Result<Ending, String> 
         Runs::App => Ending::Nothing(Some(format!("It's still open in {}.", crate::harness::adapter(s.harness).app()))),
         Runs::Tab(pid) => match board.lanes.iter().flat_map(|l| &l.sessions).find(|o| o.key != s.key && o.live && o.pid == Some(pid)) {
             Some(o) => Ending::Nothing(Some(format!("Its terminal stays open: it shows “{}” too.", o.title))),
-            None if exits_its_own_way(s) => Ending::Exit(pid),
+            // Not while another session works in that worktree (a helper of its, kept as yours
+            // as it's marked done): its harness's exit removes a clean one from under it.
+            None if exits_its_own_way(s) && !shares_its_worktree(board, s) => Ending::Exit(pid),
             None => Ending::Terminal(pid),
         },
         Runs::NoTab => Ending::Nothing(Some("It has no terminal Codealong can close.".into())),
     })
+}
+
+/// Whether another session runs in the worktree `s` is listed in, not one that only visits it.
+fn shares_its_worktree(board: &Board, s: &Session) -> bool {
+    let own = |l: &&Lane| l.sessions.iter().any(|o| o.key == s.key && o.visitor.is_none());
+    board.lanes.iter().filter(own).flat_map(|l| &l.sessions).any(|o| o.key != s.key && o.live && !o.archived && o.visitor.is_none())
 }
 
 /// Whether being done with `s` types its harness's exit command rather than hanging it up: it
@@ -948,6 +956,14 @@ mod tests {
         // A harness with no exit command of its own hangs up.
         let codex = Session { harness: Harness::Codex, ..own.clone() };
         assert_eq!(ending(&board(vec![codex.clone()]), &codex, false), Ok(Ending::Terminal(1)));
+        // So does one another session still works beside, in its worktree (a helper of its kept
+        // as yours): the exit would remove a clean worktree from under it. One that's stopped or
+        // archived there doesn't count.
+        let helper = Session { live: true, ..session("helper", 2, Status::Working, 0) };
+        assert_eq!(ending(&board(vec![own.clone(), helper.clone()]), &own, false), Ok(Ending::Terminal(1)));
+        let gone = Session { live: false, ..helper.clone() };
+        let archived = Session { archived: true, ..helper };
+        assert_eq!(ending(&board(vec![own.clone(), gone, archived]), &own, false), Ok(Ending::Exit(1)));
     }
 
     /// What would close or be archived on this Mac now, doing nothing:

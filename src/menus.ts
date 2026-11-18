@@ -223,8 +223,8 @@ export interface DoneHelpersCan {
 }
 
 /** What the dialog asks about: the sessions being marked done, their helpers whose work isn't
- *  over, and what comes of the answer (`end`: they end with them, their work stopped; else
- *  they're made sessions of your own). Cancelled, nothing is done. */
+ *  over, and what comes of the answer (`end`: those helpers end with them, their work stopped;
+ *  else they're made sessions of your own). Cancelled, nothing is done. */
 export interface DoneHelpersAsk {
   sessions: Session[];
   helpers: Session[];
@@ -241,11 +241,13 @@ export function unfinishedHelpers(lanes: readonly Lane[], keys: readonly string[
 }
 
 /** Marks done as `go` does, once a window has asked what becomes of the helpers of `sessions`
- *  whose work isn't over, where there are any and the window has its dialog (`doneHelpers`). */
-function askingOfHelpers(sessions: Session[], doneHelpers: DoneHelpersCan | undefined, go: (endHelpers: boolean) => void) {
+ *  whose work isn't over, where there are any and the window has its dialog (`doneHelpers`):
+ *  with the keys of those you chose to end, so the engine ends those and no others, one that
+ *  came since the dialog showed among them. */
+function askingOfHelpers(sessions: Session[], doneHelpers: DoneHelpersCan | undefined, go: (endHelpers: string[]) => void) {
   const helpers = doneHelpers ? unfinishedHelpers(doneHelpers.lanes, sessions.map((s) => s.key)) : [];
-  if (doneHelpers && helpers.length > 0) return doneHelpers.ask({ sessions, helpers, then: go });
-  go(false);
+  if (doneHelpers && helpers.length > 0) return doneHelpers.ask({ sessions, helpers, then: (end) => go(end ? helpers.map((h) => h.key) : []) });
+  go([]);
 }
 
 /** What a window's Merge and done… dialog asks about: the session, the PR it's the primary
@@ -887,7 +889,7 @@ export function sessionsActions(picked: { lane: Lane; session: Session }[], can:
     if (asked.length === 0) return report.info(`${still} ${working.length === 1 ? DONE_AGAIN : DONE_AGAIN_MANY}`);
     askingOfHelpers(asked.map((g) => g.s), can.doneHelpers, (endHelpers) => doneThese(asked, working, still, endHelpers));
   };
-  const doneThese = (asked: { s: Session; stop: boolean }[], working: Session[], still: string, endHelpers: boolean) => {
+  const doneThese = (asked: { s: Session; stop: boolean }[], working: Session[], still: string, endHelpers: string[]) => {
     can.left?.('done', asked.map((g) => g.s.key));
     // They all show as done at once, and the engine ends them one after another.
     let before: Promise<unknown> | undefined;

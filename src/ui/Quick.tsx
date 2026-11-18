@@ -131,6 +131,7 @@ import { blockedBy, mergeAttachments, newTodo, primaryHolds, snippet, splitAttac
 import type { Attachment, Board, DesktopPinned, DevicesView, FolderLook, HearingStatus, Lane, ListenAsk, MeetingAhead, PrItem, Route, RouteChoice, RouteNote, Session, StartOptions, StartPlace, StartSpec, Talk } from '../types';
 import { AttachmentStrip } from './DescriptionEditor';
 import { DevSetupDialog } from './DevSetupDialog';
+import { useDoneHelpers } from './DoneHelpers';
 import { ListenChoices } from './Listening';
 import { Level } from './Said';
 import { filterWords, matches, Picker, type PickerOption, type PickerSection } from './Picker';
@@ -1430,10 +1431,13 @@ export function Quick() {
 
   /** How the menus say how things went: under the input. */
   const menuReport: Report = { error: setError, info: setInfo };
+  // Mark as done's question about helpers whose work isn't over (menus.ts `doneHelpers`).
+  const askingHelpers = useDoneHelpers();
 
   /** What the panel can do to a session (menus.ts), for its menu. Reply here and Rename… go to
    *  the waiting window. */
   const quickCan = (lane: Lane, s: Session): menus.SessionCan => ({
+      doneHelpers: board ? { lanes: board.lanes, ask: askingHelpers.ask } : undefined,
       report: menuReport,
       open: openHere,
       terminal: board?.apps.terminal ?? 'Terminal',
@@ -3160,6 +3164,7 @@ export function Quick() {
           </div>
         )}
         {askingDev && <DevSetupDialog account={account} source={devSource && tildePath(devSource)} onSetUp={setUpDev} onClose={closeDevAsk} />}
+        {askingHelpers.dialog}
       </div>
     </div>
   );
