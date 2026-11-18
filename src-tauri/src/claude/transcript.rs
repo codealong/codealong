@@ -229,9 +229,13 @@ pub struct TranscriptInfo {
 impl TranscriptInfo {
     /// What it holds of yours (`queue`): words typed or sent, not a background task's
     /// notification or another session's message, which the conversation shows as theirs once
-    /// the turn takes it in. Each says what the conversation will say it said (`prompt_words`).
+    /// the turn takes it in. Each says what the conversation will say it said (`prompt_words`),
+    /// a file it mentions that Codealong keeps by its reference again (transcript.rs `shown_in`):
+    /// an image sent from a window shows in place while it's held, as it did while it went.
+    /// Taking one out goes by the words as the queue has them (`holding`), not these.
     pub fn held(&self) -> Vec<QueuedMessage> {
-        self.queue.iter().filter_map(|m| Some(QueuedMessage { text: prompt_words(&m.text)?, ..m.clone() })).collect()
+        let (images, files) = (crate::attachments::images_dir(), crate::attachments::files_dir());
+        self.queue.iter().filter_map(|m| Some(QueuedMessage { text: crate::attachments::written_in(&prompt_words(&m.text)?, &images, &files), ..m.clone() })).collect()
     }
 
     /// When it last did something: its last line, or the end of its last turn while a compaction
@@ -2398,6 +2402,20 @@ pub(super) mod tests {
         lines.push(queue_line("2026-10-21T10:00:19.000Z", "dequeue", None));
         lines.push(format!(r#"{{"type":"user","timestamp":"2026-10-21T10:00:19.010Z","origin":{{"kind":"human"}},"message":{{"content":{}}}}}"#, Value::from(format!("{looking}And the timeline?"))));
         assert_eq!(info(&lines).held(), vec![held("2026-10-21T10:00:18.000Z", "/review the mocks")]);
+    }
+
+    #[test]
+    fn an_image_sent_while_it_works_shows_in_place_while_its_held() {
+        // Sent from a window, an image goes as Claude Code's file mention of its full path, which
+        // the queue keeps as typed; the conversation shows it by its reference once it's taken in.
+        let image = crate::attachments::images_dir().join("0123456789abcdef.png");
+        let typed = format!("The text at the top of this card seems unnecessary.\n\n@\"{}\"", image.display());
+        let lines = [queue_line("2026-10-21T10:00:01.000Z", "enqueue", Some(&typed))];
+        let info = parse_lines(HEAD, &(lines.join("\n") + "\n"));
+        let held = info.held();
+        assert_eq!(held.iter().map(|m| m.text.as_str()).collect::<Vec<_>>(), ["The text at the top of this card seems unnecessary.\n\n![image](images/0123456789abcdef.png)"]);
+        // What's taken out by its words still goes by them as the queue has them.
+        assert_eq!(info.queue[0].text, typed);
     }
 
     #[test]
