@@ -168,6 +168,14 @@ checked on this Mac, most of them by reading the apps' own bundles and files. Pa
   `last_token_usage.total_tokens` and `model_context_window` (258,400 for gpt-6-astra on
   0.157.1), `ThreadInfo::context`. The event's `rate_limits` also has `credits: {has_credits,
   unlimited, balance}` and `plan_type`.
+- Limit reset credits ("Full reset", granted for 30 days), read and used through the app-server
+  as the terminal UI does, and the read's limits taken as a report like a turn's:
+  `codex/resets.rs` (module header). Not there (0.169.0's binary and schema, 2026-11-18): the
+  terminal UI checks for them at startup (`rate_limit_reset_startup_check`), offers one when a
+  limit is hit (`rate_limit_reset_confirmation`), and has `/usage` list them; the read's
+  `rateLimitUpsell` and `ordinaryUsageAllowed` were null and true here; the read's
+  `rateLimits.credits.balance` is a decimal string (`"62500.0000000000"`), the flexible credits
+  bought for use past the limits, which are another thing.
 - What came in to a thread and who from, for the analytics (turns.rs): `codex/turns.rs` (module
   header). Not there: recent rollouts write a prompt only as an `item_completed` `UserMessage`
   (136 of them here had a `client_id` on 52, which marks nothing known), and an `AgentMessage`

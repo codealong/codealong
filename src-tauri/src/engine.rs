@@ -179,6 +179,12 @@ pub enum Msg {
     /// One account's data setting, read again after Codealong turned training off, for the
     /// account the turn-off began on (`accountpoll::identity`).
     TrainingOne(String, training::Training),
+    /// The read of the accounts' limit resets is over (resets.rs): what it read, or none when it
+    /// fell over or never started.
+    ResetsRead(Option<Vec<crate::resets::Resets>>),
+    /// One account's resets, read again after Codealong used one, for the account the use began
+    /// on (`accountpoll::identity`).
+    ResetsOne(String, crate::resets::Resets),
     /// The read of the accounts' MCP servers is over (mcp.rs): what it read, or none when it fell
     /// over or never started.
     McpRead(Option<Vec<crate::mcp::Mcp>>),
@@ -719,6 +725,21 @@ impl Handle {
         let after = training::stop(a)?;
         let _ = self.tx.send(Msg::TrainingOne(crate::accountpoll::identity(a), after.clone()));
         Ok(after)
+    }
+
+    /// Uses one of an account's limit resets, `credit` when it names one, and answers how it
+    /// went: what the account holds after goes on the board at once, read again even when the
+    /// use failed, as one that wasn't answered may have gone through. Blocks for the calls.
+    pub fn use_reset(&self, name: &str, credit: Option<&str>) -> Result<crate::resets::ResetUsed> {
+        let cfg = config::current()?;
+        let a = cfg.accounts.iter().find(|a| a.name == name).ok_or_else(|| anyhow!("There's no account named {name}."))?;
+        let used = crate::resets::use_one(a, credit);
+        let after = match &used {
+            Ok(u) => u.after.clone(),
+            Err(_) => crate::resets::read(a),
+        };
+        let _ = self.tx.send(Msg::ResetsOne(crate::accountpoll::identity(a), after));
+        used
     }
 
     /// Takes what repo `slug`'s team suggests in its file on `branch` and you don't have yet (the
@@ -1467,6 +1488,8 @@ struct Engine {
     team_files: teamfile::TeamFiles,
     /// Whether each account's provider may train on it (training.rs).
     training: training::TrainingPoll,
+    /// The limit resets each account holds (resets.rs).
+    resets: crate::resets::ResetPoll,
     /// The boundary groups' members' sign-ins (signin.rs).
     sign_ins: crate::signin::SignInPoll,
     /// The MCP servers each account's agents have (mcp.rs).
@@ -1612,6 +1635,7 @@ impl Engine {
             terminal_use: None,
             team_files: teamfile::TeamFiles::default(),
             training: training::TrainingPoll::default(),
+            resets: crate::resets::ResetPoll::default(),
             sign_ins: crate::signin::SignInPoll::default(),
             mcp: crate::mcp::McpPoll::default(),
             screens: crate::starting::Screens::default(),
@@ -2494,6 +2518,23 @@ fn waiting_call(s: &Session, account: Option<&config::AccountCfg>) -> Option<Str
         });
     }
 
+    /// Reads the limit resets of the accounts that are due (`ResetPoll::due`), on a background
+    /// thread.
+    fn read_resets(&mut self) {
+        if self.passing {
+            return;
+        }
+        let asks = self.resets.due(&self.cfg.accounts, Instant::now());
+        if asks.is_empty() {
+            return;
+        }
+        let tx = self.tx.clone();
+        // `on_read` hears that the read is over however it ends, so the next one can go.
+        throttle::background("codealong-resets", move || crate::resets::read_all(&asks), move |list| {
+            let _ = tx.send(Msg::ResetsRead(list));
+        });
+    }
+
     /// Reads the boundary groups' members' sign-ins when they're due (`SignInPoll::due`), on a
     /// background thread: the provider is asked only of one whose answer is getting old.
     fn read_sign_ins(&mut self) {
@@ -2626,6 +2667,7 @@ fn waiting_call(s: &Session, account: Option<&config::AccountCfg>) -> Option<Str
         self.usage.retain(|name, _| self.cfg.accounts.iter().any(|a| &a.name == name));
         self.usage_inflight = false;
         self.training.keep_only(&self.cfg.accounts);
+        self.resets.keep_only(&self.cfg.accounts);
         self.mcp.keep_only(&self.cfg.accounts);
         self.fetch_usage();
         self.watch();
@@ -2723,6 +2765,8 @@ fn waiting_call(s: &Session, account: Option<&config::AccountCfg>) -> Option<Str
                     self.fetch_usage();
                     self.training.on_refresh();
                     self.read_training();
+                    self.resets.on_refresh();
+                    self.read_resets();
                     self.mcp.on_refresh();
                     self.read_mcp();
                 }
@@ -2844,6 +2888,8 @@ fn waiting_call(s: &Session, account: Option<&config::AccountCfg>) -> Option<Str
                 Ok(Msg::TrainingRead(list)) => self.dirty |= self.training.on_read(list),
                 Ok(Msg::SignInsRead(list)) => self.dirty |= self.sign_ins.on_read(list),
                 Ok(Msg::TrainingOne(asked_as, t)) => self.dirty |= self.training.on_changed(&asked_as, t),
+                Ok(Msg::ResetsRead(list)) => self.dirty |= self.resets.on_read(list),
+                Ok(Msg::ResetsOne(asked_as, r)) => self.dirty |= self.resets.on_changed(&asked_as, r),
                 Ok(Msg::McpRead(list)) => self.dirty |= self.mcp.on_read(list),
                 Ok(Msg::Screens(found)) => self.dirty |= self.screens.on_read(found),
                 Ok(Msg::StartAnswered(at)) => self.screens.again(at),
@@ -3450,6 +3496,7 @@ fn waiting_call(s: &Session, account: Option<&config::AccountCfg>) -> Option<Str
         }
         self.read_team_files();
         self.read_training();
+        self.read_resets();
         self.read_sign_ins();
         self.read_mcp();
         self.read_screens();
@@ -4343,6 +4390,7 @@ fn waiting_call(s: &Session, account: Option<&config::AccountCfg>) -> Option<Str
         let signed_out = board::signed_out_notices(&board);
         board.notices.extend(signed_out);
         board.training = self.training.list(&self.cfg.accounts);
+        board.resets = self.resets.list(&self.cfg.accounts);
         board.sign_ins = self.sign_ins.list(&self.cfg);
         board.mcp = self.mcp.list(&self.cfg.accounts);
         board.sides = sides;

@@ -122,6 +122,11 @@
 .ca-uchip > .ca-icon {
   color: var(--ink-3);
 }
+/* It holds a limit reset: hover shows how many, and Use a reset. */
+.ca-uchip-resets {
+  display: inline-flex;
+  color: var(--brand);
+}
 .ca-uchip-name {
   font: var(--type-code-heading);
   color: var(--ink);
@@ -301,10 +306,41 @@ body:has(.ca-scrim) .ca-usagebar-toast {
   flex: none;
   margin-top: 2px;
 }
-/* With what to do about training, the card takes the pointer, and its words wrap. */
-.ca-usage-popover.is-training {
+/* With buttons (what to do about training, a reset to use), the card takes the pointer, and its
+   words wrap. */
+.ca-usage-popover.has-buttons {
   width: 340px;
   pointer-events: auto;
+}
+.ca-resets {
+  display: grid;
+  gap: var(--space-2);
+}
+.ca-resets-title {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font: var(--type-heading-xs);
+}
+.ca-resets-title > .ca-icon {
+  flex: none;
+  color: var(--brand);
+}
+.ca-resets-text {
+  color: var(--ink-2);
+}
+.ca-resets-early {
+  color: var(--ink-3);
+}
+.ca-resets-foot {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 6px;
+}
+.ca-resets-ask {
+  flex: 1;
+  color: var(--ink-2);
 }
 .ca-training {
   display: grid;

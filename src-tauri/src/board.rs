@@ -3200,6 +3200,7 @@ pub fn compose(inp: Inputs) -> Board {
         github_current: Default::default(),
         usage: Vec::new(),
         training: Vec::new(),
+        resets: Vec::new(),
         sign_ins: Vec::new(),
         mcp: Vec::new(),
         sides: Default::default(),

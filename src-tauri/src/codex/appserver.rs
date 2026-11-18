@@ -41,14 +41,14 @@ pub fn call(codex_home: &Path, method: &str, params: Value) -> Result<Value> {
 }
 
 /// A fresh app-server, initialized, for as long as `f` runs.
-struct Server {
+pub(super) struct Server {
     client: rpc::Client,
     /// When everything asked of it must be answered by.
     deadline: Instant,
 }
 
 impl Server {
-    fn request(&self, method: &str, params: Value) -> Result<Value> {
+    pub(super) fn request(&self, method: &str, params: Value) -> Result<Value> {
         self.answer(method, params).map_err(|e| match e {
             Failure::Timeout => anyhow!("Codex didn't answer in time."),
             Failure::Closed(said) if said.is_empty() => anyhow!("Codex stopped before it answered."),
@@ -73,7 +73,18 @@ fn with_server<T>(codex_home: &Path, f: impl FnOnce(&Server) -> Result<T>) -> Re
 const NOT_STARTED: &str = "Couldn't start Codex. Is the Codex app installed?";
 
 fn app_server(codex_home: &Path) -> Result<Command> {
-    let mut cmd = procs::command(codex_binary(), procs::user_path(), None).context(NOT_STARTED)?;
+    app_server_of(&codex_binary(), codex_home)
+}
+
+/// A fresh app-server of `binary`'s rather than of the app's CLI, for the account at
+/// `codex_home`, for as long as `f` runs: for what the account asks of OpenAI, where a CLI that
+/// knows the call matters more than matching the app's protocol (resets.rs).
+pub(super) fn with_cli<T>(binary: &Path, codex_home: &Path, f: impl FnOnce(&Server) -> Result<T>) -> Result<T> {
+    serve(app_server_of(binary, codex_home)?, f)
+}
+
+fn app_server_of(binary: &Path, codex_home: &Path) -> Result<Command> {
+    let mut cmd = procs::command(binary, procs::user_path(), None).context(NOT_STARTED)?;
     cmd.args(["app-server", "--listen", "stdio://"]).env("CODEX_HOME", codex_home);
     Ok(cmd)
 }

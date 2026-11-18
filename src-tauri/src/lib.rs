@@ -104,6 +104,7 @@ mod quick;
 mod reconnect;
 mod repos;
 mod rerequest;
+mod resets;
 mod reusable;
 mod reviewdone;
 mod send;

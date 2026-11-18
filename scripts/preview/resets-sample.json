@@ -1,0 +1,15 @@
+{
+  "resets": [
+    {
+      "account": "codex",
+      "available": 3,
+      "credits": [
+        { "id": "RateLimitResetCredit_b", "title": "Full reset", "description": "Thanks for using Codex! You've been granted one free rate limit reset.", "expiresIn": 13 },
+        { "id": "RateLimitResetCredit_a", "title": "Full reset", "description": "Thanks for using Codex! You've been granted one free rate limit reset.", "expiresIn": 12 },
+        { "id": "RateLimitResetCredit_c", "title": "Full reset", "description": "Thanks for using Codex! You've been granted one free rate limit reset.", "expiresIn": 24 }
+      ]
+    },
+    { "account": "claude", "available": 0, "canUse": false, "note": "Codealong can't read Claude Code's limit resets." },
+    { "account": "claude2", "available": 0, "canUse": false, "note": "Codealong can't read Claude Code's limit resets." }
+  ]
+}

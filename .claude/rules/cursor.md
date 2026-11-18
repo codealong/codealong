@@ -209,6 +209,18 @@ chunks) and this Mac's files (2026-10-09). Paths are under `src-tauri/src/`.
   the plan. `displayMessage` ("You've used 2% of your included usage") goes by spend. The titles can come from Cursor's server config (`auto_spillover_ui_config`); older
   ones were "Auto + Composer" and "API". On 2026-10-14 a Pro+ account answered spend 138 of
   7,000 cents, auto 0.06%, API 0.62%, total 0.11%.
+- Banked usage resets (app 3.30.14 and cursor-agent 2026.11.17's bundles, 2026-11-18), which
+  Codealong doesn't read yet (resets.rs): on the same DashboardService, `ListBankedUsageResets
+  {}` answers `resets[] {id, created_at, expires_at?, kind}` (`BANKED_USAGE_RESET_KIND_USER` or
+  `_TEAM`) and `next_redeem_allowed_at` (with `next_team_…` and `next_user_…`), and
+  `RedeemUserBankedUsageReset {}` or `RedeemTeamBankedUsageReset {}` uses one the server picks,
+  answering `{redeemed, redeemed_at, next_redeem_allowed_at, remaining[]}`. Neither client calls
+  them (no call sites, no copy). The Pro+ account here was answered 400 `failed_precondition`,
+  "Banked usage resets are only available on unified accounts". Its usage then said "You've hit
+  your usage limit": 22,682 of 7,000 cents, 15,682 of them `bonusSpend` (free usage past the plan
+  Cursor gives by itself, which can't be held). `SetUserPrivacyModeResponse` has
+  `usage_reset_performed` ("Limits reset! Thank you for helping us improve Grok Bot"): turning on
+  data sharing there resets the limits, which Codealong's turn-off never does.
 - Privacy Mode (whether Cursor trains on the account) is the account's on Cursor's servers,
   read and set with the app's token: `cursor.rs` (Privacy Mode section). The enum is
   `aiserver.v1.PrivacyMode`: 0 unspecified, 1 `NO_STORAGE` (Legacy, offered only to accounts

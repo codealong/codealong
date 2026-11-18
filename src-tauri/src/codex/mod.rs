@@ -21,6 +21,7 @@ mod mcp;
 pub mod ipc;
 mod models;
 mod queue;
+mod resets;
 mod rollout;
 mod side;
 mod terminals;
@@ -101,6 +102,15 @@ impl crate::harness::Adapter for Codex {
 
     fn stop_training(&self, account: &crate::config::AccountCfg) -> anyhow::Result<()> {
         training::stop(account)
+    }
+
+    /// Codex's reset credits, through an app-server.
+    fn resets(&self, account: &crate::config::AccountCfg) -> crate::resets::Resets {
+        resets::read(account)
+    }
+
+    fn use_reset(&self, account: &crate::config::AccountCfg, credit: Option<&str>) -> anyhow::Result<crate::resets::Outcome> {
+        resets::use_one(account, credit)
     }
 
     /// `auth.json`'s token's claims.
@@ -1203,10 +1213,12 @@ impl crate::harness::Reader for Reader {
         self.rollouts.iter().filter_map(|(p, (a, parsed))| parsed.as_ref().map(|(th, _)| (p.clone(), Session::key_for(Harness::Codex, a, &th.id)))).collect()
     }
 
-    /// Codex's limits come with each turn, in the rollouts read anyway.
+    /// Codex's limits come with each turn, in the rollouts read anyway, and with each read of
+    /// the account's resets (resets.rs `report`), the newest of them winning.
     fn usage(&self, account: &AccountCfg, now: i64) -> Option<Usage> {
+        let read = resets::report(account);
         let reports = self.rollouts.values().filter(|(acct, _)| acct == &account.name).filter_map(|(_, p)| p.as_ref().map(|(th, _)| &th.rate_limits));
-        Some(usage::codex(account, reports, now))
+        Some(usage::codex(account, reports.chain(read.as_ref()), now))
     }
 }
 

@@ -967,6 +967,18 @@ pub trait Adapter: Sync {
         bail!("Codealong can't turn training off for {}; its provider's settings can.", account.name)
     }
 
+    /// The limit resets the account holds, as its provider says now (resets.rs). It can take
+    /// seconds.
+    fn resets(&self, account: &AccountCfg) -> crate::resets::Resets {
+        crate::resets::Resets::none(account, format!("Codealong can't read {}'s limit resets.", self.harness().word()))
+    }
+
+    /// Uses one of the account's resets, `credit` when it names one, where `resets` says
+    /// Codealong can.
+    fn use_reset(&self, account: &AccountCfg, _credit: Option<&str>) -> Result<crate::resets::Outcome> {
+        bail!("Codealong can't use {}'s limit resets.", account.name)
+    }
+
     /// Who the account is signed in as and on what plan, from its own files alone (signin.rs):
     /// fast, asked before every command a guard hook checks. None where Codealong can't read it.
     fn local_sign_in(&self, _account: &AccountCfg) -> Option<crate::signin::Local> {

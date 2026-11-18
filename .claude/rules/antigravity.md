@@ -256,7 +256,10 @@ runs on this Mac (2026-10-01). Paths are under `src-tauri/src/`.
   `log/cli-<time>.log` (a thousand there by then) unless `--log-file` names a file, which it
   writes over. Signed out, it prints a Google sign-in URL on stderr and waits for the browser
   instead of exiting, so the sign-in is checked first. `/credits` (AI credits) said "no credits
-  info found" for this account. The app reads the same quotas from
+  info found" for this account. AI credits (G1, Google One's) pay for use past the plan's quota
+  while "Use AI Credits" is on (`useG1Credits`), drawn as you go: there's nothing like a limit
+  reset to hold and use (agy 1.5.11 and the app's 2.24.0, 2026-11-18; `remaining_credits` 0
+  here). `/boost` is a command for several agents, not a quota. The app reads the same quotas from
   `cloudcode-pa.googleapis.com/v1internal:fetchAvailableModels` and its language server has
   `GetUserStatus` and `RetrieveUserQuotaSummary`, both behind its CSRF token, so without the
   command line there's nothing Codealong reads (`Antigravity::no_limits`).

@@ -108,6 +108,9 @@
 # PREVIEW_TRAINING=<file> says which accounts' providers may train on them (training-sample.json
 # has some), for the accounts bar's flags and Settings › Accounts: the snapshot reads none, since
 # that asks every provider (`codealong --snapshot --training` does).
+# PREVIEW_RESETS=<file> says which accounts hold limit resets (resets-sample.json has a Codex
+# account with three), for the accounts bar's marks and cards: the snapshot reads none, since that
+# asks each provider (`codealong --snapshot --resets` does).
 # PREVIEW_MCP=<file> lists the MCP servers each account's agents have (mcp-sample.json has some),
 # for Settings › Accounts: the snapshot reads none, since that asks each provider
 # (`codealong --snapshot --mcp` does).
@@ -223,6 +226,7 @@ fixture usage "${PREVIEW_USAGE:-}"
 fixture devices "${PREVIEW_DEVICES:-}"
 fixture notices "${PREVIEW_NOTICES:-}"
 fixture training "${PREVIEW_TRAINING:-}"
+fixture resets "${PREVIEW_RESETS:-}"
 fixture mcp "${PREVIEW_MCP:-}"
 fixture skills "${PREVIEW_SKILLS:-}"
 fixture tokens "${PREVIEW_TOKENS:-}"

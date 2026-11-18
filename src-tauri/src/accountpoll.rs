@@ -1,5 +1,6 @@
 //! A reading the engine takes of every account now and then, off its thread: whether its provider
-//! may train on it (training.rs) and the MCP servers its agents have (mcp.rs). Each changes only
+//! may train on it (training.rs), the limit resets it holds (resets.rs) and the MCP servers its
+//! agents have (mcp.rs). Each changes only
 //! when someone changes it, so every account is read at launch and every hour, again when the
 //! usage bar's refresh is clicked, and an account just added at once. A read that couldn't tell
 //! keeps the last one that could.

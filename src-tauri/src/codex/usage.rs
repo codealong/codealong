@@ -1,5 +1,6 @@
 //! A Codex account's plan usage: no network and no credentials. Every turn records the
-//! account's rate limits in its rollout, and the newest report wins.
+//! account's rate limits in its rollout, the hourly read of its resets brings the app-server's
+//! (resets.rs `report`), and the newest report wins.
 
 use std::collections::BTreeMap;
 

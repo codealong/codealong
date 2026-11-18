@@ -167,6 +167,10 @@ pub struct Board {
     /// accounts read so far, in config order. This Mac's own: not sent to other devices.
     #[serde(default)]
     pub training: Vec<crate::training::Training>,
+    /// The limit resets each account holds (resets.rs), for the accounts read so far, in config
+    /// order. This Mac's own: not sent to other devices.
+    #[serde(default)]
+    pub resets: Vec<crate::resets::Resets>,
     /// Where each boundary group member's sign-in stands (signin.rs), for the accounts read so
     /// far, in config order. This Mac's own: not sent to other devices.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]

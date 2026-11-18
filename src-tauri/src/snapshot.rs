@@ -91,6 +91,8 @@ const MODES: &[Mode] = &[
     Mode { flag: "--accounts", takes: "", run: accounts },
     Mode { flag: "--training-off", takes: "<account>", run: training_off },
     Mode { flag: "--training", takes: "", run: |_, _| Ok(pretty(&crate::training::read_all(&config::current().map_err(failed)?.accounts))) },
+    Mode { flag: "--use-reset", takes: "<account> [credit id]", run: use_reset },
+    Mode { flag: "--resets", takes: "", run: |_, _| Ok(pretty(&crate::resets::read_all(&config::current().map_err(failed)?.accounts))) },
     Mode { flag: "--mcp", takes: "", run: |_, _| Ok(pretty(&crate::mcp::read_all(&config::current().map_err(failed)?.accounts))) },
     Mode { flag: "--pr-side", takes: "<owner/name> <number> <account> <question> [a follow-up…] [--model <model>] [--effort <level>]", run: pr_side },
     Mode { flag: "--pr-card", takes: "<owner/name> <number>", run: pr_card },
@@ -353,6 +355,19 @@ fn training_off(_: &Args, rest: &[String]) -> Done {
     let cfg = config::current().map_err(failed)?;
     let a = cfg.accounts.iter().find(|a| &a.name == name).ok_or_else(|| Stop::Failed(format!("There's no account named {name}.")))?;
     Ok(pretty(&crate::training::stop(a).map_err(failed)?))
+}
+
+/// `codealong --snapshot --use-reset <account> [credit id]`: uses one of the account's limit
+/// resets, as the usage bar's card does, and prints how it went. Real: it spends the reset.
+fn use_reset(_: &Args, rest: &[String]) -> Done {
+    let (name, credit) = match rest {
+        [name] => (name, None),
+        [name, credit] => (name, Some(credit.as_str())),
+        _ => return Err(Stop::Usage),
+    };
+    let cfg = config::current().map_err(failed)?;
+    let a = cfg.accounts.iter().find(|a| &a.name == name).ok_or_else(|| Stop::Failed(format!("There's no account named {name}.")))?;
+    Ok(pretty(&crate::resets::use_one(a, credit).map_err(failed)?))
 }
 
 /// `codealong --snapshot --tokens [days]`: what the Analytics window shows for the last `days` days

@@ -87,8 +87,8 @@ with `--usage`, and its endpoint rate-limits: don't loop it.
 - `--snapshot [--table] [--no-github] [--usage]`: the board; `--snapshot --bar`: the floating bar's feed.
 - `--snapshot --accounts`, `--snapshot --found`, `--snapshot --config`: accounts and sign-in;
   accounts on this Mac config.toml doesn't list; the settings as Settings gets them.
-  `--snapshot --setup`: what the setup wizard offers (setup.rs). `--snapshot --training`: whether each account's provider may train on it, asked of each
-  provider (training.rs). `--snapshot --mcp`: each account's MCP servers and connectors (mcp.rs).
+  `--snapshot --setup`: what the setup wizard offers (setup.rs). `--snapshot --training`, `--snapshot --resets`: each account's training setting and limit
+  resets, read live (training.rs, resets.rs). `--snapshot --mcp`: each account's MCP servers and connectors (mcp.rs).
 - `--snapshot --open <lane id> <target id>`: runs a click's open action; `--snapshot --link
   <url>`: where a click on a web link would open it (a worktree's app opens in its preview's
   Chrome profile).
@@ -107,7 +107,7 @@ with `--usage`, and its endpoint rate-limits: don't loop it.
   `--snapshot --rename <key> <name>`, `--snapshot --stop <key>`, `--snapshot --steer <key> <id>`
   (a queued message into the running turn), `--snapshot --unqueue <key> <id>` (one taken out of
   the queue), `--snapshot --training-off
-  <account>` (turns training off at its provider, as the usage bar's flag does),
+  <account>`, `--snapshot --use-reset <account> [credit]` (as the usage bar does),
   `--snapshot --done <key> [--stop]` (ends it as Mark as done does, without archiving),
   `--snapshot --remove-worktree <folder> [--dry-run]` (only where nothing would be lost),
   `--snapshot --fork <key> [prompt] [--from <cursor>]` (a copy to remove after),
@@ -122,7 +122,7 @@ with `--usage`, and its endpoint rate-limits: don't loop it.
   `--snapshot --improve`: where Improve Codealong starts (improve.rs), without the pictures;
   `--snapshot --tab-picture <key> <file>`: a session's terminal tab, as it pictures it.
   `--snapshot --stale-terminals [wait]`: the tabs Close stale terminals would list, closing none.
-  `--snapshot --hibernate [wait]`: what would hibernate now (`[sessions] hibernate_after`), closing none.
+  `--snapshot --hibernate [wait]`: what would hibernate now, closing none.
   `--snapshot --hearing`: what this Mac hears with; `--snapshot --transcribe <file>`: a recording's words (ear.rs).
   `--snapshot --listen-plan [words] [--in <folder>]`: what Listen now would start, hearing nothing.
 - `--snapshot --schedules`: the schedules as their view lists them;

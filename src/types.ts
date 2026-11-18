@@ -952,6 +952,44 @@ export interface Training {
   stale?: string | null;
 }
 
+/** The limit resets an account holds (resets.rs): each puts its plan's limits back to empty. */
+export interface Resets {
+  account: string;
+  /** How many it holds; `credits` may list fewer. */
+  available: number;
+  /** The ones listed, the first to expire first. */
+  credits: ResetCredit[];
+  /** Codealong can use one itself. */
+  canUse: boolean;
+  /** Why there's nothing to show, in words. */
+  note: string | null;
+  asOf: number | null;
+  /** Why the latest read failed, when this is an older answer kept. */
+  stale?: string | null;
+}
+
+export interface ResetCredit {
+  id: string;
+  /** `Full reset`. */
+  title: string | null;
+  /** Why it was granted, in the provider's words. */
+  description: string | null;
+  grantedAt: number | null;
+  /** When it can no longer be used; null when it doesn't expire. */
+  expiresAt: number | null;
+}
+
+/** How using a reset went (resets.rs `use_one`). */
+export interface ResetUsed {
+  account: string;
+  /** One was spent and the limits are back to empty. */
+  reset: boolean;
+  /** What the toast says. */
+  message: string;
+  /** What the account holds after. */
+  after: Resets;
+}
+
 /** Who an account is signed in as and on what plan (signin.rs), for a boundary group's members. */
 export interface SignIn {
   account: string;
@@ -1919,6 +1957,9 @@ export interface Board {
   /** Whether each account's provider may train on what it sends (training.rs), for the accounts
    *  read so far. Absent from engines of older builds. */
   training?: Training[];
+  /** The limit resets each account holds (resets.rs), for the accounts read so far. Absent from
+   *  engines of older builds. */
+  resets?: Resets[];
   /** Where each boundary group member's sign-in stands (signin.rs). Absent when no boundary
    *  group lists an account, and from engines of older builds. */
   signIns?: SignIn[];

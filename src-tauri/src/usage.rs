@@ -1,7 +1,8 @@
 //! Plan usage per account: what every harness's numbers are put into, and the asking. Where
 //! the numbers come from is each harness's own (`Adapter::read_usage` for somewhere slow to
 //! ask, `Reader::usage` for what comes with its sessions): Claude Code's sign-in and usage
-//! endpoint are claude/usage.rs, Codex's rate-limit reports codex/usage.rs, Antigravity's
+//! endpoint are claude/usage.rs, Codex's rate-limit reports codex/usage.rs (its turns', and its
+//! app-server's as its resets are read, codex/resets.rs), Antigravity's
 //! quotas its command line's `/usage` (antigravity.rs `read_usage`), and Cursor's its servers,
 //! asked with the app's sign-in (cursor.rs `read_usage`). OpenCode has nothing to read
 //! (`Adapter::no_limits`), as it bills whichever provider you bring; nor has Antigravity without

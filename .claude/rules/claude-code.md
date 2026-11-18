@@ -886,6 +886,26 @@ on this Mac; read it before changing the Claude adapter (paths are under `src-ta
   minutes later; what set it off isn't known. Claude Code 2.1.316's own read (`fetchUtilization`) asks with `/api/oauth/usage` alone, keeps a
   429 for its `Retry-After`, or 5 minutes without one, an hour at most, and sends
   `cedar_ember=1`, `at_wall=1` or `starry_waterfall=<surface>` only for its limit-reached offers.
+- Limit resets (2.1.327's code, 2026-11-18), which Codealong doesn't read or use (resets.rs): a
+  hidden `/limit-reset` (`local-jsx`, so interactive only; with neither program on it isn't
+  enabled) and `/rate-limit-options`' menu use one of two programs, each claimed with `POST
+  /api/organizations/<org uuid>/reset_rate_limits`. `juniper_tide` (flag `tengu_nifty_lemur`,
+  "Reset your session limit now · uses weekly limit · 1/week") resets the 5-hour limit once a
+  week, `{program}` alone, answering `{result, next_available_at}`; its status is the usage
+  answer's `juniper_tide` (`eligible`, `ineligible_reason`, `available`, `next_available_at`,
+  `resets_per_week`), read with `?at_wall=1&skip_spend=1`, and a bare `/limit-reset` claims it
+  at once, unasked. `cedar_ember` (flag `tengu_cedar_ember`) is granted resets with use-by dates,
+  of kinds fable, full, 5-hour and weekly, picked in a dialog (`/limit-reset fable|full|5-hour|
+  weekly`); `{program, grant_id, request_id}`, answering `{result, reason, resets_left, cleared,
+  weekly_resets_at}`, its status `cedar_ember` (`eligible`, `grants[] {id, label, resets_total,
+  resets_left, starts_at, ends_at, clears, paused, usable_now, use_requires_limit…}`,
+  `next_grant_id`), read with `?cedar_ember=1&skip_spend=1`. Asked with Codealong's own
+  User-Agent, all three accounts here answered both `eligible: false, ineligible_reason:
+  "surface"`: the server offers them only to Claude Code and claude.ai (`event_props.surface`
+  `claude_code_cli`, `claude_ai`). Neither would have helped: the two Max accounts have no 5-hour
+  limit since 2026-10-31, the Team seat's answer had no `juniper_tide` block, and none of the
+  three state files' 1,452 cached flags had `tengu_cedar_ember`; `tengu_nifty_lemur` was on only
+  in `~/.claude.json`.
   Codealong's numbers outlast a relaunch in `usage.json` (`usage.rs` `keep`, `kept`), so a read
   turned away at launch keeps them too.
 - What each call used, for the token ledger: `claude/transcript.rs` (`token_use`). A reply's

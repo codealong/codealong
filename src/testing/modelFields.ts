@@ -535,6 +535,7 @@ export type Board = Holds<Same<
   | "prs"
   | "quickShortcut"
   | "repos"
+  | "resets"
   | "rev"
   | "reviews"
   | "schedules"
@@ -827,6 +828,34 @@ export type Training = Holds<Same<
   | "state"
   | "url",
   Names<Types.Training>
+>>;
+
+export type Resets = Holds<Same<
+  | "account"
+  | "asOf"
+  | "available"
+  | "canUse"
+  | "credits"
+  | "note"
+  | "stale",
+  Names<Types.Resets>
+>>;
+
+export type ResetCredit = Holds<Same<
+  | "description"
+  | "expiresAt"
+  | "grantedAt"
+  | "id"
+  | "title",
+  Names<Types.ResetCredit>
+>>;
+
+export type ResetUsed = Holds<Same<
+  | "account"
+  | "after"
+  | "message"
+  | "reset",
+  Names<Types.ResetUsed>
 >>;
 
 export type SignIn = Holds<Same<

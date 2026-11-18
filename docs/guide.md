@@ -4561,7 +4561,8 @@ limits, asked of Cursor with the app's sign-in every couple of minutes: on a pla
 (Pro+, say), one for Cursor's own models (Auto, Composer and Cursor Grok) and one for the others,
 as the usage line under Cursor's chat box has them; on Express only the first; on any other plan
 the total Cursor's Settings shows; and on-demand spend once you've set a limit on it. OpenCode (bring your own provider) has none, and
-its chip says so with a crossed-out gauge after the name. Add accounts in Settings › Accounts, and
+its chip says so with a crossed-out gauge after the name. Codex's come with each of its turns, and
+with each read of the account's [limit resets](#limit-resets). Add accounts in Settings › Accounts, and
 turn off one you'd rather not see here.
 
 The chips are in the order config.toml lists the accounts. Drag one sideways to put it in another
@@ -4596,6 +4597,28 @@ where every account stands (*Not trained on*, *Training on*) and offers the same
   refreshed as `agy` runs, so while that hasn't run for an hour it may not be read.
 - OpenCode sends your work to whichever providers it's signed in to, and each one's own settings
   say whether it trains on it; Codealong doesn't read them.
+
+#### Limit resets
+
+Some providers grant resets: each puts a plan's usage limits back to empty before they'd reset
+by themselves, and runs out after a while. Codealong reads what each account holds at launch,
+every hour and when you click the bar's refresh. An account that holds one has a counterclockwise
+clock on its chip; its card, on hover, says how many, what kind and when the first expires, and
+stays up while the pointer is on it. **Use a reset…** asks once more in the card, then uses the
+one that expires first and reads the account again (a toast says how it went and how many are
+left). While the account's fullest limit is under half, the card says a reset would free little;
+a provider that finds no limit far enough along to reset spends nothing, and the toast says so.
+
+- Codex: the reset credits Codex grants ("Full reset"), read and used through Codex's app-server,
+  as its own terminal does. It needs Codex 0.169 or later on your PATH: the command line inside
+  the ChatGPT app doesn't know them yet. The same read brings the account's limits, so its chip
+  shows a reset at once rather than after its next turn.
+- Claude Code has resets too (`/limit-reset` in a session), but Anthropic offers them only to
+  Claude Code itself, so Codealong can't show or use them: run `/limit-reset` in one of the
+  account's sessions.
+- Cursor's banked usage resets are only on its unified accounts, and Codealong doesn't read them
+  yet. Antigravity's AI credits pay for use past the plan's limits as you go, with nothing to
+  use by hand, and OpenCode has none.
 
 #### What sessions used and cost
 

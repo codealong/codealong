@@ -180,6 +180,18 @@ function withEmblems(board) {
 function optionalJson(file) {
   return fetch(file).then(function (r) { return r.ok ? r.json() : null; }).catch(function () { return null; });
 }
+// resets-fixture.json's accounts as resets.rs reads them: each credit expiring `expiresIn` days
+// from now (none when it's null), the first to expire first.
+function sampleResets(fixture) {
+  var day = 24 * 60 * 60 * 1000;
+  return fixture.resets.map(function (r) {
+    var credits = (r.credits || []).map(function (c, i) {
+      return { id: c.id || r.account + '-' + i, title: c.title == null ? null : c.title, description: c.description || null, grantedAt: Date.now() - 2 * day, expiresAt: c.expiresIn == null ? null : Date.now() + c.expiresIn * day };
+    });
+    credits.sort(function (a, b) { return (a.expiresAt || Infinity) - (b.expiresAt || Infinity); });
+    return Object.assign({ canUse: true, note: null }, r, { available: r.available == null ? credits.length : r.available, credits: credits, asOf: Date.now() - 60e3 });
+  });
+}
 // Boards: boards-fixture.json's (PREVIEW_BOARDS), none without one, changed as the engine changes
 // them (boards.rs `apply_to`). A board whose project is `$project` is in every project, under one
 // id; one whose id has `$project` in it too is a board of each project's own (and All projects'),
@@ -578,6 +590,7 @@ window.__TAURI_INTERNALS__ = {
         optionalJson('./mcp-fixture.json'),
         optionalJson('./schedules-fixture.json'),
         optionalJson('./devices-fixture.json'),
+        optionalJson('./resets-fixture.json'),
       ]).then(function (all) {
         var board = withExperiments(all[1] ? withFixture(all[0], all[1]) : all[0]);
         // `[devices]` as devices-fixture.json has it (PREVIEW_DEVICES), as get_config does.
@@ -596,6 +609,9 @@ window.__TAURI_INTERNALS__ = {
             return Object.assign({ canStop: false, url: null }, t, { asOf: t.readAgo == null ? null : Date.now() - t.readAgo * 60e3 });
           });
         }
+        // The limit resets each account holds, from resets-fixture.json (PREVIEW_RESETS), each
+        // expiring `expiresIn` days from now; once a check used one (`use_reset`), what's left.
+        if (all[10]) board.resets = window.__resets || (window.__resets = sampleResets(all[10]));
         // Each account's MCP servers, from mcp-fixture.json (PREVIEW_MCP), read `readAgo` minutes
         // ago.
         if (all[7]) {
@@ -660,6 +676,20 @@ window.__TAURI_INTERNALS__ = {
           l.sessions.forEach(function (s) { if (!found && s.key === args.key && !s.visitor) found = { lane: l, session: s, apps: board.apps }; });
         });
         return found;
+      });
+    }
+    // A limit reset used (calls.rs `use_reset`): the one named, else the first, taken out of what
+    // the account holds, or what the fixture's `outcome` says the provider answered.
+    if (cmd === 'use_reset') {
+      return window.__TAURI_INTERNALS__.invoke('get_board').then(function () {
+        var held = (window.__resets || []).filter(function (r) { return r.account === args.name; })[0];
+        if (!held) return Promise.reject('There\'s no account named ' + args.name + '.');
+        if (held.outcome === 'nothingToReset') return { account: args.name, reset: false, message: args.name + ' has no limit to reset yet, so no reset was used.', after: held };
+        var gone = held.credits.filter(function (c) { return c.id === args.credit; })[0] || held.credits[0];
+        var after = Object.assign({}, held, { available: held.available - 1, credits: held.credits.filter(function (c) { return c !== gone; }), asOf: Date.now() });
+        window.__resets = window.__resets.map(function (r) { return r.account === args.name ? after : r; });
+        var left = after.available === 0 ? 'None left.' : after.available + ' left.';
+        return { account: args.name, reset: true, message: args.name + '’s limits are reset. ' + left, after: after };
       });
     }
     // Training turned off at an account's provider (calls.rs `stop_training`): the reading after

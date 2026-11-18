@@ -16,7 +16,7 @@ import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, typ
 import { below, showContextMenu, type MenuAction, type MenuSpec } from './contextMenu';
 import { useEditorIcons } from './editors';
 import { homeOf, narrowed, runsShownKey, sidesShownKey, type BoardRow, type Filter } from './lanes';
-import { answerLink, barMode, harnessSchedules, onBarMode, onCloseIdle, onCloseStale, onUsageMenu, onWebsiteMenu, onWindowToast, onNewWindow, onReveal, takeOpenedLink, onSettings, onSetupMenu, onCheckUpdates, openConfig, openHarnessLink, openProjectWindow, openUrl, orderAccounts, refresh, refreshUsage, scheduleOp, setBarMode, startOptions, setPinned, setPinnedPrs, setPinnedRepos, setPinnedWorktrees, setTheme, setupNeeded, showQuick, startFromQuick, stopTraining, terminalWindow, windowLabel, zoomWindows, onZoomMenu, onReloadMenu, WEBSITE, type BarMode, type Reveal } from './api';
+import { answerLink, barMode, harnessSchedules, onBarMode, onCloseIdle, onCloseStale, onUsageMenu, onWebsiteMenu, onWindowToast, onNewWindow, onReveal, takeOpenedLink, onSettings, onSetupMenu, onCheckUpdates, openConfig, openHarnessLink, openProjectWindow, openUrl, orderAccounts, refresh, refreshUsage, scheduleOp, setBarMode, startOptions, setPinned, setPinnedPrs, setPinnedRepos, setPinnedWorktrees, setTheme, setupNeeded, showQuick, startFromQuick, stopTraining, spendReset, terminalWindow, windowLabel, zoomWindows, onZoomMenu, onReloadMenu, WEBSITE, type BarMode, type Reveal } from './api';
 import { count, middleTruncate } from './format';
 import * as menus from './menus';
 import { prRefOf } from './prLinks';
@@ -1998,6 +1998,12 @@ export function App() {
       (e: unknown) => setToast(errorText(e)),
     );
   };
+  const resetLimits = (account: string, credit?: string) => {
+    track(`Resetting ${account}’s limits…`, spendReset(account, credit)).then(
+      (used) => setToast(used.message),
+      (e: unknown) => setToast(errorText(e)),
+    );
+  };
 
   /** Opens a card on the canvas where it lives, as a double-click on its row would. */
   const openCard = (it: RefItem) => {
@@ -2929,6 +2935,8 @@ export function App() {
         load={board?.load}
         machines={devices?.enabled ? devices.devices : undefined}
         onStopTraining={turnOffTraining}
+        resets={board?.resets}
+        onUseReset={resetLimits}
         onOpenUrl={(url) => openUrl(url).catch((e: unknown) => setToast(String(e)))}
         onReorder={(accounts) =>
           orderAccounts(accounts).catch((e: unknown) => {

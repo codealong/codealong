@@ -1,7 +1,7 @@
 // The usage bar, the main window's status bar along its foot: one chip per account, in config order. Each limit shows
 // how full it is and, after the clock, how long until it resets. Per-model limits, like
 // Fable's weekly limit, are marked with sparkles. Claude numbers are read every 2 minutes;
-// Codex numbers arrive with each Codex turn.
+// Codex numbers arrive with each Codex turn, and with each read of its resets.
 //
 // A chip dragged sideways puts its account in another place: the others make way as it goes, and
 // letting go writes the new order into config.toml (config.rs `with_account_order`), which
@@ -21,13 +21,18 @@
 // attention colors with a shield on it, and its hover card says why, turns training off where
 // Codealong can, and opens the provider's settings page; that card stays up while the pointer is
 // on it.
+//
+// An account that holds limit resets (resets.ts) has a counterclockwise clock on its chip, and its
+// card says how many and when the first runs out, with Use a reset, which asks again in the card
+// before it spends one, the first to expire.
 
 import { useCallback, useEffect, useLayoutEffect, useRef, useState, type ReactNode } from 'react';
 import { createPortal } from 'react-dom';
 import { agoPhrase, resetsPhrase, untilShort } from '../format';
 import { usageNote } from '../harness';
+import { earlyNote, heldNote, holds, resetsOf, resetsTitle } from '../resets';
 import { cardTitle, flagged, readNote, trainingOf } from '../training';
-import type { DeviceView, Load, Meter, Severity, Training, Usage } from '../types';
+import type { DeviceView, Load, Meter, Resets, Severity, Training, Usage } from '../types';
 import { LoadTag } from './LoadTag';
 import { Button, cx, Icon } from './primitives';
 import { useDismiss } from './useDismiss';
@@ -125,7 +130,8 @@ export function UsageMeter({ meter: m, now, compact = true, titled = true }: { m
 /** Where an account's numbers came from, for tooltips. */
 export function asOfPhrase(u: Usage, now: number): string | null {
   if (!u.asOf) return null;
-  return u.harness === 'codex' ? `As of your last Codex turn, ${agoPhrase(u.asOf, now)}` : `Read ${agoPhrase(u.asOf, now)}`;
+  // Codex's come with its turns and with each read of its resets, not on a clock.
+  return u.harness === 'codex' ? `Reported by Codex ${agoPhrase(u.asOf, now)}` : `Read ${agoPhrase(u.asOf, now)}`;
 }
 
 /** A failed refresh keeps the last numbers; they're dimmed and the tooltip or card says why. */
@@ -142,16 +148,18 @@ interface ChipProps {
   measure?: boolean;
   onOpen?: () => void;
   onSignIn?: () => void;
-  /** The pointer or keyboard focus arrived on a chip with a card (collapsed, or flagged for
-   *  training), or left it. */
+  /** The pointer or keyboard focus arrived on a chip with a card (collapsed, flagged for
+   *  training, or holding resets), or left it. */
   onPeek?: (el: HTMLElement) => void;
   onUnpeek?: () => void;
   /** Its provider may train on it (`flagged`): the chip says so, and its card says why. */
   training?: Training;
+  /** It holds limit resets Codealong can use (`holds`): the chip marks it, and its card lists them. */
+  resets?: Resets;
   sort?: SortProps;
 }
 
-function AccountChip({ usage: u, now, fit = 'all', measure = false, onOpen, onSignIn, onPeek, onUnpeek, training, sort }: ChipProps) {
+function AccountChip({ usage: u, now, fit = 'all', measure = false, onOpen, onSignIn, onPeek, onUnpeek, training, resets, sort }: ChipProps) {
   const plain = u.error?.replace(/`/g, '') ?? '';
   // Signed out, the last reading of whether it's trained on still stands, and its card with it.
   const trainingPeeks = !!training && !measure;
@@ -182,16 +190,16 @@ function AccountChip({ usage: u, now, fit = 'all', measure = false, onOpen, onSi
   const summary = u.meters.length ? u.meters.map((m) => meterTitle(m, now)).join('; ') : usageNote(u);
   const headline = fit !== 'all' ? headlineMeter(u.meters) : null;
   const shown = headline ? [headline] : u.meters;
-  // A chip with a card (collapsed, or flagged for training) says there everything its tooltip
-  // would, so it has none.
-  const peeks = (!!headline && !measure) || trainingPeeks;
+  // A chip with a card (collapsed, flagged for training, or holding resets) says there everything
+  // its tooltip would, so it has none.
+  const peeks = ((!!headline || !!resets) && !measure) || trainingPeeks;
   return (
     <button
       type="button"
       className={cx('ca-uchip', fit === 'tight' && 'is-tight', stale && 'is-stale', training && 'is-training', sort?.className)}
       style={sort?.style}
       title={measure || peeks ? undefined : `${about}. Show what it used and cost`}
-      aria-label={`${u.account}${u.plan ? `, ${u.plan}` : ''}${summary ? `. ${summary}` : ''}${stale ? `. ${plain}` : ''}${training ? `. ${cardTitle(training)}: ${training.note}` : ''}`}
+      aria-label={`${u.account}${u.plan ? `, ${u.plan}` : ''}${summary ? `. ${summary}` : ''}${stale ? `. ${plain}` : ''}${training ? `. ${cardTitle(training)}: ${training.note}` : ''}${resets ? `. ${resetsTitle(resets)}` : ''}`}
       onClick={onOpen}
       onPointerDown={sort?.onPointerDown}
       onMouseEnter={peeks ? (e) => onPeek?.(e.currentTarget) : undefined}
@@ -214,6 +222,11 @@ function AccountChip({ usage: u, now, fit = 'all', measure = false, onOpen, onSi
         </span>
       )}
       {stale && <Icon name="alert" size={12} />}
+      {resets && (
+        <span className="ca-uchip-resets">
+          <Icon name="history" size={12} stroke={2} />
+        </span>
+      )}
       {training && <Icon name="shield-off" size={12} stroke={2} />}
     </button>
   );
@@ -228,16 +241,24 @@ interface CardProps {
   /** Its provider may train on it: why, and what to do about it. */
   training?: Training;
   onStopTraining?: (account: string) => void;
+  /** The limit resets it holds, with Use a reset. */
+  resets?: Resets;
+  /** Uses one of an account's resets, `credit` when it names one; how it went is the caller's to
+   *  say. */
+  onUseReset?: (account: string, credit?: string) => void;
   onOpenUrl?: (url: string) => void;
   /** The pointer came onto the card, or left it: one with buttons stays up while it's there. */
   onEnter?: () => void;
   onLeave?: () => void;
 }
 
-/** A chip's card over it: a collapsed chip's limits, all of them, and for an account its
- *  provider may train on, why, with Turn off training and Open settings. Its limits are only a
- *  picture: the chip's label already reads them out. */
-function UsageCard({ usage: u, now, anchor, meters, training: t, onStopTraining, onOpenUrl, onEnter, onLeave }: CardProps) {
+/** A chip's card over it: a collapsed chip's limits, all of them; for an account its provider
+ *  may train on, why, with Turn off training and Open settings; and for one holding limit resets,
+ *  how many and when they run out, with Use a reset, which asks first since it spends one. Its
+ *  limits are only a picture: the chip's label already reads them out. */
+function UsageCard({ usage: u, now, anchor, meters, training: t, onStopTraining, resets: r, onUseReset, onOpenUrl, onEnter, onLeave }: CardProps) {
+  // Use a reset asks again in the card before it spends one.
+  const [asking, setAsking] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
   // Over the chip, as the bar is at the window's foot, kept inside the window: no taller than the
   // room over the chip, so it never covers the chip or runs off the window's foot.
@@ -252,13 +273,15 @@ function UsageCard({ usage: u, now, anchor, meters, training: t, onStopTraining,
   const stale = isStale(u);
   const asOf = asOfPhrase(u, now);
   const read = t && readNote(t, now);
+  const early = r && earlyNote(u.meters);
+  const acts = !!t || !!r;
   return createPortal(
     <div
       ref={ref}
-      className={cx('ca-ucard', 'ca-usage-popover', stale && 'is-stale', t && 'is-training')}
-      role={t ? 'group' : undefined}
-      aria-label={t ? `${u.account}: ${cardTitle(t)}` : undefined}
-      aria-hidden={t ? undefined : true}
+      className={cx('ca-ucard', 'ca-usage-popover', stale && 'is-stale', t && 'is-training', acts && 'has-buttons')}
+      role={acts ? 'group' : undefined}
+      aria-label={acts ? `${u.account}: ${[t && cardTitle(t), r && resetsTitle(r)].filter(Boolean).join(', ')}` : undefined}
+      aria-hidden={acts ? undefined : true}
       onMouseEnter={onEnter}
       onMouseLeave={onLeave}
     >
@@ -305,6 +328,37 @@ function UsageCard({ usage: u, now, anchor, meters, training: t, onStopTraining,
               <span className="ca-ucard-reset">{resetNote(m, now)}</span>
             </div>
           ))}
+        </div>
+      )}
+      {r && (
+        <div className="ca-resets">
+          <div className="ca-resets-title">
+            <Icon name="history" size={14} stroke={2} />
+            <span>{resetsTitle(r)}</span>
+          </div>
+          <div className="ca-resets-text" title={r.credits[0]?.description ?? undefined}>
+            {heldNote(r, now)}
+          </div>
+          {asking ? (
+            <div className="ca-resets-foot">
+              <span className="ca-resets-ask">Reset {u.account}’s limits now? This uses one.</span>
+              <Button size="sm" variant="secondary" onClick={() => setAsking(false)}>
+                Cancel
+              </Button>
+              <Button size="sm" variant="primary" onClick={() => onUseReset?.(r.account, r.credits[0]?.id)}>
+                Use a reset
+              </Button>
+            </div>
+          ) : (
+            <>
+              {early && <div className="ca-resets-early">{early}</div>}
+              <div className="ca-resets-foot">
+                <Button size="sm" variant={early ? 'secondary' : 'primary'} onClick={() => setAsking(true)}>
+                  Use a reset…
+                </Button>
+              </div>
+            </>
+          )}
         </div>
       )}
       {/* The chip has no tooltip once it has a card, so a failed read is said here either way. */}
@@ -382,6 +436,10 @@ interface UsageBarProps {
   training?: Training[];
   /** Turns training off for an account; how it went is the caller's to say. */
   onStopTraining?: (account: string) => void;
+  /** The limit resets each account holds, for the marks and cards (resets.ts). */
+  resets?: Resets[];
+  /** Uses one of an account's resets; how it went is the caller's to say. */
+  onUseReset?: (account: string, credit?: string) => void;
   /** Opens a provider's settings page. */
   onOpenUrl?: (url: string) => void;
   /** The board hasn't been read yet, so it lists no accounts, though config.toml may have some. */
@@ -401,7 +459,7 @@ interface UsageBarProps {
   machines?: readonly DeviceView[];
 }
 
-export function UsageBar({ usage: board, now, onRefresh, onAccounts, onUsage, onSignIn, training, onStopTraining, onOpenUrl, loading, notices, toast, end, onReorder, load, machines }: UsageBarProps) {
+export function UsageBar({ usage: board, now, onRefresh, onAccounts, onUsage, onSignIn, training, onStopTraining, resets, onUseReset, onOpenUrl, loading, notices, toast, end, onReorder, load, machines }: UsageBarProps) {
   // The order a drag left the chips in, until the board lists them so.
   const [order, setOrder] = useState<string[] | null>(null);
   const usage = order ? inOrder(board, order) : board;
@@ -483,8 +541,8 @@ export function UsageBar({ usage: board, now, onRefresh, onAccounts, onUsage, on
   }, [fit, hide]);
   // A press anywhere but on a card's buttons. Any key, which goes on to do what it does, puts away
   // a card that only shows; one with buttons goes on Escape, so Return and Space work them.
-  const peekHasButtons = !!peek && flagged(trainingOf(training, peek.account));
-  useDismiss(null, () => hide(true), { when: !!peek, keys: peekHasButtons ? 'escape' : 'any', inside: '.ca-usage-popover.is-training' });
+  const peekHasButtons = !!peek && (flagged(trainingOf(training, peek.account)) || holds(resetsOf(resets, peek.account)));
+  useDismiss(null, () => hide(true), { when: !!peek, keys: peekHasButtons ? 'escape' : 'any', inside: '.ca-usage-popover.has-buttons' });
   useEffect(() => {
     const el = row.current;
     if (!el || !peek) return;
@@ -500,7 +558,15 @@ export function UsageBar({ usage: board, now, onRefresh, onAccounts, onUsage, on
   const peeked = peek ? usage.find((u) => u.account === peek.account) : undefined;
   const peekedTraining = peeked && trainingOf(training, peeked.account);
   const flaggedPeek = flagged(peekedTraining) ? peekedTraining : undefined;
+  const peekedResets = peeked && resetsOf(resets, peeked.account);
+  const heldPeek = holds(peekedResets) && !peeked?.needsSignIn ? peekedResets : undefined;
   const peekMeters = fit !== 'all' && !!peeked && peeked.meters.length > 0;
+  const peekActs = !!flaggedPeek || !!heldPeek;
+  // A signed-out chip has no card for its resets: signing in comes first.
+  const heldBy = (u: Usage) => {
+    const r = resetsOf(resets, u.account);
+    return holds(r) && !u.needsSignIn ? r : undefined;
+  };
   return (
     <div className="ca-usagebar" role="region" aria-label="Plan usage">
       <div className="ca-usagebar-main">
@@ -517,6 +583,7 @@ export function UsageBar({ usage: board, now, onRefresh, onAccounts, onUsage, on
                 now={now}
                 fit={fit}
                 training={flagged(t) ? t : undefined}
+                resets={heldBy(u)}
                 onOpen={() => onUsage(u.account)}
                 onSignIn={() => onSignIn(u.account)}
                 onPeek={(el) => {
@@ -535,24 +602,29 @@ export function UsageBar({ usage: board, now, onRefresh, onAccounts, onUsage, on
         <div key={f} ref={f === 'all' ? measureAll : measureOne} className="ca-usagebar-measure" aria-hidden="true">
           {usage.map((u) => {
             const t = trainingOf(training, u.account);
-            return <AccountChip key={u.account} usage={u} now={now} fit={f} measure training={flagged(t) ? t : undefined} />;
+            return <AccountChip key={u.account} usage={u} now={now} fit={f} measure training={flagged(t) ? t : undefined} resets={heldBy(u)} />;
           })}
         </div>
       ))}
-      {peeked && peek && (peekMeters || flaggedPeek) && (
+      {peeked && peek && (peekMeters || peekActs) && (
         <UsageCard
           usage={peeked}
           now={now}
           anchor={peek.anchor}
           meters={peekMeters}
           training={flaggedPeek}
+          resets={heldPeek}
           onOpenUrl={onOpenUrl}
           onStopTraining={(account) => {
             hide(true);
             onStopTraining?.(account);
           }}
-          onEnter={flaggedPeek ? keep : undefined}
-          onLeave={flaggedPeek ? () => hide() : undefined}
+          onUseReset={(account, credit) => {
+            hide(true);
+            onUseReset?.(account, credit);
+          }}
+          onEnter={peekActs ? keep : undefined}
+          onLeave={peekActs ? () => hide() : undefined}
         />
       )}
       <div className="ca-usagebar-end">

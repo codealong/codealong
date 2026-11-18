@@ -15,7 +15,7 @@ use std::sync::{Arc, Mutex};
 use serde_json::Value;
 
 use crate::util::{self, words};
-use crate::{acp, actions, analytics, api, autoreview, boards, config, detect, engine, github, harness, idle, improve, install, jev, ledger, model, newfolder, peers, prasks, prlinks, prmerge, route, routelog, runcode, schedules, search, send, setup, side, skills, stale, start, starting, store, terminals, todojev, todos, training, views, zoom};
+use crate::{acp, actions, analytics, api, autoreview, boards, config, detect, engine, github, harness, idle, improve, install, jev, ledger, model, newfolder, peers, prasks, prlinks, prmerge, resets, route, routelog, runcode, schedules, search, send, setup, side, skills, stale, start, starting, store, terminals, todojev, todos, training, views, zoom};
 
 /// What a call runs with: the server's engine, your other devices, and the automatic reviewer.
 #[derive(Clone)]
@@ -669,6 +669,11 @@ calls! {
     /// Turns training off for an account at its provider (training.rs).
     fn stop_training(c, name: String) -> Result<training::Training, String> {
         c.engine.stop_training(&name).map_err(words)
+    }
+
+    /// Uses one of an account's limit resets, `credit` when it names one (resets.rs).
+    fn use_reset(c, name: String, credit: Option<String>) -> Result<resets::ResetUsed, String> {
+        c.engine.use_reset(&name, credit.as_deref()).map_err(words)
     }
 
     /// The `codealong` command link and the skill per account, for Settings › Agents.

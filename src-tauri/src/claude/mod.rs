@@ -1234,6 +1234,13 @@ impl crate::harness::Adapter for ClaudeCode {
         training::stop(account)
     }
 
+    /// Claude Code's `/limit-reset` has resets of its own, but the usage endpoint offers them
+    /// only to Claude Code and claude.ai: asked by Codealong, it answers `ineligible_reason:
+    /// "surface"` (claude-code.md).
+    fn resets(&self, account: &AccountCfg) -> crate::resets::Resets {
+        crate::resets::Resets::none(account, "Anthropic offers Claude Code's limit resets only to Claude Code: run /limit-reset in one of the account's sessions.")
+    }
+
     /// The state file's `oauthAccount`.
     fn local_sign_in(&self, account: &AccountCfg) -> Option<crate::signin::Local> {
         signin::local(account)
