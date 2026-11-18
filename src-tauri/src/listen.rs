@@ -875,10 +875,13 @@ fn heard(id: &str, event: Event) {
                 let due = |at: Option<Instant>| at.is_none_or(|at| at.elapsed() >= PARTIAL_EVERY);
                 let theirs_due = !mine && (text.is_empty() || due(running.said_at));
                 let settled = mine && text.is_empty();
-                let yours = (!settled && due(running.mine_said_at))
+                // Not as theirs settle: their words go from what they're saying to their line,
+                // and in between are in neither.
+                let yours = (!text.is_empty() && due(running.mine_said_at))
                     .then(|| match state.held.get(id) {
-                        // Without what repeats theirs (echo.rs `Repeats::shown`).
-                        Some(held) => Some(held.shown(now)),
+                        // Without what repeats theirs (echo.rs `Repeats::shown`); None while
+                        // nothing of yours is being said.
+                        Some(held) => held.shown(now),
                         None => mine.then(|| text.clone()),
                     })
                     .flatten();

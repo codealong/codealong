@@ -368,17 +368,17 @@ impl Repeats {
 
     /// What to show of what the microphone is in the middle of hearing: all of it, or once the
     /// microphone is known to hear the Mac, what of it doesn't repeat what they've said since it
-    /// began. Nothing, when all of it does, or nothing's being said.
-    pub fn shown(&self, now: i64) -> String {
-        let Some(saying) = &self.mine_saying else { return String::new() };
+    /// began, empty when all of it does. None while it hears nothing being said.
+    pub fn shown(&self, now: i64) -> Option<String> {
+        let saying = self.mine_saying.as_ref()?;
         if !self.proven(now) {
-            return saying.text.clone();
+            return Some(saying.text.clone());
         }
         let said = Said { mine: true, text: saying.text.clone(), at: saying.since, until: now };
-        match verdict(&said, &self.theirs_near(&said), true) {
+        Some(match verdict(&said, &self.theirs_near(&said), true) {
             Verdict::Yours => said.text,
             Verdict::Repeats { kept, .. } => kept.unwrap_or_default(),
-        }
+        })
     }
 
     /// The lines that may be written by now.
@@ -520,10 +520,9 @@ fn verdict(said: &Said, theirs: &[Theirs], proven: bool) -> Verdict {
     let edges = likest(&sounds.letters, &heard.letters).map(|(from, to)| sounds.words_within(from, to)).filter(|&(first, last)| last > first && (first > 0 || last < n));
     if let Some((first, last)) = edges {
         let (before, after) = (first, n - last);
-        let (cost, spans) = heard_as(sounds.letters(first..last), &heard.letters);
-        // Of the stretches of theirs it sounds as like, one said at its time.
-        let times: Vec<(i64, i64)> = spans.into_iter().map(when).collect();
-        if let Some(&(from, until)) = times.iter().find(|&&t| as_they_said(said, t) || starts_as_they_said(t)).or(times.first()) {
+        // The stretch of theirs it sounds most like of those said at its time, at its end or start.
+        let (cost, span) = heard_as(sounds.letters(first..last), &heard.letters, |span| as_they_said(said, when(span)) || starts_as_they_said(when(span)));
+        if let Some((from, until)) = span.map(when) {
             let own_before = before > 0 && (before >= OWN_WORDS || said.at + APART_MS <= from);
             let own_after = after > 0 && (after >= OWN_WORDS || said.until >= until.saturating_add(APART_MS));
             // Their words amid yours are you saying them: nothing is taken from the middle.
@@ -548,9 +547,9 @@ fn verdict(said: &Said, theirs: &[Theirs], proven: bool) -> Verdict {
         }
     }
     // All of it theirs, misheard, and heard as they said it.
-    let (cost, spans) = heard_as(&sounds.letters, &heard.letters);
+    let (cost, span) = heard_as(&sounds.letters, &heard.letters, |span| as_they_said(said, when(span)));
     let ratio = cost / all;
-    if ratio > most(all) || !spans.into_iter().any(|span| as_they_said(said, when(span))) {
+    if ratio > most(all) || span.is_none() {
         return Verdict::Yours;
     }
     repeats(ratio <= CLOSE && all >= CLOSE_WEIGHT && n >= FEWEST_WORDS, None)
@@ -678,13 +677,13 @@ impl Sounds {
     }
 }
 
-/// The least it costs to hear `mine` as some stretch of `theirs`, and every stretch of letters of
-/// `theirs` it's heard as for that, the latest first (which of them it was goes by when each was
-/// said, `as_they_said`); none where it's best heard as nothing of theirs at all. Each letter of
-/// yours misheard as one of theirs costs `misheard`, one that isn't theirs its weight, and one of
-/// theirs not caught `UNCAUGHT` of its weight. What comes before and after the stretch in theirs
-/// costs nothing: the microphone caught a part of what they said.
-fn heard_as(mine: &[char], theirs: &[char]) -> (f64, Vec<(usize, usize)>) {
+/// The least it costs to hear `mine` as a stretch of `theirs` that `fits` (said at its time,
+/// `as_they_said`), and which letters of `theirs` that stretch is, the latest of those as good;
+/// None, at the cost of all of `mine`, where none fits. Each letter of yours misheard as one of
+/// theirs costs `misheard`, one that isn't theirs its weight, and one of theirs not caught
+/// `UNCAUGHT` of its weight. What comes before and after the stretch in theirs costs nothing: the
+/// microphone caught a part of what they said.
+fn heard_as(mine: &[char], theirs: &[char], fits: impl Fn((usize, usize)) -> bool) -> (f64, Option<(usize, usize)>) {
     // For the letters of yours so far, heard as theirs up to each letter: the least it costs, and
     // where in theirs it starts.
     let mut cost = vec![0.0; theirs.len() + 1];
@@ -702,9 +701,11 @@ fn heard_as(mine: &[char], theirs: &[char]) -> (f64, Vec<(usize, usize)>) {
         std::mem::swap(&mut cost, &mut next_cost);
         std::mem::swap(&mut from, &mut next_from);
     }
-    let least = cost.iter().copied().fold(f64::MAX, f64::min);
-    let spans = (0..cost.len()).rev().filter(|&end| cost[end] <= least + 1e-9 && from[end] < end).map(|end| (from[end], end)).collect();
-    (least, spans)
+    let fitting = (0..cost.len()).rev().filter(|&end| from[end] < end && fits((from[end], end))).min_by(|&x, &y| cost[x].total_cmp(&cost[y]));
+    match fitting {
+        Some(end) => (cost[end], Some((from[end], end))),
+        None => (mine.iter().map(|&l| weight(l)).sum(), None),
+    }
 }
 
 /// The stretch of `mine` that sounds most like some stretch of `theirs`, as the letters of `mine`
@@ -1089,6 +1090,9 @@ mod tests {
         // One that sounds as close as these proves the microphone hears them by itself.
         let heard = vec![(4000, theirs("Is it, um, is it, uh, per-seat, uh, Dana?", 0, 3500)), (4100, mine("Is it a per seat, Dana?", 1000, 3500))];
         assert_eq!(transcript(heard, false), vec!["Them: Is it, um, is it, uh, per-seat, uh, Dana?"]);
+        // Or the first time, though they said it again more like it: the one said at its time.
+        let heard = vec![(1500, theirs("Can you all hear me?", 0, 1000)), (4100, theirs("Can you hear me?", 2800, 3600)), (4200, mine("Can you hear me?", 0, 1000))];
+        assert_eq!(transcript(heard, true), vec!["Them: Can you all hear me?", "Them: Can you hear me?"]);
         // Or the first time.
         let heard = vec![(1500, theirs("Can you hear me?", 0, 1000)), (3700, theirs("Can you hear me?", 2700, 3200)), (3800, mine("Can you hear me?", 0, 1000))];
         assert_eq!(transcript(heard, true), vec!["Them: Can you hear me?", "Them: Can you hear me?"]);
@@ -1108,20 +1112,20 @@ mod tests {
         let mut repeats = Repeats::default();
         repeats.saying(false, "if you send it over first we could come ready with, like, this is just the draft", 10_000);
         repeats.saying(true, "like this is just the draft", 10_100);
-        assert_eq!(repeats.shown(10_200), "like this is just the draft", "nothing proven yet");
+        assert_eq!(repeats.shown(10_200).as_deref(), Some("like this is just the draft"), "nothing proven yet");
         repeats.on_speakers(true, None, 10_200);
-        assert_eq!(repeats.shown(10_200), "");
+        assert_eq!(repeats.shown(10_200).as_deref(), Some(""));
         repeats.saying(true, "", 10_300);
-        assert_eq!(repeats.shown(10_300), "", "nothing being said");
+        assert_eq!(repeats.shown(10_300), None, "nothing being said");
         repeats.saying(true, "Sure, I'll send the deck over this afternoon.", 10_400);
-        assert_eq!(repeats.shown(10_500), "Sure, I'll send the deck over this afternoon.");
+        assert_eq!(repeats.shown(10_500).as_deref(), Some("Sure, I'll send the deck over this afternoon."));
         // Yours that came before theirs are looked at again once theirs come.
         let mut repeats = Repeats::default();
         repeats.on_speakers(true, None, 0);
         repeats.saying(true, "budget review for the quarter", 1000);
-        assert_eq!(repeats.shown(1000), "budget review for the quarter");
+        assert_eq!(repeats.shown(1000).as_deref(), Some("budget review for the quarter"));
         repeats.saying(false, "next up is the budget review for the quarter", 1300);
-        assert_eq!(repeats.shown(1300), "");
+        assert_eq!(repeats.shown(1300).as_deref(), Some(""));
         // A long stretch of theirs heard as it grows, a word every 700 ms: its last words are
         // compared with theirs of the time, and all of it is shown or none.
         let spoken: Vec<&str> = "so before we start let's review the changes to the cancellation policy since the last meeting because a few of the customers asked about refunds and we want everyone on the same page about what we offer and when we offer it and who signs off on the exceptions when they come up during the quarter and after".split(' ').collect();
@@ -1132,7 +1136,7 @@ mod tests {
             let so_far = spoken[..count].join(" ");
             repeats.saying(false, &so_far, at);
             repeats.saying(true, &so_far, at + 100);
-            assert_eq!(repeats.shown(at + 100), "", "{count} words");
+            assert_eq!(repeats.shown(at + 100).as_deref(), Some(""), "{count} words");
         }
         // Of a long stretch, your words before or after theirs are shown.
         let echoed = spoken[..40].join(" ");
@@ -1140,26 +1144,26 @@ mod tests {
         repeats.on_speakers(true, None, 0);
         repeats.saying(false, &echoed, 28_000);
         repeats.saying(true, &format!("I can take notes. {echoed}"), 28_100);
-        assert_eq!(repeats.shown(28_100), "I can take notes.");
+        assert_eq!(repeats.shown(28_100).as_deref(), Some("I can take notes."));
         let mut repeats = Repeats::default();
         repeats.on_speakers(true, None, 0);
         repeats.saying(false, &spoken[..45].join(" "), 31_000);
         repeats.saying(true, &format!("{} sure I can do that today", spoken[..45].join(" ")), 31_100);
-        assert_eq!(repeats.shown(31_100), "sure I can do that today");
+        assert_eq!(repeats.shown(31_100).as_deref(), Some("sure I can do that today"));
         // A stretch too long to compare in time is shown as it is, and a line as long is yours.
         let mut repeats = Repeats::default();
         repeats.on_speakers(true, None, 0);
         let long = "今日はいい天気ですね".repeat(100);
         repeats.saying(false, &long, 1000);
         repeats.saying(true, &long, 1100);
-        assert_eq!(repeats.shown(1100), long);
+        assert_eq!(repeats.shown(1100), Some(long.clone()));
         let said = Said { mine: true, text: long.clone(), at: 0, until: 60_000 };
         assert_eq!(verdict(&said, &[Theirs { plain: long.clone(), at: 0, until: 60_000 }], true), Verdict::Yours);
         // And yours, with nothing of theirs, shown all along.
         let mut repeats = Repeats::default();
         repeats.on_speakers(true, None, 0);
         repeats.saying(true, &spoken.join(" "), 1000);
-        assert_eq!(repeats.shown(1000), spoken.join(" "));
+        assert_eq!(repeats.shown(1000), Some(spoken.join(" ")));
     }
 
     #[test]
@@ -1278,16 +1282,18 @@ mod tests {
         // What hearing one as a stretch of another costs, for its weight.
         let ratio = |mine: &str, theirs: &str| {
             let mine = sounds(mine);
-            heard_as(&mine, &sounds(theirs)).0 / mine.iter().map(|&l| weight(l)).sum::<f64>()
+            heard_as(&mine, &sounds(theirs), |_| true).0 / mine.iter().map(|&l| weight(l)).sum::<f64>()
         };
         assert_eq!(ratio("the quarter", "at the end of the quarter we left"), 0.0);
         assert!(ratio("Kestral", "Kestrel") < 0.1, "{}", ratio("Kestral", "Kestrel"));
         assert!(ratio("it was criminal", "it was minimal") < most(10.0), "{}", ratio("it was criminal", "it was minimal"));
         assert!(ratio("we should wait a week", "the plan is to ship on Friday") > 0.5);
-        assert_eq!(heard_as(&sounds("plan"), &sounds("the plan is")).1, vec![(2, 6)]);
-        // Every stretch as good, the latest first.
-        assert_eq!(heard_as(&sounds("plan"), &sounds("plan or plan")).1, vec![(6, 10), (0, 4)]);
-        assert_eq!(heard_as(&sounds("plan"), &[]), (3.5, vec![]));
+        assert_eq!(heard_as(&sounds("plan"), &sounds("the plan is"), |_| true).1, Some((2, 6)));
+        // Of stretches as good, the latest that fits; and the cheapest that fits, though another is cheaper.
+        assert_eq!(heard_as(&sounds("plan"), &sounds("plan or plan"), |_| true).1, Some((6, 10)));
+        assert_eq!(heard_as(&sounds("plan"), &sounds("plan or plan"), |(from, _)| from == 0).1, Some((0, 4)));
+        assert_eq!(heard_as(&sounds("plan"), &sounds("plam or plan"), |(from, _)| from == 0), (1.0, Some((0, 4))));
+        assert_eq!(heard_as(&sounds("plan"), &[], |_| true), (3.5, None));
         // The stretch of a line that sounds most like theirs.
         let line = sounds("can you send it over no I can't");
         let (from, to) = likest(&line, &sounds("Can you send it over?")).unwrap();
