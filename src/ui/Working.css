@@ -110,6 +110,14 @@
     opacity: 0;
   }
 }
+/* With forced colors (Windows' contrast themes) a background is painted in the page's own color,
+   which would leave the square unseen and the line only a time: it takes the text's color. */
+@media (forced-colors: active) {
+  .ca-working-tumble > i {
+    forced-color-adjust: none;
+    background: CanvasText;
+  }
+}
 @media (prefers-reduced-motion: reduce) {
   .ca-working-word,
   .ca-working-then,

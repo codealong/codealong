@@ -2,8 +2,9 @@
 // a small gray square tumbling, the only thing that moves, with no word beside it, and how long it
 // has worked, held still, last in the conversation. A turn that has worked a while gets a tip on
 // its right in the main window's panel, its first line level with the time, or under it once the
-// line has no room, kept for the turn in every window; another session's turn soon after gets
-// none. The line goes once the turn ends, and for a session gone
+// line has no room, kept for the turn in every window; a time that grows wider and leaves the tip
+// no room puts it under, the view kept at the conversation's end. Another session's turn soon
+// after gets none. The line goes once the turn ends, and for a session gone
 // silent mid-turn, which its header speaks for. One whose turn is over that waits on a command it
 // left running in the background says what it waits on in the line's place, with its clock, or
 // that it waits on a command when the command couldn't be read. One that waits on a command you
@@ -13,7 +14,8 @@
   localStorage.setItem('codealong.project', 'All projects');
   localStorage.setItem('codealong.view', 'sessions');
   localStorage.removeItem('codealong.tips.working');
-  var started = Date.now() - 60e3;
+  // A turn of 1m40s, which says 2m soon after the check has looked at it.
+  var started = Date.now() - 100e3;
   var picked = [];
   var shape = {};
   var real = window.__TAURI_INTERNALS__.invoke;
@@ -112,7 +114,7 @@
       check('only the square moving, top over bottom, then side to side, the time holding still',
         moving.length === 1 && moving[0].animationName === 'ca-working-tumble' && moving[0].effect.target === square && poses.map(function (p) { return p.pose; }).join(' ') === '1,1 1,-1 -1,-1' && still,
         moving.map(function (a) { return a.animationName || a.transitionProperty; }).join(', ') + ' · ' + poses.map(function (p) { return p.pose + '@' + p.left; }).join(' '));
-      check('and how long it has worked', took && took.textContent === '1m', took && took.textContent);
+      check('and how long it has worked', took && /^[12]m$/.test(took.textContent), took && took.textContent);
       var thread = q('.ca-sessinsp .ca-thread');
       check('last in the conversation', thread.lastElementChild === l, thread.lastElementChild && thread.lastElementChild.className);
       check('a tip, as a tip', /^Tip\s/.test(tip().textContent), tip().textContent);
@@ -129,6 +131,38 @@
         (beside ? 'beside' : 'under') + ' · ends ' + Math.round(right) + ' of ' + Math.round(box.right) + ' · ' + Math.round(box.height) + 'px high');
       var c = claim();
       check('kept for the turn', !!c && c.id === tip().getAttribute('data-tip'), JSON.stringify(c));
+      // The tip, cut to a short line, sits beside the time; the time grows wide enough to leave it
+      // no room there (as 9m becoming 10m does, made wider here), and once it says the next minute
+      // the line has grown and a conversation read at its end stays there.
+      var short = document.createElement('style');
+      short.textContent = '.ca-sessinsp .ca-thread { max-height: 200px; } .ca-sessinsp .ca-working-tip { max-width: 12em; white-space: nowrap; overflow: hidden; }';
+      document.head.appendChild(short);
+      var tall;
+      var was;
+      var offBefore;
+      return wait(300)
+        .then(function () {
+          thread.scrollTop = thread.scrollHeight;
+          tall = l.getBoundingClientRect().height;
+          was = took.textContent;
+          took.style.display = 'inline-block';
+          took.style.minWidth = l.clientWidth - 100 + 'px';
+          return wait(100);
+        })
+        .then(function () {
+          offBefore = thread.scrollHeight - thread.scrollTop - thread.clientHeight;
+          return until(function () { return took.textContent !== was; }, 75000, 'the time to say the next minute');
+        })
+        .then(function () { return wait(100); })
+        .then(function () {
+          var off = thread.scrollHeight - thread.scrollTop - thread.clientHeight;
+          var under = tip().getBoundingClientRect().top >= l.querySelector('.ca-working-head').getBoundingClientRect().bottom;
+          check('a time grown wider puts the tip under it, the view kept at the end', under && line().getBoundingClientRect().height > tall && thread.scrollHeight > thread.clientHeight && off < 1,
+            was + ' → ' + took.textContent + ' · ' + (under ? 'under' : 'beside') + ' · ' + Math.round(tall) + ' → ' + Math.round(line().getBoundingClientRect().height) + 'px · ' + Math.round(offBefore) + ' then ' + Math.round(off) + 'px from the end');
+          took.style.display = '';
+          took.style.minWidth = '';
+          short.remove();
+        });
     })
     .then(function () {
       var kept = claim();

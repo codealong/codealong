@@ -55,8 +55,8 @@ function useClock(everyMs: number): number {
 }
 
 /** The line's head: the square tumbling, `word` where there's news to say, and how long it has gone
- *  on since `since` (none where that isn't known). */
-function Head({ word, since, now }: { word?: string; since: number | null; now: number }) {
+ *  on (`took`, none where that isn't known). */
+function Head({ word, took }: { word?: string; took: string | null }) {
   return (
     <span className="ca-working-head">
       <span className="ca-working-tumble" role="img" aria-label="Working">
@@ -68,7 +68,7 @@ function Head({ word, since, now }: { word?: string; since: number | null; now: 
             {word}
           </span>
         )}
-        {since !== null && <span className="ca-working-for">{duration(since, now)}</span>}
+        {took !== null && <span className="ca-working-for">{took}</span>}
       </span>
     </span>
   );
@@ -77,14 +77,16 @@ function Head({ word, since, now }: { word?: string; since: number | null; now: 
 export function Working({ session: s, tips, onGrow }: { session: Session; tips: boolean; onGrow: () => void }) {
   const now = useClock(TICK_MS);
   const since = workingSince(s) ?? s.lastPromptAt;
+  const took = duration(since, now);
   const turn = turnOf(s.key, s.lastPromptAt);
   // Read again at each beat: another window may have given this turn its tip. A window that can't
   // be seen takes none, so none counts as seen.
   const due = tips ? workingTip(readClaims(), turn, now - since, now) : null;
-  useLayoutEffect(onGrow, [onGrow]);
+  // A longer time (9m becoming 10m) can leave the tip no room beside it, and put it under.
+  useLayoutEffect(onGrow, [onGrow, took]);
   return (
     <div className="ca-working">
-      <Head since={since} now={now} />
+      <Head took={took} />
       {due && (due !== 'take' || !document.hidden) && <WorkingTip kept={due === 'take' ? null : due.keep} turn={turn} since={since} onGrow={onGrow} />}
     </div>
   );
@@ -97,7 +99,7 @@ export function WorkingLine({ since, word }: { since: number | null; word?: stri
   const now = useClock(TICK_MS);
   return (
     <div className="ca-working" role="status">
-      <Head word={word} since={since} now={now} />
+      <Head word={word} took={since === null ? null : duration(since, now)} />
     </div>
   );
 }
