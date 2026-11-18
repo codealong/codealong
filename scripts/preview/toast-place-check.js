@@ -1,8 +1,9 @@
 // Checks where the main window says things around a session's panel (Toasts.tsx, UsageBar.tsx
 // `toast`, MainPanel.tsx): a message that didn't go after ⌘⏎ went on to the next is said on the
 // next one's strip, not in a toast over its box, and in a toast where no strip shows by then
-// (several picked); a toast is a line in the usage bar, over neither the list nor the panel's
-// message box, with the panel taking the whole window too; the account chips step down to give it
+// (several picked); a toast is a line in the usage bar, the window's status bar along its foot with
+// the title bar's ground, over neither the list nor the panel's message box, with the panel taking
+// the whole window too; the account chips step down to give it
 // the room its words need (up to its limit) and come back once it goes; it stays while the
 // pointer is on it, going once the pointer leaves, and one that comes back after another took
 // its place under the pointer goes in its time, while one of the same kind is held as the one it
@@ -107,6 +108,9 @@
       var composer = rect(document.querySelector('.ca-sessinsp .ca-composer'));
       var accts = rect(document.querySelector('.ca-usagebar-accts'));
       var end = rect(document.querySelector('.ca-usagebar-end'));
+      check('the usage bar is the window’s foot', Math.abs(bar().bottom - window.innerHeight) <= 1 && bar().bottom - bar().top <= 32, JSON.stringify({ bar: bar(), window: window.innerHeight }));
+      var ground = function (sel) { return getComputedStyle(document.querySelector(sel)).backgroundColor; };
+      check('with the title bar’s ground', ground('.ca-usagebar') === ground('.ca-win-bar'), ground('.ca-usagebar') + ' | ' + ground('.ca-win-bar'));
       check('a toast is a line in the usage bar', inside(t, bar()), JSON.stringify({ toast: t, bar: bar() }));
       check('between the chips and the bar’s end', accts.right <= t.left && t.right <= end.left, JSON.stringify({ chips: accts, toast: t, end: end }));
       check('over neither the list nor the panel’s message box', !overlaps(t, board) && !overlaps(t, composer), JSON.stringify({ toast: t, board: board, box: composer }));

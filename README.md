@@ -80,8 +80,8 @@ review* and *Idle*, and organized the way your work is:
 - **Read and reply.** Any session's whole conversation, with its tool calls, images and links,
   searchable, and a box to reply. Or double-click to open it where it lives: its exact terminal
   tab, its Claude app session or its Codex thread.
-- **Know where your plan limits stand.** Each account's limits across the top, always in view, and
-  what your sessions used against what your plans cost.
+- **Know where your plan limits stand.** Each account's limits along the window's foot, always in
+  view, and what your sessions used against what your plans cost.
 - **All your machines.** Link them and each shows the others' sessions beside its own; allow it,
   and you answer an agent on your desktop from your laptop. An
   [iPhone app](https://github.com/codealong/codealong-ios) is on the way.
@@ -356,7 +356,7 @@ Five views of your work, each in a window of its own if you like (⇧⌘N):
 Select anything to see it in the panel on the right; right-click anything for its menu. The
 sidebar, a rail of the views until you open it, narrows every view to the machines, time span,
 statuses, agents, repos and labels you pick, and saved views bring a setup back. Plan usage for
-every account runs across the top.
+every account runs along the window's foot.
 
 Every session and worktree has a status:
 
@@ -373,7 +373,7 @@ The Codealong mark shows the most urgent of them all at a glance: red for an err
 you're needed (a review request too), blue for finished work you haven't seen, green while agents
 work, and gray when all is quiet.
 
-Across the top, each account's plan limits. Click one for the Analytics window: what your sessions
+Along the window's foot, each account's plan limits. Click one for the Analytics window: what your sessions
 used and what that would have cost at API prices, against what your plans and any extra usage
 actually cost, day by day and by account, model, project and session. An account whose provider
 may train its models on what you send (Help improve Claude, ChatGPT's Improve the model for

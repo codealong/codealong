@@ -100,6 +100,7 @@
       var see = ['--surface-sunken', '--surface-hover', '--surface-selected', '--line', '--neutral-tint'].filter(function (t) { return !(alpha(token(el, t)) < 1); });
       check(sel + ' draws its wells, hovers, selections, lines and keycaps see-through', see.length === 0, see.map(function (t) { return t + ' ' + token(el, t); }).join(', '));
     });
+    check('the usage bar has the title bar’s glass', bg(q('.ca-usagebar')) === bg(q('.ca-win-bar')), bg(q('.ca-usagebar')) + ' | ' + bg(q('.ca-win-bar')));
     var strip = q('.ca-listbar');
     check('the strip over the list hides the rows that scroll under it: opaque', alpha(bg(strip)) === 1, bg(strip));
     // The strip over a session's panel is the list's strip carried on across the window: its shade,

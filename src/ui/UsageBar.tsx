@@ -238,11 +238,13 @@ interface CardProps {
  *  picture: the chip's label already reads them out. */
 function UsageCard({ usage: u, now, anchor, meters, training: t, onStopTraining, onOpenUrl, onEnter, onLeave }: CardProps) {
   const ref = useRef<HTMLDivElement>(null);
-  // Over the chip, as the bar is at the window's foot, kept inside the window.
+  // Over the chip, as the bar is at the window's foot, kept inside the window: no taller than the
+  // room over the chip, so it never covers the chip or runs off the window's foot.
   useLayoutEffect(() => {
     const card = ref.current;
     if (!card) return;
     const r = anchor.getBoundingClientRect();
+    card.style.maxHeight = `${Math.max(0, r.top - 14)}px`;
     card.style.left = `${Math.max(8, Math.min(r.left, window.innerWidth - card.offsetWidth - 8))}px`;
     card.style.top = `${Math.max(8, r.top - card.offsetHeight - 6)}px`;
   });

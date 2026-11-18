@@ -1,6 +1,7 @@
 // Checks the training flags in the accounts bar (ui/UsageBar.tsx, training.ts): an account whose
 // provider may train on it, or where nothing's chosen, has its chip in the attention colors with
-// a shield, the others not; hovering it brings up its card, which says why, stays up while the
+// a shield, the others not; hovering it brings up its card over the chip, the bar being at the
+// window's foot, which says why, stays up while the
 // pointer is on it, opens the provider's page, and turns training off, saying how that went in a
 // toast; one that didn't take says why. Then Settings › Accounts tags each account it can tell
 // about.
@@ -27,6 +28,9 @@
     .then(function () {
       check('its hover card says why', q('.ca-training-title', card()).textContent === 'Training is on' && q('.ca-uchip-name', card()).textContent === 'claude' && /^Help improve Claude is on/.test(q('.ca-training-text', card()).textContent), q('.ca-training-title', card()).textContent);
       check('and when it was read', /^Setting read /.test((q('.ca-training-asof', card()) || {}).textContent || ''));
+      var c = card().getBoundingClientRect();
+      var at = chipOf('claude').getBoundingClientRect();
+      check('it opens over the chip, inside the window', c.bottom <= at.top && c.top >= 0, JSON.stringify({ card: [c.top, c.bottom], chip: at.top }));
       // The pointer leaves the chip for the card: it stays up.
       leave(chipOf('claude'));
       enter(card());

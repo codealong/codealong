@@ -147,7 +147,7 @@ export const TIPS: readonly Tip[] = [
   { id: 'schedules', places: ['board', 'end'], says: says`${key(VIEW_CHORDS.schedules)} shows Schedules: each starts a session or messages one when its time comes or something happens, a deploy say.` },
   { id: 'close-stale', places: BOARD, says: says`File › Close stale terminals… lists the terminal tabs nothing was typed or printed in for a day or more, to close the ones you pick.` },
   { id: 'close-idle', places: BOARD, says: says`File › Close idle sessions… closes the ones that sat idle for a day or more. Each conversation is kept, to resume.` },
-  { id: 'usage', places: BOARD, says: says`The bar across the top shows each account's usage. Point at one for all its limits and when they reset.` },
+  { id: 'usage', places: BOARD, says: says`The bar along the window's foot shows each account's usage. Point at one for all its limits and when they reset.` },
   { id: 'usage-window', places: BOARD, says: says`${key('Shift+Cmd+U')}, or a click on an account in the usage bar, opens Analytics: what your sessions used and cost at API prices, against what you paid.` },
   { id: 'sounds', places: ['board', 'end'], says: says`Settings › Sounds picks the sound for a session that needs you, a turn that ends and a review asked of you, or None.` },
   // Not `emblems`, the icons on colors these replaced: whoever saw that tip sees these as new.

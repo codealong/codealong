@@ -1,5 +1,5 @@
 // Checks the notices in the accounts bar (ui/Notices.tsx): several are one chip that says how
-// many, its card lists each, a review that didn't start is tried again from its Try again, a
+// many, its card, over the chip as the bar is at the window's foot, lists each, a review that didn't start is tried again from its Try again, a
 // notice dismissed there leaves the others, config.toml's opens Settings on the file, and the
 // chip's own button dismisses what's left. Dismissals are kept.
 //   PREVIEW_NOTICES=scripts/preview/notices-sample.json PREVIEW_WAIT=60000 scripts/preview.sh sessions '' scripts/preview/notices-check.js
@@ -20,6 +20,9 @@
       return openCard();
     })
     .then(function () {
+      var c = q('.ca-notice-card').getBoundingClientRect();
+      var at = q('.ca-notice').getBoundingClientRect();
+      check('the card opens over its chip, inside the window', c.bottom <= at.top && c.top >= 0, JSON.stringify({ card: [c.top, c.bottom], chip: at.top }));
       var titles = all('.ca-notice-title').map(function (t) { return t.textContent; });
       check('the card lists each', titles.join(' | ') === "GitHub rate limit reached | config.toml has a problem | A pull request wasn't reviewed", titles.join(' | '));
       check('and says until when', /^Until \d+:\d\d [AP]M, in 1[12]m$/.test((q('.ca-notice-until') || {}).textContent || ''), (q('.ca-notice-until') || {}).textContent);
