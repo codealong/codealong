@@ -59,14 +59,13 @@
     .then(function () {
       var a = approval();
       var head = a.querySelector('.ca-approval-head').textContent;
-      check('says it is a plan', head.indexOf('Wants you to approve its plan') >= 0, head);
+      check('says it is a plan, in a word', head.trim() === 'Plan', head);
       var plan = a.querySelector('.ca-approval-plan');
       check('the plan reads as Markdown', !!plan && !!plan.querySelector('.ca-md-h') && plan.querySelectorAll('li').length === 2, plan && plan.innerHTML);
       check('not as a command', !a.querySelector('.ca-approval-input') && !a.querySelector('.ca-approval-label'));
       check('allow, always and deny', !!button('Allow') && !!button('Always') && !!button('Deny'));
       check('always says what it does', button('Always').getAttribute('title') === rule, button('Always').getAttribute('title'));
-      var note = a.querySelector('.ca-composer-note').textContent;
-      check('deny keeps it planning', note.indexOf('Deny keeps it planning') >= 0, note);
+      check('deny says on it that it keeps planning', button('Deny').title.indexOf('Tell it no') >= 0 && button('Allow').title === 'Approve the plan' && !a.querySelector('.ca-composer-note').textContent, button('Deny').title);
       if (window.__plan_screenshot) return;
       button('Always').click();
       return until(function () { return answered().length > 0; }, 3000).then(function () {

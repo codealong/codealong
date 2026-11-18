@@ -11,15 +11,15 @@
 // arrow otherwise. A reply's right-click menu has the same, and Dismiss takes them all away on the
 // session's Mac. They go by themselves once something is sent to the session or a turn of its
 // starts (board::suggestions_hold). For questions a session asks, what's suggested is choices of
-// their own, which its question box shows picked (SessionReply.tsx `Questions`) under the same
-// head (`SuggestionHead`).
+// their own, which its question box shows picked (SessionReply.tsx `Questions`), with the same
+// mark and dismiss (`SuggestionMark`, `DismissSuggestions`) in its top row.
 
 import { forwardRef, type KeyboardEvent, type MouseEvent } from 'react';
 import { showContextMenu } from '../contextMenu';
 import { chordKeys, chordSigns, SUGGESTION_CHORDS, suggestionChord } from '../menus';
 import type { Key } from '../queue';
 import type { Suggestions } from '../types';
-import { cx, Icon, Kbd } from './primitives';
+import { Button, cx, Icon, Kbd } from './primitives';
 import { bare, cmd, held, keysIn, typed } from '../platform';
 
 /** How a pick goes: sent as it is, sent and then on to the next that waits on you, or put in the
@@ -104,7 +104,8 @@ export const SuggestedReplies = forwardRef<HTMLDivElement, Props>(function Sugge
   };
   return (
     <div ref={ref} className={cx('ca-suggest', keyed && 'is-keyed')} role="group" aria-label="Suggested replies">
-      <SuggestionHead suggestions={g} onDismiss={onDismiss} />
+      <SuggestionMark suggestions={g} />
+      <DismissSuggestions onDismiss={onDismiss} />
       <div className="ca-suggest-replies">
         {g.replies.map((text, i) => {
           const chord: string | undefined = SUGGESTION_CHORDS[i];
@@ -132,22 +133,32 @@ export const SuggestedReplies = forwardRef<HTMLDivElement, Props>(function Sugge
   );
 });
 
-/** Who suggested them, with Dismiss, and their note: over suggested replies, and in a question box
- *  with the choices picked for it. */
-export function SuggestionHead({ suggestions: g, onDismiss }: { suggestions: Suggestions; onDismiss: () => void }) {
+/** The sparkle that marks what another session suggested: at the start of suggested replies' card,
+ *  and in a question box's top row with the choices picked for it. Who suggested them and their
+ *  note are under the pointer: the card's tint and the sparkle already say they're suggestions,
+ *  and the note, written for you to weigh, read as clutter over every reply. */
+export function SuggestionMark({ suggestions: g }: { suggestions: Suggestions }) {
   const by = g.byTitle ? `Suggested by ${g.byTitle}` : g.replies.length ? 'Suggested replies' : 'Suggested';
+  const who = g.by ? `${by} (${g.by})` : by;
   return (
-    <>
-      <div className="ca-suggest-head">
-        <Icon name="sparkles" size={13} />
-        <span className="ca-suggest-by" title={g.by ? `${by} (${g.by})` : by}>
-          {by}
-        </span>
-        <button type="button" className="ca-linkbtn" title="Take these suggestions away" onClick={onDismiss}>
-          Dismiss
-        </button>
-      </div>
-      {g.note && <p className="ca-suggest-note">{g.note}</p>}
-    </>
+    <span className={cx('ca-suggest-mark', g.note && 'has-note')} title={g.note ? `${who}\n\n${g.note}` : who}>
+      <Icon name="sparkles" size={13} />
+    </span>
+  );
+}
+
+/** Takes the suggestions away, here at once and on the session's Mac after. */
+export function DismissSuggestions({ onDismiss }: { onDismiss: () => void }) {
+  return <Button variant="ghost" size="sm" icon="x" className="ca-suggest-dismiss" aria-label="Dismiss suggestions" title="Dismiss: take these suggestions away" onClick={onDismiss} />;
+}
+
+/** Choices another session picked for questions it asks: their mark and their dismiss together, in
+ *  the question box's top row, tinted as suggested replies' card is. */
+export function SuggestedPicks({ suggestions, onDismiss }: { suggestions: Suggestions; onDismiss: () => void }) {
+  return (
+    <span className="ca-suggest-picks" role="group" aria-label="Suggested choices">
+      <SuggestionMark suggestions={suggestions} />
+      <DismissSuggestions onDismiss={onDismiss} />
+    </span>
   );
 }

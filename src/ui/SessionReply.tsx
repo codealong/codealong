@@ -126,7 +126,7 @@ import { ContextMeter } from './ContextMeter';
 import { dialogUp } from './focusTrap';
 import { SESSION_SIDES, SideStrip, type SideWindowCan } from './SideStrip';
 import { SlashList, type SlashOption } from './SlashList';
-import { chordedReply, SuggestedReplies, SuggestionHead, type Denies, type PickHow } from './SuggestedReplies';
+import { chordedReply, SuggestedPicks, SuggestedReplies, type Denies, type PickHow } from './SuggestedReplies';
 import { useLatest } from '../latest';
 import { useVoice } from '../listening';
 import { shortcutLabel } from '../quick';
@@ -1461,18 +1461,19 @@ function Approval({ session: s, terminal, onOpen, onAnswered, keys, onKeys, onNe
   if (pending?.cannot && pending.questions?.length) {
     return (
       <div className={cx('ca-composer is-approval is-questions is-elsewhere', folded && 'is-folded')}>
-        {/* Its way there is in the foot, which doesn't show while it's minimized. */}
-        <AsksHead question={pending.questions[0].question} more={pending.questions.length - 1} where={folded ? where : null} onOpen={onOpen} folded={folded} onFold={fold} />
-        {!folded && (
+        {folded ? (
+          <FoldedQuestions question={pending.questions[0].question} more={pending.questions.length - 1} onFold={fold} />
+        ) : (
           <>
+            <div className="ca-approval-head">
+              {picked && <SuggestedPicks suggestions={picked} onDismiss={dismissPicked} />}
+              <FoldQuestions folded={false} onFold={fold} />
+            </div>
             <QuestionList questions={pending.questions} suggested={picked?.picks} why={picked?.why} />
-            {picked && <SuggestionHead suggestions={picked} onDismiss={dismissPicked} />}
             <div className="ca-composer-foot">
-              <span className="ca-composer-note" title={pending.cannot}>
-                {note?.text ?? `Answer ${pending.questions.length > 1 ? 'them' : 'it'} in ${where}.`}
-              </span>
-              <Button variant="primary" size="sm" icon="arrow-up-right" onClick={onOpen}>
-                Open in {where}
+              <span className="ca-composer-note">{note?.text}</span>
+              <Button variant="primary" size="sm" icon="arrow-up-right" title={pending.cannot} onClick={onOpen}>
+                Answer in {where}
               </Button>
             </div>
           </>
@@ -1487,18 +1488,16 @@ function Approval({ session: s, terminal, onOpen, onAnswered, keys, onKeys, onNe
       <div className="ca-composer is-approval is-elsewhere">
         <div className="ca-approval-head">
           <Icon name={pending.message ? 'message-circle' : 'alert'} size={14} />
-          <span>{pending.message ? 'Holds a message for you' : 'Wants to run'}</span>
-        </div>
-        <div className="ca-approval-label">
-          <Rich text={pending.label} now={0} />
+          <span className="ca-approval-label">
+            <Rich text={pending.label} now={0} />
+          </span>
         </div>
         {pending.input && pending.input !== pending.label && (pending.message ? <Plan session={s} text={pending.input} /> : <CodeBlock text={pending.input} className="ca-approval-input" />)}
+        {/* Why it can't be answered here is on the button that goes there. */}
         <div className="ca-composer-foot">
-          <span className="ca-composer-note" title={pending.cannot}>
-            {note?.text ?? `${pending.cannot} Answer it in ${where}.`}
-          </span>
-          <Button variant="primary" size="sm" icon="arrow-up-right" onClick={onOpen}>
-            Open in {where}
+          <span className="ca-composer-note">{note?.text}</span>
+          <Button variant="primary" size="sm" icon="arrow-up-right" title={pending.cannot} onClick={onOpen}>
+            Answer in {where}
           </Button>
         </div>
       </div>
@@ -1507,9 +1506,9 @@ function Approval({ session: s, terminal, onOpen, onAnswered, keys, onKeys, onNe
   if (!pending) {
     return (
       <div className="ca-composer is-waiting">
-        <span>{note?.text ?? `It’s waiting on you. Answer it in ${where}.`}</span>
+        <span>{note?.text}</span>
         <Button size="sm" icon="arrow-up-right" onClick={onOpen}>
-          Open
+          Answer in {where}
         </Button>
       </div>
     );
@@ -1525,8 +1524,6 @@ function Approval({ session: s, terminal, onOpen, onAnswered, keys, onKeys, onNe
         call={pending.id}
         questions={pending.questions}
         unwritten={unwritten}
-        where={s.hosted ? null : where}
-        onOpen={onOpen}
         keys={keys}
         busy={busy}
         note={note}
@@ -1543,41 +1540,39 @@ function Approval({ session: s, terminal, onOpen, onAnswered, keys, onKeys, onNe
     );
   }
   // A plan or a held message reads as prose, and its answers say what they do to it. A command
-  // for your terminal says where it would run, and as whom.
+  // for your terminal says where it would run, and as whom. The box's tint says it waits on you,
+  // so its head is only what it wants, and what each answer does is on the button: the foot says
+  // only what changes how you'd answer (a command run as you, a call it can't allow once).
   const plan = !!pending.plan;
   const message = !!pending.message;
   const run = pending.terminal ?? null;
   const says = run
-    ? `Runs in a new ${run.app} tab in ${run.cwd}, as you: your shell and sign-ins, outside any sandbox. What it prints goes back to its agent. Deny tells it no, or write below what to do instead.`
-    : message
-    ? 'Deliver gives it to the session as that session’s message. Deny drops it, and its sender is told it was declined.'
-    : plan
-    ? 'Allow approves the plan. Deny keeps it planning, or write below what to change.'
+    ? `In a new ${run.app} tab in ${run.cwd}, as you, outside any sandbox`
     : pending.noOnce
-      ? `Its agent ${pending.always ? 'allows calls like this only from now on, not just this once' : 'offers no way to allow this'}. Deny tells it no, and it carries on.`
-      : s.hosted
-        ? 'Allows this call once. Deny tells it no, and it carries on.'
-        : 'Allows this call once. Deny stops the turn, or write below what to do instead.';
+      ? pending.always
+        ? 'Its agent allows calls like this only from now on'
+        : 'Its agent offers no way to allow this'
+      : null;
+  const denies = run || plan ? 'Tell it no, or write below what to do instead' : message ? 'Drop it: its sender is told it was declined' : s.hosted || pending.noOnce ? 'Tell it no, and it carries on' : 'Stop the turn, or write below what to do instead';
+  const allows = run ? 'Run it: what it prints goes back to its agent' : message ? 'Give it to the session as that session’s message' : plan ? 'Approve the plan' : 'Allow this call once';
   return (
     <div className="ca-composer is-approval">
       <div className="ca-approval-head">
-        <Icon name={run ? 'terminal' : message ? 'message-circle' : 'alert'} size={14} />
-        <span>{run ? 'Wants to run in your terminal' : message ? 'Holds a message for you' : plan ? 'Wants you to approve its plan' : 'Wants to run'}</span>
-        {!s.hosted && (
-          <button type="button" className="ca-linkbtn" onClick={onOpen}>
-            Open in {where}
-          </button>
+        <Icon name={run ? 'terminal' : message ? 'message-circle' : plan ? 'list-check' : 'alert'} size={14} />
+        {run ? (
+          <span>Run in your terminal</span>
+        ) : plan ? (
+          <span>Plan</span>
+        ) : (
+          <span className="ca-approval-label">
+            <Rich text={pending.label} now={0} />
+          </span>
         )}
       </div>
-      {!plan && !run && (
-        <div className="ca-approval-label">
-          <Rich text={pending.label} now={0} />
-        </div>
-      )}
       {pending.input && pending.input !== pending.label && (plan || message ? <Plan session={s} text={pending.input} /> : <CodeBlock text={pending.input} className="ca-approval-input" />)}
       <div className="ca-composer-foot">
         <span className={cx('ca-composer-note', note?.error && 'is-error')}>{busy ? 'Answering…' : (note?.text ?? says)}</span>
-        <Button size="sm" kbd={['⌘', '⌫']} disabled={busy} onClick={() => answer('deny')}>
+        <Button size="sm" kbd={['⌘', '⌫']} disabled={busy} title={denies} onClick={() => answer('deny')}>
           Deny
         </Button>
         {pending.always && (
@@ -1586,7 +1581,7 @@ function Approval({ session: s, terminal, onOpen, onAnswered, keys, onKeys, onNe
           </Button>
         )}
         {!pending.noOnce && (
-          <Button variant="primary" size="sm" icon="check" kbd={['⌘', '⏎']} disabled={busy} onClick={() => answer('allow')}>
+          <Button variant="primary" size="sm" icon="check" kbd={['⌘', '⏎']} disabled={busy} title={allows} onClick={() => answer('allow')}>
             {message ? 'Deliver' : 'Allow'}
           </Button>
         )}
@@ -1595,8 +1590,6 @@ function Approval({ session: s, terminal, onOpen, onAnswered, keys, onKeys, onNe
   );
 }
 
-/** The head of a box of questions it asks you, with the button that minimizes the box to it.
- *  Minimized, it says the question showing on one line, which shows the box again when clicked. */
 /** A plan or a held message to read before answering, as the session's conversation shows its
  *  replies: the files it names are on the session's device (`ImagesFrom`), so one on another
  *  device's doesn't open here. */
@@ -1608,25 +1601,25 @@ function Plan({ session, text }: { session: Session; text: string }) {
   );
 }
 
-function AsksHead({ question, more, where, onOpen, folded, onFold }: { question: string; more: number; where: string | null; onOpen: () => void; folded: boolean; onFold: (on: boolean) => void }) {
+/** The button that minimizes a box of questions it asks you to one line, to read the conversation
+ *  while you think, and shows it again. It ends the box's first row: the box's tint says it asks
+ *  you, and the session's header above has the way to where it runs. */
+function FoldQuestions({ folded, onFold }: { folded: boolean; onFold: (on: boolean) => void }) {
+  return <Button variant="ghost" size="sm" icon={folded ? 'chevron-up' : 'chevron-down'} className="ca-approval-fold" aria-expanded={!folded} aria-label={folded ? 'Show the questions' : 'Minimize'} title={folded ? 'Show the questions' : 'Minimize, to read the conversation while you think'} onClick={() => onFold(!folded)} />;
+}
+
+/** A box of questions minimized: the question showing, on one line, which shows the box again
+ *  when clicked. */
+function FoldedQuestions({ question, more, onFold }: { question: string; more: number; onFold: (on: boolean) => void }) {
   return (
     <div className="ca-approval-head">
-      <Icon name="help" size={14} />
-      <span>Asks you</span>
-      {folded && (
-        <button type="button" className="ca-approval-folded" title={question} onClick={() => onFold(false)}>
-          <span className="ca-approval-folded-text">
-            <Rich text={question} now={0} />
-          </span>
-          {more > 0 && <span className="ca-approval-folded-more">+{more} more</span>}
-        </button>
-      )}
-      {where && (
-        <button type="button" className="ca-linkbtn" onClick={onOpen}>
-          Open in {where}
-        </button>
-      )}
-      <Button variant="ghost" size="sm" icon={folded ? 'chevron-up' : 'chevron-down'} className="ca-approval-fold" aria-expanded={!folded} aria-label={folded ? 'Show the questions' : 'Minimize'} title={folded ? 'Show the questions' : 'Minimize, to read the conversation while you think'} onClick={() => onFold(!folded)} />
+      <button type="button" className="ca-approval-folded" title={question} onClick={() => onFold(false)}>
+        <span className="ca-approval-folded-text">
+          <Rich text={question} now={0} />
+        </span>
+        {more > 0 && <span className="ca-approval-folded-more">+{more} more</span>}
+      </button>
+      <FoldQuestions folded onFold={onFold} />
     </div>
   );
 }
@@ -1635,9 +1628,6 @@ interface QuestionsProps {
   questions: Question[];
   /** That what it wrote with them isn't in the conversation yet, and where it is, in a sentence. */
   unwritten: string | null;
-  /** Where the session runs, for its Open link; none for one Codealong runs. */
-  where: string | null;
-  onOpen: () => void;
   /** ⌘⏎ answers, where the keyboard is the way in (the waiting window). */
   keys?: boolean;
   busy: boolean;
@@ -1669,7 +1659,7 @@ interface QuestionsProps {
 
 /** Questions a session asks you (Claude Code's AskUserQuestion), answered as `QuestionSteps`
  *  has you answer them; your picks go back as its answer. */
-function Questions({ questions, draft, call, unwritten, where, onOpen, keys, busy, note, given, onAnswer, onDecline, exiting = false, dialog = false, suggested, onDismissSuggested, folded, onFold }: QuestionsProps) {
+function Questions({ questions, draft, call, unwritten, keys, busy, note, given, onAnswer, onDecline, exiting = false, dialog = false, suggested, onDismissSuggested, folded, onFold }: QuestionsProps) {
   // Your picks and words as you left them, in this window or another, on the question you were
   // on. Kept as they change, they're as new as an answer that didn't go or newer, which has them
   // only where nothing was kept (storage turned down, or the suggested picks sent untouched).
@@ -1731,11 +1721,15 @@ function Questions({ questions, draft, call, unwritten, where, onOpen, keys, bus
     return () => window.removeEventListener('keydown', onKey);
   }, [keys]);
   const q = questions[at];
-  const head = <AsksHead question={q.question} more={questions.length - 1} where={where} onOpen={onOpen} folded={folded} onFold={onFold} />;
-  if (folded) return <div className="ca-composer is-approval is-questions is-folded">{head}</div>;
+  if (folded)
+    return (
+      <div className="ca-composer is-approval is-questions is-folded">
+        <FoldedQuestions question={q.question} more={questions.length - 1} onFold={onFold} />
+      </div>
+    );
+  // The foot is its buttons, and what's happening or went wrong: what Decline does is on it.
   return (
     <div className="ca-composer is-approval is-questions">
-      {head}
       {unwritten && <p className="ca-approval-unwritten">{unwritten}</p>}
       <QuestionSteps
         questions={questions}
@@ -1743,21 +1737,22 @@ function Questions({ questions, draft, call, unwritten, where, onOpen, keys, bus
         busy={busy}
         choicesOnly={exiting || dialog}
         suggested={suggested}
-        after={suggesting && suggested && onDismissSuggested && <SuggestionHead suggestions={suggested} onDismiss={onDismissSuggested} />}
+        tools={
+          <>
+            {suggesting && suggested && onDismissSuggested && <SuggestedPicks suggestions={suggested} onDismiss={onDismissSuggested} />}
+            <FoldQuestions folded={false} onFold={onFold} />
+          </>
+        }
         onAnswer={() => answerRef.current(true)}
       />
       <div className="ca-composer-foot">
-        <span className={cx('ca-composer-note', note?.error && 'is-error')}>
-          {busy
-            ? 'Answering…'
-            : (note?.text ??
-              (exiting
-                ? 'It’s exiting. Cancel keeps it open, at its prompt.'
-                : dialog
-                  ? 'Pick one, as you would in its terminal. Cancel presses Escape there.'
-                  : `${q.multiSelect ? 'Pick one or more.' : 'Pick one, or type your own.'} Decline stops the turn, or write below to say something else.`))}
-        </span>
-        <Button size="sm" disabled={busy} onClick={onDecline} title={exiting ? 'Call the exit off, as Escape in its terminal does' : dialog ? 'Close it, as Escape in its terminal does' : undefined}>
+        <span className={cx('ca-composer-note', note?.error && 'is-error')}>{busy ? 'Answering…' : note?.text}</span>
+        <Button
+          size="sm"
+          disabled={busy}
+          onClick={onDecline}
+          title={exiting ? 'Call the exit off: it stays open at its prompt, as Escape in its terminal does' : dialog ? 'Pick one, as you would in its terminal. Cancel presses Escape there.' : 'Stop the turn without an answer, or write below to say something else'}
+        >
           {exiting || dialog ? 'Cancel' : 'Decline'}
         </Button>
         {next !== null ? (

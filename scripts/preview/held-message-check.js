@@ -74,15 +74,12 @@
     })
     .then(function () {
       var a = approval();
-      var head = a.querySelector('.ca-approval-head').textContent;
-      check('says it holds a message', head.indexOf('Holds a message for you') >= 0, head);
-      var label = a.querySelector('.ca-approval-label');
-      check('says whom it is from', !!label && label.textContent.indexOf('From “Review 1021”') >= 0, label && label.textContent);
+      var head = a.querySelector('.ca-approval-head');
+      check('its head is a message icon and whom it is from', !!head.querySelector('.ca-approval-label') && head.textContent.trim() === 'From “Review 1021”' && !!head.querySelector('.ca-icon'), head.textContent);
       var body = a.querySelector('.ca-approval-plan');
       check('the message reads as prose', !!body && body.querySelectorAll('li').length === 2 && !a.querySelector('.ca-approval-input'), body && body.innerHTML);
       check('deliver and deny, nothing else', !!button('Deliver') && !!button('Deny') && !button('Allow') && !button('Always'));
-      var note = a.querySelector('.ca-composer-note').textContent;
-      check('says what deny does', note.indexOf('its sender is told it was declined') >= 0, note);
+      check('deny says what it does on it', button('Deny').title.indexOf('its sender is told it was declined') >= 0 && !a.querySelector('.ca-composer-note').textContent, button('Deny').title);
       if (window.__held_screenshot) return 'stay';
       button('Deliver').click();
       return until(function () { return answered().length > 0; }, 3000).then(function () {
@@ -103,9 +100,9 @@
         .then(function () {
           var a = approval();
           check('several held still show the message', !!a.querySelector('.ca-approval-plan'));
-          check('and only a way to open it', !button('Deliver') && !button('Deny') && !!button('Open in'), a.textContent);
-          var note = a.querySelector('.ca-composer-note').textContent;
-          check('saying why', note.indexOf('only where it runs shows which comes first') >= 0, note);
+          check('and only a way to answer it where it runs', !button('Deliver') && !button('Deny') && !!button('Answer in'), a.textContent);
+          var why = button('Answer in').title;
+          check('saying why on it', why.indexOf('only where it runs shows which comes first') >= 0, why);
         });
     })
     .then(done)

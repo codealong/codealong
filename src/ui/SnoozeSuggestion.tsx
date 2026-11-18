@@ -29,20 +29,22 @@ export function SnoozeSuggestion({ session, snooze, now }: Props) {
   const when = untilWords(suggested.until, now);
   return (
     <div className="ca-suggest ca-snoozesuggest" role="group" aria-label="Suggested snooze">
-      <button
-        type="button"
-        className="ca-suggest-reply"
-        title={`Snooze it until ${when}: it leaves what waits on you until then (${chordSigns(SUGGESTED_CHORD)}). ${suggested.by}`}
-        aria-keyshortcuts={SUGGESTED_CHORD.replace('Cmd', 'Meta')}
-        onClick={() => action.run()}
-      >
-        <Icon name="zzz" size={13} />
-        <span className="ca-suggest-text">
-          Snooze until {when}
-          <span className="ca-snoozesuggest-why">as its reply says</span>
-        </span>
-        <Kbd keys={chordKeys(SUGGESTED_CHORD)} />
-      </button>
+      <span className="ca-suggest-mark" title={suggested.by}>
+        <Icon name="sparkles" size={13} />
+      </span>
+      <div className="ca-suggest-replies">
+        <button
+          type="button"
+          className="ca-suggest-reply"
+          title={`Snooze it until ${when}, as its reply says: it leaves what waits on you until then (${chordSigns(SUGGESTED_CHORD)}). ${suggested.by}`}
+          aria-keyshortcuts={SUGGESTED_CHORD.replace('Cmd', 'Meta')}
+          onClick={() => action.run()}
+        >
+          <Icon name="zzz" size={13} />
+          <span className="ca-suggest-text">Snooze until {when}</span>
+          <Kbd keys={chordKeys(SUGGESTED_CHORD)} />
+        </button>
+      </div>
     </div>
   );
 }

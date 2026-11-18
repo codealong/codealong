@@ -104,6 +104,18 @@
   flex-wrap: wrap;
   max-width: 100%;
 }
+/* The box's first row: the strip of questions, or the one question's header, and the button that
+   minimizes the box at its end (SessionReply.tsx `FoldQuestions`). The box has no head of its own:
+   its tint says it asks you. */
+.ca-question-top {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  min-width: 0;
+}
+.ca-question-top > .ca-question-steps {
+  min-width: 0;
+}
 /* Its choices, a row each as Claude Code's prompt lists them: a mark that says whether it takes
    one or several, the choice, and what it says about it. A long word or code span wraps rather
    than widening the box past a narrow card. */
@@ -199,6 +211,11 @@
   column-gap: var(--space-2);
   row-gap: 2px;
   font: var(--type-meta-strong);
+}
+/* The sparkle on a choice another session picked, in suggestions' own color. */
+.ca-question-suggested {
+  display: inline-flex;
+  color: var(--suggest);
 }
 .ca-question-own {
   height: 26px;

@@ -236,10 +236,11 @@ interface QuestionStepsProps {
   /** Its choices are all it takes (`Pending.exiting`, `Pending.dialog`): no box for your own
    *  answer. */
   choicesOnly?: boolean;
-  /** Choices another session picked for them, each marked Suggested, with why under the first. */
+  /** Choices another session picked for them, each marked with a sparkle, with why under the first. */
   suggested?: Suggestions | null;
-  /** What goes under the choices: the suggestions' head, to dismiss them. */
-  after?: ReactNode;
+  /** What ends the top row, beside the strip of questions or the one question's header: the
+   *  suggestions' mark and dismiss, and the button that minimizes the box. */
+  tools?: ReactNode;
   /** ⌘⏎ in the box for your own answer. */
   onAnswer: () => void;
 }
@@ -249,7 +250,7 @@ interface QuestionStepsProps {
  *  their headers to go between them: all at once, a few long ones ran off the bottom of the
  *  panel. Enter in your own answer goes on to the next question; it never answers, so a
  *  half-typed answer isn't sent. */
-export function QuestionSteps({ questions, picks: p, busy, choicesOnly = false, suggested, after, onAnswer }: QuestionStepsProps) {
+export function QuestionSteps({ questions, picks: p, busy, choicesOnly = false, suggested, tools, onAnswer }: QuestionStepsProps) {
   // The answer box to take the keyboard once Enter there went on to the next question.
   const ownRef = useRef<HTMLInputElement>(null);
   const typing = useRef(false);
@@ -259,24 +260,32 @@ export function QuestionSteps({ questions, picks: p, busy, choicesOnly = false, 
     ownRef.current?.focus();
   }, [p.at]);
   const q = questions[p.at];
+  // Several are named by their headers in a strip to go between them; one by its header alone.
+  const named =
+    questions.length > 1 ? (
+      <Seg
+        className="ca-question-steps"
+        label="Questions"
+        options={questions.map((q, i) => ({ id: i, label: q.header || `Question ${i + 1}`, title: q.question, icon: p.answered[i] ? 'check' : undefined }))}
+        value={p.at}
+        onPick={p.go}
+      />
+    ) : q.header ? (
+      <Chip className="ca-question-header">{q.header}</Chip>
+    ) : null;
   return (
     <>
-      {questions.length > 1 && (
-        <Seg
-          className="ca-question-steps"
-          label="Questions"
-          options={questions.map((q, i) => ({ id: i, label: q.header || `Question ${i + 1}`, title: q.question, icon: p.answered[i] ? 'check' : undefined }))}
-          value={p.at}
-          onPick={p.go}
-        />
+      {(named || tools) && (
+        <div className="ca-question-top">
+          {named}
+          {tools}
+        </div>
       )}
       <div key={q.question} className="ca-question">
         {/* The question and its choices scroll as one where the card is short for them; the box
             for your own answer and the buttons stay under them (QuestionList.css). */}
         <div className="ca-question-body">
           <div className="ca-approval-label">
-            {/* With several, the strip above names each by its header. */}
-            {q.header && questions.length === 1 && <Chip className="ca-question-header">{q.header}</Chip>}
             <Rich text={q.question} now={0} />
           </div>
           {/* Its choices as Claude Code's own prompt lists them, each with what it says about it.
@@ -297,12 +306,11 @@ export function QuestionSteps({ questions, picks: p, busy, choicesOnly = false, 
                       <span>
                         <Rich text={o.label} now={0} />
                       </span>
-                      {/* The suggested one keeps its chip once you pick another. */}
+                      {/* The suggested one keeps its sparkle once you pick another. */}
                       {p.offered(q).includes(o.label) && (
-                        <Chip className="ca-suggestedchip" title={suggested?.byTitle ? `Suggested by ${suggested.byTitle}` : 'Suggested'}>
+                        <span className="ca-question-suggested" title={suggested?.byTitle ? `Suggested by ${suggested.byTitle}` : 'Suggested'}>
                           <Icon name="sparkles" size={12} />
-                          Suggested
-                        </Chip>
+                        </span>
                       )}
                     </span>
                     {o.description && (
@@ -316,7 +324,6 @@ export function QuestionSteps({ questions, picks: p, busy, choicesOnly = false, 
               );
             })}
           </div>
-          {after}
         </div>
         {/* What an exit or another dialog of its harness's asks takes nothing but its choices. */}
         {!choicesOnly && (

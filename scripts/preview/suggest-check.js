@@ -1,6 +1,7 @@
 // Checks suggested replies (SuggestedReplies.tsx, SessionReply.tsx, `codealong session suggest`):
 // a session with replies another session suggested has a Suggested chip on its row, whose tooltip
-// lists them, and its panel shows them above the box, with who suggested them and the note. A
+// lists them, and its panel shows them above the box in a card of their own color, who suggested
+// them and the note on its sparkle. A
 // click sends one as it is, leaving the draft in the box, and they go at once; ⌥-click puts one in
 // the box after the draft and sends nothing; ↑ in the empty box goes to the nearest one and ⏎
 // there sends it, and so does its number alone; each shows its key, ⌘ and its number, while the
@@ -76,10 +77,11 @@
       check('its row has the Suggested chip', !!chip, row().className);
       check('whose tooltip says who suggested what', !!chip && /Suggested by Supervisor/.test(chip.title) && chip.title.indexOf(replies[1]) >= 0, chip ? chip.title : '');
       check('its panel shows them above the box', !!strip() && rows().length === 3 && !!strip().nextElementSibling && strip().nextElementSibling.classList.contains('ca-composer-field'));
-      var head = q('.ca-sessinsp .ca-suggest-head');
-      check('with who suggested them', !!head && /Suggested by Supervisor/.test(head.textContent), head ? head.textContent : '');
-      var n = q('.ca-sessinsp .ca-suggest-note');
-      check('and the note', !!n && /asks whether to push/.test(n.textContent), n ? n.textContent : '');
+      // A card of their own color with no head: who suggested them and the note are on its sparkle.
+      var mark = q('.ca-sessinsp .ca-suggest > .ca-suggest-mark');
+      check('in a card of their own color', getComputedStyle(strip()).backgroundColor !== 'rgba(0, 0, 0, 0)', getComputedStyle(strip()).backgroundColor);
+      check('with who suggested them and the note on its sparkle', !!mark && /^Suggested by Supervisor/.test(mark.title) && /asks whether to push/.test(mark.title) && mark.classList.contains('has-note'), mark ? mark.title : 'no mark');
+      check('and no head or note in words', !q('.ca-sessinsp .ca-suggest-head') && !q('.ca-sessinsp .ca-suggest-note') && strip().textContent.indexOf('Supervisor') < 0, strip().textContent.slice(0, 60));
       check('the box’s foot says ↑ in the box goes to them', /↑ suggested replies/.test(note()), note());
       type(box(), 'My own draft');
       return wait(50);
@@ -177,7 +179,7 @@
       check('a reply’s menu has Send, Change before sending and Dismiss', labels.indexOf('Send') >= 0 && labels.indexOf('Change before sending') >= 0 && labels.indexOf('Dismiss suggestions') >= 0, labels.join(' | '));
       var item = lastMenu().filter(function (i) { return i.text === 'Send'; })[0];
       check('with its key beside Send', !!item && item.accelerator === 'Cmd+1', JSON.stringify(item && item.accelerator));
-      q('.ca-sessinsp .ca-suggest-head .ca-linkbtn').click();
+      q('.ca-sessinsp .ca-suggest > .ca-suggest-dismiss').click();
       return until(function () { return sent('dismiss_suggestions').length === 1; }, 3000, 'Dismiss asking the engine');
     })
     .then(function () {

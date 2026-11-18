@@ -54,19 +54,18 @@
       check('its row says it needs approval', !!flag && flag.textContent.trim() === 'Needs approval', flag && flag.textContent);
       row().dispatchEvent(new MouseEvent('mousedown', { bubbles: true }));
       row().click();
-      return until(function () { return button('Open in'); }, 5000);
+      return until(function () { return button('Answer in'); }, 5000);
     })
     .then(function () {
       var a = approval();
       check('shows as answered elsewhere', a.classList.contains('is-elsewhere'));
-      var head = a.querySelector('.ca-approval-head').textContent;
-      check('says it wants to run something', head.indexOf('Wants to run') >= 0, head);
-      var shown = a.querySelector('.ca-approval-label');
-      check('says what the app asks', !!shown && shown.textContent.indexOf('read_console_messages') >= 0 && shown.textContent.indexOf('app.northwind.dev') >= 0, shown && shown.textContent);
+      var head = a.querySelector('.ca-approval-head');
+      var shown = head.querySelector('.ca-approval-label');
+      check('its head says what the app asks, and nothing else', !!shown && shown.textContent.indexOf('read_console_messages') >= 0 && shown.textContent.indexOf('app.northwind.dev') >= 0 && head.textContent === shown.textContent, head.textContent);
       check('no way to answer it here', !button('Allow') && !button('Deny') && !button('Always'), a.textContent);
-      check('only a way to the app', button('Open in').textContent.indexOf('Claude app') >= 0, button('Open in').textContent);
-      var note = a.querySelector('.ca-composer-note').textContent;
-      check('saying why, and where to answer it', note.indexOf('only the app can answer it') >= 0 && note.indexOf('Answer it in Claude app') >= 0, note);
+      check('only a way to the app', button('Answer in').textContent.indexOf('Claude app') >= 0, button('Answer in').textContent);
+      var why = button('Answer in').title;
+      check('saying why on it, not under it', why.indexOf('only the app can answer it') >= 0 && !a.querySelector('.ca-composer-note').textContent, why);
       if (window.__app_ask_screenshot) return;
       return done();
     })

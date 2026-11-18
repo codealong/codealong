@@ -1,7 +1,8 @@
 // Checks choices another session picked for the questions a session asks (`codealong session
-// suggest --pick`): its question box shows them picked, each marked, with who suggested them and
-// why, and no list of replies; Answer goes at once, with them. A pick of yours changes them, the
-// Suggested chip stays on the suggested choice, and Dismiss takes away the ones of questions you didn't
+// suggest --pick`): its question box shows them picked, each marked, with who suggested them on a
+// sparkle in its top row and why under the choice, and no list of replies; Answer goes at once,
+// with them. A pick of yours changes them, the
+// sparkle stays on the suggested choice, and Dismiss takes away the ones of questions you didn't
 // touch, words you typed counting as a touch. The row's Suggested chip says what was picked.
 // Why a pick shows under its choice.
 //   PREVIEW_WAIT=30000 scripts/preview.sh sessions '' scripts/preview/suggest-picks-check.js
@@ -78,7 +79,7 @@
   };
   var tick = function () { return new Promise(function (r) { setTimeout(r, 30); }); };
   var on = function (b) { return b.getAttribute('aria-checked') === 'true'; };
-  var marked = function (b) { return !!b.querySelector('.ca-suggestedchip'); };
+  var marked = function (b) { return !!b.querySelector('.ca-question-suggested'); };
   var showing = function () { var l = box().querySelector('.ca-question .ca-approval-label'); return l ? l.textContent : ''; };
   var steps = function () { return Array.prototype.slice.call(box().querySelectorAll('.ca-question-steps button')); };
   var answers = function () { return window.__calls.filter(function (c) { return c[0] === 'session_answer'; }); };
@@ -97,13 +98,14 @@
       check('and marked', marked(button('Blue')) && !marked(button('Red')));
       var desc = button('Red').querySelector('.ca-question-desc');
       check('a choice shows what it says about it', !!desc && desc.textContent === 'The color red' && !button('Blue').querySelector('.ca-question-desc'));
-      var by = box().querySelector('.ca-suggest-head .ca-suggest-by');
-      var note = box().querySelector('.ca-suggest-note');
-      check('who suggested it, and the note', !!by && by.textContent === 'Suggested by Supervisor' && !!note && note.textContent === 'Both are what it asked for before.', by ? by.textContent : 'no head');
+      // Who suggested them and their note are under the pointer, on the sparkle in the top row.
+      var mark = box().querySelector('.ca-question-top .ca-suggest-picks .ca-suggest-mark');
+      var said = mark ? mark.title : '';
+      check('who suggested it, and the note, on its sparkle', /^Suggested by Supervisor/.test(said) && said.indexOf('Both are what it asked for before.') > 0 && !box().querySelector('.ca-suggest-note'), said || 'no mark');
       var why = function (b) { var w = b.querySelector('.ca-question-why'); return w ? w.textContent : ''; };
       check('why it was picked, beside it', why(button('Blue')) === 'It matches the rest of the app' && why(button('Red')) === '', why(button('Blue')));
       check('no list of replies', !document.querySelector('.ca-sessinsp .ca-suggest-reply'));
-      check('the strip marks both answered, without sparkles', steps().length === 2 && steps().every(function (b) { return !!b.querySelector('svg') && !b.querySelector('.ca-suggestedchip'); }));
+      check('the strip marks both answered, without sparkles', steps().length === 2 && steps().every(function (b) { return !!b.querySelector('svg') && !b.querySelector('.ca-question-suggested'); }));
       check('answer at once', !!button('Answer') && !button('Answer').disabled && !button('Next'));
       if (window.__picks_screenshot) return new Promise(function () {});
       button('Answer').click();
@@ -133,12 +135,12 @@
       return tick();
     })
     .then(function () {
-      button('Dismiss').click();
+      box().querySelector('.ca-suggest-picks .ca-suggest-dismiss').click();
       return tick();
     })
     .then(function () {
       check('dismiss asks the engine', window.__calls.some(function (c) { return c[0] === 'dismiss_suggestions' && (c[1] || {}).key === picked.key; }));
-      check('and takes away the head, the marks and why', !box().querySelector('.ca-suggest-head') && !marked(button('Wed')) && !box().querySelector('.ca-question-why'));
+      check('and takes away the mark, the marks and why', !box().querySelector('.ca-suggest-picks') && !marked(button('Wed')) && !box().querySelector('.ca-question-why'));
       check('an answer you began keeps its picks', on(button('Wed')) && !on(button('Mon')));
       steps()[0].click();
       return tick();

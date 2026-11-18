@@ -82,8 +82,10 @@
     .then(function () {
       var l = line();
       check('a session whose reply waits for a later time is offered a snooze until then, above its box', !!l && /^Snooze until \S/.test(l.textContent) && !!l.closest('.ca-composer'), l ? l.textContent : 'no line');
-      check('which says why', !!l && /as its reply says$/.test(l.textContent.replace(/[⌃⌘8\s]+$/, '')), l ? l.textContent : '');
-      check('and who read it that way, under the pointer', !!l && /\(⌃⌘8\)\. Jev’s read$/.test(l.title), l ? l.title : '');
+      check('which says why, and who read it that way, under the pointer', !!l && /as its reply says/.test(l.title) && /\(⌃⌘8\)\. Jev’s read$/.test(l.title), l ? l.title : '');
+      var card = l && l.closest('.ca-suggest');
+      var mark = card && card.querySelector('.ca-suggest-mark');
+      check('in suggestions’ card, its sparkle saying whose read it is', !!mark && mark.title === 'Jev’s read' && !/as its reply says/.test(card.textContent), mark ? mark.title : 'no mark');
       var keys = l && l.querySelector('.ca-kbds');
       check('its key shows wherever the keyboard is', !!keys && getComputedStyle(keys).display !== 'none' && keys.textContent.replace(/\s/g, '') === '⌃⌘8', keys ? getComputedStyle(keys).display + ' ' + keys.textContent : 'no keys');
       return menuOf(row(0));

@@ -60,7 +60,7 @@
     .then(function () {
       var a = approval();
       var head = a.querySelector('.ca-approval-head').textContent;
-      check('says it wants your terminal', head.indexOf('Wants to run in your terminal') >= 0, head);
+      check('says it wants your terminal', head.trim() === 'Run in your terminal', head);
       var input = a.querySelector('.ca-approval-input');
       check('the command shows as code', !!input && input.textContent.indexOf(command) >= 0, input && input.textContent);
       check('no line above it saying it again', !a.querySelector('.ca-approval-label'));

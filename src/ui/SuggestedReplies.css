@@ -1,35 +1,58 @@
-/* Replies another session suggested (SuggestedReplies.tsx): a head line naming who suggested them,
-   with Dismiss at its end, the suggester's note under it, then a row for each reply, which sends
-   it. It sits in the composer, above the box, and scrolls past a handful. */
+/* What another session or Jev suggests (SuggestedReplies.tsx, SnoozeSuggestion.tsx): a card of
+   its own color above the box, as a call to allow or questions to answer are cards of theirs, with
+   no head: a sparkle at its start, who suggested it and their note under the pointer, the replies,
+   each a row that sends it and scrolling past a handful, and × at its end. */
 .ca-suggest {
   display: grid;
-  gap: var(--space-1);
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: start;
+  column-gap: var(--space-2);
   min-width: 0;
+  padding: var(--space-2);
+  border-radius: var(--radius-lg);
+  background: var(--suggest-tint);
 }
-.ca-suggest-head {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  min-width: 0;
-  color: var(--ink-3);
-  font: var(--type-caption-heading);
+.ca-suggest > .ca-suggest-replies {
+  grid-column: 2;
+  grid-row: 1;
 }
-.ca-suggest-by {
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+.ca-suggest > .ca-suggest-dismiss {
+  grid-column: 3;
+  grid-row: 1;
 }
-.ca-suggest-head .ca-linkbtn {
+/* The sparkle, in line with a reply's first line; the help pointer says it has a note to read. */
+.ca-suggest-mark {
+  display: inline-flex;
   flex: none;
-  margin-left: auto;
-  font: var(--type-meta);
+  padding-block: 7px;
+  color: var(--suggest);
+  cursor: default;
 }
-.ca-suggest-note {
+.ca-suggest-mark.has-note {
+  cursor: help;
+}
+.ca-suggest-dismiss {
+  margin-block: 1px;
+}
+/* Choices picked for questions a session asks: the mark and × together, in the question box's
+   top row (QuestionList.tsx), before the button that minimizes the box. */
+.ca-suggest-picks {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  margin: -4px 0 -4px auto;
+  padding-left: 6px;
+  border-radius: var(--radius-md);
+  background: var(--suggest-tint);
+}
+.ca-suggest-picks > .ca-suggest-mark {
+  padding-block: 0;
+}
+.ca-suggest-picks > .ca-suggest-dismiss {
   margin: 0;
-  color: var(--ink-2);
-  font: var(--type-caption);
-  overflow-wrap: anywhere;
+}
+.ca-suggest-picks + .ca-approval-fold {
+  margin-left: 0;
 }
 .ca-suggest-replies {
   display: grid;

@@ -76,8 +76,7 @@
       check('its choices', !!button('Yes, set auto mode as my default permission mode') && !!button('No, keep bypass permissions'));
       check('no box for words of your own', !box().querySelector('.ca-question-own'));
       check('cancel, not decline', !!button('Cancel') && !button('Decline'));
-      var note = box().querySelector('.ca-composer-foot .ca-composer-note');
-      check('says what cancel does', !!note && /Cancel presses Escape there/.test(note.textContent), note ? note.textContent : 'none');
+      check('says what cancel does, on it', /Cancel presses Escape there/.test(button('Cancel').title), button('Cancel').title);
       button('No, keep bypass permissions').click();
       return tick();
     })
