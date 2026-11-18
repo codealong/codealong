@@ -316,7 +316,9 @@ fn references(text: &str) -> Vec<(usize, usize, Kind, &str)> {
             let len = text[body..].find(|c: char| !(safe_char(c) || c == '/')).unwrap_or(text.len() - body);
             // A reference at the end of a sentence doesn't take its full stop.
             let rest = text[body..body + len].trim_end_matches('.');
-            let boundary = text[..start].chars().next_back().map(|c| c.is_whitespace() || "(<\"'[".contains(c)).unwrap_or(true);
+            // Not in a mention, `@"images/…"`: Codealong writes none, so one is typed, of a file
+            // in the session's own folder (and an Edit on a held message brings it to the box).
+            let boundary = text[..start].chars().next_back().map(|c| c.is_whitespace() || "(<\"'[".contains(c)).unwrap_or(true) && !text[..start].ends_with("@\"");
             let valid = match kind {
                 Kind::Image => valid_image(rest),
                 Kind::File => valid_file(rest),
@@ -533,8 +535,10 @@ pub fn shorten_in(text: &str, images: &Path, files: &Path) -> String {
             while let Some(i) = rest.find(&dir) {
                 let body = &rest[i + dir.len()..];
                 let len = body.find(|c: char| !(safe_char(c) || c == '/')).unwrap_or(body.len());
+                // Only where the folder's path starts one: under `/mnt/backup` it's another file.
+                let starts = rest[..i].chars().next_back().or_else(|| short.chars().next_back()).map_or(true, |c| !(safe_char(c) || c == '/' || c == '\\'));
                 short.push_str(&rest[..i]);
-                short.push_str(if valid(body[..len].trim_end_matches('.')) { prefix } else { &dir });
+                short.push_str(if starts && valid(body[..len].trim_end_matches('.')) { prefix } else { &dir });
                 rest = body;
             }
             short.push_str(rest);
@@ -857,6 +861,10 @@ mod tests {
         // A path there that's no kept file's (a listing of the folder, say) is left whole.
         let listing = "ls /Users/me/Library/Application Support/Codealong/images/ shows /Users/me/Library/Application Support/Codealong/images/notes.txt";
         assert_eq!(shorten_in(listing, images, files), listing);
+        // Nor is one whose path only ends as the folder's does, as a backup's.
+        let backup = "/Volumes/Backup/Users/me/Library/Application Support/Codealong/images/0123456789abcdef.png and @\"/Volumes/Backup/Users/me/Library/Application Support/Codealong/images/0123456789abcdef.png\"";
+        assert_eq!(shorten_in(backup, images, files), backup);
+        assert_eq!(written_in(backup, images, files), backup);
     }
 
     #[test]
@@ -890,8 +898,15 @@ mod tests {
         }
         // So does a mention typed from the session's own folder, however like a kept file's its
         // name: written as one, Edit on it would send Codealong's file in its place.
-        for typed in ["See @images/0123456789abcdef.png", "@\"images/0123456789abcdef.png\"", "@files/0123456789abcdef/notes.txt"] {
+        for typed in ["See @images/0123456789abcdef.png", "@\"images/0123456789abcdef.png\"", "@files/0123456789abcdef/notes.txt", "@\"files/0123456789abcdef/notes.txt\""] {
             assert_eq!(written_in(typed, images, files), typed);
+            // Edit puts it in the box, and it goes out again as it came.
+            assert_eq!(expand_in(typed, images, files, Style::Mention), typed);
+        }
+        // One of Codealong's own goes out again as its mention, quoted.
+        let full = "/Users/me/Library/Application Support/Codealong/images/0123456789abcdef.png";
+        for sent in [format!("Look @\"{full}\""), format!("Look @{full}")] {
+            assert_eq!(expand_in(&written_in(&sent, images, files), images, files, Style::Mention), format!("Look @\"{full}\""));
         }
     }
 
