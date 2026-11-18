@@ -61,7 +61,7 @@ export function shownText(it: TranscriptItem): string {
       return plainOf(it.text);
     // Files a call sent you show under its line, by what it said of them and their names.
     case 'tool':
-      return [lineOf(it).replace(/`/g, ''), it.sent?.caption, ...(it.sent?.files ?? []).map((f) => f.slice(f.lastIndexOf('/') + 1) || f)].filter(Boolean).join('\n');
+      return [lineOf(it), it.sent?.caption, ...(it.sent?.files ?? []).map((f) => f.slice(f.lastIndexOf('/') + 1) || f)].filter(Boolean).join('\n');
     case 'note':
       return it.text;
     case 'result':
@@ -71,12 +71,13 @@ export function shownText(it: TranscriptItem): string {
   }
 }
 
-/** A call's line as it shows, naming the file the call worked on where its label doesn't
- *  (filePaths.ts `fileInLine`). */
+/** A call's line as it shows, without a code span's marks, naming the file the call worked on
+ *  as it's called, where its label doesn't name it (filePaths.ts `fileInLine`). */
 function lineOf(it: TranscriptItem): string {
-  if (!it.file) return it.text;
+  const plain = (s: string) => s.replace(/`/g, '');
+  if (!it.file) return plain(it.text);
   const { before, name, after } = fileInLine(it.text, it.file);
-  return `${before}\`${name}\`${after}`;
+  return plain(before) + name + plain(after);
 }
 
 /** Your answers to a call's questions as they show (ui/SessionThread.tsx `YourAnswers`): each

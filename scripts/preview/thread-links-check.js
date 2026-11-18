@@ -144,6 +144,13 @@
               return until(function () { return read.parentElement.querySelector('.ca-thread-out'); }, 3000);
             });
           }).then(function () {
+            // In a narrow panel the name's end is what's cut, with an ellipsis, not the whole name.
+            var line = read.parentElement;
+            line.style.width = '130px';
+            var shown = name.querySelector('code').getBoundingClientRect().width;
+            var cut = name.querySelector('code').scrollWidth > name.querySelector('code').clientWidth;
+            check('a narrow line cuts the name’s end, keeping its start', shown > 12 && cut, 'shown ' + shown + 'px, cut ' + cut);
+            line.style.width = '';
             return menuOf(read);
           }).then(function (labels) {
             check('a right-click on its line offers the file’s menu', labels.indexOf('Open') >= 0 && labels.indexOf('Reveal in Finder') >= 0 && labels.indexOf('Copy path') >= 0, labels.join(' | '));

@@ -90,9 +90,10 @@ export function fileInLine(text: string, file: string): { before: string; name: 
   // A Windows path's name follows its last backslash, where a POSIX name can have one in it.
   const windows = /^([A-Za-z]:[\\/]|\\\\)/.test(file);
   const cut = windows ? Math.max(file.lastIndexOf('/'), file.lastIndexOf('\\')) : file.lastIndexOf('/');
-  // As the engine writes it in code (util.rs `code`), a backtick turned to a quote.
-  const name = (file.slice(cut + 1) || file).replace(/`/g, "'");
-  const at = text.lastIndexOf(`\`${name}\``);
+  const name = file.slice(cut + 1) || file;
+  // Found as the engine writes it in code (util.rs `code`), a backtick turned to a quote.
+  const written = `\`${name.replace(/`/g, "'")}\``;
+  const at = text.lastIndexOf(written);
   if (at < 0) return { before: `${text} · `, name, after: '' };
-  return { before: text.slice(0, at), name, after: text.slice(at + name.length + 2) };
+  return { before: text.slice(0, at), name, after: text.slice(at + written.length) };
 }

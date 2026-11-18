@@ -9,7 +9,7 @@ describe('fileInLine', () => {
     expect(fileInLine('Read · `main.rs`', 'C:\\demo\\src\\main.rs')).toEqual({ before: 'Read · ', name: 'main.rs', after: '' });
     // A POSIX name can have a backslash in it, and a backtick, which the engine writes as a quote.
     expect(fileInLine('Read · `notes\\draft.md`', '/tmp/notes\\draft.md')).toEqual({ before: 'Read · ', name: 'notes\\draft.md', after: '' });
-    expect(fileInLine("Read · `it's.md`", '/tmp/it`s.md')).toEqual({ before: 'Read · ', name: "it's.md", after: '' });
+    expect(fileInLine("Read · `it's.md`", '/tmp/it`s.md')).toEqual({ before: 'Read · ', name: 'it`s.md', after: '' });
   });
 
   it('puts it after a line that does not name it', () => {

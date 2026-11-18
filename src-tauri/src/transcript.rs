@@ -386,8 +386,9 @@ pub fn call_file(path: &str, cwd: &str) -> Option<String> {
 }
 
 /// The files a page's calls worked on as full paths (`call_file`): one a record names from the
-/// folder the session works in, without saying which (Codex's changes, OpenCode's tools), is
-/// taken from the session's. A reader that knows a call's own folder has made its file full.
+/// session's own folder without saying which (OpenCode's tools, Cursor's), is taken from there. A
+/// reader that knows a call's own folder has made its file full, and one whose calls work from a
+/// folder it can't tell (Codex's turns) leaves out a file that isn't.
 fn files_from(page: &mut Page, folder: &str) {
     for it in page.items.iter_mut() {
         it.file = it.file.take().and_then(|f| call_file(&f, folder));

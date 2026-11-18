@@ -349,6 +349,19 @@ function ToolLine({ item, result, state, onOpen }: { item: TranscriptItem; resul
       <Icon name="check" size={12} stroke={2.25} title="Done" />
     ) : null;
   const chevron = detail && <Icon name={open ? 'chevron-down' : 'chevron-right'} size={12} />;
+  // The file's name as it's called, between the words around it in the line.
+  const parts = (name: ReactNode) =>
+    named && (
+      <>
+        <span className="ca-thread-toolpart">
+          <Rich text={named.before} now={0} />
+        </span>
+        {name}
+        <span className="ca-thread-toolpart">
+          <Rich text={named.after} now={0} />
+        </span>
+      </>
+    );
   return (
     <div className={cx('ca-thread-tool', failed && 'is-failed', state === 'asks' && 'is-asks')}>
       {named && file ? (
@@ -357,20 +370,20 @@ function ToolLine({ item, result, state, onOpen }: { item: TranscriptItem; resul
         // nothing more to show, it opens the file).
         <div className="ca-thread-toolhead" onClick={detail ? () => setOpen(!open) : files.open} onContextMenu={files.menu}>
           {glyph}
-          <span className="ca-thread-toollabel">
-            <Rich text={named.before} now={0} />
-            <button
-              type="button"
-              className="ca-thread-toolfile"
-              title={`Open ${file}`}
-              onClick={(e) => {
-                e.stopPropagation();
-                files.open();
-              }}
-            >
-              <code className="ca-ic ca-ic-path">{named.name}</code>
-            </button>
-            <Rich text={named.after} now={0} />
+          <span className="ca-thread-toollabel is-file">
+            {parts(
+              <button
+                type="button"
+                className="ca-thread-toolfile"
+                title={`Open ${file}`}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  files.open();
+                }}
+              >
+                <code className="ca-ic ca-ic-path">{named.name}</code>
+              </button>,
+            )}
           </span>
           {status}
           {/* Its click goes on to the line's. */}
@@ -383,9 +396,7 @@ function ToolLine({ item, result, state, onOpen }: { item: TranscriptItem; resul
       ) : (
         <button type="button" className="ca-thread-toolhead" aria-expanded={open} disabled={!detail} onClick={() => setOpen(!open)}>
           {glyph}
-          <span className="ca-thread-toollabel">
-            <Rich text={questions ? questionsLine(questions) : named ? `${named.before}\`${named.name}\`${named.after}` : item.text} now={0} />
-          </span>
+          <span className="ca-thread-toollabel">{named ? parts(<code className="ca-ic">{named.name}</code>) : <Rich text={questions ? questionsLine(questions) : item.text} now={0} />}</span>
           {status}
           {chevron}
         </button>

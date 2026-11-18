@@ -39,6 +39,7 @@ describe('shownText', () => {
     // A call names the file it worked on, after a line that says what it was for.
     expect(shownText(item('tool', 'Read · `notes.md`', { file: '/Users/me/notes.md' }))).toBe('Read · notes.md');
     expect(shownText(item('tool', 'View file · Reading the config', { file: '/Users/me/config.toml' }))).toBe('View file · Reading the config · config.toml');
+    expect(shownText(item('tool', "Read · `it's.md`", { file: '/Users/me/it`s.md' }))).toBe('Read · it`s.md');
   });
 
   it('reads Codex directives as they’re drawn, in a reply or a prompt, and Codealong’s as written', () => {

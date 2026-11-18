@@ -691,7 +691,10 @@ fn call(t: &Value) -> Call {
     let asking = t.pointer("/additionalData/status").and_then(Value::as_str) == Some("pending");
     let command = (base == "run_terminal_command").then(|| text(&params, "command")).flatten();
     let cwd = text(&params, "cwd").filter(|c| c.starts_with('/'));
-    let file = ["targetFile", "relativeWorkspacePath", "path", "targetDirectory"].iter().find_map(|k| text(&params, k)).filter(|p| p.starts_with('/'));
+    // As recorded, untrimmed, for the label and the link to name the same file: a name can end
+    // in a space.
+    let named = ["targetFile", "relativeWorkspacePath", "path", "targetDirectory"].iter().find_map(|k| params.get(*k).and_then(Value::as_str).filter(|p| !p.trim().is_empty()));
+    let file = named.filter(|p| p.starts_with('/')).map(String::from);
     // An MCP server's tool is `mcp-<server>-<tool>`, and both may have dashes in them.
     let word = match (name.strip_prefix("mcp-"), text(&raw, "providerIdentifier"), text(&raw, "toolName")) {
         (Some(_), Some(server), Some(tool)) => format!("{server} · {tool}"),
@@ -743,9 +746,9 @@ fn call(t: &Value) -> Call {
         waits: open && (review == "Requested" || asking),
         output,
         failed: matches!(status, "error" | "cancelled") || rejected,
-        // As recorded, a Windows path and a name that ends in a space too; one named from the
-        // chat's folder is taken from there by transcript.rs (`files_from`).
-        file: ["targetFile", "relativeWorkspacePath", "path"].iter().find_map(|k| params.get(*k).and_then(Value::as_str)).filter(|p| !p.trim().is_empty() && matches!(base, "read_file" | "edit_file" | "search_replace" | "write")).map(String::from),
+        // A Windows path too; one named from the chat's folder is taken from there by
+        // transcript.rs (`files_from`).
+        file: named.filter(|_| matches!(base, "read_file" | "edit_file" | "search_replace" | "write")).map(String::from),
     }
 }
 
@@ -2855,6 +2858,9 @@ mod tests {
         assert_eq!(call(&json!({ "name": "edit_file_v2", "params": "{\"relativeWorkspacePath\":\"/a/src/lib.rs\"}" })).file.as_deref(), Some("/a/src/lib.rs"));
         assert_eq!(call(&json!({ "name": "ripgrep_raw_search", "params": "{\"pattern\":\"fn main\",\"path\":\"/a\"}" })).file, None);
         assert_eq!(call(&json!({ "name": "delete_file", "params": "{\"targetFile\":\"/a/old.rs\"}" })).file, None);
+        // A name that ends in a space is the same file in the label and the link.
+        let spaced = call(&json!({ "name": "read_file_v2", "params": "{\"targetFile\":\"/tmp/notes \"}" }));
+        assert_eq!((spaced.label.as_str(), spaced.file.as_deref()), ("Read · `notes `", Some("/tmp/notes ")));
         // Turned down at its prompt.
         assert!(call(&json!({ "name": "switch_mode", "status": "cancelled", "userDecision": "rejected" })).failed);
         let asked = call(&json!({ "name": "ask_question", "status": "loading", "additionalData": { "status": "pending" } }));
