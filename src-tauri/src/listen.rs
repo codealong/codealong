@@ -578,11 +578,12 @@ struct Running {
     problem: Option<String>,
     /// Something it waits on that passes: the speech model downloading.
     waiting: Option<String>,
-    /// When the words being said were last sent to the windows.
+    /// When the others' words being said were last sent to the windows, and yours last looked at.
     said_at: Option<Instant>,
-    /// Whether words of yours being said are showing in the windows: ones that repeat theirs
-    /// aren't sent (echo.rs `Repeats::shown`), and what was showing goes once.
-    mine_shown: bool,
+    mine_said_at: Option<Instant>,
+    /// Your words being said as the windows show them: without what repeats theirs (echo.rs
+    /// `Repeats::shown`), so not always what was heard; None when nothing of yours shows.
+    mine_showing: Option<String>,
     /// Whether it hears both you and the others (`hears_both`): its lines are held from the first
     /// words said, so that the first of yours being said are shown without theirs too.
     both: bool,
@@ -868,41 +869,41 @@ fn heard(id: &str, event: Event) {
                     held.saying(mine, &text, now);
                 }
                 let Some(running) = state.running.get(id) else { return };
-                // The words settling (empty) always go; the ones still changing, every so often.
-                if !text.is_empty() && running.said_at.is_some_and(|at| at.elapsed() < PARTIAL_EVERY) {
-                    return;
-                }
-                // Yours as they're to be shown, without what repeats theirs (echo.rs
-                // `Repeats::shown`): looked at as yours change, and as theirs do while yours show,
-                // since yours may have come first.
-                let looked = if mine { !text.is_empty() } else { running.mine_shown };
-                let yours = looked.then(|| state.held.get(id).map(|held| held.shown(now))).flatten();
+                // Each source's words being said go every so often, and at once as they settle
+                // (empty). Yours are looked at again as theirs change too, since yours may have
+                // come first, and only every so often, being matched against theirs each time.
+                let due = |at: Option<Instant>| at.is_none_or(|at| at.elapsed() >= PARTIAL_EVERY);
+                let theirs_due = !mine && (text.is_empty() || due(running.said_at));
+                let settled = mine && text.is_empty();
+                let yours = (!settled && due(running.mine_said_at))
+                    .then(|| match state.held.get(id) {
+                        // Without what repeats theirs (echo.rs `Repeats::shown`).
+                        Some(held) => Some(held.shown(now)),
+                        None => mine.then(|| text.clone()),
+                    })
+                    .flatten();
                 let Some(running) = state.running.get_mut(id) else { return };
-                running.said_at = Some(Instant::now());
                 let session = running.session.clone();
                 let words = |text: String| Hearing { session: session.clone(), who: Some(YOU.into()), text: Some(text), ..Hearing::default() };
-                if !mine {
+                if theirs_due {
+                    running.said_at = Some(Instant::now());
                     sent.push(Hearing { who: Some(source), text: Some(text.clone()), ..words(String::new()) });
                 }
-                match (mine, yours) {
-                    // Settled, or being said: what isn't the Mac's of it.
-                    (true, None) => {
-                        running.mine_shown = !text.is_empty();
-                        sent.push(words(text));
-                    }
-                    (_, Some(yours)) if !yours.is_empty() => {
-                        running.mine_shown = true;
-                        if mine {
-                            sent.push(words(yours));
-                        }
-                    }
-                    // All of it theirs: what was showing of yours goes at once.
-                    (_, Some(_)) => {
-                        if std::mem::take(&mut running.mine_shown) {
+                if settled {
+                    // What shows of them waits for its line.
+                    running.mine_showing = None;
+                    sent.push(words(String::new()));
+                } else if let Some(yours) = yours {
+                    running.mine_said_at = Some(Instant::now());
+                    if yours.is_empty() {
+                        // All of it theirs: what was showing of yours goes at once.
+                        if running.mine_showing.take().is_some() {
                             sent.push(Hearing { gone: true, text: None, ..words(String::new()) });
                         }
+                    } else if running.mine_showing.as_ref() != Some(&yours) {
+                        running.mine_showing = Some(yours.clone());
+                        sent.push(words(yours));
                     }
-                    (false, None) => {}
                 }
             }
             for hearing in sent {
