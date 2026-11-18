@@ -736,6 +736,9 @@ impl Handle {
         let used = crate::resets::use_one(a, credit);
         let after = match &used {
             Ok(u) => u.after.clone(),
+            // Another use is under way, and says what's left once it's done: a read now could
+            // answer after it with the count from before.
+            Err(e) if e.downcast_ref::<crate::resets::Busy>().is_some() => return used,
             Err(_) => crate::resets::read_after_failure(a),
         };
         let _ = self.tx.send(Msg::ResetsOne(crate::accountpoll::identity(a), after));

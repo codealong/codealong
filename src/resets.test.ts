@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { earlyNote, expiryPhrase, heldNote, holds, resetsTitle } from './resets';
+import { earlyNote, expiryPhrase, heldNote, holds, resetsTitle, usable } from './resets';
 import type { Meter, Resets } from './types';
 
 const NOW = Date.UTC(2026, 10, 18, 20, 0);
@@ -15,11 +15,15 @@ function meter(percent: number): Meter {
 }
 
 describe('limit resets', () => {
-  it('marks only an account holding one Codealong can use', () => {
+  it('marks an account holding one, and offers to use only one it can name', () => {
     expect(holds(resets(3, [NOW + DAY]))).toBe(true);
     expect(holds(resets(0, []))).toBe(false);
-    expect(holds({ ...resets(1, []), canUse: false })).toBe(false);
     expect(holds(undefined)).toBe(false);
+    expect(usable(resets(3, [NOW + DAY]))).toBe(true);
+    // Only counted: marked, its card says why it can't be used from here.
+    expect(holds(resets(2, []))).toBe(true);
+    expect(usable(resets(2, []))).toBe(false);
+    expect(usable({ ...resets(1, [null]), canUse: false })).toBe(false);
   });
 
   it('counts them', () => {

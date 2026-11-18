@@ -372,9 +372,13 @@ fn use_reset(args: &Args, _: &[String]) -> Done {
 /// account and maybe a credit, and nothing else on it.
 fn reset_line<'a>(args: &Args<'a>) -> Option<(&'a String, Option<&'a str>)> {
     let at = args.0.iter().position(|a| a == "--use-reset")?;
-    let before = &args.0[..at];
-    // What comes before is the program, wherever it is, and `--snapshot`.
-    if before.iter().any(|a| a.starts_with('-') && a != "--snapshot") || before.iter().filter(|a| !a.starts_with('-')).count() > 1 {
+    // What comes before is the program, wherever it is, and `--snapshot`, once.
+    let fits = match &args.0[..at] {
+        [snapshot] => snapshot == "--snapshot",
+        [program, snapshot] => !program.starts_with('-') && snapshot == "--snapshot",
+        _ => false,
+    };
+    if !fits {
         return None;
     }
     match &args.0[at + 1..] {
@@ -918,6 +922,7 @@ mod tests {
         assert_eq!(reset(line(&["--snapshot", "--use-reset", "atlas", "c1"])), Some(("atlas".into(), Some("c1".into()))));
         assert_eq!(reset(["--snapshot", "--use-reset", "atlas"].map(String::from).to_vec()), Some(("atlas".into(), None)), "or without it");
         assert_eq!(reset(line(&["--snapshot", "kestrel", "--use-reset", "atlas"])), None, "a word of its own before the flag");
+        assert_eq!(reset(line(&["--snapshot", "--snapshot", "--use-reset", "atlas"])), None, "`--snapshot` twice");
         for words in [&["--snapshot", "--send", "claude:claude:abc"][..], &["--snapshot", "--stop"], &["--snapshot", "--answer", "k", "id"], &["--snapshot", "--answer", "k", "id", "maybe"], &["--snapshot", "--rename", "k"], &["--snapshot", "--pr", "o/r", "seven"], &["--snapshot", "--start-plan", "/r", "claude", "the moon"], &["--snapshot", "--side", "k"]] {
             assert_eq!(cli(&line(words)), 2, "{words:?}");
         }

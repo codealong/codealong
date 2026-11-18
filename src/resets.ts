@@ -10,9 +10,15 @@ export function resetsOf(list: Resets[] | undefined, account: string): Resets | 
   return list?.find((r) => r.account === account);
 }
 
-/** The bar marks it: it holds a reset Codealong can use. */
+/** The bar marks it: it holds a reset. */
 export function holds(r: Resets | undefined): r is Resets {
-  return !!r && r.canUse && r.available > 0;
+  return !!r && r.available > 0;
+}
+
+/** Its card offers Use a reset: Codealong can use one, and knows which (a use names it). One the
+ *  provider only counts, its card says why not. */
+export function usable(r: Resets | undefined): boolean {
+  return holds(r) && r.canUse && r.credits.length > 0;
 }
 
 /** Its heading in the chip's card: `3 limit resets`. */

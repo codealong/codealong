@@ -30,7 +30,7 @@ import { useCallback, useEffect, useLayoutEffect, useRef, useState, type ReactNo
 import { createPortal } from 'react-dom';
 import { agoPhrase, resetsPhrase, untilShort } from '../format';
 import { usageNote } from '../harness';
-import { earlyNote, heldNote, holds, resetsOf, resetsTitle } from '../resets';
+import { earlyNote, heldNote, holds, resetsOf, resetsTitle, usable } from '../resets';
 import { cardTitle, flagged, readNote, trainingOf } from '../training';
 import type { DeviceView, Load, Meter, Resets, Severity, Training, Usage } from '../types';
 import { LoadTag } from './LoadTag';
@@ -285,7 +285,7 @@ function UsageCard({ usage: u, now, anchor, meters, training: t, onStopTraining,
   const asOf = asOfPhrase(u, now);
   const read = t && readNote(t, now);
   const early = r && earlyNote(u.meters);
-  const acts = !!t || !!r;
+  const acts = !!t || usable(r);
   return createPortal(
     <div
       ref={ref}
@@ -350,7 +350,9 @@ function UsageCard({ usage: u, now, anchor, meters, training: t, onStopTraining,
           <div className="ca-resets-text" title={r.credits[0]?.description ?? undefined}>
             {heldNote(r, now)}
           </div>
-          {stillAsking ? (
+          {!usable(r) ? (
+            r.note && <div className="ca-resets-early">{r.note.replace(/`/g, '')}</div>
+          ) : stillAsking ? (
             // Cancel is where Use a reset… was, so a second click there spends nothing.
             <div className="ca-resets-foot">
               <span className="ca-resets-ask">Reset {u.account}’s limits now? This uses one.</span>
@@ -559,7 +561,7 @@ export function UsageBar({ usage: board, now, onRefresh, onAccounts, onUsage, on
   }, [fit, hide]);
   // A press anywhere but on a card's buttons. Any key, which goes on to do what it does, puts away
   // a card that only shows; one with buttons goes on Escape, so Return and Space work them.
-  const peekHasButtons = !!peek && (flagged(trainingOf(training, peek.account)) || holds(resetsOf(resets, peek.account)));
+  const peekHasButtons = !!peek && (flagged(trainingOf(training, peek.account)) || usable(resetsOf(resets, peek.account)));
   useDismiss(null, () => hide(true), { when: !!peek, keys: peekHasButtons ? 'escape' : 'any', inside: '.ca-usage-popover.has-buttons' });
   useEffect(() => {
     const el = row.current;
@@ -579,7 +581,8 @@ export function UsageBar({ usage: board, now, onRefresh, onAccounts, onUsage, on
   const peekedResets = peeked && resetsOf(resets, peeked.account);
   const heldPeek = holds(peekedResets) && !peeked?.needsSignIn ? peekedResets : undefined;
   const peekMeters = fit !== 'all' && !!peeked && peeked.meters.length > 0;
-  const peekActs = !!flaggedPeek || !!heldPeek;
+  // A card with buttons stays up while the pointer is on it.
+  const peekActs = !!flaggedPeek || usable(heldPeek);
   // A signed-out chip has no card for its resets: signing in comes first.
   const heldBy = (u: Usage) => {
     const r = resetsOf(resets, u.account);
@@ -624,7 +627,7 @@ export function UsageBar({ usage: board, now, onRefresh, onAccounts, onUsage, on
           })}
         </div>
       ))}
-      {peeked && peek && (peekMeters || peekActs) && (
+      {peeked && peek && (peekMeters || peekActs || heldPeek) && (
         <UsageCard
           key={peeked.account}
           usage={peeked}

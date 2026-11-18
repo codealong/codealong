@@ -10,7 +10,7 @@
 use std::collections::BTreeSet;
 use std::sync::Mutex;
 
-use anyhow::{anyhow, bail, Result};
+use anyhow::{anyhow, Result};
 use serde::{Deserialize, Serialize};
 
 use crate::config::AccountCfg;
@@ -127,12 +127,25 @@ static USING: Mutex<BTreeSet<String>> = Mutex::new(BTreeSet::new());
 /// A use under way, until it's dropped.
 struct Using(String);
 
+/// A use turned away because another of the account's is under way: nothing was asked, and the
+/// one under way says what's left.
+#[derive(Debug)]
+pub struct Busy(String);
+
+impl std::fmt::Display for Busy {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "A reset of {}'s is being used already.", self.0)
+    }
+}
+
+impl std::error::Error for Busy {}
+
 impl Using {
     fn begin(account: &AccountCfg) -> Result<Using> {
         let id = crate::accountpoll::identity(account);
         let mut using = USING.lock().map_err(|_| anyhow!("Codealong couldn't tell whether a reset of {}'s is being used.", account.name))?;
         if !using.insert(id.clone()) {
-            bail!("A reset of {}'s is being used already.", account.name);
+            return Err(Busy(account.name.clone()).into());
         }
         Ok(Using(id))
     }
@@ -276,7 +289,8 @@ mod tests {
     fn a_second_use_while_one_is_under_way_is_turned_away() {
         let a = AccountCfg { home: "~/.codex-using-test".into(), ..account("codex") };
         let first = Using::begin(&a).unwrap();
-        assert!(Using::begin(&a).is_err());
+        let busy = Using::begin(&a).err().unwrap();
+        assert!(busy.downcast_ref::<Busy>().is_some(), "the engine tells it from a failed use by this: {busy}");
         assert!(Using::begin(&AccountCfg { home: "~/.codex-using-test2".into(), ..account("codex2") }).is_ok(), "another account's is its own");
         drop(first);
         assert!(Using::begin(&a).is_ok(), "once it's over");
