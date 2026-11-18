@@ -230,12 +230,13 @@ impl TranscriptInfo {
     /// What it holds of yours (`queue`): words typed or sent, not a background task's
     /// notification or another session's message, which the conversation shows as theirs once
     /// the turn takes it in. Each says what the conversation will say it said (`prompt_words`),
-    /// a file it mentions that Codealong keeps by its reference again (transcript.rs `shown_in`):
-    /// an image sent from a window shows in place while it's held, as it did while it went.
+    /// a mention of a file Codealong keeps by its reference again, as the conversation has it: an
+    /// image sent from a window shows in place while it's held, as it did while it went. Nothing
+    /// else is rewritten, since Edit sends these words again (`attachments::mentions_written_in`).
     /// Taking one out goes by the words as the queue has them (`holding`), not these.
     pub fn held(&self) -> Vec<QueuedMessage> {
         let (images, files) = (crate::attachments::images_dir(), crate::attachments::files_dir());
-        self.queue.iter().filter_map(|m| Some(QueuedMessage { text: crate::attachments::written_in(&prompt_words(&m.text)?, &images, &files), ..m.clone() })).collect()
+        self.queue.iter().filter_map(|m| Some(QueuedMessage { text: crate::attachments::mentions_written_in(&prompt_words(&m.text)?, &images, &files), ..m.clone() })).collect()
     }
 
     /// When it last did something: its last line, or the end of its last turn while a compaction
