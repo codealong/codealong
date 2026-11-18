@@ -93,9 +93,21 @@
 
   // Group's choices, behind View over the list (prelude.js `viewChoice`).
   var button = function (label) { return viewChoice(label, 'Group'); };
-  // Clicks one of Group's choices once View shows them: an Escape on the way (a menu put away)
-  // takes the popover down too, and asking again brings it back.
-  var choose = function (label) { return until(function () { return button(label); }, 3000, 'Group’s ' + label).then(function (b) { b.click(); }); };
+  // Clicks one of Group's choices: at once while View shows them, in the same turn as what came
+  // before it (a group folded with its selected session in it, then the grouping changed, is
+  // one step, as a click on the old buttons made it); else once an Escape on the way (a menu put
+  // away), which takes the popover down too, has been undone by asking again. It resolves a
+  // moment later, once the list's effects have run too (the one that opens a selected session's
+  // group as the list is grouped): a promise resolved at once saw the new headings before that.
+  var click = function (b) {
+    b.click();
+    return wait(50);
+  };
+  var choose = function (label) {
+    var now = button(label);
+    if (now) return click(now);
+    return until(function () { return button(label); }, 3000, 'Group’s ' + label).then(click);
+  };
   var on = function (label) { var b = button(label); return !!b && b.classList.contains('is-on') && b.getAttribute('aria-checked') === 'true'; };
   var heads = function () { return all('.ca-sessionlist .ca-grouphead.is-worktree-head'); };
   var repoHeads = function () { return all('.ca-sessionlist .ca-grouphead.is-repo-head'); };
