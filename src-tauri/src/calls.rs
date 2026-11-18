@@ -127,12 +127,11 @@ calls! {
     }
 
     /// Done with a session: it ends as far as Codealong can end it, and is marked seen and
-    /// archived (`actions::done`). `stop` ends work under way too, and `end_helpers` names its
-    /// helpers whose work isn't over to end with it; the rest of those are made your own.
-    /// Returns whether it was done, what happened in a sentence, and the time of the board that
-    /// shows it.
-    fn session_done(c, key: String, stop: bool, end_helpers: Vec<String>) -> Result<Value, String> {
-        actions::run(&c.engine, &c.peers, api::SESSION_DONE, &key, actions::params::Done { stop, end_helpers, ..Default::default() })
+    /// archived (`actions::done`). `stop` ends work under way too; `end_helpers` and
+    /// `keep_helpers` are what you chose for its helpers whose work isn't over. Returns whether
+    /// it was done, what happened in a sentence, and the time of the board that shows it.
+    fn session_done(c, key: String, stop: bool, end_helpers: Vec<String>, keep_helpers: Vec<String>) -> Result<Value, String> {
+        actions::run(&c.engine, &c.peers, api::SESSION_DONE, &key, actions::params::Done { stop, end_helpers, keep_helpers, ..Default::default() })
     }
 
     /// Marks sessions seen, each on the device it's on: its status changes there, and so on every
@@ -512,9 +511,9 @@ calls! {
 
     /// Does what the merge box asked to a PR as you, and returns once GitHub has done it. With
     /// `done` (Merge and done…), the session that key names is marked done once GitHub has merged
-    /// the PR, here rather than by the window, which may have closed by then, and the helpers of
-    /// its whose work isn't over that `end_helpers` names with it.
-    fn merge_pr(c, repo: String, number: u64, id: String, op: prmerge::Op, done: Option<String>, end_helpers: Option<Vec<String>>) -> Result<MergeDone, String> {
+    /// the PR, here rather than by the window, which may have closed by then, its helpers as you
+    /// chose (`end_helpers`, `keep_helpers`).
+    fn merge_pr(c, repo: String, number: u64, id: String, op: prmerge::Op, done: Option<String>, end_helpers: Option<Vec<String>>, keep_helpers: Option<Vec<String>>) -> Result<MergeDone, String> {
         let acted = prmerge::act(number, &id, &op).map_err(words)?;
         let shown_at = if acted.merged {
             c.engine.merged(&repo, number)
@@ -523,7 +522,7 @@ calls! {
             None
         };
         let (done, done_error) = match done {
-            Some(key) if acted.merged => match actions::run(&c.engine, &c.peers, api::SESSION_DONE, &key, actions::params::Done { stop: true, end_helpers: end_helpers.unwrap_or_default(), ..Default::default() }) {
+            Some(key) if acted.merged => match actions::run(&c.engine, &c.peers, api::SESSION_DONE, &key, actions::params::Done { stop: true, end_helpers: end_helpers.unwrap_or_default(), keep_helpers: keep_helpers.unwrap_or_default(), ..Default::default() }) {
                 Ok(answer) => (Some(answer), None),
                 Err(e) => (None, Some(e)),
             },

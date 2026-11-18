@@ -753,18 +753,18 @@ describe('mergeAhead', () => {
   it('hands the engine the merge, and what GitHub couldn’t do after', async () => {
     api.mergePr.mockResolvedValueOnce({ note: 'Merged #7, but couldn’t delete its branch: gone', shownAt: NOW });
     await expect(mergeAhead(pr, 'PR_7', merge)).resolves.toBe('Merged #7, but couldn’t delete its branch: gone');
-    expect(api.mergePr).toHaveBeenCalledWith('o/r', 7, 'PR_7', merge, undefined, []);
+    expect(api.mergePr).toHaveBeenCalledWith('o/r', 7, 'PR_7', merge, undefined, { end: [], keep: [] });
   });
 
   it('has the engine mark a session done with the merge, for Merge and done…', async () => {
     const answer = { note: null, shownAt: NOW, done: { done: true, message: 'Done with “Fix it”: it’s archived.', at: NOW } };
     api.mergePr.mockResolvedValueOnce(answer);
     await expect(mergeDoneAhead(pr, 'PR_7', merge, 'claude:c:1')).resolves.toEqual(answer);
-    expect(api.mergePr).toHaveBeenCalledWith('o/r', 7, 'PR_7', merge, 'claude:c:1', []);
-    // Its helpers whose work isn't over end with it only as the dialog's box named them.
+    expect(api.mergePr).toHaveBeenCalledWith('o/r', 7, 'PR_7', merge, 'claude:c:1', { end: [], keep: [] });
+    // Its helpers whose work isn't over go as the dialog's box chose for them.
     api.mergePr.mockResolvedValueOnce(answer);
-    await mergeDoneAhead(pr, 'PR_7', merge, 'claude:c:1', ['codex:codex:h']);
-    expect(api.mergePr).toHaveBeenLastCalledWith('o/r', 7, 'PR_7', merge, 'claude:c:1', ['codex:codex:h']);
+    await mergeDoneAhead(pr, 'PR_7', merge, 'claude:c:1', { end: ['codex:codex:h'], keep: [] });
+    expect(api.mergePr).toHaveBeenLastCalledWith('o/r', 7, 'PR_7', merge, 'claude:c:1', { end: ['codex:codex:h'], keep: [] });
     api.mergePr.mockRejectedValueOnce(new Error('Couldn’t merge #7: Head branch was modified.'));
     await expect(mergeDoneAhead(pr, 'PR_7', merge, 'claude:c:1')).rejects.toThrow('Head branch was modified.');
   });

@@ -2671,7 +2671,7 @@ mod tests {
         let noted = |key: &str, from: &str, how| (key.to_string(), Entry { from: from.into(), how, at: 0, helper: false, report: false, known: false });
         let origins = Store {
             sessions: [noted("claude:claude2:c0", "claude:claude:s1", OriginHow::Fork), noted("claude:claude:f1", "claude:claude:s1", OriginHow::Fork), noted("claude:claude2:b1", "claude:claude:s1", OriginHow::Started)].into(),
-            pending: Vec::new(),
+            ..Store::default()
         };
 
         // Its process ended before its first message, so Claude Code has nothing of it: it shows

@@ -7538,9 +7538,12 @@ mod tests {
         for state in [PrState::Draft, PrState::Open, PrState::Approved, PrState::Changes, PrState::Merged, PrState::Closed] {
             assert!(states.contains(&state), "{state:?}");
         }
-        let says: serde_json::Map<String, serde_json::Value> = all()
-            .filter(|s| s.visitor.is_none())
-            .map(|s| {
+        // By worktree and key: two cases in different worktrees may share an id.
+        let says: serde_json::Map<String, serde_json::Value> = lanes
+            .iter()
+            .flat_map(|l| l.sessions.iter().map(move |s| (l, s)))
+            .filter(|(_, s)| s.visitor.is_none())
+            .map(|(l, s)| {
                 let said = serde_json::json!({
                     "unattended": s.unattended(),
                     "helpsAnAgent": s.helps_an_agent(),
@@ -7548,7 +7551,7 @@ mod tests {
                     "waitsAtAPrompt": s.waits_at_a_prompt(),
                     "unfinished": s.unfinished(),
                 });
-                (s.key.clone(), said)
+                (format!("{}::{}", l.id, s.key), said)
             })
             .collect();
         // Each worktree again with one of the sessions it lists gone, a visitor among them, as a

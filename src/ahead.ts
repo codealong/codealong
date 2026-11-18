@@ -34,7 +34,7 @@
 // the thread.
 
 import { useSyncExternalStore } from 'react';
-import { archiveSession, asideSessions, emitAhead, labelSessions, markSeen, markUnread, mergePr, onAhead, quietSessions, raiseSessions, renameSession, resumeSession, reviewPr, sendToSession, sessionAnswer, sessionDone, sessionSteer, sessionUnqueue, snoozeReviews, snoozeSessions, windowLabel, type Done, type MergeDone } from './api';
+import { archiveSession, asideSessions, emitAhead, labelSessions, markSeen, markUnread, mergePr, onAhead, quietSessions, raiseSessions, renameSession, resumeSession, reviewPr, sendToSession, sessionAnswer, sessionDone, sessionSteer, sessionUnqueue, snoozeReviews, snoozeSessions, windowLabel, type Done, type HelpersChosen, type MergeDone } from './api';
 import { readDraft, restoreDraft } from './drafts';
 import { nameShown } from './harness';
 import { heldForAgent } from './prStatus';
@@ -934,9 +934,9 @@ export function mergeAhead(pr: Pick<PrItem, 'key' | 'repoSlug' | 'number'>, id: 
  *  the window that asked has gone by then. The session shows seen and archived as it's asked, as
  *  Mark as done does (`doneAhead`), and is back as it was where GitHub refuses the merge or the
  *  engine didn't mark it done. */
-export function mergeDoneAhead(pr: Pick<PrItem, 'key' | 'repoSlug' | 'number'>, id: string, op: MergeOp & { op: 'merge' }, key: string, endHelpers: string[] = []): Promise<MergeDone> {
+export function mergeDoneAhead(pr: Pick<PrItem, 'key' | 'repoSlug' | 'number'>, id: string, op: MergeOp & { op: 'merge' }, key: string, helpers: HelpersChosen = { end: [], keep: [] }): Promise<MergeDone> {
   const shown = doneShown(key);
-  return merging(pr, id, op, key, endHelpers).then(
+  return merging(pr, id, op, key, helpers).then(
     (d) => {
       shown.answered(d.done);
       return d;
@@ -949,10 +949,10 @@ export function mergeDoneAhead(pr: Pick<PrItem, 'key' | 'repoSlug' | 'number'>, 
 }
 
 /** A merge, shown merged in every window as it's asked, and back with why when GitHub refuses it. */
-function merging(pr: Pick<PrItem, 'key' | 'repoSlug' | 'number'>, id: string, op: MergeOp, done?: string, endHelpers: string[] = []): Promise<MergeDone> {
+function merging(pr: Pick<PrItem, 'key' | 'repoSlug' | 'number'>, id: string, op: MergeOp, done?: string, helpers: HelpersChosen = { end: [], keep: [] }): Promise<MergeDone> {
   const a = made({ kind: 'pr-merge', key: pr.key });
   put(a, true);
-  return mergePr(pr.repoSlug, pr.number, id, op, done, endHelpers).then(
+  return mergePr(pr.repoSlug, pr.number, id, op, done, helpers).then(
     (d) => {
       answered(a.id, d.shownAt);
       return d;
@@ -1001,10 +1001,10 @@ export function archiveAhead(key: string, archived: boolean): Promise<void> {
  *  it (actions.rs `done`). One the engine held for work under way comes back, and so does one it
  *  couldn't do, which rejects with why. With `after`, the engine is asked once that settles:
  *  several done together all show at once, and their terminals close one after another.
- *  `endHelpers` names its helpers whose work isn't over to end; the rest are made your own. */
-export function doneAhead(key: string, stop: boolean, after?: Promise<unknown>, endHelpers: string[] = []): Promise<Done> {
+ *  Its helpers go as `helpers` chose. */
+export function doneAhead(key: string, stop: boolean, after?: Promise<unknown>, helpers: HelpersChosen = { end: [], keep: [] }): Promise<Done> {
   const shown = doneShown(key);
-  const ask = () => sessionDone(key, stop, endHelpers);
+  const ask = () => sessionDone(key, stop, helpers);
   const asked = after ? after.then(ask, ask) : ask();
   return asked.then(
     (r) => {

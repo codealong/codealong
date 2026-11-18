@@ -11,7 +11,7 @@
 // back where GitHub refuses the merge) is here.
 
 import { useEffect, useState } from 'react';
-import { chromeProfiles, closeSession, desktopPins, expandAttachments, forkSession, getAccounts, inPreview, moveSession, moveSessionTo, onDesktopPins, openInChrome, openUrl, ownSessions, pinToDesktop, resumeSession, sessionCancel, sessionWindow, signIn, stopListening, setPrNudge, setPrPrimary, setReusable, showQuick, unpinFromDesktop, type MergeDone } from './api';
+import { chromeProfiles, closeSession, desktopPins, expandAttachments, forkSession, getAccounts, inPreview, moveSession, moveSessionTo, onDesktopPins, openInChrome, openUrl, ownSessions, pinToDesktop, resumeSession, sessionCancel, sessionWindow, signIn, stopListening, setPrNudge, setPrPrimary, setReusable, showQuick, unpinFromDesktop, type MergeDone, NONE_CHOSEN, type HelpersChosen } from './api';
 import { archiveAhead, asideAhead, doneAhead, labelAhead, quietAhead, raiseAhead, seenAhead, sendAhead, sentWorthSaying, unreadAhead } from './ahead';
 import { copyText } from './clipboard';
 import { showContextMenu, type MenuAction, type MenuGroup, type MenuImage, type MenuSpec } from './contextMenu';
@@ -233,21 +233,40 @@ export interface DoneHelpersAsk {
 
 /** The helpers of the sessions `keys` names whose work isn't over (lanes.ts `unfinished`), in
  *  `lanes`, each once (not where it visits) and not one marked done with them: at work, or
- *  waiting on you. Mark as done asks about
- *  these, and about no others: a helper whose work is over ends with its session, as the review
- *  it did is done. The engine sorts them so too (actions.rs `helpers_leaving`). */
+ *  waiting on you. Mark as done asks about these, and about no others: a helper whose work is
+ *  over ends with its session, as the review it did is done, and so are its own helpers, so
+ *  those whose work isn't over are asked about too. The engine sorts them so (actions.rs
+ *  `finish_helpers`). */
 export function unfinishedHelpers(lanes: readonly Lane[], keys: readonly string[]): Session[] {
-  return lanes.flatMap((l) => l.sessions).filter((h) => !h.visitor && !h.archived && !keys.includes(h.key) && h.helper?.parent != null && keys.includes(h.helper.parent) && unfinished(h));
+  const all = lanes.flatMap((l) => l.sessions).filter((h) => !h.visitor && !h.archived);
+  const seen = new Set(keys);
+  const parents = [...keys];
+  const out: Session[] = [];
+  for (let parent = parents.shift(); parent !== undefined; parent = parents.shift()) {
+    for (const h of all) {
+      if (h.helper?.parent !== parent || seen.has(h.key)) continue;
+      seen.add(h.key);
+      if (unfinished(h)) out.push(h);
+      else parents.push(h.key);
+    }
+  }
+  return out;
 }
 
 /** Marks done as `go` does, once a window has asked what becomes of the helpers of `sessions`
  *  whose work isn't over, where there are any and the window has its dialog (`doneHelpers`):
  *  with the keys of those you chose to end, so the engine ends those and no others, one that
  *  came since the dialog showed among them. */
-function askingOfHelpers(sessions: Session[], doneHelpers: DoneHelpersCan | undefined, go: (endHelpers: string[]) => void) {
+function askingOfHelpers(sessions: Session[], doneHelpers: DoneHelpersCan | undefined, go: (helpers: HelpersChosen) => void) {
   const helpers = doneHelpers ? unfinishedHelpers(doneHelpers.lanes, sessions.map((s) => s.key)) : [];
-  if (doneHelpers && helpers.length > 0) return doneHelpers.ask({ sessions, helpers, then: (end) => go(end ? helpers.map((h) => h.key) : []) });
-  go([]);
+  if (doneHelpers && helpers.length > 0) return doneHelpers.ask({ sessions, helpers, then: (end) => go(helpersChosen(helpers, end)) });
+  go(NONE_CHOSEN);
+}
+
+/** The helpers shown, chosen to end (`end`) or to make your own. */
+export function helpersChosen(helpers: readonly Session[], end: boolean): HelpersChosen {
+  const keys = helpers.map((h) => h.key);
+  return end ? { end: keys, keep: [] } : { end: [], keep: keys };
 }
 
 /** What a window's Merge and done… dialog asks about: the session, the PR it's the primary
@@ -889,7 +908,7 @@ export function sessionsActions(picked: { lane: Lane; session: Session }[], can:
     if (asked.length === 0) return report.info(`${still} ${working.length === 1 ? DONE_AGAIN : DONE_AGAIN_MANY}`);
     askingOfHelpers(asked.map((g) => g.s), can.doneHelpers, (endHelpers) => doneThese(asked, working, still, endHelpers));
   };
-  const doneThese = (asked: { s: Session; stop: boolean }[], working: Session[], still: string, endHelpers: string[]) => {
+  const doneThese = (asked: { s: Session; stop: boolean }[], working: Session[], still: string, endHelpers: HelpersChosen) => {
     can.left?.('done', asked.map((g) => g.s.key));
     // They all show as done at once, and the engine ends them one after another.
     let before: Promise<unknown> | undefined;

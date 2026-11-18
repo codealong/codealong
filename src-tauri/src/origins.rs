@@ -53,6 +53,10 @@ pub struct Store {
     /// waiting for the first new session of theirs to show up (`resolve`).
     #[serde(default)]
     pub pending: Vec<Pending>,
+    /// Helpers among `sessions` whose session was told they hadn't shown up (helpers.rs
+    /// `News::Unseen`), so a server started since doesn't tell it again (`told_unseen`).
+    #[serde(default, skip_serializing_if = "std::collections::BTreeSet::is_empty")]
+    pub unseen: std::collections::BTreeSet<String>,
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
@@ -210,6 +214,8 @@ impl Store {
     fn prune(&mut self, now: i64) {
         self.sessions.retain(|_, e| now - e.at < KEEP_MS);
         self.pending.retain(|p| now - p.at < p.waits());
+        let sessions = &self.sessions;
+        self.unseen.retain(|k| sessions.contains_key(k));
     }
 }
 
@@ -329,6 +335,14 @@ fn change_in(path: &Path, f: impl FnOnce(&mut Store) -> bool) -> Result<()> {
         changed
     })?;
     Ok(())
+}
+
+/// Notes that the session that started the helper `key` was told it hadn't shown up (helpers.rs
+/// `News::Unseen`), once and for good.
+pub fn told_unseen(key: &str) {
+    if let Err(e) = change(|s| s.unseen.insert(key.to_string())) {
+        eprintln!("Couldn't note that {key} was told of: {e:#}");
+    }
 }
 
 /// Notes that the session `key` came from `from`. A session never comes from itself.

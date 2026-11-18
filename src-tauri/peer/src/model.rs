@@ -634,11 +634,13 @@ impl Session {
 
     /// Whether its work isn't over: it's taking a turn or has what its turn left running in the
     /// background (`left_running`), or it waits on you (a call to allow, a question, a reply that
-    /// asks, an error). A helper of a session marked done that's like this goes on as yours
+    /// asks, an error), or a command you ran for it still runs, which an app's thread between
+    /// turns has without running itself. A helper of a session marked done that's like this goes on as yours
     /// unless you say to end it too, which the windows ask (actions.rs `finish_helpers`).
     /// `src/lanes.ts` `unfinished` says the same for the windows.
     pub fn unfinished(&self) -> bool {
-        (self.live && (self.status == Status::Working || self.left_running())) || matches!(self.status, Status::Needs | Status::Error)
+        let yours_running = self.running.as_ref().is_some_and(|r| r.yours);
+        (self.live && (self.status == Status::Working || self.left_running())) || yours_running || matches!(self.status, Status::Needs | Status::Error)
     }
 
     /// Working only in that it waits on what its turn left running in the background

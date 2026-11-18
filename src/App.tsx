@@ -424,7 +424,7 @@ export function App() {
   const mergingDone = useMergeDone(true);
   // Mark as done's question about helpers whose work isn't over (menus.ts `doneHelpers`).
   const askingHelpers = useDoneHelpers();
-  const doneHelpers = board ? { lanes: board.lanes, ask: askingHelpers.ask } : undefined;
+  const doneHelpers = board ? { lanes: [...board.lanes, ...deviceLanes], ask: askingHelpers.ask } : undefined;
   useEffect(() => onCloseIdle(() => setCloseIdle(true)), []);
   useEffect(() => onCloseStale(() => setCloseStale(true)), []);
   // ⌘= ⌘- ⌘0 (mainKeys.ts) and View's zoom items zoom every board window: the engine saves the

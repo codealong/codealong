@@ -23,8 +23,8 @@
 //! So is one whose start knew its session's key (a background job's, say) and whose session
 //! hasn't shown `UNSEEN_MS` on (`News::Unseen`): its start likely failed before it made one, and
 //! its session would wait on it for nothing. One that has shown is never told of, nor is one
-//! that shows before the news goes; and as with a turn that ended, a server that starts with one
-//! overdue only notes it, as the server before may have told of it.
+//! that shows before the news goes, and one told of is noted in origins.json, so a server
+//! started since doesn't tell it again.
 
 use std::collections::{BTreeMap, HashMap, HashSet};
 use std::sync::Mutex;
@@ -141,11 +141,9 @@ pub struct Reporter {
     /// When each stuck start was first found stuck here, by the session that asked and when it
     /// did, for the wait for its screen.
     stuck_seen: HashMap<(String, i64), i64>,
-    /// The starts that knew their session's key that are settled, by that key: told of as
-    /// unseen (`News::Unseen`), or seen on the board.
+    /// The starts that knew their session's key that are settled, by that key: owed or told as
+    /// unseen (`News::Unseen`) since the server started, or seen on the board.
     settled_starts: HashSet<String>,
-    /// A board has been looked at since the server started (`due`).
-    looked: bool,
     /// When to look again though no board comes, and the time a wake was asked for (`wake`), so
     /// one is asked for each: the news gathered on the last board is due (`GATHER_MS`), or a
     /// helper's session that hasn't shown has had its time (`UNSEEN_MS`).
@@ -201,8 +199,7 @@ impl Reporter {
         let mut unseen_due = None;
         let looked_for = |e: &Entry| e.helper && e.report && e.known && e.how == OriginHow::Started && now - e.at <= UNSEEN_MS + UNSEEN_LOOK_MS;
         self.settled_starts.retain(|k| starts.sessions.get(k).is_some_and(|e| looked_for(e)));
-        let first_look = !std::mem::replace(&mut self.looked, true);
-        let open: Vec<(&String, &Entry)> = starts.sessions.iter().filter(|(k, e)| looked_for(e) && !self.settled_starts.contains(*k)).collect();
+        let open: Vec<(&String, &Entry)> = starts.sessions.iter().filter(|(k, e)| looked_for(e) && !self.settled_starts.contains(*k) && !starts.unseen.contains(*k)).collect();
         for (key, e) in open {
             // Shown once, it's not unseen, wherever it went since.
             if board.session(key).is_some() {
@@ -211,10 +208,6 @@ impl Reporter {
             }
             if now - e.at < UNSEEN_MS {
                 unseen_due = Some(unseen_due.map_or(e.at + UNSEEN_MS, |d: i64| d.min(e.at + UNSEEN_MS)));
-                continue;
-            }
-            if first_look {
-                self.settled_starts.insert(key.clone());
                 continue;
             }
             if !runs_here(&e.from) {
@@ -370,6 +363,12 @@ pub fn send_now(engine: &Handle, reporter: &Mutex<Reporter>, jobs: Vec<Job>) {
         }))
         .unwrap_or_else(|_| Err("telling it stopped partway".to_string()));
         let again = reporter.lock().unwrap_or_else(|e| e.into_inner()).told(&job, went.is_ok(), crate::util::now_ms());
+        // Told that a helper hadn't shown up, for good: a server started since doesn't again.
+        if went.is_ok() {
+            for n in job.notes.iter().filter(|n| matches!(n.news, News::Unseen { .. })) {
+                crate::origins::told_unseen(&n.helper);
+            }
+        }
         if let Err(e) = went {
             let title = engine.read(|b| b.session(&job.session).map(|(_, s)| s.title.clone())).unwrap_or_else(|| job.session.clone());
             let then = if again { " Codealong tries again in a minute or two." } else { "" };
@@ -659,12 +658,7 @@ mod tests {
         let mut store = Store::default();
         store.sessions.insert("claude:claude2:gone".into(), entry(NOW, true));
         let b = board(vec![boss(Status::Idle)]);
-        // A reporter that has looked before, as one does from the server's first board on.
-        let looked = || {
-            let mut r = Reporter::default();
-            r.due(&Store::default(), &b, NOW);
-            r
-        };
+        let looked = Reporter::default;
         let mut r = looked();
         assert!(r.due(&store, &b, NOW + 60_000).is_empty());
         assert_eq!(r.wake(), Some(NOW + UNSEEN_MS));
@@ -698,9 +692,9 @@ mod tests {
         let waiting = board(vec![boss(Status::Needs)]);
         assert!(r.due(&came, &waiting, NOW + UNSEEN_MS).is_empty(), "held while its session waits on you");
         assert!(r.due(&came, &shown, NOW + UNSEEN_MS + 60_000).is_empty());
-        // A server that starts with one overdue only notes it: the one before may have told it.
-        let mut r = Reporter::default();
-        assert!(r.due(&store, &b, NOW + UNSEEN_MS).is_empty());
-        assert!(r.due(&store, &b, NOW + UNSEEN_MS + 60_000).is_empty());
+        // One a server before this told of isn't told again; one it hadn't yet is.
+        let told = Store { unseen: ["claude:claude2:gone".to_string()].into(), ..store.clone() };
+        assert!(looked().due(&told, &b, NOW + UNSEEN_MS).is_empty());
+        assert_eq!(news(&Reporter::default().due(&store, &b, NOW + UNSEEN_MS + 60_000)).len(), 1);
     }
 }

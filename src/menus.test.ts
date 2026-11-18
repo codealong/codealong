@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { asideAhead, doneAhead, labelAhead, quietAhead, raiseAhead, seenAhead } from './ahead';
-import { getAccounts, moveSession, moveSessionTo, openInChrome, openUrl, resumeSession, sendToSession, setPrPrimary, type Done, type MergeDone } from './api';
+import { getAccounts, moveSession, moveSessionTo, openInChrome, openUrl, resumeSession, sendToSession, setPrPrimary, type Done, type MergeDone, NONE_CHOSEN } from './api';
 import type { MenuAction, MenuGroup, MenuSpec } from './contextMenu';
 import { carryOnIn, chordLetter, chordSigns, chorded, CHORDS, DONE_HOLD_MS, SUGGESTION_CHORDS, suggestionChord, doneTitle, fileMenu, keyed, laneActions, laneMenu, lanesActions, lanesMenu, mergesWith, prMenu, prsActions, prsMenu, repoMenu, sessionActions, sessionMenu, sessionsActions, sessionsMenu, todoMenu, todoPanelMenu, todosMenu, toggleWaiting, TRY_AGAIN, linkMenu, unfinishedHelpers, type DoneHelpersAsk, type MergeDoneAsk, type SessionCan, type SessionsCan, type TodoEdit } from './menus';
 import type { MergeForm } from './merge';
@@ -639,7 +639,7 @@ describe('several sessions picked together', () => {
       ask.mockClear();
       sessionsActions([busy], can).done?.run();
       await settled();
-      expect(ask).toHaveBeenLastCalledWith('claude:c:5', true, undefined, []);
+      expect(ask).toHaveBeenLastCalledWith('claude:c:5', true, undefined, NONE_CHOSEN);
       // All of them working: nothing's asked, and it says so.
       ask.mockClear();
       said.length = 0;
@@ -1362,6 +1362,10 @@ describe('actions by name', () => {
     expect(unfinishedHelpers(lanes, [boss.key]).map((s) => s.key)).toEqual(['claude:c:w', 'claude:c:n', 'claude:c:bg']);
     // Nor one picked to be marked done with it.
     expect(unfinishedHelpers(lanes, [boss.key, 'claude:c:w']).map((s) => s.key)).toEqual(['claude:c:n', 'claude:c:bg']);
+    // One of a helper whose work is over, which ends with it, is asked about too; one of a helper
+    // that's kept stays its.
+    const nested = [...sessions, helper('claude:c:review', { status: 'working', helper: { parent: 'claude:c:f' } }), helper('claude:c:inner', { status: 'working', helper: { parent: 'claude:c:w' } })];
+    expect(unfinishedHelpers([lane({ sessions: nested })], [boss.key]).map((s) => s.key)).toEqual(['claude:c:w', 'claude:c:n', 'claude:c:bg', 'claude:c:review']);
     const asked: DoneHelpersAsk[] = [];
     const doneHelpers = { lanes, ask: (a: DoneHelpersAsk) => void asked.push(a) };
     const left: string[] = [];
@@ -1373,7 +1377,7 @@ describe('actions by name', () => {
     expect(asked.map((a) => [a.sessions.map((s) => s.key), a.helpers.map((h) => h.key)])).toEqual([[[boss.key], ['claude:c:w', 'claude:c:n', 'claude:c:bg']]]);
     asked[0].then(true);
     await settled();
-    expect(ask).toHaveBeenLastCalledWith(boss.key, false, undefined, ['claude:c:w', 'claude:c:n', 'claude:c:bg']);
+    expect(ask).toHaveBeenLastCalledWith(boss.key, false, undefined, { end: ['claude:c:w', 'claude:c:n', 'claude:c:bg'], keep: [] });
     expect(left).toEqual(['done']);
     // With none whose work isn't over, or no dialog to ask in, it goes at once, and they're kept.
     ask.mockClear();
@@ -1381,8 +1385,8 @@ describe('actions by name', () => {
     sessionActions(lane(), boss, base).done?.run();
     await settled();
     expect(ask.mock.calls).toEqual([
-      [boss.key, false, undefined, []],
-      [boss.key, false, undefined, []],
+      [boss.key, false, undefined, NONE_CHOSEN],
+      [boss.key, false, undefined, NONE_CHOSEN],
     ]);
     expect(asked).toHaveLength(1);
     // Picked together, they're asked about once, and the answer goes for each.
@@ -1392,9 +1396,11 @@ describe('actions by name', () => {
     expect(asked[1].sessions.map((s) => s.key)).toEqual([boss.key, other.key]);
     asked[1].then(false);
     await settled();
+    // Kept as you chose, though one finished meanwhile.
+    const keep = { end: [], keep: ['claude:c:w', 'claude:c:n', 'claude:c:bg'] };
     expect(ask.mock.calls.map((c) => [c[0], c[3]])).toEqual([
-      [boss.key, []],
-      [other.key, []],
+      [boss.key, keep],
+      [other.key, keep],
     ]);
   });
 
@@ -1415,7 +1421,7 @@ describe('actions by name', () => {
       answer({ done: true, message: 'Done with “Fix login”: its terminal is closed and it’s archived.', at: 5 });
       sessionActions(lane(), session(), can).done?.run();
       await settled();
-      expect(ask).toHaveBeenLastCalledWith('claude:c:1', false, undefined, []);
+      expect(ask).toHaveBeenLastCalledWith('claude:c:1', false, undefined, NONE_CHOSEN);
       expect(left).toEqual(['done']);
       expect(said).toEqual([]);
       answer({ done: true, message: 'Done with “Fix login”: it’s archived. It’s still open in the Claude app.', noted: true, at: 5 });
@@ -1440,7 +1446,7 @@ describe('actions by name', () => {
       answer({ done: true, message: 'Done with “Fix login”: its terminal is closed and it’s archived.', at: 7 });
       sessionActions(lane(), busy, can).done?.run();
       await settled();
-      expect(ask).toHaveBeenLastCalledWith('claude:c:2', true, undefined, []);
+      expect(ask).toHaveBeenLastCalledWith('claude:c:2', true, undefined, NONE_CHOSEN);
       expect(left).toEqual(['done']);
 
       // Held by the engine (a command left running in the background), then asked too late: held
@@ -1456,11 +1462,11 @@ describe('actions by name', () => {
       answer({ done: false, message: '“Fix login” left `npm run dev` running in the background.' });
       sessionActions(lane(), bg, can).done?.run();
       await settled();
-      expect(ask).toHaveBeenLastCalledWith('claude:c:3', false, undefined, []);
+      expect(ask).toHaveBeenLastCalledWith('claude:c:3', false, undefined, NONE_CHOSEN);
       answer({ done: true, message: 'Done with “Fix login”: its terminal is closed and it’s archived.', at: 8 });
       sessionActions(lane(), bg, can).done?.run();
       await settled();
-      expect(ask).toHaveBeenLastCalledWith('claude:c:3', true, undefined, []);
+      expect(ask).toHaveBeenLastCalledWith('claude:c:3', true, undefined, NONE_CHOSEN);
 
       // What the engine turns down is said as an error.
       said.length = 0;

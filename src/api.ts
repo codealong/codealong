@@ -323,9 +323,9 @@ export interface MergeDone {
 /** Does what the merge box asked to PR `number` of `repo` (node id `id`) as you, once GitHub has
  *  done it, and with `done` (Merge and done…) marks that session done once it's merged. A merge
  *  goes through ahead.ts `mergeAhead`, which shows it at once. */
-export async function mergePr(repo: string, number: number, id: string, op: MergeOp, done?: string, endHelpers: string[] = []): Promise<MergeDone> {
+export async function mergePr(repo: string, number: number, id: string, op: MergeOp, done?: string, helpers: HelpersChosen = NONE_CHOSEN): Promise<MergeDone> {
   if (!inTauri) throw new Error('Merging needs the app.');
-  return invoke<MergeDone>('merge_pr', { repo, number, id, op, done: done ?? null, endHelpers });
+  return invoke<MergeDone>('merge_pr', { repo, number, id, op, done: done ?? null, endHelpers: helpers.end, keepHelpers: helpers.keep });
 }
 
 export async function reviewInCodex(url: string): Promise<void> {
@@ -576,13 +576,23 @@ export interface Done {
   at?: number | null;
 }
 
+/** What you chose for a session's helpers whose work isn't over (lanes.ts `unfinished`) as it's
+ *  marked done, by their keys, as you were shown them: those to end with it, and those to make
+ *  your own. The engine makes the rest of those yours (actions.rs `ends_with_it`). */
+export interface HelpersChosen {
+  end: string[];
+  keep: string[];
+}
+
+/** Nothing chosen: the engine's own way (`HelpersChosen`). */
+export const NONE_CHOSEN: HelpersChosen = { end: [], keep: [] };
+
 /** Done with a session: it ends as far as Codealong can end it (its terminal tab closes, its
  *  background job stops), and is marked seen and archived. `stop` ends work under way too, and
- *  `endHelpers` names its helpers whose work isn't over (lanes.ts `unfinished`) to end with it;
- *  the rest of those are made sessions of your own. */
-export async function sessionDone(key: string, stop: boolean, endHelpers: string[] = []): Promise<Done> {
+ *  its helpers go as `helpers` chose. */
+export async function sessionDone(key: string, stop: boolean, helpers: HelpersChosen = NONE_CHOSEN): Promise<Done> {
   if (!inTauri) return { done: true, message: '', at: null };
-  return invoke<Done>('session_done', { key, stop, endHelpers });
+  return invoke<Done>('session_done', { key, stop, endHelpers: helpers.end, keepHelpers: helpers.keep });
 }
 
 /** Archives or unarchives a session; Codex threads are archived in Codex itself. Returns the

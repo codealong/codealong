@@ -403,10 +403,12 @@ pub fn ending(board: &Board, s: &Session, stop: bool) -> Result<Ending, String> 
     })
 }
 
-/// Whether another session runs in the worktree `s` is listed in, not one that only visits it.
+/// Whether another session runs in the worktree its harness made for `s` (`own_worktree`, found
+/// by its path, as cleanup.rs `after_job` finds it: `s` may be listed where it worked last), not
+/// one that only visits it; archived or not, a running one counts.
 fn shares_its_worktree(board: &Board, s: &Session) -> bool {
-    let own = |l: &&Lane| l.sessions.iter().any(|o| o.key == s.key && o.visitor.is_none());
-    board.lanes.iter().filter(own).flat_map(|l| &l.sessions).any(|o| o.key != s.key && o.live && !o.archived && o.visitor.is_none())
+    let Some(own) = s.own_worktree.as_deref().map(Path::new) else { return false };
+    board.lanes.iter().filter(|l| l.device.is_none() && Path::new(&l.path) == own).flat_map(|l| &l.sessions).any(|o| o.key != s.key && o.live && o.visitor.is_none())
 }
 
 /// Whether being done with `s` types its harness's exit command rather than hanging it up: it
@@ -960,10 +962,14 @@ mod tests {
         // as yours): the exit would remove a clean worktree from under it. One that's stopped or
         // archived there doesn't count.
         let helper = Session { live: true, ..session("helper", 2, Status::Working, 0) };
-        assert_eq!(ending(&board(vec![own.clone(), helper.clone()]), &own, false), Ok(Ending::Terminal(1)));
+        let worktree = |sessions: Vec<Session>| Board { lanes: vec![crate::fixtures::lane("/work", vec![own.clone()]), crate::fixtures::lane("/work/.claude/worktrees/brave-otter", sessions)], ..Board::default() };
+        assert_eq!(ending(&worktree(vec![helper.clone()]), &own, false), Ok(Ending::Terminal(1)));
+        let archived = Session { archived: true, ..helper.clone() };
+        assert_eq!(ending(&worktree(vec![archived]), &own, false), Ok(Ending::Terminal(1)), "archived, it still runs there");
         let gone = Session { live: false, ..helper.clone() };
-        let archived = Session { archived: true, ..helper };
-        assert_eq!(ending(&board(vec![own.clone(), gone, archived]), &own, false), Ok(Ending::Exit(1)));
+        assert_eq!(ending(&worktree(vec![gone]), &own, false), Ok(Ending::Exit(1)));
+        // Where it's listed doesn't matter: only who runs in the worktree it holds.
+        assert_eq!(ending(&board(vec![own.clone(), helper]), &own, false), Ok(Ending::Exit(1)));
     }
 
     /// What would close or be archived on this Mac now, doing nothing:

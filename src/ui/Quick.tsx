@@ -132,6 +132,7 @@ import type { Attachment, Board, DesktopPinned, DevicesView, FolderLook, Hearing
 import { AttachmentStrip } from './DescriptionEditor';
 import { DevSetupDialog } from './DevSetupDialog';
 import { useDoneHelpers } from './DoneHelpers';
+import { dialogUp } from './focusTrap';
 import { ListenChoices } from './Listening';
 import { Level } from './Said';
 import { filterWords, matches, Picker, type PickerOption, type PickerSection } from './Picker';
@@ -2117,8 +2118,9 @@ export function Quick() {
   // The panel's own keys, wherever the focus is in it. A menu's filter handles its own first.
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
-      // Switch to Codealong Dev? has the keys while it's up, Escape closing it (useEscape).
-      if (e.defaultPrevented || e.isComposing || askingDev) return;
+      // Switch to Codealong Dev? has the keys while it's up, Escape closing it (useEscape), and
+      // so does any other dialog (Mark as done's about helpers).
+      if (e.defaultPrevented || e.isComposing || askingDev || dialogUp()) return;
       // Folded, the panel has the keyboard only for the moment a click on the chip takes to open
       // it again. Escape puts it away, and so do ⌘Q and ⌘H, which mean the app in front (below).
       if (folded) {

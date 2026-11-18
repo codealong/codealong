@@ -823,12 +823,14 @@ export function sessionWhy(detail: string | null, headline: string, now: number)
  *  working, drawn with a clock rather than a spinner. The engine's `Session::waits_in_background`
  *  says the same. */
 /** Whether a session's work isn't over: it's taking a turn or has what its turn left running in
- *  the background, or it waits on you (a call to allow, a question, a reply that asks, an error).
+ *  the background, a command you ran for it still runs (an app's thread between turns has one
+ *  without running itself), or it waits on you (a call to allow, a question, a reply that asks,
+ *  an error).
  *  Mark as done on the session a helper works for asks what becomes of one like this (menus.ts
  *  `doneHelpers`). The engine's `Session::unfinished` says the same. */
 export function unfinished(s: Pick<Session, 'live' | 'status' | 'background' | 'agents' | 'running'>): boolean {
   const atWork = s.status === 'working' || s.background != null || (s.agents?.length ?? 0) > 0 || s.running?.yours === true;
-  return (s.live && atWork) || s.status === 'needs' || s.status === 'error';
+  return (s.live && atWork) || s.running?.yours === true || s.status === 'needs' || s.status === 'error';
 }
 
 export function waitsInBackground(s: Pick<Session, 'status' | 'background' | 'agents' | 'running'>): boolean {

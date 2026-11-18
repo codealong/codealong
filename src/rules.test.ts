@@ -66,7 +66,7 @@ describe('the windows work out what the engine does', () => {
             waitsInBackground: waitsInBackground(s),
             waitsAtAPrompt: waitsOnYou(s),
             unfinished: unfinished(s),
-          }).toEqual(says[s.key]);
+          }).toEqual(says[`${lane.id}::${s.key}`]);
         });
 
         // What it needs you for is the engine's word, but for what the session says outright,

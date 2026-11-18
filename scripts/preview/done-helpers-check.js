@@ -5,7 +5,7 @@
 // Make them my own as its default. Cancel leaves everything as it was. Asked again, End them asks
 // the engine to end those two, by their keys (which holds the session here, for a command left
 // running, so it stays to be asked about again); asked a third time, the default button makes
-// them yours, naming none to end.
+// them yours, naming them to keep.
 //   PREVIEW_WAIT=60000 scripts/preview.sh sessions '' scripts/preview/done-helpers-check.js
 //   PREVIEW_WAIT=60000 PREVIEW_SCHEME=dark scripts/preview.sh sessions '' scripts/preview/done-helpers-check.js
 (function () {
@@ -112,7 +112,7 @@
     .then(function () {
       var a = asked()[0];
       var named = a && (a.endHelpers || []).join('|');
-      check('End them asks the engine to end those two, by their keys', !!a && a.key === picked[0].key && named === picked[1].key + '|' + picked[2].key && a.stop === false, JSON.stringify(a));
+      check('End them asks the engine to end those two, by their keys', !!a && a.key === picked[0].key && named === picked[1].key + '|' + picked[2].key && (a.keepHelpers || []).length === 0 && a.stop === false, JSON.stringify(a));
       check('and the dialog goes', !dialog());
       return wait(300);
     })
@@ -124,7 +124,8 @@
     })
     .then(function () {
       var a = asked()[1];
-      check('Make them my own: done, naming none to end', !!a && a.key === picked[0].key && (a.endHelpers || []).length === 0, JSON.stringify(a));
+      var kept = a && (a.keepHelpers || []).join('|');
+      check('Make them my own: done, keeping those two by their keys', !!a && a.key === picked[0].key && (a.endHelpers || []).length === 0 && kept === picked[1].key + '|' + picked[2].key, JSON.stringify(a));
     })
     .catch(function (e) { check('ran', false, String(e) + ' at ' + title()); })
     .then(done);
