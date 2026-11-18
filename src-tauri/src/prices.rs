@@ -145,11 +145,21 @@ fn over(base: Price, mine: &Price) -> Price {
         cache_write: m.cache_write.or(b.cache_write),
         cache_write_1h: m.cache_write_1h.or(b.cache_write_1h),
     };
+    // A table both have is merged rate by rate too, so a priority input price alone keeps the
+    // list's priority output; a long-prompt tier only where it's the same tier.
+    let table = |b: Option<Rates>, m: Option<&Rates>| match (b, m) {
+        (Some(b), Some(m)) => Some(rates(&b, m)),
+        (b, m) => m.cloned().or(b),
+    };
+    let above = match (base.above, &mine.above) {
+        (Some(b), Some(m)) if b.tokens == m.tokens => Some(Above { tokens: m.tokens, rates: rates(&b.rates, &m.rates), priority: table(b.priority, m.priority.as_ref()) }),
+        (b, m) => m.clone().or(b),
+    };
     Price {
         rates: rates(&base.rates, &mine.rates),
         search: mine.search.or(base.search),
-        above: mine.above.clone().or(base.above),
-        priority: mine.priority.clone().or(base.priority),
+        above,
+        priority: table(base.priority, mine.priority.as_ref()),
         fast: mine.fast.or(base.fast),
         context: mine.context.or(base.context),
     }
@@ -313,6 +323,25 @@ mod tests {
         mine.insert("claude-haiku-4-5".to_string(), Price { rates: Rates { output: Some(6.0), ..Default::default() }, ..Default::default() });
         let p = price_of("claude-haiku-4-5-20251001", &mine).unwrap();
         assert_eq!((p.rates.input, p.rates.output), (Some(1.0), Some(6.0)));
+    }
+
+    #[test]
+    fn config_tomls_priority_and_long_prompt_prices_go_over_the_lists_rate_by_rate() {
+        let listed = price_of("gpt-6.2-sol", &BTreeMap::new()).unwrap();
+        let input = |v: f64| Rates { input: Some(v), ..Default::default() };
+        let mut mine = BTreeMap::new();
+        let above = Above { tokens: 272_000, rates: input(5.0), priority: Some(input(9.0)) };
+        mine.insert("openai/gpt-6.2-sol".to_string(), Price { priority: Some(input(5.0)), above: Some(above), ..Default::default() });
+        let p = price_of("openai/gpt-6.2-sol", &mine).unwrap();
+        let (priority, long) = (p.priority.unwrap(), p.above.unwrap());
+        assert_eq!((priority.input, priority.output), (Some(5.0), listed.priority.unwrap().output));
+        let listed_long = listed.above.unwrap();
+        assert_eq!((long.rates.input, long.rates.output), (Some(5.0), listed_long.rates.output));
+        assert_eq!((long.priority.as_ref().unwrap().input, long.priority.as_ref().unwrap().output), (Some(9.0), listed_long.priority.unwrap().output));
+        // Another tier is config.toml's alone.
+        mine.insert("openai/gpt-6.2-sol".to_string(), Price { above: Some(Above { tokens: 128_000, rates: input(5.0), priority: None }), ..Default::default() });
+        let long = price_of("openai/gpt-6.2-sol", &mine).unwrap().above.unwrap();
+        assert_eq!((long.tokens, long.rates.output, long.priority), (128_000, None, None));
     }
 
     #[test]
