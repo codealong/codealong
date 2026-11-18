@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { agoPhrase } from './format';
 import { alreadyOnWords, duplicateOf, rankedBy, resolveSuggestedAgent, routeChoice, routeDone, sameStart, startAgentOf, suggestedChoice, suggestions, suggestionWords, sureness, todoLaneFor, todoTitle, toSessionSuggestion, worthRouting, type Suggestion, type SuggestionContext } from './route';
 import { agentOptions, autoPick, startHappens, startTitleWords, startWhereWords } from './start';
+import { joinsWork } from './reusable';
 import * as fx from './testing/fixtures';
 import type { Board, Lane, Route, Session } from './types';
 
@@ -276,10 +277,9 @@ describe('a question that needs no repo', () => {
     expect(suggest(start(0.05, [{ id: '/api', p: 0.7 }]), withChats).map((x) => x.key)).toEqual(['start:/api']);
   });
 
-  it('takes Jev’s pick of the chats’ own lane for a chat, as it takes needing no repo', () => {
-    const r = start(0.1, [{ id: '/chats', p: 0.9 }]);
-    expect(suggest(r, withChats).map((x) => [x.key, Math.round(x.p * 100) / 100])).toEqual([['start:chat', 1]]);
-    expect(suggest(start(0.1, [{ id: '/chats', p: 0.6 }, { id: '/api', p: 0.3 }]), withChats).map((x) => x.key)).toEqual(['start:chat', 'start:/api']);
+  it('keeps a note that needs no repo as a todo in the chats, where starting on it would go', () => {
+    const r = route({ action: 'todo', actions: [['todo', 0.9], ['start', 0.1]], noRepo: 1 });
+    expect(suggest(r, withChats).map((x) => x.key)).toEqual(['todo:/chats', 'start:chat']);
   });
 
   it('goes by the repos where the board has no chats, or the Mac said nothing of them', () => {
@@ -347,6 +347,8 @@ describe('new work in a repo', () => {
     expect(keys(start([{ id: '/app-5', p: 0.6 }]), busy)[0]).toBe('start:/app-4');
     // A worktree that holds no work has none to join, the main checkout's is the repo's, and a
     // worktree asked for is a worktree of its own.
+    // Chats have none either: an app's folder of them, a session at work in one of its chats.
+    expect(joinsWork(kept('/chat-app', 'chat-app', { chats: true, sessions: [session('s:chat', 'working')] }))).toBe(false);
     for (const id of ['/app-merged', '/app-earlier', '/app-billing', '/app-3', '/app']) expect(keys(start([{ id, p: 0.9 }]), busy)[0]).toBe('start:/app-4');
     expect(keys(start([{ id: '/app-5', p: 0.9 }], { ownWorktree: 0.9 }), busy)[0]).toBe('start:new:P/app');
   });
@@ -374,9 +376,11 @@ describe('new work in a repo', () => {
     expect(keys(later([{ id: '/app-3', p: 0.9 }]))[0]).toBe('todo:/app');
     const busy = board([...repo.lanes, kept('/app-5', 'app', { reuse: 'open' })]);
     expect(keys(later([{ id: '/app-5', p: 0.9 }]), busy)[0]).toBe('todo:/app-5');
-    // A repo of plain folders has no main checkout: the folder.
+    // A repo of plain folders has no main checkout: the folder, and starting on it starts there,
+    // with no checkout to make a new worktree from.
     const notes = board([kept('/notes', 'notes', { origin: 'folder' })]);
-    expect(keys(later([{ id: '/notes', p: 1 }]), notes)[0]).toBe('todo:/notes');
+    expect(keys(later([{ id: '/notes', p: 1 }]), notes)).toEqual(['todo:/notes', 'start:/notes']);
+    expect(suggest(start([{ id: '/notes', p: 1 }], { ownWorktree: 0.9 }), notes)[0]).toMatchObject({ key: 'start:/notes', newWorktree: false });
   });
 
   it('links a todo saved from a start’s menu as a todo Jev suggests links', () => {

@@ -215,23 +215,21 @@ export function suggestions(route: Route, board: Board, isolatesIn: readonly str
   const [s1, s2] = route.sessions;
   const [l1] = route.lanes;
   const sessionP = (s: RoutePick | undefined) => s?.p ?? 0;
-  // Jev's pick of the chats' own lane, which All projects offers it, is a pick of a chat, as
-  // needing no repo is; the rest are repos.
-  const chats = board.lanes.find((l) => l.startsChats && !l.device);
-  const chatsRepo = chats ? repoId(chats) : null;
-  const [r1, r2] = route.repos.filter((r) => r.id !== chatsRepo);
-  const noRepo = (route.noRepo ?? 0) + sessionP(route.repos.find((r) => r.id === chatsRepo));
+  // A pick of Codealong's own chats comes as needing no repo (route.rs `read`).
+  const [r1, r2] = route.repos;
+  const noRepo = route.noRepo ?? 0;
   // The engine weighs a new worktree by your habit in the likeliest repo alone (route.rs
   // `with_habit`).
   const ownWorktree = (repo: RoutePick | undefined) => repo === r1 && route.ownWorktree >= OWN_WORKTREE;
   const repoLanes = (repo: RoutePick | undefined) => (repo ? lanesOfRepo(repo.id, board.lanes) : []);
   /** Starting new work in a repo Jev weighed, `actionP` as likely as the action and `p` as the
    *  repo: where the start row starts in it, or a new worktree made from its main checkout, so
-   *  two of its worktrees make one row. */
+   *  two of its worktrees make one row. A repo of plain folders has no checkout to make one from
+   *  (quick.ts `repoWorktrees`). */
   const startInRepo = (repo: RoutePick | undefined, actionP: number, p = sessionP(repo)): Suggestion | null => {
     const lanes = repoLanes(repo);
     if (!lanes[0]) return null;
-    const newWorktree = ownWorktree(repo) || !newWorkIn(lanes[0], lanes);
+    const newWorktree = !!repoWorktrees(lanes, []).from && (ownWorktree(repo) || !newWorkIn(lanes[0], lanes));
     const lane = startLaneIn(lanes, newWorktree, isolatesIn);
     return lane && { kind: 'start', key: newWorktree ? `start:new:${lane.project}/${lane.repo}` : `start:${lane.id}`, lane, newWorktree, p: actionP * p, ...startFor };
   };
@@ -246,6 +244,7 @@ export function suggestions(route: Route, board: Board, isolatesIn: readonly str
   const startWork = (actionP: number): Suggestion | null => (joined ? { kind: 'start', key: `start:${joined.id}`, lane: joined, newWorktree: false, p: actionP * sessionP(l1), ...startFor } : startInRepo(r1, actionP));
   // New work that needs no repo, a question about nothing in them, goes to a chat of its own, in
   // no project, when Jev thinks so more than it thinks of any one repo.
+  const chats = board.lanes.find((l) => l.startsChats && !l.device);
   const startChat = (actionP: number): Suggestion | null => (chats && noRepo > 0 ? { kind: 'start', key: 'start:chat', lane: chats, newWorktree: false, p: actionP * noRepo, ...startFor } : null);
   const inChat = !!chats && noRepo > sessionP(r1);
   const startNew = (actionP: number) => (inChat ? startChat(actionP) : startWork(actionP));
@@ -285,10 +284,12 @@ export function suggestions(route: Route, board: Board, isolatesIn: readonly str
       break;
     }
     case 'todo': {
-      // Linked to the worktree whose work it's for, as a start would join it, else to its repo.
-      const lane = joined ?? repoHome(repoLanes(r1));
-      if (lane) add({ kind: 'todo', key: `todo:${lane.id}`, lane, p: prob('todo') * (joined ? sessionP(l1) : sessionP(r1)) });
-      add(startWork(prob('start')));
+      // Linked where its start would go: Codealong's chats for a question that needs no repo,
+      // the worktree whose work it joins, else its repo (as `todoLaneFor` links one from a
+      // start's menu).
+      const [lane, p] = inChat ? [chats, noRepo] : joined ? [joined, sessionP(l1)] : [repoHome(repoLanes(r1)), sessionP(r1)];
+      if (lane) add({ kind: 'todo', key: `todo:${lane.id}`, lane, p: prob('todo') * p });
+      add(startNew(prob('start')));
       break;
     }
   }

@@ -55,9 +55,10 @@ export const JOIN_AT = 0.75;
  *  the repo rather than the work, and it holds work under way. A reusable one says so by what it
  *  holds; one kept for its own piece of work is read as board.rs `reuse_of` reads a reusable
  *  one: its PR open, an agent at work there or changes not yet committed, and then, unless its
- *  PR merged, commits not on the default branch. */
+ *  PR merged, commits not on the default branch. Chats, Codealong's or another app's (whose
+ *  sessions each have a folder of their own), have no work to join. */
 export function joinsWork(lane: Lane): boolean {
-  if (lane.origin === 'main' || lane.startsChats) return false;
+  if (lane.origin === 'main' || lane.startsChats || lane.chats) return false;
   if (lane.reuse) return lane.reuse === 'open' || lane.reuse === 'review';
   const pr = lane.pr?.state;
   if (pr && pr !== 'merged' && pr !== 'closed') return true;

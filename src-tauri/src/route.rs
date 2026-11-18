@@ -57,6 +57,8 @@ pub struct Request {
     running: Vec<bool>,
     lanes: Vec<String>,
     lane_repos: Vec<String>,
+    /// Which of `lanes` is Codealong's own chats (`Lane::starts_chats`), which All projects offers.
+    lane_chats: Vec<bool>,
     /// The repos what's typed names (`named_repos`), by `<project>/<repo>`.
     named: Vec<String>,
     /// The images pasted into what's typed, sent with it (`route`).
@@ -475,6 +477,7 @@ pub fn request_with_routing(board: &Board, cfg: Option<&crate::config::Config>, 
         running: sessions.iter().map(|(_, s)| s.live).collect(),
         lanes: lanes.iter().map(|l| l.id.clone()).collect(),
         lane_repos: lanes.iter().map(|l| format!("{}/{}", l.project, l.repo)).collect(),
+        lane_chats: lanes.iter().map(|l| l.starts_chats).collect(),
         named: named_repos(text, &lanes),
         images,
         agents,
@@ -573,6 +576,11 @@ pub fn read(req: &Request, response: &Value, ms: u64) -> Result<Route> {
         action = Action::Start;
     }
     let sessions = ranked(if action == Action::Find { picked.into_iter().map(|(p, _)| p).collect() } else { favor_running(picked) });
+    // A pick of Codealong's own chats is a pick of a chat, as needing no repo is, and no repo's:
+    // it goes to `no_repo` before the repos are summed and cut to the likeliest.
+    let chats = |k: &str| k.strip_prefix('w').and_then(|n| n.parse::<usize>().ok()).and_then(|n| req.lane_chats.get(n.checked_sub(1)?).copied()).unwrap_or(false);
+    let no_repo = lane_p.get("none").copied().unwrap_or(0.0) + lane_p.iter().filter(|(k, _)| chats(k)).map(|(_, p)| p).sum::<f64>();
+    let lane_p: BTreeMap<String, f64> = lane_p.into_iter().filter(|(k, _)| !chats(k)).collect();
     let mut repo_sum: BTreeMap<String, f64> = BTreeMap::new();
     for (k, p) in &lane_p {
         if let Some(repo) = at(k, 'w', &req.lane_repos) {
@@ -625,7 +633,7 @@ pub fn read(req: &Request, response: &Value, ms: u64) -> Result<Route> {
         sessions: sessions.into_iter().filter(|s| s.p >= SCORED_AT).take(SCORED).collect(),
         no_session,
         lanes: lanes.into_iter().take(TOP).collect(),
-        no_repo: lane_p.get("none").copied().unwrap_or(0.0),
+        no_repo,
         repos: repos.into_iter().take(TOP).collect(),
         own_worktree: answers["own_worktree"]["noul"].as_f64().unwrap_or(0.0),
         own_worktree_asked: answers["own_worktree"]["noul"].as_f64().unwrap_or(0.0),
@@ -819,6 +827,21 @@ mod tests {
         assert_eq!(r.no_repo, 0.7);
         // The worktrees keep what Jev gave them, so a runner-up still has its row.
         assert_eq!(r.lanes.iter().map(|p| (p.id.as_str(), p.p)).collect::<Vec<_>>(), vec![("/p/api", 0.2), ("/p/web", 0.1)]);
+    }
+
+    #[test]
+    fn a_pick_of_codealongs_own_chats_needs_no_repo() {
+        let mut b = board();
+        // An Elsewhere repo called Chats is a repo like any other; only the chats' own lane isn't.
+        let chats = Lane { starts_chats: true, hidden: true, ..lane("/chats", ELSEWHERE, "Chats", vec![], NOW) };
+        b.lanes.extend([chats, lane("/notes/chats", ELSEWHERE, "Chats", vec![], NOW - 1)]);
+        let req = request(&b, ALL_PROJECTS, "what's the difference between a mutex and a semaphore", "m", NOW).unwrap();
+        let w = |id: &str| format!("w{}", req.lanes.iter().position(|l| l == id).unwrap() + 1);
+        let (own, folder) = (w("/chats"), w("/notes/chats"));
+        let r = read(&req, &answer(&[("start", 1.0)], &[("none", 1.0)], &[(own.as_str(), 0.6), (folder.as_str(), 0.3), ("none", 0.1)], 0.0), 1).unwrap();
+        assert!((r.no_repo - 0.7).abs() < 1e-9, "{}", r.no_repo);
+        assert_eq!(r.repos.iter().map(|p| (p.id.as_str(), p.p)).collect::<Vec<_>>(), vec![("Elsewhere/Chats", 0.3)]);
+        assert_eq!(r.lanes.iter().map(|p| p.id.as_str()).collect::<Vec<_>>(), vec!["/notes/chats"]);
     }
 
     #[test]

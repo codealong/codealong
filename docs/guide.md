@@ -2608,7 +2608,8 @@ picked, so for the repo the panel already has, it is the start row. It starts in
 only when Jev is sure (75% or more) the work belongs with the work under way there: a PR that's
 open, or changes not yet landed, in a worktree other than the main checkout. The rest of the repo is
 then the next row, when it's likely too. A todo is linked to that worktree, else to the repo's main
-checkout. A session's title, or a few words of it, typed to find it is a search, and opens it. A
+checkout (Codealong's chats for a question that needs no repo), whether Jev suggests it or you save
+one from a start's menu. A session's title, or a few words of it, typed to find it is a search, and opens it. A
 few words that could be a search for a session or a message to it get both rows, the likelier
 first, so Open is one ↓ from Send to, and the other way round. For a search, Send to another
 session sits under the sessions found, and a search that fits none of the sessions Jev weighed (a
