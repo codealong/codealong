@@ -72,15 +72,16 @@ const WORTH = 5 * MIN;
  * on, with nothing for you or it to do before then, as Jev read it (insights.rs
  * `waits_question`) or an agent that tagged it said (`codealong session tag --waits-until`).
  * None for a limit that doesn't say when it lifts and a reply that names no such time, once the
- * time is all but here, and for a session that's snoozed already or archived. Only offered:
- * nothing snoozes by itself.
+ * time is all but here, for a reply that asks you something (`asks`: it waits on you now, as
+ * the engine holds of the read, insights.rs `put_off_to`, though an older Mac's may not), and
+ * for a session that's snoozed already or archived. Only offered: nothing snoozes by itself.
  */
-export function suggestedSnooze(s: Pick<Session, 'insight' | 'snoozedUntil' | 'archived' | 'limit'> & Partial<Pick<Session, 'status'>>, now: number): SuggestedSnooze | null {
+export function suggestedSnooze(s: Pick<Session, 'insight' | 'snoozedUntil' | 'archived' | 'limit'> & Partial<Pick<Session, 'status' | 'asks'>>, now: number): SuggestedSnooze | null {
   if (s.snoozedUntil || s.archived) return null;
   const lifts = s.status !== 'working' ? s.limit?.resetsAt : null;
   if (lifts && lifts - now >= WORTH) return { until: lifts, why: 'limit' };
   const until = s.insight?.waitsUntil;
-  if (!until || until - now < WORTH) return null;
+  if (!until || until - now < WORTH || s.asks) return null;
   // Who read the day: Jev's, under a tag that read something else, is said as Jev's.
   const read = s.insight?.waitsByJev ? undefined : s.insight;
   const note = read?.by && read.note ? `: ${read.note}` : '';

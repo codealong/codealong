@@ -5037,7 +5037,7 @@ fn insight_words(i: &crate::model::SessionInsight) -> String {
 /// What `session tag`'s arguments say of a session whose last reply was written at `replied`, at
 /// `now` on `zone`'s clock: nothing for --clear, which takes its tag away. An error says what's
 /// missing or doesn't read.
-fn tag_said(a: TagArgs, replied: i64, now: i64, zone: &dyn crate::schedules::rule::Zone) -> Result<params::Tag> {
+fn tag_said(a: TagArgs, replied: i64, zone: &dyn crate::schedules::rule::Zone) -> Result<params::Tag> {
     if a.clear {
         return Ok(params::Tag::default());
     }
@@ -5045,15 +5045,18 @@ fn tag_said(a: TagArgs, replied: i64, now: i64, zone: &dyn crate::schedules::rul
     if !read && a.waits_until.is_none() {
         bail!("Say something about it (--asks-you, --ending, --landing, --finished, --risk, --background or --waits-until), or --clear to take its tag away.");
     }
-    // A Mac from before 2026-11-11 doesn't know when a reply's work goes on, and would take a
-    // tag that says nothing else for one taking its tag away.
-    if !read {
-        bail!("Say how its reply ends too (--ending), or another of --asks-you, --landing, --finished, --risk and --background: when its work goes on isn't a tag by itself.");
+    // When its work goes on is part of the read of how its reply ends (insights.rs `merged`), so
+    // it's said with that, never under a landing or a risk alone. That also keeps a Mac from
+    // before 2026-11-11, which doesn't know it, from taking a tag that says nothing else for one
+    // taking its tag away.
+    if a.waits_until.is_some() && a.ending.is_none() && a.asks_you.is_none() {
+        bail!("Say how its reply ends too (--ending): when its work goes on is part of that read.");
     }
-    // Counted from when its reply was written (tags.rs `waits_until`), and read again by the
-    // session's Mac, which knows that better (`waits_words`); read here too, so what doesn't read
-    // is said at once, and for a Mac from before that.
-    let waits_until = a.waits_until.as_deref().map(|when| crate::tags::waits_until(when, replied, now, zone)).transpose()?;
+    // Read here so that what doesn't read is said at once, counted from when its reply was
+    // written as far as this board says, for a Mac from before 2026-11-18. The session's Mac
+    // reads the words again (`waits_words`, tags.rs `waits_until`), knowing when that was, and
+    // says on its own clock whether the time has passed.
+    let waits_until = a.waits_until.as_deref().map(|when| crate::snoozewhen::until(when, replied, zone).map_err(|e| anyhow!(e))).transpose()?;
     let unit = |b: Option<bool>| b.map(|b| if b { 1.0 } else { 0.0 });
     // An ending says whether the reply asks, and that goes with it: a Mac from before endings
     // reads only that, and would take a tag that says nothing else for one taking its tag away.
@@ -5073,7 +5076,7 @@ fn session_tag(c: &mut Client, a: TagArgs, json: bool) -> Result<()> {
     let now = crate::util::now_ms();
     let elsewhere = c.elsewhere().to_vec();
     let replied = all_sessions(c.board()?).into_iter().chain(all_in(&elsewhere)).find(|(s, _)| s.key == key).map_or(now, |(s, _)| crate::insights::replied_at(s));
-    let params = params::Tag { by: me.clone(), by_title, ..tag_said(a, replied, now, &crate::schedules::rule::Local)? };
+    let params = params::Tag { by: me.clone(), by_title, ..tag_said(a, replied, &crate::schedules::rule::Local)? };
     let got = c.act(api::SESSION_TAG, &key, params, me)?;
     let out = ActOut { session: key, said: got.as_str().map(String::from), copy: None };
     if json {
@@ -9032,12 +9035,14 @@ mod tests {
             let now = ms(&zone, 2026, 11, 11, 14, 10);
             let said = |args: &[&str]| {
                 let Cmd::Session { cmd: SessionCmd::Tag(a) } = parse_from([&["codealong", "session", "tag", "abc", "--prompt-at", "4"][..], args].concat()).unwrap().cmd else { panic!() };
-                tag_said(a, now, now, &zone)
+                tag_said(a, now, &zone)
             };
             let tag = said(&["--ending", "report", "--waits-until", "thu 2pm"]).unwrap();
             assert_eq!((tag.waits_until, tag.ending.as_deref(), tag.asks_you), (Some(ms(&zone, 2026, 11, 12, 14, 0)), Some("report"), Some(0.0)));
-            assert_eq!(said(&["--finished", "no", "--waits-until", "mon"]).unwrap().waits_until, Some(ms(&zone, 2026, 11, 16, 9, 0)));
+            assert_eq!(said(&["--asks-you", "no", "--waits-until", "mon"]).unwrap().waits_until, Some(ms(&zone, 2026, 11, 16, 9, 0)));
+            // Said with how the reply ends, of which it's part: not alone, nor under another read.
             assert!(said(&["--waits-until", "thu"]).unwrap_err().to_string().starts_with("Say how its reply ends too"));
+            assert!(said(&["--finished", "no", "--waits-until", "mon"]).unwrap_err().to_string().starts_with("Say how its reply ends too"));
             assert!(said(&["--ending", "report", "--waits-until", "whenever"]).unwrap_err().to_string().starts_with("Couldn't read"));
             assert!(said(&["--note", "nothing read"]).unwrap_err().to_string().starts_with("Say something about it"));
             // A reply's words count from when it was written, as Jev counts them: one from 11 PM
@@ -9045,14 +9050,15 @@ mod tests {
             let late = ms(&zone, 2026, 11, 10, 23, 0);
             let from_last_night = |when: &str| {
                 let Cmd::Session { cmd: SessionCmd::Tag(a) } = parse_from(["codealong", "session", "tag", "abc", "--prompt-at", "4", "--ending", "report", "--waits-until", when]).unwrap().cmd else { panic!() };
-                tag_said(a, late, now, &zone)
+                tag_said(a, late, &zone)
             };
             let tag = from_last_night("tomorrow 3pm").unwrap();
             assert_eq!((tag.waits_until, tag.waits_words.as_deref()), (Some(ms(&zone, 2026, 11, 11, 15, 0)), Some("tomorrow 3pm")), "with the words, for the session's Mac to read again");
             assert_eq!(from_last_night("20h").unwrap().waits_until, Some(ms(&zone, 2026, 11, 11, 19, 0)));
             assert_eq!(from_last_night("thu 15:00 utc").unwrap().waits_until, Some(ms(&zone, 2026, 11, 12, 7, 0)));
-            let passed = from_last_night("tomorrow").unwrap_err().to_string();
-            assert_eq!(passed, "9 AM has passed: when its work goes on is counted from when its reply was written (Nov 10, 11 PM). If what it put off is due now, leave the time out and say it isn't finished (--finished no).");
+            // Whether it has passed is the session's Mac's to say, on its own clock: a time gone by
+            // here can be still to come there.
+            assert_eq!(from_last_night("tomorrow").unwrap().waits_until, Some(ms(&zone, 2026, 11, 11, 9, 0)));
         }
         // The finished ones, alone or among what waits.
         let cli = parse_from(["codealong", "sessions", "--finished", "--waiting"]).unwrap();

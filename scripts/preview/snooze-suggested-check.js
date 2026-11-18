@@ -1,8 +1,8 @@
 // Checks the snooze offered for a session whose last reply says its work goes on at a later time
-// (snooze.ts `suggestedSnooze`, ui/SnoozeSuggestion.tsx): a line above its box says the time and
-// who read the reply that way (Jev or the agent that tagged it), and always shows its key; the
-// session's Snooze menu has the time
-// first, apart from the rest; ⌃⌘8 snoozes it until then from the list, and a click on the line
+// (snooze.ts `suggestedSnooze`, ui/SnoozeSuggestion.tsx): a line above its box says the time, in
+// suggestions' card, its sparkle and its pointer saying who read the reply that way (Jev or the
+// agent that tagged it), and its key shows once keys do; the session's Snooze menu has the time
+// first, apart from the rest, saying who read it; ⌃⌘8 snoozes it until then from the list, and a click on the line
 // does; a session whose reply names no time has no line, and ⌃⌘8 does nothing for it; and once
 // snoozed, the offer is gone.
 //   scripts/preview.sh sessions '' scripts/preview/snooze-suggested-check.js

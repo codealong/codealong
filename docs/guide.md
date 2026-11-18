@@ -3537,20 +3537,23 @@ snoozed on its Mac, so it's snoozed there too.
 
 When a session's last reply says its work goes on at a later time, with nothing for you or it to
 do before then ("nothing more to do here until Thursday's cutover", "the freeze lifts
-Monday"), Codealong offers a snooze until then: **Snooze until Thu 9 AM, as Jev read its reply**
-on a line above its box, the first line of its Snooze menu, and ⌃⌘8, in every window. It's only
-offered: nothing snoozes by itself. Who read the reply that way is said with the time. Jev reads
-the day ([Session status from Jev](#session-status-from-jev)): tomorrow, a weekday, a date, in so
-many days or next week, up to a week ahead, and the snooze runs to 9 that morning. An agent that
-read the session, such as an orchestrator, can say any time, an hour the reply names included
-(`codealong session tag <session> --ending <how its reply ends> --waits-until <when>`, when as
-`session snooze` reads it, and `thu 15:00 utc` for a time in UTC); the line then says **as
-*its title* read its reply**, and its note is under the pointer. Either way, the reply's words
-count from when it was written: "tomorrow" in last night's reply is this morning. When the reply
-waits for and how it ends are one read, so an agent's tag that says how it ends stands over Jev's
-day, and takes it away when the agent read no time; under a tag that only says something else
-(how far the work got, say), the day stays Jev's and is said as Jev's. A reply read as asking you something is
-offered none: it waits on you now. The offer is for the reply it read: it goes once the session
+Monday"), Codealong offers a snooze until then: **Snooze until Thu 9 AM** on a line above its box,
+in suggestions' card, the first line of its Snooze menu (**Until Thu 9 AM, as Jev read its
+reply**), and ⌃⌘8, in every window. It's only offered: nothing snoozes by itself. Who read the
+reply that way is under the line's sparkle, as for suggested replies, and in its menu's words.
+Jev reads the day ([Session status from Jev](#session-status-from-jev)): tomorrow, a weekday, a
+date, in so many days or next week, up to a week ahead, and the snooze runs to 9 that morning.
+An agent that read the session, such as an orchestrator, can say any time, an hour the reply
+names included (`codealong session tag <session> --ending <how its reply ends> --waits-until
+<when>`, when as `session snooze` reads it, and `thu 15:00 utc` for a time in UTC); its sparkle
+then says *Tagged by* its title, with its note, and the menu **as *its title* read its reply**.
+Either way, the reply's words count from when it was written: "tomorrow" in last night's reply is
+this morning. When the reply waits for and how it ends are one read, so an agent says the time
+only with how the reply ends, and its tag stands over Jev's day, taking it away when the agent
+read no time; under a tag that only says something else (how far the work got, say), the day
+stays Jev's and is said as Jev's. A reply read as asking you something is offered none: it waits
+on you now. Only a prompt of yours ends a snooze, not a turn the session takes by itself (a
+scheduled check-in, say), so the offer is until that turn where it comes first. The offer is for the reply it read: it goes once the session
 is sent something or takes a turn, once it's snoozed, and when the time comes. Such a session isn't [Finished](#finished-sessions), before the time or after it: the
 work it put off is then due. A session stopped at its usage limit is offered a snooze until the
 limit lifts the same way, its Limit's button in place of the line above its box

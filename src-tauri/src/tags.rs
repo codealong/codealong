@@ -134,6 +134,12 @@ pub fn read(p: &crate::actions::params::Tag, now: i64) -> Result<Option<SessionI
     if p.waits_until.is_some() && asks_you.is_some_and(|p| p >= 0.5) {
         bail!("A reply that asks its user something waits on them now, not until a later time: leave out when its work goes on, or say it ends some other way.");
     }
+    // And when its work goes on is part of the read of how its reply ends (insights.rs
+    // `merged`): said under another read alone, it would stand beside Jev's ending, a question
+    // perhaps, once Jev's read of the turn lapses.
+    if p.waits_until.is_some() && asks_you.is_none() {
+        bail!("Say how its reply ends with when its work goes on: the two are one read of its end.");
+    }
     let tag = SessionInsight {
         asks_you,
         landing: named(p.landing.clone(), &LANDING, "landing")?,
@@ -263,15 +269,34 @@ mod tests {
         assert!(ends("report", Some(1.0)).unwrap_err().to_string().contains("doesn't ask"));
         assert!(ends("done", None).unwrap_err().to_string().contains("ending is one of question, blocked"));
         // When its reply says the work goes on is a read by itself, while that's still to come.
-        let waits = |until: i64| read(&params::Tag { waits_until: Some(until), ..Default::default() });
+        let waits = |until: i64| read(&params::Tag { ending: Some("report".into()), waits_until: Some(until), ..Default::default() });
         assert_eq!(waits(5_000).unwrap().unwrap().waits_until, Some(5_000));
         assert!(waits(1_000).unwrap_err().to_string().contains("has passed"));
+        // Only with how the reply ends, of which it's part.
+        assert!(read(&params::Tag { waits_until: Some(5_000), ..Default::default() }).unwrap_err().to_string().contains("one read of its end"));
+        assert!(read(&params::Tag { finished: Some(0.0), waits_until: Some(5_000), ..Default::default() }).is_err());
+        assert_eq!(read(&params::Tag { asks_you: Some(0.0), waits_until: Some(5_000), ..Default::default() }).unwrap().unwrap().waits_until, Some(5_000));
         // Not with a reply that asks its user something: that waits on them now.
         let asks_and_waits = |ending: &str, asks_you: Option<f64>| read(&params::Tag { ending: Some(ending.into()), asks_you, waits_until: Some(5_000), ..Default::default() });
         assert!(asks_and_waits("question", None).unwrap_err().to_string().contains("waits on them now"));
         assert!(asks_and_waits("blocked", Some(1.0)).is_err());
         assert!(read(&params::Tag { asks_you: Some(1.0), waits_until: Some(5_000), ..Default::default() }).is_err());
         assert_eq!(asks_and_waits("handoff", None).unwrap().unwrap().waits_until, Some(5_000), "a next step of theirs can wait for it");
+    }
+
+    /// A tag's words for when the work goes on count from when its reply was written, and the
+    /// session's Mac says whether that has passed.
+    #[test]
+    fn a_tags_time_counts_from_its_reply() {
+        use crate::schedules::rule::tests::{ms, Fake};
+        let zone = Fake { offset_hours: -8, summer: None };
+        // Written at 11 PM; read the next afternoon.
+        let (replied, now) = (ms(&zone, 2026, 11, 10, 23, 0), ms(&zone, 2026, 11, 11, 14, 10));
+        assert_eq!(waits_until("tomorrow 3pm", replied, now, &zone).unwrap(), ms(&zone, 2026, 11, 11, 15, 0));
+        assert_eq!(waits_until("thu", replied, now, &zone).unwrap(), ms(&zone, 2026, 11, 12, 9, 0));
+        let passed = waits_until("tomorrow", replied, now, &zone).unwrap_err().to_string();
+        assert_eq!(passed, "9 AM has passed: when its work goes on is counted from when its reply was written (Nov 10, 11 PM). If what it put off is due now, leave the time out and say it isn't finished (--finished no).");
+        assert!(waits_until("whenever", replied, now, &zone).unwrap_err().to_string().starts_with("Couldn't read"));
     }
 
     #[test]

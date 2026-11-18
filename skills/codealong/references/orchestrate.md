@@ -140,7 +140,8 @@ Go over each session in `waiting` that `changed` this tick or has neither `sugge
     snooze, so one that runs past that turn hides what it brings, a question included, until
     the snooze is over.
   - It goes with how the reply ends. A tag with `--ending` and no `--waits-until` says the reply
-    waits for no time, and takes away a day Jev read (`insight.waitsUntil` without `by` in
+    waits for no time, and takes away a day Jev read (`insight.waitsUntil` with no `by`, or with
+    `waitsByJev` under another agent's tag that said something else, in
     `session show`): leave it out only when you read it that way. A reply that asks your user
     something (`question`, `blocked`) waits on them now and takes none. Where the time it waited
     for has passed, its work is due: leave the time out and tag it `--finished no`.
