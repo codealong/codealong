@@ -665,9 +665,17 @@ impl Handle {
 
     /// The accounts in config.toml, each with whether it's signed in.
     pub fn accounts(&self) -> Result<Vec<AccountInfo>> {
-        let cfg = config::current()?;
         // Settings reads them again as it comes forward, after an agent installed a command line, say.
         crate::detect::forget_shell();
+        self.accounts_as_kept()
+    }
+
+    /// The accounts as `accounts` gives them, with what your shell said of their command lines
+    /// kept for its ten minutes (`detect::shell_finds`): for `codealong accounts`, which agents
+    /// run often, and which would otherwise start a login shell each time for a command line the
+    /// PATH misses.
+    pub fn accounts_as_kept(&self) -> Result<Vec<AccountInfo>> {
+        let cfg = config::current()?;
         Ok(cfg.accounts.iter().map(usage::describe).collect())
     }
 

@@ -3655,15 +3655,26 @@ struct MeterRow {
     resets_at: Option<i64>,
 }
 
+/// Each account as `usage::describe` has it: the server's (`Request::Accounts`), which keeps what
+/// your shell said of their command lines, else this command's own, which starts a login shell
+/// for each command line the PATH misses (`detect::shell_finds`): half a second each time.
+fn described(c: &Client, cfg: &Config) -> Result<Vec<crate::model::AccountInfo>> {
+    if c.app.is_some() {
+        match server::ask(&Request::Accounts) {
+            Some(Ok(v)) => return serde_json::from_value(v).context("reading the server's accounts"),
+            // A server older than the request, or one gone since it answered: this command looks itself.
+            Some(Err(e)) if !e.starts_with(server::UNKNOWN_REQUEST) => bail!("{e}"),
+            _ => {}
+        }
+    }
+    Ok(cfg.accounts.iter().map(usage::describe).collect())
+}
+
 fn accounts(c: &mut Client, with_usage: bool, json: bool) -> Result<()> {
     let cfg = c.cfg()?.clone();
-    let mut rows: Vec<AccountRow> = cfg
-        .accounts
-        .iter()
-        .map(|a| {
-            let info = usage::describe(a);
-            AccountRow { name: info.name, harness: info.harness, command: info.command, signed_in: info.signed_in, email: info.email, sign_in_note: info.sign_in_note, disabled: info.disabled, missing_cli: info.missing_cli, home: info.home, usage: None, room: None, usage_error: None }
-        })
+    let mut rows: Vec<AccountRow> = described(c, &cfg)?
+        .into_iter()
+        .map(|info| AccountRow { name: info.name, harness: info.harness, command: info.command, signed_in: info.signed_in, email: info.email, sign_in_note: info.sign_in_note, disabled: info.disabled, missing_cli: info.missing_cli, home: info.home, usage: None, room: None, usage_error: None })
         .collect();
     if with_usage {
         let usages = match c.app.is_some() {

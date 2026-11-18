@@ -99,6 +99,10 @@ pub enum Request {
     },
     /// Sessions whose prompts and replies have every word (search.rs).
     Search { words: Vec<String> },
+    /// The accounts in config.toml as `codealong accounts` lists them (usage.rs `describe`),
+    /// from the server, which keeps what your shell said of their command lines ten minutes
+    /// where each command would start a login shell to ask again (`Handle::accounts_as_kept`).
+    Accounts,
     /// Which session runs the command that asks, and where its account's sign-in stands
     /// (`codealong account check`, cli.rs `AccountCheck`), against `group` when it names one. The
     /// command is found by the process at the socket's other end where the OS says (`pid` where
@@ -607,6 +611,7 @@ fn handle_request(ctx: &Ctx, req: serde_json::Result<Request>) -> Reply {
             Err(e) => Reply::err(e),
         },
         Request::Search { words } => Reply::ok(crate::search::find(&words, 1000)),
+        Request::Accounts => answered(engine.accounts_as_kept().map_err(crate::util::words)),
         // `connection` answers it by the socket's own process; this is for an asker with none.
         Request::AccountCheck { pid, args, session_var, group } => answered(crate::cli::account_check_on(engine, pid, &args, session_var.as_deref(), group.as_deref())),
         Request::IdleSessions { after_ms, archive } => Reply::ok(crate::idle::plan_now(&engine.board(), after_ms, archive)),
@@ -1178,6 +1183,7 @@ mod tests {
         let back: Request = serde_json::from_str(&text).unwrap();
         assert!(matches!(back, Request::TodoApply { op: TodoOp::Update { .. } }));
         let status: Request = serde_json::from_str(r#"{"method":"status"}"#).unwrap();
+        assert_eq!(serde_json::to_string(&Request::Accounts).unwrap(), r#"{"method":"accounts"}"#);
         assert!(matches!(status, Request::Status));
         let ask: Request = serde_json::from_str(r#"{"method":"device-ask","device":"a1b2c3d4e5","request":"search","params":{"words":["x"]}}"#).unwrap();
         assert!(matches!(ask, Request::DeviceAsk { ref request, .. } if request == "search"));
