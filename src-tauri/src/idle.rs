@@ -530,8 +530,10 @@ fn worktree_lock(s: &Session) -> Option<std::path::PathBuf> {
 /// Types the harness's exit command into `s`'s terminal (`Ending::Exit`), clearing its input box
 /// first so a draft there doesn't go with it, and waits for the process to end, then closes the
 /// tab (`await_end`). `Err` when nothing could be typed: then nothing was done to it. One that
-/// asks first stays noted (`ExitAsked`), for `finish_when_ended`.
-pub fn exit(s: &Session, account: &crate::config::AccountCfg, pid: u32) -> Result<Exited, String> {
+/// asks first stays noted (`ExitAsked`), for `finish_when_ended`, unless its harness asks that of
+/// every worktree like its own and `nothing_lost` says Codealong's check found nothing in it would
+/// be (`answered_blindly`).
+pub fn exit(s: &Session, account: &crate::config::AccountCfg, pid: u32, nothing_lost: impl FnOnce() -> bool) -> Result<Exited, String> {
     let adapter = crate::harness::adapter(s.harness);
     let Some(command) = adapter.exit_command() else { return Err(format!("{} has no command to exit a session.", adapter.harness().word())) };
     let lock = worktree_lock(s);
@@ -546,7 +548,10 @@ pub fn exit(s: &Session, account: &crate::config::AccountCfg, pid: u32) -> Resul
         })
         .unwrap_or_else(|| Ok(crate::launch::Typed::Nowhere("it isn't in a terminal Codealong can type into".into())));
     let typed = match typed {
-        Ok(crate::launch::Typed::Into(_)) => Ok(await_end(s, pid, host, lock.as_deref())),
+        Ok(crate::launch::Typed::Into(_)) => Ok(match await_end(s, pid, host, lock.as_deref(), false) {
+            Exited::Asks => answered_blindly(s, account, pid, host, nothing_lost),
+            ended => ended,
+        }),
         Ok(crate::launch::Typed::Nowhere(why)) => Err(format!("Codealong couldn't type `{command}` into its terminal ({why}).")),
         Err(e) => Err(format!("Codealong couldn't type `{command}` into its terminal: {}", crate::util::words(e))),
     };
@@ -556,14 +561,33 @@ pub fn exit(s: &Session, account: &crate::config::AccountCfg, pid: u32) -> Resul
     typed
 }
 
+/// The question the exit typed into `s` asks (`Exited::Asks`), answered with Remove where its
+/// harness asks it of every worktree like `s`'s, unable to tell what removing one would lose
+/// (`Adapter::exit_asks_blindly`: Claude Code of one a `WorktreeCreate` hook made), and
+/// `nothing_lost` says Codealong's own check (cleanup.rs) found nothing in it would be. The
+/// removal is then waited for as one its harness went ahead with unasked. Any other question
+/// still asks, yours to answer, as does one whose key couldn't be pressed: it's up as it would
+/// be had Codealong not looked.
+fn answered_blindly(s: &Session, account: &crate::config::AccountCfg, pid: u32, host: Option<u32>, nothing_lost: impl FnOnce() -> bool) -> Exited {
+    let adapter = crate::harness::adapter(s.harness);
+    let ctx = crate::harness::Ctx { account };
+    if !adapter.exit_asks_blindly(&ctx, s) || !nothing_lost() {
+        return Exited::Asks;
+    }
+    match adapter.exit_removing(&ctx, s) {
+        Ok(()) => await_end(s, pid, host, None, true),
+        Err(_) => Exited::Asks,
+    }
+}
+
 /// Waits for `s`'s process `pid`, told to exit, to end, then closes its tab by `host`, the process
 /// above it there (`close_tab`). `lock` is its worktree's lock as it was told (`worktree_lock`):
 /// one that goes while the process still runs says the worktree is being removed, which is
-/// waited for longer than a question is.
-fn await_end(s: &Session, pid: u32, host: Option<u32>, lock: Option<&Path>) -> Exited {
+/// waited for longer than a question is, as is one told to remove it (`removing`).
+fn await_end(s: &Session, pid: u32, host: Option<u32>, lock: Option<&Path>, removing: bool) -> Exited {
     let started = std::time::Instant::now();
     while crate::procs::pid_alive(pid) {
-        let removing = lock.is_some_and(|l| !l.exists());
+        let removing = removing || lock.is_some_and(|l| !l.exists());
         if started.elapsed() > if removing { REMOVAL_WAIT } else { EXIT_WAIT } {
             return if removing { Exited::Removing } else { Exited::Asks };
         }
@@ -937,6 +961,26 @@ mod tests {
         note_exit_asked(key, ExitAsked { gone: Some(200), ..asked_here(None) });
         assert_eq!(exit_watched(key, 201 + wait), Watched::Waiting);
         assert_eq!(exit_watched(key, 201 + REMOVAL_WAIT.as_millis() as i64), Watched::Over);
+    }
+
+    #[test]
+    fn a_question_not_asked_blindly_stays_yours_unchecked() {
+        let home = crate::fixtures::scratch("exit-blindly");
+        let account = crate::config::AccountCfg { name: "claude".into(), harness: "claude".into(), home: home.to_string_lossy().into(), command: None, start: None, acp: None, monthly: None, per_token: false, usage_cap: None, disabled: false, chrome_profile: None };
+        let s = Session { id: "s1".into(), own_worktree: Some("/r/app/.claude/worktrees/kestrel".into()), ..session("claude:claude:s1", 1, Status::Idle, 0) };
+        let checked = std::cell::Cell::new(false);
+        let answered = |s: &Session| {
+            answered_blindly(s, &account, 1, None, || {
+                checked.set(true);
+                true
+            })
+        };
+        // No dialog Codealong can read is up (claude/exiting.rs `asks_blindly` says which are
+        // blind), and a harness that never asks: either way the question, if any, is yours, and
+        // the worktree isn't even checked.
+        assert_eq!(answered(&s), Exited::Asks);
+        assert_eq!(answered(&Session { harness: Harness::Codex, ..s.clone() }), Exited::Asks);
+        assert!(!checked.get());
     }
 
     #[test]

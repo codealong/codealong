@@ -468,9 +468,13 @@ on this Mac; read it before changing the Claude adapter (paths are under `src-ta
   (2.1.326's code; there since 2.1.321 at least): its `worktree-state` has `hookBased: true` and
   no `originalHeadCommit`, so the count of added commits is unknown, which counts as some ("A
   WorktreeCreate hook made this worktree, so Claude Code can't tell whether it has unpushed
-  commits."), clean or not. Remove runs the repo's `WorktreeRemove` hook under its `timeout`; one
+  commits."), clean or not. Mark as done answers that one Remove itself where the dialog, read off
+  its terminal, says that alone of the session's own worktree and Codealong's own check finds
+  nothing would be lost: `claude/exiting.rs` (`asks_blindly`), `idle.rs` (`answered_blindly`),
+  `cleanup.rs` (`own_goes`). Remove runs the repo's `WorktreeRemove` hook under its `timeout`; one
   that runs out is killed partway, and the exit carries on as removed (`worktree-state` null),
-  whatever the hook left. While that's up the registry says `waiting` / `dialog open`, as
+  whatever the hook left: on 2026-11-18 a repo's hook under a 120 s timeout left its worktree's
+  folder half deleted and still listed by git. While that's up the registry says `waiting` / `dialog open`, as
   for any command's dialog, and the transcript nothing (`/exit` is written once it closes, not at
   all when it's called off); its screen, its keys (a digit picks, Escape calls the exit off) and
   answering it from Codealong: `claude/exiting.rs` (module header, 2.1.322 in tmux, 2026-11-10).

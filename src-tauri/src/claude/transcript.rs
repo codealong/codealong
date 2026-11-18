@@ -998,7 +998,6 @@ fn own_worktree(v: &Value) -> Option<String> {
     }
     str_of(w, "worktreePath").filter(|p| !p.is_empty())
 }
-
 /// Most background shells kept per session (`Background::shells`): each one ends with a
 /// notification, so any past a few are ones whose end was never read.
 const BACKGROUND_MOST: usize = 16;

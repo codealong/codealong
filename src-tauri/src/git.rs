@@ -59,18 +59,46 @@ pub fn status(path: &Path, base: Option<&str>) -> GitInfo {
     let starts = new_work(path, base);
     info.reset_at = starts.last().copied();
     info.new_work_count = Some(starts.len() as u32);
-    info.unpushed = unpushed(path, info.base_ahead);
+    info.unpushed = unpushed(path, base, info.base_ahead);
     info.locked = locked(path);
     info
 }
 
-/// Commits HEAD has that no remote branch has. The default branch is a remote's (`origin/main`),
-/// so a HEAD it holds has none, and git isn't run again to say so.
-pub fn unpushed(path: &Path, base_ahead: Option<u32>) -> Option<u32> {
+/// Commits HEAD has that no remote branch has, but for those whose change is in `base` already
+/// (`unpushed_by`). The default branch is a remote's (`origin/main`), so a HEAD it holds has
+/// none, and git isn't run again to say so.
+pub fn unpushed(path: &Path, base: Option<&str>, base_ahead: Option<u32>) -> Option<u32> {
     if base_ahead == Some(0) {
         return Some(0);
     }
-    git(path, &["rev-list", "--count", "HEAD", "--not", "--remotes"]).and_then(|out| out.trim().parse().ok())
+    unpushed_by(&|args| git(path, args).ok_or_else(|| "git failed".to_string()), base).ok()
+}
+
+/// Commits HEAD has that no remote branch has (`git rev-list HEAD --not --remotes`), with git
+/// run by `run`: they'd go with the worktree. None counts when what they change is in `base`
+/// (the default branch) already (`landed`): a squash or rebase merge puts a branch's work there
+/// in commits of its own and leaves the branch's on no remote. A commit that changes nothing, an
+/// empty one, holds nothing either. cleanup.rs runs it with a git whose failure keeps the
+/// worktree.
+pub fn unpushed_by(run: &dyn Fn(&[&str]) -> Result<String, String>, base: Option<&str>) -> Result<u32, String> {
+    let count = run(&["rev-list", "--count", "HEAD", "--not", "--remotes"])?.trim().parse::<u32>().map_err(|_| "its count of commits didn't read".to_string())?;
+    if count > 0 && base.is_some_and(|base| landed(run, base)) {
+        return Ok(0);
+    }
+    Ok(count)
+}
+
+/// Whether all HEAD changed since it parted from `base` is in `base` as it is in HEAD: no file
+/// HEAD changed differs between the two. Trees are compared by their objects, so no merge
+/// driver, filter or external diff runs. `base` having changed one of those files again since
+/// says it isn't, as does histories with nothing in common or a git that fails.
+fn landed(run: &dyn Fn(&[&str]) -> Result<String, String>, base: &str) -> bool {
+    let changed = |from: &str| run(&["diff-tree", "-r", "-z", "--name-only", from, "HEAD"]).map(|out| out.split('\0').filter(|p| !p.is_empty()).map(String::from).collect::<std::collections::HashSet<_>>());
+    let Ok(fork) = run(&["merge-base", base, "HEAD"]) else { return false };
+    match (changed(fork.trim()), changed(base)) {
+        (Ok(own), Ok(apart)) => own.is_disjoint(&apart),
+        _ => false,
+    }
 }
 
 /// Why a linked worktree is locked (`git worktree lock`), from its git folder's `locked` file,

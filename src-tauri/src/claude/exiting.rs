@@ -2,8 +2,10 @@
 //! that holds a worktree it made for itself (`claude -w`), when removing the worktree would lose
 //! something (commits on its branch, uncommitted files, a name you gave the session). Mark as
 //! done types `/exit` into such a session so its worktree goes with it (idle.rs `exit`), so it's
-//! Codealong that brings the dialog up more often than not. From 2.1.322's code, and in tmux
-//! (2026-11-10):
+//! Codealong that brings the dialog up more often than not. Of a worktree a `WorktreeCreate` hook
+//! made it asks whatever is in it, and Mark as done then answers Remove itself where that's all it
+//! says (`asks_blindly`) and Codealong's own check finds nothing would be lost (`remove`, idle.rs
+//! `answered_blindly`). From 2.1.322's code, and in tmux (2026-11-10):
 //!
 //! - While it's up, the session's registry entry says `status: "waiting"`, `waitingFor: "dialog
 //!   open"`, as it does for any command's dialog (`/model`, `/config`…), and its transcript says
@@ -49,6 +51,11 @@ const TITLE: &str = "Exiting worktree session";
 /// an answer never goes to a dialog that came up after the one it was meant for.
 pub const EXIT_ID: &str = "exit-worktree:";
 
+/// What it says of a worktree a `WorktreeCreate` hook made, as its only reason to ask: it has no
+/// commit the worktree started from to count what was added since (2.1.326's code; the words a
+/// terminal showed on 2026-11-18). Anything else it would say comes beside it.
+const BLIND: &str = "A WorktreeCreate hook made this worktree, so Claude Code can't tell whether it has unpushed commits.";
+
 /// The dialog at the foot of a terminal's text (`launch::screen_of`), when that's what's up, read
 /// from under its title as any of Claude Code's dialogs is (dialog.rs `titled`).
 pub fn read(screen: &str) -> Option<Dialog> {
@@ -69,6 +76,35 @@ fn assumed(worktree: &str) -> Dialog {
         ],
         on: 0,
     }
+}
+
+/// Whether `dialog`, read off its terminal, asks only because a hook made the worktree at `own`:
+/// it says `BLIND` and nothing more (a name you gave the session, say, would be said too), and
+/// its Keep leaves that worktree where it is, not another the session went on to. Lines that
+/// wrapped were joined with a space wherever they broke, mid-path too, so a path with no space
+/// of its own is matched without the spaces; one with spaces only as it is. One started with
+/// `--tmux` never asks this way: its choices are about its tmux session too.
+fn asks_blindly(dialog: &Dialog, own: &str) -> bool {
+    let squeezed = |text: &str| text.split_whitespace().collect::<String>();
+    let stays = format!("Stays at {own}");
+    let names_own = |d: &str| d == stays || (!own.contains(char::is_whitespace) && squeezed(d) == squeezed(&stays));
+    let keeps_own = |c: &Choice| c.label == "Keep worktree" && c.description.as_deref().is_some_and(names_own);
+    squeezed(&dialog.says) == squeezed(BLIND) && dialog.choices.iter().any(keeps_own)
+}
+
+/// The dialog up in `s` and its registry entry, when it asks only because a hook made `s`'s own
+/// worktree (`asks_blindly`). Only one read off its terminal: one Codealong couldn't read
+/// (`assumed`) has choices it only supposes.
+fn up_blindly(home: &Path, s: &Session) -> Option<(Dialog, RegistryEntry)> {
+    let own = s.own_worktree.as_deref()?;
+    let (reg, screen) = super::dialog::open(home, s)?;
+    let dialog = read(screen.as_deref()?)?;
+    asks_blindly(&dialog, own).then_some((dialog, reg))
+}
+
+/// Whether the dialog up in `s` asks only because a hook made its worktree (`asks_blindly`).
+pub fn blindly(ctx: &Ctx, s: &Session) -> bool {
+    up_blindly(&ctx.account.home_path(), s).is_some()
 }
 
 /// When the dialog the registry entry `reg` says is open came up, if it says one is.
@@ -156,9 +192,24 @@ pub fn answer(ctx: &Ctx, s: &Session, id: &str, answers: &Value) -> Result<Strin
     let Some(i) = dialog.choices.iter().position(|c| c.label == picked) else {
         bail!("It takes one of its choices, nothing else: {}.", labels());
     };
-    let digit = u8::try_from(i + 1).ok().filter(|n| *n <= 9).ok_or_else(|| anyhow!("It offers more choices than Codealong picks among with a key. Answer it in its terminal."))?;
-    super::press_in(&ctx.account.home_path(), s, &reg, Key::Digit(digit), "Open it to answer.")?;
+    pick(ctx, s, &reg, i)?;
     Ok(format!("Picked {picked}."))
+}
+
+/// Answers the dialog up in `s` with Remove worktree, as Mark as done does where it asks only
+/// because a hook made the worktree (`asks_blindly`, looked at again here as it's pressed) and
+/// Codealong found nothing in it would be lost.
+pub fn remove(ctx: &Ctx, s: &Session) -> Result<()> {
+    let (dialog, reg) = up_blindly(&ctx.account.home_path(), s).ok_or_else(|| anyhow!("It isn't asking only because a hook made its worktree."))?;
+    let i = dialog.choices.iter().position(|c| c.label == "Remove worktree").ok_or_else(|| anyhow!("None of its choices is Remove worktree."))?;
+    pick(ctx, s, &reg, i)
+}
+
+/// Picks choice `i` of the dialog up in its registry entry `reg` by its digit.
+fn pick(ctx: &Ctx, s: &Session, reg: &RegistryEntry, i: usize) -> Result<()> {
+    let digit = u8::try_from(i + 1).ok().filter(|n| *n <= 9).ok_or_else(|| anyhow!("It offers more choices than Codealong picks among with a key. Answer it in its terminal."))?;
+    super::press_in(&ctx.account.home_path(), s, reg, Key::Digit(digit), "Open it to answer.")?;
+    Ok(())
 }
 
 /// Calls the exit off, as Escape does: the session is back at its prompt.
@@ -218,6 +269,32 @@ mod tests {
         assert_eq!(read(&format!("{SCREEN}Worktree kept.\n❯ \n")), None);
         assert_eq!(read("   Select model\n   ❯ 1. Default  Opus\n     2. Haiku  Fastest\n   Enter to confirm · Esc to cancel\n"), None);
         assert_eq!(read("   Exiting worktree session\n   Removing worktree…\n"), None);
+    }
+
+    #[test]
+    fn asks_blindly_only_of_the_hooks_worktree_and_for_no_other_reason() {
+        let own = "/Users/me/projects/northwind-app/.claude/worktrees/kestrel";
+        // As a terminal showed it on 2026-11-18, the worktree a hook made.
+        let hooked = format!("   Exiting worktree session\n   {BLIND}\n   ❯ 1. Keep worktree    Stays at {own}\n     2. Remove worktree  Any unpushed commits in the worktree may be lost.\n   Enter to confirm · Esc to cancel\n");
+        let d = read(&hooked).unwrap();
+        assert!(asks_blindly(&d, own));
+        // Narrower, its sentence and its path wrapped.
+        let narrow = format!("   Exiting worktree session\n   A WorktreeCreate hook made this worktree, so Claude Code can't tell\n   whether it has unpushed commits.\n   ❯ 1. Keep worktree    Stays at /Users/me/projects/northwind-app/.claude/\n                         worktrees/kestrel\n     2. Remove worktree  Any unpushed commits in the worktree may be lost.\n   Enter to confirm · Esc to cancel\n");
+        assert!(asks_blindly(&read(&narrow).unwrap(), own));
+        // Another worktree than the one Codealong checked, another reason besides, or one that
+        // counted what would be lost.
+        assert!(!asks_blindly(&d, "/Users/me/projects/northwind-app/.claude/worktrees/atlas"));
+        let named = hooked.replace(BLIND, &format!("{BLIND} This session was named \"atlas\"."));
+        assert!(!asks_blindly(&read(&named).unwrap(), own));
+        assert!(!asks_blindly(&read(SCREEN).unwrap(), own));
+        // A path with spaces of its own is matched as it is, not squeezed into another's.
+        let spaced = "/Users/me/projects/northwind-app/.claude/worktrees/release notes";
+        assert!(asks_blindly(&read(&hooked.replace(own, spaced)).unwrap(), spaced));
+        assert!(!asks_blindly(&read(&hooked.replace(own, &spaced.replace(' ', ""))).unwrap(), spaced));
+        // Nor one in tmux, whose answer decides its tmux session too. (One Codealong couldn't
+        // read never comes here: `up_blindly` reads it off the screen or not at all.)
+        let tmux = format!("Exiting worktree session\n{BLIND}\n❯ 1. Keep worktree and tmux session  Stays at {own}. Reattach with: tmux attach -t kestrel\n  2. Keep worktree, end tmux session  Keeps worktree at {own}, terminates tmux session.\n  3. Remove worktree and tmux session  Clean up the worktree directory.\nEnter to confirm · Esc to cancel");
+        assert!(!asks_blindly(&read(&tmux).unwrap(), own));
     }
 
     #[test]

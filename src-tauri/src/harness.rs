@@ -289,6 +289,18 @@ pub trait Adapter: Sync {
         None
     }
 
+    /// Whether its exit command asks whether to keep the worktree `s` holds whatever is in it,
+    /// the harness unable to tell what removing it would lose: a question Codealong's own check
+    /// answers as Mark as done exits it (`idle::exit`), where any other is yours to answer.
+    fn exit_asks_blindly(&self, _ctx: &Ctx, _s: &Session) -> bool {
+        false
+    }
+
+    /// Answers the question its exit command asks about the worktree `s` holds by removing it.
+    fn exit_removing(&self, _ctx: &Ctx, _s: &Session) -> Result<()> {
+        bail!("{} doesn't ask about a worktree as it exits.", self.harness().word())
+    }
+
     /// Whether a process found with no parent left (launchd's) is one the harness keeps in the
     /// background for its sessions, of no use once what started it has gone: `codealong hygiene`
     /// ends it, unless a live session runs under it.

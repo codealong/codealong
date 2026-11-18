@@ -956,6 +956,17 @@ impl crate::harness::Adapter for ClaudeCode {
         Some("/exit")
     }
 
+    /// `/exit` asks of every worktree a `WorktreeCreate` hook made, clean or not, having no
+    /// commit it started from to count what was added since: known by what its dialog says
+    /// (`exiting::blindly`).
+    fn exit_asks_blindly(&self, ctx: &crate::harness::Ctx, s: &crate::model::Session) -> bool {
+        exiting::blindly(ctx, s)
+    }
+
+    fn exit_removing(&self, ctx: &crate::harness::Ctx, s: &crate::model::Session) -> anyhow::Result<()> {
+        exiting::remove(ctx, s)
+    }
+
     /// The background service (`claude daemon run`) keeps spare processes ready for the next
     /// job, each in a pty host of its own (`claude bg-pty-host --bg-pty-host <sock> … --bg-spare
     /// <sock>`, its spare `claude bg-spare --bg-spare <sock>`), and a job runs in a spare it

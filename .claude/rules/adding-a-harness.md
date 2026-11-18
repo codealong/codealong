@@ -51,7 +51,8 @@ a change to what's sent shows there. What each harness records and accepts is in
      throwaway conversation of a session's, or one of its own about a PR), `stop`, `wakes_at`
      (a wakeup it scheduled in its own process, which `codealong hygiene` keeps it for),
      `exit_command` (an exit that cleans up the worktree it made, with
-     `Session::own_worktree`), `rename`,
+     `Session::own_worktree`; `exit_asks_blindly` and `exit_removing` where it asks whether to
+     keep one whatever is in it), `rename`,
      `interrupts` and `interrupt`, `archive`, `skips_permission_prompts`, `runs_its_commands`,
      `session_var` (the variable its commands are given the session's ID in);
    - switching a running session: `model_command` and `effort_command` (typed into its terminal),

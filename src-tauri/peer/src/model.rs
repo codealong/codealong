@@ -1346,8 +1346,9 @@ pub struct GitInfo {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub new_work_count: Option<u32>,
     /// Commits HEAD has that no remote branch has (`git rev-list HEAD --not --remotes`, Claude
-    /// Code's own rule for a worktree it removes): they'd go with the worktree. Other Macs'
-    /// older versions don't send it.
+    /// Code's own rule for a worktree it removes): they'd go with the worktree. None count when
+    /// their change is in the default branch already, as a squash merge leaves a branch's
+    /// commits (`git::unpushed_by`). Other Macs' older versions don't send it.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub unpushed: Option<u32>,
     /// Why the worktree is locked (`git worktree lock`), when it is: Claude Code locks the one a

@@ -1862,7 +1862,10 @@ fn end(engine: &Handle, s: &crate::model::Session, account: &config::AccountCfg,
         Ending::Exit(pid) => {
             let word = adapter.harness().word();
             let worktree = s.own_worktree.as_deref().map(|w| crate::util::file_name(std::path::Path::new(w))).unwrap_or_default();
-            match crate::idle::exit(s, account, pid) {
+            // Asked whether to keep its worktree by a harness that can't tell what removing it
+            // would lose, Codealong answers by its own check, made once the question is up.
+            let nothing_lost = || cfg().is_ok_and(|cfg| crate::cleanup::own_goes(&|| engine.board(), &cfg, s).is_ok());
+            match crate::idle::exit(s, account, pid, nothing_lost) {
                 Ok(Exited::Ended { removed: true, closed: Ok(()) }) => (Some(format!("{word} removed its worktree, its terminal is closed")), None),
                 Ok(Exited::Ended { removed: true, closed: Err(e) }) => (Some(format!("{word} removed its worktree")), Some(format!("Its terminal didn't close: {e}"))),
                 Ok(Exited::Ended { removed: false, closed }) => (

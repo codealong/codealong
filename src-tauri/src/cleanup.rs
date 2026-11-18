@@ -23,7 +23,7 @@ use std::time::{Duration, Instant};
 use crate::board::{claude_lock, cleanup, Leaving};
 use crate::config::Config;
 use crate::harness::{self, Ctx};
-use crate::model::{Board, Origin, Session};
+use crate::model::{Board, Lane, Origin, Session};
 use crate::procs;
 use crate::util::tilde;
 
@@ -193,7 +193,8 @@ pub fn plan(board: &Board, cfg: &Config, lane_id: &str, ending: Option<&Session>
 /// What git says of a worktree, read for removing it. A command that fails or runs out is an
 /// error, never a clean worktree; untracked files count whatever `status.showUntrackedFiles`
 /// says, and so do submodules' changes and tracked files git is told not to look at
-/// (`hidden_changes`).
+/// (`hidden_changes`). Commits on no remote count unless their change is in the default branch
+/// already, as a squash merge leaves them (`git::unpushed_by`).
 #[derive(Debug, Clone, PartialEq)]
 struct Facts {
     dirty: u32,
@@ -216,7 +217,7 @@ fn facts(path: &Path, base: Option<&str>) -> Result<Facts, String> {
     let run = |args: &[&str]| procs::run("git", &[&["-C", dir.as_ref()], args].concat(), None, CHECK_WAIT).map_err(|e| last_line(&e.to_string()).to_string());
     let status = run(&["status", "--porcelain=v2", "--untracked-files=normal", "--ignore-submodules=none"])?;
     let head = run(&["rev-parse", "--verify", "HEAD"])?.trim().to_string();
-    let unpushed = run(&["rev-list", "--count", "HEAD", "--not", "--remotes"])?.trim().parse().map_err(|_| "its count of commits didn't read".to_string())?;
+    let unpushed = crate::git::unpushed_by(&run, base)?;
     let dirty = crate::git::parse_status(&status).dirty + hidden_changes(path)?;
     Ok(Facts { dirty, unpushed, head, locked: crate::git::locked(path), new_work: crate::git::new_work(path, base).len() as u32 })
 }
@@ -515,16 +516,38 @@ fn carry_out(plan: &Plan, running: &dyn Fn() -> usize) -> Result<Gone, String> {
 /// (`claude rm`), else kept. None when it holds none on the board; Ok when it went, or Err with why
 /// it stays. `board` reads the board as it is, as `remove` does.
 pub fn after_job(board: &dyn Fn() -> Board, cfg: &Config, s: &Session) -> Option<Result<Gone, String>> {
-    let own = Path::new(s.own_worktree.as_deref()?);
-    let real = dunce::canonicalize(own).ok();
     let lanes = board().lanes;
-    let lane = lanes.iter().find(|l| l.device.is_none() && (Path::new(&l.path) == own || real.as_deref().is_some_and(|r| dunce::canonicalize(&l.path).is_ok_and(|p| p == r))))?;
+    let lane = own_lane(&lanes, s)?;
     let name = lane.callsign.clone();
     Some(match remove(board, cfg, &lane.id, Some(s)) {
         Ok(Removed { plan: Plan { kept: Some(why), .. }, .. }) => Err(format!("Its worktree, {name}, stays: {why}.")),
         Ok(Removed { result, .. }) => result,
         Err(e) => Err(e),
     })
+}
+
+/// Whether the worktree its harness made for `s` (`Session::own_worktree`) could go as `s` ends
+/// with nothing in it lost, checked as `plan` checks one, `s` being ended, and read again as
+/// `verify` reads one just before it goes, the board read again for the sessions running in it:
+/// Err with why it would stay. `board` reads the board as it is, as `remove` does. Mark as done
+/// goes by it where `s`'s harness asks whether to keep the worktree unable to tell
+/// (`idle::exit`).
+pub fn own_goes(board: &dyn Fn() -> Board, cfg: &Config, s: &Session) -> Result<(), String> {
+    let lanes = board().lanes;
+    let lane = own_lane(&lanes, s).ok_or("its worktree isn't on the board here")?;
+    let plan = plan(&board(), cfg, &lane.id, Some(s))?;
+    if let Some(why) = plan.kept {
+        return Err(why);
+    }
+    verify(&plan, running_in(&board(), &lane.id, Some(s.key.as_str()))).map(|_| ())
+}
+
+/// The lane of the worktree its harness made for `s` on this device, found by its path, links
+/// and all: `s` may be listed where it worked last.
+fn own_lane<'a>(lanes: &'a [Lane], s: &Session) -> Option<&'a Lane> {
+    let own = Path::new(s.own_worktree.as_deref()?);
+    let real = dunce::canonicalize(own).ok();
+    lanes.iter().find(|l| l.device.is_none() && (Path::new(&l.path) == own || real.as_deref().is_some_and(|r| dunce::canonicalize(&l.path).is_ok_and(|p| p == r))))
 }
 
 /// Runs a harness's command through a login shell, as a start does: the account's command can be
@@ -654,17 +677,39 @@ mod tests {
         assert!(!wt.exists());
         assert!(git(&["branch", "--list", "worktree-brave-otter"]).trim().is_empty());
         // A commit on no remote holds the next one.
+        let in_wt = |args: &[&str]| procs::run("git", &[&["-C", wt.to_str().unwrap(), "-c", "user.name=t", "-c", "user.email=t@t"], args].concat(), None, Duration::from_secs(20)).unwrap();
+        let commit = |run: &dyn Fn(&[&str]) -> String, at: &Path, file: &str, text: &str| {
+            std::fs::write(at.join(file), text).unwrap();
+            run(&["add", file]);
+            run(&["-c", "user.name=t", "-c", "user.email=t@t", "commit", "-q", "-m", file]);
+        };
         git(&["worktree", "add", "-q", "-b", "worktree-kept", wt.to_str().unwrap(), "main"]);
-        procs::run("git", &["-C", wt.to_str().unwrap(), "-c", "user.name=t", "-c", "user.email=t@t", "commit", "-q", "--allow-empty", "-m", "work"], None, Duration::from_secs(20)).unwrap();
+        commit(&in_wt, &wt, "work.txt", "work");
         let p = plan(&board, &cfg, wt.to_str().unwrap(), None).unwrap();
         assert_eq!(p.kept.as_deref(), Some("1 commit on no remote"));
         assert!(carry_out(&p, &|| 0).is_err());
         assert!(wt.exists());
         // Pushed, it goes; its branch stays where its work is merged nowhere but the remote's.
-        procs::run("git", &["-C", wt.to_str().unwrap(), "push", "-q", "origin", "worktree-kept"], None, Duration::from_secs(20)).unwrap();
+        in_wt(&["push", "-q", "origin", "worktree-kept"]);
         let p = plan(&board, &cfg, wt.to_str().unwrap(), None).unwrap();
         assert_eq!(p.kept, None);
         assert_eq!(carry_out(&p, &|| 0), Ok(Gone { said: "Removed the worktree brave-otter; its branch, worktree-kept, stays: its work isn't merged.".into(), partly: false }));
+        // Squash-merged, its own commits are on no remote, but their change is in main, which
+        // went on to change other files since: it goes.
+        git(&["worktree", "add", "-q", "-b", "worktree-squashed", wt.to_str().unwrap(), "main"]);
+        commit(&in_wt, &wt, "a.txt", "one");
+        commit(&in_wt, &wt, "a.txt", "one two");
+        assert_eq!(plan(&board, &cfg, wt.to_str().unwrap(), None).unwrap().kept.as_deref(), Some("2 commits on no remote"));
+        git(&["merge", "-q", "--squash", "worktree-squashed"]);
+        git(&["-c", "user.name=t", "-c", "user.email=t@t", "commit", "-q", "-m", "squashed"]);
+        commit(&git, &main, "b.txt", "later");
+        git(&["push", "-q", "origin", "main"]);
+        assert_eq!(plan(&board, &cfg, wt.to_str().unwrap(), None).unwrap().kept, None);
+        // Once main has changed one of its files again, git can't say its change is all there.
+        commit(&git, &main, "a.txt", "one two three");
+        git(&["push", "-q", "origin", "main"]);
+        assert_eq!(plan(&board, &cfg, wt.to_str().unwrap(), None).unwrap().kept.as_deref(), Some("2 commits on no remote"));
+        git(&["worktree", "remove", "--force", wt.to_str().unwrap()]);
         // A hook-made one goes through the repo's hook, which is handed the event on stdin.
         git(&["worktree", "add", "-q", "-b", "worktree-hooked", wt.to_str().unwrap(), "main"]);
         let log = dir.join("hook.log");

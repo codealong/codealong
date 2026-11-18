@@ -190,7 +190,13 @@ Code made for it is stopped, and the worktree is removed after it, as Clean up w
 [Clean up worktrees](#clean-up-worktrees)), unless something in it would be lost: then it stays, and
 the toast says why ("1 commit on no remote"). A session in a terminal that holds such a worktree is
 exited with Claude Code's own `/exit`, which removes the worktree when nothing in it would be lost
-and otherwise asks whether to keep it. The session then stays, waiting on you with that question,
+and otherwise asks whether to keep it. It asks that of every worktree a repo's `WorktreeCreate` hook
+made, unable to tell what removing one would lose, so there Codealong answers Remove worktree itself
+when its terminal shows that's Claude Code's only reason to ask (a Rex or tmux terminal, or one of
+Codealong's own; not a session started with `--tmux`, whose answer decides its tmux session too)
+and its own check, Clean up worktree…'s, finds nothing would be lost; the repo's
+`WorktreeRemove` hook then takes the worktree down as the session exits. Otherwise the session stays,
+waiting on you with that question,
 answered on its box as any question is (Keep worktree, Remove worktree), or Cancel to call the exit
 off; once it's answered, here or in its terminal, the session exits, its terminal closes and it's
 archived (one whose terminal doesn't close stays in its list, for you to see). Mark as done
@@ -4844,8 +4850,10 @@ isn't closed.
 Removes a worktree whose work is done, only when nothing in it would be lost: no file uncommitted or
 untracked (whatever `status.showUntrackedFiles` says, and tracked files git is told not to look at
 counted by their contents), no commit that isn't on some remote (as `git rev-list HEAD --not
---remotes` counts them, Claude Code's own rule), no session running in it, no lock a running
-session holds on it, and no other worktree or repository inside it, every ignored folder looked
+--remotes` counts them, Claude Code's own rule) unless what the commits change is in the default
+branch already, as a squash or rebase merge leaves them (every file they changed is the same there,
+so a file the default branch changed again since keeps them), no session running in it, no lock a
+running session holds on it, and no other worktree or repository inside it, every ignored folder looked
 through for one (a worktree with its dependencies installed takes a few seconds). A git command
 that fails keeps it. A main checkout, a plain folder and a reusable worktree are
 never removed. Files git ignores, such as installed dependencies and env files, go with it. Where it can't go, the
