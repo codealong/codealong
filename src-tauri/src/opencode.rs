@@ -990,7 +990,8 @@ fn file_of<'a>(tool: &str, input: Option<&'a Value>) -> Option<&'a str> {
         return None;
     }
     let input = input?;
-    ["path", "filePath"].iter().find_map(|k| input.get(*k).and_then(Value::as_str)).map(str::trim).filter(|p| !p.is_empty())
+    // As recorded, a name that ends in a space included.
+    ["path", "filePath"].iter().find_map(|k| input.get(*k).and_then(Value::as_str)).filter(|p| !p.trim().is_empty())
 }
 
 /// A command you ran in the session's shell (its TUI's `!`, or the service's, `run_shell`), as

@@ -132,13 +132,18 @@
           return until(function () { return opens().length === 1; }, 3000).then(function () {
             check('a click on the name opens the file', true);
             check('and leaves its call open as it was', !!read.parentElement.querySelector('.ca-thread-out'));
-            // The keyboard gets there too: the name takes focus, and Enter there opens the file.
-            name.focus();
-            check('the name takes focus', document.activeElement === name, document.activeElement && document.activeElement.outerHTML.slice(0, 80));
-            name.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true }));
-            return until(function () { return opens().length === 2; }, 3000);
+            // Each is a button of its own, neither inside another, for the keyboard and a screen
+            // reader: the name, and the chevron, which says whether the call is open.
+            var toggle = read.querySelector('.ca-thread-tooltoggle');
+            check('the name is a button of its own', name.tagName === 'BUTTON' && !name.parentElement.closest('button'), name.parentElement.outerHTML.slice(0, 120));
+            check('and so is the chevron, saying the call is open', !!toggle && toggle.tagName === 'BUTTON' && !toggle.parentElement.closest('button') && toggle.getAttribute('aria-expanded') === 'true', toggle ? toggle.outerHTML.slice(0, 120) : 'none');
+            toggle.click();
+            return until(function () { return !read.parentElement.querySelector('.ca-thread-out'); }, 3000).then(function () {
+              check('which closes it', toggle.getAttribute('aria-expanded') === 'false');
+              toggle.click();
+              return until(function () { return read.parentElement.querySelector('.ca-thread-out'); }, 3000);
+            });
           }).then(function () {
-            check('and Enter on it opens the file, leaving its call as it was', !!read.parentElement.querySelector('.ca-thread-out'));
             return menuOf(read);
           }).then(function (labels) {
             check('a right-click on its line offers the file’s menu', labels.indexOf('Open') >= 0 && labels.indexOf('Reveal in Finder') >= 0 && labels.indexOf('Copy path') >= 0, labels.join(' | '));

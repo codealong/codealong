@@ -62,17 +62,19 @@ pub fn conversation_items(v: &Value, at: i64) -> Vec<Item> {
                     let changes = it.get("changes").and_then(Value::as_object);
                     let paths: Vec<String> = changes.map(|m| m.keys().cloned().collect()).unwrap_or_default();
                     // One file changed opens from its line, where it went when the change moved it
-                    // (an update's `move_path`). The rollout names it in full or from the thread's
-                    // folder, which transcript.rs takes it from (`files_from`).
+                    // (an update's `move_path`), unless the change failed. The rollout names it in
+                    // full or from the thread's folder, which transcript.rs takes it from
+                    // (`files_from`).
+                    let failed = s("status") == "failed";
                     let file = match changes.map(|m| m.iter().collect::<Vec<_>>()).as_deref() {
-                        Some([(path, change)]) => Some(change.get("move_path").and_then(Value::as_str).unwrap_or(path).to_string()),
+                        Some([(path, change)]) => Some(change.get("move_path").and_then(Value::as_str).filter(|_| !failed).unwrap_or(path).to_string()),
                         _ => None,
                     };
                     let label = match &file {
                         Some(f) => format!("Edit · {}", code(&crate::util::file_name(Path::new(f)))),
                         None => format!("Edit · {} files", paths.len()),
                     };
-                    vec![Item { input: Some(paths.join("\n")), failed: s("status") == "failed", file, ..item(at, "tool", label) }]
+                    vec![Item { input: Some(paths.join("\n")), failed, file, ..item(at, "tool", label) }]
                 }
                 Some("McpToolCall") => {
                     let result = it.get("result");
@@ -247,6 +249,8 @@ mod tests {
         assert_eq!((one.text.as_str(), one.file.as_deref()), ("Edit · `a.ts`", Some("/Users/me/projects/kestrel/src/a.ts")));
         let moved = done(serde_json::json!({ "type": "FileChange", "changes": { "/Users/me/projects/kestrel/src/a.ts": { "type": "update", "unified_diff": "", "move_path": "/Users/me/projects/kestrel/src/b.ts" } } }));
         assert_eq!((moved.text.as_str(), moved.file.as_deref()), ("Edit · `b.ts`", Some("/Users/me/projects/kestrel/src/b.ts")));
+        let not_moved = done(serde_json::json!({ "type": "FileChange", "status": "failed", "changes": { "/Users/me/projects/kestrel/src/a.ts": { "type": "update", "move_path": "/Users/me/projects/kestrel/src/b.ts" } } }));
+        assert_eq!((not_moved.text.as_str(), not_moved.file.as_deref(), not_moved.failed), ("Edit · `a.ts`", Some("/Users/me/projects/kestrel/src/a.ts"), true));
         let two = done(serde_json::json!({ "type": "FileChange", "changes": { "/Users/me/a.ts": {}, "/Users/me/b.ts": {} } }));
         assert_eq!((two.text.as_str(), two.file), ("Edit · 2 files", None));
         let relative = done(serde_json::json!({ "type": "FileChange", "changes": { "src/a.ts": {} } }));

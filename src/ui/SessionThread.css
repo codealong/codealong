@@ -250,8 +250,31 @@
   text-overflow: ellipsis;
   white-space: nowrap;
 }
-.ca-thread-tool.is-failed .ca-thread-toolhead > .ca-icon:not(:first-child) {
+.ca-thread-tool.is-failed .ca-thread-toolhead > .ca-icon:not(:first-child),
+.ca-thread-tool.is-failed .ca-thread-tooltoggle {
   color: var(--alert);
+}
+/* A line that names a file: its name, which opens it, and its chevron, which opens the call, are
+   buttons of their own on it, drawn as the line's text and chevron are. */
+.ca-thread-toolfile,
+.ca-thread-tooltoggle {
+  appearance: none;
+  padding: 0;
+  border: 0;
+  border-radius: var(--radius-sm);
+  background: none;
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
+}
+.ca-thread-tooltoggle {
+  display: flex;
+  color: var(--ink-3);
+}
+.ca-thread-toolfile:focus-visible,
+.ca-thread-tooltoggle:focus-visible {
+  outline: none;
+  box-shadow: var(--shadow-focus);
 }
 .ca-thread-runhead {
   color: var(--ink-3);

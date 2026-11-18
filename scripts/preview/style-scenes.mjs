@@ -112,7 +112,7 @@ const quickReady = `await sd.waitFor(() => window.__calls.some((c) => c[0] === '
 const pngPaste = (selector) => `const box = await sd.waitFor(${JSON.stringify(selector)}); box.focus(); const dt = new DataTransfer(); dt.items.add(new File([new Uint8Array([0x89, 0x50, 0x4e, 0x47])], 'shot.png', { type: 'image/png' })); dt.items.add(new File(['log'], 'send.log', { type: 'text/plain' })); box.dispatchEvent(new ClipboardEvent('paste', { clipboardData: dt, bubbles: true, cancelable: true }));`;
 const settings = (section) => [`await sd.click('.ca-side-config'); await sd.waitFor('.ca-settings');`, `await sd.click(sd.byText('.ca-settings-nav button', ${JSON.stringify(section)})); await sd.sleep(300);`];
 const first = (selector) => `await sd.click(await sd.waitFor(${JSON.stringify(selector)}));`;
-const openTools = `for (const b of document.querySelectorAll('.ca-thread-toolhead:not(:disabled), .ca-thread-runhead')) if (b.getAttribute('aria-expanded') === 'false') b.click();`;
+const openTools = `for (const b of document.querySelectorAll('.ca-thread-toolhead:not(:disabled), .ca-thread-tooltoggle, .ca-thread-runhead')) if (b.getAttribute('aria-expanded') === 'false') b.click();`;
 
 // Run in every page just before it's recorded. A conversation shows the prompt above what's
 // in view once it's scrolled, and whether it has been yet depends on timing: each is put at

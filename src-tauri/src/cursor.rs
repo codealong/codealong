@@ -743,9 +743,9 @@ fn call(t: &Value) -> Call {
         waits: open && (review == "Requested" || asking),
         output,
         failed: matches!(status, "error" | "cancelled") || rejected,
-        // As recorded, a Windows path too; one named from the chat's folder is taken from there
-        // by transcript.rs (`files_from`).
-        file: ["targetFile", "relativeWorkspacePath", "path"].iter().find_map(|k| text(&params, k)).filter(|_| matches!(base, "read_file" | "edit_file" | "search_replace" | "write")),
+        // As recorded, a Windows path and a name that ends in a space too; one named from the
+        // chat's folder is taken from there by transcript.rs (`files_from`).
+        file: ["targetFile", "relativeWorkspacePath", "path"].iter().find_map(|k| params.get(*k).and_then(Value::as_str)).filter(|p| !p.trim().is_empty() && matches!(base, "read_file" | "edit_file" | "search_replace" | "write")).map(String::from),
     }
 }
 

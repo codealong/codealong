@@ -337,62 +337,59 @@ function ToolLine({ item, result, state, onOpen }: { item: TranscriptItem; resul
   const file = away ? undefined : item.file;
   const files = useFileActions({ path: file ?? '', line: null }, 'file');
   const named = item.file && !questions ? fileInLine(item.text, item.file) : null;
+  const glyph = <Icon name={questions ? 'help' : item.sent ? 'paperclip' : toolIcon(item.text)} size={13} />;
+  const status =
+    state === 'running' ? (
+      <StatusGlyph status="working" size={11} />
+    ) : state === 'asks' ? (
+      <span className="ca-thread-asks">Waiting for you</span>
+    ) : failed ? (
+      <Icon name="x" size={12} stroke={2.25} title="Failed" />
+    ) : result || item.output != null ? (
+      <Icon name="check" size={12} stroke={2.25} title="Done" />
+    ) : null;
+  const chevron = detail && <Icon name={open ? 'chevron-down' : 'chevron-right'} size={12} />;
   return (
     <div className={cx('ca-thread-tool', failed && 'is-failed', state === 'asks' && 'is-asks')}>
-      <button
-        type="button"
-        className="ca-thread-toolhead"
-        aria-expanded={open}
-        disabled={!detail && !file}
-        onClick={(e) => {
-          // A click on the name opens the file, and so does one anywhere on a line with nothing more to show.
-          if (file && (!detail || (e.target as Element).closest('.ca-thread-toolfile'))) files.open();
-          else setOpen(!open);
-        }}
-        onContextMenu={file ? files.menu : undefined}
-      >
-        <Icon name={questions ? 'help' : item.sent ? 'paperclip' : toolIcon(item.text)} size={13} />
-        <span className="ca-thread-toollabel">
-          {named ? (
-            <>
-              <Rich text={named.before} now={0} />
-              {file ? (
-                // Its own stop for the keyboard, as a path in a reply is: Enter there opens the
-                // file, where Enter on the line opens the call.
-                <code
-                  className="ca-ic ca-ic-path ca-thread-toolfile"
-                  role="link"
-                  tabIndex={0}
-                  title={`Open ${file}`}
-                  onKeyDown={(e) => {
-                    if (e.key !== 'Enter') return;
-                    e.preventDefault();
-                    e.stopPropagation();
-                    files.open();
-                  }}
-                >
-                  {named.name}
-                </code>
-              ) : (
-                <code className="ca-ic">{named.name}</code>
-              )}
-              <Rich text={named.after} now={0} />
-            </>
-          ) : (
-            <Rich text={questions ? questionsLine(questions) : item.text} now={0} />
+      {named && file ? (
+        // Two things to do, each a control of its own: the name opens the file, the chevron the
+        // call's input and output, as a click anywhere else on the line does too (on one with
+        // nothing more to show, it opens the file).
+        <div className="ca-thread-toolhead" onClick={detail ? () => setOpen(!open) : files.open} onContextMenu={files.menu}>
+          {glyph}
+          <span className="ca-thread-toollabel">
+            <Rich text={named.before} now={0} />
+            <button
+              type="button"
+              className="ca-thread-toolfile"
+              title={`Open ${file}`}
+              onClick={(e) => {
+                e.stopPropagation();
+                files.open();
+              }}
+            >
+              <code className="ca-ic ca-ic-path">{named.name}</code>
+            </button>
+            <Rich text={named.after} now={0} />
+          </span>
+          {status}
+          {/* Its click goes on to the line's. */}
+          {detail && (
+            <button type="button" className="ca-thread-tooltoggle" aria-expanded={open} aria-label={open ? 'Hide input and output' : 'Show input and output'}>
+              {chevron}
+            </button>
           )}
-        </span>
-        {state === 'running' ? (
-          <StatusGlyph status="working" size={11} />
-        ) : state === 'asks' ? (
-          <span className="ca-thread-asks">Waiting for you</span>
-        ) : failed ? (
-          <Icon name="x" size={12} stroke={2.25} title="Failed" />
-        ) : result || item.output != null ? (
-          <Icon name="check" size={12} stroke={2.25} title="Done" />
-        ) : null}
-        {detail && <Icon name={open ? 'chevron-down' : 'chevron-right'} size={12} />}
-      </button>
+        </div>
+      ) : (
+        <button type="button" className="ca-thread-toolhead" aria-expanded={open} disabled={!detail} onClick={() => setOpen(!open)}>
+          {glyph}
+          <span className="ca-thread-toollabel">
+            <Rich text={questions ? questionsLine(questions) : named ? `${named.before}\`${named.name}\`${named.after}` : item.text} now={0} />
+          </span>
+          {status}
+          {chevron}
+        </button>
+      )}
       <FileWhy why={files.why} />
       {link && <MadeLine link={link} />}
       {item.sent && <SentFiles sent={item.sent} at={item.cursor} />}
