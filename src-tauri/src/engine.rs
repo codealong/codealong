@@ -1999,8 +1999,8 @@ impl Engine {
         let by: HashMap<String, crate::model::Orchestrator> = by.into_iter().map(|(k, o)| (origins.moved_to(&k, |m| keys.contains(m)).unwrap_or(k), o)).collect();
         for s in &mut sessions {
             if let Some(o) = by.get(&s.key) {
-                // Started under its project's name, before orchestrators were all "Orchestrator".
-                let title = crate::schedules::orchestrate::called(&s.title, o.project.as_deref());
+                // Called Orchestrator, not its schedule's name, which names its project.
+                let title = crate::schedules::orchestrate::session_title(&s.title, o.project.as_deref());
                 if title != s.title {
                     s.title = title.to_string();
                 }

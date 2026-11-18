@@ -5054,9 +5054,11 @@ touching the same code, a production change planned while a deploy runs. A proje
 its own orchestrator's while that one is on, else All projects', so two never read the same session.
 What it does is the codealong skill's `references/orchestrate.md`.
 
-Every one is called Orchestrator, its schedule and its session (one named for its project before,
-"Northwind orchestrator", reads as Orchestrator too); which project it keeps watch over is on its
-row's chip, where Elsewhere's chats would be, and over its title in its header. Its session leads
+Its session is called Orchestrator, whatever it keeps watch over, and so is what it suggests
+(Suggested by Orchestrator); its schedule keeps its project's name in Schedules (Northwind
+orchestrator), so `codealong schedule` finds each by its name. Which project a session keeps watch
+over is over its title in its header, in its place in the quick panel, and, where several are
+listed, on its row's chip, where Elsewhere's chats would be. Its session leads
 the Sessions of what it keeps watch over, above the pinned ones, under Orchestrator: under a
 project, that project's; under All projects, every one that runs. It's quiet:
 its replies are digests of what other sessions want of you, which wait on you on their own, so no

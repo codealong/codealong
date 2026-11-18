@@ -124,23 +124,28 @@ pub fn prompt(scope: &Orchestrates) -> String {
     )
 }
 
-/// What an orchestrator is called, in the Schedules view and on its session: "Orchestrator",
-/// whatever it keeps watch over. Which project it's for is said beside it where that matters (its
-/// session's header, its row's chip, its schedule's when), and a project's name in front read as
-/// clutter everywhere it went ("Suggested by Northwind orchestrator").
-pub const NAME: &str = "Orchestrator";
-
-pub fn name(_scope: &Orchestrates) -> String {
-    NAME.to_string()
+/// Its schedule's name in the Schedules view: "Orchestrator" for All projects, "Northwind
+/// orchestrator" for a project's, so each reads apart there and `codealong schedule` finds it by
+/// its name. Its session is called `NAME` whatever its project (`session_title`).
+pub fn name(scope: &Orchestrates) -> String {
+    match &scope.project {
+        Some(p) => format!("{p} orchestrator"),
+        None => NAME.to_string(),
+    }
 }
 
-/// What an orchestrator's schedule or session called `name` is called now: one made before
-/// orchestrators were all "Orchestrator" was named for its project ("Northwind orchestrator"),
-/// which reads as `NAME` too. A name you gave it yourself stays yours.
-pub fn called<'a>(name: &'a str, project: Option<&str>) -> &'a str {
+/// What an orchestrator's session is called wherever it shows: "Orchestrator", whatever project
+/// it keeps watch over, which its header, its row's chip and the quick panel say beside it. A
+/// project's name in front read as clutter everywhere it went ("Suggested by Northwind
+/// orchestrator").
+pub const NAME: &str = "Orchestrator";
+
+/// The title an orchestrator's session called `title` shows: `NAME` for the one its runs gave it,
+/// its schedule's name (`name`). A title you gave it yourself stays yours.
+pub fn session_title<'a>(title: &'a str, project: Option<&str>) -> &'a str {
     match project {
-        Some(p) if name.trim().eq_ignore_ascii_case(&format!("{p} orchestrator")) => NAME,
-        _ => name,
+        Some(p) if title.trim().eq_ignore_ascii_case(&format!("{p} orchestrator")) => NAME,
+        _ => title,
     }
 }
 
@@ -423,16 +428,16 @@ mod tests {
     use super::*;
 
     #[test]
-    fn every_orchestrator_is_called_orchestrator_and_an_old_projects_name_reads_so_too() {
+    fn a_schedule_keeps_its_projects_name_and_its_session_is_called_orchestrator() {
         let project = Orchestrates { project: Some("Northwind".into()), ..Default::default() };
-        assert_eq!(name(&project), "Orchestrator");
+        assert_eq!(name(&project), "Northwind orchestrator");
         assert_eq!(name(&Orchestrates::default()), "Orchestrator");
-        assert_eq!(called("Northwind orchestrator", Some("Northwind")), "Orchestrator");
-        assert_eq!(called("northwind Orchestrator ", Some("Northwind")), "Orchestrator");
-        // A name of your own, or another project's, stays as it is.
-        assert_eq!(called("Night watch", Some("Northwind")), "Night watch");
-        assert_eq!(called("Atlas orchestrator", Some("Northwind")), "Atlas orchestrator");
-        assert_eq!(called("Orchestrator", None), "Orchestrator");
+        assert_eq!(session_title(&name(&project), Some("Northwind")), "Orchestrator");
+        assert_eq!(session_title("northwind Orchestrator ", Some("Northwind")), "Orchestrator");
+        // A title of your own, or another project's, stays as it is.
+        assert_eq!(session_title("Night watch", Some("Northwind")), "Night watch");
+        assert_eq!(session_title("Atlas orchestrator", Some("Northwind")), "Atlas orchestrator");
+        assert_eq!(session_title("Orchestrator", None), "Orchestrator");
     }
     use crate::model::{Harness, PrItem, PrState};
     use crate::schedules::{File, Item, Runs, Track};

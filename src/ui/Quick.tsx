@@ -166,6 +166,7 @@ import { useTextSearch } from '../useTextSearch';
 import { cardHeight, HEIGHT, LISTEN_HEIGHT, MARGIN, useQuickSize } from './useQuickSize';
 import { bare, chordKeys, chordPressed, cmd, emacsCtrl, held as modsHeld, keysIn } from '../platform';
 import { useKeysShown } from '../keysShown';
+import { scopeWords } from '../orchestrators';
 
 declare global {
   interface Window {
@@ -2945,7 +2946,8 @@ export function Quick() {
                           )}
                           <SnoozeChip until={s2.snoozedUntil} now={now} away="out of what waits on you" />
                           {there && <DeviceBadge device={there} now={now} />}
-                          <RowPlace lead={s2.account} project={r.lane.project} place={r.lane.callsign} />
+                          {/* Every orchestrator is called Orchestrator: what it keeps watch over tells them apart. */}
+                          {s2.orchestrator ? <RowPlace lead={s2.account} project="" place={scopeWords(s2.orchestrator.project)} /> : <RowPlace lead={s2.account} project={r.lane.project} place={r.lane.callsign} />}
                           {sendLikely && sendsTo && <span className={cx('ca-quick-sure', r.p != null && `is-${sureness(r.p)}`)}>{r.p != null ? `${Math.round(r.p * 100)}%` : ''}</span>}
                           <span className="ca-quick-row-age">{ago(s2.statusSince ?? s2.lastActivity, now)}</span>
                           {active === r.key && tab && <span className="ca-quick-row-tab ca-keyhint">{keysIn(tab)}</span>}

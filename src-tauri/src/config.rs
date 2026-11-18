@@ -1264,7 +1264,7 @@ impl Default for AppearanceCfg {
 }
 
 /// Keys show all the time unless config.toml turns them off.
-fn default_show_keys() -> bool {
+pub fn default_show_keys() -> bool {
     true
 }
 

@@ -30,6 +30,7 @@ import { cmd } from '../platform';
 import { useListening } from '../listening';
 import { ListeningChip } from './Listening';
 import { scopeWords } from '../orchestrators';
+import { deviceLabel } from '../devices';
 
 /** `web · billing`: the repo, and the branch when the worktree's name doesn't already say it. */
 function laneSub(lane: Lane): { sub: string; branch: string | null } {
@@ -555,6 +556,12 @@ function PlaceChip({ session: s, lane, short = false }: { session: Session; lane
   return (
     <Chip className="ca-wtchip" title={`The orchestrator for ${words}: it keeps watch over ${o.project ? `${o.project}’s` : 'your projects’'} sessions for you`}>
       <Icon name="compass" size={12} />
+      {lane.device && (
+        <span className="ca-wtchip-device">
+          <i className={`ca-labeldot is-${lane.device.color}`} aria-hidden="true" />
+          {deviceLabel(lane.device.name)}
+        </span>
+      )}
       <span className="ca-wtchip-name">{words}</span>
     </Chip>
   );

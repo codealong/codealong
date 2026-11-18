@@ -76,8 +76,8 @@
       check('one question at a time', box().querySelectorAll('.ca-question').length === 1 && /Which color/.test(showing()), showing());
       check('a strip of their headers', steps().map(function (b) { return b.textContent.trim(); }).join('|') === 'Color|Question 2', steps().map(function (b) { return b.textContent.trim(); }).join('|'));
       check('the header shows once', !box().querySelector('.ca-question .ca-question-header'));
-      var said = box().querySelector('.ca-approval-unwritten');
-      check('says where what it wrote is', !!said && /wrote with this question shows in the conversation once it’s answered; .+ has it now\.$/.test(said.textContent), said ? said.textContent : 'no line');
+      // What it wrote with them shows in the conversation once they're answered: no line says so.
+      check('no line over them on what it wrote', !/wrote with this question/.test(box().textContent), box().textContent.slice(0, 80));
       // Its tint says it asks you, and the header above has the way to where it runs.
       check('no head of its own: the strip and the minimize button share the first row', !box().querySelector('.ca-approval-head') && !!box().querySelector('.ca-question-top .ca-question-steps + .ca-approval-fold') && !/Asks you|Open in/.test(box().textContent), box().textContent.slice(0, 80));
       check('no note in the foot until something happens', !box().querySelector('.ca-composer-note').textContent && /Stop the turn/.test(button('Decline').title), button('Decline').title);

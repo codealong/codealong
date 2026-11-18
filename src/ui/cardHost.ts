@@ -140,7 +140,7 @@ export function useLiveSession(told: Told | null, shown: boolean): LiveSession {
     if (following.current) following.current.read(failed);
     else void getBoard().then(takeBoard, failed);
   }, [takeBoard]);
-  return { lane, session, theme: now?.theme ?? (elsewhere ? look?.theme : null) ?? null, zoom: now?.zoom ?? (elsewhere ? look?.zoom : null) ?? null, showKeys: !!engine?.showKeys, board, device: elsewhere && key ? deviceOf(devices, key) : null, needBoard, there: elsewhere ? devices?.lanes : undefined, perfLog };
+  return { lane, session, theme: now?.theme ?? (elsewhere ? look?.theme : null) ?? null, zoom: now?.zoom ?? (elsewhere ? look?.zoom : null) ?? null, showKeys: engine?.showKeys ?? true, board, device: elsewhere && key ? deviceOf(devices, key) : null, needBoard, there: elsewhere ? devices?.lanes : undefined, perfLog };
 }
 
 /** ⌘= ⌘- ⌘0 on a card in a window that floats: they zoom every window, as in the board's, and

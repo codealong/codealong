@@ -490,7 +490,7 @@ function AppearancePane({ cfg, theme, onPickTheme, disabled, onSave }: PaneProps
           </label>
         )}
         <label className="ca-field ca-settings-check">
-          <CheckBox checked={!!cfg.appearance.show_keys} onChange={(on) => void onSave({ ...cfg, appearance: { ...cfg.appearance, show_keys: on } })} />
+          <CheckBox checked={cfg.appearance.show_keys !== false} onChange={(on) => void onSave({ ...cfg, appearance: { ...cfg.appearance, show_keys: on } })} />
           <span>Always show keyboard shortcuts</span>
           {/* keysIn says chords, not a modifier held alone: Linux and Windows hold Ctrl. */}
           <small>{`Beside the buttons and rows they work, and in the lines under the message box. Off, they show while you hold ${platform() === 'mac' ? '⌘ or ⌃' : 'Ctrl'}, and tooltips and menus say them either way.`}</small>

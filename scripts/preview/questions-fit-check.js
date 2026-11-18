@@ -97,7 +97,7 @@
       var next = buttons[buttons.length - 1];
       note('card ' + card.clientHeight + ' of ' + card.scrollHeight + ', box ' + box().clientHeight + ' of ' + box().scrollHeight + ', question ' + body.clientHeight + ' of ' + body.scrollHeight + ', conversation ' + Math.round(room));
       check('the card is too short for all of it', scrolls(body), body.clientHeight + ' of ' + body.scrollHeight);
-      var parts = ['.ca-approval-unwritten', '.ca-question-top', '.ca-question-body', '.ca-question-own', '.ca-composer-foot'].map(function (sel) { return q(sel, box()); });
+      var parts = ['.ca-question-top', '.ca-question-body', '.ca-question-own', '.ca-composer-foot'].map(function (sel) { return q(sel, box()); });
       var over = parts.filter(function (el, i) { return i > 0 && rect(el).top < rect(parts[i - 1]).bottom - 1; });
       check('no part of the box lies over another', parts.every(Boolean) && over.length === 0, over.map(function (el) { return el.className; }).join(', '));
       check('the box ends above the message box', rect(box()).bottom <= rect(message).top + 1, Math.round(rect(box()).bottom) + ' > ' + Math.round(rect(message).top));

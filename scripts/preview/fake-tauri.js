@@ -465,7 +465,7 @@ function withExperiments(board) {
       latest.quiet = true;
     }
     out.schedules = (out.schedules || []).concat([{
-      id: id, name: 'Orchestrator', paused: !!orch.off, when: { kind: 'event', event: 'changes', repo: '', label: '', mine: false },
+      id: id, name: project ? project + ' orchestrator' : 'Orchestrator', paused: !!orch.off, when: { kind: 'event', event: 'changes', repo: '', label: '', mine: false },
       onlyIf: '', run: { to: 'thread', session: '', folder: '', worktree: false, account: '', prompt: 'Run a tick.', freshAfter: '1d' },
       quiet: true, overlap: 'skip', catchUp: 'skip', notes: true, createdAt: 0, updatedAt: 0, orchestrates: { project: project },
       whenWords: project ? 'When something in ' + project + ' needs a look' : 'When something needs a look', thread: latest && !orch.off ? latest.key : undefined, asked: 0,
@@ -709,6 +709,8 @@ window.__TAURI_INTERNALS__ = {
       return Promise.all([fetch('./config.json').then(function (r) { return r.json(); }), optionalJson('./devices-fixture.json')]).then(function (all) {
         if (all[1] && all[1].cfg) all[0].config.devices = all[1].cfg;
         if (window.__keepConfig && window.__keptConfig) all[0].config = window.__keptConfig;
+        // Keys show as the board's windows have them (PREVIEW_KEYS).
+        else all[0].config.appearance = Object.assign({}, all[0].config.appearance, { show_keys: !window.__PREVIEW_KEYS_HELD__ });
         return all[0];
       });
     }
@@ -743,7 +745,7 @@ window.__TAURI_INTERNALS__ = {
         if (!key && ref === 'session') key = (lanes.flatMap(own).sort(function (a, b) { return b.lastActivity - a.lastActivity; })[0] || {}).key;
         if (!key && ref === 'todo') key = ((board.todos || [])[0] || {}).id;
         if (!key && ref === 'pr') key = ((board.prs || []).find(function (p) { return p.sessions.length > 0; }) || (board.prs || [])[0] || {}).key;
-        var feed = { pin: { ref: ref, key: key }, title: null, loading: false, generatedAt: board.generatedAt, theme: board.theme, terminal: board.apps.terminal, editor: board.apps.editor, editorId: board.apps.editorId, editors: board.apps.editors || [], lanes: [], prs: [], todos: [], labels: [] };
+        var feed = { pin: { ref: ref, key: key }, title: null, loading: false, generatedAt: board.generatedAt, theme: board.theme, showKeys: board.showKeys, terminal: board.apps.terminal, editor: board.apps.editor, editorId: board.apps.editorId, editors: board.apps.editors || [], lanes: [], prs: [], todos: [], labels: [] };
         var cut = function (l, keep) { return Object.assign({}, l, { sessions: l.sessions.filter(keep) }); };
         if (ref === 'session') {
           var home = everywhere.find(function (l) { return l.sessions.some(function (s) { return s.key === key && !s.visitor; }); });

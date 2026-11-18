@@ -374,6 +374,14 @@ pub fn for_windows(short: &str, tag: &DeviceTag, replica: &Replica) -> Vec<Lane>
                 if let Some(i) = s.insight.as_mut() {
                     crate::insights::settle_put_off(i);
                 }
+                // An orchestrator's session is called Orchestrator here, whatever an older Mac
+                // called it (orchestrate.rs `session_title`).
+                if let Some(o) = &s.orchestrator {
+                    let title = crate::schedules::orchestrate::session_title(&s.title, o.project.as_deref());
+                    if title != s.title {
+                        s.title = title.to_string();
+                    }
+                }
             }
             l
         })

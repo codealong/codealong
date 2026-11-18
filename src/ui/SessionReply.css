@@ -370,11 +370,6 @@
   flex: none;
   color: var(--ink-3);
 }
-.ca-approval-unwritten {
-  margin: 0;
-  color: var(--ink-3);
-  font: var(--type-caption);
-}
 .ca-approval-label {
   color: var(--ink);
   font: var(--type-body-strong);

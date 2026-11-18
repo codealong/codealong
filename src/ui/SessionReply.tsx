@@ -1525,16 +1525,12 @@ function Approval({ session: s, terminal, onOpen, onAnswered, keys, onKeys, onNe
     );
   }
   if (pending.questions?.length) {
-    // What it wrote with them, when its record doesn't have that yet: the conversation above
-    // stops short of it, and where it runs already shows it.
-    const unwritten = pending.unwritten ? `What ${s.account} wrote with this question shows in the conversation once it’s answered${s.hosted ? '' : `; ${where} has it now`}.` : null;
     return (
       <Questions
         key={pending.id}
         draft={answersDraft(s.key)}
         call={pending.id}
         questions={pending.questions}
-        unwritten={unwritten}
         keys={keys}
         busy={busy}
         note={note}
@@ -1637,8 +1633,6 @@ function FoldedQuestions({ question, more, onFold }: { question: string; more: n
 
 interface QuestionsProps {
   questions: Question[];
-  /** That what it wrote with them isn't in the conversation yet, and where it is, in a sentence. */
-  unwritten: string | null;
   /** ⌘⏎ answers, where the keyboard is the way in (the waiting window). */
   keys?: boolean;
   busy: boolean;
@@ -1670,7 +1664,7 @@ interface QuestionsProps {
 
 /** Questions a session asks you (Claude Code's AskUserQuestion), answered as `QuestionSteps`
  *  has you answer them; your picks go back as its answer. */
-function Questions({ questions, draft, call, unwritten, keys, busy, note, given, onAnswer, onDecline, exiting = false, dialog = false, suggested, onDismissSuggested, folded, onFold }: QuestionsProps) {
+function Questions({ questions, draft, call, keys, busy, note, given, onAnswer, onDecline, exiting = false, dialog = false, suggested, onDismissSuggested, folded, onFold }: QuestionsProps) {
   // Your picks and words as you left them, in this window or another, on the question you were
   // on. Kept as they change, they're as new as an answer that didn't go or newer, which has them
   // only where nothing was kept (storage turned down, or the suggested picks sent untouched).
@@ -1743,7 +1737,6 @@ function Questions({ questions, draft, call, unwritten, keys, busy, note, given,
   // The foot is its buttons, and what's happening or went wrong: what Decline does is on it.
   return (
     <div className="ca-composer is-approval is-questions">
-      {unwritten && <p className="ca-approval-unwritten">{unwritten}</p>}
       <QuestionSteps
         questions={questions}
         picks={p}
