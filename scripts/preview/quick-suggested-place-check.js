@@ -104,12 +104,28 @@
     })
     .then(function () { return pickPlace(found.isolating); })
     .then(function () {
+      // The repo, picked in its menu (⌘T), so the start row starts in it.
+      key(input(), { key: 't', code: 'KeyT', metaKey: true });
+      return until(function () { return all('.ca-picker-opt').length > 0; }, 3000, 'the repo menu');
+    })
+    .then(function () {
+      type(filter(), found.main.repo);
+      return wait(100);
+    })
+    .then(function () {
+      var row = all('.ca-picker-opt').filter(function (o) { var t = o.querySelector('.ca-picker-title').textContent; return t === found.main.repo || t === found.main.project + ' · ' + found.main.repo; })[0];
+      if (!row) throw new Error('no row for ' + found.main.repo + ' in the repo menu');
+      row.click();
+      return until(function () { return !filter(); }, 3000, 'the menu closed');
+    })
+    .then(function () {
       type(input(), 'Please tidy the release notes before Friday');
       return until(function () { var g = group('Suggested'); return !!g && all('.ca-quick-row', g).some(function (r) { return /^Start in/.test(titleOf(r)); }); }, 5000, 'Jev’s start');
     })
     .then(function () {
       var row = all('.ca-quick-row', group('Suggested')).filter(function (r) { return /^Start in/.test(titleOf(r)); })[0];
-      check('the start row starts in the main checkout, on ' + found.isolating, /\(main\)/.test(compose().textContent), compose().textContent);
+      var startRow = titleOf(compose());
+      check('the start row starts in ' + found.main.repo + '’s main checkout, on ' + found.isolating, startRow === 'Start in ' + found.main.callsign + ' (main)', startRow);
       check('Jev’s start on ' + found.other + ' names a worktree ready for new work, not the main checkout', !/\(main\)/.test(titleOf(row)), titleOf(row));
       var before = sent('start_from_quick').length;
       key(window, { key: '1', code: 'Digit1', metaKey: true });

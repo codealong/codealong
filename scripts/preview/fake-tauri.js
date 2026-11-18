@@ -985,8 +985,12 @@ window.__TAURI_INTERNALS__ = {
         var lanes = board.lanes.filter(function (l) { return !l.hidden; }).sort(function (a, b) { return b.lastActivity - a.lastActivity; });
         var sessions = lanes.flatMap(function (l) { return l.sessions.filter(function (s) { return !s.visitor && s.live && s.status !== 'needs'; }); }).sort(function (a, b) { return b.lastPromptAt - a.lastPromptAt; });
         var pick = function (list, id) { return function (x) { var m = /:(\d+)$/.exec(x.id); var hit = list[Number(m ? m[1] : 0)]; return hit ? { id: hit[id], p: x.p } : null; }; };
-        var lanePicks = (fx.lanes || []).map(pick(lanes, 'id')).filter(Boolean);
-        // The worktree picks summed by repo, as the engine sums them (route.rs `read`).
+        // The worktree picks summed by repo, as the engine sums them (route.rs `read`): a pick of
+        // chats, Codealong's own or an app's folder of them, needs no repo.
+        var chatsOf = function (x) { var l = lanes.find(function (y) { return y.id === x.id; }); return !!l && (l.startsChats || l.chats); };
+        var picked = (fx.lanes || []).map(pick(lanes, 'id')).filter(Boolean);
+        var lanePicks = picked.filter(function (x) { return !chatsOf(x); });
+        var noRepo = (fx.noRepo || 0) + picked.filter(chatsOf).reduce(function (n, x) { return n + x.p; }, 0);
         var sums = {};
         lanePicks.forEach(function (x) {
           var l = lanes.find(function (y) { return y.id === x.id; });
@@ -1002,6 +1006,7 @@ window.__TAURI_INTERNALS__ = {
               sessions: (fx.sessions || []).map(pick(sessions, 'key')).filter(Boolean),
               noSession: fx.noSession || 0,
               lanes: lanePicks,
+              noRepo: noRepo,
               repos: repos,
               ownWorktree: fx.ownWorktree || 0,
               duplicate: fx.duplicate ? pick(sessions, 'key')(fx.duplicate) : null,
