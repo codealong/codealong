@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { agoPhrase } from './format';
-import { alreadyOnWords, duplicateOf, rankedBy, resolveSuggestedAgent, routeChoice, routeDone, sameStart, suggestedChoice, suggestions, suggestionWords, sureness, todoTitle, toSessionSuggestion, worthRouting, type Suggestion, type SuggestionContext } from './route';
+import { alreadyOnWords, duplicateOf, rankedBy, resolveSuggestedAgent, routeChoice, routeDone, sameStart, startAgentOf, suggestedChoice, suggestions, suggestionWords, sureness, todoLaneFor, todoTitle, toSessionSuggestion, worthRouting, type Suggestion, type SuggestionContext } from './route';
 import { agentOptions, autoPick, startHappens, startTitleWords, startWhereWords } from './start';
 import * as fx from './testing/fixtures';
 import type { Board, Lane, Route, Session } from './types';
@@ -141,8 +141,10 @@ describe('suggestions', () => {
       ownWorktree: 0.8,
     });
     const s = suggest(r, b);
-    // The session Jev weighed comes after, though sending isn't likely.
-    expect(s.map((x) => x.key)).toEqual(['start:new:P//web', 'start:new:P//api', 'send:s:copy']);
+    // The session Jev weighed comes after, though sending isn't likely. The next repo starts as
+    // new work there does: the habit that wants a new worktree is the likeliest repo's
+    // (route.rs `with_habit`).
+    expect(s.map((x) => x.key)).toEqual(['start:new:P//web', 'start:/api', 'send:s:copy']);
     expect(s[0]).toMatchObject({ kind: 'start', newWorktree: true });
     // Two worktrees of one repo make one new-worktree row.
     const two = board([lane('/api', []), lane('/api-wt', [], '/api')]);
@@ -274,6 +276,12 @@ describe('a question that needs no repo', () => {
     expect(suggest(start(0.05, [{ id: '/api', p: 0.7 }]), withChats).map((x) => x.key)).toEqual(['start:/api']);
   });
 
+  it('takes Jev’s pick of the chats’ own lane for a chat, as it takes needing no repo', () => {
+    const r = start(0.1, [{ id: '/chats', p: 0.9 }]);
+    expect(suggest(r, withChats).map((x) => [x.key, Math.round(x.p * 100) / 100])).toEqual([['start:chat', 1]]);
+    expect(suggest(start(0.1, [{ id: '/chats', p: 0.6 }, { id: '/api', p: 0.3 }]), withChats).map((x) => x.key)).toEqual(['start:chat', 'start:/api']);
+  });
+
   it('goes by the repos where the board has no chats, or the Mac said nothing of them', () => {
     expect(suggest(start(0.6), b).map((x) => x.key)).toEqual(['start:/api']);
     expect(suggest(route({ action: 'start', actions: [['start', 1]], lanes: [{ id: '/api', p: 0.3 }] }), withChats).map((x) => x.key)).toEqual(['start:/api']);
@@ -321,21 +329,25 @@ describe('new work in a repo', () => {
     const busy = board([
       ...repo.lanes,
       kept('/app-5', 'app', { reuse: 'review', lastActivity: 9 }),
-      // Kept for its own piece of work: a PR open, changes not yet committed, commits not on the
-      // default branch, and a PR that merged.
+      // Kept for its own piece of work: a PR open, changes not yet committed (after its PR
+      // merged too), an agent at work, commits not on the default branch, and a PR that merged.
       kept('/app-pr', 'app', { pr: fx.pr() }),
       kept('/app-wip', 'app', { git: fx.git({ dirty: 2 }) }),
+      kept('/app-wip-merged', 'app', { pr: fx.pr({ state: 'merged' }), git: fx.git({ dirty: 1 }) }),
+      kept('/app-busy', 'app', { sessions: [session('s:busy', 'working')] }),
       kept('/app-ahead', 'app', { git: fx.git({ baseAhead: 3 }) }),
       kept('/app-merged', 'app', { pr: fx.pr({ state: 'merged' }), git: fx.git({ baseAhead: 3 }) }),
+      // An agent that worked there before it took its latest work, and one that's done.
+      kept('/app-earlier', 'app', { sessions: [session('s:old', 'working', { earlier: true }), session('s:done', 'idle')] }),
     ]);
-    for (const id of ['/app-5', '/app-pr', '/app-wip', '/app-ahead']) {
+    for (const id of ['/app-5', '/app-pr', '/app-wip', '/app-wip-merged', '/app-busy', '/app-ahead']) {
       expect(suggest(start([{ id, p: 0.8 }]), busy)[0]).toMatchObject({ key: `start:${id}`, newWorktree: false, p: 0.8 });
     }
     // Less sure, Jev matched the repo more than the work: where the repo starts it.
     expect(keys(start([{ id: '/app-5', p: 0.6 }]), busy)[0]).toBe('start:/app-4');
     // A worktree that holds no work has none to join, the main checkout's is the repo's, and a
     // worktree asked for is a worktree of its own.
-    for (const id of ['/app-merged', '/app-billing', '/app-3', '/app']) expect(keys(start([{ id, p: 0.9 }]), busy)[0]).toBe('start:/app-4');
+    for (const id of ['/app-merged', '/app-earlier', '/app-billing', '/app-3', '/app']) expect(keys(start([{ id, p: 0.9 }]), busy)[0]).toBe('start:/app-4');
     expect(keys(start([{ id: '/app-5', p: 0.9 }], { ownWorktree: 0.9 }), busy)[0]).toBe('start:new:P/app');
   });
 
@@ -362,6 +374,17 @@ describe('new work in a repo', () => {
     expect(keys(later([{ id: '/app-3', p: 0.9 }]))[0]).toBe('todo:/app');
     const busy = board([...repo.lanes, kept('/app-5', 'app', { reuse: 'open' })]);
     expect(keys(later([{ id: '/app-5', p: 0.9 }]), busy)[0]).toBe('todo:/app-5');
+    // A repo of plain folders has no main checkout: the folder.
+    const notes = board([kept('/notes', 'notes', { origin: 'folder' })]);
+    expect(keys(later([{ id: '/notes', p: 1 }]), notes)[0]).toBe('todo:/notes');
+  });
+
+  it('links a todo saved from a start’s menu as a todo Jev suggests links', () => {
+    const busy = board([...repo.lanes, kept('/app-5', 'app', { reuse: 'open' })]);
+    const at = (id: string) => busy.lanes.find((l) => l.id === id)!;
+    expect(todoLaneFor(at('/app-4'), busy.lanes).id).toBe('/app');
+    expect(todoLaneFor(at('/app-5'), busy.lanes).id).toBe('/app-5');
+    expect(todoLaneFor(at('/app'), busy.lanes).id).toBe('/app');
   });
 });
 
@@ -505,6 +528,8 @@ describe('suggestionWords', () => {
     expect(suggestionWords(start(with_('open')), ctx()).why).toBe('Starts work in api in Ghostty. It joins the work under way there.');
     expect(suggestionWords(start(with_('open', 'main')), ctx()).why).toBe('Starts work in api in Ghostty.');
     expect(suggestionWords(start(with_(undefined)), ctx()).why).toBe('Starts work in api in Ghostty.');
+    // One kept for its own piece of work, with that work under way.
+    expect(suggestionWords(start({ ...with_(undefined), pr: fx.pr() }), ctx()).why).toBe('Starts work in api in Ghostty. It joins the work under way there.');
     expect(suggestionWords(start(with_('free')), ctx({ duplicate: { session: { title: 'Login work' } } })).why).toBe('“Login work” may already be on this. Starts work in api in Ghostty. It holds no work now.');
   });
 });
@@ -539,6 +564,9 @@ describe('resolveSuggestedAgent', () => {
       agents: [{ account: 'claude', model: 'opus', p: 0.8 }],
     });
     expect(suggest(r, b)[0]).toMatchObject({ kind: 'start', agent: 'claude:opus' });
+    // The panel asks for the same agent, for where its place starts (Quick.tsx `isolatedFor`).
+    expect(startAgentOf(r)).toEqual({ agent: 'claude:opus' });
+    expect(startAgentOf(route({}))).toEqual({});
     // claude is near its limit, so resolveSuggestedAgent picks claude2 on opus.
     const u = [fx.usage({ account: 'claude', meters: [fx.meter({ key: 'week', percent: 95, severity: 'critical' })] }), fx.usage({ account: 'claude2', meters: [fx.meter({ key: 'week', percent: 20 })] })];
     expect(resolveSuggestedAgent('claude:opus', accounts, [], u, fx.NOW)).toEqual({ account: 'claude2', model: 'opus' });
@@ -557,6 +585,7 @@ describe('resolveSuggestedAgent', () => {
     // pick, the one Auto picked of them; with one whose harness has none, the one of them with room.
     const needing = route({ action: 'start', actions: [['start', 1]], lanes: [{ id: '/api', p: 1 }], needs: { name: 'Gmail', accounts: ['claude2', 'codex'], p: 0.9 } });
     expect(suggest(needing, b)[0]).toMatchObject({ kind: 'start', agent: 'claude2', needs: { name: 'Gmail', accounts: ['claude2', 'codex'] } });
+    expect(startAgentOf(needing)).toEqual({ agent: 'claude2', needs: { name: 'Gmail', accounts: ['claude2', 'codex'] } });
     expect(resolveSuggestedAgent('claude2', accounts, [], u, fx.NOW, [], ['claude2', 'codex'])).toEqual({ account: 'claude2', model: null });
     // The engine's pick by Auto's rules stands, its model too, though another of them has more room.
     const autoOnSonnet = route({ action: 'start', actions: [['start', 1]], lanes: [{ id: '/api', p: 1 }], needs: { name: 'Gmail', accounts: ['claude', 'claude2'], model: 'sonnet', p: 0.9 } });

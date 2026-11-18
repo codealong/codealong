@@ -124,7 +124,7 @@ import {
 import { clearNotice, failedNotice, reportNotice } from '../notices';
 import { completed, mentionAt, mentionsIn, namedBy, repoLanes, skillLeftOutWords, skillOffers, skillRows, skillStart, skillWhere, writtenFor, type Mention, type SkillRow } from '../skills';
 import { useSkills } from '../useSkills';
-import { alreadyOnWords, duplicateOf, rankedBy, routeChoice, routeDone, sameStart, suggestedChoice, suggestions, suggestionWords, sureness, todoTitle, toSessionSuggestion, worthRouting, type StartFacts, type Suggestion } from '../route';
+import { alreadyOnWords, duplicateOf, rankedBy, routeChoice, routeDone, sameStart, startAgentOf, suggestedChoice, suggestions, suggestionWords, sureness, todoLaneFor, todoTitle, toSessionSuggestion, worthRouting, type StartFacts, type Suggestion } from '../route';
 import { dueWords } from '../due';
 import { liveOrLatest, sessionHomes, sessionWhy } from '../lanes';
 import { blockedBy, mergeAttachments, newTodo, primaryHolds, snippet, splitAttachments, todoAgent, todoItem, todoProjects, todoPrompt, todosPrompt, withAttachments } from '../todos';
@@ -1145,11 +1145,18 @@ export function Quick() {
   // they are, dimmed and doing nothing: they were for what you'd typed before. Taking them away at
   // every key moved every row under them twice each time typing paused.
   const lastRoute = routing && routed && routed.for.slice(0, routed.for.indexOf('\n')) === current ? routed.route : null;
-  // By what the place's checkouts are, not by the list, which is a new one at each render when
-  // the place has none.
-  const isolated = isolatesIn.join('\n');
+  // Where the place a suggested start opens in moves the session out of the main checkout: that
+  // of the agent Jev's starts go to (route.ts `startAgentOf`), else the start row's. Kept by what
+  // the checkouts are, not by the list, which is a new one at each render when the place has none.
+  const isolatedFor = (r: Route | null) => {
+    const to = r ? startAgentOf(r) : {};
+    const c = to.agent ? choiceForAgent(to.agent, false, to.needs?.accounts) : null;
+    return (c ? c.isolatesIn : isolatesIn).join('\n');
+  };
+  const isolated = isolatedFor(route);
+  const lastIsolated = isolatedFor(lastRoute);
   const jevSuggested = useMemo(() => suggestRows(route, board, !!deviceNow, isolated), [board, route, deviceNow, isolated]);
-  const jevLastSuggested = useMemo(() => suggestRows(lastRoute, board, !!deviceNow, isolated), [board, lastRoute, deviceNow, isolated]);
+  const jevLastSuggested = useMemo(() => suggestRows(lastRoute, board, !!deviceNow, lastIsolated), [board, lastRoute, deviceNow, lastIsolated]);
   /** Whether a suggested start makes a new worktree, as `start` makes it: only where its account
    *  makes worktrees and the worktree isn't for chats. */
   const startsTree = (sg: Suggestion & { kind: 'start' }) => {
@@ -1467,9 +1474,11 @@ export function Quick() {
         show([...(sg.kind === 'send' ? [{ label: 'Send this prompt to it', run: noted(routeDone(sg, false), 'suggested', () => send(sg.session)) }, 'separator' as const] : []), ...sessionMenuSpec(sg.lane, sg.session)]);
       } else {
         const tree = sg.kind === 'start' && startsTree(sg);
+        // A todo links where one Jev suggests would: a start in a repo's free worktree is the repo's.
+        const todoLane = sg.kind === 'start' ? todoLaneFor(sg.lane, allLanes) : sg.lane;
         show([
           { label: `Start a session in ${sg.lane.callsign}`, run: noted({ kind: 'start', target: sg.lane.id, newWorktree: tree }, 'suggested', () => start({ lane: sg.lane, newWorktree: sg.kind === 'start' && sg.newWorktree, agent: sg.kind === 'start' ? sg.agent : undefined, only: sg.kind === 'start' ? sg.needs?.accounts : undefined })) },
-          { label: `Save as a todo in ${sg.lane.project}`, run: noted({ kind: 'todo', target: sg.lane.id }, 'suggested', () => saveTodo(sg.lane)) },
+          { label: `Save as a todo in ${todoLane.project}`, run: noted({ kind: 'todo', target: todoLane.id }, 'suggested', () => saveTodo(todoLane)) },
         ]);
       }
       return;

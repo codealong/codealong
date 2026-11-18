@@ -53,13 +53,15 @@ export const JOIN_AT = 0.75;
 /** Whether new work Jev is sure belongs in a worktree joins the work there (route.ts): the
  *  worktree isn't the main checkout, where any of the repo's work may be under way, so that it's
  *  the repo rather than the work, and it holds work under way. A reusable one says so by what it
- *  holds; one kept for its own piece of work holds it until its PR merges or closes, while its PR
- *  is open, or it has changes uncommitted or not on the default branch, as board.rs `reuse_of`
- *  reads a reusable one's. */
+ *  holds; one kept for its own piece of work is read as board.rs `reuse_of` reads a reusable
+ *  one: its PR open, an agent at work there or changes not yet committed, and then, unless its
+ *  PR merged, commits not on the default branch. */
 export function joinsWork(lane: Lane): boolean {
   if (lane.origin === 'main' || lane.startsChats) return false;
   if (lane.reuse) return lane.reuse === 'open' || lane.reuse === 'review';
   const pr = lane.pr?.state;
-  if (pr === 'merged' || pr === 'closed') return false;
-  return !!pr || (lane.git?.dirty ?? 0) > 0 || (lane.git?.baseAhead ?? 0) > 0;
+  if (pr && pr !== 'merged' && pr !== 'closed') return true;
+  const atWork = lane.sessions.some((s) => !s.visitor && !s.archived && !s.earlier && (s.status === 'working' || s.status === 'needs' || s.status === 'error'));
+  if (atWork || (lane.git?.dirty ?? 0) > 0) return true;
+  return pr !== 'merged' && (lane.git?.baseAhead ?? 0) > 0;
 }
