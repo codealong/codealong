@@ -358,14 +358,19 @@ fn training_off(_: &Args, rest: &[String]) -> Done {
 }
 
 /// `codealong --snapshot --use-reset <account> [credit id]`: uses one of the account's limit
-/// resets, as the usage bar's card does, and prints how it went. Real: it spends the reset, so
-/// only that line goes: anything else on it (a `--dry-run`, say, which nothing here reads) is a
-/// usage error rather than a reset spent.
+/// resets, the one named or else the first to expire, as the usage bar's card does, and prints how
+/// it went. Real: it spends the reset, so only that line goes: anything else on it (a `--dry-run`,
+/// say, which nothing here reads) is a usage error rather than a reset spent.
 fn use_reset(args: &Args, _: &[String]) -> Done {
     let (name, credit) = reset_line(args).ok_or(Stop::Usage)?;
     let cfg = config::current().map_err(failed)?;
     let a = cfg.accounts.iter().find(|a| &a.name == name).ok_or_else(|| Stop::Failed(format!("There's no account named {name}.")))?;
-    Ok(pretty(&crate::resets::use_one(a, credit).map_err(failed)?))
+    let credit = match credit {
+        Some(c) => c.to_string(),
+        None => crate::resets::first_to_expire(a).map_err(failed)?,
+    };
+    // This process ends with the use: what's left is printed, not kept.
+    Ok(pretty(&crate::resets::use_one(a, &credit, |_| {}).map_err(failed)?))
 }
 
 /// The account and credit of a `--use-reset` line: the program, `--snapshot`, the flag, the
@@ -382,8 +387,8 @@ fn reset_line<'a>(args: &Args<'a>) -> Option<(&'a String, Option<&'a str>)> {
         return None;
     }
     match &args.0[at + 1..] {
-        [name] if !name.starts_with('-') => Some((name, None)),
-        [name, credit] if !name.starts_with('-') && !credit.starts_with('-') => Some((name, Some(credit.as_str()))),
+        [name] if !name.is_empty() && !name.starts_with('-') => Some((name, None)),
+        [name, credit] if !name.is_empty() && !name.starts_with('-') && !credit.trim().is_empty() && !credit.starts_with('-') => Some((name, Some(credit.as_str()))),
         _ => None,
     }
 }
@@ -923,6 +928,7 @@ mod tests {
         assert_eq!(reset(["--snapshot", "--use-reset", "atlas"].map(String::from).to_vec()), Some(("atlas".into(), None)), "or without it");
         assert_eq!(reset(line(&["--snapshot", "kestrel", "--use-reset", "atlas"])), None, "a word of its own before the flag");
         assert_eq!(reset(line(&["--snapshot", "--snapshot", "--use-reset", "atlas"])), None, "`--snapshot` twice");
+        assert_eq!(reset(line(&["--snapshot", "--use-reset", "atlas", " "])), None, "a blank credit");
         for words in [&["--snapshot", "--send", "claude:claude:abc"][..], &["--snapshot", "--stop"], &["--snapshot", "--answer", "k", "id"], &["--snapshot", "--answer", "k", "id", "maybe"], &["--snapshot", "--rename", "k"], &["--snapshot", "--pr", "o/r", "seven"], &["--snapshot", "--start-plan", "/r", "claude", "the moon"], &["--snapshot", "--side", "k"]] {
             assert_eq!(cli(&line(words)), 2, "{words:?}");
         }

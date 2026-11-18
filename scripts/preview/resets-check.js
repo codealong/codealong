@@ -98,6 +98,7 @@
     .then(function () {
       var shown = q('.ca-usage-popover');
       check('one its provider only counts shows the count and why it can’t be used from here, with no button', q('.ca-resets-title', shown).textContent === '2 limit resets' && /leaves using one to it/.test((q('.ca-resets-early', shown) || {}).textContent || '') && !q('.ca-resets button', shown), shown.textContent);
+      check('and its chip says why to a screen reader', /2 limit resets: Its provider says how many/.test(chipOf('antigravity').getAttribute('aria-label')), chipOf('antigravity').getAttribute('aria-label'));
     })
     .then(done)
     .catch(function (e) { stopped(e.message); });

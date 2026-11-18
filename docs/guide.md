@@ -4608,9 +4608,10 @@ stays up while the pointer is on it. **Use a reset…** asks once more in the ca
 one that expires first and reads the account again (a toast says how it went and how many are
 left). While the account's fullest limit is under half, the card says a reset would free little;
 a provider that finds no limit far enough along to reset spends nothing, and the toast says so. A
-use always names the reset it spends, so trying again after one that went unanswered can't spend
-a second; a provider that says how many an account holds but not which has the count on its card
-and leaves using one to its own app.
+use always names the reset it spends. When the provider doesn't answer one, Codealong reads the
+account again and its card shows what's left: if the reset it named is gone, it went through,
+and using the next is spending another. A provider that says how many an account holds but not
+which has the count on its card and leaves using one to its own app.
 
 - Codex: the reset credits Codex grants ("Full reset"), read and used through Codex's app-server,
   as its own terminal does. It needs Codex 0.169 or later on your PATH: the command line inside

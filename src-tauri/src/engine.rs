@@ -727,22 +727,20 @@ impl Handle {
         Ok(after)
     }
 
-    /// Uses one of an account's limit resets, `credit` when it names one, and answers how it
-    /// went: what the account holds after goes on the board at once, read again even when the
+    /// Uses one of an account's limit resets, `credit`, else the first to expire, and answers how
+    /// it went: what the account holds after goes on the board at once, read again even when the
     /// use failed, as one that wasn't answered may have gone through. Blocks for the calls.
     pub fn use_reset(&self, name: &str, credit: Option<&str>) -> Result<crate::resets::ResetUsed> {
         let cfg = config::current()?;
         let a = cfg.accounts.iter().find(|a| a.name == name).ok_or_else(|| anyhow!("There's no account named {name}."))?;
-        let used = crate::resets::use_one(a, credit);
-        let after = match &used {
-            Ok(u) => u.after.clone(),
-            // Another use is under way, and says what's left once it's done: a read now could
-            // answer after it with the count from before.
-            Err(e) if e.downcast_ref::<crate::resets::Busy>().is_some() => return used,
-            Err(_) => crate::resets::read_after_failure(a),
+        let credit = match credit.filter(|c| !c.is_empty()) {
+            Some(c) => c.to_string(),
+            None => crate::resets::first_to_expire(a)?,
         };
-        let _ = self.tx.send(Msg::ResetsOne(crate::accountpoll::identity(a), after));
-        used
+        let asked_as = crate::accountpoll::identity(a);
+        crate::resets::use_one(a, &credit, |after| {
+            let _ = self.tx.send(Msg::ResetsOne(asked_as, after));
+        })
     }
 
     /// Takes what repo `slug`'s team suggests in its file on `branch` and you don't have yet (the

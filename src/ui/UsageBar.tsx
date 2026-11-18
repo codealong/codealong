@@ -201,7 +201,7 @@ function AccountChip({ usage: u, now, fit = 'all', measure = false, onOpen, onSi
       className={cx('ca-uchip', fit === 'tight' && 'is-tight', stale && 'is-stale', training && 'is-training', sort?.className)}
       style={sort?.style}
       title={measure || peeks ? undefined : `${about}. Show what it used and cost`}
-      aria-label={`${u.account}${u.plan ? `, ${u.plan}` : ''}${summary ? `. ${summary}` : ''}${stale ? `. ${plain}` : ''}${training ? `. ${cardTitle(training)}: ${training.note}` : ''}${resets ? `. ${resetsTitle(resets)}` : ''}`}
+      aria-label={`${u.account}${u.plan ? `, ${u.plan}` : ''}${summary ? `. ${summary}` : ''}${stale ? `. ${plain}` : ''}${training ? `. ${cardTitle(training)}: ${training.note}` : ''}${resets ? `. ${resetsTitle(resets)}${!usable(resets) && resets.note ? `: ${resets.note}` : ''}` : ''}`}
       onClick={onOpen}
       onPointerDown={sort?.onPointerDown}
       onMouseEnter={peeks ? (e) => onPeek?.(e.currentTarget) : undefined}

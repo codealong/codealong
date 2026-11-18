@@ -679,13 +679,15 @@ window.__TAURI_INTERNALS__ = {
       });
     }
     // A limit reset used (calls.rs `use_reset`): the one named, else the first, taken out of what
-    // the account holds, or what the fixture's `outcome` says the provider answered.
+    // the account holds, or what the fixture's `outcome` says the provider answered. One named
+    // that's gone is turned down, as the provider would, never another spent in its place.
     if (cmd === 'use_reset') {
       return window.__TAURI_INTERNALS__.invoke('get_board').then(function () {
         var held = (window.__resets || []).filter(function (r) { return r.account === args.name; })[0];
         if (!held) return Promise.reject('There\'s no account named ' + args.name + '.');
         if (held.outcome === 'nothingToReset') return { account: args.name, reset: false, message: args.name + ' has no limit to reset yet, so no reset was used.', after: held };
-        var gone = held.credits.filter(function (c) { return c.id === args.credit; })[0] || held.credits[0];
+        var gone = args.credit ? held.credits.filter(function (c) { return c.id === args.credit; })[0] : held.credits[0];
+        if (!gone) return Promise.reject('Codex: that reset is used already.');
         var after = Object.assign({}, held, { available: held.available - 1, credits: held.credits.filter(function (c) { return c !== gone; }), asOf: Date.now() });
         window.__resets = window.__resets.map(function (r) { return r.account === args.name ? after : r; });
         var left = after.available === 0 ? 'None left.' : after.available + ' left.';

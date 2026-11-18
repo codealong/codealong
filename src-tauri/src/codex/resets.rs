@@ -94,7 +94,7 @@ fn named_only(r: Resets) -> Resets {
 /// tried again, can only find that credit spent, never spend another, which one naming none could.
 /// Every CLI is asked with the same key, which the backend takes as the same use.
 pub fn use_one(account: &AccountCfg, credit: Option<&str>) -> Result<Outcome> {
-    let credit = credit.ok_or_else(|| anyhow!(UNNAMED))?;
+    let credit = credit.filter(|c| !c.trim().is_empty()).ok_or_else(|| anyhow!(UNNAMED))?;
     let (home, key) = (account.home_path(), crate::start::new_session_id());
     let (mut unanswered, mut not_sent) = (None, None);
     for cli in clis() {
@@ -114,7 +114,7 @@ pub fn use_one(account: &AccountCfg, credit: Option<&str>) -> Result<Outcome> {
         }
     }
     match (unanswered, not_sent) {
-        (Some(e), _) => Err(anyhow!("Codex didn't say whether the reset went through: {e}")),
+        (Some(e), _) => Err(anyhow!("Codex didn't say whether the reset went through ({e}); the account's card shows what's left.")),
         (None, Some(e)) => Err(e),
         (None, None) => bail!(TOO_OLD),
     }
@@ -250,6 +250,7 @@ mod tests {
         assert!(named.can_use && named.note.is_none());
         assert!(named_only(Resets::held(&acct, Vec::new(), 0, 1)).can_use, "none held: nothing to say");
         assert_eq!(use_one(&acct, None).unwrap_err().to_string(), UNNAMED);
+        assert_eq!(use_one(&acct, Some(" ")).unwrap_err().to_string(), UNNAMED, "a blank one names none");
     }
 
     /// The hourly read, asked before a reset was used and answered after, doesn't put back the

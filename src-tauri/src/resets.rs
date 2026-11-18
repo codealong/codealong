@@ -110,15 +110,35 @@ pub fn read_all(accounts: &[AccountCfg]) -> Vec<Resets> {
     accounts.iter().filter(|a| !a.disabled).map(read).collect()
 }
 
-/// Uses one of the account's resets, `credit` when it names one, else the one its provider picks,
-/// then reads what it holds after. A second use of the account's while one is under way is turned
-/// away.
-pub fn use_one(account: &AccountCfg, credit: Option<&str>) -> Result<ResetUsed> {
+/// Uses `credit`, one of the account's resets, then reads what it holds after and hands that to
+/// `publish`, a failed use too, which may have gone through unanswered. A second use of the
+/// account's while one is under way is turned away (`Busy`) before anything is asked or published;
+/// the reading is published while this use still holds the account, so a later use's can't come
+/// before it.
+pub fn use_one(account: &AccountCfg, credit: &str, publish: impl FnOnce(Resets)) -> Result<ResetUsed> {
     let h = crate::harness::of(account).ok_or_else(|| anyhow!("Codealong doesn't know {}'s harness.", account.name))?;
     let _using = Using::begin(account)?;
-    let outcome = h.use_reset(account, credit)?;
-    let after = after_use(outcome, h.resets(account));
-    Ok(ResetUsed { account: account.name.clone(), reset: outcome == Outcome::Reset, message: said(&account.name, outcome, &after), after })
+    match h.use_reset(account, Some(credit)) {
+        Ok(outcome) => {
+            let after = after_use(outcome, h.resets(account));
+            publish(after.clone());
+            Ok(ResetUsed { account: account.name.clone(), reset: outcome == Outcome::Reset, message: said(&account.name, outcome, &after), after })
+        }
+        Err(e) => {
+            publish(after_use(Outcome::Reset, h.resets(account)));
+            Err(e)
+        }
+    }
+}
+
+/// The account's reset that expires first, as read now: what a use asked for without naming one
+/// spends, as the card's does.
+pub fn first_to_expire(account: &AccountCfg) -> Result<String> {
+    let r = read(account);
+    r.credits.first().filter(|_| r.can_use).map(|c| c.id.clone()).ok_or_else(|| {
+        let why = r.note.unwrap_or_else(|| "it holds none".to_string());
+        anyhow!("No reset of {}'s to use: {why}", account.name)
+    })
 }
 
 /// The accounts a use is under way for, by `accountpoll::identity`.
@@ -159,15 +179,10 @@ impl Drop for Using {
     }
 }
 
-/// What the account holds after a use that failed, read again: it may have gone through
-/// unanswered, so a read that fails offers nothing, as after one spent (`after_use`).
-pub fn read_after_failure(account: &AccountCfg) -> Resets {
-    after_use(Outcome::Reset, read(account))
-}
-
-/// What the account holds after a use, as read: when one was spent, or the provider said there
-/// were none, and that read failed, nothing Codealong can use until a read works, rather than the
-/// count from before it (which a failed read would keep, `keeping`) offering a reset that's gone.
+/// What the account holds after a use, as read: when one was spent, or may have been (a failed use
+/// is read as `Reset`), or the provider said there were none, and that read failed, nothing
+/// Codealong can use until a read works, rather than the count from before it (which a failed read
+/// would keep, `keeping`) offering a reset that's gone.
 fn after_use(outcome: Outcome, read: Resets) -> Resets {
     let fewer = matches!(outcome, Outcome::Reset | Outcome::AlreadyRedeemed | Outcome::NoCredit);
     if fewer && read.as_of.is_none() {
