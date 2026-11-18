@@ -12,9 +12,10 @@
 // alone (`fitFor`). When even those don't fit, the row scrolls sideways (the mouse wheel scrolls
 // it too).
 //
-// A toast (Toasts.tsx) goes between the chips and the bar's end, where there's room for it whatever
-// view the window shows, and over nothing it lists. It takes the room it needs, up to a limit, and
-// the chips step down to fit beside it, coming back once it goes.
+// A toast (Toasts.tsx) lies over the end of the chips' row, beside the bar's end, where there's room
+// for it whatever view the window shows, and over nothing it lists. It takes no room from the chips,
+// which stay as they are under it: when they made room for it, stepping down as it came and back
+// once it went, the whole row moved twice for every toast.
 //
 // An account whose provider may train on what it sends (training.ts) has its chip in the
 // attention colors with a shield on it, and its hover card says why, turns training off where
@@ -387,7 +388,7 @@ interface UsageBarProps {
   loading?: boolean;
   /** What isn't working in the background (`ui/Notices.tsx`), at the bar's end. */
   notices?: ReactNode;
-  /** The window's toast (Toasts.tsx), between the chips and the end; the chips make room for it. */
+  /** The window's toast (Toasts.tsx), over the end of the chips' row, which stays as it is under it. */
   toast?: ReactNode;
   /** Puts the accounts in this order in config.toml; a failure is the caller's to say, and the
    *  chips go back. */
@@ -429,7 +430,7 @@ export function UsageBar({ usage: board, now, onRefresh, onAccounts, onUsage, on
   );
 
   // Every chip is measured with all its limits and with one, in hidden copies, against the room
-  // the row has, which a toast beside it takes some of.
+  // the row has.
   useLayoutEffect(() => {
     const el = row.current;
     const all = measureAll.current;
@@ -500,32 +501,34 @@ export function UsageBar({ usage: board, now, onRefresh, onAccounts, onUsage, on
   const peekMeters = fit !== 'all' && !!peeked && peeked.meters.length > 0;
   return (
     <div className="ca-usagebar" role="region" aria-label="Plan usage">
-      <div
-        ref={row}
-        className={cx('ca-usagebar-accts', clipped.start && 'is-clip-start', clipped.end && 'is-clip-end', sort.sorting && 'is-sorting')}
-      >
-        {usage.map((u, i) => {
-          const t = trainingOf(training, u.account);
-          return (
-            <AccountChip
-              key={u.account}
-              usage={u}
-              now={now}
-              fit={fit}
-              training={flagged(t) ? t : undefined}
-              onOpen={() => onUsage(u.account)}
-              onSignIn={() => onSignIn(u.account)}
-              onPeek={(el) => {
-                if (!sort.sorting) show(u.account, el);
-              }}
-              onUnpeek={() => hide()}
-              sort={onReorder ? sort.sortProps(i, names) : undefined}
-            />
-          );
-        })}
-        {usage.length === 0 && !loading && <span className="ca-uchip-note">No accounts yet.</span>}
+      <div className="ca-usagebar-main">
+        <div
+          ref={row}
+          className={cx('ca-usagebar-accts', clipped.start && 'is-clip-start', clipped.end && 'is-clip-end', sort.sorting && 'is-sorting')}
+        >
+          {usage.map((u, i) => {
+            const t = trainingOf(training, u.account);
+            return (
+              <AccountChip
+                key={u.account}
+                usage={u}
+                now={now}
+                fit={fit}
+                training={flagged(t) ? t : undefined}
+                onOpen={() => onUsage(u.account)}
+                onSignIn={() => onSignIn(u.account)}
+                onPeek={(el) => {
+                  if (!sort.sorting) show(u.account, el);
+                }}
+                onUnpeek={() => hide()}
+                sort={onReorder ? sort.sortProps(i, names) : undefined}
+              />
+            );
+          })}
+          {usage.length === 0 && !loading && <span className="ca-uchip-note">No accounts yet.</span>}
+        </div>
+        <div className="ca-usagebar-toast">{toast}</div>
       </div>
-      <div className="ca-usagebar-toast">{toast}</div>
       {(['all', 'one'] as const).map((f) => (
         <div key={f} ref={f === 'all' ? measureAll : measureOne} className="ca-usagebar-measure" aria-hidden="true">
           {usage.map((u) => {

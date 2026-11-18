@@ -3,9 +3,9 @@
 // this window), and the way back from an archive or a todo change, yours or a session an agent
 // marked done. One shows at a time, in that order. What goes wrong in the background is a notice
 // instead (notices.ts).
-// A toast is a line in the usage bar along the window's foot (UsageBar.tsx `toast`), beside the
-// notices: floating over the foot, it covered the list's last rows, and before that the session
-// panel's message box.
+// A toast is a line in the usage bar along the window's foot (UsageBar.tsx `toast`), over the end of
+// the account chips' row, beside the notices: floating over the foot, it covered the list's last
+// rows, and before that the session panel's message box.
 // Its words fit one line there, all of them over it on hover (primitives.tsx `OneLine`), and it
 // stays while the pointer is on it.
 

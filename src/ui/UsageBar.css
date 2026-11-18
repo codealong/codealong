@@ -187,14 +187,25 @@
 .ca-meter.is-critical .ca-meter-value {
   color: var(--alert);
 }
-/* The window's toast (Toasts.tsx), between the chips and the end: as wide as its words up to a
-   limit, the chips having what's left (UsageBar.tsx `fitFor`); with none up, it takes no room.
-   Cut short, its whole words grow up from it, over the window above the bar. */
-.ca-usagebar-toast {
+/* The chips' row and the toast over its end. */
+.ca-usagebar-main {
+  position: relative;
+  flex: 1;
+  align-self: stretch;
   display: flex;
-  flex: 0 1 auto;
   min-width: 0;
-  max-width: 560px;
+}
+/* The window's toast (Toasts.tsx), lying over the end of the chips' row: as wide as its words up
+   to a limit, and the chips under it stay as they are, so the row doesn't move as one comes and
+   goes. Cut short, its whole words grow up from it, over the window above the bar. */
+.ca-usagebar-toast {
+  position: absolute;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  display: flex;
+  align-items: center;
+  max-width: min(560px, 100%);
 }
 .ca-usagebar-toast:empty {
   display: none;
@@ -202,7 +213,6 @@
 /* While a dialog is up, over its scrim, as the toast was when it floated: an Undo stays a click
    away, and words cut short can still be read whole. */
 body:has(.ca-scrim) .ca-usagebar-toast {
-  position: relative;
   z-index: var(--z-toast);
 }
 /* Only the limit's bar and number: its window and reset are on hover, with the others. */

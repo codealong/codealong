@@ -1,6 +1,6 @@
-/* The main window's toast (Toasts.tsx): a line in the usage bar at the window's foot, as high as
-   the account chips beside it and lifted off the bar as a dragged chip is, its words cut to one
-   line. It comes in gently, rising into the bar. */
+/* The main window's toast (Toasts.tsx): a line in the usage bar at the window's foot, over the end
+   of the account chips' row, as high as they are and lifted off the bar as a dragged chip is, its
+   words cut to one line. It comes in gently, rising into the bar. */
 
 .ca-toast {
   display: flex;

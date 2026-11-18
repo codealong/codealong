@@ -4483,9 +4483,9 @@ Antigravity and Cursor don't say, so their print runs are sessions like any othe
 limits where the plan has them, per-model limits such as Fable, and time to reset. When they don't all fit, each account shows
 the limit it's closest to running out of and the rest on hover; when those don't fit either, that
 limit's bar and number alone; and then the bar scrolls sideways. A toast (what something you just
-did came to, with its Undo, or what's still under way) is a line in the bar, between the chips and
-its buttons: the chips step down to make room for it and come back once it goes, its words are all
-there over it on hover, and it stays while the pointer is on it. A read
+did came to, with its Undo, or what's still under way) is a line in the bar over the end of the
+chips' row, beside its buttons: the chips stay as they are under it, its words are all there over
+it on hover, and it stays while the pointer is on it. A read
 that fails keeps the last numbers, dimmed, with why on hover, and they outlast a relaunch (those of
 the last hour). With no numbers to keep the chip says why it has none: *Rate limited* when Claude
 turned the read away, which clears when it's read again a few minutes later. An account whose

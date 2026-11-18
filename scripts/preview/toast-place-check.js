@@ -3,8 +3,8 @@
 // next one's strip, not in a toast over its box, and in a toast where no strip shows by then
 // (several picked); a toast is a line in the usage bar, the window's status bar along its foot with
 // the title bar's ground, over neither the list nor the panel's message box, with the panel taking
-// the whole window too; the account chips step down to give it
-// the room its words need (up to its limit) and come back once it goes; it stays while the
+// the whole window too; it lies over the end of the account chips' row, as wide as its words need
+// (up to its limit), and the chips stay as they are under it, as they are once it goes; it stays while the
 // pointer is on it, going once the pointer leaves, and one that comes back after another took
 // its place under the pointer goes in its time, while one of the same kind is held as the one it
 // replaced was; and with a dialog up, its Undo is still a click
@@ -67,6 +67,9 @@
   var needs = function () { var t = toast(); var w = t.querySelector('.ca-oneline-text'); return t.offsetWidth - w.clientWidth + w.scrollWidth; };
   var hover = function (on) { toast().dispatchEvent(new MouseEvent(on ? 'mouseover' : 'mouseout', { bubbles: true, relatedTarget: on ? document.body : document.querySelector('.ca-board') })); };
   var tightBefore = 0;
+  // Where each chip is and how wide, to say the row hasn't moved.
+  var layout = function () { return Array.prototype.map.call(document.querySelectorAll('.ca-usagebar-accts .ca-uchip'), function (c) { var r = rect(c); return r.left + '+' + (r.right - r.left); }).join(' '); };
+  var layoutBefore = '';
   var sentFrom = 0;
   var on = function (name) { return until(function () { return title() === name; }, 3000).catch(function () {}); };
   var archived = function () {
@@ -99,6 +102,7 @@
       check('a message that didn’t go is said on the strip of the one gone on to', /Didn’t send to Toast A, so it’s back in its box: Its terminal is gone\./.test(strip()), strip());
       check('not in a toast', !toast(), toast() && toast().textContent);
       tightBefore = tight();
+      layoutBefore = layout();
       note(chips() + ' account chips, ' + tightBefore + ' showing only a number before the toast');
       return archived();
     })
@@ -112,13 +116,12 @@
       var ground = function (sel) { return getComputedStyle(document.querySelector(sel)).backgroundColor; };
       check('with the title bar’s ground', ground('.ca-usagebar') === ground('.ca-win-bar'), ground('.ca-usagebar') + ' | ' + ground('.ca-win-bar'));
       check('a toast is a line in the usage bar', inside(t, bar()), JSON.stringify({ toast: t, bar: bar() }));
-      check('between the chips and the bar’s end', accts.right <= t.left && t.right <= end.left, JSON.stringify({ chips: accts, toast: t, end: end }));
+      check('over the end of the chips’ row, beside the bar’s end', t.left >= accts.left && Math.abs(t.right - accts.right) <= 1 && t.right <= end.left, JSON.stringify({ chips: accts, toast: t, end: end }));
       check('over neither the list nor the panel’s message box', !overlaps(t, board) && !overlaps(t, composer), JSON.stringify({ toast: t, board: board, box: composer }));
-      var want = Math.min(needs(), 560);
+      var want = Math.min(needs(), 560, accts.right - accts.left);
       note('its words want ' + needs() + 'px; it has ' + (t.right - t.left) + 'px, and ' + tight() + ' of ' + chips() + ' chips show only a number');
-      check('the chips step down to give it the room its words need, up to its limit', t.right - t.left >= want - 1 || tight() === chips(), JSON.stringify({ toast: t.right - t.left, wants: want, tight: tight(), chips: chips() }));
-      var row = document.querySelector('.ca-usagebar-accts');
-      check('and to fit beside it, none cut off while they can show less', row.scrollWidth <= row.clientWidth + 1 || tight() === chips(), JSON.stringify({ scroll: row.scrollWidth, room: row.clientWidth, tight: tight(), chips: chips() }));
+      check('as wide as its words need, up to its limit', t.right - t.left >= want - 1, JSON.stringify({ toast: t.right - t.left, wants: want }));
+      check('the chips stay as they are under it', layout() === layoutBefore && tight() === tightBefore, layout() + ' | before: ' + layoutBefore);
       hover(true);
       return wait(9000);
     })
@@ -132,7 +135,7 @@
       return wait(300);
     })
     .then(function () {
-      check('the chips come back as they were', tight() === tightBefore, tight() + ' showing only a number, ' + tightBefore + ' before');
+      check('and as they were once it goes', layout() === layoutBefore && tight() === tightBefore, layout() + ' | before: ' + layoutBefore);
       return archived();
     })
     .then(function () {
