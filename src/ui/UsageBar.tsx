@@ -44,6 +44,8 @@ import { keysIn, pinch } from '../platform';
 const SHOW_MS = 150;
 const HIDE_MS = 120;
 const WARM_MS = 400;
+/** How long after a card asks before Use a reset spends one: longer than a double-click. */
+const CONFIRM_AFTER_MS = 500;
 /** A row showing less than it could shows more again only with this much room to spare, so a
  *  reset time growing by a character near the edge doesn't flip it back and forth. */
 const SLACK = 16;
@@ -257,8 +259,13 @@ interface CardProps {
  *  how many and when they run out, with Use a reset, which asks first since it spends one. Its
  *  limits are only a picture: the chip's label already reads them out. */
 function UsageCard({ usage: u, now, anchor, meters, training: t, onStopTraining, resets: r, onUseReset, onOpenUrl, onEnter, onLeave }: CardProps) {
-  // Use a reset asks again in the card before it spends one.
-  const [asking, setAsking] = useState(false);
+  // Use a reset asks again in the card before it spends one: the reset it showed (none when only
+  // a count is known), and when it asked, so the click that asked can't also answer. The card is
+  // keyed by its account, so another chip's card never opens asking.
+  const [asking, setAsking] = useState<{ credit: string | undefined; at: number } | null>(null);
+  const shown = r?.credits[0]?.id;
+  // The one it asked about went (used elsewhere, or expired): it asks again from the start.
+  const stillAsking = asking && asking.credit === shown ? asking : null;
   const ref = useRef<HTMLDivElement>(null);
   // Over the chip, as the bar is at the window's foot, kept inside the window: no taller than the
   // room over the chip, so it never covers the chip or runs off the window's foot.
@@ -339,21 +346,28 @@ function UsageCard({ usage: u, now, anchor, meters, training: t, onStopTraining,
           <div className="ca-resets-text" title={r.credits[0]?.description ?? undefined}>
             {heldNote(r, now)}
           </div>
-          {asking ? (
+          {stillAsking ? (
+            // Cancel is where Use a reset… was, so a second click there spends nothing.
             <div className="ca-resets-foot">
               <span className="ca-resets-ask">Reset {u.account}’s limits now? This uses one.</span>
-              <Button size="sm" variant="secondary" onClick={() => setAsking(false)}>
-                Cancel
-              </Button>
-              <Button size="sm" variant="primary" onClick={() => onUseReset?.(r.account, r.credits[0]?.id)}>
+              <Button
+                size="sm"
+                variant="primary"
+                onClick={() => {
+                  if (performance.now() - stillAsking.at >= CONFIRM_AFTER_MS) onUseReset?.(r.account, stillAsking.credit);
+                }}
+              >
                 Use a reset
+              </Button>
+              <Button size="sm" variant="secondary" onClick={() => setAsking(null)}>
+                Cancel
               </Button>
             </div>
           ) : (
             <>
               {early && <div className="ca-resets-early">{early}</div>}
               <div className="ca-resets-foot">
-                <Button size="sm" variant={early ? 'secondary' : 'primary'} onClick={() => setAsking(true)}>
+                <Button size="sm" variant={early ? 'secondary' : 'primary'} onClick={() => setAsking({ credit: shown, at: performance.now() })}>
                   Use a reset…
                 </Button>
               </div>
@@ -608,6 +622,7 @@ export function UsageBar({ usage: board, now, onRefresh, onAccounts, onUsage, on
       ))}
       {peeked && peek && (peekMeters || peekActs) && (
         <UsageCard
+          key={peeked.account}
           usage={peeked}
           now={now}
           anchor={peek.anchor}

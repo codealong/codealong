@@ -2,7 +2,8 @@
 // some has a clock on its chip, the others not; hovering it brings up its card over the chip,
 // which says how many, what kind and when the first expires, stays up while the pointer is on it,
 // and asks again before Use a reset spends one, the first to expire, saying how that went in a
-// toast. Cancel spends nothing.
+// toast. Cancel, a double-click on the button that asked, and moving to another account's card
+// spend nothing.
 //   PREVIEW_RESETS=scripts/preview/resets-sample.json PREVIEW_WAIT=60000 scripts/preview.sh sessions '' scripts/preview/resets-check.js
 (function () {
   var chipOf = function (account) {
@@ -18,7 +19,7 @@
   until(function () { return q('.ca-usagebar-accts .ca-uchip .ca-uchip-resets'); }, 20000)
     .then(function () {
       var marked = all('.ca-usagebar-accts .ca-uchip').filter(function (c) { return q('.ca-uchip-resets', c); }).map(function (c) { return q('.ca-uchip-name', c).textContent; });
-      check('only an account holding resets is marked', marked.join(',') === 'codex', marked.join(','));
+      check('only an account holding resets is marked', marked.join(',') === 'codex,cursor', marked.join(','));
       check('the chip says so to a screen reader', /\. 3 limit resets$/.test(chipOf('codex').getAttribute('aria-label')), chipOf('codex').getAttribute('aria-label'));
       enter(chipOf('codex'));
       return until(card, 3000);
@@ -43,6 +44,28 @@
     })
     .then(function () {
       check('Use a reset… asks first, spending nothing', /^Reset codex’s limits now\? This uses one\.$/.test(q('.ca-resets-ask', card()).textContent) && calls('use_reset').length === 0, q('.ca-resets-ask', card()).textContent);
+      var foot = all('.ca-resets-foot button', card()).map(function (b) { return b.textContent; });
+      check('Cancel takes the place of the button that asked', foot.join(',') === 'Use a reset,Cancel', foot.join(','));
+      // A double-click's second click lands at once: it spends nothing.
+      button('Use a reset').click();
+      check('a click straight after the one that asked spends nothing', calls('use_reset').length === 0 && !!button('Cancel'));
+      // Straight on to another account's card, as a pointer moving along the bar does.
+      leave(card());
+      enter(chipOf('cursor'));
+      return until(function () { return card() && q('.ca-uchip-name', card()).textContent === 'cursor'; }, 3000);
+    })
+    .then(function () {
+      check('another account’s card doesn’t open asking', !!button('Use a reset…') && !button('Cancel'), all('.ca-usage-popover button').map(function (b) { return b.textContent; }).join(','));
+      check('one known only by its count says what a reset does', q('.ca-resets-text', card()).textContent === 'Each puts the plan’s limits back to empty' && q('.ca-resets-title', card()).textContent === '1 limit reset', q('.ca-resets-text', card()).textContent);
+      leave(card());
+      enter(chipOf('codex'));
+      return until(function () { return card() && q('.ca-uchip-name', card()).textContent === 'codex' && button('Use a reset…'); }, 3000);
+    })
+    .then(function () {
+      button('Use a reset…').click();
+      return until(function () { return button('Cancel'); }, 2000);
+    })
+    .then(function () {
       button('Cancel').click();
       return until(function () { return button('Use a reset…'); }, 2000);
     })
@@ -51,6 +74,7 @@
       button('Use a reset…').click();
       return until(function () { return button('Use a reset'); }, 2000);
     })
+    .then(function () { return wait(600); })
     .then(function () {
       button('Use a reset').click();
       return until(function () { return !card(); }, 3000);

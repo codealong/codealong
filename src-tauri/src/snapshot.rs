@@ -358,8 +358,14 @@ fn training_off(_: &Args, rest: &[String]) -> Done {
 }
 
 /// `codealong --snapshot --use-reset <account> [credit id]`: uses one of the account's limit
-/// resets, as the usage bar's card does, and prints how it went. Real: it spends the reset.
-fn use_reset(_: &Args, rest: &[String]) -> Done {
+/// resets, as the usage bar's card does, and prints how it went. Real: it spends the reset, so
+/// only that line goes: anything else on it (a `--dry-run`, say, which nothing here reads) is a
+/// usage error rather than a reset spent.
+fn use_reset(args: &Args, rest: &[String]) -> Done {
+    let others = args.0.iter().filter(|a| *a != "--snapshot" && *a != "--use-reset").count();
+    if others != rest.len() || rest.iter().any(|a| a.starts_with('-')) {
+        return Err(Stop::Usage);
+    }
     let (name, credit) = match rest {
         [name] => (name, None),
         [name, credit] => (name, Some(credit.as_str())),
@@ -894,6 +900,10 @@ mod tests {
         assert_eq!(pick(&["--snapshot", "--pr-card", "o/r", "7"]), Some("--pr-card"));
         assert_eq!(pick(&["--snapshot", "--start-plan", "/r", "claude", "terminal", "--worktree"]), Some("--start-plan"));
         // Each of these stops at its arguments, before anything is read or done.
+        // A reset is spent only for the line as written, with nothing else on it.
+        for words in [&["--snapshot", "--use-reset"][..], &["--snapshot", "--dry-run", "--use-reset", "atlas"], &["--snapshot", "--use-reset", "atlas", "--dry-run"], &["--snapshot", "--help", "--use-reset", "atlas"], &["--snapshot", "--use-reset", "atlas", "c1", "c2"]] {
+            assert_eq!(cli(&line(words)), 2, "{words:?}");
+        }
         for words in [&["--snapshot", "--send", "claude:claude:abc"][..], &["--snapshot", "--stop"], &["--snapshot", "--answer", "k", "id"], &["--snapshot", "--answer", "k", "id", "maybe"], &["--snapshot", "--rename", "k"], &["--snapshot", "--pr", "o/r", "seven"], &["--snapshot", "--start-plan", "/r", "claude", "the moon"], &["--snapshot", "--side", "k"]] {
             assert_eq!(cli(&line(words)), 2, "{words:?}");
         }

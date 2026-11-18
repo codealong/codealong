@@ -112,8 +112,25 @@ pub fn read_all(accounts: &[AccountCfg]) -> Vec<Resets> {
 pub fn use_one(account: &AccountCfg, credit: Option<&str>) -> Result<ResetUsed> {
     let h = crate::harness::of(account).ok_or_else(|| anyhow!("Codealong doesn't know {}'s harness.", account.name))?;
     let outcome = h.use_reset(account, credit)?;
-    let after = h.resets(account);
+    let after = after_use(outcome, h.resets(account));
     Ok(ResetUsed { account: account.name.clone(), reset: outcome == Outcome::Reset, message: said(&account.name, outcome, &after), after })
+}
+
+/// What the account holds after a use that failed, read again: it may have gone through
+/// unanswered, so a read that fails offers nothing, as after one spent (`after_use`).
+pub fn read_after_failure(account: &AccountCfg) -> Resets {
+    after_use(Outcome::Reset, read(account))
+}
+
+/// What the account holds after a use, as read: when one was spent and that read failed, nothing
+/// Codealong can use until a read works, rather than the count from before it (which a failed
+/// read would keep, `keeping`) offering a reset that's gone.
+fn after_use(outcome: Outcome, read: Resets) -> Resets {
+    let spent = matches!(outcome, Outcome::Reset | Outcome::AlreadyRedeemed);
+    if spent && read.as_of.is_none() {
+        return Resets { can_use: false, ..read };
+    }
+    read
 }
 
 /// What the toast says after a use.
@@ -194,6 +211,24 @@ mod tests {
         assert!(poll.on_changed(&identity(&accounts[0]), after));
         poll.on_read(Some(vec![Resets::held(&accounts[0], vec![credit("a", None)], 1, 150)]));
         assert_eq!(poll.list(&accounts)[0].available, 0, "the read began before the use");
+    }
+
+    /// A spent reset doesn't come back on the card because the read after it failed.
+    #[test]
+    fn a_failed_read_after_a_use_offers_nothing_until_one_works() {
+        let a = account("codex");
+        let mut poll = ResetPoll::default();
+        let accounts = vec![a.clone()];
+        poll.due(&accounts, Instant::now());
+        poll.on_read(Some(vec![Resets::held(&a, vec![credit("a", None)], 1, 100)]));
+        let after = after_use(Outcome::Reset, Resets::failed(&a, "Codex didn't answer in time."));
+        assert!(!after.can_use);
+        poll.on_changed(&identity(&a), after);
+        let shown = &poll.list(&accounts)[0];
+        assert_eq!((shown.can_use, shown.available), (false, 0), "not the one from before");
+        // Nothing spent, or a read that worked: as read.
+        assert!(after_use(Outcome::NothingToReset, Resets::failed(&a, "x")).can_use);
+        assert_eq!(after_use(Outcome::Reset, Resets::held(&a, vec![], 0, 200)).as_of, Some(200));
     }
 
     #[test]
