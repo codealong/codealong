@@ -312,7 +312,7 @@ describe('sessionMenu', () => {
       sessionActions(lane(), session(), base);
       await settled();
     };
-    const c2 = { name: 'c2', harness: 'claude' as const, home: '~/.claude-c2', command: 'claude-c2', makesPages: true, folderExists: true, signedIn: true, email: null, signInNote: null };
+    const c2 = { name: 'c2', harness: 'claude' as const, home: '~/.claude-c2', command: 'claude-c2', makesPages: true, copiesSettings: true, folderExists: true, signedIn: true, email: null, signInNote: null };
     try {
       // One turned off isn't offered.
       await readAccounts([{ ...c2, disabled: true }], later);

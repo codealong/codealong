@@ -110,6 +110,7 @@ pub fn describe(a: &AccountCfg) -> AccountInfo {
         disabled: a.disabled,
         chrome_profile: a.chrome_profile.clone(),
         makes_pages: harness.is_some_and(|h| !h.artifact_needles().is_empty()),
+        copies_settings: harness.is_some_and(|h| h.copies_settings()),
         folder_exists: dir.is_dir(),
         signed_in,
         email,

@@ -85,6 +85,10 @@ pub struct AccountInfo {
     /// profile set for it has something to open: Settings offers one only then.
     #[serde(default)]
     pub makes_pages: bool,
+    /// Its harness can give a new account what you made in this one's folder
+    /// (`Adapter::copy_settings`): Settings offers this account to copy from then.
+    #[serde(default)]
+    pub copies_settings: bool,
     pub folder_exists: bool,
     pub signed_in: bool,
     pub email: Option<String>,

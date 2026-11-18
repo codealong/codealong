@@ -840,6 +840,15 @@ on this Mac; read it before changing the Claude adapter (paths are under `src-ta
   state file, every connector that ever connected, which kept two the account no longer loads;
   it skips a connector whose URL a plugin's server has too (Figma here). `claude mcp list` starts
   every server to say it's connected.
+- What a new account takes from another as Settings › Accounts adds it (2.1.327's code,
+  2026-11-17): `claude/seed.rs` (module header). The folder's own of yours are `settings.json`,
+  `CLAUDE.md`, `keybindings.json` and the folders `skills`, `commands`, `agents`,
+  `output-styles`, `rules` (user-level rules, `<config>/rules`) and `themes`; the state file's
+  `mcpServers` are the servers added for every folder. `skills/synced/<sign-in>` and
+  `plugins/synced/<sign-in>` belong to the sign-in. A new account whose `settings.json` turns
+  on plugins of marketplaces it lists (`enabledPlugins`, `extraKnownMarketplaces`) gets them
+  added and installed by Claude Code itself once it runs (seen with a copied settings.json,
+  2026-11-17), so the plugins themselves aren't copied.
 - Help improve Claude (whether Anthropic trains on the account), read and changed through the
   account's settings: `claude/training.rs`. The settings answer holds much else (dismissed
   banners, feature flags) and `grove_updated_at`, `grove_notice_viewed_at`. Claude Code's notice

@@ -1510,7 +1510,7 @@ window.__TAURI_INTERNALS__ = {
     // The setup wizard shows by itself only when `window.__setupNeeded` says it's a first run;
     // finishing it, and saving what it picked, need no answer.
     if (cmd === 'setup_needed') return Promise.resolve(!!window.__setupNeeded);
-    if (cmd === 'finish_setup' || cmd === 'save_accounts' || cmd === 'save_config') return Promise.resolve(null);
+    if (cmd === 'finish_setup' || cmd === 'save_accounts' || cmd === 'save_config' || cmd === 'copy_account_settings') return Promise.resolve(null);
     // Asking the engine to poll GitHub or read usage again (a window's focus, ⌘R) needs no answer.
     if (cmd === 'refresh' || cmd === 'refresh_usage') return Promise.resolve(null);
     // A drag of the notch starts, as it does in the app while the bar is docked (bar.rs `drag`),

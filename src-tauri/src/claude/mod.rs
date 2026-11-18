@@ -29,6 +29,7 @@ pub mod peer;
 mod questions;
 mod registry;
 mod routes;
+mod seed;
 mod shells;
 mod side;
 mod skills;
@@ -165,6 +166,16 @@ impl crate::harness::Adapter for ClaudeCode {
             // Claude Code keeps sign-ins in the keychain on a Mac, and in the folder elsewhere.
             signed_in: dir.join(".credentials.json").is_file(),
         }
+    }
+
+    fn copies_settings(&self) -> bool {
+        true
+    }
+
+    /// claude/seed.rs: settings.json, CLAUDE.md, its skills, commands, agents and the like, and
+    /// the MCP servers added for every folder.
+    fn copy_settings(&self, from: &crate::config::AccountCfg, to: &crate::config::AccountCfg) -> anyhow::Result<()> {
+        seed::copy(&from.home_path(), &to.home_path())
     }
 
     /// `<config dir>/skills`: a second account's config dir is its home here.

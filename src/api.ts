@@ -973,6 +973,13 @@ export async function agentsStatus(): Promise<AgentsStatus> {
 }
 
 /** Links the command and installs the skill for the named accounts; returns the new state. */
+/** Gives the new account `to` what you made yourself in `from`'s folder (calls.rs
+ *  `copy_account_settings`), replacing nothing there. */
+export async function copyAccountSettings(from: string, to: string): Promise<void> {
+  if (!inTauri) throw new Error('Copying settings needs the app.');
+  await invoke('copy_account_settings', { from, to });
+}
+
 export async function installAgents(command: boolean, accounts: string[]): Promise<AgentsStatus> {
   if (!inTauri) throw new Error('Installing the agent tools needs the app.');
   return invoke<AgentsStatus>('install_agents', { command, accounts });

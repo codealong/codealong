@@ -1052,8 +1052,10 @@ to the agent over the Agent Client Protocol.
 
 **Can I use several Claude Code accounts?**
 Yes. Each account runs the official Claude Code with its own config folder (`CLAUDE_CONFIG_DIR`),
-and Codealong finds them on its own, even from an alias in your shell. Follow each provider's terms
-for how you use your accounts.
+and Codealong finds them on its own, even from an alias in your shell. Settings › Accounts adds
+one, starting it with another account's settings, plugins, skills and MCP servers if you like; the
+guide's [Another account of the same agent](docs/guide.md#another-account-of-the-same-agent) has
+the steps. Follow each provider's terms for how you use your accounts.
 
 **Does it change my git repos?**
 Only to remove a worktree you clean up, with its branch, and only when nothing in it would be lost:

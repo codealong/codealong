@@ -2528,6 +2528,53 @@ comes back. `codealong mcp` alone lists every service by name, and `--tools` add
 Accounts the app hasn't read yet are read as the command runs, and it says which ones couldn't
 all be read. Nothing about these services goes into an agent's context until it asks.
 
+### Another account of the same agent
+
+*Settings › Accounts › Add Claude Code account (or Add Codex account, and so on)*
+
+Each account keeps its sign-in, sessions and settings in a folder of its own, and its agent is
+told which by a variable: `CLAUDE_CONFIG_DIR` for Claude Code, `CODEX_HOME` for Codex,
+`CURSOR_CONFIG_DIR` for Cursor's command line and `XDG_DATA_HOME` for OpenCode (Antigravity's
+`agy` keeps one sign-in, whatever the account). So a second Claude Code account, a work one
+beside your own say, is a second folder (`~/.claude-work`) and a command that runs Claude Code
+with the variable pointing at it. To add one:
+
+1. **Add Claude Code account**. The form suggests the next free name (`claude2`), its folder
+   (`~/.claude2`) and the command that runs it (`CLAUDE_CONFIG_DIR=~/.claude2 claude`); the
+   folder and the command follow a name you type until you change them yourself. A wrapper
+   script on your PATH, or an alias in your shell, works as the command too.
+2. **Settings from** picks the account whose setup the new one starts with: the first of the
+   agent's accounts, unless you pick another. Its `settings.json` goes into the new folder (its
+   model, permissions, hooks, status line, and the plugins it turns on, which Claude Code
+   installs from their marketplaces once the new account runs), with its `CLAUDE.md`,
+   `keybindings.json`, skills, commands, agents, output styles, rules and themes, and the MCP
+   servers it has for every folder (`claude mcp add --scope user`). A file in its folder that
+   its settings name by path, such as a status line's script, is copied too, and the new
+   account's settings name the copy, so changing one account's leaves the other's alone. They're
+   copies from then on: a change in one account isn't made in the other. Nothing already in the
+   new folder is replaced. Its sign-in, sessions and history stay with it, and so do the skills
+   and plugins claude.ai syncs to its sign-in; the new account gets those from its own. **None**
+   leaves the folder for Claude Code to set up from nothing. Only Claude Code accounts offer it
+   so far.
+3. **Add account** saves it to config.toml, copies the settings, then puts Codealong's plugin in
+   it (unless you untick it).
+4. **Sign in**, on its card, opens a terminal running its command, where Claude Code's first run
+   has you log in. The card then says who it's signed in as, and its usage joins the usage bar.
+
+Codealong also finds accounts on its own: a folder beside `~/.claude` (`~/.claude2`,
+`~/.claude-work`), and the folder a wrapper or an alias in your shell points `CLAUDE_CONFIG_DIR`
+at, which names the account and gives it its command. One config.toml doesn't list waits under
+*Found on this machine*, to add with a click; an `[[accounts]]` table written into config.toml
+works as well. Neither copies anything: the folder is there already.
+
+Point the variable at the account's folder rather than giving the command another `HOME`: on a
+Mac, Claude Code keeps its sign-in in the login keychain, which another `HOME` keeps it from
+finding, and Codealong finds an account by the variable. The Claude app runs only the account in
+`~/.claude`, so only that one offers to start in it; the others start in a terminal, in the
+background or in Codealong. With several accounts, Auto and routing groups start work on the one
+with room (see *Usage*), and a session that hits its usage limit can move to another. Follow each
+provider's terms for how you use your accounts.
+
 ## Finding and starting work
 
 ### Quick panel

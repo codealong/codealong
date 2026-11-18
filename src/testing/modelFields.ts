@@ -468,6 +468,7 @@ export type AccountInfo = Holds<Same<
   | "acp"
   | "chrome_profile"
   | "command"
+  | "copiesSettings"
   | "disabled"
   | "email"
   | "folderExists"

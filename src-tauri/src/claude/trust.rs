@@ -138,10 +138,10 @@ fn is_trusted(entry: &Node) -> bool {
 /// the file, `<file>.lock`, which only one process can make. Claude Code holds it while it reads
 /// the file again and writes it, and freshens its time every 5 seconds; one untouched for 10 is
 /// a crashed process's, and is taken over.
-struct StateLock(PathBuf);
+pub(super) struct StateLock(PathBuf);
 
 impl StateLock {
-    fn take(file: &Path) -> anyhow::Result<StateLock> {
+    pub(super) fn take(file: &Path) -> anyhow::Result<StateLock> {
         use std::time::{Duration, Instant};
         let mut path = file.as_os_str().to_owned();
         path.push(".lock");

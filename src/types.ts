@@ -1755,6 +1755,9 @@ export interface ChromeProfile {
 export interface AccountInfo extends AccountCfg {
   /** Its harness records the pages its sessions make, so a Chrome profile for them does something. */
   makesPages: boolean;
+  /** Its harness can give a new account what you made in this one's folder (its settings,
+   *  instructions, skills…), so the New account form offers to copy from it. */
+  copiesSettings: boolean;
   folderExists: boolean;
   signedIn: boolean;
   email: string | null;

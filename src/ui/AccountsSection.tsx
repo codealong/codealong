@@ -3,12 +3,14 @@
 // it sends (training.ts), the Chrome profile the pages its sessions make open in (`chrome_profile`),
 // and a switch that turns it off (config.toml's `disabled`), and under Found on this Mac the ones it could (detect.rs). Saving rewrites the
 // [[accounts]] tables in config.toml and leaves the rest of the file as you wrote it. Adding an
-// account can put Codealong in it too (install.rs: the plugin in Claude Code, the skill elsewhere), as
-// Settings › Agents does; that page is where each account's plugin or skill shows.
+// account can give it what you set up in another of its harness's (its settings, instructions and
+// skills: harness.rs `copy_settings`), and put Codealong in it too (install.rs: the plugin in Claude
+// Code, the skill elsewhere), as Settings › Agents does; that page is where each account's plugin or
+// skill shows.
 
 import { useEffect, useState } from 'react';
 import { installCliTask } from '../agentTasks';
-import { agentsStatus, askAgent, chromeProfiles, foundAccounts, getAccounts, installAgents, openUrl, saveAccounts, signIn, stopTraining } from '../api';
+import { agentsStatus, askAgent, chromeProfiles, copyAccountSettings, foundAccounts, getAccounts, installAgents, openUrl, saveAccounts, signIn, stopTraining } from '../api';
 import { agoPhrase } from '../format';
 import { HARNESSES, HARNESS_WORD } from '../harness';
 import { afterStop, flagged, readNote, trainingOf, trainingTag } from '../training';
@@ -34,6 +36,9 @@ interface Draft {
   usageCap: string;
   /** The Chrome profile the pages its sessions make open in; empty for the default browser. */
   chromeProfile: string;
+  /** A new account: the account whose settings, instructions and skills it starts with; null
+   *  for an empty folder. */
+  copyFrom: string | null;
   /** Whether you typed in these fields; untouched ones follow the name. */
   touched: { home: boolean; command: boolean };
 }
@@ -187,8 +192,14 @@ function commandHelp(harness: Harness, terminal: string): string {
   }
 }
 
+/** The accounts a new one of `harness` can take its settings from (`copiesSettings`), the
+ *  first being what it takes unless you pick another. */
+export function copySources(harness: Harness, accounts: AccountInfo[]): AccountInfo[] {
+  return accounts.filter((a) => a.harness === harness && a.copiesSettings);
+}
+
 /** The next free `claude2`, `claude3`… with its own folder. */
-export function suggestAccount(harness: Harness, taken: AccountCfg[]): Omit<Draft, 'original' | 'touched'> {
+export function suggestAccount(harness: Harness, taken: AccountCfg[]): Omit<Draft, 'original' | 'touched' | 'copyFrom'> {
   const names = new Set(taken.map((a) => a.name));
   const homes = new Set(taken.map((a) => a.home.replace(/\/$/, '')));
   let n = 1;
@@ -327,10 +338,18 @@ export function AccountsSection({ focus, usage, training, mcp, terminal, now, on
     if (await save([...accounts, toCfg(f)])) await installSkill(f.name);
   };
 
+  /** A new account of `harness`'s form, taking the first account of it Codealong can copy from. */
+  const newDraft = (harness: Harness): Draft => ({
+    original: null,
+    touched: { home: false, command: false },
+    copyFrom: copySources(harness, accounts ?? [])[0]?.name ?? null,
+    ...suggestAccount(harness, accounts ?? []),
+  });
+
   const startAdd = (harness: Harness) => {
     setError(null);
     setRemoving(null);
-    setDraft({ original: null, touched: { home: false, command: false }, ...suggestAccount(harness, accounts ?? []) });
+    setDraft(newDraft(harness));
   };
 
   const startEdit = (a: AccountInfo) => {
@@ -347,6 +366,7 @@ export function AccountsSection({ focus, usage, training, mcp, terminal, now, on
       perToken: a.per_token ?? false,
       usageCap: a.usage_cap != null ? String(a.usage_cap) : '',
       chromeProfile: a.chrome_profile ?? '',
+      copyFrom: null,
       touched: { home: true, command: true },
     });
   };
@@ -372,7 +392,16 @@ export function AccountsSection({ focus, usage, training, mcp, terminal, now, on
     const next = draft.original ? accounts.map((a) => (a.name === draft.original ? entry : a)) : [...accounts, entry];
     if (await save(next)) {
       setDraft(null);
-      if (!draft.original) await installSkill(entry.name);
+      if (draft.original) return;
+      // Before Codealong goes in, which writes to the settings it would copy.
+      if (draft.copyFrom) {
+        try {
+          await copyAccountSettings(draft.copyFrom, entry.name);
+        } catch (e) {
+          setError(`${entry.name} is added, but ${draft.copyFrom}’s settings didn’t copy: ${String(e)}`);
+        }
+      }
+      await installSkill(entry.name);
     }
   };
 
@@ -416,6 +445,7 @@ export function AccountsSection({ focus, usage, training, mcp, terminal, now, on
   // its harness makes pages is known once it's added.
   const draftEdits = draft?.original ? accounts?.find((a) => a.name === draft.original) : undefined;
   const draftStart = draft?.start && draftPlaces.includes(draft.start) ? draft.start : null;
+  const draftSources = draft && !draft.original ? copySources(draft.harness, accounts ?? []) : [];
 
   const form = draft && (
     <form
@@ -435,7 +465,7 @@ export function AccountsSection({ focus, usage, training, mcp, terminal, now, on
             if (draft.original) {
               setDraft({ ...draft, harness: h });
             } else {
-              setDraft({ original: null, touched: { home: false, command: false }, ...suggestAccount(h, accounts ?? []) });
+              setDraft(newDraft(h));
             }
           }}
         />
@@ -466,6 +496,13 @@ export function AccountsSection({ focus, usage, training, mcp, terminal, now, on
         <input value={draft.command} spellCheck={false} autoCapitalize="off" autoCorrect="off" onChange={(e) => setDraft({ ...draft, command: e.target.value, touched: { ...draft.touched, command: true } })} />
         <small>{commandHelp(draft.harness, terminal)}</small>
       </label>
+      {draftSources.length > 0 && (
+        <div className="ca-field">
+          <span id="ca-acct-copy">Settings from</span>
+          <Seg labelledBy="ca-acct-copy" options={[...draftSources.map((a) => ({ id: a.name, label: a.name })), { id: null, label: 'None' }]} value={draft.copyFrom} onPick={(copyFrom) => setDraft({ ...draft, copyFrom })} />
+          <small>{draft.copyFrom ? `What you set up in ${draft.copyFrom} goes into the new folder: its settings and plugins, instructions, skills, commands, agents and MCP servers. Nothing already there is replaced, and its sign-in, sessions and history stay with it.` : 'The new account starts with an empty folder.'}</small>
+        </div>
+      )}
       {draftPlaces.length > 1 && (
         <div className="ca-field">
           <span id="ca-acct-start">New sessions start in</span>

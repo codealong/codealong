@@ -681,6 +681,20 @@ calls! {
         install::install(command, &accounts).map_err(words)
     }
 
+    /// A new account takes what you made yourself in another of the same harness (its
+    /// settings, instructions, skills…), as Settings › Accounts adds it
+    /// (`Adapter::copy_settings`), before Codealong goes into it.
+    fn copy_account_settings(c, from: String, to: String) -> Result<(), String> {
+        let cfg = config::current().map_err(words)?;
+        let find = |name: &str| cfg.accounts.iter().find(|a| a.name == name).ok_or_else(|| format!("No account is called {name}."));
+        let (from, to) = (find(&from)?, find(&to)?);
+        if from.harness != to.harness {
+            return Err(format!("{} and {} aren't accounts of the same agent.", from.name, to.name));
+        }
+        let adapter = harness::of(to).ok_or_else(|| format!("Codealong doesn't know {}'s agent.", to.name))?;
+        adapter.copy_settings(from, to).map_err(words)
+    }
+
     /// Your other devices as Settings › Devices and the views show them (peers.rs).
     fn devices(c) -> Result<peers::DevicesView, String> {
         Ok(c.peers.view())

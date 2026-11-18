@@ -617,6 +617,19 @@ pub trait Adapter: Sync {
         FolderUse::default()
     }
 
+    /// Whether a new account can take another's settings (`copy_settings`): Settings › Accounts
+    /// offers it only then.
+    fn copies_settings(&self) -> bool {
+        false
+    }
+
+    /// Copies what you made yourself in `from`'s folder (its settings, instructions, skills…)
+    /// into `to`'s, a new account of the same harness, as Settings › Accounts adds it, replacing
+    /// nothing that's there. Its sign-in, sessions and history stay where they are.
+    fn copy_settings(&self, _from: &AccountCfg, to: &AccountCfg) -> Result<()> {
+        bail!("{} can't take another account's settings.", to.name)
+    }
+
     /// Where an account reads personal skills, where install.rs puts Codealong's.
     fn skills_dir(&self, _account: &AccountCfg) -> Option<PathBuf> {
         None
