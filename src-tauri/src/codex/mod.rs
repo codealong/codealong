@@ -25,6 +25,7 @@ mod rollout;
 mod side;
 mod terminals;
 mod hook;
+mod signin;
 mod training;
 mod trust;
 mod turns;
@@ -100,6 +101,16 @@ impl crate::harness::Adapter for Codex {
 
     fn stop_training(&self, account: &crate::config::AccountCfg) -> anyhow::Result<()> {
         training::stop(account)
+    }
+
+    /// `auth.json`'s token's claims.
+    fn local_sign_in(&self, account: &crate::config::AccountCfg) -> Option<crate::signin::Local> {
+        signin::local(account)
+    }
+
+    /// The account OpenAI lists for the token.
+    fn verify_sign_in(&self, account: &crate::config::AccountCfg) -> std::result::Result<crate::signin::Said, crate::signin::NotSaid> {
+        signin::verify(account)
     }
 
     /// Its ChatGPT apps, its config.toml's servers and its plugins'.

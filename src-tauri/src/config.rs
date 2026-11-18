@@ -400,6 +400,14 @@ pub struct RoutingGroupCfg {
     /// start a session, on its own model.
     #[serde(default)]
     pub members: Vec<GroupMemberCfg>,
+    /// A boundary (boundary.rs): only members whose provider says they're on a commercial plan
+    /// count as in it, and what its members' sessions say stays with sessions in it.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub boundary: bool,
+    /// For a boundary, the decision model that may read its sessions (`jev`, or `none` for
+    /// none); unset is Jev, whatever another default becomes.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub decisions: Option<String>,
 }
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Default)]
@@ -1822,6 +1830,25 @@ pub fn check_routing(cfg: &Config) -> std::result::Result<(), String> {
         if !group_names.insert(name) {
             return Err(format!("Two routing groups are named {name}."));
         }
+        if g.boundary && g.members.is_empty() {
+            return Err(format!("Routing group {name} is a boundary, so it lists its members: an empty list would let every account in."));
+        }
+        if let Some(d) = g.decisions.as_deref() {
+            if !g.boundary {
+                return Err(format!("Routing group {name} names a decision model, which only a boundary group (boundary = true) does."));
+            }
+            if !crate::boundary::DECISION_MODELS.contains(&d) {
+                return Err(format!("Routing group {name}'s decisions is {d:?}; it takes {}.", crate::boundary::DECISION_MODELS.map(|m| format!("{m:?}")).join(" or ")));
+            }
+        }
+        if g.boundary {
+            for m in &g.members {
+                let other = cfg.routing.groups.iter().find(|o| o.boundary && o.name.trim() != name && o.members.iter().any(|x| x.account.trim() == m.account.trim()));
+                if let Some(o) = other {
+                    return Err(format!("{} is in two boundary groups, {name} and {}; an account can be in one.", m.account.trim(), o.name.trim()));
+                }
+            }
+        }
         for m in &g.members {
             let acc = m.account.trim();
             if acc.is_empty() || !cfg.accounts.iter().any(|a| a.name == acc) {
@@ -2785,6 +2812,13 @@ fn set_routing(doc: &mut toml_edit::DocumentMut, routing: &RoutingCfg) {
             t.decor_mut().set_prefix("\n");
             t["name"] = Item::Value(Value::from(g.name.trim()));
             t["strategy"] = Item::Value(Value::from(g.strategy.as_str()));
+            // A boundary's own lines: dropped on a save, the group would let its text out.
+            if g.boundary {
+                t["boundary"] = Item::Value(Value::from(true));
+            }
+            if let Some(d) = g.decisions.as_deref() {
+                t["decisions"] = Item::Value(Value::from(d.trim()));
+            }
             if !g.members.is_empty() {
                 let mut members = Array::new();
                 for m in &g.members {
@@ -3327,6 +3361,13 @@ mod tests {
                     name: "reviewers".into(),
                     strategy: RoutingStrategy::AlternateHarness,
                     members: vec![GroupMemberCfg { account: "claude".into(), model: "opus".into(), effort: String::new() }, GroupMemberCfg { account: "codex".into(), model: String::new(), effort: String::new() }],
+                    ..RoutingGroupCfg::default()
+                }, RoutingGroupCfg {
+                    name: "authorized".into(),
+                    members: vec![GroupMemberCfg { account: "claude".into(), model: String::new(), effort: String::new() }],
+                    boundary: true,
+                    decisions: Some("none".into()),
+                    ..RoutingGroupCfg::default()
                 }],
             },
             sessions: SessionsCfg { block_flagged_sessions: false, continue_after_network_error: false, continue_after_sign_in: false, continue_after_restart: false, resume_for_sessions_it_started: false, resume_for_any_session: false, resume_for_pr_news: false, live_replies: true, hibernate_after: 0 },
@@ -4353,12 +4394,14 @@ mod tests {
                     name: "reviewers".into(),
                     strategy: RoutingStrategy::AlternateHarness,
                     members: vec![GroupMemberCfg { account: "claude".into(), model: "opus".into(), effort: String::new() }, GroupMemberCfg { account: "codex".into(), model: String::new(), effort: String::new() }],
+                    ..RoutingGroupCfg::default()
                 },
                 // A fallback group's members keep their order, and their effort.
                 RoutingGroupCfg {
                     name: "overflow".into(),
                     strategy: RoutingStrategy::Fallback,
                     members: vec![GroupMemberCfg { account: "codex".into(), model: String::new(), effort: "xhigh".into() }, GroupMemberCfg { account: "claude".into(), model: "sonnet".into(), effort: "high".into() }],
+                    ..RoutingGroupCfg::default()
                 },
             ],
         };

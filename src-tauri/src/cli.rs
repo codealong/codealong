@@ -75,6 +75,11 @@ enum Cmd {
         #[arg(long)]
         usage: bool,
     },
+    /// One account: which subscription the session running this command is signed in to (`check`), for a repository's guard hook or a script deciding what the agent may reach.
+    Account {
+        #[command(subcommand)]
+        cmd: AccountCmd,
+    },
     /// The services the accounts' agents reach through MCP servers and connectors (claude.ai's connectors, ChatGPT's apps, the servers an account's settings and plugins add), each once, with the accounts a session can start on that reach it, the one Auto would start first, and the model it would start it on when that isn't the account's default (`model`). A session reaches only its own account's: for a service yours doesn't, start a helper on an account that does (`codealong start --helper --account <account>`, with `--model <model>` when one is named) and have it answer in a few lines. The app reads them at launch and every hour; an account it hasn't read yet is read here.
     Mcp {
         /// Only the services with this in their names (`slack`, `drive`), with their tools.
@@ -1756,6 +1761,10 @@ pub fn main(args: &[String]) -> i32 {
     }
     // SAFETY: isatty reads a descriptor's kind and touches nothing.
     let json = !cli.table && (cli.json || unsafe { libc::isatty(1) } == 0);
+    // A guard hook runs it before every command: one question to the server, no board.
+    if let Cmd::Account { cmd: AccountCmd::Check { group } } = &cli.cmd {
+        return account_check(group.as_deref(), json);
+    }
     let mut client = Client::new(cli.verbose, starts_server(&cli.cmd), !json);
     match run(cli.cmd, &mut client, json) {
         Ok(()) => 0,
@@ -1794,6 +1803,16 @@ fn loaded_within(within: std::time::Duration, mut ask: impl FnMut(std::time::Dur
             status => return Some(status),
         }
     }
+}
+
+#[derive(Subcommand, Debug)]
+enum AccountCmd {
+    /// Which session runs this command (found as `whoami` finds it: `how` is `process`, `record` or `environment`, the last being a variable an agent can set itself), its account and harness, and who that account is signed in as: the provider's organization or workspace, the plan, whether the plan is under the provider's commercial terms (`commercial`; a Claude Team or Enterprise seat, a ChatGPT Business, Enterprise or Edu workspace), and whether the provider said so with the account's own sign-in (`verified`) or only its files did. Unknown is never commercial. `groups` are the routing groups the account is in; with --group, `inGroup` says whether it's in that one, which for a boundary group (`boundary = true` in config.toml) also takes a verified commercial sign-in. Codealong's server keeps the provider's answer for minutes and asks again at once when the account's files show another sign-in, so a hook can run it before every command. Exits 0 when a session runs it and it's in the group (or none was asked), 1 when it isn't, 3 when no session runs it (a person's own terminal), 2 on an error.
+    Check {
+        /// A routing group the session's account must be in.
+        #[arg(long)]
+        group: Option<String>,
+    },
 }
 
 #[derive(Subcommand, Debug)]
@@ -1868,6 +1887,9 @@ struct Client {
     me: Option<(Option<String>, Option<&'static str>)>,
     /// Your other Macs' worktrees with their sessions, once `elsewhere` has asked the server.
     elsewhere: Option<Vec<Lane>>,
+    /// The sessions on the board whose text the session running this command may not have
+    /// (boundary.rs), once `board` has cut them to their metadata: None until it has.
+    veiled: Option<HashSet<String>>,
 }
 
 impl Client {
@@ -1892,7 +1914,7 @@ impl Client {
                 Err(_) => {}
             }
         }
-        Client { app, verbose, cfg: None, board: None, from_app: false, started, said: false, me: None, elsewhere: None }
+        Client { app, verbose, cfg: None, board: None, from_app: false, started, said: false, me: None, elsewhere: None, veiled: None }
     }
 
     fn note(&mut self) {
@@ -1914,8 +1936,20 @@ impl Client {
         Ok(self.cfg.as_ref().unwrap())
     }
 
-    /// The board: the app's, or a light one from the files (no git, PRs or visitors).
+    /// The board: the app's, or a light one from the files (no git, PRs or visitors), with what
+    /// the session running this command may not read of a boundary group's sessions left out
+    /// (`veil`).
     fn board(&mut self) -> Result<&Board> {
+        self.raw_board()?;
+        if self.veiled.is_none() {
+            self.veil()?;
+        }
+        Ok(self.board.as_ref().unwrap())
+    }
+
+    /// The board as the server or the files have it, everything in it: for finding which
+    /// session runs this command, before what it may read is known.
+    fn raw_board(&mut self) -> Result<&Board> {
         self.note();
         if std::mem::take(&mut self.started) {
             self.wait_loaded(LOADING_WAIT);
@@ -1938,8 +1972,64 @@ impl Client {
             };
             self.board = Some(board);
             self.from_app = from_app;
+            self.veiled = None;
         }
         Ok(self.board.as_ref().unwrap())
+    }
+
+    /// Cuts the sessions of a boundary group the session running this command isn't in to their
+    /// metadata (boundary.rs `veil`), on this Mac's board and your other Macs', and notes which.
+    /// Nothing changes for a person's own terminal, or with no boundary group in config.toml.
+    fn veil(&mut self) -> Result<()> {
+        // Settings that don't read stop the board too: which sessions to keep in can't be known.
+        // Noted only once it's done, so a read after one that failed tries again, never gets
+        // the board whole.
+        let cfg = self.cfg()?.clone();
+        if !cfg.routing.groups.iter().any(|g| g.boundary) {
+            self.veiled = Some(HashSet::new());
+            return Ok(());
+        }
+        let reader = self.reader()?;
+        let mut keys = HashSet::new();
+        for lanes in [self.board.as_mut().map(|b| &mut b.lanes), self.elsewhere.as_mut()].into_iter().flatten() {
+            keys.extend(crate::boundary::veil_lanes(&cfg, reader.as_ref(), lanes));
+        }
+        self.veiled = Some(keys);
+        Ok(())
+    }
+
+    /// Who's reading, for a boundary group: the account of the session running this command and
+    /// whether its sign-in qualifies, as the server keeps it (`account_check_on`), else as this
+    /// command finds it. None for a person's own terminal.
+    fn reader(&mut self) -> Result<Option<crate::boundary::Reader>> {
+        let check = match self.app.is_some() {
+            true => match server::ask_within(&check_request(None), CHECK_WAIT) {
+                Some(Ok(v)) => serde_json::from_value::<AccountCheck>(v).ok(),
+                _ => None,
+            },
+            false => None,
+        };
+        let check = match check {
+            Some(c) => c,
+            None => {
+                let me = find_me(self)?;
+                let cfg = self.cfg()?.clone();
+                account_check_of(self.raw_board()?, &cfg, me, None, crate::signin::Ask::IfStale, now_ms()).map_err(|e| anyhow!(e))?
+            }
+        };
+        // Found by the variable alone, which an agent can set itself, it reads as a session
+        // outside any boundary: never one inside.
+        let trusted = check.how.as_deref() != Some("environment");
+        Ok(check.account.filter(|_| check.found).map(|account| crate::boundary::Reader { account, qualifies: trusted && check.sign_in.is_some_and(|s| s.qualifies()) }))
+    }
+
+    /// Whether the session running this command may not have what the session `key` says.
+    fn veils(&mut self, key: &str) -> Result<bool> {
+        self.board()?;
+        if crate::peerfeed::split_remote(key).is_some() {
+            self.elsewhere();
+        }
+        Ok(self.veiled.as_ref().is_some_and(|v| v.contains(key)))
     }
 
     /// The board, for looking up a session or worktree by what the command was given: until the
@@ -1991,6 +2081,13 @@ impl Client {
                 false => Vec::new(),
             };
             self.elsewhere = Some(lanes);
+            // Veiled with this Mac's board, once its reader is known; none at all when it can't be.
+            if self.veiled.is_some() {
+                self.veiled = None;
+                if self.board().is_err() {
+                    self.elsewhere = Some(Vec::new());
+                }
+            }
         }
         self.elsewhere.as_deref().unwrap_or_default()
     }
@@ -2121,6 +2218,17 @@ impl Client {
     /// `act`, waiting at most `wait` for the app's answer.
     fn act_within(&mut self, name: &str, key: &str, params: impl Serialize, from: Option<String>, wait: std::time::Duration) -> Result<Value> {
         self.note();
+        // What a session said isn't handed to one outside its boundary group (boundary.rs): the
+        // command turns it down here, and says who asks, so the server and another Mac do too.
+        let mut from = from;
+        if crate::actions::READS_TEXT.contains(&name) {
+            if self.veils(key)? {
+                bail!("{}", crate::boundary::REFUSED);
+            }
+            if from.is_none() {
+                from = find_me(self)?.0;
+            }
+        }
         let params = serde_json::to_value(params)?;
         if self.app.is_some() {
             let run = Request::Run { name: name.to_string(), key: key.to_string(), params: params.clone(), from: from.clone() };
@@ -2173,6 +2281,7 @@ fn run(cmd: Cmd, c: &mut Client, json: bool) -> Result<()> {
         Cmd::Status => status(c, json),
         Cmd::Server { cmd } => server_cmd(cmd, json),
         Cmd::Accounts { usage } => accounts(c, usage, json),
+        Cmd::Account { cmd: AccountCmd::Check { group } } => std::process::exit(account_check(group.as_deref(), json)),
         Cmd::Mcp { service, tools } => mcp(c, service.as_deref(), tools, json),
         Cmd::Tokens { days, account, by } => tokens(c, days, account.as_deref(), by, json),
         Cmd::Analytics(args) => match args.cmd {
@@ -3887,7 +3996,14 @@ fn analytics(c: &mut Client, days: u32, account: Option<&str>, json: bool) -> Re
 
 fn analytics_prompts(c: &mut Client, limit: usize, json: bool) -> Result<()> {
     let db = analytics_ledger(c)?;
-    let unread = crate::stance::unread(&db, limit.max(1))?;
+    let mut unread = crate::stance::unread(&db, limit.max(1))?;
+    // A boundary group's prompts, and the replies before them, stay with sessions in it
+    // (boundary.rs), by the account in the key, whether or not the board still lists it.
+    let cfg = c.cfg()?.clone();
+    if cfg.routing.groups.iter().any(|g| g.boundary) {
+        let reader = c.reader()?;
+        unread.retain(|u| u.session.split(':').nth(1).is_none_or(|account| crate::boundary::may_read(&cfg, reader.as_ref(), account)));
+    }
     if json {
         return print_json(&unread);
     }
@@ -4038,7 +4154,13 @@ fn sessions(c: &mut Client, f: &SessionFilter, query: &[String], json: bool) -> 
     let said = if words.is_empty() { HashMap::new() } else { c.search_text(&words) };
     let me = if words.is_empty() { None } else { find_me(c)?.0 };
     let wanted = Wanted { status, worktree, since, words, said, me, now: now_ms() };
+    // The board first, so your other Macs' sessions come veiled as this Mac's do.
+    c.board()?;
     let elsewhere = if f.devices { c.elsewhere().to_vec() } else { Vec::new() };
+    // A search doesn't say what a session it may not read said, nor that it said the words.
+    let mut wanted = wanted;
+    let veiled = c.veiled.clone().unwrap_or_default();
+    wanted.said.retain(|k, _| !veiled.contains(k));
     let board = c.board()?;
     let mut found: Vec<(&Session, &Lane)> = all_sessions(board).into_iter().chain(all_in(&elsewhere)).filter(|(s, lane)| wanted.lists(f, s, lane)).collect();
     wanted.sort(&mut found);
@@ -4801,6 +4923,10 @@ fn session_wait(c: &mut Client, a: &SessionWaitArgs, json: bool) -> Result<()> {
     let carries_on = c.cfg().is_ok_and(|cfg| cfg.sessions.continue_after_restart);
     let mut watch = Watch { through_user: a.until_done, carries_on, ..Watch::default() };
     let page = |c: &mut Client| -> Result<Vec<api::Item>> {
+        // Its reply isn't this session's to read when it's in a boundary group this one isn't in.
+        if c.veils(&key)? {
+            return Ok(Vec::new());
+        }
         let got = c.act(api::SESSION_PAGE, &key, params::Page::default(), None)?;
         Ok(serde_json::from_value::<api::Page>(got).context("The conversation didn't read")?.items)
     };
@@ -5709,6 +5835,185 @@ fn reuse_set(c: &mut Client, worktree: &str, on: bool, json: bool) -> Result<()>
     Ok(())
 }
 
+// ---- account check ----
+
+/// What `account check` answers, as `account check --json` prints it.
+#[derive(Serialize, serde::Deserialize, Debug, Default)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct AccountCheck {
+    /// A session runs the command.
+    found: bool,
+    /// How it was found, as `whoami` says: `process`, `record` or `environment`.
+    how: Option<String>,
+    session: Option<String>,
+    account: Option<String>,
+    harness: Option<String>,
+    sign_in: Option<crate::signin::SignIn>,
+    /// The routing groups the account is in.
+    groups: Vec<String>,
+    /// With a group asked about: whether the account is in it, which for a boundary takes a
+    /// sign-in that qualifies.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    in_group: Option<bool>,
+}
+
+/// How long `account check` waits on the server: a guard hook gives it 3 seconds in all.
+const CHECK_WAIT: std::time::Duration = std::time::Duration::from_millis(2500);
+
+/// The server's question for the command running now.
+fn check_request(group: Option<&str>) -> Request {
+    Request::AccountCheck { pid: std::process::id(), args: std::env::args().skip(1).collect(), session_var: std::env::var(start::SESSION_VAR).ok(), group: group.map(String::from) }
+}
+
+/// `account check`: the server's answer, or with none, this command's own from the files, the
+/// provider asked here with nothing kept. The exit code says it (`AccountCmd::Check`).
+fn account_check(group: Option<&str>, json: bool) -> i32 {
+    let asked = match crate::os::sock::UnixStream::connect(server::path()) {
+        Ok(stream) => match server::ask_on(stream, &check_request(group), CHECK_WAIT) {
+            Some(Ok(v)) => serde_json::from_value::<AccountCheck>(v).map_err(|e| format!("The server's answer didn't read: {e}")),
+            // A server older than the request: this command looks for itself.
+            Some(Err(e)) if e.starts_with(server::UNKNOWN_REQUEST) => account_check_here(group),
+            Some(Err(e)) => Err(e),
+            None => Err("Codealong's server didn't answer in time.".into()),
+        },
+        // No server: this command looks for itself.
+        Err(_) => account_check_here(group),
+    };
+    let check = match asked {
+        Ok(c) => c,
+        Err(e) => {
+            if json {
+                eprintln!("{}", json!({ "error": e }));
+            } else {
+                eprintln!("error: {e}");
+            }
+            return 2;
+        }
+    };
+    if json {
+        if print_json(&check).is_err() {
+            return 2;
+        }
+    } else {
+        print!("{}", check_text(&check, group));
+    }
+    match (check.found, check.in_group) {
+        (false, _) => 3,
+        (true, Some(false)) => 1,
+        _ => 0,
+    }
+}
+
+fn account_check_here(group: Option<&str>) -> std::result::Result<AccountCheck, String> {
+    let mut c = Client::new(false, false, false);
+    let me = find_me(&mut c).map_err(|e| format!("{e:#}"))?;
+    let cfg = c.cfg().map_err(|e| format!("{e:#}"))?.clone();
+    let board = c.raw_board().map_err(|e| format!("{e:#}"))?;
+    let found = me.0.as_deref().and_then(|k| account_of_session(board, k));
+    account_check_for(&cfg, me, found, group, |a| crate::signin::current_within(a, now_ms(), PROVIDER_WAIT))
+}
+
+/// How long `account check` has, from when it's asked, before it answers with what it has: a
+/// guard hook gives it 3 seconds in all.
+const CHECK_BUDGET: std::time::Duration = std::time::Duration::from_millis(2200);
+/// How long a provider is asked when nothing else took the time.
+const PROVIDER_WAIT: std::time::Duration = std::time::Duration::from_millis(1800);
+
+/// The server's answer to `account check` for the command `pid`: the session found as `whoami`
+/// finds it, by the board as it is, and the account's sign-in as it's kept (signin.rs).
+pub(crate) fn account_check_on(engine: &engine::Handle, pid: u32, args: &[String], var: Option<&str>, group: Option<&str>) -> std::result::Result<AccountCheck, String> {
+    let asked = std::time::Instant::now();
+    let cfg = config::current().map_err(|e| format!("{e:#}"))?;
+    // By its processes under a read of the board; the records only when they don't say.
+    let chain = chain_of(pid);
+    let me = match engine.read(|b| by_process(b, &chain)) {
+        Some(key) => (Some(key), Some("process")),
+        None => session_running(&engine.board(), &cfg, pid, args, var, now_ms()),
+    };
+    // The board's lock is let go before a provider is asked.
+    let found = me.0.as_deref().and_then(|k| engine.read(|b| account_of_session(b, k)));
+    // What finding the session took comes off the provider's time.
+    let left = CHECK_BUDGET.saturating_sub(asked.elapsed()).min(PROVIDER_WAIT);
+    account_check_for(&cfg, me, found, group, |a| crate::signin::current_within(a, now_ms(), left))
+}
+
+/// `account check`'s answer from a board, the provider asked as `ask` says.
+pub(crate) fn account_check_of(board: &Board, cfg: &Config, me: (Option<String>, Option<&'static str>), group: Option<&str>, ask: crate::signin::Ask, now: i64) -> std::result::Result<AccountCheck, String> {
+    let found = me.0.as_deref().and_then(|k| account_of_session(board, k));
+    account_check_for(cfg, me, found, group, |a| crate::signin::current(a, now, ask))
+}
+
+/// The account and harness of the session `key` on the board.
+fn account_of_session(board: &Board, key: &str) -> Option<(String, String)> {
+    all_sessions(board).into_iter().find(|(s, _)| s.key == key).map(|(s, _)| (s.account.clone(), lower_debug(&s.harness)))
+}
+
+/// `account check`'s answer, given the session found (`me`) and how, its account and harness
+/// where the board has it (`found`), and how to read a sign-in. A session found by the variable
+/// alone isn't on the board yet: its key names its account.
+fn account_check_for(cfg: &Config, me: (Option<String>, Option<&'static str>), found: Option<(String, String)>, group: Option<&str>, sign_in_of: impl Fn(&crate::config::AccountCfg) -> crate::signin::SignIn) -> std::result::Result<AccountCheck, String> {
+    let asked = match group {
+        Some(name) => Some(cfg.routing.groups.iter().find(|g| g.name.trim() == name.trim()).ok_or_else(|| format!("There's no routing group named {name:?} in config.toml."))?),
+        None => None,
+    };
+    let (Some(key), how) = me else {
+        return Ok(AccountCheck { in_group: asked.map(|_| false), ..AccountCheck::default() });
+    };
+    let (account, harness) = found.unwrap_or_else(|| {
+        let mut parts = key.splitn(3, ':');
+        let harness = parts.next().unwrap_or_default().to_string();
+        (parts.next().unwrap_or_default().to_string(), harness)
+    });
+    let configured = cfg.accounts.iter().find(|a| a.name == account);
+    let sign_in = configured.map(sign_in_of);
+    let qualifies = sign_in.as_ref().is_some_and(|s| s.qualifies());
+    Ok(AccountCheck {
+        found: true,
+        how: how.map(str::to_string),
+        session: Some(key),
+        groups: if configured.is_some() { crate::boundary::groups_of(cfg, &account, qualifies) } else { Vec::new() },
+        // Found by the variable alone, which an agent can set, it's in no group: a hook that goes
+        // by the exit code never lets it in.
+        in_group: asked.map(|g| configured.is_some() && how != Some("environment") && crate::boundary::in_group(cfg, g, &account, qualifies)),
+        account: Some(account),
+        harness: Some(harness),
+        sign_in,
+    })
+}
+
+/// `account check` in words.
+fn check_text(c: &AccountCheck, group: Option<&str>) -> String {
+    let (Some(session), Some(account)) = (&c.session, &c.account) else {
+        return "No session runs this command: it's a person's own terminal, as far as Codealong can tell.\n".into();
+    };
+    let by = match c.how.as_deref() {
+        Some("process") => "its process",
+        Some("record") => "its own record of this command",
+        _ => "CODEALONG_SESSION, which an agent can set itself",
+    };
+    let mut out = format!("Session {session} ({} on {account}), found by {by}.\n", c.harness.as_deref().unwrap_or("?"));
+    match &c.sign_in {
+        Some(s) => {
+            let who = [s.email.as_deref(), s.organization_name.as_deref().or(s.organization.as_deref())].into_iter().flatten().collect::<Vec<_>>().join(" in ");
+            let plan = s.plan.as_deref().unwrap_or("an unknown plan");
+            let terms = if s.commercial { "commercial terms" } else { "not commercial terms" };
+            let checked = if s.verified { "as its provider says" } else { "as its files say; its provider hasn't confirmed it" };
+            out.push_str(&format!("Signed in{} on {plan}: {terms}, {checked}.\n", if who.is_empty() { String::new() } else { format!(" as {who}") }));
+            if let Some(note) = &s.note {
+                out.push_str(&format!("{note}\n"));
+            }
+        }
+        None => out.push_str(&format!("{account} isn't in config.toml's [[accounts]], so its sign-in isn't known.\n")),
+    }
+    if !c.groups.is_empty() {
+        out.push_str(&format!("In routing groups: {}.\n", c.groups.join(", ")));
+    }
+    if let (Some(g), Some(inside)) = (group, c.in_group) {
+        out.push_str(&format!("{} group {g}.\n", if inside { "In" } else { "Not in" }));
+    }
+    out
+}
+
 // ---- whoami ----
 
 #[derive(Serialize)]
@@ -5731,7 +6036,7 @@ struct Whoami {
 
 /// The session running this command: the parent process that's a live session on the board, or
 /// a session Codealong runs whose ID a process under the app was given (`hosted_above`), else
-/// the session whose unanswered tool call runs this command (`running_this`), else
+/// the session whose unanswered tool call runs this command (`running_in`), else
 /// `CODEALONG_SESSION` from a start the app made, for a session the board hasn't shown yet.
 /// The variable comes last and only for such a session: a terminal keeps it after its session
 /// ends, and long-lived processes started from one (Claude Code's background service,
@@ -5740,21 +6045,38 @@ fn find_me(c: &mut Client) -> Result<(Option<String>, Option<&'static str>)> {
     if let Some(me) = &c.me {
         return Ok(me.clone());
     }
-    let live: Vec<&Session> = all_sessions(c.board()?).into_iter().map(|(s, _)| s).filter(|s| s.live).collect();
-    let chain: Vec<(u32, String)> = procs::ancestors(std::process::id()).into_iter().filter_map(|p| procs::parent_and_name(p).map(|(_, name)| (p, name))).collect();
-    let by_process = session_above(&chain, &live).or_else(|| hosted_above(&chain, &live, |p| procs::environment(p).map(|env| crate::harness::started_under(&env)).unwrap_or_default()));
-    let me = match by_process {
-        Some(key) => (Some(key), Some("process")),
-        None => match running_this(c)? {
-            Some(key) => (Some(key), Some("record")),
-            None => match std::env::var(start::SESSION_VAR) {
-                Ok(key) if !key.trim().is_empty() && !all_sessions(c.board()?).iter().any(|(s, _)| s.key == key) => (Some(key), Some("environment")),
-                _ => (None, None),
-            },
-        },
-    };
+    let args: Vec<String> = std::env::args().skip(1).collect();
+    let var = std::env::var(start::SESSION_VAR).ok();
+    let cfg = c.cfg()?.clone();
+    let me = session_running(c.raw_board()?, &cfg, std::process::id(), &args, var.as_deref(), now_ms());
     c.me = Some(me.clone());
     Ok(me)
+}
+
+/// `find_me`'s rules for the command `pid`, run with `args`, given its `CODEALONG_SESSION`
+/// (`var`): the server's answer to `account check` too, by the process at its socket's other end.
+pub(crate) fn session_running(board: &Board, cfg: &Config, pid: u32, args: &[String], var: Option<&str>, now: i64) -> (Option<String>, Option<&'static str>) {
+    if let Some(key) = by_process(board, &chain_of(pid)) {
+        return (Some(key), Some("process"));
+    }
+    if let Some(key) = running_in(board, cfg, args, now) {
+        return (Some(key), Some("record"));
+    }
+    match var {
+        Some(key) if !key.trim().is_empty() && !all_sessions(board).iter().any(|(s, _)| s.key == key) => (Some(key.to_string()), Some("environment")),
+        _ => (None, None),
+    }
+}
+
+/// The processes from `pid` up, each with its name.
+fn chain_of(pid: u32) -> Vec<(u32, String)> {
+    procs::ancestors(pid).into_iter().filter_map(|p| procs::parent_and_name(p).map(|(_, name)| (p, name))).collect()
+}
+
+/// The live session above a chain of processes, or the hosted one it runs under.
+fn by_process(board: &Board, chain: &[(u32, String)]) -> Option<String> {
+    let live: Vec<&Session> = all_sessions(board).into_iter().map(|(s, _)| s).filter(|s| s.live).collect();
+    session_above(chain, &live).or_else(|| hosted_above(chain, &live, |p| procs::environment(p).map(|env| crate::harness::started_under(&env)).unwrap_or_default()))
 }
 
 /// The live session nearest above this command, given its chain of processes (`chain`, this
@@ -5796,30 +6118,27 @@ fn hosted_above(chain: &[(u32, String)], live: &[&Session], under: impl Fn(u32) 
 /// be running this command anyway: the board can lag a turn that just started.
 const RUNNING_MS: i64 = 5 * 60 * 1000;
 
-/// The session whose unanswered tool call runs this command, when exactly one has such a call:
+/// The session whose unanswered tool call runs the command with `args`, when exactly one has such a call:
 /// how a session is found when no process above this one is a session the board knows. The
 /// Codex app runs every thread's commands under one process, and OpenCode runs its tools in its
 /// service; each writes a call to its record before running it. A live session whose commands
 /// are its own process's children isn't asked: that process isn't above this one. Otherwise an
 /// agent that hands another the command in a prompt would match as well.
-fn running_this(c: &mut Client) -> Result<Option<String>> {
-    let args: Vec<String> = std::env::args().skip(1).collect();
-    let cfg = c.cfg()?.clone();
-    let now = now_ms();
-    let hits: Vec<String> = all_sessions(c.board()?)
+fn running_in(board: &Board, cfg: &Config, args: &[String], now: i64) -> Option<String> {
+    let hits: Vec<String> = all_sessions(board)
         .into_iter()
         .map(|(s, _)| s)
         .filter(|s| may_run_this(s, now))
         .filter(|s| {
             let Some(account) = cfg.accounts.iter().find(|a| a.name == s.account) else { return false };
-            crate::harness::adapter(s.harness).open_calls(&crate::harness::Ctx { account }, s).iter().any(|call| runs_command(call, &args))
+            crate::harness::adapter(s.harness).open_calls(&crate::harness::Ctx { account }, s).iter().any(|call| runs_command(call, args))
         })
         .map(|s| s.key.clone())
         .collect();
-    Ok(match hits.as_slice() {
+    match hits.as_slice() {
         [one] => Some(one.clone()),
         _ => None,
-    })
+    }
 }
 
 /// Whether a session could be running this command although no process above it is the
@@ -7296,12 +7615,29 @@ fn start_cmd(c: &mut Client, a: &StartArgs, json: bool) -> Result<()> {
         }
     };
     let cfg = c.cfg()?.clone();
+    // A helper of a boundary group's session starts inside the group unless --account says
+    // where (boundary.rs): what its session hands it is the group's.
+    let within = match (&from, a.helper) {
+        (Some(k), true) => {
+            let account = c.raw_board()?.session(k).map(|(_, s)| s.account.clone()).or_else(|| crate::boundary::account_of_key(k).map(String::from));
+            account.and_then(|a| crate::boundary::group_of(&cfg, &a).cloned())
+        }
+        _ => None,
+    };
     // Auto and the routing groups pick by the board's usage, which only the app's board has.
     let board = match c.app.is_some() {
         true => Some(c.board()?),
         false => None,
     };
-    let picked = start::pick(&cfg, board, &a.account, a.place.map(place_of), a.model.as_deref(), a.effort.as_deref(), a.helper, now_ms(), &crate::util::home())?;
+    let account = match &within {
+        Some(g) if a.account == "auto" => g.name.trim().to_string(),
+        Some(g) if !crate::boundary::stays_inside(&cfg, g, &a.account) => {
+            eprintln!("note: {} may run outside the boundary group {} this session is in, so what you send it leaves the group.", a.account, g.name.trim());
+            a.account.clone()
+        }
+        _ => a.account.clone(),
+    };
+    let picked = start::pick(&cfg, board, &account, a.place.map(place_of), a.model.as_deref(), a.effort.as_deref(), a.helper, now_ms(), &crate::util::home())?;
     let spec = StartSpec { lane_id, account: picked.account, place: picked.place, prompt, model: picked.model, effort: picked.effort, worktree: a.new_worktree, todos: todo_ids, from, helper: a.helper, report: a.report };
     if a.dry_run {
         let account = cfg.accounts.iter().find(|x| x.name == spec.account).ok_or_else(|| anyhow!("There's no account named {}.", spec.account))?;
@@ -7477,13 +7813,20 @@ fn config_cmd(cmd: ConfigCmd, json: bool) -> Result<()> {
                 Some(f) => (expand(&f), std::fs::read_to_string(expand(&f)).with_context(|| format!("reading {f}"))?),
                 None => (config::config_path(), std::fs::read_to_string(config::config_path()).unwrap_or_default()),
             };
-            let result = config::parse(&text).map(|_| ()).map_err(|e| format!("{e:#}"));
+            let parsed = config::parse(&text).map_err(|e| format!("{e:#}"));
+            // Boundary members' sign-ins, asked of their providers: one that doesn't qualify is
+            // outside its group until it does (boundary.rs).
+            let warnings = parsed.as_ref().map(|cfg| crate::boundary::warnings(cfg, |a| crate::signin::current(a, now_ms(), crate::signin::Ask::IfStale))).unwrap_or_default();
+            let result = parsed.map(|_| ());
             if json {
-                return print_json(&serde_json::json!({ "path": path, "ok": result.is_ok(), "error": result.clone().err() })).and_then(|_| result.map_err(|e| anyhow!("{e}")));
+                return print_json(&serde_json::json!({ "path": path, "ok": result.is_ok(), "error": result.clone().err(), "warnings": warnings })).and_then(|_| result.map_err(|e| anyhow!("{e}")));
             }
             match result {
                 Ok(()) => println!("{} reads as settings.", tilde(&path)),
                 Err(e) => bail!("{}: {e}", tilde(&path)),
+            }
+            for w in &warnings {
+                println!("warning: {w}");
             }
             Ok(())
         }
@@ -7640,6 +7983,10 @@ fn changes(c: &mut Client, a: &ChangesArgs, json: bool) -> Result<()> {
     let started = std::time::Instant::now();
     let mut slow = 0;
     for row in out.sessions.iter_mut().take(a.texts) {
+        // What a boundary group's session said isn't for a session outside it (boundary.rs).
+        if c.veils(&row.key)? {
+            continue;
+        }
         let left = TEXTS_BUDGET.saturating_sub(started.elapsed());
         let page = match left.is_zero() {
             true => None,
@@ -9473,7 +9820,7 @@ mod tests {
             other => panic!("{other:?}"),
         };
         let board = Board { lanes: vec![lane("/work/atlas", vec![crate::fixtures::session("claude:claude:kestrel")]), lane("/work/northwind", vec![])], ..Board::default() };
-        let mut c = Client { app: None, verbose: false, cfg: None, board: Some(board), from_app: false, started: false, said: false, me: Some((Some("claude:claude:kestrel".into()), Some("environment"))), elsewhere: None };
+        let mut c = Client { app: None, verbose: false, cfg: None, board: Some(board), from_app: false, started: false, said: false, me: Some((Some("claude:claude:kestrel".into()), Some("environment"))), elsewhere: None, veiled: None };
         let daily = Schedule {
             id: "s-1".into(),
             name: "standup".into(),
@@ -9548,7 +9895,7 @@ mod tests {
         let here = Board { lanes: vec![lane("/work/atlas", vec![with_id("claude:claude:abc123", "abc123")])], ..Board::default() };
         let visiting = Session { visitor: Some("@a1b2c3d4e5:/work/home".into()), ..with_id("@a1b2c3d4e5:claude:claude:vvv222", "vvv222") };
         let there = vec![lane("@a1b2c3d4e5:/work/kestrel", vec![with_id("@a1b2c3d4e5:claude:claude:abd999", "abd999"), with_id("@a1b2c3d4e5:codex:codex:fff111", "fff111"), visiting])];
-        let mut c = Client { app: None, verbose: false, cfg: None, board: Some(here), from_app: false, started: false, said: false, me: Some((None, None)), elsewhere: Some(there) };
+        let mut c = Client { app: None, verbose: false, cfg: None, board: Some(here), from_app: false, started: false, said: false, me: Some((None, None)), elsewhere: Some(there), veiled: None };
         assert_eq!(resolve_any_session(&mut c, "@a1b2c3d4e5:claude:claude:abd999").unwrap(), "@a1b2c3d4e5:claude:claude:abd999");
         assert_eq!(resolve_any_session(&mut c, "fff1").unwrap(), "@a1b2c3d4e5:codex:codex:fff111");
         // One here goes first: a start that names this Mac's never names another's instead.
@@ -9589,7 +9936,7 @@ mod tests {
     #[test]
     fn a_lookup_tells_the_app_still_reading_from_no_such_session() {
         let listed = Board { lanes: vec![lane("/work/atlas", vec![crate::fixtures::session("claude:claude:abc123")])], ..Board::default() };
-        let client = |board: Board| Client { app: None, verbose: false, cfg: None, board: Some(board), from_app: false, started: false, said: false, me: Some((None, None)), elsewhere: None };
+        let client = |board: Board| Client { app: None, verbose: false, cfg: None, board: Some(board), from_app: false, started: false, said: false, me: Some((None, None)), elsewhere: None, veiled: None };
         let mut c = client(listed.clone());
         assert_eq!(resolve_session(&mut c, "claude:claude:abc").unwrap(), "claude:claude:abc123");
         assert_eq!(resolve_session(&mut c, "claude:claude:nope").unwrap_err().to_string(), "There's no session claude:claude:nope. `codealong sessions` lists them.");
@@ -9661,7 +10008,7 @@ mod tests {
         let mut b = Board::default();
         b.lanes = vec![lane("/work/a", vec![crate::fixtures::session("claude:claude:abc123")])];
         b.todos = vec![todo("t-abc", TodoStatus::Todo, &[], &[])];
-        let mut c = Client { app: None, verbose: false, cfg: None, board: Some(b), from_app: false, started: false, said: false, me: None, elsewhere: None };
+        let mut c = Client { app: None, verbose: false, cfg: None, board: Some(b), from_app: false, started: false, said: false, me: None, elsewhere: None, veiled: None };
         let plan = |v: Value| serde_json::from_value::<CanvasPlan>(v);
         let card = |kind, key: &str| boards::Card { kind, key: key.into() };
         let good = plan(json!({ "frames": [{ "title": " Billing ", "color": "teal", "note": "Invoices", "prs": ["https://github.com/acme/app/pull/7"], "todos": ["t-a"], "sessions": ["claude:claude:abc"], "worktrees": ["/work/a"] }] })).unwrap();
@@ -9805,5 +10152,69 @@ mod tests {
             ("northwind", "Not read yet."),
         ]);
         assert_eq!(mcp_notes(&accounts[2..3], &readings, 1_000)[0].note, "As read just now; reading it since failed: mcp.json doesn't parse.");
+    }
+
+    fn boundary_cfg() -> Config {
+        let account = |name: &str| crate::config::AccountCfg { name: name.into(), harness: "claude".into(), home: format!("/nonexistent/{name}"), command: None, start: None, acp: None, monthly: None, per_token: false, usage_cap: None, disabled: false, chrome_profile: None };
+        let mut cfg = Config { accounts: vec![account("claude-work"), account("claude")], ..Config::default() };
+        let member = crate::config::GroupMemberCfg { account: "claude-work".into(), model: String::new(), effort: String::new() };
+        cfg.routing.groups = vec![crate::config::RoutingGroupCfg { name: "authorized".into(), boundary: true, members: vec![member], ..Default::default() }];
+        cfg
+    }
+
+    fn signed(qualifies: bool) -> impl Fn(&crate::config::AccountCfg) -> crate::signin::SignIn {
+        move |a| crate::signin::SignIn { account: a.name.clone(), plan: Some(if qualifies { "team" } else { "max" }.into()), commercial: qualifies, verified: qualifies, as_of: Some(1), ..Default::default() }
+    }
+
+    #[test]
+    fn account_check_says_the_sessions_account_its_sign_in_and_whether_its_in_the_group() {
+        let cfg = boundary_cfg();
+        let me = || (Some("claude:claude-work:k1".to_string()), Some("process"));
+        let found = || Some(("claude-work".to_string(), "claude".to_string()));
+        let c = account_check_for(&cfg, me(), found(), Some("authorized"), signed(true)).unwrap();
+        assert!(c.found && c.in_group == Some(true) && c.groups == ["authorized"] && c.how.as_deref() == Some("process"));
+        let c = account_check_for(&cfg, me(), found(), Some("authorized"), signed(false)).unwrap();
+        assert_eq!(c.in_group, Some(false), "a member whose sign-in doesn't qualify is outside a boundary");
+        assert_eq!(account_check_for(&cfg, me(), found(), None, signed(false)).unwrap().in_group, None);
+        // By the variable alone the board doesn't have it yet: the key names the account.
+        let c = account_check_for(&cfg, (Some("claude:claude:k2".into()), Some("environment")), None, Some("authorized"), signed(true)).unwrap();
+        assert_eq!((c.account.as_deref(), c.harness.as_deref(), c.in_group), (Some("claude"), Some("claude"), Some(false)));
+        let claimed = account_check_for(&cfg, (Some("claude:claude-work:k3".into()), Some("environment")), None, Some("authorized"), signed(true)).unwrap();
+        assert_eq!((claimed.account.as_deref(), claimed.in_group), (Some("claude-work"), Some(false)), "the variable alone, which an agent can set, is in no group");
+        let none = account_check_for(&cfg, (None, None), None, Some("authorized"), signed(true)).unwrap();
+        assert!(!none.found && none.session.is_none());
+        assert!(account_check_for(&cfg, me(), found(), Some("reviewers"), signed(true)).is_err(), "a group config.toml doesn't have");
+    }
+
+    /// The names a repository's guard hook reads, as the contract it's built against has them.
+    #[test]
+    fn account_check_writes_the_contracts_names() {
+        let cfg = boundary_cfg();
+        let c = account_check_for(&cfg, (Some("claude:claude-work:k1".into()), Some("process")), Some(("claude-work".into(), "claude".into())), Some("authorized"), signed(true)).unwrap();
+        let v = serde_json::to_value(&c).unwrap();
+        for key in ["found", "how", "session", "account", "harness", "signIn", "groups", "inGroup"] {
+            assert!(v.get(key).is_some(), "{key}");
+        }
+        for key in ["email", "organization", "organizationName", "plan", "commercial", "verified", "asOf"] {
+            assert!(v["signIn"].get(key).is_some(), "signIn.{key}");
+        }
+        assert_eq!(check_text(&c, Some("authorized")).lines().last(), Some("In group authorized."));
+    }
+
+    /// A session outside a boundary group reads the group's sessions' metadata, not their words;
+    /// a person's own terminal reads everything.
+    #[test]
+    fn a_boundarys_sessions_are_veiled_from_a_session_outside_it() {
+        let member = Session { account: "claude-work".into(), excerpt: Some("SELECT * FROM customers".into()), ..crate::fixtures::session("claude:claude-work:k1") };
+        let outside = Session { excerpt: Some("Fixing the parser".into()), ..crate::fixtures::session("claude:claude:k2") };
+        let board = Board { lanes: vec![lane("/work/atlas", vec![member, outside])], ..Board::default() };
+        let client = |me: Option<&str>| Client { app: None, verbose: false, cfg: Some(boundary_cfg()), board: Some(board.clone()), from_app: false, started: false, said: false, me: Some((me.map(String::from), me.map(|_| "process"))), elsewhere: None, veiled: None };
+        let mut c = client(Some("claude:claude:k2"));
+        let b = c.board().unwrap();
+        let excerpts: Vec<Option<&str>> = b.lanes[0].sessions.iter().map(|s| s.excerpt.as_deref()).collect();
+        assert_eq!(excerpts, [None, Some("Fixing the parser")]);
+        assert!(c.veils("claude:claude-work:k1").unwrap() && !c.veils("claude:claude:k2").unwrap());
+        let mut person = client(None);
+        assert_eq!(person.board().unwrap().lanes[0].sessions[0].excerpt.as_deref(), Some("SELECT * FROM customers"));
     }
 }

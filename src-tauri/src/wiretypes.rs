@@ -91,6 +91,7 @@ fn others() -> Vec<Pair> {
         of!(crate::mcp: Mcp),
         of!(crate::improve: Improve),
         of!(crate::training: Training),
+        of!(crate::signin: SignIn),
         of!(crate::peers: DeviceView, ProjectThere),
         of!(
             crate::config: AccountCfg, Config, DevicesCfg, EmblemsCfg, ExperimentalCfg, GroupMemberCfg, JevCfg, OwnReviewsCfg, Profile, ProjectCfg, PullRequestsCfg, RepoCfg, ReviewsCfg, ReviewsPatch,

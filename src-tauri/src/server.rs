@@ -99,6 +99,22 @@ pub enum Request {
     },
     /// Sessions whose prompts and replies have every word (search.rs).
     Search { words: Vec<String> },
+    /// Which session runs the command that asks, and where its account's sign-in stands
+    /// (`codealong account check`, cli.rs `AccountCheck`), against `group` when it names one. The
+    /// command is found by the process at the socket's other end where the OS says (`pid` where
+    /// it doesn't), else by `args` in a session's open calls, else `session_var`, as `whoami`
+    /// finds it (cli.rs `session_running`). The server answers from the sign-ins it keeps, so a
+    /// guard hook asking before every command rarely waits on a provider (signin.rs).
+    AccountCheck {
+        #[serde(default)]
+        pid: u32,
+        #[serde(default)]
+        args: Vec<String>,
+        #[serde(default)]
+        session_var: Option<String>,
+        #[serde(default)]
+        group: Option<String>,
+    },
     /// What closing idle sessions would close, and with `archive` only archive (idle.rs).
     IdleSessions {
         after_ms: i64,
@@ -381,6 +397,11 @@ fn connection(stream: UnixStream, ctx: &Ctx) {
                 attach_terminal(&terminal, cols, rows, out);
                 None
             }
+            // By the process at the other end, which the asker can't make up, where the OS says.
+            Ok(Request::AccountCheck { pid, args, session_var, group }) => {
+                let pid = crate::os::sock::peer_pid(out).unwrap_or(pid);
+                Some(answered(crate::cli::account_check_on(&ctx.engine, pid, &args, session_var.as_deref(), group.as_deref())))
+            }
             Ok(Request::Subscribe { view }) => {
                 if let Ok(stream) = out.try_clone() {
                     let (engine, peers) = (ctx.engine.clone(), ctx.peers.clone());
@@ -586,6 +607,8 @@ fn handle_request(ctx: &Ctx, req: serde_json::Result<Request>) -> Reply {
             Err(e) => Reply::err(e),
         },
         Request::Search { words } => Reply::ok(crate::search::find(&words, 1000)),
+        // `connection` answers it by the socket's own process; this is for an asker with none.
+        Request::AccountCheck { pid, args, session_var, group } => answered(crate::cli::account_check_on(engine, pid, &args, session_var.as_deref(), group.as_deref())),
         Request::IdleSessions { after_ms, archive } => Reply::ok(crate::idle::plan_now(&engine.board(), after_ms, archive)),
         Request::CloseIdle { keys, after_ms, archive } => answered(crate::idle::close_on(engine, &keys, after_ms, archive)),
         Request::Start { spec } => answered(crate::start::start_here(engine, &spec).map_err(crate::util::words)),

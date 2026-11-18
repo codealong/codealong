@@ -15,7 +15,8 @@ import { REUSE_STATE, REUSE_WORDS } from '../reusable';
 import { groupReviewWords, reviewsRunIn } from '../review';
 import { type Field, mineOf, offerWords, pullRequestsFor, repoChoices, reviewsEverywhere, reviewsFor, type Reviews, sourceOf, type Source, teamFileOf, withOwn, withPullRequests, withRepo, withReviews, without, PULL_REQUESTS_OFF } from '../repoSettings';
 import { BUFFER, modelName, withLists } from '../start';
-import type { AtLogin, CalendarStatus, ChromeProfile, Config, ConfigView, EmblemKind, EmblemsCfg, ExperimentalCfg, GroupMemberCfg, JevCfg, Lane, Mcp, NewTerminal, NudgeAbout, OwnReviewsCfg, Profile, ProjectCfg, PullRequestsCfg, RepoCfg, ReviewPost, ReviewsCfg, ReviewStart, ReviewSubmit, RoutingCfg, RoutingGroup, RoutingGroupCfg, RoutingStrategy, SessionsCfg, ShortcutStatus, SoundsCfg, StartAccount, TeamCfg, TeamFile, Theme, TmuxUse, Training, Usage, Verdict, VoiceCfg, WhenLimited } from '../types';
+import type { AtLogin, CalendarStatus, ChromeProfile, Config, ConfigView, EmblemKind, EmblemsCfg, ExperimentalCfg, GroupMemberCfg, JevCfg, Lane, Mcp, NewTerminal, NudgeAbout, OwnReviewsCfg, Profile, ProjectCfg, PullRequestsCfg, RepoCfg, ReviewPost, ReviewsCfg, ReviewStart, ReviewSubmit, RoutingCfg, RoutingGroup, RoutingGroupCfg, RoutingStrategy, SessionsCfg, ShortcutStatus, SignIn, SoundsCfg, StartAccount, TeamCfg, TeamFile, Theme, TmuxUse, Training, Usage, Verdict, VoiceCfg, WhenLimited } from '../types';
+import { outsideMembers } from '../boundary';
 import { AccountsSection } from './AccountsSection';
 import { AgentMenu, type AgentPick } from './AgentMenu';
 import { AgentPromptBox } from './AgentPromptBox';
@@ -129,6 +130,8 @@ interface SettingsDialogProps {
   training?: Training[];
   /** The MCP servers each account's agents have (mcp.rs), for Accounts. */
   mcp?: Mcp[];
+  /** Where each boundary group member's sign-in stands (signin.rs), for Routing. */
+  signIns?: SignIn[];
   /** The terminal's and editor's names, for copy. */
   apps: { terminal: string; editor: string };
   theme: Theme;
@@ -143,7 +146,7 @@ interface SettingsDialogProps {
   teamFiles: TeamFile[];
 }
 
-export function SettingsDialog({ section, onSection, focus, usage, training, mcp, apps, theme, onPickTheme, now, onClose, onOpenConfig, lanes, teamFiles }: SettingsDialogProps) {
+export function SettingsDialog({ section, onSection, focus, usage, training, mcp, signIns, apps, theme, onPickTheme, now, onClose, onOpenConfig, lanes, teamFiles }: SettingsDialogProps) {
   const [view, setView] = useState<ConfigView | null>(null);
   const [error, setError] = useState<string | null>(null);
   // What you've typed in the config.toml section, kept while you look at another section.
@@ -226,7 +229,7 @@ export function SettingsDialog({ section, onSection, focus, usage, training, mcp
       case 'sounds':
         return <SoundsPane cfg={cfg} names={view.sounds ?? []} disabled={!!broken} onSave={save} onError={setError} />;
       case 'routing':
-        return <RoutingPane cfg={cfg} disabled={!!broken} onSave={save} usage={usage} now={now} />;
+        return <RoutingPane cfg={cfg} disabled={!!broken} onSave={save} usage={usage} now={now} signIns={signIns ?? []} />;
       case 'automation':
         return <AutomationPane cfg={cfg} disabled={!!broken} onSave={save} onReload={() => void load()} defaultPrompt={view.reviewPrompt ?? ''} usage={usage} now={now} lanes={lanes} teamFiles={teamFiles} focus={aim} />;
       case 'devices':
@@ -1301,7 +1304,7 @@ function bufferOptions(current: number): Profile[] {
 /** Settings › Routing (`[routing]`): routing groups (`[[routing.groups]]`) that Auto,
  *  `codealong start`, and automatic reviews can pick from, which group `Auto` delegates to
  *  when starting new sessions, and Jev's routing instructions (`[routing] prompt`). */
-function RoutingPane({ cfg, disabled, onSave, usage, now }: PaneProps & { usage: Usage[]; now: number }) {
+function RoutingPane({ cfg, disabled, onSave, usage, now, signIns }: PaneProps & { usage: Usage[]; now: number; signIns: SignIn[] }) {
   const [all, setAll] = useState<StartAccount[]>([]);
   useEffect(() => {
     // Without them, members are added from config.toml's accounts, on Auto's model (`offered`).
@@ -1350,7 +1353,9 @@ function RoutingPane({ cfg, disabled, onSave, usage, now }: PaneProps & { usage:
   const submitGroup = (e: React.FormEvent) => {
     e.preventDefault();
     if (!draft || !draft.name.trim()) return;
-    const entry: RoutingGroupCfg = { name: draft.name.trim(), strategy: draft.strategy, members: draft.members };
+    // What the form doesn't show (a boundary, its decision model) stays as config.toml has it.
+    const was = groups.find((g) => g.name === draft.original);
+    const entry: RoutingGroupCfg = { ...was, name: draft.name.trim(), strategy: draft.strategy, members: draft.members };
     const nextGroups = draft.original ? groups.map((g) => (g.name === draft.original ? entry : g)) : [...groups, entry];
     const nextAuto = draft.useForAuto ? entry.name : draft.original && routing.auto === draft.original ? '' : routing.auto;
     const wasReviewGroup = !!draft.original && reviews.account === draft.original;
@@ -1408,10 +1413,16 @@ function RoutingPane({ cfg, disabled, onSave, usage, now }: PaneProps & { usage:
                     <div className="ca-ucard-head">
                       <span className="ca-ucard-name">{g.name}</span>
                       <span className="ca-ucard-plan">{strat.label} · {membersWord}</span>
+                      {g.boundary && <span className="ca-tag">Boundary</span>}
                       {routing.auto === g.name && <span className="ca-tag is-ok">New sessions (Auto)</span>}
                       {reviews.account === g.name && <span className="ca-tag is-ok">PR reviews</span>}
                       {reviews.own.account === g.name && <span className="ca-tag is-ok">Your PR reviews</span>}
                     </div>
+                    {outsideMembers(g, signIns).map((o) => (
+                      <p key={o.account} className="ca-acct-note">
+                        {o.why}
+                      </p>
+                    ))}
                     <div className="ca-acct-actions">
                       <Button
                         variant="ghost"

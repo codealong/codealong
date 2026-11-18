@@ -3006,6 +3006,73 @@ it. Codealong only launches:
 the session shows on the board like any other, and the panel stays on whatever you're looking at
 when it appears.
 
+#### Boundary groups
+
+Some teams let agents on personal subscriptions work on code but keep production or customer data
+for agents on accounts the company holds a commercial agreement for: a Claude Team or Enterprise
+seat, a ChatGPT Business, Enterprise or Edu workspace. A routing group with `boundary = true` is
+such a set of accounts:
+
+```toml
+[[routing.groups]]
+name = "authorized"
+boundary = true
+members = [{ account = "claude-work" }]
+```
+
+- **Who's in it.** The accounts it lists (a boundary lists them: an empty list would let every
+  account in, and an account is in one boundary at most), each only while its provider says its
+  sign-in is on a commercial plan. Codealong asks the provider with the account's own sign-in
+  (Anthropic's profile of a Claude sign-in, the account ChatGPT lists for a Codex one) and keeps
+  the answer for ten minutes while the account's files show the same sign-in; a sign-in to
+  another organization in the same folder is asked about again at once. Unknown is never
+  commercial: a harness whose plan Codealong can't read (OpenCode, Cursor, Antigravity, Codex on
+  an API key) is outside. `codealong config check` warns of a member that doesn't qualify, and
+  Settings › Routing says so on the group's card. Such a member is outside the group: it can't
+  read the group's sessions and `account check` says no, while its own sessions stay the group's.
+- **What stays in.** What a member's session says (its prompts, replies, tool calls, excerpt,
+  what a search found in it, Jev's notes on it, replies suggested for it) reaches only sessions
+  in the group. A session outside it gets the session's title, status, worktree, branch, PR and
+  todos: `codealong sessions` and `changes` list it without its words, `sessions find` doesn't
+  find it by what it said, and `session transcript`, `session pending` and a side question about
+  it are turned down, as they are when another of your Macs asks for them. An orchestrator that may run outside the group (on an account outside it,
+  a group that reaches outside it, or Auto) is told what such a session waits on but not its
+  words. A member's message to a session outside the group (`codealong session send`) isn't
+  sent: the agent is told to ask you, and you can send it from Codealong's windows. Nor does a
+  member's session move to an account outside the group when it reaches a usage limit
+  (`[limits] when_hit = "move"`). A helper a member's session starts (`codealong start
+  --helper`) starts in the group unless `--account` names where, and Codealong notes it when that
+  may be outside. A start on the group itself, from the command or a schedule, lands only on a
+  member whose sign-in qualifies now. Codealong's windows show everything: they're yours.
+- **Decision models.** `decisions` names the decision model that may read the group's sessions:
+  `"jev"`, the default, or `"none"`, which keeps them out of Jev's reads of each turn and out of
+  what the quick panel shows Jev of sessions (their titles and where they work still go). A
+  boundary group without `decisions` stays on Jev whatever other decision models come.
+- **What it doesn't do.** It holds the ways Codealong hands one session another's words: the
+  `codealong` command as a session runs it, what Codealong sends sessions by itself, and Jev. It
+  isn't the operating system's: an agent that can read another account's folder on disk reads its
+  transcripts there, and one that talks to Codealong's socket itself, or runs `codealong
+  --snapshot` (turned down a member's conversation, as another Mac is, but not its board), reads the board whole. A command no session runs (found by its process, its open
+  call, or not at all) is taken for yours and reads everything; one found only by
+  `CODEALONG_SESSION`, which an agent can set, reads as a session outside every boundary. A
+  repository's guard hook that keeps agents outside the group from reading the members' folders
+  and from running those closes the rest.
+
+`codealong account check [--group <name>]` is what a repository's guard hook (a Claude Code or
+Codex `PreToolUse` hook, say) or a script runs to ask which subscription the session running it
+is on. It finds the session as `whoami` does (`how`: `process`, `record`, or `environment`, the
+last a variable an agent could set itself, which a hook may refuse) and answers with its account,
+harness and sign-in (`email`, `organization`, `organizationName`, `plan`, `commercial`, `verified`,
+`asOf`), the routing groups it's in (a boundary only while its sign-in qualifies), and with
+`--group` whether it's in that one (`inGroup`; never for a session found by the variable alone,
+so a hook that goes by the exit code doesn't let one in). A provider that turns a sign-in down (expired,
+signed out, the workspace not its own) ends a kept answer at once; one that can't be reached
+leaves the last answer standing for up to an hour. It
+exits 0 when a session runs it and it's in the group (or no group was asked about), 1 when it
+isn't, 3 when no session runs it (your own terminal), and 2 on an error. Codealong's server answers
+it from the sign-ins it keeps fresh for the boundary groups' members, in a few milliseconds; with
+no server it reads the files and asks the provider itself.
+
 #### Files in the prompt
 
 Paste or drop screenshots and other files into the prompt: Claude Code in a terminal gets them as

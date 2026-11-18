@@ -219,6 +219,17 @@ impl Reporter {
             self.owed.entry(e.from.clone()).or_default().owe(Note { helper: key.clone(), title: String::new(), news }, now);
         }
         let mut seen_now = HashMap::new();
+        // What a helper in a boundary group says isn't told to a parent outside it (boundary.rs):
+        // only that it waits on its user.
+        let cfg = crate::config::current().ok();
+        let parent_reads = |parent: &str, helper: &Session| {
+            let Some(cfg) = cfg.as_ref() else { return false };
+            let reader = board.session(parent).map(|(_, p)| {
+                let qualifies = cfg.accounts.iter().find(|a| a.name == p.account).is_some_and(|a| crate::signin::current(a, now, crate::signin::Ask::Never).qualifies());
+                crate::boundary::Reader { account: p.account.clone(), qualifies }
+            });
+            crate::boundary::may_read(cfg, reader.as_ref(), &helper.account)
+        };
         for lane in board.lanes.iter().filter(|l| l.device.is_none()) {
             for s in lane.sessions.iter().filter(|s| s.visitor.is_none() && !s.archived) {
                 let Some(parent) = s.helper.as_ref().filter(|h| h.report).and_then(|h| h.parent.as_deref()) else { continue };
@@ -228,7 +239,7 @@ impl Reporter {
                 let news = match (was, at) {
                     (Stand::Working | Stand::OnUser(_), Stand::Still(_)) => Some(News::Ended),
                     (Stand::Still(before), Stand::Still(prompt)) if prompt > before && s.last_activity > prompt => Some(News::Ended),
-                    (was, Stand::OnUser(_)) if was != at => Some(News::OnUser(s.excerpt.clone())),
+                    (was, Stand::OnUser(_)) if was != at => Some(News::OnUser(s.excerpt.clone().filter(|_| parent_reads(parent, s)))),
                     _ => None,
                 };
                 if let Some(news) = news.filter(|_| runs_here(parent)) {

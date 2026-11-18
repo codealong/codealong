@@ -39,6 +39,9 @@ Commands:
                 command starts it when it isn't running, and so does the app as it opens
   accounts      The configured accounts: harness, sign-in, and with --usage how much of
                 each plan limit is used
+  account       One account: which subscription the session running this command is
+                signed in to (`check`), for a repository's guard hook or a script
+                deciding what the agent may reach
   mcp           The services the accounts' agents reach through MCP servers and
                 connectors (claude.ai's connectors, ChatGPT's apps, the servers an
                 account's settings and plugins add), each once, with the accounts a
@@ -366,6 +369,82 @@ Options:
       --usage
           Read plan usage: from the app when it runs, else one call per Claude account.
           Don't loop it; the usage endpoint rate-limits
+
+      --table
+          Tables, even when piped
+
+      --verbose
+          Say on stderr whether the app or the files answered
+
+  -h, --help
+          Print help
+```
+
+## codealong account
+
+```
+One account: which subscription the session running this command is signed in to
+(`check`), for a repository's guard hook or a script deciding what the agent may reach
+
+Usage: codealong account [OPTIONS] <COMMAND>
+
+Commands:
+  check  Which session runs this command (found as `whoami` finds it: `how` is
+         `process`, `record` or `environment`, the last being a variable an agent can
+         set itself), its account and harness, and who that account is signed in as: the
+         provider's organization or workspace, the plan, whether the plan is under the
+         provider's commercial terms (`commercial`; a Claude Team or Enterprise seat, a
+         ChatGPT Business, Enterprise or Edu workspace), and whether the provider said
+         so with the account's own sign-in (`verified`) or only its files did. Unknown
+         is never commercial. `groups` are the routing groups the account is in; with
+         --group, `inGroup` says whether it's in that one, which for a boundary group
+         (`boundary = true` in config.toml) also takes a verified commercial sign-in.
+         Codealong's server keeps the provider's answer for minutes and asks again at
+         once when the account's files show another sign-in, so a hook can run it before
+         every command. Exits 0 when a session runs it and it's in the group (or none
+         was asked), 1 when it isn't, 3 when no session runs it (a person's own
+         terminal), 2 on an error
+  help   Print this message or the help of the given subcommand(s)
+
+Options:
+      --json
+          JSON output. The default when stdout isn't a terminal
+
+      --table
+          Tables, even when piped
+
+      --verbose
+          Say on stderr whether the app or the files answered
+
+  -h, --help
+          Print help
+```
+
+## codealong account check
+
+```
+Which session runs this command (found as `whoami` finds it: `how` is `process`,
+`record` or `environment`, the last being a variable an agent can set itself), its
+account and harness, and who that account is signed in as: the provider's organization
+or workspace, the plan, whether the plan is under the provider's commercial terms
+(`commercial`; a Claude Team or Enterprise seat, a ChatGPT Business, Enterprise or Edu
+workspace), and whether the provider said so with the account's own sign-in (`verified`)
+or only its files did. Unknown is never commercial. `groups` are the routing groups the
+account is in; with --group, `inGroup` says whether it's in that one, which for a
+boundary group (`boundary = true` in config.toml) also takes a verified commercial
+sign-in. Codealong's server keeps the provider's answer for minutes and asks again at
+once when the account's files show another sign-in, so a hook can run it before every
+command. Exits 0 when a session runs it and it's in the group (or none was asked), 1
+when it isn't, 3 when no session runs it (a person's own terminal), 2 on an error
+
+Usage: codealong account check [OPTIONS]
+
+Options:
+      --group <GROUP>
+          A routing group the session's account must be in
+
+      --json
+          JSON output. The default when stdout isn't a terminal
 
       --table
           Tables, even when piped

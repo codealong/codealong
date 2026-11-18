@@ -861,6 +861,12 @@ name = "reviewers"             # offered in the quick panel, `codealong start --
 strategy = "alternate-harness" # "usage" (most room / soonest reset), "alternate-harness" (rotates across harnesses), "round-robin", or "fallback" (the members in order, each until it's within `buffer` of its cap)
 members = [{ account = "claude-work", model = "opus", effort = "high" }, { account = "codex" }]  # each an account on a model (none: Auto's) at an effort (none: the account's own), added in order; [] includes every enabled account that can start
 
+[[routing.groups]]
+name = "authorized"
+boundary = true                # a boundary: only members whose provider says they're on a commercial plan count as in it, and what its members' sessions say stays with sessions in it (`codealong account check --group authorized` for a repo's guard hook)
+decisions = "jev"              # with boundary: the decision model that may read its sessions, "jev" (the default) or "none"
+members = [{ account = "claude-work" }]  # a boundary lists its members, each in one boundary at most
+
 [reviews]
 auto = false                   # an agent reviews each PR that waits on your review, and again on new commits (Settings › Automation)
 account = ""                   # the account or routing group it runs on; "" for the one Auto would start

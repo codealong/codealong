@@ -27,3 +27,31 @@ pub fn id(listener: &UnixListener) -> Option<(u64, u64)> {
     use std::os::windows::io::AsRawSocket;
     Some((0, listener.as_raw_socket()))
 }
+
+/// The process at the other end of a connection, as the kernel says it: who asks, which it
+/// can't make up (server.rs `AccountCheck`). None where the OS doesn't say.
+#[cfg(target_os = "macos")]
+pub fn peer_pid(stream: &UnixStream) -> Option<u32> {
+    use std::os::fd::AsRawFd;
+    let mut pid: libc::pid_t = 0;
+    let mut len = std::mem::size_of::<libc::pid_t>() as libc::socklen_t;
+    // SAFETY: getsockopt writes at most `len` bytes into the pid it's given.
+    let ok = unsafe { libc::getsockopt(stream.as_raw_fd(), libc::SOL_LOCAL, libc::LOCAL_PEERPID, (&mut pid as *mut libc::pid_t).cast(), &mut len) } == 0;
+    (ok && pid > 0).then_some(pid as u32)
+}
+
+#[cfg(target_os = "linux")]
+pub fn peer_pid(stream: &UnixStream) -> Option<u32> {
+    use std::os::fd::AsRawFd;
+    let mut cred: libc::ucred = unsafe { std::mem::zeroed() };
+    let mut len = std::mem::size_of::<libc::ucred>() as libc::socklen_t;
+    // SAFETY: getsockopt writes at most `len` bytes into the struct it's given.
+    let ok = unsafe { libc::getsockopt(stream.as_raw_fd(), libc::SOL_SOCKET, libc::SO_PEERCRED, (&mut cred as *mut libc::ucred).cast(), &mut len) } == 0;
+    (ok && cred.pid > 0).then_some(cred.pid as u32)
+}
+
+/// Windows's AF_UNIX sockets don't say who's at the other end: the asker's own word stands.
+#[cfg(windows)]
+pub fn peer_pid(_stream: &UnixStream) -> Option<u32> {
+    None
+}

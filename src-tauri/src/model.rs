@@ -167,6 +167,10 @@ pub struct Board {
     /// accounts read so far, in config order. This Mac's own: not sent to other devices.
     #[serde(default)]
     pub training: Vec<crate::training::Training>,
+    /// Where each boundary group member's sign-in stands (signin.rs), for the accounts read so
+    /// far, in config order. This Mac's own: not sent to other devices.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub sign_ins: Vec<crate::signin::SignIn>,
     /// The MCP servers each account's agents have (mcp.rs), for the accounts read so far, in
     /// config order. This Mac's own: not sent to other devices.
     #[serde(default)]

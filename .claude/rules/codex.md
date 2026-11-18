@@ -153,6 +153,11 @@ checked on this Mac, most of them by reading the apps' own bundles and files. Pa
   `GET /accounts/data_usage_for_training` (with `ChatGPT-Account-Id`) says `permitted`; a personal
   Pro account said `permitted`. The plan is the token's `chatgpt_plan_type` claim, which reads
   `business` for Enterprise too.
+- Who an account is signed in as and on what plan, for `codealong account check` and boundary
+  groups: the access token's claims (`chatgpt_account_id`, `chatgpt_plan_type`, the profile's
+  `email`), and `GET chatgpt.com/backend-api/accounts/check/v4-2023-04-27`, which answered 200 over
+  HTTP/1.1 with the account keyed by its id, `structure` `personal` for a Pro account
+  (2026-11-17): `codex/signin.rs` (module header).
 - An account's MCP servers and ChatGPT apps (0.160.1, 2026-10-20): `codex/mcp.rs` (module
   header). Not there: `app/list` also says each app's `isAccessible` and `pluginDisplayNames`;
   `mcpServerStatus/list` names `codex_apps`, the one server the apps go through (525 tools here),

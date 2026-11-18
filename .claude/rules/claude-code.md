@@ -860,6 +860,11 @@ on this Mac; read it before changing the Claude adapter (paths are under `src-ta
   notice applies, with `domain_excluded` for emails whose domain is left out of training,
   `notice_is_grace_period`, `notice_reminder_frequency`); it answered 403 to both accounts'
   OAuth tokens here (2026-10-13), so Codealong goes by the account settings alone.
+- Who an account is signed in as and on what plan, for `codealong account check` and boundary
+  groups: the state file's `oauthAccount` (`organizationType` `claude_team` for a Team seat here),
+  and `GET https://api.anthropic.com/api/oauth/profile` with the sign-in's token, as Claude Code
+  2.1.327 asks it (`account.email`, `organization.uuid`, `organization.organization_type`, which it
+  maps to max, pro, team and enterprise): `claude/signin.rs` (module header).
 - Plan usage, `GET https://api.anthropic.com/api/oauth/usage`: the request and its `limits`
   list in `claude/usage.rs` (`fetch`, `claude_meters`), how often the app asks and how it backs
   off in `engine.rs` (`USAGE_EVERY`, `USAGE_BACKOFF`, `keep_last_good`). It returns 429 when

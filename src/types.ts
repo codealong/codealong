@@ -952,6 +952,24 @@ export interface Training {
   stale?: string | null;
 }
 
+/** Who an account is signed in as and on what plan (signin.rs), for a boundary group's members. */
+export interface SignIn {
+  account: string;
+  email: string | null;
+  /** The provider's organization or workspace id. */
+  organization: string | null;
+  organizationName: string | null;
+  /** The provider's name for the plan: team, enterprise, max, pro, business… */
+  plan: string | null;
+  /** The plan is under the provider's commercial terms. */
+  commercial: boolean;
+  /** The provider said so with the account's own sign-in; false when only its files did. */
+  verified: boolean;
+  asOf: number | null;
+  /** Why it isn't verified, or why an older answer is kept. */
+  note?: string | null;
+}
+
 /** One MCP server an account's agents can call (mcp.rs). */
 export interface McpServer {
   /** As its harness names it: "Gmail", "figma". */
@@ -1015,6 +1033,11 @@ export interface RoutingGroupCfg {
   name: string;
   strategy: RoutingStrategy;
   members: GroupMemberCfg[];
+  /** A boundary (boundary.rs): only members on a commercial sign-in count as in it, and what
+   *  its members' sessions say stays with sessions in it. */
+  boundary?: boolean;
+  /** For a boundary, the decision model that may read its sessions: `jev`, or `none`. */
+  decisions?: string | null;
 }
 
 /** `[routing]` in config.toml (config.rs `RoutingCfg`). */
@@ -1892,6 +1915,9 @@ export interface Board {
   /** Whether each account's provider may train on what it sends (training.rs), for the accounts
    *  read so far. Absent from engines of older builds. */
   training?: Training[];
+  /** Where each boundary group member's sign-in stands (signin.rs). Absent when no boundary
+   *  group lists an account, and from engines of older builds. */
+  signIns?: SignIn[];
   /** The MCP servers each account's agents have (mcp.rs), for the accounts read so far. Absent
    *  from engines of older builds. */
   mcp?: Mcp[];

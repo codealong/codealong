@@ -328,7 +328,9 @@ pub fn refused_accounts(sessions: &[Session], now: i64) -> std::collections::Has
 /// (`auto_pick`) among those with room for its model by their meters and that no limit has
 /// stopped by what their sessions say (`refused_accounts`). None when no account has room,
 /// its harness can't move sessions (`moves`), or the limit has lifted, when it can go on where it is.
-pub fn limit_moves(sessions: &mut [Session], accounts: &[AccountCfg], buffer: Option<u8>, usages: &[Usage], moves: impl Fn(Harness) -> bool, now: i64) {
+/// `may_take` says whether a session on one account may go on at another: never out of its
+/// boundary group (boundary.rs), whose conversation would go with it.
+pub fn limit_moves(sessions: &mut [Session], accounts: &[AccountCfg], buffer: Option<u8>, usages: &[Usage], moves: impl Fn(Harness) -> bool, may_take: impl Fn(&str, &str) -> bool, now: i64) {
     let refused = refused_accounts(sessions, now);
     for s in sessions.iter_mut() {
         let Some(limit) = s.limit.as_mut() else { continue };
@@ -339,7 +341,7 @@ pub fn limit_moves(sessions: &mut [Session], accounts: &[AccountCfg], buffer: Op
         let model = limit.model.as_deref();
         let candidates: Vec<Candidate> = accounts
             .iter()
-            .filter(|a| a.name != s.account && !a.disabled && Harness::from_config(&a.harness) == s.harness && !refused.contains(&a.name))
+            .filter(|a| a.name != s.account && !a.disabled && Harness::from_config(&a.harness) == s.harness && !refused.contains(&a.name) && may_take(&s.account, &a.name))
             .filter(|a| !usages.iter().any(|u| u.account == a.name && near_limit(u, model, a.usage_cap)))
             .map(|a| Candidate { name: &a.name, preferred: true, model, usage_cap: a.usage_cap, buffer })
             .collect();
@@ -701,7 +703,7 @@ pub fn resolve_group(
         if !auto_name.is_empty() {
             cfg.routing.groups.iter().find(|g| g.name == auto_name)?
         } else {
-            default_group = config::RoutingGroupCfg { name: "auto".into(), strategy: config::RoutingStrategy::Usage, members: Vec::new() };
+            default_group = config::RoutingGroupCfg { name: "auto".into(), strategy: config::RoutingStrategy::Usage, members: Vec::new(), ..config::RoutingGroupCfg::default() };
             &default_group
         }
     } else {
@@ -710,6 +712,16 @@ pub fn resolve_group(
     let usages = board.map(|b| b.usage.as_slice()).unwrap_or(&[]);
     let sessions = board.map(|b| all_sessions(&b.lanes)).unwrap_or_default();
     let recent = board.map(|b| recent_sessions(&b.lanes, reviews_only)).unwrap_or_default();
+    // A boundary group starts only on members whose sign-in qualifies now (boundary.rs): the
+    // board's word for each, which the engine keeps fresh, else what's kept, never asked here.
+    let qualifies = |a: &AccountCfg| match board.and_then(|b| b.sign_ins.iter().find(|s| s.account == a.name)) {
+        Some(s) => s.qualifies(),
+        None => crate::signin::current(a, now, crate::signin::Ask::Never).qualifies(),
+    };
+    if group.boundary && !cfg.accounts.iter().any(|a| group.members.iter().any(|m| m.account.trim() == a.name) && qualifies(a)) {
+        return Some(Err(format!("no member of the boundary group {} is on a sign-in that qualifies now (`codealong config check` says why)", group.name.trim())));
+    }
+    let keep = |a: &AccountCfg| keep(a) && (!group.boundary || qualifies(a));
     let picked = pick_from_group(group, cfg, usages, &sessions, &recent, places, model, avoid, now, keep).ok_or_else(|| format!("no account in {} can start a session there", group.name));
     Some(picked.map(|p| with_auto_model(p, cfg, usages)))
 }
@@ -737,7 +749,7 @@ pub fn pick_account(cfg: &Config, usages: &[Usage], places: &[Place], model: Opt
 /// `pick_account` among the accounts `keep` takes: the reviewer of a PR of yours, among those of
 /// another harness than its primary session (autoreview.rs).
 pub fn pick_account_where(cfg: &Config, usages: &[Usage], places: &[Place], model: Option<&str>, now: i64, keep: impl Fn(&AccountCfg) -> bool) -> Option<String> {
-    let default_group = config::RoutingGroupCfg { name: "auto".into(), strategy: config::RoutingStrategy::Usage, members: Vec::new() };
+    let default_group = config::RoutingGroupCfg { name: "auto".into(), strategy: config::RoutingStrategy::Usage, members: Vec::new(), ..config::RoutingGroupCfg::default() };
     let group = Some(cfg.routing.auto.trim())
         .filter(|s| !s.is_empty())
         .and_then(|n| cfg.routing.groups.iter().find(|g| g.name == n))
@@ -841,9 +853,21 @@ pub fn pick(cfg: &Config, board: Option<&Board>, account: &str, place: Option<Pl
             (None, true) => OUT_OF_SIGHT.to_vec(),
             (None, false) => Vec::new(),
         };
-        let picked = resolve_group(cfg, board, account, &places, model, None, false, now, |_| true)
-            .and_then(std::result::Result::ok)
-            .ok_or_else(|| anyhow!("No account can start a session there. `codealong accounts` lists them."))?;
+        // With no server's board to say where a boundary group's members stand, they're asked
+        // here, for `resolve_group` to find kept.
+        if board.is_none() {
+            let group = if account == "auto" { cfg.routing.auto.trim() } else { account };
+            for m in cfg.routing.groups.iter().filter(|g| g.boundary && g.name.trim() == group).flat_map(|g| &g.members) {
+                if let Some(a) = cfg.accounts.iter().find(|a| a.name == m.account.trim()) {
+                    crate::signin::current(a, now, crate::signin::Ask::IfStale);
+                }
+            }
+        }
+        let picked = match resolve_group(cfg, board, account, &places, model, None, false, now, |_| true) {
+            Some(Ok(p)) => p,
+            Some(Err(why)) if why.starts_with("no member of the boundary") => bail!("N{}.", &why[1..]),
+            _ => bail!("No account can start a session there. `codealong accounts` lists them."),
+        };
         (picked.account, model.map(str::to_string).or(picked.model), effort.map(str::to_string).or(picked.effort))
     } else {
         (account.to_string(), model.map(str::to_string), effort.map(str::to_string))
@@ -1831,7 +1855,7 @@ mod tests {
     }
 
     fn moves_of(sessions: &mut [Session], usages: &[Usage]) -> Vec<Option<String>> {
-        limit_moves(sessions, &claude_accounts(), None, usages, |h| h == Harness::Claude, NOW);
+        limit_moves(sessions, &claude_accounts(), None, usages, |h| h == Harness::Claude, |_, _| true, NOW);
         sessions.iter().map(|s| s.limit.as_ref().and_then(|l| l.move_to.clone())).collect()
     }
 
@@ -1987,7 +2011,7 @@ mod tests {
             GroupMemberCfg { account: "claude2".into(), model: "sonnet".into(), effort: String::new() },
             GroupMemberCfg { account: "codex".into(), model: String::new(), effort: String::new() },
         ];
-        let alt = RoutingGroupCfg { name: "reviewers".into(), strategy: RoutingStrategy::AlternateHarness, members: members.clone() };
+        let alt = RoutingGroupCfg { name: "reviewers".into(), strategy: RoutingStrategy::AlternateHarness, members: members.clone(), ..RoutingGroupCfg::default() };
         let usages = [usage("claude", 20.0, 30.0, Some(40)), usage("claude2", 10.0, 20.0, Some(80)), usage("codex", 15.0, 25.0, Some(20))];
         // First pick takes the first harness (Claude) and the account in it whose week resets soonest (claude).
         assert_eq!(
@@ -2013,7 +2037,7 @@ mod tests {
             Some(GroupPick { account: "codex".into(), model: None, effort: None })
         );
         // Round-robin rotates across every roomy member in order.
-        let rr = RoutingGroupCfg { name: "rr".into(), strategy: RoutingStrategy::RoundRobin, members };
+        let rr = RoutingGroupCfg { name: "rr".into(), strategy: RoutingStrategy::RoundRobin, members, ..RoutingGroupCfg::default() };
         let recent_rr = vec![("claude".to_string(), Harness::Claude, Some("opus".to_string()), NOW - 30), ("claude2".to_string(), Harness::Claude, Some("sonnet".to_string()), NOW - 10)];
         assert_eq!(
             pick_from_group_in(&rr, &cfg, &usages, &[], &recent_rr, &[], None, None, NOW, home, |_| true),
@@ -2028,6 +2052,7 @@ mod tests {
                 GroupMemberCfg { account: "claude2".into(), model: "opus".into(), effort: String::new() },
                 GroupMemberCfg { account: "claude2".into(), model: "sonnet".into(), effort: String::new() },
             ],
+            ..RoutingGroupCfg::default()
         };
         let mut per_model = usage("claude2", 10.0, 20.0, None);
         per_model.meters.push(Meter { model: Some("Opus".into()), ..meter("model:Opus", 80.0, None) });
@@ -2082,6 +2107,7 @@ mod tests {
             name: "overflow".into(),
             strategy: RoutingStrategy::Fallback,
             members: vec![GroupMemberCfg { account: "claude".into(), model: String::new(), effort: "high".into() }, GroupMemberCfg { account: "codex".into(), model: "gpt-5.5".into(), effort: " ".into() }],
+            ..RoutingGroupCfg::default()
         };
         let picked = |us: &[Usage]| pick_from_group_in(&group, &cfg, us, &[], &[], &[], None, None, NOW, home, |_| true);
         assert_eq!(picked(&[]), Some(GroupPick { account: "claude".into(), model: None, effort: Some("high".into()) }));
@@ -2112,7 +2138,7 @@ mod tests {
             ..Config::default()
         };
         let member = |a: &str| GroupMemberCfg { account: a.into(), model: String::new(), effort: String::new() };
-        let group = RoutingGroupCfg { name: "overflow".into(), strategy: RoutingStrategy::Fallback, members: vec![member("codex"), member("claude2"), member("claude")] };
+        let group = RoutingGroupCfg { name: "overflow".into(), strategy: RoutingStrategy::Fallback, members: vec![member("codex"), member("claude2"), member("claude")], ..RoutingGroupCfg::default() };
         let picked = |cfg: &Config, us: &[Usage], avoid: Option<Harness>| pick_from_group_in(&group, cfg, us, &[], &[], &[], None, avoid, NOW, home, |_| true).map(|p| p.account);
         // The first member, whoever has more room or resets sooner, and whatever ran last.
         let roomy = [usage("codex", 50.0, 70.0, Some(100)), usage("claude2", 5.0, 10.0, Some(6)), usage("claude", 1.0, 2.0, Some(3))];
@@ -2177,6 +2203,26 @@ mod tests {
 
     /// Nothing starts on an account turned off: Auto passes it by, the start options leave it
     /// out, a session stopped at a limit doesn't move to it, and its own sessions don't go on.
+    /// A boundary group, named or as Auto's, starts only on a member whose sign-in qualifies by
+    /// the board (boundary.rs), and says so when none does.
+    #[test]
+    fn a_boundary_group_starts_only_on_members_that_qualify() {
+        use config::{GroupMemberCfg, RoutingGroupCfg};
+        let member = |a: &str| GroupMemberCfg { account: a.into(), model: String::new(), effort: String::new() };
+        let mut cfg = Config { accounts: vec![account("claude", "claude", "/Users/me/.claude", Some("claude")), account("claude2", "claude", "/Users/me/.claude2", Some("claude2"))], ..Config::default() };
+        cfg.routing.groups = vec![RoutingGroupCfg { name: "authorized".into(), boundary: true, members: vec![member("claude"), member("claude2")], ..RoutingGroupCfg::default() }];
+        let signed = |account: &str, ok: bool| crate::signin::SignIn { account: account.into(), commercial: ok, verified: ok, ..Default::default() };
+        let board = Board { sign_ins: vec![signed("claude", false), signed("claude2", true)], ..Board::default() };
+        let picked = |cfg: &Config, name: &str, board: &Board| resolve_group(cfg, Some(board), name, &[], None, None, false, NOW, |_| true).map(|r| r.map(|p| p.account));
+        for _ in 0..3 {
+            assert_eq!(picked(&cfg, "authorized", &board), Some(Ok("claude2".to_string())));
+        }
+        cfg.routing.auto = "authorized".into();
+        assert_eq!(picked(&cfg, "auto", &board), Some(Ok("claude2".to_string())), "as Auto's group too");
+        let none = Board { sign_ins: vec![signed("claude", false), signed("claude2", false)], ..Board::default() };
+        assert!(picked(&cfg, "authorized", &none).is_some_and(|r| r.is_err_and(|e| e.starts_with("no member of the boundary group authorized"))));
+    }
+
     #[test]
     fn starts_nothing_on_an_account_turned_off() {
         let dir = |name: &str| crate::fixtures::scratch(name).to_string_lossy().into_owned();
@@ -2189,8 +2235,11 @@ mod tests {
         accounts[2].disabled = true;
         let mut s = [limited("claude:claude:a", NOW - MIN, Some(NOW + HOUR))];
         let usages = [usage("claude", 100.0, 60.0, Some(30)), usage("claude2", 20.0, 40.0, Some(100)), usage("claude3", 10.0, 50.0, Some(20))];
-        limit_moves(&mut s, &accounts, None, &usages, |h| h == Harness::Claude, NOW);
+        limit_moves(&mut s, &accounts, None, &usages, |h| h == Harness::Claude, |_, _| true, NOW);
         assert_eq!(s[0].limit.as_ref().and_then(|l| l.move_to.as_deref()), Some("claude2"));
+        // A session in a boundary group moves only where its conversation may go (boundary.rs).
+        limit_moves(&mut s, &accounts, None, &usages, |h| h == Harness::Claude, |_, to| to != "claude2", NOW);
+        assert_eq!(s[0].limit.as_ref().and_then(|l| l.move_to.as_deref()), None);
 
         let stopped = crate::model::Session { live: false, ..crate::fixtures::session("stopped") };
         let board = Board { lanes: vec![crate::fixtures::lane("/r", vec![stopped])], ..Board::default() };
@@ -2248,7 +2297,7 @@ mod tests {
         // Auto and the routing groups pick among its accounts.
         let auto = StartPick { account: "auto".into(), ..asked("~/northwind", "") };
         assert_eq!(picked(&board, &cfg, &auto, NOW, home).unwrap().account, "claude");
-        cfg.routing.groups.push(config::RoutingGroupCfg { name: "second".into(), strategy: config::RoutingStrategy::Fallback, members: vec![config::GroupMemberCfg { account: "codex".into(), model: String::new(), effort: String::new() }] });
+        cfg.routing.groups.push(config::RoutingGroupCfg { name: "second".into(), strategy: config::RoutingStrategy::Fallback, members: vec![config::GroupMemberCfg { account: "codex".into(), model: String::new(), effort: String::new() }], ..config::RoutingGroupCfg::default() });
         let group = picked(&board, &cfg, &StartPick { account: "second".into(), ..asked("~/northwind", "") }, NOW, home).unwrap();
         assert_eq!((group.account.as_str(), group.place), ("codex", Place::CodexApp));
         let nobody = StartPick { account: "claude9".into(), ..asked("~/northwind", "") };

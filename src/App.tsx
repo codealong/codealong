@@ -2996,6 +2996,7 @@ export function App() {
           usage={board?.usage ?? []}
           training={board?.training}
           mcp={board?.mcp}
+          signIns={board?.signIns}
           apps={board?.apps ?? { terminal: 'Terminal', editor: 'Editor' }}
           theme={theme}
           onPickTheme={pickTheme}

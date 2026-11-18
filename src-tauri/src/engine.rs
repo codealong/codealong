@@ -173,6 +173,9 @@ pub enum Msg {
     /// The read of the accounts' data settings is over (training.rs): what it read, or none when
     /// it fell over or never started.
     TrainingRead(Option<Vec<training::Training>>),
+    /// The read of the boundary members' sign-ins is over (signin.rs): what it read, or none when
+    /// it stopped partway.
+    SignInsRead(Option<Vec<crate::signin::SignIn>>),
     /// One account's data setting, read again after Codealong turned training off, for the
     /// account the turn-off began on (`accountpoll::identity`).
     TrainingOne(String, training::Training),
@@ -1463,6 +1466,8 @@ struct Engine {
     team_files: teamfile::TeamFiles,
     /// Whether each account's provider may train on it (training.rs).
     training: training::TrainingPoll,
+    /// The boundary groups' members' sign-ins (signin.rs).
+    sign_ins: crate::signin::SignInPoll,
     /// The MCP servers each account's agents have (mcp.rs).
     mcp: crate::mcp::McpPoll,
     /// What the terminals of starts waiting for their session show (starting.rs).
@@ -1606,6 +1611,7 @@ impl Engine {
             terminal_use: None,
             team_files: teamfile::TeamFiles::default(),
             training: training::TrainingPoll::default(),
+            sign_ins: crate::signin::SignInPoll::default(),
             mcp: crate::mcp::McpPoll::default(),
             screens: crate::starting::Screens::default(),
             dirty: false,
@@ -1712,8 +1718,14 @@ impl Engine {
         }
         let model = self.cfg.jev.model.trim().to_string();
         let now = now_ms();
+        // A boundary group can keep its sessions from Jev (boundary.rs `jev_reads`): a todo they
+        // worked on isn't asked about either.
+        let kept: HashSet<&str> = board.lanes.iter().flat_map(|l| &l.sessions).filter(|s| !crate::boundary::jev_reads(&self.cfg, &s.account)).map(|s| s.key.as_str()).collect();
+        let reads = |s: &Session| !kept.contains(s.key.as_str());
+        let kept_from_jev = |t: &todos::Todo| t.sessions.iter().any(|k| kept.contains(k.as_str()));
         let asks: Vec<(String, serde_json::Value, Vec<String>)> = todojev::link_candidates(board, &self.todos.todos, &self.jev_todos.asked, now)
             .into_iter()
+            .filter(|(_, s)| reads(s))
             .map(|(lane, s)| {
                 let (body, ids) = todojev::link_request(&model, board, lane, s, &self.todos.todos);
                 (s.key.clone(), body, ids)
@@ -1728,6 +1740,7 @@ impl Engine {
             .todos
             .todos
             .iter()
+            .filter(|t| !kept_from_jev(t))
             .filter_map(|t| todojev::done_input(board, t).map(|i| (t.id.clone(), i)))
             // One question per todo at a time; a newer state is asked about once it's answered.
             .filter(|(id, i)| self.jev_todos.done.get(id).is_none_or(|a| a.sig != i.sig) && !self.jev_done_asking.contains_key(id))
@@ -1781,7 +1794,17 @@ impl Engine {
             })
             .collect();
         let took = self.emblems.inherit(&scheduled, now);
-        let sessions = board.lanes.iter().filter(|l| l.device.is_none()).flat_map(|l| l.sessions.iter().filter(|s| s.visitor.is_none()).map(move |s| (l.project.as_str(), s)));
+        // A boundary group's sessions only where what they said may go: to Jev as its group says,
+        // and drawn only by an account inside the group (boundary.rs).
+        let cfg = &self.cfg;
+        let drawer = config::drawing_account(cfg).map(|a| a.name.clone()).unwrap_or_default();
+        let drawer_qualifies = config::drawing_account(cfg).is_some_and(|a| crate::signin::current(a, now, crate::signin::Ask::Never).qualifies());
+        let may = move |s: &Session| match kind {
+            EmblemKind::Emoji => crate::boundary::jev_reads(cfg, &s.account),
+            _ => crate::boundary::group_of(cfg, &s.account).is_none_or(|g| drawer_qualifies && crate::boundary::stays_inside(cfg, g, &drawer)),
+        };
+        let may = &may;
+        let sessions = board.lanes.iter().filter(|l| l.device.is_none()).flat_map(move |l| l.sessions.iter().filter(move |s| s.visitor.is_none() && may(s)).map(move |s| (l.project.as_str(), s)));
         let wanting = self.emblems.look(sessions, kind, now);
         if kind == EmblemKind::Emoji {
             let mut asked = 0;
@@ -1869,6 +1892,10 @@ impl Engine {
         let mut asks = Vec::new();
         for s in board.lanes.iter().flat_map(|l| &l.sessions).filter(|s| s.visitor.is_none()) {
             self.insights.seen(&s.key, now);
+            // A boundary group can keep its sessions from Jev (boundary.rs `jev_reads`).
+            if !crate::boundary::jev_reads(&self.cfg, &s.account) {
+                continue;
+            }
             let Some((kind, signature)) = crate::insights::ask(s, now) else { continue };
             let id = format!("insight:{signature}|{}", s.key);
             if asks.len() < PER_BOARD && self.insights.wants(&s.key, &signature, now) && !self.jev_pending.contains(&id) {
@@ -2167,7 +2194,10 @@ fn waiting_call(s: &Session, account: Option<&config::AccountCfg>) -> Option<Str
     /// (`reconnect::open_where_it_stopped`), and its harness said when it lifts.
     fn with_limits(&self, mut sessions: Vec<Session>, usage: &[Usage], now: i64) -> Vec<Session> {
         if sessions.iter().any(|s| s.limit.is_some()) {
-            crate::start::limit_moves(&mut sessions, &self.cfg.accounts, self.cfg.routing.buffer, usage, |h| harness::adapter(h).moves_accounts(), now);
+            // Out of a boundary group only where the sign-in it would go to qualifies too.
+            let cfg = &self.cfg;
+            let qualifies = |name: &str| cfg.accounts.iter().find(|a| a.name == name).is_some_and(|a| crate::signin::current(a, now, crate::signin::Ask::Never).qualifies());
+            crate::start::limit_moves(&mut sessions, &cfg.accounts, cfg.routing.buffer, usage, |h| harness::adapter(h).moves_accounts(), |from, to| crate::boundary::may_send(cfg, from, to, qualifies(to)), now);
         }
         let on = self.cfg.limits.continue_when_lifted;
         for s in &mut sessions {
@@ -2460,6 +2490,20 @@ fn waiting_call(s: &Session, account: Option<&config::AccountCfg>) -> Option<Str
         // `on_read` hears that the read is over however it ends, so the next one can go.
         throttle::background("codealong-training", move || training::read_all(&asks), move |list| {
             let _ = tx.send(Msg::TrainingRead(list));
+        });
+    }
+
+    /// Reads the boundary groups' members' sign-ins when they're due (`SignInPoll::due`), on a
+    /// background thread: the provider is asked only of one whose answer is getting old.
+    fn read_sign_ins(&mut self) {
+        let asks = self.sign_ins.due(&self.cfg, Instant::now());
+        if asks.is_empty() {
+            return;
+        }
+        let tx = self.tx.clone();
+        // `on_read` hears that the read is over however it ends, so the next one can go.
+        throttle::background("codealong-sign-ins", move || asks.iter().map(|a| crate::signin::current(a, now_ms(), crate::signin::Ask::Warm)).collect(), move |list| {
+            let _ = tx.send(Msg::SignInsRead(list));
         });
     }
 
@@ -2797,6 +2841,7 @@ fn waiting_call(s: &Session, account: Option<&config::AccountCfg>) -> Option<Str
                 Ok(Msg::Processes(listed)) => self.on_processes(listed),
                 Ok(Msg::TeamFiles(answers)) => self.dirty |= self.team_files.on_read(answers),
                 Ok(Msg::TrainingRead(list)) => self.dirty |= self.training.on_read(list),
+                Ok(Msg::SignInsRead(list)) => self.dirty |= self.sign_ins.on_read(list),
                 Ok(Msg::TrainingOne(asked_as, t)) => self.dirty |= self.training.on_changed(&asked_as, t),
                 Ok(Msg::McpRead(list)) => self.dirty |= self.mcp.on_read(list),
                 Ok(Msg::Screens(found)) => self.dirty |= self.screens.on_read(found),
@@ -3404,6 +3449,7 @@ fn waiting_call(s: &Session, account: Option<&config::AccountCfg>) -> Option<Str
         }
         self.read_team_files();
         self.read_training();
+        self.read_sign_ins();
         self.read_mcp();
         self.read_screens();
         if self.load.on_tick(now_ms(), crate::os::system::system) {
@@ -4296,6 +4342,7 @@ fn waiting_call(s: &Session, account: Option<&config::AccountCfg>) -> Option<Str
         let signed_out = board::signed_out_notices(&board);
         board.notices.extend(signed_out);
         board.training = self.training.list(&self.cfg.accounts);
+        board.sign_ins = self.sign_ins.list(&self.cfg);
         board.mcp = self.mcp.list(&self.cfg.accounts);
         board.sides = sides;
         adopt_terminals(&board.lanes, |pid| crate::procs::tty(pid).map(|t| t.to_string_lossy().into_owned()));

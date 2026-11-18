@@ -32,6 +32,7 @@ mod routes;
 mod seed;
 mod shells;
 mod side;
+mod signin;
 mod skills;
 mod start;
 mod switch;
@@ -1218,6 +1219,16 @@ impl crate::harness::Adapter for ClaudeCode {
 
     fn stop_training(&self, account: &AccountCfg) -> anyhow::Result<()> {
         training::stop(account)
+    }
+
+    /// The state file's `oauthAccount`.
+    fn local_sign_in(&self, account: &AccountCfg) -> Option<crate::signin::Local> {
+        signin::local(account)
+    }
+
+    /// Anthropic's profile of the sign-in.
+    fn verify_sign_in(&self, account: &AccountCfg) -> Result<crate::signin::Said, crate::signin::NotSaid> {
+        signin::verify(account)
     }
 
     /// Its claude.ai connectors, its own servers and its plugins'.

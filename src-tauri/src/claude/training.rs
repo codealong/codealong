@@ -21,7 +21,7 @@ const SETTINGS_URL: &str = "https://api.anthropic.com/api/oauth/account/settings
 pub const PAGE: &str = "https://claude.ai/settings/data-privacy-controls";
 
 /// Plans under the commercial terms, as the sign-in's `subscriptionType` names them.
-fn commercial(subscription: &str) -> bool {
+pub(super) fn commercial(subscription: &str) -> bool {
     matches!(subscription, "team" | "enterprise")
 }
 

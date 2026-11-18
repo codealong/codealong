@@ -188,12 +188,18 @@ pub fn pass(db: &Connection) {
     };
     for batch in waiting.chunks(AT_ONCE) {
         let answers: Vec<Result<Value>> = std::thread::scope(|scope| {
-            let asked: Vec<_> = batch.iter().map(|u| scope.spawn(|| jev::ask(jev::Feature::Prompts, &request(&cfg.jev.model, u)))).collect();
+            let asked: Vec<_> = batch.iter().map(|u| scope.spawn(|| if jev_may_read(&cfg, u) { jev::ask(jev::Feature::Prompts, &request(&cfg.jev.model, u)) } else { Ok(Value::Null) })).collect();
             asked.into_iter().map(|h| h.join().unwrap_or_else(|_| Err(anyhow::anyhow!("The request's thread stopped.")))).collect()
         });
         let mut later = false;
         for (u, answer) in batch.iter().zip(answers) {
             let Ok(id) = u.id.parse::<i64>() else { continue };
+            // Not read, and not kept to read, when its session's boundary group keeps it from
+            // Jev (boundary.rs `jev_reads`).
+            if !jev_may_read(&cfg, u) {
+                let _ = unreadable(db, id);
+                continue;
+            }
             let done = match answer.as_ref().map(read) {
                 Ok(Some((stance, sure))) => keep_read(db, id, &stance, sure, answer.as_ref().ok().and_then(|a| a["model"].as_str()).unwrap_or(&cfg.jev.model)).map(|_| ()),
                 // An answer with no stance in it, or a request Jev can't take: not asked again.
@@ -212,6 +218,11 @@ pub fn pass(db: &Connection) {
             break;
         }
     }
+}
+
+/// Whether Jev may read a prompt, by its session's account (the key's second part).
+fn jev_may_read(cfg: &crate::config::Config, u: &Unread) -> bool {
+    u.session.split(':').nth(1).is_none_or(|account| crate::boundary::jev_reads(cfg, account))
 }
 
 /// Whether TypeSafe refused the request itself (too big, not something it takes), as against

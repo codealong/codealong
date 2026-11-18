@@ -141,7 +141,10 @@ fn lane_name(l: &Lane) -> String {
     }
 }
 
-fn session_card(lane: &Lane, s: &Session, related: Option<&crate::search::Related>, now: i64) -> Value {
+/// `said`: whether Jev may have what it said, its latest words and lines of its conversation,
+/// which a boundary group can keep from it (boundary.rs `jev_reads`); its title and where it
+/// works go either way.
+fn session_card(lane: &Lane, s: &Session, related: Option<&crate::search::Related>, said: bool, now: i64) -> Value {
     let mut card = Map::new();
     card.insert("title".into(), json!(clip(&s.title)));
     card.insert("agent".into(), json!(s.account));
@@ -156,14 +159,14 @@ fn session_card(lane: &Lane, s: &Session, related: Option<&crate::search::Relate
     }
     card.insert("status".into(), json!(status_words(s)));
     let doing = s.excerpt.as_deref().filter(|e| !e.trim().is_empty()).unwrap_or(&s.headline);
-    if !doing.trim().is_empty() {
+    if said && !doing.trim().is_empty() {
         card.insert("latest".into(), json!(clip(&doing.replace('`', ""))));
     }
     if let Some(at) = s.started_at {
         card.insert("started".into(), json!(crate::jev::ago_words(at, now)));
     }
     card.insert("last prompted".into(), json!(crate::jev::ago_words(s.last_prompt_at, now)));
-    if let Some(r) = related.filter(|r| !r.lines.is_empty()) {
+    if let Some(r) = related.filter(|r| said && !r.lines.is_empty()) {
         let lines: Vec<String> = r.lines.iter().map(|(you, line)| format!("{}: {}", if *you { "the user" } else { "the agent" }, clip(&line.replace('`', "")))).collect();
         card.insert("lines of its conversation that share words with the message".into(), json!(lines));
     }
@@ -380,7 +383,8 @@ pub fn request_with_routing(board: &Board, cfg: Option<&crate::config::Config>, 
 
     let mut session_cards = Map::new();
     for (i, (lane, s)) in sessions.iter().enumerate() {
-        session_cards.insert(format!("s{}", i + 1), session_card(lane, s, related.iter().copied().find(|r| r.key == s.key), now));
+        let said = cfg.is_none_or(|c| crate::boundary::jev_reads(c, &s.account));
+        session_cards.insert(format!("s{}", i + 1), session_card(lane, s, related.iter().copied().find(|r| r.key == s.key), said, now));
     }
     let mut lane_cards = Map::new();
     for (i, l) in lanes.iter().enumerate() {

@@ -5029,7 +5029,7 @@ mod tests {
         let account = |name: &str, harness: &str, home: String| AccountCfg { name: name.into(), harness: harness.into(), home, command: Some(harness.into()), start: None, acp: None, monthly: None, per_token: false, usage_cap: None, disabled: false, chrome_profile: None };
         let member = |a: &str| GroupMemberCfg { account: a.into(), model: String::new(), effort: String::new() };
         let mut cfg = Config { accounts: vec![account("codex", "codex", "/Users/me/.codex".into()), account("claude", "claude", home.to_string_lossy().into_owned())], ..Config::default() };
-        cfg.routing.groups = vec![RoutingGroupCfg { name: "reviewers".into(), strategy: RoutingStrategy::Fallback, members: vec![member("codex"), member("claude")] }];
+        cfg.routing.groups = vec![RoutingGroupCfg { name: "reviewers".into(), strategy: RoutingStrategy::Fallback, members: vec![member("codex"), member("claude")], ..RoutingGroupCfg::default() }];
         let sonnet = Meter { key: "week-sonnet".into(), label: "Sonnet".into(), window: "week".into(), percent: 100.0, resets_at: None, severity: Severity::Critical, model: Some("sonnet".into()) };
         let mut b = board(vec![pr(7, HEAD)], vec![]);
         b.usage = vec![Usage { account: "claude".into(), harness: Harness::Claude, plan: None, meters: vec![sonnet], as_of: Some(NOW), error: None, needs_sign_in: false, loading: false, no_limits: false, preferred: false, rate_limited: false }];
@@ -5045,7 +5045,7 @@ mod tests {
         let account = |name: &str, harness: &str| AccountCfg { name: name.into(), harness: harness.into(), home: format!("/Users/me/.{name}"), command: Some(harness.into()), start: None, acp: None, monthly: None, per_token: false, usage_cap: None, disabled: false, chrome_profile: None };
         let member = |a: &str| GroupMemberCfg { account: a.into(), model: String::new(), effort: String::new() };
         let mut cfg = Config { accounts: vec![account("claude", "claude"), account("codex", "codex")], ..Config::default() };
-        cfg.routing.groups = vec![RoutingGroupCfg { name: "reviewers".into(), strategy: RoutingStrategy::Fallback, members: vec![member("claude"), member("codex")] }];
+        cfg.routing.groups = vec![RoutingGroupCfg { name: "reviewers".into(), strategy: RoutingStrategy::Fallback, members: vec![member("claude"), member("codex")], ..RoutingGroupCfg::default() }];
         let mut b = board(vec![pr(7, HEAD)], vec![]);
         let picks = |cfg: &Config, b: &Board, instead_of: Option<&str>| {
             let seat = Seat { instead_of: instead_of.map(String::from), ..named_seat("reviewers", "", "", None) };

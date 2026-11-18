@@ -62,7 +62,7 @@ fn plan_of(token: &str) -> Option<String> {
 }
 
 /// Workspace plans, which OpenAI doesn't train on. Enterprise can read as `business`.
-fn workspace(plan: &str) -> bool {
+pub(super) fn workspace(plan: &str) -> bool {
     matches!(plan, "team" | "business" | "enterprise" | "edu")
 }
 

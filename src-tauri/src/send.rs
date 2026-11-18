@@ -400,6 +400,21 @@ fn from_its_helper(board: &Board, cfg: &Config, origins: &crate::origins::Store,
     (helps && origins.known_helper_of(from) == Some(to)) || crate::autoreview::reviews_for(board, &cfg.reviews, from, to)
 }
 
+/// Whether an agent's message would take what a boundary group's session says (boundary.rs) to
+/// a session outside the group: one on an account it doesn't list, or whose sign-in doesn't
+/// qualify (as the server keeps it, never asked here). The group, when it would. Such a message
+/// isn't sent: Claude Code's own hold of another session's message isn't one to lean on here,
+/// since a session in another mode, or set to take such messages (`crossSessionInbound`), takes
+/// it at once, and a held one's words show on the session that holds it (`held_pending`).
+fn leaves_boundary(board: &Board, cfg: &Config, sender: &Sender, to: &Session) -> Option<String> {
+    let Sender::Agent(Some(from)) = sender else { return None };
+    // By its key when the board doesn't list it yet, as a session just started.
+    let account = board.session(from).map(|(_, s)| s.account.as_str()).or_else(|| crate::boundary::account_of_key(from))?;
+    let group = crate::boundary::group_of(cfg, account)?;
+    let qualifies = cfg.accounts.iter().find(|a| a.name == to.account).is_some_and(|a| crate::signin::current(a, crate::util::now_ms(), crate::signin::Ask::Never).qualifies());
+    (!crate::boundary::may_send(cfg, account, &to.account, qualifies)).then(|| group.name.trim().to_string())
+}
+
 /// How a prompt reaches a session, tried in order until one works.
 #[derive(Debug, Clone)]
 pub enum Route {
@@ -793,6 +808,9 @@ fn deliver(board: &Board, cfg: &Config, session_key: &str, text: &str, sender: &
     let mut msg = Message::new(board, cfg, text, sender, now);
     if from_its_helper(board, cfg, &origins, sender, session_key) {
         msg.bypasses = true;
+    }
+    if let Some(group) = leaves_boundary(board, cfg, sender, session) {
+        bail!("{} is outside the boundary group {group} your session is in, and what's said there stays there unless your user lets it out, so nothing was sent. Ask your user to send it from Codealong if they want it to go.", quoted(&session.title));
     }
     // A command of yours for the session's own shell (`shell_command`), not words for its agent.
     let for_its_shell = !msg.from_agent() && *sender != Sender::Codealong && shell_command(&msg.text);

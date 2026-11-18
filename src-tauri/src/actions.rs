@@ -447,6 +447,9 @@ pub fn run_as(engine: &Handle, peers: &Peers, from: &From, name: &str, on: On, p
     let params = to_value(params)?;
     let req = asked(from, name, &params)?;
     orchestrator_may(engine, from, name)?;
+    if on.split().0.is_none() {
+        boundary_may(engine, from, name, on.split().1)?;
+    }
     if name == api::SESSION_FORK || name == api::SESSION_EDIT || name == FORK_TERMINAL {
         let (device, own) = on.split();
         let key = device.map(|d| peerfeed::remote_key(d, own)).unwrap_or_else(|| own.to_string());
@@ -647,7 +650,45 @@ pub fn local(engine: &Handle, from: &From, name: &str, key: &str, params: impl S
     let params = to_value(params)?;
     let req = asked(from, name, &params)?;
     orchestrator_may(engine, from, name)?;
+    boundary_may(engine, from, name, key)?;
     (req.here)(engine, &Call { key, params: &params, from })
+}
+
+/// The requests that hand over what a session said: its conversation, what it waits on, what it
+/// printed, a side conversation about it.
+pub(crate) const READS_TEXT: [&str; 8] = [api::SESSION_PAGE, api::SESSION_NEWER, api::SESSION_PENDING, api::SESSION_STREAM, api::SESSION_TASK_OUTPUT, api::SIDE_ASK, api::SIDE_GET, api::SIDE_PAST];
+
+/// Turns down, from a session outside a boundary group (boundary.rs), a request that would hand
+/// it what one of the group's sessions said: asked by the `codealong` command, which says which
+/// session ran it, or by another of your Macs, where an agent may have asked and this Mac's
+/// boundaries mean nothing. The windows here and your phone are the person's own. (Moving a
+/// conversation to another account is the windows' alone, `move_in_windows`.)
+fn boundary_may(engine: &Handle, from: &From, name: &str, key: &str) -> Result<(), String> {
+    let caller = match from {
+        From::Command(Some(caller)) => Some(caller.as_str()),
+        From::Device => None,
+        _ => return Ok(()),
+    };
+    if !READS_TEXT.contains(&name) {
+        return Ok(());
+    }
+    let Ok(cfg) = crate::config::current() else { return Ok(()) };
+    let account_of = |k: &str| engine.read(|b| b.session(k).map(|(_, s)| (s.account.clone(), s.title.clone())));
+    let Some((account, title)) = account_of(key) else { return Ok(()) };
+    let Some(group) = crate::boundary::group_of(&cfg, &account) else { return Ok(()) };
+    // Another Mac reads as a session outside every boundary; a session the board doesn't list
+    // yet goes by the account its key names.
+    let reader = match caller {
+        None => Some(crate::boundary::Reader { account: String::new(), qualifies: false }),
+        Some(caller) => account_of(caller).map(|(a, _)| a).or_else(|| crate::boundary::account_of_key(caller).map(String::from)).map(|a| {
+            let qualifies = cfg.accounts.iter().find(|x| x.name == a).is_some_and(|x| crate::signin::current(x, now_ms(), crate::signin::Ask::IfStale).qualifies());
+            crate::boundary::Reader { account: a, qualifies }
+        }),
+    };
+    if crate::boundary::may_read(&cfg, reader.as_ref(), &account) {
+        return Ok(());
+    }
+    Err(format!("“{title}” is in the boundary group {}. {}", group.name.trim(), crate::boundary::REFUSED))
 }
 
 /// Turns down what an orchestrator's session may not ask for (schedules/orchestrate.rs

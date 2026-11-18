@@ -266,6 +266,19 @@ pub fn resting(runs: &[RunRecord], found: &[Found], now: i64) -> bool {
 pub fn found(board: &Board, file: &File, s: &Schedule, now: i64, seen: &[String]) -> Vec<Found> {
     let mut out = Vec::new();
     let keeps = |project: &str| keeps(file, s, project);
+    // What a boundary group's session says isn't for an orchestrator that may run outside it
+    // (boundary.rs): it gets the session's title and what it waits on, not its words.
+    let cfg = crate::config::current().ok();
+    let qualifies = |name: &str| cfg.as_ref().and_then(|c| c.accounts.iter().find(|a| a.name == name)).is_some_and(|a| crate::signin::current(a, now, crate::signin::Ask::Never).qualifies());
+    // The account it would start on, and the ones its sessions run on now, which a move can
+    // have taken elsewhere.
+    let on: Vec<&str> = board.lanes.iter().flat_map(|l| &l.sessions).filter(|x| x.orchestrator.as_ref().is_some_and(|o| o.schedule == s.id)).map(|x| x.account.as_str()).collect();
+    let reads = |account: &str| {
+        cfg.as_ref().is_none_or(|c| {
+            let reader = |a: &str| crate::boundary::Reader { account: a.to_string(), qualifies: qualifies(a) };
+            crate::boundary::start_may_read(c, &s.run.account, account, qualifies) && on.iter().all(|a| crate::boundary::may_read(c, Some(&reader(a)), account))
+        })
+    };
     for lane in board.lanes.iter().filter(|l| l.device.is_none() && keeps(&l.project)) {
         for x in lane.sessions.iter().filter(|x| watched(x) && !x.held_back()) {
             let what = match x.status {
@@ -276,7 +289,7 @@ pub fn found(board: &Board, file: &File, s: &Schedule, now: i64, seen: &[String]
             out.push(Found {
                 id: format!("waits:{}:{}", x.key, x.status_since.unwrap_or(x.last_activity)),
                 title: format!("“{}” {what}", x.title),
-                text: x.excerpt.clone().unwrap_or_default(),
+                text: if reads(&x.account) { x.excerpt.clone().unwrap_or_default() } else { String::new() },
                 ..Found::default()
             });
         }

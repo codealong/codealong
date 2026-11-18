@@ -540,6 +540,7 @@ export type Board = Holds<Same<
   | "schedulesProblem"
   | "sessions"
   | "sides"
+  | "signIns"
   | "starting"
   | "talkOrchestratorShortcut"
   | "talkShortcut"
@@ -826,6 +827,19 @@ export type Training = Holds<Same<
   Names<Types.Training>
 >>;
 
+export type SignIn = Holds<Same<
+  | "account"
+  | "asOf"
+  | "commercial"
+  | "email"
+  | "note"
+  | "organization"
+  | "organizationName"
+  | "plan"
+  | "verified",
+  Names<Types.SignIn>
+>>;
+
 export type DeviceView = Holds<Same<
   | "app"
   | "automations"
@@ -1015,6 +1029,8 @@ export type RoutingCfg = Holds<Same<
 >>;
 
 export type RoutingGroupCfg = Holds<Same<
+  | "boundary"
+  | "decisions"
   | "members"
   | "name"
   | "strategy",

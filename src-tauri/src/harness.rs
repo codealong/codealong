@@ -967,6 +967,17 @@ pub trait Adapter: Sync {
         bail!("Codealong can't turn training off for {}; its provider's settings can.", account.name)
     }
 
+    /// Who the account is signed in as and on what plan, from its own files alone (signin.rs):
+    /// fast, asked before every command a guard hook checks. None where Codealong can't read it.
+    fn local_sign_in(&self, _account: &AccountCfg) -> Option<crate::signin::Local> {
+        None
+    }
+
+    /// The same, asked of its provider with the account's own sign-in. It can take seconds.
+    fn verify_sign_in(&self, account: &AccountCfg) -> std::result::Result<crate::signin::Said, crate::signin::NotSaid> {
+        Err(crate::signin::NotSaid::Refused(format!("Codealong can't ask {}'s provider about its sign-in", account.name)))
+    }
+
     /// The MCP servers the account's agents have wherever they run: its provider's connectors,
     /// its settings' servers and its plugins' (mcp.rs). It can take seconds.
     fn mcp(&self, account: &AccountCfg) -> crate::mcp::Mcp {
