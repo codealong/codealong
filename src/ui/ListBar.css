@@ -30,9 +30,10 @@
   background: var(--glass-cover);
   box-shadow: 0 -2px 0 var(--glass-cover);
 }
-/* A row the keyboard goes to is scrolled to just under the bar, not under it: the bar's height. */
+/* A row the keyboard goes to is scrolled to just under the bar, not under it: the bar's height,
+   one line's (31px with its line) or more where its chips wrap (`ListBar` keeps it). */
 .ca-board:has(> .ca-listbar) {
-  scroll-padding-top: 31px;
+  scroll-padding-top: var(--listbar-h, 31px);
 }
 
 /* A view's tools (`ListTools`): its View menu and the filters narrowing it. */

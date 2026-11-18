@@ -2281,16 +2281,16 @@ export function App() {
   const listFilters: ListFilter[] = [
     ...deviceFilter.map((id) => {
       const name = deviceName(id) ?? id;
-      return { key: `device:${id}`, label: name, title: `what runs on ${name}`, clear: () => toggleDevice(id) };
+      return { key: `device:${id}`, label: name, name: `what runs on ${name}`, clear: () => toggleDevice(id) };
     }),
     ...(ageApplies && age !== 'all'
-      ? [{ key: 'age', label: (AGES.find((a) => a.id === age)?.title ?? age).replace(/^Active in the l/, 'L'), title: (AGES.find((a) => a.id === age)?.title ?? age).toLowerCase(), clear: () => setAge('all') }]
+      ? [{ key: 'age', label: (AGES.find((a) => a.id === age)?.title ?? age).replace(/^Active in the l/, 'L'), name: (AGES.find((a) => a.id === age)?.title ?? age).toLowerCase(), clear: () => setAge('all') }]
       : []),
     ...bayFilter.map((f) => {
       const label = sideStatuses.find((x) => x.id === f)?.label ?? f;
-      return { key: `status:${f}`, label, title: label.toLowerCase(), clear: () => toggleBay(f) };
+      return { key: `status:${f}`, label, name: label.toLowerCase(), clear: () => toggleBay(f) };
     }),
-    ...facetChips(sideFacets).map((c) => ({ key: `${c.facet}:${c.pick}`, label: c.label, title: c.title, clear: () => setFacets((f) => togglePick(f, c.facet, c.pick)) })),
+    ...facetChips(sideFacets).map((c) => ({ key: `${c.facet}:${c.pick}`, label: c.label, name: c.name, title: c.title, clear: () => setFacets((f) => togglePick(f, c.facet, c.pick)) })),
   ];
   const clearListFilters = () => {
     setDeviceFilter([]);

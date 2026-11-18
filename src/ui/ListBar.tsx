@@ -11,12 +11,32 @@
 // cleared. Finding sessions, todos and PRs anywhere, and starting work, is the quick panel's, the
 // box in the title bar.
 
-import { useRef, useState, type ReactNode, type RefObject } from 'react';
+import { useLayoutEffect, useRef, useState, type ReactNode, type RefObject } from 'react';
 import { Button, Chip, cx, Icon, Seg } from './primitives';
 import { useDismiss } from './useDismiss';
 
 export function ListBar({ children }: { children: ReactNode }) {
-  return <div className="ca-listbar">{children}</div>;
+  const ref = useRef<HTMLDivElement>(null);
+  // The board scrolls a row the keyboard goes to just under the strip (ListBar.css), which is
+  // taller than its one line once its chips wrap: its height goes to the board as it changes.
+  useLayoutEffect(() => {
+    const el = ref.current;
+    const board = el?.parentElement;
+    if (!el || !board) return;
+    const keep = () => board.style.setProperty('--listbar-h', `${el.offsetHeight}px`);
+    keep();
+    const watch = new ResizeObserver(keep);
+    watch.observe(el);
+    return () => {
+      watch.disconnect();
+      board.style.removeProperty('--listbar-h');
+    };
+  }, []);
+  return (
+    <div ref={ref} className="ca-listbar">
+      {children}
+    </div>
+  );
 }
 
 /** A view's tools at the strip's start, outside the list's listbox: groups of icon buttons, each
@@ -125,8 +145,10 @@ export function ViewMenu({ label, settings }: { label: string; settings: ViewSet
 export interface ListFilter {
   key: string;
   label: string;
-  /** What it narrows to, for its tooltip and its ×'s name: "Repos: owner/api". */
-  title: string;
+  /** What it narrows to, which its × names: "Repos: atlas/api". */
+  name: string;
+  /** Its tooltip, where it says more than `name`: a label's description. */
+  title?: string;
   clear: () => void;
 }
 
@@ -138,7 +160,7 @@ export function FilterChips({ filters, onClearAll }: { filters: ListFilter[]; on
   return (
     <div className="ca-listfilters" role="group" aria-label="Filters">
       {filters.map((f) => (
-        <Chip key={f.key} className="ca-listfilter" title={`Filtered to ${f.title}`} remove={{ label: `Stop filtering to ${f.title}`, title: 'Stop filtering', run: f.clear }}>
+        <Chip key={f.key} className="ca-listfilter" title={`Filtered to ${f.title ?? f.name}`} remove={{ label: `Stop filtering to ${f.name}`, title: 'Stop filtering', run: f.clear }}>
           <span className="ca-listfilter-label">{f.label}</span>
         </Chip>
       ))}

@@ -1452,15 +1452,28 @@ describe('facetChips', () => {
     { id: 'atlas/web', label: 'web', title: 'atlas/web', count: 1 },
   ] }];
 
-  it('names a pick as the sidebar does, with its full name in its title', () => {
-    expect(facetChips(repos(['atlas/web']))).toEqual([{ facet: 'repos', pick: 'atlas/web', label: 'web', title: 'Repos: atlas/web' }]);
+  it('names a pick as the sidebar does, its × by the facet and the pick, its tooltip with the full name', () => {
+    expect(facetChips(repos(['atlas/web']))).toEqual([{ facet: 'repos', pick: 'atlas/web', label: 'web', name: 'Repos: web', title: 'Repos: web · atlas/web' }]);
   });
 
-  it('gives picks of the same name their full names, so each chip says which it takes off', () => {
-    expect(facetChips(repos(['northwind/api', 'atlas/api', 'atlas/web'])).map((c) => c.label)).toEqual(['northwind/api', 'atlas/api', 'web']);
+  it('gives picks of the same name their ids, so each chip and its × say which it takes off', () => {
+    const chips = facetChips(repos(['northwind/api', 'atlas/api', 'atlas/web']));
+    expect(chips.map((c) => c.label)).toEqual(['northwind/api', 'atlas/api', 'web']);
+    expect(new Set(chips.map((c) => c.name)).size).toBe(3);
+  });
+
+  it('names a label by its name, its description only in the tooltip', () => {
+    const labels = [{ id: 'prLabels' as const, label: 'Labels', picked: ['bug', 'urgent'], options: [
+      { id: 'bug', label: 'bug', title: 'Needs attention', count: 2 },
+      { id: 'urgent', label: 'urgent', title: 'Needs attention', count: 1 },
+    ] }];
+    expect(facetChips(labels).map((c) => [c.name, c.title])).toEqual([
+      ['Labels: bug', 'Labels: bug · Needs attention'],
+      ['Labels: urgent', 'Labels: urgent · Needs attention'],
+    ]);
   });
 
   it('keeps a pick no option lists any more by its id', () => {
-    expect(facetChips(repos(['kestrel/app']))[0]).toMatchObject({ label: 'kestrel/app', title: 'Repos: kestrel/app' });
+    expect(facetChips(repos(['kestrel/app']))[0]).toMatchObject({ label: 'kestrel/app', name: 'Repos: kestrel/app', title: 'Repos: kestrel/app' });
   });
 });

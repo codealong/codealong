@@ -37,7 +37,7 @@ describe('ViewMenu', () => {
 });
 
 describe('FilterChips', () => {
-  const chip = (label: string) => ({ key: label, label, title: label, clear: () => {} });
+  const chip = (label: string) => ({ key: label, label, name: label, clear: () => {} });
   const html = (n: number) => renderToStaticMarkup(createElement(FilterChips, { filters: ['Claude', 'Last 7 days'].slice(0, n).map(chip), onClearAll: () => {} }));
 
   it('shows nothing while no filter is on', () => {

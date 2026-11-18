@@ -214,10 +214,13 @@ export function facetsOn(f: Facets, view: string): FacetId[] {
 export interface FacetChip {
   facet: FacetId;
   pick: string;
-  /** What the chip says: the pick's name, or its full name (`owner/api`) where another pick of
-   *  the facet has the same name, so each chip says which it takes off. */
+  /** What the chip says: the pick's name, or its id (`atlas/api`) where another pick of the
+   *  facet has the same name, so each chip says which it takes off. */
   label: string;
-  /** What it narrows to, with the facet's word: `Repos: owner/api`. */
+  /** What it narrows to, with the facet's word, which its × names: `Repos: atlas/api`. */
+  name: string;
+  /** Its tooltip: `name`, with what the sidebar's tooltip adds (a repo's full name, a label's
+   *  description). */
   title: string;
 }
 
@@ -226,11 +229,12 @@ export function facetChips(facets: { id: FacetId; label: string; options: FacetO
   return facets.flatMap((f) => {
     const picks = f.picked.map((pick) => {
       const o = f.options.find((x) => x.id === pick);
-      return { pick, name: o?.label ?? pick, full: o?.title ?? o?.label ?? pick };
+      return { pick, said: o?.label ?? pick, more: o?.title };
     });
-    return picks.map(({ pick, name, full }) => {
-      const label = picks.some((p) => p.pick !== pick && p.name === name) ? full : name;
-      return { facet: f.id, pick, label, title: `${f.label}: ${full}` };
+    return picks.map(({ pick, said, more }) => {
+      const label = picks.some((p) => p.pick !== pick && p.said === said) ? pick : said;
+      const name = `${f.label}: ${label}`;
+      return { facet: f.id, pick, label, name, title: more && more !== label ? `${name} · ${more}` : name };
     });
   });
 }
