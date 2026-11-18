@@ -224,10 +224,23 @@ body:has(.ca-scrim) .ca-usagebar-toast {
 .ca-uchip.is-tight :is(.ca-meter-label, .ca-meter-reset) {
   display: none;
 }
+/* The end keeps to the bar however much it has to say: past the room the chips leave it, what
+   it says first (the machine's load, a meeting, the notices) is cut at its left, and the buttons
+   after them, the window's own controls last, stay in the window. Clipped sideways only, and a
+   focus ring's width in, so a ring isn't cut; what pops out of it (a notice, the load's card) is
+   drawn over the page, outside it. */
 .ca-usagebar-end {
   display: flex;
   align-items: center;
+  justify-content: flex-end;
   gap: 2px;
+  flex: 0 1 auto;
+  min-width: 0;
+  overflow-x: clip;
+  padding: 0 4px;
+  margin: 0 -4px;
+}
+.ca-usagebar-end > * {
   flex: none;
 }
 /* Popup styles stay separate from the account and project cards in Settings. */

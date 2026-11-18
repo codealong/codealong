@@ -198,9 +198,13 @@
   color: var(--ink-3);
 }
 
-/* The title bar, the body, and the usage bar at the foot as the window's status bar. */
+/* The title bar, the body, and the usage bar at the foot as the window's status bar, in one
+   column the window's width however wide the body's minimums would make it: zoomed in on a narrow
+   window (110% of 980 leaves 891), the body is cut at the window's edge as it was, and the title
+   bar and the status bar still fit the window, Settings at the status bar's end. */
 .ca-win--app {
   grid-template-rows: var(--titlebar-h) minmax(0, 1fr) auto;
+  grid-template-columns: minmax(0, 1fr);
 }
 
 /* Collapsed: a rail of the views and devices. Its filter button carries a badge while a filter

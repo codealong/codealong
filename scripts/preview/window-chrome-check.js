@@ -6,11 +6,11 @@
 // GitHub link opens Codealong's repo, and the rail the sidebar folds to has neither. While the
 // board is read there's no panel, and the board alone rounds all four corners. At the window's
 // least width (980) the grid and its gutter fit, and the status bar's end keeps Settings in the
-// window.
+// window beside notices, a meeting and the machine's load.
 //   scripts/preview.sh sessions '' scripts/preview/window-chrome-check.js
 //   PREVIEW_GLASS=1 scripts/preview.sh sessions '' scripts/preview/window-chrome-check.js
 //   PREVIEW_LOADING=1 scripts/preview.sh sessions '' scripts/preview/window-chrome-check.js
-//   PREVIEW_SIZE=980,700 scripts/preview.sh sessions '' scripts/preview/window-chrome-check.js
+//   PREVIEW_SIZE=980,700 PREVIEW_NOTICES=scripts/preview/notices-sample.json PREVIEW_INIT=scripts/preview/window-chrome-crowded-init.js scripts/preview.sh sessions '' scripts/preview/window-chrome-check.js
 (function () {
   var REPO = 'https://github.com/codealong/codealong';
   var style = function (el) { return getComputedStyle(el); };
@@ -33,7 +33,19 @@
     var right = Math.max.apply(null, Array.prototype.map.call(body.children, function (c) { return c.getBoundingClientRect().right; }));
     check('at its least width the board, the panel and the gutter fit the window', body.scrollWidth <= body.clientWidth && right <= window.innerWidth - 4, 'children reach ' + Math.round(right) + ' of ' + window.innerWidth + ', scroll ' + body.scrollWidth + ' of ' + body.clientWidth);
     var gear = q('.ca-usagebar-settings').getBoundingClientRect();
-    check('and Settings stays in the window', gear.right <= window.innerWidth, Math.round(gear.right) + ' of ' + window.innerWidth);
+    // Crowded (window-chrome-crowded-init.js): the notices and a meeting with a long name.
+    var meeting = q('.ca-usagebar-end .ca-meeting.is-line');
+    check('the bar is crowded: notices and a meeting beside Settings', !!q('.ca-usagebar-end .ca-notice') && !!meeting, 'notice ' + !!q('.ca-usagebar-end .ca-notice') + ', meeting ' + !!meeting);
+    check('and Settings stays in the window', gear.right <= window.innerWidth && gear.left >= q('.ca-usagebar').getBoundingClientRect().left, Math.round(gear.left) + '–' + Math.round(gear.right) + ' of ' + window.innerWidth);
+    // What's cut is cut at the left; nothing it shows spills over what's beside it.
+    var hits = all('.ca-usagebar-end button').filter(function (b) {
+      var r = b.getBoundingClientRect();
+      var x = r.left + r.width / 2;
+      if (x < q('.ca-usagebar-end').getBoundingClientRect().left) return false;
+      var at = document.elementFromPoint(x, r.top + r.height / 2);
+      return !(at && b.contains(at));
+    });
+    check('each button it shows is the one under its middle', hits.length === 0, hits.map(function (b) { return b.textContent.trim() || b.getAttribute('aria-label'); }).join(', '));
   };
   var run = async function () {
     if (q('.ca-win-body.is-loading') || window.__PREVIEW_LOADING__) return alone();
@@ -72,7 +84,7 @@
     check('Settings, the GitHub link and the theme are at the status bar’s end', !!github && !!gear && !!theme, end.innerHTML.slice(0, 200));
     check('Settings is the last of them', end.lastElementChild === gear, end.lastElementChild && end.lastElementChild.className);
     var accounts = end.querySelector('button[aria-label="Accounts"]');
-    check('after Analytics and Accounts', !!accounts && theme.getBoundingClientRect().left > accounts.getBoundingClientRect().right, accounts ? 'ok' : 'no Accounts');
+    check('after Analytics and Accounts', !!accounts && !!end.querySelector('button[aria-label="Analytics"]') && theme.getBoundingClientRect().left > accounts.getBoundingClientRect().right, accounts ? 'ok' : 'no Accounts');
     check('Settings and the GitHub link are icons, named', gear.textContent.trim() === '' && gear.getAttribute('aria-label') === 'Settings' && github.textContent.trim() === '' && github.getAttribute('aria-label') === 'Codealong on GitHub', gear.textContent + '|' + github.textContent);
     var icon = function (el) { var svg = el && el.querySelector('svg'); return svg ? svg.innerHTML : ''; };
     check('Accounts no longer wears Settings’ gear', !!accounts && icon(accounts) !== '' && icon(accounts) !== icon(gear), accounts ? icon(accounts).slice(0, 80) : 'no Accounts');
