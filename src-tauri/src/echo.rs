@@ -251,6 +251,22 @@ const SAYING_LAG_MS: i64 = 2000;
 /// hearing (`shown`), which began a few words ago.
 const SHOWN_MS: i64 = 5000;
 
+/// The most words of what the microphone is in the middle of hearing that are compared with
+/// theirs (`shown`): what it hears of the Mac comes in scraps, and a stretch longer than this is
+/// you talking, shown as it is.
+const SHOWN_WORDS: usize = 40;
+
+/// How far from a line of yours, by about when they said them, words of theirs are compared with
+/// it. A line of theirs has only its start and end, so its words are taken to be spread evenly
+/// over it, which a pause in the middle throws off by a few seconds; and a long line of theirs
+/// taken whole costs time and finds more by chance.
+const WORDS_NEAR_MS: i64 = 6000;
+
+/// The fewest words of theirs a line of yours repeats at its start or end for the words of yours
+/// past them to be kept and the rest left out, as "Do you agree? No." is: fewer are a phrase of
+/// theirs you say yourself.
+const FEWEST_WORDS: usize = 3;
+
 /// The least a line weighs as it sounds (`weight`) to be compared by its sound: two short words or
 /// so. A sound shorter than that is found by chance in most of what anyone says, so a word or two
 /// is compared as written.
@@ -261,17 +277,17 @@ const SHORTEST: f64 = 5.0;
 /// hour on speakers, sorted by hand, the lines of yours that were theirs misheard came out mostly
 /// under 0.4, and none of your own under 0.42, the short ones none under 0.43.
 fn most(weight: f64) -> f64 {
-    if weight < SHORTEST {
-        EXACT
-    } else if weight < 8.0 {
+    if weight < 8.0 {
         0.3
     } else {
         0.42
     }
 }
 
-/// As close as a line of yours, this long at least, must sound to theirs to prove the microphone
-/// hears the Mac: none of your own lines on the hour came near it.
+/// As close as a line of yours, this long at least and of `FEWEST_WORDS` words, must sound to
+/// theirs to prove the microphone hears the Mac: none of your own lines on the hour came near it,
+/// and a word of theirs said back as an answer ("Infrastructure." to "Infrastructure or billing?")
+/// is too few words to prove anything. A repeat with words of yours past it needs `OWN_WORDS`.
 const CLOSE: f64 = 0.2;
 const CLOSE_WEIGHT: f64 = 10.0;
 
@@ -294,14 +310,17 @@ pub struct Repeats {
     /// The Mac's lines of the last minute.
     theirs: VecDeque<Said>,
     saying: Option<Saying>,
-    /// Each line in the order it settled, with when it may be written: at once for theirs.
-    queue: VecDeque<(Said, i64)>,
+    /// Each line in the order it settled, with when it may be written (at once for theirs) and
+    /// the device it was heard through (`devices`).
+    queue: VecDeque<(Said, i64, u32)>,
     /// When a line of yours last repeated theirs closely.
     repeated_at: Option<i64>,
     /// Whether the microphone is heard to hear the Mac, as last said (`on_speakers`).
     speakers: bool,
-    /// What the Mac plays through, as last said.
+    /// What the Mac plays through, as last said, and how many times that has changed: a line
+    /// heard through one device proves nothing of the next.
     output: Option<String>,
+    devices: u32,
 }
 
 impl Repeats {
@@ -314,6 +333,7 @@ impl Repeats {
         if output.is_some() && output != self.output.as_deref() {
             if self.output.is_some() {
                 self.repeated_at = None;
+                self.devices += 1;
             }
             self.output = output.map(str::to_string);
         }
@@ -328,7 +348,7 @@ impl Repeats {
             }
         }
         let due = if said.mine { now + HOLD_MS } else { now };
-        self.queue.push_back((said, due));
+        self.queue.push_back((said, due, self.devices));
         self.due(now)
     }
 
@@ -348,7 +368,7 @@ impl Repeats {
     /// the microphone is known to hear the Mac, what of it doesn't repeat what they're saying or
     /// just said. Nothing, when all of it does.
     pub fn shown(&self, text: &str, now: i64) -> String {
-        if !self.proven(now) {
+        if !self.proven(now) || text.split_whitespace().nth(SHOWN_WORDS).is_some() {
             return text.to_string();
         }
         let said = Said { mine: true, text: text.to_string(), at: now - SHOWN_MS, until: now };
@@ -361,9 +381,9 @@ impl Repeats {
     /// The lines that may be written by now.
     pub fn due(&mut self, now: i64) -> Vec<Said> {
         let mut out = Vec::new();
-        while self.queue.front().is_some_and(|&(_, due)| due <= now) {
-            let Some((said, _)) = self.queue.pop_front() else { break };
-            out.extend(self.judged(said, now));
+        while self.queue.front().is_some_and(|&(_, due, _)| due <= now) {
+            let Some((said, _, device)) = self.queue.pop_front() else { break };
+            out.extend(self.judged(said, device, now));
         }
         out
     }
@@ -371,8 +391,8 @@ impl Repeats {
     /// Every line still held back, judged on what has come: hearing has ended.
     pub fn rest(&mut self, now: i64) -> Vec<Said> {
         let mut out = Vec::new();
-        while let Some((said, _)) = self.queue.pop_front() {
-            out.extend(self.judged(said, now));
+        while let Some((said, _, device)) = self.queue.pop_front() {
+            out.extend(self.judged(said, device, now));
         }
         out
     }
@@ -382,23 +402,36 @@ impl Repeats {
         self.speakers || self.repeated_at.is_some_and(|at| now - at < PROVEN_MS)
     }
 
-    /// The Mac's words said about when line `said` of yours was, in order.
+    /// The Mac's words said about when line `said` of yours was, in order (`WORDS_NEAR_MS`).
     fn theirs_near(&self, said: &Said) -> Vec<Theirs> {
         let near = |at: i64, until: i64| at <= said.until + NEAR_MS && until >= said.at - NEAR_MS;
         let mut heard: Vec<&Said> = self.theirs.iter().filter(|t| near(t.at, t.until)).collect();
         heard.sort_by_key(|t| t.at);
-        let mut theirs: Vec<Theirs> = heard.iter().flat_map(|t| words(&t.text).into_iter().map(move |(_, plain)| Theirs { plain, at: t.at, until: t.until })).collect();
+        // The words of a line said from `at` to `spoken` that were said about when this one was.
+        let near_words = |text: &str, at: i64, spoken: i64| -> Vec<String> {
+            let all = words(text);
+            let count = all.len().max(1) as i64;
+            all.into_iter()
+                .enumerate()
+                .filter_map(|(i, (_, plain))| {
+                    let about = at + (spoken - at) * (2 * i as i64 + 1) / (2 * count);
+                    (about >= said.at - WORDS_NEAR_MS && about <= said.until + WORDS_NEAR_MS).then_some(plain)
+                })
+                .collect()
+        };
+        let mut theirs: Vec<Theirs> = heard.iter().flat_map(|t| near_words(&t.text, t.at, t.until).into_iter().map(move |plain| Theirs { plain, at: t.at, until: t.until })).collect();
         // What they're still saying, while it's still changing near this line: one that stopped
         // changing long ago is one whose source was lost before its words settled. Its last words
         // aren't in yet, so nothing of yours is past them.
         if let Some(saying) = self.saying.as_ref().filter(|s| near(s.since, s.changed)) {
-            theirs.extend(words(&saying.text).into_iter().map(|(_, plain)| Theirs { plain, at: saying.since, until: i64::MAX }));
+            theirs.extend(near_words(&saying.text, saying.since, saying.changed).into_iter().map(|plain| Theirs { plain, at: saying.since, until: i64::MAX }));
         }
         theirs
     }
 
     /// A line as it's to be written, if any of it is: one of yours without what repeats theirs.
-    fn judged(&mut self, said: Said, now: i64) -> Option<Said> {
+    /// One heard through a device that's been changed since proves nothing.
+    fn judged(&mut self, said: Said, device: u32, now: i64) -> Option<Said> {
         if !said.mine {
             return Some(said);
         }
@@ -406,7 +439,7 @@ impl Repeats {
         match verdict(&said, &theirs, self.proven(now)) {
             Verdict::Yours => Some(said),
             Verdict::Repeats { kept, close } => {
-                if close {
+                if close && device == self.devices {
                     self.repeated_at = Some(now);
                 }
                 kept.map(|text| Said { text, ..said })
@@ -445,9 +478,10 @@ fn verdict(said: &Said, theirs: &[Theirs], proven: bool) -> Verdict {
     let all = sounds.weight(0..n);
     let repeats = |close: bool, kept: Option<String>| if proven || close { Verdict::Repeats { kept, close } } else { Verdict::Yours };
     let heard = Sounds::of(theirs.iter().map(|t| t.plain.as_str()));
-    // A word or two: all of them theirs at the time as written, or as they sound, all but exactly.
+    // A word or two, by the words as written: all of them theirs at the time. ("No" sounds like
+    // the start of "nobody".)
     if all < SHORTEST {
-        let theirs_too = mine.iter().all(|(_, word)| theirs.iter().any(|t| t.plain == *word)) || heard_as(&sounds.letters, &heard.letters).0 <= all * most(all);
+        let theirs_too = mine.iter().all(|(_, word)| theirs.iter().any(|t| t.plain == *word));
         return if theirs_too { repeats(false, None) } else { Verdict::Yours };
     }
     // When the words of theirs at letters `span` of `heard` were said.
@@ -458,34 +492,41 @@ fn verdict(said: &Said, theirs: &[Theirs], proven: bool) -> Verdict {
     let join = |part: &[(&str, String)]| part.iter().map(|(w, _)| *w).collect::<Vec<_>>().join(" ");
     // You answering as they finish, or starting before they do: the stretch of the line that sounds
     // most like theirs is at one end of it, and the words past it are yours, by how many there are
-    // or by being said apart from what it repeats.
+    // or by being said apart from what it repeats. Words at the other end are theirs misheard.
     if let Some((first, last)) = likest(&sounds.letters, &heard.letters).map(|(from, to)| sounds.words_within(from, to)) {
         let (before, after) = (first, n - last);
-        if (before == 0) != (after == 0) && last - first >= OWN_WORDS {
-            let weight = sounds.weight(first..last);
+        if last - first >= FEWEST_WORDS && (before > 0 || after > 0) {
             if let (cost, Some(span)) = heard_as(sounds.letters(first..last), &heard.letters) {
                 let (from, until) = when(span);
-                let own = if before > 0 { before >= OWN_WORDS || said.at + APART_MS <= from } else { after >= OWN_WORDS || said.until >= until.saturating_add(APART_MS) };
+                let own_before = before > 0 && (before >= OWN_WORDS || said.at + APART_MS <= from);
+                let own_after = after > 0 && (after >= OWN_WORDS || said.until >= until.saturating_add(APART_MS));
+                // Their words amid yours are you saying them: nothing is taken from the middle.
+                if own_before && own_after {
+                    return Verdict::Yours;
+                }
                 // And the repeat was heard as they said it, at the line's end or its start: one
                 // said after they did is you taking up their words ("we're certainly taking on new
                 // projects" once they've asked whether you are).
-                let as_they_said = if before > 0 { said.until <= until.saturating_add(SAME_TIME_MS) } else { said.at + SAME_TIME_MS >= from };
+                let as_they_said = if own_before { said.until <= until.saturating_add(SAME_TIME_MS) } else { said.at + SAME_TIME_MS >= from && said.at <= until.saturating_add(APART_MS) };
+                let weight = sounds.weight(first..last);
                 let ratio = cost / weight;
-                if own && as_they_said && (ratio <= EXACT || (ratio <= most(weight) && weight * 2.0 >= all)) {
-                    let close = ratio <= CLOSE && weight >= CLOSE_WEIGHT && weight * 4.0 >= all * 3.0;
-                    return repeats(close, Some(if before > 0 { join(&mine[..first]) } else { join(&mine[last..]) }));
+                if (own_before || own_after) && as_they_said && (ratio <= EXACT || (ratio <= most(weight) && weight * 2.0 >= all)) {
+                    let close = ratio <= CLOSE && weight >= CLOSE_WEIGHT && last - first >= OWN_WORDS && weight * 4.0 >= all * 3.0;
+                    return repeats(close, Some(if own_before { join(&mine[..first]) } else { join(&mine[last..]) }));
                 }
             }
         }
     }
-    // All of it theirs, misheard, and over by the time they'd said it. (Not begun by then too: the
-    // speech model's stretch of a faint sound can start long before the words it makes out.)
+    // All of it theirs, misheard, and heard as they said it: not begun after they'd finished, nor
+    // over well after. (It may have begun well before: the speech model's stretch of a faint
+    // sound can start long before the words it makes out.)
     let (cost, span) = heard_as(&sounds.letters, &heard.letters);
     let ratio = cost / all;
-    if ratio > most(all) || span.is_some_and(|span| said.until > when(span).1.saturating_add(SAME_TIME_MS)) {
+    let after_them = span.map(when).is_some_and(|(_, until)| said.at > until.saturating_add(APART_MS) || said.until > until.saturating_add(SAME_TIME_MS));
+    if ratio > most(all) || after_them {
         return Verdict::Yours;
     }
-    repeats(ratio <= CLOSE && all >= CLOSE_WEIGHT, None)
+    repeats(ratio <= CLOSE && all >= CLOSE_WEIGHT && n >= FEWEST_WORDS, None)
 }
 
 /// A line's words, each as written and as compared: in lower case, without its punctuation.
@@ -633,7 +674,8 @@ fn heard_as(mine: &[char], theirs: &[char]) -> (f64, Option<(usize, usize)>) {
         std::mem::swap(&mut cost, &mut next_cost);
         std::mem::swap(&mut from, &mut next_from);
     }
-    let Some((end, &least)) = cost.iter().enumerate().min_by(|x, y| x.1.total_cmp(y.1)) else { return (0.0, None) };
+    // Of stretches as good, the latest: what was said twice is echoed as it was said last.
+    let Some((end, &least)) = cost.iter().enumerate().rev().min_by(|x, y| x.1.total_cmp(y.1)) else { return (0.0, None) };
     (least, (from[end] < end).then_some((from[end], end)))
 }
 
@@ -947,6 +989,20 @@ mod tests {
         assert_eq!(okay(&mut repeats, 10_000), 0, "the helper not there to say leaves it as it was");
         repeats.on_speakers(false, Some("airpods"));
         assert_eq!(okay(&mut repeats, 20_000), 1);
+        // A line heard through the last device, judged once the next is said, proves nothing of it.
+        let mut repeats = Repeats::default();
+        repeats.on_speakers(false, Some("usb"));
+        repeats.said(Said { mine: false, text: EXPORT.into(), at: 0, until: 4000 }, 4500);
+        repeats.said(Said { mine: true, text: EXPORT.into(), at: 0, until: 4000 }, 4600);
+        repeats.on_speakers(false, Some("airpods"));
+        assert_eq!(repeats.due(8000), vec![]);
+        assert_eq!(okay(&mut repeats, 10_000), 1);
+        // A word or two of theirs said back as an answer proves nothing either.
+        let mut repeats = Repeats::default();
+        repeats.said(Said { mine: false, text: "Is the issue with infrastructure or billing?".into(), at: 0, until: 2500 }, 3000);
+        repeats.said(Said { mine: true, text: "Infrastructure.".into(), at: 2000, until: 2800 }, 3200);
+        assert_eq!(repeats.due(7000).len(), 1);
+        assert_eq!(okay(&mut repeats, 10_000), 1);
         // A looser repeat too: words misheard in the middle are theirs.
         let launch = "We moved the launch to March because the vendor needs more time for the testing, so plan for that.";
         let heard = || vec![(5000, theirs(launch, 0, 4000)), (5100, mine("We moved the launch to March because the window is the right one for us, so plan for that.", 0, 4000))];
@@ -983,6 +1039,15 @@ mod tests {
         // One that sounds as close as these proves the microphone hears them by itself.
         let heard = vec![(4000, theirs("Is it, um, is it, uh, per-seat, uh, Dana?", 0, 3500)), (4100, mine("Is it a per seat, Dana?", 1000, 3500))];
         assert_eq!(transcript(heard, false), vec!["Them: Is it, um, is it, uh, per-seat, uh, Dana?"]);
+        // What they said twice, echoed as they said it the second time.
+        let heard = vec![(1500, theirs("Can you hear me?", 0, 1000)), (3700, theirs("Can you hear me?", 2200, 3200)), (3800, mine("Can you hear me?", 2200, 3200))];
+        assert_eq!(transcript(heard, true), vec!["Them: Can you hear me?", "Them: Can you hear me?"]);
+        // Only their words of about the time count, not all of a long line of theirs.
+        let long = format!("{EXPORT} And then on Mondays we look at the numbers together and decide what changes, which usually takes the whole morning and most of lunch.");
+        let heard = vec![(31_000, theirs(&long, 0, 30_000)), (31_500, mine("decide what changes", 22_000, 23_000))];
+        assert_eq!(transcript(heard, true), vec![format!("Them: {long}")]);
+        let heard = vec![(31_000, theirs(&long, 0, 30_000)), (31_500, mine("decide what changes", 1000, 2000))];
+        assert_eq!(transcript(heard, true), vec![format!("Them: {long}"), "You: decide what changes".into()]);
         // What they're in the middle of saying is shown without what the microphone repeats of it.
         let mut repeats = Repeats::default();
         repeats.saying(false, "if you send it over first we could come ready with, like, this is just the draft", 10_000);
@@ -990,6 +1055,9 @@ mod tests {
         repeats.on_speakers(true, None);
         assert_eq!(repeats.shown("like this is just the draft", 10_200), "");
         assert_eq!(repeats.shown("Sure, I'll send the deck over this afternoon.", 10_200), "Sure, I'll send the deck over this afternoon.");
+        // A long stretch is you talking, shown as it is without comparing it.
+        let long = "like this is just the draft ".repeat(8);
+        assert_eq!(repeats.shown(&long, 10_200), long);
     }
 
     #[test]
@@ -1031,6 +1099,20 @@ mod tests {
         let you = "Yeah, we have a whole pricing model page for that.";
         let heard = vec![(4000, theirs(them, 0, 3500)), (6000, mine(you, 3000, 5500))];
         assert_eq!(transcript(heard, true), vec![format!("Them: {them}"), format!("You: {you}")]);
+        // A short repeat with your answer after it.
+        let heard = vec![(1500, theirs("Do you agree?", 0, 1000)), (2600, mine("Do you agree? No.", 0, 2100))];
+        assert_eq!(transcript(heard, true), vec!["Them: Do you agree?", "You: No."]);
+        // Their words amid yours, yours said apart from them on both sides.
+        let heard = vec![(3500, theirs("Restore the backup from Friday.", 1000, 3000)), (4500, mine("Wait, restore the backup from Friday. Really?", 0, 4000))];
+        assert_eq!(transcript(heard, true), vec!["Them: Restore the backup from Friday.", "You: Wait, restore the backup from Friday. Really?"]);
+        // A word that sounds like the start of one of theirs isn't theirs.
+        let heard = vec![(1500, theirs("Nobody has answered.", 0, 1000)), (1600, mine("No.", 200, 600))];
+        assert_eq!(transcript(heard, true), vec!["Them: Nobody has answered.", "You: No."]);
+        // What they said, said again once they've finished: at the start of a line of yours, or all of it.
+        let heard = vec![(1500, theirs("We can make an exception.", 0, 1000)), (5500, mine("We can make an exception if you call today.", 2900, 5000))];
+        assert_eq!(transcript(heard, true), vec!["Them: We can make an exception.", "You: We can make an exception if you call today."]);
+        let heard = vec![(3000, theirs("Is the issue with infrastructure or billing?", 0, 2500)), (4400, mine("Infrastructure.", 3300, 4000))];
+        assert_eq!(transcript(heard, true), vec!["Them: Is the issue with infrastructure or billing?", "You: Infrastructure."]);
         // Taking up their words once they've said them, at the end of a line of yours.
         let them = "I've got lots of ideas, I just don't know how much room you have for taking on new projects or not.";
         let you = "I mean, we're certainly taking on new projects.";
@@ -1084,6 +1166,8 @@ mod tests {
         assert!(ratio("it was criminal", "it was minimal") < most(10.0), "{}", ratio("it was criminal", "it was minimal"));
         assert!(ratio("we should wait a week", "the plan is to ship on Friday") > 0.5);
         assert_eq!(heard_as(&sounds("plan"), &sounds("the plan is")).1, Some((2, 6)));
+        // What was said twice is heard as it was said last.
+        assert_eq!(heard_as(&sounds("plan"), &sounds("plan or plan")).1, Some((6, 10)));
         assert_eq!(heard_as(&sounds("plan"), &[]), (3.5, None));
         // The stretch of a line that sounds most like theirs.
         let line = sounds("can you send it over no I can't");

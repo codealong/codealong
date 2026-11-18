@@ -583,6 +583,9 @@ struct Running {
     /// Whether words of yours being said are showing in the windows: ones that repeat theirs
     /// aren't sent (echo.rs `Repeats::shown`), and what was showing goes once.
     mine_shown: bool,
+    /// Whether it hears both you and the others (`hears_both`): its lines are held from the first
+    /// words said, so that the first of yours being said are shown without theirs too.
+    both: bool,
     /// Its session's last reply as it was at the last look, to know a new one by; None until the
     /// first look, whose reply was written before the listening and is no cue.
     reply: Option<Option<String>>,
@@ -616,6 +619,7 @@ impl Running {
         Running {
             session: l.session.clone(),
             silent_since: l.sources.iter().any(|s| matches!(s.from, ear::From::System | ear::From::Apps { .. })).then_some(now),
+            both: hears_both(l),
             ..Running::default()
         }
     }
@@ -854,11 +858,16 @@ fn heard(id: &str, event: Event) {
             let (session, text) = {
                 let mut state = state();
                 let now = util::now_ms();
-                // Your words being said, without what repeats theirs (echo.rs `Repeats::shown`).
-                let shown = match held(&mut state, id, false) {
+                let running = state.running.get(id);
+                // The words settling (empty) always go; the ones still changing, every so often.
+                let sent = running.is_some_and(|r| text.is_empty() || r.said_at.is_none_or(|at| at.elapsed() >= PARTIAL_EVERY));
+                // Held from the first words said, for one that hears both, as `Final` does.
+                let start = running.is_some_and(|r| r.both) && !state.ended.contains(id);
+                let shown = match held(&mut state, id, start) {
                     Some(held) => {
                         held.saying(mine, &text, now);
-                        if mine && !text.is_empty() {
+                        // Your words being said, without what repeats theirs (echo.rs `Repeats::shown`).
+                        if mine && sent && !text.is_empty() {
                             held.shown(&text, now)
                         } else {
                             text.clone()
@@ -867,13 +876,11 @@ fn heard(id: &str, event: Event) {
                     None => text.clone(),
                 };
                 let Some(running) = state.running.get_mut(id) else { return };
+                if !sent {
+                    return;
+                }
                 // All of it theirs: what's showing of yours goes, as words that settled do, once.
-                if shown.is_empty() && !text.is_empty() {
-                    if !std::mem::take(&mut running.mine_shown) {
-                        return;
-                    }
-                } else if !shown.is_empty() && running.said_at.is_some_and(|at| at.elapsed() < PARTIAL_EVERY) {
-                    // The words settling (empty) always go; the ones still changing, every so often.
+                if shown.is_empty() && !text.is_empty() && !std::mem::take(&mut running.mine_shown) {
                     return;
                 }
                 running.said_at = Some(Instant::now());

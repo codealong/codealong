@@ -3711,12 +3711,13 @@ words the microphone didn't catch still match. A line that sounds like a stretch
 was over by the time they'd said it, is theirs, heard through your speakers, and is left out of
 the transcript. Words of yours before or after a close repeat stay, as your line, when there are
 four or more, or when they go on past the end of theirs or start before it: you answering as they
-finish ("No, I can't."). Nothing is taken from the middle of a line of yours, and a line that ends
-well after they said the words it shares with them is you taking them up ("we're certainly taking
-on new projects"), and stays. Until a close repeat or the speakers' sound has shown that the
-microphone hears the Mac, only a line that sounds nearly all theirs is left out; after that, a
-looser one is too, and a "Yeah." they said at that moment as well, for half an hour after the
-last close repeat or until what the Mac plays through changes. A line of nothing but punctuation
+finish ("Do you agree? No."). Nothing is taken from the middle of a line of yours, and a line
+that starts after they've said the words it shares with them, or ends well after, is you taking
+them up ("we're certainly taking on new projects"), and stays. Until a close repeat of three words
+or more or the speakers' sound has shown that the microphone hears the Mac, only a line that
+sounds nearly all theirs is left out; after that, a looser one is too, and a "Yeah." they said at
+that moment as well, for half an hour after the last close repeat or until what the Mac plays
+through changes. A line of nothing but punctuation
 (the speech model's "." for a sound it made no words of) is never written. The Mac's lines are
 never left out, and lines are written in the order they settled, so one of theirs waits behind
 one of yours that's held back. The words being said show as they're heard, before they settle;
