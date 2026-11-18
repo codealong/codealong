@@ -437,7 +437,7 @@ pub fn command_link() -> Option<PathBuf> {
 
 /// Claude Code's name for the plugin, and for the marketplace it comes from.
 pub const PLUGIN: &str = "codealong@codealong";
-const MARKETPLACE: &str = "codealong";
+pub const MARKETPLACE: &str = "codealong";
 
 /// The marketplace shipped with this binary: a folder with `.claude-plugin/marketplace.json` and
 /// the plugin in `plugin/`. The bundle has it in `Resources/plugin-marketplace`; a build from

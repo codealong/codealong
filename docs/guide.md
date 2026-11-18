@@ -2544,20 +2544,24 @@ with the variable pointing at it. To add one:
    folder and the command follow a name you type until you change them yourself. A wrapper
    script on your PATH, or an alias in your shell, works as the command too.
 2. **Settings from** picks the account whose setup the new one starts with: the first of the
-   agent's accounts, unless you pick another. Its `settings.json` goes into the new folder (its
-   model, permissions, hooks, status line, and the plugins it turns on, which Claude Code
-   installs from their marketplaces once the new account runs), with its `CLAUDE.md`,
-   `keybindings.json`, skills, commands, agents, output styles, rules and themes, and the MCP
-   servers it has for every folder (`claude mcp add --scope user`). A file in its folder that
-   its settings name by path, such as a status line's script, is copied too, and the new
-   account's settings name the copy, so changing one account's leaves the other's alone. They're
-   copies from then on: a change in one account isn't made in the other. Nothing already in the
-   new folder is replaced. Its sign-in, sessions and history stay with it, and so do the skills
-   and plugins claude.ai syncs to its sign-in; the new account gets those from its own. **None**
-   leaves the folder for Claude Code to set up from nothing. Only Claude Code accounts offer it
-   so far.
+   agent's accounts whose folder is there, unless you pick another. Its `settings.json` goes
+   into the new folder (its model, permissions, hooks, status line, and the plugins it turns on,
+   which Claude Code installs from their marketplaces once the new account runs), with its
+   `CLAUDE.md`, `keybindings.json`, skills, commands, agents, output styles, rules and themes,
+   and the MCP servers it has for every folder (`claude mcp add --scope user`). The scripts in
+   its folder that its status line and hooks run (`~/.claude/hooks/check.sh`) are copied too,
+   and the new account runs the copies, so changing one account's leaves the other's alone.
+   They're copies from then on: a change in one account isn't made in the other. Nothing already
+   in the new folder is replaced, and a link there (a skills folder you share between accounts)
+   is left as it is. What signs it in or pays for it stays with it: its sign-in, and an API key,
+   token or key helper in its settings. So do its sessions and history, and the skills and
+   plugins claude.ai syncs to its sign-in, which the new account gets from its own. Codealong's
+   own plugin goes in as step 3's box says, whatever the other account has. **None** leaves the
+   folder for Claude Code to set up from nothing. Only Claude Code accounts offer it so far.
 3. **Add account** saves it to config.toml, copies the settings, then puts Codealong's plugin in
-   it (unless you untick it).
+   it (unless you untick **Install the Codealong plugin**). When something can't be copied (a
+   file it can't read), the form says what, and leaves the plugin out: remove the account and add
+   it again to copy the rest.
 4. **Sign in**, on its card, opens a terminal running its command, where Claude Code's first run
    has you log in. The card then says who it's signed in as, and its usage joins the usage bar.
 

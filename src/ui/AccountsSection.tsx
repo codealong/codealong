@@ -192,10 +192,10 @@ function commandHelp(harness: Harness, terminal: string): string {
   }
 }
 
-/** The accounts a new one of `harness` can take its settings from (`copiesSettings`), the
- *  first being what it takes unless you pick another. */
+/** The accounts a new one of `harness` can take its settings from (`copiesSettings`, and a
+ *  folder that's there), the first being what it takes unless you pick another. */
 export function copySources(harness: Harness, accounts: AccountInfo[]): AccountInfo[] {
-  return accounts.filter((a) => a.harness === harness && a.copiesSettings);
+  return accounts.filter((a) => a.harness === harness && a.copiesSettings && a.folderExists);
 }
 
 /** The next free `claude2`, `claude3`… with its own folder. */
@@ -393,12 +393,14 @@ export function AccountsSection({ focus, usage, training, mcp, terminal, now, on
     if (await save(next)) {
       setDraft(null);
       if (draft.original) return;
-      // Before Codealong goes in, which writes to the settings it would copy.
+      // Before Codealong goes in, which writes the settings file the copy would bring. One that
+      // fails leaves it out, so adding the account again copies the rest, the settings with it.
       if (draft.copyFrom) {
         try {
           await copyAccountSettings(draft.copyFrom, entry.name);
         } catch (e) {
-          setError(`${entry.name} is added, but ${draft.copyFrom}’s settings didn’t copy: ${String(e)}`);
+          setError(`${entry.name} is added, but not all of ${draft.copyFrom}’s settings copied: ${String(e)}. Remove it and add it again to copy the rest; Codealong goes into it then.`);
+          return;
         }
       }
       await installSkill(entry.name);
@@ -500,7 +502,7 @@ export function AccountsSection({ focus, usage, training, mcp, terminal, now, on
         <div className="ca-field">
           <span id="ca-acct-copy">Settings from</span>
           <Seg labelledBy="ca-acct-copy" options={[...draftSources.map((a) => ({ id: a.name, label: a.name })), { id: null, label: 'None' }]} value={draft.copyFrom} onPick={(copyFrom) => setDraft({ ...draft, copyFrom })} />
-          <small>{draft.copyFrom ? `What you set up in ${draft.copyFrom} goes into the new folder: its settings and plugins, instructions, skills, commands, agents and MCP servers. Nothing already there is replaced, and its sign-in, sessions and history stay with it.` : 'The new account starts with an empty folder.'}</small>
+          <small>{draft.copyFrom ? `What you set up in ${draft.copyFrom} goes into the new folder: its settings and plugins, instructions, skills, commands, agents and MCP servers. Nothing already there is replaced, and its sign-in (an API key too), sessions and history stay with it.` : 'The new account starts with an empty folder.'}</small>
         </div>
       )}
       {draftPlaces.length > 1 && (

@@ -845,7 +845,11 @@ on this Mac; read it before changing the Claude adapter (paths are under `src-ta
   `CLAUDE.md`, `keybindings.json` and the folders `skills`, `commands`, `agents`,
   `output-styles`, `rules` (user-level rules, `<config>/rules`) and `themes`; the state file's
   `mcpServers` are the servers added for every folder. `skills/synced/<sign-in>` and
-  `plugins/synced/<sign-in>` belong to the sign-in. A new account whose `settings.json` turns
+  `plugins/synced/<sign-in>` belong to the sign-in, and settings that sign in or pay
+  (`apiKeyHelper`, `awsAuthRefresh`, `awsCredentialExport`, `gcpAuthRefresh`,
+  `forceLoginMethod`, `forceLoginOrgUUID`, and in `env` `ANTHROPIC_API_KEY`,
+  `ANTHROPIC_AUTH_TOKEN`, `CLAUDE_CODE_OAUTH_TOKEN`, `AWS_BEARER_TOKEN_BEDROCK`,
+  `ANTHROPIC_FOUNDRY_API_KEY`) to the account. A new account whose `settings.json` turns
   on plugins of marketplaces it lists (`enabledPlugins`, `extraKnownMarketplaces`) gets them
   added and installed by Claude Code itself once it runs (seen with a copied settings.json,
   2026-11-17), so the plugins themselves aren't copied.
