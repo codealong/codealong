@@ -41,7 +41,9 @@ pub struct System {
 
 /// macOS's memory pressure: `kern.memorystatus_vm_pressure_level`, which is 1 when memory is
 /// enough, 2 when macOS warns that it's getting short (it compresses and swaps more), and 4 when
-/// it's critical (it kills what it can).
+/// it's critical (it kills what it can). Only macOS reads one (macos.rs); elsewhere the type is
+/// there for load.rs to match on, and nothing makes one.
+#[cfg_attr(not(target_os = "macos"), allow(dead_code))]
 #[derive(Serialize, Clone, Copy, Debug, PartialEq, Eq)]
 #[serde(rename_all = "lowercase")]
 pub enum Pressure {
@@ -52,6 +54,7 @@ pub enum Pressure {
 
 impl Pressure {
     /// The sysctl's value as a pressure; None for one it doesn't use.
+    #[cfg_attr(not(target_os = "macos"), allow(dead_code))]
     pub fn of_level(level: i32) -> Option<Pressure> {
         match level {
             1 => Some(Pressure::Normal),
