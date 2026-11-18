@@ -21,6 +21,8 @@
     return c.textContent.slice(0, count ? c.textContent.length - count.textContent.length : undefined).trim();
   };
   var picked = [];
+  // The strip's height on one line, before any chip.
+  var oneLine = 0;
   // Whole on the screen, inside the board and the strip.
   var inSight = function (el) {
     var r = el.getBoundingClientRect();
@@ -32,6 +34,7 @@
   say('list filters check: waiting for the sidebar');
   until(function () { return label('Status') && q('.ca-listbar'); }, 20000, 'the sidebar and the strip')
     .then(function () {
+      oneLine = q('.ca-listbar').offsetHeight;
       picks('Status', 2).concat(picks('Agents', 3)).forEach(function (c) {
         picked.push(named(c));
         c.click();
@@ -43,7 +46,11 @@
       if (toggle) toggle.click();
       return until(function () { return !q('.ca-sidetoggle.is-on') && chips().length > 2; }, 3000, 'the chips, the sidebar folded');
     })
-    .then(function () { return wait(500); })
+    .then(function () {
+      // However short the names this Mac's agents have, the chips wrap in a strip this narrow.
+      q('.ca-listbar').style.maxWidth = '320px';
+      return wait(500);
+    })
     .then(function () {
       var n = chips().length;
       var said = chips().map(function (c) { return c.textContent; });
@@ -54,7 +61,8 @@
       check('Clear is in sight', !!clear && inSight(clear));
       var strip = q('.ca-listbar');
       var pad = parseFloat(getComputedStyle(q('.ca-board')).scrollPaddingTop);
-      check('a row the keyboard goes to scrolls to just under the strip, however tall', Math.abs(pad - strip.offsetHeight) < 1, 'padding ' + pad + ', strip ' + strip.offsetHeight);
+      check('the chips wrap, the strip taller than its one line', strip.offsetHeight > oneLine + 10, strip.offsetHeight + ' from ' + oneLine);
+      check('a row the keyboard goes to scrolls to just under the strip, as tall as they make it', Math.abs(pad - strip.offsetHeight) < 1, 'padding ' + pad + ', strip ' + strip.offsetHeight);
       check('each × says what it takes off', xs.every(function (x) { return /^Stop filtering to ./.test(x.getAttribute('aria-label') || ''); }), xs.map(function (x) { return x.getAttribute('aria-label'); }).join(' | '));
       var last = chips()[n - 1].textContent;
       q('button', chips()[n - 1]).click();
