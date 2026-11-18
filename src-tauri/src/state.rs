@@ -225,6 +225,13 @@ impl SeenState {
         wake_in(&mut self.snoozed, key, now);
     }
 
+    /// Takes a session's snooze away, where a turn of its own called it back
+    /// (`board::snooze_called_back`): unlike a wake, it doesn't bring the session back again once
+    /// you've answered it, nor a quiet one's next report.
+    pub fn forget_snooze(&mut self, key: &str) {
+        self.snoozed.retain(|z| z.key != key);
+    }
+
     pub fn snooze_of(&self, key: &str) -> Option<&Snooze> {
         self.snoozed.iter().find(|z| z.key == key)
     }

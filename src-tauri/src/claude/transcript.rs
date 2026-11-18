@@ -453,7 +453,7 @@ fn prompt_before(path: &Path, end: u64) -> Option<(i64, Option<String>)> {
             return false;
         }
         let Ok(v) = serde_json::from_str::<Value>(line) else { return false };
-        if !you_typed(&v) && !you_sent_while_working(&v) {
+        if (!you_typed(&v) || woke_itself(&v)) && !you_sent_while_working(&v) {
             return false;
         }
         at = str_of(&v, "timestamp").as_deref().and_then(parse_rfc3339_ms).map(|t| (t, str_of(&v, "cwd").filter(|c| !c.is_empty())));
@@ -713,12 +713,13 @@ pub fn apply_tail(info: &mut TranscriptInfo, state: &mut TailState, tail: &str) 
                     info.last_tool = None;
                     // Its `last-prompt` line often comes only after the reply has begun (in 104 of
                     // 191 prompts here, 2026-10-15), so the prompt itself says what it's on now.
-                    if let Some(p) = typed {
+                    // A wakeup's starts a turn as yours does, but you didn't send it.
+                    if let Some(p) = typed.filter(|_| !woke_itself(&v)) {
                         // A resume's prompt from Codealong, for a PR's news say, starts with the
                         // line that says so.
                         info.last_prompt = Some(one_line(crate::send::past_sender_lines(&p), 140));
                     }
-                    if let Some(ts) = str_of(&v, "timestamp").as_deref().and_then(parse_rfc3339_ms) {
+                    if let Some(ts) = str_of(&v, "timestamp").as_deref().and_then(parse_rfc3339_ms).filter(|_| !woke_itself(&v)) {
                         info.last_prompt_at = Some(ts);
                     }
                     if let Some(cwd) = str_of(&v, "cwd").filter(|c| !c.is_empty()) {
@@ -1542,6 +1543,18 @@ fn unwrap_pastes(text: &str) -> String {
     }
     out.push_str(rest);
     out
+}
+
+/// The prompt a wakeup the session scheduled for itself brought (a `ScheduleWakeup` or
+/// `CronCreate` firing: `turnOrigin: "scheduled"`, from 2.1.322), which Claude Code writes as a
+/// `user` line with no `origin`, as an older prompt of yours: one in words (`/loop check the
+/// deploy`) passes for typed, one that runs a command doesn't. It starts a turn as yours does
+/// (`you_typed`), but isn't your last prompt (`last_prompt_at`), which ends a snooze and orders
+/// the lists: a wakeup that only reports leaves the session snoozed (board.rs
+/// `snooze_called_back`). An older wakeup is told only by the `scheduled_task_fire` line before
+/// it (turns.rs), and still passes for yours here.
+fn woke_itself(v: &Value) -> bool {
+    v.get("turnOrigin").and_then(Value::as_str) == Some("scheduled")
 }
 
 /// A turn you took: a prompt you typed, pasted or ran as a slash command, or sent from
@@ -2549,7 +2562,27 @@ pub(super) mod tests {
         // As is a scheduled wakeup, which starts a turn of its own.
         let fire = line(serde_json::json!({ "type": "system", "subtype": "scheduled_task_fire", "timestamp": "2026-10-30T10:15:00.000Z" }));
         let woke = line(serde_json::json!({ "type": "user", "timestamp": "2026-10-30T10:15:00.050Z", "message": { "content": "<command-name>/loop</command-name>" } }));
-        assert_eq!(parse_lines(HEAD, &([prompt, call, result, fire, woke].join("\n") + "\n")).input_at, parse_rfc3339_ms("2026-10-30T10:15:00.050Z"));
+        assert_eq!(parse_lines(HEAD, &([prompt.clone(), call.clone(), result.clone(), fire.clone(), woke].join("\n") + "\n")).input_at, parse_rfc3339_ms("2026-10-30T10:15:00.050Z"));
+        // Marked as one (2.1.322), its prompt isn't your last: a snooze it doesn't call back for
+        // holds through it (board.rs `snooze_called_back`). The turn it starts still clears what
+        // the turn before was stopped by.
+        let limit = line(serde_json::json!({ "type": "assistant", "timestamp": "2026-10-30T10:01:00.000Z", "isApiErrorMessage": true, "error": "rate_limit", "apiErrorStatus": 429, "message": { "model": "<synthetic>", "content": [{ "type": "text", "text": "You've hit your session limit · resets 6:10pm" }] } }));
+        // A wakeup whose prompt is words (a `/loop check the deploy`, a cron job's), which pass
+        // for typed; one that runs a command (`/loop` itself, a skill) never did.
+        let tick = |marked: bool| {
+            let mut v = serde_json::json!({ "type": "user", "timestamp": "2026-10-30T10:15:00.050Z", "message": { "content": "check the deploy" } });
+            if marked {
+                v["turnOrigin"] = serde_json::json!("scheduled");
+            }
+            line(v)
+        };
+        assert!(parse_lines(HEAD, &([prompt.clone(), call.clone(), result.clone(), limit.clone()].join("\n") + "\n")).limit.is_some(), "stopped at its limit");
+        let unmarked = parse_lines(HEAD, &([prompt.clone(), call.clone(), result.clone(), limit.clone(), fire.clone(), tick(false)].join("\n") + "\n"));
+        assert_eq!(unmarked.last_prompt_at, parse_rfc3339_ms("2026-10-30T10:15:00.050Z"), "an older one's passes for yours");
+        let info = parse_lines(HEAD, &([prompt, call, result, limit, fire, tick(true)].join("\n") + "\n"));
+        assert_eq!((info.input_at, info.last_prompt_at), (parse_rfc3339_ms("2026-10-30T10:15:00.050Z"), parse_rfc3339_ms("2026-10-30T10:00:00.000Z")));
+        assert!(info.limit.is_none() && unmarked.limit.is_none());
+        assert_eq!(info.last_prompt.as_deref(), Some("Watch the deploy"));
     }
 
     #[test]

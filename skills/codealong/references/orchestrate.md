@@ -138,7 +138,8 @@ Go over each session in `waiting` that `changed` this tick or has neither `sugge
   - Where the session will take a turn by itself first (a check-in, a scheduled wakeup, a
     background job's report) whose report your user should see, the time of that turn. Such a
     turn ends the snooze only when it leaves the session waiting on them (a question, a block,
-    a call to allow); one that only reports stays out of sight until the snooze is over.
+    a call to allow), and only a Claude Code session's; one that only reports, and any of
+    another harness's, stays out of sight until the snooze is over.
   - It goes with how the reply ends. A tag with `--ending` and no `--waits-until` says the reply
     waits for no time, and takes away a day Jev read (`insight.waitsUntil` with no `by`, or with
     `waitsByJev` under another agent's tag that said something else, in

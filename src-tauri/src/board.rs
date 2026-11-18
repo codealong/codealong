@@ -1757,14 +1757,14 @@ pub fn apply_agent_seen(s: &mut Session, mark: Option<&AgentSeen>) {
     s.agent_seen = Some(m.clone());
 }
 
-/// Whether a session has moved on from the turn its agent marked seen at `at`: something came
-/// into it since, a prompt or, where its harness says (`Session::input_at`), another session's
-/// message, a background task's report or a scheduled wakeup, which the record keeps after the
-/// turn they brought has ended, though Codealong wasn't running to see it; or a turn of its
-/// started since, seen as it runs (`moved_on`), where its harness says no more. Spent, the mark
+/// Whether a session has moved on from the turn its agent marked seen at `at` (`moved_on`):
+/// something came into it since, a prompt or, where its harness says (`Session::input_at`),
+/// another session's message, a background task's report or a scheduled wakeup, which the record
+/// keeps after the turn they brought has ended, though Codealong wasn't running to see it; or a
+/// turn of its started since, seen as it runs, where its harness says no more. Spent, the mark
 /// is void, and the engine forgets it (`Engine::forget_spent_agent_seen`).
 pub fn agent_seen_spent(s: &Session, at: i64) -> bool {
-    s.input_at.is_some_and(|t| t > at) || moved_on(s, at, at).is_some()
+    moved_on(s, at, at).is_some()
 }
 
 /// Once the rest is applied: a turn its agent marked seen that something after brought back (a
@@ -1907,14 +1907,17 @@ impl MovedOn {
 /// the engine takes the word away once it sees one (`Engine::forget_stale_tags`,
 /// `Engine::forget_stale_suggestions`). Busy with nothing said since a turn that ended before
 /// the word isn't one (`Session::turn_ended`): Claude Code compacting a conversation left idle
-/// took away the tags and replies of sessions still waiting on what they were for. None while
-/// the word holds; a turn the agent read it in started before it.
+/// took away the tags and replies of sessions still waiting on what they were for. Something
+/// that came into it since (`Session::input_at`, where its harness says: a scheduled wakeup,
+/// another session's message, a background task's report) started a turn too, one that may have
+/// come and gone while Codealong wasn't running to see it. None while the word holds; a turn the
+/// agent read it in started before it.
 pub fn moved_on(s: &Session, prompt_at: i64, at: i64) -> Option<MovedOn> {
     if s.last_prompt_at > prompt_at {
         return Some(MovedOn::Prompt { at: s.last_prompt_at });
     }
     let said_nothing = s.turn_ended.is_some_and(|ended| ended <= at);
-    s.status_since.filter(|since| s.status == Status::Working && *since > at && !said_nothing).map(|since| MovedOn::Turn { at: since })
+    s.status_since.filter(|since| s.status == Status::Working && *since > at && !said_nothing).or(s.input_at.filter(|came| *came > at)).map(|since| MovedOn::Turn { at: since })
 }
 
 /// Whether replies suggested for a session still answer where it stands (`moved_on`): it's been
@@ -1980,9 +1983,10 @@ pub fn apply_snooze(s: &mut Session, snooze: Option<&Snooze>, seen_at: i64, now:
 /// you, a call it wants to make or a question it put waits for your answer. What you put off has
 /// come to you, so the snooze ends, as it does for a prompt of yours. A turn that only reports
 /// keeps it snoozed until its time (asked 2026-11-18), as does a turn of its own begun before
-/// the snooze.
+/// the snooze, and a wait that began before it (a call it was snoozed waiting on, with a report
+/// come in since).
 pub fn snooze_called_back(s: &Session, at: i64) -> bool {
-    s.status == Status::Needs && s.input_at.is_some_and(|t| t > at)
+    s.status == Status::Needs && s.input_at.is_some_and(|t| t > at) && s.status_since.is_some_and(|t| t > at)
 }
 
 /// Applies a move to the top from Codealong to a session (`Session::raised`), after its snooze,
@@ -4950,6 +4954,8 @@ mod tests {
         assert_eq!(snoozed(&woke(Status::Unread, NOW - 5 * MIN), NOW - 30 * MIN, NOW).1, Some(z.until), "a report");
         assert_eq!(snoozed(&woke(Status::Needs, NOW - 15 * MIN), NOW - 30 * MIN, NOW).1, Some(z.until), "a turn from before the snooze");
         assert_eq!(snoozed(&Session { input_at: None, ..woke(Status::Needs, 0) }, NOW - 30 * MIN, NOW).1, Some(z.until), "a harness that doesn't say");
+        let waited = Session { status_since: Some(NOW - 20 * MIN), ..woke(Status::Needs, NOW - 5 * MIN) };
+        assert_eq!(snoozed(&waited, NOW - 30 * MIN, NOW).1, Some(z.until), "a call it was snoozed waiting on, a report come in since");
         let mut untouched = idle.clone();
         apply_snooze(&mut untouched, None, 0, NOW);
         assert_eq!((untouched.status, untouched.snoozed_until), (Status::Idle, None));

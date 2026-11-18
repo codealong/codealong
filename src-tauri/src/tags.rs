@@ -309,6 +309,10 @@ mod tests {
         assert!(!holds(&Session { last_prompt_at: 9_500, ..s.clone() }, &t), "a prompt sent since it was read");
         assert!(!holds(&Session { status: Status::Working, status_since: Some(11_000), ..s.clone() }, &t), "a turn started since");
         assert!(holds(&Session { status: Status::Working, status_since: Some(9_900), ..s.clone() }, &t), "tagged mid-turn: the turn it was read in");
+        // A turn something else started since (a scheduled wakeup), come and gone while
+        // Codealong wasn't watching: its record says what came in.
+        assert_eq!(moved_on(&Session { input_at: Some(11_000), ..s.clone() }, &t), Some(MovedOn::Turn { at: 11_000 }));
+        assert!(holds(&Session { input_at: Some(9_800), ..s.clone() }, &t), "what came in before it was read");
     }
 
     #[test]

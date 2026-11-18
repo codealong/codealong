@@ -2077,9 +2077,10 @@ impl Engine {
         self.save_state();
     }
 
-    /// Wakes the snoozes of sessions a turn of their own has left waiting on you
+    /// Takes away the snoozes of sessions a turn of their own has left waiting on you
     /// (`board::snooze_called_back`), which the board already shows awake: for good, so that
-    /// once you've answered, the snooze doesn't take the session back off your list.
+    /// once you've answered, the snooze doesn't take the session back off your list, nor bring a
+    /// quiet one's next report back as Your turn when its time comes.
     fn wake_called_back(&mut self, board: &Board) {
         let now = now_ms();
         let called: Vec<String> = self.seen.snoozed.iter().filter(|z| z.until > now && board.session(&z.key).is_some_and(|(_, s)| board::snooze_called_back(s, z.at))).map(|z| z.key.clone()).collect();
@@ -2087,7 +2088,7 @@ impl Engine {
             return;
         }
         for k in &called {
-            self.seen.wake(k, now);
+            self.seen.forget_snooze(k);
         }
         self.save_state();
     }
