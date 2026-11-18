@@ -338,11 +338,12 @@ impl Part {
 
     /// Nothing has been at work on it for `STUCK_MS`: its session is gone, or hasn't been at work
     /// or done anything since it was last asked that long ago, and isn't waiting on a lost
-    /// connection Codealong carries it on from (`ConnectionLost::continues`).
+    /// connection or a sign-in Codealong carries it on from (`ConnectionLost::continues`,
+    /// `SignedOut::continues`).
     fn stuck(&self, board: &Board, now: i64) -> bool {
         let quiet_since = |at: i64| now - at > STUCK_MS;
         match self.session.as_deref().and_then(|k| board.session(k)) {
-            Some((_, s)) => !at_work(s) && !s.connection_lost.as_ref().is_some_and(|c| c.continues) && quiet_since(self.last_asked().max(s.last_activity)),
+            Some((_, s)) => !at_work(s) && !s.connection_lost.as_ref().is_some_and(|c| c.continues) && !s.signed_out.as_ref().is_some_and(|o| o.continues) && quiet_since(self.last_asked().max(s.last_activity)),
             None => quiet_since(self.last_asked()),
         }
     }

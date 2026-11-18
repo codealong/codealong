@@ -56,6 +56,8 @@ fn stand(s: &Session) -> Stand {
     match s.status {
         Status::Working => Stand::Working,
         Status::Needs | Status::Error => Stand::OnUser(s.status_since.unwrap_or(s.last_activity)),
+        // Its turn didn't end: it waits on a sign-in, which renewed by itself or yours carries it on.
+        _ if s.signed_out.is_some() => Stand::OnUser(s.status_since.unwrap_or(s.last_activity)),
         Status::Unread | Status::Idle | Status::Stopped => Stand::Still(s.last_prompt_at),
     }
 }

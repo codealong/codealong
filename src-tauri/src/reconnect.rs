@@ -42,7 +42,7 @@ use crate::model::{Board, Session, Usage};
 
 /// A connection lost, or a limit lifted, longer ago than this is left as it is: you've seen it,
 /// or it ended a turn that no longer matters. A night with the lid closed is well inside it.
-const MAX_AGE_MS: i64 = 24 * 60 * 60_000;
+pub(crate) const MAX_AGE_MS: i64 = 24 * 60 * 60_000;
 
 /// How long after a limit lifts a session still stopped there is told to carry on. Claude Code
 /// carries on by itself 30 to 90 seconds after (2.1.300's `autoContinueAtUsageLimit`, on by

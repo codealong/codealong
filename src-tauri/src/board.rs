@@ -2987,10 +2987,14 @@ pub fn signed_out_notices(board: &Board) -> Vec<Notice> {
                 [one] => (crate::send::quoted(&one.title), "it"),
                 many => (format!("{} sessions", many.len()), "them"),
             };
-            let then = if stopped.iter().all(|s| s.signed_out.as_ref().is_some_and(|o| o.continues)) {
+            // Those Codealong won't carry on are named, so you send only them something.
+            let left: Vec<String> = stopped.iter().filter(|s| !s.signed_out.as_ref().is_some_and(|o| o.continues)).map(|s| crate::send::quoted(&s.title)).collect();
+            let then = if left.is_empty() {
                 format!("Sign in, and Codealong tells {it} to carry on.")
-            } else {
+            } else if left.len() == stopped.len() {
                 format!("Sign in, then send {it} something to go on.")
+            } else {
+                format!("Sign in, and Codealong tells them to carry on, but for {}, which you send something to go on.", crate::util::listed(&left, "and"))
             };
             let account = &u.account;
             Some(Notice { key: format!("signed-out:{account}"), title: format!("Signed out of {account}"), text: format!("{them} stopped because {account}'s sign-in was turned down. {then}"), sign_in: Some(account.clone()), ..Default::default() })
@@ -7581,6 +7585,9 @@ mod tests {
         // One alone is named; one Codealong won't carry on is yours to send on.
         board.lanes[0].sessions = vec![out("a", false)];
         assert_eq!(signed_out_notices(&board)[0].text, "“a” stopped because claude's sign-in was turned down. Sign in, then send it something to go on.");
+        // Of some Codealong carries on and some it doesn't, those it doesn't are named.
+        board.lanes[0].sessions = vec![out("a", true), out("b", false)];
+        assert_eq!(signed_out_notices(&board)[0].text, "2 sessions stopped because claude's sign-in was turned down. Sign in, and Codealong tells them to carry on, but for “b”, which you send something to go on.");
         // None while the account reads signed in (they're carried on), for another account's
         // sessions, one that works again, one archived, or another Mac's.
         board.usage = vec![usage("claude", true)];

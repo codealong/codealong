@@ -703,6 +703,7 @@ function Composer({ session: s, terminal, autoFocus, onlyAside = false, waiting,
     const key = s.key;
     setNote(null);
     setText('');
+    if (device) return void setNote({ text: `${s.account} signs in on the Mac this session runs on: /login in its box there, or its chip in the usage bar.`, error: true });
     signInTo(s.account).then(
       (said) => land(key, { text: said, error: false }),
       (e: unknown) => {

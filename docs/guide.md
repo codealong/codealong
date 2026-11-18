@@ -453,8 +453,14 @@ Each of those, the session's **Sign in**, and `/login` in a session's box open a
 runs the account's own sign-in: for Claude Code `claude auth login` (by the account's command)
 with the email it last signed in with filled in, which opens the browser and ends once you're
 signed in. Every session it stopped then carries on at the next read. `/login` is Codealong's own
-in any session's box on this Mac, so it never reaches the session: typed into a background job,
-Claude Code's own `/login` opens its sign-in in a terminal you can't see, and the job waits there.
+in any session's box, so it never reaches the session: typed into a background job, Claude Code's
+own `/login` opens its sign-in in a terminal you can't see, and the job waits there. A session on
+another Mac signs in there, and its box says so.
+
+Only a refusal a sign-in mends counts: Claude Code says the same of an API key set outside it, a
+cloud provider's credentials (Bedrock, Vertex, Foundry) and a gateway that turned the request down,
+which show as before. A helper stopped on its sign-in waits on you as far as the session that
+started it hears (`codealong session wait` says so too), rather than having finished.
 
 #### Cut off
 

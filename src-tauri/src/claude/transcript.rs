@@ -874,6 +874,10 @@ pub(super) fn api_error_of(v: &Value) -> Option<ApiError> {
     (!said.is_empty()).then_some(ApiError { at, said })
 }
 
+/// Words of an `authentication_failed` refusal that no sign-in to the account mends
+/// (`signed_out_of`).
+const NOT_A_SIGN_IN: [&str; 2] = ["Fix external API key", "signing in again won't change this"];
+
 /// The sign-in an assistant line says the account was turned down for, ending the turn: Claude
 /// Code writes it as an API error (above) with `error: "authentication_failed"` and
 /// `apiErrorStatus: 401`, its text "Login expired · Please run /login", "OAuth token revoked ·
@@ -885,12 +889,21 @@ pub(super) fn api_error_of(v: &Value) -> Option<ApiError> {
 /// was found) and six hours when it waited on you (2026-11-06, five background jobs refused).
 /// A process that's running takes up the new sign-in by itself: the job refused on 2026-11-17
 /// worked through its next turn, 18 minutes on, with nothing done to it. A subagent's is its own.
+///
+/// Claude Code says `authentication_failed` of credentials no sign-in to the account mends too
+/// (2.1.327's code), which are left out: an API key from outside ("Invalid API key · Fix external
+/// API key"), a cloud provider's (`apiError: "provider_credentials"`, Bedrock, Vertex and
+/// Foundry), and a gateway's refusal ("signing in again won't change this"). An organization
+/// that turned API keys off does take a sign-in ("Sign in again with your claude.ai account").
 pub(super) fn signed_out_of(v: &Value) -> Option<ApiError> {
     let sidechain = v.get("isSidechain").and_then(Value::as_bool) == Some(true);
     if v.get("isApiErrorMessage").and_then(Value::as_bool) != Some(true) || sidechain || v.get("error").and_then(Value::as_str) != Some("authentication_failed") {
         return None;
     }
     let text = v.pointer("/message/content")?.as_array()?.iter().find_map(|i| i.get("text")?.as_str()).unwrap_or_default();
+    if v.get("apiError").and_then(Value::as_str) == Some("provider_credentials") || NOT_A_SIGN_IN.iter().any(|w| text.contains(w)) {
+        return None;
+    }
     let at = str_of(v, "timestamp").as_deref().and_then(parse_rfc3339_ms).unwrap_or(0);
     Some(ApiError { at, said: one_line(text.strip_prefix("API Error: ").unwrap_or(text), 200) })
 }
@@ -2745,6 +2758,14 @@ pub(super) mod tests {
         let info = parse_lines(HEAD, &format!("{revoked}\n"));
         assert_eq!(info.signed_out, Some(ApiError { at, said: "OAuth token revoked · Please run /login".into() }));
         assert_eq!((info.api_error, info.connection_lost, info.limit), (None, None, None), "it's none of those");
+        // Nor credentials no sign-in to the account mends; an organization that turned API keys
+        // off asks for one.
+        for (said, api_error) in [("Invalid API key · Fix external API key", None), ("Bedrock auth failed · refresh your AWS credentials and retry", Some("provider_credentials")), ("Gateway refused the request · signing in again won't change this — check with your gateway administrator", None)] {
+            let line = revoked.replace("OAuth token revoked · Please run /login", said).replace(r#""apiErrorStatus":401"#, &format!(r#""apiErrorStatus":401{}"#, api_error.map(|e| format!(r#","apiError":"{e}""#)).unwrap_or_default()));
+            assert_eq!(parse_lines(HEAD, &format!("{line}\n")).signed_out, None, "{said}");
+        }
+        let keys_off = revoked.replace("OAuth token revoked · Please run /login", "Your organization has disabled API key authentication · Sign in again with your claude.ai account").replace(r#""apiErrorStatus":401"#, r#""apiErrorStatus":401,"apiError":"api_key_auth_disabled""#);
+        assert!(parse_lines(HEAD, &format!("{keys_off}\n")).signed_out.is_some());
         // Any other error isn't one, nor a subagent's.
         let overloaded = lost("API Error: 529 Overloaded.");
         assert_eq!(parse_lines(HEAD, &format!("{overloaded}\n")).signed_out, None);

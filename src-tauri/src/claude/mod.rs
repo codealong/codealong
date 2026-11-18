@@ -127,11 +127,7 @@ impl crate::harness::Adapter for ClaudeCode {
     /// The keychain holds its sign-in (only whether it does is asked), and its state file the
     /// email.
     fn signed_in(&self, home: &Path) -> (bool, Option<String>) {
-        let email = std::fs::read(state_file(home))
-            .ok()
-            .and_then(|b| serde_json::from_slice::<Value>(&b).ok())
-            .and_then(|v| v.pointer("/oauthAccount/emailAddress").and_then(Value::as_str).map(str::to_string));
-        (usage::claude_signed_in(home), email)
+        (usage::claude_signed_in(home), signed_in_as(home))
     }
 
     /// `auth login`, which only signs in and then ends, where the bare command would start a
@@ -143,7 +139,8 @@ impl crate::harness::Adapter for ClaudeCode {
     /// sets its folder (`CLAUDE_CONFIG_DIR`), takes it through to Claude Code as it takes a
     /// session's arguments.
     fn sign_in_command(&self, account: &AccountCfg) -> String {
-        let email = self.signed_in(&account.home_path()).1.map(|e| format!(" --email {}", crate::util::sh_quote(&e))).unwrap_or_default();
+        // Not `signed_in`, which asks the keychain too, a wait of seconds when it's locked.
+        let email = signed_in_as(&account.home_path()).map(|e| format!(" --email {}", crate::util::sh_quote(&e))).unwrap_or_default();
         format!("{} auth login{email}", account.command())
     }
 
@@ -1690,6 +1687,12 @@ fn records_in(account: &AccountCfg, s: &Session, home_of: impl Fn(&str) -> Optio
 fn transcripts_named(home: &Path, id: &str) -> Vec<PathBuf> {
     let Ok(dirs) = std::fs::read_dir(home.join("projects")) else { return Vec::new() };
     dirs.flatten().map(|d| d.path().join(format!("{id}.jsonl"))).filter(|p| p.is_file()).collect()
+}
+
+/// The email the account in `home` last signed in with, as its state file keeps it.
+fn signed_in_as(home: &Path) -> Option<String> {
+    let state: Value = serde_json::from_slice(&std::fs::read(state_file(home)).ok()?).ok()?;
+    state.pointer("/oauthAccount/emailAddress").and_then(Value::as_str).map(str::to_string)
 }
 
 /// An account's folder by its name, as config.toml has it.

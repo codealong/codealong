@@ -9,7 +9,6 @@
 // `/login` is the harnesses' own name too: typed into a background job's box from here, Claude
 // Code's opened its sign-in in a terminal nobody could see, and held the job there.
 
-import { shortOf } from './devices';
 import type { Session } from './types';
 
 export interface SlashCommand {
@@ -55,9 +54,9 @@ export const COMMANDS: SlashCommand[] = [
     args: '',
     about: 'signs its account in again, in your terminal; sessions its sign-in stopped then carry on',
     icon: 'terminal',
-    // Its account is on this Mac only when the session is; every harness has a sign-in
-    // (`Adapter::sign_in_command`).
-    takes: (s) => !shortOf(s.key),
+    // Every harness has a sign-in (`Adapter::sign_in_command`). One on another Mac signs in there,
+    // and its box says so rather than sending it on to wait on a sign-in nobody sees.
+    takes: () => true,
   },
 ];
 

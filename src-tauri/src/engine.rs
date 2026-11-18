@@ -2195,13 +2195,20 @@ fn waiting_call(s: &Session, account: Option<&config::AccountCfg>) -> Option<Str
 
     /// Sessions whose account's sign-in was turned down, each saying whether Codealong tells it to
     /// carry on once the account reads signed in again (reconnect.rs): when config.toml says to,
-    /// and it's still open where it stopped, a process that takes up the new sign-in by itself.
-    fn with_sign_ins(&self, mut sessions: Vec<Session>) -> Vec<Session> {
+    /// it's still open where it stopped (a process that takes up the new sign-in by itself), the
+    /// refusal is recent enough to (`reconnect::MAX_AGE_MS`), and the account is on, its usage
+    /// read. One at work again (Codealong's own, whose turn shows before its transcript has the
+    /// prompt) is past it.
+    fn with_sign_ins(&self, mut sessions: Vec<Session>, now: i64) -> Vec<Session> {
         let on = self.cfg.sessions.continue_after_sign_in;
         for s in &mut sessions {
+            if s.status == Status::Working {
+                s.signed_out = None;
+            }
             let open = crate::reconnect::open_where_it_stopped(s) && !self.cfg.sessions.blocks(s);
+            let read = self.cfg.accounts.iter().any(|a| a.name == s.account && !a.disabled);
             if let Some(out) = s.signed_out.as_mut() {
-                out.continues = on && open;
+                out.continues = on && open && read && now - out.at <= crate::reconnect::MAX_AGE_MS;
             }
         }
         sessions
@@ -4040,7 +4047,7 @@ fn waiting_call(s: &Session, account: Option<&config::AccountCfg>) -> Option<Str
         let sessions = self.with_snoozes(sessions, sides, listenings, now);
         let sessions = self.with_limits(sessions, usage, now);
         let sessions = self.with_connections(sessions);
-        let sessions = self.with_sign_ins(sessions);
+        let sessions = self.with_sign_ins(sessions, now);
         self.settled(sessions)
     }
 
@@ -4969,6 +4976,31 @@ mod tests {
         let words = Engine::waiting_call(&crate::fixtures::session(key), None).unwrap();
         assert!(words.starts_with("Run in your terminal") && words.ends_with("echo tidying up\nrm -rf ~/projects"), "{words}");
         crate::terminal::deny(key, "run-engine-risk", None);
+    }
+
+    /// A session its sign-in stopped is carried on only where reconnect.rs will: with the setting
+    /// on, open where it stopped, on an account that's on (its usage read), in the day after; and
+    /// one at work again is past it.
+    #[test]
+    fn a_sign_in_is_carried_on_only_where_codealong_will() {
+        use super::*;
+        use crate::model::{SignedOut, Status};
+        const NOW: i64 = 1_800_000_000_000;
+        let (tx, _rx) = channel();
+        let mut e = Engine::new(Box::new(|_| {}), tx, Arc::new(RwLock::new(Board::default())));
+        let account = |disabled: bool| config::AccountCfg { name: "claude".into(), harness: "claude".into(), home: "~/.claude".into(), command: None, start: None, acp: None, monthly: None, per_token: false, usage_cap: None, disabled, chrome_profile: None };
+        e.cfg.accounts = vec![account(false)];
+        let out = |at: i64| crate::model::Session { status: Status::Unread, signed_out: Some(SignedOut { at, said: "OAuth token revoked · Please run /login".into(), continues: false }), ..crate::fixtures::session("a") };
+        let continues = |e: &Engine, s: crate::model::Session| e.with_sign_ins(vec![s], NOW).remove(0).signed_out.map(|o| o.continues);
+        assert_eq!(continues(&e, out(NOW - 60_000)), Some(true));
+        assert_eq!(continues(&e, out(NOW - crate::reconnect::MAX_AGE_MS - 1)), Some(false), "too long ago");
+        assert_eq!(continues(&e, crate::model::Session { live: false, ..out(NOW - 60_000) }), Some(false), "its terminal closed");
+        assert_eq!(continues(&e, crate::model::Session { status: Status::Working, ..out(NOW - 60_000) }), None, "at work again");
+        e.cfg.accounts = vec![account(true)];
+        assert_eq!(continues(&e, out(NOW - 60_000)), Some(false), "its account is off");
+        e.cfg.accounts = vec![account(false)];
+        e.cfg.sessions.continue_after_sign_in = false;
+        assert_eq!(continues(&e, out(NOW - 60_000)), Some(false), "the setting is off");
     }
 
     /// Resume in a terminal starts a session again, so an account turned off refuses it before

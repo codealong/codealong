@@ -33,10 +33,11 @@ describe('slashCommand', () => {
     expect(slashCommand('/fork', session('claude', '@ab12:claude:a:1'))).not.toBeNull();
   });
 
-  it('takes /login for a session on this Mac, whatever its harness, whose account signs in here', () => {
+  it('takes /login for any session, whatever its harness, so it never reaches one', () => {
     expect(slashCommand('/login', claude)?.command.name).toBe('login');
     expect(slashCommand('/login', session('antigravity'))?.command.name).toBe('login');
-    expect(slashCommand('/login', session('claude', '@ab12:claude:a:1'))).toBeNull();
+    // One on another Mac's box says to sign in there (SessionReply.tsx).
+    expect(slashCommand('/login', session('claude', '@ab12:claude:a:1'))?.command.name).toBe('login');
     expect(slashCommand('/logout', claude)).toBeNull();
   });
 

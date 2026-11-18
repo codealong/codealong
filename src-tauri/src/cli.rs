@@ -4665,6 +4665,8 @@ fn waited(s: &Session) -> Waited {
     match s.status {
         Status::Working => Waited::Working,
         Status::Needs | Status::Error => Waited::OnUser,
+        // Its turn didn't end: it waits on a sign-in (helpers.rs `stand`).
+        _ if s.signed_out.is_some() => Waited::OnUser,
         Status::Unread | Status::Idle | Status::Stopped => Waited::Still,
     }
 }
