@@ -20,14 +20,18 @@
 .ca-load.is-strained .ca-load-dot {
   background: var(--alert-solid);
 }
-/* In the usage bar, only while this machine is strained: a tag of the alert's color. */
+/* In the usage bar, only while this machine is strained: a chip in the alert's colors, as high,
+   as round and in the same type as the notices' chip beside it (Notices.css) and the account
+   chips. */
 .ca-load.is-bar {
-  height: 20px;
-  padding: 0 7px;
+  gap: 6px;
+  height: 22px;
+  padding: 0 10px;
   box-sizing: border-box;
-  border-radius: var(--radius-xs);
+  border-radius: var(--radius-pill);
   background: var(--alert-tint);
   color: var(--alert);
+  font: var(--type-meta-strong);
 }
 /* The card on a load's tag: what its level means, its CPUs and memory, your other machines. */
 /* Over HoverCard.css's width, which comes later in the sheet. */
