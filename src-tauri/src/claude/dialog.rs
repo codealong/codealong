@@ -290,14 +290,15 @@ fn seen_in(entry: Entry, s: &Session, screen: Option<&str>, id: &str) -> Seen {
         Entry::Gone => return Seen::Gone,
         Entry::Unread => return Seen::Unread,
     };
-    if !waits(&reg, s) {
+    // The registry moved on: the wait the dialog came up in is over, whatever the screen shows.
+    if !waits(&reg, s) || !id.starts_with(&entry_part(&reg)) {
         return Seen::Gone;
     }
-    let Some(screen) = screen else { return Seen::Unread };
-    match read(screen) {
-        Some(d) => Seen::Up(id_of(&reg, &d), d),
-        None if id.starts_with(&entry_part(&reg)) => Seen::Unread,
-        None => Seen::Gone,
+    // Under the same entry, anything but the dialog itself (no screen, an empty frame, one drawn
+    // partway that reads as another list) can't be told from it.
+    match screen.and_then(read) {
+        Some(d) if id_of(&reg, &d) == id => Seen::Up(id.to_string(), d),
+        _ => Seen::Unread,
     }
 }
 
@@ -578,10 +579,15 @@ mod tests {
         assert_eq!(seen_in(Entry::Unread, &s, Some(AUTO), &id), Seen::Unread);
         assert_eq!(seen_in(entry("waiting", 1000), &s, None, &id), Seen::Unread);
         assert_eq!(seen_in(entry("waiting", 1000), &s, Some(""), &id), Seen::Unread);
-        // The registry moved on: the session at its prompt, its process gone, or another dialog.
+        // A frame drawn partway, its last choice missing, reads as another list: still unread.
+        let partial = AUTO.replace("    No, keep bypass permissions\n", "    No\n");
+        assert_eq!(seen_in(entry("waiting", 1000), &s, Some(&partial), &id), Seen::Unread);
+        // The registry moved on: the session at its prompt, its process gone, or another wait,
+        // whether or not its screen reads.
         assert_eq!(seen_in(entry("idle", 2000), &s, Some(""), &id), Seen::Gone);
         assert_eq!(seen_in(Entry::Gone, &s, None, &id), Seen::Gone);
         assert_eq!(seen_in(entry("waiting", 2000), &s, Some(""), &id), Seen::Gone);
+        assert_eq!(seen_in(entry("waiting", 2000), &s, None, &id), Seen::Gone);
     }
 
     #[test]
