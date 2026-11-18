@@ -35,7 +35,7 @@
         .then(function () {
           var rows = names();
           check('Cost lists what turns cost by who began them', rows.indexOf('You') >= 0 && rows.indexOf('Delegated') >= 0 && rows.indexOf('Automation') >= 0, rows.join(', '));
-          check('each saying what it means', all('.ca-usage-table tbody th .ca-usage-note').some(function (n) { return /Another session’s agent/.test(n.textContent); }));
+          check('each saying what it means', all('.ca-usage-table tbody th .ca-usage-note').some(function (n) { return /^Another agent/.test(n.textContent); }));
           button('.ca-usage-filters', 'Your part').click();
           return until(function () { return /Your prompts/.test(tiles()[0] || ''); }, 5000, 'Your part');
         })
@@ -45,7 +45,7 @@
           check('it leads with your prompts', /Your prompts[\d,]+about \d+ a day/.test(tiles()[0]), tiles()[0]);
           check('and the share of turns you started', /Turns you started\d+%[\d,]+ of [\d,]+/.test(tiles()[1]), tiles()[1]);
           check('and what the turns you started cost', /Cost of your turns\d+%\$[\d,.]+ of \$[\d,.]+ at API prices/.test(tiles()[2]), tiles()[2]);
-          check('and how often your replies agreed, of how many', /Replies that agreed\d+%([\d,]+ of your [\d,]+ replies to an agent; the rest steered or redirected|all [\d,]+ of your replies to an agent)/.test(tiles()[3]), tiles()[3]);
+          check('and how often your replies agreed, of the ones that agreed, steered or redirected', /Replies that agreed\d+%[\d,]+ of the [\d,]+ that agreed, steered or redirected/.test(tiles()[3]), tiles()[3]);
           check('each of the 30 days has its prompts stacked', all('.ca-usage-bar').length === 30, all('.ca-usage-bar').length);
           var keys = all('.ca-usage-chart .ca-usage-legend .ca-usage-key').map(function (k) { return k.textContent; });
           check('the chart names what a prompt did', ['Set out new work', 'Agreed', 'Steered', 'Redirected'].every(function (k) { return keys.indexOf(k) >= 0; }), keys.slice(0, 8).join(', '));
@@ -55,6 +55,8 @@
           var terms = all('.ca-usage-terms dt').map(function (t) { return t.textContent; });
           check('and what Delegated and Automation mean is said under them', terms.join(' | ') === 'Delegated | Automation' && all('.ca-usage-terms dd').every(function (d) { return d.textContent.length > 20; }), terms.join(' | '));
           check('the table groups its turn columns under who started them', q('.ca-usage-group') && q('.ca-usage-group').textContent === 'Turns started by' && q('.ca-usage-group').colSpan === 3, q('.ca-usage-group') && q('.ca-usage-group').textContent);
+          var groups = all('.ca-usage-table colgroup').map(function (g) { return g.span; });
+          check('a column group of its own, which the heading’s scope names', groups.join(',') === '3,3', groups.join(','));
           check('more about your prompts is listed', all('.ca-usage-marks li').length >= 3, all('.ca-usage-marks li').length);
           check('a row’s prompts are cut by what they did', all('.ca-usage-table .ca-usage-mix').length >= 1 && q('.ca-usage-mix').children.length >= 2);
           check('the prompts that steered or redirected are listed', titles().indexOf('Where you steered or redirected') >= 0 && all('.ca-usage-list li').length >= 1, titles().join(' | '));

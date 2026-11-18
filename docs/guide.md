@@ -4609,11 +4609,13 @@ Analytics window has two more views beside **Cost** that say what your own part 
 
 **Your part** counts everything that came in to your sessions over the days, by who it was from:
 
-- **You**: a prompt you typed, in the session's terminal or app or in Codealong.
-- **Delegated**: another session's agent handed it work: a message it sent (`codealong session
-  send`, a helper's findings sent back), or the first prompt of a session it started.
-- **Automation**: Codealong sent it by itself, as you set it up to: a PR's news, a schedule's run,
-  an automatic review, word that a helper finished or waits, a meeting's notes.
+- **You**: a prompt of yours: typed in the session's terminal or app or in Codealong, a suggested
+  reply you picked, or sent by a schedule you made.
+- **Delegated**: another agent handed it work: a message sent with `codealong session send` (a
+  helper's findings sent back, say), or the first prompt of a session an agent started.
+- **Automation**: Codealong's own messages: a PR's news, a PR review (automatic or asked for), an
+  orchestrator's look, the first prompt of a session a schedule started and what a schedule an
+  agent made sends, word that a helper finished or waits on you, a meeting's notes.
 - **The session itself**: a background task or a subagent reporting back, a wakeup it set, a
   loop's tick.
 

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { BEGAN, HANDS, STANCES, cameIn, countOf, countTicks, markLines, partByProject, percent, responses, segments, stanceStack, stoodStack, yourCost, yours, yourSessions } from './analytics';
+import { BEGAN, HANDS, STANCES, cameIn, countOf, countTicks, explained, markLines, partByProject, percent, responses, segments, stanceStack, stoodStack, yourCost, yours, yourSessions } from './analytics';
 import type { Outcomes, Part, PartRow, Spent } from './types';
 
 const spent = (key: string, api: number): Spent => ({ key, api, paid: 0, tokens: { input: 0, cacheRead: 0, cacheWrite: 0, output: 0, reasoning: 0 }, calls: 1, unpriced: 0, lastAt: 0 });
@@ -24,6 +24,21 @@ describe('the series', () => {
 
   it('name every beginning the engine notes', () => {
     expect(BEGAN.map((b) => b.id)).toEqual(['you', 'fork', 'helper', 'agent', 'review', 'schedule', 'headless', '']);
+  });
+
+  it('say what each hand and beginning means, in its own words', () => {
+    for (const s of [...STANCES, ...HANDS, ...BEGAN]) expect(s.about, s.label).toMatch(/\w{3}/);
+    expect(HANDS.map((h) => h.label)).toEqual(['You', 'Delegated', 'Automation', 'Not known']);
+  });
+});
+
+describe('explained', () => {
+  it('says what the hands in either bar mean, but you and Not known', () => {
+    const turns = segments(HANDS, { you: 5, codealong: 2, '': 1 });
+    // A delegated turn begun before the days costs in them, though none of them began then.
+    const cost = segments(HANDS, { you: 9, agent: 3, codealong: 4 });
+    expect(explained(turns, cost).map((h) => h.label)).toEqual(['Delegated', 'Automation']);
+    expect(explained(segments(HANDS, { you: 1 }))).toEqual([]);
   });
 });
 

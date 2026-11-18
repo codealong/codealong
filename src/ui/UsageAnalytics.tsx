@@ -5,7 +5,7 @@
 // and what the same days cost by who began the work comes with the token report.
 
 import { useMemo, useState } from 'react';
-import { BEGAN, byKey, cameIn, count, countOf, countTicks, HANDS, markLines, partByProject, percent, responses, type Segment, segments, stanceStack, STANCES, stoodStack, sum, yourCost, yours, yourSessions } from '../analytics';
+import { BEGAN, byKey, cameIn, count, countOf, countTicks, explained, HANDS, markLines, partByProject, percent, responses, type Segment, segments, type Series, stanceStack, STANCES, stoodStack, sum, yourCost, yours, yourSessions } from '../analytics';
 import { agoPhrase } from '../format';
 import { dayLabel, laneOf, money } from '../spend';
 import type { Analytics, Board, PartDay, PartRow, Session, TokenReport } from '../types';
@@ -88,7 +88,7 @@ function Split({ parts, label, name, value }: { parts: Segment[]; label: string;
 }
 
 /** What the series of a chart mean, one line each, for the ones whose name alone doesn't say. */
-function Terms({ parts }: { parts: Segment[] }) {
+function Terms({ parts }: { parts: Series[] }) {
   if (parts.length === 0) return null;
   return (
     <dl className="ca-usage-terms">
@@ -204,6 +204,9 @@ function PartTable({ analytics, by, lanes, sessions, onShowSession }: Props & { 
   if (rows.length === 0) return <p className="ca-empty">Nothing came in to a session in these days.</p>;
   return (
     <table className="ca-usage-table">
+      {/* The column groups the turns' heading names (its scope="colgroup"). */}
+      <colgroup span={3} />
+      <colgroup span={TURN_HANDS.length} />
       <thead>
         <tr className="ca-usage-group-row">
           <td colSpan={3} />
@@ -283,6 +286,7 @@ export function YourPart(props: Props) {
   const cost = useMemo(() => Object.fromEntries((report?.hands ?? []).map((h) => [h.key, h.api])), [report]);
   const lines = markLines(part);
   const hands = segments(HANDS, byKey(part.hands));
+  const spent = segments(HANDS, cost);
   if (turns === 0) {
     return <p className="ca-empty">{analytics.filling || !analytics.asOf ? 'Reading what came in to your sessions…' : 'Nothing came in to a session in these days.'}</p>;
   }
@@ -292,16 +296,16 @@ export function YourPart(props: Props) {
         <Stat label="Your prompts" value={count(prompts)} note={`about ${count(Math.round(prompts / Math.max(1, part.days.length)))} a day`} />
         <Stat label="Turns you started" value={percent(countOf(part.hands, 'you'), turns)} note={`${count(countOf(part.hands, 'you'))} of ${count(turns)} turns`} />
         <Stat label="Cost of your turns" value={mine ? percent(mine.yours, mine.known) : '—'} note={mine ? `${money(mine.yours)} of ${money(mine.known)} at API prices` : 'once the cost is read'} />
-        <Stat label="Replies that agreed" value={went.all > 0 ? percent(went.agreed, went.all) : '—'} note={went.all === 0 ? 'once your prompts are read' : went.agreed === went.all ? `all ${count(went.all)} of your replies to an agent` : `${count(went.agreed)} of your ${count(went.all)} replies to an agent; the rest steered or redirected`} />
+        <Stat label="Replies that agreed" value={went.all > 0 ? percent(went.agreed, went.all) : '—'} note={went.all > 0 ? `${count(went.agreed)} of the ${count(went.all)} that agreed, steered or redirected` : part.unread > 0 ? 'once your prompts are read' : 'none agreed, steered or redirected'} />
       </div>
       <StanceDays days={part.days} />
       <div className="ca-usage-chart">
         <span className="ca-usage-chart-title">Who started the work</span>
         <Split parts={hands} name="Turns" label="Turns, by who started them" />
-        <Split parts={segments(HANDS, cost)} name="Cost at API prices" label="Cost at API prices, by who started the turn" value={(s) => money(s.n)} />
-        <Terms parts={hands.filter((h) => h.id !== 'you' && h.id !== '')} />
+        <Split parts={spent} name="Cost at API prices" label="Cost at API prices, by who started the turn" value={(s) => money(s.n)} />
+        <Terms parts={explained(hands, spent)} />
         <p className="ca-usage-fine">
-          {itself > 0 && `A turn a session started on its own (a background task reporting back, a wakeup it set) counts for whoever started the one before it: ${count(itself)} of them. `}
+          {itself > 0 && `A turn a session started on its own (a background task reporting back, a wakeup it set) counts for whoever started the turn before it, or the session: ${count(itself)} of them. `}
           {report?.subagents && report.subagents.api > 0 && `Subagents made ${money(report.subagents.api)} of the cost.`}
         </p>
       </div>

@@ -18,13 +18,13 @@ export interface Series {
  *  slash command), in the order the charts stack them; the ones nothing has read come last, in
  *  the color charts give Other. */
 export const STANCES: Series[] = [
-  { id: 'sets-out', label: 'Set out new work', color: 'var(--chart-1)', about: 'A new task, or the next one once the last was finished' },
-  { id: 'agrees', label: 'Agreed', color: 'var(--chart-2)', about: 'Told it to go ahead or carry on, adding nothing' },
-  { id: 'steers', label: 'Steered', color: 'var(--chart-3)', about: 'Kept its direction and adjusted it: a correction, a requirement, a choice, a fact it needed' },
-  { id: 'redirects', label: 'Redirected', color: 'var(--chart-4)', about: 'Turned down what it did or proposed, and asked for something else' },
-  { id: 'asks', label: 'Asked something', color: 'var(--chart-5)', about: 'A question, with nothing for it to change' },
+  { id: 'sets-out', label: 'Set out new work', color: 'var(--chart-1)', about: 'Work not about its last reply: a new task, or the next one once the last was finished' },
+  { id: 'agrees', label: 'Agreed', color: 'var(--chart-2)', about: 'Went along with it: go ahead, carry on, try again, or do what it offered or recommended' },
+  { id: 'steers', label: 'Steered', color: 'var(--chart-3)', about: 'Kept its direction and adjusted it: a correction, a requirement, a choice between its options, a fact it needed' },
+  { id: 'redirects', label: 'Redirected', color: 'var(--chart-4)', about: 'Rejected what it did or proposed: it was wrong, hold off, undo it, or do something else' },
+  { id: 'asks', label: 'Asked something', color: 'var(--chart-5)', about: 'A question, telling it to change nothing' },
   { id: 'command', label: 'Ran a command', color: 'var(--chart-6)', about: 'A slash command, or a command you ran for the session' },
-  { id: '', label: 'Not read', color: 'var(--line-strong)', about: 'Waiting for Jev or an agent to read what it did' },
+  { id: '', label: 'Not read', color: 'var(--line-strong)', about: 'Nothing has read what it did' },
 ];
 
 /** Who began a turn (turns.rs `Source::word`), as what it counts as: a turn the session began
@@ -32,9 +32,9 @@ export const STANCES: Series[] = [
  *  Delegated, and what Codealong sent by itself, as you set it up to, is Automation (the
  *  command's `hand_words` says the same). */
 export const HANDS: Series[] = [
-  { id: 'you', label: 'You', color: 'var(--chart-1)', about: 'A prompt you typed, in a session or in Codealong' },
-  { id: 'agent', label: 'Delegated', color: 'var(--chart-2)', about: 'Another session’s agent: a message it sent, or the start of a session it began' },
-  { id: 'codealong', label: 'Automation', color: 'var(--chart-3)', about: 'Codealong by itself, as you set it up: a PR’s news, a schedule, a review, word from a helper' },
+  { id: 'you', label: 'You', color: 'var(--chart-1)', about: 'A prompt of yours: typed, a suggested reply you picked, or sent by a schedule you made' },
+  { id: 'agent', label: 'Delegated', color: 'var(--chart-2)', about: 'Another agent: a message it sent the session, or the start of a session it began' },
+  { id: 'codealong', label: 'Automation', color: 'var(--chart-3)', about: 'Codealong’s own messages: a PR’s news or review, an orchestrator, a session a schedule started, word that a helper finished' },
   { id: '', label: 'Not known', color: 'var(--line-strong)', about: 'Its record doesn’t say' },
 ];
 
@@ -119,6 +119,15 @@ export function segments(series: Series[], by: Record<string, number>): Segment[
 
 export function byKey(list: Count[]): Record<string, number> {
   return Object.fromEntries(list.map((c) => [c.key, c.n]));
+}
+
+/** The hands that need saying what they mean under bars split by who began the turns: the ones
+ *  in any of the bars, in their own order, but you and Not known, which say it by their names.
+ *  The turns and their cost can each have one the other hasn't (a turn begun before the days
+ *  costs in them). */
+export function explained(...bars: Segment[][]): Series[] {
+  const shown = new Set(bars.flat().map((s) => s.id));
+  return HANDS.filter((h) => h.id !== 'you' && h.id !== '' && shown.has(h.id));
 }
 
 /** A day's prompts of yours, stacked by what they did. */
