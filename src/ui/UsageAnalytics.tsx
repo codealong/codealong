@@ -60,8 +60,9 @@ function Stat({ label, value, note }: { label: string; value: string; note: stri
   );
 }
 
-/** One bar cut into its series, each as wide as its share, with what each is under it. */
-function Split({ parts, label, value }: { parts: Segment[]; label: string; value?: (s: Segment) => string }) {
+/** One bar cut into its series, each as wide as its share, with what each is under it, led by
+ *  what's being cut (`name`) where there's more than one bar. */
+function Split({ parts, label, name, value }: { parts: Segment[]; label: string; name?: string; value?: (s: Segment) => string }) {
   const all = sum(parts.map((p) => p.n));
   if (all <= 0) return null;
   return (
@@ -72,8 +73,9 @@ function Split({ parts, label, value }: { parts: Segment[]; label: string; value
         ))}
       </div>
       <div className="ca-usage-legend">
+        {name && <span className="ca-usage-split-name">{name}</span>}
         {parts.map((p) => (
-          <span key={p.id} className="ca-usage-key">
+          <span key={p.id} className="ca-usage-key" title={p.about}>
             <i className="ca-usage-swatch" style={{ background: p.color }} />
             {p.label}
             <b>{value ? value(p) : count(p.n)}</b>
@@ -82,6 +84,24 @@ function Split({ parts, label, value }: { parts: Segment[]; label: string; value
         ))}
       </div>
     </div>
+  );
+}
+
+/** What the series of a chart mean, one line each, for the ones whose name alone doesn't say. */
+function Terms({ parts }: { parts: Segment[] }) {
+  if (parts.length === 0) return null;
+  return (
+    <dl className="ca-usage-terms">
+      {parts.map((p) => (
+        <div key={p.id}>
+          <dt>
+            <i className="ca-usage-swatch" style={{ background: p.color }} />
+            {p.label}
+          </dt>
+          <dd>{p.about}</dd>
+        </div>
+      ))}
+    </dl>
   );
 }
 
@@ -103,7 +123,7 @@ function StanceDays({ days }: { days: PartDay[] }) {
       <figcaption className="ca-usage-legend">
         <span className="ca-usage-chart-title">What your prompts did, each day</span>
         {shown.map((s) => (
-          <span key={s.id} className="ca-usage-key">
+          <span key={s.id} className="ca-usage-key" title={s.about}>
             <i className="ca-usage-swatch" style={{ background: s.color }} />
             {s.label}
           </span>
@@ -165,6 +185,9 @@ function Mix({ row, top }: { row: PartRow; top: number }) {
   );
 }
 
+/** The table's columns of turns: who began them, Not known left to the bars above it. */
+const TURN_HANDS = HANDS.filter((h) => h.id !== '');
+
 function PartTable({ analytics, by, lanes, sessions, onShowSession }: Props & { by: By }) {
   const part = analytics.part;
   const rows: PartRow[] = useMemo(() => {
@@ -182,23 +205,28 @@ function PartTable({ analytics, by, lanes, sessions, onShowSession }: Props & { 
   return (
     <table className="ca-usage-table">
       <thead>
+        <tr className="ca-usage-group-row">
+          <td colSpan={3} />
+          <th scope="colgroup" colSpan={TURN_HANDS.length} className="ca-usage-group">
+            Turns started by
+          </th>
+        </tr>
         <tr>
           <th scope="col">{BYS.find((b) => b.id === by)?.label}</th>
           <th scope="col" className="is-num">
             Your prompts
           </th>
-          <th scope="col" className="ca-usage-share-col">
+          <th scope="col" className="ca-usage-share-col" title="Your prompts, by what each did with what the agent had said">
             What they did
           </th>
-          <th scope="col" className="is-num" title="Turns you started, and what each session went on to do by itself after them">
-            Your turns
-          </th>
-          <th scope="col" className="is-num" title="Turns other agents started">
-            Agent turns
-          </th>
-          <th scope="col" className="is-num" title="Turns Codealong started">
-            Codealong turns
-          </th>
+          {TURN_HANDS.map((h) => (
+            <th key={h.id} scope="col" className="is-num" title={h.id === 'you' ? `${h.about}, with what the session went on to do by itself after it` : h.about}>
+              <span className="ca-usage-key">
+                <i className="ca-usage-swatch" style={{ background: h.color }} />
+                {h.label}
+              </span>
+            </th>
+          ))}
         </tr>
       </thead>
       <tbody>
@@ -214,9 +242,11 @@ function PartTable({ analytics, by, lanes, sessions, onShowSession }: Props & { 
             <td className="ca-usage-share-col">
               <Mix row={r} top={top} />
             </td>
-            <td className="is-num">{r.counts.you ? count(r.counts.you) : <span className="ca-usage-none">—</span>}</td>
-            <td className="is-num">{r.counts.agent ? count(r.counts.agent) : <span className="ca-usage-none">—</span>}</td>
-            <td className="is-num">{r.counts.codealong ? count(r.counts.codealong) : <span className="ca-usage-none">—</span>}</td>
+            {TURN_HANDS.map((h) => (
+              <td key={h.id} className="is-num">
+                {r.counts[h.id] ? count(r.counts[h.id]) : <span className="ca-usage-none">—</span>}
+              </td>
+            ))}
           </tr>
         ))}
       </tbody>
@@ -252,6 +282,7 @@ export function YourPart(props: Props) {
   const itself = countOf(part.sources, 'itself');
   const cost = useMemo(() => Object.fromEntries((report?.hands ?? []).map((h) => [h.key, h.api])), [report]);
   const lines = markLines(part);
+  const hands = segments(HANDS, byKey(part.hands));
   if (turns === 0) {
     return <p className="ca-empty">{analytics.filling || !analytics.asOf ? 'Reading what came in to your sessions…' : 'Nothing came in to a session in these days.'}</p>;
   }
@@ -259,20 +290,18 @@ export function YourPart(props: Props) {
     <>
       <div className="ca-usage-stats">
         <Stat label="Your prompts" value={count(prompts)} note={`about ${count(Math.round(prompts / Math.max(1, part.days.length)))} a day`} />
-        <Stat label="Turns you started" value={percent(countOf(part.hands, 'you'), turns)} note={`${count(countOf(part.hands, 'you'))} of ${count(turns)}`} />
+        <Stat label="Turns you started" value={percent(countOf(part.hands, 'you'), turns)} note={`${count(countOf(part.hands, 'you'))} of ${count(turns)} turns`} />
         <Stat label="Cost of your turns" value={mine ? percent(mine.yours, mine.known) : '—'} note={mine ? `${money(mine.yours)} of ${money(mine.known)} at API prices` : 'once the cost is read'} />
-        <Stat label="You agreed" value={went.all > 0 ? percent(went.agreed, went.all) : '—'} note={went.all === 0 ? 'once your prompts are read' : went.agreed === went.all ? 'none steered or redirected' : `the other ${count(went.all - went.agreed)} steered or redirected`} />
+        <Stat label="Replies that agreed" value={went.all > 0 ? percent(went.agreed, went.all) : '—'} note={went.all === 0 ? 'once your prompts are read' : went.agreed === went.all ? `all ${count(went.all)} of your replies to an agent` : `${count(went.agreed)} of your ${count(went.all)} replies to an agent; the rest steered or redirected`} />
       </div>
       <StanceDays days={part.days} />
       <div className="ca-usage-chart">
-        <div className="ca-usage-legend">
-          <span className="ca-usage-chart-title">Who started the work</span>
-          <span>by turns, then by cost at API prices</span>
-        </div>
-        <Split parts={segments(HANDS, byKey(part.hands))} label="Turns, by who started them" />
-        <Split parts={segments(HANDS, cost)} label="Cost at API prices, by who started the turn" value={(s) => money(s.n)} />
+        <span className="ca-usage-chart-title">Who started the work</span>
+        <Split parts={hands} name="Turns" label="Turns, by who started them" />
+        <Split parts={segments(HANDS, cost)} name="Cost at API prices" label="Cost at API prices, by who started the turn" value={(s) => money(s.n)} />
+        <Terms parts={hands.filter((h) => h.id !== 'you' && h.id !== '')} />
         <p className="ca-usage-fine">
-          {itself > 0 && `${count(itself)} turns a session started on its own (a background task reporting back, a wakeup it set) count for whoever started the turn before. `}
+          {itself > 0 && `A turn a session started on its own (a background task reporting back, a wakeup it set) counts for whoever started the one before it: ${count(itself)} of them. `}
           {report?.subagents && report.subagents.api > 0 && `Subagents made ${money(report.subagents.api)} of the cost.`}
         </p>
       </div>
@@ -345,7 +374,7 @@ export function SessionsPart({ analytics, report, sessions, now, onShowSession }
       <div className="ca-usage-stats">
         <Stat label="Sessions" value={count(all)} note="active in these days" />
         <Stat label="Sessions you started" value={percent(mine.yours, mine.known)} note={`${count(mine.yours)} of ${count(mine.known)}`} />
-        <Stat label="Marked done" value={count(o.left)} note={o.left > 0 ? `${count(o.finished + o.lookedFinished)} of them finished` : 'none yet'} />
+        <Stat label="Marked done or archived" value={count(o.left)} note={o.left > 0 ? `${count(o.finished + o.lookedFinished)} of them finished` : 'none yet'} />
         <Stat label="Left unfinished" value={count(o.unfinished)} note={o.reopened > 0 ? `${count(o.reopened)} taken up again after` : 'of the ones you marked done'} />
       </div>
       {began.length === 0 ? (
@@ -372,6 +401,7 @@ export function SessionsPart({ analytics, report, sessions, now, onShowSession }
                     <i className="ca-usage-swatch" style={{ background: b.color }} />
                     <span>{b.label}</span>
                   </span>
+                  {b.about && <span className="ca-usage-note">{b.about}</span>}
                 </th>
                 <td className="is-num">
                   {count(b.n)} <span className="ca-usage-none">{percent(b.n, all)}</span>

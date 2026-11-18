@@ -35,7 +35,7 @@ const BYS: { id: By; label: string }[] = [
 
 /** With `[experimental] analytics` on: by how each session began, and by who began the turn each
  *  call was made in. */
-const BYS_ANALYTICS: { id: By; label: string }[] = [...BYS, { id: 'began', label: 'Begun by' }, { id: 'turn', label: 'Turn begun by' }];
+const BYS_ANALYTICS: { id: By; label: string }[] = [...BYS, { id: 'began', label: 'Session started by' }, { id: 'turn', label: 'Turn started by' }];
 
 interface Props {
   board: Board;
@@ -396,9 +396,13 @@ function Table({ report: r, by, order, sessions, lanes, onAccount, onShowSession
           return { key: s.key, name: sessionLabel(s, sessions), note: [s.account, s.folder && s.folder.split('/').pop()].filter(Boolean).join(' · '), spent: s, act: on ? () => onShowSession(s.key) : undefined, actTitle: 'Show the session' };
         });
       case 'began':
-        return (r.origins ?? []).map((s) => ({ key: s.key, name: BEGAN.find((b) => b.id === s.key)?.label ?? s.key, swatch: BEGAN.find((b) => b.id === s.key)?.color, spent: s }));
-      case 'turn':
-        return (r.hands ?? []).map((s) => ({ key: s.key, name: HANDS.find((h) => h.id === s.key)?.label ?? s.key, swatch: HANDS.find((h) => h.id === s.key)?.color, spent: s }));
+      case 'turn': {
+        const [rows, series] = by === 'began' ? [r.origins ?? [], BEGAN] : [r.hands ?? [], HANDS];
+        return rows.map((s) => {
+          const of = series.find((x) => x.id === s.key);
+          return { key: s.key, name: of?.label ?? s.key, note: of?.about, swatch: of?.color, spent: s };
+        });
+      }
       case 'day':
         return [...r.days].reverse().map((d) => {
           const api = Object.values(d.api).reduce((a, b) => a + b, 0);

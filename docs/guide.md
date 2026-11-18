@@ -4608,14 +4608,24 @@ session sends a message, Codealong passes on a PR's news or runs a schedule. Wit
 Analytics window has two more views beside **Cost** that say what your own part was.
 
 **Your part** counts everything that came in to your sessions over the days, by who it was from:
-you, another agent, Codealong, or the session itself (a background task or a subagent reporting
-back, a wakeup it set, a loop's tick). Each of those begins a turn, and every model call is counted
-with the turn it was made in, so the tiles say what share of the turns you started and what share
-of the cost at API prices they came to, and how often you agreed when you replied to what an agent
-had said (rather than steering or redirecting it). Two rules decide what a turn counts
+
+- **You**: a prompt you typed, in the session's terminal or app or in Codealong.
+- **Delegated**: another session's agent handed it work: a message it sent (`codealong session
+  send`, a helper's findings sent back), or the first prompt of a session it started.
+- **Automation**: Codealong sent it by itself, as you set it up to: a PR's news, a schedule's run,
+  an automatic review, word that a helper finished or waits, a meeting's notes.
+- **The session itself**: a background task or a subagent reporting back, a wakeup it set, a
+  loop's tick.
+
+Each of those begins a turn, and every model call is counted with the turn it was made in, so the
+tiles say what share of the turns you started and what share of the cost at API prices they came
+to, and how many of your replies to what an agent had said agreed with it (rather than steering or
+redirecting it). **Who started the work** splits the turns, then their cost, by who started them,
+and says under the bars what Delegated and Automation mean. Two rules decide what a turn counts
 as. One the session began itself counts with the turn it follows, since it's the same work going
-on. And the first prompt of a session an agent or Codealong started is theirs, though it's typed in
-as yours would be. Subagents' calls are their session's, and are said apart.
+on: a background task that reports back after a PR's news is still Automation's. And the first
+prompt of a session an agent or Codealong started is theirs, though it's typed in as yours would
+be. Subagents' calls are their session's, and are said apart.
 
 Under the tiles, each day's prompts of yours are stacked by what they did with what the agent had
 last said:
@@ -4643,13 +4653,15 @@ Unread ones are drawn as Not read, never left out.
 Under **More about your prompts** it says what the records are sure of besides: how many prompts
 you sent while the agent was working or after you stopped it, how your answers to its questions
 went, the tool calls you allowed and denied in Codealong, and the suggested replies you sent
-unchanged. A table lists it by account, project or session, and your latest prompts that steered
-or redirected are listed with the session each was in.
+unchanged. A table lists it by account, project or session: your prompts, what they did, and the
+turns started by you, Delegated and Automation. Your latest prompts that steered or redirected are
+listed with the session each was in.
 
-**Sessions** says how the sessions active in those days began (you; a fork you made of another;
-an agent, as its helper or not; Codealong, for a review or on a schedule; a headless run), with
-what share you started and what each kind cost, and how sessions stood when you were done with
-them. A session moved to another account counts as one you began, not as a fork, though a copy
+**Sessions** says how the sessions active in those days began, in the same words, each with what
+it means under it: you, or a fork you made of another; Delegated, a helper or a new session an
+agent started; Automation, a PR review or a scheduled run; a headless run. It says what share you
+started and what each kind cost, and how sessions stood when you were done with them. **Cost** can
+list what was spent by the same two: *Session started by* and *Turn started by*. A session moved to another account counts as one you began, not as a fork, though a copy
 in the same account (moved to another folder, a background job resumed as a copy, `/background`)
 still counts as a fork. Mark as done, Archive and Close
 idle sessions each note where the session's work stood at that moment: finished (a PR it worked on

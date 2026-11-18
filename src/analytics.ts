@@ -4,57 +4,62 @@
 
 import type { Count, Outcomes, Part, PartDay, PartRow, Spent } from './types';
 
-/** A series of a chart: its key in the report, what it's called, and the color its marks wear.
+/** A series of a chart: its key in the report, what it's called, the color its marks wear, and
+ *  what it means in a few words, for a key's hover and for the rows that say it under their name.
  *  The order is fixed and follows the thing, never its size (`--chart-N`'s own rule). */
 export interface Series {
   id: string;
   label: string;
   color: string;
+  about?: string;
 }
 
 /** What a prompt of yours did with what the agent had last said (stance.rs `STANCES`, and a
  *  slash command), in the order the charts stack them; the ones nothing has read come last, in
  *  the color charts give Other. */
 export const STANCES: Series[] = [
-  { id: 'sets-out', label: 'Set out new work', color: 'var(--chart-1)' },
-  { id: 'agrees', label: 'Agreed', color: 'var(--chart-2)' },
-  { id: 'steers', label: 'Steered', color: 'var(--chart-3)' },
-  { id: 'redirects', label: 'Redirected', color: 'var(--chart-4)' },
-  { id: 'asks', label: 'Asked something', color: 'var(--chart-5)' },
-  { id: 'command', label: 'Ran a command', color: 'var(--chart-6)' },
-  { id: '', label: 'Not read', color: 'var(--line-strong)' },
+  { id: 'sets-out', label: 'Set out new work', color: 'var(--chart-1)', about: 'A new task, or the next one once the last was finished' },
+  { id: 'agrees', label: 'Agreed', color: 'var(--chart-2)', about: 'Told it to go ahead or carry on, adding nothing' },
+  { id: 'steers', label: 'Steered', color: 'var(--chart-3)', about: 'Kept its direction and adjusted it: a correction, a requirement, a choice, a fact it needed' },
+  { id: 'redirects', label: 'Redirected', color: 'var(--chart-4)', about: 'Turned down what it did or proposed, and asked for something else' },
+  { id: 'asks', label: 'Asked something', color: 'var(--chart-5)', about: 'A question, with nothing for it to change' },
+  { id: 'command', label: 'Ran a command', color: 'var(--chart-6)', about: 'A slash command, or a command you ran for the session' },
+  { id: '', label: 'Not read', color: 'var(--line-strong)', about: 'Waiting for Jev or an agent to read what it did' },
 ];
 
 /** Who began a turn (turns.rs `Source::word`), as what it counts as: a turn the session began
- *  itself is counted with the one it follows. */
+ *  itself is counted with the one it follows. Work another session's agent handed it is
+ *  Delegated, and what Codealong sent by itself, as you set it up to, is Automation (the
+ *  command's `hand_words` says the same). */
 export const HANDS: Series[] = [
-  { id: 'you', label: 'You', color: 'var(--chart-1)' },
-  { id: 'agent', label: 'Other agents', color: 'var(--chart-2)' },
-  { id: 'codealong', label: 'Codealong', color: 'var(--chart-3)' },
-  { id: '', label: 'Not known', color: 'var(--line-strong)' },
+  { id: 'you', label: 'You', color: 'var(--chart-1)', about: 'A prompt you typed, in a session or in Codealong' },
+  { id: 'agent', label: 'Delegated', color: 'var(--chart-2)', about: 'Another session’s agent: a message it sent, or the start of a session it began' },
+  { id: 'codealong', label: 'Automation', color: 'var(--chart-3)', about: 'Codealong by itself, as you set it up: a PR’s news, a schedule, a review, word from a helper' },
+  { id: '', label: 'Not known', color: 'var(--line-strong)', about: 'Its record doesn’t say' },
 ];
 
 /** Who something that came in was from, as its record says: the session's own doing apart. */
-export const SOURCES: Series[] = [HANDS[0], HANDS[1], HANDS[2], { id: 'itself', label: 'The session itself', color: 'var(--chart-4)' }];
+export const SOURCES: Series[] = [HANDS[0], HANDS[1], HANDS[2], { id: 'itself', label: 'The session itself', color: 'var(--chart-4)', about: 'A background task reporting back, or a wakeup it set' }];
 
-/** How a session began (began.rs `Began::word`). */
+/** How a session began (began.rs `Began::word`), each led by who began it in the words of a
+ *  turn's: you, Delegated, Automation (the command's `began_words` says the same). */
 export const BEGAN: Series[] = [
-  { id: 'you', label: 'You', color: 'var(--chart-1)' },
-  { id: 'fork', label: 'You, forked from another', color: 'var(--chart-1)' },
-  { id: 'helper', label: 'An agent, as its helper', color: 'var(--chart-2)' },
-  { id: 'agent', label: 'An agent', color: 'var(--chart-2)' },
-  { id: 'review', label: 'Codealong, to review a PR', color: 'var(--chart-3)' },
-  { id: 'schedule', label: 'Codealong, on a schedule', color: 'var(--chart-3)' },
-  { id: 'headless', label: 'A headless run', color: 'var(--chart-4)' },
-  { id: '', label: 'Not known', color: 'var(--line-strong)' },
+  { id: 'you', label: 'You', color: 'var(--chart-1)', about: 'Started in a terminal, an app or Codealong' },
+  { id: 'fork', label: 'You: forked from another', color: 'var(--chart-1)', about: 'A copy of another session’s conversation' },
+  { id: 'helper', label: 'Delegated: helper', color: 'var(--chart-2)', about: 'An agent started it to work for it, and reads its replies' },
+  { id: 'agent', label: 'Delegated: new session', color: 'var(--chart-2)', about: 'An agent started it as a session of its own' },
+  { id: 'review', label: 'Automation: PR review', color: 'var(--chart-3)', about: 'Codealong’s automatic review of a pull request' },
+  { id: 'schedule', label: 'Automation: scheduled run', color: 'var(--chart-3)', about: 'A schedule’s run' },
+  { id: 'headless', label: 'Headless run', color: 'var(--chart-4)', about: 'claude -p or codex exec, from a script or an agent' },
+  { id: '', label: 'Not known', color: 'var(--line-strong)', about: 'Its record doesn’t say' },
 ];
 
 /** How the sessions you were done with stood. */
 export const STOOD: Series[] = [
-  { id: 'finished', label: 'Finished', color: 'var(--chart-1)' },
-  { id: 'lookedFinished', label: 'Looked finished', color: 'var(--chart-2)' },
-  { id: 'unfinished', label: 'Unfinished', color: 'var(--chart-3)' },
-  { id: 'unknown', label: 'Not known', color: 'var(--line-strong)' },
+  { id: 'finished', label: 'Finished', color: 'var(--chart-1)', about: 'A PR it worked on merged, a todo linked to it is done, or its status line says its change landed' },
+  { id: 'lookedFinished', label: 'Looked finished', color: 'var(--chart-2)', about: 'Only the read of its last reply says it was done' },
+  { id: 'unfinished', label: 'Unfinished', color: 'var(--chart-3)', about: 'Still working, asking you something, stopped on an error, or its change hadn’t landed' },
+  { id: 'unknown', label: 'Not known', color: 'var(--line-strong)', about: 'Nothing said either way' },
 ];
 
 /** The beginnings that are yours: the rest are agents' or Codealong's. */

@@ -100,7 +100,7 @@ enum Cmd {
         #[arg(long, value_enum, default_value_t = TokensBy::Account)]
         by: TokensBy,
     },
-    /// Your part in the work, an experiment (`[experimental] analytics`, Settings › Experimental): what came in to your sessions and who from (you, another agent, Codealong, the session itself), what your prompts did with what the agent had said (set out new work, agreed, steered, redirected, asked), how sessions began, and how the ones you marked done stood (finished, or left asking you something, not landed…). The Analytics window's Your part and Sessions show the same; JSON has it all. `prompts` lists prompts of yours nothing has read yet, and `tag` says what one did.
+    /// Your part in the work, an experiment (`[experimental] analytics`, Settings › Experimental): what came in to your sessions and who from (you; Delegated, another session's agent; Automation, Codealong by itself; the session itself), what your prompts did with what the agent had said (set out new work, agreed, steered, redirected, asked), how sessions began, and how the ones you marked done stood (finished, or left asking you something, not landed…). The Analytics window's Your part and Sessions show the same; JSON has it all. `prompts` lists prompts of yours nothing has read yet, and `tag` says what one did.
     Analytics(AnalyticsArgs),
     /// Which session runs this command, its worktree, the other agents running in that worktree now (`others`: none means no other agent shares the checkout, however many sessions worked there before), and its open todos: the ones linked to the session, then the worktree's when no other agent is running there (in a checkout several agents share, those are the others' work). Run it first.
     Whoami {
@@ -3892,27 +3892,29 @@ fn analytics_on(cfg: &Config) -> Result<()> {
     Ok(())
 }
 
-/// How a session began (began.rs `Began::word`), as a row names it.
+/// How a session began (began.rs `Began::word`), as a row names it: led by who began it in the
+/// words of a turn's, as the Analytics window has it (analytics.ts `BEGAN`).
 fn began_words(word: &str) -> &str {
     match word {
         "you" => "You",
-        "fork" => "You, forked from another",
-        "helper" => "An agent, as its helper",
-        "agent" => "An agent",
-        "review" => "Codealong, to review a PR",
-        "schedule" => "Codealong, on a schedule",
-        "headless" => "A headless run",
+        "fork" => "You: forked from another",
+        "helper" => "Delegated: helper",
+        "agent" => "Delegated: new session",
+        "review" => "Automation: PR review",
+        "schedule" => "Automation: scheduled run",
+        "headless" => "Headless run",
         "" => "Not known",
         other => other,
     }
 }
 
-/// Who began a turn (turns.rs `Source::word`), as a row names it.
+/// Who began a turn (turns.rs `Source::word`), as a row names it and the Analytics window does
+/// (analytics.ts `HANDS`): another session's agent is Delegated, Codealong by itself Automation.
 fn hand_words(word: &str) -> &str {
     match word {
         "you" => "You",
-        "agent" => "Another agent",
-        "codealong" => "Codealong",
+        "agent" => "Delegated",
+        "codealong" => "Automation",
         "itself" => "The session itself",
         "" => "Not known",
         other => other,
