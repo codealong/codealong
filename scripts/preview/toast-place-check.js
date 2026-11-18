@@ -4,12 +4,13 @@
 // (several picked); a toast is a line in the usage bar, the window's status bar along its foot with
 // the title bar's ground, over neither the list nor the panel's message box, with the panel taking
 // the whole window too; it lies over the end of the account chips' row, as wide as its words need
-// (up to its limit), and the chips stay as they are under it, as they are once it goes; it stays while the
+// (up to its limit), and the chips stay as they are under it, as they are once it goes, and a chip under it
+// the keyboard reaches shows; it stays while the
 // pointer is on it, going once the pointer leaves, and one that comes back after another took
 // its place under the pointer goes in its time, while one of the same kind is held as the one it
 // replaced was; and with a dialog up, its Undo is still a click
 // away, over the dialog's scrim.
-//   PREVIEW_SIZE=1200,900 PREVIEW_WAIT=120000 scripts/preview.sh sessions '' scripts/preview/toast-place-check.js
+//   PREVIEW_SIZE=1200,900 PREVIEW_WAIT=120000 PREVIEW_USAGE=scripts/preview/usage-sample.json scripts/preview.sh sessions '' scripts/preview/toast-place-check.js
 (function () {
   localStorage.setItem('codealong.project', 'All projects');
   localStorage.setItem('codealong.view', 'sessions');
@@ -121,7 +122,19 @@
       var want = Math.min(needs(), 560, accts.right - accts.left);
       note('its words want ' + needs() + 'px; it has ' + (t.right - t.left) + 'px, and ' + tight() + ' of ' + chips() + ' chips show only a number');
       check('as wide as its words need, up to its limit', t.right - t.left >= want - 1, JSON.stringify({ toast: t.right - t.left, wants: want }));
-      check('the chips stay as they are under it', layout() === layoutBefore && tight() === tightBefore, layout() + ' | before: ' + layoutBefore);
+      var under = Array.prototype.filter.call(document.querySelectorAll('.ca-usagebar-accts .ca-uchip'), function (c) { return overlaps(rect(c), t); });
+      check('it lies over a chip', under.length > 0, JSON.stringify({ toast: t, chips: layout() }));
+      check('the chips stay as they are under it', layout() !== '' && layout() === layoutBefore && tight() === tightBefore, layout() + ' | before: ' + layoutBefore);
+      // A chip under it that the keyboard reaches shows: the toast fades while it has the focus.
+      var fade = function () { return getComputedStyle(document.querySelector('.ca-usagebar-toast')).opacity; };
+      if (under.length) {
+        under[0].focus({ focusVisible: true });
+        if (under[0].matches(':focus-visible')) {
+          check('a chip under it the keyboard reaches shows', fade() === '0', fade());
+          under[0].blur();
+          check('and it’s back once the focus moves on', fade() === '1', fade());
+        } else note('the page wouldn’t show a chip’s focus as the keyboard’s');
+      }
       hover(true);
       return wait(9000);
     })

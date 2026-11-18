@@ -210,6 +210,13 @@
 .ca-usagebar-toast:empty {
   display: none;
 }
+/* A chip the keyboard reaches shows, though the toast lies over it: the toast fades while a chip
+   has the focus, and is back as soon as the focus moves on (a Tab past the last chip reaches its
+   Undo, which a hidden toast would skip). */
+.ca-usagebar-main:has(.ca-uchip:focus-visible) .ca-usagebar-toast {
+  opacity: 0;
+  pointer-events: none;
+}
 /* While a dialog is up, over its scrim, as the toast was when it floated: an Undo stays a click
    away, and words cut short can still be read whole. */
 body:has(.ca-scrim) .ca-usagebar-toast {
