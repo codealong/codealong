@@ -50,7 +50,7 @@ use crate::harness::{Ctx, Pending, Question};
 use crate::launch::{Key, Press};
 use crate::model::Session;
 
-use super::registry::{registry_of, RegistryEntry, DIALOG_OPEN};
+use super::registry::{entry_of, registry_of, Entry, RegistryEntry, DIALOG_OPEN};
 
 /// How the id of a dialog's question starts: its process and when it began waiting follow, so
 /// an answer never goes to a dialog that came up after the one it was meant for.
@@ -224,16 +224,29 @@ fn choice(text: &str) -> Option<(Option<usize>, Choice)> {
 /// The registry entry of a live session that waits on a dialog, with what its terminal shows when
 /// that can be read. A background job's dialog has no screen to read, so it's never one's.
 pub fn open(home: &Path, s: &Session) -> Option<(RegistryEntry, Option<String>)> {
-    let reg = registry_of(home, s.pid?).filter(|r| r.session_id == s.id && r.waits_on(DIALOG_OPEN) && r.kind.as_deref() != Some("bg"))?;
-    let screen = crate::launch::screen_of(reg.pid, Path::new(&s.cwd)).ok().flatten();
+    let reg = registry_of(home, s.pid?).filter(|r| waits(r, s))?;
+    let screen = screen_of(&reg, s);
     Some((reg, screen))
 }
 
+/// The registry entry `reg` is the session `s` waiting on a dialog, outside a background job.
+fn waits(reg: &RegistryEntry, s: &Session) -> bool {
+    reg.session_id == s.id && reg.waits_on(DIALOG_OPEN) && reg.kind.as_deref() != Some("bg")
+}
+
+fn screen_of(reg: &RegistryEntry, s: &Session) -> Option<String> {
+    crate::launch::screen_of(reg.pid, Path::new(&s.cwd)).ok().flatten()
+}
+
 /// The id an answer names the dialog `d` up in its registry entry `reg` by: its process, when it
-/// began waiting, and what the dialog says and offers, since a command's panels follow one
-/// another with the registry saying the same all the while.
+/// began waiting (`entry_part`), and what the dialog says and offers, since a command's panels
+/// follow one another with the registry saying the same all the while.
 fn id_of(reg: &RegistryEntry, d: &Dialog) -> String {
-    format!("{DIALOG_ID}{}:{}:{}", reg.pid, reg.status_updated_at.unwrap_or(0), fingerprint(d))
+    format!("{}{}", entry_part(reg), fingerprint(d))
+}
+
+fn entry_part(reg: &RegistryEntry) -> String {
+    format!("{DIALOG_ID}{}:{}:", reg.pid, reg.status_updated_at.unwrap_or(0))
 }
 
 /// What a dialog says and offers, each choice with what it does, in a few characters: not where
@@ -251,15 +264,40 @@ enum Seen {
     Gone,
     /// A dialog, with the id an answer names it by (`id_of`).
     Up(String, Dialog),
-    /// Its screen couldn't be read, so the dialog may be up or gone.
+    /// Its registry entry or its screen didn't read, so the dialog may be up or gone.
     Unread,
 }
 
-fn seen(home: &Path, s: &Session) -> Seen {
-    match open(home, s) {
+/// What its terminal shows now, while Codealong answers the dialog `id` names.
+fn seen(home: &Path, s: &Session, id: &str) -> Seen {
+    let Some(pid) = s.pid else { return Seen::Gone };
+    let entry = entry_of(home, pid);
+    let screen = match &entry {
+        Entry::Is(reg) if waits(reg, s) => screen_of(reg, s),
+        _ => None,
+    };
+    seen_in(entry, s, screen.as_deref(), id)
+}
+
+/// `seen`, from the registry entry and the screen as they were read. A registry file caught
+/// halfway through a write says nothing, nor does a screen with no dialog on it while the
+/// registry entry is still the one the dialog came up under: a frame caught empty or partway
+/// drawn can't be told from a panel that isn't a list, and a dialog that's answered moves the
+/// registry on.
+fn seen_in(entry: Entry, s: &Session, screen: Option<&str>, id: &str) -> Seen {
+    let reg = match entry {
+        Entry::Is(reg) => reg,
+        Entry::Gone => return Seen::Gone,
+        Entry::Unread => return Seen::Unread,
+    };
+    if !waits(&reg, s) {
+        return Seen::Gone;
+    }
+    let Some(screen) = screen else { return Seen::Unread };
+    match read(screen) {
+        Some(d) => Seen::Up(id_of(&reg, &d), d),
+        None if id.starts_with(&entry_part(&reg)) => Seen::Unread,
         None => Seen::Gone,
-        Some((_, None)) => Seen::Unread,
-        Some((reg, Some(screen))) => read(&screen).map_or(Seen::Gone, |d| Seen::Up(id_of(&reg, &d), d)),
     }
 }
 
@@ -280,10 +318,10 @@ fn gone(seen: &Seen, id: &str) -> bool {
 
 /// Reads its terminal again until `done` holds for what it shows, or until `MOVED_WAIT` runs out:
 /// whether it came to that, and what it showed last.
-fn wait_for(home: &Path, s: &Session, done: impl Fn(&Seen) -> bool) -> (bool, Seen) {
+fn wait_for(home: &Path, s: &Session, id: &str, done: impl Fn(&Seen) -> bool) -> (bool, Seen) {
     let deadline = Instant::now() + MOVED_WAIT;
     loop {
-        let now = seen(home, s);
+        let now = seen(home, s, id);
         if done(&now) || Instant::now() >= deadline {
             return (done(&now), now);
         }
@@ -294,9 +332,9 @@ fn wait_for(home: &Path, s: &Session, done: impl Fn(&Seen) -> bool) -> (bool, Se
 /// After `key` (Return or Escape) was pressed at the dialog `id` names: an error unless its
 /// terminal shows it gone.
 fn took(home: &Path, s: &Session, id: &str, key: &str) -> Result<()> {
-    match wait_for(home, s, |v| gone(v, id)) {
+    match wait_for(home, s, id, |v| gone(v, id)) {
         (true, _) => Ok(()),
-        (false, Seen::Unread) => bail!("Pressed {key}, but Codealong couldn't read its terminal to see that it took it. Look there."),
+        (false, Seen::Unread) => bail!("Pressed {key}, but Codealong couldn't tell from its terminal that it took it. Look there."),
         (false, _) => bail!("It's still showing the dialog after {key}. Answer it in its terminal."),
     }
 }
@@ -363,10 +401,8 @@ pub fn answer(ctx: &Ctx, s: &Session, id: &str, answers: &Value) -> Result<Strin
     };
     let (home, cwd) = (ctx.account.home_path(), Path::new(&s.cwd));
     crate::launch::press_all(reg.pid, cwd, &moves(dialog.on, to))?;
-    match wait_for(&home, s, |v| on_pick(v, id, picked)) {
-        (true, _) => {}
-        (false, Seen::Unread) => bail!("Codealong couldn't read its terminal to see its cursor on {picked}, so it didn't press Return. Answer it there."),
-        (false, _) => bail!("Its cursor didn't come to {picked}, so Codealong didn't press Return. Answer it in its terminal."),
+    if !wait_for(&home, s, id, |v| on_pick(v, id, picked)).0 {
+        bail!("Codealong didn't see its cursor come to {picked}, so it didn't press Return. Answer it in its terminal.");
     }
     crate::launch::press_all(reg.pid, cwd, &[Press::Key(Key::Return)])?;
     took(&home, s, id, "Return")?;
@@ -527,6 +563,25 @@ mod tests {
         // The same words in a dialog that came up again since, or a screen that couldn't be read.
         assert!(!on_pick(&up("dialog:42:2000:abc", 1), id, "No, keep bypass permissions"));
         assert!(!on_pick(&Seen::Unread, id, "No, keep bypass permissions"));
+    }
+
+    #[test]
+    fn reads_that_cant_be_told_from_a_dialog_still_up_say_nothing() {
+        let s = Session { pid: Some(42), ..Session::new(crate::model::Harness::Claude, "claude", "abc") };
+        let entry = |status: &str, at: i64| {
+            Entry::Is(super::super::registry::parse_registry(&format!(r#"{{"pid":42,"sessionId":"abc","cwd":"/x","status":"{status}","waitingFor":"dialog open","statusUpdatedAt":{at},"kind":"interactive"}}"#)).unwrap())
+        };
+        let id = format!("{DIALOG_ID}42:1000:{}", fingerprint(&read(AUTO).unwrap()));
+        assert!(matches!(seen_in(entry("waiting", 1000), &s, Some(AUTO), &id), Seen::Up(at, _) if at == id));
+        // A registry file caught halfway, a screen that didn't read, and one with no dialog on it
+        // under the same entry: a frame caught empty.
+        assert_eq!(seen_in(Entry::Unread, &s, Some(AUTO), &id), Seen::Unread);
+        assert_eq!(seen_in(entry("waiting", 1000), &s, None, &id), Seen::Unread);
+        assert_eq!(seen_in(entry("waiting", 1000), &s, Some(""), &id), Seen::Unread);
+        // The registry moved on: the session at its prompt, its process gone, or another dialog.
+        assert_eq!(seen_in(entry("idle", 2000), &s, Some(""), &id), Seen::Gone);
+        assert_eq!(seen_in(Entry::Gone, &s, None, &id), Seen::Gone);
+        assert_eq!(seen_in(entry("waiting", 2000), &s, Some(""), &id), Seen::Gone);
     }
 
     #[test]
