@@ -3353,7 +3353,8 @@ through them in the same order. A session moved to the top still comes before th
 The notch, the waiting window and a session's panel in Sessions go through what waits on you in
 one order, Next (⌘]) going on to what comes after the one you're on: by default the sessions that
 need you, the PRs waiting on your review, the todos that are due, the sessions whose turn ended,
-and last the todos ready to start, each kind the longest wait first. Settings › Queue lists them in
+and last the todos ready to start, each kind the longest wait first but the ready todos, which go
+in your todo list's order. Settings › Queue lists them in
 that order: drag one by its row or its grip, or press ⌃⌘↑ ⌃⌘↓ on its grip, to put the kinds in yours
 (`order`). A box takes a kind out of what waits on you: PRs waiting on your review taken out aren't
 on the bar or in the notch, nor counted beside the camera or in the mark's color, nor in the

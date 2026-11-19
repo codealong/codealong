@@ -48,8 +48,9 @@ const KINDS = new Map<string, readonly Waits[]>();
  * doesn't say. The same order gives the same list, so it can stand in a hook's dependencies.
  */
 export function queueKinds(order?: readonly string[] | null): readonly Waits[] {
-  // None is the default order; an empty one has only the sessions'.
-  const id = order ? `[${order.join(',')}]` : '';
+  // None is the default order and an empty one has only the sessions'; a name with a comma in it
+  // isn't two.
+  const id = JSON.stringify(order ?? null);
   const kept = KINDS.get(id);
   if (kept) return kept;
   let kinds: Waits[] = [];
@@ -138,10 +139,14 @@ export type PlaceReads<T> = Pick<Reads<T>, 'keyOf' | 'sinceOf' | 'waitsOf' | 'ra
 export function placeOf<T>(row: T, reads: PlaceReads<T>): Place {
   const waits = reads.waitsOf(row);
   const first = !!reads.firstOf?.(row);
-  // A kind left out of the order isn't on the window's list; were it, it would go last.
-  const at = (reads.order ?? WAITS).indexOf(waits);
-  const rank = first && waits === 'reviews' ? -1 : at < 0 ? WAITS.length : at;
-  return { key: reads.keyOf(row), waits, rank, since: reads.sinceOf(row), raised: reads.raisedOf(row), first, finished: reads.finishedOf(row), order: reads.orderOf?.(row) };
+  return { key: reads.keyOf(row), waits, rank: rankIn(waits, first, reads.order), since: reads.sinceOf(row), raised: reads.raisedOf(row), first, finished: reads.finishedOf(row), order: reads.orderOf?.(row) };
+}
+
+/** Where a kind comes in `order` (the default without one): a review whose repo puts reviews
+ *  first ahead of them all, and a kind left out of it, which isn't on the window's list, last. */
+function rankIn(waits: Waits, first: boolean, order: readonly Waits[] = WAITS): number {
+  const at = order.indexOf(waits);
+  return first && waits === 'reviews' ? -1 : at < 0 ? WAITS.length : at;
 }
 
 /**
@@ -181,7 +186,8 @@ export function inQueueOrder<T>(rows: T[], reads: PlaceReads<T>): T[] {
  */
 export function leftAfter<T>(queue: T[], key: string, handled: Handled, reads: PlaceReads<T>, was?: Place | null, came?: number): T[] {
   const rows = inQueueOrder(queue, reads).map((row) => ({ row, at: placeOf(row, reads) }));
-  const from = rows.find((r) => r.at.key === key)?.at ?? (was?.key === key ? was : null);
+  // Where one no longer listed stood goes by the order as it is now: it may have changed since.
+  const from = rows.find((r) => r.at.key === key)?.at ?? (was?.key === key ? { ...was, rank: rankIn(was.waits, !!was.first, reads.order) } : null);
   const i = from ? rows.findIndex((r) => byPlace(r.at, from) > 0) : 0;
   const at = i < 0 ? rows.length : i;
   const fresh = (r: { at: Place }) => came != null && r.at.raised != null && r.at.raised.at > came;

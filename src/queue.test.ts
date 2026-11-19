@@ -180,6 +180,9 @@ describe('the queue’s order', () => {
     expect(keys(inQueueOrder([A, B, C, D, review, due], yours))).toEqual(['C', 'D', 'T', 'R', 'A', 'B']);
     expect(keys(inQueueOrder([A, C, { key: 'F', since: 50, waits: 'reviews', first: true }], yours))).toEqual(['F', 'C', 'A']);
     expect(keys(leftAfter([A, B, C, D], 'D', none, yours))).toEqual(['A', 'B', 'C']);
+    // One no longer listed, placed before the order changed, goes on from where its kind stands
+    // now: A needed you, and B, which still does, comes before the turns ended that now lead.
+    expect(keys(leftAfter([B, C, D], 'A', none, yours, placeOf(A, READS)))).toEqual(['B', 'C', 'D']);
     // The same reads for the same order, so a window's hooks see them change only when it does.
     expect(inOrder(READS, queueKinds(['unread', 'due', 'reviews', 'needs']))).toBe(yours);
     expect(inOrder(READS, queueKinds())).not.toBe(yours);
@@ -197,9 +200,12 @@ describe('the queue’s order', () => {
     expect(queueKinds(['ready', 'due', 'needs', 'unread'])).toEqual(['due', 'needs', 'unread', 'ready']);
     expect(queueKinds(['ready', 'due'])).toEqual(['needs', 'due', 'unread', 'ready']);
     expect(queueKinds(['needs', 'Reviews', 'unread', 'needs'])).toEqual(['needs', 'unread']);
-    // An empty order has only the sessions', whatever was read before it.
+    // An empty order has only the sessions', whatever was read before it, and a name with a comma
+    // in it is none, whatever order has the two apart.
     expect(queueKinds([])).toEqual(['needs', 'unread']);
     expect(queueKinds()).toEqual(WAITS);
+    expect(queueKinds(['needs,reviews', 'unread'])).toEqual(['needs', 'unread']);
+    expect(queueKinds(['needs', 'reviews', 'unread'])).toEqual(['needs', 'reviews', 'unread']);
     // Turned on in Settings, a kind goes where the default has it.
     expect(withKind(['reviews', 'needs', 'unread'], 'due')).toEqual(['reviews', 'needs', 'due', 'unread']);
     expect(withKind(['due', 'needs', 'unread'], 'ready')).toEqual(['due', 'needs', 'unread', 'ready']);
