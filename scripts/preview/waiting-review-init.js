@@ -9,6 +9,8 @@
     var p = real(cmd, args, options);
     if (cmd !== 'get_board') return p;
     return p.then(function (board) {
+      // No todo is due: what waits is what this puts there (Board.todoQueue).
+      board.todoQueue = { due: [], ready: [] };
       board.lanes.forEach(function (l) {
         l.sessions.forEach(function (s) {
           if (s.status === 'needs' || s.status === 'error' || s.status === 'unread') s.status = 'idle';

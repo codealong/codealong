@@ -1,8 +1,9 @@
 // Checks the todos due in the waiting window (Waiting.tsx, quick.ts `windowRows`), with only four
 // sample todos waiting, due ones put first in your order (`[queue] order`): the window opens on the
 // one most overdue, as its card (TodoCard.tsx) with the strip a todo has (TodoStrip.tsx) as the
-// window's title bar, saying the next; a new due date from Due… goes on to the next due, and ⌃⌘1
-// snoozes that one and goes on; one marked done in another window while it shows goes on too; and
+// window's title bar, saying the next; a new due date from Due… goes on to the next due; one marked
+// done in another window while it shows stays, what's written in its box with it, until the
+// engine's board has it done, and then the window goes on; ⌃⌘1 snoozes the next and goes on; and
 // the last given another day leaves the window saying nothing waits, which it still says once the
 // todo would have been read again. (⇧⌘E marking one done is the notch's check: the card and its
 // strip are the same.)
@@ -77,19 +78,33 @@
     })
     .then(function () {
       check('a new due date from Due… goes on to the next todo due', given('t-sample1'), JSON.stringify(op('t-sample1')));
+      // Something is written in its box, and another window marks it done (ahead.ts
+      // `todoLeftAhead`), as the main window's strip does, ahead of the engine. (The preview calls
+      // every page `main`, so the other is named otherwise.)
+      type(q('.ca-waiting .ca-todocard-box textarea'), 'Start with the checks page');
+      window.__emit('ahead', { from: 'notch', put: { id: 'notch:check:1', change: { kind: 'todo-left', ids: ['t-sample2'] }, at: Date.now(), doneAt: null, shownAt: null } });
+      return wait(800);
+    })
+    .then(function () {
+      var box = q('.ca-waiting .ca-todocard-box textarea');
+      check('another window’s change ahead of the engine keeps the card, and what’s written in it', /Show how long/.test(title()) && !!box && box.value === 'Start with the checks page', title() + ' / ' + (box && box.value));
+      // The engine's board has it done: it no longer waits.
+      return window.__TAURI_INTERNALS__.invoke('get_board').then(function (b) {
+        b.todoQueue = { due: b.todoQueue.due.filter(function (t) { return t.id !== 't-sample2'; }), ready: b.todoQueue.ready };
+        b.todos = b.todos.map(function (t) { return t.id === 't-sample2' ? Object.assign({}, t, { status: 'done' }) : t; });
+        b.generatedAt = Date.now();
+        window.__emit('board', b);
+        return until(shows('Cut the board'), 3000, 'the window going on once the board has it done');
+      });
+    })
+    .then(function () {
+      check('once the engine’s board has it done, the window goes on', !op('t-sample2'));
       press(ctrlCmd, { key: '1', code: 'Digit1' });
-      return until(shows('Cut the board'), 3000, '⌃⌘1 snoozing it and going on');
+      return until(shows('Write up the config'), 3000, '⌃⌘1 snoozing it and going on');
     })
     .then(function () {
-      var snoozed = op('t-sample2');
+      var snoozed = op('t-sample3');
       check('⌃⌘1 snoozes it, its due date as it is, and goes on', !!snoozed && typeof snoozed.op.patch.snoozed === 'number' && snoozed.op.patch.snoozed > Date.now() && !('due' in snoozed.op.patch), JSON.stringify(snoozed));
-      // Another window marks it done (ahead.ts `todoLeftAhead`), as the main window's strip does. (The
-      // preview calls every page `main`, so the other is named otherwise.)
-      window.__emit('ahead', { from: 'notch', put: { id: 'notch:check:1', change: { kind: 'todo-left', ids: ['t-sample3'] }, at: Date.now(), doneAt: null, shownAt: null } });
-      return until(shows('Write up the config'), 3000, 'the window going on from one done elsewhere');
-    })
-    .then(function () {
-      check('one done in another window while it shows goes on', !op('t-sample3'));
       return dueTomorrow().then(function () { return until(function () { return !!end() && !q('.ca-waiting .ca-todocard'); }, 3000, 'the end of what waits'); });
     })
     .then(function () {

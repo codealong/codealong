@@ -70,6 +70,9 @@ export function useTodoView(input: TodoViewInput) {
   // The todo whose panel should open its due date's picker, for Pick a date… and D.
   const [duePick, setDuePick] = useState<string | null>(null);
   const duePicked = useCallback(() => setDuePick(null), []);
+  /** Opens the date picker of the todo's panel where it shows already (its strip's Due…), without
+   *  going to Todo as its menu's Pick a date… does from elsewhere. */
+  const pickDueHere = useCallback((t: Todo) => setDuePick(t.id), []);
   // The box that adds todos, and what a new one gets linked to.
   const [composer, setComposer] = useState<{ text: string; context: ComposerContext | null }>({ text: '', context: null });
   const composerRef = useRef<HTMLInputElement>(null);
@@ -441,5 +444,6 @@ export function useTodoView(input: TodoViewInput) {
     todoMenuItems,
     todoKeys,
     todoEdit,
+    pickDueHere,
   };
 }

@@ -364,13 +364,13 @@ export function QueueStrip({ queue, notice, hotkeys, session, actions, onSeen, b
   const listed: StripAction[] = own ?? [
     // Only where there's a PR to merge, and first, where its coming and going moves nothing
     // else: the strip keeps to the right.
-    ...(mergeDone ? [{ label: 'Merge and done', icon: 'merge', chord: CHORDS.mergeDone, roomy: true, title: `${mergeDone.label.replace('…', '')} (${sign('mergeDone')}): it merges once you confirm, and then this session is marked done`, run: () => mergeDone.run() }] : []),
+    ...(mergeDone ? [{ label: 'Merge and done', icon: 'merge', chord: CHORDS.mergeDone, roomy: true, title: `${mergeDone.label.replace('…', '')}${hotkeys?.noKeys ? '' : ` (${sign('mergeDone')})`}: it merges once you confirm, and then this session is marked done`, run: () => mergeDone.run() }] : []),
     {
       label: 'Seen',
       chord: CHORDS.seen,
       title: !seen
         ? next && queue?.waiting === false
-          ? `Nothing to mark as seen here: ${sign('seen')} goes on to the next`
+          ? `Nothing to mark as seen here: ${hotkeys?.noKeys ? 'Next' : sign('seen')} goes on to the next`
           : 'Nothing to mark as seen here'
         : aside
           ? 'Set it aside until its side conversation answers: it needs you again then'
@@ -380,7 +380,7 @@ export function QueueStrip({ queue, notice, hotkeys, session, actions, onSeen, b
       run: seen && (() => seen()),
     },
     { label: session?.orchestrator ? 'Turn off' : 'Done', chord: CHORDS.done, title: done && session ? doneTitle(session) : 'It’s archived already', run: done && (() => done.run()) },
-    { label: 'Snooze', keys: snoozeRange(), title: snooze ? `Snooze: it waits apart until its time comes. ${snoozeKeys(snooze)}` : 'It can’t be snoozed', menu: snooze?.items },
+    { label: 'Snooze', keys: snoozeRange(), title: snooze ? `Snooze: it waits apart until its time comes.${hotkeys?.noKeys ? '' : ` ${snoozeKeys(snooze)}`}` : 'It can’t be snoozed', menu: snooze?.items },
     // Short, as Done beside it is, so more of the strip shows before any goes into ⋯.
     { label: close?.label === 'End background job' ? 'End job' : 'Close', chord: CHORDS.close, title: close ? `${close.label}: the conversation stays, to go on with later` : 'It has no terminal of its own to close', run: close && (() => close.run()) },
     { label: archive?.label === 'Unarchive' ? 'Unarchive' : 'Archive', chord: CHORDS.archive, title: archive?.label ?? 'Archive', run: archive && (() => archive.run()) },

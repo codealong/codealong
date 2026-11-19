@@ -55,6 +55,11 @@ function viewTab(e: KeyboardEvent): boolean {
  *  Schedules L (later) because Sessions has S. The sidebar shows a view's chord as you point at it. */
 export const VIEW_CHORDS: Record<string, string> = { sessions: 'Shift+Cmd+S', prs: 'Shift+Cmd+P', todo: 'Shift+Cmd+T', schedules: 'Shift+Cmd+L', kanban: 'Shift+Cmd+K', canvas: 'Shift+Cmd+B' };
 
+/** The main window's keys for where the row selected lives: a new session there, and opening it
+ *  in a terminal, the editor, the Claude app, Codex, its preview and its PR on GitHub. A worktree's
+ *  strip says them (Inspector.tsx), from here. */
+export const PLACE_CHORDS = { newSession: 'Cmd+N', terminal: 'Cmd+1', editor: 'Cmd+2', claudeApp: 'Cmd+3', codex: 'Cmd+4', preview: 'Cmd+5', github: 'Cmd+O' } as const;
+
 /** The view a key event goes to (`VIEW_CHORDS`), or none. */
 export function viewOfKey<V extends string>(e: Pick<KeyboardEvent, 'key' | 'code' | 'metaKey' | 'ctrlKey' | 'altKey' | 'shiftKey'>, views: readonly { id: V }[]): V | null {
   return views.find((v) => chordPressed(VIEW_CHORDS[v.id] ?? '', e))?.id ?? null;
@@ -372,7 +377,7 @@ export function onMainKey<V extends string>(e: KeyboardEvent, keys: MainKeys<V>)
     return;
   }
   // ⌘⇧N is File › New window's, so it works with no window open too.
-  if (mod && !e.shiftKey && key === 'n') {
+  if (chordPressed(PLACE_CHORDS.newSession, e)) {
     e.preventDefault();
     // On a todo, the session is for the todo; on several picked, one session for all of them.
     if (pickedRows.length > 0) startForTodos(pickedRows);
@@ -532,22 +537,22 @@ export function onMainKey<V extends string>(e: KeyboardEvent, keys: MainKeys<V>)
       (t) => t.group === 'session' && !t.disabled && t.id !== primary && (selected?.kind !== 'agent' || t.id.startsWith(`s|${selected.session.key}|`)),
     );
     open(lane, alt?.id ?? 'l|editor');
-  } else if (mod && key === '1') {
+  } else if (chordPressed(PLACE_CHORDS.terminal, e)) {
     e.preventDefault();
     open(lane, 'l|terminal');
-  } else if (mod && key === '2') {
+  } else if (chordPressed(PLACE_CHORDS.editor, e)) {
     e.preventDefault();
     open(lane, 'l|editor');
-  } else if (mod && key === '3') {
+  } else if (chordPressed(PLACE_CHORDS.claudeApp, e)) {
     e.preventDefault();
     open(lane, lane?.targets.find((t) => t.id.endsWith('|claude-app') && !t.disabled)?.id);
-  } else if (mod && key === '4') {
+  } else if (chordPressed(PLACE_CHORDS.codex, e)) {
     e.preventDefault();
     open(lane, lane?.targets.find((t) => t.id.endsWith('|codex') && !t.disabled)?.id);
-  } else if (mod && key === '5') {
+  } else if (chordPressed(PLACE_CHORDS.preview, e)) {
     e.preventDefault();
     if (lane?.preview) open(lane, 'l|preview');
-  } else if (mod && key === 'o') {
+  } else if (chordPressed(PLACE_CHORDS.github, e)) {
     e.preventDefault();
     const github = picked('github');
     if (github) github.run();

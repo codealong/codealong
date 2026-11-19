@@ -14,6 +14,7 @@
 import { useEffect } from 'react';
 import { useLatest } from '../latest';
 import type { MenuGroup } from '../contextMenu';
+import { PLACE_CHORDS } from '../mainKeys';
 import * as menus from '../menus';
 import { chordPressed, held, keysSaid } from '../platform';
 import { snoozeChorded } from '../snooze';
@@ -72,7 +73,7 @@ export function TodoStrip({ todo, lane, actions, sending = false, queue, notice,
   }, [latest, panel]);
 
   const { start, done, snooze, due } = actions;
-  const startKeys = panel ? (startKey ? keysSaid('⌘N') : undefined) : keysSaid('⌘⏎');
+  const startKeys = panel ? (startKey ? menus.chordSigns(PLACE_CHORDS.newSession) : undefined) : keysSaid('⌘⏎');
   const buttons: StripAction[] = [
     {
       label: 'Start',

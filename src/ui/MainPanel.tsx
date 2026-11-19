@@ -110,7 +110,7 @@ export interface MainPanelProps {
   todosFor: (key: string) => Todo[] | undefined;
   prRowOf: (pr: PrItem) => PrRowItem;
   pickedRows: TodoItem[];
-  todo: Pick<TodoView, 'startForTodo' | 'startForTodos' | 'todoMenu' | 'todoLinkMenu' | 'todoMoreMenu' | 'labelMenu' | 'projectsForTodos' | 'duePick' | 'duePicked' | 'selectTodoRow' | 'pickMenu' | 'todoEdit'>;
+  todo: Pick<TodoView, 'startForTodo' | 'startForTodos' | 'todoMenu' | 'todoLinkMenu' | 'todoMoreMenu' | 'labelMenu' | 'projectsForTodos' | 'duePick' | 'duePicked' | 'selectTodoRow' | 'pickMenu' | 'todoEdit' | 'pickDueHere'>;
   /** Rows picked together in Sessions (sessions, or worktrees' headings) and in PRs
    *  (useListPicks.ts): their panel shows in place of one row's. */
   picks: ReturnType<typeof useListPicks>;
@@ -168,7 +168,7 @@ export interface MainPanelProps {
 
 export function MainPanel(props: MainPanelProps) {
   const { view, selected, selectedLane, canvasPicked, board, now, loading, laneById, homes, devices, projectTodos, todoStore, todoLinks, todosFor, prRowOf, pickedRows, picks, drill, setDrill, queue, views, boxFocus, panelMax, togglePanelMax, prPanelMax, togglePrPanelMax, actionsRef, open, newSession, newSessionPanel, showLaneFromPanel, showSessionFromPanel, showSchedule, schedulePanel, scheduleSession, showTodoFromPanel, laneMenu, sessionMenu, sessionMenuSpec, lanePrMenu, showPr, prMenu, prChipMenu, reviewMenuFrom, reviewedPr, setPreviewFor, setToast, report, findIn } = props;
-  const { startForTodo, startForTodos, todoMenu, todoLinkMenu, todoMoreMenu, labelMenu, projectsForTodos, duePick, duePicked, selectTodoRow, pickMenu, todoEdit } = props.todo;
+  const { startForTodo, startForTodos, todoMenu, todoLinkMenu, todoMoreMenu, labelMenu, projectsForTodos, duePick, duePicked, selectTodoRow, pickMenu, todoEdit, pickDueHere } = props.todo;
   // What the strip's Next goes by in this view, or why it goes nowhere.
   const viewQueue = views.strip(view);
   const nowhere = NOWHERE[view];
@@ -224,7 +224,8 @@ export function MainPanel(props: MainPanelProps) {
       todoLeftAhead([t.id], act.then(() => null)).catch((e: unknown) => setToast(errorText(e)));
       left('snoozed');
     }, true);
-    return { start: () => startForTodo(item), done: t.status === 'done' ? undefined : done, snooze, due: dueItem([t], todoEdit) };
+    // Pick a date… opens the picker of the panel the strip is over, wherever that is.
+    return { start: () => startForTodo(item), done: t.status === 'done' ? undefined : done, snooze, due: dueItem([t], { ...todoEdit, pickDate: pickDueHere }) };
   };
   const todoPanel = (item: TodoItem) => drilledPanel(item.key, middleTruncate(item.todo.title, 40)) ?? todoOwnPanel(item);
   const todoOwnPanel = (item: TodoItem) => {
@@ -379,9 +380,9 @@ export function MainPanel(props: MainPanelProps) {
         queue={viewQueue}
         notice={queued ? queue.notice : null}
         // The strip is always there, with what's commonly done to a session and the keys for it,
-        // which are the row selected's (none on the canvas, a schedule's under its session). Back
-        // and forward are in the title bar.
-        hotkeys={{ nowhere, noKeys: !(selected?.kind === 'agent' && selected.session.key === session.key) }}
+        // which are the row selected's, or the session's selected under its schedule; on the canvas
+        // they're none of them. Back and forward are in the title bar.
+        hotkeys={{ nowhere, noKeys: !((selected?.kind === 'agent' && selected.session.key === session.key) || scheduleSession?.session.key === session.key) }}
         // Everywhere, for what its header's boxes offer (Carry on, a move to another account) and
         // its account's menu in the box; the strip that also reads them is Sessions' alone.
         actions={actionsRef.current.session(lane, session, 'session')}

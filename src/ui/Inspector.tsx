@@ -10,6 +10,7 @@ import type { Board, Lane, Origin, Session, Target, Todo } from '../types';
 import { InsightChips } from './InsightBits';
 import { BranchLabel, Button, cx, driftWords, HarnessChip, headerMenu, Icon, Kbd, LaneGlyph, PrChip, Rich, SessionEmblem, SessionGlyph, type PanelBackTo } from './primitives';
 import { QueueStrip, type Queue, type StripAction } from './SessionPanel';
+import { PLACE_CHORDS } from '../mainKeys';
 import { useDismiss } from './useDismiss';
 import { PreviewChip, PreviewSection } from './PreviewBits';
 import { TodoChips, TodoGlyph } from './TodoBits';
@@ -202,10 +203,11 @@ function laneButtons(lane: Lane, apps: Board['apps'], onOpen: (id: string) => vo
   const key = (chord: string) => (keys ? chord : undefined);
   const here = lane.device ? `: ${lane.callsign} is on another device` : '';
   return [
-    { label: 'New session', chord: key('Cmd+N'), title: `New session here${here}`, run: lane.device ? undefined : onNewSession },
-    { label: 'Terminal', chord: key('Cmd+1'), title: `New ${apps.terminal} terminal here${here}`, run: lane.device ? undefined : () => onOpen('l|terminal') },
-    { label: 'Editor', chord: key('Cmd+2'), title: `Open in ${apps.editor}${here}`, run: lane.device ? undefined : () => onOpen('l|editor') },
-    { label: 'GitHub', chord: key('Cmd+O'), title: pr ? `Open #${pr.number} on GitHub` : 'It has no PR', run: pr ? () => onOpen('p|github') : undefined },
+    // On another device's worktree, the quick panel asks which of this Mac's to start in.
+    { label: 'New session', chord: key(PLACE_CHORDS.newSession), title: lane.device ? `New session: ${lane.callsign} is on another device, so the quick panel asks where here` : 'New session here', run: onNewSession },
+    { label: 'Terminal', chord: key(PLACE_CHORDS.terminal), title: `New ${apps.terminal} terminal here${here}`, run: lane.device ? undefined : () => onOpen('l|terminal') },
+    { label: 'Editor', chord: key(PLACE_CHORDS.editor), title: `Open in ${apps.editor}${here}`, run: lane.device ? undefined : () => onOpen('l|editor') },
+    { label: 'GitHub', chord: key(PLACE_CHORDS.github), title: pr ? `Open #${pr.number} on GitHub` : 'It has no PR', run: pr ? () => onOpen('p|github') : undefined },
   ];
 }
 

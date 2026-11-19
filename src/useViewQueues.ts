@@ -95,9 +95,9 @@ export function useViewQueues<S extends { key: string; session: Session }>(o: Vi
   const strip = (at: string): Queue | undefined => {
     const v = viewOf(at);
     if (!v) return undefined;
-    const base = v === 'sessions' ? fromFirst(sessions.queue, sessions.waiting, sessions.reads, sessions.show) : v === 'prs' ? fromFirst(prs, prWaiting, prReads, (r) => o.select(`pr:${r.pr.key}`)) : fromFirst(todos, todoWaiting, todoReads, (r) => o.select(r.item.key));
+    const base = v === 'sessions' ? fromFirst(sessions.queue, sessions.reads, sessions.show) : v === 'prs' ? fromFirst(prs, prReads, (r) => o.select(`pr:${r.pr.key}`)) : fromFirst(todos, todoReads, (r) => o.select(r.item.key));
     if (base.next) return base;
-    const offer = elsewhereOffer(v, elsewhere, v === 'sessions' ? sessions.waiting.length : v === 'prs' ? prWaiting.length : todoWaiting.length);
+    const offer = elsewhereOffer(v, elsewhere, (v === 'sessions' ? sessions.queue : v === 'prs' ? prs : todos).pending.length);
     // Sending or marking seen doesn't go on to another view: only Next does.
     return offer ? { ...base, next: { title: offer.title }, left: undefined, ready: undefined, waiting: false, elsewhere: offer.words, onNext: () => goTo(offer.view) } : base;
   };
@@ -119,8 +119,9 @@ export function useViewQueues<S extends { key: string; session: Session }>(o: Vi
 
 /** A view's way on as the strip has it: from what it shows, or with nothing of its own shown (a
  *  worktree's panel in Sessions, a todo that doesn't wait), from the first that waits there. */
-function fromFirst<T, H>(q: WaitingQueue<H, T>, rows: readonly T[], reads: Reads<T>, show: (row: T) => void): Queue {
+function fromFirst<T, H>(q: WaitingQueue<H, T>, reads: Reads<T>, show: (row: T) => void): Queue {
   if (q.queue) return q.queue;
   const first = q.first;
-  return { next: first ? { title: reads.titleOf(first) } : null, ...leftOf([...rows], reads), waiting: false, onNext: () => first && show(first) };
+  // What Next can reach: what's been dealt with here and is still listed isn't counted.
+  return { next: first ? { title: reads.titleOf(first) } : null, ...leftOf(q.pending, reads), waiting: false, onNext: () => first && show(first) };
 }

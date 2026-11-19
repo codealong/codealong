@@ -239,10 +239,11 @@ export function Waiting() {
 
   // A todo that stops waiting on you while it shows (started from the quick panel, done or given
   // another day in another window) has nothing more to show here, as a session that answers has:
-  // the window goes on, or says nothing else waits. One shown again from the window's history that
-  // doesn't wait stays.
+  // the window goes on, or says nothing else waits. It goes by the engine's board, not what another
+  // window took out ahead of it, which may come back (a snooze that fails) with what's written in
+  // the card's box still there. One shown again from the window's history that doesn't wait stays.
   const todoKey = todoing ? todoRowKey(todoing.id) : null;
-  const todoWaits = !!todoKey && queue.some((r) => r.key === todoKey);
+  const todoWaits = !!todoing && !!engineBoard?.todoQueue?.due.some((t) => t.id === todoing.id);
   const todoWas = useRef<{ key: string | null; waits: boolean }>({ key: null, waits: false });
   const stepOn = useLatest(() => (way.queue?.next ? void way.run('next') : went('last')));
   useEffect(() => {

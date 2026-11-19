@@ -3429,7 +3429,8 @@ back to the session at the start of its strip; once it's merged, reviewed or sno
 the session rather than on, and says there how the PR went. Open in main window, in the PR's menu,
 still opens it in the main window. A todo that's due shows as its card in the notch does, with
 Start (⌘⏎, from the box at its foot), Done (⇧⌘E), Snooze (⌃⌘1 to ⌃⌘7) and Due… on its strip, and
-each goes on to the next. The box's other side, Ask (or `/side` and a question on Review), puts
+each goes on to the next; so does the window when the todo stops waiting while it shows (started
+from the quick panel, done in another window). The box's other side, Ask (or `/side` and a question on Review), puts
 questions about the PR to an agent on a Claude Code or Codex account (Auto's, on its own model and
 effort, or one picked beside Ask in the agent menu, with a model and effort of its own): Codealong
 hands it the PR's description, discussion and whole diff, it runs in a
@@ -3836,7 +3837,8 @@ instead). A todo's card has the todo as its panel in Todo shows it, its changes 
 at its foot a box that starts a session on it in the worktree it's linked to, on the account its
 agent menu picks (Auto as the quick panel has it), told the todo and what you write after it: ⌘⏎
 starts it and goes on to the next. Its strip has Start (⌘⏎), Done (⇧⌘E), Snooze (⌃⌘1 to ⌃⌘7: out
-of what waits on you until then, its due date as it was), Due… and Next, and says how many wait on
+of what waits on you until then, its due date as it was), Due… (another day deals with it for now:
+the card goes on, and one still due comes round again) and Next, and says how many wait on
 you after it apart from the ready todos (*5 more waiting · next: … · then 4 ready todos*). One linked
 to no worktree has nowhere to start from there: Start opens the quick panel on it, which asks where.
 The pill of the one shown is marked. Marked seen, snoozed, closed or archived, a session leaves what

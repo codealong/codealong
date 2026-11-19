@@ -936,6 +936,7 @@ export function App() {
     todoMenuItems,
     todoKeys,
     todoEdit,
+    pickDueHere,
   } = useTodoView({
     store: todoStore,
     selected,
@@ -1388,12 +1389,17 @@ export function App() {
       reads: inOrder(SESSION_READS, queueKinds(board?.queue?.order)),
       queue,
       show: (row) => {
+        unpick.current();
         setBoxFocus(row.key);
         setSelectedKey(row.key);
       },
     },
     setView,
-    select: setSelectedKey,
+    // One row, as a click selects it: what was picked together isn't picked again as it comes back.
+    select: (key) => {
+      unpick.current();
+      setSelectedKey(key);
+    },
   });
   const stepView = useLatest(viewQueues.step);
   /** A session's menu, its chords or the strip's buttons took it off what waits on you (snoozed,
@@ -1549,6 +1555,13 @@ export function App() {
     boardItems,
     labels: todoStore.labels,
     doneHelpers,
+  });
+  // What Next takes the window to is one row (useViewQueues.ts): nothing stays picked in any list.
+  const unpick = useLatest(() => {
+    picks.sessions.clear();
+    picks.worktrees.clear();
+    picks.prs.clear();
+    clearTodoPick();
   });
 
   // A session moved from Sessions' panel (`moving`): once the board lists its copy, the copy is
@@ -2927,7 +2940,7 @@ export function App() {
             prRowOf={prRowOf}
             pickedRows={pickedRows}
             picks={picks}
-            todo={{ startForTodo, startForTodos, todoMenu, todoLinkMenu, todoMoreMenu, labelMenu, projectsForTodos, duePick, duePicked, selectTodoRow, pickMenu, todoEdit }}
+            todo={{ startForTodo, startForTodos, todoMenu, todoLinkMenu, todoMoreMenu, labelMenu, projectsForTodos, duePick, duePicked, selectTodoRow, pickMenu, todoEdit, pickDueHere }}
             drill={drill}
             setDrill={setDrill}
             queue={queue}
