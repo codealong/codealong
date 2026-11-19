@@ -530,9 +530,9 @@ fn worktree_lock(s: &Session) -> Option<std::path::PathBuf> {
 /// Types the harness's exit command into `s`'s terminal (`Ending::Exit`), clearing its input box
 /// first so a draft there doesn't go with it, and waits for the process to end, then closes the
 /// tab (`await_end`). `Err` when nothing could be typed: then nothing was done to it. One that
-/// asks first stays noted (`ExitAsked`), for `finish_when_ended`, unless its harness asks that of
-/// every worktree like its own and `nothing_lost` says Codealong's check found nothing in it would
-/// be (`answered_blindly`).
+/// asks first stays noted (`ExitAsked`), for `finish_when_ended`, unless it asks whether to keep
+/// its worktree and `nothing_lost` says Codealong's check found nothing in it would be lost
+/// (`answered_by_check`).
 pub fn exit(s: &Session, account: &crate::config::AccountCfg, pid: u32, nothing_lost: impl FnOnce() -> bool) -> Result<Exited, String> {
     let adapter = crate::harness::adapter(s.harness);
     let Some(command) = adapter.exit_command() else { return Err(format!("{} has no command to exit a session.", adapter.harness().word())) };
@@ -549,7 +549,7 @@ pub fn exit(s: &Session, account: &crate::config::AccountCfg, pid: u32, nothing_
         .unwrap_or_else(|| Ok(crate::launch::Typed::Nowhere("it isn't in a terminal Codealong can type into".into())));
     let typed = match typed {
         Ok(crate::launch::Typed::Into(_)) => Ok(match await_end(s, pid, host, lock.as_deref(), false) {
-            Exited::Asks => answered_blindly(s, account, pid, host, nothing_lost),
+            Exited::Asks => answered_by_check(s, account, pid, host, nothing_lost),
             ended => ended,
         }),
         Ok(crate::launch::Typed::Nowhere(why)) => Err(format!("Codealong couldn't type `{command}` into its terminal ({why}).")),
@@ -561,17 +561,17 @@ pub fn exit(s: &Session, account: &crate::config::AccountCfg, pid: u32, nothing_
     typed
 }
 
-/// The question the exit typed into `s` asks (`Exited::Asks`), answered with Remove where its
-/// harness asks it of every worktree like `s`'s, unable to tell what removing one would lose
-/// (`Adapter::exit_asks_blindly`: Claude Code of one a `WorktreeCreate` hook made), and
-/// `nothing_lost` says Codealong's own check (cleanup.rs) found nothing in it would be. The
-/// removal is then waited for as one its harness went ahead with unasked. Any other question
-/// still asks, yours to answer, as does one whose key couldn't be pressed: it's up as it would
-/// be had Codealong not looked.
-fn answered_blindly(s: &Session, account: &crate::config::AccountCfg, pid: u32, host: Option<u32>, nothing_lost: impl FnOnce() -> bool) -> Exited {
+/// The question the exit typed into `s` asks (`Exited::Asks`), answered with Remove where it asks
+/// whether to keep `s`'s own worktree (`Adapter::exit_asks_to_keep`) and `nothing_lost` says
+/// Codealong's own check (cleanup.rs) found nothing in it would be lost, whatever the harness
+/// gave as its reason: what it counts (commits since the worktree began, pushed and landed ones
+/// too) doesn't say. The removal is then waited for as one its harness went ahead with unasked.
+/// Any other question still asks, yours to answer, as does one whose key couldn't be pressed:
+/// it's up as it would be had Codealong not looked.
+fn answered_by_check(s: &Session, account: &crate::config::AccountCfg, pid: u32, host: Option<u32>, nothing_lost: impl FnOnce() -> bool) -> Exited {
     let adapter = crate::harness::adapter(s.harness);
     let ctx = crate::harness::Ctx { account };
-    if !adapter.exit_asks_blindly(&ctx, s) || !nothing_lost() {
+    if !adapter.exit_asks_to_keep(&ctx, s) || !nothing_lost() {
         return Exited::Asks;
     }
     match adapter.exit_removing(&ctx, s) {
@@ -964,20 +964,20 @@ mod tests {
     }
 
     #[test]
-    fn a_question_not_asked_blindly_stays_yours_unchecked() {
-        let home = crate::fixtures::scratch("exit-blindly");
+    fn a_question_not_about_its_worktree_stays_yours_unchecked() {
+        let home = crate::fixtures::scratch("exit-by-check");
         let account = crate::config::AccountCfg { name: "claude".into(), harness: "claude".into(), home: home.to_string_lossy().into(), command: None, start: None, acp: None, monthly: None, per_token: false, usage_cap: None, disabled: false, chrome_profile: None };
         let s = Session { id: "s1".into(), own_worktree: Some("/r/app/.claude/worktrees/kestrel".into()), ..session("claude:claude:s1", 1, Status::Idle, 0) };
         let checked = std::cell::Cell::new(false);
         let answered = |s: &Session| {
-            answered_blindly(s, &account, 1, None, || {
+            answered_by_check(s, &account, 1, None, || {
                 checked.set(true);
                 true
             })
         };
-        // No dialog Codealong can read is up (claude/exiting.rs `asks_blindly` says which are
-        // blind), and a harness that never asks: either way the question, if any, is yours, and
-        // the worktree isn't even checked.
+        // No dialog Codealong can read is up (claude/exiting.rs `asks_of_own` says which ask
+        // about its worktree), and a harness that never asks: either way the question, if any, is
+        // yours, and the worktree isn't even checked.
         assert_eq!(answered(&s), Exited::Asks);
         assert_eq!(answered(&Session { harness: Harness::Codex, ..s.clone() }), Exited::Asks);
         assert!(!checked.get());

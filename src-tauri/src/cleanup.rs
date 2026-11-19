@@ -530,8 +530,7 @@ pub fn after_job(board: &dyn Fn() -> Board, cfg: &Config, s: &Session) -> Option
 /// with nothing in it lost, checked as `plan` checks one, `s` being ended, and read again as
 /// `verify` reads one just before it goes, the board read again for the sessions running in it:
 /// Err with why it would stay. `board` reads the board as it is, as `remove` does. Mark as done
-/// goes by it where `s`'s harness asks whether to keep the worktree unable to tell
-/// (`idle::exit`).
+/// goes by it where `s`'s harness asks whether to keep the worktree as it exits (`idle::exit`).
 pub fn own_goes(board: &dyn Fn() -> Board, cfg: &Config, s: &Session) -> Result<(), String> {
     let lanes = board().lanes;
     let lane = own_lane(&lanes, s).ok_or("its worktree isn't on the board here")?;

@@ -289,10 +289,11 @@ pub trait Adapter: Sync {
         None
     }
 
-    /// Whether its exit command asks whether to keep the worktree `s` holds whatever is in it,
-    /// the harness unable to tell what removing it would lose: a question Codealong's own check
-    /// answers as Mark as done exits it (`idle::exit`), where any other is yours to answer.
-    fn exit_asks_blindly(&self, _ctx: &Ctx, _s: &Session) -> bool {
+    /// Whether its exit command, typed into `s`, is asking now whether to keep the worktree `s`
+    /// holds: a question Codealong's own check answers as Mark as done exits it (`idle::exit`),
+    /// since what the harness counts doesn't say whether anything would be lost. Any other is
+    /// yours to answer.
+    fn exit_asks_to_keep(&self, _ctx: &Ctx, _s: &Session) -> bool {
         false
     }
 

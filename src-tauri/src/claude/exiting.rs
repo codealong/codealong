@@ -1,11 +1,15 @@
 //! Claude Code's "Exiting worktree session" dialog: what `/exit` asks before it exits a session
-//! that holds a worktree it made for itself (`claude -w`), when removing the worktree would lose
-//! something (commits on its branch, uncommitted files, a name you gave the session). Mark as
-//! done types `/exit` into such a session so its worktree goes with it (idle.rs `exit`), so it's
-//! Codealong that brings the dialog up more often than not. Of a worktree a `WorktreeCreate` hook
-//! made it asks whatever is in it, and Mark as done then answers Remove itself where that's all it
-//! says (`asks_blindly`) and Codealong's own check finds nothing would be lost (`remove`, idle.rs
-//! `answered_blindly`). From 2.1.322's code, and in tmux (2026-11-10):
+//! that holds a worktree it made for itself (`claude -w`), when it counts something removing the
+//! worktree might lose (commits on its branch, uncommitted files, a name you gave the session).
+//! Mark as done types `/exit` into such a session so its worktree goes with it (idle.rs `exit`),
+//! so it's Codealong that brings the dialog up more often than not. What it counts doesn't say
+//! whether anything would be lost: commits are counted from the one the worktree started at,
+//! pushed and landed ones too (a branch rebased onto a moved `main` has dozens), and a worktree a
+//! `WorktreeCreate` hook made has no such commit, so it asks of that one whatever is in it. So
+//! Mark as done answers Remove itself wherever it asks of the session's own worktree
+//! (`asks_of_own`) and Codealong's own check finds nothing would be lost (`remove`, idle.rs
+//! `answered_by_check`): asked 2026-11-18, after a session that had landed everything asked about
+//! its 68 commits. From 2.1.322's code, and in tmux (2026-11-10):
 //!
 //! - While it's up, the session's registry entry says `status: "waiting"`, `waitingFor: "dialog
 //!   open"`, as it does for any command's dialog (`/model`, `/config`…), and its transcript says
@@ -47,14 +51,12 @@ use super::registry::{RegistryEntry, DIALOG_OPEN};
 /// The dialog's title, which starts it on the screen.
 const TITLE: &str = "Exiting worktree session";
 
+/// The choice that removes the worktree, in a session not started with `--tmux`.
+const REMOVE: &str = "Remove worktree";
+
 /// How the id of the dialog's question starts: its process and when it began waiting follow, so
 /// an answer never goes to a dialog that came up after the one it was meant for.
 pub const EXIT_ID: &str = "exit-worktree:";
-
-/// What it says of a worktree a `WorktreeCreate` hook made, as its only reason to ask: it has no
-/// commit the worktree started from to count what was added since (2.1.326's code; the words a
-/// terminal showed on 2026-11-18). Anything else it would say comes beside it.
-const BLIND: &str = "A WorktreeCreate hook made this worktree, so Claude Code can't tell whether it has unpushed commits.";
 
 /// The dialog at the foot of a terminal's text (`launch::screen_of`), when that's what's up, read
 /// from under its title as any of Claude Code's dialogs is (dialog.rs `titled`).
@@ -72,39 +74,39 @@ fn assumed(worktree: &str) -> Dialog {
         says: format!("Claude Code asks whether to keep its worktree, {name}, before it exits: removing it would lose something, which its terminal says."),
         choices: vec![
             Choice { label: "Keep worktree".into(), description: Some(format!("Stays at {worktree}")) },
-            Choice { label: "Remove worktree".into(), description: Some("Its folder and branch are deleted, with what's only there.".into()) },
+            Choice { label: REMOVE.into(), description: Some("Its folder and branch are deleted, with what's only there.".into()) },
         ],
         on: 0,
     }
 }
 
-/// Whether `dialog`, read off its terminal, asks only because a hook made the worktree at `own`:
-/// it says `BLIND` and nothing more (a name you gave the session, say, would be said too), and
-/// its Keep leaves that worktree where it is, not another the session went on to. Lines that
-/// wrapped were joined with a space wherever they broke, mid-path too, so a path with no space
-/// of its own is matched without the spaces; one with spaces only as it is. One started with
-/// `--tmux` never asks this way: its choices are about its tmux session too.
-fn asks_blindly(dialog: &Dialog, own: &str) -> bool {
+/// Whether `dialog`, read off its terminal, asks whether to keep the worktree at `own`, whatever
+/// it gives as its reason (`says`, which Codealong's own check stands in for): its Keep leaves
+/// that worktree where it is, not another the session went on to, and it offers Remove worktree.
+/// Lines that wrapped were joined with a space wherever they broke, mid-path too, so a path with
+/// no space of its own is matched without the spaces; one with spaces only as it is. One started
+/// with `--tmux` never asks this way: its choices are about its tmux session too.
+fn asks_of_own(dialog: &Dialog, own: &str) -> bool {
     let squeezed = |text: &str| text.split_whitespace().collect::<String>();
     let stays = format!("Stays at {own}");
     let names_own = |d: &str| d == stays || (!own.contains(char::is_whitespace) && squeezed(d) == squeezed(&stays));
     let keeps_own = |c: &Choice| c.label == "Keep worktree" && c.description.as_deref().is_some_and(names_own);
-    squeezed(&dialog.says) == squeezed(BLIND) && dialog.choices.iter().any(keeps_own)
+    dialog.choices.iter().any(keeps_own) && dialog.choices.iter().any(|c| c.label == REMOVE)
 }
 
-/// The dialog up in `s` and its registry entry, when it asks only because a hook made `s`'s own
-/// worktree (`asks_blindly`). Only one read off its terminal: one Codealong couldn't read
-/// (`assumed`) has choices it only supposes.
-fn up_blindly(home: &Path, s: &Session) -> Option<(Dialog, RegistryEntry)> {
+/// The dialog up in `s` and its registry entry, when it asks whether to keep `s`'s own worktree
+/// (`asks_of_own`). Only one read off its terminal: one Codealong couldn't read (`assumed`) has
+/// choices it only supposes.
+fn up_of_own(home: &Path, s: &Session) -> Option<(Dialog, RegistryEntry)> {
     let own = s.own_worktree.as_deref()?;
     let (reg, screen) = super::dialog::open(home, s)?;
     let dialog = read(screen.as_deref()?)?;
-    asks_blindly(&dialog, own).then_some((dialog, reg))
+    asks_of_own(&dialog, own).then_some((dialog, reg))
 }
 
-/// Whether the dialog up in `s` asks only because a hook made its worktree (`asks_blindly`).
-pub fn blindly(ctx: &Ctx, s: &Session) -> bool {
-    up_blindly(&ctx.account.home_path(), s).is_some()
+/// Whether the dialog up in `s` asks whether to keep its own worktree (`asks_of_own`).
+pub fn asks_to_keep(ctx: &Ctx, s: &Session) -> bool {
+    up_of_own(&ctx.account.home_path(), s).is_some()
 }
 
 /// When the dialog the registry entry `reg` says is open came up, if it says one is.
@@ -197,12 +199,12 @@ pub fn answer(ctx: &Ctx, s: &Session, id: &str, answers: &Value) -> Result<Strin
     Ok(format!("Picked {picked}."))
 }
 
-/// Answers the dialog up in `s` with Remove worktree, as Mark as done does where it asks only
-/// because a hook made the worktree (`asks_blindly`, looked at again here as it's pressed) and
-/// Codealong found nothing in it would be lost.
+/// Answers the dialog up in `s` with Remove worktree, as Mark as done does where it asks about the
+/// session's own worktree (`asks_of_own`, looked at again here as it's pressed) and Codealong
+/// found nothing in it would be lost.
 pub fn remove(ctx: &Ctx, s: &Session) -> Result<()> {
-    let (dialog, reg) = up_blindly(&ctx.account.home_path(), s).ok_or_else(|| anyhow!("It isn't asking only because a hook made its worktree."))?;
-    let i = dialog.choices.iter().position(|c| c.label == "Remove worktree").ok_or_else(|| anyhow!("None of its choices is Remove worktree."))?;
+    let (dialog, reg) = up_of_own(&ctx.account.home_path(), s).ok_or_else(|| anyhow!("It isn't asking whether to keep its own worktree."))?;
+    let i = dialog.choices.iter().position(|c| c.label == REMOVE).ok_or_else(|| anyhow!("None of its choices is {REMOVE}."))?;
     pick(ctx, s, &reg, i)
 }
 
@@ -272,30 +274,36 @@ mod tests {
         assert_eq!(read("   Exiting worktree session\n   Removing worktree…\n"), None);
     }
 
+    /// What it says of a worktree a `WorktreeCreate` hook made, as its only reason to ask: it has
+    /// no commit the worktree started from to count what was added since (2.1.326's code; the
+    /// words a terminal showed on 2026-11-18).
+    const HOOKED: &str = "A WorktreeCreate hook made this worktree, so Claude Code can't tell whether it has unpushed commits.";
+
     #[test]
-    fn asks_blindly_only_of_the_hooks_worktree_and_for_no_other_reason() {
+    fn asks_of_its_own_worktree_whatever_its_reason() {
         let own = "/Users/me/projects/northwind-app/.claude/worktrees/kestrel";
+        // Commits counted, pushed or not: what Codealong's own check then says.
+        assert!(asks_of_own(&read(SCREEN).unwrap(), own));
         // As a terminal showed it on 2026-11-18, the worktree a hook made.
-        let hooked = format!("   Exiting worktree session\n   {BLIND}\n   ❯ 1. Keep worktree    Stays at {own}\n     2. Remove worktree  Any unpushed commits in the worktree may be lost.\n   Enter to confirm · Esc to cancel\n");
+        let hooked = format!("   Exiting worktree session\n   {HOOKED}\n   ❯ 1. Keep worktree    Stays at {own}\n     2. Remove worktree  Any unpushed commits in the worktree may be lost.\n   Enter to confirm · Esc to cancel\n");
         let d = read(&hooked).unwrap();
-        assert!(asks_blindly(&d, own));
+        assert!(asks_of_own(&d, own));
+        // A name you gave the session, besides.
+        let named = hooked.replace(HOOKED, &format!("{HOOKED} This session was named \"atlas\"."));
+        assert!(asks_of_own(&read(&named).unwrap(), own));
         // Narrower, its sentence and its path wrapped.
-        let narrow = format!("   Exiting worktree session\n   A WorktreeCreate hook made this worktree, so Claude Code can't tell\n   whether it has unpushed commits.\n   ❯ 1. Keep worktree    Stays at /Users/me/projects/northwind-app/.claude/\n                         worktrees/kestrel\n     2. Remove worktree  Any unpushed commits in the worktree may be lost.\n   Enter to confirm · Esc to cancel\n");
-        assert!(asks_blindly(&read(&narrow).unwrap(), own));
-        // Another worktree than the one Codealong checked, another reason besides, or one that
-        // counted what would be lost.
-        assert!(!asks_blindly(&d, "/Users/me/projects/northwind-app/.claude/worktrees/atlas"));
-        let named = hooked.replace(BLIND, &format!("{BLIND} This session was named \"atlas\"."));
-        assert!(!asks_blindly(&read(&named).unwrap(), own));
-        assert!(!asks_blindly(&read(SCREEN).unwrap(), own));
+        let narrow = "   Exiting worktree session\n   You have 68 commits on worktree-kestrel. The branch will be deleted if\n   you remove the worktree.\n   ❯ 1. Keep worktree    Stays at /Users/me/projects/northwind-app/.claude/\n                         worktrees/kestrel\n     2. Remove worktree  All changes and commits will be lost.\n   Enter to confirm · Esc to cancel\n";
+        assert!(asks_of_own(&read(narrow).unwrap(), own));
+        // Another worktree than the one Codealong checked: one the session went on to.
+        assert!(!asks_of_own(&d, "/Users/me/projects/northwind-app/.claude/worktrees/atlas"));
         // A path with spaces of its own is matched as it is, not squeezed into another's.
         let spaced = "/Users/me/projects/northwind-app/.claude/worktrees/release notes";
-        assert!(asks_blindly(&read(&hooked.replace(own, spaced)).unwrap(), spaced));
-        assert!(!asks_blindly(&read(&hooked.replace(own, &spaced.replace(' ', ""))).unwrap(), spaced));
+        assert!(asks_of_own(&read(&hooked.replace(own, spaced)).unwrap(), spaced));
+        assert!(!asks_of_own(&read(&hooked.replace(own, &spaced.replace(' ', ""))).unwrap(), spaced));
         // Nor one in tmux, whose answer decides its tmux session too. (One Codealong couldn't
-        // read never comes here: `up_blindly` reads it off the screen or not at all.)
-        let tmux = format!("Exiting worktree session\n{BLIND}\n❯ 1. Keep worktree and tmux session  Stays at {own}. Reattach with: tmux attach -t kestrel\n  2. Keep worktree, end tmux session  Keeps worktree at {own}, terminates tmux session.\n  3. Remove worktree and tmux session  Clean up the worktree directory.\nEnter to confirm · Esc to cancel");
-        assert!(!asks_blindly(&read(&tmux).unwrap(), own));
+        // read never comes here: `up_of_own` reads it off the screen or not at all.)
+        let tmux = format!("Exiting worktree session\n{HOOKED}\n❯ 1. Keep worktree and tmux session  Stays at {own}. Reattach with: tmux attach -t kestrel\n  2. Keep worktree, end tmux session  Keeps worktree at {own}, terminates tmux session.\n  3. Remove worktree and tmux session  Clean up the worktree directory.\nEnter to confirm · Esc to cancel");
+        assert!(!asks_of_own(&read(&tmux).unwrap(), own));
     }
 
     #[test]

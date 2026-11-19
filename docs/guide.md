@@ -195,14 +195,16 @@ app has no way for another program to close it. A background job that holds the 
 Code made for it is stopped, and the worktree is removed after it, as Clean up worktree… does (see
 [Clean up worktrees](#clean-up-worktrees)), unless something in it would be lost: then it stays, and
 the toast says why ("1 commit on no remote"). A session in a terminal that holds such a worktree is
-exited with Claude Code's own `/exit`, which removes the worktree when nothing in it would be lost
-and otherwise asks whether to keep it. It asks that of every worktree a repo's `WorktreeCreate` hook
-made, unable to tell what removing one would lose, so there Codealong answers Remove worktree itself
-when its terminal shows that's Claude Code's only reason to ask (a Rex or tmux terminal, or one of
-Codealong's own; not a session started with `--tmux`, whose answer decides its tmux session too)
-and its own check, Clean up worktree…'s, finds nothing would be lost; the repo's
-`WorktreeRemove` hook then takes the worktree down as the session exits. Otherwise the session stays,
-waiting on you with that question,
+exited with Claude Code's own `/exit`, which removes a worktree that's unchanged and otherwise asks
+whether to keep it. What it counts doesn't say whether anything would be lost: commits since the
+worktree was made, pushed and landed ones too (a branch rebased onto a `main` that moved on counts
+them all), and every worktree a repo's `WorktreeCreate` hook made, which it can't count at all. So
+Codealong answers Remove worktree itself whenever its own check, Clean up worktree…'s, finds nothing
+would be lost (nothing uncommitted, no commit that's on no remote and not in the default branch, no
+other session at work there), where it can read the question off the session's terminal (a Rex or
+tmux terminal, or one of Codealong's own; not a session started with `--tmux`, whose answer decides
+its tmux session too). The repo's `WorktreeRemove` hook, where there is one, then takes the
+worktree down as the session exits. Otherwise the session stays, waiting on you with that question,
 answered on its box as any question is (Keep worktree, Remove worktree), or Cancel to call the exit
 off; once it's answered, here or in its terminal, the session exits, its terminal closes and it's
 archived (one whose terminal doesn't close stays in its list, for you to see). Mark as done

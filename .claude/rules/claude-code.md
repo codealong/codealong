@@ -468,10 +468,13 @@ on this Mac; read it before changing the Claude adapter (paths are under `src-ta
   (2.1.326's code; there since 2.1.321 at least): its `worktree-state` has `hookBased: true` and
   no `originalHeadCommit`, so the count of added commits is unknown, which counts as some ("A
   WorktreeCreate hook made this worktree, so Claude Code can't tell whether it has unpushed
-  commits."), clean or not. Mark as done answers that one Remove itself where the dialog, read off
-  its terminal, says that alone of the session's own worktree and Codealong's own check finds
-  nothing would be lost: `claude/exiting.rs` (`asks_blindly`), `idle.rs` (`answered_blindly`),
-  `cleanup.rs` (`own_goes`). Remove runs the repo's `WorktreeRemove` hook under its `timeout`; one
+  commits."), clean or not. The commits it counts are those since `originalHeadCommit`, pushed and
+  landed ones too, others' that a rebase brought in among them: a session whose HEAD had landed on
+  `origin/main`, nothing uncommitted, asked about "68 commits", every one from where it began to
+  that HEAD (2026-11-18). So Mark as done answers Remove itself wherever the dialog, read off
+  its terminal, asks about the session's own worktree, whatever its reason, and Codealong's own
+  check finds nothing would be lost: `claude/exiting.rs` (`asks_of_own`), `idle.rs`
+  (`answered_by_check`), `cleanup.rs` (`own_goes`). Remove runs the repo's `WorktreeRemove` hook under its `timeout`; one
   that runs out is killed partway, and the exit carries on as removed (`worktree-state` null),
   whatever the hook left: on 2026-11-18 a repo's hook under a 120 s timeout left its worktree's
   folder half deleted and still listed by git. While that's up the registry says `waiting` / `dialog open`, as

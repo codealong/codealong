@@ -957,11 +957,11 @@ impl crate::harness::Adapter for ClaudeCode {
         Some("/exit")
     }
 
-    /// `/exit` asks of every worktree a `WorktreeCreate` hook made, clean or not, having no
-    /// commit it started from to count what was added since: known by what its dialog says
-    /// (`exiting::blindly`).
-    fn exit_asks_blindly(&self, ctx: &crate::harness::Ctx, s: &crate::model::Session) -> bool {
-        exiting::blindly(ctx, s)
+    /// `/exit` asks of commits counted from where the worktree started, pushed and landed ones
+    /// too, and of every worktree a `WorktreeCreate` hook made, clean or not: known by its
+    /// dialog, read off its terminal (`exiting::asks_to_keep`).
+    fn exit_asks_to_keep(&self, ctx: &crate::harness::Ctx, s: &crate::model::Session) -> bool {
+        exiting::asks_to_keep(ctx, s)
     }
 
     fn exit_removing(&self, ctx: &crate::harness::Ctx, s: &crate::model::Session) -> anyhow::Result<()> {
