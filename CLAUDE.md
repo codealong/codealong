@@ -94,8 +94,8 @@ with `--usage`, and its endpoint rate-limits: don't loop it.
   Chrome profile).
 - `--snapshot --pr <owner/name> <number>`: a PR's detail; `--snapshot --pr-card …`: a PR the
   board doesn't list, as a link to it gets it on hover; `--snapshot --merge-box …`: what its
-  merge box offers you; `--snapshot --review-plan …`: what an automatic review of it would start
-  (autoreview.rs), without starting it; `--snapshot --pr-draft …`: your draft review of it;
+  merge box offers you; `--snapshot --review-plan …`: what an automatic review of it would do
+  (autoreview.rs), without doing it; `--snapshot --pr-draft …`: your draft review of it;
   `--snapshot --pr-since <owner/name> <commit> <commit>`: what changed between two commits, as
   Changes shows it since your last review.
 - `--snapshot --route <text> [--project <name>]`: what Jev suggests in the quick panel;

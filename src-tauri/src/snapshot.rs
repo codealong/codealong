@@ -844,7 +844,8 @@ fn pr(_: &Args, rest: &[String]) -> Done {
     Ok(pretty(&github::detail(repo, number).map_err(failed)?))
 }
 
-/// What an automatic review of the PR would start (autoreview.rs `plan`), without starting it.
+/// What an automatic review of the PR would start or go on in (autoreview.rs `plan`), without
+/// doing it.
 fn review_plan(_: &Args, rest: &[String]) -> Done {
     let (repo, number) = repo_and_number(rest)?;
     let board = engine::snapshot(true, false);

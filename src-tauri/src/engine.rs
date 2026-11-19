@@ -2350,10 +2350,11 @@ fn waiting_call(s: &Session, account: Option<&config::AccountCfg>) -> Option<Str
         Ok(keys.iter().fold(made, |changed, k| self.seen.label(k, &add, &remove) | changed))
     }
 
-    /// Sessions with quiet, helpers' and headless runs' rules, their agents' marks of seen, what
-    /// their side conversations answered, whether they're set aside for them, their marks of
-    /// unread, their snoozes, their moves to the top and their labels applied (board::apply_quiet,
-    /// board::apply_helper, board::apply_headless, board::apply_agent_seen,
+    /// Sessions with quiet, helpers', automatic reviews' and headless runs' rules, their agents'
+    /// marks of seen, what their side conversations answered, whether they're set aside for them,
+    /// their marks of unread, their snoozes, their moves to the top and their labels applied
+    /// (board::apply_quiet, board::apply_helper, board::apply_round_to_come,
+    /// board::apply_headless, board::apply_agent_seen,
     /// board::apply_side_answer, board::apply_aside, board::apply_unread, board::apply_snooze,
     /// board::apply_raise, board::apply_labels). A snooze's time coming changes nothing on disk: the 30-second
     /// heartbeat's publish brings it back.
@@ -2362,12 +2363,14 @@ fn waiting_call(s: &Session, account: Option<&config::AccountCfg>) -> Option<Str
         if self.seen.snoozed.is_empty() && self.seen.unread.is_empty() && self.seen.quiet.is_empty() && self.seen.raised.is_empty() && self.seen.agent_seen.is_empty() && self.seen.labels.is_empty() && sides.is_empty() && !unattended {
             return sessions;
         }
+        let to_come = autoreview::to_come(&self.reviews);
         for s in &mut sessions {
             // Quiet and a helper's or headless run's rule first, so that what you do to it
             // yourself after (a side conversation you asked, a mark of unread, a snooze that
             // ends) still brings it back.
             board::apply_quiet(s, self.seen.is_quiet(&s.key));
             board::apply_helper(s);
+            board::apply_round_to_come(s, to_come.contains(s.key.as_str()));
             board::apply_headless(s);
             board::apply_listening(s, listenings.contains_key(&s.key));
             board::apply_agent_seen(s, self.seen.agent_seen_of(&s.key));

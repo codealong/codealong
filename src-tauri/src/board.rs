@@ -1822,6 +1822,19 @@ pub fn apply_helper(s: &mut Session) {
     }
 }
 
+/// Applies an automatic review's rule while its next round is to come in it
+/// (`autoreview::to_come`), with a helper's: a turn cut off partway, whose round made way for
+/// commits that came in meanwhile, is idle rather than an error, as one you've seen is, so it
+/// doesn't wait on you. The next round picks it up once the branch holds still, handed the
+/// commits since, and Carry on would only finish a review of a commit the PR has moved on from.
+/// It still says it was cut off (`Session::cut_off`); one you're talking to, a call to allow and
+/// any other error still wait on you, and your own Mark as unread still brings it back.
+pub fn apply_round_to_come(s: &mut Session, to_come: bool) {
+    if to_come && s.helps_an_agent() && s.status == Status::Error && s.cut_off.is_some() && !s.live {
+        s.status = Status::Idle;
+    }
+}
+
 /// Applies a listening session's rule to it (listen.rs), with a helper's: while it hears, a turn
 /// it ends is idle rather than Your turn. It ends one every few seconds, each an answer to what
 /// was just heard, which the windows show as it comes; none waits on you. Nor does one whose
@@ -6677,6 +6690,28 @@ mod tests {
         apply_helper(&mut talked);
         assert_eq!(talked.status, Status::Unread);
         assert!(!talked.helping() && !talked.unattended() && !talked.helps_an_agent() && talked.helper.is_some());
+    }
+
+    /// A review cut off partway whose round made way for new commits sat in Needs you as Cut off
+    /// until its next round came, with nothing for you to do there (2026-11-19): while that round
+    /// is to come in it, it's idle, still saying it was cut off. Any other error, one you're
+    /// talking to and one whose round isn't to come still wait on you.
+    #[test]
+    fn a_review_cut_off_waits_on_its_next_round_not_on_you() {
+        let review = Session { status: Status::Error, live: false, cut_off: Some(NOW), helper: helper_of(None, |_| false, Some("o/r#7")), ..Session::new(Harness::Codex, "codex", "rev") };
+        let applied = |s: &Session, to_come: bool| {
+            let mut s = s.clone();
+            apply_round_to_come(&mut s, to_come);
+            s
+        };
+        let waits = applied(&review, true);
+        assert_eq!((waits.status, waits.cut_off), (Status::Idle, Some(NOW)));
+        assert!(waits.helping() && waits.unattended());
+        assert_eq!(applied(&review, false).status, Status::Error, "no round to come");
+        assert_eq!(applied(&Session { cut_off: None, ..review.clone() }, true).status, Status::Error, "another error");
+        let talked = Session { helper: Some(Helper { pr: Some("o/r#7".into()), yours: true, ..Default::default() }), ..review.clone() };
+        assert_eq!(applied(&talked, true).status, Status::Error, "yours");
+        assert_eq!(applied(&Session { status: Status::Needs, ..review.clone() }, true).status, Status::Needs, "a call to allow");
     }
 
     /// A background job's agent tried effort levels on test chats in tmux, in its own folder, and
