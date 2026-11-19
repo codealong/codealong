@@ -53,8 +53,8 @@ const SKIP = '.ca-codeblock-tools, .ca-codeblock-note, [aria-hidden="true"]';
 const BLOCK = 'p, li, pre, blockquote, td, th, div';
 
 /** The words in `root` as the find reads them: its text nodes in order, with a line break where
- *  the block they're laid out in changes, and where each node starts in the text. Codealong's
- *  card reads its hidden message this way, to open as the find comes to it (CodealongCard.tsx). */
+ *  the block they're laid out in changes, and where each node starts in the text. A message's
+ *  card reads its hidden or cut message this way, to open as the find comes to it (MessageCard.tsx). */
 export function wordsIn(root: Element): { text: string; nodes: Text[]; starts: number[] } {
   const nodes: Text[] = [];
   const starts: number[] = [];

@@ -1,9 +1,10 @@
-// Checks another session's message in a session's conversation (SessionThread.tsx `PeerText`):
-// it heads itself with whose it is, apart from yours and the agent's, and it's there whole. A
-// long one shows its first lines, fading out, with Show all, which opens it (and Show less cuts
-// it again); ⌘F finding a word in its cut-off part opens it while the bar is open, Show less or
-// not. A file and an image it was sent with show as in a prompt of yours. A short one shows whole
-// with nothing to open, and the agent's reply after it heads itself again.
+// Checks another session's message in a session's conversation (MessageCard.tsx `PeerCard`): a
+// card, as Codealong's own messages are, whose line says whose it is, apart from yours and the
+// agent's, and it's there whole. A long one shows its first lines, fading out, with the card's
+// button to open it, which opens it (and closes it again); ⌘F finding a word in its cut-off part
+// opens it while the bar is open, closed or not. A file and an image it was sent with show as in a
+// prompt of yours. A short one shows whole with nothing to open, and the agent's reply after it
+// heads itself again.
 //   scripts/preview.sh sessions '' scripts/preview/peer-message-check.js
 // As PREVIEW_INIT, after a line setting `window.__peer_screenshot = true`, it leaves the long
 // message cut and in view for a screenshot.
@@ -43,11 +44,14 @@
   };
 
   var row = function () { return picked && document.getElementById('row-' + picked.lane + '::' + picked.key); };
-  var peers = function () { return Array.prototype.slice.call(document.querySelectorAll('.ca-sessinsp .ca-thread-said.is-peer')); };
-  var heading = function (el) { var m = el && el.querySelector(':scope > .ca-thread-meta > .ca-thread-who'); return m ? m.textContent : null; };
-  var text = function (el) { return el.querySelector('.ca-thread-peertext'); };
-  var toggle = function (el) { return el.querySelector('.ca-thread-peer > .ca-linkbtn'); };
+  var peers = function () { return Array.prototype.slice.call(document.querySelectorAll('.ca-sessinsp .ca-msgcard')).filter(function (c) { return !!c.querySelector('.ca-thread-said.is-peer'); }); };
+  var heading = function (el) { var m = el && el.querySelector('.ca-msgcard-title'); return m ? m.textContent : null; };
+  var text = function (el) { return el.querySelector('.ca-msgcard-body'); };
+  var toggle = function (el) { return el.querySelector('.ca-msgcard-open'); };
   var cut = function (el) { return text(el).classList.contains('is-cut'); };
+  var opened = function (el) { return toggle(el).getAttribute('aria-expanded') === 'true'; };
+  // ⌘ on a Mac is Ctrl on Linux and Windows (platform.ts `held`).
+  var linux = window.__CODEALONG_PLATFORM__ === 'linux' || window.__CODEALONG_PLATFORM__ === 'windows' || /\bLinux\b/.test(navigator.userAgent);
   var field = function () { return document.querySelector('.ca-findbar input'); };
   var type = function (input, value) {
     Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value').set.call(input, value);
@@ -71,20 +75,22 @@
       check('the files it was sent with show as in a prompt of yours', !!text(a).querySelector('.ca-filechip') && !!text(a).querySelector('.ca-desc-img, .ca-desc-noimg') && text(a).textContent.indexOf('![') < 0, text(a).innerHTML.slice(0, 400));
       var t = text(a);
       check('the long one is cut, fading out', cut(a) && t.classList.contains('is-long') && t.clientHeight < t.scrollHeight && getComputedStyle(t).maskImage !== 'none', t.clientHeight + ' of ' + t.scrollHeight);
-      check('with Show all', !!toggle(a) && toggle(a).textContent === 'Show all' && toggle(a).getAttribute('aria-expanded') === 'false', toggle(a) && toggle(a).outerHTML);
+      check('with the card’s button to open it', !!toggle(a) && !opened(a) && toggle(a).getAttribute('aria-label') === 'Show the whole message', toggle(a) && toggle(a).outerHTML);
+      check('under a line like Codealong’s own messages’, its icon first', !!a.querySelector('.ca-msgcard-head > .ca-msgcard-icon') && a.querySelector('.ca-msgcard-head > .ca-meta') !== null);
       check('the short one shows whole, with nothing to open', !toggle(b) && !text(b).classList.contains('is-long') && text(b).clientHeight === text(b).scrollHeight);
       var reply = b.nextElementSibling;
       check('the reply after them heads itself', !!reply && reply.classList.contains('is-agent') && !!reply.querySelector(':scope > .ca-thread-meta'), reply && reply.className);
       toggle(a).click();
       return until(function () { return !cut(a); }, 2000).then(function () {
-        check('Show all opens it', text(a).clientHeight === text(a).scrollHeight && !text(a).classList.contains('is-long'), text(a).clientHeight + ' of ' + text(a).scrollHeight);
-        check('and offers Show less', toggle(a).textContent === 'Show less' && toggle(a).getAttribute('aria-expanded') === 'true', toggle(a).textContent);
-        toggle(a).click();
+        check('its button opens it', text(a).clientHeight === text(a).scrollHeight && !text(a).classList.contains('is-long'), text(a).clientHeight + ' of ' + text(a).scrollHeight);
+        check('and offers Show less', opened(a) && toggle(a).getAttribute('aria-label') === 'Show less', toggle(a).outerHTML);
+        // A click on its line closes it as the button does.
+        a.querySelector('.ca-msgcard-head').click();
         return until(function () { return cut(a); }, 2000);
       });
     })
     .then(function () {
-      check('Show less cuts it again', toggle(peers()[0]).textContent === 'Show all');
+      check('a click on its line cuts it again', cut(peers()[0]) && !opened(peers()[0]));
       if (window.__peer_screenshot) {
         var thread = document.querySelector('.ca-sessinsp .ca-thread');
         thread.scrollTop = Math.max(0, peers()[0].offsetTop - 120);
@@ -93,21 +99,21 @@
       var box = document.querySelector('.ca-sessinsp .ca-composer textarea');
       if (!box) throw new Error('no box to press ⌘F from');
       box.focus();
-      box.dispatchEvent(new KeyboardEvent('keydown', { key: 'f', metaKey: true, bubbles: true, cancelable: true }));
+      box.dispatchEvent(new KeyboardEvent('keydown', { key: 'f', metaKey: !linux, ctrlKey: linux, bubbles: true, cancelable: true }));
       return until(function () { return field(); }, 2000)
         .then(function () {
-          // Cut by Show less, it opens all the same: the find counts what the cut would hide,
+          // Cut again, it opens all the same: the find counts what the cut would hide,
           // as it's laid out (Markdown made plain would drop the underscores).
           type(field(), '__init__.py');
           return until(function () { return !cut(peers()[0]); }, 2000);
         })
         .then(function () {
-          check('⌘F finding a word in its cut-off part opens it', !cut(peers()[0]) && !toggle(peers()[0]));
+          check('⌘F finding a word in its cut-off part opens it', !cut(peers()[0]) && toggle(peers()[0]).disabled);
           field().dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true }));
           return until(function () { return !field(); }, 2000);
         })
         .then(function () {
-          check('and closing the find cuts it again', cut(peers()[0]) && toggle(peers()[0]).textContent === 'Show all');
+          check('and closing the find cuts it again', cut(peers()[0]) && !opened(peers()[0]));
         });
     })
     .then(function (stay) {

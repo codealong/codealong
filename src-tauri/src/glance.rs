@@ -1,11 +1,11 @@
 //! What a message Codealong sent a session by itself comes to, in a line, for its card in the
-//! session's conversation (CodealongCard.tsx), which a click opens to the whole message. Those
-//! messages are written for the agent: session keys, commands to run, what not to do. The card
-//! says what it's about (`About`), the PR it names, as a link, and what happened, in a few words,
-//! each helper it names as a link too. Each module that writes such messages reads its own back
-//! (`nudges::glance`, `helpers::glance`, `schedules::runner::glance`, `autoreview::glance`,
-//! `reconnect::glance`), with tests that read back what it writes, so the two can't drift; any
-//! other message is its first sentence.
+//! session's conversation (MessageCard.tsx `CodealongCard`), which a click opens to the whole
+//! message. Those messages are written for the agent: session keys, commands to run, what not to
+//! do. The card says what it's about (`About`), the PR it names, as a link, and what happened, in
+//! a few words, each helper it names as a link too. Each module that writes such messages reads
+//! its own back (`nudges::glance`, `helpers::glance`, `schedules::runner::glance`,
+//! `autoreview::glance`, `reconnect::glance`), with tests that read back what it writes, so the two
+//! can't drift; any other message is its first sentence.
 
 use serde::Serialize;
 

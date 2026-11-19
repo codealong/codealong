@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import type { TranscriptItem } from '../types';
-import { editablePrompts, headingsOf, peerLabel, heardOf, readAgain, rowsOf, scrolledUp, type Heard, type ReadFailed } from './SessionThread';
+import { peerLabel } from './MessageCard';
+import { editablePrompts, headingsOf, heardOf, readAgain, rowsOf, scrolledUp, type Heard, type ReadFailed } from './SessionThread';
 
 let at = 0;
 const step = (kind: TranscriptItem['kind'], more: Partial<TranscriptItem> = {}): TranscriptItem => ({ at: 0, kind, text: kind, failed: false, cursor: ++at, n: 0, ...more });

@@ -5,10 +5,11 @@
 // stopping as soon as you scroll up, however little.
 // Who said a message and when heads a run of them, not each one: your prompt, then the agent's
 // reply, whose later messages (between its tool calls) go on under that heading. A heading comes
-// again where the speaker changes, after a note, or after a pause (`headingsOf`). Another
-// session's message heads itself with who it's from, and shows whole: a long one by its first
-// lines until Show all, and whole while ⌘F finds something in it (`PeerText`); a file or an image
-// it was sent with shows as in a prompt of yours (Markdown.tsx). A right-click on
+// again where the speaker changes, after a note, or after a pause (`headingsOf`). A message
+// neither yours nor the agent's is a card (MessageCard.tsx): Codealong's says in a line what it
+// comes to, which opens to the whole; another session's says who it's from and shows its first
+// lines, a long one cut until it's opened; a file or an image it was sent with shows as in a
+// prompt of yours (Markdown.tsx). A right-click on
 // a message copies it as it was written, markdown and all, or what you'd selected in it; in a
 // card the session's own menu follows.
 //
@@ -91,14 +92,13 @@ import { says } from '../windowFind';
 import { scaleOf } from '../zoom';
 import { useThreadFind, type FindAsk } from './ThreadFind';
 import { FindContext } from './WindowFind';
-import { SessionLink } from './SessionLink';
 import { Reading } from './Tip';
 import { Waiting, Working } from './Working';
 import { held, keysIn } from '../platform';
 import { asCue, saysNothing, toldIn } from '../listening';
 import { foldQuietRuns } from '../orchestrators';
 import { Told } from './Listening';
-import { CodealongCard } from './CodealongCard';
+import { CodealongCard, PeerCard } from './MessageCard';
 
 /** Loads the page before once you're this close to the top. */
 const NEAR_TOP = 240;
@@ -170,27 +170,6 @@ export function rowsOf(items: TranscriptItem[]): Row[] {
 export interface Speaker {
   kind: 'you' | 'agent' | 'codealong' | 'peer' | null;
   at: number;
-}
-
-/** Who another session's message is from, as its heading says. */
-export function peerLabel(it: TranscriptItem): string {
-  return it.from ? `From “${it.from}”` : 'From another session';
-}
-
-/** Another session's message's heading: who it's from, the sender a link to its session where
- *  the message said which one sent it (SessionLink.tsx). One this window doesn't list is its
- *  name, as before. */
-function PeerLabel({ item }: { item: TranscriptItem }) {
-  if (!item.fromKey) return <>{peerLabel(item)}</>;
-  const name = item.from ? `“${item.from}”` : 'another session';
-  return (
-    <>
-      From{' '}
-      <SessionLink name={item.fromKey} unknown={name}>
-        {name}
-      </SessionLink>
-    </>
-  );
 }
 
 /** Whether a message heads itself, after `last`: where the speaker changes, or after a pause. */
@@ -472,7 +451,7 @@ function ToolRunView({ calls, stateOf, inBox, onOpen }: { calls: { item: Transcr
  *  Edit from here… (`onEdit`). A command has its own Copy. Your answers to questions (`asked`,
  *  with `item` the call's result) are a message of yours too, whose `onEdit` is Rewind to this
  *  question…. */
-function SaidView({ item, result, asked, now, label, from, who, head, onPutBack, onMenu, onEdit }: { item: TranscriptItem; result?: TranscriptItem; asked?: Question[]; now: number; label?: string; from?: TranscriptItem; who: string; head?: number; onPutBack?: () => void; onMenu?: (items: MenuSpec) => void; onEdit?: () => void }) {
+function SaidView({ item, result, asked, now, label, who, head, onPutBack, onMenu, onEdit }: { item: TranscriptItem; result?: TranscriptItem; asked?: Question[]; now: number; label?: string; who: string; head?: number; onPutBack?: () => void; onMenu?: (items: MenuSpec) => void; onEdit?: () => void }) {
   const ran = item.kind === 'you' && item.input != null;
   const answers = item.kind === 'result' ? answeredOf(asked ?? [], item.answers ?? {}) : null;
   const words = answers ? answers.map((a) => `${a.header ?? a.question}: ${a.answer}`).join('\n') : item.text;
@@ -504,14 +483,8 @@ function SaidView({ item, result, asked, now, label, from, who, head, onPutBack,
     <div className={cx('ca-thread-said', answers ? 'is-you' : `is-${item.kind}`, item.withdrawn && 'is-withdrawn')} data-prompt={item.kind === 'you' ? keyOf(item) : undefined} onContextMenu={menu}>
       {head !== undefined && (
         <div className="ca-thread-meta">
-          {/* Who said it, out of sight but for a screen reader where no name shows. A message
-              from another session names it (`from`), a string or item rather than an element, so
-              the row's memo can tell it's the same. */}
-          {from ? (
-            <span className="ca-thread-who">
-              <PeerLabel item={from} />
-            </span>
-          ) : label ? (
+          {/* Who said it, out of sight but for a screen reader where no name shows. */}
+          {label ? (
             <span className="ca-thread-who">{label}</span>
           ) : (
             <span className="ca-sr">{who}</span>
@@ -546,7 +519,10 @@ function SaidView({ item, result, asked, now, label, from, who, head, onPutBack,
           <DescriptionView text={item.text} />
         </div>
       ) : item.kind === 'peer' ? (
-        <PeerText item={item} />
+        // Its card cuts a long one to its first lines (MessageCard.tsx).
+        <div className="ca-thread-peer">
+          <Markdown text={item.text} className="ca-thread-agent" />
+        </div>
       ) : (
         <Markdown text={item.text} className="ca-thread-agent" />
       )}
@@ -599,47 +575,6 @@ function WritingView({ reply, active, now, label, who, head, pending, onMenu, on
   return null;
 }
 const Writing = memoRow(WritingView);
-
-/** Another session's message, written as an agent's reply is. One longer than the cut shows its
- *  first lines until Show all (Show less cuts it again), and whole while ⌘F finds something in it,
- *  whose text the cut would hide though the find counts it. Whether it's longer is measured while
- *  it's cut, as the panel's width lays it out. */
-function PeerText({ item }: { item: TranscriptItem }) {
-  const [opened, setOpened] = useState(false);
-  const finding = useContext(FindContext);
-  const box = useRef<HTMLDivElement>(null);
-  // Found as the find reads it: the text laid out, where its Markdown made plain (`shownText`)
-  // can differ (`__init__.py` in code).
-  const [found, setFound] = useState(false);
-  useLayoutEffect(() => {
-    setFound(!!finding && says(finding, box.current?.textContent ?? ''));
-  }, [finding, item.text]);
-  const whole = opened || found;
-  const [long, setLong] = useState(false);
-  useLayoutEffect(() => {
-    const el = box.current;
-    if (!el || whole) return;
-    const measure = () => setLong(el.scrollHeight > el.clientHeight + 1);
-    measure();
-    // Its width, and its text's height as images in it come in.
-    const watch = new ResizeObserver(measure);
-    watch.observe(el);
-    if (el.firstElementChild) watch.observe(el.firstElementChild);
-    return () => watch.disconnect();
-  }, [whole, item.text]);
-  return (
-    <div className="ca-thread-peer">
-      <div ref={box} className={cx('ca-thread-peertext', !whole && 'is-cut', !whole && long && 'is-long')}>
-        <Markdown text={item.text} className="ca-thread-agent" />
-      </div>
-      {long && !found && (
-        <button type="button" className="ca-linkbtn" aria-expanded={opened} onClick={() => setOpened(!opened)}>
-          {opened ? 'Show less' : 'Show all'}
-        </button>
-      )}
-    </div>
-  );
-}
 
 /** What you wrote, as you wrote it but for its Markdown, which is drawn (a prompt an agent or a
  *  schedule wrote is mostly headings and lists), with the images you sent shown in place and files
@@ -1388,18 +1323,26 @@ export function SessionThread({ session: s, now, onOpen, fallback, machine, onLo
                 // say nothing: your bubble says it's yours, and the header names its account.
                 const label = it.kind === 'codealong' ? 'Codealong' : undefined;
                 const edit = onEdit && editable.has(keyOf(it)) ? () => onEdit(it) : undefined;
-                // Codealong's own message is a line saying what it comes to, which opens to the whole;
-                // one its session took back shows whole, saying so, with a way to put it back.
-                if (it.kind === 'codealong' && it.glance && !it.withdrawn)
+                // What's neither yours nor the agent's is a card (MessageCard.tsx): Codealong's own
+                // message a line saying what it comes to, which opens to the whole, and another
+                // session's who it's from and its first lines. One of Codealong's its session took
+                // back shows whole, saying so, with a way to put it back.
+                if (it.kind === 'codealong' && !it.withdrawn)
                   return (
                     <CodealongCard key={keyOf(it)} item={it} glance={it.glance} now={now}>
                       <Said item={shown} result={r.result} now={0} who="Codealong" onMenu={onMenu} />
                     </CodealongCard>
                   );
+                if (it.kind === 'peer')
+                  return (
+                    <PeerCard key={keyOf(it)} item={it} now={now}>
+                      <Said item={shown} result={r.result} now={0} who={it.from ?? 'Another session'} onMenu={onMenu} />
+                    </PeerCard>
+                  );
                 // The clock only for one with a heading, which says how long ago: the others needn't
                 // render as it moves.
                 const head = headings.headed.get(keyOf(it));
-                return <Said key={keyOf(it)} item={shown} result={r.result} now={head === undefined ? 0 : now} label={label} from={it.kind === 'peer' ? it : undefined} who={it.kind === 'you' ? 'You' : s.account} head={head} onPutBack={again} onMenu={onMenu} onEdit={edit} />;
+                return <Said key={keyOf(it)} item={shown} result={r.result} now={head === undefined ? 0 : now} label={label} who={it.kind === 'you' ? 'You' : s.account} head={head} onPutBack={again} onMenu={onMenu} onEdit={edit} />;
               })}
               {showing.map((a) => (
                 <Unsaid key={a.id} ahead={a} onOpen={onOpen} />

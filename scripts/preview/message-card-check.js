@@ -1,11 +1,11 @@
-// Checks Codealong's own messages in a session's conversation (CodealongCard.tsx): each is a line,
+// Checks Codealong's own messages in a session's conversation (MessageCard.tsx `CodealongCard`): each is a line,
 // what it's about as its icon, the PR it names as a link and what happened in a few words a part
 // (glance.rs), each helper it names a link to its session, with none of the whole message's words
 // for the agent showing; a click on the line or its button opens the whole message under it, and
 // another closes it; a click on its link goes where the link does and leaves it closed. ⌘F
 // finding a word only the whole message has opens it while the bar is open. One without a line
-// from the engine (an older one's) shows whole, as before.
-//   scripts/preview.sh sessions '' scripts/preview/codealong-card-check.js
+// from the engine (an older one's) is a card too, headed Codealong, its words under it.
+//   scripts/preview.sh sessions '' scripts/preview/message-card-check.js
 // As PREVIEW_INIT, after a line setting `window.__card_screenshot = true`, it leaves the cards as
 // they are, the PR's open, for a screenshot.
 (function () {
@@ -49,8 +49,8 @@
   };
 
   var row = function () { return picked && document.getElementById('row-' + picked.lane + '::' + picked.key); };
-  var cards = function () { return Array.prototype.slice.call(document.querySelectorAll('.ca-sessinsp .ca-codealong-card')); };
-  var open = function (card) { var whole = card.querySelector('.ca-codealong-whole'); return card.classList.contains('is-open') && !!whole && !whole.hidden; };
+  var cards = function () { return Array.prototype.slice.call(document.querySelectorAll('.ca-sessinsp .ca-msgcard')); };
+  var open = function (card) { var whole = card.querySelector('.ca-msgcard-body'); return card.classList.contains('is-open') && !!whole && !whole.hidden; };
   // ⌘ on a Mac is Ctrl on Linux and Windows (platform.ts `held`).
   var linux = window.__CODEALONG_PLATFORM__ === 'linux' || window.__CODEALONG_PLATFORM__ === 'windows' || /\bLinux\b/.test(navigator.userAgent);
   var tick = function () { return new Promise(function (r) { setTimeout(r, 30); }); };
@@ -60,42 +60,42 @@
     input.dispatchEvent(new Event('input', { bubbles: true }));
   };
 
-  say('codealong card check: waiting for the list');
+  say('message card check: waiting for the list');
   until(function () { return row() && helpers.length === 2; }, 20000, 'no session to show, with two others as its helpers')
     .then(function () {
       row().dispatchEvent(new MouseEvent('mousedown', { bubbles: true }));
-      return until(function () { return cards().length === 2; }, 8000, 'the two cards');
+      return until(function () { return cards().length === 3; }, 8000, 'the three cards');
     })
     .then(function () {
       var pr = cards()[0];
       var helper = cards()[1];
-      var line = pr.querySelector('.ca-codealong-glance').textContent;
+      var line = pr.querySelector('.ca-msgcard-title').textContent;
       check('a PR’s news is its PR and what happened, in a line', /#397 Cursor file tools/.test(line) && /ana asked for changes/.test(line), line);
-      check('with the PR as a link', !!pr.querySelector('.ca-codealong-glance a.ca-prlink'), pr.innerHTML.slice(0, 200));
+      check('with the PR as a link', !!pr.querySelector('.ca-msgcard-title a.ca-prlink'), pr.innerHTML.slice(0, 200));
       // What shows: the line; the whole message is there, hidden, until it's opened.
-      var shows = function (card) { return card.querySelector('.ca-codealong-head').textContent; };
-      check('and none of what it says to the agent', !/Take it from there|merge it only|quokka/.test(shows(pr)) && pr.querySelector('.ca-codealong-whole').hidden, shows(pr));
-      var links = Array.prototype.map.call(helper.querySelectorAll('.ca-codealong-glance a.ca-sesslink'), function (a) { return a.getAttribute('href'); });
+      var shows = function (card) { return card.querySelector('.ca-msgcard-head').textContent; };
+      check('and none of what it says to the agent', !/Take it from there|merge it only|quokka/.test(shows(pr)) && pr.querySelector('.ca-msgcard-body').hidden, shows(pr));
+      var links = Array.prototype.map.call(helper.querySelectorAll('.ca-msgcard-title a.ca-sesslink'), function (a) { return a.getAttribute('href'); });
       check('several helpers’ news names each helper as a link to its session', links.join(' ') === helpers.map(function (h) { return 'codealong://session/' + h.key; }).join(' '), links.join(' '));
       check('with what happened to each, and none of the commands', /ended its turn · .*waits on you/.test(shows(helper)) && !/codealong session wait/.test(shows(helper)), shows(helper));
       check('each closed until opened', !open(pr) && !open(helper));
-      var older = Array.prototype.slice.call(document.querySelectorAll('.ca-sessinsp .ca-thread-said.is-codealong')).filter(function (el) { return !el.closest('.ca-codealong-card'); });
-      check('one with no line from the engine shows whole, as before', older.length === 1 && /An older message/.test(older[0].textContent), String(older.length));
-      pr.querySelector('.ca-codealong-head').click();
+      var older = cards()[2];
+      check('one with no line from the engine is a card headed Codealong, its words under it', older.querySelector('.ca-msgcard-title').textContent === 'Codealong' && !older.querySelector('.ca-msgcard-body').hidden && /An older message/.test(older.querySelector('.ca-msgcard-body').textContent) && !older.querySelector('.ca-msgcard-open'), older.textContent);
+      pr.querySelector('.ca-msgcard-head').click();
       return tick();
     })
     .then(function () {
       var pr = cards()[0];
-      check('a click on the line opens the whole message under it', open(pr) && /Take it from there/.test(pr.querySelector('.ca-codealong-whole').textContent) && pr.querySelector('.ca-codealong-open').getAttribute('aria-expanded') === 'true');
+      check('a click on the line opens the whole message under it', open(pr) && /Take it from there/.test(pr.querySelector('.ca-msgcard-body').textContent) && pr.querySelector('.ca-msgcard-open').getAttribute('aria-expanded') === 'true');
       if (window.__card_screenshot) return 'stay';
-      pr.querySelector('.ca-codealong-open').click();
+      pr.querySelector('.ca-msgcard-open').click();
       return tick();
     })
     .then(function (stay) {
       if (stay) return 'stay';
       check('and its button closes it', !open(cards()[0]));
       // A link on the line goes where it goes, and the card stays as it was.
-      cards()[0].querySelector('.ca-codealong-glance a').click();
+      cards()[0].querySelector('.ca-msgcard-title a').click();
       return tick().then(function () { check('a click on its link leaves it closed', !open(cards()[0])); });
     })
     .then(function (stay) {
@@ -110,10 +110,10 @@
           return until(function () { return open(cards()[0]); }, 2000, 'the card to open for the find');
         })
         .then(function () {
-          var whole = cards()[0].querySelector('.ca-codealong-whole');
-          check('⌘F finding a word only the whole message has opens it, to show it', /quokka/.test(whole.textContent) && cards()[0].querySelector('.ca-codealong-open').disabled);
+          var whole = cards()[0].querySelector('.ca-msgcard-body');
+          check('⌘F finding a word only the whole message has opens it, to show it', /quokka/.test(whole.textContent) && cards()[0].querySelector('.ca-msgcard-open').disabled);
           // A click on its line while the find holds it open changes nothing.
-          cards()[0].querySelector('.ca-codealong-line').click();
+          cards()[0].querySelector('.ca-msgcard-line').click();
           // The one word is in the opened message and nowhere else: one match, which it's at.
           var count = function () { return ((document.querySelector('.ca-findbar-count') || {}).textContent || '').trim(); };
           return until(function () { return /^1 of 1\b/.test(count()); }, 3000)

@@ -665,12 +665,13 @@ later messages between its calls go on under that heading; it heads one again af
 conversation or a pause of ten minutes (the agent woken by a background job's report). Your
 prompts are in a bubble of their own and the header names the agent's account, so neither says who
 wrote it; Codealong's messages and another session's do.
-Another session's message (an agent's, sent with `codealong session send`) shows whole, under who
-it's from and set apart by a rule at its left, in any harness: one Claude Code took on its
-cross-session socket, and one typed into a session of another harness, without the line saying
-whose it is. A file or an image sent with it shows as in a prompt of yours, a chip or the image in
-place. A long one shows its first ten lines, fading out, until Show all (Show less cuts it again),
-and shows whole while ⌘F finds something in it. A device whose build is from before gets the note
+Another session's message (an agent's, sent with `codealong session send`) is a card, as
+Codealong's own messages are: a line saying who it's from, the sender a link to its session, and
+when, with the message whole under it, in any harness: one Claude Code took on its cross-session
+socket, and one typed into a session of another harness, without the line saying whose it is. A
+file or an image sent with it shows as in a prompt of yours, a chip or the image in place. A long
+one shows its first ten lines, fading out, until the button at the end of its line, or a click on
+the line, opens it (and closes it again), and shows whole while ⌘F finds something in it. A device whose build is from before gets the note
 it showed, the message's first line under who it's from; so does the phone, as a note. An artifact Claude Code published shows under its call as its title, a link that opens it,
 with what the call did (Published · version 3), and stays out of a fold; web links in a tool's
 output open too. A right-click on a web link anywhere in a conversation (a reply's, a tool's output,

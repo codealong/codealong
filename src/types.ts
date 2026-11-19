@@ -3390,7 +3390,7 @@ export interface TranscriptItem {
   /** That session's key, where the message said it: its heading names the sender as a link to
    *  its session (SessionLink.tsx). */
   fromKey?: string;
-  /** What a `codealong` message comes to in a line, for its card (CodealongCard.tsx), which a
+  /** What a `codealong` message comes to in a line, for its card (MessageCard.tsx), which a
    *  click opens to the whole of it (glance.rs). Missing from an older engine's. */
   glance?: Glance;
   id?: string;
