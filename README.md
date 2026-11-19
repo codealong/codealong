@@ -1016,7 +1016,7 @@ in the guide's [Files Codealong keeps](docs/guide.md#files-codealong-keeps).
 - **Git is read-only, but for cleaning up.** Codealong never commits, checks out, fetches or
   resets, and never creates a worktree: when you ask for a new worktree, the agent (Claude Code,
   or `cursor-agent`) makes it. It removes one, and deletes its branch, only when you clean it up
-  (Clean up worktree…, or Mark as done on a background job that made its own) and nothing in it
+  (Clean up worktree…, or Mark as done on a session whose agent made its own) and nothing in it
   would be lost: no uncommitted file, no commit that isn't on a remote, nothing running in it. A repo whose worktrees a hook makes has them taken down by its
   own `WorktreeRemove` hook. Git runs with `GIT_OPTIONAL_LOCKS=0`, so it never holds a lock your
   agents need. A pull request is merged only when you press Merge.

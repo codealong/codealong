@@ -349,10 +349,11 @@ pub enum Ending {
     /// Its terminal tab closes, and its agent's process with it.
     Terminal(u32),
     /// Its harness's exit command is typed into its terminal (`exit`), so the harness cleans up
-    /// the worktree it made for it, and the tab closes once the process has ended.
+    /// the worktree it made for it, and the tab closes once the process has ended. One it keeps,
+    /// asked, Mark as done then removes as it does a job's.
     Exit(u32),
     /// Its background job stops. Mark as done then removes the worktree its harness made for it
-    /// too, when nothing in it would be lost (cleanup.rs `after_job`), which `stop` alone keeps.
+    /// too, when nothing in it would be lost (cleanup.rs `after_end`), which `stop` alone keeps.
     Job,
     /// Its turn stops: a session Codealong runs, whose process runs other sessions too.
     Turn,
@@ -404,7 +405,7 @@ pub fn ending(board: &Board, s: &Session, stop: bool) -> Result<Ending, String> 
 }
 
 /// Whether another session works in the worktree its harness made for `s` (`own_worktree`, found
-/// by its path, as cleanup.rs `after_job` finds it, links and all: `s` may be listed where it
+/// by its path, as cleanup.rs `after_end` finds it, links and all: `s` may be listed where it
 /// worked last), not one that only visits it: one that runs, archived or not, or one whose work
 /// isn't over though it doesn't run (an app's thread between turns, waiting on you).
 fn shares_its_worktree(board: &Board, s: &Session) -> bool {
@@ -530,10 +531,9 @@ fn worktree_lock(s: &Session) -> Option<std::path::PathBuf> {
 /// Types the harness's exit command into `s`'s terminal (`Ending::Exit`), clearing its input box
 /// first so a draft there doesn't go with it, and waits for the process to end, then closes the
 /// tab (`await_end`). `Err` when nothing could be typed: then nothing was done to it. One that
-/// asks first stays noted (`ExitAsked`), for `finish_when_ended`, unless it asks whether to keep
-/// its worktree and `nothing_lost` says Codealong's check found nothing in it would be lost
-/// (`answered_by_check`).
-pub fn exit(s: &Session, account: &crate::config::AccountCfg, pid: u32, nothing_lost: impl FnOnce() -> bool) -> Result<Exited, String> {
+/// asks whether to keep its worktree is answered Keep (`keep_worktree`); one that asks anything
+/// else, or that couldn't be answered, stays noted (`ExitAsked`), for `finish_when_ended`.
+pub fn exit(s: &Session, account: &crate::config::AccountCfg, pid: u32) -> Result<Exited, String> {
     let adapter = crate::harness::adapter(s.harness);
     let Some(command) = adapter.exit_command() else { return Err(format!("{} has no command to exit a session.", adapter.harness().word())) };
     let lock = worktree_lock(s);
@@ -549,7 +549,7 @@ pub fn exit(s: &Session, account: &crate::config::AccountCfg, pid: u32, nothing_
         .unwrap_or_else(|| Ok(crate::launch::Typed::Nowhere("it isn't in a terminal Codealong can type into".into())));
     let typed = match typed {
         Ok(crate::launch::Typed::Into(_)) => Ok(match await_end(s, pid, host, lock.as_deref(), false) {
-            Exited::Asks => answered_by_check(s, account, pid, host, nothing_lost),
+            Exited::Asks => keep_worktree(s, account, pid, host),
             ended => ended,
         }),
         Ok(crate::launch::Typed::Nowhere(why)) => Err(format!("Codealong couldn't type `{command}` into its terminal ({why}).")),
@@ -561,21 +561,17 @@ pub fn exit(s: &Session, account: &crate::config::AccountCfg, pid: u32, nothing_
     typed
 }
 
-/// The question the exit typed into `s` asks (`Exited::Asks`), answered with Remove where it asks
-/// whether to keep `s`'s own worktree for no more than Codealong's own check (cleanup.rs) stands
-/// for (`Adapter::exit_check_answers`), and `nothing_lost` says that check found nothing in it
-/// would be lost: what the harness counts (commits since the worktree began, pushed and landed
-/// ones too) doesn't say. The removal is then waited for as one its harness went ahead with unasked.
-/// Any other question still asks, yours to answer, as does one whose key couldn't be pressed:
-/// it's up as it would be had Codealong not looked.
-fn answered_by_check(s: &Session, account: &crate::config::AccountCfg, pid: u32, host: Option<u32>, nothing_lost: impl FnOnce() -> bool) -> Exited {
-    let adapter = crate::harness::adapter(s.harness);
-    let ctx = crate::harness::Ctx { account };
-    if !adapter.exit_check_answers(&ctx, s) || !nothing_lost() {
-        return Exited::Asks;
-    }
-    match adapter.exit_removing(&ctx, s) {
-        Ok(()) => await_end(s, pid, host, None, true),
+/// The question the exit typed into `s` asks (`Exited::Asks`), answered with Keep where it asks
+/// whether to keep `s`'s worktree (`Adapter::exit_keep`), whatever reason it gives: keeping loses
+/// nothing, and what the harness asks about (commits since the worktree began, pushed and landed
+/// ones too) doesn't say whether anything would be lost, so Mark as done removes the worktree
+/// itself once the session has ended, where Codealong's own check finds nothing in it would be
+/// (cleanup.rs `after_end`). The exit is then waited for as one that didn't ask. Any other
+/// question still asks, yours to answer, as does one whose key couldn't be pressed: it's up as
+/// it would be had Codealong not looked.
+fn keep_worktree(s: &Session, account: &crate::config::AccountCfg, pid: u32, host: Option<u32>) -> Exited {
+    match crate::harness::adapter(s.harness).exit_keep(&crate::harness::Ctx { account }, s) {
+        Ok(()) => await_end(s, pid, host, None, false),
         Err(_) => Exited::Asks,
     }
 }
@@ -964,23 +960,15 @@ mod tests {
     }
 
     #[test]
-    fn a_question_not_about_its_worktree_stays_yours_unchecked() {
-        let home = crate::fixtures::scratch("exit-by-check");
+    fn a_question_not_about_its_worktree_stays_yours() {
+        let home = crate::fixtures::scratch("exit-keeps");
         let account = crate::config::AccountCfg { name: "claude".into(), harness: "claude".into(), home: home.to_string_lossy().into(), command: None, start: None, acp: None, monthly: None, per_token: false, usage_cap: None, disabled: false, chrome_profile: None };
         let s = Session { id: "s1".into(), own_worktree: Some("/r/app/.claude/worktrees/kestrel".into()), ..session("claude:claude:s1", 1, Status::Idle, 0) };
-        let checked = std::cell::Cell::new(false);
-        let answered = |s: &Session| {
-            answered_by_check(s, &account, 1, None, || {
-                checked.set(true);
-                true
-            })
-        };
-        // No dialog Codealong can read is up (claude/exiting.rs `answerable` says which its check
-        // answers), and a harness that never asks: either way the question, if any, is yours, and
-        // the worktree isn't even checked.
-        assert_eq!(answered(&s), Exited::Asks);
-        assert_eq!(answered(&Session { harness: Harness::Codex, ..s.clone() }), Exited::Asks);
-        assert!(!checked.get());
+        // No dialog is up that its registry says is open (claude/exiting.rs `keep`), and a
+        // harness that never asks: either way nothing is pressed, and the question, if any, is
+        // yours.
+        assert_eq!(keep_worktree(&s, &account, 1, None), Exited::Asks);
+        assert_eq!(keep_worktree(&Session { harness: Harness::Codex, ..s.clone() }, &account, 1, None), Exited::Asks);
     }
 
     #[test]

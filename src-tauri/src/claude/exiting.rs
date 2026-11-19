@@ -4,14 +4,16 @@
 //! Mark as done types `/exit` into such a session so its worktree goes with it (idle.rs `exit`),
 //! so it's Codealong that brings the dialog up more often than not. What it counts doesn't say
 //! whether anything would be lost: commits are counted from the one the worktree started at,
-//! pushed and landed ones too (a branch rebased onto a moved `main` has dozens), and a worktree a
-//! `WorktreeCreate` hook made has no such commit, so it asks of that one whatever is in it. So
-//! Mark as done answers Remove itself where all it gives as its reason is one of those
-//! (`answerable`) and Codealong's own check finds nothing would be lost (`remove`, idle.rs
-//! `answered_by_check`): asked 2026-11-18, after a session that had landed everything asked about
-//! its 68 commits. Its other reasons (files saved from connectors, submodules it couldn't check, a
-//! detached HEAD, a branch other than the one it deletes) are about what that check doesn't look
-//! at, so they stay yours. From 2.1.322's code, and in tmux (2026-11-10):
+//! pushed and landed ones too (a branch rebased onto a moved `main` has dozens), a worktree a
+//! `WorktreeCreate` hook made has no such commit, so it asks of that one whatever is in it, and
+//! it asks of one whose HEAD went on to another branch with nothing counted at all. So Mark as
+//! done answers Keep itself (`keep`), whatever it says, and then removes the worktree as Clean up
+//! worktree does where Codealong's own check finds nothing in it would be lost (actions.rs
+//! `own_worktree_after`). Keeping loses nothing, and its reasons change with its versions
+//! (2.1.326 and 2.1.328 each added some), which Codealong would otherwise have to keep up with:
+//! asked 2026-11-19, after three rounds of answering Remove for the reasons Codealong's check
+//! stood for left a session that had landed everything asking, and coming back to Your turn,
+//! because its HEAD was on a branch of its own. From 2.1.322's code, and in tmux (2026-11-10):
 //!
 //! - While it's up, the session's registry entry says `status: "waiting"`, `waitingFor: "dialog
 //!   open"`, as it does for any command's dialog (`/model`, `/config`…), and its transcript says
@@ -53,8 +55,12 @@ use super::registry::{RegistryEntry, DIALOG_OPEN};
 /// The dialog's title, which starts it on the screen.
 const TITLE: &str = "Exiting worktree session";
 
-/// The choice that removes the worktree, in a session not started with `--tmux`.
-const REMOVE: &str = "Remove worktree";
+/// The choice that keeps the worktree, in a session not started with `--tmux`.
+const KEEP: &str = "Keep worktree";
+
+/// The choice that keeps the worktree in a session started with `--tmux` and ends that tmux
+/// session, as Mark as done ends the session; "Keep worktree and tmux session" leaves it running.
+const KEEP_ENDING_TMUX: &str = "Keep worktree, end tmux session";
 
 /// How the id of the dialog's question starts: its process and when it began waiting follow, so
 /// an answer never goes to a dialog that came up after the one it was meant for.
@@ -75,88 +81,11 @@ fn assumed(worktree: &str) -> Dialog {
         title: TITLE.into(),
         says: format!("Claude Code asks whether to keep its worktree, {name}, before it exits: removing it would lose something, which its terminal says."),
         choices: vec![
-            Choice { label: "Keep worktree".into(), description: Some(format!("Stays at {worktree}")) },
-            Choice { label: REMOVE.into(), description: Some("Its folder and branch are deleted, with what's only there.".into()) },
+            Choice { label: KEEP.into(), description: Some(format!("Stays at {worktree}")) },
+            Choice { label: "Remove worktree".into(), description: Some("Its folder and branch are deleted, with what's only there.".into()) },
         ],
         on: 0,
     }
-}
-
-/// What it says of a worktree a `WorktreeCreate` hook made: it has no commit the worktree started
-/// from to count what was added since (2.1.326's code; the words a terminal showed on 2026-11-18).
-/// Its Remove runs the repo's `WorktreeRemove` hook, which Codealong's own check runs too.
-const HOOKED: &str = "A WorktreeCreate hook made this worktree, so Claude Code can't tell whether it has unpushed commits.";
-
-/// What follows `HOOKED` about a name you gave the session, around the name (2.1.328's code).
-const NAMED: (&str, &str) = (" This session was named \"", "\". Keep the worktree to resume it later.");
-
-/// What follows the branch its commits are on, where HEAD is on the branch the worktree was made
-/// with, or it didn't look (2.1.328's code). Its Remove deletes that branch with `git branch -D`.
-const BRANCH_GOES: &str = ". The branch will be deleted if you remove the worktree.";
-
-/// Why the dialog asks, where that's only something Codealong's own check stands for (2.1.328's
-/// code composes it): a count of commits on a branch, which it deletes, or a worktree a hook made,
-/// which it can't count, a name you gave the session aside. Anything more it says (uncommitted
-/// files, files saved from connectors, submodules it couldn't check, the branch HEAD is on now, a
-/// detached HEAD, commits it couldn't count) and it's None.
-#[derive(Debug, PartialEq)]
-enum Asks {
-    /// Commits counted on this branch, which Remove deletes.
-    Commits(String),
-    Hooked,
-}
-
-fn asks(says: &str) -> Option<Asks> {
-    // Lines that wrapped were joined with a space wherever they broke.
-    let says = says.split_whitespace().collect::<Vec<_>>().join(" ");
-    if let Some(rest) = says.strip_prefix(HOOKED) {
-        let named = || rest.strip_prefix(NAMED.0).and_then(|r| r.strip_suffix(NAMED.1)).is_some_and(|name| !name.contains('"'));
-        return (rest.is_empty() || named()).then_some(Asks::Hooked);
-    }
-    let (count, rest) = says.strip_prefix("You have ")?.split_once(' ')?;
-    count.parse::<u32>().ok().filter(|n| *n > 0)?;
-    let rest = rest.strip_prefix("commits on ").or_else(|| rest.strip_prefix("commit on "))?;
-    // A branch's name has no whitespace of its own: what's there is a line that broke mid-name.
-    let branch = rest.strip_suffix(BRANCH_GOES)?.split_whitespace().collect::<String>();
-    (!branch.is_empty()).then_some(Asks::Commits(branch))
-}
-
-/// Whether Codealong's own check answers `dialog`, read off its terminal: it asks whether to keep
-/// the worktree at `own` only for what that check stands for (`asks`), and the branch it would
-/// delete is the one HEAD is on there (`head`, read only then), which is the branch the check
-/// looks at. Its Keep leaves that worktree where it is, not another the session went on to, and it
-/// offers Remove worktree. Lines that wrapped were joined with a space wherever they broke,
-/// mid-path too, so a path with no space of its own is matched without the spaces; one with
-/// spaces only as it is. One started with `--tmux` never asks this way: its choices are about its
-/// tmux session too.
-fn answerable(dialog: &Dialog, own: &str, head: impl FnOnce() -> Option<String>) -> bool {
-    let squeezed = |text: &str| text.split_whitespace().collect::<String>();
-    let stays = format!("Stays at {own}");
-    let names_own = |d: &str| d == stays || (!own.contains(char::is_whitespace) && squeezed(d) == squeezed(&stays));
-    let keeps_own = |c: &Choice| c.label == "Keep worktree" && c.description.as_deref().is_some_and(names_own);
-    if !dialog.choices.iter().any(keeps_own) || !dialog.choices.iter().any(|c| c.label == REMOVE) {
-        return false;
-    }
-    match asks(&dialog.says) {
-        Some(Asks::Commits(branch)) => head().is_some_and(|h| h == branch),
-        Some(Asks::Hooked) => true,
-        None => false,
-    }
-}
-
-/// The dialog up in `s` and its registry entry, when Codealong's own check answers it
-/// (`answerable`). Only one read off its terminal: one Codealong couldn't read (`assumed`) has
-/// choices it only supposes.
-fn up_for_check(home: &Path, s: &Session) -> Option<(Dialog, RegistryEntry)> {
-    let own = s.own_worktree.as_deref()?;
-    let (reg, screen) = super::dialog::open(home, s)?;
-    let dialog = read(screen.as_deref()?)?;
-    answerable(&dialog, own, || crate::git::branch(Path::new(own))).then_some((dialog, reg))
-}
-
-/// Whether the dialog up in `s` is one Codealong's own check answers (`answerable`).
-pub fn check_answers(ctx: &Ctx, s: &Session) -> bool {
-    up_for_check(&ctx.account.home_path(), s).is_some()
 }
 
 /// When the dialog the registry entry `reg` says is open came up, if it says one is.
@@ -249,13 +178,22 @@ pub fn answer(ctx: &Ctx, s: &Session, id: &str, answers: &Value) -> Result<Strin
     Ok(format!("Picked {picked}."))
 }
 
-/// Answers the dialog up in `s` with Remove worktree, as Mark as done does where Codealong's own
-/// check answers it (`answerable`, looked at again here as it's pressed) and found nothing in the
-/// worktree would be lost.
-pub fn remove(ctx: &Ctx, s: &Session) -> Result<()> {
-    let (dialog, reg) = up_for_check(&ctx.account.home_path(), s).ok_or_else(|| anyhow!("It isn't asking only what Codealong's check of its worktree answers."))?;
-    let i = dialog.choices.iter().position(|c| c.label == REMOVE).ok_or_else(|| anyhow!("None of its choices is {REMOVE}."))?;
+/// Answers the dialog up in `s` with its Keep (`keeps`), as Mark as done does once its `/exit`
+/// asks (idle.rs `keep_worktree`): whatever the dialog says, keeping loses nothing, and Mark as done then
+/// removes the worktree itself where its own check finds nothing in it would be lost. One
+/// Codealong can't read (`assumed`) is the one its `/exit` brought up, whose first choice keeps.
+pub fn keep(ctx: &Ctx, s: &Session) -> Result<()> {
+    let gone = || anyhow!("It isn't asking about its worktree.");
+    let (reg, screen) = super::dialog::open(&ctx.account.home_path(), s).ok_or_else(gone)?;
+    let dialog = up(s, &reg, screen.as_deref()).ok_or_else(gone)?;
+    let i = keeps(&dialog).ok_or_else(|| anyhow!("None of its choices keeps the worktree as the session exits."))?;
     pick(ctx, s, &reg, i)
+}
+
+/// The choice of `dialog` that keeps the worktree and ends the session.
+fn keeps(dialog: &Dialog) -> Option<usize> {
+    let at = |label: &str| dialog.choices.iter().position(|c| c.label == label);
+    at(KEEP_ENDING_TMUX).or_else(|| at(KEEP))
 }
 
 /// Picks choice `i` of the dialog up in its registry entry `reg` by its digit.
@@ -325,64 +263,20 @@ mod tests {
     }
 
     #[test]
-    fn reads_only_the_reasons_codealongs_check_stands_for() {
-        let commits = |b: &str| Some(Asks::Commits(b.into()));
-        // As a terminal showed it on 2026-11-18, a branch whose HEAD had landed.
-        assert_eq!(asks("You have 68 commits on worktree-kestrel. The branch will be deleted if you remove the worktree."), commits("worktree-kestrel"));
-        assert_eq!(asks("You have 1 commit on worktree-kestrel. The branch will be deleted if you\nremove the worktree."), commits("worktree-kestrel"));
-        // A terminal narrower than the branch's name breaks it.
-        assert_eq!(asks("You have 1 commit on worktree-northwind-kes\ntrel. The branch will be deleted if you remove the worktree."), commits("worktree-northwind-kestrel"));
-        assert_eq!(asks(HOOKED), Some(Asks::Hooked));
-        assert_eq!(asks(&format!("{HOOKED} This session was named \"atlas\". Keep the worktree to resume it later.")), Some(Asks::Hooked));
-        // What else 2.1.328 may say: each is about what the check doesn't look at, or deletes a
-        // branch it didn't.
-        for says in [
-            "You have 2 commits on worktree-kestrel. The branch will be deleted if you remove the worktree. The worktree's connector-downloads folder holds 1 item saved from connectors. Git doesn't track that folder, so removing the worktree deletes it.",
-            "You have 2 commits on worktree-kestrel. The branch will be deleted if you remove the worktree. Claude Code could not check the worktree's connector-downloads folder, which may hold files saved from connectors. Removing the worktree would delete them.",
-            "You have 2 commits on worktree-kestrel. The branch will be deleted if you remove the worktree. The worktree is now on release, which is kept either way.",
-            "You have 2 commits on worktree-kestrel. The branch will be deleted if you remove the worktree. The worktree's submodules could not be checked for uncommitted work (vendor/lib); anything uncommitted inside one is lost if you remove the worktree.",
-            "You have 2 commits on worktree-kestrel or at the detached HEAD. They may be lost if you remove the worktree.",
-            "You have 2 commits on worktree-kestrel that release doesn't have. Branch worktree-kestrel will be deleted if you remove the worktree.",
-            "The branch worktree-kestrel may hold commits that could not be counted. The branch will be deleted if you remove.",
-            "You have 1 uncommitted file and 2 commits on worktree-kestrel. All will be lost if you remove.",
-            "You have 0 commits on worktree-kestrel. The branch will be deleted if you remove the worktree.",
-            "This session was named \"atlas\". Keep the worktree to resume it later, or remove it to clean up.",
-            "You are working in a worktree. Keep it to continue working there, or remove it to clean up.",
-        ] {
-            assert_eq!(asks(says), None, "{says}");
-        }
-        let connectors = format!("{HOOKED} The worktree's connector-downloads folder holds 2 items saved from connectors. Git doesn't track that folder, so removing the worktree deletes them.");
-        assert_eq!(asks(&connectors), None);
-    }
-
-    #[test]
-    fn answers_of_its_own_worktree_on_the_branch_it_deletes() {
-        let own = "/Users/me/projects/northwind-app/.claude/worktrees/kestrel";
-        let on = |b: &str| Some(b.to_string());
-        let d = read(SCREEN).unwrap();
-        assert!(answerable(&d, own, || on("worktree-kestrel")));
-        // HEAD on another branch, or detached (a rebase under way): the branch it deletes isn't
-        // the one the check looks at.
-        assert!(!answerable(&d, own, || on("release")));
-        assert!(!answerable(&d, own, || None));
-        // As a terminal showed it on 2026-11-18, the worktree a hook made, whose branch is the
-        // hook's business.
-        let hooked = format!("   Exiting worktree session\n   {HOOKED}\n   ❯ 1. Keep worktree    Stays at {own}\n     2. Remove worktree  Any unpushed commits in the worktree may be lost.\n   Enter to confirm · Esc to cancel\n");
-        let h = read(&hooked).unwrap();
-        assert!(answerable(&h, own, || None));
-        // Narrower, its sentence and its path wrapped.
-        let narrow = "   Exiting worktree session\n   You have 68 commits on worktree-kestrel. The branch will be deleted if\n   you remove the worktree.\n   ❯ 1. Keep worktree    Stays at /Users/me/projects/northwind-app/.claude/\n                         worktrees/kestrel\n     2. Remove worktree  All changes and commits will be lost.\n   Enter to confirm · Esc to cancel\n";
-        assert!(answerable(&read(narrow).unwrap(), own, || on("worktree-kestrel")));
-        // Another worktree than the one Codealong checked: one the session went on to.
-        assert!(!answerable(&h, "/Users/me/projects/northwind-app/.claude/worktrees/atlas", || None));
-        // A path with spaces of its own is matched as it is, not squeezed into another's.
-        let spaced = "/Users/me/projects/northwind-app/.claude/worktrees/release notes";
-        assert!(answerable(&read(&hooked.replace(own, spaced)).unwrap(), spaced, || None));
-        assert!(!answerable(&read(&hooked.replace(own, &spaced.replace(' ', ""))).unwrap(), spaced, || None));
-        // Nor one in tmux, whose answer decides its tmux session too. (One Codealong couldn't
-        // read never comes here: `up_for_check` reads it off the screen or not at all.)
-        let tmux = format!("Exiting worktree session\n{HOOKED}\n❯ 1. Keep worktree and tmux session  Stays at {own}. Reattach with: tmux attach -t kestrel\n  2. Keep worktree, end tmux session  Keeps worktree at {own}, terminates tmux session.\n  3. Remove worktree and tmux session  Clean up the worktree directory.\nEnter to confirm · Esc to cancel");
-        assert!(!answerable(&read(&tmux).unwrap(), own, || None));
+    fn keeps_the_worktree_whatever_it_says() {
+        // Two terminals' dialogs, as the screen and as a session showed it on 2026-11-19: nothing
+        // counted, HEAD gone on to a branch of its own.
+        assert_eq!(keeps(&read(SCREEN).unwrap()), Some(0));
+        let moved = "   Exiting worktree session\n   You are working in a worktree. Keep it to continue working there, or remove it to clean up. The\n   worktree is now on branch release-notes, which is kept either way.\n   ❯ 1. Keep worktree    Stays at /Users/me/projects/northwind-app/.claude/worktrees/kestrel\n     2. Remove worktree  Clean up the worktree directory.\n   Enter to confirm · Esc to cancel\n";
+        assert_eq!(keeps(&read(moved).unwrap()), Some(0));
+        // Started with `--tmux`: the Keep that ends its tmux session, as Mark as done ends it.
+        let tmux = "Exiting worktree session\nThis session was named \"atlas\". Keep the worktree to resume it later, or remove it to clean up.\n❯ 1. Keep worktree and tmux session  Stays at /w. Reattach with: tmux attach -t atlas\n  2. Keep worktree, end tmux session  Keeps worktree at /w, ends tmux session.\n  3. Remove worktree and tmux session  Clean up the worktree directory.\nEnter to confirm · Esc to cancel";
+        assert_eq!(keeps(&read(tmux).unwrap()), Some(1));
+        // One Codealong can't read: the one its `/exit` brought up, Keep first.
+        assert_eq!(keeps(&assumed("/Users/me/projects/northwind-app/.claude/worktrees/kestrel")), Some(0));
+        // A dialog that offers no Keep is left alone.
+        let other = Dialog { choices: vec![Choice { label: "Remove worktree".into(), description: None }], ..read(SCREEN).unwrap() };
+        assert_eq!(keeps(&other), None);
     }
 
     #[test]

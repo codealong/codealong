@@ -196,24 +196,25 @@ Code made for it is stopped, and the worktree is removed after it, as Clean up w
 [Clean up worktrees](#clean-up-worktrees)), unless something in it would be lost: then it stays, and
 the toast says why ("1 commit on no remote"). A session in a terminal that holds such a worktree is
 exited with Claude Code's own `/exit`, which removes a worktree that's unchanged and otherwise asks
-whether to keep it. What it counts doesn't say whether anything would be lost: commits since the
-worktree was made, pushed and landed ones too (a branch rebased onto a `main` that moved on counts
-them all), and every worktree a repo's `WorktreeCreate` hook made, which it can't count at all. So
-where those are all it asks about, Codealong answers Remove worktree itself whenever its own check,
-Clean up worktree…'s, finds nothing would be lost (nothing uncommitted, no commit that's on no
-remote and not in the default branch, no rebase or merge under way, no other session at work
-there), and the worktree is still on
-the branch Claude Code would delete with it. It reads the question off the session's terminal for
-that (a Rex or tmux terminal, or one of Codealong's own; not a session started with `--tmux`, whose
-answer decides its tmux session too). The repo's `WorktreeRemove` hook, where there is one, then
-takes the worktree down as the session exits. A question about anything that check doesn't look at
-(files saved from connectors, which git doesn't track, submodules Claude Code couldn't check, a
-detached HEAD, a branch other than the one it deletes, a name you gave a session that changed
-nothing) stays yours. Otherwise, too, the session stays, waiting on you with that question,
-answered on its box as any question is (Keep worktree, Remove worktree), or Cancel to call the exit
-off; once it's answered, here or in its terminal, the session exits, its terminal closes and it's
-archived (one whose terminal doesn't close stays in its list, for you to see). Mark as done
-again ends it without an answer: its terminal closes and the worktree stays. Codealong reads the
+whether to keep it. What it asks about doesn't say whether anything would be lost: commits since
+the worktree was made, pushed and landed ones too (a branch rebased onto a `main` that moved on
+counts them all), every worktree a repo's `WorktreeCreate` hook made, which it can't count at all,
+and a worktree whose session went on to a branch of its own, with nothing counted. So Codealong
+answers Keep worktree itself, whatever the question says, and once the session has exited removes
+the worktree as Clean up worktree… does, with the same check: it goes unless something in it would
+be lost (anything uncommitted, a commit that's on no remote and not in the default branch, a rebase
+or merge under way, files saved from connectors, another session at work there), and then it
+stays, and the toast says why. The repo's `WorktreeRemove` hook, where there is one, takes it down.
+Its branch goes with it where git's `branch -d` lets it, which keeps a branch whose work is merged
+nowhere. A session started with `--tmux` is answered with the Keep that ends its tmux session. The
+question is answered in any terminal Codealong can press keys in, Ghostty and iTerm2 among them,
+so the session leaves your lists at once and never comes back to ask. Only one Codealong can't
+answer (a terminal it can't press keys in, or a question that offers no Keep) stays, waiting on
+you with that question, answered on its box as any question is (Keep worktree, Remove worktree),
+or Cancel to call the exit off; once it's answered, here or in its terminal, the session exits, its
+terminal closes and it's archived (one whose terminal doesn't close stays in its list, for you to
+see). Mark as done again ends it without an answer: its terminal closes and the worktree stays.
+Codealong reads the
 question, with what removing would lose, off a Rex or tmux terminal or one of its own; in another
 terminal it offers the two choices, and that terminal says what would be lost. A question asked by
 an `/exit` you typed yourself is answered the same way, from a terminal Codealong can read. A

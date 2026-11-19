@@ -289,16 +289,12 @@ pub trait Adapter: Sync {
         None
     }
 
-    /// Whether its exit command, typed into `s`, is asking now whether to keep the worktree `s`
-    /// holds for no more than Codealong's own check stands for: a question that check answers as
-    /// Mark as done exits it (`idle::exit`), since what the harness counts doesn't say whether
-    /// anything would be lost. Any other is yours to answer.
-    fn exit_check_answers(&self, _ctx: &Ctx, _s: &Session) -> bool {
-        false
-    }
-
-    /// Answers the question its exit command asks about the worktree `s` holds by removing it.
-    fn exit_removing(&self, _ctx: &Ctx, _s: &Session) -> Result<()> {
+    /// Answers the question its exit command, typed into `s`, asks about the worktree `s` holds
+    /// by keeping it, as Mark as done does (`idle::exit`): keeping loses nothing, and Codealong
+    /// then removes the worktree itself where its own check finds nothing in it would be lost
+    /// (cleanup.rs `after_end`), since what the harness asks about doesn't say. Err where it
+    /// isn't asking that, or can't be answered from here.
+    fn exit_keep(&self, _ctx: &Ctx, _s: &Session) -> Result<()> {
         bail!("{} doesn't ask about a worktree as it exits.", self.harness().word())
     }
 

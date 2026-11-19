@@ -1658,13 +1658,12 @@ fn finish(engine: &Handle, c: &Call, key: &str, stop: bool, helpers: Chosen, by:
         Ok(ends) => ends,
         Err(busy) => return to_value(api::Done { done: false, message: busy, noted: false }),
     };
-    let job = matches!(ends, crate::idle::Ending::Job);
     let exits = matches!(ends, crate::idle::Ending::Exit(_));
     let who = stops::who(&board, c.from);
     // How it stands now, before anything of it is ended (dismissed.rs): noted once it's archived.
     let leaving = crate::dismissed::leaving(&board, s, crate::dismissed::What::Done, c.from);
-    let (ended, note) = end(engine, s, account, ends, &who, true, leaving.clone());
-    // Its harness asks first, whether to keep its worktree: it stays where you'll see the
+    let Ended { what: ended, note, left_worktree } = end(engine, s, account, ends, &who, true, leaving.clone());
+    // Its harness asks first, something Codealong couldn't answer: it stays where you'll see the
     // question, and is archived once it has exited (`end`, `idle::finish_when_ended`). Archived
     // now, a terminal of Codealong's own would close with it (`Handle::archive`), hanging the
     // question up, or the session, where it was called off as Codealong waited. Its helpers'
@@ -1674,7 +1673,6 @@ fn finish(engine: &Handle, c: &Call, key: &str, stop: bool, helpers: Chosen, by:
         let message = [note, helped.said].into_iter().flatten().collect::<Vec<_>>().join(" ");
         return to_value(api::Done { done: false, message, noted: true });
     }
-    let stopped = ended.is_some();
     let title = s.title.clone();
     engine.mark_seen(vec![key.to_string()]);
     let archived = engine.archive(key, true).map_err(words)?;
@@ -1700,7 +1698,7 @@ fn finish(engine: &Handle, c: &Call, key: &str, stop: bool, helpers: Chosen, by:
     }
     // Only once it's archived: a repo's own teardown can take a minute, and the session would
     // come back to the lists meanwhile.
-    let worktree = job_worktree(engine, &cfg, s, job && stopped);
+    let worktree = own_worktree_after(engine, &cfg, s, left_worktree);
     if let Some((words, _)) = &worktree {
         message = format!("{message} {words}");
     }
@@ -1776,9 +1774,8 @@ fn finish_helpers(engine: &Handle, cfg: &config::Config, key: &str, chosen: Chos
             let unfinished = h.unfinished();
             match crate::idle::ending(&board, h, unfinished) {
                 Ok(ends) => {
-                    let job = matches!(ends, crate::idle::Ending::Job);
                     let exits = matches!(ends, crate::idle::Ending::Exit(_));
-                    let (ended, note) = end(engine, h, account, ends, who, true, None);
+                    let Ended { what: ended, note, left_worktree } = end(engine, h, account, ends, who, true, None);
                     // What didn't go for one whose work was over is left unsaid: it's archived
                     // either way, and its own panel says how it stands. Work that goes on isn't:
                     // an app's thread or a job that didn't stop, and a command you ran for it in
@@ -1812,7 +1809,7 @@ fn finish_helpers(engine: &Handle, cfg: &config::Config, key: &str, chosen: Chos
                             kept.push(helper.clone());
                         }
                     }
-                    let _ = job_worktree(engine, cfg, h, job && ended.is_some());
+                    let _ = own_worktree_after(engine, cfg, h, left_worktree);
                 }
                 Err(_) => left += 1,
             }
@@ -1856,12 +1853,30 @@ fn helpers_done_words(done: usize, made_own: usize, left: usize) -> Option<Strin
     (!said.is_empty()).then(|| format!("{}.", said.join("; ")))
 }
 
+/// What ending a session did (`end`).
+struct Ended {
+    /// What ended, in words.
+    what: Option<String>,
+    /// What's worth saying besides: why nothing ended, or what didn't go.
+    note: Option<String>,
+    /// It ended, and the worktree its harness made for it is left for Codealong to remove where
+    /// nothing in it would be lost (`own_worktree_after`): its background job stopped, or its
+    /// harness exited keeping it, Mark as done having answered Keep (`idle::exit`).
+    left_worktree: bool,
+}
+
+impl Ended {
+    fn said(what: Option<String>, note: Option<String>) -> Ended {
+        Ended { what, note, left_worktree: false }
+    }
+}
+
 /// Ends a session as `ends` says: what ended, and what's worth saying besides (why nothing did,
 /// or what didn't go). `who` asked, for stops.log: closing its terminal, stopping its job or
 /// stopping its turn while work is under way is a stop (`stopping`). `archive`: what ends it
 /// archives it, which an exit its harness asks about first does once its process has ended
 /// (`idle::finish_when_ended`), noting then how it stood when it was asked (`leaving`).
-fn end(engine: &Handle, s: &crate::model::Session, account: &config::AccountCfg, ends: crate::idle::Ending, who: &str, archive: bool, leaving: Option<crate::dismissed::Leaving>) -> (Option<String>, Option<String>) {
+fn end(engine: &Handle, s: &crate::model::Session, account: &config::AccountCfg, ends: crate::idle::Ending, who: &str, archive: bool, leaving: Option<crate::dismissed::Leaving>) -> Ended {
     use crate::idle::{Ending, Exited};
     let ctx = harness::Ctx { account };
     let adapter = harness::adapter(s.harness);
@@ -1873,23 +1888,23 @@ fn end(engine: &Handle, s: &crate::model::Session, account: &config::AccountCfg,
                 None => Err("Its terminal didn't close.".to_string()),
             };
             match stopping(s, who, close) {
-                Ok(()) => (Some("its terminal is closed".into()), None),
-                Err(e) => (None, Some(e)),
+                Ok(()) => Ended::said(Some("its terminal is closed".into()), None),
+                Err(e) => Ended::said(None, Some(e)),
             }
         }
         Ending::Exit(pid) => {
             let word = adapter.harness().word();
             let worktree = s.own_worktree.as_deref().map(|w| crate::util::file_name(std::path::Path::new(w))).unwrap_or_default();
-            // Asked whether to keep its worktree, Codealong answers by its own check, made once
-            // the question is up: what the harness counts doesn't say whether anything is lost.
-            let nothing_lost = || cfg().is_ok_and(|cfg| crate::cleanup::own_goes(&|| engine.board(), &cfg, s).is_ok());
-            match crate::idle::exit(s, account, pid, nothing_lost) {
-                Ok(Exited::Ended { removed: true, closed: Ok(()) }) => (Some(format!("{word} removed its worktree, its terminal is closed")), None),
-                Ok(Exited::Ended { removed: true, closed: Err(e) }) => (Some(format!("{word} removed its worktree")), Some(format!("Its terminal didn't close: {e}"))),
-                Ok(Exited::Ended { removed: false, closed }) => (
-                    closed.is_ok().then(|| "it exited and its terminal is closed".to_string()),
-                    Some(format!("{word} kept its worktree, {worktree}.{}", closed.err().map(|e| format!(" Its terminal didn't close: {e}")).unwrap_or_default())),
-                ),
+            match crate::idle::exit(s, account, pid) {
+                Ok(Exited::Ended { removed: true, closed: Ok(()) }) => Ended::said(Some(format!("{word} removed its worktree, its terminal is closed")), None),
+                Ok(Exited::Ended { removed: true, closed: Err(e) }) => Ended::said(Some(format!("{word} removed its worktree")), Some(format!("Its terminal didn't close: {e}"))),
+                // Kept, by Codealong's answer or its harness's own doing: what becomes of the
+                // worktree is said once Codealong has tried to remove it.
+                Ok(Exited::Ended { removed: false, closed }) => Ended {
+                    what: closed.is_ok().then(|| "it exited and its terminal is closed".to_string()),
+                    note: closed.err().map(|e| format!("Its terminal didn't close: {e}")),
+                    left_worktree: true,
+                },
                 Ok(Exited::Asks) => {
                     // However it's answered, here or in its terminal, it's finished once it has
                     // exited, as it would have been had its harness not asked.
@@ -1905,21 +1920,21 @@ fn end(engine: &Handle, s: &crate::model::Session, account: &config::AccountCfg,
                             }
                         }
                     });
-                    (None, Some(format!("{word} asks whether to keep its worktree, {worktree}, before it exits: the session waits on your answer.")))
+                    Ended::said(None, Some(format!("{word} asks something before it exits that Codealong couldn't answer, about its worktree, {worktree}: the session waits on your answer.")))
                 }
-                Ok(Exited::Removing) => (None, Some(format!("{word} is still removing its worktree, {worktree}, so its terminal stays open."))),
-                Err(e) => (None, Some(format!("{e} It's still open, its worktree with it."))),
+                Ok(Exited::Removing) => Ended::said(None, Some(format!("{word} is still removing its worktree, {worktree}, so its terminal stays open."))),
+                Err(e) => Ended::said(None, Some(format!("{e} It's still open, its worktree with it."))),
             }
         }
         Ending::Job => match stopping(s, who, || adapter.stop(&ctx, s)) {
-            Ok(_) => (Some("its background job is stopped".into()), None),
-            Err(e) => (None, Some(format!("Its background job didn't stop: {}", words(e)))),
+            Ok(_) => Ended { what: Some("its background job is stopped".into()), note: None, left_worktree: true },
+            Err(e) => Ended::said(None, Some(format!("Its background job didn't stop: {}", words(e)))),
         },
         Ending::Turn => match stopping(s, who, || adapter.interrupt(&ctx, s)) {
-            Ok(_) => (Some("its turn is stopped".into()), None),
-            Err(e) => (None, Some(format!("Its turn didn't stop: {}", words(e)))),
+            Ok(_) => Ended::said(Some("its turn is stopped".into()), None),
+            Err(e) => Ended::said(None, Some(format!("Its turn didn't stop: {}", words(e)))),
         },
-        Ending::Nothing(why) => (None, why),
+        Ending::Nothing(why) => Ended::said(None, why),
     }
 }
 
@@ -1947,13 +1962,12 @@ pub fn end_after_turn(engine: &Handle, key: &str, archive: bool) -> Result<Strin
     let board = engine.board();
     let (s, account) = harness::find(&board, &cfg, key).map_err(words)?;
     let ends = crate::idle::ending(&board, s, false)?;
-    let job = matches!(ends, crate::idle::Ending::Job);
     let can_end = !matches!(ends, crate::idle::Ending::Nothing(_));
     // Its own agent asked, and a turn that has ended has nothing to stop.
     let who = "its own agent, with the codealong command";
     let leaving = crate::dismissed::leaving(&board, s, crate::dismissed::What::Done, &From::Command(Some(key.to_string())));
-    let (ended, note) = end(engine, s, account, ends, who, archive, leaving.clone());
-    let worktree = job_worktree(engine, &cfg, s, job && ended.is_some());
+    let Ended { what: ended, note, left_worktree } = end(engine, s, account, ends, who, archive, leaving.clone());
+    let worktree = own_worktree_after(engine, &cfg, s, left_worktree);
     let went_wrong = (can_end && note.is_some()) || worktree.as_ref().is_some_and(|(_, partly)| *partly);
     let mut said: Vec<String> = [ended.map(|e| format!("“{}”: {e}.", s.title)), note, worktree.map(|(words, _)| words)].into_iter().flatten().collect();
     if archive && went_wrong {
@@ -1976,17 +1990,19 @@ pub fn end_after_turn(engine: &Handle, key: &str, archive: bool) -> Result<Strin
     Ok(said.join(" "))
 }
 
-/// Mark as done on a background job that holds the worktree its harness made for it, once the
-/// job has stopped (`stopped`): the worktree goes too when nothing in it would be lost, the
-/// job's record with it, or stays (cleanup.rs `after_job`). A terminal session's goes as its
-/// harness exits it (`idle::Ending::Exit`). What to say of it, and whether that's worth saying
-/// where the session leaving its list says the rest: it stayed, or not all of it went.
-fn job_worktree(engine: &Handle, cfg: &config::Config, s: &crate::model::Session, stopped: bool) -> Option<(String, bool)> {
-    if !stopped {
+/// Mark as done on a session that holds the worktree its harness made for it, once it has ended
+/// and left it (`left`, `Ended::left_worktree`): a background job stopped, or a terminal session
+/// whose harness asked whether to keep it, answered Keep (`idle::exit`). The worktree goes too
+/// when nothing in it would be lost, a job's record with it, or stays (cleanup.rs `after_end`):
+/// Codealong's own check decides, not what the harness asked about. One that didn't ask goes as
+/// its harness exits it (`idle::Ending::Exit`). What to say of it, and whether that's worth
+/// saying where the session leaving its list says the rest: it stayed, or not all of it went.
+fn own_worktree_after(engine: &Handle, cfg: &config::Config, s: &crate::model::Session, left: bool) -> Option<(String, bool)> {
+    if !left {
         return None;
     }
-    // The board as it is when its turn comes, not as it was before the job stopped.
-    Some(match crate::cleanup::after_job(&|| engine.board(), cfg, s)? {
+    // The board as it is when its turn comes, not as it was before the session ended.
+    Some(match crate::cleanup::after_end(&|| engine.board(), cfg, s)? {
         Ok(gone) => (gone.said, gone.partly),
         Err(words) => (words, true),
     })

@@ -477,10 +477,19 @@ on this Mac; read it before changing the Claude adapter (paths are under `src-ta
   saved from connectors in the worktree's `connector-downloads` folder (which git doesn't track),
   a name of yours, or only "You are working in a worktree"; its Remove deletes the branch the
   worktree was made with, `worktreeBranch`, with `git branch -D`, whichever branch HEAD is on.
-  So Mark as done answers Remove itself where the dialog, read off its terminal, asks about the
-  session's own worktree for commits on the branch HEAD is on, or because a hook made it, and
-  nothing more, and Codealong's own check finds nothing would be lost: `claude/exiting.rs`
-  (`asks`, `answerable`), `idle.rs` (`answered_by_check`), `cleanup.rs` (`own_goes`). Remove runs the repo's `WorktreeRemove` hook under its `timeout`; one
+  It asks with nothing counted where HEAD went on to another branch ("You are working in a
+  worktree. Keep it to continue working there, or remove it to clean up. The worktree is now on
+  branch <branch>, which is kept either way.", Remove "Clean up the worktree directory.";
+  2.1.329, a session whose branch had merged, 2026-11-19). So Mark as done answers Keep, whatever
+  it says (the Keep that ends its tmux session in one started with `--tmux`), and once the session
+  has ended removes the worktree itself, as Clean up worktree does, where Codealong's own check
+  finds nothing would be lost, files saved from connectors among what it looks at:
+  `claude/exiting.rs` (`keep`), `idle.rs` (`kept`), `actions.rs` (`own_worktree_after`),
+  `cleanup.rs` (`after_end`, `saved_from_connectors`). Before, it answered Remove for the reasons
+  its check stood for, which left that session asking (2026-11-18 to 2026-11-19). Keep is its
+  first choice, so it's pressed in a terminal Codealong can press keys in but not read too
+  (Ghostty, iTerm2). Codealong's removal deletes the branch HEAD is on with `git branch -d`, not
+  `worktreeBranch`, which stays where HEAD went on from it. Remove runs the repo's `WorktreeRemove` hook under its `timeout`; one
   that runs out is killed partway, and the exit carries on as removed (`worktree-state` null),
   whatever the hook left: on 2026-11-18 a repo's hook under a 120 s timeout left its worktree's
   folder half deleted and still listed by git. While that's up the registry says `waiting` / `dialog open`, as

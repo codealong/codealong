@@ -1,12 +1,15 @@
 //! Removing a worktree with nothing in it lost: its menu's Clean up worktree, `codealong worktree
-//! remove`, and Mark as done on a background job that holds the worktree its harness made for it
-//! (actions.rs). Elsewhere Codealong only reads git; this changes a repository, and only where
-//! nothing would be lost (`board::cleanup`), checked again here against git as it is now.
+//! remove`, and Mark as done on a session that holds the worktree its harness made for it, once
+//! the session has ended and left it (a background job stopped, or an exit answered Keep;
+//! actions.rs `own_worktree_after`). Elsewhere Codealong only reads git; this changes a
+//! repository, and only where nothing would be lost (`board::cleanup`), checked again here
+//! against git as it is now.
 //!
 //! The check reads git itself rather than taking the board's word (`facts`): untracked files are
 //! counted whatever `status.showUntrackedFiles` says, a git that fails or times out keeps the
 //! worktree, and its folders are looked through for another repository inside them, which its
-//! own git can't see (`repo_inside`). Just before it goes it's read again, one removal at a time,
+//! own git can't see (`repo_inside`), and for files Claude Code saved from connectors, which git
+//! ignores (`saved_from_connectors`). Just before it goes it's read again, one removal at a time,
 //! and anything changed since keeps it (`verify`).
 //!
 //! The repo's own teardown goes first: a repo whose worktrees a hook makes may set up much more
@@ -179,7 +182,7 @@ pub fn plan(board: &Board, cfg: &Config, lane_id: &str, ending: Option<&Session>
     let kept = match &checked {
         Err(e) => Some(format!("git couldn't check it ({e})")),
         Ok(Facts { under_way: Some(what), .. }) => Some(format!("a {what} is under way in it")),
-        Ok(_) => rule(listed_inside.as_deref()).or_else(|| match repo_inside(&path) {
+        Ok(_) => rule(listed_inside.as_deref()).or_else(|| saved_from_connectors(&path)).or_else(|| match repo_inside(&path) {
             Ok(None) => None,
             Ok(Some(p)) => rule(Some(&inner(p))),
             Err(why) => Some(why),
@@ -343,6 +346,30 @@ fn repo_inside(path: &Path) -> Result<Option<PathBuf>, String> {
     Ok(None)
 }
 
+/// The folder Claude Code saves files from claude.ai connectors in, at the top of a session's
+/// folder, with a `.gitignore` of its own that has git ignore what it holds (2.1.329's code).
+/// Removing the worktree deletes them, and nothing else here sees them: git counts them neither
+/// as changes nor as untracked files, and among ignored files only another repository keeps a
+/// worktree (`repo_inside`). Claude Code's exit asks about them, but Mark as done answers that
+/// Keep and leaves the deciding to this check.
+const CONNECTOR_DOWNLOADS: &str = "connector-downloads";
+
+/// Why the worktree at `path` stays for files saved from connectors, if it does: anything in its
+/// `CONNECTOR_DOWNLOADS` folder but that folder's own `.gitignore`, or a folder that can't be
+/// read.
+fn saved_from_connectors(path: &Path) -> Option<String> {
+    let entries = match std::fs::read_dir(path.join(CONNECTOR_DOWNLOADS)) {
+        Ok(entries) => entries,
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => return None,
+        Err(e) => return Some(format!("its {CONNECTOR_DOWNLOADS} folder couldn't be read ({e})")),
+    };
+    match entries.flatten().filter(|e| e.file_name() != ".gitignore").count() {
+        0 => None,
+        1 => Some(format!("it holds a file saved from connectors ({CONNECTOR_DOWNLOADS})")),
+        n => Some(format!("it holds {n} files saved from connectors ({CONNECTOR_DOWNLOADS})")),
+    }
+}
+
 /// How many sessions run in the worktree `lane_id` on `board`, but `except`.
 fn running_in(board: &Board, lane_id: &str, except: Option<&str>) -> usize {
     let lane = board.lanes.iter().find(|l| l.id == lane_id && l.device.is_none());
@@ -377,6 +404,9 @@ fn verify(plan: &Plan, running: usize) -> Result<bool, String> {
     }
     if let Some(what) = now.under_way {
         return stays(&format!("a {what} is under way in it now"));
+    }
+    if let Some(why) = saved_from_connectors(&plan.path) {
+        return stays(&why);
     }
     match plan.ending.map(|_| repo_inside(&plan.path)) {
         None | Some(Ok(None)) => {}
@@ -531,11 +561,12 @@ fn carry_out(plan: &Plan, running: &dyn Fn() -> usize) -> Result<Gone, String> {
     Ok(Gone { said, partly })
 }
 
-/// The worktree its harness made for `s` (`Session::own_worktree`), once Mark as done has stopped
-/// it as a background job: removed when nothing in it would be lost, the job's record with it
-/// (`claude rm`), else kept. None when it holds none on the board; Ok when it went, or Err with why
-/// it stays. `board` reads the board as it is, as `remove` does.
-pub fn after_job(board: &dyn Fn() -> Board, cfg: &Config, s: &Session) -> Option<Result<Gone, String>> {
+/// The worktree its harness made for `s` (`Session::own_worktree`), once Mark as done has ended
+/// `s` and its harness left the worktree (a background job stopped, or an exit answered Keep):
+/// removed when nothing in it would be lost, a job's record with it (`claude rm`), else kept.
+/// None when it holds none on the board; Ok when it went, or Err with why it stays. `board`
+/// reads the board as it is, as `remove` does.
+pub fn after_end(board: &dyn Fn() -> Board, cfg: &Config, s: &Session) -> Option<Result<Gone, String>> {
     let lanes = board().lanes;
     let lane = own_lane(&lanes, s)?;
     let name = lane.callsign.clone();
@@ -544,21 +575,6 @@ pub fn after_job(board: &dyn Fn() -> Board, cfg: &Config, s: &Session) -> Option
         Ok(Removed { result, .. }) => result,
         Err(e) => Err(e),
     })
-}
-
-/// Whether the worktree its harness made for `s` (`Session::own_worktree`) could go as `s` ends
-/// with nothing in it lost, checked as `plan` checks one, `s` being ended, and read again as
-/// `verify` reads one just before it goes, the board read again for the sessions running in it:
-/// Err with why it would stay. `board` reads the board as it is, as `remove` does. Mark as done
-/// goes by it where `s`'s harness asks whether to keep the worktree as it exits (`idle::exit`).
-pub fn own_goes(board: &dyn Fn() -> Board, cfg: &Config, s: &Session) -> Result<(), String> {
-    let lanes = board().lanes;
-    let lane = own_lane(&lanes, s).ok_or("its worktree isn't on the board here")?;
-    let plan = plan(&board(), cfg, &lane.id, Some(s))?;
-    if let Some(why) = plan.kept {
-        return Err(why);
-    }
-    verify(&plan, running_in(&board(), &lane.id, Some(s.key.as_str()))).map(|_| ())
 }
 
 /// The lane of the worktree its harness made for `s` on this device, found by its path, links
@@ -690,6 +706,18 @@ mod tests {
         let p = plan(&board, &cfg, wt.to_str().unwrap(), None).unwrap();
         assert_eq!(p.kept.as_deref(), Some("1 uncommitted file"), "notes.txt");
         std::fs::remove_file(wt.join("notes.txt")).unwrap();
+        // Files saved from connectors hold it, though git ignores them: the plan sees them, and
+        // so does the look just before it goes.
+        let downloads = wt.join(CONNECTOR_DOWNLOADS);
+        std::fs::create_dir_all(&downloads).unwrap();
+        std::fs::write(downloads.join(".gitignore"), "*\n").unwrap();
+        let p = plan(&board, &cfg, wt.to_str().unwrap(), None).unwrap();
+        assert_eq!(p.kept, None, "its .gitignore alone: {p:?}");
+        std::fs::write(downloads.join("download-1a2b3c4d.pdf"), "").unwrap();
+        assert_eq!(carry_out(&p, &|| 0), Err("brave-otter stays: it holds a file saved from connectors (connector-downloads).".into()));
+        let saved = plan(&board, &cfg, wt.to_str().unwrap(), None).unwrap();
+        assert_eq!(saved.kept.as_deref(), Some("it holds a file saved from connectors (connector-downloads)"));
+        std::fs::remove_dir_all(&downloads).unwrap();
         let p = plan(&board, &cfg, wt.to_str().unwrap(), None).unwrap();
         assert_eq!(p.kept, None, "{p:?}");
         assert!(p.hooks.is_empty() && p.branch_goes);

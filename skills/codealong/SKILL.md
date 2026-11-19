@@ -179,8 +179,8 @@ through the list for something to do. What follows is for when they've asked.
   when the repo has one, which may take down more than the folder (ports, routes, databases),
   else `git worktree remove` and `git branch -d`. `--dry-run` says whether it can go, or why
   not, and what would run; `codealong worktrees` has the same as `cleanup`. Remove one when the
-  user asks, or one you made yourself once its work has landed. Mark as done on a background
-  job removes the worktree Claude Code made for it the same way, so you needn't.
+  user asks, or one you made yourself once its work has landed. Mark as done on a session
+  removes the worktree Claude Code made for it the same way, so you needn't.
 
 ## Messaging other sessions
 

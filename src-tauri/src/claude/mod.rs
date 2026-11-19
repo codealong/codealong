@@ -958,14 +958,10 @@ impl crate::harness::Adapter for ClaudeCode {
     }
 
     /// `/exit` asks of commits counted from where the worktree started, pushed and landed ones
-    /// too, and of every worktree a `WorktreeCreate` hook made, clean or not: known by its
-    /// dialog, read off its terminal (`exiting::check_answers`).
-    fn exit_check_answers(&self, ctx: &crate::harness::Ctx, s: &crate::model::Session) -> bool {
-        exiting::check_answers(ctx, s)
-    }
-
-    fn exit_removing(&self, ctx: &crate::harness::Ctx, s: &crate::model::Session) -> anyhow::Result<()> {
-        exiting::remove(ctx, s)
+    /// too, of every worktree a `WorktreeCreate` hook made, clean or not, and of one whose HEAD
+    /// went on to another branch: answered by its dialog's Keep (`exiting::keep`).
+    fn exit_keep(&self, ctx: &crate::harness::Ctx, s: &crate::model::Session) -> anyhow::Result<()> {
+        exiting::keep(ctx, s)
     }
 
     /// The background service (`claude daemon run`) keeps spare processes ready for the next
