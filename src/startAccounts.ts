@@ -71,6 +71,23 @@ export function useStartGroups(wanted = true): RoutingGroup[] {
   return groups;
 }
 
+/** Every start option, read alongside the accounts: for a box that starts a session as the quick
+ *  panel does (useStartChoice.ts), the todo card's. */
+export function useStartOptions(wanted = true): StartOptions | null {
+  const [options, setOptions] = useState<StartOptions | null>(() => read?.options ?? null);
+  useEffect(() => {
+    if (!wanted) return;
+    let live = true;
+    void refresh().then((r) => {
+      if (live) setOptions(r.options);
+    });
+    return () => {
+      live = false;
+    };
+  }, [wanted]);
+  return options;
+}
+
 /** The name of the routing group Auto starts from in `project` (start.ts `autoGroupIn`), read
  *  alongside the accounts. */
 export function useAutoGroupIn(project: string | null, wanted = true): string {

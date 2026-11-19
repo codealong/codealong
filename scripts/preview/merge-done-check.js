@@ -192,7 +192,7 @@
         say('merge done check: waiting for the notch');
         var shape = await until(function () { return q('.ca-notch') && calls('notch_shape').length > 0 && q('.ca-notch-shape'); }, 15000, 'the notch');
         var item = Object.assign({}, fed[key], { group: 'unread', status: 'unread', asks: false, snoozedUntil: null, hidden: false });
-        window.__emit('bar-feed', Object.assign({}, feed, { showKeys: !window.__PREVIEW_KEYS_HELD__, loading: false, items: [item], recent: [], snoozed: [], reviews: [], todos: [] }));
+        window.__emit('bar-feed', Object.assign({}, feed, { showKeys: !window.__PREVIEW_KEYS_HELD__, loading: false, items: [item], recent: [], snoozed: [], reviews: [], due: [], todos: [] }));
         shape.dispatchEvent(new PointerEvent('pointerover', { bubbles: true }));
         var pill = await until(function () { return q('.ca-notch-body .ca-hud-pill[data-key="' + key + '"]'); }, 10000, 'no pill for “' + picked.title + '” in the notch');
         // Once it's open, as the pointer would find it.

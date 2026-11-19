@@ -4562,7 +4562,8 @@ fn waiting_call(s: &Session, account: Option<&config::AccountCfg>) -> Option<Str
             lane.repo_slug_now = lane.repo_slug.as_deref().and_then(|slug| self.github.renamed(slug).cloned());
         }
         board.perf_log = perf::enabled();
-        board.todos = self.todos.todos.clone();
+        board.todos = todos::awake_at(self.todos.todos.clone(), now);
+        board.today = crate::util::day_key(crate::util::today_local());
         board.todos_unreadable = self.todos_unreadable;
         board.labels = self.todos.labels.clone();
         // Once the board has the PRs and the todos a session's work is known by.
@@ -4609,7 +4610,7 @@ fn waiting_call(s: &Session, account: Option<&config::AccountCfg>) -> Option<Str
             board = self.compose();
         }
         if self.link_pending(&board) {
-            board.todos = self.todos.todos.clone();
+            board.todos = todos::awake_at(self.todos.todos.clone(), board.generated_at);
         }
         self.keep_run_origins(&board);
         // Where each session came from, for the ledger to keep (began.rs).

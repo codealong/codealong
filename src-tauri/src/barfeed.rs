@@ -331,7 +331,8 @@ pub fn feed(shown: Shown) -> BarFeed {
         })
         .collect();
 
-    let (due, ready) = todo_lists(board, crate::util::today_local());
+    // The board says what day it is here; one from before it did goes by the clock.
+    let (due, ready) = todo_lists(board, due_day(&board.today).unwrap_or_else(crate::util::today_local));
     let mut devices: Vec<String> = there.iter().filter_map(|l| l.device.as_ref().map(|d| d.short.clone())).collect();
     devices.sort();
     devices.dedup();
@@ -380,12 +381,14 @@ const DUE_WITHIN: i64 = 0;
 
 /// The todos that wait on you, on `today` (days since 1970, here): those due by `DUE_WITHIN` days
 /// from it, open and not snoozed, the most overdue first and then in your order; and those ready
-/// to start but for those, in your order. A snoozed todo is in neither until its time comes.
+/// to start but for those, in your order. A snoozed todo is in neither until its time comes, nor
+/// a due one while a session on it runs: that session is what waits on you, once its turn ends.
 fn todo_lists(board: &Board, today: i64) -> (Vec<BarTodo>, Vec<BarTodo>) {
     let now = board.generated_at;
     let awake = |t: &todos::Todo| t.archived_at.is_none() && t.snoozed_until.is_none_or(|at| at <= now);
     let day_of = |t: &todos::Todo| t.due.as_deref().and_then(due_day);
-    let is_due = |t: &todos::Todo| t.status != todos::TodoStatus::Done && day_of(t).is_some_and(|d| d <= today + DUE_WITHIN);
+    let at_work = |t: &todos::Todo| t.sessions.iter().any(|k| board.session(k).is_some_and(|(_, s)| s.live && !s.archived));
+    let is_due = |t: &todos::Todo| t.status != todos::TodoStatus::Done && day_of(t).is_some_and(|d| d <= today + DUE_WITHIN) && !at_work(t);
     let mut due: Vec<BarTodo> = board
         .todos
         .iter()
@@ -678,9 +681,14 @@ mod tests {
             v.as_object_mut().expect("an object").extend(extra.as_object().expect("an object").clone());
             serde_json::from_value(v).expect("a todo")
         };
-        let mut b = board(vec![], vec![]);
+        let running = Session { live: true, ..session("s1", Status::Working, NOW) };
+        let stopped = Session { live: false, ..session("s2", Status::Idle, NOW) };
+        let mut b = board(vec![lane("/a", vec![running, stopped], false)], vec![]);
         b.generated_at = NOW;
         b.todos = vec![
+            // A session on it runs: that's what waits on you, not the todo, until it stops.
+            todo("at-work", serde_json::json!({ "due": "2026-11-17", "status": "in-progress", "sessions": ["s1"] })),
+            todo("left-off", serde_json::json!({ "due": "2026-11-16", "status": "in-progress", "sessions": ["s2"] })),
             todo("today", serde_json::json!({ "due": "2026-11-18" })),
             todo("later", serde_json::json!({ "due": "2026-11-19" })),
             todo("overdue", serde_json::json!({ "due": "2026-11-10", "status": "in-progress" })),
@@ -693,11 +701,14 @@ mod tests {
         let (due, ready) = todo_lists(&b, crate::util::days_from_civil(2026, 11, 18));
         let ids = |l: &[BarTodo]| l.iter().map(|t| t.id.clone()).collect::<Vec<_>>();
         // Due today and before, open, and awake: the longest overdue first, an in-progress one too.
-        assert_eq!(ids(&due), vec!["overdue", "woke", "today"]);
+        assert_eq!(ids(&due), vec!["overdue", "left-off", "woke", "today"]);
         assert!(due.windows(2).all(|w| w[0].since < w[1].since), "{due:?}");
         // Ready but for the due ones and the snoozed one, in your order, each with its place in it.
         assert_eq!(ids(&ready), vec!["later", "plain"]);
-        assert_eq!(ready.iter().map(|t| t.order).collect::<Vec<_>>(), vec![1, 6]);
+        assert_eq!(ready.iter().map(|t| t.order).collect::<Vec<_>>(), vec![3, 8]);
+        // The feed goes by the day the board says it is.
+        b.today = "2026-11-19".into();
+        assert_eq!(ids(&feed(Shown::here(&b)).due), vec!["overdue", "left-off", "woke", "today", "later"]);
     }
 
     #[test]

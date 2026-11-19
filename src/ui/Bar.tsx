@@ -945,7 +945,7 @@ export function Bar() {
         Reading sessions…
       </span>,
     ]);
-  } else if (items.length === 0 && snoozed.length === 0 && recent.length === 0 && reviews.length === 0 && todos.length === 0 && listenings.length === 0) {
+  } else if (items.length === 0 && snoozed.length === 0 && recent.length === 0 && reviews.length === 0 && due.length === 0 && todos.length === 0 && listenings.length === 0) {
     sections.push([
       <span key="note" className="ca-hud-note">
         {current === ALL_PROJECTS ? 'No agents running' : `No agents running in ${current}`}
@@ -1087,6 +1087,8 @@ export function Bar() {
                 onKeys={stage.takeKeys}
                 onClose={stage.close}
                 onLeft={stage.left}
+                onFailed={stage.failed}
+                zoom={feed?.zoom}
                 onGone={(key) => {
                   stage.close();
                   setFailed({ anchor: 'due', message: `${key.slice('todo:'.length)} is no longer a todo here.` });

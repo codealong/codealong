@@ -49,7 +49,8 @@
     .then(function () {
       check('has a due todo and a ready one to try', !!due && !!ready && (due.worktrees || []).length > 0);
       window.__emit('bar-feed', feed);
-      return until(function () { return document.querySelector('.ca-notch-count.is-due'); }, 3000, 'the due count beside the camera');
+      // The feed the bar read first is this Mac's own; the count is this one's once it's 1.
+      return until(function () { var c = document.querySelector('.ca-notch-count.is-due'); return c && c.textContent.trim() === '1' && c; }, 3000, 'the due count beside the camera');
     })
     .then(function (count) {
       check('the closed notch counts the todo due, with its calendar, and not the ready one', /1/.test(count.textContent) && !!count.querySelector('.ca-glyph-due') && !document.querySelector('.ca-notch-count.is-ready'), count.outerHTML.slice(0, 160));

@@ -2019,6 +2019,9 @@ export interface Board {
   /** todos.json didn't read the last time it was read: `todos` is what it held before, and a
    *  change is turned away until it's fixed. Missing while it reads. */
   todosUnreadable?: boolean;
+  /** Today on the engine's Mac, as a due date is written (`2026-11-18`): which todos are due goes
+   *  by it (barfeed.rs `todo_lists`). Missing on older boards. */
+  today?: string;
   /** Todo labels, in your order. */
   labels: Label[];
   /** The schedules (src-tauri/src/schedules/), with what happened to each. Missing on older

@@ -24,7 +24,7 @@
     var p = real(cmd, args, options);
     if (cmd !== 'bar_feed') return p;
     return p.then(function (f) {
-      feed = Object.assign({}, f, { loading: false, items: items, recent: [], snoozed: [], reviews: [], todos: [], listenings: [] });
+      feed = Object.assign({}, f, { loading: false, items: items, recent: [], snoozed: [], reviews: [], due: [], todos: [], listenings: [] });
       return feed;
     });
   };

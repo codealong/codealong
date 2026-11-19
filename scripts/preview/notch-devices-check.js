@@ -64,7 +64,7 @@
       mine = item(here, 'needs');
       theirs = item(theirs, 'unread');
       next = item(next, 'unread');
-      window.__emit('bar-feed', Object.assign({}, feed, { loading: false, items: [mine, theirs, next], recent: [], snoozed: [], reviews: [], todos: [], devices: [theirs.device.short] }));
+      window.__emit('bar-feed', Object.assign({}, feed, { loading: false, items: [mine, theirs, next], recent: [], snoozed: [], reviews: [], due: [], todos: [], devices: [theirs.device.short] }));
       enter();
       return until(function () { return is('pills') && pill(mine.key) && pill(theirs.key); }, 3000, 'its pills');
     })

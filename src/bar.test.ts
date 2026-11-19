@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { barWidth, currentRow, elsewhereWaits, fitGroups, NOTCH, notchClip, notchCount, notchDragged, notchPillsRoom, notchRows, notchSizes, plain, projectWaits, ROW_READS, waitingRow, waitingRows, type Metrics, type NotchRow } from './bar';
-import { inQueueOrder, placeOf } from './queue';
+import { inQueueOrder, leftAfter, placeOf } from './queue';
 import { ALL_PROJECTS, QUEUE_READS, queueRows } from './quick';
 import * as fx from './testing/fixtures';
 import { SESSION_READS } from './useWaitingQueue';
@@ -302,6 +302,15 @@ describe('what the notch works through', () => {
     expect(keys(withTodos)).toEqual(['n1', 'n2', 'o/r#7', 'o/r#8', 'todo:overdue', 'todo:today', 'u1', 'todo:first', 'todo:second', 'w1']);
     const shown = withTodos.find((r) => r.kind === 'todo');
     expect(shown && ROW_READS.titleOf(shown)).toBe('overdue');
+    // Due the same day, they go in your order, as the pill lists them.
+    expect(keys(notchRows([], [], { due: [todo('b', 50, 7), todo('a', 50, 2)], ready: [] }))).toEqual(['todo:a', 'todo:b']);
+  });
+
+  it('goes on to the ready todos only after what waits that was skipped past', () => {
+    const todo = (id: string, since: number, order: number): BarTodo => ({ id, title: id, project: 'P', callsign: null, due: null, since, order });
+    const list = notchRows([item('n1', 'needs', 10)], [], { due: [todo('due', 20, 0)], ready: [todo('ready', 1, 1)] });
+    // From the due todo, past the session that needs you: that one comes round before the ready todo.
+    expect(leftAfter(waitingRows(list), 'todo:due', new Map(), ROW_READS).map((r) => r.key)).toEqual(['n1', 'todo:ready']);
   });
 
   it('lists the sessions that need you, then the reviews asked of you, then the rest, in the bar’s order', () => {

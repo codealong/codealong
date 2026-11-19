@@ -389,6 +389,12 @@ pub fn iso_utc(ms: i64) -> String {
     format!("{y:04}-{mo:02}-{d:02}T{:02}:{:02}:{:02}.{:03}Z", ms / 3_600_000, ms / 60_000 % 60, ms / 1000 % 60, ms % 1000)
 }
 
+/// A day, as days since 1970-01-01, as a due date is written: `2026-11-18`.
+pub(crate) fn day_key(days: i64) -> String {
+    let (y, m, d) = civil_from_days(days);
+    format!("{y:04}-{m:02}-{d:02}")
+}
+
 /// Today on this Mac's clock, as days since 1970-01-01.
 pub(crate) fn today_local() -> i64 {
     let secs = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_secs()).unwrap_or(0) as i64;

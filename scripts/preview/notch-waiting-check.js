@@ -20,7 +20,7 @@
       var group = n === 0 ? 'working' : n === 1 ? 'needs' : 'unread';
       return Object.assign({}, i, { group: group, status: group, snoozedUntil: null, since: 1000 + n, hidden: false });
     });
-    return Object.assign({}, f, { loading: false, items: items, recent: [], snoozed: [], reviews: [], todos: [] });
+    return Object.assign({}, f, { loading: false, items: items, recent: [], snoozed: [], reviews: [], due: [], todos: [] });
   });
 
   say('notch waiting check: waiting for it');

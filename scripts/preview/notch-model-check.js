@@ -29,7 +29,7 @@
   if (!resting || !running) { stopped('the bar has no session that isn’t running and one that is, between turns'); return; }
   // Only these two on the bar, each a pill of its own.
   var items = [resting, running].map(function (s) { return Object.assign({}, onBar[s.key], { group: 'needs', status: 'needs', asks: true, snoozedUntil: null, hidden: false }); });
-  var feed = Object.assign({}, f, { loading: false, items: items, recent: [], snoozed: [], reviews: [], todos: [] });
+  var feed = Object.assign({}, f, { loading: false, items: items, recent: [], snoozed: [], reviews: [], due: [], todos: [] });
 
   var notch = function () { return q('.ca-notch'); };
   var is = function (state) { return notch() && notch().classList.contains('is-' + state); };

@@ -54,7 +54,7 @@
         var list = copies(all[1]);
         var items = list.filter(function (c) { return !c[1].snoozedUntil; }).map(function (c) { return pill(c[0], c[1], c[1].status); });
         var snoozed = list.filter(function (c) { return c[1].snoozedUntil; }).map(function (c) { return pill(c[0], c[1], 'snoozed'); });
-        return Object.assign({}, all[0], { loading: false, items: items, recent: [], snoozed: snoozed, reviews: [], todos: [] });
+        return Object.assign({}, all[0], { loading: false, items: items, recent: [], snoozed: snoozed, reviews: [], due: [], todos: [] });
       });
     }
     return p;

@@ -1066,6 +1066,19 @@ pub fn is_waiting(t: &Todo, todos: &[Todo]) -> bool {
 }
 
 /// Whether `t` is under Ready: not started, not archived, and waiting on nothing.
+/** The todos as a board shows them at `now`: one whose snooze has run out shows as awake. The board
+ *  then changes as a snooze ends, so the heartbeat's publish brings the todo back into what waits
+ *  on you (engine.rs `publish` skips a board that's the same); the store keeps the time until the
+ *  todo next changes. */
+pub fn awake_at(mut todos: Vec<Todo>, now: i64) -> Vec<Todo> {
+    for t in &mut todos {
+        if t.snoozed_until.is_some_and(|at| at <= now) {
+            t.snoozed_until = None;
+        }
+    }
+    todos
+}
+
 pub fn is_ready(t: &Todo, todos: &[Todo]) -> bool {
     t.status == TodoStatus::Todo && t.archived_at.is_none() && !is_waiting(t, todos)
 }
@@ -1480,6 +1493,16 @@ mod tests {
         t.due = Some("2026-12-24".into());
         s.apply(TodoOp::Create { todo: t }, &lanes(), 100).unwrap();
         assert_eq!(s.todos[0].due.as_deref(), Some("2026-12-24"));
+    }
+
+    #[test]
+    fn a_board_shows_a_snooze_that_ran_out_as_awake() {
+        let mut a = todo("a");
+        a.snoozed_until = Some(100);
+        let mut b = todo("b");
+        b.snoozed_until = Some(300);
+        let shown = awake_at(vec![a, b], 200);
+        assert_eq!(shown.iter().map(|t| t.snoozed_until).collect::<Vec<_>>(), vec![None, Some(300)]);
     }
 
     #[test]

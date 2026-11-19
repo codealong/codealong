@@ -48,8 +48,8 @@ export interface Reads<T> {
   /** A review whose repo puts reviews first (`[pull_requests] reviews_first`, `PrItem.reviewFirst`),
    *  for a window that lists reviews. */
   firstOf?: (row: T) => boolean;
-  /** Its place in an order of yours that goes ahead of how long it's waited: a ready todo's in
-   *  your list (barfeed.rs `BarTodo.order`). */
+  /** Its place in an order of yours: a todo's in your list (barfeed.rs `BarTodo.order`), which a
+   *  ready one goes by ahead of how long it's waited, and a due one after it (`byPlace`). */
   orderOf?: (row: T) => number | undefined;
   titleOf: (row: T) => string;
 }
@@ -64,7 +64,8 @@ export interface Place {
   raised?: Raised;
   first?: boolean;
   finished?: boolean;
-  /** Its place in an order of yours (`Reads.orderOf`), ahead of `since` within its kind. */
+  /** Its place in an order of yours (`Reads.orderOf`): ahead of `since` for ready todos, after it
+   *  for the rest. */
   order?: number;
 }
 
@@ -92,7 +93,9 @@ function rankOf(p: Place): number {
  * kept by it (`Handled`), and the windows say how long it's waited.
  */
 export function byPlace(a: Place, b: Place): number {
-  return byRaise(a.raised, b.raised) || rankOf(a) - rankOf(b) || Number(!!a.finished) - Number(!!b.finished) || (a.order ?? 0) - (b.order ?? 0) || a.since - b.since || a.key.localeCompare(b.key);
+  // Ready todos go in your order; the rest by how long each has waited, then in your order.
+  const yours = (a.order ?? 0) - (b.order ?? 0);
+  return byRaise(a.raised, b.raised) || rankOf(a) - rankOf(b) || Number(!!a.finished) - Number(!!b.finished) || (a.waits === 'ready' ? yours : 0) || a.since - b.since || yours || a.key.localeCompare(b.key);
 }
 
 /** A window's rows in the queue's order (`byPlace`), whatever order it lists them in. */
@@ -123,7 +126,11 @@ export function leftAfter<T>(queue: T[], key: string, handled: Handled, reads: P
   // order: one moved up by an agent still waits behind one you moved there yourself.
   const before = rows.slice(0, at);
   const ahead = [...before.filter(fresh), ...rows.slice(at)].sort((a, b) => byPlace(a.at, b.at));
-  const order = [...ahead, ...before.filter((r) => !fresh(r))];
+  // The todos ready to start come after everything else that waits, however far round: they're
+  // there to pick up once nothing does, not ahead of one you skipped past.
+  const wrapped = [...ahead, ...before.filter((r) => !fresh(r))];
+  const ready = (r: { at: Place }) => r.at.waits === 'ready';
+  const order = [...wrapped.filter((r) => !ready(r)), ...wrapped.filter(ready)];
   return order
     .filter(({ at }) => {
       const dealt = handled.get(at.key);

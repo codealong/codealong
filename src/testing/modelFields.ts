@@ -550,6 +550,7 @@ export type Board = Holds<Same<
   | "teamFiles"
   | "terminals"
   | "theme"
+  | "today"
   | "todoHints"
   | "todos"
   | "todosUnreadable"

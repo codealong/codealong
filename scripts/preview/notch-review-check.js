@@ -48,7 +48,7 @@
   var reviews = prs.map(function (p) {
     return { key: p.key, number: p.number, title: p.title, repo: p.repo, repoSlug: p.repoSlug, url: p.url, project: p.project, requestedBy: 'ana', since: p.requestedAt, updatedAt: p.updatedAt };
   });
-  var feed = Promise.resolve(Object.assign({}, f, { loading: false, items: items, recent: [], snoozed: [], reviews: reviews, todos: [] }));
+  var feed = Promise.resolve(Object.assign({}, f, { loading: false, items: items, recent: [], snoozed: [], reviews: reviews, due: [], todos: [] }));
   var said = {};
   items.forEach(function (i) {
     said[i.key] = { title: i.title, status: i.status, asks: false, snoozedUntil: null, archived: false, live: true, surface: 'cli', hosted: false, pid: 4242, attachCommand: null };

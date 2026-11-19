@@ -245,6 +245,11 @@ pub struct Board {
     /// none since the app started. Until the first scan ends (`loading`) there are none either.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub todos_unreadable: bool,
+    /// Today on this Mac's clock, as a due date is written (`2026-11-18`): which todos are due
+    /// goes by it (barfeed.rs `todo_lists`), and the board changing as the day turns is what
+    /// brings them in on a board that's otherwise quiet.
+    #[serde(default)]
+    pub today: String,
     /// Todo labels, in your order.
     pub labels: Vec<crate::todos::Label>,
     /// The quick panel's shortcut, from config.toml; empty when it's off.

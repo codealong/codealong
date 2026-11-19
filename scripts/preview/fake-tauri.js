@@ -549,7 +549,7 @@ function loadingBoard(board) {
   return Object.assign(withExperiments(board), { loading: true, generatedAt: 0, projects: [], lanes: [], notices: [], githubAt: null, usage: [], pinned: [], pinnedWorktrees: [], pinnedPrs: [], pinnedRepos: [], prs: [], githubLogin: null, todos: [], labels: [], todoHints: {} });
 }
 function loadingFeed(feed) {
-  return Object.assign(feed, { loading: true, generatedAt: 0, projects: [], items: [], recent: [], snoozed: [], reviews: [], todos: [] });
+  return Object.assign(feed, { loading: true, generatedAt: 0, projects: [], items: [], recent: [], snoozed: [], reviews: [], due: [], todos: [] });
 }
 // The skills the engine would list for these folders and accounts: the `skills` command's answer,
 // and a session's.

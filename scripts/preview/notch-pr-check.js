@@ -52,7 +52,7 @@
     Object.assign({}, other, { group: 'needs', status: 'needs', asks: false, snoozedUntil: null, since: 500, hidden: false }),
     Object.assign({}, other, { key: at.session.key, title: at.session.title, account: at.session.account, laneId: at.lane.id, callsign: at.lane.callsign, project: at.lane.project, openTarget: at.session.openTarget, target: null, detail: null, group: 'needs', status: 'needs', asks: false, snoozedUntil: null, since: 1000, hidden: false }),
   ] : [];
-  var plain = Object.assign({}, f, { loading: false, items: items, recent: [], snoozed: [], reviews: [], todos: [] });
+  var plain = Object.assign({}, f, { loading: false, items: items, recent: [], snoozed: [], reviews: [], due: [], todos: [] });
   var feed = Promise.resolve(plain);
   // The same with the PR waiting on your review, for the queue to go on to it.
   var asking = pr && Object.assign({}, plain, { reviews: [{ key: pr.key, number: pr.number, title: pr.title, repo: pr.repo, repoSlug: pr.repoSlug, url: pr.url, project: pr.project, requestedBy: 'ana', since: 2000, updatedAt: pr.updatedAt }] });

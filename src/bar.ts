@@ -279,8 +279,8 @@ export const ROW_READS: Reads<NotchRow> = {
   // While it's still Your turn: a pill a window set working ahead of the engine keeps the rest.
   finishedOf: (r) => r.kind === 'session' && r.item.status === 'unread' && !!r.item.finished,
   firstOf: (r) => r.kind === 'review' && !!r.review.first,
-  // Ready todos go in your order; due ones by their day, the most overdue first.
-  orderOf: (r) => (r.kind === 'todo' && r.waits === 'ready' ? r.todo.order : undefined),
+  // Ready todos go in your order; due ones by their day, the most overdue first, then in yours.
+  orderOf: (r) => (r.kind === 'todo' ? r.todo.order : undefined),
   titleOf: (r) => (r.kind === 'session' ? r.item.title : r.kind === 'review' ? reviewTitle(r.review) : r.todo.title || 'Untitled todo'),
 };
 

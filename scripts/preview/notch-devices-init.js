@@ -25,7 +25,7 @@
       var there = pick(all[2].lanes, 2, function (l) { return l.device.online; });
       if (there.length === 0) return;
       var items = [item(here[0], 'needs', 0), item(there[0], 'unread', 1)].concat(here[1] ? [item(here[1], 'unread', 2)] : []).concat(there[1] ? [item(there[1], 'working', 3)] : []);
-      window.__emit('bar-feed', Object.assign({}, all[0], { loading: false, items: items, recent: [], snoozed: [], reviews: [], todos: [], devices: [there[0].lane.device.short] }));
+      window.__emit('bar-feed', Object.assign({}, all[0], { loading: false, items: items, recent: [], snoozed: [], reviews: [], due: [], todos: [], devices: [there[0].lane.device.short] }));
       if (!docked) return;
       shape.click();
       var p = setInterval(function () {

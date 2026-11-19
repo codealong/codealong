@@ -25,7 +25,7 @@
   window.__TAURI_INTERNALS__.invoke = function (cmd, args, options) {
     var p = real(cmd, args, options);
     if (cmd !== 'bar_feed') return p;
-    return p.then(function (feed) { return Object.assign({}, feed, { loading: false, items: items, recent: recent, snoozed: [], reviews: [], todos: [] }); });
+    return p.then(function (feed) { return Object.assign({}, feed, { loading: false, items: items, recent: recent, snoozed: [], reviews: [], due: [], todos: [] }); });
   };
 
   var first = function (menu) { return menu.filter(function (i) { return i.text && i.handler; })[0]; };

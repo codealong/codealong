@@ -33,7 +33,7 @@
   var items = f.items.filter(function (i) { return onBoard[i.key]; }).slice(0, 3).map(function (i, n) {
     return Object.assign({}, i, { title: 'Unsent ' + 'ABC'[n], group: 'unread', status: 'unread', asks: false, snoozedUntil: null, since: 1000 + n, hidden: false });
   });
-  var feed = Object.assign({}, f, { loading: false, items: items.slice(0, 2), recent: [], snoozed: [], reviews: [], todos: [] });
+  var feed = Object.assign({}, f, { loading: false, items: items.slice(0, 2), recent: [], snoozed: [], reviews: [], due: [], todos: [] });
   var said = {};
   items.forEach(function (i) {
     said[i.key] = { title: i.title, status: 'unread', asks: false, snoozedUntil: null, archived: false, live: true, surface: 'cli', hosted: false, pid: 4242, attachCommand: null };

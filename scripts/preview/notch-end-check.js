@@ -61,7 +61,7 @@
       return b;
     });
   };
-  var feedWith = function (items) { return Object.assign({}, f, { loading: false, items: items, recent: [], snoozed: [], reviews: [], todos: [] }); };
+  var feedWith = function (items) { return Object.assign({}, f, { loading: false, items: items, recent: [], snoozed: [], reviews: [], due: [], todos: [] }); };
 
   say('notch end check: waiting for it');
   until(function () { return notch(); }, 20000, 'the notch')

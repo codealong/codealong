@@ -82,6 +82,9 @@ export type Change =
   | { kind: 'review-snooze'; keys: string[]; until: number | null; picked?: boolean }
   /** A PR (by its key) merged: merged from when it was made, and waiting on no review. */
   | { kind: 'pr-merge'; key: string }
+  /** Todos (by id) that left what waits on you: marked done, snoozed, or a session started on
+   *  them (TodoCard.tsx). Out of the bar's due and ready lists until a board shows them so. */
+  | { kind: 'todo-left'; ids: string[] }
   /** Your review of a PR (by its key) submitted: it waits on your review no more, and shows
    *  yours, of `commit` where that's known (a draft's), else of the commit it's at. */
   | { kind: 'pr-review'; key: string; verdict: Verdict; commit: string | null }
@@ -213,8 +216,9 @@ function byKey(changes: Ahead[]): Map<string, Ahead[]> {
   const m = new Map<string, Ahead[]>();
   const add = (k: string, a: Ahead) => m.set(k, [...(m.get(k) ?? []), a]);
   for (const a of changes) {
-    // A review's snooze, a review and a merge are a PR's, not a session's.
-    if (a.change.kind === 'review-snooze' || a.change.kind === 'pr-merge' || a.change.kind === 'pr-review') continue;
+    // A review's snooze, a review and a merge are a PR's, and a todo leaving is a todo's, not a
+    // session's.
+    if (a.change.kind === 'review-snooze' || a.change.kind === 'pr-merge' || a.change.kind === 'pr-review' || a.change.kind === 'todo-left') continue;
     if (a.change.kind === 'seen' || a.change.kind === 'unread' || a.change.kind === 'snooze' || a.change.kind === 'aside' || a.change.kind === 'quiet' || a.change.kind === 'raise' || a.change.kind === 'label') for (const k of a.change.keys) add(k, a);
     else add(a.change.key, a);
   }
@@ -385,7 +389,17 @@ const GROUP_RANK = ['needs', 'unread', 'working'];
  *  The same feed when nothing changes. */
 export function barAhead(feed: BarFeed, changes: Ahead[]): BarFeed {
   if (changes.length === 0) return feed;
-  return barReviews(barMoved(barRenamed(feed, changes), changes), changes);
+  return barTodos(barReviews(barMoved(barRenamed(feed, changes), changes), changes), changes);
+}
+
+/** The bar's feed without the todos that left what waits on you here. The same feed when nothing
+ *  changes. */
+function barTodos(feed: BarFeed, changes: Ahead[]): BarFeed {
+  const gone = new Set(changes.flatMap((a) => (a.change.kind === 'todo-left' ? a.change.ids : [])));
+  if (gone.size === 0) return feed;
+  const due = (feed.due ?? []).filter((t) => !gone.has(t.id));
+  const todos = feed.todos.filter((t) => !gone.has(t.id));
+  return due.length === (feed.due ?? []).length && todos.length === feed.todos.length ? feed : { ...feed, due, todos };
 }
 
 /** The bar's feed without the reviews snoozed, given or merged here. One woken comes back with
@@ -578,7 +592,7 @@ export function settled(a: Ahead, v: View, now: number): Ahead | null {
     if (now - a.doneAt > (c.kind === 'answer' ? ANSWER_MS : UNANSWERED_MS)) return null;
     // A window's view finds sessions, not PRs: a review's snooze, a review and a merge go by the
     // board's time alone.
-    if (c.kind === 'review-snooze' || c.kind === 'pr-merge' || c.kind === 'pr-review') return a;
+    if (c.kind === 'review-snooze' || c.kind === 'pr-merge' || c.kind === 'pr-review' || c.kind === 'todo-left') return a;
     const keys = c.kind === 'archive' || c.kind === 'rename' || c.kind === 'answer' || c.kind === 'unqueue' ? [c.key] : c.keys;
     const shows = keys.every((k) => {
       const s = v.find(k);
@@ -757,6 +771,22 @@ function made(change: Change): Ahead {
 function answered(id: string, shownAt: number | null, queuedAs?: string): void {
   const a = all.find((x) => x.id === id);
   if (a) put({ ...a, doneAt: Date.now(), shownAt, ...(queuedAs != null && { queuedAs }) }, true);
+}
+
+/** Takes todos out of what waits on you in every window at once, as `act` (the change that takes
+ *  them out: done, snoozed, a session started on them) goes; they come back with why when it
+ *  fails. `act` resolves with the time of the first board that shows it, or null where no board
+ *  says (a start), when they're kept out a while for the board to catch up. */
+export function todoLeftAhead(ids: string[], act: Promise<number | null>): Promise<void> {
+  const a = made({ kind: 'todo-left', ids });
+  put(a, true);
+  return act.then(
+    (shownAt) => answered(a.id, shownAt),
+    (e: unknown) => {
+      drop(a.id, true);
+      throw e;
+    },
+  );
 }
 
 /** Marks sessions seen, in every window at once. Rejects with why when the engine can't. */

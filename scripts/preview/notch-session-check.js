@@ -49,7 +49,7 @@
     return Object.assign({}, i, { group: group, status: group, asks: false, snoozedUntil: null, since: 1000 + n, hidden: false });
   });
   // Only these on the bar, so the notch is as narrow as a session gets.
-  var feed = Promise.resolve(Object.assign({}, f, { loading: false, items: items, recent: [], snoozed: [], reviews: [], todos: [] }));
+  var feed = Promise.resolve(Object.assign({}, f, { loading: false, items: items, recent: [], snoozed: [], reviews: [], due: [], todos: [] }));
   // The card under the pills reads its session from the board (session_at), not from its pill:
   // each says there what its pill says, and each runs in a terminal of its own here, which ⌃⌘W
   // closes. What the card does with a key goes by this, so it mustn't be whatever the sessions

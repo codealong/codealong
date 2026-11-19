@@ -13,7 +13,7 @@
   window.__TAURI_INTERNALS__.invoke = function (cmd, args, options) {
     var p = real(cmd, args, options);
     if (cmd !== 'bar_feed') return p;
-    return p.then(function (feed) { return Object.assign({}, feed, { loading: false, items: made, recent: [], snoozed: [], reviews: [], todos: [] }); });
+    return p.then(function (feed) { return Object.assign({}, feed, { loading: false, items: made, recent: [], snoozed: [], reviews: [], due: [], todos: [] }); });
   };
   var opens = function () { return window.__calls.filter(function (c) { return c[0] === 'peek_open'; }); };
   var at = function (type, el, x, y, from) {

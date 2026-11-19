@@ -44,7 +44,7 @@
     var items = f.items.filter(function (i) { return onBoard[i.key]; }).slice(0, 3).map(function (i) {
       return Object.assign({}, i, { group: 'unread', status: 'unread', asks: false, snoozedUntil: null, hidden: false });
     });
-    var feed = Object.assign({}, f, { zoom: 125, loading: false, items: items, recent: [], snoozed: [], reviews: [], todos: [] });
+    var feed = Object.assign({}, f, { zoom: 125, loading: false, items: items, recent: [], snoozed: [], reviews: [], due: [], todos: [] });
     var notch = function () { return document.querySelector('.ca-notch'); };
     var pill = function (k) { return document.querySelector('.ca-notch-body .ca-hud-pill[data-key="' + k + '"]'); };
     opened = until(function () { return notch() && calls('notch_shape').length > 0; }, 15000, 'the notch')
