@@ -506,8 +506,19 @@ fn mode_of(args: &Args) -> Result<Option<&'static Mode>, String> {
     match named.as_slice() {
         [] => Ok(None),
         [mode] => Ok(Some(mode)),
-        [mode, option] if OWN_OPTIONS.contains(&(mode.flag, option.flag)) => Ok(Some(mode)),
+        [mode, option] if OWN_OPTIONS.contains(&(mode.flag, option.flag)) && as_its_option(args, mode.flag, option.flag) => Ok(Some(mode)),
         [first, second, ..] => Err(format!("{} and {} are two modes, and a line runs one.", first.flag, second.flag)),
+    }
+}
+
+/// Whether `option` is on the line as `mode`'s option: after the mode's flag, with nothing of
+/// its own after it. `--stop <key>` anywhere is the mode, so `--stop A --done B` is two modes,
+/// where taking the two flags for one mode ended B with its work.
+fn as_its_option(args: &Args, mode: &str, option: &str) -> bool {
+    let at = |flag: &str| args.0.iter().position(|a| a == flag);
+    match (at(mode), at(option)) {
+        (Some(mode), Some(option)) => option > mode && args.0.get(option + 1).is_none_or(|next| next.starts_with("--")),
+        _ => false,
     }
 }
 
@@ -960,7 +971,9 @@ mod tests {
         }
         // Two modes on a line run neither: the first in the table's order would have run, here
         // `--stop` on a session, whatever the line set out to do.
-        for words in [&["--snapshot", "--remove-worktree", "/r/atlas-spare", "--dry-run", "--stop", "claude:claude:abc"][..], &["--snapshot", "--stop", "claude:claude:abc", "--done", "claude:claude:abc", "--rename"], &["--snapshot", "--accounts", "--found"]] {
+        assert_eq!(pick(&["--snapshot", "--done", "claude:claude:abc", "--stop", "--end-helpers"]), Some("--done"));
+        // `--stop <key>` is the mode wherever it is: with `--done` of another session it's two.
+        for words in [&["--snapshot", "--remove-worktree", "/r/atlas-spare", "--dry-run", "--stop", "claude:claude:abc"][..], &["--snapshot", "--stop", "claude:claude:abc", "--done", "claude:claude:xyz"], &["--snapshot", "--done", "claude:claude:xyz", "--stop", "claude:claude:abc"], &["--snapshot", "--stop", "claude:claude:abc", "--done", "claude:claude:abc", "--rename"], &["--snapshot", "--accounts", "--found"]] {
             assert!(mode_of(&Args(&line(words))).is_err(), "{words:?}");
             assert_eq!(cli(&line(words)), 2, "{words:?}");
         }

@@ -186,9 +186,15 @@ EOF
   export CODEALONG_LANDING_HELD="$$" CODEALONG_LANDING_HOLDER="$holder"
 }
 
-# Ends the turn: the helper that holds the lock is told to go.
+# Ends the turn: the helper that holds the lock is told to go. Only this process's own: the
+# two are in the environment for the script's restart, so a land.sh started under a landing
+# (the unit tests run one, in a repository of their own) is handed the outer one's helper too,
+# and mustn't end its turn for it.
 let_go() {
-  [ -n "${CODEALONG_LANDING_HOLDER:-}" ] && kill "$CODEALONG_LANDING_HOLDER" 2>/dev/null
+  if [ "${CODEALONG_LANDING_HELD:-}" = "$$" ] && [ -n "${CODEALONG_LANDING_HOLDER:-}" ]; then
+    kill "$CODEALONG_LANDING_HOLDER" 2>/dev/null
+  fi
+  CODEALONG_LANDING_HELD=""
   CODEALONG_LANDING_HOLDER=""
 }
 
@@ -272,8 +278,17 @@ with open(own + ".lock", "w") as turn:
         # Something else's folder, by the same name: not ours to build in or to remove.
         print(shared)
         sys.exit(0)
-    # One whose copy was cut short, or a week old, is made again.
-    if os.path.lexists(own) and (not os.path.isfile(whole) or time.time() - os.path.getmtime(whole) > 7 * 86400):
+    # One whose copy was cut short is made again, and so is one a week old, unless a build is
+    # under way in it (cargo's own lock on it is taken): a landing from another clone of the
+    # repository may be testing there, and it's renewed the next time instead.
+    old = os.path.isfile(whole) and time.time() - os.path.getmtime(whole) > 7 * 86400
+    if old:
+        try:
+            busy = os.open(os.path.join(own, "debug", ".cargo-lock"), os.O_RDWR)
+            fcntl.flock(busy, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except OSError:
+            old = False
+    if os.path.lexists(own) and (not os.path.isfile(whole) or old):
         shutil.rmtree(own)
     if not os.path.isfile(whole):
         print("Copying the shared build folder for landings to build in (it waits for the build under way, once a week)…", file=sys.stderr)
@@ -441,7 +456,7 @@ main() {
 
   # From here only this script moves the checkout: the commit it holds is the one asked for,
   # then the one its own rebase made of it, and anything else there stops the landing.
-  local tries=0 itself now base tested wants dirty expected
+  local tries=0 itself now base tested wants dirty expected rebased
   expected="$(git rev-parse HEAD)" || die "Couldn't read this checkout's HEAD."
   while :; do
     tries=$((tries + 1))
@@ -453,7 +468,9 @@ main() {
       echo "Nothing to land: origin/main ($(git rev-parse --short origin/main)) already has this branch's commits."
       exit 0
     fi
+    rebased=0
     if ! git merge-base --is-ancestor origin/main HEAD; then
+      rebased=1
       refuse_old_history
       itself="$(git hash-object "$self")" || die "Couldn't read $self."
       if ! git rebase -q origin/main >"$log" 2>&1; then
@@ -470,6 +487,10 @@ main() {
       fi
     fi
     tested="$(git rev-parse HEAD)" || die "Couldn't read this checkout's HEAD after the rebase."
+    # Moved by this script's rebase, or not at all.
+    if [ "$rebased" = 0 ] && [ "$tested" != "$expected" ]; then
+      die "This checkout moved under the landing (it was $(git rev-parse --short "$expected"), and is $(git rev-parse --short "$tested")): look at what's here now, and run scripts/land.sh again."
+    fi
     expected="$tested"
 
     changed "$tested" || die "Couldn't list what these commits change, so there's no telling which checks they need."

@@ -126,36 +126,69 @@ test('an option is never taken for who reviewed it', { timeout: 60_000 }, async 
 // of this Mac's git settings or hooks, and nothing left behind. The changes are to docs, which
 // call for no checks, so only the landing itself is tried: its turn, the rebase, the push, the
 // main checkout caught up.
+//
+// It commits and pushes, so it must never do either anywhere but in its own folder: git's own
+// variables are cleared first (under a hook or a rebase's `exec` they name the repository the
+// test runs from, and every git command here would be run on that one), every step of the
+// setup stops the test if it fails (one that went on after a failed `cd` would commit and push
+// from the checkout it started in), and `here` checks where it is before anything is written.
 const LANDING = `
 set -u
-tmp="$(mktemp -d)"
-trap 'rm -rf "$tmp"' EXIT
+unset $(git rev-parse --local-env-vars)
 export GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_SYSTEM=/dev/null
 export GIT_AUTHOR_NAME=t GIT_AUTHOR_EMAIL=t@example.com GIT_COMMITTER_NAME=t GIT_COMMITTER_EMAIL=t@example.com
-git init -q --bare "$tmp/origin.git"
-git clone -q "$tmp/origin.git" "$tmp/main" 2>/dev/null
-cd "$tmp/main" && git checkout -q -b main
-mkdir -p scripts docs && cp "$1" "$2" scripts/
+tmp="$(mktemp -d)" || exit 9
+[ -n "$tmp" ] && [ -d "$tmp" ] || exit 9
+tmp="$(cd "$tmp" && pwd -P)" || exit 9
+trap 'rm -rf "$tmp"' EXIT
+step() { "$@" || { echo "setup failed: $*"; exit 9; }; }
+here() { case "$(pwd -P)" in "$tmp"/*) ;; *) echo "not in the test's own folder: $(pwd -P)"; exit 9 ;; esac; }
+step git init -q --bare "$tmp/origin.git"
+step git clone -q "$tmp/origin.git" "$tmp/main" 2>/dev/null
+step cd "$tmp/main"
+here
+step git checkout -q -b main
+step mkdir -p scripts docs
+step cp "$1" "$2" scripts/
 echo one >docs/a.md
-git add -A && git commit -q -m first && git push -q origin main
-git worktree add -q "$tmp/topic" -b topic origin/main
-cd "$tmp/topic" && echo two >>docs/a.md && git commit -q -am "docs: two"
-(cd "$tmp/main" && echo x >docs/b.md && git add -A && git commit -q -m "main moved" && git push -q origin main)
+step git add -A
+step git commit -q -m first
+step git push -q origin main
+step git worktree add -q "$tmp/topic" -b topic origin/main
+echo x >docs/b.md
+step git add -A
+step git commit -q -m "main moved"
+step git push -q origin main
+step cd "$tmp/topic"
+here
+echo two >>docs/a.md
+step git commit -q -am "docs: two"
 echo "landing: $(scripts/land.sh 2>&1 | head -1 | sed 's/[0-9a-f]\\{7,\\}/<commit>/g')"
 echo "main: $(git -C "$tmp/origin.git" log --format=%s main | tr '\\n' ',')"
 echo "the main checkout: $(git -C "$tmp/main" log --format=%s -1)"
-echo 'echo hi' >scripts/new.sh && git add -A && git commit -q -m "a script"
+here
+echo 'echo hi' >scripts/new.sh
+step git add -A
+step git commit -q -m "a script"
 scripts/land.sh >/dev/null 2>&1
 echo "code, with no word on its review: $?"
 echo stray >left-here.txt
 scripts/land.sh --no-review "a test" >/dev/null 2>&1
 echo "with a file git doesn't know of: $?"
 echo "main, after: $(git -C "$tmp/origin.git" log --format=%s main | tr '\\n' ',')"
+# Run under another landing (whose unit tests run this very test), it's handed that one's turn
+# in the environment, and leaves it alone.
+sleep 300 &
+other=$!
+CODEALONG_LANDING_HELD=1 CODEALONG_LANDING_HOLDER=$other scripts/land.sh --no-review "a test" >/dev/null 2>&1
+kill -0 $other 2>/dev/null && echo "another landing's turn is left to it"
+kill $other
 ls "$tmp/main/.git" | grep -c 'codealong-landing.lock$'
 `;
 
 test('a landing rebases onto a main that moved, pushes, and brings the main checkout up', { timeout: 180_000 }, async () => {
   const went = await run('bash', ['-c', LANDING, 'landing', script, catchUp], 150_000);
+  expect(went.status, went.out + went.err).toBe(0);
   expect(went.out.trim().split('\n')).toEqual([
     'landing: Landed: <commit> is in origin/main. Fast-forwarded the main checkout to origin/main (<commit>).',
     'main: docs: two,main moved,first,',
@@ -164,7 +197,17 @@ test('a landing rebases onto a main that moved, pushes, and brings the main chec
     'code, with no word on its review: 2',
     "with a file git doesn't know of: 1",
     'main, after: docs: two,main moved,first,',
+    "another landing's turn is left to it",
     // The turn's lock is a file in .git, there once it has been taken.
     '1',
   ]);
 });
+
+test('the landing test stops at a setup step that fails, where it began', { timeout: 60_000 }, async () => {
+  // With no script to copy in, the copy fails: nothing after it runs, least of all a commit.
+  const went = await run('bash', ['-c', LANDING, 'landing', '/nowhere/land.sh', '/nowhere/catch-up-main.sh']);
+  expect(went.status).toBe(9);
+  expect(went.out).toContain('setup failed: cp /nowhere/land.sh');
+  expect(went.out).not.toContain('landing:');
+});
+

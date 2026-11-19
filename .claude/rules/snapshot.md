@@ -184,8 +184,9 @@ Starting is checked without starting one.
 
 ## Analytics
 
-Both read this Mac's records afresh into a ledger of the check's own (a temporary file, or
-`--into` one to keep and read on from), never the app's.
+Both read this Mac's records afresh into a ledger of the check's own: a temporary file, or the
+one `--into` names, to keep and read on from. **Real** with `--into`: that file is written, so
+name one of your own, never the app's ledger.
 
 - `--snapshot --tokens [days] [--account <name>] [--session <key>] [--into <ledger file>]`: the
   Analytics window's report for the last days (30 unless given); `--session` prints that
