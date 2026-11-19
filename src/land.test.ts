@@ -18,9 +18,11 @@ type Run = { status: number | null; out: string; err: string };
 // How long a run of the script may take before it's taken for hung. These are for a script
 // that never ends, not for one that's slow: at a load near 1,000 on ten cores (2026-11-19) the
 // whole landing below took 103 s by itself and over 150 s with the rest of the suite beside
-// it, and failed a landing of something else for it. A test gets its run's wait and a little.
+// it, and failed a landing of something else for it.
 const WAIT = 180_000;
 const LANDING_WAIT = 900_000;
+// A test that runs the script several times over, each with its own wait.
+const SEVERAL = LANDING_WAIT + 20_000;
 
 // Under a deadline of its own, and its process group killed after, as within.test.ts runs its
 // script: the test's timer can't reach a script that hangs.
@@ -60,13 +62,13 @@ const land = (args: string[]) => run(script, args);
 /** The checks a change to these files calls for: `ui`, `engine`, and `code` for one that needs a review. */
 const plan = async (...paths: string[]) => (await land(['--plan', ...paths])).out.trim();
 
-test('the docs alone run no checks and need no review', { timeout: WAIT + 20_000 }, async () => {
+test('the docs alone run no checks and need no review', { timeout: SEVERAL }, async () => {
   expect(await plan('docs/guide.md', 'README.md', 'CONTRIBUTING.md', '.github/pull_request_template.md')).toBe('');
   // A plan written in design/ is words; the tokens there are read by both sides' tests.
   expect(await plan('design/plans/ios.md')).toBe('');
 });
 
-test('the words the engine’s tests and build hold run them, without a review', { timeout: WAIT + 20_000 }, async () => {
+test('the words the engine’s tests and build hold run them, without a review', { timeout: SEVERAL }, async () => {
   // CLAUDE.md's size and its list of the rules files, the snapshot modes, the command's reference
   // and the plugin's copies of the skills are each pinned by a cargo test, and the bundle copies
   // LICENSE and NOTICE (tauri.conf.json `resources`), so a build without one fails.
@@ -75,13 +77,13 @@ test('the words the engine’s tests and build hold run them, without a review',
   }
 });
 
-test('what the bundle carries of the skill and the plugin runs the engine’s checks and needs a review', { timeout: WAIT + 20_000 }, async () => {
+test('what the bundle carries of the skill and the plugin runs the engine’s checks and needs a review', { timeout: SEVERAL }, async () => {
   for (const path of ['.claude-plugin/marketplace.json', 'plugin/bin/codealong', 'plugin/hooks/hooks.json']) {
     expect(await plan(path), path).toBe('engine code');
   }
 });
 
-test('the windows’ code runs their checks and needs a review', { timeout: WAIT + 20_000 }, async () => {
+test('the windows’ code runs their checks and needs a review', { timeout: SEVERAL }, async () => {
   for (const path of ['src/App.tsx', 'src/ui/Quick.css', 'scripts/preview/queue-check.js', 'vite.config.ts']) {
     expect(await plan(path), path).toBe('ui code');
   }
@@ -89,19 +91,19 @@ test('the windows’ code runs their checks and needs a review', { timeout: WAIT
   expect(await plan('src-tauri/src/odd "name"\tx.rs')).toBe('ui engine code');
 });
 
-test('a change to what’s installed installs it first, as a clean checkout would', { timeout: WAIT + 20_000 }, async () => {
+test('a change to what’s installed installs it first, as a clean checkout would', { timeout: SEVERAL }, async () => {
   // One of the two changed without the other passes on what's installed here and fails CI's
   // clean install.
   expect(await plan('package.json')).toBe('ui code install');
   expect(await plan('package-lock.json')).toBe('ui code install');
 });
 
-test('the engine’s code runs both sides’ checks, since the windows’ tests read it', { timeout: WAIT + 20_000 }, async () => {
+test('the engine’s code runs both sides’ checks, since the windows’ tests read it', { timeout: SEVERAL }, async () => {
   expect(await plan('src-tauri/src/board.rs')).toBe('ui engine code');
   expect(await plan('src-tauri/peer/src/model.rs')).toBe('ui engine code');
 });
 
-test('what the engine’s tests read of the windows’ runs both', { timeout: WAIT + 20_000 }, async () => {
+test('what the engine’s tests read of the windows’ runs both', { timeout: SEVERAL }, async () => {
   for (const path of ['src/testing/ruleCases.json', 'src/testing/modelFields.ts', 'src/styles/tokens.css', 'src/ui/SettingsDialog.tsx', 'design/tokens.json']) {
     expect(await plan(path), path).toBe('ui engine code');
   }
@@ -109,12 +111,12 @@ test('what the engine’s tests read of the windows’ runs both', { timeout: WA
   expect(await plan('src/testing/tauri.ts', 'src/testing/dom.ts')).toBe('ui code');
 });
 
-test('several files call for what any of them does', { timeout: WAIT + 20_000 }, async () => {
+test('several files call for what any of them does', { timeout: SEVERAL }, async () => {
   expect(await plan('docs/guide.md', 'src/menus.ts', 'CLAUDE.md')).toBe('ui engine code');
   expect(await plan('.github/workflows/linux.yml')).toBe('code');
 });
 
-test('it says what it doesn’t understand before doing anything', { timeout: WAIT + 20_000 }, async () => {
+test('it says what it doesn’t understand before doing anything', { timeout: SEVERAL }, async () => {
   const unknown = await land(['--push-anyway']);
   expect(unknown.status).toBe(2);
   expect(unknown.err).toContain('Unknown argument --push-anyway');
@@ -122,7 +124,7 @@ test('it says what it doesn’t understand before doing anything', { timeout: WA
   expect((await land(['--no-review', ''])).status).toBe(2);
 });
 
-test('an option is never taken for who reviewed it', { timeout: WAIT + 20_000 }, async () => {
+test('an option is never taken for who reviewed it', { timeout: SEVERAL }, async () => {
   // `--reviewed-by --check` read `--check` as the reviewer, and so would have pushed.
   for (const flag of ['--reviewed-by', '--no-review']) {
     const run = await land([flag, '--check']);
@@ -214,7 +216,7 @@ test('a landing rebases onto a main that moved, pushes, and brings the main chec
   ]);
 });
 
-test('the landing test stops at a setup step that fails, where it began', { timeout: WAIT + 20_000 }, async () => {
+test('the landing test stops at a setup step that fails, where it began', { timeout: SEVERAL }, async () => {
   // With no script to copy in, the copy fails: nothing after it runs, least of all a commit.
   const went = await run('bash', ['-c', LANDING, 'landing', '/nowhere/land.sh', '/nowhere/catch-up-main.sh']);
   expect(went.status).toBe(9);

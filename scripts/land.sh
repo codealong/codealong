@@ -366,7 +366,11 @@ engine_check() {
     if [ "$status" = 0 ] && grep -q -F "test $1 ... ok" "$log"; then
       return 0
     fi
-    grep -q -F "test $1 ... FAILED" "$log" && return 1
+    # Ran and failed: cargo's own status for a failed test, its line for this one, and the
+    # run's summary after it. A run cut off before its summary (killed, out of memory) is 2.
+    if [ "$status" = 101 ] && grep -q -F "test $1 ... FAILED" "$log" && grep -q -E '^test result: FAILED' "$log"; then
+      return 1
+    fi
     return 2
   }
   local went
