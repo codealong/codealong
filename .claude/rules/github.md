@@ -39,6 +39,15 @@ Harness facts (from GitHub's answers on this Mac, 2026-10-01). A bare file name 
   (`made_to_read`). 26 of them in one query, 24 there to see, cost 2 points and took 7.9 s; the
   same as a glance (`number state updatedAt headRefOid isDraft reviewDecision statusCheckRollup {
   state }`), 1 point and 2.6 s (2026-11-03), so they have none and are read again on a timer.
+- Whether a worktree's HEAD is the last commit of a PR that merged, for removing it with its
+  commits on no remote (GitHub deletes a merged PR's branch): `object(oid:) { ... on Commit {
+  associatedPullRequests(first: 5) { nodes { number merged headRefOid } } } }`, a repo's commits as
+  aliases of one query (`github.rs` "Whether a commit is the last of a PR that merged",
+  `merged_heads`; `ghpoll.rs` `Heads`). It still ties a commit to its squash-merged PR after the
+  branch is deleted, and a PR's `headRefOid` is the commit it merged at: over 31 worktrees' HEADs
+  in one repo, the 27 whose PR had merged were each their PR's `headRefOid` exactly, a commit
+  GitHub never had was `null` under its alias with no error, and the query cost 1 point
+  (2026-11-18).
 - A PR's file opened as a diff in your editor (`prdiff.rs`) reads its two sides with REST, no
   GraphQL points: `pulls/<n>` for `.head.sha` and `.base.sha`, `compare/<base>...<head>` for
   `.merge_base_commit.sha` (the side before, as GitHub's own diff has it), and

@@ -173,8 +173,8 @@ through the list for something to do. What follows is for when they've asked.
   instructions don't name one, a free reusable worktree is the place. `codealong reuse on|off`
   marks one, when the user asks.
 - `codealong worktree remove <path|.>` removes a worktree whose work is done, only when nothing
-  in it would be lost: no uncommitted or untracked file, no commit that isn't on some remote,
-  no session running in it, and never a main checkout or a reusable worktree. Files git ignores
+  in it would be lost: no uncommitted or untracked file, no commit that isn't on some remote
+  (unless HEAD is the last commit of a PR that merged on GitHub), no session running in it, and never a main checkout or a reusable worktree. Files git ignores
   (dependencies, env files) go with it. It goes through the repo's own `WorktreeRemove` hook
   when the repo has one, which may take down more than the folder (ports, routes, databases),
   else `git worktree remove` and `git branch -d`. `--dry-run` says whether it can go, or why

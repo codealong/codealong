@@ -91,6 +91,9 @@ pub struct Plan {
     pub skipped: Option<String>,
     /// Its branch goes after it: no other worktree has it.
     pub branch_goes: bool,
+    /// The merged PR whose last commit its HEAD is (`github::merged_pr`): its commits on no
+    /// remote are GitHub's to keep, and its branch goes with `-D`, which `-d` would keep.
+    pub merged: Option<String>,
     /// The harness's commands for background jobs that held it.
     pub after: Vec<String>,
 }
@@ -106,13 +109,19 @@ impl Plan {
         if self.hooks.is_empty() {
             steps.push(format!("git -C {main} worktree remove {}", tilde(&self.path)));
             if let (Some(branch), true) = (&self.branch, self.branch_goes) {
-                steps.push(format!("git -C {main} branch -d {branch}"));
+                steps.push(format!("git -C {main} branch {} {branch}", self.branch_flag()));
             }
         } else {
             steps.extend(self.hooks.iter().map(|h| format!("(in {main}) {}", h.command)));
         }
         steps.extend(self.after.iter().cloned());
         steps
+    }
+
+    /// How its branch is deleted: `-d` keeps a branch whose work is merged nowhere git can see,
+    /// and a merged PR's last commit is GitHub's to keep.
+    fn branch_flag(&self) -> &'static str {
+        if self.merged.is_some() { "-D" } else { "-d" }
     }
 }
 
@@ -146,6 +155,7 @@ pub fn plan(board: &Board, cfg: &Config, lane_id: &str, ending: Option<&Session>
     // Every running session is on its lane's list (`board::compose` never cuts one).
     let running = running_in(board, lane_id, ending.map(|s| s.key.as_str()));
     let git = checked.as_ref().ok().map(Facts::git);
+    let merged = checked.as_ref().ok().and_then(|f| crate::github::merged_pr(&f.head));
     // A lock holds while the process that took it runs, the session being ended aside.
     let ending_pid = ending.and_then(|s| s.pid);
     let lock = git.as_ref().and_then(|g| g.locked.clone());
@@ -161,7 +171,7 @@ pub fn plan(board: &Board, cfg: &Config, lane_id: &str, ending: Option<&Session>
     let can_reuse = lane.project != crate::board::ELSEWHERE && !lane.starts_chats && origin != Origin::Folder;
     let reusable = can_reuse && marked.unwrap_or(origin == Origin::Main || crate::board::reused(git.as_ref()));
     let rule = |holds: Option<&str>| {
-        let leaving = Leaving { origin, chats: lane.starts_chats, reusable: reusable.then_some(marked == Some(true)), git: git.as_ref(), running, holds, lock: lock.as_deref().filter(|_| held) };
+        let leaving = Leaving { origin, chats: lane.starts_chats, reusable: reusable.then_some(marked == Some(true)), git: git.as_ref(), running, holds, lock: lock.as_deref().filter(|_| held), merged: merged.is_some() };
         cleanup(&leaving).filter(|c| !c.ok).map(|c| c.why)
     };
     // A repository nothing lists is looked for last, as it can take a while (`repo_inside`): only
@@ -188,7 +198,7 @@ pub fn plan(board: &Board, cfg: &Config, lane_id: &str, ending: Option<&Session>
         }
     }
     let head = checked.map(|f| f.head).unwrap_or_default();
-    Ok(Plan { name: lane.callsign.clone(), path, main, branch, head, lock, base, can_reuse, marked, kept, unlock, ending: ends_first, hooks, skipped, branch_goes, after })
+    Ok(Plan { name: lane.callsign.clone(), path, main, branch, head, lock, base, can_reuse, marked, kept, unlock, ending: ends_first, hooks, skipped, branch_goes, merged, after })
 }
 
 /// What git says of a worktree, read for removing it. A command that fails or runs out is an
@@ -361,7 +371,8 @@ fn verify(plan: &Plan, running: usize) -> Result<bool, String> {
     if now.dirty > 0 {
         return stays("it has uncommitted files now");
     }
-    if now.unpushed > 0 {
+    // Its HEAD hasn't moved, so it's still the merged PR's last commit the plan found.
+    if now.unpushed > 0 && plan.merged.is_none() {
         return stays("it has commits on no remote now");
     }
     if let Some(what) = now.under_way {
@@ -471,7 +482,7 @@ fn carry_out(plan: &Plan, running: &dyn Fn() -> usize) -> Result<Gone, String> {
         procs::run("git", &["-C", &main, "worktree", "remove", &path], None, GIT_WAIT).map_err(|e| format!("Git didn't remove {}: {}", plan.name, last_line(&e.to_string())))?;
         let branch = plan.branch.as_deref().filter(|_| plan.branch_goes);
         // `-d` keeps a branch whose work is merged nowhere: then only the folder goes.
-        match branch.map(|b| procs::run("git", &["-C", &main, "branch", "-d", b], None, COMMAND_WAIT)) {
+        match branch.map(|b| procs::run("git", &["-C", &main, "branch", plan.branch_flag(), b], None, COMMAND_WAIT)) {
             Some(Ok(_)) => format!("Removed the worktree {} and its branch, {}.", plan.name, branch.unwrap_or_default()),
             Some(Err(_)) => format!("Removed the worktree {}; its branch, {}, stays: its work isn't merged.", plan.name, branch.unwrap_or_default()),
             None => format!("Removed the worktree {}.", plan.name),
@@ -588,6 +599,7 @@ mod tests {
             hooks,
             skipped: None,
             branch_goes: true,
+            merged: None,
             after: vec!["claude rm 1df9ebbd".into()],
         }
     }
@@ -606,6 +618,9 @@ mod tests {
         // A branch another worktree has stays; a lock left behind comes off first.
         let shared = Plan { branch_goes: false, unlock: true, after: vec![], ..plan.clone() };
         assert_eq!(shared.steps(), ["git -C /r/app worktree unlock /r/app/.claude/worktrees/brave-otter", "git -C /r/app worktree remove /r/app/.claude/worktrees/brave-otter"]);
+        // At a merged PR's last commit, its branch goes though git sees its work merged nowhere.
+        let merged = Plan { merged: Some("northwind/app#42".into()), after: vec![], ..plan.clone() };
+        assert_eq!(merged.steps(), ["git -C /r/app worktree remove /r/app/.claude/worktrees/brave-otter", "git -C /r/app branch -D worktree-brave-otter"]);
         // The repo's teardown in git's place, the branch its own business.
         let hook = Hook { command: "\"$CLAUDE_PROJECT_DIR\"/scripts/remove.sh".into(), cwd: "/r/app".into(), env: vec![], input: "{}".into(), timeout: Duration::from_secs(60) };
         assert_eq!(plan_with(vec![hook]).steps(), ["(in /r/app) \"$CLAUDE_PROJECT_DIR\"/scripts/remove.sh", "claude rm 1df9ebbd"]);

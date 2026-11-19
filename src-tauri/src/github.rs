@@ -549,6 +549,100 @@ pub fn parse_made(json: &str) -> Result<Made> {
     Ok(Made { login: login.map(String::from), prs, asked: asked.iter().map(|k| k.to_string()).collect() })
 }
 
+// ---- Whether a commit is the last of a PR that merged ----
+//
+// GitHub deletes a merged PR's branch, so a worktree whose branch went in through one is left
+// with commits on no remote, and when the default branch changed the same files again since,
+// nothing in git says its work landed (`git::unpushed_by`). GitHub still ties each commit to the
+// PRs it was in (`associatedPullRequests`), the merged ones too, and keeps their commits; a
+// commit that's a merged PR's `headRefOid` went in with everything it holds. Read for real on
+// 2026-11-18, over 31 worktrees' HEADs in one repo: each of the 27 whose PR had merged was its
+// PR's `headRefOid` exactly, a commit GitHub never had was `null` under its alias with no error,
+// and the query cost 1 point. Asked for by ghpoll.rs (`Heads`), kept in `HEADS_FILE`.
+
+/// Commits asked about in one query: 20 aliases of 5 PRs each could return 100 nodes, a point.
+const HEADS_GROUP: usize = 20;
+
+/// Where what GitHub said of worktrees' HEADs is kept between launches, in the cache folder.
+const HEADS_FILE: &str = "merged-heads.json";
+
+/// What GitHub said of a commit: the merged PR whose last commit it is (`owner/name#number`), or
+/// none, and when it was said, by the clock.
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct Head {
+    pub pr: Option<String>,
+    pub at: i64,
+}
+
+/// The file `HEADS_FILE` is.
+pub fn heads_file() -> PathBuf {
+    saved_dir().join(HEADS_FILE)
+}
+
+/// What's kept in `file`: nothing when it's missing or doesn't parse, as any answer kept here.
+pub fn kept_heads(file: &Path) -> HashMap<String, Head> {
+    std::fs::read_to_string(file).ok().and_then(|text| serde_json::from_str(&text).ok()).unwrap_or_default()
+}
+
+/// Keeps `heads` in `file`, in one step, readable only by you: it names private repos' PRs.
+pub fn keep_heads(file: &Path, heads: &HashMap<String, Head>) {
+    if let Ok(text) = serde_json::to_string(heads) {
+        let _ = crate::store::write_private(file, text);
+    }
+}
+
+/// The merged PR whose last commit `head` is, as kept (`HEADS_FILE`): what cleanup.rs goes by
+/// when it checks a worktree again.
+pub fn merged_pr(head: &str) -> Option<String> {
+    kept_heads(&heads_file()).remove(head)?.pr
+}
+
+/// A query for `n` commits of one repo, `c0` to `c<n-1>`, and the PRs each was in.
+fn heads_query(n: usize) -> String {
+    let vars: Vec<String> = (0..n).map(|i| format!("$c{i}: GitObjectID!")).collect();
+    let fields: String = (0..n).map(|i| format!("    c{i}: object(oid: $c{i}) {{ ... on Commit {{ associatedPullRequests(first: 5) {{ nodes {{ number merged headRefOid }} }} }} }}\n")).collect();
+    format!("query($owner: String!, $name: String!, {}) {{\n  repository(owner: $owner, name: $name) {{\n{fields}  }}\n}}\n", vars.join(", "))
+}
+
+/// For each of `heads`, commits in the repo `slug`, the merged PR whose last commit it is, or
+/// none: GitHub tied it to no PR that merged at it, or never had it.
+pub fn merged_heads(slug: &str, heads: &[String]) -> std::result::Result<Vec<(String, Option<String>)>, Failure> {
+    let (owner, name) = slug.split_once('/').unwrap_or((slug, ""));
+    let mut said = Vec::new();
+    for group in heads.chunks(HEADS_GROUP) {
+        let mut fields = vec![format!("query={}", heads_query(group.len())), format!("owner={owner}"), format!("name={name}")];
+        fields.extend(group.iter().enumerate().map(|(i, head)| format!("c{i}={head}")));
+        let mut args = vec!["api", "graphql"];
+        for field in &fields {
+            args.extend(["-f", field.as_str()]);
+        }
+        let o = procs::run_output("gh", &args, None, Duration::from_secs(30)).map_err(|e| failed(&e, "merged PRs"))?;
+        // With no repository answered, why is in what it printed: a refusal for want of points
+        // comes as an error in the answer.
+        let found = parse_heads(&o.out, slug, group).ok_or_else(|| failed(&anyhow!("gh {} {}", o.err.trim(), o.out.chars().take(400).collect::<String>()), "merged PRs"))?;
+        said.extend(found);
+    }
+    Ok(said)
+}
+
+/// What `heads_query` brought for `heads`, in order: the merged PR whose `headRefOid` each is, by
+/// `slug`. None when no repository came back.
+fn parse_heads(json: &str, slug: &str, heads: &[String]) -> Option<Vec<(String, Option<String>)>> {
+    let v: Value = serde_json::from_str(json).ok()?;
+    let repo = v.pointer("/data/repository").filter(|r| r.is_object())?;
+    Some(
+        heads
+            .iter()
+            .enumerate()
+            .map(|(i, head)| {
+                let nodes = repo.pointer(&format!("/c{i}/associatedPullRequests/nodes")).and_then(Value::as_array);
+                let merged = nodes.into_iter().flatten().find(|n| n.get("merged").and_then(Value::as_bool) == Some(true) && n.get("headRefOid").and_then(Value::as_str) == Some(head.as_str()));
+                (head.clone(), merged.and_then(|n| n.get("number")?.as_u64()).map(|n| format!("{slug}#{n}")))
+            })
+            .collect(),
+    )
+}
+
 pub fn parse(json: &str) -> Result<RepoPrs> {
     let v: Value = serde_json::from_str(json)?;
     let repo = v.pointer("/data/repository").ok_or_else(|| anyhow!("no repository in response"))?;
@@ -3153,5 +3247,24 @@ mod tests {
         assert_eq!(authored_by("Summary\n\n🤖 Generated with [Claude Code](https://claude.com/claude-code)"), Some(Harness::Claude));
         assert_eq!(authored_by("Summary\n\nGenerated with Codex"), Some(Harness::Codex));
         assert_eq!(authored_by("Fix Claude's handling of Codex sessions\n\nCo-Authored-By: Gwen <gwen@example.com>"), None);
+    }
+
+    #[test]
+    fn reads_which_commits_are_a_merged_prs_last() {
+        let (a, b, c, d) = ("a".repeat(40), "b".repeat(40), "c".repeat(40), "d".repeat(40));
+        let json = format!(
+            r#"{{"data":{{"repository":{{
+              "c0":{{"associatedPullRequests":{{"nodes":[{{"number":41,"merged":false,"headRefOid":"{a}"}},{{"number":42,"merged":true,"headRefOid":"{a}"}}]}}}},
+              "c1":{{"associatedPullRequests":{{"nodes":[{{"number":43,"merged":true,"headRefOid":"{d}"}}]}}}},
+              "c2":{{"associatedPullRequests":{{"nodes":[]}}}},
+              "c3":null}}}}}}"#
+        );
+        // a ends merged PR #42; b is in a merged PR that went on past it; c is in none; GitHub
+        // never had d.
+        let heads = [a.clone(), b.clone(), c.clone(), d.clone()];
+        assert_eq!(parse_heads(&json, "northwind/app", &heads), Some(vec![(a.clone(), Some("northwind/app#42".into())), (b, None), (c, None), (d, None)]));
+        // A repository GitHub didn't answer for says nothing of its commits.
+        assert_eq!(parse_heads(r#"{"data":{"repository":null},"errors":[{"type":"NOT_FOUND"}]}"#, "northwind/app", &[a]), None);
+        assert!(heads_query(2).contains("$c1: GitObjectID!") && heads_query(2).contains("c1: object(oid: $c1)"));
     }
 }

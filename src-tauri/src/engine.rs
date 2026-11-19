@@ -1133,6 +1133,7 @@ pub fn start(emit: impl Fn(&Board) + Send + 'static) -> Handle {
             let back = tx.clone();
             let mut engine = Engine::new(Box::new(emit), tx, board);
             engine.terminal_use = terminal_use;
+            engine.github.keep_heads_in(github::heads_file());
             engine.servers = previews::watch(move |servers| back.send(Msg::Servers(servers)).is_ok());
             engine.full_scan();
             crate::skills::warm(&engine.cfg.accounts);
@@ -3598,6 +3599,8 @@ fn waiting_call(s: &Session, account: Option<&config::AccountCfg>) -> Option<Str
             self.github.poll(&self.seeds, false, Now::real());
         }
         self.github.tick(&self.seeds, Now::real());
+        // A worktree with commits on no remote can go once GitHub says a merged PR ends at its HEAD.
+        self.github.ask_heads(&board::heads_on_no_remote(&self.seeds, &self.git), Now::real());
         let every = if self.usage_backoff { USAGE_BACKOFF } else { USAGE_EVERY };
         if self.usage_last.map(|t| t.elapsed() >= every).unwrap_or(true) {
             self.fetch_usage();
@@ -4492,6 +4495,7 @@ fn waiting_call(s: &Session, account: Option<&config::AccountCfg>) -> Option<Str
             auto_reviews: (&self.reviews, &self.cfg.reviews, &repo_settings),
             machines: &self.machines,
             session_settings: &self.cfg.sessions,
+            merged_heads: self.github.merged_heads(),
         });
         // Starts whose sessions aren't here yet: a line under the session that asked for each, and
         // a notice for one in a terminal that never made its session, with what its tab shows.
