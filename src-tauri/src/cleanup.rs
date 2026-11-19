@@ -92,7 +92,8 @@ pub struct Plan {
     /// Its branch goes after it: no other worktree has it.
     pub branch_goes: bool,
     /// The merged PR whose last commit its HEAD is (`github::merged_pr`): its commits on no
-    /// remote are GitHub's to keep, and its branch goes with `-D`, which `-d` would keep.
+    /// remote are GitHub's to keep, and its branch goes with `-D`, which `-d` would keep, while
+    /// the branch is still at that commit (`carry_out`).
     pub merged: Option<String>,
     /// The harness's commands for background jobs that held it.
     pub after: Vec<String>,
@@ -122,6 +123,18 @@ impl Plan {
     /// and a merged PR's last commit is GitHub's to keep.
     fn branch_flag(&self) -> &'static str {
         if self.merged.is_some() { "-D" } else { "-d" }
+    }
+
+    /// How `branch` is deleted now, its folder gone: with `-D` only while it's still at the merged
+    /// PR's last commit the plan checked, read just before. A name the board kept for a worktree
+    /// git has detached, or a branch something moved while the folder went, may hold work
+    /// GitHub never had, which `-d` keeps.
+    fn branch_flag_now(&self, main: &str, branch: &str) -> &'static str {
+        let at = procs::run("git", &["-C", main, "rev-parse", "--verify", "-q", &format!("refs/heads/{branch}")], None, COMMAND_WAIT);
+        match at {
+            Ok(at) if self.merged.is_some() && at.trim() == self.head => "-D",
+            _ => "-d",
+        }
     }
 }
 
@@ -482,7 +495,7 @@ fn carry_out(plan: &Plan, running: &dyn Fn() -> usize) -> Result<Gone, String> {
         procs::run("git", &["-C", &main, "worktree", "remove", &path], None, GIT_WAIT).map_err(|e| format!("Git didn't remove {}: {}", plan.name, last_line(&e.to_string())))?;
         let branch = plan.branch.as_deref().filter(|_| plan.branch_goes);
         // `-d` keeps a branch whose work is merged nowhere: then only the folder goes.
-        match branch.map(|b| procs::run("git", &["-C", &main, "branch", plan.branch_flag(), b], None, COMMAND_WAIT)) {
+        match branch.map(|b| procs::run("git", &["-C", &main, "branch", plan.branch_flag_now(&main, b), b], None, COMMAND_WAIT)) {
             Some(Ok(_)) => format!("Removed the worktree {} and its branch, {}.", plan.name, branch.unwrap_or_default()),
             Some(Err(_)) => format!("Removed the worktree {}; its branch, {}, stays: its work isn't merged.", plan.name, branch.unwrap_or_default()),
             None => format!("Removed the worktree {}.", plan.name),
@@ -763,6 +776,50 @@ mod tests {
 
     /// A clean submodule keeps it: its own repository may hold history nothing else has, and
     /// nothing about it is uncommitted or ignored. `cargo test cleanup::tests::a_submodule`.
+    /// A worktree at a merged PR's last commit goes with its commits on no remote, and its branch
+    /// with `-D`, but only a branch still at that commit. `cargo test cleanup::tests::a_merged`.
+    #[test]
+    fn a_merged_prs_branch_goes_only_while_it_is_at_that_commit() {
+        let dir = std::env::temp_dir().join(format!("codealong-cleanup-merged-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let dir = dunce::canonicalize(&dir).unwrap();
+        let main = dir.join("app");
+        let at = |p: &Path, args: &[&str]| procs::run("git", &[&["-C", p.to_str().unwrap(), "-c", "user.name=t", "-c", "user.email=t@t"], args].concat(), None, Duration::from_secs(20)).unwrap();
+        std::fs::create_dir_all(&main).unwrap();
+        at(&main, &["init", "-q", "-b", "main"]);
+        at(&main, &["commit", "-q", "--allow-empty", "-m", "init"]);
+        let origin = dir.join("origin.git");
+        procs::run("git", &["init", "-q", "--bare", origin.to_str().unwrap()], None, Duration::from_secs(20)).unwrap();
+        at(&main, &["remote", "add", "origin", origin.to_str().unwrap()]);
+        at(&main, &["push", "-q", "origin", "main"]);
+        // Each with a commit on no remote, as GitHub leaves a branch it deleted after the merge.
+        let wt = |name: &str| dir.join(name);
+        for name in ["landed", "moved"] {
+            at(&main, &["worktree", "add", "-q", "-b", &format!("worktree-{name}"), wt(name).to_str().unwrap(), "main"]);
+            std::fs::write(wt(name).join("work.txt"), name).unwrap();
+            at(&wt(name), &["add", "work.txt"]);
+            at(&wt(name), &["commit", "-q", "-m", name]);
+        }
+        // A name for "moved" that's at work GitHub never had, as a name the board kept may be.
+        at(&main, &["branch", "stray", "worktree-moved"]);
+        at(&wt("moved"), &["commit", "-q", "--allow-empty", "-m", "more"]);
+        let lane = |name: &str| crate::model::Lane { callsign: name.into(), origin: Origin::ClaudeApp, branch: Some(format!("worktree-{name}")), ..crate::fixtures::lane(wt(name).to_str().unwrap(), vec![]) };
+        let mut board = Board::default();
+        board.lanes = vec![lane("landed"), lane("moved")];
+        let cfg = Config::default();
+        let merged = |name: &str, branch: &str| {
+            let p = plan(&board, &cfg, wt(name).to_str().unwrap(), None).unwrap();
+            assert!(p.kept.as_deref().is_some_and(|k| k.ends_with("on no remote")), "{name}: git alone keeps it: {p:?}");
+            Plan { kept: None, merged: Some("northwind/app#7".into()), branch: Some(branch.into()), branch_goes: true, ..p }
+        };
+        assert_eq!(carry_out(&merged("landed", "worktree-landed"), &|| 0), Ok(Gone { said: "Removed the worktree landed and its branch, worktree-landed.".into(), partly: false }));
+        assert!(!wt("landed").exists() && at(&main, &["branch", "--list", "worktree-landed"]).trim().is_empty());
+        assert_eq!(carry_out(&merged("moved", "stray"), &|| 0), Ok(Gone { said: "Removed the worktree moved; its branch, stray, stays: its work isn't merged.".into(), partly: false }));
+        assert!(!at(&main, &["branch", "--list", "stray"]).trim().is_empty());
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
     #[test]
     fn a_submodule_keeps_a_worktree() {
         let dir = std::env::temp_dir().join(format!("codealong-cleanup-submodule-{}", std::process::id()));

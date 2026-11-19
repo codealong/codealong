@@ -4932,8 +4932,8 @@ It asks first, since it can't be undone, and lists what would run for each: when
 account trusts the repo, the hook runs as Claude Code would run it, in the main checkout with the
 event on its stdin, so a repo that sets up more than a folder for each worktree (ports, routes,
 databases) takes all of it down; otherwise `git worktree remove` (never forced), then `git branch -d`
-for its branch when no other worktree has it, which keeps a branch whose work isn't merged (`-D` at
-a merged PR's last commit, whose work git can't see merged). A lock a
+for its branch when no other worktree has it, which keeps a branch whose work isn't merged (`-D`
+while the branch is still at the merged PR's last commit, whose work git can't see merged). A lock a
 session left behind as its tab closed comes off first. Then, for a Claude Code background job that
 held the worktree, `claude rm <job>` drops the job's record; its conversation stays. Everything is
 checked again as it goes, one removal at a time and once more just before it goes, and a worktree

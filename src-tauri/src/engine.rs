@@ -1161,6 +1161,8 @@ fn snapshot_engine(with_github: bool, with_usage: bool) -> Engine {
     let (tx, _rx) = channel();
     let mut e = Engine::new(Box::new(|_| {}), tx, Arc::new(RwLock::new(Board::default())));
     e.passing = true;
+    // Which worktrees are at a merged PR's last commit, as the server's engine last heard.
+    e.github.keep_heads_in(github::heads_file());
     let t = Instant::now();
     let lap = |label: &str, t: &Instant| eprintln!("  {label:<10} {:>6} ms", t.elapsed().as_millis());
     e.load_config();

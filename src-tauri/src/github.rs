@@ -626,7 +626,9 @@ pub fn merged_heads(slug: &str, heads: &[String]) -> std::result::Result<Vec<(St
 }
 
 /// What `heads_query` brought for `heads`, in order: the merged PR whose `headRefOid` each is, by
-/// `slug`. None when no repository came back.
+/// `slug`, or none for a commit GitHub never had (`null`). A commit whose alias came back without
+/// its PRs, as an error under it leaves it, is left out: it wasn't answered. None when no
+/// repository came back.
 fn parse_heads(json: &str, slug: &str, heads: &[String]) -> Option<Vec<(String, Option<String>)>> {
     let v: Value = serde_json::from_str(json).ok()?;
     let repo = v.pointer("/data/repository").filter(|r| r.is_object())?;
@@ -634,10 +636,14 @@ fn parse_heads(json: &str, slug: &str, heads: &[String]) -> Option<Vec<(String, 
         heads
             .iter()
             .enumerate()
-            .map(|(i, head)| {
-                let nodes = repo.pointer(&format!("/c{i}/associatedPullRequests/nodes")).and_then(Value::as_array);
-                let merged = nodes.into_iter().flatten().find(|n| n.get("merged").and_then(Value::as_bool) == Some(true) && n.get("headRefOid").and_then(Value::as_str) == Some(head.as_str()));
-                (head.clone(), merged.and_then(|n| n.get("number")?.as_u64()).map(|n| format!("{slug}#{n}")))
+            .filter_map(|(i, head)| {
+                let commit = repo.get(format!("c{i}"))?;
+                if commit.is_null() {
+                    return Some((head.clone(), None));
+                }
+                let nodes = commit.pointer("/associatedPullRequests/nodes")?.as_array()?;
+                let merged = nodes.iter().find(|n| n.get("merged").and_then(Value::as_bool) == Some(true) && n.get("headRefOid").and_then(Value::as_str) == Some(head.as_str()));
+                Some((head.clone(), merged.and_then(|n| n.get("number")?.as_u64()).map(|n| format!("{slug}#{n}"))))
             })
             .collect(),
     )
@@ -3257,11 +3263,12 @@ mod tests {
               "c0":{{"associatedPullRequests":{{"nodes":[{{"number":41,"merged":false,"headRefOid":"{a}"}},{{"number":42,"merged":true,"headRefOid":"{a}"}}]}}}},
               "c1":{{"associatedPullRequests":{{"nodes":[{{"number":43,"merged":true,"headRefOid":"{d}"}}]}}}},
               "c2":{{"associatedPullRequests":{{"nodes":[]}}}},
-              "c3":null}}}}}}"#
+              "c3":null}}}},"errors":[{{"path":["repository","c4","associatedPullRequests"]}}]}}"#
         );
         // a ends merged PR #42; b is in a merged PR that went on past it; c is in none; GitHub
-        // never had d.
-        let heads = [a.clone(), b.clone(), c.clone(), d.clone()];
+        // never had d; e's alias failed, which says nothing of it.
+        let e = "e".repeat(40);
+        let heads = [a.clone(), b.clone(), c.clone(), d.clone(), e];
         assert_eq!(parse_heads(&json, "northwind/app", &heads), Some(vec![(a.clone(), Some("northwind/app#42".into())), (b, None), (c, None), (d, None)]));
         // A repository GitHub didn't answer for says nothing of its commits.
         assert_eq!(parse_heads(r#"{"data":{"repository":null},"errors":[{"type":"NOT_FOUND"}]}"#, "northwind/app", &[a]), None);
