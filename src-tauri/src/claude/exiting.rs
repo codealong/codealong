@@ -331,7 +331,7 @@ mod tests {
         assert_eq!(asks("You have 68 commits on worktree-kestrel. The branch will be deleted if you remove the worktree."), commits("worktree-kestrel"));
         assert_eq!(asks("You have 1 commit on worktree-kestrel. The branch will be deleted if you\nremove the worktree."), commits("worktree-kestrel"));
         // A terminal narrower than the branch's name breaks it.
-        assert_eq!(asks("You have 1 commit on worktree-snooze-suggest\nion-reads. The branch will be deleted if you remove the worktree."), commits("worktree-snooze-suggestion-reads"));
+        assert_eq!(asks("You have 1 commit on worktree-northwind-kes\ntrel. The branch will be deleted if you remove the worktree."), commits("worktree-northwind-kestrel"));
         assert_eq!(asks(HOOKED), Some(Asks::Hooked));
         assert_eq!(asks(&format!("{HOOKED} This session was named \"atlas\". Keep the worktree to resume it later.")), Some(Asks::Hooked));
         // What else 2.1.328 may say: each is about what the check doesn't look at, or deletes a
