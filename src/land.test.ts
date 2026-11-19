@@ -52,13 +52,22 @@ const plan = async (...paths: string[]) => (await land(['--plan', ...paths])).ou
 
 test('the docs alone run no checks and need no review', { timeout: 60_000 }, async () => {
   expect(await plan('docs/guide.md', 'README.md', 'CONTRIBUTING.md', '.github/pull_request_template.md')).toBe('');
+  // A plan written in design/ is words; the tokens there are read by both sides' tests.
+  expect(await plan('design/plans/ios.md')).toBe('');
 });
 
-test('the notes the engine’s tests hold run them, without a review', { timeout: 60_000 }, async () => {
+test('the words the engine’s tests and build hold run them, without a review', { timeout: 60_000 }, async () => {
   // CLAUDE.md's size and its list of the rules files, the snapshot modes, the command's reference
-  // and the plugin's copies of the skills are each pinned by a cargo test.
-  for (const path of ['CLAUDE.md', '.claude/rules/snapshot.md', 'skills/codealong/SKILL.md', 'skills/codealong/references/reference.md']) {
+  // and the plugin's copies of the skills are each pinned by a cargo test, and the bundle copies
+  // LICENSE and NOTICE (tauri.conf.json `resources`), so a build without one fails.
+  for (const path of ['CLAUDE.md', '.claude/rules/snapshot.md', 'skills/codealong/SKILL.md', 'skills/codealong/references/reference.md', 'plugin/skills/orchestrate/SKILL.md', 'LICENSE', 'NOTICE']) {
     expect(await plan(path), path).toBe('engine');
+  }
+});
+
+test('what the bundle carries of the skill and the plugin runs the engine’s checks and needs a review', { timeout: 60_000 }, async () => {
+  for (const path of ['.claude-plugin/marketplace.json', 'plugin/bin/codealong', 'plugin/hooks/hooks.json']) {
+    expect(await plan(path), path).toBe('engine code');
   }
 });
 
@@ -90,4 +99,13 @@ test('it says what it doesn’t understand before doing anything', { timeout: 60
   expect(unknown.err).toContain('Unknown argument --push-anyway');
   expect((await land(['--reviewed-by'])).status).toBe(2);
   expect((await land(['--no-review', ''])).status).toBe(2);
+});
+
+test('an option is never taken for who reviewed it', { timeout: 60_000 }, async () => {
+  // `--reviewed-by --check` read `--check` as the reviewer, and so would have pushed.
+  for (const flag of ['--reviewed-by', '--no-review']) {
+    const run = await land([flag, '--check']);
+    expect(run.status, flag).toBe(2);
+    expect(run.out, flag).toBe('');
+  }
 });

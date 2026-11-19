@@ -22,5 +22,10 @@ export default defineConfig({
     // worktree's tests as well as its own, some twenty times the suite, and theirs failed on a
     // second copy of React. A worktree's own run starts in its folder, so it still finds its tests.
     exclude: [...configDefaults.exclude, '.claude/**'],
+    // Vitest's five seconds is for a quiet machine. This one runs twenty agents' builds at
+    // once, and the tests that read every source file (styles.test.ts) then take longer than
+    // that with nothing wrong: three of them timed out in one run on 2026-11-19 and passed
+    // alone. A test that really hangs still fails, half a minute in.
+    testTimeout: 30_000,
   },
 });

@@ -21,8 +21,12 @@ changed argument is written here in the same change.
   sessions are fine to test with; what reaches other people isn't (don't approve or merge PRs to
   test).
 - Claude usage is read only with `--usage`, and its endpoint rate-limits: don't loop it.
-- An argument that doesn't read as the mode's prints its usage and exits 2; a mode that fails
-  says why and exits 1.
+- A line too short for its mode prints the mode's usage and exits 2, and a mode that fails says
+  why and exits 1. Most modes don't look at words after the ones they take, so a mistyped
+  option is passed over rather than refused: check an option's spelling before running a real
+  mode. `--use-reset` and `--remove-worktree` do refuse what they don't know.
+- The first mode on the line, in `MODES`' order, is the one that runs: a mode whose option is
+  another mode's flag (`--done … --stop`) comes before that mode there.
 
 ## The board
 
@@ -81,8 +85,9 @@ changed argument is written here in the same change.
 
 ## The quick panel and Jev
 
-- `--snapshot --route <text> [--project <name>]`: what Jev suggests in the quick panel for it. It
-  asks TypeSafe: it needs the key, and `[jev] quick_panel` on.
+- `--snapshot --route <text> [--project <name>]`: what Jev suggests in the quick panel for it.
+  **Real:** it asks TypeSafe, a request that's paid for; it needs the key, and `[jev]
+  quick_panel` on.
 - `--snapshot --routes [days]`: how often what you did there was Jev's first suggestion, over the
   last days (7 unless given), with the times it wasn't (routelog.rs).
 - `--snapshot --jev-usage [days]`: what Settings › Jev says Jev's requests used each of the last
@@ -94,8 +99,9 @@ changed argument is written here in the same change.
   conversation, as its panel gets it.
 - `--snapshot --pending <session key>`: what it waits on you to allow, as its panel shows it.
 - `--snapshot --tab-picture <session key> <file>`: a session's terminal tab, as Improve Codealong
-  pictures it, written to the file. macOS lets the process that runs this picture another app's
-  window only with the Screen Recording permission of the app it runs in.
+  pictures it, written to the file, over whatever is there. macOS lets the process that runs
+  this picture another app's window only with the Screen Recording permission of the app it
+  runs in.
 
 ## A session, acted on
 
@@ -113,9 +119,11 @@ All **Real**.
 - `--snapshot --rename <session key> <name>`: names it where its harness keeps names, as Rename…
   in its menu does.
 - `--snapshot --stop <session key>`: stops the turn it's taking, as its Stop does.
-- `--snapshot --done <session key> [--stop] [--end-helpers]`: ends it as Mark as done does,
-  without archiving; `--stop` ends work under way too, as Mark as done pressed again does, and
-  `--end-helpers` ends each helper under it whose work isn't over, as the dialog's choice does.
+- `--snapshot --done <session key> [--stop] [--end-helpers]`: ends it as Mark as done does;
+  `--stop` ends work under way too, as Mark as done pressed again does, and `--end-helpers` ends
+  each helper under it whose work isn't over, as the dialog's choice does. The seen mark and
+  Codealong's own archive are the app engine's to keep, so nothing here keeps them; a harness
+  with an archive of its own (Codex) still archives the thread.
 - `--snapshot --fork <session key> [prompt] [--from <cursor>]`: forks it into the background, as
   `/fork` in its box does; `--from` copies it up to just before that prompt of yours and goes on
   from `prompt` in its place, as editing the prompt does. A copy to remove after.
@@ -132,16 +140,16 @@ All **Real**.
   `/side` in its box does, and prints the questions with their answers. It spends usage.
 - `--snapshot --remove-worktree <worktree folder> [--dry-run]`: removes a worktree only where
   nothing in it would be lost, as Clean up worktree does; `--dry-run` says whether it can go and
-  what would run.
+  what would run. Anything else after the folder is a usage error, not a removal.
 
 ## Starting a session
 
 Starting is checked without starting one.
 
 - `--snapshot --start-options`: where each account can start a session.
-- `--snapshot --start-plan <folder> <account> <terminal|background|claude-app|codex-app> [prompt] [--model <model>] [--effort <level>] [--worktree]`:
+- `--snapshot --start-plan <folder> <account> <terminal|background|claude-app|codex-app|codealong> [prompt] [--model <model>] [--effort <level>] [--worktree]`:
   what a start would run, without starting: where it would go now, and for a terminal whether it
-  would run in tmux (`start::plan_now`).
+  would run in tmux (`start::plan_now`). `codealong` is a session Codealong runs itself.
 
 ## Terminals, hibernating and hearing
 
@@ -165,8 +173,9 @@ Starting is checked without starting one.
   (schedules/harnesses.rs).
 - `--snapshot --schedule-plan <schedule>`: what a run would start or send now, as Run now would,
   without doing it.
-- `--snapshot --schedule-check <schedule>`: runs its watch's command once and says what's new,
-  noting nothing.
+- `--snapshot --schedule-check <schedule>`: runs its watch's command (or its check before each
+  run) once and says what's new, noting nothing. **Real** as far as that command is: it runs
+  in your login shell, and does whatever it does.
 - `--snapshot --schedule-times <time, as a schedule writes it>`: a time as a schedule reads it.
 - `--snapshot --schedule-run <schedule>`: runs it as Run now does, and notes the run. **Real:** a
   session starts, or one is sent to.

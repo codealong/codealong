@@ -62,10 +62,12 @@ struct Mode {
 const MODES: &[Mode] = &[
     Mode { flag: "--pending", takes: "<session key>", run: pending },
     Mode { flag: "--answer", takes: "<session key> <id> <allow|deny|always> [answers to its questions, as JSON]", run: answer },
+    // Before `--stop`, which is also its option: the first mode on the line runs, so after it
+    // `--done <key> --stop` was read as `--stop` with no key.
+    Mode { flag: "--done", takes: "<session key> [--stop] [--end-helpers]", run: done },
     Mode { flag: "--stop", takes: "<session key>", run: stop },
     Mode { flag: "--steer", takes: "<session key> <queued message id>", run: steer },
     Mode { flag: "--unqueue", takes: "<session key> <queued message id>", run: unqueue },
-    Mode { flag: "--done", takes: "<session key> [--stop] [--end-helpers]", run: done },
     Mode { flag: "--remove-worktree", takes: "<worktree folder> [--dry-run]", run: remove_worktree },
     Mode { flag: "--send", takes: "<session key> <text> [--now]", run: send_text },
     Mode { flag: "--tell", takes: "<session key> <text>", run: tell },
@@ -82,7 +84,7 @@ const MODES: &[Mode] = &[
     Mode { flag: "--shell-commands", takes: "", run: |_, _| Ok(serde_json::to_string(&crate::runcode::commands()).unwrap_or_default()) },
     Mode { flag: "--start-options", takes: "", run: start_options },
     Mode { flag: "--skills", takes: "[folder…]", run: skills },
-    Mode { flag: "--start-plan", takes: "<folder> <account> <terminal|background|claude-app|codex-app> [prompt] [--model <model>] [--effort <level>] [--worktree]", run: start_plan },
+    Mode { flag: "--start-plan", takes: "<folder> <account> <terminal|background|claude-app|codex-app|codealong> [prompt] [--model <model>] [--effort <level>] [--worktree]", run: start_plan },
     Mode { flag: "--route", takes: "<text> [--project <name>]", run: route_text },
     Mode { flag: "--routes", takes: "[days]", run: routes },
     Mode { flag: "--config", takes: "", run: |_, _| Ok(pretty(&config::view())) },
@@ -640,7 +642,12 @@ fn done(args: &Args, rest: &[String]) -> Done {
 }
 
 fn remove_worktree(args: &Args, rest: &[String]) -> Done {
-    let [folder, ..] = rest else { return Err(Stop::Usage) };
+    let [folder, more @ ..] = rest else { return Err(Stop::Usage) };
+    // Nothing after the folder but `--dry-run`: one mistyped (`--dryrun`) would otherwise be
+    // passed over, and the worktree removed.
+    if more.iter().any(|word| word != "--dry-run") {
+        return Err(Stop::Usage);
+    }
     let v = act(api::WORKTREE_REMOVE, folder, params::Remove { dry_run: args.has("--dry-run"), ..Default::default() })?;
     Ok(pretty(&v))
 }
@@ -919,6 +926,11 @@ mod tests {
         // `--pr` isn't taken for `--pr-card`, nor a session's mode for an option after it.
         assert_eq!(pick(&["--snapshot", "--pr-card", "o/r", "7"]), Some("--pr-card"));
         assert_eq!(pick(&["--snapshot", "--start-plan", "/r", "claude", "terminal", "--worktree"]), Some("--start-plan"));
+        // Nor `--done` for its own `--stop`, which is a mode too.
+        assert_eq!(pick(&["--snapshot", "--done", "claude:claude:abc", "--stop"]), Some("--done"));
+        assert_eq!(pick(&["--snapshot", "--stop", "claude:claude:abc"]), Some("--stop"));
+        // A dry run mistyped isn't a removal.
+        assert_eq!(cli(&line(&["--snapshot", "--remove-worktree", "/r/atlas-spare", "--dryrun"])), 2);
         // Each of these stops at its arguments, before anything is read or done.
         // A reset is spent only for the line as written, with nothing else on it.
         for words in [&["--snapshot", "--use-reset"][..], &["--snapshot", "--dry-run", "--use-reset", "atlas"], &["--snapshot", "--use-reset", "atlas", "--dry-run"], &["--snapshot", "--help", "--use-reset", "atlas"], &["--snapshot", "--use-reset", "atlas", "c1", "c2"]] {

@@ -1,4 +1,5 @@
-//! Holds `src/types.ts` to the engine's model, by name.
+//! Holds the windows' types (`src/types/`, which `src/types.ts` re-exports) to the engine's
+//! model, by name.
 //!
 //! The windows' types are written by hand to mirror what serde writes, with the comments the
 //! windows need, and nothing else says when a field is added, dropped or renamed on one side
@@ -394,7 +395,7 @@ fn the_names_the_typecheck_holds_types_ts_to_are_current() {
     let kept = std::fs::read_to_string(&path).unwrap_or_default();
     assert!(
         kept == made,
-        "src/testing/modelFields.ts is stale: the model's fields changed. Write it again with `CODEALONG_WRITE_FIXTURES=1 cargo test wiretypes`, then name the same fields in src/types.ts, which `npm run typecheck` holds to it."
+        "src/testing/modelFields.ts is stale: the model's fields changed. Write it again with `CODEALONG_WRITE_FIXTURES=1 cargo test wiretypes`, then name the same fields in the interface's file under src/types/, which `npm run typecheck` holds to it."
     );
 }
 

@@ -127,7 +127,8 @@ dark, cropped to what changed), and the pull request template filled in.
    alone). It waits its turn behind other landings, rebases your branch onto `origin/main`, runs
    the checks your commits call for on exactly what it pushes, pushes to `main` and does step 3.
    Never push to `main` by hand: a push no check saw is how `main` breaks under every other
-   session. A rebase that stops on a conflict is yours to finish before running it again; a
+   session (a release's version commit, `scripts/version.sh --push`, is the one that still
+   does). A rebase that stops on a conflict is yours to finish before running it again; a
    cargo test that fails with the rest and passes alone is this Mac's load, which it says and
    notes without stopping. `scripts/land.sh --check` runs the same without pushing. We prefer
    rebasing to merge commits: `main` stays a straight line of real changes.
@@ -247,9 +248,9 @@ Each rule names the file whose header has the rest.
   module holds). A new field on a session or lane goes in `peer/src/model.rs`, with its neutral
   value in `Session::new` or `Lane::new`, which everything that builds one starts from, and bumps
   `feed::READS` when another device shows it, so a kept copy without it is sent again; tests
-  build them from the shared fixtures (`peer/src/fixtures.rs`). The windows' `src/types.ts`
-  names every field of the model: `wiretypes.rs` writes the names down, and the typecheck holds
-  types.ts to them. The iPhone app builds on the
+  build them from the shared fixtures (`peer/src/fixtures.rs`). The windows' types (`src/types/`,
+  a file a subject, re-exported by `src/types.ts`) name every field of the model:
+  `wiretypes.rs` writes the names down, and the typecheck holds them to it. The iPhone app builds on the
   crate at a pinned commit and talks to Macs of other builds, so a new message goes only to
   peers that say they know it.
 - Other Macs' worktrees never go into the board, which is what the engine acts on and sends
