@@ -722,10 +722,12 @@ fn title_case(s: &str) -> String {
     }
 }
 
-/// A GET on the service. The password goes to curl on stdin, never on the command line.
+/// A GET on the service. The password goes to curl on stdin, never on the command line, and
+/// `-q`, first, keeps curl from reading `~/.curlrc`, where a `trace` would write it to a file
+/// (http.rs).
 fn get(svc: &Service, path: &str) -> Option<Value> {
     let url = format!("{}{path}", svc.url);
-    let out = procs::run_stdin(crate::http::curl(), &["-sS", "-m", "5", "-K", "-", "-H", "Accept: application/json", &url], &sign_in(svc), Duration::from_secs(8)).ok()?;
+    let out = procs::run_stdin(crate::http::curl(), &["-q", "-sS", "-m", "5", "-K", "-", "-H", "Accept: application/json", &url], &sign_in(svc), Duration::from_secs(8)).ok()?;
     serde_json::from_str(&out).ok()
 }
 
@@ -757,7 +759,7 @@ fn send_waiting(svc: &Service, method: &str, path: &str, body: &Value, secs: u64
     let wait = secs.to_string();
     let out = procs::run_stdin(
         crate::http::curl(),
-        &["-sS", "--fail-with-body", "-m", &wait, "-K", "-", "-X", method, "-H", "Content-Type: application/json", "-H", "Accept: application/json", &url],
+        &["-q", "-sS", "--fail-with-body", "-m", &wait, "-K", "-", "-X", method, "-H", "Content-Type: application/json", "-H", "Accept: application/json", &url],
         &config,
         Duration::from_secs(secs + 5),
     )?;
@@ -1159,21 +1161,29 @@ impl crate::harness::Reader for Reader {
         }
         self.polled_at = Some(Instant::now());
         let (accounts, polled, wake) = (accounts.to_vec(), self.polled.clone(), self.wake.clone());
-        std::thread::spawn(move || {
-            crate::os::system::utility_thread();
-            let now = crate::util::now_ms();
-            let results: Vec<(String, Option<Live>)> = accounts.into_iter().map(|a| (a.name.clone(), service(&a.home_path()).and_then(|svc| poll(&svc, now)))).collect();
-            let changed = {
-                let mut polled = polled.lock().unwrap_or_else(|e| e.into_inner());
-                polled.inflight = false;
-                polled.take(results)
-            };
-            // Most polls find what the last one did: the board is composed again only when what
-            // it shows of them moved, as Cursor's prompts are.
-            if changed {
-                wake();
-            }
-        });
+        // Through `background`, so the mark comes off however the poll ends: set here and taken
+        // off only by the poll's own last lines, a poll that fell over left it on, and the
+        // accounts were never polled again.
+        crate::throttle::background(
+            "opencode poll",
+            move || {
+                crate::os::system::utility_thread();
+                let now = crate::util::now_ms();
+                accounts.into_iter().map(|a| (a.name.clone(), service(&a.home_path()).and_then(|svc| poll(&svc, now)))).collect::<Vec<(String, Option<Live>)>>()
+            },
+            move |results| {
+                let changed = {
+                    let mut polled = polled.lock().unwrap_or_else(|e| e.into_inner());
+                    polled.inflight = false;
+                    results.is_some_and(|results| polled.take(results))
+                };
+                // Most polls find what the last one did: the board is composed again only when
+                // what it shows of them moved, as Cursor's prompts are.
+                if changed {
+                    wake();
+                }
+            },
+        );
     }
 
     fn sessions(&self, account: &AccountCfg, look: &Look) -> Vec<Session> {
