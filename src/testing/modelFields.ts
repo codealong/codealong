@@ -671,6 +671,7 @@ export type Todo = Holds<Same<
   | "project"
   | "review"
   | "sessions"
+  | "snoozedUntil"
   | "status"
   | "title"
   | "updatedAt"

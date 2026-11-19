@@ -10,10 +10,10 @@
 // its box (ui/SessionHeader.tsx).
 
 import { snoozeAhead, snoozedFrom, snoozeReviewsAhead } from './ahead';
-import { showMain } from './api';
+import { showMain, todoOp } from './api';
 import type { MenuAction, MenuGroup } from './contextMenu';
 import { readBy, readerOf } from './insights';
-import type { PrItem, Session } from './types';
+import type { PrItem, Session, Todo } from './types';
 
 const MIN = 60_000;
 const HOUR = 60 * MIN;
@@ -190,24 +190,27 @@ interface SnoozeOpts {
 }
 
 /** A snooze's times as a submenu, each setting it with `set`; Pick a time…, which asks the main
- *  window for another (ui/SnoozeDialog.tsx), whichever window this is; and Wake now for one
- *  that's snoozed already. The time suggested for it comes first, apart from the rest. */
-function timesMenu(set: (until: number | null) => Promise<void>, ask: SnoozeAsk, now: number, opts: SnoozeOpts, label: string): MenuGroup {
+ *  window for another (ui/SnoozeDialog.tsx), whichever window this is, where it can (`ask`); and
+ *  Wake now for one that's snoozed already. The time suggested for it comes first, apart from the
+ *  rest. */
+function timesMenu(set: (until: number | null) => Promise<void>, ask: SnoozeAsk | null, now: number, opts: SnoozeOpts, label: string): MenuGroup {
   const done = opts.onDone;
   const time = (c: SnoozeChoice): TimeAction => ({ label: c.label, run: () => done(set(c.until)), chord: c.chord, ...(opts.chords ? { accelerator: c.chord } : {}) });
   const items: (TimeAction | MenuAction | 'separator')[] = snoozeChoices(now).map(time);
   const suggested = opts.suggested;
   if (suggested) items.unshift(time({ label: `Until ${untilWords(suggested.until, now)}, ${suggestedWhy(suggested)}`, until: suggested.until, chord: SUGGESTED_CHORD }), 'separator');
-  items.push({
-    label: 'Pick a time…',
-    run: () => {
-      // The main window asks, snoozes and says how that went; this one says they left, as for a
-      // time of its own, once they're snoozed (a queue goes on to the next), and nothing if the
-      // dialog is put away. The main window coming forward is all there is to fail here.
-      snoozedFrom(ask.keys, ask.reviews, () => done(Promise.resolve()));
-      void showMain({ kind: 'snooze', ...ask }).catch(() => {});
-    },
-  });
+  if (ask) {
+    items.push({
+      label: 'Pick a time…',
+      run: () => {
+        // The main window asks, snoozes and says how that went; this one says they left, as for a
+        // time of its own, once they're snoozed (a queue goes on to the next), and nothing if the
+        // dialog is put away. The main window coming forward is all there is to fail here.
+        snoozedFrom(ask.keys, ask.reviews, () => done(Promise.resolve()));
+        void showMain({ kind: 'snooze', ...ask }).catch(() => {});
+      },
+    });
+  }
   if (opts.until) items.push('separator', { label: 'Wake now', run: () => done(set(null)) });
   return { label, items };
 }
@@ -223,6 +226,15 @@ export function reviewsSnoozeMenu(prs: Pick<PrItem, 'key' | 'snoozedUntil'>[], n
   const until = Math.max(0, ...prs.map((p) => p.snoozedUntil ?? 0)) || null;
   const keys = prs.map((p) => p.key);
   return timesMenu((u) => snoozeReviewsAhead(keys, u), { keys, reviews: true }, now, { until, onDone, chords }, `Snooze ${prs.length} ${prs.length === 1 ? 'review' : 'reviews'}`);
+}
+
+/** The Snooze submenu for a todo in what waits on you (the notch's todo card): the times, and
+ *  Wake now for one that's snoozed already. Its due date stays as it is. The main window's
+ *  snooze dialog takes sessions and reviews, so there's no Pick a time… yet. */
+export function todoSnoozeMenu(t: Pick<Todo, 'id' | 'snoozedUntil'>, now: number, onDone: SnoozeOpts['onDone'], chords = false): MenuGroup {
+  const until = t.snoozedUntil ?? null;
+  const set = (u: number | null) => todoOp({ op: 'update', id: t.id, patch: { snoozed: u } }).then(() => undefined);
+  return timesMenu(set, null, now, { until, onDone, chords }, until ? `Snoozed until ${untilWords(until, now)}` : 'Snooze');
 }
 
 /** The Snooze review submenu for an open PR that asks for your review: the times, and Wake now

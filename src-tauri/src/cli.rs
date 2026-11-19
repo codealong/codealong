@@ -7153,7 +7153,7 @@ fn todo(cmd: TodoCmd, c: &mut Client, json: bool) -> Result<()> {
             let now = now_ms();
             let waiting = a.wait_for.map(|note| Waiting { note, since: now });
             let due = a.due.as_deref().map(|w| todos::due_from_words(w, util::today_local())).transpose()?;
-            let todo = Todo { id: id.clone(), project: a.project.unwrap_or_default(), title: a.title, description, status: TodoStatus::Todo, labels, worktrees: vec![], sessions: vec![], created_at: now, updated_at: now, done_at: None, pending: vec![], depends_on, waiting, review: None, due, primary: None, archived_at: None };
+            let todo = Todo { id: id.clone(), project: a.project.unwrap_or_default(), title: a.title, description, status: TodoStatus::Todo, labels, worktrees: vec![], sessions: vec![], created_at: now, updated_at: now, done_at: None, pending: vec![], depends_on, waiting, review: None, due, primary: None, archived_at: None, snoozed_until: None };
             c.apply(TodoOp::Create { todo })?;
             link(c, &id, worktree.as_deref(), session.as_deref(), true)?;
             show_after(c, &id, json)
@@ -7195,7 +7195,7 @@ fn todo(cmd: TodoCmd, c: &mut Client, json: bool) -> Result<()> {
                 (None, true) => Some(None),
                 (None, false) => None,
             };
-            let patch = TodoPatch { depends_on, title: a.title, description: read_text(a.description, a.description_file)?, status, labels, project: a.project, waiting: None, review: None, due, archived: None };
+            let patch = TodoPatch { depends_on, title: a.title, description: read_text(a.description, a.description_file)?, status, labels, project: a.project, waiting: None, review: None, due, archived: None, snoozed: None };
             c.apply(TodoOp::Update { id: id.clone(), patch })?;
             if let Some(s) = status.filter(|_| !a.no_link) {
                 link_caller(c, &id, s, json);
@@ -9223,7 +9223,7 @@ mod tests {
     fn ids_are_usable_and_prefixes_resolve() {
         let id = new_todo_id();
         assert!(id.starts_with("t-") && id.len() > 8 && id.chars().all(|c| c.is_ascii_alphanumeric() || c == '-'));
-        let t = |id: &str| Todo { id: id.into(), project: String::new(), title: String::new(), description: String::new(), status: TodoStatus::Todo, labels: vec![], worktrees: vec![], sessions: vec![], created_at: 0, updated_at: 0, done_at: None, pending: vec![], depends_on: vec![], waiting: None, review: None, due: None, primary: None, archived_at: None };
+        let t = |id: &str| Todo { id: id.into(), project: String::new(), title: String::new(), description: String::new(), status: TodoStatus::Todo, labels: vec![], worktrees: vec![], sessions: vec![], created_at: 0, updated_at: 0, done_at: None, pending: vec![], depends_on: vec![], waiting: None, review: None, due: None, primary: None, archived_at: None, snoozed_until: None };
         let store = TodoStore { todos: vec![t("t-abc1"), t("t-abd2")], labels: vec![] };
         assert_eq!(resolve_todo(&store, "t-abc").unwrap(), "t-abc1");
         assert!(resolve_todo(&store, "t-ab").unwrap_err().to_string().contains("2 todos"));
@@ -9233,7 +9233,7 @@ mod tests {
 
     #[test]
     fn several_todos_start_on_one_prompt() {
-        let t = |id: &str, title: &str, description: &str| Todo { id: id.into(), project: String::new(), title: title.into(), description: description.into(), status: TodoStatus::Todo, labels: vec![], worktrees: vec![], sessions: vec![], created_at: 0, updated_at: 0, done_at: None, pending: vec![], depends_on: vec![], waiting: None, review: None, due: None, primary: None, archived_at: None };
+        let t = |id: &str, title: &str, description: &str| Todo { id: id.into(), project: String::new(), title: title.into(), description: description.into(), status: TodoStatus::Todo, labels: vec![], worktrees: vec![], sessions: vec![], created_at: 0, updated_at: 0, done_at: None, pending: vec![], depends_on: vec![], waiting: None, review: None, due: None, primary: None, archived_at: None, snoozed_until: None };
         let (a, b, c) = (t("t-a", " Fix the header ", "\nIt wraps.\n"), t("t-b", "Add a logout button", ""), t("t-c", "", "No title."));
         // The same text as `todosPrompt`'s test in src/todos.test.ts.
         let footer = "When one is ready for me to review, say so with `codealong todo review <id>`. When the work on one is merged or I say it's done, mark it done with `codealong todo done <id>`.";
@@ -9428,6 +9428,7 @@ mod tests {
             due: None,
             primary: primary.map(|s| todos::Primary { session: s.into(), since: 0 }),
             archived_at: None,
+            snoozed_until: None,
         };
         let (a, b) = (t("t-a", Some("claude:claude:s1")), t("t-b", None));
         // The same text as `todoPrompt`'s test in src/todos.test.ts.
@@ -9526,7 +9527,7 @@ mod tests {
 
     fn todo(id: &str, status: TodoStatus, sessions: &[&str], worktrees: &[&str]) -> Todo {
         let strings = |xs: &[&str]| xs.iter().map(|x| x.to_string()).collect();
-        Todo { id: id.into(), project: String::new(), title: id.to_uppercase(), description: String::new(), status, labels: vec![], worktrees: strings(worktrees), sessions: strings(sessions), created_at: 0, updated_at: 0, done_at: None, pending: vec![], depends_on: vec![], waiting: None, review: None, due: None, primary: None, archived_at: None }
+        Todo { id: id.into(), project: String::new(), title: id.to_uppercase(), description: String::new(), status, labels: vec![], worktrees: strings(worktrees), sessions: strings(sessions), created_at: 0, updated_at: 0, done_at: None, pending: vec![], depends_on: vec![], waiting: None, review: None, due: None, primary: None, archived_at: None, snoozed_until: None }
     }
 
     /// The main checkout, where this session and another live one work, and a worktree of its

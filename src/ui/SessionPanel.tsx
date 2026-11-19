@@ -64,8 +64,11 @@ import { errorText } from '../report';
 export interface Queue {
   /** The next one, by its title: a row's session, or a pill on the bar. */
   next: Pick<Session, 'title'> | null;
-  /** How many wait on you after this one, the next among them. */
+  /** How many wait on you after this one, the next among them, but the todos ready to start. */
   left?: number;
+  /** The todos ready to start after those (queue.ts `WAITS`' last): there to pick up, not
+   *  waiting on you. */
+  ready?: number;
   onNext: () => void;
   /** False when the session shown isn't itself one of those waiting (it runs, say): the strip
    *  still goes on to them, but sending doesn't go on. */
@@ -142,8 +145,10 @@ function StripNote({ notice, queue }: { notice: Notice | null | undefined; queue
 /** What the strip says while it has nothing else to: how many wait on you after the session
  *  shown, and which goes next, so where Next (⌘]) goes reads without the pointer on it. */
 export function queueWords(queue: Queue | undefined): string {
-  if (!queue?.next || !queue.left) return '';
-  return `${queue.left} ${queue.waiting === false ? '' : 'more '}waiting · next: ${queue.next.title}`;
+  if (!queue?.next) return '';
+  const ready = queue.ready ? `${queue.ready} ready ${queue.ready === 1 ? 'todo' : 'todos'}` : '';
+  if (queue.left) return [`${queue.left} ${queue.waiting === false ? '' : 'more '}waiting · next: ${queue.next.title}`, ready && `then ${ready}`].filter(Boolean).join(' · ');
+  return ready && `${ready} · next: ${queue.next.title}`;
 }
 
 /** A Snooze menu's times with the chord for each, as a tooltip says them: `⌃⌘1 for 15 minutes`. */

@@ -15,7 +15,8 @@ import { errorText } from './report';
 /** `dependsOn` replaces the whole list. `waiting: null` says it's ready; `review: null` sends it
  *  back to In progress; `due: null` takes the due date off; `archived` archives it or brings it
  *  back. */
-export type TodoPatch = Partial<Pick<Todo, 'title' | 'description' | 'status' | 'labels' | 'project' | 'dependsOn' | 'waiting' | 'review' | 'due'>> & { archived?: boolean };
+/** `snoozed` snoozes it until a time (epoch milliseconds), null wakes it. */
+export type TodoPatch = Partial<Pick<Todo, 'title' | 'description' | 'status' | 'labels' | 'project' | 'dependsOn' | 'waiting' | 'review' | 'due'>> & { archived?: boolean; snoozed?: number | null };
 
 /** A change, as the engine takes it (`TodoOp` in todos.rs). */
 export type TodoOp =

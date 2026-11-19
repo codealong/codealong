@@ -1,0 +1,35 @@
+/* A todo that waits on you as a card (TodoCard.tsx): the strip, the todo as its panel shows it,
+   scrolling between the strip and the box, and the box that starts a session on it at the foot,
+   as a PR's card lays out its details and its review box (PrCard.css). */
+
+.ca-todocard {
+  display: flex;
+  flex: 1 1 auto;
+  flex-direction: column;
+  min-height: 0;
+}
+.ca-todocard-body {
+  display: flex;
+  flex: 1 1 auto;
+  flex-direction: column;
+  min-height: 0;
+  overflow: auto;
+}
+/* The panel fills the card's body rather than a column of the main window. */
+.ca-todocard-body > .ca-insp {
+  flex: 1 1 auto;
+  min-width: 0;
+  border: 0;
+  background: transparent;
+}
+.ca-todocard-box {
+  flex: none;
+}
+/* Linked to no worktree, it says where Start goes instead of a box. */
+.ca-todocard-nowhere {
+  flex: none;
+  margin: 0;
+  padding: var(--space-2) var(--space-3) var(--space-3);
+  color: var(--ink-3);
+  font: var(--type-meta);
+}

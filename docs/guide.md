@@ -1879,6 +1879,11 @@ archived. `codealong todo archive <id>` and `unarchive <id>` do the same, and `c
 due, its labels, what it waits on, the sessions on it, its worktrees and its PR: on one line they
 follow at the line's end as they fit, its PR always; on two lines they're under it.
 
+A due date keeps your order as it is, and on its day the todo comes to wait on you: from the start
+of the day it's due until it's done, it's among what waits on you in the notch, the most overdue
+first (*In the notch*), its count beside the camera with the rest. Snoozed from there, it's out of
+what waits on you until its time comes, its due date as it was.
+
 #### Linking
 
 Link worktrees and sessions you already have from the todo, or from a session's or worktree's
@@ -3543,7 +3548,9 @@ kept brings that window up in place of a peek. Click a pill to show its session 
 selected in Sessions, and double-click it to open the session where it lives; drag it off the bar
 (floating or in the notch) to pin its card to the desktop where you let go; right-click it for the
 session's menu, with Reply here to answer it in the peek and Rename… to rename it there. The todos
-pill opens the quick panel ready to start a session for a todo (its menu picks which).
+pills, one for the todos due and one for those ready to start, open the quick panel ready to start a
+session for a todo (their menus pick which); docked in the notch, they open the todo's card instead
+(*In the notch*).
 
 #### Snooze
 
@@ -3737,6 +3744,19 @@ back to the session rather than on, and the session's strip says how the PR went
 from a session's panel in the main window leads back to it. Snooze is dimmed on the strip while
 your review isn't asked for, and Open in main window in the PR's menu still opens it in the main
 window. One the queue goes on to later, as a review, leads back nowhere, however you come back to it.
+
+Todos wait on you there too. One due today or before, and not done, comes after the PRs waiting on
+your review and before the turns that ended, the most overdue first, and counts beside the camera
+with a calendar; once nothing else waits, the queue goes on to the todos ready to start, in your
+order, which don't count, since there are nearly always some. The 1 due and 4 ready pills open the
+first of each (a menu picks among them in the floating bar, where they open the quick panel
+instead). A todo's card has the todo as its panel in Todo shows it, its changes saved as you go, and
+at its foot a box that starts a session on it in the worktree it's linked to, on the account its
+agent menu picks (Auto as the quick panel has it), told the todo and what you write after it: ⌘⏎
+starts it and goes on to the next. Its strip has Start (⌘⏎), Done (⇧⌘E), Snooze (⌃⌘1 to ⌃⌘7: out
+of what waits on you until then, its due date as it was), Due… and Next, and says how many wait on
+you after it apart from the ready todos (*5 more waiting · next: … · then 4 ready todos*). One linked
+to no worktree has nowhere to start from there: Start opens the quick panel on it, which asks where.
 The pill of the one shown is marked. Marked seen, snoozed, closed or archived, a session leaves what
 waits on you and the next takes its place. With none left, the end of what waits does (⌘⏎ goes on
 only while something's next: on the last one it sends and stays): it says nothing else waits on you

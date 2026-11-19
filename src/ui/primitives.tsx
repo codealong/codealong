@@ -183,7 +183,11 @@ export function SessionEmblem({ emblem, of, size = 16 }: { emblem?: Emblem; of: 
  *  a session): a session by its status's glyph, a PR waiting on your review by the PR icon in the
  *  amber of what needs you. */
 export function WaitsGlyph({ waits }: { waits: Waits }) {
-  return waits === 'reviews' ? <Icon name="pr" size={12} stroke={1.75} className="ca-glyph-review" /> : <StatusGlyph status={waits} title="" />;
+  if (waits === 'reviews') return <Icon name="pr" size={12} stroke={1.75} className="ca-glyph-review" />;
+  // A todo: due by its day, or ready to start.
+  if (waits === 'due') return <Icon name="calendar-due" size={12} stroke={1.75} className="ca-glyph-due" />;
+  if (waits === 'ready') return <Icon name="list-check" size={12} stroke={1.75} className="ca-glyph-ready" />;
+  return <StatusGlyph status={waits} title="" />;
 }
 
 /** A status's glyph. `waiting` draws a working one as a clock that stands still: its turn is

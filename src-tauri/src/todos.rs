@@ -241,6 +241,11 @@ fn due_change<'de, D: Deserializer<'de>>(d: D) -> Result<Option<Option<String>>,
     Ok(Some(Option::<String>::deserialize(d)?))
 }
 
+/// A change's snooze, as its due date is read: missing leaves it, null wakes the todo.
+fn snooze_change<'de, D: Deserializer<'de>>(d: D) -> Result<Option<Option<i64>>, D::Error> {
+    Ok(Some(Option::<i64>::deserialize(d)?))
+}
+
 /// A change's due date as the todo keeps it, or why it can't.
 fn checked_due(due: Option<&str>) -> Result<Option<String>> {
     match due.map(str::trim) {
@@ -332,6 +337,10 @@ pub struct Todo {
     /// before reads the file as it did.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub archived_at: Option<i64>,
+    /// Out of what waits on you (the notch's queue, barfeed.rs) until then, epoch milliseconds,
+    /// as a snoozed session is. Its due date stays as it is. Left out when it isn't snoozed.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub snoozed_until: Option<i64>,
 }
 
 /// A label, which sessions wear too, so it's defined with them in codealong-peer.
@@ -374,6 +383,10 @@ pub struct TodoPatch {
     /// Archives it, or brings it back from the archive. Left out when it doesn't change.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub archived: Option<bool>,
+    /// `Some(None)` (null) wakes it; `Some(Some(at))` snoozes it until `at`, epoch milliseconds.
+    /// Left out when it doesn't change.
+    #[serde(default, deserialize_with = "snooze_change", skip_serializing_if = "Option::is_none")]
+    pub snoozed: Option<Option<i64>>,
 }
 
 /// A change from the UI. Changes are small and specific, so one made in a window never undoes
@@ -782,6 +795,7 @@ impl TodoStore {
                     due,
                     primary: None,
                     archived_at: None,
+                    snoozed_until: None,
                 };
                 set_status(&mut t, todo.status, now);
                 // The engine keeps the clock: a new todo's wait, or review, begins now.
@@ -844,6 +858,10 @@ impl TodoStore {
                 }
                 if let Some(a) = patch.archived {
                     set_archived(t, a, now);
+                }
+                if let Some(until) = patch.snoozed {
+                    // A time already gone wakes it: nothing to wait for.
+                    t.snoozed_until = until.filter(|&at| at > now);
                 }
                 let changed = *t != before;
                 if changed {
@@ -1203,6 +1221,7 @@ mod tests {
             due: None,
             primary: None,
             archived_at: None,
+            snoozed_until: None,
         }
     }
 
@@ -1461,6 +1480,22 @@ mod tests {
         t.due = Some("2026-12-24".into());
         s.apply(TodoOp::Create { todo: t }, &lanes(), 100).unwrap();
         assert_eq!(s.todos[0].due.as_deref(), Some("2026-12-24"));
+    }
+
+    #[test]
+    fn a_snooze_is_set_and_woken_and_leaves_the_due_date() {
+        let mut s = store(&["a"]);
+        update(&mut s, "a", TodoPatch { due: Some(Some("2026-11-18".into())), ..Default::default() }, 10);
+        let snooze = |at: Option<i64>| TodoPatch { snoozed: Some(at), ..Default::default() };
+        assert!(update(&mut s, "a", snooze(Some(5_000)), 20));
+        assert_eq!((s.todos[0].snoozed_until, s.todos[0].due.as_deref()), (Some(5_000), Some("2026-11-18")));
+        // Null wakes it, and so does a time already gone: there's nothing to wait for.
+        assert!(update(&mut s, "a", snooze(None), 30));
+        assert_eq!(s.todos[0].snoozed_until, None);
+        assert!(!update(&mut s, "a", snooze(Some(40)), 50));
+        // Read from JSON as a window sends it: null wakes, a number snoozes, missing leaves it.
+        let read = |json: &str| serde_json::from_str::<TodoPatch>(json).unwrap().snoozed;
+        assert_eq!((read(r#"{"snoozed":null}"#), read(r#"{"snoozed":7}"#), read("{}")), (Some(None), Some(Some(7)), None));
     }
 
     #[test]

@@ -4,7 +4,7 @@ import { inQueueOrder, placeOf } from './queue';
 import { ALL_PROJECTS, QUEUE_READS, queueRows } from './quick';
 import * as fx from './testing/fixtures';
 import { SESSION_READS } from './useWaitingQueue';
-import type { BarItem, BarReview } from './types';
+import type { BarItem, BarReview, BarTodo } from './types';
 
 // Which sessions, PRs and todos the bar shows, and their order, are the engine's (barfeed.rs, with
 // tests).
@@ -21,6 +21,7 @@ describe('fitGroups', () => {
     snoozed: 0,
     recent: 0,
     reviews,
+    due: 0,
     todos: 0,
     note: 0,
     gap: 4,
@@ -274,12 +275,15 @@ describe('the bar docked in the notch', () => {
   });
 
   it('counts everything that waits beside the camera, as the most urgent kind among it', () => {
-    expect(notchCount({ needs: 2, reviews: 3, unread: 1, working: 5 })).toEqual({ kind: 'needs', n: 6 });
-    expect(notchCount({ needs: 5, reviews: 0, unread: 16, working: 4 })).toEqual({ kind: 'needs', n: 21 });
-    expect(notchCount({ needs: 0, reviews: 3, unread: 1, working: 5 })).toEqual({ kind: 'reviews', n: 4 });
-    expect(notchCount({ needs: 0, reviews: 0, unread: 1, working: 5 })).toEqual({ kind: 'unread', n: 1 });
-    expect(notchCount({ needs: 0, reviews: 0, unread: 0, working: 5 })).toEqual({ kind: 'working', n: 5 });
-    expect(notchCount({ needs: 0, reviews: 0, unread: 0, working: 0 })).toBeNull();
+    expect(notchCount({ needs: 2, reviews: 3, due: 0, unread: 1, working: 5 })).toEqual({ kind: 'needs', n: 6 });
+    expect(notchCount({ needs: 5, reviews: 0, due: 0, unread: 16, working: 4 })).toEqual({ kind: 'needs', n: 21 });
+    expect(notchCount({ needs: 0, reviews: 3, due: 0, unread: 1, working: 5 })).toEqual({ kind: 'reviews', n: 4 });
+    expect(notchCount({ needs: 0, reviews: 0, due: 0, unread: 1, working: 5 })).toEqual({ kind: 'unread', n: 1 });
+    expect(notchCount({ needs: 0, reviews: 0, due: 0, unread: 0, working: 5 })).toEqual({ kind: 'working', n: 5 });
+    expect(notchCount({ needs: 0, reviews: 0, due: 0, unread: 0, working: 0 })).toBeNull();
+    // Todos due count with the rest, after the reviews and ahead of the turns that ended.
+    expect(notchCount({ needs: 0, reviews: 0, due: 2, unread: 1, working: 5 })).toEqual({ kind: 'due', n: 3 });
+    expect(notchCount({ needs: 1, reviews: 0, due: 2, unread: 0, working: 0 })).toEqual({ kind: 'needs', n: 3 });
   });
 });
 
@@ -290,6 +294,15 @@ describe('what the notch works through', () => {
   const reviews = [review(7, 15), review(8, 25)];
   const rows = notchRows(items, reviews);
   const keys = (list: NotchRow[]) => list.map((r) => r.key);
+
+  it('puts the todos due after the reviews, the most overdue first, and the ready ones last of what waits, in your order', () => {
+    const todo = (id: string, since: number, order: number): BarTodo => ({ id, title: id, project: 'P', callsign: null, due: null, since, order });
+    // Ready todos go by your order, whenever each was made; due ones by their day.
+    const withTodos = notchRows(items, reviews, { due: [todo('today', 50, 0), todo('overdue', 1, 3)], ready: [todo('second', 2, 5), todo('first', 90, 1)] });
+    expect(keys(withTodos)).toEqual(['n1', 'n2', 'o/r#7', 'o/r#8', 'todo:overdue', 'todo:today', 'u1', 'todo:first', 'todo:second', 'w1']);
+    const shown = withTodos.find((r) => r.kind === 'todo');
+    expect(shown && ROW_READS.titleOf(shown)).toBe('overdue');
+  });
 
   it('lists the sessions that need you, then the reviews asked of you, then the rest, in the bar’s order', () => {
     expect(keys(rows)).toEqual(['n1', 'n2', 'o/r#7', 'o/r#8', 'u1', 'w1']);

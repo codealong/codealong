@@ -41,7 +41,7 @@ import { useSessionHistory } from '../history';
 import { seenable } from '../lanes';
 import type { Left } from '../menus';
 import { errorText } from '../report';
-import type { BarItem, BarReview, Board, PrItem } from '../types';
+import type { BarItem, BarReview, BarTodo, Board, PrItem } from '../types';
 import { useWaitingQueue } from '../useWaitingQueue';
 import { useCardHost, useLiveSession, type Told } from './cardHost';
 import { dialogUp } from './focusTrap';
@@ -57,11 +57,12 @@ const LINGER_MS = 360;
 const HISTORY_KEY = 'codealong.sessionHistory:notch';
 /** The end of what waits shows as this key, which no session's or PR's can be. */
 const END = 'end';
-/** What shows under the pills: a session, a review, or the end of what waits. */
+/** What shows under the pills: a session, a review, a todo, or the end of what waits. */
 type ShownKind = NotchRow['kind'] | 'end';
-/** What a key the bar no longer lists is: a PR's key is `owner/name#12`, a session's has its
- *  harness and account in front, with colons. */
+/** What a key the bar no longer lists is: a todo's is `todo:` and its id (bar.ts `todoRowKey`),
+ *  a PR's is `owner/name#12`, a session's has its harness and account in front, with colons. */
 function kindOf(key: string): NotchRow['kind'] {
+  if (key.startsWith('todo:')) return 'todo';
   return key.includes(':') ? 'session' : 'review';
 }
 
@@ -126,17 +127,18 @@ export interface NotchStageState {
   unsent: (key: string, said: string) => boolean;
 }
 
-/** What the docked bar shows under its pills: which session or review, what it works through,
- *  and its keys. `items` are the bar's sessions as it shows them, in its order, and `reviews` the
- *  PRs waiting on your review; `known` says whether the bar still has a key, in any of its pills;
- *  `docked` while the bar is in the notch. */
-export function useNotchStage(items: BarItem[], reviews: BarReview[], known: (key: string) => boolean, docked: boolean): NotchStageState {
+/** What the docked bar shows under its pills: which session, review or todo, what it works
+ *  through, and its keys. `items` are the bar's sessions as it shows them, in its order,
+ *  `reviews` the PRs waiting on your review and `todos` the todos due and ready to start; `known`
+ *  says whether the bar still has a key, in any of its pills; `docked` while the bar is in the
+ *  notch. */
+export function useNotchStage(items: BarItem[], reviews: BarReview[], todos: { due: BarTodo[]; ready: BarTodo[] }, known: (key: string) => boolean, docked: boolean): NotchStageState {
   const [shown, setShown] = useState<{ key: string; kind: ShownKind; rename: boolean; from: CameFrom | null } | null>(null);
   const [open, setOpen] = useState(false);
   const [keys, setKeys] = useState(false);
   const [endOpens, setEndOpens] = useState(0);
   const linger = useRef<number | null>(null);
-  const rows = useMemo(() => notchRows(items, reviews), [items, reviews]);
+  const rows = useMemo(() => notchRows(items, reviews, todos), [items, reviews, todos]);
   const rowsNow = useRef(rows);
   rowsNow.current = rows;
   // The session showing, as of the last call rather than the last render: two clicks can come
@@ -174,7 +176,7 @@ export function useNotchStage(items: BarItem[], reviews: BarReview[], known: (ke
     // through ⌃- or from a session it started) is still shown until you leave it. The bar has
     // no pill to say whether there's anything in it to mark seen, so ⌘E goes on from it. A
     // review has nothing to mark seen either: ⌘E skips it.
-    shown: key ? { key, title: row ? ROW_READS.titleOf(row) : 'The last one', since: row ? ROW_READS.sinceOf(row) : undefined, seenable: row?.kind === 'session' && seenable(row.item), skipsOnSeen: row?.kind === 'review' } : null,
+    shown: key ? { key, title: row ? ROW_READS.titleOf(row) : 'The last one', since: row ? ROW_READS.sinceOf(row) : undefined, seenable: row?.kind === 'session' && seenable(row.item), skipsOnSeen: row?.kind === 'review' || row?.kind === 'todo' } : null,
     show: (to) => show(to.key),
     travel: (dir) => {
       const to = dir === 'back' ? history.goBack() : history.goForward();

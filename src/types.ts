@@ -2367,6 +2367,9 @@ export interface Todo {
   /** When it was archived: it's under Archived and in no other list, keeping its status
    *  (todos.rs). Missing or null when it isn't. */
   archivedAt?: number | null;
+  /** Out of what waits on you until then, epoch milliseconds, its due date as it is (todos.rs
+   *  `snoozed_until`). Missing when it isn't snoozed. */
+  snoozedUntil?: number | null;
 }
 
 export interface TodoPrimary {
@@ -3063,8 +3066,12 @@ export interface BarFeed {
   snoozed: BarSnoozed[];
   /** Open PRs that ask for your review, the longest wait first, as Needs you is. */
   reviews: BarReview[];
-  /** Todos ready to start (not started, and waiting on nothing), in your order. */
+  /** Todos ready to start (not started, and waiting on nothing), in your order, but those in
+   *  `due` and those snoozed. */
   todos: BarTodo[];
+  /** Todos that wait on you by their due date, the most overdue first (barfeed.rs
+   *  `todo_lists`). Missing on older feeds. */
+  due?: BarTodo[];
   /** The other devices whose sessions it lists (`[devices] in_bar`), by short id: those connected
    *  now. What one that wasn't on the feed before brings isn't news (mark.ts). Missing from a feed
    *  an older app sent. */
@@ -3250,6 +3257,11 @@ export interface BarTodo {
   callsign: string | null;
   /** The day it's due, as `2026-10-03`. Missing on older feeds. */
   due?: string | null;
+  /** Since when it waits on you: a todo due from the start of its day, a ready one from when it
+   *  was made. Missing on older feeds. */
+  since?: number;
+  /** Its place in your order, which the queue goes by for ready todos. Missing on older feeds. */
+  order?: number;
 }
 
 /** A session, worktree, todo or PR pinned to the desktop (desktop.rs), by its session key, lane

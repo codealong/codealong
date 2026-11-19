@@ -58,6 +58,11 @@ describe('queueWords', () => {
     expect(queueWords(queue(1, false))).toBe('1 waiting · next: Release notes');
   });
 
+  it('counts the todos ready to start apart from what waits on you', () => {
+    expect(queueWords({ ...queue(2, true), ready: 3 })).toBe('2 more waiting · next: Release notes · then 3 ready todos');
+    expect(queueWords({ ...queue(0, true), ready: 1 })).toBe('1 ready todo · next: Release notes');
+  });
+
   it('says nothing with nothing after it', () => {
     expect(queueWords(undefined)).toBe('');
     expect(queueWords({ next: null, left: 0, onNext: () => {} })).toBe('');

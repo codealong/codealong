@@ -1,6 +1,7 @@
 //! What the floating bar shows, cut from the board: the sessions that need you, whose turn ended,
 //! or that are running, in bar order, the rest of the sessions started in the last day, the ones
-//! you snoozed, the PRs waiting on your review, and the todos ready to start. Each names its project, and the bar narrows them to the one picked in its project menu.
+//! you snoozed, the PRs waiting on your review, the todos due, and the todos ready to start. Each
+//! names its project, and the bar narrows them to the one picked in its project menu.
 //! The bar gets this instead of the board, and only when it changes: the board is about half a
 //! megabyte and is published many times a minute, while this is a few kilobytes and changes far
 //! less often.
@@ -77,8 +78,11 @@ pub struct BarFeed {
     /// Open PRs that ask for your review, the longest wait first, as Needs you is: the notch
     /// and the quick panel work through them in this order.
     pub reviews: Vec<BarReview>,
-    /// Todos ready to start (not started, and waiting on nothing), in your order.
+    /// Todos ready to start (not started, and waiting on nothing), in your order, but the ones
+    /// in `due` and the ones snoozed.
     pub todos: Vec<BarTodo>,
+    /// Todos that wait on you by their due date (`todo_lists`): the most overdue first.
+    pub due: Vec<BarTodo>,
     /// The other devices whose sessions it lists, by short id: those connected now. One that
     /// wasn't on the feed before has just come back, and what it brings isn't news to sound or
     /// knock for (sounds.rs, src/mark.ts).
@@ -215,6 +219,11 @@ pub struct BarTodo {
     pub callsign: Option<String>,
     /// The day it's due, as `2026-10-03`.
     pub due: Option<String>,
+    /// Since when it waits on you, epoch milliseconds: a todo due from the start of its day, here,
+    /// so the most overdue comes first; a ready one from when it was made.
+    pub since: i64,
+    /// Its place in your order, which the queue goes by for ready todos (src/queue.ts `byPlace`).
+    pub order: usize,
 }
 
 /// The bar's feed, from the board and the worktrees of your other devices connected now. Status
@@ -322,7 +331,7 @@ pub fn feed(shown: Shown) -> BarFeed {
         })
         .collect();
 
-    let ready = board.todos.iter().filter(|t| todos::is_ready(t, &board.todos)).map(|t| bar_todo(board, t)).collect();
+    let (due, ready) = todo_lists(board, crate::util::today_local());
     let mut devices: Vec<String> = there.iter().filter_map(|l| l.device.as_ref().map(|d| d.short.clone())).collect();
     devices.sort();
     devices.dedup();
@@ -342,6 +351,7 @@ pub fn feed(shown: Shown) -> BarFeed {
         snoozed: snoozed.into_iter().map(|(_, item)| item).collect(),
         reviews,
         todos: ready,
+        due,
         devices,
         // By when each began, so the one the bar names first stays the same one.
         listenings: {
@@ -364,9 +374,50 @@ pub fn feed(shown: Shown) -> BarFeed {
     }
 }
 
-/// A ready todo on the bar. Where it starts is `todoItem`'s rule in src/todos.ts: the first
-/// linked worktree that's on the board, else the worktree of its latest session.
-fn bar_todo(board: &Board, t: &todos::Todo) -> BarTodo {
+/// How many days ahead a todo's due date brings it into what waits on you: 0 is due today, and
+/// overdue. The queue's settings will make it yours to set.
+const DUE_WITHIN: i64 = 0;
+
+/// The todos that wait on you, on `today` (days since 1970, here): those due by `DUE_WITHIN` days
+/// from it, open and not snoozed, the most overdue first and then in your order; and those ready
+/// to start but for those, in your order. A snoozed todo is in neither until its time comes.
+fn todo_lists(board: &Board, today: i64) -> (Vec<BarTodo>, Vec<BarTodo>) {
+    let now = board.generated_at;
+    let awake = |t: &todos::Todo| t.archived_at.is_none() && t.snoozed_until.is_none_or(|at| at <= now);
+    let day_of = |t: &todos::Todo| t.due.as_deref().and_then(due_day);
+    let is_due = |t: &todos::Todo| t.status != todos::TodoStatus::Done && day_of(t).is_some_and(|d| d <= today + DUE_WITHIN);
+    let mut due: Vec<BarTodo> = board
+        .todos
+        .iter()
+        .enumerate()
+        .filter(|(_, t)| awake(t) && is_due(t))
+        .map(|(i, t)| {
+            let (y, m, d) = crate::util::civil_from_days(day_of(t).unwrap_or(today));
+            BarTodo { since: crate::util::local_ms(y, m, d, 0, 0, 0, 0).unwrap_or(day_of(t).unwrap_or(today) * crate::util::DAY_MS), ..bar_todo(board, t, i) }
+        })
+        .collect();
+    due.sort_by_key(|t| (t.since, t.order));
+    let ready = board
+        .todos
+        .iter()
+        .enumerate()
+        .filter(|(_, t)| awake(t) && !is_due(t) && todos::is_ready(t, &board.todos))
+        .map(|(i, t)| bar_todo(board, t, i))
+        .collect();
+    (due, ready)
+}
+
+/// A due date, `2026-10-03`, as days since 1970.
+fn due_day(due: &str) -> Option<i64> {
+    let mut parts = due.split('-').map(|p| p.parse::<i64>().ok());
+    let (y, m, d) = (parts.next()??, parts.next()??, parts.next()??);
+    Some(crate::util::days_from_civil(y, m, d))
+}
+
+/// A todo on the bar, the `order`th in yours. Where it starts is `todoItem`'s rule in
+/// src/todos.ts: the first linked worktree that's on the board, else the worktree of its latest
+/// session.
+fn bar_todo(board: &Board, t: &todos::Todo, order: usize) -> BarTodo {
     let linked = t.worktrees.iter().find_map(|w| board.lanes.iter().find(|l| &l.id == w));
     let latest = || {
         board
@@ -376,7 +427,7 @@ fn bar_todo(board: &Board, t: &todos::Todo) -> BarTodo {
             .min_by_key(|(at, _)| std::cmp::Reverse(*at))
             .map(|(_, l)| l)
     };
-    BarTodo { id: t.id.clone(), title: t.title.clone(), project: t.project.clone(), callsign: linked.or_else(latest).map(|l| l.callsign.clone()), due: t.due.clone() }
+    BarTodo { id: t.id.clone(), title: t.title.clone(), project: t.project.clone(), callsign: linked.or_else(latest).map(|l| l.callsign.clone()), due: t.due.clone(), since: t.created_at, order }
 }
 
 #[cfg(test)]
@@ -618,6 +669,35 @@ mod tests {
             ..Board::default()
         };
         assert_eq!(feed(Shown::here(&b)).projects, vec!["Spruce", "Spur", "Elsewhere"]);
+    }
+
+    #[test]
+    fn lists_the_todos_due_the_most_overdue_first_and_leaves_them_out_of_the_ready_ones() {
+        let todo = |id: &str, extra: serde_json::Value| -> todos::Todo {
+            let mut v = serde_json::json!({ "id": id, "project": "P", "title": format!("Todo {id}") });
+            v.as_object_mut().expect("an object").extend(extra.as_object().expect("an object").clone());
+            serde_json::from_value(v).expect("a todo")
+        };
+        let mut b = board(vec![], vec![]);
+        b.generated_at = NOW;
+        b.todos = vec![
+            todo("today", serde_json::json!({ "due": "2026-11-18" })),
+            todo("later", serde_json::json!({ "due": "2026-11-19" })),
+            todo("overdue", serde_json::json!({ "due": "2026-11-10", "status": "in-progress" })),
+            todo("done", serde_json::json!({ "due": "2026-11-01", "status": "done" })),
+            todo("snoozed", serde_json::json!({ "due": "2026-11-17", "snoozedUntil": NOW + 60_000 })),
+            todo("woke", serde_json::json!({ "due": "2026-11-17", "snoozedUntil": NOW - 60_000 })),
+            todo("plain", serde_json::json!({})),
+            todo("napping", serde_json::json!({ "snoozedUntil": NOW + 60_000 })),
+        ];
+        let (due, ready) = todo_lists(&b, crate::util::days_from_civil(2026, 11, 18));
+        let ids = |l: &[BarTodo]| l.iter().map(|t| t.id.clone()).collect::<Vec<_>>();
+        // Due today and before, open, and awake: the longest overdue first, an in-progress one too.
+        assert_eq!(ids(&due), vec!["overdue", "woke", "today"]);
+        assert!(due.windows(2).all(|w| w[0].since < w[1].since), "{due:?}");
+        // Ready but for the due ones and the snoozed one, in your order, each with its place in it.
+        assert_eq!(ids(&ready), vec!["later", "plain"]);
+        assert_eq!(ready.iter().map(|t| t.order).collect::<Vec<_>>(), vec![1, 6]);
     }
 
     #[test]

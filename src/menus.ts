@@ -130,7 +130,7 @@ function newSessionItem(lane: Lane, run: (() => void) | undefined): MenuAction |
 
 /** How a session, or a PR waiting on your review, left the list of what waits on you: the strip
  *  says it on the one gone on to (queue.ts `wentWords`). */
-export type Left = 'marked seen' | 'set aside' | 'snoozed' | 'quieted' | 'closed' | 'done' | 'archived' | 'approved' | 'commented on' | 'changes requested' | 'review started' | 'merged';
+export type Left = 'marked seen' | 'set aside' | 'snoozed' | 'quieted' | 'closed' | 'done' | 'archived' | 'approved' | 'commented on' | 'changes requested' | 'review started' | 'merged' | 'started';
 
 export interface SessionCan {
   report: Report;
@@ -1660,8 +1660,9 @@ function reviewItems(ts: Todo[], edit: TodoEdit): MenuSpec {
 }
 
 /** The Due date submenu: the days `dueChoices` offers, any day in the panel's picker (for one
- *  todo), and taking it off. A day is checked when every todo is due then. */
-function dueItem(ts: Todo[], edit: TodoEdit): MenuGroup {
+ *  todo), and taking it off. A day is checked when every todo is due then. The todo card's strip
+ *  has it as Due… (TodoCard.tsx). */
+export function dueItem(ts: Todo[], edit: TodoEdit): MenuGroup {
   const set = (due: string | null) => ts.forEach((t) => edit.run({ op: 'update', id: t.id, patch: { due } }));
   const same = ts.every((t) => t.due === ts[0].due) ? ts[0].due : null;
   const pick = edit.pickDate;

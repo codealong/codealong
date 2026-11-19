@@ -87,6 +87,13 @@ export interface WaitingQueue<H = undefined, T = unknown> {
   fresh: () => void;
 }
 
+/** What's left after the one shown, as the strip counts it: what waits on you, and apart from
+ *  that the todos ready to start, which are there to pick up (SessionPanel.tsx `queueWords`). */
+export function leftOf<T>(rows: T[], reads: Pick<rules.Reads<T>, 'waitsOf'>): { left: number; ready: number } {
+  const ready = rows.filter((r) => reads.waitsOf(r) === 'ready').length;
+  return { left: rows.length - ready, ready };
+}
+
 export function useWaitingQueue<T, H = undefined>(options: WaitingQueueOptions<T, H>): WaitingQueue<H, T> {
   const handled = useRef<Handled>(new Map());
   // What the strip says, and the session it says it on: how one went is for the one gone on to,
@@ -176,7 +183,7 @@ export function useWaitingQueue<T, H = undefined>(options: WaitingQueueOptions<T
   const stands = rules.standing(view, handled.current);
   const after = stands?.left[0];
   const queue: Queue | undefined = stands
-    ? { next: after !== undefined ? { title: view.reads.titleOf(after) } : null, left: stands.left.length, onNext: next, waiting: stands.waiting }
+    ? { next: after !== undefined ? { title: view.reads.titleOf(after) } : null, ...leftOf(stands.left, view.reads), onNext: next, waiting: stands.waiting }
     : undefined;
   const notice = note && note.on === view.shown?.key ? { text: note.text, error: note.error } : null;
   const first = view.shown ? null : (rules.firstLeft(view, handled.current) ?? null);

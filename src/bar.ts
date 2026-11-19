@@ -4,8 +4,8 @@
 
 import { withTimes } from './format';
 import { ALL_PROJECTS, inProject } from './quick';
-import { inQueueOrder, statusWaits, WAITS, type Reads } from './queue';
-import type { BarGroup, BarItem, BarReview } from './types';
+import { COUNTED, inQueueOrder, statusWaits, type Reads } from './queue';
+import type { BarGroup, BarItem, BarReview, BarTodo } from './types';
 
 export type Group = BarGroup;
 /** Bar order, most urgent first. */
@@ -39,11 +39,12 @@ export interface Metrics {
   project: number;
   /** The pills of the sessions that are hearing, each its own width, first after those. */
   hearing: number[];
-  /** The snoozed, recent, reviews and todos pills at the end, side by side (0 for one that isn't
-   *  there). */
+  /** The snoozed, recent, reviews, due and todos pills at the end, side by side (0 for one that
+   *  isn't there). */
   snoozed: number;
   recent: number;
   reviews: number;
+  due: number;
   todos: number;
   /** A note on the bar (a failed open, what a review did), 0 while there's none. It's counted in
    *  a section of its own at the end, the most it takes, whether it shows there or in the place
@@ -59,7 +60,7 @@ export interface Metrics {
 export function barWidth(fits: GroupFit[], m: Metrics): number {
   const sections: number[][] = [[m.mark, m.project].filter((w) => w > 0), m.hearing];
   for (const f of fits) sections.push([...m.pills[f.group].slice(0, f.shown), ...(f.folded > 0 ? [m.fold[f.group]] : [])]);
-  sections.push([m.snoozed, m.recent, m.reviews, m.todos].filter((w) => w > 0), m.note > 0 ? [m.note] : []);
+  sections.push([m.snoozed, m.recent, m.reviews, m.due, m.todos].filter((w) => w > 0), m.note > 0 ? [m.note] : []);
   const shown = sections.filter((s) => s.length > 0);
   if (!shown.length) return 2 * m.padding;
   const pieces = shown.flat();
@@ -236,13 +237,13 @@ export function notchDragged(from: Size, edge: NotchEdge, dx: number, dy: number
   return { w: from.w + 2 * out, h: from.h + dy };
 }
 
-/** What the notch counts beside the camera: the bar's groups, and the PRs that wait on your
- *  review. */
-export type NotchKind = Group | 'reviews';
-/** Most urgent first, as the queue works through what waits (queue.ts `WAITS`), then what runs.
- *  A review asked of you ranks as the mark's colors rank it (board.rs `logo_status`): with what
- *  needs you, after the sessions that do. */
-export const NOTCH_ORDER: NotchKind[] = [...WAITS, 'working'];
+/** What the notch counts beside the camera: the bar's groups, the PRs that wait on your review,
+ *  and the todos due. */
+export type NotchKind = Group | 'reviews' | 'due';
+/** Most urgent first, as the queue works through what waits (queue.ts `COUNTED`: not the todos
+ *  ready to start), then what runs. A review asked of you ranks as the mark's colors rank it
+ *  (board.rs `logo_status`): with what needs you, after the sessions that do. */
+export const NOTCH_ORDER: NotchKind[] = [...(COUNTED as NotchKind[]), 'working'];
 
 /** What the closed notch shows beside the camera: everything that waits on you (the sessions that
  *  need you, the PRs waiting on your review and Your turn, which the queue works through), drawn
@@ -252,26 +253,35 @@ export const NOTCH_ORDER: NotchKind[] = [...WAITS, 'working'];
 export function notchCount(counts: Record<NotchKind, number>): { kind: NotchKind; n: number } | null {
   const kind = NOTCH_ORDER.find((k) => counts[k] > 0);
   if (!kind) return null;
-  return { kind, n: kind === 'working' ? counts.working : WAITS.reduce((sum, k) => sum + counts[k], 0) };
+  return { kind, n: kind === 'working' ? counts.working : COUNTED.reduce((sum, k) => sum + counts[k as NotchKind], 0) };
 }
 
 // ---- What the notch works through (NotchSession.tsx, NotchReview.tsx) ----
 
-/** A row of what the notch shows under its pills: a session on the bar, or a PR that waits on
- *  your review. Keyed by the session's key or the PR's (`owner/name#12`), which never collide. */
-export type NotchRow = { kind: 'session'; key: string; item: BarItem } | { kind: 'review'; key: string; review: BarReview };
+/** A row of what the notch shows under its pills: a session on the bar, a PR that waits on your
+ *  review, or a todo due or ready to start (`waits`). Keyed by the session's key, the PR's
+ *  (`owner/name#12`) or the todo's id after `todo:`, which never collide. */
+export type NotchRow =
+  | { kind: 'session'; key: string; item: BarItem }
+  | { kind: 'review'; key: string; review: BarReview }
+  | { kind: 'todo'; key: string; todo: BarTodo; waits: 'due' | 'ready' };
+
+/** A todo's row key. */
+export const todoRowKey = (id: string) => `todo:${id}`;
 
 /** How the queue (queue.ts) reads the notch's rows: a pill carries its session's key and times
  *  without the session, a review the PR's. */
 export const ROW_READS: Reads<NotchRow> = {
   keyOf: (r) => r.key,
-  sinceOf: (r) => (r.kind === 'session' ? r.item.since : r.review.since),
-  waitsOf: (r) => (r.kind === 'session' ? statusWaits(r.item.status) : 'reviews'),
+  sinceOf: (r) => (r.kind === 'session' ? r.item.since : r.kind === 'review' ? r.review.since : (r.todo.since ?? 0)),
+  waitsOf: (r) => (r.kind === 'session' ? statusWaits(r.item.status) : r.kind === 'review' ? 'reviews' : r.waits),
   raisedOf: (r) => (r.kind === 'session' ? r.item.raised : undefined),
   // While it's still Your turn: a pill a window set working ahead of the engine keeps the rest.
   finishedOf: (r) => r.kind === 'session' && r.item.status === 'unread' && !!r.item.finished,
   firstOf: (r) => r.kind === 'review' && !!r.review.first,
-  titleOf: (r) => (r.kind === 'session' ? r.item.title : reviewTitle(r.review)),
+  // Ready todos go in your order; due ones by their day, the most overdue first.
+  orderOf: (r) => (r.kind === 'todo' && r.waits === 'ready' ? r.todo.order : undefined),
+  titleOf: (r) => (r.kind === 'session' ? r.item.title : r.kind === 'review' ? reviewTitle(r.review) : r.todo.title || 'Untitled todo'),
 };
 
 /** A review as the strip and the queue name it. */
@@ -281,13 +291,14 @@ export function reviewTitle(r: Pick<BarReview, 'number' | 'title'>): string {
 
 /** Everything the notch can show: what waits on you in the order the queue goes to it (queue.ts
  *  `byPlace`: the ones moved to the top, the sessions that need you, the PRs waiting on your
- *  review, the turns that ended, with the reviews of a repo that puts them first ahead of the
- *  sessions that need you), then the running ones in the bar's order. ⌥↑ ⌥↓ step along all of
- *  it, so they go the way ⌘] does. */
-export function notchRows(items: BarItem[], reviews: BarReview[]): NotchRow[] {
+ *  review, the todos due, the turns that ended, then the todos ready to start, with the reviews
+ *  of a repo that puts them first ahead of the sessions that need you), then the running ones in
+ *  the bar's order. ⌥↑ ⌥↓ step along all of it, so they go the way ⌘] does. */
+export function notchRows(items: BarItem[], reviews: BarReview[], todos: { due: BarTodo[]; ready: BarTodo[] } = { due: [], ready: [] }): NotchRow[] {
   const session = (i: BarItem): NotchRow => ({ kind: 'session', key: i.key, item: i });
   const review = (r: BarReview): NotchRow => ({ kind: 'review', key: r.key, review: r });
-  const waiting = [...items.filter((i) => i.group !== 'working').map(session), ...reviews.map(review)];
+  const todo = (waits: 'due' | 'ready') => (t: BarTodo): NotchRow => ({ kind: 'todo', key: todoRowKey(t.id), todo: t, waits });
+  const waiting = [...items.filter((i) => i.group !== 'working').map(session), ...reviews.map(review), ...todos.due.map(todo('due')), ...todos.ready.map(todo('ready'))];
   return [...inQueueOrder(waiting, ROW_READS), ...items.filter((i) => i.group === 'working').map(session)];
 }
 
