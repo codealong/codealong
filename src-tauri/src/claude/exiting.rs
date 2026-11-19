@@ -185,15 +185,23 @@ pub fn answer(ctx: &Ctx, s: &Session, id: &str, answers: &Value) -> Result<Strin
 /// else, so a key pressed there blind could do what nobody asked.
 pub fn keep(ctx: &Ctx, s: &Session) -> Result<()> {
     let gone = || anyhow!("It isn't asking about its worktree, as far as its terminal shows.");
+    let own = s.own_worktree.as_deref().ok_or_else(gone)?;
     let (reg, screen) = super::dialog::open(&ctx.account.home_path(), s).ok_or_else(gone)?;
     let dialog = read(screen.as_deref().ok_or_else(gone)?).ok_or_else(gone)?;
-    let i = keeps(&dialog).ok_or_else(|| anyhow!("None of its choices is {KEEP}."))?;
+    let i = keeps(&dialog, own).ok_or_else(|| anyhow!("None of its choices is {KEEP} at {own}."))?;
     pick(ctx, s, &reg, i)
 }
 
-/// The choice of `dialog` that keeps the worktree and ends the session.
-fn keeps(dialog: &Dialog) -> Option<usize> {
-    dialog.choices.iter().position(|c| c.label == KEEP)
+/// The choice of `dialog` that keeps the worktree at `own` and ends the session: its Keep, which
+/// says it "Stays at" that worktree, the one Mark as done then removes by its check, not another
+/// the session went on to. Lines that wrapped were joined with a space wherever they broke,
+/// mid-path too, so a path with no space of its own is matched without the spaces; one with spaces
+/// only as it is.
+fn keeps(dialog: &Dialog, own: &str) -> Option<usize> {
+    let squeezed = |text: &str| text.split_whitespace().collect::<String>();
+    let stays = format!("Stays at {own}");
+    let names_own = |d: &str| d == stays || (!own.contains(char::is_whitespace) && squeezed(d) == squeezed(&stays));
+    dialog.choices.iter().position(|c| c.label == KEEP && c.description.as_deref().is_some_and(names_own))
 }
 
 /// Picks choice `i` of the dialog up in its registry entry `reg` by its digit.
@@ -264,18 +272,28 @@ mod tests {
 
     #[test]
     fn keeps_the_worktree_whatever_it_says() {
+        let own = "/Users/me/projects/northwind-app/.claude/worktrees/kestrel";
         // Two terminals' dialogs, as the screen and as a session showed it on 2026-11-19: nothing
         // counted, HEAD gone on to a branch of its own.
-        assert_eq!(keeps(&read(SCREEN).unwrap()), Some(0));
+        assert_eq!(keeps(&read(SCREEN).unwrap(), own), Some(0));
         let moved = "   Exiting worktree session\n   You are working in a worktree. Keep it to continue working there, or remove it to clean up. The\n   worktree is now on branch release-notes, which is kept either way.\n   ❯ 1. Keep worktree    Stays at /Users/me/projects/northwind-app/.claude/worktrees/kestrel\n     2. Remove worktree  Clean up the worktree directory.\n   Enter to confirm · Esc to cancel\n";
-        assert_eq!(keeps(&read(moved).unwrap()), Some(0));
+        assert_eq!(keeps(&read(moved).unwrap(), own), Some(0));
+        // Narrower, its path wrapped.
+        let narrow = "   Exiting worktree session\n   You have 68 commits on worktree-kestrel. The branch will be deleted if\n   you remove the worktree.\n   ❯ 1. Keep worktree    Stays at /Users/me/projects/northwind-app/.claude/\n                         worktrees/kestrel\n     2. Remove worktree  All changes and commits will be lost.\n   Enter to confirm · Esc to cancel\n";
+        assert_eq!(keeps(&read(narrow).unwrap(), own), Some(0));
+        // Another worktree than the one Mark as done would then remove: one the session went on to.
+        assert_eq!(keeps(&read(SCREEN).unwrap(), "/Users/me/projects/northwind-app/.claude/worktrees/atlas"), None);
+        // A path with spaces of its own is matched as it is, not squeezed into another's.
+        let spaced = "/Users/me/projects/northwind-app/.claude/worktrees/release notes";
+        assert_eq!(keeps(&read(&SCREEN.replace(own, spaced)).unwrap(), spaced), Some(0));
+        assert_eq!(keeps(&read(&SCREEN.replace(own, &spaced.replace(' ', ""))).unwrap(), spaced), None);
         // Started with `--tmux`, whose Keeps decide its tmux session too (one ends it with every
         // pane in it): yours.
         let tmux = "Exiting worktree session\nThis session was named \"atlas\". Keep the worktree to resume it later, or remove it to clean up.\n❯ 1. Keep worktree and tmux session  Stays at /w. Reattach with: tmux attach -t atlas\n  2. Keep worktree, end tmux session  Keeps worktree at /w, ends tmux session.\n  3. Remove worktree and tmux session  Clean up the worktree directory.\nEnter to confirm · Esc to cancel";
-        assert_eq!(keeps(&read(tmux).unwrap()), None);
+        assert_eq!(keeps(&read(tmux).unwrap(), "/w"), None);
         // A dialog that offers no Keep is left alone.
         let other = Dialog { choices: vec![Choice { label: "Remove worktree".into(), description: None }], ..read(SCREEN).unwrap() };
-        assert_eq!(keeps(&other), None);
+        assert_eq!(keeps(&other, own), None);
     }
 
     #[test]

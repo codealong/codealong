@@ -446,6 +446,10 @@ const REMOVAL_WAIT: std::time::Duration = std::time::Duration::from_secs(45);
 pub enum Exited {
     /// Its process ended. Whether its worktree is gone, and how closing its tab went.
     Ended { removed: bool, closed: Result<(), String> },
+    /// Its process ended once Codealong answered its question Keep (`keep_worktree`): the
+    /// worktree is left for Mark as done to remove by its own check, where one kept any other way
+    /// (`Ended`, `removed: false`) was someone's choice. How closing its tab went.
+    Kept { closed: Result<(), String> },
     /// It's still running: its harness asks in its terminal whether to keep the worktree, its
     /// tab left open for the answer.
     Asks,
@@ -576,6 +580,7 @@ pub fn exit(s: &Session, account: &crate::config::AccountCfg, pid: u32) -> Resul
 fn keep_worktree(s: &Session, account: &crate::config::AccountCfg, pid: u32, host: Option<u32>) -> Exited {
     match crate::harness::adapter(s.harness).exit_keep(&crate::harness::Ctx { account }, s) {
         Ok(()) => match await_end(s, pid, host, None, true) {
+            Exited::Ended { removed: false, closed } => Exited::Kept { closed },
             Exited::Removing => Exited::Keeping,
             ended => ended,
         },

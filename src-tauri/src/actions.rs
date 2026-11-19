@@ -1903,13 +1903,18 @@ fn end(engine: &Handle, s: &crate::model::Session, account: &config::AccountCfg,
             match crate::idle::exit(s, account, pid) {
                 Ok(Exited::Ended { removed: true, closed: Ok(()) }) => Ended::said(Some(format!("{word} removed its worktree, its terminal is closed")), None),
                 Ok(Exited::Ended { removed: true, closed: Err(e) }) => Ended::said(Some(format!("{word} removed its worktree")), Some(format!("Its terminal didn't close: {e}"))),
-                // Kept, by Codealong's answer or its harness's own doing: what becomes of the
-                // worktree is said once Codealong has tried to remove it.
-                Ok(Exited::Ended { removed: false, closed }) => Ended {
+                // Kept by Codealong's answer: what becomes of the worktree is said once Codealong
+                // has tried to remove it.
+                Ok(Exited::Kept { closed }) => Ended {
                     what: closed.is_ok().then(|| "it exited and its terminal is closed".to_string()),
                     note: closed.err().map(|e| format!("Its terminal didn't close: {e}")),
                     left_worktree: true,
                 },
+                // Kept otherwise, answered in its terminal as Codealong waited: that's kept.
+                Ok(Exited::Ended { removed: false, closed }) => Ended::said(
+                    closed.is_ok().then(|| "it exited and its terminal is closed".to_string()),
+                    Some(format!("{word} kept its worktree, {worktree}.{}", closed.err().map(|e| format!(" Its terminal didn't close: {e}")).unwrap_or_default())),
+                ),
                 Ok(Exited::Asks) => {
                     // However it's answered, here or in its terminal, it's finished once it has
                     // exited, as it would have been had its harness not asked.

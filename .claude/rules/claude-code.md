@@ -481,12 +481,14 @@ on this Mac; read it before changing the Claude adapter (paths are under `src-ta
   worktree. Keep it to continue working there, or remove it to clean up. The worktree is now on
   branch <branch>, which is kept either way.", Remove "Clean up the worktree directory.";
   2.1.329, a session whose branch had merged, 2026-11-19). So Mark as done answers Keep, whatever
-  it says, where its terminal shows it (not one Codealong only supposes is up, which may be
-  another dialog by then; not one started with `--tmux`, whose "Keep worktree, end tmux session"
-  runs `tmux kill-session` and takes every other pane there with it), and once the session has
-  ended removes the worktree itself, as Clean up worktree does, where Codealong's own check finds
-  nothing would be lost, files saved from connectors among what it looks at (a folder of that
-  name in any case, as Claude Code matches it): `claude/exiting.rs` (`keep`), `idle.rs`
+  it says, where its terminal shows it and its Keep "Stays at" the session's own worktree (not one
+  Codealong only supposes is up, which may be another dialog by then; not one started with
+  `--tmux`, whose "Keep worktree, end tmux session" runs `tmux kill-session` and takes every other
+  pane there with it), and once the session has ended removes the worktree itself, as Clean up
+  worktree does, where Codealong's own check finds nothing would be lost, files saved from
+  connectors among what it looks at (a folder of that name in any case and with trailing dots or
+  spaces, as Claude Code matches it). A Keep you pressed yourself keeps the worktree:
+  `claude/exiting.rs` (`keep`), `idle.rs`
   (`keep_worktree`), `actions.rs` (`own_worktree_after`), `cleanup.rs` (`after_end`,
   `saved_from_connectors`). Before, it answered Remove for the reasons its check stood for, which
   left that session asking (2026-11-18 to 2026-11-19). Codealong's removal runs the repo's

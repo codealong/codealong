@@ -355,9 +355,9 @@ fn repo_inside(path: &Path) -> Result<Option<PathBuf>, String> {
 const CONNECTOR_DOWNLOADS: &str = "connector-downloads";
 
 /// Why the worktree at `path` stays for files saved from connectors, if it does: anything in its
-/// `CONNECTOR_DOWNLOADS` folder but that folder's own `.gitignore`, named in any case as Claude
-/// Code matches it (a case-sensitive volume can have `Connector-Downloads`), or a folder that
-/// can't be read whole.
+/// `CONNECTOR_DOWNLOADS` folder but that folder's own `.gitignore`, named as Claude Code matches
+/// it (in any case, as a case-sensitive volume can have `Connector-Downloads`, and with trailing
+/// dots or spaces), or a folder that can't be read whole.
 fn saved_from_connectors(path: &Path) -> Option<String> {
     let unread = |e: std::io::Error| Some(format!("its {CONNECTOR_DOWNLOADS} folder couldn't be read ({e})"));
     let top = match std::fs::read_dir(path) {
@@ -370,8 +370,15 @@ fn saved_from_connectors(path: &Path) -> Option<String> {
             Ok(entry) => entry,
             Err(e) => return unread(e),
         };
-        if !entry.file_name().to_string_lossy().eq_ignore_ascii_case(CONNECTOR_DOWNLOADS) || !entry.file_type().is_ok_and(|t| t.is_dir()) {
+        // Claude Code takes a name with trailing dots or spaces for the folder too, as Windows does.
+        let name = entry.file_name();
+        if !name.to_string_lossy().trim_end_matches(['.', ' ']).eq_ignore_ascii_case(CONNECTOR_DOWNLOADS) {
             continue;
+        }
+        match entry.file_type() {
+            Ok(kind) if kind.is_dir() => {}
+            Ok(_) => continue,
+            Err(e) => return unread(e),
         }
         let inside = match std::fs::read_dir(entry.path()) {
             Ok(inside) => inside,
@@ -662,6 +669,26 @@ mod tests {
         // The repo's teardown in git's place, the branch its own business.
         let hook = Hook { command: "\"$CLAUDE_PROJECT_DIR\"/scripts/remove.sh".into(), cwd: "/r/app".into(), env: vec![], input: "{}".into(), timeout: Duration::from_secs(60) };
         assert_eq!(plan_with(vec![hook]).steps(), ["(in /r/app) \"$CLAUDE_PROJECT_DIR\"/scripts/remove.sh", "claude rm 1df9ebbd"]);
+    }
+
+    #[test]
+    fn files_saved_from_connectors_keep_it_however_the_folder_is_named() {
+        let dir = std::env::temp_dir().join(format!("codealong-cleanup-connectors-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        assert_eq!(saved_from_connectors(&dir), None, "no folder");
+        // A file whose name only starts like it isn't the folder.
+        std::fs::write(dir.join("connector-downloads.txt"), "").unwrap();
+        for name in ["connector-downloads", "Connector-Downloads", "connector-downloads.", "connector-downloads "] {
+            let folder = dir.join(name);
+            std::fs::create_dir_all(&folder).unwrap();
+            std::fs::write(folder.join(".gitignore"), "*\n").unwrap();
+            assert_eq!(saved_from_connectors(&dir), None, "{name:?}: its .gitignore alone");
+            std::fs::write(folder.join("download-1a2b3c4d.pdf"), "").unwrap();
+            assert_eq!(saved_from_connectors(&dir).as_deref(), Some("it holds a file saved from connectors (connector-downloads)"), "{name:?}");
+            std::fs::remove_dir_all(&folder).unwrap();
+        }
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[test]
