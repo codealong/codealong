@@ -284,7 +284,7 @@ describe.each(PLATFORMS)('a session’s chords in the main window, as %s presses
   // mainKeys.ts says these three are let through for Sessions' box; what lets them through asks
   // only that the view is Sessions, so they act from any of its text fields: a session's PR shows
   // in its panel's place there, with a review box of its own. Held here as it is.
-  it('take ⌘E, ⇧⌘E and ⇧⌘M from every text field in Sessions, and from none in another view', () => {
+  it('take ⌘E, ⇧⌘E and ⇧⌘M from every text field in Sessions, and from a todo’s title in no view', () => {
     setPlatform(platform);
     const w = onSession();
     field('other');
@@ -294,6 +294,32 @@ describe.each(PLATFORMS)('a session’s chords in the main window, as %s presses
     const todo = onSession(kestrel(), { view: 'todo' });
     for (const chord of ['Cmd+E', 'Shift+Cmd+E', 'Shift+Cmd+M']) expect(press(chord).defaultPrevented, chord).toBe(false);
     expect(todo.did).toEqual([]);
+  });
+
+  // The list's find isn't a text field to the keys (`inField` leaves it out, for the find's own
+  // keys further down), and ⇧⌘E and ⇧⌘M are taken before those are reached: so with words being
+  // typed into a view's find, both still act on the row selected, in every view. ⌘E does only in
+  // Sessions, where it's the queue's; elsewhere the find's own keys end it. Held here as it is.
+  it('take ⇧⌘E and ⇧⌘M from the list’s find in every view, and ⌘E from it only in Sessions', () => {
+    setPlatform(platform);
+    const find = document.body.appendChild(document.createElement('input'));
+    find.focus();
+    const kanban = onSession(kestrel(), { view: 'kanban', searchRef: { current: find } });
+    expect(press('Cmd+E').defaultPrevented).toBe(false);
+    for (const chord of ['Shift+Cmd+E', 'Shift+Cmd+M']) expect(press(chord).defaultPrevented, chord).toBe(true);
+    expect(kanban.did).toEqual(['Kestrel: done', 'Kestrel: mergeDone']);
+    const sessions = onSession(kestrel(), { searchRef: { current: find } });
+    for (const chord of ['Cmd+E', 'Shift+Cmd+E', 'Shift+Cmd+M']) press(chord);
+    expect(sessions.did).toEqual(['queue seen', 'Kestrel: done', 'Kestrel: mergeDone']);
+    // What's typed there is the find's, a menu's chord too; Escape clears it and ↓ leaves it for
+    // the list, each giving the keyboard up.
+    for (const chord of ['a', 'Ctrl+Cmd+A']) expect(press(chord).defaultPrevented, chord).toBe(false);
+    press('Esc');
+    expect(document.activeElement).not.toBe(find);
+    find.focus();
+    press('Down');
+    expect(document.activeElement).not.toBe(find);
+    expect(sessions.did.slice(3)).toEqual(['filter by “”']);
   });
 
   it('do nothing where the action doesn’t apply, and say why for the ones with no letter', () => {

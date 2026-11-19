@@ -219,8 +219,10 @@ export interface SessionCan {
  *  `open` and `terminal` is optional, so one a window leaves out compiles and its menu item is
  *  quietly gone there: each place writes its own `satisfies CanIn<…>`, which holds it to its
  *  list here both ways, and menus.test.ts says which windows pass each capability. A card's
- *  menu is its window's part and the card's (`card`), and the waiting window's menu for a session
- *  a card names is its part and `waitingNamed`. */
+ *  menu is its window's part and the card's (`card`): the window's part for the session shown,
+ *  or its part for another one the card's header names (the waiting window's is the same for
+ *  both). The waiting window's menu for a session a PR's or a todo's card names is its part and
+ *  `waitingNamed`. */
 export const SESSION_CAN = {
   /** The main window's lists and panels (App.tsx). */
   main: ['report', 'keys', 'open', 'terminal', 'editors', 'newSession', 'ownTerminal', 'todos', 'pin', 'desktop', 'windows', 'rename', 'worktrees', 'archive', 'undoDone', 'left', 'failed', 'mergeDone', 'doneHelpers', 'moving', 'boards', 'labels'],
@@ -244,6 +246,11 @@ export const SESSION_CAN = {
   waiting: ['report', 'open', 'reveal', 'reply', 'rename', 'left', 'failed', 'worktrees'],
   notch: ['report', 'open', 'reveal', 'rename', 'left', 'failed'],
   peek: ['report', 'open', 'reveal', 'putBack', 'rename', 'left'],
+  /** The notch's part, and the peek's, for another session their card's header names (one it
+   *  came from, or that came of it): it shows in Codealong, and what's done to it leaves the
+   *  window on the session it shows. */
+  notchNamed: ['report', 'open', 'reveal'],
+  peekNamed: ['report', 'open', 'reveal'],
   /** What the waiting window adds to its part for a session a PR's or a todo's card names. */
   waitingNamed: ['terminal', 'editors', 'desktop', 'labels', 'doneHelpers'],
 } as const satisfies Record<string, readonly (keyof SessionCan)[]>;

@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { describe, expect, it, vi } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { act, engine, mountHook, press, settle } from './testing/dom';
 import { useEffect, useState } from 'react';
 import type { Left } from './menus';
@@ -29,8 +29,21 @@ const dune = row('dune', 'unread', 40);
 const wren = row('wren', 'working', 5);
 // Listed as a window might list them, which isn't the order they're worked through in.
 const LISTED = [wren, dune, birch, atlas, cedar];
-/** Birch's side conversation, asked something its copy is answering, as the engine tells of it. */
-const answering: Side = { id: 'side-1', key: keyOf('birch'), turns: [{ question: 'Which migration does this call run?', answer: '', done: false }], running: true, ended: false };
+
+// side.ts keeps what the engine tells it of side conversations for as long as the page lives, so
+// a test that has one gives it to a session of its own, waiting on a call to allow as Birch does,
+// and what was told of it is taken back as the test ends.
+const told: Side[] = [];
+/** The engine says the session's side conversation was asked something its copy is answering. */
+function answering(id: string): Side {
+  const side: Side = { id: `side-${id}`, key: keyOf(id), turns: [{ question: 'Which migration does this call run?', answer: '', done: false }], running: true, ended: false };
+  told.push(side);
+  act(() => engine.emit('side', side));
+  return side;
+}
+afterEach(() => {
+  for (const side of told.splice(0)) act(() => engine.emit('side', { ...side, turns: [], running: false, ended: true }));
+});
 
 interface Opens {
   rows?: Row[];
@@ -80,9 +93,9 @@ function open(opens: Opens) {
       window.addEventListener('keydown', hear);
       return () => window.removeEventListener('keydown', hear);
     }, [onKey]);
-    return { on, queue, setRows, setOn };
+    return { on, rows, queue, setRows, setOn };
   });
-  const title = () => LISTED.find((r) => r.session.key === hook.current.on)?.session.title ?? hook.current.on;
+  const title = () => [...hook.current.rows, ...LISTED].find((r) => r.session.key === hook.current.on)?.session.title ?? hook.current.on;
   return {
     hook,
     shows,
@@ -254,25 +267,35 @@ describe('⌘E', () => {
   });
 
   it('sets one that needs you aside while its side conversation answers, and goes on', async () => {
-    const w = open({ on: 'birch', main: true });
+    const w = open({ rows: [...LISTED, row('elm', 'needs', 25)], on: 'elm', main: true });
     await settle();
-    act(() => engine.emit('side', answering));
+    answering('elm');
     expect(press('Cmd+E').defaultPrevented).toBe(true);
-    expect(engine.sent('aside_sessions')).toEqual([{ keys: [keyOf('birch')] }]);
+    expect(engine.sent('aside_sessions')).toEqual([{ keys: [keyOf('elm')] }]);
     expect(w.on).toBe('Cedar');
-    expect(w.queue.notice).toEqual({ text: 'Birch: set aside.', error: false });
+    expect(w.queue.notice).toEqual({ text: 'Elm: set aside.', error: false });
     // It comes back by itself once the side conversation has answered: it isn't kept as dealt with.
     press('Cmd+[');
-    expect(w.on).toBe('Birch');
+    expect(w.on).toBe('Elm');
+  });
+
+  it('leaves it to you again once its side conversation has answered', async () => {
+    const w = open({ rows: [...LISTED, row('gorse', 'needs', 25)], on: 'gorse', main: true });
+    await settle();
+    const side = answering('gorse');
+    act(() => engine.emit('side', { ...side, turns: [{ ...side.turns[0], answer: 'The one that adds the index.', done: true }], running: false }));
+    expect(press('Cmd+E').defaultPrevented).toBe(false);
+    expect(engine.sent('aside_sessions')).toEqual([]);
+    expect(w.on).toBe('Gorse');
   });
 
   it('says why on the session shown when the engine doesn’t set it aside', async () => {
     engine.answer('aside_sessions', () => {
       throw new Error('That session is on another device, which isn’t connected.');
     });
-    const w = open({ on: 'birch', main: true });
+    const w = open({ rows: [...LISTED, row('fern', 'needs', 25)], on: 'fern', main: true });
     await settle();
-    act(() => engine.emit('side', answering));
+    answering('fern');
     press('Cmd+E');
     await settle();
     expect(w.on).toBe('Cedar');

@@ -41,17 +41,34 @@ afterEach(() => {
 });
 
 describe('the board as the main window follows it', () => {
-  it('reads the board once it hears the engine’s pushes, and says it’s loading until it has it', async () => {
+  it('reads the board only once the engine has its listening in, however long that takes, and says it’s loading until it has it', async () => {
     engine.answer('get_board', next());
+    // The engine takes its time to put the listener in.
+    const letIn = engine.holdListening();
     const w = mountHook(() => useBoard());
-    expect([w.current.board, w.current.loading, w.current.loadError]).toEqual([null, true, null]);
-    // Asked for only once the listening is in, so no push falls between the two.
-    expect(engine.sent('get_board')).toEqual([]);
+    await settle();
+    await settle();
+    // Asked to listen and not yet heard: no read has gone out, so no push can fall between a
+    // board read and the pushes that change it.
+    expect([engine.listening('board'), engine.sent('get_board'), w.current.board, w.current.loading, w.current.loadError]).toEqual([0, [], null, true, null]);
+    letIn();
     await settle();
     expect(engine.listening('board')).toBe(1);
     expect(engine.sent('get_board')).toHaveLength(1);
     expect(w.current.loading).toBe(false);
     expect(w.current.board?.lanes.map((l) => l.id)).toEqual(['/r/northwind/app', '/r/northwind/docs']);
+  });
+
+  it('takes nothing a window that went before the listening was in would have heard', async () => {
+    engine.answer('get_board', next());
+    const letIn = engine.holdListening();
+    const w = mountHook(() => useBoard());
+    await settle();
+    w.unmount();
+    letIn();
+    await settle();
+    // It lets go of the listening as soon as it has it, and never asks for the board.
+    expect([engine.listening('board'), engine.sent('get_board')]).toEqual([0, []]);
   });
 
   it('is still loading while the engine’s first scan runs, though a board came', async () => {

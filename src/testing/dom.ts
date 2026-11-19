@@ -12,7 +12,7 @@ import './tauri';
 import { act, createElement, type ReactNode } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { afterEach } from 'vitest';
-import { parseChord, platformChord, setPlatform } from '../platform';
+import { parseChord, platform, platformChord, setPlatform } from '../platform';
 
 export { act } from 'react';
 export { engine } from './tauri';
@@ -63,36 +63,66 @@ export function settle(): Promise<void> {
   return act(() => new Promise<void>((resolve) => setTimeout(resolve, 0)));
 }
 
-/** Where each key that isn't a letter or a digit is on the keyboard, and what it types with ⇧. */
-const KEYS: Record<string, { key: string; code: string; shifted?: string }> = {
+/** The keys that type nothing, by the names chords write them with where the event's differ. */
+const NAMED: Record<string, { key: string; code: string }> = {
   Up: { key: 'ArrowUp', code: 'ArrowUp' },
   Down: { key: 'ArrowDown', code: 'ArrowDown' },
   Left: { key: 'ArrowLeft', code: 'ArrowLeft' },
   Right: { key: 'ArrowRight', code: 'ArrowRight' },
   Esc: { key: 'Escape', code: 'Escape' },
   Space: { key: ' ', code: 'Space' },
-  ']': { key: ']', code: 'BracketRight', shifted: '}' },
-  '[': { key: '[', code: 'BracketLeft', shifted: '{' },
-  '-': { key: '-', code: 'Minus', shifted: '_' },
-  '=': { key: '=', code: 'Equal', shifted: '+' },
-  '`': { key: '`', code: 'Backquote', shifted: '~' },
-  ',': { key: ',', code: 'Comma', shifted: '<' },
-  '.': { key: '.', code: 'Period', shifted: '>' },
-  '/': { key: '/', code: 'Slash', shifted: '?' },
+};
+
+/** Where each key that types a mark is on a US keyboard, and what it types with ⇧. */
+const MARKS: Record<string, { code: string; shifted: string }> = {
+  ']': { code: 'BracketRight', shifted: '}' },
+  '[': { code: 'BracketLeft', shifted: '{' },
+  '-': { code: 'Minus', shifted: '_' },
+  '=': { code: 'Equal', shifted: '+' },
+  '`': { code: 'Backquote', shifted: '~' },
+  ',': { code: 'Comma', shifted: '<' },
+  '.': { code: 'Period', shifted: '>' },
+  '/': { code: 'Slash', shifted: '?' },
+};
+
+/** What the digits type with ⇧ there, 0 first. */
+const SHIFTED_DIGITS = ')!@#$%^&*(';
+
+/** What each key types with ⌥ on a US Mac keyboard, where ⌥ is the layout's other characters and
+ *  not only a modifier: ⌥3 is £ and ⌥C is ç. ⌥E, ⌥I, ⌥N, ⌥U and ⌥` type nothing yet (`Dead`):
+ *  they wait for the letter their accent goes on. */
+const OPTION: Record<string, string> = {
+  a: 'å', b: '∫', c: 'ç', d: '∂', e: 'Dead', f: 'ƒ', g: '©', h: '˙', i: 'Dead', j: '∆', k: '˚', l: '¬', m: 'µ',
+  n: 'Dead', o: 'ø', p: 'π', q: 'œ', r: '®', s: 'ß', t: '†', u: 'Dead', v: '√', w: '∑', x: '≈', y: '¥', z: 'Ω',
+  '1': '¡', '2': '™', '3': '£', '4': '¢', '5': '∞', '6': '§', '7': '¶', '8': '•', '9': 'ª', '0': 'º',
+  '-': '–', '=': '≠', '[': '“', ']': '‘', ',': '≤', '.': '≥', '/': '÷', '`': 'Dead',
 };
 
 /** The key event a US keyboard sends for a chord written as the app writes them, in macOS's terms
  *  (`Shift+Cmd+E`, `Ctrl+Cmd+Up`, `Esc`, `j`), pressed as the platform a test set has it
- *  (platform.ts `setPlatform`): on Linux, `Shift+Cmd+E` is Ctrl, Shift and E. A letter types its
- *  capital with ⇧ held, as a keyboard does. */
+ *  (platform.ts `setPlatform`): on Linux, `Shift+Cmd+E` is Ctrl, Shift and E. Its `key` is what
+ *  the keys type there, so a handler that reads the character where it should read the key's
+ *  place (`code`) fails as it would in the app: ⇧ types a letter's capital and a digit's mark, and
+ *  on macOS ⌥ types the layout's other character (⌥⌘3 is `£` on `Digit3`), with ⌘ held or not,
+ *  unless ⌃ is held too, when WebKit says what the key types without them. On Linux Alt changes
+ *  nothing. */
 export function keyOf(chord: string): KeyboardEventInit {
   const { mods, key: name } = parseChord(platformChord(chord));
-  const shift = mods.includes('Shift');
-  const known = KEYS[name];
+  const held = { metaKey: mods.includes('Cmd'), ctrlKey: mods.includes('Ctrl'), altKey: mods.includes('Alt'), shiftKey: mods.includes('Shift') };
   const letter = /^[A-Za-z]$/.test(name);
-  const key = known ? ((shift && known.shifted) || known.key) : letter ? (shift ? name.toUpperCase() : name.toLowerCase()) : name;
-  const code = known ? known.code : letter ? `Key${name.toUpperCase()}` : /^[0-9]$/.test(name) ? `Digit${name}` : name;
-  return { key, code, metaKey: mods.includes('Cmd'), ctrlKey: mods.includes('Ctrl'), altKey: mods.includes('Alt'), shiftKey: shift };
+  const digit = /^[0-9]$/.test(name);
+  const mark = MARKS[name];
+  // A key that types nothing is itself, whatever is held: an arrow, Enter, Tab, PageUp.
+  if (!letter && !digit && !mark) return { ...(NAMED[name] ?? { key: name, code: name }), ...held };
+  const code = letter ? `Key${name.toUpperCase()}` : digit ? `Digit${name}` : mark.code;
+  const plain = letter ? name.toLowerCase() : name;
+  const shifted = letter ? name.toUpperCase() : digit ? SHIFTED_DIGITS[Number(name)] : mark.shifted;
+  if (platform() === 'mac' && held.altKey && !held.ctrlKey) {
+    // ⌥⇧ is another layer again, which no chord of the app's types on: say so, not something wrong.
+    if (held.shiftKey || !(plain in OPTION)) throw new Error(`src/testing/dom.ts doesn't know what a Mac types for ${chord}: add it to what ⌥ types there.`);
+    return { key: OPTION[plain], code, ...held };
+  }
+  return { key: held.shiftKey ? shifted : plain, code, ...held };
 }
 
 /** Sends a key event where the keyboard is: to the field that has it, else the page's body, from

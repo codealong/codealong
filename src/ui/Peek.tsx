@@ -445,8 +445,9 @@ export function Peek({ kept = false, side = false }: { kept?: boolean; side?: bo
           device={live.device}
           can={can}
           // A session it came from, or that came of it: its menu shows it in Codealong. What's
-          // done to it leaves the peek up, which is on another session.
-          canFor={(l, s) => ({ ...can, reveal: () => host.showSession(l, s), putBack: undefined, rename: undefined, left: undefined })}
+          // done to it leaves the peek up, which is on another session, so it's the peek's part
+          // without what puts the peek's own session back, renames it or goes on from it.
+          canFor={(l, s) => ({ report, open: openTarget, reveal: () => host.showSession(l, s) }) satisfies CanIn<'peekNamed'>}
           onShowSession={showKin}
           onShowLane={host.showLane}
           onShowTodo={host.showTodo}

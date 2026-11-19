@@ -457,30 +457,46 @@ describe('sessionMenu', () => {
 
 describe('what each window can do to a session', () => {
   const PLACES = Object.keys(SESSION_CAN) as CanPlace[];
-  // Where a whole `SessionCan` is made, of the parts in `SESSION_CAN`: every menu a session has.
-  const MENUS: Record<string, CanPlace[]> = {
-    'the main window': ['main'],
-    'the quick panel': ['quick'],
-    'a pill on the bar': ['bar'],
-    'a card on the desktop': ['desktop'],
-    'a session linked in a card’s conversation': ['link'],
-    'a session a PR’s card names in the notch': ['notchReview'],
-    'a session a todo’s card names in the notch': ['notchTodo'],
-    'the waiting window’s card': ['waiting', 'card'],
-    'the notch’s card': ['notch', 'card'],
-    'the peek’s card': ['peek', 'card'],
-    'a session a card names in the waiting window': ['waiting', 'waitingNamed'],
+  /** A menu a session has: the parts in `SESSION_CAN` it's made of, and what those list that the
+   *  window passes as undefined for the session the menu is for. */
+  interface Menu {
+    of: CanPlace[];
+    without?: (keyof SessionCan)[];
+  }
+  // Every menu a session has, as its window makes it once it has the board. What a window passes
+  // or not by the session is written here as the window has it, with where: nothing mounts the
+  // windows, so this is held to them by reading.
+  const MENUS: Record<string, Menu> = {
+    'the main window': { of: ['main'] },
+    'the quick panel': { of: ['quick'] },
+    'a pill on the bar': { of: ['bar'] },
+    'a card on the desktop': { of: ['desktop'] },
+    'a session linked in a card’s conversation': { of: ['link'] },
+    'a session a PR’s card names in the notch': { of: ['notchReview'] },
+    'a session a todo’s card names in the notch': { of: ['notchTodo'] },
+    // Waiting.tsx `can`: the session shown is answered where it is, so Reply here is for another;
+    // going on from it (`left`, `failed`) is for the one shown.
+    'the waiting window’s card': { of: ['waiting', 'card'], without: ['reply'] },
+    // SessionCard.tsx `whole`: the terminal under the box is the session shown's.
+    'a session the waiting window’s card names': { of: ['waiting', 'card'], without: ['left', 'failed', 'ownTerminal'] },
+    'a session a PR’s or a todo’s card names in the waiting window': { of: ['waiting', 'waitingNamed'], without: ['left', 'failed'] },
+    'the notch’s card': { of: ['notch', 'card'] },
+    'a session the notch’s card names': { of: ['notchNamed', 'card'], without: ['ownTerminal'] },
+    // Peek.tsx `putBack`: only from a window the session is kept in.
+    'the peek’s card': { of: ['peek', 'card'], without: ['putBack'] },
+    'a kept session’s window': { of: ['peek', 'card'] },
+    'a session the peek’s card names': { of: ['peekNamed', 'card'], without: ['ownTerminal'] },
   };
   // Every capability, and the places that pass it. It's written by capability so that a new one
   // doesn't compile until it's decided for every place, and so that a window that goes without
   // one stands out on its line.
   const PASSED: Record<keyof SessionCan, readonly CanPlace[]> = {
-    report: ['main', 'quick', 'bar', 'desktop', 'link', 'notchReview', 'notchTodo', 'waiting', 'notch', 'peek'],
-    open: ['main', 'quick', 'bar', 'desktop', 'link', 'notchReview', 'notchTodo', 'waiting', 'notch', 'peek'],
+    report: ['main', 'quick', 'bar', 'desktop', 'link', 'notchReview', 'notchTodo', 'waiting', 'notch', 'peek', 'notchNamed', 'peekNamed'],
+    open: ['main', 'quick', 'bar', 'desktop', 'link', 'notchReview', 'notchTodo', 'waiting', 'notch', 'peek', 'notchNamed', 'peekNamed'],
     terminal: ['main', 'quick', 'bar', 'desktop', 'link', 'notchReview', 'notchTodo', 'card', 'waitingNamed'],
     editors: ['main', 'quick', 'bar', 'desktop', 'link', 'notchReview', 'notchTodo', 'card', 'waitingNamed'],
     desktop: ['main', 'quick', 'bar', 'desktop', 'link', 'notchReview', 'notchTodo', 'card', 'waitingNamed'],
-    reveal: ['quick', 'bar', 'desktop', 'link', 'notchReview', 'notchTodo', 'waiting', 'notch', 'peek'],
+    reveal: ['quick', 'bar', 'desktop', 'link', 'notchReview', 'notchTodo', 'waiting', 'notch', 'peek', 'notchNamed', 'peekNamed'],
     rename: ['main', 'quick', 'bar', 'desktop', 'waiting', 'notch', 'peek'],
     left: ['main', 'bar', 'link', 'waiting', 'notch', 'peek'],
     labels: ['main', 'quick', 'link', 'card', 'waitingNamed'],
@@ -504,6 +520,49 @@ describe('what each window can do to a session', () => {
     boards: ['main'],
   };
 
+  // A session of these tests' own (one another test moved offers no other move meanwhile), with
+  // a helper still at work.
+  const mine = session({ key: 'claude:c:everywhere' });
+  const helper = session({ key: 'claude:c:helping', id: 'helping', title: 'Check the migration', status: 'working', helper: { parent: mine.key } });
+  const lanes = [lane({ sessions: [mine, helper] }), lane({ id: '/r/web', callsign: 'web', path: '/r/web' })];
+  const apps = { terminal: 'Ghostty', terminalId: 'ghostty', editor: 'Cursor', editorId: 'cursor', editors: [{ id: 'cursor', name: 'Cursor' }] };
+  // Everything a window could pass, for a session whose PR is ready to merge.
+  const every: Required<SessionCan> = {
+    report,
+    open: noop,
+    terminal: 'Ghostty',
+    answering: false,
+    heading: true,
+    reveal: noop,
+    putBack: noop,
+    windows: new Set(),
+    reply: noop,
+    editors: { apps, icons: {} },
+    newSession: noop,
+    ownTerminal: { run: noop, has: false },
+    todos: [{ label: 'Add to todo', items: [] }],
+    rename: noop,
+    worktrees: lanes,
+    pin: { label: 'Pin session', run: noop },
+    desktop: new Set(),
+    archive: noop,
+    undoDone: noop,
+    left: noop,
+    failed: noop,
+    moving: noop,
+    boards: [{ label: 'Add to board', items: [] }],
+    labels: [{ id: 'l1', name: 'urgent', color: 'red' }],
+    mergeDone: { prs: [fx.prItem({ repoSlug: 'acme/api', number: 7, mine: true, merge: 'clean', primary: mine.key })], ask: () => true },
+    doneHelpers: { lanes, ask: noop },
+    keys: 'chords',
+  };
+  /** The `SessionCan` a menu is made with: what its parts list, less what the window passes as
+   *  undefined there, `over` in place of the fixture's. */
+  const canOf = ({ of, without = [] }: Menu, over: Partial<SessionCan> = {}): SessionCan => {
+    const passed = of.flatMap((p) => [...SESSION_CAN[p]]).filter((k) => !without.includes(k));
+    return { ...base, ...Object.fromEntries(passed.map((k) => [k, k in over ? over[k] : every[k]])) };
+  };
+
   it('passes in each place what it always has: one dropped there is a menu item gone from that window', () => {
     const listed = Object.fromEntries(PLACES.map((p) => [p, [...SESSION_CAN[p]].sort()]));
     const passed = Object.fromEntries(PLACES.map((p) => [p, (Object.keys(PASSED) as (keyof SessionCan)[]).filter((k) => PASSED[k].includes(p)).sort()]));
@@ -511,53 +570,21 @@ describe('what each window can do to a session', () => {
   });
 
   it('makes every menu of parts that pass each capability once, the three no menu goes without among them', () => {
-    for (const [menu, places] of Object.entries(MENUS)) {
-      const all = places.flatMap((p) => [...SESSION_CAN[p]]);
+    for (const [menu, { of, without = [] }] of Object.entries(MENUS)) {
+      const all = of.flatMap((p) => [...SESSION_CAN[p]]);
       expect(all.filter((k, i) => all.indexOf(k) !== i), menu).toEqual([]);
       expect(all, menu).toEqual(expect.arrayContaining(['report', 'open', 'terminal']));
+      // What a window leaves undefined for a session is something its parts list.
+      expect(without.filter((k) => !all.includes(k)), menu).toEqual([]);
     }
     // And every place is part of some menu.
-    expect(PLACES.filter((p) => !Object.values(MENUS).flat().includes(p))).toEqual([]);
+    expect(PLACES.filter((p) => !Object.values(MENUS).some((m) => m.of.includes(p)))).toEqual([]);
   });
 
   it('offers in each window what that window can do, on top of what every window can', () => {
-    const apps = { terminal: 'Ghostty', terminalId: 'ghostty', editor: 'Cursor', editorId: 'cursor', editors: [{ id: 'cursor', name: 'Cursor' }] };
-    // A session of this test's own: one another test moved offers no other move meanwhile.
-    const mine = session({ key: 'claude:c:everywhere' });
-    // Everything a window could pass, for a session whose PR is ready to merge.
-    const every: Required<SessionCan> = {
-      report,
-      open: noop,
-      terminal: 'Ghostty',
-      answering: false,
-      heading: true,
-      reveal: noop,
-      putBack: noop,
-      windows: new Set(),
-      reply: noop,
-      editors: { apps, icons: {} },
-      newSession: noop,
-      ownTerminal: { run: noop, has: false },
-      todos: [{ label: 'Add to todo', items: [] }],
-      rename: noop,
-      worktrees: [lane(), lane({ id: '/r/web', callsign: 'web', path: '/r/web' })],
-      pin: { label: 'Pin session', run: noop },
-      desktop: new Set(),
-      archive: noop,
-      undoDone: noop,
-      left: noop,
-      failed: noop,
-      moving: noop,
-      boards: [{ label: 'Add to board', items: [] }],
-      labels: [{ id: 'l1', name: 'urgent', color: 'red' }],
-      mergeDone: { prs: [fx.prItem({ repoSlug: 'acme/api', number: 7, mine: true, merge: 'clean', primary: mine.key })], ask: () => true },
-      doneHelpers: { lanes: [], ask: noop },
-      keys: 'chords',
-    };
-    const canOf = (places: CanPlace[]): SessionCan => ({ ...base, ...Object.fromEntries(places.flatMap((p) => [...SESSION_CAN[p]]).map((k) => [k, every[k]])) });
     const plain = labels(sessionMenu(lane(), mine, base));
-    const more = (places: CanPlace[]) => labels(sessionMenu(lane(), mine, canOf(places))).filter((l) => l !== '-' && !plain.includes(l));
-    expect(Object.fromEntries(Object.entries(MENUS).map(([menu, places]) => [menu, more(places)]))).toEqual({
+    const more = (menu: Menu) => labels(sessionMenu(lane(), mine, canOf(menu))).filter((l) => l !== '-' && !plain.includes(l));
+    expect(Object.fromEntries(Object.entries(MENUS).map(([name, menu]) => [name, more(menu)]))).toEqual({
       'the main window': ['New terminal', 'Open in its own window', 'Move to worktree ›', 'Add to todo ›', 'Add to board ›', 'Labels ›', 'Rename…', 'Pin session', 'Pin to desktop', 'Merge #7 and done…'],
       'the quick panel': ['Open in main window', 'Reply here', 'Move to worktree ›', 'Labels ›', 'Rename…', 'Pin to desktop'],
       'a pill on the bar': ['Fix login · api', 'Open in main window', 'Reply here', 'Rename…', 'Pin to desktop'],
@@ -565,11 +592,56 @@ describe('what each window can do to a session', () => {
       'a session linked in a card’s conversation': ['Open in main window', 'Labels ›', 'Pin to desktop'],
       'a session a PR’s card names in the notch': ['Open in main window', 'Pin to desktop'],
       'a session a todo’s card names in the notch': ['Open in main window', 'Pin to desktop'],
-      'the waiting window’s card': ['New terminal', 'Open in main window', 'Reply here', 'Move to worktree ›', 'Labels ›', 'Rename…', 'Pin session', 'Pin to desktop', 'Merge #7 and done…'],
+      'the waiting window’s card': ['New terminal', 'Open in main window', 'Move to worktree ›', 'Labels ›', 'Rename…', 'Pin session', 'Pin to desktop', 'Merge #7 and done…'],
+      'a session the waiting window’s card names': ['Open in main window', 'Reply here', 'Move to worktree ›', 'Labels ›', 'Rename…', 'Pin session', 'Pin to desktop', 'Merge #7 and done…'],
+      'a session a PR’s or a todo’s card names in the waiting window': ['Open in main window', 'Reply here', 'Move to worktree ›', 'Labels ›', 'Rename…', 'Pin to desktop'],
       'the notch’s card': ['New terminal', 'Open in main window', 'Labels ›', 'Rename…', 'Pin session', 'Pin to desktop', 'Merge #7 and done…'],
+      'a session the notch’s card names': ['Open in main window', 'Labels ›', 'Pin session', 'Pin to desktop', 'Merge #7 and done…'],
+      'the peek’s card': ['New terminal', 'Open in main window', 'Labels ›', 'Rename…', 'Pin session', 'Pin to desktop', 'Merge #7 and done…'],
       // Kept on the desktop, it goes back to the main window in place of showing there.
-      'the peek’s card': ['New terminal', 'Put back in main window', 'Labels ›', 'Rename…', 'Pin session', 'Pin to desktop', 'Merge #7 and done…'],
-      'a session a card names in the waiting window': ['Open in main window', 'Reply here', 'Move to worktree ›', 'Labels ›', 'Rename…', 'Pin to desktop'],
+      'a kept session’s window': ['New terminal', 'Put back in main window', 'Labels ›', 'Rename…', 'Pin session', 'Pin to desktop', 'Merge #7 and done…'],
+      'a session the peek’s card names': ['Open in main window', 'Labels ›', 'Pin session', 'Pin to desktop', 'Merge #7 and done…'],
+    });
+  });
+
+  it('asks what becomes of a helper still at work, at Mark as done, only where the window has the dialog for it', async () => {
+    const done = vi.mocked(doneAhead);
+    done.mockReset();
+    done.mockResolvedValue({ done: true, message: 'Done.', at: 5 });
+    const asks = 'asks about Check the migration';
+    const goes = 'marks it done without asking';
+    const how: Record<string, string> = {};
+    for (const [name, menu] of Object.entries(MENUS)) {
+      done.mockClear();
+      const asked: DoneHelpersAsk[] = [];
+      sessionActions(lane(), mine, canOf(menu, { doneHelpers: { lanes, ask: (a) => void asked.push(a) } })).done?.run();
+      await new Promise((r) => setTimeout(r, 0));
+      // Asked, nothing goes to the engine until it's answered; not asked, it's marked done at
+      // once with no helper chosen to end, and the engine makes the one at work your own.
+      const went = done.mock.calls.map((call) => call[3]);
+      if (asked.length === 1 && went.length === 0) how[name] = `asks about ${asked[0].helpers.map((h) => h.title).join(', ')}`;
+      else how[name] = asked.length === 0 && went.length === 1 && went[0] === NONE_CHOSEN ? goes : `asked ${asked.length}, marked done ${JSON.stringify(went)}`;
+    }
+    // The mock as the other tests find it.
+    done.mockReset();
+    expect(how).toEqual({
+      'the main window': asks,
+      'the quick panel': asks,
+      // No dialog in these: the helper is made a session of your own, unasked (actions.rs
+      // `finish_helpers`).
+      'a pill on the bar': goes,
+      'a card on the desktop': goes,
+      'a session linked in a card’s conversation': goes,
+      'a session a PR’s card names in the notch': goes,
+      'a session a todo’s card names in the notch': goes,
+      'the waiting window’s card': asks,
+      'a session the waiting window’s card names': asks,
+      'a session a PR’s or a todo’s card names in the waiting window': asks,
+      'the notch’s card': asks,
+      'a session the notch’s card names': asks,
+      'the peek’s card': asks,
+      'a kept session’s window': asks,
+      'a session the peek’s card names': asks,
     });
   });
 });

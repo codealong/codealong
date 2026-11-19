@@ -18,11 +18,19 @@ const ITEMS = [pill('wren', 'working', 5), pill('cedar', 'unread', 30), pill('at
 const REVIEW: BarReview = fx.barReview({ key: 'northwind/app#12', number: 12, title: 'Kestrel login', repo: 'app', repoSlug: 'northwind/app', url: 'https://github.com/northwind/app/pull/12', project: 'Northwind', since: 20 });
 const NO_TODOS = { due: [], ready: [] };
 
-/** The bar docked in the notch, with these pills and that review on it. */
-function notch(opts: { docked?: boolean; reviews?: BarReview[] } = {}) {
-  const reviews = opts.reviews ?? [REVIEW];
-  const known = (key: string) => ITEMS.some((i) => i.key === key) || reviews.some((r) => r.key === key);
-  const stage = mountHook((docked: boolean) => useNotchStage(ITEMS, reviews, NO_TODOS, known, docked), opts.docked ?? true);
+/** What the bar has on it. */
+interface OnBar {
+  items: BarItem[];
+  reviews: BarReview[];
+  docked: boolean;
+}
+
+/** The bar docked in the notch, with these pills and that review on it. The page is the bar's
+ *  window, as the engine knows it (bar.rs `LABEL`): what it sends the bar reaches this page. */
+function notch(over: Partial<OnBar> = {}) {
+  engine.window('bar');
+  const bar: OnBar = { items: ITEMS, reviews: [REVIEW], docked: true, ...over };
+  const stage = mountHook((on: OnBar) => useNotchStage(on.items, on.reviews, NO_TODOS, (key) => on.items.some((i) => i.key === key) || on.reviews.some((r) => r.key === key), on.docked), bar);
   return {
     stage,
     /** What shows: a session's or review's key while it's open. */
@@ -30,6 +38,8 @@ function notch(opts: { docked?: boolean; reviews?: BarReview[] } = {}) {
       return stage.current.open ? stage.current.key : null;
     },
     show: (id: string) => act(() => stage.current.show(keyOf(id))),
+    /** The bar's feed changed. */
+    now: (change: Partial<OnBar>) => stage.rerender({ ...bar, ...change }),
   };
 }
 
@@ -66,14 +76,18 @@ describe('the notch, while a session shows', () => {
   // The peek closes on ⇧⌘Q, ⇧⌘H and ⇧⌘W too (Peek.tsx takes ⌘ with or without ⇧), and the notch
   // doesn't: its `mod` admits ⇧⌘ and the `!e.shiftKey` beside it takes that back. They read as
   // one rule in the comments of both, so one of the two is wrong; which is the owner's to say.
-  // The quick panel is a third spelling: ⌘Q and ⌘H with or without ⇧, and no ⌘W.
+  // The quick panel is a third spelling: ⌘Q and ⌘H with or without ⇧, and no ⌘W. The test after
+  // this one holds what the notch does today, for each of the three keys.
   it.todo('closes on ⇧⌘W, ⇧⌘Q and ⇧⌘H as the peek does, or the peek stops closing on them');
 
-  it('leaves ⌘W with ⇧, ⌃ or ⌥ held, and every other key, to the page', () => {
+  it('leaves ⌘W, ⌘Q and ⌘H with ⇧, ⌃ or ⌥ held, and every other key, to the page', () => {
     const n = notch();
     n.show('atlas');
-    for (const chord of ['Shift+Cmd+W', 'Ctrl+Cmd+W', 'Alt+Cmd+W', 'Cmd+K', 'w', 'Enter']) expect(press(chord).defaultPrevented, chord).toBe(false);
-    expect(n.shown).toBe(keyOf('atlas'));
+    const held = ['W', 'Q', 'H'].flatMap((key) => [`Shift+Cmd+${key}`, `Ctrl+Cmd+${key}`, `Alt+Cmd+${key}`]);
+    for (const chord of [...held, 'Cmd+K', 'w', 'q', 'h', 'Enter']) {
+      expect(press(chord).defaultPrevented, chord).toBe(false);
+      expect(n.shown, chord).toBe(keyOf('atlas'));
+    }
   });
 
   it('hears nothing while it’s closed', () => {
@@ -166,27 +180,60 @@ describe('the notch, while a session shows', () => {
     expect(document.activeElement).toBe(other);
   });
 
-  it('shows the end of what waits when the last one is dealt with, and what comes to wait next takes its place', () => {
+  /** The notch on Atlas with no review asked, then both sessions dealt with: the end of what waits. */
+  const atTheEnd = () => {
     const n = notch({ reviews: [] });
     n.show('atlas');
     act(() => n.stage.current.left(keyOf('atlas'), 'archived'));
     expect(n.shown).toBe(keyOf('cedar'));
     act(() => n.stage.current.left(keyOf('cedar'), 'marked seen'));
-    expect([n.stage.current.open, n.stage.current.kind, n.stage.current.ended]).toEqual([true, 'end', 'Cedar: marked seen.']);
-    // The end keeps the keyboard, and Escape puts it away as it does a session.
-    press('Esc');
+    return n;
+  };
+
+  it('shows the end of what waits when the last one is dealt with, which keeps the keyboard until Escape puts it away', () => {
+    const n = atTheEnd();
+    expect([n.stage.current.open, n.stage.current.kind, n.stage.current.keys, n.stage.current.ended]).toEqual([true, 'end', true, 'Cedar: marked seen.']);
+    expect(press('Esc').defaultPrevented).toBe(true);
     expect(n.stage.current.open).toBe(false);
   });
 
-  it('is put away when the bar leaves the notch, and loses the keyboard when the engine says another app took it', async () => {
+  it('goes on from the end by itself to what comes to wait next, and not back to one just dealt with', () => {
+    const n = atTheEnd();
+    // The bar still shows the two dealt with as waiting for a moment: the end stays.
+    n.now({ reviews: [], items: [...ITEMS] });
+    expect(n.stage.current.kind).toBe('end');
+    // Dune's turn ends: it takes the end's place, with nothing pressed.
+    n.now({ reviews: [], items: [...ITEMS, pill('dune', 'unread', 50)] });
+    expect([n.shown, n.stage.current.kind, n.stage.current.ended]).toEqual([keyOf('dune'), 'session', null]);
+  });
+
+  it('stays closed when something comes to wait after the end was put away', () => {
+    const n = atTheEnd();
+    press('Esc');
+    n.now({ reviews: [], items: [...ITEMS, pill('dune', 'unread', 50)] });
+    expect(n.shown).toBeNull();
+  });
+
+  it('loses the keyboard when the engine tells the bar another app took it, and only then', async () => {
     const n = notch();
     await settle();
     n.show('atlas');
-    act(() => engine.emit('notch-keys', false));
+    // What's sent to another window isn't the bar's to hear.
+    act(() => engine.emitTo('main', 'notch-keys', false));
+    expect([n.shown, n.stage.current.keys]).toEqual([keyOf('atlas'), true]);
+    act(() => engine.emitTo('bar', 'notch-keys', false));
     expect([n.shown, n.stage.current.keys]).toEqual([keyOf('atlas'), false]);
+    // A click in the card takes it back.
     act(() => n.stage.current.takeKeys());
     expect(n.stage.current.keys).toBe(true);
-    n.stage.rerender(false);
+    expect(engine.sent('notch_keys')).toEqual([{ on: true }, { on: true }]);
+  });
+
+  it('is put away when the bar leaves the notch', () => {
+    const n = notch();
+    n.show('atlas');
+    n.now({ docked: false });
     expect(n.shown).toBeNull();
+    expect(engine.sent('notch_keys')).toEqual([{ on: true }, { on: false }]);
   });
 });

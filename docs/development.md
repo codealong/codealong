@@ -77,11 +77,13 @@ IPC stubbed, for screenshots and scripted checks; its header lists the views and
 `npm test` runs in plain Node, on pure functions and made-up data (`src/testing/fixtures.ts`). A
 test of a hook or of keys asks for a page of its own: its file starts with
 `// @vitest-environment jsdom` and imports `src/testing/dom.ts` first, which mounts a hook
-(`mountHook`), presses a chord as the platform set has it (`press`, with `setPlatform`) and brings
-the engine's stand-in (`src/testing/tauri.ts`: what the page sent, what each command answers,
-events emitted to it). Unlike a browser check it runs on no one's data, so what it holds, it
-holds the same on every machine. `useWaitingQueue.test.ts` and `mainKeys.dom.test.ts` are the
-ones to copy from.
+(`mountHook`), presses a chord with what the platform set types for it (`press`, with
+`setPlatform`) and brings the engine's stand-in (`src/testing/tauri.ts`: what the page sent, what
+each command answers, which window the page is, and events emitted to every window or to one).
+Unlike a browser check it runs on no one's data, so what it holds, it holds the same on every
+machine, in any order: what a module keeps for as long as its page lives (side.ts's side
+conversations, api.ts's board) is the next test's too, so a test gives it keys of its own.
+`useWaitingQueue.test.ts` and `mainKeys.dom.test.ts` are the ones to copy from.
 
 ## Linux
 

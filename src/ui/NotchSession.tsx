@@ -504,7 +504,7 @@ export function NotchSession({ sessionKey, rename, now, queue, notice, onBack, k
         device={live.device}
         can={can}
         // A session it came from, or that came of it: its menu shows it in Codealong.
-        canFor={(l, s) => ({ report, open: host.open, reveal: () => host.showSession(l, s) })}
+        canFor={(l, s) => ({ report, open: host.open, reveal: () => host.showSession(l, s) }) satisfies CanIn<'notchNamed'>}
         outgoing={session.key !== sessionKey}
         onShowSession={(_l, s) => onShow(s.key)}
         onShowLane={host.showLane}
