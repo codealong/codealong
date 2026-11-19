@@ -1175,7 +1175,9 @@ each with its key where it has one, and Next (⌘]) at its end:
   due date as it is) and Due…;
 - a worktree's: New session (⌘N), Terminal (⌘1), Editor (⌘2) and GitHub (⌘O, for its PR), the
   keys said where the worktree is the row selected; its Open in menu stays under its header;
-- a schedule's: Run now, Pause or Resume, and Edit.
+- a schedule's: Run now, Pause or Resume, and Edit, and at its start when it runs next (*Next run
+  in 2h*, *Next look in 5m* for a watch; *Paused*, *Finished* or *Runs when it's fired* where none
+  is coming).
 
 Next stays in the view you're in, so the selection moves down its list: in Sessions it goes through
 the sessions that wait on you, in PRs through the PRs listed that wait on your review, and in Todo
@@ -1991,8 +1993,8 @@ runs started or sent to, each followed by the sessions it started (what a triage
 latest run's, and any other still at work or waiting on you, with the rest, archived ones too, a
 click away (List N more). One picked there shows its own panel in place of the schedule's, with the
 way back; Return or a double-click opens it where it lives, and its right-click menu is a session's.
-The panel beside a schedule says when it runs and when next on its first line, and has its
-prompt, the session it keeps going, and its latest runs, each with why it ran and how it went (started, sent,
+The panel beside a schedule says when it runs on its first line, and when next at the start of the
+strip over it, and has its prompt, the session it keeps going, and its latest runs, each with why it ran and how it went (started, sent,
 went on, waiting, skipped, missed, failed) and its session a click away. Run now, Pause and Edit
 are on the strip over it (*The strip over every panel*); its right-click menu has those, Copy
 schedule ID and Delete schedule. A session a

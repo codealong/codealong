@@ -1,5 +1,5 @@
-// A schedule's panel, beside the Schedules view's list: when it runs and when next (on the
-// header's first line, beside its icon), what it does and what it's told, which of your machines
+// A schedule's panel, beside the Schedules view's list: when it runs next (at the start of the
+// strip over it), when it runs (on the header's first line, beside its icon), what it does and what it's told, which of your machines
 // runs it next, how its watch's last look went, the session it keeps going, and its latest runs,
 // each with why it ran, how it went and on which machine, its session a click away. Run now,
 // Pause and Edit are on the strip over it, as what's commonly done to a session, a PR or a todo is
@@ -14,9 +14,10 @@ import { Button, Icon, SessionEmblem, SessionGlyph, cx, headerMenu } from './pri
 import { QueueStrip, type StripAction } from './SessionPanel';
 import { NOWHERE } from '../viewQueue';
 
-/** The strip over a schedule's panel, its Next dimmed: there's no order to go through. */
-function ScheduleStrip({ buttons, of }: { buttons: StripAction[]; of: string }) {
-  return <QueueStrip hotkeys={{ nowhere: NOWHERE.schedules }} buttons={buttons} of={of} />;
+/** The strip over a schedule's panel: when it runs next at its start, and its Next dimmed, there
+ *  being no order to go through. */
+function ScheduleStrip({ buttons, of, next }: { buttons: StripAction[]; of: string; next: string }) {
+  return <QueueStrip hotkeys={{ nowhere: NOWHERE.schedules }} buttons={buttons} of={of} say={next} />;
 }
 
 export interface SchedulePanelProps {
@@ -50,14 +51,12 @@ function settingsWords(s: ScheduleItem): string[] {
   return out;
 }
 
-/** When it runs and when next, on the header's first line, which otherwise holds only an icon
- *  and a tag. Long words (a watch's command) are cut there, never when next; the whole on hover. */
-function WhenLine({ words, next }: { words: string; next: string }) {
+/** When it runs, on the header's first line, which otherwise holds only an icon and a tag. Long
+ *  words (a watch's command) are cut there; the whole on hover. When next is the strip's. */
+function WhenLine({ words }: { words: string }) {
   return (
-    <span className="ca-schedinsp-when" title={next ? `${words} · ${next}` : words}>
-      <span className="ca-schedinsp-when-words">{words}</span>
-      {/* A space that leads a flex item would be dropped. */}
-      {next && <span className="ca-schedinsp-next">{'\u00a0· '}{next}</span>}
+    <span className="ca-schedinsp-when" title={words}>
+      {words}
     </span>
   );
 }
@@ -66,17 +65,18 @@ function WhenLine({ words, next }: { words: string; next: string }) {
  *  going, what it's told, and the way to it where it lives. Read only: it's changed there. */
 export function HarnessSchedulePanel({ item: h, now, sessionOf, onShowSession, onOpen }: { item: HarnessSchedule; now: number; sessionOf: SchedulePanelProps['sessionOf']; onShowSession: SchedulePanelProps['onShowSession']; onOpen: () => void }) {
   const session = h.session ? sessionOf(h.session) : null;
-  const next = h.paused ? 'Paused' : nextWords({ paused: false, nextAt: h.nextAt, when: { kind: 'time', rule: '' } }, now);
+  const next = nextWords({ paused: h.paused, nextAt: h.nextAt, when: { kind: 'time', rule: '' }, problem: h.problem }, now, 'strip');
   return (
     <aside className="ca-insp ca-schedinsp" aria-label="Schedule details">
       <ScheduleStrip
         of="this schedule"
+        next={next}
         buttons={[{ label: h.link ? `Open in ${HARNESS_APP[h.harness]}` : 'Open its session', title: h.link ? `Open it in ${HARNESS_APP[h.harness]}` : session ? 'Open its session where it runs' : 'Its session isn’t on the board', run: h.link || session ? onOpen : undefined }]}
       />
       <header>
         <div className="ca-insp-title">
           <Icon name="clock" size={14} />
-          <WhenLine words={h.whenWords} next={next} />
+          <WhenLine words={h.whenWords} />
           <span className="ca-tag">{h.problem ? 'Can’t run' : h.paused ? 'Paused' : 'Active'}</span>
         </div>
         <h3 className="ca-schedinsp-name">{h.name}</h3>
@@ -126,7 +126,7 @@ export function SchedulePanel({ item, now, sessionOf, onShowSession, onRun, onPa
   const maker = s.createdBy ? sessionOf(s.createdBy) : null;
   const thread = s.thread ? sessionOf(s.thread) : null;
   const target = s.run.to === 'session' ? sessionOf(s.run.session) : null;
-  const next = nextWords(s, now);
+  const next = nextWords(s, now, 'strip');
   const sessionButton = (found: { lane: Lane; session: Session }, phrase: string) => (
     <button type="button" className="ca-sessinsp-kin" title={`Show “${found.session.title}”`} onClick={() => onShowSession(found.lane, found.session)}>
       <span className="ca-sessinsp-kin-phrase">{phrase}</span>
@@ -138,6 +138,7 @@ export function SchedulePanel({ item, now, sessionOf, onShowSession, onRun, onPa
     <aside className="ca-insp ca-schedinsp" aria-label="Schedule details">
       <ScheduleStrip
         of="this schedule"
+        next={next}
         buttons={[
           { label: 'Run now', title: 'Run it now, as its time coming would', run: onRun },
           { label: s.paused ? 'Resume' : 'Pause', title: s.paused ? 'Let it run again from its next time' : 'Nothing runs it until you resume it', run: () => onPause(!s.paused) },
@@ -147,7 +148,7 @@ export function SchedulePanel({ item, now, sessionOf, onShowSession, onRun, onPa
       <header onContextMenu={headerMenu(() => onMenu())}>
         <div className="ca-insp-title">
           <Icon name={whenIcon(s.when)} size={14} />
-          <WhenLine words={s.whenWords} next={next} />
+          <WhenLine words={s.whenWords} />
           <span className="ca-tag">{s.finished != null ? 'Finished' : s.problem ? 'Can’t run' : s.paused ? 'Paused' : 'Active'}</span>
           <Button variant="ghost" size="sm" icon="dots" aria-label="More" title="Run, pause, change or delete it" onClick={(e) => {
             const r = e.currentTarget.getBoundingClientRect();

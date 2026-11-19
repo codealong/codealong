@@ -56,13 +56,21 @@ export function scheduleName(s: Pick<ScheduleItem, 'name' | 'orchestrates'>): st
   return s.orchestrates && said(s.name) === said(given) ? 'Orchestrator' : s.name;
 }
 
-export function nextWords(item: Pick<ScheduleItem, 'paused' | 'nextAt' | 'when' | 'finished'>, now: number): string {
-  if (item.finished != null) return '';
+/** When it runs next: on its row in the list (`Next in 2h`, `Looks in 5m`, `Paused`), or at the
+ *  start of the strip over its panel (SchedulePanel.tsx), where Next is the queue's button beside
+ *  it, so the words say what comes next (`Next run in 2h`, `Next look in 5m`) and why none comes
+ *  where that's so, as the panel's tag does (`Finished`, `Can’t run`, `Paused`). */
+export function nextWords(item: Pick<ScheduleItem, 'paused' | 'nextAt' | 'when' | 'finished' | 'problem'>, now: number, on: 'row' | 'strip' = 'row'): string {
+  const strip = on === 'strip';
+  if (item.finished != null) return strip ? 'Finished' : '';
+  if (strip && item.problem) return 'Can’t run';
   if (item.paused) return 'Paused';
-  if (item.nextAt == null) return '';
-  if (item.nextAt <= now) return item.when.kind === 'watch' ? 'Looks now' : 'Due now';
+  if (item.nextAt == null) return strip && item.when.kind === 'fired' ? 'Runs when it’s fired' : '';
+  const watch = item.when.kind === 'watch';
+  if (item.nextAt <= now) return watch ? 'Looks now' : 'Due now';
   const at = resetsPhrase(item.nextAt, now);
-  return item.when.kind === 'watch' ? `Looks ${at}` : `Next ${at}`;
+  if (strip) return `${watch ? 'Next look' : 'Next run'} ${at}`;
+  return watch ? `Looks ${at}` : `Next ${at}`;
 }
 
 /** What it does, in a few words: `New session in web on Auto`, `Sends to “Fix the header”`. The

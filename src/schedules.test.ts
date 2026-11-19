@@ -20,6 +20,22 @@ describe('schedules', () => {
     expect(nextWords(item({ when: { kind: 'fired' }, nextAt: undefined }), NOW)).toBe('');
   });
 
+  it('says when one runs next on the strip over its panel, beside the queue’s Next', () => {
+    const strip = (over: Partial<ScheduleItem>) => nextWords(item(over), NOW, 'strip');
+    expect(strip({ nextAt: NOW + 2 * HOUR })).toBe('Next run in 2h');
+    expect(strip({ when: { kind: 'watch', command: 'gh run list', every: '5m', mode: 'lines' }, nextAt: NOW + 5 * 60_000 })).toBe('Next look in 5m');
+    expect(strip({ nextAt: NOW - 1000 })).toBe('Due now');
+    expect(strip({ nextAt: NOW + 2 * HOUR, paused: true })).toBe('Paused');
+    expect(strip({ finished: 100, nextAt: NOW + HOUR })).toBe('Finished');
+    expect(strip({ when: { kind: 'fired' }, nextAt: undefined })).toBe('Runs when it’s fired');
+    expect(strip({ nextAt: undefined })).toBe('');
+    // One that can't run says so, as its panel's tag does, whatever its time or how it's run.
+    expect(strip({ when: { kind: 'fired' }, nextAt: undefined, problem: 'Its worktree is gone' })).toBe('Can’t run');
+    expect(strip({ nextAt: NOW + 2 * HOUR, paused: true, problem: 'Its worktree is gone' })).toBe('Can’t run');
+    // Its row keeps its own words.
+    expect(nextWords(item({ nextAt: NOW + 2 * HOUR, problem: 'Its worktree is gone' }), NOW)).toBe('Next in 2h');
+  });
+
   it('says what one does', () => {
     const title = (k: string) => (k === 'claude:claude:a' ? 'Fix the header' : null);
     expect(doesWords(item({}), title)).toBe('New session in northwind-app on Auto');

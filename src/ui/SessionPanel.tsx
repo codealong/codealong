@@ -149,8 +149,11 @@ export interface SessionPanelProps extends Omit<SessionHeaderProps, 'seenAbove' 
  *  something done to this one went). It keeps to one line beside the buttons, which keep their
  *  place, cut short where they leave it too little room and all of it under the pointer, over the
  *  strip and down from it (primitives.tsx `OneLine`). */
-function StripNote({ notice, queue }: { notice: Notice | null | undefined; queue?: Queue }) {
-  return <OneLine className={cx('ca-reply-queue-note', notice?.error && 'is-error')} role="status" down text={notice?.text ?? queueWords(queue)} />;
+function StripNote({ notice, queue, say }: { notice: Notice | null | undefined; queue?: Queue; say?: string }) {
+  const told = notice?.text ?? queueWords(queue);
+  // What's said in their place (a schedule's next run, counting down by the minute) is read where
+  // it stands, not announced as it changes.
+  return <OneLine className={cx('ca-reply-queue-note', notice?.error && 'is-error')} role={told || !say ? 'status' : undefined} down text={told || (say ?? '')} />;
 }
 
 /** What the strip says while it has nothing else to: how many wait on you after the session
@@ -342,13 +345,15 @@ interface QueueStripProps {
    *  the strip's start where the queue's words would be, so what's under the strip starts where
    *  it always does. */
   back?: PanelBackTo;
+  /** What the strip says at its start where no queue has words for it: when a schedule runs next. */
+  say?: string;
 }
 
 /** Above a session answered in turn: how the one before went, and the way on to the next (⌘]).
  *  With `hotkeys` it's always there, and has what's commonly done to the session as buttons that
  *  say their keys, the ones the session's menu runs (menus.ts); the keys for back, next and
  *  putting it away are the queue's (queue.ts). */
-export function QueueStrip({ queue, notice, hotkeys, session, actions, onSeen, buttons: own, of = 'this session', back }: QueueStripProps) {
+export function QueueStrip({ queue, notice, hotkeys, session, actions, onSeen, buttons: own, of = 'this session', back, say }: QueueStripProps) {
   const next = queue?.next;
   const [nextKey, nextToo] = queueSigns('next');
   const stripRef = useRef<HTMLDivElement>(null);
@@ -428,7 +433,7 @@ export function QueueStrip({ queue, notice, hotkeys, session, actions, onSeen, b
   return (
     <div ref={stripRef} className={cx('ca-reply-queue', 'has-keys', hotkeys.titleBar && 'is-titlebar')} data-tauri-drag-region={hotkeys.titleBar ? 'deep' : undefined}>
       {back && <PanelBack back={back} strip />}
-      <StripNote notice={notice} queue={back ? undefined : queue} />
+      <StripNote notice={notice} queue={back ? undefined : queue} say={back ? undefined : say} />
       {buttons}
     </div>
   );

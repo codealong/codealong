@@ -1,21 +1,14 @@
 /* A schedule's panel (SchedulePanel.tsx): its name, when it runs and what it does, what it's told,
    and its runs, each with how it went and its session. */
 
-/* When it runs, beside the header's icon: its words cut short before the tag, never when next. */
+/* When it runs, beside the header's icon: its words cut short before the tag. */
 .ca-schedinsp-when {
-  display: flex;
-  min-width: 0;
-  white-space: nowrap;
-  font: var(--type-body);
-  color: var(--ink);
-}
-.ca-schedinsp-when-words {
   min-width: 0;
   overflow: hidden;
+  white-space: nowrap;
   text-overflow: ellipsis;
-}
-.ca-schedinsp-when > .ca-schedinsp-next {
-  flex: none;
+  font: var(--type-body);
+  color: var(--ink);
 }
 .ca-schedinsp-name {
   display: flex;

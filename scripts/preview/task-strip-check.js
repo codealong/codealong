@@ -2,15 +2,14 @@
 // and its Next, which goes through what waits on you in the view shown (useViewQueues.ts): a
 // todo's panel has Start, Done, Snooze and Due… (TodoStrip.tsx), ⌘] goes from the todo shown to
 // the next due one, and ⇧⌘E marks the one shown done and goes on, to the ready one once none due
-// is left; a PR's panel has
-// Next too, ⌘] going on to the next PR waiting on your review; once a view's own are through,
-// Next offers the next kind in your order that waits in another view, and goes there (the todos'
-// to PRs here, reviews being put first); a schedule's panel has
-// Run now, Pause and Edit, its Next dimmed; a worktree's has New session, Terminal, Editor and
-// GitHub, and its Next goes to the first session that waits. Each of those three strips is flush
-// with its panel's top edge, over nothing of the header, and stays there as the panel scrolls.
-// Two open PRs are made ones waiting on
-// your review, and the sample todos stand in for yours.
+// is left; a PR's panel has Next too, ⌘] going on to the next PR waiting on your review; once a
+// view's own are through, Next offers the next kind in your order that waits in another view, and
+// goes there (the todos' to PRs here, reviews being put first); a schedule's panel has Run now,
+// Pause and Edit, when it runs next at the strip's start, and its Next dimmed; a worktree's has
+// New session, Terminal, Editor and GitHub, and its Next goes to the first session that waits.
+// Each of those three strips is flush with its panel's top edge, over nothing of the header, and
+// stays there as the panel scrolls. Two open PRs are made ones waiting on your review, and the
+// sample todos stand in for yours.
 //   PREVIEW_TODOS=scripts/preview/todos-sample.json PREVIEW_SCHEDULES=scripts/preview/schedules-sample.json PREVIEW_SIZE=1920,1100 PREVIEW_WAIT=90000 scripts/preview.sh todo '' scripts/preview/task-strip-check.js
 //   PREVIEW_PLATFORM=linux PREVIEW_TODOS=scripts/preview/todos-sample.json PREVIEW_SCHEDULES=scripts/preview/schedules-sample.json PREVIEW_SIZE=1920,1100 PREVIEW_WAIT=90000 scripts/preview.sh todo '' scripts/preview/task-strip-check.js
 (function () {
@@ -139,6 +138,9 @@
       check('a schedule’s strip has Run now, Pause or Resume, Edit and Next', /^Run now\|(Pause|Resume)\|Edit\|Next$/.test(words(s)), words(s));
       var n = nextButton(s);
       check('its Next is dimmed, saying why', n.disabled && /Schedules don’t wait on you/.test(n.title), n.title);
+      check('and its start says when the schedule runs next', /^(Next run |Next look |Due now|Looks now|Paused|Finished|Can’t run|Runs when)/.test(said(s)), said(s));
+      var role = q('.ca-reply-queue-note', s).getAttribute('role');
+      check('read where it stands, not announced each minute as it counts down', !role, role);
       flush('.ca-schedinsp', 'a schedule');
       say('task strip check: a worktree');
       view('s');
