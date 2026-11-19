@@ -92,9 +92,11 @@ export interface Hotkeys {
    *  canvas): it stays in its place, dimmed, saying so. */
   nowhere?: string;
   /** The window's keys for a session act on another than the one shown (the main window's list
-   *  has none selected on the canvas, a schedule under a schedule's session): the session's buttons
-   *  don't say them. */
+   *  has none selected on the canvas): the session's buttons don't say them. */
   noKeys?: boolean;
+  /** False where what Next goes through isn't the session's own queue (Kanban's todos): Next goes
+   *  on through it, and ⌘E, marking seen, doesn't. */
+  ownQueue?: boolean;
   /** The strip is its window's title bar (the waiting window has no other): it drags the window,
    *  and leaves room at its start for the window's buttons. */
   titleBar?: boolean;
@@ -361,6 +363,8 @@ export function QueueStrip({ queue, notice, hotkeys, session, actions, onSeen, b
   const archive = actions?.archive;
   const mergeDone = actions?.mergeDone;
   const sign = (name: keyof typeof CHORDS) => chordSigns(CHORDS[name] ?? '');
+  // Seen goes on to the next only through the session's own queue.
+  const seenGoes = !!next && hotkeys?.ownQueue !== false;
   const listed: StripAction[] = own ?? [
     // Only where there's a PR to merge, and first, where its coming and going moves nothing
     // else: the strip keeps to the right.
@@ -369,12 +373,12 @@ export function QueueStrip({ queue, notice, hotkeys, session, actions, onSeen, b
       label: 'Seen',
       chord: CHORDS.seen,
       title: !seen
-        ? next && queue?.waiting === false
+        ? seenGoes && queue?.waiting === false
           ? `Nothing to mark as seen here: ${hotkeys?.noKeys ? 'Next' : sign('seen')} goes on to the next`
           : 'Nothing to mark as seen here'
         : aside
           ? 'Set it aside until its side conversation answers: it needs you again then'
-          : next && queue?.waiting !== false
+          : seenGoes && queue?.waiting !== false
             ? 'Mark as seen and go on to the next'
             : 'Mark as seen: it goes idle and leaves what waits on you',
       run: seen && (() => seen()),

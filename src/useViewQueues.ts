@@ -97,7 +97,9 @@ export function useViewQueues<S extends { key: string; session: Session }>(o: Vi
     if (!v) return undefined;
     const base = v === 'sessions' ? fromFirst(sessions.queue, sessions.reads, sessions.show) : v === 'prs' ? fromFirst(prs, prReads, (r) => o.select(`pr:${r.pr.key}`)) : fromFirst(todos, todoReads, (r) => o.select(r.item.key));
     if (base.next) return base;
-    const offer = elsewhereOffer(v, elsewhere, (v === 'sessions' ? sessions.queue : v === 'prs' ? prs : todos).pending.length);
+    // Whether anything of its own waits: the one shown, where it does, else what's pending there.
+    const q = v === 'sessions' ? sessions.queue : v === 'prs' ? prs : todos;
+    const offer = elsewhereOffer(v, elsewhere, q.queue ? Number(q.queue.waiting !== false) : q.pending.length);
     // Sending or marking seen doesn't go on to another view: only Next does.
     return offer ? { ...base, next: { title: offer.title }, left: undefined, ready: undefined, waiting: false, elsewhere: offer.words, onNext: () => goTo(offer.view) } : base;
   };

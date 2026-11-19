@@ -186,6 +186,8 @@ export function onMainKey<V extends string>(e: KeyboardEvent, keys: MainKeys<V>)
   // ⌘ held, whatever else is (Ctrl on Linux, platform.ts).
   const mod = cmd(e);
   const key = e.key.toLowerCase();
+  // One of `PLACE_CHORDS`, by the key typed with ⌘, so a digit on the keypad is one too.
+  const placeKey = (name: keyof typeof PLACE_CHORDS) => mod && key === PLACE_CHORDS[name].slice(PLACE_CHORDS[name].lastIndexOf('+') + 1).toLowerCase();
   const inBox = view === 'sessions' && !!document.activeElement?.closest('.ca-sessinsp .ca-composer');
   // Sessions takes no plain letters: a click on a row puts the cursor in the panel's box, and a
   // word typed on the list by mistake would otherwise pin, archive or rename. Its keys are
@@ -377,7 +379,7 @@ export function onMainKey<V extends string>(e: KeyboardEvent, keys: MainKeys<V>)
     return;
   }
   // ⌘⇧N is File › New window's, so it works with no window open too.
-  if (chordPressed(PLACE_CHORDS.newSession, e)) {
+  if (placeKey('newSession') && !e.shiftKey) {
     e.preventDefault();
     // On a todo, the session is for the todo; on several picked, one session for all of them.
     if (pickedRows.length > 0) startForTodos(pickedRows);
@@ -537,22 +539,22 @@ export function onMainKey<V extends string>(e: KeyboardEvent, keys: MainKeys<V>)
       (t) => t.group === 'session' && !t.disabled && t.id !== primary && (selected?.kind !== 'agent' || t.id.startsWith(`s|${selected.session.key}|`)),
     );
     open(lane, alt?.id ?? 'l|editor');
-  } else if (chordPressed(PLACE_CHORDS.terminal, e)) {
+  } else if (placeKey('terminal')) {
     e.preventDefault();
     open(lane, 'l|terminal');
-  } else if (chordPressed(PLACE_CHORDS.editor, e)) {
+  } else if (placeKey('editor')) {
     e.preventDefault();
     open(lane, 'l|editor');
-  } else if (chordPressed(PLACE_CHORDS.claudeApp, e)) {
+  } else if (placeKey('claudeApp')) {
     e.preventDefault();
     open(lane, lane?.targets.find((t) => t.id.endsWith('|claude-app') && !t.disabled)?.id);
-  } else if (chordPressed(PLACE_CHORDS.codex, e)) {
+  } else if (placeKey('codex')) {
     e.preventDefault();
     open(lane, lane?.targets.find((t) => t.id.endsWith('|codex') && !t.disabled)?.id);
-  } else if (chordPressed(PLACE_CHORDS.preview, e)) {
+  } else if (placeKey('preview')) {
     e.preventDefault();
     if (lane?.preview) open(lane, 'l|preview');
-  } else if (chordPressed(PLACE_CHORDS.github, e)) {
+  } else if (placeKey('github')) {
     e.preventDefault();
     const github = picked('github');
     if (github) github.run();

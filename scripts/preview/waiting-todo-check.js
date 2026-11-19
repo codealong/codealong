@@ -29,6 +29,10 @@
       (board.prs || []).forEach(function (pr) { pr.reviewRequested = false; });
       // The two sample todos due, and two more due today after them (the stub's stand-in for the
       // engine's list, fake-tauri.js `withFixture`).
+      // The one whose box the check writes in starts in a worktree of its own here, whatever
+      // sessions this Mac has for the fixture's to stand for.
+      var here = board.lanes.filter(function (l) { return !l.hidden && !l.device; })[0];
+      board.todos.forEach(function (t) { if (t.id === 't-sample2' && here) t.worktrees = [here.id]; });
       ['t-sample3', 't-sample4'].forEach(function (id) {
         var i = board.todos.findIndex(function (t) { return t.id === id; });
         var t = board.todos[i];

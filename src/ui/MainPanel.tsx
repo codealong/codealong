@@ -382,7 +382,7 @@ export function MainPanel(props: MainPanelProps) {
         // The strip is always there, with what's commonly done to a session and the keys for it,
         // which are the row selected's, or the session's selected under its schedule; on the canvas
         // they're none of them. Back and forward are in the title bar.
-        hotkeys={{ nowhere, noKeys: !((selected?.kind === 'agent' && selected.session.key === session.key) || scheduleSession?.session.key === session.key) }}
+        hotkeys={{ nowhere, noKeys: !((selected?.kind === 'agent' && selected.session.key === session.key) || (view === 'schedules' && scheduleSession?.session.key === session.key)), ownQueue: queued }}
         // Everywhere, for what its header's boxes offer (Carry on, a move to another account) and
         // its account's menu in the box; the strip that also reads them is Sessions' alone.
         actions={actionsRef.current.session(lane, session, 'session')}

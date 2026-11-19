@@ -21,6 +21,9 @@ import type { Notice, Queue } from './ui/SessionPanel';
  *  said or the window moves on. */
 const NOTICE_MS = 4000;
 
+/** Nothing pending, one list for every render. */
+const NONE: never[] = [];
+
 /** A session shown, from the session itself. Whether one that needs you can be set aside is
  *  read again as a key asks (`run`): it can while its side conversation answers. */
 export function shownSession(s: Session): Shown {
@@ -60,8 +63,9 @@ export interface WaitingQueue<H = undefined, T = unknown> {
   /** With nothing shown, the first that waits on you and hasn't been dealt with here (queue.ts
    *  `firstLeft`): what the waiting window and the notch's end go to. Null while something shows. */
   first: T | null;
-  /** What waits on you that hasn't been dealt with here, in the queue's order, whatever shows:
-   *  what another view's Next offers goes by it (useViewQueues.ts). */
+  /** With nothing shown, what waits on you that hasn't been dealt with here, in the queue's order:
+   *  what another view's Next offers goes by it (useViewQueues.ts). Empty while something shows,
+   *  whose `queue` says what's left. */
   pending: T[];
   /** With nothing shown, how the last one went when dealing with it ended what waits, for the
    *  end of what waits to say (QueueEnd.tsx); null while something shows, and after opening on
@@ -189,8 +193,8 @@ export function useWaitingQueue<T, H = undefined>(options: WaitingQueueOptions<T
     ? { next: after !== undefined ? { title: view.reads.titleOf(after) } : null, ...leftOf(stands.left, view.reads), onNext: next, waiting: stands.waiting }
     : undefined;
   const notice = note && note.on === view.shown?.key ? { text: note.text, error: note.error } : null;
-  const pending = rules.leftAfter(view.waiting, '', handled.current, view.reads);
-  const first = view.shown ? null : (pending[0] ?? null);
+  const pending = view.shown ? NONE : rules.leftAfter(view.waiting, '', handled.current, view.reads);
+  const first = pending[0] ?? null;
 
   return { queue, notice, first, pending, ended: view.shown ? null : ended, run, onKey, answered, left, again, say, fresh };
 }

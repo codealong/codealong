@@ -20,7 +20,7 @@
       board.prs = (board.prs || []).map(function (x) {
         if (done) return Object.assign({}, x, { reviewRequested: false });
         done = true;
-        return Object.assign({}, x, { state: x.state === 'merged' || x.state === 'closed' ? 'open' : x.state, reviewRequested: true, requestedBy: 'ana', requestedAt: Date.now() - 3600e3, snoozedUntil: null, mergedAt: null, closedAt: null });
+        return Object.assign({}, x, { state: x.state === 'merged' || x.state === 'closed' ? 'open' : x.state, reviewRequested: true, requestedBy: 'ana', requestedAt: Date.now() - 3600e3, snoozedUntil: null, mergedAt: null, closedAt: null, autoReview: null });
       });
       return board;
     });
