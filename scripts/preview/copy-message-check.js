@@ -31,7 +31,8 @@
     var all = saids().filter(function (el) { return el.classList.contains('is-' + kind) && !el.classList.contains('is-ahead') && !el.querySelector('.ca-thread-ran'); });
     return all.filter(function (el) { return kind !== 'agent' || marks(el).length; })[0] || all[0] || null;
   };
-  var headed = function (el) { return !!el.querySelector(':scope > .ca-thread-meta'); };
+  // A run's first message says who said it, for a screen reader, ahead of it, and when, under it.
+  var headed = function (el) { return !!el.querySelector(':scope > .ca-sr, :scope > .ca-thread-meta'); };
   var kindOf = function (el) { return el.classList.contains('is-you') ? 'you' : 'agent'; };
   var sessionItems = function (labels) { return labels.some(function (l) { return /^(Archive|Snooze|Rename|Open in main window)/.test(l); }); };
 

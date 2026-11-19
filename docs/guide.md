@@ -668,11 +668,14 @@ on this machine; and a running one has *Stop* (see *Commands left running*). Bel
 (Claude Code's transcript, Codex's rollout, OpenCode's database): your prompts and the agent's
 replies, their Markdown drawn (a prompt keeps its line breaks and indentation as you typed them,
 and a glob written without backticks, `apps/*` or `*.ts`, isn't read as italics), and every tool call, which opens to its input and output; runs of calls fold into one
-line. When it was heads a run of messages, not each one: your prompt, then the agent's reply, whose
-later messages between its calls go on under that heading; it heads one again after a note in the
-conversation or a pause of ten minutes (the agent woken by a background job's report). Your
-prompts are in a bubble of their own and the header names the agent's account, so neither says who
-wrote it; Codealong's messages and another session's do.
+line. When it was shows under the first message of a run, not each one, at its right: your prompt,
+then the agent's reply, whose later messages between its calls go on without; it shows again after
+a note in the conversation or a pause of ten minutes (the agent woken by a background job's
+report). So does what's said of a message: Writing while the reply is still being written, Taken
+back, and where a message of yours on its way is (Sending, held until the turn ends) with what you
+can do about it. Your prompts are in a bubble of their own and the header names the agent's
+account, so neither says who wrote it; Codealong's messages and another session's do, on their
+cards' line, with their time.
 Another session's message (an agent's, sent with `codealong session send`) is a card, as
 Codealong's own messages are: a line saying who it's from, the sender a link to its session, and
 when, with the message whole under it, in any harness: one Claude Code took on its cross-session

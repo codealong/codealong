@@ -3,9 +3,10 @@
 // It opens at the newest and loads older pages as you scroll up, holding your place; new steps
 // come in at the bottom as the session goes on, and the view follows them while you're at the end,
 // stopping as soon as you scroll up, however little.
-// Who said a message and when heads a run of them, not each one: your prompt, then the agent's
-// reply, whose later messages (between its tool calls) go on under that heading. A heading comes
-// again where the speaker changes, after a note, or after a pause (`headingsOf`). A message
+// When a message was said shows under the first of a run of them, not each one, at its right,
+// with what's said of it (Writing, Taken back): your prompt, then the agent's reply, whose later
+// messages (between its tool calls) go on without. It comes again where the speaker changes, after
+// a note, or after a pause (`headingsOf`); who said it is said first, for a screen reader. A message
 // neither yours nor the agent's is a card (MessageCard.tsx): Codealong's says in a line what it
 // comes to, which opens to the whole; another session's says who it's from and shows its first
 // lines, a long one cut until it's opened; a file or an image it was sent with shows as in a
@@ -481,21 +482,8 @@ function SaidView({ item, result, asked, now, label, who, head, onPutBack, onMen
   };
   return (
     <div className={cx('ca-thread-said', answers ? 'is-you' : `is-${item.kind}`, item.withdrawn && 'is-withdrawn')} data-prompt={item.kind === 'you' ? keyOf(item) : undefined} onContextMenu={menu}>
-      {head !== undefined && (
-        <div className="ca-thread-meta">
-          {/* Who said it, out of sight but for a screen reader where no name shows. */}
-          {label ? (
-            <span className="ca-thread-who">{label}</span>
-          ) : (
-            <span className="ca-sr">{who}</span>
-          )}
-          {(head > 0 || item.withdrawn) && (
-            <span className="ca-meta" title={head > 0 ? absolute(head) : undefined}>
-              {[item.withdrawn && 'Taken back', head > 0 && agoPhrase(head, now)].filter(Boolean).join(' · ')}
-            </span>
-          )}
-        </div>
-      )}
+      {/* Who said it, out of sight but for a screen reader where no name shows, ahead of it. */}
+      {head !== undefined && !label && <span className="ca-sr">{who}</span>}
       {ran ? (
         <div className="ca-thread-ran">
           {/* As typed in the session's box, led by its `!`. */}
@@ -525,6 +513,18 @@ function SaidView({ item, result, asked, now, label, who, head, onPutBack, onMen
         </div>
       ) : (
         <Markdown text={item.text} className="ca-thread-agent" />
+      )}
+      {/* When, under it, and what's said of it: who sent it where that's said, Writing while it's
+          being written, Taken back. */}
+      {head !== undefined && (label || head > 0 || item.withdrawn) && (
+        <div className="ca-thread-meta">
+          {label && <span className="ca-thread-who">{label}</span>}
+          {(head > 0 || item.withdrawn) && (
+            <span className="ca-meta" title={head > 0 ? absolute(head) : undefined}>
+              {[item.withdrawn && 'Taken back', head > 0 && agoPhrase(head, now)].filter(Boolean).join(' · ')}
+            </span>
+          )}
+        </div>
       )}
       {unCopied && (
         <p className="ca-thread-uncopied" role="alert">
@@ -628,12 +628,12 @@ const uneditable = (words: string | null, aside: boolean) => (words == null ? 'E
 function NotYetSaid({ prompt, text, state, action, className, children }: { prompt: string; text: string; state: string; action?: ReactNode; className?: string; children?: ReactNode }) {
   return (
     <div className={cx('ca-thread-said', 'is-you', 'is-ahead', className)} data-prompt={prompt}>
+      <span className="ca-sr">You</span>
+      <YourText text={text} />
       <div className="ca-thread-meta">
-        <span className="ca-sr">You</span>
         <span className="ca-meta">{state}</span>
         {action}
       </div>
-      <YourText text={text} />
       {children}
     </div>
   );
