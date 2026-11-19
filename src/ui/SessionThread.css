@@ -63,10 +63,11 @@
 .ca-thread-said.is-you {
   margin-top: 6px;
 }
-/* What Codealong sent the session by itself that its session took back: neither yours nor the
-   agent's, set apart by a rule at its left, in quieter text. The rest of Codealong's, and another
-   session's, are cards (MessageCard.css). */
-.ca-thread-said.is-codealong {
+/* What Codealong or another session sent that its session took back: neither yours nor the
+   agent's, set apart by a rule at its left; Codealong's in quieter text. The rest are cards
+   (MessageCard.css). */
+.ca-thread-said.is-codealong,
+.ca-thread-said.is-peer {
   margin-top: 6px;
   padding-left: 10px;
   border-left: 2px solid var(--line-strong);

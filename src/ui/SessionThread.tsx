@@ -98,7 +98,7 @@ import { held, keysIn } from '../platform';
 import { asCue, saysNothing, toldIn } from '../listening';
 import { foldQuietRuns } from '../orchestrators';
 import { Told } from './Listening';
-import { CodealongCard, PeerCard } from './MessageCard';
+import { CodealongCard, PeerCard, peerLabel } from './MessageCard';
 
 /** Loads the page before once you're this close to the top. */
 const NEAR_TOP = 240;
@@ -1321,27 +1321,29 @@ export function SessionThread({ session: s, now, onOpen, fallback, machine, onLo
                 const again = it.withdrawn && answeredBelow ? () => putBack(s.key, keyOf(it), it.text, true) : undefined;
                 // What Codealong or another session sent says who sent it. Yours and the agent's
                 // say nothing: your bubble says it's yours, and the header names its account.
-                const label = it.kind === 'codealong' ? 'Codealong' : undefined;
+                const label = it.kind === 'codealong' ? 'Codealong' : it.kind === 'peer' ? peerLabel(it) : undefined;
                 const edit = onEdit && editable.has(keyOf(it)) ? () => onEdit(it) : undefined;
+                const head = headings.headed.get(keyOf(it));
                 // What's neither yours nor the agent's is a card (MessageCard.tsx): Codealong's own
                 // message a line saying what it comes to, which opens to the whole, and another
-                // session's who it's from and its first lines. One of Codealong's its session took
-                // back shows whole, saying so, with a way to put it back.
+                // session's who it's from and its first lines; when, as its heading would say it (a
+                // record without a time goes by the one before). One its session took back shows
+                // whole, saying so, with a way to put it back.
+                const at = head || it.at;
                 if (it.kind === 'codealong' && !it.withdrawn)
                   return (
-                    <CodealongCard key={keyOf(it)} item={it} glance={it.glance} now={now}>
+                    <CodealongCard key={keyOf(it)} item={it} at={at} glance={it.glance} now={now}>
                       <Said item={shown} result={r.result} now={0} who="Codealong" onMenu={onMenu} />
                     </CodealongCard>
                   );
-                if (it.kind === 'peer')
+                if (it.kind === 'peer' && !it.withdrawn)
                   return (
-                    <PeerCard key={keyOf(it)} item={it} now={now}>
-                      <Said item={shown} result={r.result} now={0} who={it.from ?? 'Another session'} onMenu={onMenu} />
+                    <PeerCard key={keyOf(it)} item={it} at={at} now={now}>
+                      <Said item={shown} result={r.result} now={0} who={peerLabel(it)} onMenu={onMenu} />
                     </PeerCard>
                   );
                 // The clock only for one with a heading, which says how long ago: the others needn't
                 // render as it moves.
-                const head = headings.headed.get(keyOf(it));
                 return <Said key={keyOf(it)} item={shown} result={r.result} now={head === undefined ? 0 : now} label={label} who={it.kind === 'you' ? 'You' : s.account} head={head} onPutBack={again} onMenu={onMenu} onEdit={edit} />;
               })}
               {showing.map((a) => (

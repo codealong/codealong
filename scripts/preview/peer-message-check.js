@@ -80,13 +80,17 @@
       check('the short one shows whole, with nothing to open', !toggle(b) && !text(b).classList.contains('is-long') && text(b).clientHeight === text(b).scrollHeight);
       var reply = b.nextElementSibling;
       check('the reply after them heads itself', !!reply && reply.classList.contains('is-agent') && !!reply.querySelector(':scope > .ca-thread-meta'), reply && reply.className);
-      toggle(a).click();
-      return until(function () { return !cut(a); }, 2000).then(function () {
-        check('its button opens it', text(a).clientHeight === text(a).scrollHeight && !text(a).classList.contains('is-long'), text(a).clientHeight + ' of ' + text(a).scrollHeight);
-        check('and offers Show less', opened(a) && toggle(a).getAttribute('aria-label') === 'Show less', toggle(a).outerHTML);
-        // A click on its line closes it as the button does.
-        a.querySelector('.ca-msgcard-head').click();
-        return until(function () { return cut(a); }, 2000);
+      // A right-click on its line is one on the message.
+      return menuOf(a.querySelector('.ca-msgcard-head > .ca-meta')).then(function (labels) {
+        check('a right-click on its line offers Copy message', labels.indexOf('Copy message') >= 0, labels.join(' | '));
+        toggle(a).click();
+        return until(function () { return !cut(a); }, 2000).then(function () {
+          check('its button opens it', text(a).clientHeight === text(a).scrollHeight && !text(a).classList.contains('is-long'), text(a).clientHeight + ' of ' + text(a).scrollHeight);
+          check('and offers Show less', opened(a) && toggle(a).getAttribute('aria-label') === 'Show less', toggle(a).outerHTML);
+          // A click on its line closes it as the button does.
+          a.querySelector('.ca-msgcard-head').click();
+          return until(function () { return cut(a); }, 2000);
+        });
       });
     })
     .then(function () {

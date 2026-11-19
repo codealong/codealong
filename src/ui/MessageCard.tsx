@@ -26,9 +26,11 @@ import { FindContext } from './WindowFind';
 /** What a card shows closed: its line alone (Codealong's), or the message's first lines too. */
 type Closed = 'line' | 'start';
 
-/** The card: `title` after `icon` at its head, then when, then the button that opens it where
- *  there's more to show; `children`, the whole message as the conversation draws it, under it. */
-function MessageCard({ item, now, icon, says: iconSays, title, closed, children }: { item: TranscriptItem; now: number; icon: string; says: string; title: ReactNode; closed: Closed; children: ReactNode }) {
+/** The card: `title` after `icon` at its head, then when (`at`), then the button that opens it
+ *  where there's more to show; `children`, the whole message as the conversation draws it, under
+ *  it. A right-click on its line is one on the message: its menu (Copy message), but on a link,
+ *  which has its own. */
+function MessageCard({ item, at, now, icon, says: iconSays, title, closed, children }: { item: TranscriptItem; at: number; now: number; icon: string; says: string; title: ReactNode; closed: Closed; children: ReactNode }) {
   const [opened, setOpened] = useState(false);
   const finding = useContext(FindContext);
   // Its first render, with nothing drawn yet, goes by its text.
@@ -56,16 +58,23 @@ function MessageCard({ item, now, icon, says: iconSays, title, closed, children 
     if (!opens || found || (e.target as Element).closest('a, button')) return;
     setOpened(!opened);
   };
+  // The message's own handler builds its menu (SessionThread.tsx `Said`), hidden or cut as it is.
+  const menu = (e: MouseEvent) => {
+    const said = body.current?.querySelector(':scope > .ca-thread-said');
+    if (e.defaultPrevented || !said) return;
+    e.preventDefault();
+    said.dispatchEvent(new window.MouseEvent('contextmenu', { bubbles: true, cancelable: true, clientX: e.clientX, clientY: e.clientY }));
+  };
   return (
     <div className={cx('ca-msgcard', open && 'is-open')}>
-      <div className={cx('ca-msgcard-head', opens && 'is-opens')} onClick={toggle}>
+      <div className={cx('ca-msgcard-head', opens && 'is-opens')} onClick={toggle} onContextMenu={menu}>
         <span className="ca-msgcard-icon" title={iconSays} role="img" aria-label={iconSays}>
           <Icon name={icon} size={13} />
         </span>
         <span className="ca-msgcard-title">{title}</span>
-        {item.at > 0 && (
-          <span className="ca-meta" title={absolute(item.at)}>
-            {ago(item.at, now)}
+        {at > 0 && (
+          <span className="ca-meta" title={absolute(at)}>
+            {ago(at, now)}
           </span>
         )}
         {/* While the find is in it, it stays open: closing it would hide what the find shows. */}
@@ -95,9 +104,9 @@ const ICON: Record<GlanceAbout, string> = { pr: 'pr', helper: 'robot', schedule:
 
 /** What Codealong sent by itself: what it comes to in a line, where the engine said (glance.rs),
  *  which opens to the whole; one an older engine sent, without that line, by its first lines. */
-export function CodealongCard({ item, glance: g, now, children }: { item: TranscriptItem; glance?: Glance; now: number; children: ReactNode }) {
+export function CodealongCard({ item, at, glance: g, now, children }: { item: TranscriptItem; at: number; glance?: Glance; now: number; children: ReactNode }) {
   return (
-    <MessageCard item={item} now={now} icon={g ? (ICON[g.about] ?? ICON.other) : ICON.other} says="Codealong sent this by itself" title={g ? <GlanceLine glance={g} /> : 'Codealong'} closed={g ? 'line' : 'start'}>
+    <MessageCard item={item} at={at} now={now} icon={g ? (ICON[g.about] ?? ICON.other) : ICON.other} says="Codealong sent this by itself" title={g ? <GlanceLine glance={g} /> : 'Codealong'} closed={g ? 'line' : 'start'}>
       {children}
     </MessageCard>
   );
@@ -134,9 +143,9 @@ function GlanceLine({ glance: g }: { glance: Glance }) {
 
 /** Another session's message (its side conversation's among them): who it's from, then its
  *  first lines, a long one cut until it's opened. */
-export function PeerCard({ item, now, children }: { item: TranscriptItem; now: number; children: ReactNode }) {
+export function PeerCard({ item, at, now, children }: { item: TranscriptItem; at: number; now: number; children: ReactNode }) {
   return (
-    <MessageCard item={item} now={now} icon="message-circle" says="Another session sent this" title={<PeerLabel item={item} />} closed="start">
+    <MessageCard item={item} at={at} now={now} icon="message-circle" says="Another session sent this" title={<PeerLabel item={item} />} closed="start">
       {children}
     </MessageCard>
   );
