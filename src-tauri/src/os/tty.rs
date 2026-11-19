@@ -2,9 +2,9 @@
 //! there is no file a program opens by its path, and none is a session's. A session's terminal
 //! written to without becoming the writer's own, asked whether its program reads it a key at a
 //! time, this process's own terminal put in raw mode and asked its size
-//! (`codealong terminal attach`), and the login shell the user database names.
+//! (`codealong terminal attach`), and the login shell and home folder the user database names.
 
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 /// Opens a terminal device to write to it, without making it this process's controlling terminal
 /// and without waiting on it.
@@ -41,19 +41,40 @@ pub fn reads_keys(_tty: &Path) -> bool {
 /// Windows, which has no login shell.
 #[cfg(unix)]
 pub fn login_shell() -> Option<String> {
+    user_entry(|pw| pw.pw_shell)
+}
+
+#[cfg(windows)]
+pub fn login_shell() -> Option<String> {
+    None
+}
+
+/// Your home folder as the user database has it, whatever `$HOME` says: the one a throwaway home
+/// (a test's, a script's) isn't (dirs.rs `home_is_yours`).
+#[cfg(unix)]
+pub fn user_home() -> Option<PathBuf> {
+    user_entry(|pw| pw.pw_dir).map(PathBuf::from)
+}
+
+/// Windows' profile folder, which the system gives whatever `HOME` says.
+#[cfg(windows)]
+pub fn user_home() -> Option<PathBuf> {
+    dirs::home_dir()
+}
+
+/// A field of this user's entry in the user database, as text; None when there's no entry or the
+/// field is empty.
+#[cfg(unix)]
+fn user_entry(field: impl Fn(&libc::passwd) -> *mut libc::c_char) -> Option<String> {
     // SAFETY: getpwuid_r fills `pw` with pointers into `buf`, which outlives their use here.
     unsafe {
         let mut pw: libc::passwd = std::mem::zeroed();
         let mut found: *mut libc::passwd = std::ptr::null_mut();
         let mut buf = vec![0 as libc::c_char; 4096];
         let r = libc::getpwuid_r(libc::getuid(), &mut pw, buf.as_mut_ptr(), buf.len(), &mut found);
-        (r == 0 && !found.is_null() && !pw.pw_shell.is_null()).then(|| std::ffi::CStr::from_ptr(pw.pw_shell).to_string_lossy().into_owned())
+        let p = field(&pw);
+        (r == 0 && !found.is_null() && !p.is_null()).then(|| std::ffi::CStr::from_ptr(p).to_string_lossy().into_owned()).filter(|s| !s.is_empty())
     }
-}
-
-#[cfg(windows)]
-pub fn login_shell() -> Option<String> {
-    None
 }
 
 /// This user's number, which POSIX names some of its folders by (`/tmp/tmux-<uid>`, launchd's

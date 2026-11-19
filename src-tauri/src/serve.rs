@@ -87,7 +87,12 @@ pub fn run() -> i32 {
         },
         Err(e) => {
             eprintln!("Codealong's server couldn't start: {e}");
-            1
+            // A start that failed fails the same way when it's tried again (a socket path too
+            // long, files it can't write, another server holding them), so it ends as a server
+            // that's done does, which launchd doesn't start again (os/background.rs `plist_for`):
+            // ending in an error, it was started every ten seconds for as long as you were logged
+            // in, for a test's home long gone. Whoever wants a server starts one again.
+            0
         }
     }
 }
@@ -572,7 +577,7 @@ fn ensure_under(own: bool, since: Option<i64>) -> Result<Status, String> {
         }
         None => {}
     }
-    launch()?;
+    launch(own)?;
     let until = Instant::now() + START_WAIT;
     while Instant::now() < until {
         if let Some(s) = running_within(Duration::from_secs(2)).filter(is_server) {
@@ -583,8 +588,24 @@ fn ensure_under(own: bool, since: Option<i64>) -> Result<Status, String> {
     Err(format!("Codealong's server didn't start: {} may say why.", util::tilde(&os::background::log_path())))
 }
 
-/// Starts a server of this binary's, as a job of its own.
-fn launch() -> Result<(), String> {
+/// Starts a server of this binary's, as a job of its own, for the app (`own`) or the command.
+fn launch(own: bool) -> Result<(), String> {
+    launch_for(&config::support_dir(), own || os::dirs::home_is_yours())
+}
+
+/// Starts a server for the files in `support`, when `home_ok`: the app starts one in any home (a
+/// copy run to debug in one of its own has its own), the command only in yours (os/dirs.rs
+/// `home_is_yours`), since in a test's or a script's throwaway home it would outlive the home and
+/// what asked for it; it reads the files there instead. Never one that couldn't open its socket,
+/// which would end as it started.
+fn launch_for(support: &std::path::Path, home_ok: bool) -> Result<(), String> {
+    if !home_ok {
+        return Err(format!("Codealong's server wasn't started: {} isn't your home, and one started there by the command would outlive it. The app opened with that home starts one.", util::home().display()));
+    }
+    let socket = server::path_in(support);
+    if !os::sock::fits(&socket) {
+        return Err(format!("Codealong's server wasn't started: its socket would be {}, a longer path than the system lets a socket have. A home with a shorter path has room for it.", socket.display()));
+    }
     let exe = this_binary().ok_or("Couldn't find this program.")?;
     let env = crate::install::server_environment();
     let log = os::background::log_path();
@@ -592,7 +613,7 @@ fn launch() -> Result<(), String> {
         let _ = std::fs::create_dir_all(dir);
     }
     let job = os::background::Job { exe: &exe, env: &env, log: &log };
-    os::background::start(&job, &config::support_dir()).map_err(words)
+    os::background::start(&job, support).map_err(words)
 }
 
 /// Stops the server that answers, telling its apps to quit too, and waits for it to go. Whether
@@ -662,6 +683,31 @@ mod tests {
         assert!(!ours(&Status { exe: Some("/Applications/Codealong.app/Contents/MacOS/codealong".into()), ..ours_now.clone() }), "another binary");
         assert!(!ours(&Status { role: None, ..ours_now.clone() }), "an app from before there were servers");
         assert!(!ours(&Status { exe: None, ..ours_now }), "a server that doesn't say");
+    }
+
+    /// No server is given to launchd for the command in a home that isn't yours (a test's), nor
+    /// for anyone whose socket the system couldn't open: launchd would start it again every ten
+    /// seconds as it failed, long after the home was gone. Nothing is written for either, and
+    /// launchd isn't asked anything.
+    #[test]
+    fn no_server_is_started_for_a_home_not_yours_or_a_socket_path_too_long() {
+        let dir = crate::fixtures::scratch("refused-server");
+        let long = dir.join("T/tmp.AdybP1KmpN/home/Library/Application Support/Codealong").join("x".repeat(40));
+        let short = dir.join("home/Library/Application Support/Codealong");
+        let asked = std::rc::Rc::new(std::cell::RefCell::new(Vec::new()));
+        let log = asked.clone();
+        crate::procs::stand_in::set(Some(Box::new(move |program, args, _, _| {
+            log.borrow_mut().push(format!("{program} {args:?}"));
+            Ok(String::new())
+        })));
+        let (too_long, not_yours) = os::as_if(os::Os::MacOs, || (launch_for(&long, true), launch_for(&short, false)));
+        crate::procs::stand_in::set(None);
+        let why = too_long.unwrap_err();
+        assert!(why.contains("a longer path than the system lets a socket have") && why.contains(&*long.to_string_lossy()), "{why}");
+        assert!(not_yours.unwrap_err().contains("isn't your home"));
+        assert!(!long.exists() && !short.exists(), "nothing written for either");
+        assert!(asked.borrow().is_empty(), "{:?}", asked.borrow());
+        assert!(os::sock::fits(&server::path_in(std::path::Path::new("/Users/me/Library/Application Support/Codealong"))));
     }
 
     /// One server for a folder of files: a second start is refused while the first holds the

@@ -91,8 +91,9 @@ fn start_in_launchd(job: &Job, support: &Path) -> Result<()> {
 }
 
 /// What launchd is told to run, and how: at once, kept running if it ends by crashing (not when
-/// it quits, asked to), as a process you're waiting on rather than one throttled in the
-/// background, and leaving what it started running as it ends, as an app's do.
+/// it quits, asked to, nor when it couldn't start: serve.rs `run`), as a process you're waiting
+/// on rather than one throttled in the background, and leaving what it started running as it
+/// ends, as an app's do.
 fn plist_for(job: &Job, label: &str) -> plist::Value {
     use plist::{Dictionary, Value};
     let mut env = Dictionary::new();

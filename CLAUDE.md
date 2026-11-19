@@ -63,10 +63,10 @@ Don't open a second copy of the app where the user can see it. Opened the usual 
 theirs; a bare binary from a build folder shows up beside it as a second Codealong, and its bar
 and pinned cards float over every app as the real ones do, which the user takes for their own
 app misbehaving. Check UI with `scripts/preview.sh` and behavior with `--snapshot`. A copy you
-must run to debug gets a home of its own (`HOME=<your scratchpad>/home …`: its own settings,
-todos, socket and server job), you say so, and you quit it when you're done (`codealong server
-stop` there stops both). Its config.toml lists none of the user's account folders: an app brings
-their skills and prompt hooks up to date from its own build at launch (`install::refresh_installed`).
+must run to debug gets a home of its own (`HOME=/tmp/ca-<topic> …`, short for its socket: its own
+settings, todos, socket and server job), you say so, and you quit it when you're done (`codealong
+server stop` there stops both). Its config.toml lists none of the user's account folders: an app
+brings their skills and prompt hooks up to date from its own build at launch (`install::refresh_installed`).
 A debug binary run with a subcommand `main.rs` doesn't know starts the app; kill it by pid.
 
 The engine binary is also the `codealong` command for agents and people (`cli.rs`;

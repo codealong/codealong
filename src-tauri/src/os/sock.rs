@@ -9,6 +9,19 @@ pub use std::os::unix::net::{UnixListener, UnixStream};
 #[cfg(windows)]
 pub use uds_windows::{UnixListener, UnixStream};
 
+/// Whether a socket can be bound and connected to at `path`: the system keeps a socket's path in
+/// a field of fixed size (`sun_path`: 104 bytes on macOS, 108 on Linux and Windows, its NUL
+/// included), which a home deep in a temporary folder outgrows.
+#[cfg(unix)]
+pub fn fits(path: &std::path::Path) -> bool {
+    std::os::unix::net::SocketAddr::from_pathname(path).is_ok()
+}
+
+#[cfg(windows)]
+pub fn fits(path: &std::path::Path) -> bool {
+    path.to_str().is_some_and(|p| p.len() < 108)
+}
+
 /// Which socket a listener's descriptor is now, by its device and inode, which a copy of it
 /// shares and no other socket or file has; None once the descriptor is closed (server.rs
 /// `accept_on`).

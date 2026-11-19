@@ -28,6 +28,22 @@ pub fn logs_dir() -> PathBuf {
     }
 }
 
+/// Whether the home Codealong keeps its files in (`$HOME`, util.rs `home`) is yours: the one the
+/// user database gives you. One that isn't (a test's or a script's throwaway home, one a copy is
+/// run in to debug), or can't be told, gets neither an app (lib.rs `is_cli`) nor a server
+/// (serve.rs `launch`) from the command, since either would outlive it: a server as a launchd
+/// job for a home that's gone, started again every few seconds, an app as a second Codealong.
+pub fn home_is_yours() -> bool {
+    same_home(&home(), super::tty::user_home().as_deref())
+}
+
+/// Whether `home` is `yours`, links followed: a home that's gone, or no home of yours to go by,
+/// isn't.
+fn same_home(home: &Path, yours: Option<&Path>) -> bool {
+    let real = |p: &Path| dunce::canonicalize(p).ok();
+    yours.and_then(real).is_some_and(|yours| real(home) == Some(yours))
+}
+
 /// Caches, which the system may clear; a copy of the app with a home of its own has its own.
 pub fn cache_dir() -> PathBuf {
     match super::current() {
@@ -91,6 +107,24 @@ pub fn user_temp_dir() -> Option<String> {
 mod tests {
     use super::*;
     use crate::os::as_if;
+
+    /// A throwaway home isn't yours, nor one that's gone or can't be told; yours is, by a link too.
+    #[test]
+    fn only_the_user_databases_home_is_yours() {
+        let dir = crate::fixtures::scratch("own-home");
+        let (yours, other) = (dir.join("me"), dir.join("tmp.AdybP1KmpN/home"));
+        std::fs::create_dir_all(&yours).unwrap();
+        std::fs::create_dir_all(&other).unwrap();
+        assert!(same_home(&yours, Some(&yours)));
+        assert!(!same_home(&other, Some(&yours)), "a test's home");
+        assert!(!same_home(&dir.join("gone"), Some(&yours)), "a home deleted under it");
+        assert!(!same_home(&yours, None), "no entry in the user database");
+        #[cfg(unix)]
+        {
+            std::os::unix::fs::symlink(&yours, dir.join("link")).unwrap();
+            assert!(same_home(&dir.join("link"), Some(&yours)), "the same folder by a link");
+        }
+    }
 
     #[test]
     fn each_os_keeps_codealongs_and_other_apps_files_in_its_own_places() {

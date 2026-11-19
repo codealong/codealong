@@ -317,8 +317,12 @@ The server is a launchd job (`os/background.rs`, Linux: a process in a session o
 it's nobody's child: not the app's, nor that of a command run in an agent's sandbox. Its label
 is named for the folder of Codealong's files, so a copy tried with a home of its own has a server
 of its own; its output goes to `server.log` in Codealong's logs folder, and launchd starts it
-again if it crashes. The app starts it as it opens, and connects again whenever it goes; the
-command starts it when none answers; `codealong server stop` stops it and the app with it.
+again if it crashes, but not when its start fails (`serve::run` ends without an error then). The
+app starts it as it opens, and connects again whenever it goes; the command starts it when none
+answers, in your own home only (os/dirs.rs `home_is_yours`: in a test's throwaway home it reads
+the files, and `server start` refuses); `codealong server stop` stops it and the app with it. A
+server whose socket path is too long for the system is never given to launchd (serve.rs
+`launch_for`).
 Quitting the app leaves it, and the agents it runs, going.
 
 A build's engine is a hash of the Rust it's built from (build.rs `CODEALONG_ENGINE`), not of the

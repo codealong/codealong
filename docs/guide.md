@@ -5248,7 +5248,13 @@ one; opened again, the app shows everything as it is.
 
 The app starts the server as it opens, and a `codealong` command starts it when it isn't running,
 so it's there whenever something needs it. On a Mac it's a launchd job of yours,
-`app.codealong.server.…`, which launchd starts again if it ever crashes. `codealong status` says
+`app.codealong.server.…`, which launchd starts again if it ever crashes, but not when it couldn't
+start: what stopped it would stop it again, and `server.log` says what it was. A command run with
+a home that isn't yours (a test's or a script's throwaway `HOME`) starts no server there (`codealong
+server start` included) and reads the files instead, and a command line it doesn't know is an
+error there rather than opening the app, since either would outlive that home. No server is started whose socket's path is longer
+than the system allows (a home deep in a temporary folder), and `codealong server start` says so.
+`codealong status` says
 whether it's running and whether the app is open on it; `codealong server stop` stops it and quits
 the app with it, cutting off the turns of the sessions Codealong runs, which carry on once it starts
 again (*Cut off*); `codealong server start` starts it. With the bar in the menu bar (*Menu bar

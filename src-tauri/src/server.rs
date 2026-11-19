@@ -21,7 +21,12 @@ use crate::start::StartSpec;
 use crate::todos::TodoOp;
 
 pub fn path() -> PathBuf {
-    support_dir().join("codealong.sock")
+    path_in(&support_dir())
+}
+
+/// The socket of the server for the files in `dir`.
+pub fn path_in(dir: &Path) -> PathBuf {
+    dir.join("codealong.sock")
 }
 
 /// What the command can ask. `method` picks one; the rest are its arguments.

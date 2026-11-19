@@ -1833,9 +1833,18 @@ pub fn cli_main(args: &[String]) -> i32 {
     cli::main(args)
 }
 
-/// Whether a command line is for the `codealong` command rather than the app.
+/// Whether a command line is for the `codealong` command rather than the app (cli.rs `is_cli`).
+/// In a home that isn't yours (os/dirs.rs `home_is_yours`) every one is but a plain open: there a
+/// subcommand this build doesn't know, from a script written for a newer one, would start the app
+/// in a test's throwaway home, a second Codealong whose server job outlived the home. Run as the
+/// command, it's clap's error instead.
 pub fn is_cli(args: &[String]) -> bool {
-    cli::is_cli(args)
+    is_cli_in(args, os::dirs::home_is_yours)
+}
+
+/// `is_cli`, asking whether the home is yours only of a line that isn't plainly either.
+fn is_cli_in(args: &[String], home_is_yours: impl FnOnce() -> bool) -> bool {
+    cli::is_cli(args) || (!server::opened_plainly(args) && !home_is_yours())
 }
 
 /// `codealong serve`: Codealong's server, which runs the engine without a window (serve.rs).
@@ -1851,6 +1860,21 @@ pub fn snapshot_cli(args: &[String]) -> i32 {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// A subcommand this build doesn't know (a script's, written for a newer one) opens the app
+    /// only in your own home: in a test's, it's the command's error, and the app isn't started.
+    /// A plain open is the app in any home (a copy run to debug in one of its own).
+    #[test]
+    fn a_line_that_isnt_a_command_opens_the_app_only_in_your_home() {
+        let line = |a: &[&str]| a.iter().map(|s| s.to_string()).collect::<Vec<_>>();
+        let unknown = line(&["/Applications/Codealong.app/Contents/MacOS/codealong", "frobnicate", "check", "--json"]);
+        assert!(!is_cli_in(&unknown, || true));
+        assert!(is_cli_in(&unknown, || false));
+        assert_eq!(cli_main(&unknown), 2, "clap's error");
+        let plain = line(&["/Applications/Codealong.app/Contents/MacOS/codealong"]);
+        assert!(!is_cli_in(&plain, || false) && !is_cli_in(&plain, || panic!("a plain open needn't ask")));
+        assert!(is_cli_in(&line(&["codealong", "todo", "list"]), || panic!("a command needn't ask")));
+    }
 
     #[test]
     fn a_waiting_command_runs_on_the_blocking_pool_and_says_when_it_broke() {
