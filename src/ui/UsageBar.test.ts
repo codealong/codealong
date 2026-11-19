@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import * as fx from '../testing/fixtures';
 import type { Meter, Severity } from '../types';
-import { chipShowsReset, fitFor, headlineMeter, inOrder, listsInOrder } from './UsageBar';
+import { chipClocksReset, fitFor, headlineMeter, inOrder, listsInOrder } from './UsageBar';
 
 const meter = (key: string, percent: number, severity: Severity = 'normal'): Meter => fx.meter({ key, percent, severity });
 
@@ -22,18 +22,18 @@ describe('headlineMeter', () => {
   });
 });
 
-describe('chipShowsReset', () => {
+describe('chipClocksReset', () => {
   const at = (percent: number, resetsAt: number | null = 1_800_000_000_000): Meter => ({ ...meter('week', percent), resetsAt });
-  it('says when a limit resets only once the percent the chip shows is over 70', () => {
-    expect(chipShowsReset(at(40))).toBe(false);
-    expect(chipShowsReset(at(70))).toBe(false);
-    expect(chipShowsReset(at(70.2))).toBe(false);
-    expect(chipShowsReset(at(70.6))).toBe(true);
-    expect(chipShowsReset(at(96))).toBe(true);
+  it('marks a limit’s reset with the clock only once the percent the chip shows is over 70', () => {
+    expect(chipClocksReset(at(40))).toBe(false);
+    expect(chipClocksReset(at(70))).toBe(false);
+    expect(chipClocksReset(at(70.2))).toBe(false);
+    expect(chipClocksReset(at(70.6))).toBe(true);
+    expect(chipClocksReset(at(96))).toBe(true);
   });
 
   it('and never for a limit with no reset', () => {
-    expect(chipShowsReset(at(96, null))).toBe(false);
+    expect(chipClocksReset(at(96, null))).toBe(false);
   });
 });
 

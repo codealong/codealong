@@ -1,9 +1,9 @@
 // The usage bar, the main window's status bar along its foot: one chip per account, in config order. Each limit shows
-// how full it is and, after the clock, how long until it resets. Per-model limits, like
-// Fable's weekly limit, are marked with sparkles and their model's name where a chip shows them
-// beside its others; a chip that shows just one doesn't name it (`cursor Cursor`, `antigravity
-// Gemini` said little), and its tooltip and card do. When a limit resets shows in its chip only
-// past RESET_SHOWN_ABOVE, where it's worth a glance; below that the tooltip and card say it.
+// how full it is and how long until it resets, after a clock once it's past RESET_CLOCK_ABOVE,
+// where the reset is worth a glance. Per-model limits, like Fable's weekly limit, are marked with
+// sparkles and their model's name where a chip shows them beside its others; a chip that shows
+// just one doesn't name it (`cursor Cursor`, `antigravity Gemini` said little), and its tooltip
+// and card do.
 // Claude numbers are read every 2 minutes; Codex numbers arrive with each Codex turn, and with
 // each read of its resets.
 //
@@ -91,19 +91,20 @@ export function fitFor(now: Fit, needs: { all: number; one: number }, room: numb
   return 'tight';
 }
 
-/** How full a limit is, in percent as its chip shows it, before the chip says when it resets. */
-const RESET_SHOWN_ABOVE = 70;
+/** How full a limit is, in percent as its chip shows it, before the chip's clock marks its reset. */
+const RESET_CLOCK_ABOVE = 70;
 
-/** Whether a chip says when a limit resets: when it has a reset, and once the percent the chip
- *  shows is over RESET_SHOWN_ABOVE (70.2% reads 70% and doesn't; 70.6% reads 71% and does). */
-export function chipShowsReset(m: Meter): boolean {
-  return !!m.resetsAt && Math.round(m.percent) > RESET_SHOWN_ABOVE;
+/** Whether a chip marks when a limit resets with a clock: when it has a reset, and once the
+ *  percent the chip shows is over RESET_CLOCK_ABOVE (70.2% reads 70% and doesn't; 70.6% reads 71%
+ *  and does). Below that the chip still says how long until it resets, without the clock. */
+export function chipClocksReset(m: Meter): boolean {
+  return !!m.resetsAt && Math.round(m.percent) > RESET_CLOCK_ABOVE;
 }
 
 /** Compact inside a chip; full, with its reset time underneath, in the Accounts dialog. A compact
- *  one `unnamed` leaves its label out (a model's limit alone in its chip), and one without `reset`
- *  when it resets (a limit with room left in it). */
-export function UsageMeter({ meter: m, now, compact = true, titled = true, unnamed = false, reset = true }: { meter: Meter; now: number; compact?: boolean; titled?: boolean; unnamed?: boolean; reset?: boolean }) {
+ *  one `unnamed` leaves its label out (a model's limit alone in its chip), and one without `clock`
+ *  says how long until it resets without the clock (a limit with room left in it). */
+export function UsageMeter({ meter: m, now, compact = true, titled = true, unnamed = false, clock = true }: { meter: Meter; now: number; compact?: boolean; titled?: boolean; unnamed?: boolean; clock?: boolean }) {
   const pct = Math.round(m.percent);
   const title = meterTitle(m, now);
   const fill = <span className="ca-meter-fill" style={{ width: `${Math.min(100, Math.max(0, m.percent))}%` }} />;
@@ -121,9 +122,9 @@ export function UsageMeter({ meter: m, now, compact = true, titled = true, unnam
         {!unnamed && label}
         <span className="ca-meter-track">{fill}</span>
         <span className="ca-meter-value">{pct}%</span>
-        {m.resetsAt && reset ? (
+        {m.resetsAt ? (
           <span className="ca-meter-reset">
-            <Icon name="clock" size={10} stroke={2} />
+            {clock && <Icon name="clock" size={10} stroke={2} />}
             {untilShort(m.resetsAt, now)}
           </span>
         ) : (
@@ -226,7 +227,7 @@ function AccountChip({ usage: u, now, fit = 'all', measure = false, onOpen, onSi
     >
       <span className="ca-uchip-name">{u.account}</span>
       {shown.length > 0 ? (
-        shown.map((m) => <UsageMeter key={m.key} meter={m} now={now} titled={!measure && !peeks} unnamed={!!m.model && shown.length === 1} reset={chipShowsReset(m)} />)
+        shown.map((m) => <UsageMeter key={m.key} meter={m} now={now} titled={!measure && !peeks} unnamed={!!m.model && shown.length === 1} clock={chipClocksReset(m)} />)
       ) : u.noLimits ? (
         // Nothing will ever show here, so it takes no room to say so; the words, and why, are on
         // hover.
@@ -592,7 +593,7 @@ export function UsageBar({ usage: board, now, onRefresh, onUsage, onSignIn, trai
   const peekedResets = peeked && resetsOf(resets, peeked.account);
   const heldPeek = holds(peekedResets) && !peeked?.needsSignIn ? peekedResets : undefined;
   // A card in place of the chip's tooltip (flagged for training, or holding resets) lists its limits
-  // even when the chip shows them all, since the chip may leave a model's name and a reset out.
+  // even when the chip shows them all, since the chip may leave a model's name out.
   const peekMeters = (fit !== 'all' || !!flaggedPeek || !!heldPeek) && !!peeked && peeked.meters.length > 0;
   // A card with buttons stays up while the pointer is on it.
   const peekActs = !!flaggedPeek || usable(heldPeek);

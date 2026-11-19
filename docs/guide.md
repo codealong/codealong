@@ -4584,7 +4584,8 @@ its chip says so with a crossed-out gauge after the name. Codex's come with each
 with each read of the account's [limit resets](#limit-resets). A model's own limit (Fable's weekly,
 Antigravity's Gemini group, Cursor's models) is marked with sparkles and the model's name beside
 the chip's other limits; a chip that shows only that one doesn't name it, and its card on hover
-does. Add accounts in Settings › Accounts, and turn off one you'd rather not see here.
+does. How long until a limit resets follows its percentage, with a clock once it's over 70%. Add
+accounts in Settings › Accounts, and turn off one you'd rather not see here.
 
 The chips are in the order config.toml lists the accounts. Drag one sideways to put it in another
 place: the others make way as it goes, Escape puts it back, and letting go moves its

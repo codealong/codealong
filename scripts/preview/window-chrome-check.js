@@ -4,12 +4,12 @@
 // on the window's ground, beneath the chrome's rows. Settings, Analytics and the GitHub link are
 // icons at the sidebar's foot, named for the keyboard and screen readers, with the theme switch
 // after them, and the rail the sidebar folds to has the three; the status bar ends with Refresh,
-// with no Accounts; a chip names a model's own limit only beside its others, and says when a
-// limit resets only once it's over 70%, a flagged chip's card naming them all. A click on the
-// GitHub link opens Codealong's repo, and one on Analytics opens its window. While the board is
-// read there's no panel, and the board alone rounds all four corners. At the window's least width
-// (980) the grid and its gutter fit, and the status bar's end keeps Refresh in the window beside
-// notices, a meeting and the machine's load.
+// with no Accounts; a chip names a model's own limit only beside its others, and says how long
+// until each limit resets, with a clock once it's over 70%, a flagged chip's card naming them all.
+// A click on the GitHub link opens Codealong's repo, and one on Analytics opens its window. While
+// the board is read there's no panel, and the board alone rounds all four corners. At the window's
+// least width (980) the grid and its gutter fit, and the status bar's end keeps Refresh in the
+// window beside notices, a meeting and the machine's load.
 //   scripts/preview.sh sessions '' scripts/preview/window-chrome-check.js
 //   PREVIEW_GLASS=1 scripts/preview.sh sessions '' scripts/preview/window-chrome-check.js
 //   PREVIEW_SCHEME=dark scripts/preview.sh sessions '' scripts/preview/window-chrome-check.js
@@ -114,15 +114,17 @@
     });
     note(lone + ' model limits alone in their chip, ' + beside + ' beside others');
     check('a model’s limit alone in its chip goes unnamed, and is named beside others', misnamed.length === 0, misnamed.map(function (c) { return c.getAttribute('aria-label'); }).join(' | '));
-    // When a limit resets shows only once it's over 70% (UsageBar.tsx RESET_SHOWN_ABOVE).
+    // Each limit with a reset says how long until it does; the clock marks it only once it's over
+    // 70% (UsageBar.tsx RESET_CLOCK_ABOVE).
     var meters = all('.ca-usagebar-accts .ca-uchip .ca-meter');
     var full = meters.filter(function (m) { return parseFloat(m.querySelector('.ca-meter-value').textContent) > 70; });
     var resets = function (m) { var r = m.querySelector('.ca-meter-reset'); return !!r && !!r.textContent.trim(); };
-    var early = meters.filter(function (m) { return resets(m) && parseFloat(m.querySelector('.ca-meter-value').textContent) <= 70; });
-    // One over 70% with a reset to tell shows it, but in a tight chip. The chip's label says each of
-    // its limits in order, a reset with each that has one: a chip showing them all lines up with
-    // them; one showing one is matched by its percent, and passed over where two share it.
-    var due = full.filter(function (m) {
+    var clocked = function (m) { var r = m.querySelector('.ca-meter-reset'); return !!r && !!r.querySelector('svg'); };
+    var early = meters.filter(function (m) { return clocked(m) && parseFloat(m.querySelector('.ca-meter-value').textContent) <= 70; });
+    // One with a reset to tell says it, but in a tight chip. The chip's label says each of its
+    // limits in order, a reset with each that has one: a chip showing them all lines up with them;
+    // one showing one is matched by its percent, and passed over where two share it.
+    var due = meters.filter(function (m) {
       var chip = m.closest('.ca-uchip');
       if (chip.classList.contains('is-tight')) return false;
       var said = (chip.getAttribute('aria-label') || '').split('; ');
@@ -132,9 +134,10 @@
       return mine.length === 1 && mine[0].indexOf(pct + ', resets') >= 0;
     });
     var missing = due.filter(function (m) { return !resets(m); });
+    var unclocked = due.filter(function (m) { return full.indexOf(m) >= 0 && !clocked(m); });
     note(meters.length + ' limits in the chips, ' + full.length + ' over 70%, ' + due.length + ' with a reset to show');
-    check('a limit says when it resets only once it’s over 70%', early.length === 0, early.map(function (m) { return m.textContent.trim(); }).join(' | '));
-    check('and then it does', missing.length === 0, missing.map(function (m) { return m.textContent.trim(); }).join(' | '));
+    check('each limit with a reset says how long until it resets', missing.length === 0, missing.map(function (m) { return m.textContent.trim(); }).join(' | '));
+    check('the clock marks it only once it’s over 70%', early.length === 0 && unclocked.length === 0, early.concat(unclocked).map(function (m) { return m.textContent.trim(); }).join(' | '));
     // A chip flagged for training has a card in place of its tooltip, so the card names its limits
     // and says when they reset, though the chip shows them all.
     var flagged = q('.ca-usagebar-accts .ca-uchip.is-training');
