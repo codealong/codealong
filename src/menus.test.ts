@@ -471,7 +471,8 @@ describe('what each window can do to a session', () => {
     'the quick panel': { of: ['quick'] },
     'a pill on the bar': { of: ['bar'] },
     'a card on the desktop': { of: ['desktop'] },
-    'a session linked in a card’s conversation': { of: ['link'] },
+    // cardHost.ts: the peek's links and the notch's. The waiting window's have its own menu, below.
+    'a session a conversation links, in the peek and the notch': { of: ['link'] },
     'a session a PR’s card names in the notch': { of: ['notchReview'] },
     'a session a todo’s card names in the notch': { of: ['notchTodo'] },
     // Waiting.tsx `can`: the session shown is answered where it is, so Reply here is for another;
@@ -479,7 +480,9 @@ describe('what each window can do to a session', () => {
     'the waiting window’s card': { of: ['waiting', 'card'], without: ['reply'] },
     // SessionCard.tsx `whole`: the terminal under the box is the session shown's.
     'a session the waiting window’s card names': { of: ['waiting', 'card'], without: ['left', 'failed', 'ownTerminal'] },
+    // Waiting.tsx `sessionMenu`: a PR's card's sessions, a todo's, and what a conversation links.
     'a session a PR’s or a todo’s card names in the waiting window': { of: ['waiting', 'waitingNamed'], without: ['left', 'failed'] },
+    'a session a conversation links, in the waiting window': { of: ['waiting', 'waitingNamed'], without: ['left', 'failed'] },
     'the notch’s card': { of: ['notch', 'card'] },
     'a session the notch’s card names': { of: ['notchNamed', 'card'], without: ['ownTerminal'] },
     // Peek.tsx `putBack`: only from a window the session is kept in.
@@ -589,12 +592,13 @@ describe('what each window can do to a session', () => {
       'the quick panel': ['Open in main window', 'Reply here', 'Move to worktree ›', 'Labels ›', 'Rename…', 'Pin to desktop'],
       'a pill on the bar': ['Fix login · api', 'Open in main window', 'Reply here', 'Rename…', 'Pin to desktop'],
       'a card on the desktop': ['Open in main window', 'Reply here', 'Rename…', 'Pin to desktop'],
-      'a session linked in a card’s conversation': ['Open in main window', 'Labels ›', 'Pin to desktop'],
+      'a session a conversation links, in the peek and the notch': ['Open in main window', 'Labels ›', 'Pin to desktop'],
       'a session a PR’s card names in the notch': ['Open in main window', 'Pin to desktop'],
       'a session a todo’s card names in the notch': ['Open in main window', 'Pin to desktop'],
       'the waiting window’s card': ['New terminal', 'Open in main window', 'Move to worktree ›', 'Labels ›', 'Rename…', 'Pin session', 'Pin to desktop', 'Merge #7 and done…'],
       'a session the waiting window’s card names': ['Open in main window', 'Reply here', 'Move to worktree ›', 'Labels ›', 'Rename…', 'Pin session', 'Pin to desktop', 'Merge #7 and done…'],
       'a session a PR’s or a todo’s card names in the waiting window': ['Open in main window', 'Reply here', 'Move to worktree ›', 'Labels ›', 'Rename…', 'Pin to desktop'],
+      'a session a conversation links, in the waiting window': ['Open in main window', 'Reply here', 'Move to worktree ›', 'Labels ›', 'Rename…', 'Pin to desktop'],
       'the notch’s card': ['New terminal', 'Open in main window', 'Labels ›', 'Rename…', 'Pin session', 'Pin to desktop', 'Merge #7 and done…'],
       'a session the notch’s card names': ['Open in main window', 'Labels ›', 'Pin session', 'Pin to desktop', 'Merge #7 and done…'],
       'the peek’s card': ['New terminal', 'Open in main window', 'Labels ›', 'Rename…', 'Pin session', 'Pin to desktop', 'Merge #7 and done…'],
@@ -617,10 +621,12 @@ describe('what each window can do to a session', () => {
       sessionActions(lane(), mine, canOf(menu, { doneHelpers: { lanes, ask: (a) => void asked.push(a) } })).done?.run();
       await new Promise((r) => setTimeout(r, 0));
       // Asked, nothing goes to the engine until it's answered; not asked, it's marked done at
-      // once with no helper chosen to end, and the engine makes the one at work your own.
+      // once with no helper chosen to end or to keep, and the engine makes the one at work your
+      // own. The choice is read for what it says: any that names none asks the engine the same.
       const went = done.mock.calls.map((call) => call[3]);
+      const none = went.length === 1 && !!went[0] && went[0].end.length === 0 && went[0].keep.length === 0;
       if (asked.length === 1 && went.length === 0) how[name] = `asks about ${asked[0].helpers.map((h) => h.title).join(', ')}`;
-      else how[name] = asked.length === 0 && went.length === 1 && went[0] === NONE_CHOSEN ? goes : `asked ${asked.length}, marked done ${JSON.stringify(went)}`;
+      else how[name] = asked.length === 0 && none ? goes : `asked ${asked.length}, marked done ${JSON.stringify(went)}`;
     }
     // The mock as the other tests find it.
     done.mockReset();
@@ -631,12 +637,14 @@ describe('what each window can do to a session', () => {
       // `finish_helpers`).
       'a pill on the bar': goes,
       'a card on the desktop': goes,
-      'a session linked in a card’s conversation': goes,
+      'a session a conversation links, in the peek and the notch': goes,
       'a session a PR’s card names in the notch': goes,
       'a session a todo’s card names in the notch': goes,
       'the waiting window’s card': asks,
       'a session the waiting window’s card names': asks,
       'a session a PR’s or a todo’s card names in the waiting window': asks,
+      // The same link asks in the waiting window, whose menu has the dialog.
+      'a session a conversation links, in the waiting window': asks,
       'the notch’s card': asks,
       'a session the notch’s card names': asks,
       'the peek’s card': asks,

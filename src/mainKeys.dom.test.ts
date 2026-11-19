@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import { afterEach, describe, expect, it } from 'vitest';
 import { engine, mountHook, press, type, type Mounted } from './testing/dom';
-import { sessionItemOf } from './boardLists';
+import { prRowOf, sessionItemOf } from './boardLists';
 import type { MenuGroup } from './contextMenu';
 import type { LaneItem } from './lanes';
 import { PLACE_CHORDS, useMainKeys, useViewKeys, VIEW_CHORDS, type MainKeys } from './mainKeys';
@@ -298,9 +298,11 @@ describe.each(PLATFORMS)('a session’s chords in the main window, as %s presses
 
   // The list's find isn't a text field to the keys (`inField` leaves it out, for the find's own
   // keys further down), and ⇧⌘E and ⇧⌘M are taken before those are reached: so with words being
-  // typed into a view's find, both still act on the row selected, in every view. ⌘E does only in
-  // Sessions, where it's the queue's; elsewhere the find's own keys end it. Held here as it is.
-  it('take ⇧⌘E and ⇧⌘M from the list’s find in every view, and ⌘E from it only in Sessions', () => {
+  // typed into a view's find, both are still the window's, in every view. They act where the row
+  // selected is a session; on a todo, a PR or no row the keystroke is taken and nothing is done.
+  // ⌘E is taken only in Sessions, where it's the queue's; elsewhere the find's own keys end it.
+  // Held here as it is.
+  it('take ⇧⌘E and ⇧⌘M from the list’s find in every view, to act on a session selected and on nothing else, and ⌘E from it only in Sessions', () => {
     setPlatform(platform);
     const find = document.body.appendChild(document.createElement('input'));
     find.focus();
@@ -308,6 +310,14 @@ describe.each(PLATFORMS)('a session’s chords in the main window, as %s presses
     expect(press('Cmd+E').defaultPrevented).toBe(false);
     for (const chord of ['Shift+Cmd+E', 'Shift+Cmd+M']) expect(press(chord).defaultPrevented, chord).toBe(true);
     expect(kanban.did).toEqual(['Kestrel: done', 'Kestrel: mergeDone']);
+    // A todo, a PR that's ready to merge, and no row at all: taken, and nothing done or said.
+    const todo = todoItem(fx.todo(), new Map(), new Map(), new Map());
+    const pr = prRowOf(READY, new Map(), new Map());
+    for (const [view, selected] of [['todo', todo], ['prs', pr], ['prs', null]] as const) {
+      const w = mainWindow({ view, selected, searchRef: { current: find } });
+      for (const chord of ['Shift+Cmd+E', 'Shift+Cmd+M']) expect(press(chord).defaultPrevented, `${chord} on ${selected?.kind ?? 'no row'}`).toBe(true);
+      expect(w.did, selected?.kind ?? 'no row').toEqual([]);
+    }
     const sessions = onSession(kestrel(), { searchRef: { current: find } });
     for (const chord of ['Cmd+E', 'Shift+Cmd+E', 'Shift+Cmd+M']) press(chord);
     expect(sessions.did).toEqual(['queue seen', 'Kestrel: done', 'Kestrel: mergeDone']);

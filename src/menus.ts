@@ -221,8 +221,8 @@ export interface SessionCan {
  *  list here both ways, and menus.test.ts says which windows pass each capability. A card's
  *  menu is its window's part and the card's (`card`): the window's part for the session shown,
  *  or its part for another one the card's header names (the waiting window's is the same for
- *  both). The waiting window's menu for a session a PR's or a todo's card names is its part and
- *  `waitingNamed`. */
+ *  both). The waiting window's menu for a session a PR's or a todo's card names, or a
+ *  conversation there links, is its part and `waitingNamed`. */
 export const SESSION_CAN = {
   /** The main window's lists and panels (App.tsx). */
   main: ['report', 'keys', 'open', 'terminal', 'editors', 'newSession', 'ownTerminal', 'todos', 'pin', 'desktop', 'windows', 'rename', 'worktrees', 'archive', 'undoDone', 'left', 'failed', 'mergeDone', 'doneHelpers', 'moving', 'boards', 'labels'],
@@ -232,7 +232,8 @@ export const SESSION_CAN = {
   bar: ['report', 'open', 'terminal', 'heading', 'reveal', 'reply', 'rename', 'editors', 'desktop', 'left'],
   /** A card on the desktop, and a session's line on one (ui/DesktopPin.tsx). */
   desktop: ['report', 'open', 'terminal', 'reveal', 'reply', 'rename', 'editors', 'desktop'],
-  /** A session linked in a card's conversation (ui/cardHost.ts). */
+  /** A session linked in a conversation the peek or the notch shows (ui/cardHost.ts). The waiting
+   *  window's links have its own menu (`waitingNamed`). */
   link: ['report', 'open', 'terminal', 'reveal', 'editors', 'desktop', 'left', 'labels'],
   /** A session a PR's card names in the notch (ui/NotchReview.tsx), and one a todo's does
    *  (ui/NotchTodo.tsx). */
@@ -251,7 +252,8 @@ export const SESSION_CAN = {
    *  window on the session it shows. */
   notchNamed: ['report', 'open', 'reveal'],
   peekNamed: ['report', 'open', 'reveal'],
-  /** What the waiting window adds to its part for a session a PR's or a todo's card names. */
+  /** What the waiting window adds to its part for a session a PR's or a todo's card names, or a
+   *  conversation shown there links. */
   waitingNamed: ['terminal', 'editors', 'desktop', 'labels', 'doneHelpers'],
 } as const satisfies Record<string, readonly (keyof SessionCan)[]>;
 
