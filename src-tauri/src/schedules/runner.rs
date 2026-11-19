@@ -1259,8 +1259,15 @@ fn act(engine: &Handle, board: &Board, cfg: &crate::config::Config, s: &Schedule
             match crate::start::resume(board, cfg, &key, &ResumeIn { place, model: None, effort: None }, &text, &sender) {
                 Ok(r) => {
                     let went = r.key.clone().unwrap_or_else(|| key.clone());
-                    if s.quiet && went != key {
-                        engine.quiet(vec![went.clone()], true);
+                    // Gone on as a copy (a Claude Code background job's), which takes its place as
+                    // it does for a resume from a window (actions.rs `resume`): left out, the
+                    // session it copied stayed on the board stopped at its last reply, waiting on
+                    // you as if it were the schedule's.
+                    if went != key {
+                        if s.quiet {
+                            engine.quiet(vec![went.clone()], true);
+                        }
+                        crate::actions::hand_over(engine, board, &key, &went);
                     }
                     (record(cause, Outcome::Resumed, r.sent.message, Some(went.clone())), Some(went), None)
                 }

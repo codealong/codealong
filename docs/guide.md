@@ -2065,7 +2065,10 @@ again at each run, so a round-robin or alternate-harness group spreads the runs 
 and where you pick, by default out of sight (Claude Code's background service, else in Codealong,
 else in tmux with no window). A run sent to a session goes at once when it's free; when
 it's at work or waits on you, once its turn ends, several runs' worth in one message; one that
-isn't running goes on out of sight with it, as a PR's news resumes one.
+isn't running goes on out of sight with it, as a PR's news resumes one. Where that goes on as a
+copy (Claude Code copies a session a background job had into a new job), the copy takes its place
+as when you resume one: its todos, labels, pin and terminals, and the schedule's later runs, while
+the session it copied is archived.
 
 What the run was for (a watch's new lines, the PR that merged, what a script fired it with, what
 *Only if* printed) is written to a file the prompt points the agent at, to read as data, not as
@@ -5245,7 +5248,8 @@ What it does is the codealong skill's `references/orchestrate.md`.
 Its session is called Orchestrator, whatever it keeps watch over, and so is what it suggests
 (Suggested by Orchestrator), and so is its row in Schedules, whose when says the project. Its
 schedule keeps its project's name underneath (Northwind orchestrator), which `codealong schedule`
-finds it by, and a session put away keeps it in Archived; a name you give it yourself stays. Which
+finds it by, and a session put away keeps it in Archived; a name you give it yourself stays, one
+that only changes that name's case (Northwind Orchestrator) too, for that day's session. Which
 project it keeps watch over is over its title in its header, in its place in the quick panel and
 in Send to's suggestion, and, where several are listed, on its row's chip, where Elsewhere's chats
 would be; the quick panel's search finds it by the project's name. Its session leads

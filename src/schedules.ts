@@ -50,8 +50,8 @@ export function whenIcon(when: ScheduleWhen): string {
  *  `codealong schedule` finds each by it, its when saying which project (`whenWords`). A name you
  *  gave one yourself stays. */
 export function scheduleName(s: Pick<ScheduleItem, 'name' | 'orchestrates'>): string {
-  // Any case, and spaces as one, as orchestrate.rs `session_title` matches it.
-  const said = (t: string) => t.trim().split(/\s+/).join(' ').toLowerCase();
+  // Spaces as one, in the same case, as orchestrate.rs `session_title` matches it.
+  const said = (t: string) => t.trim().split(/\s+/).join(' ');
   const given = s.orchestrates?.project ? `${s.orchestrates.project} orchestrator` : 'Orchestrator';
   return s.orchestrates && said(s.name) === said(given) ? 'Orchestrator' : s.name;
 }

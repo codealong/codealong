@@ -1536,8 +1536,9 @@ fn move_session(engine: &Handle, c: &Call) -> Result<Value, String> {
 
 /// The copy a session moved into takes its place: the todos it was on, as their primary session
 /// where it was theirs, its labels, and its place among the pinned sessions. The session itself is
-/// archived.
-fn hand_over(engine: &Handle, board: &crate::model::Board, key: &str, copy: &str) {
+/// archived. A schedule's resume that went on as a copy hands over the same way (schedules/runner.rs
+/// `act`).
+pub(crate) fn hand_over(engine: &Handle, board: &crate::model::Board, key: &str, copy: &str) {
     for t in board.todos.iter().filter(|t| t.sessions.iter().any(|s| s == key)) {
         // The session stays on it too, as one that worked on it.
         let link = match t.primary.as_ref().is_some_and(|p| p.session == key) {
