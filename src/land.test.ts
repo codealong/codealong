@@ -129,13 +129,15 @@ test('an option is never taken for who reviewed it', { timeout: 60_000 }, async 
 //
 // It commits and pushes, so it must never do either anywhere but in its own folder: git's own
 // variables are cleared first (under a hook or a rebase's `exec` they name the repository the
-// test runs from, and every git command here would be run on that one), every step of the
+// test runs from, and every git command here would be run on that one; when git can't list
+// them the test stops, since `unset` of nothing succeeds), every step of the
 // setup stops the test if it fails (one that went on after a failed `cd` would commit and push
 // from the checkout it started in), and `here` checks where it is before anything is written.
 const LANDING = `
 set -u
-unset $(git rev-parse --local-env-vars)
 export GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_SYSTEM=/dev/null
+git_vars="$(git rev-parse --local-env-vars)" || exit 9
+unset $git_vars
 export GIT_AUTHOR_NAME=t GIT_AUTHOR_EMAIL=t@example.com GIT_COMMITTER_NAME=t GIT_COMMITTER_EMAIL=t@example.com
 tmp="$(mktemp -d)" || exit 9
 [ -n "$tmp" ] && [ -d "$tmp" ] || exit 9

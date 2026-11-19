@@ -503,6 +503,11 @@ const OWN_OPTIONS: &[(&str, &str)] = &[("--done", "--stop")];
 /// `--remove-worktree <folder> --dry-run --stop <key>` stopped the session.
 fn mode_of(args: &Args) -> Result<Option<&'static Mode>, String> {
     let named: Vec<&'static Mode> = MODES.iter().filter(|m| args.has(m.flag)).collect();
+    // And once: of a flag written twice only the first is read, so `--done B --stop --stop A`
+    // ended B and passed A over.
+    if let Some(twice) = named.iter().find(|m| args.0.iter().filter(|word| *word == m.flag).count() > 1) {
+        return Err(format!("{} is on the line twice.", twice.flag));
+    }
     match named.as_slice() {
         [] => Ok(None),
         [mode] => Ok(Some(mode)),
@@ -972,6 +977,7 @@ mod tests {
         // Two modes on a line run neither: the first in the table's order would have run, here
         // `--stop` on a session, whatever the line set out to do.
         assert_eq!(pick(&["--snapshot", "--done", "claude:claude:abc", "--stop", "--end-helpers"]), Some("--done"));
+        assert!(mode_of(&Args(&line(&["--snapshot", "--done", "claude:claude:xyz", "--stop", "--stop", "claude:claude:abc"]))).is_err(), "a flag twice");
         // `--stop <key>` is the mode wherever it is: with `--done` of another session it's two.
         for words in [&["--snapshot", "--remove-worktree", "/r/atlas-spare", "--dry-run", "--stop", "claude:claude:abc"][..], &["--snapshot", "--stop", "claude:claude:abc", "--done", "claude:claude:xyz"], &["--snapshot", "--done", "claude:claude:xyz", "--stop", "claude:claude:abc"], &["--snapshot", "--stop", "claude:claude:abc", "--done", "claude:claude:abc", "--rename"], &["--snapshot", "--accounts", "--found"]] {
             assert!(mode_of(&Args(&line(words))).is_err(), "{words:?}");

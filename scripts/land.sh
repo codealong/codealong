@@ -457,7 +457,8 @@ main() {
   # From here only this script moves the checkout: the commit it holds is the one asked for,
   # then the one its own rebase made of it, and anything else there stops the landing.
   local tries=0 itself now base tested wants dirty expected rebased
-  expected="$(git rev-parse HEAD)" || die "Couldn't read this checkout's HEAD."
+  # The commit as it was read before the wait, not read again now.
+  expected="${asked%% *}"
   while :; do
     tries=$((tries + 1))
     fetch || die "Couldn't fetch origin/main, so there's nothing to rebase onto or push to."
