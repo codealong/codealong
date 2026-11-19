@@ -180,9 +180,12 @@ mod tests {
     use super::*;
     use std::time::Instant;
 
+    /// Waits for `done`, up to a minute: it's back as soon as it's so, and ten seconds wasn't
+    /// long enough for a shell to start and say something on a Mac at a load in the high
+    /// hundreds, where these tests failed with nothing wrong (2026-11-19).
     fn wait_for(mut done: impl FnMut() -> bool) -> bool {
         let started = Instant::now();
-        while started.elapsed() < Duration::from_secs(10) {
+        while started.elapsed() < Duration::from_secs(60) {
             if done() {
                 return true;
             }

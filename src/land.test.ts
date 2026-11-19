@@ -95,9 +95,11 @@ test('the engine’s code runs both sides’ checks, since the windows’ tests 
 });
 
 test('what the engine’s tests read of the windows’ runs both', { timeout: 60_000 }, async () => {
-  for (const path of ['src/testing/ruleCases.json', 'src/styles/tokens.css', 'src/ui/SettingsDialog.tsx', 'design/tokens.json']) {
+  for (const path of ['src/testing/ruleCases.json', 'src/testing/modelFields.ts', 'src/styles/tokens.css', 'src/ui/SettingsDialog.tsx', 'design/tokens.json']) {
     expect(await plan(path), path).toBe('ui engine code');
   }
+  // The unit tests' own helpers there are no engine test's to read.
+  expect(await plan('src/testing/tauri.ts', 'src/testing/dom.ts')).toBe('ui code');
 });
 
 test('several files call for what any of them does', { timeout: 60_000 }, async () => {

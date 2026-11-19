@@ -67,9 +67,11 @@ calls_for() {
       echo ui
       echo code
       ;;
-    # What the engine's tests read of the windows': the fixtures (wiretypes.rs, board.rs,
-    # windowfeed.rs), the tokens (geometry.rs, quick.rs) and Settings (emblems.rs).
-    src/testing/* | src/styles/tokens.css | src/ui/SettingsDialog.tsx | design/*)
+    # What the engine's tests read of the windows': the fixtures it writes for them
+    # (wiretypes.rs, board.rs, windowfeed.rs), the tokens (geometry.rs, quick.rs) and Settings
+    # (emblems.rs). The rest of src/testing/ is the unit tests' own (their stand-in for the
+    # engine, their page), which no engine test reads.
+    src/testing/modelFields.ts | src/testing/ruleCases.json | src/testing/boardPushes.json | src/styles/tokens.css | src/ui/SettingsDialog.tsx | design/*)
       echo engine
       echo ui
       echo code
@@ -347,11 +349,17 @@ engine_check() {
     return 1
   fi
   # Each by itself: a test that only fails with the rest, on a Mac this busy, isn't the change's.
+  # And once more a minute on when it fails alone too: at a load in the high hundreds the tests
+  # that start a terminal or read the process table have failed alone and passed the next time
+  # (eight of them in one landing on 2026-11-19, for a change with nothing of the engine's).
   local name alone="" real="" whole
   whole="$(mktemp)"
   cp "$log" "$whole"
+  by_itself() {
+    (cd src-tauri && CARGO_TARGET_DIR="$target" cargo test --locked "$1" -- --exact) >"$log" 2>&1 && grep -q -F "test $1 ... ok" "$log"
+  }
   while IFS= read -r name; do
-    if (cd src-tauri && CARGO_TARGET_DIR="$target" cargo test --locked "$name" -- --exact) >"$log" 2>&1 && grep -q -F "test $name ... ok" "$log"; then
+    if by_itself "$name" || { sleep 60 && by_itself "$name"; }; then
       alone="$alone${alone:+, }$name"
     else
       real="$real${real:+, }$name"
