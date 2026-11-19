@@ -14,7 +14,7 @@
 // A todo linked to no worktree has nowhere to start from here: its box says so, and Start (the
 // strip's, the panel's, ⌘⏎) opens the quick panel on it, which asks where.
 
-import { useEffect, useMemo, useRef, useState, type KeyboardEvent as ReactKeyboardEvent, type RefObject } from 'react';
+import { useEffect, useMemo, useRef, useState, useSyncExternalStore, type RefObject } from 'react';
 import { todoLeftAhead } from '../ahead';
 import { showQuick, startSession, todoOp } from '../api';
 import { useLatest } from '../latest';
@@ -30,6 +30,7 @@ import type { Label, Lane, Session, Todo, Usage } from '../types';
 import { useStartChoice, useStartPicks } from '../useStartChoice';
 import { cardZoom } from '../zoom';
 import { AgentMenu } from './AgentMenu';
+import { reloadKey, zoomKey } from './cardHost';
 import { dialogUp } from './focusTrap';
 import { BoxText, Button } from './primitives';
 import { QueueStrip, snoozeKeys, snoozeRange, type Hotkeys, type Notice, type Queue, type StripAction } from './SessionPanel';
@@ -48,9 +49,31 @@ export interface TodoCardCan {
   showLane: (lane: Lane) => void;
   /** Opens a session where it runs. */
   openSession: (lane: Lane, session: Session) => void;
-  /** A right-click on a worktree or session it's linked to: that one's menu (menus.ts). */
+  /** A right-click on a worktree or session it's linked to, or on the todo's header: that one's
+   *  menu (menus.ts). */
   laneMenu: (lane: Lane) => void;
   sessionMenu: (lane: Lane, session: Session) => void;
+  todoMenu: () => void;
+}
+
+// The todos a start is on its way for, whichever card asked: its card can be left and come back
+// to before the start answers, and a second start, or a Done the start would then undo (todos.rs
+// `started` sets it in progress), mustn't go meanwhile.
+const launching = new Set<string>();
+const heard = new Set<() => void>();
+function setLaunching(id: string, on: boolean): void {
+  if (on) launching.add(id);
+  else launching.delete(id);
+  heard.forEach((f) => f());
+}
+function useLaunching(id: string): boolean {
+  return useSyncExternalStore(
+    (f) => {
+      heard.add(f);
+      return () => heard.delete(f);
+    },
+    () => launching.has(id),
+  );
 }
 
 export interface TodoCardProps {
@@ -80,25 +103,44 @@ export function TodoCard({ todo, todos, labels, run, lanes, usage, projects, now
   const item = useMemo(() => todoItem(todo, laneById, homes, labelById), [todo, laneById, homes, labelById]);
   const box = useRef<HTMLTextAreaElement>(null);
 
-  const edit: menus.TodoEdit = { run, todos, labels, projects };
+  const sending = useLaunching(todo.id);
   // What takes it off what waits on you goes on at once, everywhere; one that fails comes back.
   const leaving = (done: menus.Left, act: Promise<number | null>) => {
     todoLeftAhead([todo.id], act).catch((e: unknown) => can.failed(errorText(e)));
     can.left(done);
   };
-  const done = () => leaving('done', todoOp({ op: 'update', id: todo.id, patch: { status: 'done' } }));
+  const done = () => {
+    if (!launching.has(todo.id)) leaving('done', todoOp({ op: 'update', id: todo.id, patch: { status: 'done' } }));
+  };
+  // Done from the panel's status, or archiving it from its menu, is the strip's Done: it leaves
+  // what waits on you and the card goes on. The rest of its changes go through the store.
+  const runHere = (op: TodoOp) => {
+    if (op.op === 'update' && op.id === todo.id && (op.patch.status === 'done' || op.patch.archived === true) && Object.keys(op.patch).length === 1) {
+      if (op.patch.status === 'done') done();
+      else leaving('archived', todoOp(op));
+      return;
+    }
+    run(op);
+  };
+  const edit: menus.TodoEdit = { run: runHere, todos, labels, projects };
   const snooze = todoSnoozeMenu(todo, now, (act) => leaving('snoozed', act.then(() => null)), true);
   const due = menus.dueItem([todo], edit);
-  const starting = useStartHere(item.lane, todo, homes, usage, now, lanes, report, () => leaving('started', Promise.resolve(null)));
+  const starting = useStartHere(item.lane, todo, homes, usage, now, lanes, report, sending, () => leaving('started', Promise.resolve(null)));
   // Start, from the strip, the panel and ⌘⏎: from the box in its worktree, else the quick panel.
   const start = () => (item.lane ? starting.start() : void showQuick({ todo: todo.id, project: todo.project || null }).catch((e: unknown) => report.error(errorText(e))));
 
-  // Done, the snooze times and ⌘⏎ are the card's keys while it shows, as a PR's are its strip's.
-  // ⌘⏎ in a field of the panel (its title, its description) is the field's when it takes it.
-  const latest = useLatest({ done, snooze, start });
+  // Done, the snooze times and ⌘⏎ are the card's keys while it shows, as a PR's are its strip's,
+  // ⌘⏎ the box's too: one handler, so it's the same wherever the cursor is. ⌘⏎ in a field of the
+  // panel (its title, its description) is the field's when it takes it. The zoom's keys and ⌘R
+  // are every card's (cardHost.ts).
+  const latest = useLatest({ done, snooze, start, report });
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (e.defaultPrevented || e.isComposing || dialogUp()) return;
+      if (zoomKey(e, latest.current.report) || reloadKey(e, latest.current.report)) {
+        e.preventDefault();
+        return;
+      }
       if (chordPressed(menus.CHORDS.done ?? '', e)) {
         e.preventDefault();
         latest.current.done();
@@ -120,8 +162,8 @@ export function TodoCard({ todo, todos, labels, run, lanes, usage, projects, now
   }, [latest]);
 
   const buttons: StripAction[] = [
-    { label: 'Start', keys: keysSaid('⌘⏎'), title: item.lane ? `Start a session on it in ${item.lane.callsign}, with what’s written in the box at its foot` : 'It’s linked to no worktree: the quick panel asks where to start it', run: starting.sending ? undefined : start },
-    { label: 'Done', chord: menus.CHORDS.done, title: 'Mark it done: it leaves what waits on you', run: todo.status === 'done' ? undefined : done },
+    { label: 'Start', keys: keysSaid('⌘⏎'), title: sending ? 'A session is starting on it' : item.lane ? `Start a session on it in ${item.lane.callsign}, with what’s written in the box at its foot` : 'It’s linked to no worktree: the quick panel asks where to start it', run: sending ? undefined : start },
+    { label: 'Done', chord: menus.CHORDS.done, title: sending ? 'A session is starting on it: it’s marked done once that’s settled' : 'Mark it done: it leaves what waits on you', run: todo.status === 'done' || sending ? undefined : done },
     { label: 'Snooze', keys: snoozeRange(), title: `Snooze it: it waits apart until its time comes, its due date as it is. ${snoozeKeys(snooze)}`, menu: snooze.items },
     { label: 'Due…', title: 'When it’s due', menu: due.items },
   ];
@@ -137,8 +179,9 @@ export function TodoCard({ todo, todos, labels, run, lanes, usage, projects, now
           lanes={laneById}
           now={now}
           projects={projects}
-          onRun={run}
+          onRun={runHere}
           onStart={start}
+          onMenu={can.todoMenu}
           onShowTodo={can.showTodo}
           onShowSession={(lane, session) => can.showSession(lane, session)}
           onOpenSession={can.openSession}
@@ -162,23 +205,23 @@ export function TodoCard({ todo, todos, labels, run, lanes, usage, projects, now
  *  card goes on (`onStarted`) once the start went; one that fails says why and keeps what's
  *  written. What the start says you're to do next (send the prompt the Claude app holds) is said
  *  on the bar. */
-function useStartHere(lane: Lane | null, todo: Todo, homes: ReturnType<typeof sessionHomes>, usage: Usage[], now: number, lanes: Lane[], report: Report, onStarted: () => void) {
+function useStartHere(lane: Lane | null, todo: Todo, homes: ReturnType<typeof sessionHomes>, usage: Usage[], now: number, lanes: Lane[], report: Report, sending: boolean, onStarted: () => void) {
   const options = useStartOptions(!!lane);
   const picks = useStartPicks();
   const chosen = useStartChoice(picks, options, usage, now, lanes, lane?.project ?? null);
   const autoName = autoGroupIn(options, lane?.project ?? null);
   const autoGroup = chosen.groups.find((g) => g.name === autoName) ?? null;
   const [written, setWritten] = useState('');
-  const [sending, setSending] = useState(false);
   const start = () => {
-    if (!lane || sending) return;
+    if (!lane || launching.has(todo.id)) return;
     const { account, placeNow } = chosen;
     if (!account || !placeNow) {
       report.error('No account can start a session here now.');
       return;
     }
     const prompt = [todosPrompt([todo], (t) => primaryHolds(t, homes, now)), written.trim()].filter(Boolean).join('\n\n');
-    setSending(true);
+    const id = todo.id;
+    setLaunching(id, true);
     startSession({ laneId: lane.id, account, place: placeNow, prompt, model: chosen.modelNow, effort: chosen.effortNow ?? null, worktree: chosen.inNewWorktree, todos: [todo.id] })
       .then(
         (started) => {
@@ -187,7 +230,7 @@ function useStartHere(lane: Lane | null, todo: Todo, homes: ReturnType<typeof se
         },
         (e: unknown) => report.error(errorText(e)),
       )
-      .finally(() => setSending(false));
+      .finally(() => setLaunching(id, false));
   };
   const pick = (p: { account: string; model: string | null; effort: string | null }) => {
     picks.setAgent(agentId(p.account, p.model, chosen.groups));
@@ -199,12 +242,6 @@ function useStartHere(lane: Lane | null, todo: Todo, homes: ReturnType<typeof se
 /** The box at the card's foot: what's added to the todo's prompt, and the agent menu. ⌘⏎ starts. */
 function TodoStartBox({ boxRef, lane, starting: s }: { boxRef: RefObject<HTMLTextAreaElement | null>; lane: Lane | null; starting: ReturnType<typeof useStartHere> }) {
   const { chosen } = s;
-  const onKeyDown = (e: ReactKeyboardEvent<HTMLTextAreaElement>) => {
-    if (e.key === 'Enter' && cmd(e)) {
-      e.preventDefault();
-      s.start();
-    }
-  };
   if (!lane) {
     return <p className="ca-todocard-nowhere">It’s linked to no worktree, so it can’t start from here: Start opens the quick panel, which asks where.</p>;
   }
@@ -218,7 +255,7 @@ function TodoStartBox({ boxRef, lane, starting: s }: { boxRef: RefObject<HTMLTex
           boxRef.current?.focus();
         }}
       >
-        <BoxText ref={boxRef} value={s.written} lines={6} hint={`Anything to add? ${keysSaid('⌘⏎')} starts a session on it in ${lane.callsign}`} aria-label="What the session is told after the todo" onChange={(e) => s.setWritten(e.target.value)} onKeyDown={onKeyDown} />
+        <BoxText ref={boxRef} value={s.written} lines={6} hint={`Anything to add? ${keysSaid('⌘⏎')} starts a session on it in ${lane.callsign}`} aria-label="What the session is told after the todo" onChange={(e) => s.setWritten(e.target.value)} />
         <div className="ca-composer-buttons">
           <AgentMenu
             accounts={chosen.accounts}

@@ -186,7 +186,9 @@ export function waits<T>(waiting: T[], key: string, keyOf: (row: T) => string): 
  *  wait itself, `next` is the first that does. */
 export function stepTo<T>(action: 'next' | 'back', view: Pick<QueueView<T>, 'waiting' | 'reads' | 'was' | 'came'>, key: string, handled: Handled): T | null {
   const left = leftAfter(view.waiting, key, handled, view.reads, view.was, view.came);
-  return (action === 'next' ? left[0] : left[left.length - 1]) ?? null;
+  if (action === 'next') return left[0] ?? null;
+  // Back is the last of what waits, the ready todos (last of all) only with nothing else.
+  return [...left].reverse().find((r) => view.reads.waitsOf(r) !== 'ready') ?? left[left.length - 1] ?? null;
 }
 
 /** The row `delta` along `rows` from the session `key`, stopping at the ends; the first, or the
@@ -339,7 +341,8 @@ export function left<T>(view: QueueView<T>, handled: Handled, from: string, done
   if (!s || s.key !== from) return { went: 'away', handled };
   if (!leftGoesOn(waits(view.waiting, s.key, view.reads.keyOf), !!view.leftStays)) return { went: 'stay', handled };
   const step = dealt(view, handled, s, `${done}.`, now);
-  if (done === 'snoozed' || done === 'set aside') step.handled.delete(s.key);
+  // What comes back by itself once its time or its session is over isn't kept as dealt with.
+  if (done === 'snoozed' || done === 'set aside' || done === 'started') step.handled.delete(s.key);
   return step;
 }
 

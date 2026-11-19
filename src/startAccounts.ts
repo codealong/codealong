@@ -10,6 +10,8 @@ import { autoGroupIn, withLists } from './start';
 import type { RoutingGroup, Session, StartAccount, StartOptions } from './types';
 
 const FRESH_MS = 60_000;
+/** How long a box that has no start options waits to ask again (`useStartOptions`). */
+const RETRY_MS = 5_000;
 type Read = { accounts: StartAccount[]; groups: RoutingGroup[]; options: StartOptions | null };
 let read: (Read & { at: number }) | null = null;
 let reading: Promise<Read> | null = null;
@@ -78,11 +80,19 @@ export function useStartOptions(wanted = true): StartOptions | null {
   useEffect(() => {
     if (!wanted) return;
     let live = true;
-    void refresh().then((r) => {
-      if (live) setOptions(r.options);
-    });
+    let again: ReturnType<typeof setTimeout> | undefined;
+    // One that couldn't be read is asked again a few seconds on, for as long as it's wanted: the
+    // box it's for can't start anything without.
+    const ask = () =>
+      void refresh().then((r) => {
+        if (!live) return;
+        setOptions(r.options);
+        if (!r.options) again = setTimeout(ask, RETRY_MS);
+      });
+    ask();
     return () => {
       live = false;
+      clearTimeout(again);
     };
   }, [wanted]);
   return options;

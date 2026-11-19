@@ -1881,7 +1881,9 @@ follow at the line's end as they fit, its PR always; on two lines they're under 
 
 A due date keeps your order as it is, and on its day the todo comes to wait on you: from the start
 of the day it's due until it's done, it's among what waits on you in the notch, the most overdue
-first (*In the notch*), its count beside the camera with the rest. Snoozed from there, it's out of
+first (*In the notch*), its count beside the camera with the rest. While a session is starting on
+it, or one on it is working or waits on you itself, that session is what waits instead; one only
+left open, its turn seen, leaves the todo to wait on you again. Snoozed from there, it's out of
 what waits on you until its time comes, its due date as it was.
 
 #### Linking
