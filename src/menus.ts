@@ -215,6 +215,47 @@ export interface SessionCan {
   keys?: boolean | 'chords';
 }
 
+/** Where a `SessionCan` is made, and what each place passes of it. Every capability but `report`,
+ *  `open` and `terminal` is optional, so one a window leaves out compiles and its menu item is
+ *  quietly gone there: each place writes its own `satisfies CanIn<…>`, which holds it to its
+ *  list here both ways, and menus.test.ts says which windows pass each capability. A card's
+ *  menu is its window's part and the card's (`card`), and the waiting window's menu for a session
+ *  a card names is its part and `waitingNamed`. */
+export const SESSION_CAN = {
+  /** The main window's lists and panels (App.tsx). */
+  main: ['report', 'keys', 'open', 'terminal', 'editors', 'newSession', 'ownTerminal', 'todos', 'pin', 'desktop', 'windows', 'rename', 'worktrees', 'archive', 'undoDone', 'left', 'failed', 'mergeDone', 'doneHelpers', 'moving', 'boards', 'labels'],
+  /** A row of the quick panel (ui/Quick.tsx). */
+  quick: ['doneHelpers', 'report', 'open', 'terminal', 'reveal', 'reply', 'rename', 'labels', 'worktrees', 'editors', 'desktop'],
+  /** A pill on the floating bar (ui/Bar.tsx). */
+  bar: ['report', 'open', 'terminal', 'heading', 'reveal', 'reply', 'rename', 'editors', 'desktop', 'left'],
+  /** A card on the desktop, and a session's line on one (ui/DesktopPin.tsx). */
+  desktop: ['report', 'open', 'terminal', 'reveal', 'reply', 'rename', 'editors', 'desktop'],
+  /** A session linked in a card's conversation (ui/cardHost.ts). */
+  link: ['report', 'open', 'terminal', 'reveal', 'editors', 'desktop', 'left', 'labels'],
+  /** A session a PR's card names in the notch (ui/NotchReview.tsx), and one a todo's does
+   *  (ui/NotchTodo.tsx). */
+  notchReview: ['report', 'open', 'terminal', 'reveal', 'editors', 'desktop'],
+  notchTodo: ['report', 'open', 'terminal', 'reveal', 'editors', 'desktop'],
+  /** What a session's card adds to its window's part, in every window that shows one
+   *  (ui/SessionCard.tsx). */
+  card: ['terminal', 'editors', 'desktop', 'pin', 'mergeDone', 'doneHelpers', 'labels', 'answering', 'ownTerminal', 'keys'],
+  /** The windows' parts for the card they show: the waiting window's (ui/Waiting.tsx), the
+   *  notch's (ui/NotchSession.tsx) and the peek's (ui/Peek.tsx). */
+  waiting: ['report', 'open', 'reveal', 'reply', 'rename', 'left', 'failed', 'worktrees'],
+  notch: ['report', 'open', 'reveal', 'rename', 'left', 'failed'],
+  peek: ['report', 'open', 'reveal', 'putBack', 'rename', 'left'],
+  /** What the waiting window adds to its part for a session a PR's or a todo's card names. */
+  waitingNamed: ['terminal', 'editors', 'desktop', 'labels', 'doneHelpers'],
+} as const satisfies Record<string, readonly (keyof SessionCan)[]>;
+
+/** A place a `SessionCan` is made (`SESSION_CAN`). */
+export type CanPlace = keyof typeof SESSION_CAN;
+
+/** What the place `P` passes of a `SessionCan`: each capability on its list and no other. One may
+ *  still be missing for a session (a window that has no board yet has no worktrees to move it
+ *  to), which the place says by passing undefined. */
+export type CanIn<P extends CanPlace> = { [K in (typeof SESSION_CAN)[P][number]]-?: SessionCan[K] };
+
 /** A window's part in asking what becomes of helpers as their session is marked done
  *  (`SessionCan.doneHelpers`): the board's worktrees, and its dialog. */
 export interface DoneHelpersCan {

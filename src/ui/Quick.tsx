@@ -1456,7 +1456,7 @@ export function Quick() {
       worktrees: board?.lanes,
       editors: board ? { apps: board.apps, icons } : undefined,
       desktop: onDesktop,
-  });
+  }) satisfies menus.CanIn<'quick'>;
   const sessionMenuSpec = (lane: Lane, s: Session): MenuSpec => menus.sessionMenu(lane, s, quickCan(lane, s));
 
   /** A PR's menu, as every window has it. */

@@ -302,9 +302,9 @@ export function Waiting() {
           }
         : undefined,
     worktrees: board?.lanes,
-  });
+  }) satisfies menus.CanIn<'waiting'>;
   const sessionMenu = (lane: Lane, s: Session): MenuSpec =>
-    menus.sessionMenu(lane, s, { ...can(lane, s), terminal: board?.apps.terminal ?? 'Terminal', editors: board ? { apps: board.apps, icons } : undefined, desktop: onDesktop, labels: board?.labels, doneHelpers: board ? { lanes: board.lanes, ask: askingHelpers.ask } : undefined });
+    menus.sessionMenu(lane, s, { ...can(lane, s), ...({ terminal: board?.apps.terminal ?? 'Terminal', editors: board ? { apps: board.apps, icons } : undefined, desktop: onDesktop, labels: board?.labels, doneHelpers: board ? { lanes: board.lanes, ask: askingHelpers.ask } : undefined } satisfies menus.CanIn<'waitingNamed'>) });
   const showMenu = (spec: MenuSpec) => void showContextMenu(spec).catch((e: unknown) => report.error(errorText(e)));
 
   /** The latest session that worked on a PR, where it's listed. */

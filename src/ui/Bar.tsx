@@ -812,7 +812,7 @@ export function Bar() {
           if (peekedNow.current.key === i.key) void peekHide();
           stage.left(i.key, done);
         },
-      });
+      } satisfies menus.CanIn<'bar'>);
     });
     void popup(spec).catch(failedOn(i.key));
   };

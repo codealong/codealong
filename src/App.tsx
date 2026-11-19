@@ -1733,7 +1733,7 @@ export function App() {
       },
       boards: boardItems('session', [s.key]),
       labels: todoStore.labels,
-  });
+  }) satisfies menus.CanIn<'main'>;
   const sessionMenuSpec = (lane: Lane, s: Session, pin: 'session' | 'worktree'): MenuSpec => menus.sessionMenu(lane, s, sessionCan(lane, s, pin));
   const sessionMenu = (lane: Lane, s: Session, pin: 'session' | 'worktree') => void showContextMenu(sessionMenuSpec(lane, s, pin)).catch((e: unknown) => setToast(String(e)));
   // A helpers chip's card (HelpersCard.tsx): a helper shown in Sessions, under its session, which

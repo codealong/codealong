@@ -39,7 +39,7 @@ import { renameAhead, sentWorthSaying } from '../ahead';
 import { currentRow, notchRows, ROW_READS, waitingRow, waitingRows, type NotchRow } from '../bar';
 import { useSessionHistory } from '../history';
 import { seenable } from '../lanes';
-import type { Left } from '../menus';
+import type { CanIn, Left } from '../menus';
 import { inOrder, WAITS, type Waits } from '../queue';
 import { errorText } from '../report';
 import type { BarItem, BarReview, BarTodo, Board, PrItem } from '../types';
@@ -475,7 +475,7 @@ export function NotchSession({ sessionKey, rename, now, queue, notice, onBack, k
     left: (done) => onLeft(session.key, done),
     // A card's Merge and done… dialog is never surely in front of you, so there's always a why.
     failed: (why) => why && onFailed(session.key, why),
-  };
+  } satisfies CanIn<'notch'>;
 
   /** Keeps the session on the desktop, in a window of its own where its card is, and the notch
    *  closes over it. */

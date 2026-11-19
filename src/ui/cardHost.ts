@@ -293,7 +293,7 @@ export function useCardHost({ sessionKey, anchor, beside, live, apps, terminal, 
     showTodo,
     openSession: (l, s) => open(l, s.openTarget),
     sessionMenu: (l, s) => {
-      const can: menus.SessionCan = { report, open, terminal, reveal: () => showSession(l, s), editors: apps ? { apps, icons } : undefined, desktop: onDesktop, left: away, labels: live.board?.labels };
+      const can: menus.SessionCan = { report, open, terminal, reveal: () => showSession(l, s), editors: apps ? { apps, icons } : undefined, desktop: onDesktop, left: away, labels: live.board?.labels } satisfies menus.CanIn<'link'>;
       void showContextMenu(menus.sessionMenu(l, s, can)).catch((e: unknown) => report.error(errorText(e)));
     },
     prMenu: (url, pr) => {

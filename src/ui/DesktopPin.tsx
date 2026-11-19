@@ -211,7 +211,7 @@ export function DesktopPin() {
       rename: el ? () => peekOpen(s.key, rectOf(el), true, true).catch(fail) : undefined,
       editors,
       desktop: onDesktop,
-    });
+    } satisfies menus.CanIn<'desktop'>);
   const menu = (target: Element): MenuSpec => {
     const line = target.closest<HTMLElement>('[data-session]');
     const hit = line && sessions.find((x) => x.session.key === line.dataset.session);

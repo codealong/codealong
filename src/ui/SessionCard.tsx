@@ -106,19 +106,21 @@ export function SessionCard({ lane, session, apps, now, board, can, canFor, outg
   /** A window's part for a session, with the card's: the same menu in every window. */
   const whole = (s: Session, base: WindowCan): menus.SessionCan => ({
     ...base,
-    terminal: apps.terminal,
-    editors: { apps, icons },
-    desktop: onDesktop,
-    pin: pinItem(board, s, report),
-    mergeDone: board ? { prs: board.prs, ask: mergingDone.ask } : undefined,
-    doneHelpers: board ? { lanes: board.lanes, ask: askingHelpers.ask } : undefined,
-    labels: board?.labels,
-    // Its terminal under its box, for the session shown; another the header names opens its
-    // folder in your terminal app, as it has no drawer here. The terminal it runs in isn't in a
-    // card's drawer (SessionPanel.tsx), so with only that one, ⌃` opens a shell beside it.
-    answering: s.key === session.key && answering,
-    ownTerminal: s.key === session.key ? ownTerminalFor(s.key, runFolder(lane, s), apps.runIn, besideOf(board?.terminals?.[s.key] ?? NO_TERMINALS), (e: unknown) => report.error(errorText(e))) : undefined,
-    keys: 'chords',
+    ...({
+      terminal: apps.terminal,
+      editors: { apps, icons },
+      desktop: onDesktop,
+      pin: pinItem(board, s, report),
+      mergeDone: board ? { prs: board.prs, ask: mergingDone.ask } : undefined,
+      doneHelpers: board ? { lanes: board.lanes, ask: askingHelpers.ask } : undefined,
+      labels: board?.labels,
+      // Its terminal under its box, for the session shown; another the header names opens its
+      // folder in your terminal app, as it has no drawer here. The terminal it runs in isn't in a
+      // card's drawer (SessionPanel.tsx), so with only that one, ⌃` opens a shell beside it.
+      answering: s.key === session.key && answering,
+      ownTerminal: s.key === session.key ? ownTerminalFor(s.key, runFolder(lane, s), apps.runIn, besideOf(board?.terminals?.[s.key] ?? NO_TERMINALS), (e: unknown) => report.error(errorText(e))) : undefined,
+      keys: 'chords',
+    } satisfies menus.CanIn<'card'>),
   });
   const mine = whole(session, can);
   // Where one that isn't running goes on (Resume in, Carry on) is its account's places, which a

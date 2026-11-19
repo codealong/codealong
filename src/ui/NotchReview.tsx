@@ -76,7 +76,7 @@ export function NotchReview({ prKey, now, queue, notice, onBack, keys, onKeys, o
   /** What the notch does for the PR's actions: what takes it off the bar goes on to the next that
    *  waits on you, or back to the session it was shown from. */
   const can: PrWindowCan = { report, open: host.open, reveal: () => host.showPr(pr), left: (done) => onLeft(pr.key, done), failed: (why) => onFailed(pr.key, why) };
-  const sessionCan = (l: Lane, s: Session): menus.SessionCan => ({ report, open: host.open, terminal, reveal: () => host.showSession(l, s), editors: apps ? { apps, icons } : undefined, desktop: onDesktop });
+  const sessionCan = (l: Lane, s: Session): menus.SessionCan => ({ report, open: host.open, terminal, reveal: () => host.showSession(l, s), editors: apps ? { apps, icons } : undefined, desktop: onDesktop }) satisfies menus.CanIn<'notchReview'>;
   const show = (spec: Parameters<typeof showContextMenu>[0]) => void showContextMenu(spec).catch((e: unknown) => report.error(errorText(e)));
 
   return (

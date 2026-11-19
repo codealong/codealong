@@ -36,6 +36,7 @@ import { readDraft } from '../drafts';
 import { followBoard } from '../followBoard';
 import { useLatest } from '../latest';
 import { useViewKeys } from '../mainKeys';
+import type { CanIn } from '../menus';
 import { endSide } from '../side';
 import { homeOf } from '../lanes';
 import { attentionRows, ALL_PROJECTS } from '../quick';
@@ -381,7 +382,7 @@ export function Peek({ kept = false, side = false }: { kept?: boolean; side?: bo
   // A session Codealong runs lives in the main window's panel, so where it lives (Show in
   // Codealong, its Open here) is the main window too, and going there puts a kept one back.
   const openTarget = (l: Lane, target: string) => (putBack && session.hosted && target === session.openTarget ? putBack() : host.open(l, target));
-  const can: WindowCan = { report, open: openTarget, reveal: () => host.showSession(lane, session), putBack, rename: () => setRenameAsked(session.key), left: away };
+  const can: WindowCan = { report, open: openTarget, reveal: () => host.showSession(lane, session), putBack, rename: () => setRenameAsked(session.key), left: away } satisfies CanIn<'peek'>;
   /** A session it came from, or that came of it, takes the peek's place; from a kept session it
    *  shows in Codealong, and the kept one stays. Its menu is its own. */
   const showKin = (l: Lane, s: Session) => (kept ? host.showSession(l, s) : void peekOpen(s.key, null, engaged).catch((e: unknown) => report.error(errorText(e))));

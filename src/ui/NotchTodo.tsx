@@ -72,7 +72,7 @@ export function NotchTodo({ todoKey, now, queue, notice, onBack, keys, onKeys, o
 
   const show = (spec: Parameters<typeof showContextMenu>[0]) => void showContextMenu(spec).catch((e: unknown) => report.error(errorText(e)));
   const editors = apps ? { apps, icons } : undefined;
-  const sessionCan = (l: Lane, s: Session): menus.SessionCan => ({ report, open: host.open, terminal: apps?.terminal ?? 'Terminal', reveal: () => host.showSession(l, s), editors, desktop: onDesktop });
+  const sessionCan = (l: Lane, s: Session): menus.SessionCan => ({ report, open: host.open, terminal: apps?.terminal ?? 'Terminal', reveal: () => host.showSession(l, s), editors, desktop: onDesktop }) satisfies menus.CanIn<'notchTodo'>;
 
   return (
     <div
