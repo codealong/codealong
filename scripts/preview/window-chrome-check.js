@@ -1,7 +1,8 @@
 // Checks the main window's chrome (App.css): the title bar, the sidebar and the status bar are one
 // ground, the window's, with no line between them; the board and the panel beside it are a card on
 // it, rounded at its four corners, with a gutter at the window's right edge and a shadow under it
-// on the window's ground, beneath the chrome's rows. Settings, Analytics and the GitHub link are
+// on the window's ground, beneath the chrome's rows, whose ring is the card's edge in light (a line
+// in dark). Settings, Analytics and the GitHub link are
 // icons at the sidebar's foot, named for the keyboard and screen readers, with the theme switch
 // after them, and the rail the sidebar folds to has the three; the status bar ends with Refresh,
 // with no Accounts; a chip names a model's own limit only beside its others, and says how long
@@ -90,6 +91,14 @@
     check('the card casts a shadow', s.content !== 'none' && s.boxShadow !== 'none' && /\d/.test(s.boxShadow), s.content + ' ' + s.boxShadow);
     check('as wide as the board and the panel together', Math.abs(parseFloat(s.width) - cardWidth) <= 1 && Math.abs(parseFloat(s.height) - board.getBoundingClientRect().height) <= 1, s.width + ' × ' + s.height + ' for ' + cardWidth);
     check('it takes no clicks', s.pointerEvents === 'none', s.pointerEvents);
+    // Its edge: in light the shadow's ring, with no line of the card's own; in dark the line.
+    var root = document.documentElement;
+    var dark = root.dataset.theme ? root.dataset.theme === 'dark' : matchMedia('(prefers-color-scheme: dark)').matches;
+    var edge = b.borderTopColor;
+    var line = getComputedStyle(root).getPropertyValue('--line').trim();
+    if (dark) check('in dark the card’s edge is a line', edge !== 'rgba(0, 0, 0, 0)', edge);
+    else check('in light the card’s edge is the shadow’s ring, not a line', edge === 'rgba(0, 0, 0, 0)' && /0px 0px 0px 1px/.test(s.boxShadow), edge + ' | ' + s.boxShadow + ' | line ' + line);
+    check('the line between the board and the panel stays', p.borderLeftColor !== 'rgba(0, 0, 0, 0)', p.borderLeftColor);
     // The window isn't a stacking context: one would hold its dialogs under what's portalled to the page.
     check('and the window stays no stacking context of its own', style(win).isolation !== 'isolate' && style(win).zIndex === 'auto' && style(win).transform === 'none', style(win).isolation + ' ' + style(win).zIndex);
     // The shadow is first in the body; the sidebar and the status bar, positioned, paint after it.

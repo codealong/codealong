@@ -31,6 +31,7 @@
   --seg-selected: #ffffff;
   --line: #dde0dc;
   --line-strong: #7b827d;
+  --card-edge: transparent;
   --ink: #141817;
   --ink-2: #454d49;
   --ink-3: #5f6763;
@@ -107,7 +108,7 @@
   --scrim: #0a0c0d52;
   --shadow-popover: 0 12px 32px rgba(20, 24, 23, 0.18), 0 0 0 1px rgba(20, 24, 23, 0.08);
   --shadow-lift: 0 1px 2px rgba(20, 24, 23, 0.10);
-  --shadow-card: 0 1px 3px rgba(20, 24, 23, 0.07), 0 4px 18px rgba(20, 24, 23, 0.09);
+  --shadow-card: 0 0 0 1px rgba(20, 24, 23, 0.07), 0 1px 3px rgba(20, 24, 23, 0.07), 0 4px 18px rgba(20, 24, 23, 0.09);
   --shadow-hud: 0 3px 10px rgba(20, 24, 23, 0.16), 0 0 0 1px rgba(20, 24, 23, 0.10);
   --shadow-notch: 0 14px 24px -8px rgba(0, 0, 0, 0.45);
   --shadow-peek: 0 10px 24px -6px rgba(20, 24, 23, 0.24), 0 0 0 1px rgba(20, 24, 23, 0.08);
@@ -205,6 +206,7 @@
     --seg-selected: rgba(255, 255, 255, 0.14);
     --line: #272c2e;
     --line-strong: #717a76;
+    --card-edge: var(--line);
     --ink: #e8ebe7;
     --ink-2: #b0b7b3;
     --ink-3: #8c9490;
@@ -315,6 +317,7 @@
   --seg-selected: rgba(255, 255, 255, 0.14);
   --line: #272c2e;
   --line-strong: #717a76;
+  --card-edge: var(--line);
   --ink: #e8ebe7;
   --ink-2: #b0b7b3;
   --ink-3: #8c9490;
