@@ -7,26 +7,27 @@
 //! - `carrying_on` runs work until it returns, again each time it panics.
 //! - `supervised` is that for work in stages: a first one that has to go through once before
 //!   anything else is right, one that picks up after a fall, and the loop. It counts the falls
-//!   running that came short of the loop (`Fall::short`): `ENOUGH` of those and the work can't
-//!   get going, which is for whoever runs it to act on. Falls of a loop that got going are
-//!   never that, however many: it's doing its work between them.
+//!   running with no whole pass of the work between them (`Fall::short`): `ENOUGH` of those
+//!   and the work can't get going, which is for whoever runs it to act on. Falls of work that
+//!   gets through passes are never that, however many: it's doing its work between them.
 //! - `Falls` says how long to wait before going on, longer as falls come close together.
 //!
 //! Work that another thread only waits for the end of doesn't need this: that's
 //! `throttle::background`, which hands the work's end to whoever marked it as on its way.
 
-use std::cell::Cell;
 use std::time::{Duration, Instant};
 
-/// This many falls running short of the loop, and the work can't get going.
+/// This many falls running with no whole pass between them, and the work can't get going.
 pub const ENOUGH: u32 = 5;
 
 /// What `supervised` says of a fall.
 pub struct Fall {
     /// What the panic said.
     pub why: String,
-    /// How many falls running have come before the work got as far as its loop: in its first
-    /// stage, or picking up after a fall. None when it fell in the loop, having got there.
+    /// How many falls running have come with no whole pass of the work between them: in its
+    /// first stage, picking up after a fall, or in the loop before it got through one (an
+    /// engine that reads everything again and then can't compose a board). This one counts,
+    /// so it's 1 for a fall after work that was going.
     pub short: u32,
 }
 
@@ -76,27 +77,32 @@ pub fn carrying_on<T>(state: &mut T, mut work: impl FnMut(&mut T, bool), mut fel
 
 /// Runs work in stages on `state` until `run` returns, through any that fall over
 /// (`carrying_on`): `first` until it has gone through once, and after that `again` before `run`
-/// goes on from a fall. `fell` is told of each fall and how many running came short of `run`.
-pub fn supervised<T>(state: &mut T, mut first: impl FnMut(&mut T), mut again: impl FnMut(&mut T), mut run: impl FnMut(&mut T), mut fell: impl FnMut(&mut T, &Fall) -> Duration) {
+/// goes on from a fall. `passed` says whether the work has got through a whole pass since it
+/// was last asked, and `fell` is told of each fall and how many running have come without one.
+pub fn supervised<T>(
+    state: &mut T,
+    mut first: impl FnMut(&mut T),
+    mut again: impl FnMut(&mut T),
+    mut run: impl FnMut(&mut T),
+    mut passed: impl FnMut(&mut T) -> bool,
+    mut fell: impl FnMut(&mut T, &Fall) -> Duration,
+) {
     let mut started = false;
-    // Whether this go got as far as the loop, and how many running didn't.
-    let (reached, short) = (Cell::new(false), Cell::new(0u32));
+    let mut short = 0u32;
     carrying_on(
         state,
         |state, after_a_fall| {
-            reached.set(false);
             if !started {
                 first(state);
                 started = true;
             } else if after_a_fall {
                 again(state);
             }
-            reached.set(true);
             run(state)
         },
         |state, why| {
-            short.set(if reached.get() { 0 } else { short.get() + 1 });
-            fell(state, &Fall { why, short: short.get() })
+            short = if passed(state) { 1 } else { short + 1 };
+            fell(state, &Fall { why, short })
         },
     );
 }
@@ -147,6 +153,7 @@ mod tests {
                     panic!("the loop fell over");
                 }
             },
+            |_| false,
             |ran, _| {
                 ran.push("fell");
                 Duration::ZERO
@@ -156,41 +163,79 @@ mod tests {
         assert_eq!(ran, ["first", "fell", "first", "run", "fell", "again", "run"]);
     }
 
+    /// Work whose stages fall over as a test says: how often each has run, and whether a whole
+    /// pass has been got through since that was last asked.
+    #[derive(Default)]
+    struct Work {
+        firsts: u32,
+        agains: u32,
+        runs: u32,
+        passed: bool,
+    }
+
     #[test]
-    fn falls_short_of_the_loop_are_counted_until_it_gets_there() {
-        // The first stage falls three times, the loop once, picking up twice, the loop once
-        // more, and then it ends: however long each takes, and whatever came between.
-        let mut runs = (0, 0, 0);
+    fn falls_with_no_pass_between_them_are_counted_and_a_pass_starts_the_count_again() {
+        // The first stage falls three times; the loop then gets through a pass and falls;
+        // picking up falls twice; the loop passes and falls once more, and then ends.
+        let mut work = Work::default();
         let mut shorts: Vec<u32> = Vec::new();
         supervised(
-            &mut runs,
-            |runs| {
-                runs.0 += 1;
-                if runs.0 <= 3 {
+            &mut work,
+            |work| {
+                work.firsts += 1;
+                if work.firsts <= 3 {
                     panic!("first");
                 }
             },
-            |runs| {
-                runs.1 += 1;
-                if runs.1 <= 2 {
+            |work| {
+                work.agains += 1;
+                if work.agains <= 2 {
                     panic!("again");
                 }
             },
-            |runs| {
-                runs.2 += 1;
-                if runs.2 <= 2 {
+            |work| {
+                work.runs += 1;
+                work.passed = true;
+                if work.runs <= 2 {
                     panic!("run");
                 }
             },
+            |work| std::mem::take(&mut work.passed),
             |_, fall| {
                 shorts.push(fall.short);
                 Duration::ZERO
             },
         );
-        // A fall in the loop, which it had reached, starts the count again: a loop that falls
-        // now and then between its work is never "can't get going".
-        assert_eq!(shorts, [1, 2, 3, 0, 1, 2, 0]);
+        // Work that falls now and then between its passes is never "can't get going".
+        assert_eq!(shorts, [1, 2, 3, 1, 2, 3, 1]);
         assert!(shorts.iter().all(|short| *short < ENOUGH));
+    }
+
+    #[test]
+    fn work_that_picks_up_and_never_gets_through_a_pass_cant_get_going() {
+        // Reading again works every time, and the pass after it falls every time before it's
+        // through: the loop is reached, and nothing is ever done in it.
+        let mut work = Work::default();
+        let mut shorts: Vec<u32> = Vec::new();
+        supervised(
+            &mut work,
+            |work| work.firsts += 1,
+            |work| work.agains += 1,
+            |work| {
+                work.runs += 1;
+                if work.runs <= 6 {
+                    panic!("the pass fell over before it was through");
+                }
+            },
+            |work| std::mem::take(&mut work.passed),
+            |_, fall| {
+                shorts.push(fall.short);
+                Duration::ZERO
+            },
+        );
+        assert_eq!(shorts, [1, 2, 3, 4, 5, 6]);
+        assert!(shorts.contains(&ENOUGH), "reaching the loop isn't getting going");
+        assert_eq!((work.firsts, work.agains), (1, 6));
     }
 
     #[test]

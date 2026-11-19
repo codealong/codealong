@@ -82,20 +82,28 @@ pub fn run() -> i32 {
     os::system::no_app_nap();
     eprintln!("Codealong's server {} starting: pid {}, engine {ENGINE}, files in {}", env!("CARGO_PKG_VERSION"), std::process::id(), util::tilde(&config::support_dir()));
     // An engine that can't get going (engine.rs `run_guarded`) ends this server, which answers
-    // nobody without one. As a server that's done ends, so launchd doesn't start it again: what
-    // kept it from its first pass five times running is likely there the next time too, and
-    // started every ten seconds it would read everything again for as long as you're logged
-    // in. Whoever next wants a server (the app, a command) starts one, with nothing left over
-    // from this one. What the listenings were in the middle of hearing is written first, as a
-    // quit writes it, but not waited on for long.
-    engine::when_spent(|_| {
+    // nobody without one. What the listenings were in the middle of hearing is written first,
+    // as a quit writes it, but not waited on for long, and the end is reached whether or not
+    // there was a thread to write it on: no room for another is one of the ways an engine
+    // can't get going.
+    //
+    // One that never had a board out ends as a server that's done does, so launchd doesn't
+    // start it again: what kept it from its first pass five times running is likely there the
+    // next time too, and started every ten seconds it would read everything again for as long
+    // as you're logged in. Whoever next wants a server (the app, a command) starts one. One
+    // that was working and then couldn't go on ends in an error, which launchd starts again:
+    // a fresh process has nothing left over from this one, and schedules shouldn't wait for
+    // somebody to open the app.
+    engine::when_spent(|_, had_a_board_out| {
         let (done, written) = std::sync::mpsc::channel();
-        std::thread::spawn(move || {
+        let writing = std::thread::Builder::new().name("codealong-last-words".into()).spawn(move || {
             crate::listen::shut_down();
             let _ = done.send(());
         });
-        let _ = written.recv_timeout(Duration::from_secs(5));
-        std::process::exit(0)
+        if writing.is_ok() {
+            let _ = written.recv_timeout(Duration::from_secs(5));
+        }
+        std::process::exit(if had_a_board_out { 70 } else { 0 })
     });
     match start() {
         Ok(_ctx) => loop {

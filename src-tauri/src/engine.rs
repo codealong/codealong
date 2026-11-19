@@ -1146,7 +1146,7 @@ pub fn start(emit: impl Fn(&Board) + Send + 'static) -> Handle {
             }));
             match made {
                 Ok(mut engine) => run_guarded(&mut engine, &rx),
-                Err(panic) => give_up(&format!("it couldn't be made: {}", crate::carryon::panic_words(panic.as_ref()))),
+                Err(panic) => give_up(&format!("it couldn't be made: {}", crate::carryon::panic_words(panic.as_ref())), false),
             }
         })
         .expect("engine thread");
@@ -1398,10 +1398,10 @@ impl RepoReads {
 /// the default hook wrote them.
 ///
 /// An engine that falls now and then between its work is carried on however often. One that
-/// can't get as far as its loop (`carryon::ENOUGH` falls running in the first scan, or in
-/// reading again after a fall) isn't working at all, and its requests and the watcher's events
-/// pile up unread: that's the host's to act on (`give_up`), and it's tried again meanwhile at
-/// the longest wait.
+/// can't get a board out (`carryon::ENOUGH` falls running with none published between them: in
+/// the first scan, in reading again after a fall, or composing the board after that) isn't
+/// working at all, and its requests and the watcher's events pile up unread: that's the
+/// host's to act on (`give_up`), and it's tried again meanwhile at the longest wait.
 fn run_guarded(engine: &mut Engine, rx: &Receiver<Msg>) {
     let mut falls = crate::carryon::Falls::default();
     crate::carryon::supervised(
@@ -1412,11 +1412,13 @@ fn run_guarded(engine: &mut Engine, rx: &Receiver<Msg>) {
         },
         Engine::pick_up,
         |engine| engine.run(rx),
+        // A board got out since the last fall: the engine is doing its work.
+        |engine| std::mem::take(&mut engine.passed),
         |engine, fall| {
             let wait = falls.fell(Instant::now());
             engine.fell_over(&fall.why);
             if fall.short >= crate::carryon::ENOUGH {
-                give_up(&fall.why);
+                give_up(&fall.why, engine.ever_passed);
                 return crate::carryon::Falls::LONGEST;
             }
             wait
@@ -1425,25 +1427,27 @@ fn run_guarded(engine: &mut Engine, rx: &Receiver<Msg>) {
 }
 
 /// What the host does about an engine that can't get going, when it has said (`when_spent`).
-static SPENT: std::sync::OnceLock<Box<dyn Fn(&str) + Send + Sync>> = std::sync::OnceLock::new();
+static SPENT: std::sync::OnceLock<Box<dyn Fn(&str, bool) + Send + Sync>> = std::sync::OnceLock::new();
 
 /// Says what's to be done when the engine can't get going: it couldn't be made, or fell over
-/// `carryon::ENOUGH` times running before reaching its loop. The server run by itself ends its
-/// process (serve.rs `run`), to be started afresh by whoever next wants one. A host that hasn't
-/// said (the app, running the server itself when it couldn't start one) has nothing to hand
-/// over to, and the engine goes on trying there.
-pub fn when_spent(then: impl Fn(&str) + Send + Sync + 'static) {
+/// `carryon::ENOUGH` times running without a board between them. `then` is told why, and
+/// whether this engine ever had a board out: one that worked and stopped is another matter than
+/// one that never started. The server run by itself ends its process (serve.rs `run`). A host
+/// that hasn't said (the app, running the server itself when it couldn't start one) has nothing
+/// to hand over to, and the engine goes on trying there; one that couldn't be made there stays
+/// unmade, as it did before there was a guard.
+pub fn when_spent(then: impl Fn(&str, bool) + Send + Sync + 'static) {
     let _ = SPENT.set(Box::new(then));
 }
 
 /// Tells the log, and the host if it asked to be told (`when_spent`), that the engine can't get
 /// going. Nothing here may stop what follows it, so the log is written without `eprintln!`,
 /// which panics when it can't write.
-fn give_up(why: &str) {
+fn give_up(why: &str, had_a_board_out: bool) {
     use std::io::Write;
-    let _ = writeln!(std::io::stderr(), "Codealong's engine can't get going: it has fallen over {} times running without reaching its work (the last: {why}).", crate::carryon::ENOUGH);
+    let _ = writeln!(std::io::stderr(), "Codealong's engine can't get going: it has fallen over {} times running with no board between them (the last: {why}).", crate::carryon::ENOUGH);
     if let Some(then) = SPENT.get() {
-        then(why);
+        then(why, had_a_board_out);
     }
 }
 
@@ -1459,6 +1463,14 @@ struct Engine {
     troubles: BTreeMap<Trouble, String>,
     /// How often the engine's thread has fallen over and been carried on (`run_guarded`).
     fell: u32,
+    /// A board has gone out since this was last asked (`run_guarded` asks at each fall), and
+    /// one ever has: what tells an engine doing its work from one that can't get going.
+    passed: bool,
+    ever_passed: bool,
+    /// config.toml as read is applied whole (`load_config` got to its end): false while it's
+    /// being applied, and so after a fall partway through, when what's applied is neither the
+    /// old settings nor the new.
+    config_settled: bool,
     seen: SeenState,
     /// state.json is there but doesn't read: the engine runs on what it has in memory (a first
     /// run's state at launch) and writes nothing over the file until it's fixed or deleted.
@@ -1675,6 +1687,9 @@ impl Engine {
             config_text: None,
             troubles: BTreeMap::new(),
             fell: 0,
+            passed: false,
+            ever_passed: false,
+            config_settled: false,
             seen: SeenState::default(),
             state_unreadable: false,
             todos: TodoStore::default(),
@@ -2757,8 +2772,7 @@ fn waiting_call(s: &Session, account: Option<&config::AccountCfg>) -> Option<Str
     /// Everything that depends on config.toml, read again. When nothing but the theme, the
     /// shortcuts or the accounts' order changed, a new board is enough: reading everything again
     /// also asks for Claude usage, and the usage endpoint turns away calls that come often.
-    /// Says whether everything was read again.
-    fn reload(&mut self) -> bool {
+    fn reload(&mut self) {
         let before = self.cfg.clone();
         self.load_config();
         if self.remember_accounts() {
@@ -2787,8 +2801,14 @@ fn waiting_call(s: &Session, account: Option<&config::AccountCfg>) -> Option<Str
         rest.experimental = before.experimental.clone();
         if rest == before {
             self.mark_dirty("config");
-            return false;
+            return;
         }
+        self.read_all_again();
+    }
+
+    /// Everything that hangs off the settings, read again: the sessions and their records, the
+    /// repos, git, GitHub, usage, and what's watched.
+    fn read_all_again(&mut self) {
         self.scan_sessions();
         // The readers read their records' ends again, the lines before passed over: every record
         // is read whole again, off the engine's thread, an account's added since among them.
@@ -2804,7 +2824,6 @@ fn waiting_call(s: &Session, account: Option<&config::AccountCfg>) -> Option<Str
         self.fetch_usage();
         self.watch();
         self.mark_dirty("config");
-        true
     }
 
     /// After the thread fell over (`run_guarded`): whatever it had in hand is gone (the changed
@@ -2814,24 +2833,33 @@ fn waiting_call(s: &Session, account: Option<&config::AccountCfg>) -> Option<Str
     /// Codealong's own files go through `apply_fs` as if each had just changed (state.json, the
     /// todos, the PR links, the reviews, the schedules, the previews, the reusable worktrees),
     /// so an edit the lost batch held is applied by what applies it any other time. config.toml
-    /// comes after them, by itself: where its edit calls for everything to be read again,
-    /// `reload` is this same pass, and it isn't made twice. Otherwise the sessions are scanned
-    /// and their records read whole again, the repos read again with the watcher set anew, and
-    /// git runs in every worktree. The search for whose work an orphan worktree is starts over
-    /// in the background whatever the orphans are, since a line that tied a session to one may
-    /// be behind the readers now. GitHub and usage keep their own times: their endpoints turn
-    /// away calls that come often.
+    /// comes after them, by itself: an edit to it, or one whose applying the fall cut short
+    /// (`config_settled`), is applied whole and everything that hangs off the settings read
+    /// again, GitHub and usage with it. Otherwise the sessions are scanned and their records
+    /// read whole again (unless a state.json mended in the lost batch has just had that done),
+    /// the repos read again with the watcher set anew, and git runs in every worktree; GitHub
+    /// and usage keep their own times, as their endpoints turn away calls that come often. The
+    /// search for whose work an orphan worktree is starts over in the background whatever the
+    /// orphans are: a line that tied a session to one may be behind the readers now.
     fn pick_up(&mut self) {
+        let unread = self.state_unreadable;
         self.apply_fs(vec![crate::state::path(), todos::path(), prlinks::path(), autoreview::path(), crate::schedules::path(), crate::schedules::runs_path(), previews::path(), reusable::path()]);
-        self.needles.clear();
-        let read_again = config::read_text().ok().flatten() != self.config_text && self.reload();
-        if !read_again {
-            self.scan_sessions();
-            self.scan_pr_marks(false);
+        let scanned = unread && !self.state_unreadable;
+        if !self.config_settled || config::read_text().ok().flatten() != self.config_text {
+            self.load_config();
+            if self.remember_accounts() {
+                self.save_state();
+            }
+            self.read_all_again();
+        } else {
+            if !scanned {
+                self.scan_sessions();
+                self.scan_pr_marks(false);
+            }
             self.rescan_repos();
             self.queue_git_all();
         }
-        self.refresh_visitors(false);
+        self.search_visitors(false, true);
         self.mark_dirty("fell over");
     }
 
@@ -3294,6 +3322,7 @@ fn waiting_call(s: &Session, account: Option<&config::AccountCfg>) -> Option<Str
     }
 
     fn load_config(&mut self) {
+        self.config_settled = false;
         let text = config::read_text();
         self.config_text = text.as_ref().ok().cloned().flatten();
         match text.and_then(|t| t.map(|t| config::load_text(&t)).transpose()) {
@@ -3329,6 +3358,7 @@ fn waiting_call(s: &Session, account: Option<&config::AccountCfg>) -> Option<Str
         self.previews.chrome_profiles = self.cfg.projects.iter().filter_map(|p| Some((p.name.clone(), p.chrome_profile.clone()?))).collect();
         perf::set_enabled(self.cfg.debug.perf_log);
         search::configure(search::Scope { accounts: self.cfg.accounts.clone(), days: self.cfg.search.days });
+        self.config_settled = true;
     }
 
     /// Every folder config.toml lists is known from then on, so an account you take out isn't
@@ -4051,8 +4081,14 @@ fn waiting_call(s: &Session, account: Option<&config::AccountCfg>) -> Option<Str
     /// for the orphans made before its last write (give or take an hour), in the background
     /// unless `sync`.
     fn refresh_visitors(&mut self, sync: bool) {
+        self.search_visitors(sync, false)
+    }
+
+    /// `refresh_visitors`, and `again` whatever the orphans are: what's been found, and a scan
+    /// still out, may be from before lines the readers have since passed over (`pick_up`).
+    fn search_visitors(&mut self, sync: bool, again: bool) {
         let needles = self.orphan_needles();
-        if needles == self.needles && !sync {
+        if needles == self.needles && !sync && !again {
             return;
         }
         self.needles = needles.clone();
@@ -4801,6 +4837,8 @@ fn waiting_call(s: &Session, account: Option<&config::AccountCfg>) -> Option<Str
         let t = Instant::now();
         (self.emit)(&board);
         let emitted = t.elapsed();
+        // A whole pass: read, composed and out (`run_guarded`).
+        (self.passed, self.ever_passed) = (true, true);
         if perf::enabled() {
             let line = self.perf.publish_line(&board, composed, hashed, emitted, since_last, self.git_queue.running());
             perf::log(&line);
