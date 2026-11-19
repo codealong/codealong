@@ -6,15 +6,29 @@
 //!
 //! - `carrying_on` runs work until it returns, again each time it panics.
 //! - `supervised` is that for work in stages: a first one that has to go through once before
-//!   anything else is right, and one that picks up after a fall.
-//! - `Falls` says how long to wait before going on, and when it has been tried enough: falls
-//!   one after another mean the work can't get through a pass, and carrying on then only keeps
-//!   everyone waiting.
+//!   anything else is right, one that picks up after a fall, and the loop. It counts the falls
+//!   running that came short of the loop (`Fall::short`): `ENOUGH` of those and the work can't
+//!   get going, which is for whoever runs it to act on. Falls of a loop that got going are
+//!   never that, however many: it's doing its work between them.
+//! - `Falls` says how long to wait before going on, longer as falls come close together.
 //!
 //! Work that another thread only waits for the end of doesn't need this: that's
 //! `throttle::background`, which hands the work's end to whoever marked it as on its way.
 
+use std::cell::Cell;
 use std::time::{Duration, Instant};
+
+/// This many falls running short of the loop, and the work can't get going.
+pub const ENOUGH: u32 = 5;
+
+/// What `supervised` says of a fall.
+pub struct Fall {
+    /// What the panic said.
+    pub why: String,
+    /// How many falls running have come before the work got as far as its loop: in its first
+    /// stage, or picking up after a fall. None when it fell in the loop, having got there.
+    pub short: u32,
+}
 
 /// How long to wait before going on after a fall: nothing the first time, then longer each time
 /// it falls again within a minute of the last, up to half a minute. Something tripped on at
@@ -28,15 +42,7 @@ pub struct Falls {
 
 impl Falls {
     const CLOSE: Duration = Duration::from_secs(60);
-    const LONGEST: Duration = Duration::from_secs(30);
-    /// This many in a row, and carrying on isn't working.
-    pub const ENOUGH: u32 = 6;
-
-    /// Whether the falls in a row have reached `ENOUGH`: about eight seconds of trying, each
-    /// fall within a minute of the last.
-    pub fn spent(&self) -> bool {
-        self.row >= Self::ENOUGH
-    }
+    pub const LONGEST: Duration = Duration::from_secs(30);
 
     pub fn fell(&mut self, now: Instant) -> Duration {
         let close = self.last.is_some_and(|last| now.saturating_duration_since(last) < Self::CLOSE);
@@ -50,7 +56,7 @@ impl Falls {
 }
 
 /// What a panic said, for a notice: its message where it had one in words.
-fn panic_words(panic: &(dyn std::any::Any + Send)) -> String {
+pub fn panic_words(panic: &(dyn std::any::Any + Send)) -> String {
     panic.downcast_ref::<&str>().map(|s| s.to_string()).or_else(|| panic.downcast_ref::<String>().cloned()).unwrap_or_else(|| "it didn't say why".into())
 }
 
@@ -70,21 +76,28 @@ pub fn carrying_on<T>(state: &mut T, mut work: impl FnMut(&mut T, bool), mut fel
 
 /// Runs work in stages on `state` until `run` returns, through any that fall over
 /// (`carrying_on`): `first` until it has gone through once, and after that `again` before `run`
-/// goes on from a fall.
-pub fn supervised<T>(state: &mut T, mut first: impl FnMut(&mut T), mut again: impl FnMut(&mut T), mut run: impl FnMut(&mut T), fell: impl FnMut(&mut T, String) -> Duration) {
+/// goes on from a fall. `fell` is told of each fall and how many running came short of `run`.
+pub fn supervised<T>(state: &mut T, mut first: impl FnMut(&mut T), mut again: impl FnMut(&mut T), mut run: impl FnMut(&mut T), mut fell: impl FnMut(&mut T, &Fall) -> Duration) {
     let mut started = false;
+    // Whether this go got as far as the loop, and how many running didn't.
+    let (reached, short) = (Cell::new(false), Cell::new(0u32));
     carrying_on(
         state,
         |state, after_a_fall| {
+            reached.set(false);
             if !started {
                 first(state);
                 started = true;
             } else if after_a_fall {
                 again(state);
             }
+            reached.set(true);
             run(state)
         },
-        fell,
+        |state, why| {
+            short.set(if reached.get() { 0 } else { short.get() + 1 });
+            fell(state, &Fall { why, short: short.get() })
+        },
     );
 }
 
@@ -144,6 +157,43 @@ mod tests {
     }
 
     #[test]
+    fn falls_short_of_the_loop_are_counted_until_it_gets_there() {
+        // The first stage falls three times, the loop once, picking up twice, the loop once
+        // more, and then it ends: however long each takes, and whatever came between.
+        let mut runs = (0, 0, 0);
+        let mut shorts: Vec<u32> = Vec::new();
+        supervised(
+            &mut runs,
+            |runs| {
+                runs.0 += 1;
+                if runs.0 <= 3 {
+                    panic!("first");
+                }
+            },
+            |runs| {
+                runs.1 += 1;
+                if runs.1 <= 2 {
+                    panic!("again");
+                }
+            },
+            |runs| {
+                runs.2 += 1;
+                if runs.2 <= 2 {
+                    panic!("run");
+                }
+            },
+            |_, fall| {
+                shorts.push(fall.short);
+                Duration::ZERO
+            },
+        );
+        // A fall in the loop, which it had reached, starts the count again: a loop that falls
+        // now and then between its work is never "can't get going".
+        assert_eq!(shorts, [1, 2, 3, 0, 1, 2, 0]);
+        assert!(shorts.iter().all(|short| *short < ENOUGH));
+    }
+
+    #[test]
     fn falls_close_together_wait_longer_each_time_and_one_alone_doesnt_wait() {
         let start = Instant::now();
         let at = |secs: u64| start + Duration::from_secs(secs);
@@ -156,17 +206,7 @@ mod tests {
             falls.fell(at(second));
         }
         assert_eq!(falls.fell(at(20)), Falls::LONGEST, "never longer than half a minute");
-        assert!(falls.spent(), "and by then carrying on has been tried enough");
         // A minute's quiet, and it's the first again.
         assert_eq!(falls.fell(at(20) + Falls::CLOSE), Duration::ZERO);
-        assert!(!falls.spent());
-        // Six running is enough; five isn't.
-        let mut falls = Falls::default();
-        for second in 0..5 {
-            falls.fell(at(second));
-            assert!(!falls.spent(), "{second}");
-        }
-        falls.fell(at(5));
-        assert!(falls.spent());
     }
 }

@@ -1134,11 +1134,20 @@ pub fn start(emit: impl Fn(&Board) + Send + 'static) -> Handle {
             // (2026-10-20). Git, the heavy part, keeps to its own utility threads.
             crate::os::system::user_initiated_thread();
             let back = tx.clone();
-            let mut engine = Engine::new(Box::new(emit), tx, board);
-            engine.terminal_use = terminal_use;
-            engine.github.keep_heads_in(github::heads_file());
-            engine.servers = previews::watch(move |servers| back.send(Msg::Servers(servers)).is_ok());
-            run_guarded(&mut engine, &rx);
+            // The engine's making is watched too: a panic in it (a thread it starts that the OS
+            // has no room for) left the socket answering a board that never loads. There's no
+            // engine to carry on with, so it's the host's to act on at once.
+            let made = std::panic::catch_unwind(std::panic::AssertUnwindSafe(move || {
+                let mut engine = Engine::new(Box::new(emit), tx, board);
+                engine.terminal_use = terminal_use;
+                engine.github.keep_heads_in(github::heads_file());
+                engine.servers = previews::watch(move |servers| back.send(Msg::Servers(servers)).is_ok());
+                engine
+            }));
+            match made {
+                Ok(mut engine) => run_guarded(&mut engine, &rx),
+                Err(panic) => give_up(&format!("it couldn't be made: {}", crate::carryon::panic_words(panic.as_ref()))),
+            }
         })
         .expect("engine thread");
     handle
@@ -1383,15 +1392,16 @@ impl RepoReads {
 ///
 /// The loop that does it, its stages and its waits are carryon.rs's. The first scan is under
 /// the guard too, and is run again until it has gone through once: nothing the engine holds is
-/// right before it has. After that a fall is carried on from: the
-/// engine says so as a notice, reads again everything a change could have told it
-/// (`Engine::pick_up`), and goes on. What it was doing when it fell is lost, and the panic's
-/// own words and place are in the log, where the default hook wrote them.
+/// right before it has. After that a fall is carried on from: the engine says so as a notice,
+/// reads again everything a change could have told it (`Engine::pick_up`), and goes on. What it
+/// was doing when it fell is lost, and the panic's own words and place are in the log, where
+/// the default hook wrote them.
 ///
-/// Carrying on is for a fall, not for an engine that can't get through a pass: when the falls
-/// come one after another (`Falls::spent`), the process ends (`give_up`), to be started afresh
-/// with everything read from the files. Until then requests wait at most as long as the falls
-/// back off, and none is answered from an engine that never got to its messages.
+/// An engine that falls now and then between its work is carried on however often. One that
+/// can't get as far as its loop (`carryon::ENOUGH` falls running in the first scan, or in
+/// reading again after a fall) isn't working at all, and its requests and the watcher's events
+/// pile up unread: that's the host's to act on (`give_up`), and it's tried again meanwhile at
+/// the longest wait.
 fn run_guarded(engine: &mut Engine, rx: &Receiver<Msg>) {
     let mut falls = crate::carryon::Falls::default();
     crate::carryon::supervised(
@@ -1402,28 +1412,39 @@ fn run_guarded(engine: &mut Engine, rx: &Receiver<Msg>) {
         },
         Engine::pick_up,
         |engine| engine.run(rx),
-        |engine, why| {
+        |engine, fall| {
             let wait = falls.fell(Instant::now());
-            if falls.spent() {
-                give_up(&why);
+            engine.fell_over(&fall.why);
+            if fall.short >= crate::carryon::ENOUGH {
+                give_up(&fall.why);
+                return crate::carryon::Falls::LONGEST;
             }
-            engine.fell_over(&why);
             wait
         },
     );
 }
 
-/// Carrying on isn't working: the engine fell over `carryon::Falls::ENOUGH` times running, each within a
-/// minute of the last, in its first scan, in what it reads again after a fall, or in the pass
-/// after. The process ends with an error, and whatever runs the server starts it again
-/// (launchd on macOS, which is told to after any exit but a clean one; the app, or the next
-/// `codealong` command, elsewhere). A server left up with an engine that can't get through a
-/// pass answers nobody while its requests and the watcher's events pile up unread, which is
-/// worse than one that's gone; a fresh process also starts without whatever a fall left half
-/// changed in this one.
-fn give_up(why: &str) -> ! {
-    eprintln!("Codealong's engine fell over {} times running (the last: {why}). Ending, to be started afresh.", crate::carryon::Falls::ENOUGH);
-    std::process::exit(70)
+/// What the host does about an engine that can't get going, when it has said (`when_spent`).
+static SPENT: std::sync::OnceLock<Box<dyn Fn(&str) + Send + Sync>> = std::sync::OnceLock::new();
+
+/// Says what's to be done when the engine can't get going: it couldn't be made, or fell over
+/// `carryon::ENOUGH` times running before reaching its loop. The server run by itself ends its
+/// process (serve.rs `run`), to be started afresh by whoever next wants one. A host that hasn't
+/// said (the app, running the server itself when it couldn't start one) has nothing to hand
+/// over to, and the engine goes on trying there.
+pub fn when_spent(then: impl Fn(&str) + Send + Sync + 'static) {
+    let _ = SPENT.set(Box::new(then));
+}
+
+/// Tells the log, and the host if it asked to be told (`when_spent`), that the engine can't get
+/// going. Nothing here may stop what follows it, so the log is written without `eprintln!`,
+/// which panics when it can't write.
+fn give_up(why: &str) {
+    use std::io::Write;
+    let _ = writeln!(std::io::stderr(), "Codealong's engine can't get going: it has fallen over {} times running without reaching its work (the last: {why}).", crate::carryon::ENOUGH);
+    if let Some(then) = SPENT.get() {
+        then(why);
+    }
 }
 
 struct Engine {
@@ -2736,7 +2757,8 @@ fn waiting_call(s: &Session, account: Option<&config::AccountCfg>) -> Option<Str
     /// Everything that depends on config.toml, read again. When nothing but the theme, the
     /// shortcuts or the accounts' order changed, a new board is enough: reading everything again
     /// also asks for Claude usage, and the usage endpoint turns away calls that come often.
-    fn reload(&mut self) {
+    /// Says whether everything was read again.
+    fn reload(&mut self) -> bool {
         let before = self.cfg.clone();
         self.load_config();
         if self.remember_accounts() {
@@ -2765,7 +2787,7 @@ fn waiting_call(s: &Session, account: Option<&config::AccountCfg>) -> Option<Str
         rest.experimental = before.experimental.clone();
         if rest == before {
             self.mark_dirty("config");
-            return;
+            return false;
         }
         self.scan_sessions();
         // The readers read their records' ends again, the lines before passed over: every record
@@ -2782,22 +2804,34 @@ fn waiting_call(s: &Session, account: Option<&config::AccountCfg>) -> Option<Str
         self.fetch_usage();
         self.watch();
         self.mark_dirty("config");
+        true
     }
 
     /// After the thread fell over (`run_guarded`): whatever it had in hand is gone (the changed
     /// paths it hadn't read yet, a scan half done), so everything a change could have told it is
-    /// read again from where it is. Codealong's own files go through `apply_fs` as if each had
-    /// just changed (config.toml, the todos, the PR links, the reviews, the schedules, the
-    /// previews, the reusable worktrees), so an edit the lost batch held is applied: one turning
-    /// an automation off, say. The sessions are scanned and their records read whole again, the
-    /// repos read again with the watcher set anew, and git runs in every worktree. GitHub and
-    /// usage keep their own times: their endpoints turn away calls that come often.
+    /// read again from where it is.
+    ///
+    /// Codealong's own files go through `apply_fs` as if each had just changed (state.json, the
+    /// todos, the PR links, the reviews, the schedules, the previews, the reusable worktrees),
+    /// so an edit the lost batch held is applied by what applies it any other time. config.toml
+    /// comes after them, by itself: where its edit calls for everything to be read again,
+    /// `reload` is this same pass, and it isn't made twice. Otherwise the sessions are scanned
+    /// and their records read whole again, the repos read again with the watcher set anew, and
+    /// git runs in every worktree. The search for whose work an orphan worktree is starts over
+    /// in the background whatever the orphans are, since a line that tied a session to one may
+    /// be behind the readers now. GitHub and usage keep their own times: their endpoints turn
+    /// away calls that come often.
     fn pick_up(&mut self) {
-        self.apply_fs(vec![config::config_path(), todos::path(), prlinks::path(), autoreview::path(), crate::schedules::path(), crate::schedules::runs_path(), previews::path(), reusable::path()]);
-        self.scan_sessions();
-        self.scan_pr_marks(false);
-        self.rescan_repos();
-        self.queue_git_all();
+        self.apply_fs(vec![crate::state::path(), todos::path(), prlinks::path(), autoreview::path(), crate::schedules::path(), crate::schedules::runs_path(), previews::path(), reusable::path()]);
+        self.needles.clear();
+        let read_again = config::read_text().ok().flatten() != self.config_text && self.reload();
+        if !read_again {
+            self.scan_sessions();
+            self.scan_pr_marks(false);
+            self.rescan_repos();
+            self.queue_git_all();
+        }
+        self.refresh_visitors(false);
         self.mark_dirty("fell over");
     }
 

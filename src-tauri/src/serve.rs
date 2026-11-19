@@ -81,6 +81,22 @@ pub fn run() -> i32 {
     perf::arm();
     os::system::no_app_nap();
     eprintln!("Codealong's server {} starting: pid {}, engine {ENGINE}, files in {}", env!("CARGO_PKG_VERSION"), std::process::id(), util::tilde(&config::support_dir()));
+    // An engine that can't get going (engine.rs `run_guarded`) ends this server, which answers
+    // nobody without one. As a server that's done ends, so launchd doesn't start it again: what
+    // kept it from its first pass five times running is likely there the next time too, and
+    // started every ten seconds it would read everything again for as long as you're logged
+    // in. Whoever next wants a server (the app, a command) starts one, with nothing left over
+    // from this one. What the listenings were in the middle of hearing is written first, as a
+    // quit writes it, but not waited on for long.
+    engine::when_spent(|_| {
+        let (done, written) = std::sync::mpsc::channel();
+        std::thread::spawn(move || {
+            crate::listen::shut_down();
+            let _ = done.send(());
+        });
+        let _ = written.recv_timeout(Duration::from_secs(5));
+        std::process::exit(0)
+    });
     match start() {
         Ok(_ctx) => loop {
             std::thread::park();
