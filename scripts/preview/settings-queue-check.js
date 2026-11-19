@@ -3,9 +3,14 @@
 // ready to start after the list. A box taken off saves the order without that kind and lists it
 // under Not in the queue; put back, it goes where the default has it. ⌃⌘↓ on a grip moves its
 // kind a place, the keyboard going with it, and one dragged by its row goes where it's let go.
-// Todos come due saves `due_within`. config.toml reads back as it was saved.
+// Todos come due saves `due_within`. While Settings is searched, nothing has a grip or drags.
+// config.toml reads back as it was saved.
 //   scripts/preview.sh sessions '' scripts/preview/settings-queue-check.js
+//   PREVIEW_PLATFORM=linux scripts/preview.sh sessions '' scripts/preview/settings-queue-check.js
 (function () {
+  var mac = !window.__CODEALONG_PLATFORM__;
+  // ⌃⌘↓, which Linux and Windows have as Ctrl+Shift+PageDown (platform.ts).
+  var down = mac ? { key: 'ArrowDown', ctrlKey: true, metaKey: true } : { key: 'PageDown', ctrlKey: true, shiftKey: true };
   // config.toml reads back as Settings saved it, as the engine would.
   var latest = null;
   var invoke = window.__TAURI_INTERNALS__.invoke;
@@ -28,6 +33,8 @@
   var listed = function () { return kinds(q('.ca-queue-kinds')); };
   var row = function (kind) { return q('.ca-queue-kind[data-kind="' + kind + '"]'); };
   var box = function (kind) { return q('input[type="checkbox"]', row(kind)); };
+  // A click on the box as drawn, which the label takes to the box.
+  var tick = function (kind) { q('.ca-checkbox-face', row(kind)).click(); };
   var lastSave = function () { var c = calls('save_config'); return c.length ? c[c.length - 1][1].config : null; };
   var saved = function () { var c = lastSave(); return c && c.queue ? c.queue.order.join() : ''; };
   var pointer = function (el, type, x, y) {
@@ -49,18 +56,18 @@
       check('the sessions’ two are always in it: their boxes on and fixed', ['needs', 'unread'].every(function (k) { return box(k).checked && box(k).disabled; }) && ['reviews', 'due', 'ready'].every(function (k) { return box(k).checked && !box(k).disabled; }), ['needs', 'reviews', 'due', 'unread', 'ready'].map(function (k) { return k + ':' + box(k).checked + '/' + box(k).disabled; }).join(' '));
       check('the ones in the list have grips, the ready ones none', all('.ca-queue-kinds .ca-queue-grip').length === 4 && !q('.ca-queue-grip', row('ready')), String(all('.ca-queue-grip').length));
 
-      box('reviews').click();
+      tick('reviews');
       await until(function () { return saved() === 'needs,due,unread,ready'; }, 5000, 'reviews taken out');
       await until(function () { return field(/^Not in the queue$/); }, 5000, 'Not in the queue');
       check('a box taken off saves the order without it and lists it under Not in the queue, dimmed', kinds(field(/^Not in the queue$/)).join() === 'reviews' && row('reviews').classList.contains('is-off') && listed().join() === 'needs,due,unread', listed().join() + ' / ' + kinds(field(/^Not in the queue$/)).join());
 
-      box('reviews').click();
+      q('.ca-queue-kind-name', row('reviews')).click();
       await until(function () { return saved() === 'needs,reviews,due,unread,ready'; }, 5000, 'reviews put back');
       check('put back, it goes where the default has it', listed().join() === 'needs,reviews,due,unread', listed().join());
 
       var grip = q('.ca-queue-grip', row('needs'));
       grip.focus();
-      key(grip, { key: 'ArrowDown', ctrlKey: true, metaKey: true });
+      key(grip, down);
       await until(function () { return saved() === 'reviews,needs,due,unread,ready'; }, 5000, 'needs moved down');
       await until(function () { return listed().join() === 'reviews,needs,due,unread'; }, 5000, 'the list in its new order');
       await wait(50);
@@ -78,7 +85,7 @@
       // The click the drag's release makes is swallowed until the next turn (useSort.ts).
       await wait(50);
 
-      box('ready').click();
+      tick('ready');
       await until(function () { return saved() === 'due,reviews,needs,unread'; }, 5000, 'the ready ones taken out');
       check('the todos ready to start taken out are listed under Not in the queue', kinds(field(/^Not in the queue$/)).join() === 'ready' && !row('ready').closest('.ca-queue-kinds'), kinds(field(/^Not in the queue$/)).join());
 
@@ -88,6 +95,20 @@
       select.dispatchEvent(new Event('change', { bubbles: true }));
       await until(function () { return lastSave().queue.due_within === 1; }, 5000, 'a day before saved');
       check('a day before saves [queue] due_within, the order as it was', saved() === 'due,reviews,needs,unread' && lastSave().queue.due_within === 1, JSON.stringify(lastSave().queue));
+
+      // Searched, some kinds are out of sight: none has a grip, and a drag moves nothing.
+      var find = q('.ca-settings-nav input');
+      type(find, 'pull requests');
+      var found = await until(function () { return q('.ca-settings-found .ca-queue-kind[data-kind="reviews"]'); }, 5000, 'the reviews row found');
+      check('searched, no kind has a grip', !q('.ca-settings-found .ca-queue-grip'), String(all('.ca-settings-found .ca-queue-grip').length));
+      var saves = calls('save_config').length;
+      var at = middle(found);
+      pointer(found, 'pointerdown', at.x, at.y);
+      pointer(window, 'pointermove', at.x, at.y + 6);
+      pointer(window, 'pointermove', at.x, at.y + 60);
+      pointer(window, 'pointerup', at.x, at.y + 60);
+      await wait(100);
+      check('searched, a drag moves nothing', calls('save_config').length === saves, String(calls('save_config').length - saves));
       done();
     } catch (e) {
       stopped(e);

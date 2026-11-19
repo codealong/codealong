@@ -229,7 +229,7 @@ export function SettingsDialog({ section, onSection, focus, usage, training, mcp
       case 'appearance':
         return <AppearancePane cfg={cfg} theme={theme} onPickTheme={onPickTheme} disabled={!!broken} onSave={save} />;
       case 'queue':
-        return <QueuePane cfg={cfg} disabled={!!broken} onSave={save} />;
+        return <QueuePane cfg={cfg} disabled={!!broken} onSave={save} moves={!searching} />;
       case 'sounds':
         return <SoundsPane cfg={cfg} names={view.sounds ?? []} disabled={!!broken} onSave={save} onError={setError} />;
       case 'routing':
@@ -718,9 +718,11 @@ const DUE_WITHIN: Profile[] = [
  * the waiting window and a session's panel in Sessions go through it. The kinds in it are dragged
  * by their grips, or moved with ⌃⌘↑ ⌃⌘↓ there, into your order; a box takes one out, or puts it
  * back where the default order has it (queue.ts `withKind`). The sessions' two are always in it,
- * and the todos ready to start always last, so they're after the list rather than in it.
+ * and the todos ready to start always last, so they're after the list rather than in it. While
+ * Settings is searched (`moves` false) none moves: the search can leave some out of sight, and
+ * one would move past them unseen.
  */
-function QueuePane({ cfg, disabled, onSave }: PaneProps) {
+function QueuePane({ cfg, disabled, onSave, moves }: PaneProps & { moves: boolean }) {
   const dueWithin = cfg.queue?.due_within ?? 0;
   const kinds = queueKinds(cfg.queue?.order);
   const moving = kinds.filter((k) => k !== 'ready');
@@ -731,15 +733,16 @@ function QueuePane({ cfg, disabled, onSave }: PaneProps) {
   const sort = useSort<Waits>(list, '.ca-queue-kind', 'y', () => {}, (next) => save(ready ? [...next, 'ready'] : next));
   const turn = (k: Waits, on: boolean) => save(on ? withKind(kinds, k) : kinds.filter((x) => x !== k));
 
-  /** A kind's row: its box, its glyph and name, and what it is; one in the list has a grip. */
+  /** A kind's row: one in the list has a grip, then its box, its glyph and name, and what it
+   *  is, under a label of their own: the grip is a button, which a label around it would click. */
   const row = (k: Waits, at: number | null) => {
     const on = kinds.includes(k);
     const always = ALWAYS_WAITS.includes(k);
     const words = QUEUE_KIND_WORDS[k];
-    const drag = at !== null && moving.length > 1 && !disabled ? sort.sortProps(at, moving) : null;
+    const drag = at !== null && moves && moving.length > 1 && !disabled ? sort.sortProps(at, moving) : null;
     return (
-      <label key={k} className={cx('ca-field ca-settings-check ca-queue-kind', !on && 'is-off', drag?.className)} style={drag?.style} onPointerDown={drag?.onPointerDown} data-kind={k}>
-        {at !== null ? (
+      <div key={k} className={cx('ca-field ca-queue-kind', !on && 'is-off', drag?.className)} style={drag?.style} onPointerDown={drag?.onPointerDown} data-kind={k}>
+        {at !== null && moves ? (
           <Button
             variant="ghost"
             size="sm"
@@ -763,13 +766,15 @@ function QueuePane({ cfg, disabled, onSave }: PaneProps) {
         ) : (
           <span className="ca-queue-grip-room" aria-hidden="true" />
         )}
-        <CheckBox checked={on} disabled={always} onChange={(next) => turn(k, next)} />
-        <span className="ca-queue-kind-name">
-          <WaitsGlyph waits={k} />
-          {words.label}
-        </span>
-        <small>{words.says}</small>
-      </label>
+        <label className="ca-settings-check ca-queue-kind-check">
+          <CheckBox checked={on} disabled={always} onChange={(next) => turn(k, next)} />
+          <span className="ca-queue-kind-name">
+            <WaitsGlyph waits={k} />
+            {words.label}
+          </span>
+          <small>{words.says}</small>
+        </label>
+      </div>
     );
   };
 
@@ -783,7 +788,7 @@ function QueuePane({ cfg, disabled, onSave }: PaneProps) {
         <div className="ca-field">
           <span>In the queue</span>
           <small>
-            First to last. <ReorderHint />
+            First to last.{moves && moving.length > 1 && <> <ReorderHint /></>}
           </small>
           <div ref={list} className={cx('ca-queue-kinds', sort.sorting && 'is-sorting')}>
             {moving.map((k, i) => row(k, i))}

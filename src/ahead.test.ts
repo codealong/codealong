@@ -258,6 +258,15 @@ describe('boardAhead', () => {
     expect(boardAhead(board, [change({ kind: 'review-snooze', keys: [other.key], until: NOW + 1 })])).toBe(board);
   });
 
+  it('leaves reviews out of the mark while the queue does', () => {
+    const asked = fx.prItem({ number: 1, reviewRequested: true });
+    const also = fx.prItem({ number: 2, reviewRequested: true });
+    const board = fx.board({ lanes: [lane([session('a', 'idle')])], prs: [asked, also], logoStatus: 'idle', queue: { order: ['needs', 'due', 'unread', 'ready'], due_within: 0 } });
+    // Snoozing one leaves the other asked of you, which the mark doesn't count.
+    const out = boardAhead(board, [change({ kind: 'review-snooze', keys: [asked.key], until: NOW + 900_000 })]);
+    expect(out.logoStatus).toBe('idle');
+  });
+
   it('shows a PR merged as it’s asked, out of what waits on your review', () => {
     const asked = fx.prItem({ number: 1, reviewRequested: true, state: 'approved', mergedAt: null, closedAt: null });
     const other = fx.prItem({ number: 2 });

@@ -38,6 +38,7 @@ import { archiveSession, asideSessions, emitAhead, labelSessions, markSeen, mark
 import { readDraft, restoreDraft } from './drafts';
 import { nameShown } from './harness';
 import { heldForAgent } from './prStatus';
+import { queueKinds } from './queue';
 import { byRaise, needOf, relaned, sessionHeadline, stuckMidTurn, unreadable } from './lanes';
 import type { Answers, BarFeed, BarItem, BarRecent, BarSnoozed, Board, Label, Lane, LastReview, LogoStatus, MergeOp, PrItem, QueuedMessage, ResumeIn, Reviewed, Sent, Session, Status, TranscriptItem, Verdict } from './types';
 
@@ -378,7 +379,10 @@ export function prsAhead(prs: PrItem[], changes: Ahead[]): PrItem[] {
 export function boardAhead(board: Board, changes: Ahead[]): Board {
   const lanes = lanesAhead(board.lanes, changes);
   const prs = prsAhead(board.prs, changes);
-  return lanes === board.lanes && prs === board.prs ? board : { ...board, lanes, prs, logoStatus: logoOf(lanes, prs) };
+  // While `[queue]` leaves reviews out, a PR waiting on your review is no cause for the mark's
+  // color, as the engine has it (engine.rs `compose`).
+  const reviews = queueKinds(board.queue?.order).includes('reviews');
+  return lanes === board.lanes && prs === board.prs ? board : { ...board, lanes, prs, logoStatus: logoOf(lanes, reviews ? prs : []) };
 }
 
 const GROUP_RANK = ['needs', 'unread', 'working'];

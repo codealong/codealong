@@ -197,6 +197,9 @@ describe('the queue’s order', () => {
     expect(queueKinds(['ready', 'due', 'needs', 'unread'])).toEqual(['due', 'needs', 'unread', 'ready']);
     expect(queueKinds(['ready', 'due'])).toEqual(['needs', 'due', 'unread', 'ready']);
     expect(queueKinds(['needs', 'Reviews', 'unread', 'needs'])).toEqual(['needs', 'unread']);
+    // An empty order has only the sessions', whatever was read before it.
+    expect(queueKinds([])).toEqual(['needs', 'unread']);
+    expect(queueKinds()).toEqual(WAITS);
     // Turned on in Settings, a kind goes where the default has it.
     expect(withKind(['reviews', 'needs', 'unread'], 'due')).toEqual(['reviews', 'needs', 'due', 'unread']);
     expect(withKind(['due', 'needs', 'unread'], 'ready')).toEqual(['due', 'needs', 'unread', 'ready']);

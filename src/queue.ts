@@ -48,7 +48,8 @@ const KINDS = new Map<string, readonly Waits[]>();
  * doesn't say. The same order gives the same list, so it can stand in a hook's dependencies.
  */
 export function queueKinds(order?: readonly string[] | null): readonly Waits[] {
-  const id = order ? order.join(',') : '';
+  // None is the default order; an empty one has only the sessions'.
+  const id = order ? `[${order.join(',')}]` : '';
   const kept = KINDS.get(id);
   if (kept) return kept;
   let kinds: Waits[] = [];

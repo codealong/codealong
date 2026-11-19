@@ -174,26 +174,31 @@
 .ca-settings-check small {
   grid-column: 2;
 }
-/* Settings › Queue: each kind of what waits on you a row, its grip, its box, its glyph and name,
-   and what it is under them. The ones in the list are dragged by the row, their grips saying so,
-   and slide aside for one held as a routing group's accounts do; the rest keep the grip's room so
-   their boxes line up. */
+/* Settings › Queue: each kind of what waits on you a row, its grip, then its box, its glyph and
+   name, and what it is under them, labeled apart from the grip. The ones in the list are dragged
+   by the row, their grips saying so, and slide aside for one held as a routing group's accounts
+   do; the rest keep the grip's room so their boxes line up. */
 .ca-queue-kinds {
   display: grid;
   gap: var(--space-2);
 }
 .ca-queue-kind {
   position: relative;
-  grid-template-columns: auto auto minmax(0, 1fr);
+  grid-template-columns: auto minmax(0, 1fr);
+  column-gap: var(--space-2);
+  align-items: start;
   max-width: 520px;
 }
-.ca-queue-kind small {
-  grid-column: 3;
+.ca-queue-kind-check {
+  display: grid;
+  row-gap: var(--space-1);
 }
 .ca-queue-kind-name {
   display: inline-flex;
   align-items: center;
   gap: var(--space-1);
+  font: var(--type-meta-strong);
+  color: var(--ink-2);
 }
 .ca-queue-kind.is-off .ca-queue-kind-name {
   color: var(--ink-3);
