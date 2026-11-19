@@ -239,7 +239,16 @@ fn place(app: &AppHandle, label: &str) {
     let original = panel::make(&window, PANEL);
     let frame = {
         let Ok(mut inner) = state.inner.lock() else { return };
-        let Some((_, kept)) = inner.windows.iter_mut().find(|(l, _)| l == label) else { return };
+        let Some(at) = inner.windows.iter().position(|(l, _)| l == label) else {
+            drop(inner);
+            // Closed before it was placed, so `close` found no class to give back: it gets it
+            // back here, before `dispose` destroys it.
+            if let Some(original) = original {
+                panel::unmake(&window, original);
+            }
+            return;
+        };
+        let kept = &mut inner.windows[at].1;
         kept.frame = on_a_screen(kept.frame, &panel::screens());
         let frame = kept.frame;
         inner.panels.insert(label.to_string(), original);
@@ -556,6 +565,9 @@ pub fn close(app: &AppHandle, label: &str) {
     tell(app, kind);
     let (handle, label) = (app.clone(), label.to_string());
     let _ = app.run_on_main_thread(move || {
+        // It's gone as it hides, not when it's destroyed a moment later: a press its box's
+        // microphone began goes with it, as one in the peek does when that hides.
+        crate::dictation::window_gone(&handle, &label);
         if let Some(w) = handle.get_webview_window(&label) {
             panel::dispose(w, original);
         }

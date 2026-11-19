@@ -350,7 +350,16 @@ fn place_and_show(app: &AppHandle, label: &str) {
     let frame = {
         let Ok(mut inner) = state.inner.lock() else { return };
         let others: Vec<Rect> = inner.cards.iter().filter(|(l, _)| l != label).filter_map(|(_, p)| p.frame).collect();
-        let Some((_, pin)) = inner.cards.iter_mut().find(|(l, _)| l == label) else { return };
+        let Some(at) = inner.cards.iter().position(|(l, _)| l == label) else {
+            drop(inner);
+            // Unpinned before it was placed, so `unpin` found no class to give back: it gets it
+            // back here, before `dispose` destroys it.
+            if let Some(original) = original {
+                panel::unmake(&window, original);
+            }
+            return;
+        };
+        let pin = &mut inner.cards[at].1;
         // Where it was left, by its top left corner, if that screen is still there.
         let left = pin.frame.and_then(|r| screen_holding(r.center(), &screens).map(|s| clamp(Rect::from_top_left(r.x, r.top(), w, h), s.visible)));
         let frame = match left {
