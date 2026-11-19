@@ -18,8 +18,6 @@
   gap: 10px;
   /* Its right padding, which macOS's overlay scrollbar draws over, and the fade below leaves out. */
   --thread-edge: var(--space-4);
-  /* What your prompts leave at their left, so they sit at the right: theirs and the pinned one's. */
-  --thread-you-inset: clamp(var(--space-6), 15%, 120px);
   padding: var(--space-3) var(--thread-edge) var(--space-4) var(--space-4);
 }
 /* Over the message box (SessionReply.css), what's scrolled under its top edge fades out over the
@@ -64,12 +62,12 @@
 }
 /* Yours sits at the right, as wide as what it says up to an inset at the left, so it reads as
    yours by where it is as well as by its tint; what's under it (when, what it made, Taken back)
-   goes at the right with it, and so does the prompt pinned over the top (`.ca-thread-pinned`).
+   goes at the right with it. So does a side conversation's question (`YourPrompt`, SideStrip.tsx).
    Its column is the room there is, never what's in it: a table in a prompt as wide as its widest
    word scrolls in its box (Markdown.css) rather than pushing the conversation sideways. */
 .ca-thread-said.is-you {
   margin-top: 6px;
-  padding-left: var(--thread-you-inset);
+  padding-left: clamp(var(--space-6), 15%, 120px);
   grid-template-columns: minmax(0, 1fr);
   justify-items: end;
 }
@@ -141,8 +139,8 @@
 }
 /* Your prompt behind what's in view, pinned over the top of it once it's gone off (SessionThread.tsx).
    The holder takes no room, the flex gap after it included, and sticks to the top edge itself
-   rather than below the thread's padding. The prompt hangs from that edge at the right, as wide as
-   its words up to your prompts' inset, as the prompt it stands for sits. */
+   rather than below the thread's padding. It goes across the whole top, a bar, not at the right
+   as your prompts are (asked 2026-11-19). */
 .ca-thread-pin {
   position: sticky;
   top: calc(-1 * var(--space-3));
@@ -153,8 +151,8 @@
 .ca-thread-pinned {
   position: absolute;
   top: 0;
+  left: 0;
   right: 0;
-  max-width: calc(100% - var(--thread-you-inset));
   display: flex;
   align-items: flex-start;
   gap: var(--space-2);
@@ -459,7 +457,9 @@
   box-shadow: inset 2px 0 0 var(--line-strong);
 }
 
-.ca-thread-meta > .ca-meta {
+/* When it was goes at the right under a prompt of yours, as the prompt does, and at the left under
+   the agent's, where its words start (asked 2026-11-19). */
+.ca-thread-said.is-you .ca-thread-meta > .ca-meta {
   margin-left: auto;
 }
 /* Send now, Edit and Remove on a message its harness holds, after what it says it is, as icons

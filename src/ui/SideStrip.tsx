@@ -31,7 +31,7 @@ import type { PrItem, SideTurn } from '../types';
 import { ImagesFrom } from './DescriptionEditor';
 import { Markdown } from './Markdown';
 import { Button, cx, Icon, Rich } from './primitives';
-import { heardOf, scrolledUp, type Heard } from './SessionThread';
+import { heardOf, scrolledUp, YourPrompt, type Heard } from './SessionThread';
 import { WorkingLine } from './Working';
 
 /** What a strip says of its conversations, which are about a session or a PR, and how it ends
@@ -155,9 +155,9 @@ function Turns({ turns, current }: { turns: SideTurn[]; current: number }) {
         const steps = t.tools ?? [];
         return (
           <div key={i} className="ca-sidestrip-turn">
-            {/* As a prompt of yours shows in the thread (SessionThread.tsx `YourText`): what the box
-                pasted with it is written in as `![image](images/…)`, which shows as the image. */}
-            <Markdown text={t.question} written className="ca-sidestrip-q" />
+            {/* A prompt of yours, as the thread shows one: what the box pasted with it is written
+                in as `![image](images/…)`, which shows as the image. */}
+            <YourPrompt text={t.question} className="ca-sidestrip-q" />
             {/* What it did to answer: the one it's on while it works, all of them to unfold after. */}
             {t.done && steps.length > 0 && (
               <details className="ca-sidestrip-steps">

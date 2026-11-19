@@ -619,6 +619,16 @@ function YourText({ text }: { text: string }) {
   );
 }
 
+/** A prompt of yours that no row of a conversation holds (a side conversation's question,
+ *  SideStrip.tsx): at the right in its bubble, as a prompt in the thread is. */
+export function YourPrompt({ text, className }: { text: string; className?: string }) {
+  return (
+    <div className={cx('ca-thread-said', 'is-you', className)}>
+      <YourText text={text} />
+    </div>
+  );
+}
+
 /** Your answers to questions the agent asked you, as you'd have said them: a line each, its
  *  question's header (the whole question on hover), else its words, then what you picked or wrote. */
 function YourAnswers({ answers }: { answers: ReturnType<typeof answeredOf> }) {

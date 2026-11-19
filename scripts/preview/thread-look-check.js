@@ -1,6 +1,6 @@
 // Checks how a conversation sets your prompts apart from code (thread-look-init.js's stand-in):
-// your prompts sit at the right, as wide as what they say, and so does the one pinned over the
-// top; a code block is outlined, not in your prompts' tint, and in its language's colors (a
+// your prompts sit at the right, as wide as what they say, with when they were under them at the
+// right, where a reply's is at the left; the one pinned over the top goes across it; a code block is outlined, not in your prompts' tint, and in its language's colors (a
 // diff's added and removed lines too), one with no language plain; the commands you ran, short
 // and long, keep their words clear of their Copy and Run; a table in a prompt wider than the
 // conversation scrolls in its box rather than pushing the conversation sideways or its prompt
@@ -31,8 +31,13 @@
       check('a short one is as wide as what it says, not the whole row', short && box(short).width < (r.right - r.left) * 0.75, short ? Math.round(box(short).width) + ' of ' + Math.round(r.right - r.left) : 'none');
       check('a long one leaves room at its left', prompts.every(function (p) { return box(p).left - r.left >= 23; }), prompts.map(function (p) { return Math.round(box(p).left - r.left); }).join(','));
 
+      // When each was, under it: at the right under yours, at the left under the agent's.
+      var times = function (kind) { return all('.ca-sessinsp .ca-thread-said.is-' + kind + ' > .ca-thread-meta > .ca-meta'); };
+      check('a prompt’s time is at the right', times('you').length > 0 && times('you').every(function (t) { return Math.abs(box(t).right - r.right) < 1.5; }), times('you').map(function (t) { return Math.round(r.right - box(t).right); }).join(','));
+      check('a reply’s time is at the left', times('agent').length > 0 && times('agent').every(function (t) { return Math.abs(box(t).left - r.left) < 1.5; }), times('agent').map(function (t) { return Math.round(box(t).left - r.left); }).join(','));
+
       var pinned = q('.ca-sessinsp .ca-thread-pinned');
-      check('the pinned prompt hangs at the right', Math.abs(box(pinned).right - r.right) < 1.5 && box(pinned).left - r.left >= 23, Math.round(box(pinned).left - r.left) + '…' + Math.round(r.right - box(pinned).right));
+      check('the pinned prompt goes across the top', Math.abs(box(pinned).right - r.right) < 1.5 && Math.abs(box(pinned).left - r.left) < 1.5, Math.round(box(pinned).left - r.left) + '…' + Math.round(r.right - box(pinned).right));
 
       var ts = block('export function itemAt');
       var pre = ts && ts.querySelector('pre');

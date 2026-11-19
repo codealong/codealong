@@ -668,13 +668,14 @@ on this machine; and a running one has *Stop* (see *Commands left running*). Bel
 (Claude Code's transcript, Codex's rollout, OpenCode's database): your prompts and the agent's
 replies, their Markdown drawn (a prompt keeps its line breaks and indentation as you typed them,
 and a glob written without backticks, `apps/*` or `*.ts`, isn't read as italics), and every tool call, which opens to its input and output; runs of calls fold into one
-line. When it was shows under the last message of a run, not each one, at its right: your prompt,
+line. When it was shows under the last message of a run, not each one, at the right under yours and
+the left under the agent's: your prompt,
 then the agent's reply, whose earlier messages between its calls go without; a run ends where the
 speaker changes, at a note in the conversation or at a pause of ten minutes (the agent woken by a
 background job's report), and the one still going says when under its latest message. So does what's said of a message: Writing while the reply is still being written, Taken
 back, and where a message of yours on its way is (Sending, held until the turn ends) with what you
-can do about it. Your prompts are in a bubble of their own at the right, as wide as what they say,
-and the header names the agent's account, so neither says who wrote it; Codealong's messages and
+can do about it. Your prompts are in a bubble of their own at the right, as wide as what they say
+(a side conversation's questions too), and the header names the agent's account, so neither says who wrote it; Codealong's messages and
 another session's do, on their cards' line, with their time. A code block is outlined rather than
 in a bubble, so a block of commands in a reply doesn't read as a prompt of yours, and one whose
 fence names its language (```` ```ts ````, ```` ```rust ````, ```` ```bash ````) is in that language's
@@ -801,7 +802,7 @@ in another window, and while other turns get theirs.
 
 ⌘⇧↑ and ⌘⇧↓ bring your previous or next prompt to the top, from the box too (⌘↑ and ⌘↓ as well while
 the cursor isn't in a text box), reading further back as they go; the prompt behind what you're
-reading stays pinned at the top, at the right as your prompts are, once it has scrolled off, two lines of it and more on hover, even
+reading stays pinned across the top once it has scrolled off, two lines of it and more on hover, even
 when a long turn put it pages back (they're read then, and kept for scrolling up), and a click
 brings it up.
 

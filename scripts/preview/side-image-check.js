@@ -5,7 +5,9 @@
 // its own. The image is one the board names (a todo's, say), which the preview's images have,
 // else a made-up one, which they don't unless PREVIEW_IMAGES names a folder that does: the
 // question then shows that it isn't on this Mac, which leaves its line below the strip's end, as
-// the conversation does with one (SessionThread.tsx `onImage` hears only a load).
+// the conversation does with one (SessionThread.tsx `onImage` hears only a load). Each question
+// is a prompt of yours as the thread draws one (SessionThread.tsx `YourPrompt`): at the right, as
+// wide as what it says, and set off from the strip's ground.
 //   scripts/preview.sh peek '' scripts/preview/side-image-check.js
 //   scripts/preview.sh side '' scripts/preview/side-image-check.js
 (function () {
@@ -42,6 +44,17 @@
     try {
       await until(function () { return all('.ca-sidestrip-q').length === 5; }, 8000, 'the side conversation’s questions');
       var question = all('.ca-sidestrip-q')[4];
+      var bubble = function (el) { return q('.ca-thread-you', el); };
+      var first = all('.ca-sidestrip-q')[0];
+      var turn = first.closest('.ca-sidestrip-turn').getBoundingClientRect();
+      check('a question is a prompt of yours, as the thread draws one', !!bubble(first) && !!bubble(question), first.outerHTML.slice(0, 120));
+      if (bubble(first)) {
+        var b = bubble(first).getBoundingClientRect();
+        check('it sits at the right', Math.abs(b.right - turn.right) < 1.5, Math.round(turn.right - b.right) + 'px short of it');
+        check('as wide as what it says', b.width < turn.width * 0.75, Math.round(b.width) + ' of ' + Math.round(turn.width));
+        var ground = getComputedStyle(q('.ca-sidestrip')).backgroundColor;
+        check('set off from the strip’s ground', getComputedStyle(bubble(first)).backgroundColor !== ground, ground);
+      }
       var drawn = function () { return q('.ca-desc-img img, .ca-desc-noimg', question); };
       check('the question shows its image', !!drawn(), question.textContent);
       check('the question’s words show', question.textContent.indexOf('this one?') >= 0, question.textContent);

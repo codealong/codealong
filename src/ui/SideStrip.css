@@ -91,24 +91,12 @@
   gap: 6px;
   min-width: 0;
 }
-/* Your question, raised off the strip's sunken ground: the tint the thread gives a prompt is
-   all but the strip's own grey in light. In a window of its own, the ground is raised and the
-   question tinted, as in the thread. */
-.ca-sidestrip-q {
-  justify-self: start;
-  max-width: 100%;
-  box-sizing: border-box;
-  padding: 6px 10px;
-  border-radius: var(--radius-md);
+/* Your question is a prompt of yours as the thread draws one (SessionThread.tsx `YourPrompt`),
+   raised off the strip's sunken ground: the tint the thread gives a prompt is all but the strip's
+   own grey in light. In a window of its own, the ground is raised and the question tinted, as in
+   the thread. */
+.ca-sidestrip .ca-thread-you {
   background: var(--surface-raised);
-  color: var(--ink);
-  font: var(--type-reading);
-  white-space: pre-wrap;
-  overflow-wrap: anywhere;
-}
-/* An image pasted with it, as small as one in a prompt in the thread. */
-.ca-sidestrip-q .ca-desc-img img {
-  max-height: 200px;
 }
 .ca-sidestrip-a {
   color: var(--ink);
@@ -125,7 +113,6 @@
   font: var(--type-meta);
   overflow-wrap: anywhere;
 }
-.ca-sidestrip-q,
 .ca-sidestrip-a,
 .ca-sidestrip-error,
 .ca-sidestrip-steps > div {
@@ -193,7 +180,7 @@
   border-top: 0;
   background: transparent;
 }
-.ca-sidestrip.is-window .ca-sidestrip-q,
+.ca-sidestrip.is-window .ca-thread-you,
 .ca-sidestrip.is-window .ca-sidestrip-kept:hover,
 .ca-sidestrip.is-window .ca-sidestrip-kept:focus-visible {
   background: var(--neutral-tint);
