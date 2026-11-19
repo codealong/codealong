@@ -3398,11 +3398,12 @@ export interface TextFound {
   off: boolean;
 }
 
-/** What a message Codealong sent by itself is about, for its card's icon (glance.rs `About`). */
+/** What a message Codealong sent by itself is about, for its card's icon (codealong-peer's
+ *  glance.rs `About`). */
 export type GlanceAbout = 'pr' | 'helper' | 'schedule' | 'review' | 'carry-on' | 'other';
 
-/** A message Codealong sent by itself, in a line (glance.rs `Glance`): what it's about, the PR it
- *  names, and what happened, in a few words a part after it. */
+/** A message Codealong sent by itself, in a line (codealong-peer's glance.rs `Glance`): what it's
+ *  about, the PR it names, and what happened, in a few words a part after it. */
 export interface Glance {
   about: GlanceAbout;
   /** The PR it's about, its address where the message gave it. */

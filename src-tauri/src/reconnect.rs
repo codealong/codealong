@@ -175,7 +175,7 @@ struct Run {
 /// (start.rs `GO_ON`) carries on too.
 pub fn glance(text: &str) -> Option<crate::glance::Glance> {
     let line = [Why::Connection, Why::Limit, Why::SignIn, Why::CutOff].into_iter().find(|w| text == w.message()).map(Why::glance).or_else(|| (text == crate::start::GO_ON).then_some("Carry on here: moved to an account with room"))?;
-    Some(crate::glance::Glance::line(crate::glance::About::CarryOn, line))
+    Some(crate::glance::line(crate::glance::About::CarryOn, line))
 }
 
 /// A session Codealong runs itself whose turn was cut off partway by Codealong quitting or its

@@ -1430,7 +1430,7 @@ pub fn glance(text: &str) -> Option<crate::glance::Glance> {
         Some(why) => format!("“{}”: {why}", name.trim()),
         None => format!("“{}” ran", name.trim()),
     };
-    Some(crate::glance::Glance::line(crate::glance::About::Schedule, &line))
+    Some(crate::glance::line(crate::glance::About::Schedule, &line))
 }
 
 /// What a run tells its session: the schedule's prompt, the todos it's for, then Codealong's

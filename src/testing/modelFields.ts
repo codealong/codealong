@@ -1317,3 +1317,10 @@ export type Turn = Holds<Same<
   | "who",
   Names<Types.Turn>
 >>;
+
+export type Glance = Holds<Same<
+  | "about"
+  | "parts"
+  | "pr",
+  Names<Types.Glance>
+>>;

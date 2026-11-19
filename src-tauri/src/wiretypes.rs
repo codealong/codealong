@@ -102,6 +102,7 @@ fn others() -> Vec<Pair> {
             codealong_peer::api: GroupMember, ModeSwitched, Pending, Question, ResumeIn, Route, RoutingGroup, Sent, Side, SideKept, SideTurn, StartAccount, StartOptions, Started, Unqueued
         ),
         of!(codealong_peer::pr: CommitText, MergeBox, Turn),
+        of!(codealong_peer::glance: Glance),
         // Not among codealong-peer's: `StartSpec`, which reads a field by two names, so no plain
         // value of it can be made (one made by hand would pair it); and `TerminalRun`, whose
         // namesake in types.ts is a run of a terminal's drawing.

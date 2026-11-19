@@ -7,83 +7,15 @@
 //! `autoreview::glance`, `reconnect::glance`), with tests that read back what it writes, so the two
 //! can't drift; any other message is its first sentence.
 
-use serde::Serialize;
-
-/// A message of Codealong's, in a line.
-#[derive(Debug, Clone, Default, Serialize, PartialEq)]
-#[serde(rename_all = "camelCase")]
-pub struct Glance {
-    pub about: About,
-    /// The PR it's about, where it names one.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub pr: Option<Pr>,
-    /// What happened, in a few words a part, after the PR where there's one: each of a PR's
-    /// happenings, each helper's news.
-    pub parts: Vec<Part>,
-}
-
-/// One thing a message tells of.
-#[derive(Debug, Clone, Default, Serialize, PartialEq)]
-#[serde(rename_all = "camelCase")]
-pub struct Part {
-    /// The session it's about (a helper of the one it went to), where it names one: its card
-    /// names it as a link, before `line`.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub session: Option<Named>,
-    pub line: String,
-}
-
-/// What a message of Codealong's is about, for its card's icon.
-#[derive(Debug, Clone, Copy, Default, Serialize, PartialEq, Eq)]
-#[serde(rename_all = "kebab-case")]
-pub enum About {
-    /// What happened on a PR (nudges.rs).
-    Pr,
-    /// A helper's news (helpers.rs).
-    Helper,
-    /// A schedule's run (schedules/runner.rs).
-    Schedule,
-    /// A review handed back (autoreview.rs).
-    Review,
-    /// Carrying on after what stopped its last turn (reconnect.rs).
-    CarryOn,
-    #[default]
-    Other,
-}
-
-/// A PR a message names: its number and title, and its address where the message gives it.
-#[derive(Debug, Clone, Serialize, PartialEq)]
-#[serde(rename_all = "camelCase")]
-pub struct Pr {
-    pub number: u64,
-    pub title: String,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub url: Option<String>,
-}
-
-/// A session a message names, by its key and title.
-#[derive(Debug, Clone, Serialize, PartialEq)]
-#[serde(rename_all = "camelCase")]
-pub struct Named {
-    pub key: String,
-    pub title: String,
-}
+// The line goes to other devices on a conversation's items, so its types are codealong-peer's.
+pub use codealong_peer::glance::{About, Glance, Named, Part, Pr};
 
 /// The longest a part gets, in characters: the card shows one line, cut short where it's narrow.
 const MOST: usize = 200;
 
-impl Glance {
-    /// A glance of `about` with one part, `line`, about no session.
-    pub fn line(about: About, line: &str) -> Glance {
-        Glance { about, pr: None, parts: vec![Part { session: None, line: cut(line) }] }
-    }
-
-    /// The whole of it in words, as the card reads: each session by its title, in quotes.
-    #[cfg(test)]
-    pub fn words(&self) -> String {
-        let part = |p: &Part| p.session.as_ref().map_or_else(|| p.line.clone(), |n| format!("“{}” {}", n.title, p.line));
-        self.parts.iter().map(part).collect::<Vec<_>>().join(" · ")
-    }
+/// A glance of `about` with one part, `line`, about no session.
+pub fn line(about: About, line: &str) -> Glance {
+    Glance { about, pr: None, parts: vec![Part { session: None, line: cut(line) }] }
 }
 
 /// What a message Codealong sent by itself (its text past the line that says so) comes to. One
@@ -98,7 +30,7 @@ pub fn of(text: &str) -> Glance {
         .or_else(|| crate::helpers::glance(text))
         .or_else(|| crate::autoreview::glance(text))
         .or_else(|| crate::reconnect::glance(text))
-        .unwrap_or_else(|| Glance::line(About::Other, &first_sentence(text)))
+        .unwrap_or_else(|| line(About::Other, first_sentence(text)))
 }
 
 /// The first sentence of `text`'s first line with words on it.

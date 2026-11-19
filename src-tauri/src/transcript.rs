@@ -522,6 +522,17 @@ mod tests {
         let theirs: codealong_peer::api::Page = serde_json::from_value(serde_json::to_value(&page).unwrap()).unwrap();
         assert_eq!(theirs.items[0].sent.as_ref().map(|s| s.files.clone()), Some(vec!["/Users/me/app/shot.png".to_string()]));
         assert_eq!(serde_json::to_value(&theirs).unwrap(), serde_json::to_value(&page).unwrap());
+        // Another session's message names its sender as a link, and Codealong's comes with its line
+        // for its card, the helper it names a link too.
+        let peer = Item { from: Some("Review the parser".into()), from_key: Some("claude:claude2:k".into()), ..item("peer", None, None) };
+        let news = "Your helper “Fix” (codex:codex:f) ended its turn: `codealong session wait codex:codex:f` prints its reply.";
+        let told = Item { text: news.into(), glance: Some(crate::glance::of(news)), ..item("codealong", None, None) };
+        let page = Page { items: vec![peer, told], before: None, after: 0 };
+        let theirs: codealong_peer::api::Page = serde_json::from_value(serde_json::to_value(&page).unwrap()).unwrap();
+        assert_eq!(theirs.items[0].from_key.as_deref(), Some("claude:claude2:k"));
+        let g = theirs.items[1].glance.as_ref().unwrap();
+        assert_eq!((g.about, g.parts[0].session.as_ref().map(|n| n.key.as_str())), (crate::glance::About::Helper, Some("codex:codex:f")));
+        assert_eq!(serde_json::to_value(&theirs).unwrap(), serde_json::to_value(&page).unwrap());
         // And where a turn was stopped, and who stopped it.
         let page = Page { items: vec![Item { text: "Stopped from Codealong (your phone)".into(), ..stopped(8) }], before: None, after: 0 };
         let theirs: codealong_peer::api::Page = serde_json::from_value(serde_json::to_value(&page).unwrap()).unwrap();

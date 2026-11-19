@@ -8,6 +8,8 @@
 //! - `net`: link codes, and reaching a device anywhere through iroh by its key.
 //! - `wire`: a connection, whatever carries it.
 //! - `api`: what devices ask each other for, and what comes back.
+//! - `glance`: what a message Codealong sent a session by itself comes to, in a line, for its card
+//!   in the session's conversation.
 //! - `pr`: pull requests as one device tells another of them: its PR list, a PR's detail and its
 //!   merge box.
 //! - `schedules`: the schedules your machines share, as each tells the others of its copies, so
@@ -25,6 +27,7 @@ const _CHECKOUT: Option<&str> = option_env!("CODEALONG_CHECKOUT");
 pub mod api;
 pub mod client;
 pub mod feed;
+pub mod glance;
 #[cfg(test)]
 pub(crate) mod fixtures;
 pub mod model;

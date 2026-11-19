@@ -3024,7 +3024,7 @@ pub fn glance(text: &str) -> Option<crate::glance::Glance> {
     let lines = rest.split_once("Its review is in ").and_then(|(_, r)| r.split_once(". ")).and_then(|(r, _)| r.split_once(", with ")).map(|(_, n)| format!(", with {n}")).unwrap_or_default();
     Some(crate::glance::Glance {
         pr: Some(crate::glance::Pr { number: number.parse().ok()?, title: title.trim().to_string(), url: url.map(String::from) }),
-        ..crate::glance::Glance::line(crate::glance::About::Review, &format!("{} reviewed it{lines}", agent.trim()))
+        ..crate::glance::line(crate::glance::About::Review, &format!("{} reviewed it{lines}", agent.trim()))
     })
 }
 

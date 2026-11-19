@@ -799,6 +799,14 @@ pub struct Item {
     /// Who sent a `peer` message: the sending session's name, where its record says.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub from: Option<String>,
+    /// That session's key on the session's Mac, where the message's byline gave it: a device
+    /// names the sender as a link to its session. Macs before 2026-11-18 sent none.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub from_key: Option<String>,
+    /// What a `codealong` message comes to in a line (`glance`), for its card, which opens to the
+    /// whole of it. Macs before 2026-11-18 sent none, and one doesn't come with every message.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub glance: Option<crate::glance::Glance>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub id: Option<String>,
     /// A tool's whole input: the command, the file, the arguments.
@@ -1479,10 +1487,34 @@ mod tests {
     fn a_page_reads_back_what_it_wrote() {
         let page = Page {
             items: vec![
-                Item { at: 1, kind: "you".into(), text: "Fix the build".into(), from: None, id: None, input: None, output: None, failed: false, withdrawn: false, stop: false, questions: Vec::new(), answers: Default::default(), link: None, sent: None, cursor: 0, n: 0 },
-                Item { at: 2, kind: "tool".into(), text: "Bash · `cargo test`".into(), from: None, id: Some("t1".into()), input: Some("cargo test".into()), output: Some("ok".into()), failed: false, withdrawn: false, stop: false, questions: vec![Question { question: "Which?".into(), header: None, options: vec![Choice { label: "This".into(), description: None }], multi_select: false }], answers: [("Which?".to_string(), vec!["This".to_string()])].into(), link: Some(Link { url: "https://claude.ai/artifact/Vuaw".into(), title: "Dashboard".into(), note: None }), sent: Some(SentFiles { files: vec!["/Users/me/app/shot.png".into()], caption: Some("Before and after".into()) }), cursor: 120, n: 1 },
-                Item { at: 3, kind: "peer".into(), text: "Which test fails?\n\nThe parser's, I think.".into(), from: Some("Review the parser".into()), id: None, input: None, output: None, failed: false, withdrawn: false, stop: false, questions: Vec::new(), answers: Default::default(), link: None, sent: None, cursor: 300, n: 0 },
-                Item { at: 4, kind: "note".into(), text: "Stopped from Codealong (your phone)".into(), from: None, id: None, input: None, output: None, failed: false, withdrawn: false, stop: true, questions: Vec::new(), answers: Default::default(), link: None, sent: None, cursor: 360, n: 0 },
+                Item { at: 1, kind: "you".into(), text: "Fix the build".into(), from: None, from_key: None, glance: None, id: None, input: None, output: None, failed: false, withdrawn: false, stop: false, questions: Vec::new(), answers: Default::default(), link: None, sent: None, cursor: 0, n: 0 },
+                Item { at: 2, kind: "tool".into(), text: "Bash · `cargo test`".into(), from: None, from_key: None, glance: None, id: Some("t1".into()), input: Some("cargo test".into()), output: Some("ok".into()), failed: false, withdrawn: false, stop: false, questions: vec![Question { question: "Which?".into(), header: None, options: vec![Choice { label: "This".into(), description: None }], multi_select: false }], answers: [("Which?".to_string(), vec!["This".to_string()])].into(), link: Some(Link { url: "https://claude.ai/artifact/Vuaw".into(), title: "Dashboard".into(), note: None }), sent: Some(SentFiles { files: vec!["/Users/me/app/shot.png".into()], caption: Some("Before and after".into()) }), cursor: 120, n: 1 },
+                Item { at: 3, kind: "peer".into(), text: "Which test fails?\n\nThe parser's, I think.".into(), from: Some("Review the parser".into()), from_key: Some("claude:work:parser".into()), glance: None, id: None, input: None, output: None, failed: false, withdrawn: false, stop: false, questions: Vec::new(), answers: Default::default(), link: None, sent: None, cursor: 300, n: 0 },
+                Item {
+                    at: 5,
+                    kind: "codealong".into(),
+                    text: "About your helpers:\n- “Check staging” (claude:work:k) ended its turn.".into(),
+                    from: None,
+                    from_key: None,
+                    glance: Some(crate::glance::Glance {
+                        about: crate::glance::About::Helper,
+                        pr: Some(crate::glance::Pr { number: 7, title: "Add teams".into(), url: Some("https://github.com/acme/web/pull/7".into()) }),
+                        parts: vec![crate::glance::Part { session: Some(crate::glance::Named { key: "claude:work:k".into(), title: "Check staging".into() }), line: "ended its turn".into() }],
+                    }),
+                    id: None,
+                    input: None,
+                    output: None,
+                    failed: false,
+                    withdrawn: false,
+                    stop: false,
+                    questions: Vec::new(),
+                    answers: Default::default(),
+                    link: None,
+                    sent: None,
+                    cursor: 380,
+                    n: 0,
+                },
+                Item { at: 4, kind: "note".into(), text: "Stopped from Codealong (your phone)".into(), from: None, from_key: None, glance: None, id: None, input: None, output: None, failed: false, withdrawn: false, stop: true, questions: Vec::new(), answers: Default::default(), link: None, sent: None, cursor: 360, n: 0 },
             ],
             before: Some(0),
             after: 400,
@@ -1491,6 +1523,7 @@ mod tests {
         assert_eq!(back, page);
         let json = serde_json::to_string(&page).unwrap();
         assert!(json.contains(r#""before":0"#) && !json.contains("\"input\":null") && !json.contains("\"from\":null"), "{json}");
+        assert!(json.contains(r#""fromKey":"claude:work:parser""#) && json.contains(r#""about":"helper""#) && !json.contains("\"glance\":null"), "{json}");
         assert_eq!(serde_json::to_value(Answer::Allow).unwrap(), "allow");
     }
 
