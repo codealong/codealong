@@ -579,9 +579,17 @@ pub fn heads_file() -> PathBuf {
     saved_dir().join(HEADS_FILE)
 }
 
-/// What's kept in `file`: nothing when it's missing or doesn't parse, as any answer kept here.
+/// How long what GitHub said of a commit is kept: one no worktree is at any more drops out, and
+/// one still wanted is asked again.
+pub const HEAD_KEPT_MS: i64 = 30 * 24 * 60 * 60 * 1000;
+
+/// What's kept in `file` and not kept too long (`HEAD_KEPT_MS`): nothing when it's missing or
+/// doesn't parse, as any answer kept here.
 pub fn kept_heads(file: &Path) -> HashMap<String, Head> {
-    std::fs::read_to_string(file).ok().and_then(|text| serde_json::from_str(&text).ok()).unwrap_or_default()
+    let mut kept: HashMap<String, Head> = std::fs::read_to_string(file).ok().and_then(|text| serde_json::from_str(&text).ok()).unwrap_or_default();
+    let now = now_ms();
+    kept.retain(|_, h| now - h.at < HEAD_KEPT_MS);
+    kept
 }
 
 /// Keeps `heads` in `file`, in one step, readable only by you: it names private repos' PRs.

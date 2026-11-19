@@ -145,7 +145,12 @@ pub fn plan(board: &Board, cfg: &Config, lane_id: &str, ending: Option<&Session>
         .chain(board.lanes.iter().filter(|l| l.device.is_none()).map(|l| PathBuf::from(&l.path)))
         .find(|p| *p != path && p.starts_with(&path))
         .map(inner);
-    let branch = listed.iter().find(|w| w.path == path).and_then(|w| w.branch.clone()).or_else(|| lane.branch.clone());
+    // As git lists it, where it does: one it lists as detached has no branch, whatever the board
+    // last had.
+    let branch = match listed.iter().find(|w| w.path == path) {
+        Some(w) => w.branch.clone(),
+        None => lane.branch.clone(),
+    };
     let branch_goes = branch.as_ref().is_some_and(|b| !listed.iter().any(|w| w.path != path && w.branch.as_ref() == Some(b)));
     // Every running session is on its lane's list (`board::compose` never cuts one).
     let running = running_in(board, lane_id, ending.map(|s| s.key.as_str()));
@@ -480,7 +485,7 @@ fn carry_out(plan: &Plan, running: &dyn Fn() -> usize) -> Result<Gone, String> {
         match branch.map(|b| procs::run("git", &["-C", &main, "branch", "-d", b], None, COMMAND_WAIT)) {
             Some(Ok(_)) => format!("Removed the worktree {} and its branch, {}.", plan.name, branch.unwrap_or_default()),
             Some(Err(_)) => match &plan.merged {
-                Some(pr) => format!("Removed the worktree {}; its branch, {}, stays: git can't tell {pr} merged it.", plan.name, branch.unwrap_or_default()),
+                Some(pr) => format!("Removed the worktree {}, at the last commit of {pr}, which merged; its branch, {}, stays: git can't tell its work merged.", plan.name, branch.unwrap_or_default()),
                 None => format!("Removed the worktree {}; its branch, {}, stays: its work isn't merged.", plan.name, branch.unwrap_or_default()),
             },
             None => format!("Removed the worktree {}.", plan.name),
@@ -786,7 +791,7 @@ mod tests {
         let p = plan(&board, &Config::default(), wt.to_str().unwrap(), None).unwrap();
         assert_eq!(p.kept.as_deref(), Some("1 commit on no remote"), "git alone keeps it");
         let merged = Plan { kept: None, merged: Some("northwind/app#7".into()), ..p };
-        assert_eq!(carry_out(&merged, &|| 0), Ok(Gone { said: "Removed the worktree landed; its branch, worktree-landed, stays: git can't tell northwind/app#7 merged it.".into(), partly: false }));
+        assert_eq!(carry_out(&merged, &|| 0), Ok(Gone { said: "Removed the worktree landed, at the last commit of northwind/app#7, which merged; its branch, worktree-landed, stays: git can't tell its work merged.".into(), partly: false }));
         assert!(!wt.exists());
         assert!(!at(&main, &["branch", "--list", "worktree-landed"]).trim().is_empty());
         let _ = std::fs::remove_dir_all(&dir);

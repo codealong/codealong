@@ -231,9 +231,6 @@ const HEADS_EVERY: Duration = Duration::from_secs(5 * 60);
 const HEAD_RETRY_MS: i64 = 24 * 60 * 60 * 1000;
 /// How long before a commit GitHub didn't answer for is asked about again.
 const HEAD_FAILED_RETRY_MS: i64 = 60 * 60 * 1000;
-/// How long what GitHub said of a commit is kept: one no worktree is at any more drops out, and
-/// one still wanted is asked again.
-const HEAD_KEPT_MS: i64 = 30 * 24 * 60 * 60 * 1000;
 /// What a refusal of the asking about merged PRs is kept under, among the failures the notice
 /// says, beside each repo's slug.
 const HEADS: &str = "merged-heads";
@@ -341,7 +338,7 @@ impl Heads {
             }
             self.known.insert(key, said);
         }
-        self.known.retain(|_, k| now_ms - k.at < HEAD_KEPT_MS);
+        self.known.retain(|_, k| now_ms - k.at < github::HEAD_KEPT_MS);
         let merged: HashSet<String> = self.known.iter().filter(|(_, k)| k.pr.is_some()).filter_map(|(key, _)| github::head_of_key(key).map(String::from)).collect();
         if let Some(file) = &self.file {
             github::keep_heads(file, &self.known);
@@ -444,12 +441,16 @@ impl GhPoll {
     }
 
     /// Keeps what GitHub said of worktrees' HEADs in `file` between launches (`Heads`), starting
-    /// from what's there.
+    /// from what's there. The server's engine is the one that keeps it.
     pub fn keep_heads_in(&mut self, file: std::path::PathBuf) {
-        let known = github::kept_heads(&file);
-        // Read, not written: the next answer writes what's kept.
-        self.heads.note(known.into_iter().collect(), now_ms());
+        self.read_heads_from(&file);
         self.heads.file = Some(file);
+    }
+
+    /// Starts from what's kept in `file`, writing nothing: what `--snapshot` learns stays its own,
+    /// or it would write over what the server's engine learned meanwhile.
+    pub fn read_heads_from(&mut self, file: &std::path::Path) {
+        self.heads.note(github::kept_heads(file).into_iter().collect(), now_ms());
     }
 
     /// The commits GitHub says are the last of a PR that merged (`Heads`), for the board.
@@ -942,6 +943,8 @@ impl GhPoll {
             made.entry(slug).or_default().push(pr);
         }
         for (slug, prs) in made.iter_mut() {
+            // From GitHub's answer as it came, as `on_repo` learns.
+            self.heads.learn(slug, prs, now.ms);
             self.as_done_here(slug, prs);
         }
         // A repo no longer read keeps its last read (`board::pr_items`), which a PR read by its
@@ -1830,6 +1833,16 @@ mod tests {
         let mut again = quiet();
         again.keep_heads_in(file.clone());
         assert_eq!(again.merged_heads(), &HashSet::from(["a1".to_string()]));
+        // What's been kept too long isn't read, here or by cleanup.rs.
+        let old = github::Head { pr: Some("northwind/app#9".into()), at: now_ms() - github::HEAD_KEPT_MS };
+        github::keep_heads(&file, &HashMap::from([(github::head_key("northwind/app", "b2"), old)]));
+        assert!(github::kept_heads(&file).is_empty());
+        // A snapshot reads what's kept and writes nothing.
+        let mut snapshot = quiet();
+        snapshot.read_heads_from(&file);
+        snapshot.on_event(Event::Heads(vec![asked("northwind/app", &["c3"], &[("c3", Some("northwind/app#43"))], None)]), &[], Now::real());
+        assert_eq!(snapshot.merged_heads(), &HashSet::from(["c3".to_string()]));
+        assert!(github::kept_heads(&file).is_empty());
         let _ = std::fs::remove_dir_all(&dir);
     }
 }
