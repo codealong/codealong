@@ -7,8 +7,9 @@
 //! pushed and landed ones too (a branch rebased onto a moved `main` has dozens), a worktree a
 //! `WorktreeCreate` hook made has no such commit, so it asks of that one whatever is in it, and
 //! it asks of one whose HEAD went on to another branch with nothing counted at all. So Mark as
-//! done answers Keep itself (`keep`), whatever it says, and then removes the worktree as Clean up
-//! worktree does where Codealong's own check finds nothing in it would be lost (actions.rs
+//! done answers Keep itself (`keep`), whatever it says, where it reads it off the terminal, and
+//! then removes the worktree as Clean up worktree does where Codealong's own check finds nothing
+//! in it would be lost (actions.rs
 //! `own_worktree_after`). Keeping loses nothing, and its reasons change with its versions
 //! (2.1.326 and 2.1.328 each added some), which Codealong would otherwise have to keep up with:
 //! asked 2026-11-19, after three rounds of answering Remove for the reasons Codealong's check
@@ -55,12 +56,10 @@ use super::registry::{RegistryEntry, DIALOG_OPEN};
 /// The dialog's title, which starts it on the screen.
 const TITLE: &str = "Exiting worktree session";
 
-/// The choice that keeps the worktree, in a session not started with `--tmux`.
+/// The choice that keeps the worktree, in a session not started with `--tmux`. One started with
+/// it offers none by this name: its Keeps decide its tmux session too, and "end tmux session"
+/// runs `tmux kill-session`, taking any other pane there with it, so its question stays yours.
 const KEEP: &str = "Keep worktree";
-
-/// The choice that keeps the worktree in a session started with `--tmux` and ends that tmux
-/// session, as Mark as done ends the session; "Keep worktree and tmux session" leaves it running.
-const KEEP_ENDING_TMUX: &str = "Keep worktree, end tmux session";
 
 /// How the id of the dialog's question starts: its process and when it began waiting follow, so
 /// an answer never goes to a dialog that came up after the one it was meant for.
@@ -179,21 +178,22 @@ pub fn answer(ctx: &Ctx, s: &Session, id: &str, answers: &Value) -> Result<Strin
 }
 
 /// Answers the dialog up in `s` with its Keep (`keeps`), as Mark as done does once its `/exit`
-/// asks (idle.rs `keep_worktree`): whatever the dialog says, keeping loses nothing, and Mark as done then
-/// removes the worktree itself where its own check finds nothing in it would be lost. One
-/// Codealong can't read (`assumed`) is the one its `/exit` brought up, whose first choice keeps.
+/// asks (idle.rs `keep_worktree`): whatever the dialog says, keeping loses nothing, and Mark as
+/// done then removes the worktree itself where its own check finds nothing in it would be lost.
+/// Only a dialog read off its terminal: one Codealong supposes (`assumed`), where the terminal
+/// can't be read or a read failed, may be another dialog by now, whose first choice is something
+/// else, so a key pressed there blind could do what nobody asked.
 pub fn keep(ctx: &Ctx, s: &Session) -> Result<()> {
-    let gone = || anyhow!("It isn't asking about its worktree.");
+    let gone = || anyhow!("It isn't asking about its worktree, as far as its terminal shows.");
     let (reg, screen) = super::dialog::open(&ctx.account.home_path(), s).ok_or_else(gone)?;
-    let dialog = up(s, &reg, screen.as_deref()).ok_or_else(gone)?;
-    let i = keeps(&dialog).ok_or_else(|| anyhow!("None of its choices keeps the worktree as the session exits."))?;
+    let dialog = read(screen.as_deref().ok_or_else(gone)?).ok_or_else(gone)?;
+    let i = keeps(&dialog).ok_or_else(|| anyhow!("None of its choices is {KEEP}."))?;
     pick(ctx, s, &reg, i)
 }
 
 /// The choice of `dialog` that keeps the worktree and ends the session.
 fn keeps(dialog: &Dialog) -> Option<usize> {
-    let at = |label: &str| dialog.choices.iter().position(|c| c.label == label);
-    at(KEEP_ENDING_TMUX).or_else(|| at(KEEP))
+    dialog.choices.iter().position(|c| c.label == KEEP)
 }
 
 /// Picks choice `i` of the dialog up in its registry entry `reg` by its digit.
@@ -269,11 +269,10 @@ mod tests {
         assert_eq!(keeps(&read(SCREEN).unwrap()), Some(0));
         let moved = "   Exiting worktree session\n   You are working in a worktree. Keep it to continue working there, or remove it to clean up. The\n   worktree is now on branch release-notes, which is kept either way.\n   ❯ 1. Keep worktree    Stays at /Users/me/projects/northwind-app/.claude/worktrees/kestrel\n     2. Remove worktree  Clean up the worktree directory.\n   Enter to confirm · Esc to cancel\n";
         assert_eq!(keeps(&read(moved).unwrap()), Some(0));
-        // Started with `--tmux`: the Keep that ends its tmux session, as Mark as done ends it.
+        // Started with `--tmux`, whose Keeps decide its tmux session too (one ends it with every
+        // pane in it): yours.
         let tmux = "Exiting worktree session\nThis session was named \"atlas\". Keep the worktree to resume it later, or remove it to clean up.\n❯ 1. Keep worktree and tmux session  Stays at /w. Reattach with: tmux attach -t atlas\n  2. Keep worktree, end tmux session  Keeps worktree at /w, ends tmux session.\n  3. Remove worktree and tmux session  Clean up the worktree directory.\nEnter to confirm · Esc to cancel";
-        assert_eq!(keeps(&read(tmux).unwrap()), Some(1));
-        // One Codealong can't read: the one its `/exit` brought up, Keep first.
-        assert_eq!(keeps(&assumed("/Users/me/projects/northwind-app/.claude/worktrees/kestrel")), Some(0));
+        assert_eq!(keeps(&read(tmux).unwrap()), None);
         // A dialog that offers no Keep is left alone.
         let other = Dialog { choices: vec![Choice { label: "Remove worktree".into(), description: None }], ..read(SCREEN).unwrap() };
         assert_eq!(keeps(&other), None);

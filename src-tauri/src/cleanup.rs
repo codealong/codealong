@@ -355,15 +355,37 @@ fn repo_inside(path: &Path) -> Result<Option<PathBuf>, String> {
 const CONNECTOR_DOWNLOADS: &str = "connector-downloads";
 
 /// Why the worktree at `path` stays for files saved from connectors, if it does: anything in its
-/// `CONNECTOR_DOWNLOADS` folder but that folder's own `.gitignore`, or a folder that can't be
-/// read.
+/// `CONNECTOR_DOWNLOADS` folder but that folder's own `.gitignore`, named in any case as Claude
+/// Code matches it (a case-sensitive volume can have `Connector-Downloads`), or a folder that
+/// can't be read whole.
 fn saved_from_connectors(path: &Path) -> Option<String> {
-    let entries = match std::fs::read_dir(path.join(CONNECTOR_DOWNLOADS)) {
-        Ok(entries) => entries,
-        Err(e) if e.kind() == std::io::ErrorKind::NotFound => return None,
-        Err(e) => return Some(format!("its {CONNECTOR_DOWNLOADS} folder couldn't be read ({e})")),
+    let unread = |e: std::io::Error| Some(format!("its {CONNECTOR_DOWNLOADS} folder couldn't be read ({e})"));
+    let top = match std::fs::read_dir(path) {
+        Ok(top) => top,
+        Err(e) => return unread(e),
     };
-    match entries.flatten().filter(|e| e.file_name() != ".gitignore").count() {
+    let mut saved = 0;
+    for entry in top {
+        let entry = match entry {
+            Ok(entry) => entry,
+            Err(e) => return unread(e),
+        };
+        if !entry.file_name().to_string_lossy().eq_ignore_ascii_case(CONNECTOR_DOWNLOADS) || !entry.file_type().is_ok_and(|t| t.is_dir()) {
+            continue;
+        }
+        let inside = match std::fs::read_dir(entry.path()) {
+            Ok(inside) => inside,
+            Err(e) => return unread(e),
+        };
+        for file in inside {
+            match file {
+                Ok(file) if file.file_name() == ".gitignore" => {}
+                Ok(_) => saved += 1,
+                Err(e) => return unread(e),
+            }
+        }
+    }
+    match saved {
         0 => None,
         1 => Some(format!("it holds a file saved from connectors ({CONNECTOR_DOWNLOADS})")),
         n => Some(format!("it holds {n} files saved from connectors ({CONNECTOR_DOWNLOADS})")),

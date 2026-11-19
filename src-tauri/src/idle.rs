@@ -451,6 +451,9 @@ pub enum Exited {
     Asks,
     /// It's still removing the worktree, its tab left open.
     Removing,
+    /// Codealong answered its question Keep (`keep_worktree`), and it's still running, its tab
+    /// left open and the worktree with it.
+    Keeping,
 }
 
 /// An exit Codealong typed whose process hasn't ended yet, its harness maybe asking first whether
@@ -566,12 +569,16 @@ pub fn exit(s: &Session, account: &crate::config::AccountCfg, pid: u32) -> Resul
 /// nothing, and what the harness asks about (commits since the worktree began, pushed and landed
 /// ones too) doesn't say whether anything would be lost, so Mark as done removes the worktree
 /// itself once the session has ended, where Codealong's own check finds nothing in it would be
-/// (cleanup.rs `after_end`). The exit is then waited for as one that didn't ask. Any other
+/// (cleanup.rs `after_end`). The exit is then waited for as long as a removal is, a busy Mac being
+/// slow to end it: one still running then is `Keeping`, its question answered. Any other
 /// question still asks, yours to answer, as does one whose key couldn't be pressed: it's up as
 /// it would be had Codealong not looked.
 fn keep_worktree(s: &Session, account: &crate::config::AccountCfg, pid: u32, host: Option<u32>) -> Exited {
     match crate::harness::adapter(s.harness).exit_keep(&crate::harness::Ctx { account }, s) {
-        Ok(()) => await_end(s, pid, host, None, false),
+        Ok(()) => match await_end(s, pid, host, None, true) {
+            Exited::Removing => Exited::Keeping,
+            ended => ended,
+        },
         Err(_) => Exited::Asks,
     }
 }
@@ -579,11 +586,11 @@ fn keep_worktree(s: &Session, account: &crate::config::AccountCfg, pid: u32, hos
 /// Waits for `s`'s process `pid`, told to exit, to end, then closes its tab by `host`, the process
 /// above it there (`close_tab`). `lock` is its worktree's lock as it was told (`worktree_lock`):
 /// one that goes while the process still runs says the worktree is being removed, which is
-/// waited for longer than a question is, as is one told to remove it (`removing`).
-fn await_end(s: &Session, pid: u32, host: Option<u32>, lock: Option<&Path>, removing: bool) -> Exited {
+/// waited for longer than a question is, as is one whose question Codealong answered (`answered`).
+fn await_end(s: &Session, pid: u32, host: Option<u32>, lock: Option<&Path>, answered: bool) -> Exited {
     let started = std::time::Instant::now();
     while crate::procs::pid_alive(pid) {
-        let removing = removing || lock.is_some_and(|l| !l.exists());
+        let removing = answered || lock.is_some_and(|l| !l.exists());
         if started.elapsed() > if removing { REMOVAL_WAIT } else { EXIT_WAIT } {
             return if removing { Exited::Removing } else { Exited::Asks };
         }

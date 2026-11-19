@@ -1757,8 +1757,9 @@ fn finish_helpers(engine: &Handle, cfg: &config::Config, key: &str, chosen: Chos
     let (mut done, mut left, mut at) = (0, 0, None);
     // Kept as yours, and why for those you chose to end that couldn't be.
     let (mut kept, mut why_kept) = (Vec::new(), Vec::new());
-    // What's said of those archived in Codealong only, which their harness still lists.
-    let mut still_listed = Vec::new();
+    // What's said of those archived in Codealong only, which their harness still lists, and of
+    // worktrees of theirs that stayed or didn't all go.
+    let (mut still_listed, mut worktrees_kept) = (Vec::new(), Vec::new());
     let mut parents = vec![key.to_string()];
     while let Some(parent) = parents.pop() {
         let helpers: Vec<String> = crate::board::helpers_of(&engine.board().lanes, &parent).iter().map(|h| h.key.clone()).collect();
@@ -1803,13 +1804,17 @@ fn finish_helpers(engine: &Handle, cfg: &config::Config, key: &str, chosen: Chos
                                 still_listed.push(format!("“{}” is archived in Codealong only. {kept}", h.title));
                             }
                             parents.push(helper.clone());
+                            // Its worktree goes once it's archived, as a session's does; one that
+                            // stays, or didn't all go, is said, as it is for the session.
+                            if let Some((words, true)) = own_worktree_after(engine, cfg, h, left_worktree) {
+                                worktrees_kept.push(format!("“{}”: {words}", h.title));
+                            }
                         }
                         Err(e) => {
                             why_kept.push(format!("“{}” couldn't be archived ({}), so it's a session of your own now.", h.title, words(e).trim_end_matches('.')));
                             kept.push(helper.clone());
                         }
                     }
-                    let _ = own_worktree_after(engine, cfg, h, left_worktree);
                 }
                 Err(_) => left += 1,
             }
@@ -1819,8 +1824,8 @@ fn finish_helpers(engine: &Handle, cfg: &config::Config, key: &str, chosen: Chos
     if made_own > 0 {
         at = engine.make_own(kept).or(at);
     }
-    let noted = made_own > 0 || !still_listed.is_empty();
-    let said = [helpers_done_words(done, made_own - why_kept.len(), left)].into_iter().flatten().chain(why_kept).chain(still_listed).collect::<Vec<_>>().join(" ");
+    let noted = made_own > 0 || !still_listed.is_empty() || !worktrees_kept.is_empty();
+    let said = [helpers_done_words(done, made_own - why_kept.len(), left)].into_iter().flatten().chain(why_kept).chain(still_listed).chain(worktrees_kept).collect::<Vec<_>>().join(" ");
     Helped { said: (!said.is_empty()).then_some(said), at, noted }
 }
 
@@ -1923,6 +1928,7 @@ fn end(engine: &Handle, s: &crate::model::Session, account: &config::AccountCfg,
                     Ended::said(None, Some(format!("{word} asks something before it exits that Codealong couldn't answer, about its worktree, {worktree}: the session waits on your answer.")))
                 }
                 Ok(Exited::Removing) => Ended::said(None, Some(format!("{word} is still removing its worktree, {worktree}, so its terminal stays open."))),
+                Ok(Exited::Keeping) => Ended::said(None, Some(format!("{word} kept its worktree, {worktree}, but hasn't finished exiting, so its terminal stays open and the worktree with it."))),
                 Err(e) => Ended::said(None, Some(format!("{e} It's still open, its worktree with it."))),
             }
         }
@@ -2002,9 +2008,14 @@ fn own_worktree_after(engine: &Handle, cfg: &config::Config, s: &crate::model::S
         return None;
     }
     // The board as it is when its turn comes, not as it was before the session ended.
-    Some(match crate::cleanup::after_end(&|| engine.board(), cfg, s)? {
-        Ok(gone) => (gone.said, gone.partly),
-        Err(words) => (words, true),
+    Some(match crate::cleanup::after_end(&|| engine.board(), cfg, s) {
+        // One the board doesn't list here stays as it is, and is said to, where it's still there.
+        None => {
+            let own = s.own_worktree.as_deref().map(std::path::Path::new).filter(|w| w.exists())?;
+            (format!("Its worktree, {}, stays: it isn't on the board here.", crate::util::file_name(own)), true)
+        }
+        Some(Ok(gone)) => (gone.said, gone.partly),
+        Some(Err(words)) => (words, true),
     })
 }
 

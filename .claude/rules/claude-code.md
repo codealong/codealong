@@ -481,15 +481,18 @@ on this Mac; read it before changing the Claude adapter (paths are under `src-ta
   worktree. Keep it to continue working there, or remove it to clean up. The worktree is now on
   branch <branch>, which is kept either way.", Remove "Clean up the worktree directory.";
   2.1.329, a session whose branch had merged, 2026-11-19). So Mark as done answers Keep, whatever
-  it says (the Keep that ends its tmux session in one started with `--tmux`), and once the session
-  has ended removes the worktree itself, as Clean up worktree does, where Codealong's own check
-  finds nothing would be lost, files saved from connectors among what it looks at:
-  `claude/exiting.rs` (`keep`), `idle.rs` (`kept`), `actions.rs` (`own_worktree_after`),
-  `cleanup.rs` (`after_end`, `saved_from_connectors`). Before, it answered Remove for the reasons
-  its check stood for, which left that session asking (2026-11-18 to 2026-11-19). Keep is its
-  first choice, so it's pressed in a terminal Codealong can press keys in but not read too
-  (Ghostty, iTerm2). Codealong's removal deletes the branch HEAD is on with `git branch -d`, not
-  `worktreeBranch`, which stays where HEAD went on from it. Remove runs the repo's `WorktreeRemove` hook under its `timeout`; one
+  it says, where its terminal shows it (not one Codealong only supposes is up, which may be
+  another dialog by then; not one started with `--tmux`, whose "Keep worktree, end tmux session"
+  runs `tmux kill-session` and takes every other pane there with it), and once the session has
+  ended removes the worktree itself, as Clean up worktree does, where Codealong's own check finds
+  nothing would be lost, files saved from connectors among what it looks at (a folder of that
+  name in any case, as Claude Code matches it): `claude/exiting.rs` (`keep`), `idle.rs`
+  (`keep_worktree`), `actions.rs` (`own_worktree_after`), `cleanup.rs` (`after_end`,
+  `saved_from_connectors`). Before, it answered Remove for the reasons its check stood for, which
+  left that session asking (2026-11-18 to 2026-11-19). Codealong's removal runs the repo's
+  `WorktreeRemove` hooks from its main checkout's settings, without a `session_id`, and deletes the
+  branch HEAD is on with `git branch -d`, not `worktreeBranch`, which stays where HEAD went on
+  from it. Remove runs the repo's `WorktreeRemove` hook under its `timeout`; one
   that runs out is killed partway, and the exit carries on as removed (`worktree-state` null),
   whatever the hook left: on 2026-11-18 a repo's hook under a 120 s timeout left its worktree's
   folder half deleted and still listed by git. While that's up the registry says `waiting` / `dialog open`, as

@@ -206,11 +206,12 @@ be lost (anything uncommitted, a commit that's on no remote and not in the defau
 or merge under way, files saved from connectors, another session at work there), and then it
 stays, and the toast says why. The repo's `WorktreeRemove` hook, where there is one, takes it down.
 Its branch goes with it where git's `branch -d` lets it, which keeps a branch whose work is merged
-nowhere. A session started with `--tmux` is answered with the Keep that ends its tmux session. The
-question is answered in any terminal Codealong can press keys in, Ghostty and iTerm2 among them,
-so the session leaves your lists at once and never comes back to ask. Only one Codealong can't
-answer (a terminal it can't press keys in, or a question that offers no Keep) stays, waiting on
-you with that question, answered on its box as any question is (Keep worktree, Remove worktree),
+nowhere. Codealong answers the question where it can read it off the session's terminal (a Rex or
+tmux terminal, or one of its own), so the session leaves your lists at once and doesn't come back
+to ask. One it can't answer stays, waiting on you: in a terminal it can't read (Ghostty, iTerm2,
+Terminal), where a key pressed blind could answer some other dialog, and in a session started
+with `--tmux`, whose answer decides its tmux session too, ending it ends every pane in it. It's
+answered on its box as any question is (Keep worktree, Remove worktree),
 or Cancel to call the exit off; once it's answered, here or in its terminal, the session exits, its
 terminal closes and it's archived (one whose terminal doesn't close stays in its list, for you to
 see). Mark as done again ends it without an answer: its terminal closes and the worktree stays.
