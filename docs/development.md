@@ -71,7 +71,7 @@ scripts/checks.sh                        # every browser check in scripts/previe
 config writes, deep links and terminal scripts. It passes on Linux too, less the tests of what
 only macOS has (`#[cfg(target_os = "macos")]`); see Linux below. `scripts/preview.sh` renders the UI with Tauri's
 IPC stubbed, for screenshots and scripted checks; its header lists the views and options.
-`codealong --snapshot` checks the engine's behavior without a window (CLAUDE.md lists its modes).
+`codealong --snapshot` checks the engine's behavior without a window (`.claude/rules/snapshot.md` lists its modes).
 
 ## Linux
 

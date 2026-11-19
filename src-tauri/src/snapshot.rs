@@ -939,10 +939,16 @@ mod tests {
 
     #[test]
     fn every_mode_has_its_line_in_the_notes() {
-        // CLAUDE.md lists the modes for whoever checks behaviour without a window.
-        let notes = include_str!("../../CLAUDE.md");
+        // .claude/rules/snapshot.md lists the modes for whoever checks behaviour without a window,
+        // each with its arguments as `MODES` has them, so the list can't fall behind the code.
+        // It was CLAUDE.md's until 2026-11-19: every session reads that file and it has a size
+        // limit (lib.rs `the_notes_every_session_reads_stay_short_and_list_the_rest`), so each
+        // new mode's line was paid for by cutting what another line said.
+        let notes = include_str!("../../.claude/rules/snapshot.md");
         for m in MODES {
-            assert!(notes.contains(&format!("--snapshot {}", m.flag)), "CLAUDE.md doesn't say what --snapshot {} does", m.flag);
+            let line = format!("`--snapshot {}`", format!("{} {}", m.flag, m.takes).trim());
+            assert!(notes.contains(&line), ".claude/rules/snapshot.md has no line starting {line}: say there what the mode does, with its arguments as MODES has them");
         }
+        assert!(include_str!("../../CLAUDE.md").contains("`.claude/rules/snapshot.md`"), "CLAUDE.md doesn't say where the modes are listed");
     }
 }

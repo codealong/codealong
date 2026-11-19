@@ -78,68 +78,15 @@ by editing config.toml, not through the command; `codealong config check` checks
 After changing `cli.rs`, run `scripts/skill-reference.sh`, which rewrites `reference.md` from
 `--help`: a cargo test fails while it's stale.
 
-`codealong --snapshot` checks behavior without a window (snapshot.rs, whose `MODES` has each
-mode's arguments); `"$(scripts/engine.sh)" --snapshot …` runs your checkout's. A session's
-modes are the app's own actions over a board read once, asked as another device asks them. The
-ones marked real act for real, and real sessions are fine for them. Claude usage is read only
-with `--usage`, and its endpoint rate-limits: don't loop it.
-
-- `--snapshot [--table] [--no-github] [--usage]`: the board; `--snapshot --bar`: the floating bar's feed.
-- `--snapshot --accounts`, `--snapshot --found`, `--snapshot --config`: accounts and sign-in;
-  accounts on this Mac config.toml doesn't list; the settings as Settings gets them.
-  `--snapshot --setup`: what the setup wizard offers (setup.rs). `--snapshot --training`, `--snapshot --resets`: each account's training setting and limit
-  resets, read live (training.rs, resets.rs). `--snapshot --mcp`: each account's MCP servers and connectors (mcp.rs).
-- `--snapshot --open <lane id> <target id>`: runs a click's open action; `--snapshot --link
-  <url>`: where a click on a web link would open it (a worktree's app opens in its preview's
-  Chrome profile).
-- `--snapshot --pr <owner/name> <number>`: a PR's detail; `--snapshot --pr-card …`: a PR the
-  board doesn't list, as a link to it gets it on hover; `--snapshot --merge-box …`: what its
-  merge box offers you; `--snapshot --review-plan …`: what an automatic review of it would do
-  (autoreview.rs), without doing it; `--snapshot --pr-draft …`: your draft review of it;
-  `--snapshot --pr-since <owner/name> <commit> <commit>`: what changed between two commits, as
-  Changes shows it since your last review.
-- `--snapshot --route <text> [--project <name>]`: what Jev suggests in the quick panel;
-  `--snapshot --routes [days]`: how often what you did there was Jev's first suggestion.
-- `--snapshot --transcript <session key> [--before <cursor>]`: a page of a session's
-  conversation; `--snapshot --pending <session key>`: what it waits on you to allow.
-- Real: `--snapshot --answer <key> <id> <allow|deny|always> [answers]`, `--snapshot --send <key>
-  <text> [--now]`, `--snapshot --tell <key> <text>` (as Codealong sends by itself),
-  `--snapshot --rename <key> <name>`, `--snapshot --stop <key>`, `--snapshot --steer <key> <id>`
-  (a queued message into the running turn), `--snapshot --unqueue <key> <id>` (one taken out of
-  the queue), `--snapshot --training-off
-  <account>`, `--snapshot --use-reset <account> [credit]` (as the usage bar does),
-  `--snapshot --done <key> [--stop]` (ends it as Mark as done does, without archiving),
-  `--snapshot --remove-worktree <folder> [--dry-run]` (only where nothing would be lost),
-  `--snapshot --fork <key> [prompt] [--from <cursor>]` (a copy to remove after),
-  `--snapshot --move <key> <account | worktree folder>`, `--snapshot --resume <key> <place>
-  [prompt] [--model <model>]` (one that isn't running), `--snapshot --switch-model <key> <model>` and
-  `--snapshot --switch-effort <key> <level>` (one that is, or a Codex app thread),
-  `--snapshot --switch-mode <key> <mode id>` (one of `modes`: Shift+Tab in its terminal),
-  `--snapshot --side <key> <question> [follow-ups]` and `--snapshot --pr-side <owner/name>
-  <number> <account> <question> [follow-ups]` (spend usage).
-- `--snapshot --editor-icons`, `--snapshot --skills [folder…]`, `--snapshot --start-options`,
-  `--snapshot --shell-commands`; `--snapshot --checkout`: the checkout the binary was built from;
-  `--snapshot --improve`: where Improve Codealong starts (improve.rs), without the pictures;
-  `--snapshot --tab-picture <key> <file>`: a session's terminal tab, as it pictures it.
-  `--snapshot --stale-terminals [wait]`: the tabs Close stale terminals would list, closing none.
-  `--snapshot --hibernate [wait]`: what would hibernate now, closing none.
-  `--snapshot --hearing`: what this Mac hears with; `--snapshot --transcribe <file>`: a recording's words (ear.rs).
-  `--snapshot --listen-plan [words] [--in <folder>]`: what Listen now would start, hearing nothing.
-- `--snapshot --schedules`: the schedules as their view lists them;
-  `--snapshot --harness-schedules`: the ones the harnesses keep themselves (schedules/harnesses.rs);
-  `--snapshot --schedule-plan
-  <schedule>`: what a run would start or send now, without doing it; `--snapshot --schedule-check
-  <schedule>`: runs its watch's command once and says what's new, noting nothing;
-  `--snapshot --schedule-times <time>`: a time as a schedule reads it. Real:
-  `--snapshot --schedule-run <schedule>` (runs it as Run now does, and notes the run).
-- `--snapshot --tokens [days] [--account <name>] [--session <key>]`: the Analytics window's report,
-  from this Mac's records read into a ledger of the check's own (`--into <file>` keeps it).
-  `--snapshot --jev-usage [days]`: what Settings › Jev says Jev's requests used, from the app's.
-- `--snapshot --analytics [days] [--into <file>]`: Analytics' Your part and Sessions, from a ledger
-  of the check's own. Real: `--snapshot --stance [n] --into <file>` (asks Jev).
-- `--snapshot --start-plan <folder> <account> <terminal|background|claude-app|codex-app>
-  [prompt] [--model <model>] [--effort <level>] [--worktree]`: what a start would run, without
-  starting.
+`codealong --snapshot` checks behavior without a window (snapshot.rs); `"$(scripts/engine.sh)"
+--snapshot …` runs your checkout's. With no mode it prints the board (`--table` as a table,
+`--bar` the floating bar's feed). A mode prints one thing the app shows, or does one thing it
+does: a PR's detail, a page of a conversation, what a start, a schedule's run or an automatic
+review would do without doing it, a message sent or a call answered for real.
+`.claude/rules/snapshot.md` lists every mode with its arguments and marks the ones that act for
+real; read it before checking behavior this way, and write a new mode's line there (a test holds
+the list to snapshot.rs `MODES`). Claude usage is read only with `--usage`, and its endpoint
+rate-limits: don't loop it.
 
 ## Checking UI changes
 
@@ -411,7 +358,8 @@ its adapter, and add what you find to it, not here.
   their desktops, the harnesses there, and their VMs.
 - `github.md`: `gh`, GraphQL points and polling. `jev.md`: TypeSafe. `devices.md`: Tailscale,
   iroh and testing linked devices.
-- `preview.md`: writing browser checks. `performance.md`: the timing log and benches.
+- `preview.md`: writing browser checks. `snapshot.md`: every `--snapshot` mode.
+  `performance.md`: the timing log and benches.
   `voice.md`: macOS's speech recognition and audio capture (codealong-ear).
 
 ## Testing against real data
