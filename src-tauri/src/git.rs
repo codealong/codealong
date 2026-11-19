@@ -82,13 +82,20 @@ pub fn status(path: &Path, base: Option<&str>) -> GitInfo {
                 info.base_behind = Some(behind);
             }
         }
+        // A clean tree's diff is HEAD's commit against the base, read from the commit status
+        // named rather than the files, so an edit made and undone between the two can't be kept
+        // as what the clean tree says (`stat_clean`). A dirty tree's is the files'.
+        let committed = key.as_ref().map(|k| k.head.clone()).filter(|_| info.dirty == 0);
         memo.stat = prior.stat.filter(|_| reuse.stat).or_else(|| {
-            // One process finds the merge base and diffs (git 2.30+); older gits take two.
-            let stat = git(path, &["diff", "--shortstat", "--merge-base", base])
-                .or_else(|| git(path, &["merge-base", "HEAD", base]).and_then(|mb| git(path, &["diff", "--shortstat", mb.trim()])))?;
+            let stat = match &committed {
+                Some(head) => git(path, &["diff", "--shortstat", &format!("{base}...{head}")])?,
+                // One process finds the merge base and diffs (git 2.30+); older gits take two.
+                None => git(path, &["diff", "--shortstat", "--merge-base", base])
+                    .or_else(|| git(path, &["merge-base", "HEAD", base]).and_then(|mb| git(path, &["diff", "--shortstat", mb.trim()])))?,
+            };
             Some(parse_shortstat(&stat))
         });
-        memo.stat_clean = memo.stat.is_some() && info.dirty == 0;
+        memo.stat_clean = memo.stat.is_some() && committed.is_some();
         if let Some((added, removed)) = memo.stat {
             info.added = Some(added);
             info.removed = Some(removed);
@@ -242,13 +249,15 @@ fn common_dir(path: &Path) -> Option<PathBuf> {
 }
 
 /// A stamp of every ref in the repository whose refs are in `common`: `packed-refs`, a reftable's
-/// list of tables, and the time of each folder under `refs/`. Git writes a loose ref to a lock
+/// list of tables, the `shallow` file, and the time of each folder under `refs/`. Git writes a loose ref to a lock
 /// file and renames it into place, which moves its folder's time, so a branch made, moved or
 /// removed (a commit, a fetch, a push) moves the stamp. None when there's no `refs/` folder.
 fn refs_stamp(common: &Path) -> Option<u64> {
     let mut h = DefaultHasher::new();
     stamp_of(&common.join("packed-refs")).hash(&mut h);
     stamp_of(&common.join("reftable/tables.list")).hash(&mut h);
+    // A deepened or unshallowed clone's history changes with no ref moving.
+    stamp_of(&common.join("shallow")).hash(&mut h);
     let mut dirs = vec![common.join("refs")];
     let mut seen = 0;
     while let Some(dir) = dirs.pop() {
@@ -437,6 +446,12 @@ mod tests {
         moved("packed", &["pack-refs", "--all"]);
         moved("a packed ref moved", &["update-ref", "refs/remotes/origin/team/x", "HEAD"]);
         moved("removed", &["update-ref", "-d", "refs/remotes/origin/team/x"]);
+        // A deepened clone's history changes with no ref moving; its `shallow` file says so.
+        std::fs::write(common.join("shallow"), format!("{head}")).unwrap();
+        assert_ne!(stamp(), was, "a clone made shallow");
+        was = stamp();
+        std::fs::remove_file(common.join("shallow")).unwrap();
+        assert_ne!(stamp(), was, "a clone unshallowed");
 
         // An edit after a full refresh: the memo's answer is the one git gives afresh.
         let base = Some("origin/main");
