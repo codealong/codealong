@@ -119,6 +119,12 @@ runs on this Mac (2026-10-01). Paths are under `src-tauri/src/`.
   own: the turn ends with the agent saying it waits, the row idle with `not_fully_idle` 1, the
   command's step running (2); its result comes back as a `SYSTEM_MESSAGE` step (type 101) that
   starts the agent again, the row written running (1.3.5, in tmux, 2026-10-14).
+- A terminal UI opened with no prompt (`agy` alone) takes a conversation at once: it holds the
+  presence lock, and its row has gorm's zero for every time, no steps, and status idle. A slash
+  command (`/model`) writes no input line to its log. One left so from one evening to the next
+  read as working, at the time of each read, until its rows were read whatever their time
+  while a process holds them (1.5.12, 2026-11-19): `antigravity.rs` (`Reader::reread`,
+  `Process::started`), `board.rs` (`antigravity_session`).
 - Every `agy` that starts, print runs too (Codealong's usage read every couple of minutes among
   them), writes every conversation it doesn't run itself back to the command line's table as
   idle (`IDLE`, `not_fully_idle` 0; "summary store: starting background reconciliation

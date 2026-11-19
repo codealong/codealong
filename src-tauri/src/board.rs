@@ -748,7 +748,10 @@ pub fn antigravity_session(account: &AccountCfg, c: &Conversation, process: Opti
     // Its latest step can be later than its summary says: another `agy` writes back older copies
     // of the row. The note a failed turn ended with is its latest step, read whether or not a
     // process has it.
-    let active = [c.latest_step_at, c.failed.as_ref().map(|f| f.at)].into_iter().flatten().fold(c.last_modified, i64::max);
+    let written = [c.latest_step_at, c.failed.as_ref().map(|f| f.at)].into_iter().flatten().fold(c.last_modified, i64::max);
+    // One opened in a terminal and never prompted has written nothing with a time (its row's is
+    // gorm's zero): there's nothing in it to read, and it has been there since its process began.
+    let active = if written > 0 { written } else { process.and_then(|p| p.started).unwrap_or(0) };
     let fresh = now - active < ANTIGRAVITY_STALE_MS;
     // While its process has the conversation, its summary is the process's word, unless another
     // `agy` that started since marked it idle; a step that runs or waits says so too, and a
@@ -759,7 +762,7 @@ pub fn antigravity_session(account: &AccountCfg, c: &Conversation, process: Opti
         (true, None) => false,
         (false, _) => c.running() && app_running,
     };
-    let news = active > seen_at;
+    let news = written > seen_at;
     let status = if c.killed {
         Status::Idle
     } else if under_way && c.waiting {
@@ -6164,7 +6167,7 @@ mod tests {
         let a = AccountCfg { name: "antigravity".into(), harness: "antigravity".into(), home: "~/.gemini/antigravity".into(), command: None, start: None, acp: None, monthly: None, per_token: false, usage_cap: None, disabled: false, chrome_profile: None };
         let c = Conversation { id: "c2".into(), cli: true, preview: Some("Fix the build".into()), status: "cascade_run_status_running".into(), not_fully_idle: true, last_modified: NOW - 2 * ANTIGRAVITY_STALE_MS, last_input: Some(NOW - 3 * ANTIGRAVITY_STALE_MS), ..Default::default() };
         // In its terminal UI: it works however long it's been quiet, and its tab is where it opens.
-        let ui = Process { pid: 41, conversation: Some("c2".into()), terminal: true, logs: Vec::new() };
+        let ui = Process { pid: 41, conversation: Some("c2".into()), terminal: true, logs: Vec::new(), started: None };
         let s = antigravity_session(&a, &c, Some(&ui), false, 0, NOW);
         assert_eq!((s.status, s.live, s.surface, s.pid), (Status::Working, true, Surface::Cli, Some(41)));
         assert_eq!((s.open_target.as_str(), s.resume_command.as_deref()), ("s|antigravity:antigravity:c2|focus", Some("agy --conversation c2")));
@@ -6220,6 +6223,25 @@ mod tests {
         assert_eq!(antigravity_session(&own, &c, None, false, 0, NOW).resume_command.as_deref(), Some("agy --sandbox --conversation c2"));
     }
 
+    /// An `agy` opened in a terminal and left at its box, never prompted (2026-11-19, open since
+    /// the evening before): its row has no time and no steps. It waits for you to write, with
+    /// nothing to read, since its process began, where it read as working, at the time of each
+    /// read.
+    #[test]
+    fn a_command_line_conversation_never_prompted_waits_at_its_box() {
+        const HOUR: i64 = 3_600_000;
+        let a = AccountCfg { name: "antigravity".into(), harness: "antigravity".into(), home: "~/.gemini/antigravity".into(), command: None, start: None, acp: None, monthly: None, per_token: false, usage_cap: None, disabled: false, chrome_profile: None };
+        let c = Conversation { id: "c5".into(), cli: true, status: "cascade_run_status_idle".into(), ..Default::default() };
+        let ui = Process { pid: 41, conversation: Some("c5".into()), terminal: true, logs: Vec::new(), started: Some(NOW - 16 * HOUR) };
+        let s = antigravity_session(&a, &c, Some(&ui), false, 0, NOW);
+        assert_eq!((s.status, s.live, s.last_activity, s.excerpt.as_deref()), (Status::Idle, true, NOW - 16 * HOUR, None));
+        assert_eq!(antigravity_session(&a, &c, Some(&ui), false, 0, NOW + HOUR).last_activity, NOW - 16 * HOUR);
+        // A prompt goes in, as its log says: it works.
+        let mut told = c.clone();
+        told.said.prompted = Some(("c5".into(), NOW - 1_000));
+        assert_eq!(antigravity_session(&a, &told, Some(&ui), false, 0, NOW).status, Status::Working);
+    }
+
     /// The four turns in three conversations that a dropped connection ended on 2026-10-14, the
     /// one the quota refused and the one a 404 ended: each says why where its last reply ("I'll
     /// proceed once they finish") read as if it had stopped by itself.
@@ -6227,7 +6249,7 @@ mod tests {
     fn an_antigravity_turn_that_failed_says_why() {
         use crate::antigravity::Failed;
         let a = AccountCfg { name: "antigravity".into(), harness: "antigravity".into(), home: "~/.gemini/antigravity".into(), command: None, start: None, acp: None, monthly: None, per_token: false, usage_cap: None, disabled: false, chrome_profile: None };
-        let ui = Process { pid: 41, conversation: Some("c3".into()), terminal: true, logs: Vec::new() };
+        let ui = Process { pid: 41, conversation: Some("c3".into()), terminal: true, logs: Vec::new(), started: None };
         let mut c = Conversation { id: "c3".into(), cli: true, status: "cascade_run_status_idle".into(), last_modified: NOW - 1_000, last_input: Some(NOW - 60_000), ..Default::default() };
         c.tail.last_text = Some("Running the browser checks now; I'll proceed once they finish.".into());
         let failed = |on: FailedOn, said: &str| Some(Failed { on, at: NOW - 1_000, said: said.into() });

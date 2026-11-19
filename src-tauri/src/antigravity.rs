@@ -1023,8 +1023,11 @@ fn first_request(path: &Path) -> Option<(String, i64)> {
 
 /// A conversation a command line process has open that its folder's table doesn't list yet: a
 /// print run writes its row only as it ends, though its record is written as it goes (checked
-/// on 1.2.14). It runs in the process's folder.
-fn started(dirs: &[Folder], p: &Process, now: i64) -> Option<Conversation> {
+/// on 1.2.14). It runs in the process's folder. A print run takes its turn from the start; a
+/// terminal UI waits at its box until its log says a prompt went in, `-i`'s too
+/// (`Conversation::ui_turn_open`). Until its record is written it has no time of its own, and
+/// shows its process's (`board::antigravity_session`): `now` would be later at every read.
+fn started(dirs: &[Folder], p: &Process) -> Option<Conversation> {
     let id = p.conversation.as_ref()?;
     let dir = dirs.iter().find(|f| f.cli && f.path.join("presence").join(format!("{id}.lock")).exists())?;
     let record = transcript_file(&dir.path, id);
@@ -1037,9 +1040,9 @@ fn started(dirs: &[Folder], p: &Process, now: i64) -> Option<Conversation> {
         asked,
         workspaces: cwd.iter().cloned().collect(),
         cwd,
-        status: "cascade_run_status_running".into(),
-        not_fully_idle: true,
-        last_modified: record.as_deref().and_then(crate::util::mtime_ms).unwrap_or(now),
+        status: if p.terminal { "cascade_run_status_idle" } else { "cascade_run_status_running" }.into(),
+        not_fully_idle: !p.terminal,
+        last_modified: record.as_deref().and_then(crate::util::mtime_ms).unwrap_or(0),
         last_input: at,
         dir: dir.path.clone(),
         cli: true,
@@ -1060,6 +1063,9 @@ pub struct Process {
     pub terminal: bool,
     /// The logs it has open: its own among them (`own_log`).
     pub logs: Vec<PathBuf>,
+    /// When it began, as the kernel has it: the only time a conversation it opened and never
+    /// prompted has, its row's being gorm's zero.
+    pub started: Option<i64>,
 }
 
 /// For a process's command line that's `agy` running a conversation: whether it's the
@@ -1121,7 +1127,7 @@ pub fn processes(listed: &[procs::PsLine]) -> (Vec<Process>, bool) {
         if let Some(interactive) = cli_args(&p.command) {
             // One gone since the list was made, or not yours, has nothing open that's known.
             let files = procs::open_files(p.pid).unwrap_or_default();
-            found.push(Process { pid: p.pid, conversation: held_conversation(&files), terminal: interactive && !p.tty.starts_with('?'), logs: open_logs(&files) });
+            found.push(Process { pid: p.pid, conversation: held_conversation(&files), terminal: interactive && !p.tty.starts_with('?'), logs: open_logs(&files), started: procs::proc_start_ms(p.pid) });
         }
     }
     (found, app)
@@ -1613,11 +1619,15 @@ impl Reader {
         if dirs.iter().any(|f| f.cli) && self.looked_at.map_or(true, |t| t.elapsed() >= Duration::from_secs(2)) {
             self.look_at_processes(look);
         }
-        let keep = look.seen.pinned_ids("antigravity", &a.name);
+        // A conversation a process has open is read whatever its row's time: one opened and
+        // never prompted has none (gorm's zero), and one resumed can be older than `since`.
+        // Left out, it would read as one just started (`started`).
+        let mut keep = look.seen.pinned_ids("antigravity", &a.name);
+        keep.extend(self.processes.iter().filter_map(|p| p.conversation.clone()));
         let before: HashMap<String, Conversation> = self.conversations.remove(&a.name).unwrap_or_default().into_iter().map(|c| (c.id.clone(), c)).collect();
         let mut rows = once_each(dirs.iter().flat_map(|f| read_conversations(f, look.since, &keep)).collect(), |c| keeps_record(&c.dir, &c.id));
         let listed: HashSet<String> = rows.iter().map(|c| c.id.clone()).collect();
-        rows.extend(self.processes.iter().filter(|p| p.conversation.as_ref().is_some_and(|id| !listed.contains(id))).filter_map(|p| started(&dirs, p, look.now)));
+        rows.extend(self.processes.iter().filter(|p| p.conversation.as_ref().is_some_and(|id| !listed.contains(id))).filter_map(|p| started(&dirs, p)));
         rows.sort_by(|x, y| y.last_modified.cmp(&x.last_modified));
         let mut added = false;
         for c in &mut rows {
@@ -2647,7 +2657,7 @@ mod tests {
 
         // Its terminal UI has it when another `agy` starts and writes its row back idle, the rest
         // as it was: the step still waits on you.
-        reader.processes = vec![Process { pid: 7, conversation: Some("c1".into()), terminal: true, logs: Vec::new() }];
+        reader.processes = vec![Process { pid: 7, conversation: Some("c1".into()), terminal: true, logs: Vec::new(), started: None }];
         reader.looked_at = Some(Instant::now());
         let summaries = Connection::open(dir.join(SUMMARIES)).unwrap();
         summaries.execute("UPDATE conversation_summaries SET status = 'CASCADE_RUN_STATUS_IDLE', not_fully_idle = 0", []).unwrap();
@@ -2689,7 +2699,7 @@ mod tests {
         let account = AccountCfg { name: "antigravity".into(), harness: "antigravity".into(), home: dir.to_string_lossy().into_owned(), command: None, start: None, acp: None, monthly: None, per_token: false, usage_cap: None, disabled: false, chrome_profile: None };
         let seen = crate::state::SeenState::default();
         let look = Look { seen: &seen, since: 0, now: parse_rfc3339_ms("2026-10-01T16:56:00Z").unwrap(), ps: Default::default() };
-        let mut reader = Reader { processes: vec![Process { pid: 7, conversation: Some("c1".into()), terminal: true, logs: Vec::new() }], looked_at: Some(Instant::now()), ..Reader::default() };
+        let mut reader = Reader { processes: vec![Process { pid: 7, conversation: Some("c1".into()), terminal: true, logs: Vec::new(), started: None }], looked_at: Some(Instant::now()), ..Reader::default() };
         let status = |reader: &Reader| crate::board::antigravity_session(&account, &reader.conversations["antigravity"][0], reader.processes.first(), false, 0, look.now).status;
         reader.reread(&account, &look);
         assert_eq!(status(&reader), crate::model::Status::Working);
@@ -2721,6 +2731,49 @@ mod tests {
         summaries.execute("UPDATE conversation_summaries SET last_modified_time = '2026-10-01 16:55:50+00:00', step_count = 7", []).unwrap();
         reader.reread(&account, &look);
         assert_eq!(status(&reader), crate::model::Status::Unread);
+    }
+
+    /// An `agy` opened in a terminal and never prompted, as one was on 2026-11-19: it holds its
+    /// presence lock, and its row, once written, has gorm's zero for every time and no steps.
+    /// Before the row and after, it waits at its box from when its process began, read from
+    /// the row whatever `since` says while the process has it.
+    #[test]
+    fn an_agy_never_prompted_waits_at_its_box() {
+        use crate::model::Status;
+        let root = crate::fixtures::scratch("antigravity-unprompted");
+        let dir = root.join("antigravity-cli");
+        std::fs::create_dir_all(dir.join("presence")).unwrap();
+        std::fs::create_dir_all(dir.join("conversations")).unwrap();
+        std::fs::write(dir.join("presence/c1.lock"), "").unwrap();
+        let summaries = Connection::open(dir.join(SUMMARIES)).unwrap();
+        summaries.execute_batch(SCHEMA).unwrap();
+        Connection::open(dir.join("conversations/c1.db")).unwrap().execute_batch("CREATE TABLE steps (idx INTEGER PRIMARY KEY, step_type INTEGER NOT NULL DEFAULT 0, status INTEGER NOT NULL DEFAULT 0);").unwrap();
+
+        let account = AccountCfg { name: "antigravity".into(), harness: "antigravity".into(), home: dir.to_string_lossy().into_owned(), command: None, start: None, acp: None, monthly: None, per_token: false, usage_cap: None, disabled: false, chrome_profile: None };
+        let seen = crate::state::SeenState::default();
+        let now = on_14th("18:00:00.000");
+        let opened = now - 16 * 3_600_000;
+        let look = Look { seen: &seen, since: now - crate::util::DAY_MS / 2, now, ps: Default::default() };
+        let mut reader = Reader { processes: vec![Process { pid: 7, conversation: Some("c1".into()), terminal: true, logs: Vec::new(), started: Some(opened) }], looked_at: Some(Instant::now()), ..Reader::default() };
+        let session = |reader: &Reader, now: i64| crate::board::antigravity_session(&account, &reader.conversations["antigravity"][0], reader.processes.first(), false, 0, now);
+        reader.reread(&account, &look);
+        let s = session(&reader, now);
+        assert_eq!((s.status, s.last_activity), (Status::Idle, opened), "before its row is written");
+        summaries
+            .execute_batch(
+                "INSERT INTO conversation_summaries (conversation_id, step_count, last_modified_time, workspace_uris, status, last_user_input_time, app_data_dir) VALUES \
+                 ('c1', 0, '0001-01-01 00:00:00+00:00', '[\"file:///Users/me/projects/northwind\"]', 'CASCADE_RUN_STATUS_IDLE', '0001-01-01 00:00:00+00:00', 'antigravity-cli');",
+            )
+            .unwrap();
+        reader.reread(&account, &look);
+        let c = &reader.conversations["antigravity"][0];
+        assert_eq!((c.cwd.as_deref(), c.idled_by_another), (Some("/Users/me/projects/northwind"), false), "read from its row");
+        let s = session(&reader, now + 3_600_000);
+        assert_eq!((s.status, s.live, s.last_activity), (Status::Idle, true, opened));
+        // With its process gone, it's left out as any row that old is.
+        reader.processes.clear();
+        reader.reread(&account, &look);
+        assert!(reader.conversations["antigravity"].is_empty());
     }
 
     /// The lines of the log of the session that waited 31 minutes, 2026-10-14, the rest of them
@@ -2831,7 +2884,7 @@ mod tests {
     #[test]
     fn the_board_says_the_mode_its_terminal_ui_is_in() {
         let account = AccountCfg { name: "antigravity".into(), harness: "antigravity".into(), home: "/h/.gemini/antigravity-cli".into(), command: None, start: None, usage_cap: None, acp: None, monthly: None, per_token: false, disabled: false, chrome_profile: None };
-        let ui = Process { pid: 41, conversation: Some("c1".into()), terminal: true, logs: Vec::new() };
+        let ui = Process { pid: 41, conversation: Some("c1".into()), terminal: true, logs: Vec::new(), started: None };
         let said = |lines: &[&str]| {
             let mut said = Said { agent_mode: Some("default".into()), ..Said::default() };
             for (i, line) in lines.iter().enumerate() {
@@ -2964,7 +3017,7 @@ mod tests {
         let account = AccountCfg { name: "antigravity".into(), harness: "antigravity".into(), home: dir.to_string_lossy().into_owned(), command: None, start: None, usage_cap: None, acp: None, monthly: None, per_token: false, disabled: false, chrome_profile: None };
         let seen = crate::state::SeenState::default();
         let look = Look { seen: &seen, since: 0, now: at + 60_000, ps: Default::default() };
-        let mut reader = Reader { processes: vec![Process { pid: 7, conversation: Some("c1".into()), terminal: true, logs: Vec::new() }], looked_at: Some(Instant::now()), ..Reader::default() };
+        let mut reader = Reader { processes: vec![Process { pid: 7, conversation: Some("c1".into()), terminal: true, logs: Vec::new(), started: None }], looked_at: Some(Instant::now()), ..Reader::default() };
         reader.reread(&account, &look);
         assert_eq!(reader.conversations["antigravity"][0].failed, Some(Failed { on: FailedOn::Connection, at, said: "Its request to the API failed: broken pipe".into() }));
         // Told to carry on, it goes on.
@@ -3005,7 +3058,7 @@ mod tests {
         let account = AccountCfg { name: "antigravity".into(), harness: "antigravity".into(), home: dir.to_string_lossy().into_owned(), command: None, start: None, usage_cap: None, acp: None, monthly: None, per_token: false, disabled: false, chrome_profile: None };
         let seen = crate::state::SeenState::default();
         let look = Look { seen: &seen, since: 0, now: on_14th("17:50:00.000"), ps: Default::default() };
-        let mut reader = Reader { processes: vec![Process { pid: 7, conversation: Some("c1".into()), terminal: true, logs: vec![log.clone()] }], looked_at: Some(Instant::now()), ..Reader::default() };
+        let mut reader = Reader { processes: vec![Process { pid: 7, conversation: Some("c1".into()), terminal: true, logs: vec![log.clone()], started: None }], looked_at: Some(Instant::now()), ..Reader::default() };
         reader.track_logs();
         let session = |reader: &Reader| crate::board::antigravity_session(&account, &reader.conversations["antigravity"][0], reader.processes.first(), false, 0, look.now);
         // First read with the model thinking after a call: no step runs, the row says idle, and
@@ -3223,7 +3276,7 @@ mod tests {
         use crate::send::Route;
         let a = AccountCfg { name: "antigravity".into(), harness: "antigravity".into(), home: "~/.gemini/antigravity".into(), command: None, start: None, acp: None, monthly: None, per_token: false, usage_cap: None, disabled: false, chrome_profile: None };
         let c = Conversation { id: "c1".into(), cli: true, ..Default::default() };
-        let ui = Process { pid: 41, conversation: Some("c1".into()), terminal: true, logs: Vec::new() };
+        let ui = Process { pid: 41, conversation: Some("c1".into()), terminal: true, logs: Vec::new(), started: None };
         let session = |c: &Conversation, p: Option<&Process>| crate::board::antigravity_session(&a, c, p, true, 0, 0);
         // Typed into its terminal; a new terminal resumes one that isn't running; a print run
         // has it until it ends.
