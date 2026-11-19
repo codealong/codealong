@@ -87,14 +87,8 @@ pub fn run() -> i32 {
     // there was a thread to write it on: no room for another is one of the ways an engine
     // can't get going.
     //
-    // One that never had a board out ends as a server that's done does, so launchd doesn't
-    // start it again: what kept it from its first pass five times running is likely there the
-    // next time too, and started every ten seconds it would read everything again for as long
-    // as you're logged in. Whoever next wants a server (the app, a command) starts one. One
-    // that was working and then couldn't go on ends in an error, which launchd starts again:
-    // a fresh process has nothing left over from this one, and schedules shouldn't wait for
-    // somebody to open the app.
-    engine::when_spent(|_, had_a_board_out| {
+    // How it ends is `last_exit`'s to say.
+    engine::when_spent(|_, had_got_going| {
         let (done, written) = std::sync::mpsc::channel();
         let writing = std::thread::Builder::new().name("codealong-last-words".into()).spawn(move || {
             crate::listen::shut_down();
@@ -103,7 +97,7 @@ pub fn run() -> i32 {
         if writing.is_ok() {
             let _ = written.recv_timeout(Duration::from_secs(5));
         }
-        std::process::exit(if had_a_board_out { 70 } else { 0 })
+        std::process::exit(last_exit(had_got_going))
     });
     match start() {
         Ok(_ctx) => loop {
@@ -118,6 +112,21 @@ pub fn run() -> i32 {
             // in, for a test's home long gone. Whoever wants a server starts one again.
             0
         }
+    }
+}
+
+/// How the server ends when its engine can't get going. One whose engine never got through
+/// its first scan ends as a server that's done does, so launchd doesn't start it again: what
+/// kept it from its first pass five times running is likely there the next time too, and
+/// started every ten seconds it would read everything again for as long as you're logged in.
+/// Whoever next wants a server (the app, a command) starts one. One that was working and then
+/// couldn't go on ends in an error, which launchd starts again: a fresh process has nothing
+/// left over from this one, and schedules shouldn't wait for somebody to open the app.
+fn last_exit(had_got_going: bool) -> i32 {
+    if had_got_going {
+        70
+    } else {
+        0
     }
 }
 
@@ -696,6 +705,14 @@ fn stop_it(s: &Status, asked: Request) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// A server whose engine worked and then couldn't go on ends in an error, for launchd to
+    /// start it afresh; one whose engine never got through its first scan ends as a server
+    /// that's done, so it isn't started every ten seconds to fall the same way.
+    #[test]
+    fn a_server_that_worked_ends_in_an_error_and_one_that_never_started_ends_done() {
+        assert_eq!((last_exit(true), last_exit(false)), (70, 0));
+    }
 
     /// An app keeps a server only when it's this build's: its binary and its engine.
     #[test]

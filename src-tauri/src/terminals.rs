@@ -1329,12 +1329,14 @@ mod tests {
     #[test]
     #[cfg_attr(windows, ignore = "Codealong's own terminals aren't on Windows yet")]
     fn closing_a_terminal_ends_its_process() {
-        let g = open(Open { session: "test:session:three".into(), folder: std::env::temp_dir(), command: Some("sleep 59.125".into()), size: Some(DEFAULT_SIZE), ..Default::default() }).unwrap();
+        let g = open(Open { session: "test:session:three".into(), folder: std::env::temp_dir(), command: Some("sleep 599.125".into()), size: Some(DEFAULT_SIZE), ..Default::default() }).unwrap();
         assert!(wait_for(|| glance(&g.id).is_some_and(|g| g.program.is_some() || g.running)));
         let pid_of = |name: &str| crate::procs::run("/usr/bin/pgrep", &["-f", name], None, Duration::from_secs(5)).ok().filter(|o| !o.trim().is_empty());
-        assert!(wait_for(|| pid_of("sleep 59.125").is_some()), "it runs");
+        // Ten minutes, far past the minute `wait_for` waits: with a sleep shorter than that, a
+        // close that did nothing would pass once the sleep ended by itself.
+        assert!(wait_for(|| pid_of("sleep 599.125").is_some()), "it runs");
         close(&g.id).unwrap();
-        assert!(wait_for(|| pid_of("sleep 59.125").is_none()), "it ended");
+        assert!(wait_for(|| pid_of("sleep 599.125").is_none()), "it ended");
     }
 
     /// A session moved to another account takes its terminals with it; one archived closes them.

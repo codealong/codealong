@@ -355,11 +355,34 @@ engine_check() {
   local name alone="" real="" whole
   whole="$(mktemp)"
   cp "$log" "$whole"
+  # 0 when it passed, 1 when it ran and failed, 2 when the run came to anything else: a
+  # build that failed, or a test binary that died (a crash is never this Mac's load).
   by_itself() {
-    (cd src-tauri && CARGO_TARGET_DIR="$target" cargo test --locked "$1" -- --exact) >"$log" 2>&1 && grep -q -F "test $1 ... ok" "$log"
+    (cd src-tauri && CARGO_TARGET_DIR="$target" cargo test --locked "$1" -- --exact) >"$log" 2>&1
+    local status=$?
+    if grep -q -E "process didn't exit successfully|\(signal: [0-9]+" "$log"; then
+      return 2
+    fi
+    if [ "$status" = 0 ] && grep -q -F "test $1 ... ok" "$log"; then
+      return 0
+    fi
+    grep -q -F "test $1 ... FAILED" "$log" && return 1
+    return 2
   }
+  local went
   while IFS= read -r name; do
-    if by_itself "$name" || { sleep 60 && by_itself "$name"; }; then
+    by_itself "$name"
+    went=$?
+    if [ "$went" = 1 ]; then
+      sleep 60
+      by_itself "$name"
+      went=$?
+    fi
+    if [ "$went" = 2 ]; then
+      echo "Run by itself, $name didn't fail as a test fails (a build that failed, or a test binary that died):" >&2
+      tail -30 "$log" >&2
+    fi
+    if [ "$went" = 0 ]; then
       alone="$alone${alone:+, }$name"
     else
       real="$real${real:+, }$name"

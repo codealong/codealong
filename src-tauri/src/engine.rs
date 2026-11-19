@@ -1412,6 +1412,7 @@ fn run_guarded(engine: &mut Engine, rx: &Receiver<Msg>) {
         |engine| {
             engine.full_scan();
             crate::skills::warm(&engine.cfg.accounts);
+            engine.got_going = true;
         },
         Engine::pick_up,
         |engine| engine.run(rx),
@@ -1421,7 +1422,7 @@ fn run_guarded(engine: &mut Engine, rx: &Receiver<Msg>) {
             let wait = falls.fell(Instant::now());
             engine.fell_over(&fall.why);
             if fall.short >= crate::carryon::ENOUGH {
-                give_up(&fall.why, engine.ever_passed);
+                give_up(&fall.why, engine.got_going);
                 return None;
             }
             Some(wait)
@@ -1434,8 +1435,9 @@ static SPENT: std::sync::OnceLock<Box<dyn Fn(&str, bool) + Send + Sync>> = std::
 
 /// Says what's to be done when the engine can't get going: it couldn't be made, or fell over
 /// `carryon::ENOUGH` times running without a board between them. `then` is told why, and
-/// whether this engine ever had a board out: one that worked and stopped is another matter than
-/// one that never started. The server run by itself ends its process (serve.rs `run`). A host
+/// whether this engine ever got through its first scan: one that worked and stopped is another
+/// matter than one that never started. (Not whether a board ever got out: the first scan
+/// publishes one partway.) The server run by itself ends its process (serve.rs `run`). A host
 /// that hasn't said (the app, running the server itself when it couldn't start one) has nothing
 /// to hand over to: the engine's thread ends there, as a panic ended it before there was a
 /// guard, and what's asked of it fails at once.
@@ -1446,11 +1448,11 @@ pub fn when_spent(then: impl Fn(&str, bool) + Send + Sync + 'static) {
 /// Tells the log, and the host if it asked to be told (`when_spent`), that the engine can't get
 /// going. Nothing here may stop what follows it, so the log is written without `eprintln!`,
 /// which panics when it can't write.
-fn give_up(why: &str, had_a_board_out: bool) {
+fn give_up(why: &str, had_got_going: bool) {
     use std::io::Write;
     let _ = writeln!(std::io::stderr(), "Codealong's engine can't get going: it has fallen over {} times running with no board between them (the last: {why}).", crate::carryon::ENOUGH);
     if let Some(then) = SPENT.get() {
-        then(why, had_a_board_out);
+        then(why, had_got_going);
     }
 }
 
@@ -1466,10 +1468,11 @@ struct Engine {
     troubles: BTreeMap<Trouble, String>,
     /// How often the engine's thread has fallen over and been carried on (`run_guarded`).
     fell: u32,
-    /// A board has gone out since this was last asked (`run_guarded` asks at each fall), and
-    /// one ever has: what tells an engine doing its work from one that can't get going.
+    /// A board has gone out since this was last asked (`run_guarded` asks at each fall): what
+    /// tells an engine doing its work from one that can't get going.
     passed: bool,
-    ever_passed: bool,
+    /// The first scan has gone through, once: this engine worked, whatever became of it after.
+    got_going: bool,
     /// config.toml as read is applied whole, with everything that hangs off the settings read
     /// again where it needed to be: false from when `load_config` starts until what called it
     /// is done (`full_scan`, `reload`, `read_all_again`), and so after a fall partway through,
@@ -1692,7 +1695,7 @@ impl Engine {
             troubles: BTreeMap::new(),
             fell: 0,
             passed: false,
-            ever_passed: false,
+            got_going: false,
             config_settled: false,
             seen: SeenState::default(),
             state_unreadable: false,
@@ -4847,7 +4850,7 @@ fn waiting_call(s: &Session, account: Option<&config::AccountCfg>) -> Option<Str
         (self.emit)(&board);
         let emitted = t.elapsed();
         // A whole pass: read, composed and out (`run_guarded`).
-        (self.passed, self.ever_passed) = (true, true);
+        self.passed = true;
         if perf::enabled() {
             let line = self.perf.publish_line(&board, composed, hashed, emitted, since_last, self.git_queue.running());
             perf::log(&line);
