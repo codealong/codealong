@@ -98,6 +98,7 @@ import { held, keysIn } from '../platform';
 import { asCue, saysNothing, toldIn } from '../listening';
 import { foldQuietRuns } from '../orchestrators';
 import { Told } from './Listening';
+import { CodealongCard } from './CodealongCard';
 
 /** Loads the page before once you're this close to the top. */
 const NEAR_TOP = 240;
@@ -1387,6 +1388,13 @@ export function SessionThread({ session: s, now, onOpen, fallback, machine, onLo
                 // say nothing: your bubble says it's yours, and the header names its account.
                 const label = it.kind === 'codealong' ? 'Codealong' : undefined;
                 const edit = onEdit && editable.has(keyOf(it)) ? () => onEdit(it) : undefined;
+                // Codealong's own message is a line saying what it comes to, which opens to the whole.
+                if (it.kind === 'codealong' && it.glance)
+                  return (
+                    <CodealongCard key={keyOf(it)} glance={it.glance} at={it.at} now={now}>
+                      <Said item={shown} result={r.result} now={0} who="Codealong" onMenu={onMenu} />
+                    </CodealongCard>
+                  );
                 // The clock only for one with a heading, which says how long ago: the others needn't
                 // render as it moves.
                 const head = headings.headed.get(keyOf(it));

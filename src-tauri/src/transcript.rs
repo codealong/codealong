@@ -75,6 +75,10 @@ pub struct Item {
     /// names the sender as a link to its session.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub from_key: Option<String>,
+    /// What a `codealong` message comes to in a line (glance.rs), for its card, which a click
+    /// opens to the whole of it.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub glance: Option<crate::glance::Glance>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub id: Option<String>,
     /// A tool's whole input: the command, the file, the arguments.
@@ -195,6 +199,7 @@ fn shown_in(mut page: Page, images: &Path, files: &Path) -> Page {
             continue;
         }
         if let Some(said) = crate::send::from_codealong(&it.text) {
+            it.glance = Some(crate::glance::of(said));
             it.text = attachments::written_in(said, images, files);
             it.kind = "codealong";
             continue;
@@ -364,7 +369,7 @@ fn items_of(line: &[u8], parse: Parse, cursor: u64) -> Vec<Item> {
 }
 
 pub fn item(at: i64, kind: &'static str, text: impl Into<String>) -> Item {
-    Item { at, kind, text: text.into(), from: None, from_key: None, id: None, input: None, output: None, failed: false, shell: false, cwd: None, withdrawn: false, stop: false, questions: Vec::new(), answers: BTreeMap::new(), link: None, sent: None, file: None, images: Vec::new(), cursor: 0, n: 0 }
+    Item { at, kind, text: text.into(), from: None, from_key: None, glance: None, id: None, input: None, output: None, failed: false, shell: false, cwd: None, withdrawn: false, stop: false, questions: Vec::new(), answers: BTreeMap::new(), link: None, sent: None, file: None, images: Vec::new(), cursor: 0, n: 0 }
 }
 
 /// A file a call names (`Item::file`), as a full path: one named from the folder the call worked
@@ -451,6 +456,9 @@ mod tests {
         let shown = shown_in(page, &dir.join("images"), &dir.join("files"));
         assert_eq!((shown.items[0].kind, shown.items[0].text.as_str()), ("codealong", "On your PR #7: ken approved it."));
         assert_eq!((shown.items[1].kind, shown.items[1].text.as_str()), ("you", "Thanks, merge it."));
+        // Codealong's has its line for its card (glance.rs); yours has none.
+        assert_eq!(shown.items[0].glance.as_ref().map(|g| g.line.as_str()), Some("On your PR #7: ken approved it."));
+        assert_eq!(shown.items[1].glance, None);
         // A review handed back names its file by its full path as it's typed in, and shows it as a
         // file again, as yours do.
         let (images, files) = (dir.join("images"), dir.join("files"));
@@ -477,7 +485,7 @@ mod tests {
     /// A page goes to other devices as it is; the phone app reads it with codealong-peer's `Page`.
     #[test]
     fn pages_read_back_on_other_devices() {
-        let item = |kind: &'static str, id: Option<&str>, output: Option<&str>| Item { at: 7, kind, text: format!("{kind} text"), from: None, from_key: None, id: id.map(String::from), input: output.map(|_| "cargo test".to_string()), output: output.map(String::from), failed: kind == "result", shell: false, cwd: None, withdrawn: false, stop: false, questions: Vec::new(), answers: BTreeMap::new(), link: None, sent: None, file: None, images: Vec::new(), cursor: 40, n: 2 };
+        let item = |kind: &'static str, id: Option<&str>, output: Option<&str>| Item { at: 7, kind, text: format!("{kind} text"), from: None, from_key: None, glance: None, id: id.map(String::from), input: output.map(|_| "cargo test".to_string()), output: output.map(String::from), failed: kind == "result", shell: false, cwd: None, withdrawn: false, stop: false, questions: Vec::new(), answers: BTreeMap::new(), link: None, sent: None, file: None, images: Vec::new(), cursor: 40, n: 2 };
         let page = Page { items: vec![Item { withdrawn: true, ..item("you", None, None) }, item("agent", None, None), item("tool", Some("t1"), None), item("result", Some("t1"), Some("ok")), item("note", None, None), Item { from: Some("Review the parser".into()), ..item("peer", None, None) }], before: Some(12), after: 900 };
         let theirs: codealong_peer::api::Page = serde_json::from_value(serde_json::to_value(&page).unwrap()).unwrap();
         assert_eq!((theirs.before, theirs.after, theirs.items.len()), (Some(12), 900, 6));

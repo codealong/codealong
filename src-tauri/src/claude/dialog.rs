@@ -364,6 +364,7 @@ pub fn pending(ctx: &Ctx, s: &Session) -> Option<Pending> {
         no_once: false,
         plan: false,
         message: false,
+        from_key: None,
         always_rule: None,
         questions: vec![question_of(&dialog)],
         unwritten: false,

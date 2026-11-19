@@ -97,6 +97,16 @@ impl Why {
         }
     }
 
+    /// What its message comes to on its card in the conversation (glance.rs).
+    fn glance(self) -> &'static str {
+        match self {
+            Why::Connection => "Carry on: the API can be reached again",
+            Why::Limit => "Carry on: the usage limit lifted",
+            Why::SignIn => "Carry on: signed in again",
+            Why::CutOff => "Carry on: the last turn was cut off",
+        }
+    }
+
     /// What stopped it, after its title.
     fn stopped(self) -> &'static str {
         match self {
@@ -158,6 +168,14 @@ struct Run {
     sent_at: Option<i64>,
     /// Answers in a row each lost again straight after.
     again: u32,
+}
+
+/// What a message telling a session to carry on comes to on its card in the conversation
+/// (glance.rs): what stopped it, in a few words. A conversation moved to another account with room
+/// (start.rs `GO_ON`) carries on too.
+pub fn glance(text: &str) -> Option<crate::glance::Glance> {
+    let line = [Why::Connection, Why::Limit, Why::SignIn, Why::CutOff].into_iter().find(|w| text == w.message()).map(Why::glance).or_else(|| (text == crate::start::GO_ON).then_some("Carry on here: moved to an account with room"))?;
+    Some(crate::glance::Glance { about: crate::glance::About::CarryOn, line: line.to_string(), ..crate::glance::Glance::default() })
 }
 
 /// A session Codealong runs itself whose turn was cut off partway by Codealong quitting or its
@@ -349,6 +367,17 @@ pub fn send_now(engine: &Handle, continuer: &Mutex<Continuer>, due: Due) {
 mod tests {
     use super::*;
     use crate::model::{ConnectionLost, Harness, SessionLimit, SignedOut, Status};
+
+    #[test]
+    fn a_carry_on_reads_back_as_what_stopped_it() {
+        let line = |text: &str| glance(text).map(|g| (g.about, g.line));
+        assert_eq!(line(Why::Limit.message()), Some((crate::glance::About::CarryOn, "Carry on: the usage limit lifted".into())));
+        for w in [Why::Connection, Why::SignIn, Why::CutOff] {
+            assert!(line(w.message()).is_some_and(|(_, l)| l.starts_with("Carry on: ")), "{w:?}");
+        }
+        assert_eq!(line(crate::start::GO_ON).unwrap().1, "Carry on here: moved to an account with room");
+        assert_eq!(line("Something else."), None);
+    }
 
     const NOW: i64 = 1_800_000_000_000;
     const A: &str = "claude:claude:a";

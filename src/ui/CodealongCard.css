@@ -1,0 +1,50 @@
+/* A message Codealong sent a session by itself (CodealongCard.tsx): one line in a quiet card of the
+   conversation's width, its icon, what it names as a link and what happened, cut short where
+   it's narrow, then when and the button that opens it to the whole message under the line. */
+.ca-codealong-card {
+  display: grid;
+  margin-top: 6px;
+  border-radius: var(--radius-md);
+  background: var(--surface-sunken);
+  color: var(--ink-2);
+}
+.ca-codealong-head {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  min-width: 0;
+  padding: 3px 4px 3px var(--space-2);
+  font: var(--type-meta);
+  cursor: pointer;
+}
+.ca-codealong-icon {
+  display: inline-flex;
+  flex: none;
+  color: var(--ink-3);
+}
+.ca-codealong-glance {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.ca-codealong-named {
+  color: var(--ink);
+}
+.ca-codealong-card .ca-codealong-head > .ca-meta {
+  flex: none;
+}
+.ca-codealong-open {
+  flex: none;
+}
+/* The whole message, opened, under the line. */
+.ca-codealong-whole {
+  padding: 0 var(--space-3) var(--space-2);
+}
+/* The message itself, inside the card that sets it apart, without a rule of its own. */
+.ca-codealong-whole > .ca-thread-said.is-codealong {
+  margin-top: 0;
+  padding-left: 0;
+  border-left: 0;
+}

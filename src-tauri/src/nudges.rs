@@ -629,6 +629,31 @@ pub fn words(pr: &PrItem, why: &Why, detail: Option<&PrDetail>, login: Option<&s
     Some(format!("On {whose} #{} “{}” ({}):\n{}\n{}{next}", pr.number, pr.title.trim(), pr.url, list.join("\n"), standing))
 }
 
+/// What a PR's news (`words`) comes to on its card in the conversation (glance.rs): the PR, and
+/// each thing that happened in a few words, without what was said, whose agent's review it was,
+/// or what the session is to do about it, which the whole message has.
+pub fn glance(text: &str) -> Option<crate::glance::Glance> {
+    let rest = text.strip_prefix("On your PR #").or_else(|| text.strip_prefix("On PR #"))?;
+    let (head, body) = rest.split_once(":\n")?;
+    let (number, named) = head.split_once(' ')?;
+    // The title is quoted, the address in parentheses after it, and a title can hold either.
+    let at = named.rfind("” (")?;
+    let title = named[..at].strip_prefix('“')?;
+    let url = named[at + "” (".len()..].strip_suffix(')')?;
+    // What follows a happening's first words: its words, an agent's part in it, what's to do.
+    let short = |item: &str| -> String {
+        let cut = [": “", ", with their agent's review", ", from ", ", in a review", "; "].iter().filter_map(|m| item.find(m)).min().unwrap_or(item.len());
+        item[..cut].trim().trim_end_matches('.').to_string()
+    };
+    let happened: Vec<String> = body.lines().filter_map(|l| l.strip_prefix("- ")).map(short).filter(|s| !s.is_empty()).collect();
+    Some(crate::glance::Glance {
+        about: crate::glance::About::Pr,
+        pr: Some(crate::glance::Pr { number: number.parse().ok()?, title: title.trim().to_string(), url: Some(url.to_string()) }),
+        session: None,
+        line: crate::glance::cut(&happened.join(" · ")),
+    })
+}
+
 /// Where an open PR stands, for the message's last line; empty when there's nothing to say.
 fn standing(pr: &PrItem) -> &'static str {
     match (pr.merge, &pr.checks) {
@@ -1292,6 +1317,12 @@ mod tests {
             text,
             "On your PR #1 “Let the agent add photos” (https://github.com/o/r/pull/1):\n- ana asked for changes: “Please add a test.”\n- ana commented on src/a.ts: “This can be a map.”\nTake it from there, unless you were told to leave it to someone else. This message doesn't ask you to merge it: merge it only if you were asked to."
         );
+        // Its card in the conversation: the PR, and what happened in a few words.
+        let g = glance(&text).unwrap();
+        assert_eq!(g.about, crate::glance::About::Pr);
+        assert_eq!(g.pr, Some(crate::glance::Pr { number: 1, title: "Let the agent add photos".into(), url: Some("https://github.com/o/r/pull/1".into()) }));
+        assert_eq!(g.line, "ana asked for changes · ana commented on src/a.ts");
+        assert_eq!(crate::glance::of(&text), g);
         // Only your own push moved it: nothing to say.
         assert_eq!(words(&p, &Why { since: Some(UPDATED + 30), ..Why::default() }, Some(&d), Some("me"), NudgeAbout::Everything), None);
         // The detail couldn't be read: what the board knows is said.
@@ -1305,6 +1336,11 @@ mod tests {
         let text = words(&approved, &Why { since: Some(UPDATED), approved: true, ..Why::default() }, Some(&d), Some("me"), NudgeAbout::Everything).unwrap();
         // The approval is news, never a go-ahead to merge.
         assert_eq!(text, "On your PR #1 “Let the agent add photos” (https://github.com/o/r/pull/1):\n- ken approved it.\nIt's ready to merge. This message doesn't ask you to merge it: merge it only if you were asked to.");
+        assert_eq!(glance(&text).map(|g| g.line), Some("ken approved it".into()));
+        // Another's PR, an agent's review from someone's account, and failing checks.
+        let theirs = "On PR #4 “Fix “quotes” (and parens)” (https://github.com/o/r/pull/4):\n- ken's agent (claude) commented, from ken's account; an agent's review, not ken's word: “Fine.”\n- Its checks failed: test, lint.\nTake it from there.";
+        let g = glance(theirs).unwrap();
+        assert_eq!((g.pr.unwrap().title, g.line), ("Fix “quotes” (and parens)".to_string(), "ken's agent (claude) commented · Its checks failed: test, lint".to_string()));
         // Turned on for one approved already, with nothing read: said in the board's words.
         assert!(words(&approved, &Why { approved: true, ..Why::default() }, None, None, NudgeAbout::Everything).unwrap().contains("- It was approved.\n"));
         let merged = off(PrItem { state: PrState::Merged, mine: false, ..pr("o/r#1", PrState::Open, &[A]) });

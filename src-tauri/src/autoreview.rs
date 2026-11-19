@@ -2884,6 +2884,23 @@ pub fn back_message(pr: &PrItem, head: &str, agent: &str, login: &str, file: &st
     )
 }
 
+/// What a review handed back (`back_message`) comes to on its card in the conversation (glance.rs):
+/// the PR, and who reviewed it, with how many comments on lines; where its review is and what to
+/// do with it are in the whole message.
+pub fn glance(text: &str) -> Option<crate::glance::Glance> {
+    let (agent, rest) = text.split_once(" reviewed your pull request #")?;
+    let (number, rest) = rest.split_once(' ')?;
+    let (title, rest) = crate::glance::between(rest, "“", "” at ")?;
+    // `back_message` says how many comments are on lines after the review's file.
+    let lines = rest.split_once("Its review is in ").and_then(|(_, r)| r.split_once(". ")).and_then(|(r, _)| r.split_once(", with ")).map(|(_, n)| format!(", with {n}")).unwrap_or_default();
+    Some(crate::glance::Glance {
+        about: crate::glance::About::Review,
+        pr: Some(crate::glance::Pr { number: number.parse().ok()?, title: title.trim().to_string(), url: None }),
+        line: crate::glance::cut(&format!("{} reviewed it{lines}", agent.trim())),
+        ..crate::glance::Glance::default()
+    })
+}
+
 /// Whether a draft review of yours holds only what Codealong's agents put in it: each part its
 /// text was joined from (`draft_plan`) carries Codealong's mark. One with words of yours in it
 /// isn't submitted for you.
@@ -3623,6 +3640,11 @@ mod tests {
         assert_eq!(file, "# Review of #7 “Add teams” at 1111111, by Codex, gpt-5.5\n\nTwo problems.\n\n## On particular lines\n\n- `src/a.rs` line 2: This panics\n  on empty input.\n");
         let said = back_message(&mine(7, HEAD), HEAD, "Codex, gpt-5.5", "gwen", "[review-7.md](files/ab/review-7.md)", 1);
         assert_eq!(said, format!("Codex, gpt-5.5 reviewed your pull request #7 “Add teams” at 1111111, as gwen has another agent review the pull requests their sessions open. Its review is in [review-7.md](files/ab/review-7.md), with a comment on a line. It's that agent's review, not gwen's word: fix what holds up, and say which findings you leave and why. {}", crate::nudges::NOT_A_MERGE));
+        // Its card in the conversation: the PR, who reviewed it, and how many comments on lines.
+        let g = glance(&said).unwrap();
+        assert_eq!((g.about, g.pr.map(|p| (p.number, p.title)), g.line.as_str()), (crate::glance::About::Review, Some((7, "Add teams".to_string())), "Codex, gpt-5.5 reviewed it, with a comment on a line"));
+        let none = back_message(&mine(7, HEAD), HEAD, "Codex, gpt-5.5", "gwen", "[review-7.md](files/ab/review-7.md)", 0);
+        assert_eq!(glance(&none).unwrap().line, "Codex, gpt-5.5 reviewed it");
         let files = Reading { md: "[pr-7.md](files/a/pr-7.md)".into(), diff: "[pr-7.diff](files/b/pr-7.diff)".into(), changes: None };
         let first = first_prompt(&mine(7, HEAD), HEAD, None, true, "gwen", &Goes::Back("Claude Code, opus".into()), INSTRUCTIONS, &files);
         assert!(first.contains("for gwen, who opened it with another agent (Claude Code, opus): your review goes back to that agent, to act on."), "{first}");

@@ -1046,7 +1046,8 @@ terminal. What you'd begun answering in its terminal is cleared first, except on
 question, where a choice you ticked there and pick here too ends up unticked; the conversation
 shows the answers it took. Another session's message that a Claude Code session holds for
 you to allow (it skips permission prompts and the sender didn't say it does too) shows the same way,
-all of it when Codealong sent it, with Deliver and Deny, pressed in its Ghostty, iTerm2, Rex, Codealong or tmux tab
+all of it when Codealong sent it (without the line its byline says to the agent, and with its sender
+named as a link to that session), with Deliver and Deny, pressed in its Ghostty, iTerm2, Rex, Codealong or tmux tab
 or typed into its background job; with several held, it opens where it runs, which shows them one at
 a time. A dialog of Claude Code's own that it brings up between turns, as its offer to make auto
 mode your default permission mode, shows the same way while it runs in a Rex, Codealong or tmux tab,
@@ -2822,7 +2823,11 @@ its reply; it goes the way another session's message does where the harness has 
 Claude Code gets it on its cross-session socket under the name Codealong, so the agent reads it as a
 message from Codealong and not as a prompt, and it isn't held for you, since your setting sent it. A
 harness without such a way gets it typed in, that line first. Either way its conversation shows it
-as Codealong's, apart from yours and the agent's (a rule at its left), on the phone as a note.
+as Codealong's, apart from yours and the agent's, on the phone as a note. On a Mac it's a line in a
+quiet card: an icon for what it's about (a PR, a helper, a schedule, a review, carrying on), the PR
+or helper it names as a link, and what happened in a few words ("ana asked for changes", "ended its
+turn", the schedule and why it ran). A click on the line opens the whole message under it, as the
+session got it, with what it tells the agent to do; a click on its link goes where the link does.
 `codealong --snapshot --tell <key> <text>` sends one the same way.
 
 #### Sessions that aren't running

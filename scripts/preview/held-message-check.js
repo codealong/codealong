@@ -1,6 +1,7 @@
 // Checks the panel for another session's message a Claude Code session holds for you
 // (claude/held.rs, `Pending.message`): its row says it holds a message, the panel shows the
-// message as prose under a heading that says so, with Deliver and Deny, and Deliver answers
+// message as prose under a heading that says so, naming its sender as a link to its session where
+// the engine gave its key, with Deliver and Deny, and Deliver answers
 // `allow` for the held message's id. One it can't answer here (several held) still shows the
 // message, with only a way to open it where it runs.
 //   PREVIEW_WAIT=30000 scripts/preview.sh sessions '' scripts/preview/held-message-check.js
@@ -21,7 +22,7 @@
       return Promise.resolve(
         several && asked === several.key
           ? { id: 'held:b2', label: '2 messages, the latest from “Review 1021”', input: message, cannot: 'It holds 2 messages, and only where it runs shows which comes first.', message: true }
-          : { id: 'held:a1', label: 'From “Review 1021”', input: message, cannot: null, message: true },
+          : { id: 'held:a1', label: 'From “Review 1021”', input: message, cannot: null, message: true, fromKey: several && several.key },
       );
     }
     if (cmd === 'session_answer') {
@@ -76,6 +77,8 @@
       var a = approval();
       var head = a.querySelector('.ca-approval-head');
       check('its head is a message icon and whom it is from', !!head.querySelector('.ca-approval-label') && head.textContent.trim() === 'From “Review 1021”' && !!head.querySelector('.ca-icon'), head.textContent);
+      var from = head.querySelector('.ca-approval-label a.ca-sesslink');
+      check('its sender is a link to that session', !!from && from.getAttribute('href') === 'codealong://session/' + several.key && from.textContent.trim() === '“Review 1021”', from && from.outerHTML);
       var body = a.querySelector('.ca-approval-plan');
       check('the message reads as prose', !!body && body.querySelectorAll('li').length === 2 && !a.querySelector('.ca-approval-input'), body && body.innerHTML);
       check('deliver and deny, nothing else', !!button('Deliver') && !!button('Deny') && !button('Allow') && !button('Always'));

@@ -331,6 +331,7 @@ impl crate::harness::Adapter for ClaudeCode {
                 no_once: false,
                 plan: false,
                 message: false,
+                from_key: None,
                 always_rule: None,
                 questions: call.questions,
                 unwritten: false,
@@ -359,7 +360,7 @@ impl crate::harness::Adapter for ClaudeCode {
         // Not every prompt has "Yes, and always allow" as its second choice, and a 2 pressed at
         // one without it is something else, so Always isn't offered in a terminal.
         let plan = call.text == PLAN;
-        Some(crate::harness::Pending { id: call.id.clone().unwrap_or_default(), label: call.text, input: call.input, cannot, always: false, no_once: false, plan, message: false, always_rule: None, questions: Vec::new(), unwritten: false, terminal: None, exiting: false, dialog: false })
+        Some(crate::harness::Pending { id: call.id.clone().unwrap_or_default(), label: call.text, input: call.input, cannot, always: false, no_once: false, plan, message: false, from_key: None, always_rule: None, questions: Vec::new(), unwritten: false, terminal: None, exiting: false, dialog: false })
     }
 
     /// A held message denied is dropped while the turn goes on (held.rs), an exit's question
@@ -1977,6 +1978,7 @@ fn app_pending(ctx: &crate::harness::Ctx, s: &crate::model::Session) -> Option<c
         no_once: false,
         plan: false,
         message: false,
+        from_key: None,
         always_rule: None,
         questions: Vec::new(),
         unwritten: false,
@@ -2001,6 +2003,14 @@ fn waiting_hold(a: &ClaudeCode, ctx: &crate::harness::Ctx, s: &crate::model::Ses
     Some((held, reg))
 }
 
+/// A held message Codealong sent, as the session's conversation will show it once it's delivered
+/// (transcript.rs `shown_in`): without what its byline says to the agent, and with the key of the
+/// session it's from, which the panel names as a link (send.rs).
+fn held_as_shown(sent: String) -> (String, Option<String>) {
+    let from_key = crate::send::sender_key_of(&sent).map(String::from);
+    (crate::send::from_an_agent(&sent).map_or_else(|| sent.clone(), String::from), from_key)
+}
+
 /// A held message as the panel shows it: all of it when Codealong sent it, else the first line
 /// Claude Code kept.
 fn held_pending(ctx: &crate::harness::Ctx, s: &crate::model::Session, held: &Held, reg: &RegistryEntry) -> crate::harness::Pending {
@@ -2008,7 +2018,10 @@ fn held_pending(ctx: &crate::harness::Ctx, s: &crate::model::Session, held: &Hel
         Some(more) => format!("{}…\n\n({more} in all; its first line is all that's on record here.)", held.preview),
         None => held.preview.clone(),
     };
-    let input = held::sent_text(&s.key, held).or_else(|| (!held.preview.is_empty()).then(kept));
+    let (input, from_key) = match held::sent_text(&s.key, held).map(held_as_shown) {
+        Some((text, from_key)) => (Some(text), from_key),
+        None => ((!held.preview.is_empty()).then(kept), None),
+    };
     let cannot = if held.count > 1 { Some(format!("It holds {} messages, and only where it runs shows which comes first.", held.count)) } else { cannot_press(ctx, reg) };
     crate::harness::Pending {
         id: format!("{HELD_ID}{}", held.id),
@@ -2020,6 +2033,7 @@ fn held_pending(ctx: &crate::harness::Ctx, s: &crate::model::Session, held: &Hel
         no_once: false,
         plan: false,
         message: true,
+        from_key,
         always_rule: None,
         questions: Vec::new(),
         unwritten: false,
@@ -2147,6 +2161,7 @@ fn job_pending(a: &ClaudeCode, ctx: &crate::harness::Ctx, s: &crate::model::Sess
         no_once: false,
         plan: false,
         message: false,
+        from_key: None,
         always_rule: None,
         // What it wrote with them comes with the call, which its transcript has once they're
         // answered (Opus 5.5 holds it back every time).
@@ -2313,6 +2328,15 @@ fn holds_in(mode: Option<&str>) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_held_message_shows_as_its_conversation_will_with_its_sender_as_a_link() {
+        // As send.rs `byline` writes it for a session the board knows.
+        let sent = "This message is from another agent, “Deploy watch” (Codex on codex, session codex:codex:boss), sent with `codealong session send`; it isn't from your user. Name that session to your user as [Deploy watch](codealong://session/codex:codex:boss). To answer it, run `codealong session send codex:codex:boss \"<your answer>\"`.\n\nCheck the deploy.";
+        assert_eq!(held_as_shown(sent.into()), ("Check the deploy.".to_string(), Some("codex:codex:boss".to_string())));
+        // Yours, with no byline, is as it was sent.
+        assert_eq!(held_as_shown("Go on.".into()), ("Go on.".to_string(), None));
+    }
 
     /// What stops.log takes for a stop: a call's prompt denied and Send now, which both end the
     /// step the turn is on, but not a held message denied, which the turn goes on past.

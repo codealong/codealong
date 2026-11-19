@@ -3363,6 +3363,20 @@ export interface TextFound {
   off: boolean;
 }
 
+/** What a message Codealong sent by itself is about, for its card's icon (glance.rs `About`). */
+export type GlanceAbout = 'pr' | 'helper' | 'schedule' | 'review' | 'carry-on' | 'other';
+
+/** A message Codealong sent by itself, in a line (glance.rs `Glance`): what it's about, the PR or
+ *  session it names, and what happened, in a few words after them. */
+export interface Glance {
+  about: GlanceAbout;
+  /** The PR it's about, its address where the message gave it. */
+  pr?: { number: number; title: string; url?: string };
+  /** The session it's about (a helper's), by its key and title. */
+  session?: { key: string; title: string };
+  line: string;
+}
+
 /** A step of a session's conversation, from its own record (transcript.rs). */
 export interface TranscriptItem {
   at: number;
@@ -3376,6 +3390,9 @@ export interface TranscriptItem {
   /** That session's key, where the message said it: its heading names the sender as a link to
    *  its session (SessionLink.tsx). */
   fromKey?: string;
+  /** What a `codealong` message comes to in a line, for its card (CodealongCard.tsx), which a
+   *  click opens to the whole of it (glance.rs). Missing from an older engine's. */
+  glance?: Glance;
   id?: string;
   input?: string;
   output?: string;
@@ -3438,6 +3455,9 @@ export interface Pending {
   /** It's another session's message it holds for you (Claude Code): `input` is the message, as
    *  prose. Allow delivers it; Deny drops it, and its sender is told it was declined. */
   message?: boolean;
+  /** The session a held message is from, by its key, where its byline names one: the label
+   *  names the sender as a link to it. */
+  fromKey?: string;
   /** Questions it asks you: answered with your picks rather than allowed. */
   questions?: Question[];
   /** What it wrote with this isn't in its conversation until it's answered, only where it runs. */

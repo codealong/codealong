@@ -136,6 +136,7 @@ import { signInTo, type AccountMoves } from '../menus';
 import { errorText } from '../report';
 import { bare, chordPressed, cmd, held, keysIn, platform, typed } from '../platform';
 import { useKeysAlways } from '../keysShown';
+import { SessionLink } from './SessionLink';
 
 /** Nothing picked for a resume: it goes on where it went on last, on the account's own model. */
 const NO_PICKS: ResumePicks = { agent: null, effort: null, place: null };
@@ -1500,7 +1501,7 @@ function Approval({ session: s, terminal, onOpen, onAnswered, keys, onKeys, onNe
         <div className="ca-approval-head">
           <Icon name={pending.message ? 'message-circle' : 'alert'} size={14} />
           <span className="ca-approval-label">
-            <Rich text={pending.label} now={0} />
+            <PendingLabel pending={pending} />
           </span>
         </div>
         {pending.input && pending.input !== pending.label && (pending.message ? <Plan session={s} text={pending.input} /> : <CodeBlock text={pending.input} className="ca-approval-input" />)}
@@ -1572,7 +1573,7 @@ function Approval({ session: s, terminal, onOpen, onAnswered, keys, onKeys, onNe
           <span>Plan</span>
         ) : (
           <span className="ca-approval-label">
-            <Rich text={pending.label} now={0} />
+            <PendingLabel pending={pending} />
           </span>
         )}
       </div>
@@ -1594,6 +1595,23 @@ function Approval({ session: s, terminal, onOpen, onAnswered, keys, onKeys, onNe
         )}
       </div>
     </div>
+  );
+}
+
+/** What a request says it is. A held message's names the session it's from, in quotes, as a link
+ *  to that session where the engine knows its key, as the conversation names another session's
+ *  message once it's delivered (SessionThread.tsx `PeerLabel`). */
+function PendingLabel({ pending }: { pending: Pending }) {
+  const quote = pending.label.indexOf('“');
+  if (!pending.fromKey || quote < 0) return <Rich text={pending.label} now={0} />;
+  const name = pending.label.slice(quote);
+  return (
+    <>
+      {pending.label.slice(0, quote)}
+      <SessionLink name={pending.fromKey} unknown={name}>
+        {name}
+      </SessionLink>
+    </>
   );
 }
 

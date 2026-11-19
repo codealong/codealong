@@ -50,6 +50,7 @@ mod fixtures;
 mod geometry;
 mod flash;
 mod frames;
+mod glance;
 mod glass;
 mod front;
 mod ghpoll;

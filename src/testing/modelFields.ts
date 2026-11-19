@@ -1124,6 +1124,7 @@ export type Pending = Holds<Same<
   | "cannot"
   | "dialog"
   | "exiting"
+  | "fromKey"
   | "id"
   | "input"
   | "label"

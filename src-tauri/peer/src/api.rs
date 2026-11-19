@@ -900,6 +900,10 @@ pub struct Pending {
     /// Devices that don't know it show it as a call to allow, which comes to the same.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub message: bool,
+    /// The session a held message (`message`) is from, by its key, where its byline names one:
+    /// the windows name the sender as a link to it. None from Macs before 2026-11-18.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub from_key: Option<String>,
     /// What `Answer::Always` adds, in a sentence, when Codealong can say: "Allows
     /// `Bash(npm test:*)` in this project, for you."
     #[serde(default, skip_serializing_if = "Option::is_none")]

@@ -362,6 +362,47 @@ pub fn words(notes: &[Note]) -> String {
     }
 }
 
+/// What a message of helpers' news (`words`) comes to on its card in the conversation (glance.rs):
+/// the helper, as a link to its session, and what happened, without the commands that go with it.
+/// Several helpers' news is each in a few words.
+pub fn glance(text: &str) -> Option<crate::glance::Glance> {
+    use crate::glance::{About, Glance, Named};
+    // One helper's news (`line`), after "Your helper " or "The helper ": what happened, and the
+    // helper where the news names its session.
+    let one = |s: &str| -> Option<(String, Option<Named>)> {
+        if let Some((title, rest)) = crate::glance::between(s, "“", "” (") {
+            let (key, what) = rest.split_once(") ")?;
+            let named = Some(Named { key: key.to_string(), title: title.to_string() });
+            if what.starts_with("ended its turn") {
+                return Some(("ended its turn".into(), named));
+            }
+            let waits = what.strip_prefix("waits on your user")?;
+            let said = waits.split(". They answer it in Codealong").next().unwrap_or("").trim_start_matches(':').trim();
+            return Some((if said.is_empty() { "waits on you".into() } else { format!("waits on you: {said}") }, named));
+        }
+        if s.starts_with("you started on ") {
+            return Some(("A helper you started hasn't made its session yet".into(), None));
+        }
+        let (key, _) = s.split_once(", which you started on ").filter(|(_, rest)| rest.contains("hasn't shown up"))?;
+        Some((format!("{key} hasn't shown up"), None))
+    };
+    let about = |line: String| Glance { about: About::Helper, line: crate::glance::cut(&line), ..Glance::default() };
+    if let Some(s) = text.strip_prefix("Your helper ") {
+        let (line, named) = one(s)?;
+        return Some(Glance { session: named, ..about(line) });
+    }
+    let list = text.strip_prefix("About your helpers:\n")?;
+    let each: Vec<String> = list
+        .lines()
+        .filter_map(|l| l.strip_prefix("- "))
+        .filter_map(|l| {
+            let (line, named) = one(l.strip_prefix("The helper ").unwrap_or(l))?;
+            Some(named.map_or(line.clone(), |n| format!("“{}” {line}", n.title)))
+        })
+        .collect();
+    (!each.is_empty()).then(|| about(each.join(" · ")))
+}
+
 /// Sends each job's message to its session as a window's send does, and tells `reporter` how each
 /// went, and the engine, which says so in a notice when one didn't.
 pub fn send_now(engine: &Handle, reporter: &Mutex<Reporter>, jobs: Vec<Job>) {
@@ -393,6 +434,26 @@ pub fn send_now(engine: &Handle, reporter: &Mutex<Reporter>, jobs: Vec<Job>) {
 mod tests {
     use super::*;
     use crate::model::Helper;
+
+    #[test]
+    fn its_news_reads_back_in_a_few_words_with_the_helper_as_a_link() {
+        use crate::glance::{About, Named};
+        let note = |key: &str, title: &str, news: News| Note { helper: key.into(), title: title.into(), news };
+        let ended = note("codex:codex:rev", "Review the diff", News::Ended);
+        let g = glance(&words(std::slice::from_ref(&ended))).unwrap();
+        assert_eq!((g.about, g.line.as_str()), (About::Helper, "ended its turn"));
+        assert_eq!(g.session, Some(Named { key: "codex:codex:rev".into(), title: "Review the diff".into() }));
+        let asks = note("claude:claude:q", "Check staging", News::OnUser(Some("Allow `curl`?".into())));
+        assert_eq!(glance(&words(std::slice::from_ref(&asks))).unwrap().line, "waits on you: Allow `curl`?");
+        assert_eq!(glance(&words(&[note("claude:claude:q", "Check staging", News::OnUser(None))])).unwrap().line, "waits on you");
+        let unstarted = note("start@1", "", News::Unstarted { account: "codex".into(), place: "~/app".into(), terminal: "Ghostty".into(), minutes: 4, screen: Some("Update?".into()) });
+        assert_eq!(glance(&words(std::slice::from_ref(&unstarted))).unwrap().line, "A helper you started hasn't made its session yet");
+        let unseen = note("claude:claude2:gone", "", News::Unseen { account: "claude2".into(), minutes: 10 });
+        assert_eq!(glance(&words(std::slice::from_ref(&unseen))).unwrap().line, "claude:claude2:gone hasn't shown up");
+        // Several helpers' news, each in a few words.
+        let g = glance(&words(&[ended, asks, unseen])).unwrap();
+        assert_eq!((g.session, g.line.as_str()), (None, "“Review the diff” ended its turn · “Check staging” waits on you: Allow `curl`? · claude:claude2:gone hasn't shown up"));
+    }
 
     /// origins.json with `pending` its starts waiting for their sessions, and no session noted.
     fn starts(pending: &[Pending]) -> Store {

@@ -163,6 +163,7 @@ pub fn pending(ctx: &Ctx, s: &Session, reg: &RegistryEntry, screen: Option<&str>
         no_once: false,
         plan: false,
         message: false,
+        from_key: None,
         always_rule: None,
         questions: vec![question_of(&dialog)],
         unwritten: false,
