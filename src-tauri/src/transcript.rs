@@ -466,7 +466,7 @@ mod tests {
         // Codealong's (Claude Code's socket) does; yours has none.
         assert_eq!(shown.items[0].glance.as_ref().map(|g| g.words()), Some("On your PR #7: ken approved it.".into()));
         assert_eq!(shown.items[1].glance, None);
-        let socket = shown_in(Page { items: vec![item(1, "codealong", "Your helper “Fix” (codex:codex:f) ended its turn: …")], before: None, after: 0 }, &dir.join("images"), &dir.join("files"));
+        let socket = shown_in(Page { items: vec![item(1, "codealong", "Your helper “Fix” (codex:codex:f) ended its turn: `codealong session wait codex:codex:f` prints its reply.")], before: None, after: 0 }, &dir.join("images"), &dir.join("files"));
         assert_eq!(socket.items[0].glance.as_ref().map(|g| g.about), Some(crate::glance::About::Helper));
         // A review handed back names its file by its full path as it's typed in, and shows it as a
         // file again, as yours do.

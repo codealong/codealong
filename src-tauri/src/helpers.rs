@@ -377,7 +377,8 @@ pub fn glance(text: &str) -> Option<crate::glance::Glance> {
         // or parentheses, and a title may say either.
         let mut ats: Vec<usize> = [") ended its turn", ") waits on your user"].iter().flat_map(|m| s.match_indices(m).map(|(at, _)| at)).collect();
         ats.sort_unstable();
-        let named = |at: usize| s[..at].strip_prefix('“')?.rsplit_once("” (").filter(|(_, key)| !key.is_empty() && !key.contains(|c: char| c.is_whitespace() || c == '(' || c == ')')).map(|n| (at, n));
+        // The key is the one the command after the news names (`codealong session wait <key>`).
+        let named = |at: usize| s[..at].strip_prefix('“')?.rsplit_once("” (").filter(|(_, key)| !key.is_empty() && !key.contains(char::is_whitespace) && s[at..].contains(&format!("codealong session wait {key}"))).map(|n| (at, n));
         if let Some((at, (title, key))) = ats.into_iter().find_map(named) {
             let line = match s[at + 2..].strip_prefix("waits on your user") {
                 None => "ended its turn".to_string(),
@@ -455,6 +456,9 @@ mod tests {
         // A title with quotes and parentheses of its own, and one that says what news says.
         let says = note("codex:codex:why", "Why (CI) waits on your user", News::Ended);
         assert_eq!(read(&[says.clone(), says]).parts.iter().map(|p| p.session.as_ref().map(|n| n.title.as_str())).collect::<Vec<_>>(), [Some("Why (CI) waits on your user"); 2]);
+        let staging = note("codex:codex:stg", "Why “CI” (staging) waits on your user", News::Ended);
+        let g = read(std::slice::from_ref(&staging));
+        assert_eq!((g.parts[0].session.as_ref().map(|n| n.key.as_str()), g.parts[0].line.as_str()), (Some("codex:codex:stg"), "ended its turn"));
         let quoted = note("codex:codex:ci", "Check “cache” (CI)", News::Ended);
         assert_eq!(read(std::slice::from_ref(&quoted)).parts[0].session, Some(Named { key: "codex:codex:ci".into(), title: "Check “cache” (CI)".into() }));
         // Several helpers' news, each in a few words and each named helper a link; what one waits

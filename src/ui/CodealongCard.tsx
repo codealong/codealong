@@ -16,6 +16,7 @@ import { says } from '../windowFind';
 import { Button, cx, Icon } from './primitives';
 import { PrLink } from './PrLink';
 import { SessionLink } from './SessionLink';
+import { wordsIn } from './ThreadFind';
 import { FindContext } from './WindowFind';
 
 /** Each kind's icon, as the views draw a PR, a helper, a schedule, a review and carrying on. */
@@ -25,12 +26,12 @@ const ICON: Record<GlanceAbout, string> = { pr: 'pr', helper: 'robot', schedule:
 export function CodealongCard({ item, glance: g, now, children }: { item: TranscriptItem; glance: Glance; now: number; children: ReactNode }) {
   const [opened, setOpened] = useState(false);
   const finding = useContext(FindContext);
-  // Whether the find is in it, by the words its whole message shows, drawn hidden since its first
-  // render: read as the find's pattern comes, so the render that brings it opens the card before
-  // the find looks, which passes over what's hidden. Its first render, with nothing drawn yet,
-  // goes by its text.
+  // Whether the find is in it, by the words its whole message shows as the find reads them, drawn
+  // hidden since its first render: read as the find's pattern comes, so the render that brings it
+  // opens the card before the find looks, which passes over what's hidden. Its first render, with
+  // nothing drawn yet, goes by its text.
   const whole = useRef<HTMLDivElement>(null);
-  const found = !!finding && says(finding, whole.current?.textContent ?? shownText(item));
+  const found = !!finding && says(finding, whole.current ? wordsIn(whole.current).text : shownText(item));
   const open = opened || found;
   const pr = g.pr;
   const ref = pr?.url ? prRefOf(pr.url) : null;

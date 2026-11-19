@@ -649,20 +649,21 @@ pub fn glance(text: &str) -> Option<crate::glance::Glance> {
     };
     // A happening starts its line with "- ", a comment's further lines indented under it
     // (`glance::item`). Before they were, a comment's lines started where a happening's do: a
-    // line in a quote still open is the comment's, so a list in one isn't taken for happenings,
-    // though a quote that never closes takes the rest with it.
-    let mut open = 0i64;
+    // line inside a happening's quote is the comment's, so a list in one isn't taken for
+    // happenings. Its quote ends on the line that ends with its closing quote, which `words` puts
+    // after the comment however `excerpt` cut it and whatever quotes the comment has.
+    let quoting = |l: &str| l.contains('“') && !l.trim_end().ends_with('”');
+    let mut open = false;
     let mut parts = Vec::new();
     for l in body.lines() {
-        match l.strip_prefix("- ").filter(|_| open <= 0) {
+        match l.strip_prefix("- ").filter(|_| !open) {
             Some(item) => {
                 parts.push(short(item));
-                open = 0;
+                open = quoting(l);
             }
-            None if open <= 0 => continue,
+            None if open => open = !l.trim_end().ends_with('”'),
             None => {}
         }
-        open += l.matches('“').count() as i64 - l.matches('”').count() as i64;
     }
     let parts = parts.into_iter().filter(|s| !s.is_empty());
     Some(crate::glance::Glance {
@@ -1349,6 +1350,13 @@ mod tests {
         // As one was written before a comment's lines went under it.
         let before = "On your PR #1 “Fix it” (https://github.com/o/r/pull/1):\n- ana commented: “Two things:\n- It was merged.\n\nAnd more.”\n- ken approved it.\nTake it from there.";
         assert_eq!(glance(before).unwrap().words(), "ana commented · ken approved it");
+        // A comment cut short inside a quote of its own: the happenings after it are still read.
+        let long = format!("Look at “{}", "this ".repeat(200));
+        let cut = detail(vec![PrReview { author: "ana".into(), state: "COMMENTED".into(), at: Some(UPDATED + 10), mine: false }], vec![comment("c1", "ana", &long, UPDATED + 10, None, false)]);
+        let failed = PrItem { checks: Checks { failed: 1, ..Checks::default() }, ..p.clone() };
+        let text = words(&failed, &Why { since: Some(UPDATED), failed: vec!["test".into()], ..Why::default() }, Some(&cut), Some("me"), NudgeAbout::Everything).unwrap();
+        assert!(text.contains("…”\n- "), "{text}");
+        assert_eq!(glance(&text).unwrap().parts.len(), 2, "{text}");
         // Only your own push moved it: nothing to say.
         assert_eq!(words(&p, &Why { since: Some(UPDATED + 30), ..Why::default() }, Some(&d), Some("me"), NudgeAbout::Everything), None);
         // The detail couldn't be read: what the board knows is said.

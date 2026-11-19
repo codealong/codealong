@@ -2894,18 +2894,17 @@ pub fn glance(text: &str) -> Option<crate::glance::Glance> {
     // “title” (address) at the commit, a title holding quotes, parentheses and " at " of its own:
     // the commit is a short hash before a comma, after what reads as the title and its address,
     // or the title alone in one written before the address went in.
-    let (title, url, rest) = rest.match_indices(" at ").find_map(|(at, m)| {
-        let after = &rest[at + m.len()..];
-        let sha = after.split(',').next()?;
-        if sha.is_empty() || !sha.chars().all(|c| c.is_ascii_hexdigit()) {
-            return None;
-        }
-        let named = rest[..at].strip_prefix('“')?;
-        match named.strip_suffix(')').and_then(|n| n.rsplit_once("” (")) {
-            Some((title, url)) => Some((title, Some(url), after)),
-            None => Some((named.strip_suffix('”')?, None, after)),
-        }
-    })?;
+    // Each place " at " is followed by a short hash and a comma, with what's before it.
+    let at_commit = || {
+        rest.match_indices(" at ").filter_map(|(at, m)| {
+            let after = &rest[at + m.len()..];
+            let sha = after.split(',').next()?;
+            (!sha.is_empty() && sha.chars().all(|c| c.is_ascii_hexdigit())).then(|| (rest[..at].strip_prefix('“'), after))
+        })
+    };
+    let (title, url, rest) = at_commit()
+        .find_map(|(named, after)| named?.strip_suffix(')')?.rsplit_once("” (").map(|(title, url)| (title, Some(url), after)))
+        .or_else(|| at_commit().find_map(|(named, after)| Some((named?.strip_suffix('”')?, None, after))))?;
     // `back_message` says how many comments are on lines after the review's file.
     let lines = rest.split_once("Its review is in ").and_then(|(_, r)| r.split_once(". ")).and_then(|(r, _)| r.split_once(", with ")).map(|(_, n)| format!(", with {n}")).unwrap_or_default();
     Some(crate::glance::Glance {
@@ -3663,6 +3662,8 @@ mod tests {
         let odd = PrItem { title: "Show “ready” at startup (and after) at 9".into(), ..mine(7, HEAD) };
         let g = glance(&back_message(&odd, HEAD, "Codex", "gwen", "[review-7.md](files/ab/review-7.md)", 2)).unwrap();
         assert_eq!((g.words(), g.pr.unwrap().title), ("Codex reviewed it, with 2 comments on lines".to_string(), odd.title.clone()));
+        let reverted = PrItem { title: "Revert “parser” at abc1234, then retry".into(), ..mine(7, HEAD) };
+        assert_eq!(glance(&back_message(&reverted, HEAD, "Codex", "gwen", "[review-7.md](files/ab/review-7.md)", 0)).unwrap().pr.map(|p| (p.title, p.url)), Some((reverted.title.clone(), Some(reverted.url.clone()))));
         let hashed = PrItem { title: "Fix (cache) at abc1234, then retry".into(), ..mine(7, HEAD) };
         assert_eq!(glance(&back_message(&hashed, HEAD, "Codex", "gwen", "[review-7.md](files/ab/review-7.md)", 0)).unwrap().pr.map(|p| (p.title, p.url)), Some((hashed.title.clone(), Some(hashed.url.clone()))));
         // As one was written before it gave the PR's address.

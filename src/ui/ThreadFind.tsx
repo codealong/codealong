@@ -52,30 +52,38 @@ const SKIP = '.ca-codeblock-tools, .ca-codeblock-note, [aria-hidden="true"]';
  *  the pages further back are counted (threadFind.ts), where their text nodes would run together. */
 const BLOCK = 'p, li, pre, blockquote, td, th, div';
 
+/** The words in `root` as the find reads them: its text nodes in order, with a line break where
+ *  the block they're laid out in changes, and where each node starts in the text. Codealong's
+ *  card reads its hidden message this way, to open as the find comes to it (CodealongCard.tsx). */
+export function wordsIn(root: Element): { text: string; nodes: Text[]; starts: number[] } {
+  const nodes: Text[] = [];
+  const starts: number[] = [];
+  let text = '';
+  const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT, {
+    acceptNode: (node) => {
+      const skip = node.parentElement?.closest(SKIP);
+      return skip && root.contains(skip) ? NodeFilter.FILTER_REJECT : NodeFilter.FILTER_ACCEPT;
+    },
+  });
+  let block: Element | null = null;
+  for (let node = walker.nextNode(); node; node = walker.nextNode()) {
+    const its = node.parentElement?.closest(BLOCK) ?? null;
+    if (nodes.length > 0 && its !== block) text += '\n';
+    block = its;
+    nodes.push(node as Text);
+    starts.push(text.length);
+    text += (node as Text).data;
+  }
+  return { text, nodes, starts };
+}
+
 /** Hands `each` every match laid out, in the order they read, until it says it has enough. A
  *  match can run across the elements a line is made of (a word in bold, a link), and from one
  *  paragraph or item into the next, as the words read across a line break, but not from one root
  *  into the next. */
 function matchesIn(scroller: HTMLElement, roots: string, pattern: RegExp, each: (found: FoundRange) => boolean): void {
   for (const root of scroller.querySelectorAll(roots)) {
-    const nodes: Text[] = [];
-    const starts: number[] = [];
-    let text = '';
-    const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT, {
-      acceptNode: (node) => {
-        const skip = node.parentElement?.closest(SKIP);
-        return skip && root.contains(skip) ? NodeFilter.FILTER_REJECT : NodeFilter.FILTER_ACCEPT;
-      },
-    });
-    let block: Element | null = null;
-    for (let node = walker.nextNode(); node; node = walker.nextNode()) {
-      const its = node.parentElement?.closest(BLOCK) ?? null;
-      if (nodes.length > 0 && its !== block) text += '\n';
-      block = its;
-      nodes.push(node as Text);
-      starts.push(text.length);
-      text += (node as Text).data;
-    }
+    const { text, nodes, starts } = wordsIn(root);
     let n = 0;
     for (const s of spansIn(text, starts, pattern)) {
       const range = document.createRange();

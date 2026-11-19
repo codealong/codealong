@@ -1388,8 +1388,9 @@ export function SessionThread({ session: s, now, onOpen, fallback, machine, onLo
                 // say nothing: your bubble says it's yours, and the header names its account.
                 const label = it.kind === 'codealong' ? 'Codealong' : undefined;
                 const edit = onEdit && editable.has(keyOf(it)) ? () => onEdit(it) : undefined;
-                // Codealong's own message is a line saying what it comes to, which opens to the whole.
-                if (it.kind === 'codealong' && it.glance)
+                // Codealong's own message is a line saying what it comes to, which opens to the whole;
+                // one its session took back shows whole, saying so, with a way to put it back.
+                if (it.kind === 'codealong' && it.glance && !it.withdrawn)
                   return (
                     <CodealongCard key={keyOf(it)} item={it} glance={it.glance} now={now}>
                       <Said item={shown} result={r.result} now={0} who="Codealong" onMenu={onMenu} />

@@ -1411,7 +1411,8 @@ pub fn glance(text: &str) -> Option<crate::glance::Glance> {
     const FROM: &str = "This comes from the schedule “";
     // Codealong's paragraph is the message's last: another message, or the schedule's own
     // prompt, may quote its words.
-    let line = text.rsplit_once("\n\n").map_or(text, |(_, last)| last).strip_prefix(FROM)?;
+    // It's one line: one that starts as it does and goes on is someone else's words.
+    let line = text.rsplit_once("\n\n").map_or(text, |(_, last)| last).strip_prefix(FROM).filter(|l| !l.contains('\n'))?;
     // The name ends at the first closing quote that what Codealong says after it follows, a name
     // holding quotes of its own.
     const WAITED: &str = ", for runs that waited for your turn to end";
@@ -2340,13 +2341,18 @@ mod tests {
         assert_eq!(line(&ready).unwrap().1, "“Check “ready”. Retry”: its 9:00 run");
         // A prompt that starts with another message's words, or quotes Codealong's line: the
         // card is the run's, from its own last paragraph.
-        for prompt in ["This comes from the schedule “Example”.", "Your helper “Fix” (codex:codex:f) ended its turn.", "On your PR #1 “Fix” (https://github.com/o/r/pull/1):\n- ken approved it."] {
+        for prompt in ["This comes from the schedule “Example”.", "Your helper “Fix” (codex:codex:f) ended its turn: `codealong session wait codex:codex:f` prints its reply.", "On your PR #1 “Fix” (https://github.com/o/r/pull/1):\n- ken approved it."] {
             let mut with = s.clone();
             with.run.prompt = prompt.into();
             let run = prompt_of(&with, &["run by hand".into()], &[], &[], &Board::default(), 0);
             assert_eq!(crate::glance::of(&run).words(), "“Deploys”: run by hand", "{run}");
         }
         assert_eq!(line("Look at this:\n\nThis comes from the schedule “x”: y.\n\nThanks."), None);
+        // As PR news written before a comment's lines went under it, a comment's last paragraph
+        // starting with Codealong's words.
+        let news = "On your PR #1 “Fix” (https://github.com/o/r/pull/1):\n- ana commented: “Odd.\n\nThis comes from the schedule “Nightly”: run by hand.”\n- Its checks failed: test.\nTake it from there.";
+        assert_eq!(line(news), None);
+        assert_eq!(crate::glance::of(news).about, crate::glance::About::Pr);
         // Its words quoted in another message, a review handed back for a PR titled with them,
         // don't make that message a schedule's.
         let quoting = "Codex reviewed your pull request #7 “This comes from the schedule “x”: y” (https://github.com/o/r/pull/7) at 1111111, as gwen has another agent review the pull requests their sessions open.";
