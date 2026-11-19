@@ -1401,7 +1401,10 @@ impl RepoReads {
 /// can't get a board out (`carryon::ENOUGH` falls running with none published between them: in
 /// the first scan, in reading again after a fall, or composing the board after that) isn't
 /// working at all, and its requests and the watcher's events pile up unread: that's the
-/// host's to act on (`give_up`), and it's tried again meanwhile at the longest wait.
+/// host's to act on (`give_up`), and the thread ends there. With no host to act (the app,
+/// running the server itself), that leaves what the engine left before there was a guard: the
+/// receiver goes with the thread, so what's asked of the engine fails at once, where trying on
+/// would keep every request waiting behind an engine that doesn't get to it.
 fn run_guarded(engine: &mut Engine, rx: &Receiver<Msg>) {
     let mut falls = crate::carryon::Falls::default();
     crate::carryon::supervised(
@@ -1419,9 +1422,9 @@ fn run_guarded(engine: &mut Engine, rx: &Receiver<Msg>) {
             engine.fell_over(&fall.why);
             if fall.short >= crate::carryon::ENOUGH {
                 give_up(&fall.why, engine.ever_passed);
-                return crate::carryon::Falls::LONGEST;
+                return None;
             }
-            wait
+            Some(wait)
         },
     );
 }
@@ -1434,8 +1437,8 @@ static SPENT: std::sync::OnceLock<Box<dyn Fn(&str, bool) + Send + Sync>> = std::
 /// whether this engine ever had a board out: one that worked and stopped is another matter than
 /// one that never started. The server run by itself ends its process (serve.rs `run`). A host
 /// that hasn't said (the app, running the server itself when it couldn't start one) has nothing
-/// to hand over to, and the engine goes on trying there; one that couldn't be made there stays
-/// unmade, as it did before there was a guard.
+/// to hand over to: the engine's thread ends there, as a panic ended it before there was a
+/// guard, and what's asked of it fails at once.
 pub fn when_spent(then: impl Fn(&str, bool) + Send + Sync + 'static) {
     let _ = SPENT.set(Box::new(then));
 }
@@ -1467,9 +1470,10 @@ struct Engine {
     /// one ever has: what tells an engine doing its work from one that can't get going.
     passed: bool,
     ever_passed: bool,
-    /// config.toml as read is applied whole (`load_config` got to its end): false while it's
-    /// being applied, and so after a fall partway through, when what's applied is neither the
-    /// old settings nor the new.
+    /// config.toml as read is applied whole, with everything that hangs off the settings read
+    /// again where it needed to be: false from when `load_config` starts until what called it
+    /// is done (`full_scan`, `reload`, `read_all_again`), and so after a fall partway through,
+    /// when what's applied is neither the old settings nor the new.
     config_settled: bool,
     seen: SeenState,
     /// state.json is there but doesn't read: the engine runs on what it has in memory (a first
@@ -2541,6 +2545,7 @@ fn waiting_call(s: &Session, account: Option<&config::AccountCfg>) -> Option<Str
         self.scan_pr_marks(false);
         self.load_previews();
         self.load_reusable();
+        self.config_settled = true;
     }
 
     /// What a reader goes by as it reads (`harness::Look`), with the processes last listed
@@ -2801,6 +2806,7 @@ fn waiting_call(s: &Session, account: Option<&config::AccountCfg>) -> Option<Str
         rest.experimental = before.experimental.clone();
         if rest == before {
             self.mark_dirty("config");
+            self.config_settled = true;
             return;
         }
         self.read_all_again();
@@ -2824,6 +2830,7 @@ fn waiting_call(s: &Session, account: Option<&config::AccountCfg>) -> Option<Str
         self.fetch_usage();
         self.watch();
         self.mark_dirty("config");
+        self.config_settled = true;
     }
 
     /// After the thread fell over (`run_guarded`): whatever it had in hand is gone (the changed
@@ -2837,7 +2844,7 @@ fn waiting_call(s: &Session, account: Option<&config::AccountCfg>) -> Option<Str
     /// (`config_settled`), is applied whole and everything that hangs off the settings read
     /// again, GitHub and usage with it. Otherwise the sessions are scanned and their records
     /// read whole again (unless a state.json mended in the lost batch has just had that done),
-    /// the repos read again with the watcher set anew, and git runs in every worktree; GitHub
+    /// the repos read again and the watcher set anew, and git runs in every worktree; GitHub
     /// and usage keep their own times, as their endpoints turn away calls that come often. The
     /// search for whose work an orphan worktree is starts over in the background whatever the
     /// orphans are: a line that tied a session to one may be behind the readers now.
@@ -2856,7 +2863,10 @@ fn waiting_call(s: &Session, account: Option<&config::AccountCfg>) -> Option<Str
                 self.scan_sessions();
                 self.scan_pr_marks(false);
             }
-            self.rescan_repos();
+            // As `rescan_repos` reads them, without its own search for visitors: the one below
+            // is over the repos as they are now, and a second would only take its place.
+            self.load_repos();
+            self.watch();
             self.queue_git_all();
         }
         self.search_visitors(false, true);
@@ -3358,7 +3368,6 @@ fn waiting_call(s: &Session, account: Option<&config::AccountCfg>) -> Option<Str
         self.previews.chrome_profiles = self.cfg.projects.iter().filter_map(|p| Some((p.name.clone(), p.chrome_profile.clone()?))).collect();
         perf::set_enabled(self.cfg.debug.perf_log);
         search::configure(search::Scope { accounts: self.cfg.accounts.clone(), days: self.cfg.search.days });
-        self.config_settled = true;
     }
 
     /// Every folder config.toml lists is known from then on, so an account you take out isn't

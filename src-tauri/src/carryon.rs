@@ -15,6 +15,7 @@
 //! Work that another thread only waits for the end of doesn't need this: that's
 //! `throttle::background`, which hands the work's end to whoever marked it as on its way.
 
+use std::cell::Cell;
 use std::time::{Duration, Instant};
 
 /// This many falls running with no whole pass between them, and the work can't get going.
@@ -62,15 +63,16 @@ pub fn panic_words(panic: &(dyn std::any::Any + Send)) -> String {
 }
 
 /// Runs `work` on `state` until it returns, and again each time it panics: `fell` is told what
-/// the panic said and answers how long to wait first, and `work` is told it's going again. The
-/// panic's own words and place are in the log, where the default hook wrote them.
-pub fn carrying_on<T>(state: &mut T, mut work: impl FnMut(&mut T, bool), mut fell: impl FnMut(&mut T, String) -> Duration) {
+/// the panic said and answers how long to wait first, or with nothing to have it stop there;
+/// `work` is told it's going again. The panic's own words and place are in the log, where the
+/// default hook wrote them.
+pub fn carrying_on<T>(state: &mut T, mut work: impl FnMut(&mut T, bool), mut fell: impl FnMut(&mut T, String) -> Option<Duration>) {
     let mut again = false;
     loop {
         let went = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| work(state, again)));
         let Err(panic) = went else { return };
         again = true;
-        let wait = fell(state, panic_words(panic.as_ref()));
+        let Some(wait) = fell(state, panic_words(panic.as_ref())) else { return };
         std::thread::sleep(wait);
     }
 }
@@ -78,30 +80,37 @@ pub fn carrying_on<T>(state: &mut T, mut work: impl FnMut(&mut T, bool), mut fel
 /// Runs work in stages on `state` until `run` returns, through any that fall over
 /// (`carrying_on`): `first` until it has gone through once, and after that `again` before `run`
 /// goes on from a fall. `passed` says whether the work has got through a whole pass since it
-/// was last asked, and `fell` is told of each fall and how many running have come without one.
+/// was last asked, and `fell` is told of each fall and how many running have come without one;
+/// it answers how long to wait, or with nothing to stop.
+///
+/// A pass counts only once `first` has gone through: a first stage that gets something out on
+/// its way and falls after it, every time, hasn't got going.
 pub fn supervised<T>(
     state: &mut T,
     mut first: impl FnMut(&mut T),
     mut again: impl FnMut(&mut T),
     mut run: impl FnMut(&mut T),
     mut passed: impl FnMut(&mut T) -> bool,
-    mut fell: impl FnMut(&mut T, &Fall) -> Duration,
+    mut fell: impl FnMut(&mut T, &Fall) -> Option<Duration>,
 ) {
-    let mut started = false;
+    let started = Cell::new(false);
     let mut short = 0u32;
     carrying_on(
         state,
         |state, after_a_fall| {
-            if !started {
+            if !started.get() {
                 first(state);
-                started = true;
+                started.set(true);
             } else if after_a_fall {
                 again(state);
             }
             run(state)
         },
         |state, why| {
-            short = if passed(state) { 1 } else { short + 1 };
+            // Asked every time, so that what a first stage got out before it fell isn't taken
+            // for a pass of the work later.
+            let pass = passed(state);
+            short = if started.get() && pass { 1 } else { short + 1 };
             fell(state, &Fall { why, short })
         },
     );
@@ -126,10 +135,21 @@ mod tests {
             },
             |ran, why| {
                 ran.push(format!("said: {why}"));
-                Duration::ZERO
+                Some(Duration::ZERO)
             },
         );
         assert_eq!(ran, ["run, again: false", "said: fell over on run 1", "run, again: true", "said: fell over on run 2", "run, again: true"]);
+        // Told to stop, it stops: the work isn't run again.
+        let mut runs = 0;
+        carrying_on(
+            &mut runs,
+            |runs, _| {
+                *runs += 1;
+                panic!("every time");
+            },
+            |runs, _| (*runs < 3).then_some(Duration::ZERO),
+        );
+        assert_eq!(runs, 3);
         // A panic with no words still has something said of it.
         assert_eq!(panic_words(&7u8), "it didn't say why");
     }
@@ -156,7 +176,7 @@ mod tests {
             |_| false,
             |ran, _| {
                 ran.push("fell");
-                Duration::ZERO
+                Some(Duration::ZERO)
             },
         );
         // Nothing is picked up, and the loop isn't entered, before the first has gone through.
@@ -203,7 +223,7 @@ mod tests {
             |work| std::mem::take(&mut work.passed),
             |_, fall| {
                 shorts.push(fall.short);
-                Duration::ZERO
+                Some(Duration::ZERO)
             },
         );
         // Work that falls now and then between its passes is never "can't get going".
@@ -230,12 +250,38 @@ mod tests {
             |work| std::mem::take(&mut work.passed),
             |_, fall| {
                 shorts.push(fall.short);
-                Duration::ZERO
+                Some(Duration::ZERO)
             },
         );
         assert_eq!(shorts, [1, 2, 3, 4, 5, 6]);
         assert!(shorts.contains(&ENOUGH), "reaching the loop isn't getting going");
         assert_eq!((work.firsts, work.agains), (1, 6));
+    }
+
+    #[test]
+    fn a_first_stage_that_gets_something_out_and_then_falls_hasnt_got_going() {
+        // The first stage gets a pass's worth out on its way (the engine's first scan publishes
+        // a board partway) and falls after it, every time, never reaching the loop: told to
+        // stop at the fifth, it does.
+        let mut work = Work::default();
+        let mut shorts: Vec<u32> = Vec::new();
+        supervised(
+            &mut work,
+            |work| {
+                work.firsts += 1;
+                work.passed = true;
+                panic!("after its first board");
+            },
+            |work| work.agains += 1,
+            |work| work.runs += 1,
+            |work| std::mem::take(&mut work.passed),
+            |_, fall| {
+                shorts.push(fall.short);
+                (fall.short < ENOUGH).then_some(Duration::ZERO)
+            },
+        );
+        assert_eq!(shorts, [1, 2, 3, 4, 5]);
+        assert_eq!((work.firsts, work.agains, work.runs), (5, 0, 0), "and nothing after the first stage ever ran");
     }
 
     #[test]
