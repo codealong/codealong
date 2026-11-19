@@ -1138,8 +1138,6 @@ pub fn start(emit: impl Fn(&Board) + Send + 'static) -> Handle {
             engine.terminal_use = terminal_use;
             engine.github.keep_heads_in(github::heads_file());
             engine.servers = previews::watch(move |servers| back.send(Msg::Servers(servers)).is_ok());
-            engine.full_scan();
-            crate::skills::warm(&engine.cfg.accounts);
             run_guarded(&mut engine, &rx);
         })
         .expect("engine thread");
@@ -1378,72 +1376,54 @@ impl RepoReads {
     }
 }
 
-/// How long the engine waits before going on after it fell over: nothing the first time, then
-/// longer each time it falls again within a minute of the last, up to half a minute. Something
-/// it trips on every time it tries (a board it can't compose) would otherwise have it fall over
-/// as fast as it can start.
-#[derive(Default)]
-struct Falls {
-    /// The falls in a row, each within `Falls::CLOSE` of the one before.
-    row: u32,
-    last: Option<Instant>,
-}
-
-impl Falls {
-    const CLOSE: Duration = Duration::from_secs(60);
-    const LONGEST: Duration = Duration::from_secs(30);
-
-    fn fell(&mut self, now: Instant) -> Duration {
-        let close = self.last.is_some_and(|last| now.saturating_duration_since(last) < Self::CLOSE);
-        self.row = if close { self.row + 1 } else { 1 };
-        self.last = Some(now);
-        match self.row {
-            1 => Duration::ZERO,
-            row => Duration::from_millis(250 * (1u64 << (row - 2).min(10))).min(Self::LONGEST),
-        }
-    }
-}
-
-/// What a panic said, for a notice: its message where it had one in words.
-fn panic_words(panic: &(dyn std::any::Any + Send)) -> String {
-    panic.downcast_ref::<&str>().map(|s| s.to_string()).or_else(|| panic.downcast_ref::<String>().cloned()).unwrap_or_else(|| "it didn't say why".into())
-}
-
 /// Runs the engine until its channel closes, and carries on when its thread falls over (a panic
 /// in anything it does: a rule's `expect`, an index past the end). Everything waits on this
 /// thread: left to die, the server stays up with nothing behind it, every window showing the
-/// board as it last was and every request waiting for good. Carried on, the engine says so as a
-/// notice, reads again what it may have been partway through (`Engine::pick_up`), and goes on
-/// from what it has; what it was doing when it fell is lost, and the panic's own words and
-/// place are in the log, where the default hook wrote them.
+/// board as it last was and every request waiting for good.
+///
+/// The loop that does it, its stages and its waits are carryon.rs's. The first scan is under
+/// the guard too, and is run again until it has gone through once: nothing the engine holds is
+/// right before it has. After that a fall is carried on from: the
+/// engine says so as a notice, reads again everything a change could have told it
+/// (`Engine::pick_up`), and goes on. What it was doing when it fell is lost, and the panic's
+/// own words and place are in the log, where the default hook wrote them.
+///
+/// Carrying on is for a fall, not for an engine that can't get through a pass: when the falls
+/// come one after another (`Falls::spent`), the process ends (`give_up`), to be started afresh
+/// with everything read from the files. Until then requests wait at most as long as the falls
+/// back off, and none is answered from an engine that never got to its messages.
 fn run_guarded(engine: &mut Engine, rx: &Receiver<Msg>) {
-    let mut falls = Falls::default();
-    carrying_on(
+    let mut falls = crate::carryon::Falls::default();
+    crate::carryon::supervised(
         engine,
-        |engine, again| {
-            if again {
-                engine.pick_up();
-            }
-            engine.run(rx)
+        |engine| {
+            engine.full_scan();
+            crate::skills::warm(&engine.cfg.accounts);
         },
+        Engine::pick_up,
+        |engine| engine.run(rx),
         |engine, why| {
-            engine.set_trouble(Trouble::Engine, Some(format!("Codealong stopped partway through its work ({why}) and carried on from what it had. What's shown may be behind for a moment; if this stays or comes back, quitting Codealong and its server starts it afresh.")));
-            falls.fell(Instant::now())
+            let wait = falls.fell(Instant::now());
+            if falls.spent() {
+                give_up(&why);
+            }
+            engine.fell_over(&why);
+            wait
         },
     );
 }
 
-/// Runs `work` on `state` until it returns, and again each time it panics: `fell` is told what
-/// the panic said and answers how long to wait first, and `work` is told it's going again.
-fn carrying_on<T>(state: &mut T, mut work: impl FnMut(&mut T, bool), mut fell: impl FnMut(&mut T, String) -> Duration) {
-    let mut again = false;
-    loop {
-        let went = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| work(state, again)));
-        let Err(panic) = went else { return };
-        again = true;
-        let wait = fell(state, panic_words(panic.as_ref()));
-        std::thread::sleep(wait);
-    }
+/// Carrying on isn't working: the engine fell over `carryon::Falls::ENOUGH` times running, each within a
+/// minute of the last, in its first scan, in what it reads again after a fall, or in the pass
+/// after. The process ends with an error, and whatever runs the server starts it again
+/// (launchd on macOS, which is told to after any exit but a clean one; the app, or the next
+/// `codealong` command, elsewhere). A server left up with an engine that can't get through a
+/// pass answers nobody while its requests and the watcher's events pile up unread, which is
+/// worse than one that's gone; a fresh process also starts without whatever a fall left half
+/// changed in this one.
+fn give_up(why: &str) -> ! {
+    eprintln!("Codealong's engine fell over {} times running (the last: {why}). Ending, to be started afresh.", crate::carryon::Falls::ENOUGH);
+    std::process::exit(70)
 }
 
 struct Engine {
@@ -1456,6 +1436,8 @@ struct Engine {
     config_text: Option<String>,
     /// What's going wrong in the background, each with why, until it goes right again.
     troubles: BTreeMap<Trouble, String>,
+    /// How often the engine's thread has fallen over and been carried on (`run_guarded`).
+    fell: u32,
     seen: SeenState,
     /// state.json is there but doesn't read: the engine runs on what it has in memory (a first
     /// run's state at launch) and writes nothing over the file until it's fixed or deleted.
@@ -1671,6 +1653,7 @@ impl Engine {
             cfg: Config::default(),
             config_text: None,
             troubles: BTreeMap::new(),
+            fell: 0,
             seen: SeenState::default(),
             state_unreadable: false,
             todos: TodoStore::default(),
@@ -2801,15 +2784,28 @@ fn waiting_call(s: &Session, account: Option<&config::AccountCfg>) -> Option<Str
         self.mark_dirty("config");
     }
 
-    /// After the thread fell over (`run_guarded`): what it had in hand is gone (the changed paths
-    /// it hadn't read yet, a scan half done), so the sessions and the repos are read again and
-    /// git runs in every worktree, as after a change to config.toml, and a board is published.
-    /// GitHub and usage keep their own times.
+    /// After the thread fell over (`run_guarded`): whatever it had in hand is gone (the changed
+    /// paths it hadn't read yet, a scan half done), so everything a change could have told it is
+    /// read again from where it is. Codealong's own files go through `apply_fs` as if each had
+    /// just changed (config.toml, the todos, the PR links, the reviews, the schedules, the
+    /// previews, the reusable worktrees), so an edit the lost batch held is applied: one turning
+    /// an automation off, say. The sessions are scanned and their records read whole again, the
+    /// repos read again with the watcher set anew, and git runs in every worktree. GitHub and
+    /// usage keep their own times: their endpoints turn away calls that come often.
     fn pick_up(&mut self) {
+        self.apply_fs(vec![config::config_path(), todos::path(), prlinks::path(), autoreview::path(), crate::schedules::path(), crate::schedules::runs_path(), previews::path(), reusable::path()]);
         self.scan_sessions();
-        self.load_repos();
+        self.scan_pr_marks(false);
+        self.rescan_repos();
         self.queue_git_all();
         self.mark_dirty("fell over");
+    }
+
+    /// Notes a fall for the board: how many there have been since the process started, and what
+    /// the last one said.
+    fn fell_over(&mut self, why: &str) {
+        self.fell += 1;
+        self.set_trouble(Trouble::Engine, Some(format!("Codealong stopped partway through its work ({why}) and carried on from what it had. What's shown may be behind for a moment; if this comes back, quitting Codealong and its server starts it afresh.")));
     }
 
     fn run(&mut self, rx: &Receiver<Msg>) {
@@ -3645,7 +3641,9 @@ fn waiting_call(s: &Session, account: Option<&config::AccountCfg>) -> Option<Str
             said(key, title, self.trouble(what))
         };
         [
-            trouble(Trouble::Engine),
+            // Its title counts the falls, so that one dismissed doesn't hide the next: a window
+            // knows a notice it dismissed by its key and title.
+            trouble(Trouble::Engine).map(|n| if self.fell > 1 { Notice { title: format!("{}, {} times", n.title, self.fell), ..n } } else { n }),
             trouble(Trouble::Config),
             self.github.notice(),
             trouble(Trouble::Watch),
@@ -5589,45 +5587,19 @@ mod tests {
     }
 
     #[test]
-    fn work_that_falls_over_is_carried_on_and_says_why() {
+    fn each_fall_is_a_notice_of_its_own() {
         use super::*;
-        // What ran, in order: the first run falls over twice and the third time ends.
-        let mut ran: Vec<String> = Vec::new();
-        carrying_on(
-            &mut ran,
-            |ran, again| {
-                ran.push(format!("run, again: {again}"));
-                let runs = ran.iter().filter(|r| r.starts_with("run")).count();
-                if runs < 3 {
-                    panic!("fell over on run {runs}");
-                }
-            },
-            |ran, why| {
-                ran.push(format!("said: {why}"));
-                Duration::ZERO
-            },
-        );
-        assert_eq!(ran, ["run, again: false", "said: fell over on run 1", "run, again: true", "said: fell over on run 2", "run, again: true"]);
-        // A panic with no words still has something said of it.
-        assert_eq!(panic_words(&7u8), "it didn't say why");
-    }
-
-    #[test]
-    fn falls_close_together_wait_longer_each_time_and_one_alone_doesnt_wait() {
-        use super::*;
-        let start = Instant::now();
-        let at = |secs: u64| start + Duration::from_secs(secs);
-        let mut falls = Falls::default();
-        assert_eq!(falls.fell(at(0)), Duration::ZERO, "the first is carried on from at once");
-        assert_eq!(falls.fell(at(1)), Duration::from_millis(250));
-        assert_eq!(falls.fell(at(2)), Duration::from_millis(500));
-        assert_eq!(falls.fell(at(3)), Duration::from_secs(1));
-        for second in 4..20 {
-            falls.fell(at(second));
-        }
-        assert_eq!(falls.fell(at(20)), Falls::LONGEST, "never longer than half a minute");
-        // A minute's quiet, and it's the first again.
-        assert_eq!(falls.fell(at(20) + Falls::CLOSE), Duration::ZERO);
+        let (tx, _rx) = channel();
+        let mut engine = Engine::new(Box::new(|_| {}), tx, Arc::new(RwLock::new(Board::default())));
+        engine.fell_over("index out of bounds");
+        let first = engine.notices().remove(0);
+        assert_eq!((first.key.as_str(), first.title.as_str()), ("engine", "Codealong hit a problem and carried on"));
+        assert!(first.text.contains("index out of bounds"), "{}", first.text);
+        engine.fell_over("a bay with nobody in it");
+        let second = engine.notices().remove(0);
+        // By its title a window tells it from the one it may have dismissed.
+        assert_eq!(second.title, "Codealong hit a problem and carried on, 2 times");
+        assert!(second.text.contains("a bay with nobody in it"));
     }
 
     /// What's worked out from a session is worked out from how every stage left it. A session
