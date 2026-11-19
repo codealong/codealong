@@ -75,10 +75,11 @@
     check('the title bar, the sidebar and the status bar draw none over it', clear(bar) && clear(side) && clear(foot), [bar, side, foot].map(function (el) { return style(el).backgroundColor; }).join(' | '));
     check('and no line between them', style(bar).borderBottomWidth === '0px' && style(side).borderRightWidth === '0px' && style(foot).borderTopWidth === '0px', [style(bar).borderBottomWidth, style(side).borderRightWidth, style(foot).borderTopWidth].join(' | '));
 
-    // A session picked, so the panel is beside the board.
-    var lane = q('.ca-sessionlist .ca-lane');
+    // A session picked (its row, not a group's heading), so its panel is beside the board.
+    var lane = q('.ca-sessionlist [id^="row-"][id*="::"]');
+    if (!lane) return stopped(new Error('no session row to pick'));
     lane.click();
-    var panel = await until(function () { return q('.ca-win-body > .ca-insp'); }, 5000, 'the panel');
+    var panel = await until(function () { return q('.ca-win-body > .ca-insp.ca-sessinsp'); }, 5000, 'the session’s panel');
     var board = q('.ca-board');
     var b = style(board);
     var p = style(panel);
@@ -107,16 +108,14 @@
     check('in light and dark the card’s edge is its shadow’s ring, with no line of its own', edges.every(function (e) { return e.ok; }), edges.map(function (e) { return e.said; }).join(' | '));
     check('the line between the board and the panel stays', p.borderLeftWidth === '1px' && p.borderLeftColor !== 'rgba(0, 0, 0, 0)', p.borderLeftWidth + ' ' + p.borderLeftColor);
     // Expanded to the window, the panel is the card alone: no line at its left, the shadow its box.
-    var max = panel.querySelector('[aria-label="Expand to the window"]');
-    if (max) {
-      max.click();
-      await until(function () { return q('.ca-win-body.is-panel-max'); }, 3000, 'the panel taking the window');
-      var alonePanel = q('.ca-win-body > .ca-insp');
-      check('expanded, the panel has no line at its left', style(alonePanel).borderLeftWidth === '0px', style(alonePanel).borderLeftWidth);
-      check('and its shadow is its box', Math.abs(parseFloat(shadow().width) - alonePanel.getBoundingClientRect().width) <= 1, shadow().width + ' for ' + alonePanel.getBoundingClientRect().width);
-      q('.ca-win-body [aria-label="Show the list"]').click();
-      await until(function () { return !q('.ca-win-body.is-panel-max'); }, 3000, 'the list back');
-    } else note('no Expand on this panel');
+    var max = await until(function () { return panel.querySelector('.ca-sessinsp-max'); }, 3000, 'the panel’s Expand');
+    max.click();
+    await until(function () { return q('.ca-win-body.is-panel-max'); }, 3000, 'the panel taking the window');
+    var alonePanel = q('.ca-win-body > .ca-insp');
+    check('expanded, the panel has no line at its left', style(alonePanel).borderLeftWidth === '0px', style(alonePanel).borderLeftWidth);
+    check('and its shadow is its box', Math.abs(parseFloat(shadow().width) - alonePanel.getBoundingClientRect().width) <= 1, shadow().width + ' for ' + alonePanel.getBoundingClientRect().width);
+    q('.ca-win-body .ca-sessinsp-max').click();
+    await until(function () { return !q('.ca-win-body.is-panel-max'); }, 3000, 'the list back');
     // The window isn't a stacking context: one would hold its dialogs under what's portalled to the page.
     check('and the window stays no stacking context of its own', style(win).isolation !== 'isolate' && style(win).zIndex === 'auto' && style(win).transform === 'none', style(win).isolation + ' ' + style(win).zIndex);
     // The shadow is first in the body; the sidebar and the status bar, positioned, paint after it.

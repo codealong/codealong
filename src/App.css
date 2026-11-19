@@ -345,3 +345,11 @@
 .ca-win--app .ca-win-body.is-panel-max::before {
   grid-column: 1 / -1;
 }
+/* With forced colors (Windows' contrast themes) a shadow isn't drawn, and the card, with no line of
+   its own round it, would have no edge: its shadow's box draws one in the text's color instead,
+   taking no room, as the ring did. */
+@media (forced-colors: active) {
+  .ca-win--app .ca-win-body::before {
+    outline: 1px solid CanvasText;
+  }
+}
