@@ -4,7 +4,7 @@
 //! on macOS a non-activating NSPanel, the only kind macOS puts on another app's full-screen Space,
 //! and on Linux a borderless window kept on top through Tauri and GTK (os/windows). Here is
 //! how one is made, shown, given the keyboard and has it taken, hidden, and given back its class
-//! before it's destroyed, with the level each floats at (`Level`), which the outline flash.rs
+//! and destroyed (`dispose`), with the level each floats at (`Level`), which the outline flash.rs
 //! draws goes by too. A window's own module says what kind of panel it is (`Config`) and when
 //! each of these happens; it never reaches AppKit or GTK itself.
 //!
@@ -20,7 +20,7 @@ pub use crate::os::windows::*;
 
 use std::time::Duration;
 
-use tauri::{AppHandle, WebviewUrl, WebviewWindowBuilder, Wry};
+use tauri::{AppHandle, Manager, WebviewUrl, WebviewWindow, WebviewWindowBuilder, Wry};
 
 use crate::geometry::Screen;
 
@@ -31,6 +31,9 @@ pub const CHECK_EVERY: Duration = Duration::from_secs(1);
 /// How often a window dragged from here is put where the pointer has taken it: a card dragged
 /// onto the desktop, the peek dragged by its header.
 pub const DRAG_EVERY: Duration = Duration::from_millis(16);
+/// How long a panel that's going away stays hidden before it's destroyed (`dispose`): long enough
+/// for WebKit to stop refreshing its page, which takes a frame or two once nothing draws.
+const SETTLE: Duration = Duration::from_secs(1);
 
 /// The level a window floats at, lowest first. Two windows at one level go by which was ordered
 /// front last.
@@ -176,6 +179,30 @@ pub fn builder<'a>(app: &'a AppHandle, label: &str, page: Page<'_>) -> WebviewWi
         // window that's up over other apps is nearly always: updates and hovers came late.
         .background_throttling(tauri::utils::config::BackgroundThrottlingPolicy::Disabled)
         .visible(false)
+}
+
+/// Takes a panel away for good: hidden at once, its class given back if it was made one
+/// (`unmake`), and destroyed once its page has stopped drawing (`SETTLE`). WebKit 7624 (macOS
+/// 26.6) can crash the whole app when a page closes while it's drawing: a display refresh that
+/// comes after the close reaches the page's torn-down scrolling coordinator (a null
+/// `ScrollingTree` in `takePendingScrollUpdates`; WebKit bug 327576, fixed in WebKit's own code
+/// in 2026-10). Putting a popped-out side conversation back did, on 2026-11-19, its window
+/// destroyed in the turn after it was ordered out. A page whose window is ordered out draws no
+/// more frames, and WebKit stops refreshing it at the first refresh with nothing to draw, so after
+/// a moment hidden none is left to come. On the main thread.
+pub fn dispose(window: WebviewWindow, original: Option<Original>) {
+    match original {
+        Some(original) => unmake(&window, original),
+        None => hide(&window),
+    }
+    let app = window.app_handle().clone();
+    std::thread::spawn(move || {
+        std::thread::sleep(SETTLE);
+        // The app is quitting when its main thread takes nothing more, and the window goes with it.
+        let _ = app.run_on_main_thread(move || {
+            let _ = window.destroy();
+        });
+    });
 }
 
 /// Looks at something every `every` for as long as `going` says to: the pointer, while a window

@@ -556,11 +556,9 @@ pub fn close(app: &AppHandle, label: &str) {
     tell(app, kind);
     let (handle, label) = (app.clone(), label.to_string());
     let _ = app.run_on_main_thread(move || {
-        let Some(w) = handle.get_webview_window(&label) else { return };
-        if let Some(original) = original {
-            panel::unmake(&w, original);
+        if let Some(w) = handle.get_webview_window(&label) {
+            panel::dispose(w, original);
         }
-        let _ = w.destroy();
     });
 }
 

@@ -666,11 +666,9 @@ pub fn unpin(app: &AppHandle, what: &Pinned) {
     };
     let handle = app.clone();
     let _ = app.run_on_main_thread(move || {
-        let Some(w) = handle.get_webview_window(&label) else { return };
-        if let Some(original) = original {
-            panel::unmake(&w, original);
+        if let Some(w) = handle.get_webview_window(&label) {
+            panel::dispose(w, original);
         }
-        let _ = w.destroy();
     });
     tell(app);
 }

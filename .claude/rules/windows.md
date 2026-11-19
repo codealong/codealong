@@ -53,6 +53,17 @@ under `src-tauri/src/`.
   is swapped before it's first shown: `panel.rs` (module header, `builder`, `make`).
 - A panel gets its old class back before its window is destroyed, or WebKit's key-value
   observing aborts the app (checked 2026-09-28): `panel.rs` (`unmake`, `make`).
+- A page closed while it draws can crash the app in macOS 26.6's WebKit (7624.5.1.11): a display
+  refresh after the close reaches its torn-down scrolling coordinator, a SIGSEGV in
+  `ScrollingTree::takePendingScrollUpdates` on the main thread (WebKit bug 327576, rdar://189825751;
+  WebKit's own code checks for it since 2026-10, which the shipped one doesn't). It happened on
+  2026-11-19 as a popped-out side conversation was put back: the system log
+  (`log show --predicate 'process == "codealong"'`) has its `WebPageProxy::close` just before, and a
+  register held that page. It didn't come in a Swift harness closing drawing WKWebViews 500 times
+  (a request of the page's in flight, an event sent, the window ordered out the turn before), so
+  it's a narrow race. A page ordered out draws no frames from then (rAF counted in the harness), and
+  WebKit drops its display refreshes at the first with nothing to draw, so a panel is hidden a
+  moment before it's destroyed: `panel.rs` (`dispose`, `SETTLE`).
 - A click in a non-activating panel leaves the app inactive, so the bar asks macOS to bring the
   app it opened forward: `front.rs` (`bring_forward`).
 - WebKit treats a page as active only while its window says it's key (re-read when the window is
