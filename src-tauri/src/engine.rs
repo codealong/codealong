@@ -3499,6 +3499,12 @@ fn waiting_call(s: &Session, account: Option<&config::AccountCfg>) -> Option<Str
         self.publish();
     }
 
+    /// Each worktree's HEAD as git last read it (`git::last_head`), else as the worktree listing
+    /// had it: a commit moves HEAD long before the listing is read again.
+    fn heads_now(&self) -> HashMap<PathBuf, String> {
+        self.seeds.iter().filter_map(|s| Some((s.path.clone(), crate::git::last_head(&s.path).or_else(|| s.head.clone())?))).collect()
+    }
+
     fn on_git(&mut self, path: PathBuf, info: Option<GitInfo>) {
         self.perf.git_jobs += 1;
         // A run that fell over leaves what was known of the worktree as it is, and one that found
@@ -3602,7 +3608,7 @@ fn waiting_call(s: &Session, account: Option<&config::AccountCfg>) -> Option<Str
         }
         self.github.tick(&self.seeds, Now::real());
         // A worktree with commits on no remote can go once GitHub says a merged PR ends at its HEAD.
-        self.github.ask_heads(&board::heads_on_no_remote(&self.seeds, &self.git), Now::real());
+        self.github.ask_heads(&board::heads_on_no_remote(&self.seeds, &self.git, &self.heads_now()), Now::real());
         let every = if self.usage_backoff { USAGE_BACKOFF } else { USAGE_EVERY };
         if self.usage_last.map(|t| t.elapsed() >= every).unwrap_or(true) {
             self.fetch_usage();
@@ -4474,6 +4480,8 @@ fn waiting_call(s: &Session, account: Option<&config::AccountCfg>) -> Option<Str
         let repo_settings = self.team_files.settings(&self.cfg.repos);
         let sides = crate::side::glances();
         let listenings = crate::listen::glances();
+        let merged = self.github.merged_heads();
+        let at_merged: HashSet<PathBuf> = self.heads_now().into_iter().filter(|(_, head)| merged.contains(head)).map(|(path, _)| path).collect();
         let mut board = board::compose(board::Inputs {
             now,
             apps: &apps,
@@ -4497,7 +4505,7 @@ fn waiting_call(s: &Session, account: Option<&config::AccountCfg>) -> Option<Str
             auto_reviews: (&self.reviews, &self.cfg.reviews, &repo_settings),
             machines: &self.machines,
             session_settings: &self.cfg.sessions,
-            merged_heads: self.github.merged_heads(),
+            at_merged: &at_merged,
         });
         // Starts whose sessions aren't here yet: a line under the session that asked for each, and
         // a notice for one in a terminal that never made its session, with what its tab shows.

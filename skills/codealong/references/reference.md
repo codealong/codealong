@@ -3455,10 +3455,10 @@ Commands:
           and no worktree inside it; never a main checkout or a reusable worktree. It
           goes through the repo's own WorktreeRemove hook when its .claude/settings.json
           declares one and a Claude Code account trusts the repo, else `git worktree
-          remove` and `git branch -d` for its branch (kept when its work isn't merged;
-          `-D` at a merged PR's last commit); then `claude rm <job>` for a background
-          job that held it, which keeps that job's conversation. Checked again as it
-          goes. It can't be undone: try --dry-run first
+          remove` and `git branch -d` for its branch (kept when its work isn't merged);
+          then `claude rm <job>` for a background job that held it, which keeps that
+          job's conversation. Checked again as it goes. It can't be undone: try
+          --dry-run first
   help    Print this message or the help of the given subcommand(s)
 
 Options:
@@ -3485,9 +3485,8 @@ GitHub), no session running in it or lock held on it, and no worktree inside it;
 main checkout or a reusable worktree. It goes through the repo's own WorktreeRemove hook
 when its .claude/settings.json declares one and a Claude Code account trusts the repo,
 else `git worktree remove` and `git branch -d` for its branch (kept when its work isn't
-merged; `-D` at a merged PR's last commit); then `claude rm <job>` for a background job
-that held it, which keeps that job's conversation. Checked again as it goes. It can't be
-undone: try --dry-run first
+merged); then `claude rm <job>` for a background job that held it, which keeps that
+job's conversation. Checked again as it goes. It can't be undone: try --dry-run first
 
 Usage: codealong worktree remove [OPTIONS] <WORKTREE>
 

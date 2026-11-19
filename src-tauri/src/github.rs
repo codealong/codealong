@@ -591,10 +591,21 @@ pub fn keep_heads(file: &Path, heads: &HashMap<String, Head>) {
     }
 }
 
-/// The merged PR whose last commit `head` is, as kept (`HEADS_FILE`): what cleanup.rs goes by
-/// when it checks a worktree again.
+/// What's kept of a commit goes by its repo too, by the name the repo's remote has: GitHub's no
+/// is for the repo it was asked of, where a fork can have the same commit.
+pub fn head_key(slug: &str, head: &str) -> String {
+    format!("{} {head}", slug.to_lowercase())
+}
+
+/// The commit a `head_key` is of.
+pub fn head_of_key(key: &str) -> Option<&str> {
+    key.rsplit_once(' ').map(|(_, head)| head)
+}
+
+/// The merged PR whose last commit `head` is, as kept (`HEADS_FILE`), in whichever repo: what
+/// cleanup.rs goes by when it checks a worktree again.
 pub fn merged_pr(head: &str) -> Option<String> {
-    kept_heads(&heads_file()).remove(head)?.pr
+    kept_heads(&heads_file()).into_iter().find(|(key, h)| h.pr.is_some() && head_of_key(key) == Some(head)).and_then(|(_, h)| h.pr)
 }
 
 /// A query for `n` commits of one repo, `c0` to `c<n-1>`, and the PRs each was in.
@@ -605,8 +616,9 @@ fn heads_query(n: usize) -> String {
 }
 
 /// For each of `heads`, commits in the repo `slug`, the merged PR whose last commit it is, or
-/// none: GitHub tied it to no PR that merged at it, or never had it.
-pub fn merged_heads(slug: &str, heads: &[String]) -> std::result::Result<Vec<(String, Option<String>)>, Failure> {
+/// none: GitHub tied it to no PR that merged at it, or never had it. A commit GitHub didn't
+/// answer for is left out, and why the asking stopped comes with what it had found by then.
+pub fn merged_heads(slug: &str, heads: &[String]) -> (Vec<(String, Option<String>)>, Option<Failure>) {
     let (owner, name) = slug.split_once('/').unwrap_or((slug, ""));
     let mut said = Vec::new();
     for group in heads.chunks(HEADS_GROUP) {
@@ -616,28 +628,39 @@ pub fn merged_heads(slug: &str, heads: &[String]) -> std::result::Result<Vec<(St
         for field in &fields {
             args.extend(["-f", field.as_str()]);
         }
-        let o = procs::run_output("gh", &args, None, Duration::from_secs(30)).map_err(|e| failed(&e, "merged PRs"))?;
+        let o = match procs::run_output("gh", &args, None, Duration::from_secs(30)) {
+            Ok(o) => o,
+            Err(e) => return (said, Some(failed(&e, "merged PRs"))),
+        };
         // With no repository answered, why is in what it printed: a refusal for want of points
         // comes as an error in the answer.
-        let found = parse_heads(&o.out, slug, group).ok_or_else(|| failed(&anyhow!("gh {} {}", o.err.trim(), o.out.chars().take(400).collect::<String>()), "merged PRs"))?;
-        said.extend(found);
+        match parse_heads(&o.out, slug, group) {
+            Some(found) => said.extend(found),
+            None => return (said, Some(failed(&anyhow!("gh {} {}", o.err.trim(), o.out.chars().take(400).collect::<String>()), "merged PRs"))),
+        }
     }
-    Ok(said)
+    (said, None)
 }
 
 /// What `heads_query` brought for `heads`, in order: the merged PR whose `headRefOid` each is, by
-/// `slug`, or none for a commit GitHub never had (`null`). A commit whose alias came back without
-/// its PRs, as an error under it leaves it, is left out: it wasn't answered. None when no
-/// repository came back.
+/// `slug`, or none for a commit GitHub never had (`null` with no error). A commit an error names
+/// (its alias `null` too), or whose alias came back without its PRs, is left out: it wasn't
+/// answered. None when no repository came back.
 fn parse_heads(json: &str, slug: &str, heads: &[String]) -> Option<Vec<(String, Option<String>)>> {
     let v: Value = serde_json::from_str(json).ok()?;
     let repo = v.pointer("/data/repository").filter(|r| r.is_object())?;
+    // An error's path is `["repository", "c3", ...]`.
+    let failed: BTreeSet<&str> = v.get("errors").and_then(Value::as_array).into_iter().flatten().filter_map(|e| e.get("path")?.get(1)?.as_str()).collect();
     Some(
         heads
             .iter()
             .enumerate()
             .filter_map(|(i, head)| {
-                let commit = repo.get(format!("c{i}"))?;
+                let alias = format!("c{i}");
+                if failed.contains(alias.as_str()) {
+                    return None;
+                }
+                let commit = repo.get(&alias)?;
                 if commit.is_null() {
                     return Some((head.clone(), None));
                 }
@@ -3263,15 +3286,18 @@ mod tests {
               "c0":{{"associatedPullRequests":{{"nodes":[{{"number":41,"merged":false,"headRefOid":"{a}"}},{{"number":42,"merged":true,"headRefOid":"{a}"}}]}}}},
               "c1":{{"associatedPullRequests":{{"nodes":[{{"number":43,"merged":true,"headRefOid":"{d}"}}]}}}},
               "c2":{{"associatedPullRequests":{{"nodes":[]}}}},
-              "c3":null}}}},"errors":[{{"path":["repository","c4","associatedPullRequests"]}}]}}"#
+              "c3":null,
+              "c4":null}}}},"errors":[{{"path":["repository","c4","associatedPullRequests"]}},{{"path":["repository","c5"]}}]}}"#
         );
         // a ends merged PR #42; b is in a merged PR that went on past it; c is in none; GitHub
-        // never had d; e's alias failed, which says nothing of it.
-        let e = "e".repeat(40);
-        let heads = [a.clone(), b.clone(), c.clone(), d.clone(), e];
+        // never had d; e's and f's aliases failed, which says nothing of them.
+        let (e, f) = ("e".repeat(40), "f".repeat(40));
+        let heads = [a.clone(), b.clone(), c.clone(), d.clone(), e, f];
         assert_eq!(parse_heads(&json, "northwind/app", &heads), Some(vec![(a.clone(), Some("northwind/app#42".into())), (b, None), (c, None), (d, None)]));
         // A repository GitHub didn't answer for says nothing of its commits.
         assert_eq!(parse_heads(r#"{"data":{"repository":null},"errors":[{"type":"NOT_FOUND"}]}"#, "northwind/app", &[a]), None);
         assert!(heads_query(2).contains("$c1: GitObjectID!") && heads_query(2).contains("c1: object(oid: $c1)"));
+        let key = head_key("Northwind/App", &"a".repeat(40));
+        assert_eq!((key.as_str(), head_of_key(&key)), (format!("northwind/app {}", "a".repeat(40)).as_str(), Some("a".repeat(40).as_str())));
     }
 }

@@ -4915,8 +4915,9 @@ counted by their contents), no commit that isn't on some remote (as `git rev-lis
 branch already, as a squash or rebase merge leaves them (every file they changed is the same there,
 so a file the default branch changed again since keeps them), or its HEAD is the last commit of a
 PR that merged on GitHub, which keeps them after deleting the PR's branch (GitHub is asked about
-each worktree with commits on no remote whose repo it hosts, and again a day after it says no; a
-merge among the PRs Codealong reads shows at once), no rebase, merge, cherry-pick, revert
+each worktree with commits on no remote whose repo it hosts, at its HEAD as git last read it, and
+again a day after it says no; a merge among the PRs Codealong reads shows at once), no rebase,
+merge, cherry-pick, revert
 or bisect under way in it (a rebase's or merge's `--autostash` holds edits of yours until it ends),
 no session running in it, no lock a running session holds on it, and no other worktree or
 repository inside it, every ignored folder looked
@@ -4932,8 +4933,8 @@ It asks first, since it can't be undone, and lists what would run for each: when
 account trusts the repo, the hook runs as Claude Code would run it, in the main checkout with the
 event on its stdin, so a repo that sets up more than a folder for each worktree (ports, routes,
 databases) takes all of it down; otherwise `git worktree remove` (never forced), then `git branch -d`
-for its branch when no other worktree has it, which keeps a branch whose work isn't merged (`-D`
-while the branch is still at the merged PR's last commit, whose work git can't see merged). A lock a
+for its branch when no other worktree has it, which keeps a branch whose work isn't merged (one
+whose PR merged too, which git can't tell: the toast names the PR). A lock a
 session left behind as its tab closed comes off first. Then, for a Claude Code background job that
 held the worktree, `claude rm <job>` drops the job's record; its conversation stays. Everything is
 checked again as it goes, one removal at a time and once more just before it goes, and a worktree

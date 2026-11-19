@@ -62,10 +62,9 @@ pub enum Event {
     /// What GitHub calls each repo now, by the slug its remote has (lowercase); None where
     /// GitHub didn't answer. The asking is over: it comes empty when it fell over.
     RepoNames(Vec<(String, Option<String>)>),
-    /// The commits asked about in each repo, and the merged PR whose last commit each is, or why
-    /// GitHub didn't say (`GhPoll::ask_heads`). The asking is over: it comes empty when it fell
-    /// over.
-    Heads(Vec<(Vec<String>, Result<Vec<(String, Option<String>)>, Failure>)>),
+    /// What each repo's asking about merged PRs brought (`GhPoll::ask_heads`). The asking is
+    /// over: it comes empty when it fell over.
+    Heads(Vec<HeadsAsked>),
 }
 
 impl From<github::Answer> for Event {
@@ -235,6 +234,22 @@ const HEAD_FAILED_RETRY_MS: i64 = 60 * 60 * 1000;
 /// How long what GitHub said of a commit is kept: one no worktree is at any more drops out, and
 /// one still wanted is asked again.
 const HEAD_KEPT_MS: i64 = 30 * 24 * 60 * 60 * 1000;
+/// What a refusal of the asking about merged PRs is kept under, among the failures the notice
+/// says, beside each repo's slug.
+const HEADS: &str = "merged-heads";
+
+/// What one repo's asking about merged PRs brought (`GhPoll::ask_heads`).
+#[derive(Debug, Clone, PartialEq)]
+pub struct HeadsAsked {
+    /// The repo, by the name its remote has.
+    pub slug: String,
+    /// The commits asked about.
+    pub heads: Vec<String>,
+    /// What GitHub said of those it answered for: the merged PR whose last commit each is.
+    pub said: Vec<(String, Option<String>)>,
+    /// Why the asking stopped, when it did.
+    pub failure: Option<Failure>,
+}
 
 /// Which worktrees' HEADs are the last commit of a PR that merged on GitHub (`github::merged_heads`):
 /// their commits on no remote are GitHub's to keep, which deletes a merged PR's branch, so
@@ -243,10 +258,14 @@ const HEAD_KEPT_MS: i64 = 30 * 24 * 60 * 60 * 1000;
 /// the engine says (`file`), which cleanup.rs reads when it checks a worktree again.
 #[derive(Default)]
 struct Heads {
-    /// Commit → what GitHub said of it.
+    /// What GitHub said of a commit, by `github::head_key`: a merged PR's last commit is one in
+    /// any repo that has it, a no is for the repo asked.
     known: HashMap<String, github::Head>,
     /// The commits `known` says are merged PRs' last, for the board.
     merged: HashSet<String>,
+    /// What the asking on its way asked about, by `head_key`: a merge a poll brings meanwhile is
+    /// taken, and the asking's no, from before it, doesn't take it back (`note`).
+    pending: HashSet<String>,
     /// When GitHub was last asked, whatever came of it.
     asked: Option<Instant>,
     inflight: bool,
@@ -256,15 +275,15 @@ struct Heads {
 
 impl Heads {
     /// The commits to ask about now, by repo, of `wanted` (repo slug, commit): those GitHub hasn't
-    /// said of, or said no to a day ago; never one it named a merged PR for, which stands. None
-    /// while an asking is on its way or the last went lately, or with nothing to ask.
+    /// said of in that repo, or said no to a day ago; never a merged PR's last commit, which
+    /// stands. None while an asking is on its way or the last went lately, or with nothing to ask.
     fn to_ask(&mut self, wanted: &[(String, String)], now: Now) -> Option<BTreeMap<String, Vec<String>>> {
         if self.inflight || self.asked.is_some_and(|t| now.at.duration_since(t) < HEADS_EVERY) {
             return None;
         }
         let mut ask: BTreeMap<String, Vec<String>> = BTreeMap::new();
         for (slug, head) in wanted {
-            let stands = self.known.get(head).is_some_and(|k| k.pr.is_some() || now.ms - k.at < HEAD_RETRY_MS);
+            let stands = self.merged.contains(head) || self.known.get(&github::head_key(slug, head)).is_some_and(|k| now.ms - k.at < HEAD_RETRY_MS);
             let heads = ask.entry(slug.clone()).or_default();
             if !stands && !heads.contains(head) {
                 heads.push(head.clone());
@@ -274,52 +293,56 @@ impl Heads {
         if ask.is_empty() {
             return None;
         }
+        self.pending = ask.iter().flat_map(|(slug, heads)| heads.iter().map(|head| github::head_key(slug, head))).collect();
         self.inflight = true;
         self.asked = Some(now.at);
         Some(ask)
     }
 
-    /// The asking is over, with what each repo's answer said of the commits asked about. One its
-    /// repo's answer said nothing of, or that didn't answer, is asked about again in an hour.
-    /// True when a commit is a merged PR's that wasn't.
-    fn answered(&mut self, said: Vec<(Vec<String>, Result<Vec<(String, Option<String>)>, Failure>)>, now_ms: i64) -> bool {
+    /// The asking is over, with what each repo's answer said. A commit an answer said nothing
+    /// of, as one that stopped or didn't answer leaves it, is asked about again in an hour. True
+    /// when a commit is a merged PR's that wasn't.
+    fn answered(&mut self, asked: Vec<HeadsAsked>, now_ms: i64) -> bool {
         self.inflight = false;
+        self.pending.clear();
         let mut found = Vec::new();
-        for (heads, answer) in said {
-            let answer = answer.unwrap_or_default();
-            let unanswered: Vec<String> = heads.into_iter().filter(|h| !answer.iter().any(|(a, _)| a == h)).collect();
-            found.extend(answer.into_iter().map(|(head, pr)| (head, github::Head { pr, at: now_ms })));
-            found.extend(unanswered.into_iter().map(|head| (head, github::Head { pr: None, at: now_ms - HEAD_RETRY_MS + HEAD_FAILED_RETRY_MS })));
+        for a in asked {
+            for head in a.heads {
+                let said = match a.said.iter().find(|(h, _)| *h == head) {
+                    Some((_, pr)) => github::Head { pr: pr.clone(), at: now_ms },
+                    None => github::Head { pr: None, at: now_ms - HEAD_RETRY_MS + HEAD_FAILED_RETRY_MS },
+                };
+                found.push((github::head_key(&a.slug, &head), said));
+            }
         }
         self.note(found, now_ms)
     }
 
-    /// The merged PRs among a repo's PRs a poll read (`slug`): the commits asked about that are one's
-    /// last are merged PRs' now. True when one wasn't.
+    /// The merged PRs among a repo's PRs a poll read (`slug`): a commit asked about, or being
+    /// asked about, that's one's last is a merged PR's now. True when one wasn't.
     fn learn(&mut self, slug: &str, prs: &[PrRaw], now_ms: i64) -> bool {
         let found: Vec<(String, github::Head)> = prs
             .iter()
             .filter(|p| p.state == PrState::Merged)
-            .filter_map(|p| p.head_oid.clone().map(|head| (head, p.number)))
-            .filter(|(head, _)| self.known.get(head).is_some_and(|k| k.pr.is_none()))
-            .map(|(head, number)| (head, github::Head { pr: Some(format!("{slug}#{number}")), at: now_ms }))
+            .filter_map(|p| Some((github::head_key(slug, p.head_oid.as_deref()?), p.number)))
+            .filter(|(key, _)| self.pending.contains(key) || self.known.get(key).is_some_and(|k| k.pr.is_none()))
+            .map(|(key, number)| (key, github::Head { pr: Some(format!("{slug}#{number}")), at: now_ms }))
             .collect();
         !found.is_empty() && self.note(found, now_ms)
     }
 
     /// Takes in what GitHub said, drops what's been kept too long, and keeps the rest in `file`.
-    /// True when the merged PRs' commits changed.
+    /// A merged PR's last commit stays so: a no, or no answer, comes from an asking before the
+    /// merge, or before a poll brought it. True when the merged PRs' commits changed.
     fn note(&mut self, found: Vec<(String, github::Head)>, now_ms: i64) -> bool {
-        for (head, said) in found {
-            // A merged PR's last commit stays so: a no, or no answer, after it was asked before
-            // the merge, or before a poll brought it.
-            if said.pr.is_none() && self.known.get(&head).is_some_and(|k| k.pr.is_some()) {
+        for (key, said) in found {
+            if said.pr.is_none() && self.known.get(&key).is_some_and(|k| k.pr.is_some()) {
                 continue;
             }
-            self.known.insert(head, said);
+            self.known.insert(key, said);
         }
         self.known.retain(|_, k| now_ms - k.at < HEAD_KEPT_MS);
-        let merged: HashSet<String> = self.known.iter().filter(|(_, k)| k.pr.is_some()).map(|(head, _)| head.clone()).collect();
+        let merged: HashSet<String> = self.known.iter().filter(|(_, k)| k.pr.is_some()).filter_map(|(key, _)| github::head_of_key(key).map(String::from)).collect();
         if let Some(file) = &self.file {
             github::keep_heads(file, &self.known);
         }
@@ -442,29 +465,49 @@ impl GhPoll {
         if self.schedule.hold.is_some_and(|until| now.at < until) || self.schedule.thrifty(now.ms) {
             return;
         }
+        let Some(ask) = self.heads.to_ask(wanted, now) else { return };
         // Asked by the name GitHub has for the repo now, where it isn't the remote's.
-        let wanted: Vec<(String, String)> = wanted.iter().map(|(slug, head)| (self.names.now.get(&slug.to_lowercase()).cloned().unwrap_or_else(|| slug.clone()), head.clone())).collect();
-        let Some(ask) = self.heads.to_ask(&wanted, now) else { return };
+        let names = self.names.now.clone();
         let back = self.back.clone();
         let work = move || {
             crate::os::system::utility_thread();
             let mut refused: Option<Failure> = None;
             ask.into_iter()
                 .map(|(slug, heads)| {
+                    let name = names.get(&slug.to_lowercase()).cloned().unwrap_or_else(|| slug.clone());
                     // Out of points, the rest would be refused too.
-                    let answer = match &refused {
-                        Some(no) => Err(no.clone()),
-                        None => github::merged_heads(&slug, &heads),
+                    let (said, failure) = match &refused {
+                        Some(no) => (Vec::new(), Some(no.clone())),
+                        None => github::merged_heads(&name, &heads),
                     };
-                    if let (Err(no), None) = (&answer, &refused) {
-                        refused = no.rate_limited().then(|| no.clone());
+                    if refused.is_none() {
+                        refused = failure.clone().filter(Failure::rate_limited);
                     }
-                    (heads, answer)
+                    HeadsAsked { slug, heads, said, failure }
                 })
                 .collect::<Vec<_>>()
         };
         // However the asking ends, it's over: one that fell over answered for nothing.
-        throttle::background("codealong-merged-heads", work, move |said| back(Event::Heads(said.unwrap_or_default())));
+        throttle::background("codealong-merged-heads", work, move |asked| back(Event::Heads(asked.unwrap_or_default())));
+    }
+
+    /// What an asking about merged PRs brought (`Event::Heads`). A refusal for want of points
+    /// leaves GitHub alone and says so, as a poll's does. True when the board has changed.
+    fn on_heads(&mut self, asked: Vec<HeadsAsked>, now: Now) -> bool {
+        let refused = asked.iter().find_map(|a| a.failure.clone().filter(Failure::rate_limited));
+        let noticed = match refused {
+            Some(no) => {
+                let resets = match &no {
+                    Failure::RateLimited { resets } => *resets,
+                    _ => None,
+                };
+                self.schedule.refused(resets, now);
+                self.answered(HEADS, Some(no));
+                true
+            }
+            None => self.failures.remove(HEADS).is_some(),
+        };
+        self.heads.answered(asked, now.ms) || noticed
     }
 
     /// Each polled repo's PRs, by slug.
@@ -687,16 +730,7 @@ impl GhPoll {
                 cleared || ready
             }
             Event::RepoNames(names) => self.names.answered(names),
-            Event::Heads(said) => {
-                // A refusal for want of points leaves GitHub alone, as a poll's does.
-                if let Some(resets) = said.iter().find_map(|(_, answer)| match answer {
-                    Err(Failure::RateLimited { resets }) => Some(*resets),
-                    _ => None,
-                }) {
-                    self.schedule.refused(resets, now);
-                }
-                self.heads.answered(said, now.ms)
-            }
+            Event::Heads(asked) => self.on_heads(asked, now),
         }
     }
 
@@ -722,6 +756,7 @@ impl GhPoll {
                 self.on_glance(seen, now);
             }
             github::Answer::Repo(slug, Ok(repo), stamp) => {
+                self.heads.learn(&slug, &repo.prs, now.ms);
                 self.answered(&slug, None);
                 self.current.insert(slug.clone(), stamp.map_or(now.ms, |s| s.at));
                 self.prs.insert(slug, repo.prs);
@@ -1665,29 +1700,38 @@ mod tests {
         assert_eq!(states, [(12, PrState::Merged), (11, PrState::Open)]);
     }
 
+    fn want(slug: &str, head: &str) -> (String, String) {
+        (slug.to_string(), head.to_string())
+    }
+
+    /// What a repo's asking about merged PRs brought.
+    fn asked(slug: &str, heads: &[&str], said: &[(&str, Option<&str>)], failure: Option<Failure>) -> HeadsAsked {
+        let said = said.iter().map(|(head, pr)| (head.to_string(), pr.map(String::from))).collect();
+        HeadsAsked { slug: slug.into(), heads: heads.iter().map(|h| h.to_string()).collect(), said, failure }
+    }
+
+    fn asks(pairs: &[(&str, &[&str])]) -> Option<BTreeMap<String, Vec<String>>> {
+        Some(pairs.iter().map(|(slug, heads)| (slug.to_string(), heads.iter().map(|h| h.to_string()).collect())).collect())
+    }
+
     #[test]
     fn asks_github_which_heads_are_a_merged_prs_last_commit() {
         let now = clock();
         let mut heads = Heads::default();
-        let want = |slug: &str, head: &str| (slug.to_string(), head.to_string());
         let wanted = vec![want("northwind/app", "a1"), want("northwind/app", "b2"), want("northwind/app", "a1"), want("atlas/api", "c3")];
-        let asks = |pairs: &[(&str, &[&str])]| Some(pairs.iter().map(|(slug, heads)| (slug.to_string(), heads.iter().map(|h| h.to_string()).collect())).collect::<BTreeMap<String, Vec<String>>>());
         // Each repo's commits, each once, in a query of its own.
         assert_eq!(heads.to_ask(&wanted, now), asks(&[("atlas/api", &["c3"]), ("northwind/app", &["a1", "b2"])]));
         // Not again while that's on its way.
         assert_eq!(heads.to_ask(&wanted, after(now, 600)), None);
         // a1 is merged PR #42's last commit, b2 is no merged PR's, and atlas didn't answer.
-        let said = vec![
-            (vec!["a1".to_string(), "b2".to_string()], Ok(vec![("a1".to_string(), Some("northwind/app#42".to_string())), ("b2".to_string(), None)])),
-            (vec!["c3".to_string()], Err(Failure::Other("GitHub: couldn't load merged PRs".into()))),
-        ];
-        assert!(heads.answered(said, now.ms));
+        let failed = Failure::Other("GitHub: couldn't load merged PRs".into());
+        assert!(heads.answered(vec![asked("northwind/app", &["a1", "b2"], &[("a1", Some("northwind/app#42")), ("b2", None)], None), asked("atlas/api", &["c3"], &[], Some(failed))], now.ms));
         assert_eq!(heads.merged, HashSet::from(["a1".to_string()]));
         // Not within five minutes of the last asking; then what didn't answer, once an hour has gone.
         assert_eq!(heads.to_ask(&wanted, after(now, 60)), None);
         assert_eq!(heads.to_ask(&wanted, after(now, 360)), None);
         assert_eq!(heads.to_ask(&wanted, after(now, 3600)), asks(&[("atlas/api", &["c3"])]));
-        assert!(!heads.answered(vec![(vec!["c3".to_string()], Ok(vec![("c3".to_string(), None)]))], after(now, 3600).ms));
+        assert!(!heads.answered(vec![asked("atlas/api", &["c3"], &[("c3", None)], None)], after(now, 3600).ms));
         // GitHub's no stands for a day, a merged PR for good.
         assert_eq!(heads.to_ask(&wanted, after(now, 23 * 3600)), None);
         assert_eq!(heads.to_ask(&wanted, after(now, 24 * 3600)), asks(&[("northwind/app", &["b2"])]));
@@ -1697,12 +1741,12 @@ mod tests {
     fn a_merged_pr_a_poll_reads_answers_for_its_last_commit() {
         let now = clock();
         let mut heads = Heads::default();
-        heads.answered(vec![(vec!["a1".to_string(), "b2".to_string()], Ok(vec![("a1".to_string(), None), ("b2".to_string(), None)]))], now.ms);
+        heads.answered(vec![asked("northwind/app", &["a1", "b2"], &[("a1", None), ("b2", None)], None)], now.ms);
         let merged = |n: u64, head: &str| PrRaw { state: PrState::Merged, head_oid: Some(head.into()), ..pr(n) };
         // An open PR, and a merged one at a commit nobody asked about, say nothing.
         assert!(!heads.learn("northwind/app", &[PrRaw { head_oid: Some("b2".into()), ..pr(9) }, merged(8, "z9")], now.ms));
         assert!(heads.learn("northwind/app", &[merged(7, "a1")], now.ms));
-        assert_eq!(heads.known["a1"].pr.as_deref(), Some("northwind/app#7"));
+        assert_eq!(heads.known[&github::head_key("northwind/app", "a1")].pr.as_deref(), Some("northwind/app#7"));
         assert_eq!(heads.merged, HashSet::from(["a1".to_string()]));
         // What's been kept a month drops out.
         assert!(heads.note(vec![], after(now, 31 * 24 * 3600).ms));
@@ -1713,39 +1757,55 @@ mod tests {
     fn a_merged_prs_last_commit_stays_so() {
         let now = clock();
         let mut heads = Heads::default();
-        heads.answered(vec![(vec!["a1".to_string()], Ok(vec![("a1".to_string(), None)]))], now.ms);
-        assert_eq!(heads.to_ask(&[("northwind/app".to_string(), "a1".to_string())], after(now, 24 * 3600)), Some(BTreeMap::from([("northwind/app".to_string(), vec!["a1".to_string()])])));
-        // A poll brings its merge while that asking is on its way, which then says no, or fails.
         let merged = PrRaw { state: PrState::Merged, head_oid: Some("a1".into()), ..pr(7) };
-        assert!(heads.learn("northwind/app", &[merged], after(now, 24 * 3600).ms));
-        assert!(!heads.answered(vec![(vec!["a1".to_string()], Ok(vec![("a1".to_string(), None)]))], after(now, 24 * 3600).ms));
-        assert!(!heads.answered(vec![(vec!["a1".to_string()], Err(Failure::Other("GitHub: couldn't load merged PRs".into())))], after(now, 24 * 3600).ms));
+        // Asked about for the first time; a poll brings its merge while that's on its way, which
+        // then says no.
+        assert_eq!(heads.to_ask(&[want("northwind/app", "a1")], now), asks(&[("northwind/app", &["a1"])]));
+        assert!(heads.learn("northwind/app", std::slice::from_ref(&merged), now.ms));
+        assert!(!heads.answered(vec![asked("northwind/app", &["a1"], &[("a1", None)], None)], now.ms));
+        // Nor does an asking that failed take it back.
+        let failed = Failure::Other("GitHub: couldn't load merged PRs".into());
+        assert!(!heads.answered(vec![asked("northwind/app", &["a1"], &[], Some(failed))], now.ms));
         assert_eq!(heads.merged, HashSet::from(["a1".to_string()]));
+    }
+
+    #[test]
+    fn githubs_no_is_for_the_repo_it_was_asked_of() {
+        let now = clock();
+        let mut heads = Heads::default();
+        heads.to_ask(&[want("atlas/fork", "a1")], now);
+        heads.answered(vec![asked("atlas/fork", &["a1"], &[("a1", None)], None)], now.ms);
+        // The same commit in another repo is still asked about there.
+        assert_eq!(heads.to_ask(&[want("atlas/fork", "a1"), want("northwind/app", "a1")], after(now, 300)), asks(&[("northwind/app", &["a1"])]));
     }
 
     #[test]
     fn a_commit_an_answer_leaves_out_is_asked_again_in_an_hour() {
         let now = clock();
         let mut heads = Heads::default();
-        let wanted = [("northwind/app".to_string(), "a1".to_string()), ("northwind/app".to_string(), "b2".to_string())];
+        let wanted = [want("northwind/app", "a1"), want("northwind/app", "b2")];
         heads.to_ask(&wanted, now);
         // An error under b2's alias leaves it out of the answer.
-        heads.answered(vec![(vec!["a1".to_string(), "b2".to_string()], Ok(vec![("a1".to_string(), None)]))], now.ms);
+        heads.answered(vec![asked("northwind/app", &["a1", "b2"], &[("a1", None)], None)], now.ms);
         assert_eq!(heads.to_ask(&wanted, after(now, 3599)), None);
-        assert_eq!(heads.to_ask(&wanted, after(now, 3600)), Some(BTreeMap::from([("northwind/app".to_string(), vec!["b2".to_string()])])));
+        assert_eq!(heads.to_ask(&wanted, after(now, 3600)), asks(&[("northwind/app", &["b2"])]));
     }
 
     #[test]
-    fn a_refusal_for_want_of_points_leaves_github_alone() {
+    fn a_refusal_for_want_of_points_leaves_github_alone_and_says_so() {
         let now = clock();
         let mut gh = quiet();
-        let refused = vec![(vec!["a1".to_string()], Err(Failure::RateLimited { resets: Some(now.ms + 600_000) }))];
-        gh.on_event(Event::Heads(refused), &[], now);
+        let refused = Failure::RateLimited { resets: Some(now.ms + 600_000) };
+        assert!(gh.on_event(Event::Heads(vec![asked("northwind/app", &["a1"], &[], Some(refused))]), &[], now));
         assert!(gh.schedule.hold.is_some_and(|until| until > after(now, 590).at));
+        assert!(gh.notice().is_some_and(|n| n.title == "GitHub rate limit reached"), "{:?}", gh.notice());
         // Nor is it asked about merged PRs meanwhile.
         gh.heads.asked = None;
-        gh.ask_heads(&[("northwind/app".to_string(), "b2".to_string())], after(now, 60));
+        gh.ask_heads(&[want("northwind/app", "b2")], after(now, 60));
         assert!(!gh.heads.inflight);
+        // Its next answer takes the notice away.
+        gh.on_event(Event::Heads(vec![asked("northwind/app", &["b2"], &[("b2", None)], None)]), &[], after(now, 700));
+        assert_eq!(gh.notice(), None);
     }
 
     #[test]
@@ -1753,7 +1813,7 @@ mod tests {
         let now = clock();
         let mut gh = quiet();
         gh.schedule.hold = Some(after(now, 600).at);
-        gh.ask_heads(&[("northwind/app".to_string(), "a1".to_string())], now);
+        gh.ask_heads(&[want("northwind/app", "a1")], now);
         assert!(!gh.heads.inflight && gh.heads.asked.is_none());
     }
 
@@ -1766,8 +1826,7 @@ mod tests {
         let mut gh = quiet();
         gh.keep_heads_in(file.clone());
         assert!(!file.exists(), "reading what's kept writes nothing");
-        let said = vec![(vec!["a1".to_string()], Ok(vec![("a1".to_string(), Some("northwind/app#42".to_string()))]))];
-        assert!(gh.on_event(Event::Heads(said), &[], Now::real()));
+        assert!(gh.on_event(Event::Heads(vec![asked("northwind/app", &["a1"], &[("a1", Some("northwind/app#42"))], None)]), &[], Now::real()));
         let mut again = quiet();
         again.keep_heads_in(file.clone());
         assert_eq!(again.merged_heads(), &HashSet::from(["a1".to_string()]));

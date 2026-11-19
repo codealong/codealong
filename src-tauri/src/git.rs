@@ -228,6 +228,12 @@ impl Memo {
     }
 }
 
+/// HEAD's commit as the latest refresh of `path` read it (`status`), which a commit moves before
+/// the worktree listing hears of it.
+pub fn last_head(path: &Path) -> Option<String> {
+    memos().get(path)?.key.as_ref().map(|k| k.head.clone())
+}
+
 fn memos() -> std::sync::MutexGuard<'static, HashMap<PathBuf, Memo>> {
     static MEMOS: OnceLock<Mutex<HashMap<PathBuf, Memo>>> = OnceLock::new();
     MEMOS.get_or_init(Default::default).lock().unwrap_or_else(|e| e.into_inner())
