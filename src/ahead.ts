@@ -40,7 +40,7 @@ import { nameShown } from './harness';
 import { heldForAgent } from './prStatus';
 import { queueKinds } from './queue';
 import { byRaise, needOf, relaned, sessionHeadline, stuckMidTurn, unreadable } from './lanes';
-import type { Answers, BarFeed, BarItem, BarRecent, BarSnoozed, Board, Label, Lane, LastReview, LogoStatus, MergeOp, PrItem, QueuedMessage, ResumeIn, Reviewed, Sent, Session, Status, TranscriptItem, Verdict } from './types';
+import type { Answers, BarFeed, BarItem, BarRecent, BarSnoozed, Board, Label, Lane, LastReview, LogoStatus, MergeOp, PrItem, QueuedMessage, ResumeIn, Reviewed, Sent, Session, Status, TodoQueue, TranscriptItem, Verdict } from './types';
 
 /** A message the board shows no sign of this long after it went stops showing its session as
  *  working; if the session isn't working either, the thread says it may not have reached it. */
@@ -382,7 +382,19 @@ export function boardAhead(board: Board, changes: Ahead[]): Board {
   // While `[queue]` leaves reviews out, a PR waiting on your review is no cause for the mark's
   // color, as the engine has it (engine.rs `compose`).
   const reviews = queueKinds(board.queue?.order).includes('reviews');
-  return lanes === board.lanes && prs === board.prs ? board : { ...board, lanes, prs, logoStatus: logoOf(lanes, reviews ? prs : []) };
+  const todoQueue = todoQueueAhead(board.todoQueue, changes);
+  if (lanes === board.lanes && prs === board.prs) return todoQueue === board.todoQueue ? board : { ...board, todoQueue };
+  return { ...board, lanes, prs, todoQueue, logoStatus: logoOf(lanes, reviews ? prs : []) };
+}
+
+/** The board's todos that wait on you without the ones that left them here (`todoLeftAhead`), as
+ *  the bar's feed has them (`barTodos`). The same lists when nothing changes. */
+function todoQueueAhead(queue: TodoQueue | undefined, changes: Ahead[]): TodoQueue | undefined {
+  const gone = new Set(changes.flatMap((a) => (a.change.kind === 'todo-left' ? a.change.ids : [])));
+  if (!queue || gone.size === 0) return queue;
+  const due = queue.due.filter((t) => !gone.has(t.id));
+  const ready = queue.ready.filter((t) => !gone.has(t.id));
+  return due.length === queue.due.length && ready.length === queue.ready.length ? queue : { due, ready };
 }
 
 const GROUP_RANK = ['needs', 'unread', 'working'];

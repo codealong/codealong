@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it } from 'vitest';
 import { agoPhrase } from './format';
-import { ALL_PROJECTS, CHATS, GENERAL_CHAT, attachmentsNote, attentionRows, draftCodec, queueReads, folderChoices, foldedWords, holdsPrompt, folderStart, isFolderPath, macUnavailable, nextDraft, primaryRunningWords, queueRows, recallList, startTitle, todosStayNote, withPrompt, findPrs, findSessions, findTodos, heldSaid, laneGroups, projectCounts, pickInProject, repoChoices, repoForProject, repoKey, repoWorktrees, startLaneIn, worktreeName, readyTodos, recentRows, sendTargets, shortcutFromKey, shortcutKeys, shortcutLabel, stillSaid, TAKEN, takenFor, titleMarks, worktreeCount, deviceHits, inProject, projectLabel, projectShownIn } from './quick';
+import { windowRows, WINDOW_READS, ALL_PROJECTS, CHATS, GENERAL_CHAT, attachmentsNote, attentionRows, draftCodec, queueReads, folderChoices, foldedWords, holdsPrompt, folderStart, isFolderPath, macUnavailable, nextDraft, primaryRunningWords, queueRows, recallList, startTitle, todosStayNote, withPrompt, findPrs, findSessions, findTodos, heldSaid, laneGroups, projectCounts, pickInProject, repoChoices, repoForProject, repoKey, repoWorktrees, startLaneIn, worktreeName, readyTodos, recentRows, sendTargets, shortcutFromKey, shortcutKeys, shortcutLabel, stillSaid, TAKEN, takenFor, titleMarks, worktreeCount, deviceHits, inProject, projectLabel, projectShownIn } from './quick';
 import { setPlatform } from './platform';
 import * as fx from './testing/fixtures';
 import { inQueueOrder } from './queue';
@@ -12,6 +12,30 @@ const session = (key: string, status: Session['status'], at: number, extra: Part
 const lane = (id: string, sessions: Session[], extra: Partial<Lane> = {}): Lane => fx.lane({ id, sessions, branch: id, lastActivity: 0, ...extra });
 const board = (lanes: Lane[], todos: Todo[] = [], labels: Label[] = []): Board => fx.board({ lanes, todos, labels });
 const todo = (id: string, title: string, extra: Partial<Todo> = {}): Todo => fx.todo({ id, project: 'Acme', title, createdAt: NOW - 1000, updatedAt: NOW - 1000, ...extra });
+
+describe('windowRows', () => {
+  const b = board([lane('app2', [session('n1', 'needs', NOW - 90), session('u1', 'unread', NOW - 10)])]);
+  const due = (id: string, since: number, project = 'Acme') => ({ id, title: `Todo ${id}`, project, callsign: null, due: '2026-11-18', since, order: 0 });
+  const keys = (rows: { key: string }[]) => rows.map((r) => r.key);
+
+  it('puts the todos due among what waits on you in your order, after what needs you and before finished turns', () => {
+    const b2 = { ...b, todoQueue: { due: [due('old', NOW - 5000), due('new', NOW - 2000)], ready: [due('ready', NOW - 9000)] } };
+    expect(keys(windowRows(b2, ALL_PROJECTS))).toEqual(['n1', 'todo:old', 'todo:new', 'u1']);
+    // The ready ones are the notch's alone.
+    expect(windowRows(b2, ALL_PROJECTS).some((r) => r.kind === 'todo' && r.todo.id === 'ready')).toBe(false);
+    // By your order: due todos first.
+    const first = { ...b2, queue: { order: ['due', 'needs', 'unread'], due_within: 0 } };
+    expect(keys(windowRows(first, ALL_PROJECTS))).toEqual(['todo:old', 'todo:new', 'n1', 'u1']);
+    expect(WINDOW_READS.titleOf(windowRows(first, ALL_PROJECTS)[0])).toBe('Todo old');
+  });
+
+  it('has a project’s own todos in that project, and none from a board without the list', () => {
+    const b2 = { ...b, todoQueue: { due: [due('there', NOW - 5000, 'Globex')], ready: [] } };
+    expect(keys(windowRows(b2, 'Acme'))).toEqual(['n1', 'u1']);
+    expect(keys(windowRows(b2, ALL_PROJECTS))).toEqual(['n1', 'todo:there', 'u1']);
+    expect(keys(windowRows(b, ALL_PROJECTS))).toEqual(['n1', 'u1']);
+  });
+});
 
 describe('queueRows', () => {
   const b = board([

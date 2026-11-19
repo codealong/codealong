@@ -715,7 +715,7 @@ const DUE_WITHIN: Profile[] = [
 
 /**
  * Settings › Queue (`[queue]`, config.rs `QueueCfg`): what waits on you, in the order the notch,
- * the waiting window and a session's panel in Sessions go through it. The kinds in it are dragged
+ * the waiting window and the main window's panels go through it. The kinds in it are dragged
  * by their grips, or moved with ⌃⌘↑ ⌃⌘↓ there, into your order; a box takes one out, or puts it
  * back where the default order has it (queue.ts `withKind`). The sessions' two are always in it,
  * and the todos ready to start always last, so they're after the list rather than in it. While
@@ -782,7 +782,7 @@ function QueuePane({ cfg, disabled, onSave, moves }: PaneProps & { moves: boolea
     <>
       <div className="ca-settings-intro">
         <h3>Queue</h3>
-        <p>What waits on you, in the order the notch, the waiting window and a session’s panel in Sessions go through it: Next goes on to what comes after the one you’re on. The notch counts all of it but the todos ready to start.</p>
+        <p>What waits on you, in the order the notch, the waiting window and the main window’s panels go through it: Next goes on to what comes after the one you’re on. The notch counts all of it but the todos ready to start, which the waiting window leaves to the notch and Todo.</p>
       </div>
       <fieldset className="ca-settings-fields" disabled={disabled}>
         <div className="ca-field">

@@ -16,7 +16,12 @@
 /* The way back to the panel this one shows in place of (primitives.tsx PanelBack), over its
    header: a session shown from a PR's or todo's panel, a PR from a session's, worktree's or
    todo's. */
-.ca-panelback { display: inline-flex; align-items: center; gap: 2px; align-self: flex-start; margin-bottom: 6px; max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ca-panelback { display: inline-flex; align-items: center; gap: 2px; align-self: flex-start; margin-bottom: 6px; max-width: 100%; overflow: hidden; white-space: nowrap; }
+.ca-panelback > span { overflow: hidden; text-overflow: ellipsis; }
+/* At the start of the strip over the panel or card (SessionPanel.tsx `QueueStrip`), where the
+   queue's words would be: it gives up its room before the buttons do, as they would, and what
+   the panel shows under the strip starts where it always does. */
+.ca-panelback.is-strip { flex: 0 1 auto; min-width: 0; max-width: 50%; margin: 0; align-self: center; font: var(--type-caption-strong); }
 
 /* Inspector */
 /* When the panel is too narrow for its buttons, the row takes most of the right padding, then

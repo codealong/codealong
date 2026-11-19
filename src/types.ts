@@ -2032,6 +2032,10 @@ export interface Board {
   /** Today on the engine's Mac, as a due date is written (`2026-11-18`): which todos are due goes
    *  by it (barfeed.rs `todo_lists`). Missing on older boards. */
   today?: string;
+  /** The todos that wait on you, due and ready to start, as of `today` (barfeed.rs `todo_queue`):
+   *  the main window's Todo panel and the waiting window go through them, as the notch does
+   *  through the bar's copy. Missing on older boards. */
+  todoQueue?: TodoQueue;
   /** The next time a todo's standing in what waits on you changes by the clock alone (todos.rs
    *  `todo_clock`), which the board changes by. Missing with nothing ahead, and on older boards. */
   todoClock?: number;
@@ -3270,6 +3274,14 @@ export type MergeOp =
   | { op: 'update-branch'; rebase: boolean; head: string }
   | { op: 'ready' }
   | { op: 'delete-branch'; branchRef: string };
+
+/** The todos that wait on you (barfeed.rs `TodoQueue`). */
+export interface TodoQueue {
+  /** Due by `[queue] due_within` days from today: the most overdue first. */
+  due: BarTodo[];
+  /** Ready to start but for those, in your order. */
+  ready: BarTodo[];
+}
 
 export interface BarTodo {
   id: string;

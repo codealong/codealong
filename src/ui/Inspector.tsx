@@ -8,12 +8,12 @@ import { branchLabel } from '../lanes';
 import { REUSE_WORDS } from '../reusable';
 import type { Board, Lane, Origin, Session, Target, Todo } from '../types';
 import { InsightChips } from './InsightBits';
-import { BranchLabel, Button, cx, driftWords, HarnessChip, headerMenu, Icon, Kbd, LaneGlyph, PanelBack, PrChip, Rich, SessionEmblem, SessionGlyph, type PanelBackTo } from './primitives';
+import { BranchLabel, Button, cx, driftWords, HarnessChip, headerMenu, Icon, Kbd, LaneGlyph, PrChip, Rich, SessionEmblem, SessionGlyph, type PanelBackTo } from './primitives';
+import { QueueStrip, type Queue, type StripAction } from './SessionPanel';
 import { useDismiss } from './useDismiss';
 import { PreviewChip, PreviewSection } from './PreviewBits';
 import { TodoChips, TodoGlyph } from './TodoBits';
 import { STATUS_WORD } from '../todos';
-import { keysIn } from '../platform';
 
 const ORIGIN_WORD: Record<Origin, string> = {
   main: 'Main worktree',
@@ -182,11 +182,34 @@ interface InspectorProps {
   onReviewPr?: (button: Element) => void;
   /** Opens the sheet that sets where its app opens; this device's worktrees only. */
   onSetPreview?: () => void;
-  /** Shown in another panel's place (a session's, a PR's, a todo's): the way back to it. */
+  /** Shown in another panel's place (a session's, a PR's, a todo's): the way back to it, at the
+   *  start of its strip. */
   back?: PanelBackTo;
+  /** Its view's way through what waits on you, which its strip's Next (⌘]) goes on with; or why
+   *  Next does nothing there (the canvas). */
+  queue?: Queue;
+  nowhere?: string;
+  /** It's the worktree of the row selected, so the window's keys for it (⌘N, ⌘1, ⌘2, ⌘O) are
+   *  this one's, and its strip says them. */
+  keys?: boolean;
 }
 
-export function Inspector({ lane, focusKey, apps, now, onOpen, onNewSession, todos, todosFor, onShowTodo, onMenu, onPrMenu, onShowPr, onReviewPr, onSetPreview, back }: InspectorProps) {
+/** What's commonly done to a worktree, on the strip over its panel: a new session in it, a
+ *  terminal and the editor there, and its PR on GitHub, each with the window's key for it where
+ *  that's the worktree's (`keys`). */
+function laneButtons(lane: Lane, apps: Board['apps'], onOpen: (id: string) => void, onNewSession: () => void, keys: boolean): StripAction[] {
+  const pr = lane.pr;
+  const key = (chord: string) => (keys ? chord : undefined);
+  const here = lane.device ? `: ${lane.callsign} is on another device` : '';
+  return [
+    { label: 'New session', chord: key('Cmd+N'), title: `New session here${here}`, run: lane.device ? undefined : onNewSession },
+    { label: 'Terminal', chord: key('Cmd+1'), title: `New ${apps.terminal} terminal here${here}`, run: lane.device ? undefined : () => onOpen('l|terminal') },
+    { label: 'Editor', chord: key('Cmd+2'), title: `Open in ${apps.editor}${here}`, run: lane.device ? undefined : () => onOpen('l|editor') },
+    { label: 'GitHub', chord: key('Cmd+O'), title: pr ? `Open #${pr.number} on GitHub` : 'It has no PR', run: pr ? () => onOpen('p|github') : undefined },
+  ];
+}
+
+export function Inspector({ lane, focusKey, apps, now, onOpen, onNewSession, todos, todosFor, onShowTodo, onMenu, onPrMenu, onShowPr, onReviewPr, onSetPreview, back, queue, nowhere, keys = false }: InspectorProps) {
   const [showAll, setShowAll] = useState(false);
   useEffect(() => setShowAll(false), [lane?.id]);
   const icons = useEditorIcons(apps);
@@ -202,9 +225,9 @@ export function Inspector({ lane, focusKey, apps, now, onOpen, onNewSession, tod
   const branch = branchLabel(lane);
   const sessions = showAll ? lane.sessions : lane.sessions.slice(0, SESSIONS_SHOWN);
   return (
-    <aside className="ca-insp" aria-label={`${lane.callsign} details`}>
+    <aside className="ca-insp ca-laneinsp" aria-label={`${lane.callsign} details`}>
+      <QueueStrip queue={queue} hotkeys={{ nowhere }} buttons={laneButtons(lane, apps, onOpen, onNewSession, keys)} of="this worktree" back={back} />
       <header onContextMenu={headerMenu(onMenu)}>
-        {back && <PanelBack back={back} />}
         <div className="ca-insp-title">
           <LaneGlyph lane={lane} />
           <span className="ca-insp-call" title={lane.callsign}>
@@ -234,11 +257,8 @@ export function Inspector({ lane, focusKey, apps, now, onOpen, onNewSession, tod
         )}
       </header>
       <div className="ca-insp-actions">
+        {/* A new session, a terminal, the editor and GitHub are the strip's. */}
         <OpenInMenu targets={withOtherEditors(lane.targets, apps, icons)} defaultId={lane.defaultTarget} onOpen={onOpen} />
-        <Button icon="plus" title={keysIn('New session here (⌘N)')} aria-label="New session here" onClick={onNewSession} />
-        <Button icon="terminal" title={`New ${apps.terminal} terminal here`} aria-label={`New ${apps.terminal} terminal here`} onClick={() => onOpen('l|terminal')} />
-        <Button icon="code" title={`Open in ${apps.editor}`} aria-label={`Open in ${apps.editor}`} onClick={() => onOpen('l|editor')} />
-        {pr && <Button icon="external" title={`Open #${pr.number} on GitHub`} aria-label={`Open #${pr.number} on GitHub`} onClick={() => onOpen('p|github')} />}
         {!lane.preview && onSetPreview && !lane.device && <Button icon="world" title="Set preview URL…" aria-label="Set preview URL" onClick={onSetPreview} />}
       </div>
       {todos && todos.length > 0 && (

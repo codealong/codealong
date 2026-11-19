@@ -1159,6 +1159,34 @@ are in a ⋯ menu at their end instead, each with its key, which works as ever. 
 session puts the cursor in its box; ⌥↑ ⌥↓ from there move along with the cursor in the next one's
 box, the arrows on the list leave the keys with the list, and Escape in the box gives them back.
 
+#### The strip over every panel
+
+Every panel beside a list has the same strip over it, with what's commonly done to what it shows,
+each with its key where it has one, and Next (⌘]) at its end:
+
+- a session's: Seen, Done, Snooze, Close and Archive (above);
+- a PR's: Approve, Comment, Snooze, Review with and GitHub (*Reviewing a PR*);
+- a todo's: Start (⌘N), Done (⇧⌘E), Snooze (⌃⌘1 to ⌃⌘7, out of what waits on you until then, its
+  due date as it is) and Due…;
+- a worktree's: New session (⌘N), Terminal (⌘1), Editor (⌘2) and GitHub (⌘O, for its PR), the
+  keys said where the worktree is the row selected; its Open in menu stays under its header;
+- a schedule's: Run now, Pause or Resume, and Edit.
+
+Next stays in the view you're in, so the selection moves down its list: in Sessions it goes through
+the sessions that wait on you, in PRs through the PRs listed that wait on your review, and in Todo
+and Kanban through the todos listed that wait on you, the due ones (the most overdue first) and then
+those ready to start, in your order (*What waits on you, and in what order*). ⌘] and ⌘[ (⌥⇧↓ ⌥⇧↑)
+work there as in Sessions, a skipped one coming round again after the rest, and Done or Snooze on a
+todo that waits goes on to the next, as on a session. From what doesn't wait (a worktree, a todo
+with no due date) Next goes to the first that does. Once a view's own are through, Next offers the
+next kind in your order that waits in another view, the strip saying so (*Nothing else waits in
+PRs · next: 2 sessions in Sessions*), and goes there, on the first of them. On the canvas and in
+Schedules there's no order to go through, and Next stays dimmed, saying so.
+
+A panel shown in place of another's, a PR from a session's chip or a worktree from a todo's, has
+the way back at the strip's start, where the queue's words would be, so what's under it starts where
+it always does.
+
 ### PRs
 
 Every PR in the project's repos, with the worktree and sessions that worked on each: the ones that
@@ -1944,7 +1972,8 @@ way back; Return or a double-click opens it where it lives, and its right-click 
 The panel beside a schedule says when it runs and when next on its first line, and has its
 prompt, the session it keeps going, and its latest runs, each with why it ran and how it went (started, sent,
 went on, waiting, skipped, missed, failed) and its session a click away. Run now, Pause and Edit
-are its buttons; its right-click menu has those, Copy schedule ID and Delete schedule. A session a
+are on the strip over it (*The strip over every panel*); its right-click menu has those, Copy
+schedule ID and Delete schedule. A session a
 run started says *From the schedule* and its name over its title, a click from the schedule.
 
 **Its sessions look like it.** With session emblems on (see *Emblems*), a schedule that starts
@@ -3353,11 +3382,13 @@ through them in the same order. A session moved to the top still comes before th
 
 *Settings › Queue; `[queue]` in config.toml*
 
-The notch, the waiting window and a session's panel in Sessions go through what waits on you in
-one order, Next (⌘]) going on to what comes after the one you're on: by default the sessions that
+The notch, the waiting window and the main window's panels go through what waits on you in
+one order, Next (⌘]) going on to what comes after the one you're on (in the main window, within the
+view: *The strip over every panel*): by default the sessions that
 need you, the PRs waiting on your review, the todos that are due, the sessions whose turn ended,
 and last the todos ready to start, each kind the longest wait first but the ready todos, which go
-in your todo list's order. Settings › Queue lists them in
+in your todo list's order. The waiting window has the due todos but not the ready ones, which
+always wait and would keep it from ever saying nothing does. Settings › Queue lists them in
 that order: drag one by its row or its grip, or press ⌃⌘↑ ⌃⌘↓ on its grip, to put the kinds in yours
 (`order`). A box takes a kind out of what waits on you: PRs waiting on your review taken out aren't
 on the bar or in the notch, nor counted beside the camera or in the mark's color, nor in the
@@ -3394,9 +3425,11 @@ next), or what it waits on you to allow, with Allow and Deny (⌘⏎ allows, ⌘
 its details and a box that reviews it (⌘⏎ approves, ⌥⌘⏎ comments, Review with… starts Codealong's
 review on an account, as below). A click on a session's PR chip, or on a link to a PR in its
 conversation, shows that PR here in the session's place, waiting on your review or not, with a link
-back to the session over its title; once it's merged, reviewed or snoozed, the window goes back to
+back to the session at the start of its strip; once it's merged, reviewed or snoozed, the window goes back to
 the session rather than on, and says there how the PR went. Open in main window, in the PR's menu,
-still opens it in the main window. The box's other side, Ask (or `/side` and a question on Review), puts
+still opens it in the main window. A todo that's due shows as its card in the notch does, with
+Start (⌘⏎, from the box at its foot), Done (⇧⌘E), Snooze (⌃⌘1 to ⌃⌘7) and Due… on its strip, and
+each goes on to the next. The box's other side, Ask (or `/side` and a question on Review), puts
 questions about the PR to an agent on a Claude Code or Codex account (Auto's, on its own model and
 effort, or one picked beside Ask in the agent menu, with a model and effort of its own): Codealong
 hands it the PR's description, discussion and whole diff, it runs in a

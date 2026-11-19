@@ -55,6 +55,18 @@ function withFixture(board, fixture) {
       archivedAt: t.archivedAgo == null ? null : now - t.archivedAgo * 60e3,
     });
   });
+  // The todos that wait on you (barfeed.rs `todo_queue`), for these todos in place of the
+  // board's: a stand-in for the engine's rule, enough to show them. Open and awake ones due today
+  // or before, the most overdue first, then the rest not started and waiting on nothing, in order.
+  var today = dayFrom(now, 0);
+  var open = function (t) { return t.status !== 'done' && !t.archivedAt && !(t.snoozedUntil > now); };
+  var bar = function (t, i, since) { return { id: t.id, title: t.title, project: t.project || '', callsign: null, due: t.due, since: since, order: i }; };
+  var listed = board.todos.map(function (t, i) { return { t: t, i: i }; }).filter(function (x) { return open(x.t); });
+  var due = listed.filter(function (x) { return x.t.due && x.t.due <= today; });
+  board.todoQueue = {
+    due: due.map(function (x) { return bar(x.t, x.i, new Date(x.t.due + 'T00:00').getTime()); }).sort(function (a, b) { return a.since - b.since || a.order - b.order; }),
+    ready: listed.filter(function (x) { return due.indexOf(x) < 0 && x.t.status === 'todo' && !x.t.waiting && !x.t.sessions.length && (x.t.dependsOn || []).every(function (id) { return board.todos.some(function (d) { return d.id === id && d.status === 'done'; }); }); }).map(function (x) { return bar(x.t, x.i, x.t.createdAt); }),
+  };
   return board;
 }
 // Schedules from schedules-fixture.json (PREVIEW_SCHEDULES in preview.sh) in place of the board's

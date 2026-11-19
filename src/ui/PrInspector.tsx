@@ -46,10 +46,10 @@ import { PrLabels } from './PrLabels';
 import { PrPills } from './PrPills';
 import { PrReviewers } from './PrReviewers';
 import { prActions, PrStrip } from './PrStrip';
-import { BranchLabel, Button, cx, headerMenu, Icon, PanelBack, Tabs, type PanelBackTo } from './primitives';
+import { BranchLabel, Button, cx, headerMenu, Icon, Tabs, type PanelBackTo } from './primitives';
 import { ProjectPrefix } from './ProjectSaid';
 import { PrGlyph, prIsOpen, reviewSnoozed, syncWords, type PrPlace, type PrRowItem } from './PrsView';
-import type { Hotkeys } from './SessionPanel';
+import type { Queue } from './SessionPanel';
 import { Tip } from './Tip';
 import { untilWords } from '../snooze';
 import { errorText } from '../report';
@@ -143,9 +143,6 @@ export interface PrDetailsProps {
   /** In PRs: whether the panel takes the whole window, and the way to switch. */
   maximized?: boolean;
   onMaximize?: () => void;
-  /** Shown in place of another panel (a session's, a worktree's, a todo's), from its PR chip:
-   *  the way back to it. */
-  back?: PanelBackTo;
   /** How a window says something it did didn't work: with it, a changed file opens on GitHub,
    *  and with the board's `apps` too, in your editors (`fileOpener`). */
   report?: Report;
@@ -190,6 +187,13 @@ function fileOpener(item: PrRowItem, apps: Board['apps'] | undefined, icons: Ret
 interface PrInspectorProps extends Omit<PrDetailsProps, 'tabs'> {
   /** How the box says a verdict went. */
   report: Report;
+  /** Shown in place of another panel (a session's, a worktree's, a todo's), from its PR chip:
+   *  the way back to it, at the start of its strip. */
+  back?: PanelBackTo;
+  /** Its view's way through what waits on you (PRs': the PRs waiting on your review), on its
+   *  strip with Next (⌘]); what's left, or why Next does nothing, where it's another view's. */
+  queue?: Queue;
+  nowhere?: string;
   /** The board's worktrees and plan usage, for where a review starts and on which account. */
   lanes: Lane[];
   usage: Usage[];
@@ -197,17 +201,14 @@ interface PrInspectorProps extends Omit<PrDetailsProps, 'tabs'> {
   reviews?: ReviewsCfg | null;
 }
 
-/** The strip's own: none of the queue's (the list has those). */
-const PANEL_KEYS: Hotkeys = { next: false };
-
-export function PrInspector({ report, lanes, usage, reviews, ...details }: PrInspectorProps) {
+export function PrInspector({ report, lanes, usage, reviews, back, queue, nowhere, ...details }: PrInspectorProps) {
   const { pr } = details.item;
   const tabs = usePrTab(pr);
   const box = usePrBox(pr, { report, usage, now: details.now });
   const actions = prActions(pr, box, { report, lanes, usage, reviews, now: details.now });
   return (
     <aside className="ca-insp ca-prpanel" aria-label={`#${pr.number} details`} data-find="files">
-      <PrStrip pr={pr} actions={actions} box={box} hotkeys={PANEL_KEYS} panel />
+      <PrStrip pr={pr} actions={actions} box={box} hotkeys={{ nowhere }} queue={queue} back={back} panel />
       <div className="ca-prinsp ca-prpanel-body">
         <PrDetails {...details} keys report={report} tabs={tabs} />
       </div>
@@ -218,7 +219,7 @@ export function PrInspector({ report, lanes, usage, reviews, ...details }: PrIns
 
 /** The PR itself: its header with where it lives on this Mac, the merge box, its details when
  *  they're open, then its tabs: its description, its files, your review and everyone's. */
-export function PrDetails({ item, now, onMenu, onShowSession, onOpenSession, onShowLane, onLaneMenu, onSessionMenu, keys, goesOn, tabs, maximized, onMaximize, back, report, apps, teamFiles }: PrDetailsProps) {
+export function PrDetails({ item, now, onMenu, onShowSession, onOpenSession, onShowLane, onLaneMenu, onSessionMenu, keys, goesOn, tabs, maximized, onMaximize, report, apps, teamFiles }: PrDetailsProps) {
   const { pr } = item;
   // Its details, open or not as you left them for every PR.
   const [open, toggleOpen] = useDetailsOpen(DETAILS_KEY);
@@ -360,7 +361,6 @@ export function PrDetails({ item, now, onMenu, onShowSession, onOpenSession, onS
   return (
     <>
       <header className={cx('ca-prinsp-head', open && 'is-open')} onContextMenu={headerMenu(onMenu && (() => onMenu()))}>
-        {back && <PanelBack back={back} />}
         <div className="ca-prinsp-top">
           <PrGlyph pr={pr} />
           <span className="ca-insp-call">#{pr.number}</span>

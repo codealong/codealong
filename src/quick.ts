@@ -12,13 +12,13 @@ import { shortOf } from './devices';
 import { agoPhrase, middleTruncate } from './format';
 import { heldForAgent } from './prStatus';
 import { branchLabel, byStatusTime, sessionHomes, setAside, snoozedApart, unattended, waitsFinished } from './lanes';
-import { inOrder, inQueueOrder, queueKinds, statusWaits, type Reads } from './queue';
+import { inOrder, inQueueOrder, queueKinds, statusWaits, todoRowKey, type Reads } from './queue';
 import { itemSection, sectionOf, todoItem, type TodoItem, type TodoSectionId } from './todos';
 import { prFlag } from './prStatus';
 import { newWorkIn, takesNewWork } from './reusable';
 import type { Codec } from './stored';
 import { platform } from './platform';
-import type { Attachment, Board, DeviceFound, DeviceView, FolderLook, Lane, PrItem, PrState, RoutePick, Session, TextHit, Todo } from './types';
+import type { Attachment, BarTodo, Board, DeviceFound, DeviceView, FolderLook, Lane, PrItem, PrState, RoutePick, Session, TextHit, Todo } from './types';
 
 export const ALL_PROJECTS = 'All projects';
 /** What the panel's empty box says, and the box in the main window's title bar that opens it. */
@@ -220,6 +220,44 @@ const ORDER: RowGroup[] = ['top', 'needs', 'unread', 'working'];
  */
 export function queueRows(board: Board, project: string): QueueRow[] {
   return attentionRows(board, project, Infinity).rows.filter((r) => r.group !== 'working');
+}
+
+/** A todo due that waits on you, in the waiting window, as the board has it (`Board.todoQueue`). */
+export interface DueRow {
+  kind: 'todo';
+  /** Its row's key (queue.ts `todoRowKey`), apart from any session's or PR's. */
+  key: string;
+  todo: BarTodo;
+}
+/** What the waiting window works through. */
+export type WindowRow = QueueRow | DueRow;
+
+/** What the waiting window works through (Waiting.tsx): `queueRows`, and the todos due among them
+ *  in your order (`[queue] order`; by default after the PRs and before the turns that ended), the
+ *  most overdue first, as the notch has them. The todos ready to start are the notch's alone: they
+ *  always wait, and the window would never reach its end. */
+export function windowRows(board: Board, project: string): WindowRow[] {
+  const due: DueRow[] = (board.todoQueue?.due ?? []).filter((t) => project === ALL_PROJECTS || t.project === project).map((todo) => ({ kind: 'todo', key: todoRowKey(todo.id), todo }));
+  const rows: WindowRow[] = queueRows(board, project);
+  return due.length === 0 ? rows : inQueueOrder([...rows, ...due], windowReads(board));
+}
+
+/** How the queue reads the waiting window's rows, a due todo as the notch reads one (bar.ts
+ *  `ROW_READS`). */
+export const WINDOW_READS: Reads<WindowRow> = {
+  keyOf: (r) => (r.kind === 'todo' ? r.key : QUEUE_READS.keyOf(r)),
+  sinceOf: (r) => (r.kind === 'todo' ? (r.todo.since ?? 0) : QUEUE_READS.sinceOf(r)),
+  waitsOf: (r) => (r.kind === 'todo' ? 'due' : QUEUE_READS.waitsOf(r)),
+  raisedOf: (r) => (r.kind === 'todo' ? undefined : QUEUE_READS.raisedOf(r)),
+  finishedOf: (r) => r.kind !== 'todo' && QUEUE_READS.finishedOf(r),
+  firstOf: (r) => r.kind === 'review' && !!r.pr.reviewFirst,
+  orderOf: (r) => (r.kind === 'todo' ? r.todo.order : undefined),
+  titleOf: (r) => (r.kind === 'todo' ? r.todo.title || 'Untitled todo' : QUEUE_READS.titleOf(r)),
+};
+
+/** `WINDOW_READS` in the order `[queue]` puts what waits on you in. */
+export function windowReads(board: Pick<Board, 'queue'>): Reads<WindowRow> {
+  return inOrder(WINDOW_READS, queueKinds(board.queue?.order));
 }
 
 /**

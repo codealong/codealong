@@ -554,6 +554,7 @@ export type Board = Holds<Same<
   | "today"
   | "todoClock"
   | "todoHints"
+  | "todoQueue"
   | "todos"
   | "todosUnreadable"
   | "training"

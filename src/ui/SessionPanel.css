@@ -243,11 +243,26 @@
 .ca-prpanel > .ca-reply-queue {
   padding: 4px 12px 4px var(--space-4);
 }
+/* Over a panel that scrolls as a whole, inside its padding (a todo's, TodoStrip.tsx; a worktree's,
+   Inspector.tsx; a schedule's, SchedulePanel.tsx): flush with its edges, lined up as the others
+   are, and kept at its top as it scrolls, as the list's strip is (ListBar.css). */
+.ca-todoinsp > .ca-reply-queue,
+.ca-laneinsp > .ca-reply-queue,
+.ca-schedinsp > .ca-reply-queue {
+  position: sticky;
+  top: 0;
+  z-index: var(--z-listbar);
+  margin: calc(-1 * var(--space-4)) calc(-1 * var(--space-4)) 0;
+  padding: 4px 12px 4px var(--space-4);
+}
 /* With glass on (src/glass.ts), the strip over the list's own shade (ListBar.css), and its lines,
    hovers and keycaps the same see-through shades of it (styles/glass.css), so the two strips read
    as one across the window, as they do without glass, where both are sunken (2026-11-16). */
 .is-glass .ca-sessinsp .ca-reply-queue,
-.is-glass .ca-prpanel > .ca-reply-queue {
+.is-glass .ca-prpanel > .ca-reply-queue,
+.is-glass .ca-todoinsp > .ca-reply-queue,
+.is-glass .ca-laneinsp > .ca-reply-queue,
+.is-glass .ca-schedinsp > .ca-reply-queue {
   background: var(--glass-cover);
 }
 .ca-reply .ca-thread {

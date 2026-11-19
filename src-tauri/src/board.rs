@@ -3279,6 +3279,7 @@ pub fn compose(inp: Inputs) -> Board {
         todos: Vec::new(),
         todos_unreadable: false,
         today: String::new(),
+        todo_queue: Default::default(),
         todo_clock: None,
         queue: Default::default(),
         labels: Vec::new(),

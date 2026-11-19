@@ -10,7 +10,7 @@
 // With several todos picked in the list, `TodoPickPanel` shows them instead, to start in one
 // session, in the pick panel every list's picks share (PickPanel.tsx).
 
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { suggestTodo } from '../api';
 import { below } from '../contextMenu';
 import { dayKey, dueChoices, dueDate, dueWords } from '../due';
@@ -332,9 +332,11 @@ interface TodoPanelProps {
   pickDue?: boolean;
   /** The picker opened for `pickDue`. */
   onPickDue?: () => void;
+  /** The strip over it in the main window (TodoStrip.tsx); a card has its own over the card. */
+  strip?: ReactNode;
 }
 
-export function TodoPanel({ item, todos, onShowTodo, labels, lanes, now, onRun, onStart, onShowSession, onOpenSession, onShowLane, onLaneMenu, onSessionMenu, onLinkMenu, onMoreMenu, onMenu, onLabelMenu, onError, hint, onDismissHint, suggest = false, projects = [], pickDue = false, onPickDue }: TodoPanelProps) {
+export function TodoPanel({ item, todos, onShowTodo, labels, lanes, now, onRun, onStart, onShowSession, onOpenSession, onShowLane, onLaneMenu, onSessionMenu, onLinkMenu, onMoreMenu, onMenu, onLabelMenu, onError, hint, onDismissHint, suggest = false, projects = [], pickDue = false, onPickDue, strip }: TodoPanelProps) {
   const { todo } = item;
   const section = itemSection(item, todos);
   const [picking, setPicking] = useState(false);
@@ -431,6 +433,7 @@ export function TodoPanel({ item, todos, onShowTodo, labels, lanes, now, onRun, 
 
   return (
     <aside className="ca-insp ca-todoinsp" aria-label="Todo details">
+      {strip}
       <header className="ca-todoinsp-head" onContextMenu={headerMenu(onMenu)}>
         <div className="ca-todoinsp-top">
           <TodoGlyph status={todo.status} waiting={section === 'waiting'} review={section === 'review'} size={14} />

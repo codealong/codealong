@@ -335,9 +335,9 @@ Each rule names the file whose header has the rest.
   box, its chords in `menus.ts` `PR_CHORDS`; a review is one engine command, `review_pr`). A
   change goes there, never into one window's file.
 - Keys for getting about what waits on you are `src/queue.ts`'s (`QUEUE_CHORDS`, `keyStep`),
-  which `useWaitingQueue` runs for each window over its rows: sessions and the PRs waiting on
-  your review as one list (`bar.ts` `notchRows` for the notch, `quick.ts` `queueRows` for
-  the waiting window), a review leaving it through `left` as a snoozed session does. An action's key
+  which `useWaitingQueue` runs for each window over its rows: sessions, reviews and todos as
+  one list (`bar.ts` `notchRows` for the notch, `quick.ts` `windowRows` for the waiting window,
+  `useViewQueues.ts` per main-window view), one leaving it through `left`. An action's key
   is in `menus.ts` `CHORDS` and shows on the queue strip, in the menus and in every window at
   once. No key is written into one window or into the strip.
 - Keys are written for macOS (`Ctrl+Cmd+W`, ⌃⌘W) and `src/platform.ts` presses and says them as

@@ -8,6 +8,12 @@
 // while the pointer rests on it (`peekFromPanel`), the list, its queue and the panel staying as
 // they were, and a click on it shows it in Sessions (`showFromPanel`). The window passes what
 // the panels show and what their clicks do.
+//
+// Every panel has the strip over it (SessionPanel.tsx `QueueStrip`): what's commonly done to what
+// it shows, each with its key, the way back where it's shown in another's place, and Next (⌘]),
+// which goes on through what waits on you in the view (useViewQueues.ts): Sessions' sessions,
+// PRs' reviews, Todo's and Kanban's todos, and once those have run out, the view where the next
+// kind waits. On the canvas and in Schedules it stays dimmed: there's no order there.
 
 import { useMemo, useRef, useState, type ReactNode } from 'react';
 import { renameAhead } from '../ahead';
@@ -39,6 +45,12 @@ import { PrPickPanel } from './PrPickPanel';
 import { SessionPickPanel } from './SessionPickPanel';
 import { WorktreePickPanel } from './WorktreePickPanel';
 import { TodoPanel, TodoPickPanel } from './TodoPanel';
+import { TodoStrip } from './TodoStrip';
+import { todoLeftAhead } from '../ahead';
+import { dueItem } from '../menus';
+import { todoSnoozeMenu } from '../snooze';
+import type { ViewQueues } from '../useViewQueues';
+import { NOWHERE } from '../viewQueue';
 
 /** A session with no terminals of Codealong's own: one list, so its panel isn't drawn again for
  *  a new empty one with every board. */
@@ -98,7 +110,7 @@ export interface MainPanelProps {
   todosFor: (key: string) => Todo[] | undefined;
   prRowOf: (pr: PrItem) => PrRowItem;
   pickedRows: TodoItem[];
-  todo: Pick<TodoView, 'startForTodo' | 'startForTodos' | 'todoMenu' | 'todoLinkMenu' | 'todoMoreMenu' | 'labelMenu' | 'projectsForTodos' | 'duePick' | 'duePicked' | 'selectTodoRow' | 'pickMenu'>;
+  todo: Pick<TodoView, 'startForTodo' | 'startForTodos' | 'todoMenu' | 'todoLinkMenu' | 'todoMoreMenu' | 'labelMenu' | 'projectsForTodos' | 'duePick' | 'duePicked' | 'selectTodoRow' | 'pickMenu' | 'todoEdit'>;
   /** Rows picked together in Sessions (sessions, or worktrees' headings) and in PRs
    *  (useListPicks.ts): their panel shows in place of one row's. */
   picks: ReturnType<typeof useListPicks>;
@@ -108,6 +120,8 @@ export interface MainPanelProps {
   setDrill: (drill: Drill | null) => void;
   /** Sessions' way through what waits on you, which its panel works through. */
   queue: WaitingQueue<boolean>;
+  /** Each view's way through what waits on you, which the strip's Next goes by. */
+  views: ViewQueues;
   /** The row whose panel's box takes the cursor. */
   boxFocus: string | null;
   panelMax: boolean;
@@ -154,8 +168,11 @@ export interface MainPanelProps {
 }
 
 export function MainPanel(props: MainPanelProps) {
-  const { view, selected, selectedLane, canvasPicked, board, now, loading, laneById, homes, devices, projectTodos, todoStore, todoLinks, todosFor, prRowOf, pickedRows, picks, drill, setDrill, queue, boxFocus, panelMax, togglePanelMax, prPanelMax, togglePrPanelMax, actionsRef, open, newSession, newSessionPanel, showLaneFromPanel, showSessionFromPanel, showSchedule, schedulePanel, scheduleSession, showTodoFromPanel, laneMenu, sessionMenu, sessionMenuSpec, lanePrMenu, showPr, prMenu, prChipMenu, reviewMenuFrom, reviewedPr, setPreviewFor, markSeen, setToast, report, findIn } = props;
-  const { startForTodo, startForTodos, todoMenu, todoLinkMenu, todoMoreMenu, labelMenu, projectsForTodos, duePick, duePicked, selectTodoRow, pickMenu } = props.todo;
+  const { view, selected, selectedLane, canvasPicked, board, now, loading, laneById, homes, devices, projectTodos, todoStore, todoLinks, todosFor, prRowOf, pickedRows, picks, drill, setDrill, queue, views, boxFocus, panelMax, togglePanelMax, prPanelMax, togglePrPanelMax, actionsRef, open, newSession, newSessionPanel, showLaneFromPanel, showSessionFromPanel, showSchedule, schedulePanel, scheduleSession, showTodoFromPanel, laneMenu, sessionMenu, sessionMenuSpec, lanePrMenu, showPr, prMenu, prChipMenu, reviewMenuFrom, reviewedPr, setPreviewFor, markSeen, setToast, report, findIn } = props;
+  const { startForTodo, startForTodos, todoMenu, todoLinkMenu, todoMoreMenu, labelMenu, projectsForTodos, duePick, duePicked, selectTodoRow, pickMenu, todoEdit } = props.todo;
+  // What the strip's Next goes by in this view, or why it goes nowhere.
+  const viewQueue = views.strip(view);
+  const nowhere = NOWHERE[view];
   const runTodo = todoStore.run;
   const { run: runQueue } = queue;
   // Whether the panel shows a session's strip now, set as it renders: Sessions' panel can show a
@@ -187,11 +204,28 @@ export function MainPanel(props: MainPanelProps) {
     open(lane, session.openTarget);
   };
 
+  /** The strip over a todo's panel: Start (⌘N), Done (⇧⌘E), Snooze (⌃⌘1–7) and Due…, and Next
+   *  through the todos that wait on you. Done or snoozed, one that waits goes on to the next, as a
+   *  session's does in Sessions; one that doesn't stays. */
+  const todoStrip = (item: TodoItem) => {
+    const t = item.todo;
+    const left = (done: menus.Left) => void views.todos.left(t.id, done);
+    const done = () => {
+      todoEdit.run({ op: 'update', id: t.id, patch: { status: 'done' } });
+      left('done');
+    };
+    const snooze = todoSnoozeMenu(t, now, (act) => {
+      todoLeftAhead([t.id], act.then(() => null)).catch((e: unknown) => setToast(errorText(e)));
+      left('snoozed');
+    }, true);
+    return <TodoStrip todo={t} lane={item.lane} actions={{ start: () => startForTodo(item), done: t.status === 'done' ? undefined : done, snooze, due: dueItem([t], todoEdit) }} queue={viewQueue} hotkeys={{ nowhere }} panel />;
+  };
   const todoPanel = (item: TodoItem) =>
     drilledPanel(item.key, middleTruncate(item.todo.title, 40)) ?? (
     <PeekOnHover.Provider value={peekFromPanel}>
       <TodoPanel
         key={item.todo.id}
+        strip={todoStrip(item)}
         item={item}
         todos={todoStore.todos}
         onShowTodo={showTodoFromPanel}
@@ -254,12 +288,19 @@ export function MainPanel(props: MainPanelProps) {
         maximized={max?.on}
         onMaximize={max?.toggle}
         back={back}
+        queue={viewQueue}
+        nowhere={nowhere}
       />
     </PeekOnHover.Provider>
   );
   const inspector = (lane: Lane | null, focusKey: string | null, back?: PanelBackTo) => (
     <Inspector
       back={back}
+      queue={viewQueue}
+      nowhere={nowhere}
+      // The window's keys for a worktree are the selected row's: this one's in Sessions, shown
+      // for its own row.
+      keys={view === 'sessions' && !back && !!lane && lane.id === selectedLane?.id}
       lane={lane}
       focusKey={focusKey}
       apps={board?.apps ?? { terminal: 'Terminal', terminalId: '', editor: 'Editor', editorId: '' }}
@@ -319,11 +360,13 @@ export function MainPanel(props: MainPanelProps) {
           const said = `Didn’t send to ${session.title}, so it’s back in its box: ${why}`;
           if (!stripShown.current || !queue.say({ text: said, error: true })) setToast(said);
         }}
-        queue={queued ? queue.queue : undefined}
+        // In Sessions it goes through the sessions that wait on you; elsewhere through what the
+        // view does (Kanban's todos), or nowhere.
+        queue={viewQueue}
         notice={queued ? queue.notice : null}
-        // In Sessions the strip is always there, with what's commonly done to a session and the
-        // keys for it. Back and forward are in the title bar.
-        hotkeys={row !== undefined ? {} : undefined}
+        // The strip is always there, with what's commonly done to a session and the keys for it.
+        // Back and forward are in the title bar.
+        hotkeys={{ nowhere }}
         // Everywhere, for what its header's boxes offer (Carry on, a move to another account) and
         // its account's menu in the box; the strip that also reads them is Sessions' alone.
         actions={actionsRef.current.session(lane, session, 'session')}

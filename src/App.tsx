@@ -94,6 +94,7 @@ import { askWords, reviewSnoozeMenu, type SnoozeAsk } from './snooze';
 import { useSessionHistory } from './history';
 import { inOrder, QUEUE_CHORDS, queueKinds } from './queue';
 import { SESSION_READS, shownSession as queueShown, useWaitingQueue } from './useWaitingQueue';
+import { useViewQueues } from './useViewQueues';
 import { openWhere, where } from './open';
 import { asText, flag, oneOf, readStored, strings, useStored } from './stored';
 import { useBoard } from './useBoard';
@@ -934,6 +935,7 @@ export function App() {
     moveTodo,
     todoMenuItems,
     todoKeys,
+    todoEdit,
   } = useTodoView({
     store: todoStore,
     selected,
@@ -1370,6 +1372,30 @@ export function App() {
     leftStays: true,
   });
   const { run: runQueue, left: leftQueue, say: sayQueue } = queue;
+  // Next in PRs, Todo and Kanban, and on from each view to the next where its own run out
+  // (useViewQueues.ts), the strip over every panel going by it.
+  const viewQueues = useViewQueues<SessionItem>({
+    view,
+    selected,
+    board,
+    project: current,
+    now,
+    prListed: prVisible,
+    todoListed: todoVisible,
+    kanbanListed: kanbanVisible,
+    sessions: {
+      waiting: waitingRows,
+      reads: inOrder(SESSION_READS, queueKinds(board?.queue?.order)),
+      queue,
+      show: (row) => {
+        setBoxFocus(row.key);
+        setSelectedKey(row.key);
+      },
+    },
+    setView,
+    select: setSelectedKey,
+  });
+  const stepView = useLatest(viewQueues.step);
   /** A session's menu, its chords or the strip's buttons took it off what waits on you (snoozed,
    *  closed, archived, marked seen): from the one shown in Sessions, on to the next that waits, as
    *  ⌘E goes, the keyboard staying where it was. */
@@ -1947,6 +1973,7 @@ export function App() {
     actionsRef,
     openSettings,
     runQueue,
+    stepView,
     toggleSidebar,
     pickProject,
     startForTodos,
@@ -2900,10 +2927,11 @@ export function App() {
             prRowOf={prRowOf}
             pickedRows={pickedRows}
             picks={picks}
-            todo={{ startForTodo, startForTodos, todoMenu, todoLinkMenu, todoMoreMenu, labelMenu, projectsForTodos, duePick, duePicked, selectTodoRow, pickMenu }}
+            todo={{ startForTodo, startForTodos, todoMenu, todoLinkMenu, todoMoreMenu, labelMenu, projectsForTodos, duePick, duePicked, selectTodoRow, pickMenu, todoEdit }}
             drill={drill}
             setDrill={setDrill}
             queue={queue}
+            views={viewQueues}
             boxFocus={boxFocus}
             panelMax={panelMax}
             togglePanelMax={togglePanelMax}

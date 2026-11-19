@@ -1,9 +1,7 @@
 // A todo that waits on you, as a card: in the notch under its pills (NotchTodo.tsx), where the
 // queue reaches the todos due today or before and, once nothing else waits, the ones ready to
-// start (bar.ts `notchRows`). It's the strip every card has (SessionPanel.tsx `QueueStrip`), with
-// what's commonly done to a todo in place of a session's: Start (⌘⏎), Done (⇧⌘E), Snooze (⌃⌘1 to
-// ⌃⌘7, out of what waits until then, its due date as it is) and Due…, each a button that says its
-// key; then the todo as the main window's panel shows it (TodoPanel.tsx), its changes saved as
+// start (bar.ts `notchRows`). It's the strip a todo has wherever it shows (TodoStrip.tsx): Start
+// (⌘⏎), Done (⇧⌘E), Snooze (⌃⌘1 to ⌃⌘7) and Due…; then the todo as the main window's panel shows it (TodoPanel.tsx), its changes saved as
 // you go through the window's store (todos.ts `useTodoStore`), which shows them at once; then a
 // box that starts a session on it, on the account the agent menu picks (Auto as the quick panel
 // has it, useStartChoice.ts), in the worktree it's linked to, told the todo's prompt and what
@@ -20,9 +18,9 @@ import { showQuick, startSession, todoOp } from '../api';
 import { useLatest } from '../latest';
 import { sessionHomes } from '../lanes';
 import * as menus from '../menus';
-import { chordPressed, cmd, held, keysSaid } from '../platform';
+import { cmd, keysSaid } from '../platform';
 import { errorText, type Report } from '../report';
-import { snoozeChorded, todoSnoozeMenu } from '../snooze';
+import { todoSnoozeMenu } from '../snooze';
 import { AUTO, agentId, autoGroupIn } from '../start';
 import { useStartOptions } from '../startAccounts';
 import { primaryHolds, todoItem, todosPrompt, type TodoOp } from '../todos';
@@ -33,7 +31,8 @@ import { AgentMenu } from './AgentMenu';
 import { reloadKey, zoomKey } from './cardHost';
 import { dialogUp } from './focusTrap';
 import { BoxText, Button } from './primitives';
-import { QueueStrip, snoozeKeys, snoozeRange, type Hotkeys, type Notice, type Queue, type StripAction } from './SessionPanel';
+import type { Hotkeys, Notice, Queue } from './SessionPanel';
+import { TodoStrip } from './TodoStrip';
 import { TodoPanel } from './TodoPanel';
 
 /** What the window that shows the card does for it. */
@@ -134,11 +133,11 @@ export function TodoCard({ todo, todos, labels, run, lanes, usage, projects, now
   // Start, from the strip, the panel and ⌘⏎: from the box in its worktree, else the quick panel.
   const start = () => (item.lane ? starting.start() : void showQuick({ todo: todo.id, project: todo.project || null }).catch((e: unknown) => report.error(errorText(e))));
 
-  // Done, the snooze times and ⌘⏎ are the card's keys while it shows, as a PR's are its strip's,
-  // ⌘⏎ the box's too: one handler, so it's the same wherever the cursor is. ⌘⏎ in a field of the
-  // panel (its title, its description) is the field's when it takes it. The zoom's keys and ⌘R
-  // are every card's (cardHost.ts).
-  const latest = useLatest({ done, snooze, start, report });
+  // ⌘⏎ starts while it shows, the box's key too: one handler, so it's the same wherever the cursor
+  // is. ⌘⏎ in a field of the panel (its title, its description) is the field's when it takes it.
+  // Done and the snooze times are its strip's (TodoStrip.tsx). The zoom's keys and ⌘R are every
+  // card's (cardHost.ts).
+  const latest = useLatest({ start, report });
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (e.defaultPrevented || e.isComposing || dialogUp()) return;
@@ -146,36 +145,19 @@ export function TodoCard({ todo, todos, labels, run, lanes, usage, projects, now
         e.preventDefault();
         return;
       }
-      if (chordPressed(menus.CHORDS.done ?? '', e)) {
-        e.preventDefault();
-        latest.current.done();
-        return;
-      }
       if (e.key === 'Enter' && cmd(e) && !e.shiftKey && !e.altKey) {
         e.preventDefault();
         latest.current.start();
-        return;
-      }
-      const time = snoozeChorded(latest.current.snooze, e.key);
-      if (time && held(e, 'Ctrl', 'Cmd')) {
-        e.preventDefault();
-        time.run();
       }
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
   }, [latest]);
 
-  const buttons: StripAction[] = [
-    { label: 'Start', keys: keysSaid('⌘⏎'), title: sending ? 'A session is starting on it' : item.lane ? `Start a session on it in ${item.lane.callsign}, with what’s written in the box at its foot` : 'It’s linked to no worktree: the quick panel asks where to start it', run: sending ? undefined : start },
-    { label: 'Done', chord: menus.CHORDS.done, title: sending ? 'A session is starting on it: mark it done once it has' : 'Mark it done: it leaves what waits on you', run: todo.status === 'done' || sending ? undefined : done },
-    { label: 'Snooze', keys: snoozeRange(), title: `Snooze it: it waits apart until its time comes, its due date as it is. ${snoozeKeys(snooze)}`, menu: snooze.items },
-    { label: 'Due…', title: 'When it’s due', menu: due.items },
-  ];
 
   return (
     <div className="ca-reply ca-todocard" style={cardZoom(zoom)}>
-      <QueueStrip queue={queue} notice={notice} hotkeys={hotkeys} buttons={buttons} />
+      <TodoStrip todo={todo} lane={item.lane} actions={{ start, done: todo.status === 'done' || sending ? undefined : done, snooze, due }} sending={sending} queue={queue} notice={notice} hotkeys={hotkeys} />
       <div className="ca-todocard-body">
         <TodoPanel
           item={item}

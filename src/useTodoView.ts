@@ -440,5 +440,6 @@ export function useTodoView(input: TodoViewInput) {
     moveTodoAmong,
     todoMenuItems,
     todoKeys,
+    todoEdit,
   };
 }

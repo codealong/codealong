@@ -230,6 +230,10 @@ export const QUEUE_CHORDS: Record<QueueAction, readonly string[]> = {
   historyForward: ['Ctrl+Shift+-'],
 };
 
+/** A todo's row key, where a window's rows hold todos among sessions and PRs (the notch's, the
+ *  waiting window's): apart from any session's or PR's. */
+export const todoRowKey = (id: string) => `todo:${id}`;
+
 /** Escape puts away a session that can be put away (the notch's). It's each window's own key,
  *  not a step through the queue; the strip's × says it from here. */
 export const AWAY_CHORD = 'Esc';

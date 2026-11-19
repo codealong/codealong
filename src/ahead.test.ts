@@ -267,6 +267,16 @@ describe('boardAhead', () => {
     expect(out.logoStatus).toBe('idle');
   });
 
+  it('takes a todo done, snoozed or started out of the todos that wait on you', () => {
+    const todo = (id: string) => ({ id, title: id, project: 'P', callsign: null, due: null, since: NOW, order: 0 });
+    const board = fx.board({ lanes: [lane([session('a', 'idle')])], todoQueue: { due: [todo('due'), todo('both')], ready: [todo('ready')] } });
+    const out = boardAhead(board, [change({ kind: 'todo-left', ids: ['due', 'ready'] })]);
+    expect(out.todoQueue).toEqual({ due: [todo('both')], ready: [] });
+    expect(out.lanes).toBe(board.lanes);
+    // One the lists don't have changes nothing.
+    expect(boardAhead(board, [change({ kind: 'todo-left', ids: ['gone'] })])).toBe(board);
+  });
+
   it('shows a PR merged as it’s asked, out of what waits on your review', () => {
     const asked = fx.prItem({ number: 1, reviewRequested: true, state: 'approved', mergedAt: null, closedAt: null });
     const other = fx.prItem({ number: 2 });

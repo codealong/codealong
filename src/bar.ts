@@ -4,7 +4,7 @@
 
 import { withTimes } from './format';
 import { ALL_PROJECTS, inProject } from './quick';
-import { countedKinds, inOrder, inQueueOrder, statusWaits, WAITS, type Reads, type Waits } from './queue';
+import { countedKinds, inOrder, inQueueOrder, statusWaits, todoRowKey, WAITS, type Reads, type Waits } from './queue';
 import type { BarGroup, BarItem, BarReview, BarTodo } from './types';
 
 export type Group = BarGroup;
@@ -269,8 +269,7 @@ export type NotchRow =
   | { kind: 'review'; key: string; review: BarReview }
   | { kind: 'todo'; key: string; todo: BarTodo; waits: 'due' | 'ready' };
 
-/** A todo's row key. */
-export const todoRowKey = (id: string) => `todo:${id}`;
+export { todoRowKey };
 
 /** How the queue (queue.ts) reads the notch's rows: a pill carries its session's key and times
  *  without the session, a review the PR's. */

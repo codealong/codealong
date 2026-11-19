@@ -63,6 +63,10 @@ describe('queueWords', () => {
     expect(queueWords({ ...queue(0, true), ready: 1 })).toBe('1 ready todo · next: Release notes');
   });
 
+  it('says what the view ran out of, and where Next goes on', () => {
+    expect(queueWords({ next: { title: '2 sessions in Sessions' }, waiting: false, elsewhere: 'Nothing else waits in PRs', onNext: () => {} })).toBe('Nothing else waits in PRs · next: 2 sessions in Sessions');
+  });
+
   it('says nothing with nothing after it', () => {
     expect(queueWords(undefined)).toBe('');
     expect(queueWords({ next: null, left: 0, onNext: () => {} })).toBe('');

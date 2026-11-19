@@ -2,13 +2,22 @@
 // header's first line, beside its icon), what it does and what it's told, which of your machines
 // runs it next, how its watch's last look went, the session it keeps going, and its latest runs,
 // each with why it ran, how it went and on which machine, its session a click away. Run now,
-// Pause and Edit are its buttons; its menu (menus.ts `scheduleMenu`) has those and the rest.
+// Pause and Edit are on the strip over it, as what's commonly done to a session, a PR or a todo is
+// over theirs (SessionPanel.tsx `QueueStrip`), whose Next stays dimmed: schedules don't wait on
+// you. Its menu (menus.ts `scheduleMenu`) has those and the rest.
 
 import { absolute, ago, agoPhrase, tildePath } from '../format';
 import { HARNESS_APP, HARNESS_WORD } from '../harness';
 import { nextWords, OUTCOME_ICON, OUTCOME_WORD, scheduleName, whenIcon } from '../schedules';
 import type { HarnessSchedule, Lane, ScheduleItem, Session } from '../types';
 import { Button, Icon, SessionEmblem, SessionGlyph, cx, headerMenu } from './primitives';
+import { QueueStrip, type StripAction } from './SessionPanel';
+import { NOWHERE } from '../viewQueue';
+
+/** The strip over a schedule's panel, its Next dimmed: there's no order to go through. */
+function ScheduleStrip({ buttons, of }: { buttons: StripAction[]; of: string }) {
+  return <QueueStrip hotkeys={{ nowhere: NOWHERE.schedules }} buttons={buttons} of={of} />;
+}
 
 export interface SchedulePanelProps {
   item: ScheduleItem | null;
@@ -60,6 +69,10 @@ export function HarnessSchedulePanel({ item: h, now, sessionOf, onShowSession, o
   const next = h.paused ? 'Paused' : nextWords({ paused: false, nextAt: h.nextAt, when: { kind: 'time', rule: '' } }, now);
   return (
     <aside className="ca-insp ca-schedinsp" aria-label="Schedule details">
+      <ScheduleStrip
+        of="this schedule"
+        buttons={[{ label: h.link ? `Open in ${HARNESS_APP[h.harness]}` : 'Open its session', title: h.link ? `Open it in ${HARNESS_APP[h.harness]}` : session ? 'Open its session where it runs' : 'Its session isn’t on the board', run: h.link || session ? onOpen : undefined }]}
+      />
       <header>
         <div className="ca-insp-title">
           <Icon name="clock" size={14} />
@@ -73,13 +86,6 @@ export function HarnessSchedulePanel({ item: h, now, sessionOf, onShowSession, o
           </span>
         </div>
       </header>
-      {(h.link || session) && (
-        <div className="ca-insp-actions">
-          <Button icon="external" title={h.link ? `Open it in ${HARNESS_APP[h.harness]}` : 'Open its session where it runs'} onClick={onOpen}>
-            {h.link ? `Open in ${HARNESS_APP[h.harness]}` : 'Open its session'}
-          </Button>
-        </div>
-      )}
       {h.problem && (
         <div className="ca-schedproblem" role="alert">
           <Icon name="alert" size={14} />
@@ -130,6 +136,14 @@ export function SchedulePanel({ item, now, sessionOf, onShowSession, onRun, onPa
   );
   return (
     <aside className="ca-insp ca-schedinsp" aria-label="Schedule details">
+      <ScheduleStrip
+        of="this schedule"
+        buttons={[
+          { label: 'Run now', title: 'Run it now, as its time coming would', run: onRun },
+          { label: s.paused ? 'Resume' : 'Pause', title: s.paused ? 'Let it run again from its next time' : 'Nothing runs it until you resume it', run: () => onPause(!s.paused) },
+          { label: 'Edit', title: 'Change when it runs and what it does', run: onEdit },
+        ]}
+      />
       <header onContextMenu={headerMenu(() => onMenu())}>
         <div className="ca-insp-title">
           <Icon name={whenIcon(s.when)} size={14} />
@@ -149,17 +163,6 @@ export function SchedulePanel({ item, now, sessionOf, onShowSession, onRun, onPa
           {maker ? <span>by an agent, “{maker.session.title}”</span> : s.createdBy ? <span>by an agent</span> : null}
         </div>
       </header>
-      <div className="ca-insp-actions">
-        <Button icon="player-play" title="Run it now, as its time coming would" onClick={onRun}>
-          Run now
-        </Button>
-        <Button icon={s.paused ? 'player-play' : 'player-pause'} title={s.paused ? 'Let it run again from its next time' : 'Nothing runs it until you resume it'} onClick={() => onPause(!s.paused)}>
-          {s.paused ? 'Resume' : 'Pause'}
-        </Button>
-        <Button icon="pencil" title="Change when it runs and what it does" onClick={onEdit}>
-          Edit
-        </Button>
-      </div>
       {s.problem && (
         <div className="ca-schedproblem" role="alert">
           <Icon name="alert" size={14} />

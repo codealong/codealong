@@ -15,7 +15,7 @@
 
 use std::collections::HashMap;
 
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 
 use crate::config::Theme;
 use crate::model::{Board, DeviceTag, LogoStatus, PrItem, Status};
@@ -83,7 +83,8 @@ pub struct BarFeed {
     /// Todos ready to start (not started, and waiting on nothing), in your order, but the ones
     /// in `due` and the ones snoozed.
     pub todos: Vec<BarTodo>,
-    /// Todos that wait on you by their due date (`todo_lists`): the most overdue first.
+    /// Todos that wait on you by their due date (`todo_lists`): the most overdue first. Both
+    /// lists are the board's (`Board::todo_queue`).
     pub due: Vec<BarTodo>,
     /// What waits on you, in the order the queue goes to it (`[queue] order`, config.rs
     /// `QueueCfg::kinds`): the notch works through its rows and draws its count by it. The
@@ -213,7 +214,7 @@ pub struct BarReview {
     pub first: bool,
 }
 
-#[derive(Serialize, Clone, Debug, PartialEq)]
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
 #[serde(rename_all = "camelCase")]
 pub struct BarTodo {
     pub id: String,
@@ -230,6 +231,25 @@ pub struct BarTodo {
     pub since: i64,
     /// Its place in your order, which the queue goes by for ready todos (src/queue.ts `byPlace`).
     pub order: usize,
+}
+
+/// The todos that wait on you (`todo_lists`), worked out once as the board is composed
+/// (`Board::todo_queue`): the bar's feed takes them from there, and so do the windows that go
+/// through them, the main window's Todo panel and the waiting window, so all of them go by one
+/// rule.
+#[derive(Serialize, Deserialize, Clone, Debug, Default, PartialEq)]
+#[serde(default)]
+pub struct TodoQueue {
+    /// Due by `[queue] due_within` days from today: the most overdue first.
+    pub due: Vec<BarTodo>,
+    /// Ready to start but for those, in your order.
+    pub ready: Vec<BarTodo>,
+}
+
+/// The board's `TodoQueue`, on the day it says it is (one from before it did goes by the clock).
+pub fn todo_queue(board: &Board) -> TodoQueue {
+    let (due, ready) = todo_lists(board, due_day(&board.today).unwrap_or_else(crate::util::today_local));
+    TodoQueue { due, ready }
 }
 
 /// The bar's feed, from the board and the worktrees of your other devices connected now. Status
@@ -338,8 +358,6 @@ pub fn feed(shown: Shown) -> BarFeed {
         })
         .collect();
 
-    // The board says what day it is here; one from before it did goes by the clock.
-    let (due, ready) = todo_lists(board, due_day(&board.today).unwrap_or_else(crate::util::today_local));
     let mut devices: Vec<String> = there.iter().filter_map(|l| l.device.as_ref().map(|d| d.short.clone())).collect();
     devices.sort();
     devices.dedup();
@@ -358,8 +376,8 @@ pub fn feed(shown: Shown) -> BarFeed {
         recent: recent.into_iter().map(|(_, item)| item).collect(),
         snoozed: snoozed.into_iter().map(|(_, item)| item).collect(),
         reviews,
-        todos: ready,
-        due,
+        todos: board.todo_queue.ready.clone(),
+        due: board.todo_queue.due.clone(),
         queue_order: board.queue.kinds(),
         devices,
         // By when each began, so the one the bar names first stays the same one.
@@ -768,21 +786,25 @@ mod tests {
         // Ready but for the due ones and the snoozed one, in your order, each with its place in it.
         assert_eq!(ids(&ready), vec!["later", "plain"]);
         assert_eq!(ready.iter().map(|t| t.order).collect::<Vec<_>>(), vec![11, 16]);
-        // The feed goes by the day the board says it is.
+        // The feed takes them from the board, which goes by the day it says it is.
+        let fed = |b: &mut Board| {
+            b.todo_queue = todo_queue(b);
+            feed(Shown::here(b))
+        };
         b.today = "2026-11-19".into();
-        assert_eq!(ids(&feed(Shown::here(&b)).due), vec!["overdue", "edited", "left-off", "idle", "nap", "woke", "today", "later"]);
+        assert_eq!(ids(&fed(&mut b).due), vec!["overdue", "edited", "left-off", "idle", "nap", "woke", "today", "later"]);
         // `[queue] due_within` brings one in that many days ahead of its day.
         b.today = "2026-11-18".into();
         b.queue.due_within = 1;
-        assert_eq!(ids(&feed(Shown::here(&b)).due), vec!["overdue", "edited", "left-off", "idle", "nap", "woke", "today", "later"]);
+        assert_eq!(ids(&fed(&mut b).due), vec!["overdue", "edited", "left-off", "idle", "nap", "woke", "today", "later"]);
         // With due ones left out, one that's ready to start is among the ready ones, in your order.
         b.queue.order = vec!["needs".into(), "reviews".into(), "unread".into(), "ready".into()];
-        let f = feed(Shown::here(&b));
+        let f = fed(&mut b);
         assert!(f.due.is_empty(), "{:?}", f.due);
         assert_eq!(ids(&f.todos), vec!["today", "later", "woke", "plain"]);
         // With ready ones left out, only the due ones wait.
         b.queue.order = vec!["needs".into(), "due".into(), "unread".into()];
-        let f = feed(Shown::here(&b));
+        let f = fed(&mut b);
         assert!(f.todos.is_empty(), "{:?}", f.todos);
         assert_eq!(ids(&f.due), vec!["overdue", "edited", "left-off", "idle", "nap", "woke", "today", "later"]);
     }
@@ -807,6 +829,7 @@ mod tests {
             todo("finished", serde_json::json!({ "status": "done" })),
             todo("unblocked", serde_json::json!({ "dependsOn": ["finished"], "sessions": ["s3", "s2"] })),
         ];
+        b.todo_queue = todo_queue(&b);
         let got: Vec<(String, String, Option<String>)> = feed(Shown::here(&b)).todos.into_iter().map(|t| (t.id, t.project, t.callsign)).collect();
         assert_eq!(
             got,

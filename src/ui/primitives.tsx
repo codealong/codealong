@@ -955,13 +955,14 @@ export interface PanelBackTo {
   title?: string;
 }
 
-/** The way back to the panel this one shows in place of, over its header: a session shown from a
- *  PR's or todo's panel, a PR from a session's, worktree's or todo's. */
-export function PanelBack({ back }: { back: PanelBackTo }) {
+/** The way back to the panel this one shows in place of: a session shown under a schedule, a PR
+ *  from a session's, worktree's or todo's chip, a worktree from any of them. At the start of the
+ *  strip over it where it has one (`strip`, SessionPanel.tsx `QueueStrip`), else over its header. */
+export function PanelBack({ back, strip = false }: { back: PanelBackTo; strip?: boolean }) {
   return (
-    <button type="button" className="ca-linkbtn ca-panelback" title={back.title ?? `Back to ${back.label}`} onClick={back.onBack}>
+    <button type="button" className={cx('ca-linkbtn', 'ca-panelback', strip && 'is-strip')} title={back.title ?? `Back to ${back.label}`} onClick={back.onBack}>
       <Icon name="chevron-left" size={12} />
-      {back.label}
+      <span>{back.label}</span>
     </button>
   );
 }

@@ -1,10 +1,11 @@
 // The waiting window's page (waiting.rs has its window): what waits on you, one at a time, in a
 // window of its own that you size and keep where you like. It shows the first session that needs
 // you, with its conversation and the box that answers it (SessionCard.tsx), or a PR waiting on
-// your review with the box that reviews it (PrCard.tsx), and goes on to the next as each is dealt
+// your review with the box that reviews it (PrCard.tsx), or a todo due with the box that starts a
+// session on it (TodoCard.tsx, as the notch shows one), and goes on to the next as each is dealt
 // with: every session in every project that needs you, then the PRs waiting on your review, then
-// the sessions whose turn ended, each the longest wait first (quick.ts `queueRows`, queue.ts
-// `byPlace`), snoozed ones left out. With nothing waiting it says so, and once you're through
+// the todos due, then the sessions whose turn ended, by default (`[queue] order`), each the
+// longest wait first (quick.ts `windowRows`, queue.ts `byPlace`), snoozed ones left out. With nothing waiting it says so, and once you're through
 // with the last one, how that went (QueueEnd.tsx, as the notch says it); the first that comes to
 // wait on you then shows by itself.
 //
@@ -43,11 +44,14 @@ import * as menus from '../menus';
 import { clearNotice, failedNotice, reportNotice } from '../notices';
 import { openWhere, where } from '../open';
 import { prRefOf } from '../prLinks';
-import { ALL_PROJECTS, attentionRows, QUEUE_READS, queueReads, queueRows, reviewSince, type QueueRow } from '../quick';
+import { ALL_PROJECTS, attentionRows, reviewSince, WINDOW_READS, windowReads, windowRows, type WindowRow } from '../quick';
+import { todoRowKey } from '../queue';
+import { todoProjects, useTodoStore } from '../todos';
+import { TodoCard, type TodoCardCan } from './TodoCard';
 import { errorText, type Report } from '../report';
 import { reuse } from '../reuse';
 import { repoReviews } from '../repoSettings';
-import type { Board, Lane, PrItem, Session } from '../types';
+import type { Board, Lane, PrItem, Session, Todo } from '../types';
 import { useDeviceLanes, useDevices, useObserve } from '../useDevices';
 import { shownSession, useWaitingQueue } from '../useWaitingQueue';
 import { reloadCard } from './cardHost';
@@ -135,15 +139,19 @@ export function Waiting() {
   }, [everywhere, key]);
   // A PR waiting on your review, or one shown from a session's chip, while the board lists it.
   const reviewing = useMemo(() => (board && key && !replying ? (board.prs.find((p) => p.key === key) ?? null) : null), [board, key, replying]);
+  // A todo due, by its row's key, while the board has it, with the changes made here shown at
+  // once (todos.ts `useTodoStore`).
+  const todoStore = useTodoStore(board, (message) => way.say({ text: message, error: true }));
+  const todoing = useMemo(() => (key?.startsWith('todo:') ? (todoStore.todos.find((t) => todoRowKey(t.id) === key) ?? null) : null), [key, todoStore.todos]);
   const cameFrom = from && from.pr === key ? from : null;
   // What it works through. Snoozed ones wait their time (quick.ts `groupOf`).
-  const queue = useMemo(() => (everywhere ? queueRows(everywhere, ALL_PROJECTS) : []), [everywhere]);
+  const queue = useMemo(() => (everywhere ? windowRows(everywhere, ALL_PROJECTS) : []), [everywhere]);
   // How many sessions are at work, for the end of what waits to say, as the quick panel counts them.
   const working = useMemo(() => (everywhere ? attentionRows(everywhere, ALL_PROJECTS).counts.working : 0), [everywhere]);
   // What ⌃- and ⌃⇧- can go to: whatever the board still lists, archived sessions too, since Mark
   // as done archives the one it goes on from.
-  const answerable = useMemo(() => new Set(everywhere ? [...everywhere.lanes.flatMap((l) => l.sessions.map((s) => s.key)), ...everywhere.prs.map((p) => p.key)] : []), [everywhere]);
-  const shownKey = replying?.session.key ?? reviewing?.key ?? null;
+  const answerable = useMemo(() => new Set(everywhere ? [...everywhere.lanes.flatMap((l) => l.sessions.map((s) => s.key)), ...everywhere.prs.map((p) => p.key), ...everywhere.todos.map((t) => todoRowKey(t.id))] : []), [everywhere]);
+  const shownKey = replying?.session.key ?? reviewing?.key ?? (todoing ? todoRowKey(todoing.id) : null);
   const looked = useSessionHistory(up ? shownKey : null, (k) => answerable.has(k), LOOKED_KEY);
 
   /** Shows a session or a PR here, in place of the one shown: a PR in place of the session `at`,
@@ -156,11 +164,18 @@ export function Waiting() {
     else fromChips.current.delete(k);
   };
 
-  const way = useWaitingQueue<QueueRow>({
+  const dueSince = (id: string) => queue.find((r): r is Extract<WindowRow, { kind: 'todo' }> => r.kind === 'todo' && r.todo.id === id)?.todo.since;
+  const way = useWaitingQueue<WindowRow>({
     waiting: queue,
     along: queue,
-    reads: everywhere ? queueReads(everywhere) : QUEUE_READS,
-    shown: replying ? shownSession(replying.session) : reviewing ? { key: reviewing.key, title: `#${reviewing.number} ${reviewing.title}`, since: reviewSince(reviewing), seenable: false, skipsOnSeen: true } : null,
+    reads: everywhere ? windowReads(everywhere) : WINDOW_READS,
+    shown: replying
+      ? shownSession(replying.session)
+      : reviewing
+        ? { key: reviewing.key, title: `#${reviewing.number} ${reviewing.title}`, since: reviewSince(reviewing), seenable: false, skipsOnSeen: true }
+        : todoing
+          ? { key: todoRowKey(todoing.id), title: todoing.title || 'Untitled todo', since: dueSince(todoing.id), seenable: false, skipsOnSeen: true }
+          : null,
     show: (row) => show(row.key),
     travel: (dir) => {
       const to = dir === 'back' ? looked.goBack() : looked.goForward();
@@ -216,10 +231,10 @@ export function Waiting() {
   const read = readFor === opened;
   const backTo = cameFrom?.key ?? null;
   useEffect(() => {
-    if (!up || !read || !board || board.loading || (key !== null && (replying || reviewing))) return;
+    if (!up || !read || !board || board.loading || (key !== null && (replying || reviewing || todoing))) return;
     setRenameKey(null);
-    setKey(backTo ?? (first ? QUEUE_READS.keyOf(first) : null));
-  }, [up, read, board, key, replying, reviewing, first, backTo]);
+    setKey(backTo ?? (first ? WINDOW_READS.keyOf(first) : null));
+  }, [up, read, board, key, replying, reviewing, todoing, first, backTo]);
 
   /** Done with the one shown and nothing else waits: the window says so, and how it went. */
   const went = (to: 'on' | 'last' | 'stay' | 'away') => {
@@ -316,6 +331,31 @@ export function Waiting() {
     },
   });
 
+  /** What the window does for a todo's card: Done, a snooze or a start goes on to the next that
+   *  waits, one that didn't go comes back with why, and what's around it shows in the main window,
+   *  but its sessions, which show here. */
+  const todoCan = (todo: Todo): TodoCardCan => {
+    const rowKey = todoRowKey(todo.id);
+    return {
+      report,
+      left: (done) => went(way.left(rowKey, done)),
+      failed: (why) => {
+        way.again(rowKey);
+        if (shownNow.current === null) {
+          setKey(rowKey);
+          way.say({ text: why, error: true }, rowKey);
+        } else way.say({ text: why, error: true });
+      },
+      showTodo: (t) => void showMain({ kind: 'todo', id: t.id }),
+      showSession: (_lane, s) => show(s.key),
+      showLane: revealLane,
+      openSession,
+      laneMenu: (l) => showMenu(menus.laneMenu(l, { report, open: openHere, reveal: () => revealLane(l), editors: board ? { apps: board.apps, icons } : undefined, desktop: onDesktop })),
+      sessionMenu: (l, s) => showMenu(sessionMenu(l, s)),
+      todoMenu: (edit, start) => showMenu(menus.todoMenu(todo, { report, start, reveal: () => void showMain({ kind: 'todo', id: todo.id }), edit, desktop: onDesktop })),
+    };
+  };
+
   // PR links in a conversation shown here (PrLink.tsx): a click on one shows the PR here as its
   // chip does, a session on a PR's card shows here too, and Show in Codealong the PR in the main
   // window. A link to a session (SessionLink.tsx) shows it here as well, so it names only what
@@ -363,7 +403,7 @@ export function Waiting() {
   const apps = board?.apps ?? { terminal: 'Terminal', terminalId: '', editor: 'Editor', editorId: '' };
 
   const page = (
-    <div className="ca-waiting" data-tauri-drag-region={replying || reviewing ? undefined : 'deep'}>
+    <div className="ca-waiting" data-tauri-drag-region={replying || reviewing || todoing ? undefined : 'deep'}>
       {replying ? (
         <SessionCard
           lane={replying.lane}
@@ -438,6 +478,23 @@ export function Waiting() {
           onShowLane={revealLane}
           onLaneMenu={(l) => showMenu(menus.laneMenu(l, { report, open: openHere, reveal: () => revealLane(l), editors: board ? { apps: board.apps, icons } : undefined, desktop: onDesktop }))}
           onSessionMenu={(l, s) => showMenu(sessionMenu(l, s))}
+        />
+      ) : todoing && board ? (
+        <TodoCard
+          key={todoing.id}
+          todo={todoing}
+          todos={todoStore.todos}
+          labels={todoStore.labels}
+          run={(op) => void todoStore.run(op)}
+          lanes={board.lanes}
+          usage={board.usage}
+          projects={todoProjects(board.projects)}
+          now={now}
+          zoom={board.zoom}
+          can={todoCan(todoing)}
+          queue={way.queue}
+          notice={way.notice}
+          hotkeys={{ onBack: back, titleBar: true }}
         />
       ) : !board || board.loading ? (
         <Reading what="Reading sessions…" place="waiting" />

@@ -48,7 +48,7 @@ import { SessionTerminal, SessionViewSwitch, showView } from './terminal/Session
 import { cardZoom, scaleOf } from '../zoom';
 import { EditDialog, RewindDialog } from './EditFrom';
 import { MoveDialog } from './MoveAccount';
-import { Button, cx, DialogHostContext, Icon, OneLine, Rich, useDialogPlace } from './primitives';
+import { Button, cx, DialogHostContext, Icon, OneLine, PanelBack, Rich, useDialogPlace, type PanelBackTo } from './primitives';
 import { runFolder } from './RunButton';
 import { SessionHeader, type SessionHeaderProps } from './SessionHeader';
 import { Reply } from './SessionReply';
@@ -73,6 +73,9 @@ export interface Queue {
   /** False when the session shown isn't itself one of those waiting (it runs, say): the strip
    *  still goes on to them, but sending doesn't go on. */
   waiting?: boolean;
+  /** What the main window's view has run out of, where Next goes on to another view's (`next`
+   *  is then what waits there): `Nothing else waits in PRs`. */
+  elsewhere?: string;
 }
 
 /** The strip with what's commonly done to a session, each with its key, where the window is
@@ -83,9 +86,11 @@ export interface Hotkeys {
   onBack?: (() => void) | null;
   /** Puts the session away (esc), where it can be. */
   onClose?: () => void;
-  /** False where the strip has no Next (⌘]): over a PR's panel in the main window, whose list
-   *  works through what waits on you for itself. */
+  /** False where the strip has no Next (⌘]). */
   next?: boolean;
+  /** Why Next does nothing where what's shown has nothing to go through (a schedule, the
+   *  canvas): it stays in its place, dimmed, saying so. */
+  nowhere?: string;
   /** The strip is its window's title bar (the waiting window has no other): it drags the window,
    *  and leaves room at its start for the window's buttons. */
   titleBar?: boolean;
@@ -146,6 +151,7 @@ function StripNote({ notice, queue }: { notice: Notice | null | undefined; queue
  *  shown, and which goes next, so where Next (⌘]) goes reads without the pointer on it. */
 export function queueWords(queue: Queue | undefined): string {
   if (!queue?.next) return '';
+  if (queue.elsewhere) return `${queue.elsewhere} · next: ${queue.next.title}`;
   const ready = queue.ready ? `${queue.ready} ready ${queue.ready === 1 ? 'todo' : 'todos'}` : '';
   if (queue.left) return [`${queue.left} ${queue.waiting === false ? '' : 'more '}waiting · next: ${queue.next.title}`, ready && `then ${ready}`].filter(Boolean).join(' · ');
   return ready && `${ready} · next: ${queue.next.title}`;
@@ -324,13 +330,19 @@ interface QueueStripProps {
   /** What's commonly done to the thing shown, where it isn't a session (a PR waiting on your
    *  review, PrCard.tsx): in place of the session's five. */
   buttons?: StripAction[];
+  /** What the thing shown is, for the buttons' name: `this PR`. */
+  of?: string;
+  /** Shown in place of another panel or card (a PR from a session's chip): the way back to it, at
+   *  the strip's start where the queue's words would be, so what's under the strip starts where
+   *  it always does. */
+  back?: PanelBackTo;
 }
 
 /** Above a session answered in turn: how the one before went, and the way on to the next (⌘]).
  *  With `hotkeys` it's always there, and has what's commonly done to the session as buttons that
  *  say their keys, the ones the session's menu runs (menus.ts); the keys for back, next and
  *  putting it away are the queue's (queue.ts). */
-export function QueueStrip({ queue, notice, hotkeys, session, actions, onSeen, buttons: own }: QueueStripProps) {
+export function QueueStrip({ queue, notice, hotkeys, session, actions, onSeen, buttons: own, of = 'this session', back }: QueueStripProps) {
   const next = queue?.next;
   const [nextKey, nextToo] = queueSigns('next');
   const stripRef = useRef<HTMLDivElement>(null);
@@ -387,14 +399,14 @@ export function QueueStrip({ queue, notice, hotkeys, session, actions, onSeen, b
   const over = strip.slice(shown);
   const gap = <span className="ca-hotkeys-gap" aria-hidden="true" />;
   const buttons: ReactNode = (
-    <div className="ca-hotkeys" role="toolbar" aria-label={own ? 'What’s commonly done to this PR' : 'What’s commonly done to this session'}>
+    <div className="ca-hotkeys" role="toolbar" aria-label={`What’s commonly done to ${of}`}>
       {strip.map((action, i) => (
         <Hotkey key={action.label} label={action.label} icon={action.icon} keys={action.keys ?? (action.chord && chordSigns(action.chord))} title={action.title} run={action.menu ? drop(action.menu) : action.run} room={action.roomy ? fit.room : undefined} className={cx('is-foldable', i >= shown && 'is-folded')} />
       ))}
       <Hotkey icon="dots" title={over.length ? `More: ${over.map((action) => action.label).join(', ')}` : 'More'} run={over.length ? drop(over.map(itemOf)) : undefined} className={cx('is-more', !over.length && 'is-folded')} />
       {(hotkeys.onBack !== undefined || hotkeys.next !== false) && gap}
       {hotkeys.onBack !== undefined && <Hotkey label="Back" keys={queueSigns('historyBack')[0]} title={`Back to the session you looked at before; ${queueSigns('historyForward')[0]} goes forward again`} run={hotkeys.onBack ?? undefined} />}
-      {hotkeys.next !== false && <Hotkey label="Next" keys={nextKey} title={next ? `Next that waits on you: ${next.title}. ${nextToo} goes on too, and ${queueSigns('back')[0]} back` : 'Nothing else waits on you'} run={next && queue ? () => queue.onNext() : undefined} />}
+      {hotkeys.next !== false && <Hotkey label="Next" keys={nextKey} title={next ? `Next that waits on you: ${next.title}. ${nextToo} goes on too, and ${queueSigns('back')[0]} back` : (hotkeys.nowhere ?? 'Nothing else waits on you')} run={next && queue ? () => queue.onNext() : undefined} />}
       {hotkeys.onClose && (
         <>
           {gap}
@@ -405,7 +417,8 @@ export function QueueStrip({ queue, notice, hotkeys, session, actions, onSeen, b
   );
   return (
     <div ref={stripRef} className={cx('ca-reply-queue', 'has-keys', hotkeys.titleBar && 'is-titlebar')} data-tauri-drag-region={hotkeys.titleBar ? 'deep' : undefined}>
-      <StripNote notice={notice} queue={queue} />
+      {back && <PanelBack back={back} strip />}
+      <StripNote notice={notice} queue={back ? undefined : queue} />
       {buttons}
     </div>
   );
@@ -477,8 +490,9 @@ export function SessionPanel({ variant = 'panel', zoom, queue, notice, hotkeys, 
   const popOut = variant === 'panel' && !away ? header.actions?.window?.run : undefined;
   const body = (
     <>
-          <QueueStrip queue={queue} notice={notice} hotkeys={hotkeys} session={s} actions={header.actions} onSeen={header.onSeen} />
-          <SessionHeader {...header} seenAbove={!!hotkeys} compact={variant === 'card'} accountBelow={replies} inMain={variant === 'panel'} onMove={moves && (() => ask(null))} onPopOut={popOut} />
+          {/* The way back goes on the strip where there's one, else over the header. */}
+          <QueueStrip queue={queue} notice={notice} hotkeys={hotkeys} session={s} actions={header.actions} onSeen={header.onSeen} back={hotkeys ? header.back : undefined} />
+          <SessionHeader {...header} back={hotkeys ? undefined : header.back} seenAbove={!!hotkeys} compact={variant === 'card'} accountBelow={replies} inMain={variant === 'panel'} onMove={moves && (() => ask(null))} onPopOut={popOut} />
           {home && <SessionViewSwitch sessionKey={key} home={home} view={view} />}
           {inTerminal && home && (
             <SessionTerminal

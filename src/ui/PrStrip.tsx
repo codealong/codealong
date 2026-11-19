@@ -27,6 +27,7 @@ import { reviewSnoozeMenu } from '../snooze';
 import type { Lane, PrItem, ReviewsCfg, Usage, Verdict } from '../types';
 import { dialogUp } from './focusTrap';
 import type { PrBox } from './PrBox';
+import type { PanelBackTo } from './primitives';
 import { QueueStrip, snoozeKeys, snoozeRange, type Hotkeys, type Notice, type Queue, type StripAction } from './SessionPanel';
 
 /** What a PR's actions need of the window that shows it. */
@@ -90,9 +91,12 @@ interface PrStripProps {
   /** The PR shown is on its way out: the window asked for another, which hasn't come yet. Its
    *  keys do nothing until then. */
   outgoing?: boolean;
+  /** Shown in place of the session (or panel) it was shown from: the way back, at the strip's
+   *  start. */
+  back?: PanelBackTo;
 }
 
-export function PrStrip({ pr, actions, box, after, queue, notice, hotkeys, panel = false, outgoing = false }: PrStripProps) {
+export function PrStrip({ pr, actions, box, after, queue, notice, hotkeys, panel = false, outgoing = false, back }: PrStripProps) {
   const latest = useLatest(actions);
   const leaving = useLatest(outgoing);
   useEffect(() => {
@@ -139,5 +143,5 @@ export function PrStrip({ pr, actions, box, after, queue, notice, hotkeys, panel
     { label: 'Review with', chord: menus.PR_CHORDS.review, title: review ? `Start Codealong’s review of it on an account${first && first !== 'separator' && !('items' in first) ? `; the key starts it: ${first.label}` : ''}` : 'No account can start a review here', menu: review?.items },
     { label: 'GitHub', chord: menus.PR_CHORDS.github, title: 'Open it on GitHub', run: () => github.run() },
   ];
-  return <QueueStrip queue={queue} notice={notice} hotkeys={hotkeys} buttons={buttons} />;
+  return <QueueStrip queue={queue} notice={notice} hotkeys={hotkeys} buttons={buttons} of="this PR" back={back} />;
 }

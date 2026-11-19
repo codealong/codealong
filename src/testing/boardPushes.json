@@ -352,6 +352,10 @@
       "theme": "system",
       "today": "",
       "todoHints": {},
+      "todoQueue": {
+        "due": [],
+        "ready": []
+      },
       "todos": [],
       "training": [],
       "usage": [],
@@ -712,6 +716,10 @@
         "theme": "system",
         "today": "",
         "todoHints": {},
+        "todoQueue": {
+          "due": [],
+          "ready": []
+        },
         "todos": [],
         "training": [],
         "usage": [],
@@ -1075,6 +1083,10 @@
       "theme": "system",
       "today": "",
       "todoHints": {},
+      "todoQueue": {
+        "due": [],
+        "ready": []
+      },
       "todos": [],
       "training": [],
       "usage": [],
@@ -1476,6 +1488,10 @@
       "theme": "system",
       "today": "",
       "todoHints": {},
+      "todoQueue": {
+        "due": [],
+        "ready": []
+      },
       "todos": [],
       "training": [],
       "usage": [],
@@ -1876,6 +1892,10 @@
       "theme": "system",
       "today": "",
       "todoHints": {},
+      "todoQueue": {
+        "due": [],
+        "ready": []
+      },
       "todos": [],
       "training": [],
       "usage": [],
@@ -2342,6 +2362,10 @@
       "theme": "system",
       "today": "",
       "todoHints": {},
+      "todoQueue": {
+        "due": [],
+        "ready": []
+      },
       "todos": [],
       "training": [],
       "usage": [],
@@ -2783,6 +2807,10 @@
       "theme": "system",
       "today": "",
       "todoHints": {},
+      "todoQueue": {
+        "due": [],
+        "ready": []
+      },
       "todos": [],
       "training": [],
       "usage": [],

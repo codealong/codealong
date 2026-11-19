@@ -139,6 +139,10 @@ export interface MainKeys<V extends string> {
   actionsRef: { readonly current: { session: (lane: Lane, s: Session, pin: 'session' | 'worktree') => menus.SessionActions; lane: (lane: Lane) => menus.LaneActions } };
   openSettings: () => void;
   runQueue: (action: QueueAction, box?: boolean) => boolean;
+  /** Next or Back through what waits on you in the view shown (useViewQueues.ts `step`): in PRs,
+   *  Todo and Kanban, and in Sessions from a worktree's heading or past the last session, on to
+   *  the view where the next kind waits. */
+  stepView: { readonly current: (action: 'next' | 'back') => boolean };
   toggleSidebar: () => void;
   pickProject: (name: string) => void;
   startForTodos: (rows: TodoItem[]) => void;
@@ -172,7 +176,7 @@ export interface MainKeys<V extends string> {
 
 /** Does what a key pressed in the main window does. */
 export function onMainKey<V extends string>(e: KeyboardEvent, keys: MainKeys<V>): void {
-  const { view, views: VIEWS, settings, previewFor, renaming, panelMax, selected, visible, pickedRows, listPicks, selectedLane, startLaneId, terminalAt, projects, pinnedRows, pinnedLanes, pinnedPrRows, sessionPins, lanePins, prPins, searchRef, listRef, canvasKeys, kanbanKeys, gPending, todoKeys, travel, actionsRef, openSettings, runQueue, toggleSidebar, pickProject, startForTodos, startForTodo, newSession, openFind, setQuery, setCanvasFit, openRow, setView, togglePanelMax, togglePrPanelMax, movePinnedSession, movePinnedLane, move, focusBox, open, copy, say, markSeen, setSelectedKey, zoom, reload } = keys;
+  const { view, views: VIEWS, settings, previewFor, renaming, panelMax, selected, visible, pickedRows, listPicks, selectedLane, startLaneId, terminalAt, projects, pinnedRows, pinnedLanes, pinnedPrRows, sessionPins, lanePins, prPins, searchRef, listRef, canvasKeys, kanbanKeys, gPending, todoKeys, travel, actionsRef, openSettings, runQueue, stepView, toggleSidebar, pickProject, startForTodos, startForTodo, newSession, openFind, setQuery, setCanvasFit, openRow, setView, togglePanelMax, togglePrPanelMax, movePinnedSession, movePinnedLane, move, focusBox, open, copy, say, markSeen, setSelectedKey, zoom, reload } = keys;
   const typing = document.activeElement === searchRef.current;
   // ⌘ held, whatever else is (Ctrl on Linux, platform.ts).
   const mod = cmd(e);
@@ -235,7 +239,7 @@ export function onMainKey<V extends string>(e: KeyboardEvent, keys: MainKeys<V>)
   // A text field, a todo's title or description say, keeps its keys but for the window's own ⌘
   // ones, ⌃-, ⌃`, a view's ⌃ and digit, and Sessions' box for the list's chords and the session's
   // ⌘E, ⇧⌘E and ⇧⌘M.
-  if (inField(document.activeElement, searchRef.current) && !(inBox && listChord(e)) && !prMaxKey && !findKey && !historyChord(e) && !toTerminal && !toView && !fieldDigit && !(mergeDone && view === 'sessions') && !(mod && (key === 'k' || key === 'p' || e.key === ',' || ((e.code === 'BracketRight' || e.code === 'BracketLeft' || key === 'e') && view === 'sessions')))) return;
+  if (inField(document.activeElement, searchRef.current) && !(inBox && listChord(e)) && !prMaxKey && !findKey && !historyChord(e) && !toTerminal && !toView && !fieldDigit && !(mergeDone && view === 'sessions') && !(mod && (key === 'k' || key === 'p' || e.key === ',' || (((e.code === 'BracketRight' || e.code === 'BracketLeft') && (view === 'sessions' || view === 'prs' || view === 'todo' || view === 'kanban')) || (key === 'e' && view === 'sessions'))))) return;
   if (mod && e.key === ',') {
     e.preventDefault();
     openSettings();
@@ -317,9 +321,24 @@ export function onMainKey<V extends string>(e: KeyboardEvent, keys: MainKeys<V>)
     markSeen(selected.lane.sessions.filter(seenable).map((s) => s.key));
     return;
   }
+  // Next from a worktree's heading, or past the last session that waits, goes on as the strip's
+  // Next does: to the first, or to the view where the next kind waits.
+  if (queueStep === 'next' && !picking) {
+    e.preventDefault();
+    stepView.current('next');
+    return;
+  }
   if (queueStep === 'next' || queueStep === 'back' || queueStep === 'seen') {
     e.preventDefault();
     runQueue(queueStep, queueStep === 'seen' ? inBox : true);
+    return;
+  }
+  // ⌘] and ⌘[ (or ⌥⇧↓ ⌥⇧↑) go through what waits on you in PRs, Todo and Kanban too: the PRs
+  // waiting on your review, the todos due and then those ready to start.
+  const viewStep = (view === 'prs' || view === 'todo' || view === 'kanban') && !picking && !(typing && vertical) ? queueKey(e) : null;
+  if (viewStep === 'next' || viewStep === 'back') {
+    e.preventDefault();
+    stepView.current(viewStep);
     return;
   }
   // ⌥⌘F filters the list from anywhere, as in Mail and Notes, but among a PR's files, whose own

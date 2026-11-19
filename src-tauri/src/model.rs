@@ -250,6 +250,11 @@ pub struct Board {
     /// brings them in on a board that's otherwise quiet.
     #[serde(default)]
     pub today: String,
+    /// The todos that wait on you, due and ready to start, as of `today` (barfeed.rs
+    /// `todo_queue`): the bar's feed, the main window's Todo panel and the waiting window go
+    /// through them. None from an engine that didn't say.
+    #[serde(default)]
+    pub todo_queue: crate::barfeed::TodoQueue,
     /// The next time, epoch milliseconds, a todo's standing in what waits on you changes by the
     /// clock alone: a snooze ending, the grace a new primary session has to show up running out
     /// (todos.rs `todo_clock`). It changes as that time passes, so the board does,

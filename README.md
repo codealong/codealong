@@ -896,7 +896,7 @@ nudge_about = "everything"     # what a nudge tells of: "feedback" only comments
 rerequest_after_fixes = false  # ask a reviewer who asked for changes to look again, as you, once fixes are pushed and nobody said so (Settings › Automation)
 reviews_first = false          # PRs waiting on your review come before everything else in the notch, the waiting window and the quick panel
 
-[queue]                        # what waits on you, in the order the notch, the waiting window and a session's panel go through it (Settings › Queue)
+[queue]                        # what waits on you, in the order the notch, the waiting window and the main window's panels go through it (Settings › Queue)
 order = ["needs", "reviews", "due", "unread", "ready"]  # sessions that need you, PRs waiting on your review, todos due, sessions whose turn ended, todos ready to start (always last); one left out doesn't wait on you, but the sessions' two always do
 due_within = 0                 # how many days before its due date a todo comes due: 0 on the day
 
