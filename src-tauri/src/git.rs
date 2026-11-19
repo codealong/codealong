@@ -31,6 +31,12 @@ fn git(path: &Path, args: &[&str]) -> Option<String> {
     procs::run_background("git", &full, None, TIMEOUT).ok()
 }
 
+/// The branch checked out at `path`, None where HEAD is detached (a rebase under way, say) or git
+/// couldn't say.
+pub fn branch(path: &Path) -> Option<String> {
+    git(path, &["symbolic-ref", "--quiet", "--short", "HEAD"]).map(|b| b.trim().to_string()).filter(|b| !b.is_empty())
+}
+
 /// Status, last commit, and the commits and diff against `base` (e.g. `origin/main`).
 ///
 /// Most refreshes come from edits to the working tree, which move only what `status` and the

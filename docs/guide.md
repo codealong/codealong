@@ -199,12 +199,16 @@ exited with Claude Code's own `/exit`, which removes a worktree that's unchanged
 whether to keep it. What it counts doesn't say whether anything would be lost: commits since the
 worktree was made, pushed and landed ones too (a branch rebased onto a `main` that moved on counts
 them all), and every worktree a repo's `WorktreeCreate` hook made, which it can't count at all. So
-Codealong answers Remove worktree itself whenever its own check, Clean up worktree…'s, finds nothing
-would be lost (nothing uncommitted, no commit that's on no remote and not in the default branch, no
-other session at work there), where it can read the question off the session's terminal (a Rex or
-tmux terminal, or one of Codealong's own; not a session started with `--tmux`, whose answer decides
-its tmux session too). The repo's `WorktreeRemove` hook, where there is one, then takes the
-worktree down as the session exits. Otherwise the session stays, waiting on you with that question,
+where those are all it asks about, Codealong answers Remove worktree itself whenever its own check,
+Clean up worktree…'s, finds nothing would be lost (nothing uncommitted, no commit that's on no
+remote and not in the default branch, no other session at work there), and the worktree is still on
+the branch Claude Code would delete with it. It reads the question off the session's terminal for
+that (a Rex or tmux terminal, or one of Codealong's own; not a session started with `--tmux`, whose
+answer decides its tmux session too). The repo's `WorktreeRemove` hook, where there is one, then
+takes the worktree down as the session exits. A question about anything that check doesn't look at
+(files saved from connectors, which git doesn't track, submodules Claude Code couldn't check, a
+detached HEAD, a branch other than the one it deletes, a name you gave a session that changed
+nothing) stays yours. Otherwise, too, the session stays, waiting on you with that question,
 answered on its box as any question is (Keep worktree, Remove worktree), or Cancel to call the exit
 off; once it's answered, here or in its terminal, the session exits, its terminal closes and it's
 archived (one whose terminal doesn't close stays in its list, for you to see). Mark as done

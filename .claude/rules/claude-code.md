@@ -471,10 +471,16 @@ on this Mac; read it before changing the Claude adapter (paths are under `src-ta
   commits."), clean or not. The commits it counts are those since `originalHeadCommit`, pushed and
   landed ones too, others' that a rebase brought in among them: a session whose HEAD had landed on
   `origin/main`, nothing uncommitted, asked about "68 commits", every one from where it began to
-  that HEAD (2026-11-18). So Mark as done answers Remove itself wherever the dialog, read off
-  its terminal, asks about the session's own worktree, whatever its reason, and Codealong's own
-  check finds nothing would be lost: `claude/exiting.rs` (`asks_of_own`), `idle.rs`
-  (`answered_by_check`), `cleanup.rs` (`own_goes`). Remove runs the repo's `WorktreeRemove` hook under its `timeout`; one
+  that HEAD (2026-11-18). Its sentence (2.1.328's code, composed beside the dialog's choices)
+  can also say uncommitted files, commits it couldn't count, a detached HEAD ("It may be lost"),
+  the branch HEAD is on now ("which is kept either way"), submodules it couldn't check, files
+  saved from connectors in the worktree's `connector-downloads` folder (which git doesn't track),
+  a name of yours, or only "You are working in a worktree"; its Remove deletes the branch the
+  worktree was made with, `worktreeBranch`, with `git branch -D`, whichever branch HEAD is on.
+  So Mark as done answers Remove itself where the dialog, read off its terminal, asks about the
+  session's own worktree for commits on the branch HEAD is on, or because a hook made it, and
+  nothing more, and Codealong's own check finds nothing would be lost: `claude/exiting.rs`
+  (`asks`, `answerable`), `idle.rs` (`answered_by_check`), `cleanup.rs` (`own_goes`). Remove runs the repo's `WorktreeRemove` hook under its `timeout`; one
   that runs out is killed partway, and the exit carries on as removed (`worktree-state` null),
   whatever the hook left: on 2026-11-18 a repo's hook under a 120 s timeout left its worktree's
   folder half deleted and still listed by git. While that's up the registry says `waiting` / `dialog open`, as

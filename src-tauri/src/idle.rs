@@ -562,16 +562,16 @@ pub fn exit(s: &Session, account: &crate::config::AccountCfg, pid: u32, nothing_
 }
 
 /// The question the exit typed into `s` asks (`Exited::Asks`), answered with Remove where it asks
-/// whether to keep `s`'s own worktree (`Adapter::exit_asks_to_keep`) and `nothing_lost` says
-/// Codealong's own check (cleanup.rs) found nothing in it would be lost, whatever the harness
-/// gave as its reason: what it counts (commits since the worktree began, pushed and landed ones
-/// too) doesn't say. The removal is then waited for as one its harness went ahead with unasked.
+/// whether to keep `s`'s own worktree for no more than Codealong's own check (cleanup.rs) stands
+/// for (`Adapter::exit_check_answers`), and `nothing_lost` says that check found nothing in it
+/// would be lost: what the harness counts (commits since the worktree began, pushed and landed
+/// ones too) doesn't say. The removal is then waited for as one its harness went ahead with unasked.
 /// Any other question still asks, yours to answer, as does one whose key couldn't be pressed:
 /// it's up as it would be had Codealong not looked.
 fn answered_by_check(s: &Session, account: &crate::config::AccountCfg, pid: u32, host: Option<u32>, nothing_lost: impl FnOnce() -> bool) -> Exited {
     let adapter = crate::harness::adapter(s.harness);
     let ctx = crate::harness::Ctx { account };
-    if !adapter.exit_asks_to_keep(&ctx, s) || !nothing_lost() {
+    if !adapter.exit_check_answers(&ctx, s) || !nothing_lost() {
         return Exited::Asks;
     }
     match adapter.exit_removing(&ctx, s) {
@@ -975,9 +975,9 @@ mod tests {
                 true
             })
         };
-        // No dialog Codealong can read is up (claude/exiting.rs `asks_of_own` says which ask
-        // about its worktree), and a harness that never asks: either way the question, if any, is
-        // yours, and the worktree isn't even checked.
+        // No dialog Codealong can read is up (claude/exiting.rs `answerable` says which its check
+        // answers), and a harness that never asks: either way the question, if any, is yours, and
+        // the worktree isn't even checked.
         assert_eq!(answered(&s), Exited::Asks);
         assert_eq!(answered(&Session { harness: Harness::Codex, ..s.clone() }), Exited::Asks);
         assert!(!checked.get());

@@ -290,10 +290,10 @@ pub trait Adapter: Sync {
     }
 
     /// Whether its exit command, typed into `s`, is asking now whether to keep the worktree `s`
-    /// holds: a question Codealong's own check answers as Mark as done exits it (`idle::exit`),
-    /// since what the harness counts doesn't say whether anything would be lost. Any other is
-    /// yours to answer.
-    fn exit_asks_to_keep(&self, _ctx: &Ctx, _s: &Session) -> bool {
+    /// holds for no more than Codealong's own check stands for: a question that check answers as
+    /// Mark as done exits it (`idle::exit`), since what the harness counts doesn't say whether
+    /// anything would be lost. Any other is yours to answer.
+    fn exit_check_answers(&self, _ctx: &Ctx, _s: &Session) -> bool {
         false
     }
 
