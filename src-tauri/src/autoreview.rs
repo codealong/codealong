@@ -2892,17 +2892,24 @@ pub fn glance(text: &str) -> Option<crate::glance::Glance> {
     let (agent, rest) = text.split_once(" reviewed your pull request #")?;
     let (number, rest) = rest.split_once(' ')?;
     // “title” (address) at the commit, a title holding quotes, parentheses and " at " of its own:
-    // the commit is the short hash before the first comma.
-    let (named, rest) = rest.match_indices(") at ").find_map(|(at, m)| {
+    // the commit is a short hash before a comma, after what reads as the title and its address,
+    // or the title alone in one written before the address went in.
+    let (title, url, rest) = rest.match_indices(" at ").find_map(|(at, m)| {
         let after = &rest[at + m.len()..];
         let sha = after.split(',').next()?;
-        (!sha.is_empty() && sha.chars().all(|c| c.is_ascii_hexdigit())).then(|| (&rest[..at], after))
+        if sha.is_empty() || !sha.chars().all(|c| c.is_ascii_hexdigit()) {
+            return None;
+        }
+        let named = rest[..at].strip_prefix('“')?;
+        match named.strip_suffix(')').and_then(|n| n.rsplit_once("” (")) {
+            Some((title, url)) => Some((title, Some(url), after)),
+            None => Some((named.strip_suffix('”')?, None, after)),
+        }
     })?;
-    let (title, url) = named.strip_prefix('“')?.rsplit_once("” (")?;
     // `back_message` says how many comments are on lines after the review's file.
     let lines = rest.split_once("Its review is in ").and_then(|(_, r)| r.split_once(". ")).and_then(|(r, _)| r.split_once(", with ")).map(|(_, n)| format!(", with {n}")).unwrap_or_default();
     Some(crate::glance::Glance {
-        pr: Some(crate::glance::Pr { number: number.parse().ok()?, title: title.trim().to_string(), url: Some(url.to_string()) }),
+        pr: Some(crate::glance::Pr { number: number.parse().ok()?, title: title.trim().to_string(), url: url.map(String::from) }),
         ..crate::glance::Glance::line(crate::glance::About::Review, &format!("{} reviewed it{lines}", agent.trim()))
     })
 }
@@ -3656,6 +3663,12 @@ mod tests {
         let odd = PrItem { title: "Show “ready” at startup (and after) at 9".into(), ..mine(7, HEAD) };
         let g = glance(&back_message(&odd, HEAD, "Codex", "gwen", "[review-7.md](files/ab/review-7.md)", 2)).unwrap();
         assert_eq!((g.words(), g.pr.unwrap().title), ("Codex reviewed it, with 2 comments on lines".to_string(), odd.title.clone()));
+        let hashed = PrItem { title: "Fix (cache) at abc1234, then retry".into(), ..mine(7, HEAD) };
+        assert_eq!(glance(&back_message(&hashed, HEAD, "Codex", "gwen", "[review-7.md](files/ab/review-7.md)", 0)).unwrap().pr.map(|p| (p.title, p.url)), Some((hashed.title.clone(), Some(hashed.url.clone()))));
+        // As one was written before it gave the PR's address.
+        let before = "Codex reviewed your pull request #7 “Fix (cache) at abc1234, then retry” at 1111111, as gwen has another agent review the pull requests their sessions open. Its review is in [review-7.md](files/ab/review-7.md), with 3 comments on lines. It's that agent's review.";
+        let g = glance(before).unwrap();
+        assert_eq!((g.words(), g.pr), ("Codex reviewed it, with 3 comments on lines".to_string(), Some(crate::glance::Pr { number: 7, title: hashed.title.clone(), url: None })));
         let files = Reading { md: "[pr-7.md](files/a/pr-7.md)".into(), diff: "[pr-7.diff](files/b/pr-7.diff)".into(), changes: None };
         let first = first_prompt(&mine(7, HEAD), HEAD, None, true, "gwen", &Goes::Back("Claude Code, opus".into()), INSTRUCTIONS, &files);
         assert!(first.contains("for gwen, who opened it with another agent (Claude Code, opus): your review goes back to that agent, to act on."), "{first}");

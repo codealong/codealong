@@ -3,9 +3,11 @@
 // each helper it names as a link too (glance.rs, from the engine), which a click opens to the
 // whole message. The whole message is written for the agent, with session keys, commands to run
 // and what not to do, and read as clutter over every one. While ⌘F finds something in the whole
-// message it shows open, as another session's cut-off message does, so the find can show it.
+// message it shows open, as another session's cut-off message does, so the find can show it: the
+// whole message is drawn closed too, hidden, so whether the find is in it goes by the words it
+// shows (a PR's address shows as `app#7`), as the find reads them once it's open.
 
-import { Fragment, useContext, useState, type MouseEvent, type ReactNode } from 'react';
+import { Fragment, useContext, useRef, useState, type MouseEvent, type ReactNode } from 'react';
 import { absolute, ago } from '../format';
 import { prRefOf } from '../prLinks';
 import { shownText } from '../threadFind';
@@ -23,14 +25,20 @@ const ICON: Record<GlanceAbout, string> = { pr: 'pr', helper: 'robot', schedule:
 export function CodealongCard({ item, glance: g, now, children }: { item: TranscriptItem; glance: Glance; now: number; children: ReactNode }) {
   const [opened, setOpened] = useState(false);
   const finding = useContext(FindContext);
-  const found = !!finding && says(finding, shownText(item));
+  // Whether the find is in it, by the words its whole message shows, drawn hidden since its first
+  // render: read as the find's pattern comes, so the render that brings it opens the card before
+  // the find looks, which passes over what's hidden. Its first render, with nothing drawn yet,
+  // goes by its text.
+  const whole = useRef<HTMLDivElement>(null);
+  const found = !!finding && says(finding, whole.current?.textContent ?? shownText(item));
   const open = opened || found;
   const pr = g.pr;
   const ref = pr?.url ? prRefOf(pr.url) : null;
   const named = pr && `#${pr.number} ${pr.title}`;
-  // A click anywhere on the line opens it, but on its links, which go where they say.
+  // A click anywhere on the line opens it, but on its links, which go where they say, and while
+  // the find holds it open, which a click would leave open once the find closes.
   const toggle = (e: MouseEvent) => {
-    if ((e.target as Element).closest('a, button')) return;
+    if (found || (e.target as Element).closest('a, button')) return;
     setOpened(!opened);
   };
   return (
@@ -77,7 +85,9 @@ export function CodealongCard({ item, glance: g, now, children }: { item: Transc
           onClick={() => setOpened(!opened)}
         />
       </div>
-      {open && <div className="ca-codealong-whole">{children}</div>}
+      <div ref={whole} className="ca-codealong-whole" hidden={!open}>
+        {children}
+      </div>
     </div>
   );
 }

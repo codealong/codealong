@@ -50,7 +50,9 @@
 
   var row = function () { return picked && document.getElementById('row-' + picked.lane + '::' + picked.key); };
   var cards = function () { return Array.prototype.slice.call(document.querySelectorAll('.ca-sessinsp .ca-codealong-card')); };
-  var open = function (card) { return card.classList.contains('is-open') && !!card.querySelector('.ca-codealong-whole'); };
+  var open = function (card) { var whole = card.querySelector('.ca-codealong-whole'); return card.classList.contains('is-open') && !!whole && !whole.hidden; };
+  // ⌘ on a Mac is Ctrl on Linux and Windows (platform.ts `held`).
+  var linux = window.__CODEALONG_PLATFORM__ === 'linux' || window.__CODEALONG_PLATFORM__ === 'windows' || /\bLinux\b/.test(navigator.userAgent);
   var tick = function () { return new Promise(function (r) { setTimeout(r, 30); }); };
   var field = function () { return document.querySelector('.ca-findbar input'); };
   var type = function (input, value) {
@@ -70,10 +72,12 @@
       var line = pr.querySelector('.ca-codealong-glance').textContent;
       check('a PR’s news is its PR and what happened, in a line', /#397 Cursor file tools/.test(line) && /ana asked for changes/.test(line), line);
       check('with the PR as a link', !!pr.querySelector('.ca-codealong-glance a.ca-prlink'), pr.innerHTML.slice(0, 200));
-      check('and none of what it says to the agent', !/Take it from there|merge it only|quokka/.test(pr.textContent), pr.textContent);
+      // What shows: the line; the whole message is there, hidden, until it's opened.
+      var shows = function (card) { return card.querySelector('.ca-codealong-head').textContent; };
+      check('and none of what it says to the agent', !/Take it from there|merge it only|quokka/.test(shows(pr)) && pr.querySelector('.ca-codealong-whole').hidden, shows(pr));
       var links = Array.prototype.map.call(helper.querySelectorAll('.ca-codealong-glance a.ca-sesslink'), function (a) { return a.getAttribute('href'); });
       check('several helpers’ news names each helper as a link to its session', links.join(' ') === helpers.map(function (h) { return 'codealong://session/' + h.key; }).join(' '), links.join(' '));
-      check('with what happened to each, and none of the commands', /ended its turn · .*waits on you/.test(helper.textContent) && !/codealong session wait/.test(helper.textContent), helper.textContent);
+      check('with what happened to each, and none of the commands', /ended its turn · .*waits on you/.test(shows(helper)) && !/codealong session wait/.test(shows(helper)), shows(helper));
       check('each closed until opened', !open(pr) && !open(helper));
       var older = Array.prototype.slice.call(document.querySelectorAll('.ca-sessinsp .ca-thread-said.is-codealong')).filter(function (el) { return !el.closest('.ca-codealong-card'); });
       check('one with no line from the engine shows whole, as before', older.length === 1 && /An older message/.test(older[0].textContent), String(older.length));
@@ -99,7 +103,7 @@
       var box = document.querySelector('.ca-sessinsp .ca-composer textarea');
       if (!box) throw new Error('no box to press ⌘F from');
       box.focus();
-      box.dispatchEvent(new KeyboardEvent('keydown', { key: 'f', metaKey: true, bubbles: true, cancelable: true }));
+      box.dispatchEvent(new KeyboardEvent('keydown', { key: 'f', metaKey: !linux, ctrlKey: linux, bubbles: true, cancelable: true }));
       return until(function () { return field(); }, 2000, 'the find bar')
         .then(function () {
           type(field(), 'quokka');
@@ -108,10 +112,13 @@
         .then(function () {
           var whole = cards()[0].querySelector('.ca-codealong-whole');
           check('⌘F finding a word only the whole message has opens it, to show it', /quokka/.test(whole.textContent) && cards()[0].querySelector('.ca-codealong-open').disabled);
+          // A click on its line while the find holds it open changes nothing.
+          cards()[0].querySelector('.ca-codealong-line').click();
           // The one word is in the opened message and nowhere else: one match, which it's at.
-          return until(function () { return /^1 of 1\b/.test(((document.querySelector('.ca-findbar-count') || {}).textContent || '').trim()); }, 3000, 'the find to count it once').then(function () {
-            check('and the find counts it there, once', true);
-          });
+          var count = function () { return ((document.querySelector('.ca-findbar-count') || {}).textContent || '').trim(); };
+          return until(function () { return /^1 of 1\b/.test(count()); }, 3000)
+            .catch(function () {})
+            .then(function () { check('and the find counts it there, once', /^1 of 1\b/.test(count()), count()); });
         })
         .then(function () {
           field().dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true }));

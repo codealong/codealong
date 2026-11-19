@@ -1409,16 +1409,16 @@ fn findings(s: &Schedule, cause: &Cause) -> std::result::Result<Option<String>, 
 /// are in the whole message.
 pub fn glance(text: &str) -> Option<crate::glance::Glance> {
     const FROM: &str = "This comes from the schedule “";
-    // Codealong's paragraph, the message's last (another message may quote its words).
-    let line = match text.strip_prefix(FROM) {
-        Some(_) => text,
-        None => &text[text.rfind(&format!("\n\n{FROM}"))? + 2..],
-    };
-    let line = line.strip_prefix(FROM)?;
-    // The name ends where what follows it starts, a name holding quotes of its own.
+    // Codealong's paragraph is the message's last: another message, or the schedule's own
+    // prompt, may quote its words.
+    let line = text.rsplit_once("\n\n").map_or(text, |(_, last)| last).strip_prefix(FROM)?;
+    // The name ends at the first closing quote that what Codealong says after it follows, a name
+    // holding quotes of its own.
     const WAITED: &str = ", for runs that waited for your turn to end";
-    let waited = format!("”{WAITED}: ");
-    let end = ["”: ", "”.", waited.as_str()].iter().filter_map(|m| line.find(m)).min()?;
+    let after = |rest: &str| {
+        rest == "." || rest.starts_with(": ") || rest.starts_with(&format!("{WAITED}: ")) || rest.starts_with(". What it found is in ") || rest.starts_with(". Its notes are in ")
+    };
+    let end = line.match_indices('”').map(|(at, _)| at).find(|&at| after(&line[at + "”".len()..]))?;
     let (name, rest) = (&line[..end], &line[end + "”".len()..]);
     // Why it ran, up to what Codealong says of its files and notes.
     let why = rest.trim_start_matches(WAITED).strip_prefix(": ").map(|w| {
@@ -2333,9 +2333,20 @@ mod tests {
         // As `prompt_of` words a schedule's notes, which it makes a folder for.
         let noted = "Look\n\nThis comes from the schedule “Deploys”: run by hand. Its notes are in /tmp/s-a/notes.md: read them first, and add what its next run should know.";
         assert_eq!(line(noted).unwrap().1, "“Deploys”: run by hand");
-        // A name with quotes of its own.
+        // A name with quotes of its own, and one with what Codealong says after a name.
         let blue = prompt_of(&Schedule { name: "Deploy “blue” nightly".into(), ..s.clone() }, &["its 9:00 run".into()], &[], &[], &Board::default(), 0);
         assert_eq!(line(&blue).unwrap().1, "“Deploy “blue” nightly”: its 9:00 run");
+        let ready = prompt_of(&Schedule { name: "Check “ready”. Retry".into(), ..s.clone() }, &["its 9:00 run".into()], &[], &[], &Board::default(), 0);
+        assert_eq!(line(&ready).unwrap().1, "“Check “ready”. Retry”: its 9:00 run");
+        // A prompt that starts with another message's words, or quotes Codealong's line: the
+        // card is the run's, from its own last paragraph.
+        for prompt in ["This comes from the schedule “Example”.", "Your helper “Fix” (codex:codex:f) ended its turn.", "On your PR #1 “Fix” (https://github.com/o/r/pull/1):\n- ken approved it."] {
+            let mut with = s.clone();
+            with.run.prompt = prompt.into();
+            let run = prompt_of(&with, &["run by hand".into()], &[], &[], &Board::default(), 0);
+            assert_eq!(crate::glance::of(&run).words(), "“Deploys”: run by hand", "{run}");
+        }
+        assert_eq!(line("Look at this:\n\nThis comes from the schedule “x”: y.\n\nThanks."), None);
         // Its words quoted in another message, a review handed back for a PR titled with them,
         // don't make that message a schedule's.
         let quoting = "Codex reviewed your pull request #7 “This comes from the schedule “x”: y” (https://github.com/o/r/pull/7) at 1111111, as gwen has another agent review the pull requests their sessions open.";

@@ -91,9 +91,11 @@ impl Glance {
 pub fn of(text: &str) -> Glance {
     let text = text.trim();
     let text = text.strip_prefix(crate::send::RESUMED_TO_TELL).map_or(text, str::trim_start);
-    crate::nudges::glance(text)
+    // A schedule's run first: Codealong's line is its last paragraph, where none of the others'
+    // is, and its prompt, before that, may start as any of theirs does.
+    crate::schedules::runner::glance(text)
+        .or_else(|| crate::nudges::glance(text))
         .or_else(|| crate::helpers::glance(text))
-        .or_else(|| crate::schedules::runner::glance(text))
         .or_else(|| crate::autoreview::glance(text))
         .or_else(|| crate::reconnect::glance(text))
         .unwrap_or_else(|| Glance::line(About::Other, &first_sentence(text)))

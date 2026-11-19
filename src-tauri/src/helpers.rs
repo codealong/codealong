@@ -373,8 +373,12 @@ pub fn glance(text: &str) -> Option<crate::glance::Glance> {
     // helper where the news names its session, as “title” (key), a title holding quotes and
     // parentheses of its own.
     let one = |s: &str| -> Option<Part> {
-        if let Some(at) = [") ended its turn", ") waits on your user"].iter().filter_map(|m| s.find(m)).min() {
-            let (title, key) = s[..at].strip_prefix('“')?.rsplit_once("” (")?;
+        // The first place either is said that has “title” (key) before it: a key has no spaces
+        // or parentheses, and a title may say either.
+        let mut ats: Vec<usize> = [") ended its turn", ") waits on your user"].iter().flat_map(|m| s.match_indices(m).map(|(at, _)| at)).collect();
+        ats.sort_unstable();
+        let named = |at: usize| s[..at].strip_prefix('“')?.rsplit_once("” (").filter(|(_, key)| !key.is_empty() && !key.contains(|c: char| c.is_whitespace() || c == '(' || c == ')')).map(|n| (at, n));
+        if let Some((at, (title, key))) = ats.into_iter().find_map(named) {
             let line = match s[at + 2..].strip_prefix("waits on your user") {
                 None => "ended its turn".to_string(),
                 Some(waits) => match waits.split(". They answer it in Codealong").next().unwrap_or("").trim_start_matches(':').trim() {
@@ -448,7 +452,9 @@ mod tests {
         assert_eq!(read(std::slice::from_ref(&unstarted)).words(), "A helper you started hasn't made its session yet");
         let unseen = note("claude:claude2:gone", "", News::Unseen { account: "claude2".into(), minutes: 10 });
         assert_eq!(read(std::slice::from_ref(&unseen)).words(), "claude:claude2:gone hasn't shown up");
-        // A title with quotes and parentheses of its own.
+        // A title with quotes and parentheses of its own, and one that says what news says.
+        let says = note("codex:codex:why", "Why (CI) waits on your user", News::Ended);
+        assert_eq!(read(&[says.clone(), says]).parts.iter().map(|p| p.session.as_ref().map(|n| n.title.as_str())).collect::<Vec<_>>(), [Some("Why (CI) waits on your user"); 2]);
         let quoted = note("codex:codex:ci", "Check “cache” (CI)", News::Ended);
         assert_eq!(read(std::slice::from_ref(&quoted)).parts[0].session, Some(Named { key: "codex:codex:ci".into(), title: "Check “cache” (CI)".into() }));
         // Several helpers' news, each in a few words and each named helper a link; what one waits

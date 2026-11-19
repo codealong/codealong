@@ -647,8 +647,24 @@ pub fn glance(text: &str) -> Option<crate::glance::Glance> {
         let cut = [": “", ", with their agent's review", ", from ", ", in a review", "; "].iter().filter_map(|m| item.find(m)).min().unwrap_or(item.len());
         item[..cut].trim().trim_end_matches('.').to_string()
     };
-    // A happening starts its line with "- "; a comment's further lines are indented under it.
-    let parts = body.lines().filter_map(|l| l.strip_prefix("- ")).map(short).filter(|s| !s.is_empty());
+    // A happening starts its line with "- ", a comment's further lines indented under it
+    // (`glance::item`). Before they were, a comment's lines started where a happening's do: a
+    // line in a quote still open is the comment's, so a list in one isn't taken for happenings,
+    // though a quote that never closes takes the rest with it.
+    let mut open = 0i64;
+    let mut parts = Vec::new();
+    for l in body.lines() {
+        match l.strip_prefix("- ").filter(|_| open <= 0) {
+            Some(item) => {
+                parts.push(short(item));
+                open = 0;
+            }
+            None if open <= 0 => continue,
+            None => {}
+        }
+        open += l.matches('“').count() as i64 - l.matches('”').count() as i64;
+    }
+    let parts = parts.into_iter().filter(|s| !s.is_empty());
     Some(crate::glance::Glance {
         about: crate::glance::About::Pr,
         pr: Some(crate::glance::Pr { number: number.parse().ok()?, title: title.trim().to_string(), url: Some(url.to_string()) }),
@@ -1330,6 +1346,9 @@ mod tests {
         let text = words(&p, &Why { since: Some(UPDATED), ..Why::default() }, Some(&listed), Some("me"), NudgeAbout::Everything).unwrap();
         assert!(text.contains("“Two things:\n  - It was merged.\n  - Its checks failed.”"), "{text}");
         assert_eq!(glance(&text).unwrap().words(), "ana reviewed it");
+        // As one was written before a comment's lines went under it.
+        let before = "On your PR #1 “Fix it” (https://github.com/o/r/pull/1):\n- ana commented: “Two things:\n- It was merged.\n\nAnd more.”\n- ken approved it.\nTake it from there.";
+        assert_eq!(glance(before).unwrap().words(), "ana commented · ken approved it");
         // Only your own push moved it: nothing to say.
         assert_eq!(words(&p, &Why { since: Some(UPDATED + 30), ..Why::default() }, Some(&d), Some("me"), NudgeAbout::Everything), None);
         // The detail couldn't be read: what the board knows is said.
