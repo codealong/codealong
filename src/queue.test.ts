@@ -461,6 +461,11 @@ describe('a session that left what waits on you', () => {
     expect(left(sessions(A), none, 'A', 'archived', NOW).handled.has('A')).toBe(true);
     // Nor one set aside for its side conversation, which needs you again as it was once that's done.
     expect(left(sessions(B), none, 'B', 'set aside', NOW).handled.has('B')).toBe(false);
+    // Nor one started, nor one that comes back by itself (a todo done, then reopened, its due day
+    // the same time it had).
+    expect(left(card(A), none, 'A', 'started', NOW).handled.has('A')).toBe(false);
+    const todo = card(A);
+    expect(left({ ...todo, shown: todo.shown && { ...todo.shown, comesBack: true } }, none, 'A', 'done', NOW).handled.has('A')).toBe(false);
   });
 
   it('moves nothing when it isn’t the one shown', () => {

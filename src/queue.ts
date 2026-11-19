@@ -246,6 +246,9 @@ export interface Shown {
    *  your review): ⌘E skips it, as it skips one running, rather than staying as it does on a
    *  call to allow. */
   skipsOnSeen?: boolean;
+  /** It comes back by itself once it waits anew, as a todo reopened does, whatever it left as:
+   *  leaving it isn't kept as dealt with (`left`), since its time can be the same then. */
+  comesBack?: boolean;
 }
 
 /** A window as the rules see it: its lists, the session it shows, and what's its own to do. */
@@ -342,7 +345,7 @@ export function left<T>(view: QueueView<T>, handled: Handled, from: string, done
   if (!leftGoesOn(waits(view.waiting, s.key, view.reads.keyOf), !!view.leftStays)) return { went: 'stay', handled };
   const step = dealt(view, handled, s, `${done}.`, now);
   // What comes back by itself once its time or its session is over isn't kept as dealt with.
-  if (done === 'snoozed' || done === 'set aside' || done === 'started') step.handled.delete(s.key);
+  if (done === 'snoozed' || done === 'set aside' || done === 'started' || s.comesBack) step.handled.delete(s.key);
   return step;
 }
 

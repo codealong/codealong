@@ -12,7 +12,8 @@ import type { RoutingGroup, Session, StartAccount, StartOptions } from './types'
 const FRESH_MS = 60_000;
 /** How long a box that has no start options waits to ask again (`useStartOptions`). */
 const RETRY_MS = 5_000;
-type Read = { accounts: StartAccount[]; groups: RoutingGroup[]; options: StartOptions | null };
+/** What's kept, and whether the read that answered failed (what's kept is then from before). */
+type Read = { accounts: StartAccount[]; groups: RoutingGroup[]; options: StartOptions | null; failed?: boolean };
 let read: (Read & { at: number }) | null = null;
 let reading: Promise<Read> | null = null;
 
@@ -27,7 +28,7 @@ function refresh(): Promise<Read> {
       },
       // The last read stands, and what offers them goes without until a read works: the quick
       // panel and the main window say so when start options can't be read.
-      () => ({ accounts: read?.accounts ?? [], groups: read?.groups ?? [], options: read?.options ?? null }),
+      () => ({ accounts: read?.accounts ?? [], groups: read?.groups ?? [], options: read?.options ?? null, failed: true }),
     )
     .finally(() => {
       reading = null;
@@ -87,7 +88,7 @@ export function useStartOptions(wanted = true): StartOptions | null {
       void refresh().then((r) => {
         if (!live) return;
         setOptions(r.options);
-        if (!r.options) again = setTimeout(ask, RETRY_MS);
+        if (r.failed || !r.options) again = setTimeout(ask, RETRY_MS);
       });
     ask();
     return () => {

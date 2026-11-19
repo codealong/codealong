@@ -48,7 +48,7 @@ use crate::util::{base36, civil_from_days, days_from_civil};
 pub const PENDING_MS: i64 = 30 * 60 * 1000;
 /// How long a session made primary holds the todo before the board lists it: one started in a
 /// terminal is linked as it starts, and shows up a few seconds later.
-const NEW_PRIMARY_MS: i64 = 5 * 60 * 1000;
+pub(crate) const NEW_PRIMARY_MS: i64 = 5 * 60 * 1000;
 /// A session that says it started this long before the start still counts: clocks and
 /// transcript timestamps don't agree to the millisecond.
 const PENDING_SLACK_MS: i64 = 60 * 1000;

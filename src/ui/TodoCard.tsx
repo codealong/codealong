@@ -53,7 +53,8 @@ export interface TodoCardCan {
    *  menu (menus.ts). */
   laneMenu: (lane: Lane) => void;
   sessionMenu: (lane: Lane, session: Session) => void;
-  todoMenu: () => void;
+  /** The todo's own menu, its changes going as the card's do (`edit`). */
+  todoMenu: (edit: menus.TodoEdit) => void;
 }
 
 // The todos a start is on its way for, whichever card asked: its card can be left and come back
@@ -112,11 +113,13 @@ export function TodoCard({ todo, todos, labels, run, lanes, usage, projects, now
   const done = () => {
     if (!launching.has(todo.id)) leaving('done', todoOp({ op: 'update', id: todo.id, patch: { status: 'done' } }));
   };
-  // Done from the panel's status, or archiving it from its menu, is the strip's Done: it leaves
-  // what waits on you and the card goes on. The rest of its changes go through the store.
+  // Done from the panel's status or the todo's menu, or archiving it from the menu, is the strip's
+  // Done: it leaves what waits on you and the card goes on. While a start is on its way it waits:
+  // the start would set it back in progress. The rest of its changes go through the store.
   const runHere = (op: TodoOp) => {
     if (op.op === 'update' && op.id === todo.id && (op.patch.status === 'done' || op.patch.archived === true) && Object.keys(op.patch).length === 1) {
-      if (op.patch.status === 'done') done();
+      if (launching.has(todo.id)) report.info('A session is starting on it: mark it done once it has.');
+      else if (op.patch.status === 'done') done();
       else leaving('archived', todoOp(op));
       return;
     }
@@ -163,7 +166,7 @@ export function TodoCard({ todo, todos, labels, run, lanes, usage, projects, now
 
   const buttons: StripAction[] = [
     { label: 'Start', keys: keysSaid('⌘⏎'), title: sending ? 'A session is starting on it' : item.lane ? `Start a session on it in ${item.lane.callsign}, with what’s written in the box at its foot` : 'It’s linked to no worktree: the quick panel asks where to start it', run: sending ? undefined : start },
-    { label: 'Done', chord: menus.CHORDS.done, title: sending ? 'A session is starting on it: it’s marked done once that’s settled' : 'Mark it done: it leaves what waits on you', run: todo.status === 'done' || sending ? undefined : done },
+    { label: 'Done', chord: menus.CHORDS.done, title: sending ? 'A session is starting on it: mark it done once it has' : 'Mark it done: it leaves what waits on you', run: todo.status === 'done' || sending ? undefined : done },
     { label: 'Snooze', keys: snoozeRange(), title: `Snooze it: it waits apart until its time comes, its due date as it is. ${snoozeKeys(snooze)}`, menu: snooze.items },
     { label: 'Due…', title: 'When it’s due', menu: due.items },
   ];
@@ -181,7 +184,7 @@ export function TodoCard({ todo, todos, labels, run, lanes, usage, projects, now
           projects={projects}
           onRun={runHere}
           onStart={start}
-          onMenu={can.todoMenu}
+          onMenu={() => can.todoMenu(edit)}
           onShowTodo={can.showTodo}
           onShowSession={(lane, session) => can.showSession(lane, session)}
           onOpenSession={can.openSession}

@@ -15,7 +15,7 @@ import { useEditorIcons } from '../editors';
 import { followBoard, type Following } from '../followBoard';
 import * as menus from '../menus';
 import { errorText } from '../report';
-import { useTodoStore } from '../todos';
+import { todoProjects, useTodoStore } from '../todos';
 import type { Board, Lane, Session } from '../types';
 import { useCardHost } from './cardHost';
 import type { Notice, Queue } from './SessionPanel';
@@ -90,7 +90,7 @@ export function NotchTodo({ todoKey, now, queue, notice, onBack, keys, onKeys, o
         run={(op) => void store.run(op)}
         lanes={board.lanes}
         usage={board.usage}
-        projects={board.projects.map((p) => p.name)}
+        projects={todoProjects(board.projects)}
         now={now}
         zoom={zoom}
         can={{
@@ -103,13 +103,13 @@ export function NotchTodo({ todoKey, now, queue, notice, onBack, keys, onKeys, o
           openSession: (lane, session) => host.open(lane, session.openTarget),
           laneMenu: (l) => show(menus.laneMenu(l, { report, open: host.open, reveal: () => host.showLane(l), editors, desktop: onDesktop })),
           sessionMenu: (l, s) => show(menus.sessionMenu(l, s, sessionCan(l, s))),
-          todoMenu: () =>
+          todoMenu: (edit) =>
             show(
               menus.todoMenu(todo, {
                 report,
                 start: () => void showQuick({ todo: todo.id, project: todo.project || null }).catch((e: unknown) => report.error(errorText(e))),
                 reveal: () => host.showTodo(todo),
-                edit: { run: (op) => void store.run(op), todos: store.todos, labels: store.labels, projects: board.projects.map((p) => p.name) },
+                edit,
                 desktop: onDesktop,
               }),
             ),
