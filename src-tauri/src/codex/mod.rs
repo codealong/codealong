@@ -750,17 +750,19 @@ impl crate::harness::Adapter for Codex {
     /// held by codex-acp's own app-server, which answers another's `thread/archive` with "thread
     /// … already has an active writer", even after the session's `session/close` (codex-acp
     /// 1.13.1, checked 2026-10-11); its `session/delete` archives the thread through that server
-    /// and lets go of it.
-    fn archive(&self, account: &AccountCfg, id: &str, archived: bool) -> anyhow::Result<()> {
+    /// and lets go of it. One the Codex app or a terminal has loaded is refused the same way, and
+    /// can't be reached: it's archived in Codealong only (`archived_in_codex`).
+    fn archive(&self, account: &AccountCfg, id: &str, archived: bool) -> anyhow::Result<Option<String>> {
         if archived && crate::acp::delete_held(&account.name, self.harness(), id)? {
-            return Ok(());
+            return Ok(None);
         }
         // Codex refuses to archive a thread it has archived already ("no rollout found for thread
-        // id"), as a second Mark as done would ask: there's nothing left to do.
-        if archived && already_archived(&account.home_path(), id) {
-            return Ok(());
+        // id"), as a second Mark as done would ask: there's nothing left to do. Nor is there in
+        // taking out of its archive a thread that was archived in Codealong only.
+        if archived == already_archived(&account.home_path(), id)? {
+            return Ok(None);
         }
-        appserver::set_archived(&account.home_path(), id, archived)
+        archived_in_codex(appserver::set_archived(&account.home_path(), id, archived))
     }
 
     fn reader(&self, _wake: crate::harness::Wake) -> Box<dyn crate::harness::Reader> {
@@ -1003,7 +1005,7 @@ impl Reader {
         for a in accounts {
             let home = a.home_path();
             let sessions = home.join("sessions");
-            let mut paths: BTreeSet<PathBuf> = rollout_files(&home, look.since, &look.seen.pinned_ids("codex", &a.name)).into_iter().map(|(p, _)| p).collect();
+            let mut paths: BTreeSet<PathBuf> = read_now(&home, look, &a.name).into_iter().map(|(p, _)| p).collect();
             // Include known files so a removal or truncation is noticed as well.
             paths.extend(self.rollouts.iter().filter(|(p, (acct, _))| acct == &a.name && p.starts_with(&sessions)).map(|(p, _)| p.clone()));
             for p in paths {
@@ -1074,7 +1076,7 @@ impl crate::harness::Reader for Reader {
             self.approve_for_me.insert(a.name.clone(), (approve_for_me_offered(&home), mtime_ms(&home.join("config.toml")).unwrap_or(look.now)));
             self.queue_marks.changed(&a.name, &home.join(queue::DB));
             self.queues.insert(a.name.clone(), queue::read(&home));
-            let files = rollout_files(&home, look.since, &look.seen.pinned_ids("codex", &a.name));
+            let files = read_now(&home, look, &a.name);
             for (path, parsed) in parallel_map(files, |(p, m)| {
                 let parsed = parse_rollout(&p, m, None);
                 // One made a moment ago may have no session meta yet: the poll reads it once it has.
@@ -1176,7 +1178,9 @@ impl crate::harness::Reader for Reader {
 
     fn sessions(&self, account: &AccountCfg, look: &Look) -> Vec<Session> {
         let index = self.index.get(&account.name);
-        // Codex decides what's archived: its archived threads live in `archived_sessions`.
+        // Codex decides what's archived: its archived threads live in `archived_sessions`. Where
+        // it wouldn't archive one, open elsewhere (`archived_in_codex`), Codealong's archive
+        // holds it until it's active again.
         let archived_dir = account.home_path().join("archived_sessions");
         let mine = || self.rollouts.iter().filter_map(|(path, (acct, info))| info.as_ref().filter(|_| acct == &account.name).map(|(th, _)| (path, th)));
         let threads: Vec<(&str, &str, i64, i64, bool)> = mine().map(|(_, th)| (th.id.as_str(), th.cwd.as_str(), th.started_at.unwrap_or(0), th.last_ts, th.cli)).collect();
@@ -1189,7 +1193,7 @@ impl crate::harness::Reader for Reader {
                 let held = self.held(path, th);
                 let mut s = crate::board::codex_session(account, th, name, terminals.get(&th.id).copied(), held, self.stopped_by_quit.contains(path), look.seen.seen_at(&key), look.now, asked);
                 s.tasks = crate::board::codex_tasks(th, held, self.terminals_since(path), look.now);
-                s.archived = path.starts_with(&archived_dir);
+                s.archived = path.starts_with(&archived_dir) || look.archived_only_here(&key, s.last_activity);
                 // What its terminal UI's `/permissions` lists, which Codealong picks from there
                 // (cycle.rs), where that can be told; `cycle::overlay` keeps them where that tab
                 // takes keys.
@@ -1274,8 +1278,50 @@ fn tuned(ask: &crate::harness::StartAsk) -> String {
 }
 
 /// Whether a thread's rollout is in `archived_sessions`, where Codex moves it as it archives it.
-fn already_archived(codex_home: &Path, id: &str) -> bool {
-    !archived_rollout_files(codex_home, &HashSet::from([id.to_string()])).is_empty()
+/// Whether Codex has archived the thread: a rollout of it in `archived_sessions`, kept as it was
+/// written or compressed (`.jsonl.zst`, as Codex keeps older ones: most of this Mac's archive).
+/// An account with no archive has archived none; one that can't be read is an error, so taking a
+/// thread out of the archive isn't taken for done when it isn't.
+fn already_archived(codex_home: &Path, id: &str) -> anyhow::Result<bool> {
+    let (plain, compressed) = (format!("{id}.jsonl"), format!("{id}.jsonl.zst"));
+    let entries = match std::fs::read_dir(codex_home.join("archived_sessions")) {
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(false),
+        entries => entries?,
+    };
+    for e in entries {
+        let name = e?.file_name();
+        let name = name.to_string_lossy();
+        if name.starts_with("rollout-") && (name.ends_with(&plain) || name.ends_with(&compressed)) {
+            return Ok(true);
+        }
+    }
+    Ok(false)
+}
+
+/// The rollouts under `sessions` a look at an account reads: the ones written since `look.since`,
+/// the pinned ones whenever, and the ones archived in Codealong only and not written since, which
+/// Archived lists as it lists the ones in Codex's archive (`archived_rollout_files`), whatever
+/// their age. One that's been active since its archive is any other thread again.
+fn read_now(home: &Path, look: &Look, account: &str) -> Vec<(PathBuf, i64)> {
+    let pinned = look.seen.pinned_ids("codex", account);
+    let shelved = look.seen.archived_only_here_at("codex", account);
+    let keep: HashSet<String> = pinned.iter().chain(shelved.keys()).cloned().collect();
+    let kept = |path: &Path, m: i64| thread_id_of(path).is_some_and(|id| pinned.contains(&id) || shelved.get(&id).is_some_and(|at| m <= *at));
+    rollout_files(home, look.since, &keep).into_iter().filter(|(p, m)| *m >= look.since || kept(p, *m)).collect()
+}
+
+/// What archiving a thread in Codex came to, as `Adapter::archive` says it. One that another
+/// process has loaded, the Codex app (every thread it has opened, for as long as it runs) or a
+/// terminal, is refused to Codealong's own app-server ("thread … already has an active writer"),
+/// and only that process could archive it; the app's is reached only through its own windows,
+/// whose socket has no archive. So it's archived in Codealong only, saying so (2026-11-18: Mark as
+/// done on a thread open in the app had left it as it was, pinned and listed).
+fn archived_in_codex(asked: anyhow::Result<()>) -> anyhow::Result<Option<String>> {
+    match asked {
+        Ok(()) => Ok(None),
+        Err(e) if e.to_string().contains("already has an active writer") => Ok(Some("Codex still lists it: the Codex app or a terminal has the thread open, and Codex archives it only from there.".into())),
+        Err(e) => Err(e),
+    }
 }
 
 fn record(a: &Codex, ctx: &crate::harness::Ctx, s: &crate::model::Session) -> anyhow::Result<PathBuf> {
@@ -1763,9 +1809,76 @@ mod tests {
         std::fs::create_dir_all(home.join("archived_sessions")).unwrap();
         std::fs::write(home.join(format!("archived_sessions/rollout-2026-10-22T13-30-18-{id}.jsonl")), "{\"type\":\"session_meta\",\"payload\":{\"id\":\"x\",\"cwd\":\"/codealong-test-missing-repo\"}}\n").unwrap();
         let account = AccountCfg { name: "studio".into(), harness: "codex".into(), home: home.to_string_lossy().into_owned(), command: None, start: None, acp: None, monthly: None, per_token: false, usage_cap: None, disabled: false, chrome_profile: None };
-        assert!(already_archived(&home, id));
-        assert!(!already_archived(&home, "01a1654e-b202-7d20-8f43-1e676c07126c"));
+        assert!(already_archived(&home, id).unwrap());
+        assert!(!already_archived(&home, "01a1654e-b202-7d20-8f43-1e676c07126c").unwrap());
         assert!(Codex.archive(&account, id, true).is_ok());
+    }
+
+    /// A thread another process has loaded (the Codex app keeps every thread it opened) is refused
+    /// to Codealong's app-server, as Codex 0.169 refused one open in the app: it's archived in
+    /// Codealong only, saying why. Taking one out of the archive that Codex never archived asks
+    /// nothing of Codex; one it keeps compressed is archived all the same.
+    #[test]
+    fn a_thread_open_elsewhere_is_archived_in_codealong_only() {
+        use crate::harness::Adapter as _;
+
+        let held = archived_in_codex(Err(anyhow::anyhow!("Codex: thread 00000000-0000-7000-8000-000000000001 already has an active writer"))).unwrap();
+        assert!(held.is_some_and(|why| why.starts_with("Codex still lists it")));
+        assert_eq!(archived_in_codex(Ok(())).unwrap(), None);
+        assert_eq!(archived_in_codex(Err(anyhow::anyhow!("Codex didn't answer in time."))).unwrap_err().to_string(), "Codex didn't answer in time.");
+
+        let home = crate::fixtures::scratch("codex-archived-here");
+        let account = AccountCfg { name: "studio".into(), harness: "codex".into(), home: home.to_string_lossy().into_owned(), command: None, start: None, acp: None, monthly: None, per_token: false, usage_cap: None, disabled: false, chrome_profile: None };
+        assert_eq!(Codex.archive(&account, "00000000-0000-7000-8000-000000000001", false).unwrap(), None);
+        std::fs::create_dir_all(home.join("archived_sessions")).unwrap();
+        std::fs::write(home.join("archived_sessions/rollout-2026-09-30T10-00-00-00000000-0000-7000-8000-000000000002.jsonl.zst"), "").unwrap();
+        assert!(already_archived(&home, "00000000-0000-7000-8000-000000000002").unwrap(), "compressed");
+        assert!(!already_archived(&home, "00000000-0000-7000-8000-000000000001").unwrap());
+        // An archive that can't be read isn't taken for none: Codex is asked, or it's said.
+        let unreadable = crate::fixtures::scratch("codex-archive-unreadable");
+        std::fs::write(unreadable.join("archived_sessions"), "not a folder").unwrap();
+        assert!(already_archived(&unreadable, "00000000-0000-7000-8000-000000000001").is_err());
+    }
+
+    /// One archived in Codealong only, as Codex kept it, is archived on the board though its
+    /// rollout is where any thread's is, until it's active again, and read however long it's been
+    /// quiet, as Codex's archived ones are. One Codex archived and then took out of its archive
+    /// (in its app) isn't, though Codealong archived it.
+    #[test]
+    fn a_thread_archived_in_codealong_only_shows_archived_until_it_does_something() {
+        use crate::harness::Reader as _;
+
+        let home = crate::fixtures::scratch("codex-archived-in-codealong");
+        let dir = home.join("sessions/2026/11/18");
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(dir.join("rollout-2026-11-18T15-00-00-00000000-0000-7000-8000-000000000001.jsonl"), "{\"type\":\"session_meta\",\"payload\":{\"id\":\"00000000-0000-7000-8000-000000000001\",\"cwd\":\"/codealong-test-missing-repo\",\"thread_source\":\"user\"}}\n{\"timestamp\":\"2026-11-18T23:00:00.000Z\",\"type\":\"event_msg\",\"payload\":{\"type\":\"task_started\"}}\n{\"timestamp\":\"2026-11-18T23:05:00.000Z\",\"type\":\"event_msg\",\"payload\":{\"type\":\"task_complete\"}}\n").unwrap();
+        let account = AccountCfg { name: "studio".into(), harness: "codex".into(), home: home.to_string_lossy().into_owned(), command: None, start: None, acp: None, monthly: None, per_token: false, usage_cap: None, disabled: false, chrome_profile: None };
+        let accounts = std::slice::from_ref(&account);
+        let now = parse_rfc3339_ms("2026-11-19T01:00:00.000Z").unwrap();
+        let ended = parse_rfc3339_ms("2026-11-18T23:05:00.000Z").unwrap();
+        // Each read is a fresh scan; `since` after the rollout was written makes it an old one.
+        let archived = |seen: &crate::state::SeenState, since: i64| {
+            let look = Look { seen, since, now, ps: Default::default() };
+            let mut reader = Reader::default();
+            reader.scan(accounts, &look);
+            reader.sessions(&account, &look).into_iter().map(|s| s.archived).collect::<Vec<_>>()
+        };
+        let recent = now - 14 * crate::util::DAY_MS;
+        let quiet = crate::util::now_ms() + crate::util::DAY_MS;
+        let key = "codex:studio:00000000-0000-7000-8000-000000000001";
+        let mut seen = crate::state::SeenState::default();
+        assert_eq!(archived(&seen, recent), [false]);
+        // Archived after its rollout was last written, as Mark as done archives it.
+        let after = crate::util::now_ms() + 60_000;
+        seen.set_archived(key, true, after, true);
+        assert_eq!(archived(&seen, recent), [true]);
+        assert_eq!(archived(&seen, quiet), [true], "read however long it's been quiet");
+        seen.set_archived(key, true, after, false);
+        assert_eq!(archived(&seen, recent), [false], "Codex archived it, and took it out again");
+        assert!(archived(&seen, quiet).is_empty(), "an old thread Codex has out of its archive isn't read");
+        seen.set_archived(key, true, ended - 60_000, true);
+        assert_eq!(archived(&seen, recent), [false], "it did something after it was archived");
+        assert!(archived(&seen, quiet).is_empty(), "and is any other quiet thread again");
     }
 
     /// Codex makes a rollout before it writes the session meta that opens it. A look in between
@@ -1864,7 +1977,7 @@ mod tests {
         let accounts = std::slice::from_ref(&account);
         let key = Session::key_for(Harness::Codex, "studio", id);
         let now = crate::util::now_ms();
-        let shelved = crate::state::SeenState { archived: vec![crate::state::ArchivedSession { key: key.clone(), at: now }], ..Default::default() };
+        let shelved = crate::state::SeenState { archived: vec![crate::state::ArchivedSession { key: key.clone(), at: now, only_here: false }], ..Default::default() };
         // Every file here is older than the look reads by itself.
         let look = Look { seen: &shelved, since: now + crate::util::DAY_MS, now, ps: Default::default() };
         let mut reader = Reader::default();

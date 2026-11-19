@@ -2777,7 +2777,7 @@ mod tests {
         // With the conversation it was moved with gone too, there's nothing left to go on with.
         assert!(Reader::default().closed_copies(&to, &HashSet::new(), &origins, &look).is_empty());
         // Archived, it stays archived until it's active again.
-        let archived = crate::state::SeenState { archived: vec![crate::state::ArchivedSession { key: "claude:claude2:c0".into(), at: copy.last_activity }], ..Default::default() };
+        let archived = crate::state::SeenState { archived: vec![crate::state::ArchivedSession { key: "claude:claude2:c0".into(), at: copy.last_activity, only_here: false }], ..Default::default() };
         let look_archived = Look { seen: &archived, ..look };
         assert!(reader.closed_copies(&to, &HashSet::new(), &origins, &look_archived)[0].archived);
 

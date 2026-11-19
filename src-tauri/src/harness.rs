@@ -1010,9 +1010,10 @@ pub trait Adapter: Sync {
 
     /// Archives a session in the harness itself, or takes it out of its archive, where the
     /// harness has one another program can reach. Elsewhere a session is archived in Codealong
-    /// only, until it's active again.
-    fn archive(&self, _account: &AccountCfg, _id: &str, _archived: bool) -> Result<()> {
-        Ok(())
+    /// only, until it's active again, and so is one the harness won't archive just now: then it
+    /// says why, which Mark as done passes on.
+    fn archive(&self, _account: &AccountCfg, _id: &str, _archived: bool) -> Result<Option<String>> {
+        Ok(None)
     }
 
     /// The folder the harness keeps the sessions it starts without a folder of yours in (an
@@ -1060,6 +1061,12 @@ impl Look<'_> {
     /// Whether a session was archived in Codealong and hasn't been active since.
     pub fn archived_here(&self, key: &str, last_activity: i64) -> bool {
         self.seen.archived_at(key).is_some_and(|at| last_activity <= at)
+    }
+
+    /// `archived_here`, for a harness with an archive of its own: only one archived in Codealong
+    /// as the harness kept it (`ArchivedSession::only_here`), since the harness's own says the rest.
+    pub fn archived_only_here(&self, key: &str, last_activity: i64) -> bool {
+        self.seen.archived.iter().any(|a| a.key == key && a.only_here && last_activity <= a.at)
     }
 }
 

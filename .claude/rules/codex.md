@@ -420,7 +420,20 @@ checked on this Mac, most of them by reading the apps' own bundles and files. Pa
   loaded ("thread … already has an active writer"), nor one codex-acp holds for a session
   Codealong runs, even after its `session/close`; codex-acp's `session/delete` archives it
   through its own app-server and lets go of it (`codex/mod.rs` `archive`, `acp::delete_held`;
-  checked 2026-10-11).
+  checked 2026-10-11). The app's app-server (a child of the app, spoken to over its stdio) holds
+  the writer lock of every thread the app has opened while it runs: one opened at 17:01 was
+  still held at 17:20, its turn long over, and Codex 0.169's `thread/archive` from another
+  app-server was refused at once (2026-11-18). Its windows' socket has no archive (the
+  `thread-follower-*` requests in 26.1111's bundle: start, steer and interrupt a turn, settings,
+  queue, approvals, compact, edit last turn, load history); `thread-archived` there is only the
+  broadcast a window sends after archiving through its own app-server. So such a thread is
+  archived in Codealong only, and Mark as done says Codex still lists it (`codex/mod.rs`
+  `archived_in_codex`); state.json marks that archive (`ArchivedSession::only_here`), which the
+  reader takes until the thread is active again, and reads at any age as it reads Codex's own
+  archive while it hasn't been written since (`read_now`); any other Codex thread is archived as Codex says. Codex keeps most
+  archived rollouts compressed (`.jsonl.zst`: 1,507 of 1,742 here on 2026-11-18), which
+  `already_archived` counts too. Codex logged neither the refused request nor the app-server that asked
+  (`logs_2.sqlite`), so the absence of a `thread/archive` there isn't a sign nothing was asked.
 - Naming a thread (`thread/name/set`), which refuses an archived one: `codex/appserver.rs`
   (`set_name`), `codex/mod.rs` (`rename`). It works on a thread the app has loaded too; the
   window socket has no rename, so the app shows a new name when it next reads its threads.

@@ -207,9 +207,10 @@ pub enum Msg {
     SetPinnedPrs(Vec<String>),
     /// The full list of pinned repos (a board's repo keys), in order.
     SetPinnedRepos(Vec<String>),
-    /// Sessions archived (true) or unarchived from Codealong; Codex has already done its part.
+    /// Sessions archived (true) or unarchived from Codealong; Codex has already done its part,
+    /// but for the ones in the set, which it wouldn't archive just then (`Adapter::archive`).
     /// The reply is the time of the board that shows them, published at once.
-    SetArchived(Vec<String>, bool, Sender<i64>),
+    SetArchived(Vec<String>, bool, HashSet<String>, Sender<i64>),
     /// The theme, already saved to config.toml.
     SetTheme(Theme),
     /// The board windows' zoom, already saved to config.toml.
@@ -251,6 +252,14 @@ pub enum Msg {
     /// A PR the board doesn't list, as GitHub has it, to match to worktrees and sessions for a
     /// link to it (`board::pr_card`): the repo as the link names it, the PR, and who `gh` is.
     PrCard(String, PrRaw, Option<String>, Sender<PrItem>),
+}
+
+/// A session archived or taken out of the archive (`Handle::archive`).
+pub struct Archived {
+    /// The time of the board that shows it, as `mark_seen_shown` returns.
+    pub at: Option<i64>,
+    /// Why its harness still lists it, where it's archived in Codealong only (`Adapter::archive`).
+    pub kept: Option<String>,
 }
 
 /// What the UI talks to. Cheap to clone.
@@ -595,20 +604,24 @@ impl Handle {
 
     /// Archives or unarchives a session: in its harness where that has an archive another
     /// program can reach (`Adapter::archive`: Codex, so the Codex app shows it too), and in
-    /// Codealong, where a session of any other harness stays archived until it's active again.
-    /// Returns the time of the board that shows it, as `mark_seen_shown` does.
-    pub fn archive(&self, key: &str, archived: bool) -> Result<Option<i64>> {
-        archive_in_harness(key, archived)?;
-        self.set_archived(vec![key.to_string()], archived)
+    /// Codealong, where a session of any other harness, or one its harness wouldn't archive just
+    /// now, stays archived until it's active again. Says when the board shows it and what its
+    /// harness kept.
+    pub fn archive(&self, key: &str, archived: bool) -> Result<Archived> {
+        let kept = archive_in_harness(key, archived)?;
+        let only_here = kept.iter().map(|_| key.to_string()).collect();
+        Ok(Archived { at: self.set_archived(vec![key.to_string()], archived, only_here)?, kept })
     }
 
     /// Archives several sessions as `archive` does each, shown on one board: each key's result,
-    /// in order. One its harness wouldn't archive isn't archived in Codealong either.
+    /// in order. One its harness refused isn't archived in Codealong either.
     pub fn archive_all(&self, keys: &[String]) -> Vec<Result<()>> {
-        let mut results: Vec<Result<()>> = keys.iter().map(|k| archive_in_harness(k, true)).collect();
+        let asked: Vec<Result<Option<String>>> = keys.iter().map(|k| archive_in_harness(k, true)).collect();
+        let only_here = keys.iter().zip(&asked).filter(|(_, r)| matches!(r, Ok(Some(_)))).map(|(k, _)| k.clone()).collect();
+        let mut results: Vec<Result<()>> = asked.into_iter().map(|r| r.map(|_| ())).collect();
         let done: Vec<String> = keys.iter().zip(&results).filter(|(_, r)| r.is_ok()).map(|(k, _)| k.clone()).collect();
         if !done.is_empty() {
-            if let Err(e) = self.set_archived(done, true) {
+            if let Err(e) = self.set_archived(done, true, only_here) {
                 let e = crate::util::words(e);
                 for r in results.iter_mut().filter(|r| r.is_ok()) {
                     *r = Err(anyhow!("{e}"));
@@ -618,7 +631,7 @@ impl Handle {
         results
     }
 
-    fn set_archived(&self, keys: Vec<String>, archived: bool) -> Result<Option<i64>> {
+    fn set_archived(&self, keys: Vec<String>, archived: bool, only_here: HashSet<String>) -> Result<Option<i64>> {
         // A session's terminals of Codealong's own go with it, however it's archived (Archive,
         // Mark as done, Close idle sessions, a helper's or a moved session's archiving), as the
         // terminal it ran in does.
@@ -628,7 +641,7 @@ impl Handle {
             }
         }
         let (tx, rx) = channel();
-        if self.tx.send(Msg::SetArchived(keys, archived, tx)).is_err() {
+        if self.tx.send(Msg::SetArchived(keys, archived, only_here, tx)).is_err() {
             bail!("Codealong's engine stopped.");
         }
         Ok(rx.recv_timeout(SHOWN_WAIT).ok())
@@ -944,8 +957,9 @@ pub fn open_here(board: &Board, lane_id: &str, target_id: &str) -> Result<Option
 }
 
 /// Archives a session in its harness, or takes it out of its archive, where the harness has one
-/// another program can reach (`Adapter::archive`).
-fn archive_in_harness(key: &str, archived: bool) -> Result<()> {
+/// another program can reach (`Adapter::archive`). Says why the harness kept it, where it would
+/// only be archived in Codealong.
+fn archive_in_harness(key: &str, archived: bool) -> Result<Option<String>> {
     let mut parts = key.splitn(3, ':');
     let (Some(harness), Some(account), Some(id)) = (parts.next(), parts.next(), parts.next()) else {
         bail!("That isn't a session.");
@@ -953,9 +967,9 @@ fn archive_in_harness(key: &str, archived: bool) -> Result<()> {
     if let Some(adapter) = harness::named(harness) {
         let cfg = config::current()?;
         let a = cfg.accounts.iter().find(|a| a.name == account).ok_or_else(|| anyhow!("There's no account named {account}."))?;
-        adapter.archive(a, id, archived)?;
+        return adapter.archive(a, id, archived);
     }
-    Ok(())
+    Ok(None)
 }
 
 /// Opens a lane's target on `board`. Returns the key of the session it opened, if any.
@@ -2851,10 +2865,10 @@ fn waiting_call(s: &Session, account: Option<&config::AccountCfg>) -> Option<Str
                 Ok(Msg::Sides) => self.mark_dirty("side conversations"),
                 Ok(Msg::Terminals) => self.mark_dirty("Codealong's terminals"),
                 Ok(Msg::Listenings) => self.mark_dirty("listenings"),
-                Ok(Msg::SetArchived(keys, archived, reply)) => {
+                Ok(Msg::SetArchived(keys, archived, only_here, reply)) => {
                     let now = now_ms();
                     for key in &keys {
-                        self.seen.set_archived(key, archived, now);
+                        self.seen.set_archived(key, archived, now, only_here.contains(key));
                     }
                     self.save_state();
                     // A harness with an archive of its own reads what's in it now.

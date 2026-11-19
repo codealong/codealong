@@ -1298,7 +1298,7 @@ fn archive(engine: &Handle, c: &Call) -> Result<Value, String> {
     let key = c.session()?;
     // How it stands as it's archived (dismissed.rs), read before it is.
     let leaving = if p.archived { engine.read(|b| b.session(key).and_then(|(_, s)| crate::dismissed::leaving(b, s, crate::dismissed::What::Archive, c.from))) } else { None };
-    let at = engine.archive(key, p.archived).map_err(words)?;
+    let at = engine.archive(key, p.archived).map_err(words)?.at;
     match leaving {
         Some(leaving) => leaving.note(),
         None if !p.archived => crate::dismissed::undone(key),
@@ -1670,7 +1670,7 @@ fn finish(engine: &Handle, c: &Call, key: &str, stop: bool, helpers: Chosen, by:
     let stopped = ended.is_some();
     let title = s.title.clone();
     engine.mark_seen(vec![key.to_string()]);
-    let at = engine.archive(key, true).map_err(words)?;
+    let archived = engine.archive(key, true).map_err(words)?;
     // Left with work undone, it says how it stood, which a list it has left can't.
     let hint = leaving.as_ref().and_then(|l| {
         l.note();
@@ -1687,6 +1687,10 @@ fn finish(engine: &Handle, c: &Call, key: &str, stop: bool, helpers: Chosen, by:
     if let Some(note) = &note {
         message = format!("{message} {note}");
     }
+    // Archived in Codealong only, it's still in its harness's own list, which says why.
+    if let Some(kept) = &archived.kept {
+        message = format!("{message} {kept}");
+    }
     // Only once it's archived: a repo's own teardown can take a minute, and the session would
     // come back to the lists meanwhile.
     let worktree = job_worktree(engine, &cfg, s, job && stopped);
@@ -1694,7 +1698,7 @@ fn finish(engine: &Handle, c: &Call, key: &str, stop: bool, helpers: Chosen, by:
         message = format!("{message} {words}");
     }
     let helped = finish_helpers(engine, &cfg, key, helpers, &who);
-    let at = helped.at.or(at);
+    let at = helped.at.or(archived.at);
     if let Some(words) = &helped.said {
         message = format!("{message} {words}");
     }
@@ -1703,7 +1707,7 @@ fn finish(engine: &Handle, c: &Call, key: &str, stop: bool, helpers: Chosen, by:
     }
     // Helpers made yours are worth saying where the session leaving its list says the rest: a
     // window that couldn't ask what becomes of them says it.
-    let noted = note.is_some() || hint.is_some() || worktree.is_some_and(|(_, noted)| noted) || helped.made_own;
+    let noted = note.is_some() || hint.is_some() || archived.kept.is_some() || worktree.is_some_and(|(_, noted)| noted) || helped.noted;
     let mut answer = to_value(api::Done { done: true, message, noted })?;
     answer["at"] = shown_at(c, at);
     Ok(answer)
@@ -1715,8 +1719,9 @@ struct Helped {
     said: Option<String>,
     /// The time of the board that shows the last one archived or made yours.
     at: Option<i64>,
-    /// Some were made yours.
-    made_own: bool,
+    /// Some were made yours, or are still listed in their harness: worth saying wherever the
+    /// session marked done is.
+    noted: bool,
 }
 
 /// What you chose for a session's helpers as it's marked done, by their keys
@@ -1747,6 +1752,8 @@ fn finish_helpers(engine: &Handle, cfg: &config::Config, key: &str, chosen: Chos
     let (mut done, mut left, mut at) = (0, 0, None);
     // Kept as yours, and why for those you chose to end that couldn't be.
     let (mut kept, mut why_kept) = (Vec::new(), Vec::new());
+    // What's said of those archived in Codealong only, which their harness still lists.
+    let mut still_listed = Vec::new();
     let mut parents = vec![key.to_string()];
     while let Some(parent) = parents.pop() {
         let helpers: Vec<String> = crate::board::helpers_of(&engine.board().lanes, &parent).iter().map(|h| h.key.clone()).collect();
@@ -1787,7 +1794,10 @@ fn finish_helpers(engine: &Handle, cfg: &config::Config, key: &str, chosen: Chos
                         Ok(shown) => {
                             engine.mark_seen(vec![helper.clone()]);
                             done += 1;
-                            at = shown.or(at);
+                            at = shown.at.or(at);
+                            if let Some(kept) = shown.kept {
+                                still_listed.push(format!("“{}” is archived in Codealong only. {kept}", h.title));
+                            }
                             parents.push(helper.clone());
                         }
                         Err(e) => {
@@ -1805,8 +1815,9 @@ fn finish_helpers(engine: &Handle, cfg: &config::Config, key: &str, chosen: Chos
     if made_own > 0 {
         at = engine.make_own(kept).or(at);
     }
-    let said = [helpers_done_words(done, made_own - why_kept.len(), left)].into_iter().flatten().chain(why_kept).collect::<Vec<_>>().join(" ");
-    Helped { said: (!said.is_empty()).then_some(said), at, made_own: made_own > 0 }
+    let noted = made_own > 0 || !still_listed.is_empty();
+    let said = [helpers_done_words(done, made_own - why_kept.len(), left)].into_iter().flatten().chain(why_kept).chain(still_listed).collect::<Vec<_>>().join(" ");
+    Helped { said: (!said.is_empty()).then_some(said), at, noted }
 }
 
 /// What Mark as done says of a session's helpers: the ones marked done with it, the ones whose

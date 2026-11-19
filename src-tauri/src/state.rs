@@ -163,6 +163,10 @@ pub struct Snooze {
 pub struct ArchivedSession {
     pub key: String,
     pub at: i64,
+    /// Archived in Codealong only, where its harness has an archive of its own that wouldn't take
+    /// it just then (`Adapter::archive`): its reader goes by Codealong's for it.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub only_here: bool,
 }
 
 impl SeenState {
@@ -421,11 +425,12 @@ impl SeenState {
         self.pinned_repos = unique(keys);
     }
 
-    /// Records an archive (or its undoing) made from Codealong.
-    pub fn set_archived(&mut self, key: &str, archived: bool, at: i64) {
+    /// Records an archive (or its undoing) made from Codealong, and whether its harness kept it
+    /// (`ArchivedSession::only_here`).
+    pub fn set_archived(&mut self, key: &str, archived: bool, at: i64, only_here: bool) {
         self.archived.retain(|a| a.key != key);
         if archived {
-            self.archived.push(ArchivedSession { key: key.to_string(), at });
+            self.archived.push(ArchivedSession { key: key.to_string(), at, only_here });
             self.pinned.retain(|k| k != key);
         }
     }
@@ -451,6 +456,13 @@ impl SeenState {
     pub fn archived_ids(&self, harness: &str, account: &str) -> std::collections::HashSet<String> {
         let prefix = format!("{harness}:{account}:");
         self.archived.iter().filter_map(|a| a.key.strip_prefix(&prefix).map(str::to_string)).collect()
+    }
+
+    /// Session ids archived in Codealong only for one account, which its harness kept
+    /// (`ArchivedSession::only_here`), each with when it was archived.
+    pub fn archived_only_here_at(&self, harness: &str, account: &str) -> std::collections::HashMap<String, i64> {
+        let prefix = format!("{harness}:{account}:");
+        self.archived.iter().filter(|a| a.only_here).filter_map(|a| a.key.strip_prefix(&prefix).map(|id| (id.to_string(), a.at))).collect()
     }
 
     /// Session ids pinned for one account (`<harness>:<account>:<id>` keys).
@@ -708,7 +720,7 @@ mod tests {
         assert!(s.set_quiet("codex:codex:b", true));
         assert_eq!(s.quiet, vec!["claude:claude:a".to_string(), "codex:codex:b".to_string()]);
         // Archiving doesn't end it.
-        s.set_archived("claude:claude:a", true, 10);
+        s.set_archived("claude:claude:a", true, 10, false);
         assert!(s.is_quiet("claude:claude:a"));
         assert!(serde_json::to_string(&s).unwrap().contains(r#""quiet":["claude:claude:a","codex:codex:b"]"#));
         assert!(s.set_quiet("claude:claude:a", false));
@@ -747,11 +759,11 @@ mod tests {
     fn archiving_unpins_and_can_be_undone() {
         let mut s = SeenState::default();
         s.set_pinned(vec!["codex:codex:t1".into()]);
-        s.set_archived("codex:codex:t1", true, 50);
+        s.set_archived("codex:codex:t1", true, 50, false);
         assert_eq!(s.archived_at("codex:codex:t1"), Some(50));
         assert!(s.pinned.is_empty());
         assert!(s.archived_ids("codex", "codex").contains("t1"));
-        s.set_archived("codex:codex:t1", false, 60);
+        s.set_archived("codex:codex:t1", false, 60, false);
         assert_eq!(s.archived_at("codex:codex:t1"), None);
     }
 }
