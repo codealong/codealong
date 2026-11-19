@@ -342,29 +342,6 @@
 .ca-patch-half > .ca-patch-num {
   color: var(--ink-3);
 }
-/* Code in its language's colors (syntax.ts): a few tones, as GitHub draws them, over the line's
-   tint. A comment is quieter than the code. */
-.ca-syn-keyword {
-  color: var(--syntax-keyword);
-}
-.ca-syn-string {
-  color: var(--syntax-string);
-}
-.ca-syn-constant {
-  color: var(--syntax-constant);
-}
-.ca-syn-entity {
-  color: var(--syntax-entity);
-}
-.ca-syn-tag {
-  color: var(--syntax-tag);
-}
-.ca-syn-variable {
-  color: var(--syntax-variable);
-}
-.ca-syn-comment {
-  color: var(--syntax-comment);
-}
 /* A hunk's header and git's note about a newline go across the whole diff. */
 .ca-patch-across {
   grid-column: 1 / -1;

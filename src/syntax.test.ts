@@ -1,6 +1,6 @@
 import hljs from 'highlight.js/lib/common';
 import { describe, expect, it } from 'vitest';
-import { languageOf, paint, runsOf, type Run } from './syntax';
+import { fenceLanguage, fenceNamesLanguage, languageOf, paint, runsOf, type Run } from './syntax';
 
 /** Code in a language as highlight.js colors it, each line as `tone:text` runs. */
 const said = (code: string, language: string) => runsOf(hljs.highlight(code, { language, ignoreIllegals: true }).value).map((line) => line.map((r) => `${r.tone ?? '-'}:${r.text}`));
@@ -87,5 +87,31 @@ describe('languageOf', () => {
     expect(languageOf('src/constructor', hljsKnown)).toBeNull();
     expect(languageOf('data.__proto__', hljsKnown)).toBeNull();
     expect(languageOf('a.toString', hljsKnown)).toBeNull();
+  });
+});
+
+describe('fenceLanguage', () => {
+  const known = (name: string) => !!hljs.getLanguage(name);
+
+  it('takes the fence’s word as highlight.js names languages and their aliases', () => {
+    expect(fenceLanguage('ts', known)).toBe('ts');
+    expect(fenceLanguage('rust', known)).toBe('rust');
+    expect(fenceLanguage('Python', known)).toBe('python');
+    expect(fenceLanguage('diff', known)).toBe('diff');
+  });
+
+  it('reads `shell` as a script, not the console session highlight.js takes it for', () => {
+    expect(fenceLanguage('shell', known)).toBe('bash');
+    expect(fenceLanguage('jsonc', known)).toBe('json');
+  });
+
+  it('leaves plain what names no language, or one highlight.js doesn’t know', () => {
+    for (const word of ['', 'text', 'txt', 'output', 'nosuchlang', 'constructor', '__proto__']) expect(fenceLanguage(word, known)).toBeNull();
+  });
+
+  it('says before highlight.js is in whether a block could want it', () => {
+    expect(fenceNamesLanguage('ts')).toBe(true);
+    expect(fenceNamesLanguage('')).toBe(false);
+    expect(fenceNamesLanguage('text')).toBe(false);
   });
 });

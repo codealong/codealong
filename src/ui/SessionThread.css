@@ -18,6 +18,8 @@
   gap: 10px;
   /* Its right padding, which macOS's overlay scrollbar draws over, and the fade below leaves out. */
   --thread-edge: var(--space-4);
+  /* What your prompts leave at their left, so they sit at the right: theirs and the pinned one's. */
+  --thread-you-inset: clamp(var(--space-6), 15%, 120px);
   padding: var(--space-3) var(--thread-edge) var(--space-4) var(--space-4);
 }
 /* Over the message box (SessionReply.css), what's scrolled under its top edge fades out over the
@@ -60,8 +62,13 @@
   display: grid;
   gap: var(--space-1);
 }
+/* Yours sits at the right, as wide as what it says up to an inset at the left, so it reads as
+   yours by where it is as well as by its tint; what's under it (when, what it made, Taken back)
+   goes at the right with it, and so does the prompt pinned over the top (`.ca-thread-pinned`). */
 .ca-thread-said.is-you {
   margin-top: 6px;
+  padding-left: var(--thread-you-inset);
+  justify-items: end;
 }
 /* What Codealong or another session sent that its session took back: neither yours nor the
    agent's, set apart by a rule at its left; Codealong's in quieter text. The rest are cards
@@ -121,7 +128,8 @@
 }
 /* Your prompt behind what's in view, pinned over the top of it once it's gone off (SessionThread.tsx).
    The holder takes no room, the flex gap after it included, and sticks to the top edge itself
-   rather than below the thread's padding. */
+   rather than below the thread's padding. The prompt hangs from that edge at the right, as wide as
+   its words up to your prompts' inset, as the prompt it stands for sits. */
 .ca-thread-pin {
   position: sticky;
   top: calc(-1 * var(--space-3));
@@ -132,8 +140,8 @@
 .ca-thread-pinned {
   position: absolute;
   top: 0;
-  left: 0;
   right: 0;
+  max-width: calc(100% - var(--thread-you-inset));
   display: flex;
   align-items: flex-start;
   gap: var(--space-2);

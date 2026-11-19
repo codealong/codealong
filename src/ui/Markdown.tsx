@@ -13,14 +13,15 @@
 // codealongLinks.ts) is the session's or the todo's (SessionLink.tsx): a bare one reads as its
 // title, and a session's key or a todo's id written as code is one too, as written. A tool's
 // output isn't Markdown, but the web links in it open the same way (`linked`), a PR's keeping
-// its words as written.
+// its words as written. A fenced block whose fence names a language is in that language's colors
+// (syntax.ts), as a PR's files are (`Fenced`).
 // The directives Codex's app draws (directives.ts) are drawn as it draws them, near enough: a
 // writing block as a card with Copy, a code comment as a card, a follow-up it offers as a button
 // that puts its prompt in the session's box, a file it cites as the file, which a click opens
 // (`FileLink`). Another `:::name` block
 // is a card of the same kind; other directives stay as they're written.
 
-import { createContext, Fragment, isValidElement, memo, useContext, useState, type MouseEvent, type ReactNode } from 'react';
+import { createContext, Fragment, isValidElement, memo, useContext, useMemo, useState, type MouseEvent, type ReactNode } from 'react';
 import { editFile, openFile, openUrl, revealFile, yourEditor } from '../api';
 import { BARE_SOURCE, codealongLinkOf, codealongNameOf, type CodealongLink } from '../codealongLinks';
 import { showContextMenu } from '../contextMenu';
@@ -31,6 +32,7 @@ import { ATTRS, attrsOf, cardAt, cardFields, cardKind, COMMENT, opensCard, tones
 import { BOLD, BOLD_UNDER, ITALIC } from '../emphasis';
 import { tildePath } from '../format';
 import { prLabel, prRefOf } from '../prLinks';
+import { fenceNamesLanguage, useSyntax, type Run, type Syntax } from '../syntax';
 import { isKeptFile, keptImageOf } from '../todos';
 import { CodeBlock, CopyButton } from './CopyButton';
 import { errorText } from '../report';
@@ -137,8 +139,9 @@ type Block =
    *  session. `session`: one written for the session's own shell, led by `!` as Claude Code's box
    *  takes one (bash mode), which runs as the box runs it (CopyButton.tsx). `bare`: a finished block
    *  with no language, which runs as shell if each of its lines starts with a command
-   *  (RunButton.tsx `isCommandBlock`). */
-  | { kind: 'code'; text: string; shell: boolean; session: boolean; bare: boolean }
+   *  (RunButton.tsx `isCommandBlock`). `lang`: its fence's first word, lower case (```ts), which
+   *  says what colors it's in once it's `closed` (a reply streaming in hasn't closed its last). */
+  | { kind: 'code'; text: string; lang: string; closed: boolean; shell: boolean; session: boolean; bare: boolean }
   | { kind: 'table'; align: Align[]; head: string[]; rows: string[][] }
   | { kind: 'rule' }
   /** A block a directive wraps (`:::name{…}` … `:::`): Codex's writing block, a finished piece of
@@ -222,7 +225,7 @@ export function blocks(src: string, written = false): Block[] {
       i++;
       const text = body.join('\n');
       const session = closed && (lang === '' || SHELLS.has(lang)) && text.trimStart().startsWith('!');
-      out.push({ kind: 'code', text, shell: (closed && SHELLS.has(lang)) || session, session, bare: closed && lang === '' && !session });
+      out.push({ kind: 'code', text, lang, closed, shell: (closed && SHELLS.has(lang)) || session, session, bare: closed && lang === '' && !session });
       continue;
     }
     const card = cardAt(lines, i);
@@ -626,6 +629,62 @@ function paragraph(text: string, key: number): ReactNode {
   );
 }
 
+/** Past this many characters a fenced block shows plain: highlight.js colors it as the
+ *  conversation draws, and a long one would hold that up. */
+const COLORS_UP_TO = 10_000;
+
+/** Blocks colored already, by language and code, so a conversation drawn again (another session
+ *  and back, the peek opened again) doesn't color them again; the least recently drawn go first. */
+const colored = new Map<string, Run[][] | null>();
+const KEEP_COLORED = 200;
+
+function coloredLines(syntax: Syntax, code: string, language: string): Run[][] | null {
+  const key = `${language}\n${code}`;
+  let lines = colored.get(key);
+  if (lines === undefined) lines = syntax.lines(code, language);
+  colored.delete(key);
+  colored.set(key, lines);
+  if (colored.size > KEEP_COLORED) colored.delete(colored.keys().next().value as string);
+  return lines;
+}
+
+/** A fenced block, with Copy, and Run where it's shell commands: in its language's colors once
+ *  highlight.js is in (syntax.ts), which only a block whose fence names a language loads, and
+ *  plain till then. One still being written stays plain until its fence closes, rather than being
+ *  colored again with each frame of its reply; so does one past `COLORS_UP_TO`, and one in a
+ *  language highlight.js doesn't know. */
+function Fenced({ block: b }: { block: Extract<Block, { kind: 'code' }> }) {
+  const colors = b.closed && b.text.length <= COLORS_UP_TO && fenceNamesLanguage(b.lang);
+  const syntax = useSyntax(colors);
+  const lines = useMemo(() => {
+    const language = colors && syntax ? syntax.fence(b.lang) : null;
+    return syntax && language ? coloredLines(syntax, b.text, language) : null;
+  }, [colors, syntax, b.lang, b.text]);
+  return (
+    <CodeBlock text={b.text} run={b.shell ? { session: b.session } : b.bare ? { ifCommands: true } : undefined}>
+      {lines && toned(lines)}
+    </CodeBlock>
+  );
+}
+
+/** Code's lines as runs of its tones (syntax.ts `runsOf`), for a `pre`. */
+function toned(lines: Run[][]): ReactNode {
+  return lines.map((line, i) => (
+    <Fragment key={i}>
+      {i > 0 && '\n'}
+      {line.map((r, j) =>
+        r.tone ? (
+          <span key={j} className={`ca-syn-${r.tone}`}>
+            {r.text}
+          </span>
+        ) : (
+          r.text
+        ),
+      )}
+    </Fragment>
+  ));
+}
+
 function drawBlock(b: Block, i: number): ReactNode {
   switch (b.kind) {
     case 'heading':
@@ -647,7 +706,7 @@ function drawBlock(b: Block, i: number): ReactNode {
     case 'quote':
       return <blockquote key={i}>{inline(b.text)}</blockquote>;
     case 'code':
-      return <CodeBlock key={i} text={b.text} run={b.shell ? { session: b.session } : b.bare ? { ifCommands: true } : undefined} />;
+      return <Fenced key={i} block={b} />;
     case 'table':
       return (
         <div key={i} className="ca-md-table">

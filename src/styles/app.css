@@ -2,7 +2,7 @@
    The order is the cascade. Vite inlines the imports in this order into one sheet, and where two
    rules of equal specificity set one property on one element, the later one wins. So the tokens
    come first, then the files several components share (base elements, glyphs, cards, controls,
-   chips, rows, nav, menus, trees, the dialog shell, the panel shell), then the main window, then
+   chips, code's colors, rows, nav, menus, trees, the dialog shell, the panel shell), then the main window, then
    each component and window in the order their rules had in the one file this replaced.
    Moving a file changes which rules win: check with scripts/preview/style-diff.mjs. A new file
    goes in here once (src/styles/styles.test.ts fails until it does), beside the component it
@@ -15,6 +15,7 @@
 @import './cards.css';
 @import './controls.css';
 @import './chips.css';
+@import './syntax.css';
 @import './rows.css';
 @import './nav.css';
 @import './menus.css';

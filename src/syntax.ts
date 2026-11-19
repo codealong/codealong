@@ -4,6 +4,9 @@
 // names many more kinds of token than that (its scopes); `TONES` folds them into the ones a reader
 // tells apart at a glance, and a scope it doesn't name takes the tone of the one it's in.
 //
+// A fenced block in Markdown (Markdown.tsx) is colored the same way, by its fence's language
+// (`fenceLanguage`).
+//
 // highlight.js is loaded the first time a window draws code (`useSyntax`), so a window that never
 // does doesn't carry it, and code drawn before it's in shows plain, then in its colors.
 
@@ -172,10 +175,34 @@ export function languageOf(path: string, known: (name: string) => boolean): stri
   return language && known(language) ? language : null;
 }
 
+/** Fence words that name no language to color: a block written as plain text or output. */
+const PLAIN = new Set(['text', 'txt', 'plain', 'plaintext', 'output', 'log']);
+
+/** Fence words highlight.js takes for another language than the writer meant: its `shell` is a
+ *  console session (prompts and output), where a fence's is a script (Markdown.tsx `SHELLS`). */
+const FENCES: Record<string, string> = { shell: 'bash', jsonc: 'json', json5: 'json' };
+
+/** The language a fenced block is in, by its fence's first word (```ts), as one `known`
+ *  (highlight.js's names and their aliases) takes; null for none, plain text or one it doesn't
+ *  know, which shows plain. A block with no word isn't guessed at: highlight.js's guess tries every
+ *  grammar it has, and an agent's unmarked block is as often output or a path as code. */
+export function fenceLanguage(word: string, known: (name: string) => boolean): string | null {
+  const name = word.toLowerCase();
+  if (!name || PLAIN.has(name)) return null;
+  const language = own(FENCES, name) ?? name;
+  return known(language) ? language : null;
+}
+
+/** Whether a fence's first word could name a language to color, before highlight.js is in to say:
+ *  a window loads it only for such a block. */
+export const fenceNamesLanguage = (word: string) => fenceLanguage(word, () => true) !== null;
+
 /** What a window colors code with, once highlight.js is in. */
 export interface Syntax {
   /** The language a file's in, by its path; null for one shown plain. */
   language: (path: string) => string | null;
+  /** The language a fenced block is in, by its fence's first word (`fenceLanguage`). */
+  fence: (word: string) => string | null;
   /** Code in a language as its lines' runs (`runsOf`); null if highlight.js can't read it. */
   lines: (code: string, language: string) => Run[][] | null;
 }
@@ -183,6 +210,7 @@ export interface Syntax {
 function syntaxOf(hljs: HLJSApi): Syntax {
   return {
     language: (path) => languageOf(path, (name) => !!hljs.getLanguage(name)),
+    fence: (word) => fenceLanguage(word, (name) => !!hljs.getLanguage(name)),
     lines: (code, language) => {
       try {
         return runsOf(hljs.highlight(code, { language, ignoreIllegals: true }).value);
@@ -219,11 +247,12 @@ function loadSyntax(): Promise<Syntax> {
   return loading;
 }
 
-/** What colors code in this window: null until highlight.js is in, which it starts loading. */
-export function useSyntax(): Syntax | null {
+/** What colors code in this window: null until highlight.js is in, which it starts loading when
+ *  `wanted` (a fenced block with no language to color doesn't need it). */
+export function useSyntax(wanted = true): Syntax | null {
   const [syntax, setSyntax] = useState(loaded);
   useEffect(() => {
-    if (syntax) return;
+    if (syntax || !wanted) return;
     let live = true;
     loadSyntax()
       .then((s) => live && setSyntax(s))
@@ -232,6 +261,6 @@ export function useSyntax(): Syntax | null {
     return () => {
       live = false;
     };
-  }, [syntax]);
+  }, [syntax, wanted]);
   return syntax;
 }

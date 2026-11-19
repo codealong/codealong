@@ -67,10 +67,12 @@
   border-left: 2px solid var(--line-strong);
   color: var(--ink-2);
 }
+/* A code block is outlined on the page's color, not tinted: in a conversation the tint is your
+   prompt's (SessionThread.css), and a block of commands in a reply read as one. */
 .ca-md pre {
   padding: 8px 10px;
+  border: 1px solid var(--line);
   border-radius: var(--radius-sm);
-  background: var(--neutral-tint);
   font: var(--type-code);
   white-space: pre-wrap;
   overflow-wrap: anywhere;

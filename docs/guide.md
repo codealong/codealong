@@ -673,9 +673,13 @@ then the agent's reply, whose earlier messages between its calls go without; a r
 speaker changes, at a note in the conversation or at a pause of ten minutes (the agent woken by a
 background job's report), and the one still going says when under its latest message. So does what's said of a message: Writing while the reply is still being written, Taken
 back, and where a message of yours on its way is (Sending, held until the turn ends) with what you
-can do about it. Your prompts are in a bubble of their own and the header names the agent's
-account, so neither says who wrote it; Codealong's messages and another session's do, on their
-cards' line, with their time.
+can do about it. Your prompts are in a bubble of their own at the right, as wide as what they say,
+and the header names the agent's account, so neither says who wrote it; Codealong's messages and
+another session's do, on their cards' line, with their time. A code block is outlined rather than
+in a bubble, so a block of commands in a reply doesn't read as a prompt of yours, and one whose
+fence names its language (```` ```ts ````, ```` ```rust ````, ```` ```bash ````) is in that language's
+colors, as a PR's files are, once the agent has finished writing it; one with no language, or
+longer than 10,000 characters, stays plain.
 Another session's message (an agent's, sent with `codealong session send`) is a card, as
 Codealong's own messages are: a line saying who it's from, the sender a link to its session, and
 when, with the message whole under it, in any harness: one Claude Code took on its cross-session
@@ -797,7 +801,7 @@ in another window, and while other turns get theirs.
 
 ⌘⇧↑ and ⌘⇧↓ bring your previous or next prompt to the top, from the box too (⌘↑ and ⌘↓ as well while
 the cursor isn't in a text box), reading further back as they go; the prompt behind what you're
-reading stays pinned at the top once it has scrolled off, two lines of it and more on hover, even
+reading stays pinned at the top, at the right as your prompts are, once it has scrolled off, two lines of it and more on hover, even
 when a long turn put it pages back (they're read then, and kept for scrolling up), and a click
 brings it up.
 

@@ -1,0 +1,24 @@
+/* Code in its language's colors (syntax.ts): a few tones, as GitHub draws them, in a PR's files
+   (PrFiles.tsx) over the line's tint, and in a fenced block in Markdown (Markdown.tsx `Fenced`). A
+   comment is quieter than the code. */
+.ca-syn-keyword {
+  color: var(--syntax-keyword);
+}
+.ca-syn-string {
+  color: var(--syntax-string);
+}
+.ca-syn-constant {
+  color: var(--syntax-constant);
+}
+.ca-syn-entity {
+  color: var(--syntax-entity);
+}
+.ca-syn-tag {
+  color: var(--syntax-tag);
+}
+.ca-syn-variable {
+  color: var(--syntax-variable);
+}
+.ca-syn-comment {
+  color: var(--syntax-comment);
+}
