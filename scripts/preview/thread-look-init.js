@@ -1,6 +1,8 @@
 // Opens the first Claude Code session in Sessions on a stand-in conversation, for a screenshot of
 // how one reads: your prompts at the right, the agent's replies with code blocks in their
-// languages' colors, a command you ran, and the prompt behind what's in view pinned over the top.
+// languages' colors (a diff's too), commands you ran, a prompt with a table wider than the
+// conversation, and the prompt behind what's in view pinned over the top. thread-look-check.js
+// checks it.
 //   PREVIEW_INIT=scripts/preview/thread-look-init.js PREVIEW_NAME=thread-look scripts/preview.sh sessions
 (function () {
   localStorage.setItem('codealong.project', 'All projects');
@@ -54,6 +56,10 @@
     ].join('\n')),
     item('you', '', { input: 'git status --short', shell: true, id: 'ran' }),
     item('result', '', { output: ' M src/parse.ts\n M src-tauri/src/parse.rs', id: 'ran' }),
+    item('you', '', { input: 'ls', shell: true, id: 'ls' }),
+    item('result', '', { output: 'src', id: 'ls' }),
+    item('agent', ['The change to the UI parser:', '', fence + 'diff', '@@ -12,2 +12,3 @@', '-  return { text, children: [] };', '+  const children = under(lines, i);', '+  return { text, children };', fence].join('\n')),
+    item('you', 'Which notes had nested lists?\n\n| northwind_quarterly_planning_notes_section | kestrel_release_checklist_with_owners |\n| --- | --- |\n| 3 | 1 |'),
     item('you', 'Looks right. Write it up for the atlas team:\n\n- what was wrong\n- what changed, in both places\n- how to check it'),
     item('agent', 'Here’s the write-up. Nested items under a list item were read as blocks of their own; they’re now kept as the item’s children, in the UI’s parser and the engine’s alike, and `npm test -- parse` covers both.'),
   ];
@@ -81,6 +87,9 @@
       // The first prompt gone off the top, so it's pinned there.
       var replies = thread.querySelectorAll('.ca-thread-said.is-agent');
       if (replies.length > 0) thread.scrollTop = replies[0].offsetTop - thread.offsetTop + 40;
+      // On virtual time no frame is drawn, so no scroll event comes to pin the prompt.
+      thread.dispatchEvent(new Event('scroll'));
+      window.__threadLook = picked.key;
       clearInterval(t);
     }
   }, 100);

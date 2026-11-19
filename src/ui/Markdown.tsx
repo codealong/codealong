@@ -656,13 +656,16 @@ function coloredLines(syntax: Syntax, code: string, language: string): Run[][] |
 function Fenced({ block: b }: { block: Extract<Block, { kind: 'code' }> }) {
   const colors = b.closed && b.text.length <= COLORS_UP_TO && fenceNamesLanguage(b.lang);
   const syntax = useSyntax(colors);
-  const lines = useMemo(() => {
+  // Its elements too, kept while its lines are: a reply streaming in draws this block again with
+  // every frame once it's closed, and React passes over elements it was given before.
+  const code = useMemo(() => {
     const language = colors && syntax ? syntax.fence(b.lang) : null;
-    return syntax && language ? coloredLines(syntax, b.text, language) : null;
+    const lines = syntax && language ? coloredLines(syntax, b.text, language) : null;
+    return lines && toned(lines);
   }, [colors, syntax, b.lang, b.text]);
   return (
     <CodeBlock text={b.text} run={b.shell ? { session: b.session } : b.bare ? { ifCommands: true } : undefined}>
-      {lines && toned(lines)}
+      {code}
     </CodeBlock>
   );
 }

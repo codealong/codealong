@@ -54,6 +54,9 @@ const TONES: Record<string, Tone | null> = {
   'template-variable': 'variable',
   comment: 'comment',
   quote: 'comment',
+  // A diff's lines, as GitHub draws them: what it adds in green, what it takes out in red.
+  addition: 'tag',
+  deletion: 'keyword',
   subst: null,
 };
 

@@ -26,6 +26,10 @@ describe('runsOf', () => {
     expect(runsOf(hljs.highlight(code, { language: 'javascript' }).value)[0].map((r) => r.text).join('')).toBe(code);
   });
 
+  it('colors a diff’s added lines as GitHub does, green, and its removed ones red', () => {
+    expect(said('@@ -1 +1 @@\n-old\n+new\n same', 'diff')).toEqual([['entity:@@ -1 +1 @@'], ['keyword:-old'], ['tag:+new'], ['-: same']]);
+  });
+
   it('colors tags and their attributes in markup', () => {
     expect(said('<a href="x">y</a>', 'xml')).toEqual([['-:<', 'tag:a', '-: ', 'constant:href', '-:=', 'string:"x"', '-:>y</', 'tag:a', '-:>']]);
   });

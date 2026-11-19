@@ -64,11 +64,22 @@
 }
 /* Yours sits at the right, as wide as what it says up to an inset at the left, so it reads as
    yours by where it is as well as by its tint; what's under it (when, what it made, Taken back)
-   goes at the right with it, and so does the prompt pinned over the top (`.ca-thread-pinned`). */
+   goes at the right with it, and so does the prompt pinned over the top (`.ca-thread-pinned`).
+   Its column is the room there is, never what's in it: a table in a prompt as wide as its widest
+   word scrolls in its box (Markdown.css) rather than pushing the conversation sideways. */
 .ca-thread-said.is-you {
   margin-top: 6px;
   padding-left: var(--thread-you-inset);
+  grid-template-columns: minmax(0, 1fr);
   justify-items: end;
+}
+.ca-thread-said.is-you > * {
+  max-width: 100%;
+}
+/* A code block of yours (a command you ran with `!`, one in a prompt) as narrow as `! ls` still
+   leaves its Copy and Run (CopyButton.css) room of their own, rather than covering its words. */
+.ca-thread-said.is-you .ca-codeblock {
+  min-width: 120px;
 }
 /* What Codealong or another session sent that its session took back: neither yours nor the
    agent's, set apart by a rule at its left; Codealong's in quieter text. The rest are cards
