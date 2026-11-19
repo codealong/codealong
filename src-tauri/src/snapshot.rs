@@ -642,10 +642,13 @@ fn done(args: &Args, rest: &[String]) -> Done {
 }
 
 fn remove_worktree(args: &Args, rest: &[String]) -> Done {
-    let [folder, more @ ..] = rest else { return Err(Stop::Usage) };
-    // Nothing after the folder but `--dry-run`: one mistyped (`--dryrun`) would otherwise be
-    // passed over, and the worktree removed.
-    if more.iter().any(|word| word != "--dry-run") {
+    let [folder, ..] = rest else { return Err(Stop::Usage) };
+    // The whole line is this mode's, as a reset's is (`reset_line`): the program, `--snapshot`,
+    // the flag with its folder, and `--dry-run` before or after. One mistyped (`--dryrun`),
+    // anywhere on the line, would otherwise be passed over and the worktree removed.
+    let at = args.0.iter().position(|a| a == "--remove-worktree").unwrap_or_default();
+    let stray = args.0.iter().enumerate().any(|(i, word)| i != at + 1 && !(i == 0 && !word.starts_with('-')) && !["--snapshot", "--remove-worktree", "--dry-run"].contains(&word.as_str()));
+    if stray || folder.starts_with('-') {
         return Err(Stop::Usage);
     }
     let v = act(api::WORKTREE_REMOVE, folder, params::Remove { dry_run: args.has("--dry-run"), ..Default::default() })?;
@@ -930,7 +933,9 @@ mod tests {
         assert_eq!(pick(&["--snapshot", "--done", "claude:claude:abc", "--stop"]), Some("--done"));
         assert_eq!(pick(&["--snapshot", "--stop", "claude:claude:abc"]), Some("--stop"));
         // A dry run mistyped isn't a removal.
-        assert_eq!(cli(&line(&["--snapshot", "--remove-worktree", "/r/atlas-spare", "--dryrun"])), 2);
+        for words in [&["--snapshot", "--remove-worktree", "/r/atlas-spare", "--dryrun"][..], &["--snapshot", "--dryrun", "--remove-worktree", "/r/atlas-spare"], &["--snapshot", "--remove-worktree", "--dry-run"], &["--snapshot", "--remove-worktree", "/r/atlas-spare", "/r/kestrel-spare"]] {
+            assert_eq!(cli(&line(words)), 2, "{words:?}");
+        }
         // Each of these stops at its arguments, before anything is read or done.
         // A reset is spent only for the line as written, with nothing else on it.
         for words in [&["--snapshot", "--use-reset"][..], &["--snapshot", "--dry-run", "--use-reset", "atlas"], &["--snapshot", "--use-reset", "atlas", "--dry-run"], &["--snapshot", "--help", "--use-reset", "atlas"], &["--snapshot", "--use-reset", "atlas", "c1", "c2"]] {

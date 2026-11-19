@@ -43,11 +43,11 @@ set -uo pipefail
 # file, and bash reads a script as it goes.
 
 usage() {
-  sed -n '2,/^set -uo/p' "$0" | sed '$d; s/^# \{0,1\}//'
+  sed -n '2,/^set -uo/p' "$self" | sed '$d; s/^# \{0,1\}//'
 }
 
 # Which checks a changed file calls for, one word to a line: `ui` (build, lint, unit tests),
-# `engine` (cargo test) and `code` (it needs a review). The lists err towards running a check:
+# `engine` (cargo test), `code` (it needs a review) and `install` (npm ci first). The lists err towards running a check:
 # each side's tests read some of the other's files, named here with what reads them.
 calls_for() {
   case "$1" in
@@ -81,6 +81,12 @@ calls_for() {
       ;;
     # A workflow runs on GitHub, which nothing here can try; it still wants a second reader.
     .github/*) echo code ;;
+    # What's installed: one changed without the other fails a clean install, as CI's is.
+    package.json | package-lock.json)
+      echo ui
+      echo code
+      echo install
+      ;;
     # Everything else is the windows' or a script, which the unit tests cover some of.
     *)
       echo ui
@@ -89,27 +95,29 @@ calls_for() {
   esac
 }
 
-# The checks for a list of paths on stdin, as a line of words: "ui engine code", or "" for none.
+# The checks for a list of paths on stdin, a NUL after each as git writes them (a name can
+# hold anything else), as a line of words: "ui engine code", or "" for none.
 plan_of() {
   local path word wants="" out=""
-  while IFS= read -r path; do
+  while IFS= read -r -d '' path; do
     [ -n "$path" ] || continue
     wants="$wants $(calls_for "$path" | tr '\n' ' ')"
   done
-  for word in ui engine code; do
+  for word in ui engine code install; do
     case " $wants " in *" $word "*) out="$out $word" ;; esac
   done
   echo "${out# }"
 }
 
-# The files this branch's commits change, both names of one that moved (a rename shows only
-# where it went, and the checks its old place called for would be skipped), written as they are
-# rather than quoted. Fails when git can't say, so that no answer isn't taken for no changes.
+# The files this branch's commits change, into the file `$list`: both names of one that moved
+# (a rename shows only where it went, and the checks its old place called for would be skipped),
+# each as it is with a NUL after it. Fails when git can't say, so that no answer isn't taken for
+# no changes.
 changed() {
-  git -c core.quotePath=false diff --no-renames --name-only "origin/main...${1:-HEAD}"
+  git diff --no-renames --name-only -z "origin/main...${1:-HEAD}" >"$list"
 }
 
-fetch() { GIT_TERMINAL_PROMPT=0 git fetch -q origin main; }
+fetch() { GIT_TERMINAL_PROMPT=0 git fetch -q origin main 9>&-; }
 
 die() {
   echo "$1" >&2
@@ -117,9 +125,11 @@ die() {
 }
 
 # One landing at a time: an exclusive lock on a file in the repository's .git, held through
-# descriptor 9 for as long as this process (or anything it started) lives. The kernel lets go of
-# it however this ends, so there's no owner's pid to read, no lock left by one that was killed,
-# and no two waiters taking over the same dead one.
+# descriptor 9 for as long as this process lives. The kernel lets go of it however this ends, so
+# there's no owner's pid to read, no lock left by one that was killed, and no two waiters taking
+# over the same dead one. Everything this starts (the checks, git and its hooks) is started
+# with the descriptor closed (`9>&-`): a child that outlived the script would otherwise keep
+# every later landing waiting.
 take_turn() {
   [ "$check_only" = 1 ] && return 0
   [ "${CODEALONG_LANDING_HELD:-}" = "$$" ] && return 0
@@ -128,16 +138,21 @@ take_turn() {
   until python3 -I -c 'import fcntl; fcntl.flock(9, fcntl.LOCK_EX | fcntl.LOCK_NB)' 2>/dev/null; do
     command -v python3 >/dev/null || die "python3 isn't here, which takes the landing's lock."
     echo "Waiting for the landing in progress ($(cat "$lock.who" 2>/dev/null || echo "which hasn't said whose"))…"
-    sleep 15
+    sleep 15 9>&-
   done
   echo "pid $$, $(git rev-parse --abbrev-ref HEAD) in $PWD" >"$lock.who"
+  # For this script started again as main's own (after a rebase brought a newer one): it's this
+  # process still, with the descriptor and so the turn.
   export CODEALONG_LANDING_HELD="$$"
 }
 
 clean_or_die() {
-  if [ -n "$(git status --porcelain)" ]; then
+  local dirty
+  # No answer isn't a clean checkout.
+  dirty="$(git status --porcelain)" || die "Couldn't ask git whether this checkout has uncommitted changes."
+  if [ -n "$dirty" ]; then
     echo "This checkout has uncommitted changes, and only what's committed lands:" >&2
-    git status --short | head -10 >&2
+    printf '%s\n' "$dirty" | head -10 >&2
     die "Commit yours first. If they're another session's, land from a worktree of your own."
   fi
 }
@@ -161,7 +176,7 @@ ui_check() {
   local name="$1"
   shift
   SECONDS=0
-  if "$@" >"$log" 2>&1; then
+  if "$@" >"$log" 2>&1 9>&-; then
     note "$name (${SECONDS} s)"
     return 0
   fi
@@ -177,8 +192,8 @@ ui_check() {
 # (APFS: seconds, and no room taken until something is rebuilt), so the dependencies are built
 # already; the clone is made under cargo's own lock on that folder, so no build is halfway
 # through writing it, which waits for the build under way, once. It's made afresh after a week,
-# which sheds what it has gathered. Only a folder this made (it has the `landing-clone` file) is
-# ever removed. Where no clone can be made (a volume that isn't APFS, where cp would copy all of
+# which sheds what it has gathered, and when its copy was cut short. Only a folder this made (it
+# has the `landing-clone` file) is ever removed. Where no clone can be made (a volume that isn't APFS, where cp would copy all of
 # it), with --check (several can run at once) and with CARGO_TARGET_DIR set, the engine builds
 # where everything else does.
 landing_target() {
@@ -189,7 +204,9 @@ landing_target() {
   local shared own
   shared="$(scripts/target-dir.sh 2>/dev/null)" || return 1
   own="${shared%/}-landing"
-  if [ "$check_only" = 1 ] || [ ! -f "$shared/debug/.cargo-lock" ] || [ "$(stat -f %T "$shared" 2>/dev/null)" != apfs ]; then
+  # `df -T apfs` lists the volume only when it's APFS (stat's %T is a file's type, not its
+  # volume's).
+  if [ "$check_only" = 1 ] || [ ! -f "$shared/debug/.cargo-lock" ] || [ -z "$(df -T apfs "$shared" 2>/dev/null | tail -n +2)" ]; then
     echo "$shared"
     return
   fi
@@ -198,14 +215,16 @@ landing_target() {
     echo "$shared"
     return
   fi
-  if [ -n "$(find "$own/landing-clone" -mtime +7 2>/dev/null)" ]; then
+  # `landing-clone` says the folder is this script's; `whole` that its copy finished. One that
+  # was cut short, or is a week old, is made again.
+  if [ -e "$own" ] && { [ ! -f "$own/whole" ] || [ -n "$(find "$own/whole" -mtime +7 2>/dev/null)" ]; }; then
     rm -rf "$own"
   fi
-  if [ ! -f "$own/landing-clone" ]; then
+  if [ ! -f "$own/whole" ]; then
     echo "Copying the shared build folder for landings to build in (it waits for the build under way, once a week)…" >&2
     mkdir "$own" || { echo "$shared"; return; }
     touch "$own/landing-clone"
-    if ! python3 -I - "$shared/debug" "$own/" <<'EOF'; then
+    if ! python3 -I - "$shared/debug" "$own/" 9>&- <<'EOF'; then
 import fcntl, os, subprocess, sys
 
 lock = os.open(os.path.join(sys.argv[1], ".cargo-lock"), os.O_RDWR)
@@ -220,6 +239,7 @@ EOF
       return
     fi
     cp "$shared/CACHEDIR.TAG" "$own/" 2>/dev/null || true
+    touch "$own/whole"
   fi
   echo "$own"
 }
@@ -236,7 +256,7 @@ engine_check() {
   # Every test binary, though one fails: cargo stops at the first otherwise, and the ones after
   # it would count as passed. --locked: what's tested is what Cargo.lock says, and nothing
   # rewrites it under the commit.
-  (cd src-tauri && CARGO_TARGET_DIR="$target" cargo test --locked --no-fail-fast) >"$log" 2>&1
+  (cd src-tauri && CARGO_TARGET_DIR="$target" cargo test --locked --no-fail-fast) >"$log" 2>&1 9>&-
   local status=$?
   if grep -q -E '^warning: .* generated [0-9]+ warnings?' "$log"; then
     echo "The engine builds with warnings, which CI takes for errors:" >&2
@@ -253,9 +273,9 @@ engine_check() {
   failed="$(sed -n 's/^test \(.*\) \.\.\. FAILED$/\1/p' "$log" | sort -u)"
   started="$(grep -c -E '^ +(Running|Doc-tests) ' "$log")"
   ended="$(grep -c -E '^test result: ' "$log")"
-  if [ -z "$failed" ] || [ "$started" != "$ended" ]; then
-    echo "cargo test failed, and not only by tests that said so ($ended of $started test binaries finished):" >&2
-    grep -E -B2 -A14 '^error' "$log" | head -80 >&2
+  if [ -z "$failed" ] || [ "$started" != "$ended" ] || grep -q -E "process didn't exit successfully|\(signal: [0-9]+" "$log"; then
+    echo "cargo test failed, and not only by tests that said so ($ended of $started test binaries finished; one that dies after its tests says so below):" >&2
+    grep -E -B2 -A14 "^error|process didn't exit successfully" "$log" | head -80 >&2
     return 1
   fi
   # Each by itself: a test that only fails with the rest, on a Mac this busy, isn't the change's.
@@ -263,7 +283,7 @@ engine_check() {
   whole="$(mktemp)"
   cp "$log" "$whole"
   while IFS= read -r name; do
-    if (cd src-tauri && CARGO_TARGET_DIR="$target" cargo test --locked "$name" -- --exact) >"$log" 2>&1 && grep -q -F "test $name ... ok" "$log"; then
+    if (cd src-tauri && CARGO_TARGET_DIR="$target" cargo test --locked "$name" -- --exact) >"$log" 2>&1 9>&- && grep -q -F "test $name ... ok" "$log"; then
       alone="$alone${alone:+, }$name"
     else
       real="$real${real:+, }$name"
@@ -286,7 +306,10 @@ EOF
 note() { ran="$ran${ran:+, }$1"; }
 
 main() {
-  cd "$(dirname "$0")/.." || exit 1
+  # This file by its whole path, before the folder changes: run as ../scripts/land.sh, `$0`
+  # names nothing from the checkout's top.
+  self="$(cd "$(dirname "$0")" && pwd)/$(basename "$0")" || exit 1
+  cd "$(dirname "$self")/.." || exit 1
   export PATH="$HOME/.cargo/bin:$PATH"
 
   reviewed=""
@@ -325,15 +348,17 @@ main() {
   done
 
   if [ "$plan_only" = 1 ] && [ ${#plan_paths[@]} -gt 0 ]; then
-    printf '%s\n' "${plan_paths[@]}" | plan_of
+    printf '%s\0' "${plan_paths[@]}" | plan_of
     exit 0
   fi
 
   common="$(git rev-parse --path-format=absolute --git-common-dir 2>/dev/null)" || die "Not in a git checkout." 2
-  local paths
+  log="$(mktemp)"
+  list="$(mktemp)"
+  trap 'rm -f "$log" "$list"' EXIT
   if [ "$plan_only" = 1 ]; then
-    paths="$(changed)" || die "Couldn't list what this branch changes."
-    printf '%s\n' "$paths" | plan_of
+    changed || die "Couldn't list what this branch changes."
+    plan_of <"$list"
     exit 0
   fi
 
@@ -343,14 +368,23 @@ main() {
   fi
 
   ran=""
-  log="$(mktemp)"
-  trap 'rm -f "$log"' EXIT
 
-  take_turn
-  # The wait can be long, and the checkout isn't ours alone.
+  # What's landed is what was here when this was asked: the wait can be long, and in a checkout
+  # that isn't ours alone another session can have committed or changed branch meanwhile, which
+  # would go out under this one's review.
+  local asked
+  asked="$(git rev-parse HEAD) $(git symbolic-ref -q --short HEAD || echo "no branch")" || die "Couldn't read this checkout's HEAD."
+  # Not when this is the script started again as main's own, after its rebase: it has the turn
+  # already, and HEAD is what that rebase made.
+  if [ "${CODEALONG_LANDING_HELD:-}" != "$$" ]; then
+    take_turn
+    if [ "$asked" != "$(git rev-parse HEAD) $(git symbolic-ref -q --short HEAD || echo "no branch")" ]; then
+      die "This checkout moved while it waited its turn (it was $asked): look at what's here now, and run scripts/land.sh again."
+    fi
+  fi
   clean_or_die
 
-  local tries=0 itself base tested wants
+  local tries=0 itself now base tested wants dirty
   while :; do
     tries=$((tries + 1))
     fetch || die "Couldn't fetch origin/main, so there's nothing to rebase onto or push to."
@@ -361,22 +395,23 @@ main() {
     fi
     if ! git merge-base --is-ancestor origin/main HEAD; then
       refuse_old_history
-      itself="$(git hash-object "$0")"
-      if ! git rebase -q origin/main >"$log" 2>&1; then
+      itself="$(git hash-object "$self")" || die "Couldn't read $self."
+      if ! git rebase -q origin/main >"$log" 2>&1 9>&-; then
         echo "The rebase onto origin/main stopped on a conflict:" >&2
         git status --short | grep -E '^(UU|AA|DU|UD|AU|UA|DD) ' | head -20 >&2
         die "Resolve it, git rebase --continue, rerun what you'd tested, and run scripts/land.sh again."
       fi
       # main's own land.sh came in with the rebase: its checks are the ones to run, and bash has
       # this one in memory. Start again as it, still holding the turn.
-      if [ "$(git hash-object "$0")" != "$itself" ]; then
-        exec "$0" ${again[@]+"${again[@]}"}
+      now="$(git hash-object "$self")" || die "Couldn't read $self after the rebase."
+      if [ "$now" != "$itself" ]; then
+        exec "$self" ${again[@]+"${again[@]}"}
       fi
     fi
     tested="$(git rev-parse HEAD)"
 
-    paths="$(changed "$tested")" || die "Couldn't list what these commits change, so there's no telling which checks they need."
-    wants="$(printf '%s\n' "$paths" | plan_of)"
+    changed "$tested" || die "Couldn't list what these commits change, so there's no telling which checks they need."
+    wants="$(plan_of <"$list")"
     case " $wants " in
       *" code "*)
         if [ -z "$reviewed$unreviewed" ]; then
@@ -390,8 +425,12 @@ main() {
     ran=""
     case " $wants " in
       *" ui "*)
-        # What's installed is what package-lock.json says, which a rebase can have changed.
-        if [ ! -d node_modules ] || [ package-lock.json -nt node_modules/.package-lock.json ]; then
+        # What's installed is what package.json and package-lock.json say, which these commits
+        # or a rebase can have changed: npm ci also refuses the two when they disagree, as CI's
+        # clean install would.
+        local install=0
+        case " $wants " in *" install "*) install=1 ;; esac
+        if [ "$install" = 1 ] || [ ! -f node_modules/.package-lock.json ] || [ package-lock.json -nt node_modules/.package-lock.json ] || [ package.json -nt node_modules/.package-lock.json ]; then
           ui_check "npm ci" npm ci --no-audit --no-fund || exit 1
         fi
         # The typecheck and the bundle the app is built from.
@@ -412,9 +451,11 @@ main() {
 
     # What was checked is what's pushed: the commit, with nothing a check or anyone else left
     # changed in the checkout (a rewritten Cargo.lock, a commit made meanwhile).
-    if [ "$(git rev-parse HEAD)" != "$tested" ] || [ -n "$(git status --porcelain)" ]; then
+    now="$(git rev-parse HEAD)" || die "Couldn't read this checkout's HEAD after the checks."
+    dirty="$(git status --porcelain)" || die "Couldn't ask git whether the checks left this checkout as it was."
+    if [ "$now" != "$tested" ] || [ -n "$dirty" ]; then
       echo "The checkout changed while the checks ran, so what they checked isn't what's here now:" >&2
-      git status --short | head -10 >&2
+      printf '%s\n' "$dirty" | head -10 >&2
       die "HEAD is $(git rev-parse --short HEAD), and $(git rev-parse --short "$tested") was checked. Run scripts/land.sh again."
     fi
 
@@ -424,7 +465,7 @@ main() {
       exit 0
     fi
 
-    if git push -q origin "$tested:refs/heads/main" 2>"$log"; then
+    if git push -q origin "$tested:refs/heads/main" 2>"$log" 9>&-; then
       break
     fi
     # Turned down. Only main having moved, from somewhere this Mac's lock doesn't reach, is

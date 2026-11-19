@@ -72,9 +72,18 @@ test('what the bundle carries of the skill and the plugin runs the engine’s ch
 });
 
 test('the windows’ code runs their checks and needs a review', { timeout: 60_000 }, async () => {
-  for (const path of ['src/App.tsx', 'src/ui/Quick.css', 'scripts/preview/queue-check.js', 'vite.config.ts', 'package-lock.json']) {
+  for (const path of ['src/App.tsx', 'src/ui/Quick.css', 'scripts/preview/queue-check.js', 'vite.config.ts']) {
     expect(await plan(path), path).toBe('ui code');
   }
+  // A name with a space, a quote or a tab in it is still the path it is.
+  expect(await plan('src-tauri/src/odd "name"\tx.rs')).toBe('ui engine code');
+});
+
+test('a change to what’s installed installs it first, as a clean checkout would', { timeout: 60_000 }, async () => {
+  // One of the two changed without the other passes on what's installed here and fails CI's
+  // clean install.
+  expect(await plan('package.json')).toBe('ui code install');
+  expect(await plan('package-lock.json')).toBe('ui code install');
 });
 
 test('the engine’s code runs both sides’ checks, since the windows’ tests read it', { timeout: 60_000 }, async () => {

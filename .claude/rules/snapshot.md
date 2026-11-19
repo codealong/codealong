@@ -24,7 +24,8 @@ changed argument is written here in the same change.
 - A line too short for its mode prints the mode's usage and exits 2, and a mode that fails says
   why and exits 1. Most modes don't look at words after the ones they take, so a mistyped
   option is passed over rather than refused: check an option's spelling before running a real
-  mode. `--use-reset` and `--remove-worktree` do refuse what they don't know.
+  mode. `--use-reset` and `--remove-worktree` do refuse what they don't know, anywhere on the
+  line.
 - The first mode on the line, in `MODES`' order, is the one that runs: a mode whose option is
   another mode's flag (`--done … --stop`) comes before that mode there.
 
@@ -99,9 +100,9 @@ changed argument is written here in the same change.
   conversation, as its panel gets it.
 - `--snapshot --pending <session key>`: what it waits on you to allow, as its panel shows it.
 - `--snapshot --tab-picture <session key> <file>`: a session's terminal tab, as Improve Codealong
-  pictures it, written to the file, over whatever is there. macOS lets the process that runs
-  this picture another app's window only with the Screen Recording permission of the app it
-  runs in.
+  pictures it, written to the file. **Real** as far as the file goes: it's written over
+  whatever is there. macOS lets the process that runs this picture another app's window only
+  with the Screen Recording permission of the app it runs in.
 
 ## A session, acted on
 
