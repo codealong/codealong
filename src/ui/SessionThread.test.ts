@@ -91,7 +91,8 @@ describe('headingsOf', () => {
     // A long call isn't a pause: what it gave back came just before.
     expect(heads([step('agent', { at: MIN }), step('result', { id: 'a', at: 30 * MIN }), step('agent', { at: 31 * MIN })])).toEqual(['AGENT', 'agent']);
     expect(heads([step('agent', { at: MIN }), step('note', { at: 2 * MIN }), step('agent', { at: 3 * MIN })])).toEqual(['AGENT', 'AGENT']);
-    expect(heads([step('you', { at: MIN }), step('you', { at: 2 * MIN, withdrawn: true }), step('you', { at: 3 * MIN })])).toEqual(['YOU', 'YOU', 'you']);
+    // The prompt sent again after one taken back is a run of its own, as the one taken back is.
+    expect(heads([step('you', { at: MIN }), step('you', { at: 2 * MIN, withdrawn: true }), step('you', { at: 3 * MIN })])).toEqual(['YOU', 'YOU', 'YOU']);
     // A step whose record gave no time doesn't make one.
     expect(heads([step('agent', { at: 0 }), step('agent', { at: 20 * MIN })])).toEqual(['AGENT', 'agent']);
   });
@@ -105,8 +106,11 @@ describe('headingsOf', () => {
 
   it('says when under the last message of each run, the one going on under its latest', () => {
     const items = [step('you', { at: MIN }), step('agent', { at: 2 * MIN }), call('a'), step('result', { id: 'a', at: 3 * MIN }), step('agent', { at: 4 * MIN }), call('b'), step('agent', { at: 5 * MIN }), step('you', { at: 6 * MIN }), step('agent', { at: 7 * MIN }), call('c', undefined)];
-    const { footed } = headingsOf(items);
+    const { footed, open } = headingsOf(items);
     expect(items.map((it) => footed.get(`${it.cursor}:${it.n}`))).toEqual([MIN, undefined, undefined, undefined, undefined, undefined, 5 * MIN, 6 * MIN, 7 * MIN, undefined]);
+    // The run going on at the end, which a reply streaming in may go on with.
+    expect(open).toBe(`${items[8].cursor}:${items[8].n}`);
+    expect(headingsOf([step('agent', { at: MIN }), step('note', { at: 2 * MIN })]).open).toBeNull();
   });
 
   it('ends a run at a pause, a note, a prompt taken back and another session’s message', () => {

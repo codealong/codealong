@@ -96,6 +96,7 @@
       check('what it wrote with the question is at the end', /^Your first three answers are recorded/.test(lastText()), lastText());
       var label = labelOf(last());
       check('not writing', label === null || label.indexOf('Writing') < 0, String(label));
+      check('it says when under it while it waits on you', !!last().querySelector(':scope > .ca-thread-meta > .ca-meta[title]'), last().lastElementChild && last().lastElementChild.outerHTML);
       check('the question no longer says where to read it', !document.querySelector('.ca-sessinsp .ca-approval-unwritten'));
       window.__emit('hosted-stream', { key: picked.key, text: MORE, tool: null });
       window.__emit('hosted-stream', { key: picked.key + '-other', text: 'Another session.', tool: null });

@@ -193,8 +193,9 @@ export function editablePrompts(items: TranscriptItem[], fromStart: boolean): Se
 }
 
 /** Where each run of messages starts (`headed`: who said them, ahead of the first) and ends
- *  (`footed`: when, under the last), each with the time its message was said, and who spoke
- *  last, for one streaming in after them. A note between two messages (a message held for you to
+ *  (`footed`: when, under the last), each with the time its message was said, who spoke last,
+ *  for one streaming in after them, and the last message of the run going on at the end (`open`),
+ *  whose time a reply streaming in that goes on with it takes over. A note between two messages (a message held for you to
  *  allow, the conversation compacted) starts afresh, and a prompt the session took back is a run
  *  of its own, to say so, as another session's message is, to say whose: the next may be
  *  another's. The agent's tool calls are its own, so they don't end its run; your answers to
@@ -203,7 +204,7 @@ export function editablePrompts(items: TranscriptItem[], fromStart: boolean): Se
  *  gave no time (the replies in Cursor's command line transcript, whose prompts alone say when)
  *  says the last time said before it, when its turn began, and none when nothing above it on the
  *  page said one. */
-export function headingsOf(items: TranscriptItem[]): { headed: Map<string, number>; footed: Map<string, number>; last: Speaker } {
+export function headingsOf(items: TranscriptItem[]): { headed: Map<string, number>; footed: Map<string, number>; last: Speaker; open: string | null } {
   const headed = new Map<string, number>();
   const footed = new Map<string, number>();
   const last: Speaker = { kind: null, at: 0 };
@@ -224,15 +225,18 @@ export function headingsOf(items: TranscriptItem[]): { headed: Map<string, numbe
       }
       open = [keyOf(it), at];
       if (alone) close();
-      last.kind = kind;
+      // After one that's a run of its own, the next starts afresh, a prompt sent again too.
+      last.kind = alone ? null : kind;
     } else if (kind === 'note') {
       close();
       last.kind = null;
     }
     if (it.at > 0) last.at = it.at;
   }
+  // The run going on at the end, which a reply streaming in after it may go on with.
+  const going: string | null = open ? open[0] : null;
   close();
-  return { headed, footed, last };
+  return { headed, footed, last, open: going };
 }
 
 /** Marks an element for a moment with a class whose animation shows it, again if it's marked. */
@@ -592,7 +596,7 @@ function WritingView({ reply, active, now, label, who, head, pending, onMenu, on
   const streaming = active ? written : null;
   const text = streaming?.text;
   const item = useMemo<TranscriptItem | null>(() => (text ? { at: now, kind: 'agent', text, failed: false, cursor: 0, n: 0 } : null), [text, now]);
-  if (item) return <Said item={item} now={now} label={label} who={who} head={head} onMenu={onMenu} />;
+  if (item) return <Said item={item} now={now} label={label} who={who} head={head} foot={now} onMenu={onMenu} />;
   if (streaming?.tool && !pending) {
     return (
       <div className="ca-thread-note">
@@ -1179,7 +1183,9 @@ export function SessionThread({ session: s, now, onOpen, fallback, machine, onLo
   // meeting's lines, that it began, that it ended), and an answer that says there's nothing to
   // say, a dash, as it's asked to give most of the time, isn't drawn at all.
   const told = useMemo(() => new Map(items.filter((it) => it.kind === 'codealong').flatMap((it) => [toldIn(it.text)].flatMap((t) => (t ? [[it, t] as const] : [])))), [items]);
-  const headings = useMemo(() => headingsOf(folded), [folded]);
+  const undrawn = useCallback((it: TranscriptItem) => told.size > 0 && it.kind === 'agent' && saysNothing(it.text), [told]);
+  // Runs go by what's drawn: a run's time under a dash that isn't would be lost.
+  const headings = useMemo(() => headingsOf(folded.filter((it) => !undrawn(it))), [folded, undrawn]);
   const editable = useMemo(() => editablePrompts(items, before == null), [items, before]);
   // Your messages to it still on their way, less the ones its record has now.
   const ahead = useAhead();
@@ -1227,6 +1233,10 @@ export function SessionThread({ session: s, now, onOpen, fallback, machine, onLo
     const held = new Set(queued.map((m) => m.id));
     return sent.filter((a) => a.queuedAs == null || (!held.has(a.queuedAs) && !removing));
   }, [sent, queued, removing]);
+  // A reply streaming in starts a run of its own after yours on their way or another speaker, and
+  // otherwise goes on with the agent's, whose time it then says under it (`headingsOf` `open`).
+  const startsRun = showing.length > 0 || heads(headings.last, 'agent', now);
+  const goesOn = writes && !startsRun;
   // Your prompts' words by key, for the pin: those read, the one before them, and yours on the way.
   const promptText = useMemo(() => {
     const words = new Map<string, string>();
@@ -1345,7 +1355,7 @@ export function SessionThread({ session: s, now, onOpen, fallback, machine, onLo
                 }
                 const heard = told.get(it);
                 if (heard) return <Told key={keyOf(it)} told={heard} />;
-                if (told.size > 0 && it.kind === 'agent' && saysNothing(it.text)) return null;
+                if (undrawn(it)) return null;
                 const shown = told.size > 0 && it.kind === 'agent' ? { ...it, text: asCue(it.text) } : it;
                 const again = it.withdrawn && answeredBelow ? () => putBack(s.key, keyOf(it), it.text, true) : undefined;
                 // What Codealong or another session sent says who sent it. Yours and the agent's
@@ -1372,8 +1382,9 @@ export function SessionThread({ session: s, now, onOpen, fallback, machine, onLo
                     </PeerCard>
                   );
                 // The clock only for one that ends a run, which says how long ago under it: the others
-                // needn't render as it moves.
-                const foot = headings.footed.get(keyOf(it));
+                // needn't render as it moves. A reply streaming in after it that goes on with its run
+                // says when under it instead.
+                const foot = goesOn && keyOf(it) === headings.open ? undefined : headings.footed.get(keyOf(it));
                 return <Said key={keyOf(it)} item={shown} result={r.result} now={foot === undefined ? 0 : now} label={label} who={it.kind === 'you' ? 'You' : (label ?? s.account)} head={head} foot={foot} onPutBack={again} onMenu={onMenu} onEdit={edit} />;
               })}
               {showing.map((a) => (
@@ -1386,7 +1397,7 @@ export function SessionThread({ session: s, now, onOpen, fallback, machine, onLo
                 label={s.status === 'working' ? 'Writing' : undefined}
                 who={s.account}
                 // Yours on their way are above it.
-                head={showing.length > 0 || heads(headings.last, 'agent', now) ? now : undefined}
+                head={startsRun ? now : undefined}
                 pending={pending != null}
                 onMenu={onMenu}
                 onShown={place}

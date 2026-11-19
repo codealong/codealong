@@ -75,10 +75,12 @@
       var timed = all.filter(function (el) { return !!el.querySelector(':scope > .ca-thread-meta'); }).length;
       check('its time is under its words, never above them nor empty', above === 0 && timed > 0, timed + ' with a time, ' + above + ' of them not under the words');
       // A run's last message, the one before the next run's first or the last of all, says when.
-      var footless = all.filter(function (el, i) { var next = all[i + 1]; return (!next || headed(next)) && !el.querySelector(':scope > .ca-thread-meta'); });
+      // The time itself, which says when to the minute on hover; not a line that says only Writing.
+      var dated = function (el) { return !!el.querySelector(':scope > .ca-thread-meta > .ca-meta[title]'); };
+      var footless = all.filter(function (el, i) { var next = all[i + 1]; return (!next || headed(next)) && !dated(el); });
       check('the last message of each run says when', footless.length === 0, footless.length + ' runs end without a time: ' + footless.map(function (el) { return kindOf(el) + ' “' + el.textContent.slice(0, 40) + '”'; }).join('; '));
       // And only it: a run's earlier messages go without.
-      var early = all.filter(function (el, i) { var next = all[i + 1]; return !!next && !headed(next) && !!el.querySelector(':scope > .ca-thread-meta .ca-meta'); });
+      var early = all.filter(function (el, i) { var next = all[i + 1]; return !!next && !headed(next) && dated(el); });
       check('and its earlier messages go without', early.length === 0, early.length + ' earlier messages with a time');
       var unheaded = all.filter(function (el) { return !headed(el); }).length;
       if (runs > 0) check('a reply’s later messages go on under its heading', unheaded > 0, runs + ' later messages, ' + unheaded + ' without a heading');
