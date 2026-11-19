@@ -72,7 +72,7 @@ runs on this Mac (2026-10-01). Paths are under `src-tauri/src/`.
   turn every time (`STEP_CANCELED`). No step was ever interrupted (12).
 - Why a turn failed, from its note's payload (the error, Google's `google.rpc` details as JSON,
   the HTTP status): `antigravity.rs` (`ERROR_SAID`, `ERROR_DETAILS`, `failed_of`, `FailedOn`),
-  and what the board makes of it, `board.rs` (`antigravity_session`). Every turn that stopped
+  and what the board makes of it, `board/sessions.rs` (`antigravity_session`). Every turn that stopped
   partway in two days of use here (2026-10-14 and 15) ended on such a note, never by the model's
   own choice: four on `write: broken pipe`, sent on a connection the network dropped while the
   agent waited minutes on a permission prompt or a command, which `agy` doesn't try again though
@@ -115,7 +115,7 @@ runs on this Mac (2026-10-01). Paths are under `src-tauri/src/`.
   starts (running, the time and step count as they were), when a step waits on you, as a
   command's step starts (running, counting that step; 1.3.5) and as the turn ends (idle, with
   the time and count of its latest step), not at each step: `antigravity.rs` (`started`),
-  `board.rs` (`antigravity_session`). A command that runs long goes to the background on its
+  `board/sessions.rs` (`antigravity_session`). A command that runs long goes to the background on its
   own: the turn ends with the agent saying it waits, the row idle with `not_fully_idle` 1, the
   command's step running (2); its result comes back as a `SYSTEM_MESSAGE` step (type 101) that
   starts the agent again, the row written running (1.3.5, in tmux, 2026-10-14).
@@ -124,7 +124,7 @@ runs on this Mac (2026-10-01). Paths are under `src-tauri/src/`.
   command (`/model`) writes no input line to its log. One left so from one evening to the next
   read as working, at the time of each read, until its rows were read whatever their time
   while a process holds them (1.5.12, 2026-11-19): `antigravity.rs` (`Reader::reread`,
-  `Process::started`), `board.rs` (`antigravity_session`).
+  `Process::started`), `board/sessions.rs` (`antigravity_session`).
 - Every `agy` that starts, print runs too (Codealong's usage read every couple of minutes among
   them), writes every conversation it doesn't run itself back to the command line's table as
   idle (`IDLE`, `not_fully_idle` 0; "summary store: starting background reconciliation
@@ -135,7 +135,7 @@ runs on this Mac (2026-10-01). Paths are under `src-tauri/src/`.
   ("[Summaries] reconcile checked 33 conversations, restored 1", at 17:28, 17:34 and 17:38
   during that turn). So a turn in a
   terminal UI reads idle, with an older time and count, until that UI writes its row again,
-  which can be minutes: `antigravity.rs` (`idled_by_another`), `board.rs`
+  which can be minutes: `antigravity.rs` (`idled_by_another`), `board/sessions.rs`
   (`antigravity_session`). A row's step count matches its database's steps after its own UI's
   turn end, but a finished one's can be put back too, so a count short of the steps doesn't by
   itself say a turn is under way. Neither `ANTIGRAVITY_APP_DATA_DIR` nor `JETSKI_APP_DATA_DIR`

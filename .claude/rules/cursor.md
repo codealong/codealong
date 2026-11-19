@@ -40,7 +40,7 @@ chunks) and this Mac's files (2026-10-09). Paths are under `src-tauri/src/`.
   every 30 seconds while a turn runs, so its length says whether to read it again (`written`).
   On loading a chat the app rewrites a `generating` left by a crash to `aborted`; until then it
   stays, which is why a generating chat counts only while the app runs and has written lately
-  (`board.rs` `cursor_session`, `CURSOR_STALE_MS`).
+  (`board/sessions.rs` `cursor_session`, `CURSOR_STALE_MS`).
 - Values are declared BLOB but stored as JSON text (the `agentKv` blobs aside), so they're read
   through `CAST(value AS TEXT)`. `LIKE 'bubbleId:<id>:%'` passes over the key's index (210 ms
   here); exact keys and `IN` lists use it. Don't scan `agentKv` (48 MB of protobuf blobs).
@@ -121,7 +121,7 @@ chunks) and this Mac's files (2026-10-09). Paths are under `src-tauri/src/`.
   trust "Workspace Trust Required" (`a` trusts, `q` quits), for each folder it works in, one
   `--add-dir` adds too; then, in a trusted one, "MCP Server Approval Required" for servers in the
   workspace's `.cursor/mcp.json` not yet approved. Nothing is written while it waits there:
-  `cursor.rs` (`Chat::unwritten`), `board.rs` (`CURSOR_STARTING_MS`). Trust is a
+  `cursor.rs` (`Chat::unwritten`), `board/sessions.rs` (`CURSOR_STARTING_MS`). Trust is a
   `.workspace-trusted` file (`{trustedAt, workspacePath}`; `trustMethod` too from `--trust`) in
   the folder's `projects/<slug>` in the data folder, or in that of a folder above that isn't your home or one of the
   top two: `cursor.rs` (`TRUSTED`, `trust_folder`, `Cursor::before_start`). `--trust` trusts
@@ -173,7 +173,7 @@ chunks) and this Mac's files (2026-10-09). Paths are under `src-tauri/src/`.
   transcript and `meta.json` stay as they were, the terminal UI shows the conversation up to where
   it stopped, and it waits at `→ Add a follow-up` without asking again (2026.11.05, a reviewer
   resumed 16 hours after it was closed at a web search's prompt, 2026-11-10). So an open turn is
-  the process's only when the transcript was written since that process began: `board.rs`
+  the process's only when the transcript was written since that process began: `board/sessions.rs`
   (`cursor_turn_under_way`), `cursor.rs` (`Process::started`).
 - A web search asks every time, whatever the approval mode short of Run Everything: the policy
   (2026.11.05's `requestWebSearchApproval`) approves one only for `forceApprove`, Run Everything

@@ -1,9 +1,9 @@
 // Lanes on the board: their bays, seen through the age and status filters, and their sessions sorted.
 // The engine sets a lane's bay and headline from all of its sessions; when a filter hides some
 // of them, the lane's status and sentence are worked out again from what's left, with the same
-// rules as the engine (board.rs, `bay_of` and `headline`). As there, a reusable worktree's
-// sessions from before its latest work (`earlier`) are left out of its status, as archived ones
-// are.
+// rules as the engine (board/headlines.rs, `bay_of` and `headline`). As there, a reusable
+// worktree's sessions from before its latest work (`earlier`) are left out of its status, as
+// archived ones are.
 
 import { shortOf } from './devices';
 import { MOVES_ACCOUNTS } from './harness';

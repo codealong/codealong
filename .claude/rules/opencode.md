@@ -23,7 +23,7 @@ its source at that tag, its compiled bundle and its files on this Mac. Paths are
   {ses_…: {type: "running"}}}`, `GET /api/session` lists sessions (it takes `directory`), and
   `/openapi.json` has the rest. What Codealong reads and asks, signed in how, how often, and
   the 15-minute stale cap without a service: `opencode.rs` (`service_at`, `poll`, `get`,
-  `Reader::poll`), `board.rs` (`opencode_session`, `OPENCODE_STALE_MS`).
+  `Reader::poll`), `board/sessions.rs` (`opencode_session`, `OPENCODE_STALE_MS`).
 - The TUI (`opencode [dir]`) is a client of the service: `--session <id>` (`-s`) continues a
   session, `--continue` (`-c`) the folder's last, and `--prompt <text>` sends a prompt. With or
   without `--session`, the TUI puts the text in its box and submits it once the model is ready,

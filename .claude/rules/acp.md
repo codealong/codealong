@@ -66,7 +66,7 @@ on 2026-09-27. Paths are under `src-tauri/src/`.
   your turn while it worked (2026-10-29, a Haiku session woken by its `sleep 20` in the
   background). That `claude` never says `shell`: between turns, while what it left running in
   the background goes on, it says `idle`, so the transcript says which shells it started and
-  the process table whether one runs (board.rs `untold_shell`, `claude-code.md`), and `overlay`
+  the process table whether one runs (board/sessions.rs `untold_shell`, `claude-code.md`), and `overlay`
   leaves a session waiting on one waiting. The adapter publishes background tasks
   (`dist/async-tasks.js`) only to a client that says it takes AIR's async tasks, which Codealong
   doesn't yet.

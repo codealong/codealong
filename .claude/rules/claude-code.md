@@ -20,9 +20,9 @@ on this Mac; read it before changing the Claude adapter (paths are under `src-ta
 
 - Live sessions, `<home>/sessions/<pid>.json`, their fields, and when a busy one is stuck or a
   `shell` one has left a command sitting there: `claude/registry.rs` (`RegistryEntry`),
-  `board.rs` (`CLAUDE_STALL_MS`, `claude_busy_since`, `BACKGROUND_QUIET_MS`),
+  `board/sessions.rs` (`CLAUDE_STALL_MS`, `claude_busy_since`, `BACKGROUND_QUIET_MS`),
   `claude/shells.rs`. `statusUpdatedAt` isn't refreshed while busy. A `shell` session is never
-  stuck by the 30-minute rule, but Jev can still call its background command stuck (`board.rs`
+  stuck by the 30-minute rule, but Jev can still call its background command stuck (`board/overlays.rs`
   `BACKGROUND_STALLED`). While its command is active it's counted as working but drawn waiting,
   a clock and "Waiting on `<command>`" (`Session::waits_in_background`, `lanes.ts`
   `waitsInBackground`): a CI watch looked like a stuck turn behind the spinner (2026-10-07).
@@ -35,7 +35,7 @@ on this Mac; read it before changing the Claude adapter (paths are under `src-ta
   after 30m with 2 events delivered. Re-arm it…]", which ends it; TaskStop's result `task_id`,
   which no notification follows),
   and the process table whether one still runs: `claude/transcript.rs` (`background_step`),
-  `board.rs` (`untold_shell`). Read as a turn that ended, an ACP session's reply saying it waited
+  `board/sessions.rs` (`untold_shell`). Read as a turn that ended, an ACP session's reply saying it waited
   on what its Monitor would report was taken by Jev for asking you (2026-10-29). What a session's
   header lists of them (`Session::tasks`): each shell named by its call's `command` and
   `description` (a Bash call's, or a Monitor's with `timeout_ms`), the file its output goes to
@@ -46,7 +46,7 @@ on this Mac; read it before changing the Claude adapter (paths are under `src-ta
   summary's "(exit code N)" / "failed with exit code N" (2.1.323). The file ends `[exited with code
   N]` once it's done. A notification is in a `queue-operation` `enqueue` as the shell ends, before
   the turn takes it in: `claude/transcript.rs` (`Background`, `notifications`, `output_file`),
-  `board.rs` (`claude_tasks`). Stop finds its shell as a direct child of the session's process
+  `board/sessions.rs` (`claude_tasks`). Stop finds its shell as a direct child of the session's process
   (`harness::task_shell`). Not by `CLAUDE_CODE_SESSION_ID`: macOS gives no other process the
   environment of its own programs, and `procs::environment` read 0 variables for the session's
   `/bin/zsh` shells, `/bin/sleep` and `caffeinate`, even for one it started with a variable set,
@@ -61,7 +61,7 @@ on this Mac; read it before changing the Claude adapter (paths are under `src-ta
   Workflow's `taskId` and `summary`) and which ended (a
   `<task-notification>` with a `<status>`, its `<task-id>` the agent's id, or one held for the turn
   as a `queued_command`; TaskStop's `task_id`), and `system` / `turn_duration` that the turn did:
-  `claude/transcript.rs` (`agent_started`, `background_step`), `board.rs` (`agents_left_running`).
+  `claude/transcript.rs` (`agent_started`, `background_step`), `board/sessions.rs` (`agents_left_running`).
   Read as a turn, a session that ended a turn on a question while six agents ran showed working for
   40 minutes, its last command for an excerpt, and the question never reached Needs you
   (2026-11-10). Not followed: a foreground agent moved to the background, a finished agent resumed
@@ -209,7 +209,7 @@ on this Mac; read it before changing the Claude adapter (paths are under `src-ta
   `claude/transcript.rs` (`pr_made`); `prlinks.rs` links the session to it, subagents' logs
   included (`engine.rs`). `gitOperation` also has `push`, `commit` and `branch`; `push.branch`,
   the remote's branch, is how often a session pushed to a PR's (`claude/transcript.rs` `pushed`,
-  board.rs `pr_primary`), though a quiet push leaves none. Its `pr` is
+  board/prs.rs `pr_primary`), though a quiet push leaves none. Its `pr` is
   written only for commands Claude Code reads as acting on a PR (`gh pr create`…): a PR made
   with `gh api repos/<owner>/<name>/pulls`, or by a script, gets none. A `pr-link` line is
   `{"type":"pr-link","sessionId","prNumber","prUrl","prRepository","timestamp"}`, "last-wins"
@@ -290,7 +290,7 @@ on this Mac; read it before changing the Claude adapter (paths are under `src-ta
   the limit lifts (reconnect.rs `LIFTED_GRACE_MS`).
 - How a turn ends in the transcript, and what one cut off partway leaves (a hangup in a foreground
   command, and Escape there, in tmux on 2.1.296, 2026-10-12): `claude/transcript.rs`
-  (`turn_step`), `board.rs` (`claude_session`'s `cut_off`). Not said there: only the terminal
+  (`turn_step`), `board/sessions.rs` (`claude_session`'s `cut_off`). Not said there: only the terminal
   (entrypoint `cli`, background jobs too) writes `system` / `turn_duration` as each turn ends; the
   Claude app (`claude-desktop`) and headless runs (`sdk-cli`, `sdk-ts`) never do, which is why
   only terminal sessions are read for it. A reply is written as one line per part (thinking,
@@ -306,7 +306,7 @@ on this Mac; read it before changing the Claude adapter (paths are under `src-ta
   (`isHiddenFromSessionPicker`, 2.1.296). A `claude -p … --no-session-persistence` run writes no
   transcript, only its `sessions/<pid>.json` while it runs, named from its folder (`judge-cwd-xx`,
   `nameSource: derived`): an eval's judge made about 1,100 of them in one folder (2026-10-13).
-  Codealong calls only `sdk-cli` headless (`board.rs` `claude_session`, `apply_headless`): an SDK
+  Codealong calls only `sdk-cli` headless (`board/sessions.rs` `claude_session`, `board/overlays.rs` `apply_headless`): an SDK
   program is often a front end someone types into, as Codealong's own sessions are.
 - A turn ended for want of a connection is an `assistant` line with `isApiErrorMessage`,
   `error: "server_error"` and no `apiErrorStatus`, its text "API Error: " and Claude Code's words
@@ -574,7 +574,7 @@ on this Mac; read it before changing the Claude adapter (paths are under `src-ta
   what's left with `--session-id` added (the roster's `dispatch.launch.args`); after `--` the
   arguments are the prompt, joined with spaces, and the job gets the `--` and them as they are.
 - `/background` (`/bg`, optional prompt) moves a terminal's conversation to a background job
-  with a session of its own (2.1.284): `board.rs` (`ClaudeMoves`, `claude_moves`),
+  with a session of its own (2.1.284): `board/sessions.rs` (`ClaudeMoves`, `claude_moves`),
   `claude/registry.rs` (`RegistryEntry::parked_job`), `claude/transcript.rs`
   (`TranscriptInfo::continued_in`). The roster's `workers.<job>.dispatch` says `source:
   "slash"`, with `launch` as above naming the old transcript's path. The old transcript's last
@@ -956,11 +956,11 @@ on this Mac; read it before changing the Claude adapter (paths are under `src-ta
   compacts as you come back instead, its notice "Compacted after an hour idle…" coming before
   your prompt's turn. Read as a turn, it brought a session you'd seen back to Your turn an hour
   after its last one: `claude/transcript.rs` (`TranscriptInfo::compacted`, `said`,
-  `said_before`), `board.rs` (`claude_session`). While it runs nothing in the transcript says
+  `said_before`), `board/sessions.rs` (`claude_session`). While it runs nothing in the transcript says
   so, so the session shows as working; but it has said nothing since its turn ended (all 52
   idle compactions here came straight after a turn's end, 2026-10-22), where a turn starts by
   saying something, so it keeps its tag and suggested replies: `claude/transcript.rs`
-  (`TranscriptInfo::ended_at`, `ends_turn`), `board.rs` (`moved_on`). Read as a turn, it took
+  (`TranscriptInfo::ended_at`, `ends_turn`), `board/overlays.rs` (`moved_on`). Read as a turn, it took
   them away from sessions still waiting on what they were for.
 - Provider flags (2026-10-19): assistant lines with `message.stop_reason: "refusal"`,
   including the synthetic `error: "invalid_request"` reply whose text says the model's safeguards

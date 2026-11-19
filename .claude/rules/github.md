@@ -15,7 +15,7 @@ Harness facts (from GitHub's answers on this Mac, 2026-10-01). A bare file name 
 `src-tauri/src/`.
 
 - What's asked of `gh`, and how: `github.rs` (module header, `OPEN_QUERY`, `DONE_QUERY`,
-  `REQUESTED_QUERY`, `PAGE`, `asker_of`, `detail`, `approve`) and `board.rs` (`polled_slugs`).
+  `REQUESTED_QUERY`, `PAGE`, `asker_of`, `detail`, `approve`) and `board/prs.rs` (`polled_slugs`).
 - GraphQL points (5,000 an hour, charged for the connections a query could return) and how a
   poll glances first and reads in full only what changed, keeping answers in
   `~/Library/Caches/Codealong/github`: `github.rs` ("Asking only for what changed",
@@ -166,7 +166,7 @@ Harness facts (from GitHub's answers on this Mac, 2026-10-01). A bare file name 
   has (a private repo's PR approved at one commit, then rebased and pushed twice: `mergeStateStatus`
   `CLEAN`, 2026-10-20). It's a connection: a repo's query went from 6 points to 7, at 20 a PR
   and at 100 alike.
-- Who spoke last on an open PR, for whose move it is (`board.rs` `turn_of`): `said:
+- Who spoke last on an open PR, for whose move it is (`board/prs.rs` `turn_of`): `said:
   timelineItems(itemTypes: [ISSUE_COMMENT, PULL_REQUEST_REVIEW], last: 20)` in `ASKED_FIELDS`
   (`said_of`), beside the review requests' timeline and `latestOpinionatedReviews`, and the head
   commit's `committedDate` in `PR_FIELDS`. A reply on a thread is a `PullRequestReview` of its

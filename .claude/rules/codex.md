@@ -25,7 +25,7 @@ checked on this Mac, most of them by reading the apps' own bundles and files. Pa
   the terminal UI without the daemon, the daemon behind one with it, the app's app-server (every
   thread it has loaded), the app-server under codex-acp. `codex/terminals.rs` (`held_rollouts`),
   `codex/mod.rs` (`let_go_now`, `let_go`: not when `ps` failed, nor for a rollout grown since the
-  last look, which a half-written last line from a killed writer doesn't keep doing), `board.rs` (`codex_session`'s `cut_off`). Not said there: the
+  last look, which a half-written last line from a killed writer doesn't keep doing), `board/sessions.rs` (`codex_session`'s `cut_off`). Not said there: the
   0.157.1 CLI couldn't use the 0.162.1 daemon here ("Cannot use the background server ·
   Experimental feature request failed", offering "Run without daemon this time"), so whether the
   daemon finishes a turn whose terminal UI died is unchecked; it holds the rollout while it runs
@@ -37,7 +37,7 @@ checked on this Mac, most of them by reading the apps' own bundles and files. Pa
   requested; allowing app quit` (nothing is logged for a Stop, nor for Cmd-Q), its last line came
   0.36 s later, and its three running turns were aborted 0.12 to 0.18 s after that last line:
   `codex/applog.rs` (module header, `Quits`), `codex/rollout.rs` (`ThreadInfo::interrupted_at`),
-  `board.rs` (`codex_session`'s `quit`). Not checked: the terminal UI or the CLI's daemon as the
+  `board/sessions.rs` (`codex_session`'s `quit`). Not checked: the terminal UI or the CLI's daemon as the
   Mac shuts down, which may abort their turns the same way, with no log of the app to show it.
 - One process writes a thread: whatever loads it holds `<CODEX_HOME>/thread-writer-locks/<thread>.lock`
   open with a lock on it (`lsof` shows the holder), and another is refused ("thread … already has
@@ -60,7 +60,7 @@ checked on this Mac, most of them by reading the apps' own bundles and files. Pa
   it), which a session shows after its model (`codex/rollout.rs` `apply_event`).
 - Approvals aren't recorded anywhere on disk: not in the rollout, `logs_2.sqlite` or the app's
   logs. A call left without its output past its tool's limit is taken as Needs you:
-  `codex/rollout.rs` (`ThreadInfo::pending_calls`, `call_limit_ms`), `board.rs`
+  `codex/rollout.rs` (`ThreadInfo::pending_calls`, `call_limit_ms`), `board/sessions.rs`
   (`codex_unanswered`). Where Codealong's `PermissionRequest` hook is in the account, it says so
   for sure as Codex asks: what Codex hands a hook (0.162.1), how a note is matched to its call and
   let go, and the prompt's keys: `codex/asks.rs` (module header, `waiting`), `codex/mod.rs`
@@ -88,7 +88,7 @@ checked on this Mac, most of them by reading the apps' own bundles and files. Pa
   `/ps` lists them and `/stop` ends them all; the app-server has `thread/backgroundTerminals/list`,
   `terminate` and `clean`): how the rollout says one started, what it printed and that it ended,
   and why an end can come before its start there: `codex/background.rs` (module header),
-  `board.rs` (`codex_tasks`). Each runs as `/bin/zsh -c <command>` (`-lc` for a login shell) under
+  `board/sessions.rs` (`codex_tasks`). Each runs as `/bin/zsh -c <command>` (`-lc` for a login shell) under
   the Codex process that runs the thread (macOS's `ps` writes a tab and a newline in it as `\011`
   and `\012`), and a plain command takes its shell's place, so the table shows the command itself
   (`zsh -c 'sleep 8'` is `sleep 8`; checked through Codex's own exec tool too). So the table is
@@ -112,7 +112,7 @@ checked on this Mac, most of them by reading the apps' own bundles and files. Pa
   terminal or tmux server started from a thread's shell keeps its ID after the thread moves on.
 - `codex exec` runs (`originator: "codex_exec"`, `source: "exec"`, `thread_source: "user"`,
   0.157.1) are threads like any other, with nobody at them: `codex/rollout.rs`
-  (`ThreadInfo::exec`), `board.rs` (`Session::headless`). An exec run doesn't hold its rollout
+  (`ThreadInfo::exec`), `board/sessions.rs` (`Session::headless`). An exec run doesn't hold its rollout
   open while it runs, nor does an app-server for it (lsof every half second through a 40-line
   reply, 0.157.1, 2026-10-14), so its process can't be told from its thread by open files, and
   `codex_session` gives it no pid: its session isn't found by its process's parents
