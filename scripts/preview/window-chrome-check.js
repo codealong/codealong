@@ -118,7 +118,8 @@
     // 70% (UsageBar.tsx RESET_CLOCK_ABOVE).
     var meters = all('.ca-usagebar-accts .ca-uchip .ca-meter');
     var full = meters.filter(function (m) { return parseFloat(m.querySelector('.ca-meter-value').textContent) > 70; });
-    var resets = function (m) { var r = m.querySelector('.ca-meter-reset'); return !!r && !!r.textContent.trim(); };
+    // Drawn, not only written: a reset hidden by a rule still has its words.
+    var resets = function (m) { var r = m.querySelector('.ca-meter-reset'); return !!r && !!r.textContent.trim() && r.getBoundingClientRect().width > 0; };
     var clocked = function (m) { var r = m.querySelector('.ca-meter-reset'); return !!r && !!r.querySelector('svg'); };
     var early = meters.filter(function (m) { return clocked(m) && parseFloat(m.querySelector('.ca-meter-value').textContent) <= 70; });
     // One with a reset to tell says it, but in a tight chip. The chip's label says each of its

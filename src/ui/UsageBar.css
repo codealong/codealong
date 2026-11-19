@@ -148,7 +148,8 @@
   color: var(--attn);
 }
 /* A row, not the compact meter's grid: a chip leaves out a model's name when it's the only limit it
-   shows, and when a limit resets while it has room left (UsageBar.tsx), and what's left closes up. */
+   shows, the clock before a reset while the limit has room left (UsageBar.tsx), and a reset a limit
+   doesn't have, and what's left closes up. */
 .ca-uchip .ca-meter.is-compact {
   display: flex;
   align-items: center;
