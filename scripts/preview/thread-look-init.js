@@ -52,8 +52,8 @@
       '}',
       fence,
     ].join('\n')),
-    item('you', '', { input: 'git status --short', shell: true }),
-    item('result', '', { output: ' M src/parse.ts\n M src-tauri/src/parse.rs' }),
+    item('you', '', { input: 'git status --short', shell: true, id: 'ran' }),
+    item('result', '', { output: ' M src/parse.ts\n M src-tauri/src/parse.rs', id: 'ran' }),
     item('you', 'Looks right. Write it up for the atlas team:\n\n- what was wrong\n- what changed, in both places\n- how to check it'),
     item('agent', 'Here’s the write-up. Nested items under a list item were read as blocks of their own; they’re now kept as the item’s children, in the UI’s parser and the engine’s alike, and `npm test -- parse` covers both.'),
   ];
