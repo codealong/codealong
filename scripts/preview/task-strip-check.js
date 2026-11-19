@@ -24,8 +24,12 @@
         Object.assign(pr, i < 2 ? { state: 'open', mine: false, author: 'ana', reviewRequested: true, snoozedUntil: null, autoReview: null, requestedAt: Date.now() - (i + 1) * 3600e3 } : { reviewRequested: false });
       });
       asked = open.slice(0, 2).map(function (pr) { return pr.key; });
-      // Reviews first in your order, so what Todo offers once its own are through is PRs'.
+      // Reviews first in your order, so what Todo offers once its own are through is PRs', with no
+      // session moved to the top, which would go ahead of them, nor a PR of a repo that puts its
+      // reviews first.
       board.queue = { order: ['reviews', 'needs', 'due', 'unread', 'ready'], due_within: 0 };
+      board.lanes.forEach(function (l) { l.sessions.forEach(function (x) { x.raised = undefined; }); });
+      board.prs.forEach(function (pr) { pr.reviewFirst = false; });
       return board;
     });
   };
@@ -50,6 +54,10 @@
   var words = function (s) { return buttons(s).map(function (b) { var w = b.querySelector(':scope > span:not([class])'); return w ? w.textContent.trim() : ''; }).filter(Boolean).join('|'); };
   var nextButton = function (s) { return buttons(s).filter(function (b) { var w = b.querySelector(':scope > span'); return w && w.textContent === 'Next'; })[0]; };
   var sessionTitle = '';
+  // The sample todos due (todos-sample.json), and the one ready to start.
+  var TITLES = { 't-sample1': 'Keep the sidebar', 't-sample2': 'Show how long', 't-sample4': 'Write up the config' };
+  var first = null;
+  var other = null;
   var said = function (s) { var n = q('.ca-reply-queue-note', s); return n ? n.textContent : ''; };
   var title = function () { var t = q('.ca-todoinsp .ca-todoinsp-title'); return t ? t.value : ''; };
 
@@ -60,24 +68,27 @@
       check('a todo’s strip has its actions and Next', words(s) === 'Start|Done|Snooze|Due…|Next', words(s));
       check('it says what it’s for', bar.getAttribute('aria-label') === 'What’s commonly done to this todo', bar.getAttribute('aria-label'));
       check('Start and Done say their keys', /⌘N|Ctrl\+N/.test(buttons(s)[0].textContent) && /⇧⌘E|Ctrl\+Shift\+E/.test(buttons(s)[1].textContent), buttons(s).map(function (b) { return b.textContent; }).join(' / '));
-      // The first listed is the one due today; the one two days overdue and the one ready to start
-      // wait after it.
-      check('it says what’s next among the todos', /1 more waiting · next: Keep the sidebar/.test(said(s)) && /then 1 ready todo/.test(said(s)), said(s));
+      // The two due todos are the in-progress ones, listed first: which of them is first goes by how
+      // the sessions on them stand on this Mac. The other one and the one ready to start wait after it.
+      first = (selected() || '').replace('row-todo:', '');
+      other = first === 't-sample1' ? 't-sample2' : 't-sample1';
+      check('it shows a todo due first', first === 't-sample1' || first === 't-sample2', first);
+      check('it says what’s next among the todos', said(s).indexOf('1 more waiting · next: ' + TITLES[other]) === 0 && /then 1 ready todo$/.test(said(s)), said(s));
       next();
-      return until(function () { return /Keep the sidebar/.test(title()) && title(); }, 3000, '⌘] on to the overdue todo');
+      return until(function () { return title().indexOf(TITLES[other]) === 0 && title(); }, 3000, '⌘] on to the other todo due');
     })
     .then(function () {
-      check('⌘] goes on to the next todo due, selected in the list', selected() === 'row-todo:t-sample1', selected());
+      check('⌘] goes on to the other todo due, selected in the list', selected() === 'row-todo:' + other, selected());
       // Done with it, the strip goes on: back round to the one skipped, which still waits.
       press({ key: 'E', code: 'KeyE', shiftKey: true });
-      return until(function () { return /Show how long/.test(title()) && title(); }, 3000, '⇧⌘E going on to the todo skipped');
+      return until(function () { return title().indexOf(TITLES[first]) === 0 && title(); }, 3000, '⇧⌘E going on to the todo skipped');
     })
     .then(function () {
-      var op = sent('todo_op').filter(function (a) { return a.op.id === 't-sample1'; })[0];
+      var op = sent('todo_op').filter(function (a) { return a.op.id === other; })[0];
       check('⇧⌘E marks the todo shown done', !!op && op.op.patch.status === 'done', JSON.stringify(op));
-      check('and goes on to the one skipped, which still waits', selected() === 'row-todo:t-sample2', selected());
+      check('and goes on to the one skipped, which still waits', selected() === 'row-todo:' + first, selected());
       press({ key: 'E', code: 'KeyE', shiftKey: true });
-      return until(function () { return /Write up the config/.test(title()) && title(); }, 3000, '⇧⌘E going on to the ready todo');
+      return until(function () { return title().indexOf(TITLES['t-sample4']) === 0 && title(); }, 3000, '⇧⌘E going on to the ready todo');
     })
     .then(function () {
       check('with none due left, it goes on to the one ready to start', selected() === 'row-todo:t-sample4', selected());

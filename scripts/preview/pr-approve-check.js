@@ -1,6 +1,6 @@
 // Checks the strip over a PR's panel in the PRs view (PrStrip.tsx, PrInspector.tsx): it has what a
 // PR's card has on its strip (Approve, Comment, Snooze, Review with and GitHub, each saying its key)
-// and no Next, which is the list's; Approve is there for an open PR that isn't yours though your
+// and Next, through the PRs waiting on your review (useViewQueues.ts); Approve is there for an open PR that isn't yours though your
 // review wasn't asked for, and approves it; Snooze is dimmed with no review asked; the merge box's
 // button leads the row under the PR's title (MergeBox.tsx), the strip having the rest; the PR's
 // menu has Approve too. An approval GitHub is slow to answer takes what's written out of the box as
@@ -82,9 +82,8 @@
     })
     .then(function () {
       var names = hotkeys().map(label);
-      check('the strip has the PR’s actions, as its card’s has', names.join('|') === 'Approve|Comment|Snooze|Review with|GitHub', names.join(' | '));
+      check('the strip has the PR’s actions, as its card’s has, and Next', names.join('|') === 'Approve|Comment|Snooze|Review with|GitHub|Next', names.join(' | '));
       check('each saying its key', hotkeys().every(function (b) { return !!q('kbd', b); }), hotkeys().map(function (b) { return b.textContent; }).join(' | '));
-      check('and no Next: the list goes through what waits on you', !all('.ca-hotkey', strip()).some(function (b) { return label(b) === 'Next'; }), strip().textContent);
       check('an open PR that isn’t yours has Approve, though your review wasn’t asked for', !hotkey('Approve').disabled, hotkey('Approve').title);
       check('Approve says ⌘⏎ is the box’s', /from the box\)$/.test(hotkey('Approve').title), hotkey('Approve').title);
       check('Snooze is dimmed with no review asked', hotkey('Snooze').disabled && /isn’t asked for/.test(hotkey('Snooze').title), hotkey('Snooze').title);

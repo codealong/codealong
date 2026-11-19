@@ -254,10 +254,11 @@
           }
           // The list stays as it was: the row is selected, and its panel gives way to the PR's.
           var shown = q('.ca-prinsp .ca-insp-call');
-          var back = q('.ca-prinsp .ca-panelback');
+          // At the start of the strip over it (SessionPanel.tsx `QueueStrip`), not over its header.
+          var back = q('.ca-prpanel > .ca-reply-queue > .ca-panelback.is-strip');
           check('then shows the PR’s panel beside the list, which stays', view() === from && !!shown && shown.textContent === '#' + n, (shown && shown.textContent) + ' in ' + view());
           check('with its row selected', selected() === hit.row.id && all('.ca-board-list [role="option"][aria-selected="true"]').length === 1, String(selected()));
-          check('and the way back to the row’s own panel', !!back && /\S/.test(back.textContent), back && back.textContent);
+          check('and the way back to the row’s own panel, at the start of its strip', !!back && /\S/.test(back.textContent) && !q('.ca-prinsp-head .ca-panelback'), back && back.textContent);
           check('and opens nothing', calls('open_url').length === urls, JSON.stringify(last('open_url')));
           if (!back) return;
           back.click();
@@ -268,7 +269,7 @@
               return wait(500);
             })
             .then(function () {
-              check('the chip shows the PR’s panel again', !!q('.ca-prinsp .ca-panelback') && selected() === hit.row.id, String(selected()));
+              check('the chip shows the PR’s panel again', !!q('.ca-prpanel > .ca-reply-queue > .ca-panelback') && selected() === hit.row.id, String(selected()));
               // The row selected already: a press on it is still the row's own panel.
               press(row());
               return wait(200);

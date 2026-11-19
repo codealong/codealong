@@ -45,7 +45,7 @@ import { PrPickPanel } from './PrPickPanel';
 import { SessionPickPanel } from './SessionPickPanel';
 import { WorktreePickPanel } from './WorktreePickPanel';
 import { TodoPanel, TodoPickPanel } from './TodoPanel';
-import { TodoStrip } from './TodoStrip';
+import { TodoStrip, type TodoActions } from './TodoStrip';
 import { todoLeftAhead } from '../ahead';
 import { dueItem } from '../menus';
 import { todoSnoozeMenu } from '../snooze';
@@ -157,7 +157,6 @@ export interface MainPanelProps {
   reviewMenuFrom: (pr: Pick<PrItem, 'number' | 'url' | 'repoSlug' | 'lanes'> & Partial<Pick<PrItem, 'key' | 'mine'>>, el: Element) => void;
   reviewedPr: (lane: Lane, pr: Pr) => Pick<PrItem, 'number' | 'title' | 'url' | 'repoSlug' | 'lanes'>;
   setPreviewFor: (laneId: string) => void;
-  markSeen: (keys: string[]) => void;
   setToast: (message: string | null) => void;
   /** The window's way of saying how things went, with its progress for what takes a moment. */
   report: Report;
@@ -168,7 +167,7 @@ export interface MainPanelProps {
 }
 
 export function MainPanel(props: MainPanelProps) {
-  const { view, selected, selectedLane, canvasPicked, board, now, loading, laneById, homes, devices, projectTodos, todoStore, todoLinks, todosFor, prRowOf, pickedRows, picks, drill, setDrill, queue, views, boxFocus, panelMax, togglePanelMax, prPanelMax, togglePrPanelMax, actionsRef, open, newSession, newSessionPanel, showLaneFromPanel, showSessionFromPanel, showSchedule, schedulePanel, scheduleSession, showTodoFromPanel, laneMenu, sessionMenu, sessionMenuSpec, lanePrMenu, showPr, prMenu, prChipMenu, reviewMenuFrom, reviewedPr, setPreviewFor, markSeen, setToast, report, findIn } = props;
+  const { view, selected, selectedLane, canvasPicked, board, now, loading, laneById, homes, devices, projectTodos, todoStore, todoLinks, todosFor, prRowOf, pickedRows, picks, drill, setDrill, queue, views, boxFocus, panelMax, togglePanelMax, prPanelMax, togglePrPanelMax, actionsRef, open, newSession, newSessionPanel, showLaneFromPanel, showSessionFromPanel, showSchedule, schedulePanel, scheduleSession, showTodoFromPanel, laneMenu, sessionMenu, sessionMenuSpec, lanePrMenu, showPr, prMenu, prChipMenu, reviewMenuFrom, reviewedPr, setPreviewFor, setToast, report, findIn } = props;
   const { startForTodo, startForTodos, todoMenu, todoLinkMenu, todoMoreMenu, labelMenu, projectsForTodos, duePick, duePicked, selectTodoRow, pickMenu, todoEdit } = props.todo;
   // What the strip's Next goes by in this view, or why it goes nowhere.
   const viewQueue = views.strip(view);
@@ -204,35 +203,45 @@ export function MainPanel(props: MainPanelProps) {
     open(lane, session.openTarget);
   };
 
-  /** The strip over a todo's panel: Start (⌘N), Done (⇧⌘E), Snooze (⌃⌘1–7) and Due…, and Next
-   *  through the todos that wait on you. Done or snoozed, one that waits goes on to the next, as a
-   *  session's does in Sessions; one that doesn't stays. */
-  const todoStrip = (item: TodoItem) => {
+  /** What the strip over a todo's panel runs: Start (⌘N), Done (⇧⌘E), Snooze (⌃⌘1–7) and Due….
+   *  Done or snoozed, one that waits goes on to the next, as a session does in Sessions; one that
+   *  doesn't stays. Snoozing again or waking one that's snoozed, which doesn't wait, does neither. */
+  const todoActions = (item: TodoItem): TodoActions => {
     const t = item.todo;
     const left = (done: menus.Left) => void views.todos.left(t.id, done);
     const done = () => {
       todoEdit.run({ op: 'update', id: t.id, patch: { status: 'done' } });
       left('done');
     };
+    const asleep = (t.snoozedUntil ?? 0) > now;
     const snooze = todoSnoozeMenu(t, now, (act) => {
+      if (asleep) {
+        act.catch((e: unknown) => setToast(errorText(e)));
+        return;
+      }
       todoLeftAhead([t.id], act.then(() => null)).catch((e: unknown) => setToast(errorText(e)));
       left('snoozed');
     }, true);
-    return <TodoStrip todo={t} lane={item.lane} actions={{ start: () => startForTodo(item), done: t.status === 'done' ? undefined : done, snooze, due: dueItem([t], todoEdit) }} queue={viewQueue} hotkeys={{ nowhere }} panel />;
+    return { start: () => startForTodo(item), done: t.status === 'done' ? undefined : done, snooze, due: dueItem([t], todoEdit) };
   };
-  const todoPanel = (item: TodoItem) =>
-    drilledPanel(item.key, middleTruncate(item.todo.title, 40)) ?? (
+  const todoPanel = (item: TodoItem) => drilledPanel(item.key, middleTruncate(item.todo.title, 40)) ?? todoOwnPanel(item);
+  const todoOwnPanel = (item: TodoItem) => {
+    const acts = todoActions(item);
+    // ⌘N starts a session for the todo selected in the list: the strip says it where that's this one.
+    const listed = view === 'todo' || view === 'kanban';
+    return (
     <PeekOnHover.Provider value={peekFromPanel}>
       <TodoPanel
         key={item.todo.id}
-        strip={todoStrip(item)}
+        strip={<TodoStrip todo={item.todo} lane={item.lane} actions={acts} queue={viewQueue} hotkeys={{ nowhere }} panel startKey={listed} />}
         item={item}
         todos={todoStore.todos}
         onShowTodo={showTodoFromPanel}
         labels={todoStore.labels}
         lanes={laneById}
         now={now}
-        onRun={runTodo}
+        // Done from its status, or from Jev's Mark done, is the strip's Done, which goes on.
+        onRun={(op) => (acts.done && op.op === 'update' && op.id === item.todo.id && op.patch.status === 'done' && Object.keys(op.patch).length === 1 ? acts.done() : runTodo(op))}
         onStart={() => startForTodo(item)}
         onShowSession={showFromPanel}
         onOpenSession={openFromPanel}
@@ -252,7 +261,8 @@ export function MainPanel(props: MainPanelProps) {
         onPickDue={duePicked}
       />
     </PeekOnHover.Provider>
-  );
+    );
+  };
   /** Several todos picked together: one session for all of them. */
   const todoPickPanel = (rows: TodoItem[]) => (
     <TodoPickPanel
@@ -349,7 +359,9 @@ export function MainPanel(props: MainPanelProps) {
         onThreadMenu={(items) => void showContextMenu(items).catch((err: unknown) => setToast(String(err)))}
         find={findIn(session.key)}
         // The keyboard stays where it was: the next one's box doesn't take the cursor.
-        onSeen={() => (queued ? void runQueue('seen', false) : markSeen([session.key]))}
+        // Elsewhere the strip's Seen is the session's own action, which sets one aside while its
+        // side conversation answers, as its menu does.
+        onSeen={queued ? () => void runQueue('seen', false) : undefined}
         device={deviceOf(devices, session.key)}
         back={back}
         onFailed={(why) => {

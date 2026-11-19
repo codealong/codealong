@@ -2967,7 +2967,6 @@ export function App() {
             reviewMenuFrom={reviewMenuFrom}
             reviewedPr={reviewedPr}
             setPreviewFor={setPreviewFor}
-            markSeen={markSeen}
             setToast={setToast}
             report={report}
             showSchedule={(id) => reveal.current({ kind: 'schedule', id })}

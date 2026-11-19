@@ -72,17 +72,20 @@ export function prShown(pr: PrItem, since: number | undefined) {
   return { key: pr.key, title: `#${pr.number} ${pr.title}`, since, seenable: false, skipsOnSeen: true };
 }
 
-/** The todo shown in Todo or Kanban, as the queue takes it. */
+/** The todo shown in Todo or Kanban, as the queue takes it. One dealt with that waits again
+ *  (opened again, due again) comes back, as in the notch. */
 export function todoShown(item: TodoItem, since: number | undefined) {
-  return { key: item.todo.id, title: item.todo.title || 'Untitled todo', since, seenable: false, skipsOnSeen: true };
+  return { key: item.todo.id, title: item.todo.title || 'Untitled todo', since, seenable: false, skipsOnSeen: true, comesBack: true };
 }
 
 /** Where each kind of what waits on you is gone through. */
 const VIEW_OF: Record<Waits, QueueView> = { needs: 'sessions', unread: 'sessions', reviews: 'prs', due: 'todo', ready: 'todo' };
 const VIEW_WORD: Record<QueueView, string> = { sessions: 'Sessions', prs: 'PRs', todo: 'Todo', kanban: 'Kanban' };
 
-/** How many of each kind wait in the views. */
-export type WaitCounts = Partial<Record<Waits, number>>;
+/** How many of each kind wait in the views, of those not yet dealt with there, and of them how
+ *  many sessions were moved to the top and how many PRs are of a repo that puts reviews first,
+ *  which go ahead of every kind (queue.ts `byPlace`). */
+export type WaitCounts = Partial<Record<Waits | 'raised' | 'firstReviews', number>>;
 
 /** What Next offers once the view `from` has nothing left: the first kind in your order that
  *  waits in another view, and how the strip says it, `own` being how many of the view's own wait
@@ -90,7 +93,10 @@ export type WaitCounts = Partial<Record<Waits, number>>;
  *  kinds are one offer: Sessions goes through them in your order itself. */
 export function elsewhereOffer(from: QueueView, counts: WaitCounts, order: readonly Waits[], own = 0): { view: QueueView; words: string; title: string } | null {
   const ours = (k: Waits) => VIEW_OF[k] === from || (from === 'kanban' && VIEW_OF[k] === 'todo');
-  const kind = order.find((k) => !ours(k) && (counts[k] ?? 0) > 0);
+  // A session moved to the top comes before everything, then the reviews of a repo that puts
+  // them first, then the kinds in your order.
+  const ahead: Waits | undefined = !ours('needs') && (counts.raised ?? 0) > 0 ? 'needs' : !ours('reviews') && (counts.firstReviews ?? 0) > 0 ? 'reviews' : undefined;
+  const kind = ahead ?? order.find((k) => !ours(k) && (counts[k] ?? 0) > 0);
   if (!kind) return null;
   const view = VIEW_OF[kind];
   const n = view === 'sessions' ? (counts.needs ?? 0) + (counts.unread ?? 0) : (counts[kind] ?? 0);

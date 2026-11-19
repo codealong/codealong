@@ -130,7 +130,7 @@ function newSessionItem(lane: Lane, run: (() => void) | undefined): MenuAction |
 
 /** How a session, or a PR waiting on your review, left the list of what waits on you: the strip
  *  says it on the one gone on to (queue.ts `wentWords`). */
-export type Left = 'marked seen' | 'set aside' | 'snoozed' | 'quieted' | 'closed' | 'done' | 'archived' | 'approved' | 'commented on' | 'changes requested' | 'review started' | 'merged' | 'started';
+export type Left = 'marked seen' | 'set aside' | 'snoozed' | 'quieted' | 'closed' | 'done' | 'archived' | 'approved' | 'commented on' | 'changes requested' | 'review started' | 'merged' | 'started' | 'rescheduled';
 
 export interface SessionCan {
   report: Report;

@@ -66,7 +66,7 @@
       var panel = q('.ca-schedinsp');
       check('its panel says it stops after its first run', panel.textContent.indexOf('Stops after its first run. Run now doesn’t count.') >= 0, panel.textContent.slice(0, 400));
       check('and that a new session takes its session’s place if it’s gone', panel.textContent.indexOf('If that session is gone, a new one starts in its place') >= 0, panel.textContent.slice(0, 400));
-      all('.ca-insp-actions button').filter(function (b) { return b.textContent === 'Edit'; })[0].click();
+      all('.ca-schedinsp > .ca-reply-queue .ca-hotkey').filter(function (b) { return b.textContent === 'Edit'; })[0].click();
       return until(function () { return q('.ca-scheddlg'); }, 3000, 'its dialog');
     })
     .then(function () {
@@ -99,8 +99,8 @@
       return until(function () { return q('.ca-schedinsp-name') && q('.ca-schedinsp-name').textContent === 'Nightly atlas triage'; }, 3000, 'the Codex one’s panel');
     })
     .then(function () {
-      var open = all('.ca-insp-actions button').filter(function (b) { return b.textContent === 'Open in Codex'; })[0];
-      check('one with a link opens in its app', !!open, q('.ca-insp-actions') ? q('.ca-insp-actions').textContent : 'no actions');
+      var open = all('.ca-schedinsp > .ca-reply-queue .ca-hotkey').filter(function (b) { return b.textContent === 'Open in Codex'; })[0];
+      check('one with a link opens in its app', !!open, q('.ca-schedinsp > .ca-reply-queue') ? q('.ca-schedinsp > .ca-reply-queue').textContent : 'no strip');
       var n = sent('open_harness_link').length;
       q('.ca-schedlist').dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true }));
       return until(function () { return sent('open_harness_link').length > n; }, 3000, 'the open');
@@ -119,7 +119,7 @@
       var panel = q('.ca-schedinsp');
       check('its panel says why it can’t run', panel.querySelector('.ca-tag').textContent === 'Can’t run' && !!panel.querySelector('.ca-schedproblem') && panel.querySelector('.ca-schedproblem').textContent.indexOf('Its thread is gone from Codex') >= 0, panel.textContent.slice(0, 400));
       check('and not that its session isn’t on the board', panel.textContent.indexOf('isn’t on the board') < 0, panel.textContent.slice(0, 600));
-      var open = all('.ca-insp-actions button').filter(function (b) { return b.textContent === 'Open in Codex'; })[0];
+      var open = all('.ca-schedinsp > .ca-reply-queue .ca-hotkey').filter(function (b) { return b.textContent === 'Open in Codex'; })[0];
       var n = sent('open_harness_link').length;
       open.click();
       return until(function () { return sent('open_harness_link').length > n; }, 3000, 'the open');

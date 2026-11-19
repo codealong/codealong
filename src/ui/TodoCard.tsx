@@ -116,8 +116,15 @@ export function TodoCard({ todo, todos, labels, run, lanes, usage, projects, now
   };
   // Done from the panel's status or the todo's menu, or archiving it from the menu, is the strip's
   // Done: it leaves what waits on you and the card goes on. While a start is on its way it waits:
-  // the start would set it back in progress. The rest of its changes go through the store.
+  // the start would set it back in progress. A new due date (Due…, the panel's) deals with it for
+  // now too: the card goes on, and one still due comes round again. The rest of its changes go
+  // through the store.
   const runHere = (op: TodoOp) => {
+    if (op.op === 'update' && op.id === todo.id && Object.keys(op.patch).join() === 'due') {
+      run(op);
+      can.left('rescheduled');
+      return;
+    }
     if (op.op === 'update' && op.id === todo.id && (op.patch.status === 'done' || op.patch.archived === true) && Object.keys(op.patch).length === 1) {
       if (launching.has(todo.id)) report.info('A session is starting on it: mark it done once it has.');
       else if (op.patch.status === 'done') done();

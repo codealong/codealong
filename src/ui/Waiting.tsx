@@ -174,7 +174,8 @@ export function Waiting() {
       : reviewing
         ? { key: reviewing.key, title: `#${reviewing.number} ${reviewing.title}`, since: reviewSince(reviewing), seenable: false, skipsOnSeen: true }
         : todoing
-          ? { key: todoRowKey(todoing.id), title: todoing.title || 'Untitled todo', since: dueSince(todoing.id), seenable: false, skipsOnSeen: true }
+          ? // One dealt with that waits again (opened again, due again) comes back, as in the notch.
+            { key: todoRowKey(todoing.id), title: todoing.title || 'Untitled todo', since: dueSince(todoing.id), seenable: false, skipsOnSeen: true, comesBack: true }
           : null,
     show: (row) => show(row.key),
     travel: (dir) => {

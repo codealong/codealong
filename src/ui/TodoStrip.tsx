@@ -42,13 +42,15 @@ interface TodoStripProps {
   queue?: Queue;
   notice?: Notice | null;
   hotkeys: Hotkeys;
-  /** Over its panel in the main window, where ⌘N starts (the window's key) and the strip's keys
-   *  go ahead of the list's. */
+  /** Over its panel in the main window, where the strip's keys go ahead of the list's. */
   panel?: boolean;
+  /** In the main window, ⌘N (the window's key) starts a session for the todo selected in the list,
+   *  which is this one: the strip says it. Not on the canvas, whose todo isn't the list's. */
+  startKey?: boolean;
   back?: PanelBackTo;
 }
 
-export function TodoStrip({ todo, lane, actions, sending = false, queue, notice, hotkeys, panel = false, back }: TodoStripProps) {
+export function TodoStrip({ todo, lane, actions, sending = false, queue, notice, hotkeys, panel = false, startKey = false, back }: TodoStripProps) {
   const latest = useLatest(actions);
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -70,12 +72,12 @@ export function TodoStrip({ todo, lane, actions, sending = false, queue, notice,
   }, [latest, panel]);
 
   const { start, done, snooze, due } = actions;
-  const startKey = keysSaid(panel ? '⌘N' : '⌘⏎');
+  const startKeys = panel ? (startKey ? keysSaid('⌘N') : undefined) : keysSaid('⌘⏎');
   const buttons: StripAction[] = [
     {
       label: 'Start',
-      keys: startKey,
-      title: sending ? 'A session is starting on it' : panel ? `Start a session on it (${startKey})` : lane ? `Start a session on it in ${lane.callsign}, with what’s written in the box at its foot` : 'It’s linked to no worktree: the quick panel asks where to start it',
+      keys: startKeys,
+      title: sending ? 'A session is starting on it' : panel ? `Start a session on it${startKeys ? ` (${startKeys})` : ''}` : lane ? `Start a session on it in ${lane.callsign}, with what’s written in the box at its foot` : 'It’s linked to no worktree: the quick panel asks where to start it',
       run: sending ? undefined : start,
     },
     { label: 'Done', chord: menus.CHORDS.done, title: sending ? 'A session is starting on it: mark it done once it has' : todo.status === 'done' ? 'It’s done already' : 'Mark it done: it leaves what waits on you', run: done },

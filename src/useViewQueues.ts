@@ -74,25 +74,29 @@ export function useViewQueues<S extends { key: string; session: Session }>(o: Vi
   // How many of each kind wait in each view, for what Next offers once a view's have run out.
   // The todos are Todo's, as listed there, whichever view is shown.
   const todoCounts = useMemo(() => todoWaitingRows(o.todoListed, todoQueue, now), [o.todoListed, todoQueue, now]);
+  // A view whose queue has nothing left that hasn't been dealt with there (an allowed call the
+  // board still lists) offers nothing: its `first` is what Next would show there.
+  const any = { sessions: !!sessions.queue.first, prs: !!prs.first, todos: !!todos.first };
   const counts: WaitCounts = {
-    needs: sessions.waiting.filter((r) => statusWaits(r.session.status) === 'needs').length,
-    unread: sessions.waiting.filter((r) => statusWaits(r.session.status) === 'unread').length,
-    reviews: prWaiting.length,
-    due: todoCounts.filter((r) => r.waits === 'due').length,
-    ready: todoCounts.filter((r) => r.waits === 'ready').length,
+    needs: any.sessions ? sessions.waiting.filter((r) => statusWaits(r.session.status) === 'needs').length : 0,
+    unread: any.sessions ? sessions.waiting.filter((r) => statusWaits(r.session.status) === 'unread').length : 0,
+    raised: any.sessions ? sessions.waiting.filter((r) => sessions.reads.raisedOf(r)).length : 0,
+    reviews: any.prs ? prWaiting.length : 0,
+    firstReviews: any.prs ? prWaiting.filter((r) => r.pr.reviewFirst).length : 0,
+    due: any.todos ? todoCounts.filter((r) => r.waits === 'due').length : 0,
+    ready: any.todos ? todoCounts.filter((r) => r.waits === 'ready').length : 0,
   };
 
   /** Goes to `to` and shows the first that waits there. */
   const goTo = (to: QueueView) => {
-    if (to === 'sessions') {
-      const first = sessions.queue.first;
-      o.setView('sessions');
-      if (first) sessions.show(first);
-      return;
-    }
-    const first = to === 'prs' ? prs.first : todos.first;
+    const s = to === 'sessions' ? sessions.queue.first : null;
+    const pr = to === 'prs' ? prs.first : null;
+    const todo = to === 'todo' ? todos.first : null;
+    if (!s && !pr && !todo) return;
     o.setView(to);
-    if (first) o.select(to === 'prs' ? `pr:${(first as ReviewRow).pr.key}` : (first as TodoQueueRow).item.key);
+    if (s) sessions.show(s);
+    else if (pr) o.select(`pr:${pr.pr.key}`);
+    else if (todo) o.select(todo.item.key);
   };
 
   const viewOf = (at: string): QueueView | null => (at === 'sessions' || at === 'prs' ? at : at === 'todo' || at === 'kanban' ? todoView : null);

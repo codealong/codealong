@@ -77,6 +77,13 @@ describe('elsewhereOffer', () => {
     expect(elsewhereOffer('todo', { unread: 1, reviews: 3 }, ['unread', 'needs', 'reviews', 'due', 'ready'])?.view).toBe('sessions');
   });
 
+  it('offers a session moved to the top, then the reviews of a repo that puts them first, ahead of your order', () => {
+    expect(elsewhereOffer('todo', { needs: 1, reviews: 2, firstReviews: 1 }, ORDER)?.view).toBe('prs');
+    expect(elsewhereOffer('todo', { unread: 1, raised: 1, reviews: 2, firstReviews: 1 }, ORDER)?.view).toBe('sessions');
+    // From Sessions, its own moved to the top are no offer.
+    expect(elsewhereOffer('sessions', { raised: 1, unread: 1, due: 1, reviews: 1, firstReviews: 1 }, ['due', 'needs', 'reviews', 'unread', 'ready'])?.view).toBe('prs');
+  });
+
   it('never offers the view’s own, Kanban’s being Todo’s', () => {
     expect(elsewhereOffer('todo', { due: 1, ready: 2 }, ORDER)).toBeNull();
     expect(elsewhereOffer('kanban', { due: 1, ready: 2, reviews: 1 }, ORDER)?.view).toBe('prs');

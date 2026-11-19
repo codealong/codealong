@@ -40,6 +40,10 @@
     var p = real(cmd, args, options);
     if (cmd !== 'get_board') return p;
     return p.then(function (board) {
+      // Nothing waits in another view either, which the strip would offer (useViewQueues.ts): no
+      // todo is due and no PR waits on your review.
+      board.todoQueue = { due: [], ready: [] };
+      (board.prs || []).forEach(function (pr) { pr.reviewRequested = false; });
       board.lanes.forEach(function (l) {
         l.sessions.forEach(function (s) {
           // Nothing waits on you, so the strip has nothing of the queue's to say.

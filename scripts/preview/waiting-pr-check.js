@@ -17,6 +17,8 @@
     if (cmd === 'review_pr_now') return new Promise(function (resolve) { setTimeout(function () { resolve(null); }, 1500); });
     if (cmd !== 'get_board') return p;
     return p.then(function (board) {
+      // No todo is due: what waits is what the check puts there (Board.todoQueue).
+      board.todoQueue = { due: [], ready: [] };
       // Once: a PR one of the board's sessions worked on, that session, and another session.
       if (!pr) {
         (board.prs || []).some(function (x) {

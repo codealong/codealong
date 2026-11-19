@@ -1,7 +1,8 @@
 // Checks the todos due in the waiting window (Waiting.tsx, quick.ts `windowRows`): with due todos
 // put first in your order (`[queue] order`), the window opens on the one most overdue, as its card
 // (TodoCard.tsx) with the strip a todo has (TodoStrip.tsx) as the window's title bar, saying the
-// next; ⇧⌘E marks it done and goes on to the next due, and ⌃⌘1 snoozes that one and goes on.
+// next; a new due date from Due… goes on to the next due, and ⌃⌘1 snoozes that one and goes on.
+// (⇧⌘E marking one done is the notch's check: the card and its strip are the same.)
 //   PREVIEW_TODOS=scripts/preview/todos-sample.json PREVIEW_WAIT=60000 scripts/preview.sh waiting '' scripts/preview/waiting-todo-check.js
 //   PREVIEW_PLATFORM=linux PREVIEW_TODOS=scripts/preview/todos-sample.json PREVIEW_WAIT=60000 scripts/preview.sh waiting '' scripts/preview/waiting-todo-check.js
 (function () {
@@ -39,12 +40,21 @@
       check('the strip is the window’s title bar', s.classList.contains('is-titlebar') && s.getAttribute('data-tauri-drag-region') === 'deep');
       check('it says the todo due next', /next: Show how long/.test(said(s)), said(s));
       check('its box starts a session on it', !!q('.ca-waiting .ca-todocard-box textarea') || !!q('.ca-waiting .ca-todocard-nowhere'));
-      press(cmd, { key: 'E', code: 'KeyE', shiftKey: true });
-      return until(function () { return /Show how long/.test(title()) && title(); }, 3000, '⇧⌘E going on to the next todo due');
+      // A new due date from Due… deals with it for now: the window goes on.
+      var due = all('.ca-hotkey', s).filter(function (b) { var w = b.querySelector(':scope > span'); return w && w.textContent === 'Due…'; })[0];
+      var before = menus();
+      due.click();
+      return until(function () { return menus() > before; }, 3000, 'the Due… menu');
     })
     .then(function () {
-      var done = op('t-sample1');
-      check('⇧⌘E marks it done', !!done && done.op.patch.status === 'done', JSON.stringify(done));
+      var tomorrow = menuItem('Tomorrow');
+      check('Due… offers the days', !!tomorrow, menuLabels().join(' | '));
+      tomorrow();
+      return until(function () { return op('t-sample1') && /Show how long/.test(title()); }, 3000, 'a new due date going on to the next todo due');
+    })
+    .then(function () {
+      var moved = op('t-sample1');
+      check('a new due date from Due… goes on to the next todo due', !!moved && /^\d{4}-\d\d-\d\d$/.test(moved.op.patch.due) && Object.keys(moved.op.patch).length === 1, JSON.stringify(moved));
       press(ctrlCmd, { key: '1', code: 'Digit1' });
       return until(function () { return op('t-sample2') && !/Show how long/.test(title()); }, 3000, '⌃⌘1 snoozing it and going on');
     })

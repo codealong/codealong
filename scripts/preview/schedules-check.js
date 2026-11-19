@@ -133,7 +133,7 @@
       check('a timed one says when in its header, with no When section to say it again', !!when && /^Weekdays at 9:00\u00a0· Next in /.test(when.textContent) && labels.indexOf('When') < 0, (when ? when.textContent : 'no when in its header') + ' | ' + labels.join(', '));
       var ran = all('.ca-schedrun-on').map(function (el) { return el.textContent; });
       check('and where a run went when it was another machine', ran.length === 1 && ran[0] === 'on Mac mini', ran.join(' | '));
-      all('.ca-insp-actions button').filter(function (b) { return b.textContent === 'Edit'; })[0].click();
+      all('.ca-schedinsp > .ca-reply-queue .ca-hotkey').filter(function (b) { return b.textContent === 'Edit'; })[0].click();
       return until(function () { return q('.ca-scheddlg'); }, 3000, 'its dialog');
     })
     .then(function () {

@@ -47,6 +47,8 @@
     if (cmd === 'mark_seen') return p.then(function () { return Date.now(); });
     if (cmd !== 'get_board') return p;
     return p.then(function (board) {
+      // No todo is due: what waits is what the check puts there (Board.todoQueue).
+      board.todoQueue = { due: [], ready: [] };
       var seen = {};
       board.lanes.forEach(function (l) {
         l.sessions.forEach(function (s) {
