@@ -53,15 +53,25 @@ describe('paint', () => {
   });
 
   it('walks a long line’s runs and marks together', () => {
-    // A minified line: thousands of runs and of marks, which a run each against every mark took a
-    // second over.
-    const long: Run[] = Array.from({ length: 30000 }, (_, i) => ({ text: 'ab', tone: i % 2 ? 'keyword' : null }));
-    const ranges = Array.from({ length: 10000 }, (_, i): [number, number] => [i * 6 + 1, i * 6 + 3]);
-    const started = performance.now();
-    const groups = paint(long, ranges);
-    expect(performance.now() - started).toBeLessThan(200);
-    expect(groups.filter((g) => g.hit)).toHaveLength(10000);
-    expect(groups.flatMap((g) => g.runs).map((r) => r.text).join('')).toBe('ab'.repeat(30000));
+    // A minified line: tens of thousands of runs and of marks. Walked together they take a few
+    // milliseconds; a run tried against every mark, as it once was, takes seconds. The time is
+    // the best of three, since anything can hold one run up, and the limit is far from both. At
+    // a load of 900 on ten cores (2026-11-19) single runs of this took 7 to 520 ms, the best of
+    // three 34 at most, and every mark against every run 20 s; the test this replaces, one run
+    // of half the size under 200 ms, failed there every time.
+    const long: Run[] = Array.from({ length: 60000 }, (_, i) => ({ text: 'ab', tone: i % 2 ? 'keyword' : null }));
+    const ranges = Array.from({ length: 20000 }, (_, i): [number, number] => [i * 6 + 1, i * 6 + 3]);
+    let groups: ReturnType<typeof paint> = [];
+    const took = Math.min(
+      ...[0, 1, 2].map(() => {
+        const started = performance.now();
+        groups = paint(long, ranges);
+        return performance.now() - started;
+      }),
+    );
+    expect(took).toBeLessThan(1000);
+    expect(groups.filter((g) => g.hit)).toHaveLength(20000);
+    expect(groups.flatMap((g) => g.runs).map((r) => r.text).join('')).toBe('ab'.repeat(60000));
   });
 });
 
