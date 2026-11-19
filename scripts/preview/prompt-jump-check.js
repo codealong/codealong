@@ -64,7 +64,7 @@
         });
       });
       // No PR waits on your review either: a review would come before A in the waiting window.
-      (board.prs || []).forEach(function (pr) { pr.reviewRequested = false; });
+      (board.prs || []).forEach(function (pr) { pr.reviewRequested = false; pr.waitsToMerge = false; });
       return board;
     });
   };

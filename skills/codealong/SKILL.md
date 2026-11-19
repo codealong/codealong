@@ -574,6 +574,10 @@ user's sessions with nothing tying them to yours.
   `$(…)`.
 - Once you have what you need from it, `codealong session done <key>` ends it. Your user
   marking your session done ends its helpers too, and they can make one a session of their own.
+  A PR your helper opened comes to you once it's done: you're its primary session (`codealong pr
+  show <pr>`), so where its nudge is on you're told of reviews and failing checks on it, and it
+  waits on your user to merge it once it's ready. To work on it again, send to the helper or
+  start another.
 - Your harness's own subagents (Claude Code's Agent tool) are lighter for work inside your
   session; a helper is for work on another account or harness, or that should be a session of
   its own. It still spends your user's usage: start one when their task or instructions call

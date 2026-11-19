@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { barWidth, currentRow, elsewhereWaits, fitGroups, NOTCH, notchClip, notchCount, notchDragged, notchOrder, notchPillsRoom, notchRows, notchSizes, plain, projectWaits, ROW_READS, waitingRow, waitingRows, type Metrics, type NotchRow } from './bar';
+import { barWidth, currentRow, elsewhereWaits, fitGroups, NOTCH, notchClip, notchCount, notchDragged, notchOrder, notchPillsRoom, notchRows, notchSizes, plain, projectWaits, reviewsWord, ROW_READS, waitingRow, waitingRows, type Metrics, type NotchRow } from './bar';
 import { inQueueOrder, leftAfter, placeOf, queueKinds, stepTo } from './queue';
 import { ALL_PROJECTS, QUEUE_READS, queueRows } from './quick';
 import * as fx from './testing/fixtures';
@@ -421,5 +421,13 @@ describe('what the notch works through', () => {
     const running = notchRows([item('w1', 'working', 5), item('w2', 'working', 6)], []);
     expect(waitingRow(running, 'w2')).toBeNull();
     expect(waitingRow(running, null)).toBeNull();
+  });
+});
+
+describe('reviewsWord', () => {
+  it('says what the PRs on the reviews pill wait on you for', () => {
+    expect(reviewsWord([{}, {}])).toBe('2 to review');
+    expect(reviewsWord([{ merge: true }])).toBe('1 to merge');
+    expect(reviewsWord([{}, { merge: true }, {}])).toBe('3 PRs');
   });
 });

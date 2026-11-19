@@ -44,7 +44,7 @@
           n += 1;
           return asked;
         }
-        return Object.assign({}, x, { reviewRequested: false });
+        return Object.assign({}, x, { reviewRequested: false, waitsToMerge: false });
       });
       return board;
     });

@@ -148,7 +148,7 @@ pub struct MergeBox {
 }
 
 /// Write access or more, as `viewerPermission` says it.
-fn writes(permission: Option<&str>) -> bool {
+pub fn writes(permission: Option<&str>) -> bool {
     matches!(permission, Some("WRITE" | "MAINTAIN" | "ADMIN"))
 }
 

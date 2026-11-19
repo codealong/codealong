@@ -38,7 +38,7 @@ import { useLatest } from '../latest';
 import * as menus from '../menus';
 import { wentWords } from '../queue';
 import { errorText, type Report } from '../report';
-import type { Board, Lane, ReviewsCfg, Session, TeamFile, Usage } from '../types';
+import type { Board, Lane, ReviewsCfg, Session, TeamFile, Usage, Verdict } from '../types';
 import { cardZoom } from '../zoom';
 import { reloadKey, zoomKey } from './cardHost';
 import { PrBoxView, usePrBox } from './PrBox';
@@ -108,9 +108,14 @@ export function PrCard({ item, now, lanes, usage, reviews, can, outgoing = false
   const { report } = can;
   // Where the window goes once the PR has left: back to the session it was shown from, else on.
   const leave: ((done: menus.Left) => void) | undefined = from ? (done) => from.onBack(wentWords(`#${pr.number}`, `${done}.`)) : can.left;
-  const after = from ? 'back' : leave ? 'on' : undefined;
+  // A review settles a review asked of you; a comment on a PR of yours that waits on you to merge
+  // it leaves the merge waiting, and the card with it, its box taking more (one with `onSent` takes
+  // one send, as the card goes once it's sent).
+  const settles = pr.reviewRequested || !pr.waitsToMerge;
+  const after = !settles ? undefined : from ? 'back' : leave ? 'on' : undefined;
   const back: PanelBackTo | undefined = from && { label: middleTruncate(from.title, 40), onBack: () => from.onBack() };
-  const box = usePrBox(pr, { report, usage, now, autoFocus, onSent: (verdict) => leave?.(LEFT[verdict]), onFailed: can.failed });
+  const onSent = settles && leave ? (verdict: Verdict) => leave(LEFT[verdict]) : undefined;
+  const box = usePrBox(pr, { report, usage, now, autoFocus, onSent, onFailed: can.failed });
   const tabs = usePrTab(pr);
   const onDesktop = menus.useDesktopPins();
   // The merge box's dialog covers the card, as a session's card has its dialogs.

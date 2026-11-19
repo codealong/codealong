@@ -291,6 +291,13 @@ export function reviewTitle(r: Pick<BarReview, 'number' | 'title'>): string {
   return `#${r.number} ${r.title}`;
 }
 
+/** What the floating bar's reviews pill says: how many PRs wait on your review, or on you to
+ *  merge them (`BarReview.merge`), or of both. */
+export function reviewsWord(prs: readonly Pick<BarReview, 'merge'>[]): string {
+  const merges = prs.filter((p) => p.merge).length;
+  return merges === 0 ? `${prs.length} to review` : merges === prs.length ? `${merges} to merge` : `${prs.length} PRs`;
+}
+
 /** Everything the notch can show: what waits on you in the order the queue goes to it (queue.ts
  *  `byPlace`: the ones moved to the top, then by kind in your order, `order`: by default the
  *  sessions that need you, the PRs waiting on your review, the todos due, the turns that ended,

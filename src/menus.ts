@@ -295,11 +295,14 @@ export interface MergeDoneAsk {
   then: (merging: Promise<MergeDone>, merged: string, commit: MergeForm) => void;
 }
 
-/** The PR that Merge and done… merges for `s`: one it's the primary session of (board.rs
+/** The PR that Merge and done… merges for `s`: the first it's the primary session of (board.rs
  *  `pr_primary`, the one told of what happens on it) that GitHub says is ready to merge. None for
- *  an archived session, which is done with already. */
+ *  an archived session, which is done with already, nor for one that took a PR over from a helper
+ *  it started (`takenOver`), picked since or not: its own work isn't the PR's, so merging that PR
+ *  doesn't make it done, and the PR waits on you by itself (`waitsToMerge`). The engine goes by the
+ *  same (board.rs `merge_waits`). */
 export function mergesWith(prs: readonly PrItem[], s: Pick<Session, 'key' | 'archived'>): PrItem | undefined {
-  return s.archived ? undefined : prs.find((p) => p.primary === s.key && prReady(p));
+  return s.archived ? undefined : prs.find((p) => p.primary === s.key && !p.takenOver && prReady(p));
 }
 
 /** A session's actions by name, each once: the menu lays them out (`sessionMenu`), a header
@@ -1151,9 +1154,10 @@ export interface PrsActions {
   takes: Record<'approve' | 'snooze', number>;
 }
 
-/** Whether you're asked to review it and it's still open: what Snooze review takes. */
+/** Whether you're asked to review it, or it waits on you to merge it, and it's still open: what
+ *  Snooze takes. */
 function asksYourReview(p: PrItem): boolean {
-  return p.reviewRequested && p.state !== 'merged' && p.state !== 'closed';
+  return (p.reviewRequested || !!p.waitsToMerge) && p.state !== 'merged' && p.state !== 'closed';
 }
 
 export function prsActions(prs: PrItem[], can: PrsCan): PrsActions {
@@ -1521,7 +1525,8 @@ export interface PrCan {
   reveal?: () => void;
   /** Approves it, where you may: it's open and it isn't yours (prStatus.ts `mayApprove`). */
   approve?: () => void;
-  /** Snooze review (snooze.ts `reviewSnoozeMenu`), when it waits on your review. */
+  /** Snooze review (snooze.ts `reviewSnoozeMenu`), when it waits on your review, or Snooze, when
+   *  it waits on you to merge it. */
   snooze?: MenuGroup;
   /** Shows the worktree it's checked out in. */
   showLane?: { lane: Lane; run: () => void };

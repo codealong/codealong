@@ -66,6 +66,9 @@ pub struct Listed {
     listening: Vec<Row>,
     needs: Vec<Row>,
     reviews: Vec<Row>,
+    /// PRs of yours that wait on you to merge them (`BarReview::merge`), which the feed lists
+    /// with the reviews.
+    merges: Vec<Row>,
     unread: Vec<Row>,
     working: Vec<Row>,
     /// Voice is turned on, so the menu has Listen now.
@@ -118,6 +121,7 @@ pub fn listed(feed: &BarFeed) -> Listed {
             .map(|i| Row { key: i.key.clone(), label: label(&i.title, &i.project, i.device.as_ref().map(|d| d.name.as_str()), i.status == Status::Error) })
             .collect()
     };
+    let pr_rows = |merge: bool| feed.reviews.iter().filter(|r| r.merge == merge).map(|r| Row { key: r.key.clone(), label: label(&format!("#{} {}", r.number, r.title), &r.repo, None, false) }).collect();
     Listed {
         listening: feed
             .listenings
@@ -128,7 +132,8 @@ pub fn listed(feed: &BarFeed) -> Listed {
             })
             .collect(),
         needs: rows(Group::Needs),
-        reviews: feed.reviews.iter().map(|r| Row { key: r.key.clone(), label: label(&format!("#{} {}", r.number, r.title), &r.repo, None, false) }).collect(),
+        reviews: pr_rows(false),
+        merges: pr_rows(true),
         unread: rows(Group::Unread),
         working: rows(Group::Working),
         voice: feed.voice,
@@ -162,7 +167,7 @@ fn note(label: impl Into<String>) -> Line {
 /// server and quitting. `hosted` is how many sessions the server runs.
 pub fn lines(listed: &Listed, hosted: usize, server: Server) -> Vec<Line> {
     let mut out = Vec::new();
-    let groups = [("Listening", &listed.listening), ("Needs you", &listed.needs), ("Review requested", &listed.reviews), ("Your turn", &listed.unread), ("Working", &listed.working)];
+    let groups = [("Listening", &listed.listening), ("Needs you", &listed.needs), ("Review requested", &listed.reviews), ("Ready to merge", &listed.merges), ("Your turn", &listed.unread), ("Working", &listed.working)];
     for (heading, rows) in groups.into_iter().filter(|(_, rows)| !rows.is_empty()) {
         if !out.is_empty() {
             out.push(Line::Separator);
@@ -176,7 +181,7 @@ pub fn lines(listed: &Listed, hosted: usize, server: Server) -> Vec<Line> {
     if out.is_empty() {
         out.push(note("Nothing waits on you or is working"));
     }
-    let waits = !(listed.needs.is_empty() && listed.reviews.is_empty() && listed.unread.is_empty());
+    let waits = !(listed.needs.is_empty() && listed.reviews.is_empty() && listed.merges.is_empty() && listed.unread.is_empty());
     out.push(Line::Separator);
     out.push(item(MAIN, "Open Codealong"));
     out.push(Line::Item { id: waits.then(|| WAITING.to_string()), label: "Waiting on you…".into() });
@@ -208,6 +213,7 @@ pub fn face(listed: &Listed, connected: bool, name: &str) -> Face {
         (listed.listening.len(), "listening"),
         (needs, "need you"),
         (listed.reviews.len(), if listed.reviews.len() == 1 { "PR to review" } else { "PRs to review" }),
+        (listed.merges.len(), if listed.merges.len() == 1 { "PR to merge" } else { "PRs to merge" }),
         (listed.unread.len(), "done"),
         (listed.working.len(), "working"),
     ];
@@ -460,6 +466,7 @@ mod tests {
             listening: vec![row("claude:l", "Renewal call"), row("", "Standup (its session is starting)")],
             needs: vec![row("claude:a", "Answer me · northwind")],
             reviews: vec![row("pr:atlas/web#12", "#12 Tidy the header · web")],
+            merges: vec![row("pr:atlas/web#9", "#9 Pin the font · web")],
             unread: vec![],
             working: (0..7).map(|n| row(&format!("codex:{n}"), &format!("Working {n} · kestrel"))).collect(),
             voice: true,
@@ -477,6 +484,9 @@ mod tests {
                 "--",
                 "Review requested",
                 "#12 Tidy the header · web [show:pr:atlas/web#12]",
+                "--",
+                "Ready to merge",
+                "#9 Pin the font · web [show:pr:atlas/web#9]",
                 "--",
                 "Working",
                 "Working 0 · kestrel [show:codex:0]",
@@ -524,6 +534,7 @@ mod tests {
             listening: vec![],
             needs: vec![row("a", "A"), row("b", "B")],
             reviews: vec![row("pr", "#1 P")],
+            merges: vec![row("pr2", "#2 Q")],
             unread: vec![row("c", "C")],
             working: vec![],
             voice: false,
@@ -531,7 +542,7 @@ mod tests {
         // A session that's hearing is said first, and isn't something that waits on you.
         let hearing = Listed { listening: vec![row("l", "L")], ..Listed::default() };
         assert_eq!(face(&hearing, true, "Codealong"), Face { title: None, tooltip: "Codealong: 1 listening".into(), dimmed: false });
-        assert_eq!(face(&listed, true, "Codealong"), Face { title: Some("2".into()), tooltip: "Codealong: 2 need you, 1 PR to review, 1 done".into(), dimmed: false });
+        assert_eq!(face(&listed, true, "Codealong"), Face { title: Some("2".into()), tooltip: "Codealong: 2 need you, 1 PR to review, 1 PR to merge, 1 done".into(), dimmed: false });
         assert_eq!(face(&Listed::default(), true, "Codealong Dev"), Face { title: None, tooltip: "Codealong Dev: nothing waits on you".into(), dimmed: false });
         assert_eq!(face(&listed, false, "Codealong"), Face { title: Some("2".into()), tooltip: "Codealong: starting its server".into(), dimmed: true });
     }

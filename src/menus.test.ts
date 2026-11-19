@@ -699,6 +699,12 @@ describe('PRs picked together', () => {
     expect(keyed(acts, 'p')?.action).toBe(can.pin);
   });
 
+  it('snoozes a merge of yours that waits on you with the reviews', () => {
+    const waits = pr({ key: 'acme/api#11', number: 11, url: 'https://github.com/acme/api/pull/11', head: 'ready', reviewRequested: false, mine: true, waitsToMerge: true });
+    expect(labels(prsMenu([asked, waits, mine], { report }))).toContain('Snooze 2 PRs ›');
+    expect(prsActions([asked, waits, mine], { report }).takes).toMatchObject({ snooze: 2 });
+  });
+
   it('offers no approval where the window can’t give one, nor where none can be given', () => {
     expect(prsActions([asked, other], { report }).approve).toBeUndefined();
     expect(labels(prsMenu([mine, merged], { report, approve: noop }))).toEqual(['Open 2 PRs on GitHub', '-', 'Copy links', 'Copy branch names']);
@@ -726,6 +732,11 @@ describe('Merge and done', () => {
     expect(mergesWith([ready({ state: 'merged' })], s)).toBeUndefined();
     // An archived session is done with already.
     expect(mergesWith([ready()], { ...s, archived: true })).toBeUndefined();
+    // One that took the PR over from a helper it started has work of its own, picked since or
+    // not: the PR waits apart.
+    expect(mergesWith([ready({ primaryBy: 'helper', takenOver: true })], s)).toBeUndefined();
+    expect(mergesWith([ready({ primaryBy: 'picked', takenOver: true })], s)).toBeUndefined();
+    expect(mergesWith([ready({ primaryBy: 'picked' })], s)?.key).toBe('acme/api#7');
     // The one that's ready, of several it's the primary of.
     expect(mergesWith([ready({ key: 'acme/api#6', number: 6, merge: 'behind' }), ready()], s)?.number).toBe(7);
   });

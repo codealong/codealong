@@ -21,6 +21,12 @@ pub struct PrRaw {
     pub state: PrState,
     pub head_ref: String,
     pub head_owner: Option<String>,
+    /// You may write to the PR's repo, and so merge it, as its `viewerPermission` says (write
+    /// or more): false for one you can only read, a fork's PR into a project you don't keep,
+    /// say. None where GitHub didn't say (an answer kept from before it was asked).
+    pub writes: Option<bool>,
+    /// GitHub merges it by itself: it's in the merge queue, or auto-merge is on.
+    pub merging: bool,
     /// The commit the PR's branch pointed at, to tell a merged PR from a reused branch.
     pub head_oid: Option<String>,
     pub updated_at: i64,
@@ -268,6 +274,8 @@ fragment pr on PullRequest {
   additions deletions changedFiles
   author { login }
   headRepositoryOwner { login }
+  baseRepository { viewerPermission }
+  isInMergeQueue autoMergeRequest { enabledAt }
   labels(first: 100, orderBy: {field: NAME, direction: ASC}) { nodes { name color description } }
   viewerLatestReview { state submittedAt commit { oid } }
   commits(last: 1) { nodes { commit { message committedDate statusCheckRollup { contexts(first: 100) { nodes {
@@ -857,6 +865,8 @@ fn parse_pr(n: &Value) -> Option<PrRaw> {
         state,
         head_ref: s("headRefName")?.to_string(),
         head_owner: n.pointer("/headRepositoryOwner/login").and_then(Value::as_str).map(String::from),
+        writes: n.pointer("/baseRepository/viewerPermission").and_then(Value::as_str).map(|p| crate::prmerge::writes(Some(p))),
+        merging: n.get("isInMergeQueue").and_then(Value::as_bool).unwrap_or(false) || n.get("autoMergeRequest").is_some_and(|a| !a.is_null()),
         head_oid: s("headRefOid").map(String::from),
         updated_at: ts("updatedAt").unwrap_or(0),
         merged_at: ts("mergedAt"),
@@ -1395,7 +1405,7 @@ impl<T> Reading<'_, T> {
                 (Some(have), None) if now - have.at < RESYNC_MS => return None,
                 _ => {}
             }
-            if let (Some(mark), Some(kept)) = (mark, saved(dir, key)) {
+            if let (Some(mark), Some(kept)) = (mark, saved(dir, key).filter(Saved::current)) {
                 if let Ok(answer) = (self.parse)(&kept.answer) {
                     if stands(&kept.stamp, mark, ask.busy.contains(key) || (self.busy)(&answer), ask.thrifty, now) {
                         confirm(dir, key);
@@ -1439,7 +1449,7 @@ pub fn read_once(slugs: &[String], made: &[String]) -> Vec<Answer> {
 }
 
 fn fresh(dir: &Path, slugs: &[String], made: &[String], now: SystemTime) -> Option<Vec<Answer>> {
-    let lately = |key: &str| saved(dir, key).filter(|kept| now.duration_since(kept.stood).is_ok_and(|d| d < FRESH)).and_then(|kept| kept_answer(key, kept));
+    let lately = |key: &str| saved(dir, key).filter(|kept| kept.current() && now.duration_since(kept.stood).is_ok_and(|d| d < FRESH)).and_then(|kept| kept_answer(key, kept));
     let mut answers = vec![lately(REQUESTED)?];
     for slug in slugs {
         answers.push(lately(slug)?);
@@ -1472,6 +1482,16 @@ struct Saved {
     stamp: Stamp,
     answer: String,
     stood: SystemTime,
+    /// What it was read with (`kept_as`); none for one kept before that was said.
+    fields: Option<String>,
+}
+
+impl Saved {
+    /// Read with the fields asked now: one read with others is read again rather than kept
+    /// without the new ones, though it's still shown while GitHub can't be asked (`poll_in`).
+    fn current(&self) -> bool {
+        self.fields.as_deref() == Some(kept_as().as_str())
+    }
 }
 
 /// A cache: macOS may clear it, and a copy of the app with a home of its own has its own.
@@ -1489,12 +1509,25 @@ fn saved(dir: &Path, key: &str) -> Option<Saved> {
     let stood = std::fs::metadata(&path).ok()?.modified().ok()?;
     let v: Value = serde_json::from_str(&std::fs::read_to_string(&path).ok()?).ok()?;
     let stamp = Stamp { glance: v.get("glance")?.as_str()?.to_string(), at: v.get("at")?.as_i64()? };
-    Some(Saved { stamp, answer: v.get("answer")?.as_str()?.to_string(), stood })
+    let fields = v.get("fields").and_then(Value::as_str).map(String::from);
+    Some(Saved { stamp, answer: v.get("answer")?.as_str()?.to_string(), stood, fields })
+}
+
+/// What the kept answers were read with: a fingerprint of the fields asked of each PR (FNV-1a,
+/// which is the same from one build to the next). A field added to them (whether you may merge a
+/// PR, 2026-11-19) has every repo read in full once more, as a cache macOS cleared would, rather
+/// than kept without it until the repo next changes.
+fn kept_as() -> String {
+    let mut h: u64 = 0xcbf2_9ce4_8422_2325;
+    for b in PR_FIELDS.bytes().chain(ASKED_FIELDS.bytes()) {
+        h = (h ^ u64::from(b)).wrapping_mul(0x0100_0000_01b3);
+    }
+    format!("{h:016x}")
 }
 
 /// Keeps an answer, in one step, readable only by you: it has private repos' PRs.
 fn save(dir: &Path, key: &str, stamp: &Stamp, answer: &str) {
-    let text = serde_json::json!({ "glance": stamp.glance, "at": stamp.at, "answer": answer }).to_string();
+    let text = serde_json::json!({ "glance": stamp.glance, "at": stamp.at, "fields": kept_as(), "answer": answer }).to_string();
     let _ = crate::store::write_private(&saved_path(dir, key), text);
 }
 
@@ -2579,7 +2612,7 @@ mod tests {
 
     /// A repo's PRs as GitHub answers: an open one whose checks are running, and a merged one.
     const PRS: &str = r#"{"data":{"viewer":{"login":"gwen"},"requested":{"nodes":[{"number":1037}]},"repository":{
-          "open":{"nodes":[{"number":1037,"title":"Let the agent add and caption project photos","url":"https://github.com/sprucehq/spark/pull/1037","state":"OPEN","isDraft":false,"reviewDecision":"APPROVED","mergeStateStatus":"UNSTABLE","updatedAt":"2026-09-23T20:00:00Z","mergedAt":null,"closedAt":null,"headRefName":"portal","headRefOid":"0ef4ed2","headRepositoryOwner":{"login":"gwen"},
+          "open":{"nodes":[{"number":1037,"title":"Let the agent add and caption project photos","url":"https://github.com/sprucehq/spark/pull/1037","state":"OPEN","isDraft":false,"reviewDecision":"APPROVED","mergeStateStatus":"UNSTABLE","updatedAt":"2026-09-23T20:00:00Z","mergedAt":null,"closedAt":null,"headRefName":"portal","headRefOid":"0ef4ed2","headRepositoryOwner":{"login":"gwen"},"baseRepository":{"viewerPermission":"WRITE"},"isInMergeQueue":false,"autoMergeRequest":{"enabledAt":"2026-09-23T19:00:00Z"},
              "labels":{"nodes":[{"name":"needs-copy","color":"fbca0g","description":""},{"name":"photos","color":"0E8A16","description":"Project photos"},{"name":" ","color":"ffffff","description":null}]},
              "commits":{"nodes":[{"commit":{"statusCheckRollup":{"contexts":{"nodes":[
                {"__typename":"CheckRun","name":"server:test","status":"COMPLETED","conclusion":"SUCCESS"},
@@ -2954,6 +2987,8 @@ mod tests {
         assert_eq!(prs.len(), 2);
         assert_eq!(prs[0].state, PrState::Approved);
         assert_eq!(prs[0].head_owner.as_deref(), Some("gwen"));
+        assert_eq!((prs[0].writes, prs[1].writes), (Some(true), None), "you may write to it, where GitHub says");
+        assert_eq!((prs[0].merging, prs[1].merging), (true, false), "GitHub merges the first itself: auto-merge is on");
         assert_eq!(prs[0].head_oid.as_deref(), Some("0ef4ed2"));
         assert_eq!((prs[0].checks.passed, prs[0].checks.failed, prs[0].checks.pending, prs[0].checks.skipped), (2, 1, 1, 1));
         assert_eq!(prs[0].checks.failing, vec!["docker-smoke".to_string()]);
@@ -3149,7 +3184,7 @@ mod tests {
     /// open, and one in a repo renamed since, as `fetch_made_text` puts them together.
     const MADE_PRS: &str = r#"{"asked":["upstream/orm#8580","gone/repo#1","lists/awesome#3","lists/awesome#12","lists/old-name#7"],"data":{"viewer":{"login":"me"},
       "m4":{"pullRequest":{"number":7,"title":"List kestrel","url":"https://github.com/lists/new-name/pull/7","state":"CLOSED","isDraft":false,"reviewDecision":null,"updatedAt":"2026-10-01T10:00:00Z","headRefName":"add-kestrel","commits":{"nodes":[]}}},
-      "m0":{"pullRequest":{"number":8580,"title":"Skip a quadratic scan","url":"https://github.com/Upstream/orm/pull/8580","state":"MERGED","isDraft":false,"reviewDecision":"APPROVED","mergeStateStatus":"CLEAN","updatedAt":"2026-11-03T10:00:00Z","createdAt":"2026-11-02T10:00:00Z","mergedAt":"2026-11-03T10:00:00Z","closedAt":"2026-11-03T10:00:00Z","headRefName":"skip-scan","baseRefName":"master","author":{"login":"me"},"headRepositoryOwner":{"login":"me"},"commits":{"nodes":[]}}},
+      "m0":{"pullRequest":{"number":8580,"title":"Skip a quadratic scan","url":"https://github.com/Upstream/orm/pull/8580","state":"MERGED","isDraft":false,"reviewDecision":"APPROVED","mergeStateStatus":"CLEAN","updatedAt":"2026-11-03T10:00:00Z","createdAt":"2026-11-02T10:00:00Z","mergedAt":"2026-11-03T10:00:00Z","closedAt":"2026-11-03T10:00:00Z","headRefName":"skip-scan","baseRefName":"master","author":{"login":"me"},"headRepositoryOwner":{"login":"me"},"baseRepository":{"viewerPermission":"READ"},"commits":{"nodes":[]}}},
       "m1":null,
       "m2":{"pullRequest":null},
       "m3":{"pullRequest":{"number":12,"title":"List northwind","url":"https://github.com/lists/awesome/pull/12","state":"OPEN","isDraft":false,"reviewDecision":null,"mergeStateStatus":"BLOCKED","updatedAt":"2026-11-01T10:00:00Z","headRefName":"add-northwind","author":{"login":"me"},"commits":{"nodes":[]},
@@ -3169,6 +3204,7 @@ mod tests {
         // doesn't show aren't there.
         assert_eq!(got, vec![("lists/awesome", 12, PrState::Open, Merge::Blocked), ("lists/old-name", 7, PrState::Closed, Merge::Unknown), ("Upstream/orm", 8580, PrState::Merged, Merge::Unknown)]);
         assert_eq!(made.prs[0].1.reviewers_asked, ["ana"], "an open one's reviews are read as a repo's are");
+        assert_eq!(made.prs[2].1.writes, Some(false), "an upstream repo you may only read, which you can't merge into");
         assert_eq!(made.login.as_deref(), Some("me"));
         assert_eq!(made.asked.len(), 5, "what was asked for, which a snapshot takes it for");
         assert_ne!(made_mark(&made.asked, "me"), made_mark(&made.asked, "ana"), "another sign-in sees other requests");

@@ -45,7 +45,7 @@
         });
       });
       // Nothing else waits: the one session is the whole queue.
-      (board.prs || []).forEach(function (pr) { pr.reviewRequested = false; });
+      (board.prs || []).forEach(function (pr) { pr.reviewRequested = false; pr.waitsToMerge = false; });
       return board;
     });
   };

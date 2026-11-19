@@ -34,7 +34,7 @@
       var open = (board.prs || []).filter(function (x) { return x.state !== 'merged' && x.state !== 'closed'; });
       var ready = (pr && open.filter(function (x) { return x.key === pr.key; })[0]) || open[0];
       board.prs = (board.prs || []).map(function (x) {
-        var y = Object.assign({}, x, { reviewRequested: false });
+        var y = Object.assign({}, x, { reviewRequested: false, waitsToMerge: false });
         if (y.primary === picked) y.primary = undefined;
         if (!ready || y.key !== ready.key || !picked) return y;
         Object.assign(y, {

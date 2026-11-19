@@ -628,7 +628,14 @@ pub fn words(pr: &PrItem, why: &Why, detail: Option<&PrDetail>, login: Option<&s
     // A comment's further lines go under its happening, so a list in a comment doesn't read as
     // more happenings (`glance`).
     let list: Vec<String> = items.iter().map(|i| crate::glance::item(i)).collect();
-    Some(format!("On {whose} #{} “{}” ({}):\n{}\n{}{next}", pr.number, pr.title.trim(), pr.url, list.join("\n"), standing))
+    // The PR's primary did none of its work (board.rs `pr_item`): a helper it started made it,
+    // say. It may not know the PR by its number.
+    let came = if pr.taken_over {
+        format!("Another session did this PR's work (a helper you started, say), and its news comes to you as the PR's primary session (`codealong pr show {}` names who did it). ", pr.key)
+    } else {
+        String::new()
+    };
+    Some(format!("On {whose} #{} “{}” ({}):\n{}\n{came}{}{next}", pr.number, pr.title.trim(), pr.url, list.join("\n"), standing))
 }
 
 /// What a PR's news (`words`) comes to on its card in the conversation (glance.rs): the PR, and
@@ -844,6 +851,8 @@ mod tests {
             nudge_by_default: false,
             watched: false,
             review_first: false,
+            waits_to_merge: false,
+            taken_over: false,
             primary: sessions.first().map(|k| k.to_string()),
             primary_by: None,
             head: "photos".into(),
@@ -1361,6 +1370,12 @@ mod tests {
         assert_eq!(words(&p, &Why { since: Some(UPDATED + 30), ..Why::default() }, Some(&d), Some("me"), NudgeAbout::Everything), None);
         // The detail couldn't be read: what the board knows is said.
         assert!(words(&p, &why, None, Some("me"), NudgeAbout::Everything).unwrap().contains("- Changes were asked for.\n"));
+        // Told to the session that started the helper that made it: it says so, and the card
+        // reads the same.
+        let taken = PrItem { primary: Some("lead".into()), taken_over: true, ..p.clone() };
+        let text = words(&taken, &why, Some(&d), Some("me"), NudgeAbout::Everything).unwrap();
+        assert!(text.ends_with("\nAnother session did this PR's work (a helper you started, say), and its news comes to you as the PR's primary session (`codealong pr show o/r#1` names who did it). Take it from there, unless you were told to leave it to someone else. This message doesn't ask you to merge it: merge it only if you were asked to."), "{text}");
+        assert_eq!(glance(&text).unwrap().words(), "ana asked for changes · ana commented on src/a.ts");
     }
 
     #[test]

@@ -3575,11 +3575,11 @@ Commands:
           under way. The answer names the round's session: `codealong session wait
           <key>` waits for its turn, and `codealong pr show <pr>` says where the review
           stands
-  snooze  Snooze your review of a PR that asks for it, as Snooze review in its menu in
-          Codealong does: it leaves Review requested, the floating bar's reviews and the
-          mark until WHEN, waiting under Snoozed, and is back then if it still asks for
-          your review. --wake ends it now. WHEN as `session snooze` takes it: 30m, 5pm,
-          tomorrow, fri 17:00
+  snooze  Snooze your review of a PR that asks for it, or a PR of yours that waits on
+          you to merge it, as Snooze in its menu in Codealong does: it leaves Review
+          requested (or Ready to merge), the floating bar's reviews and the mark until
+          WHEN, waiting under Snoozed, and is back then if it still waits on you. --wake
+          ends it now. WHEN as `session snooze` takes it: 30m, 5pm, tomorrow, fri 17:00
   help    Print this message or the help of the given subcommand(s)
 
 Options:
@@ -3832,10 +3832,11 @@ Options:
 ## codealong pr snooze
 
 ```
-Snooze your review of a PR that asks for it, as Snooze review in its menu in Codealong
-does: it leaves Review requested, the floating bar's reviews and the mark until WHEN,
-waiting under Snoozed, and is back then if it still asks for your review. --wake ends it
-now. WHEN as `session snooze` takes it: 30m, 5pm, tomorrow, fri 17:00
+Snooze your review of a PR that asks for it, or a PR of yours that waits on you to merge
+it, as Snooze in its menu in Codealong does: it leaves Review requested (or Ready to
+merge), the floating bar's reviews and the mark until WHEN, waiting under Snoozed, and
+is back then if it still waits on you. --wake ends it now. WHEN as `session snooze`
+takes it: 30m, 5pm, tomorrow, fri 17:00
 
 Usage: codealong pr snooze [OPTIONS] <PR> [WHEN]...
 

@@ -48,7 +48,7 @@ import { PrReviewers } from './PrReviewers';
 import { prActions, PrStrip } from './PrStrip';
 import { BranchLabel, Button, cx, headerMenu, Icon, Tabs, type PanelBackTo } from './primitives';
 import { ProjectPrefix } from './ProjectSaid';
-import { PrGlyph, prIsOpen, reviewSnoozed, syncWords, type PrPlace, type PrRowItem } from './PrsView';
+import { PrGlyph, prIsOpen, reviewSnoozed, snoozedFrom, syncWords, type PrPlace, type PrRowItem } from './PrsView';
 import type { Queue } from './SessionPanel';
 import { Tip } from './Tip';
 import { untilWords } from '../snooze';
@@ -403,9 +403,9 @@ export function PrDetails({ item, now, onMenu, onShowSession, onOpenSession, onS
         </div>
         <div className="ca-prinsp-status">
           {reviewSnoozed(pr) ? (
-            <span className="ca-tag" title="Out of Review requested and off the floating bar until then">
+            <span className="ca-tag" title={`Out of ${snoozedFrom(pr)} and off the floating bar until then`}>
               <Icon name="zzz" size={12} />
-              Review snoozed until {untilWords(pr.snoozedUntil, now)}
+              {pr.reviewRequested ? 'Review snoozed' : 'Snoozed'} until {untilWords(pr.snoozedUntil, now)}
             </span>
           ) : (
             requested && <span className="ca-tag is-attn">Your review requested</span>

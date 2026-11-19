@@ -698,7 +698,7 @@ function KeepAwakeField({ terminal, name, keepsTerminals }: { terminal: string; 
 /** Each kind of what waits on you (queue.ts `WAITS`), as Settings › Queue says it. */
 const QUEUE_KIND_WORDS: Record<Waits, { label: string; says: string }> = {
   needs: { label: 'Sessions that need you', says: 'A question, a call to allow, or an error. Always in the queue.' },
-  reviews: { label: 'Pull requests waiting on your review', says: 'Open ones that ask for your review on GitHub, but those you snoozed and those Codealong’s agent is still reviewing.' },
+  reviews: { label: 'Pull requests waiting on you', says: 'Open ones that ask for your review on GitHub, but those you snoozed and those Codealong’s agent is still reviewing; and yours that GitHub would merge now, while no session of theirs is at work or waits on you with Merge and done.' },
   due: { label: 'Todos that are due', says: 'Open todos from the day below, and overdue ones until they’re done or snoozed. While a session works on one, the session waits in its place.' },
   unread: { label: 'Sessions whose turn ended', says: 'Their replies are yours to read. Always in the queue.' },
   ready: { label: 'Todos ready to start', says: 'Not started and waiting on nothing, in your todo list’s order. They come last, once nothing else waits, and the notch doesn’t count them.' },

@@ -18,7 +18,7 @@
       });
       var done = false;
       board.prs = (board.prs || []).map(function (x) {
-        if (done) return Object.assign({}, x, { reviewRequested: false });
+        if (done) return Object.assign({}, x, { reviewRequested: false, waitsToMerge: false });
         done = true;
         return Object.assign({}, x, { state: x.state === 'merged' || x.state === 'closed' ? 'open' : x.state, reviewRequested: true, requestedBy: 'ana', requestedAt: Date.now() - 3600e3, snoozedUntil: null, mergedAt: null, closedAt: null, autoReview: null });
       });

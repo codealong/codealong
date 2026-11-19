@@ -35,7 +35,7 @@
         { reviewRequested: true, state: 'open', merge: 'blocked', lastReview: { state: 'commented', commit: REWRITTEN, at: Date.now() - 7200e3 }, autoReview: undefined },
       ];
       board.prs = (board.prs || []).map(function (x, i) {
-        if (i >= shape.length) return Object.assign({}, x, { reviewRequested: false, lastReview: undefined });
+        if (i >= shape.length) return Object.assign({}, x, { reviewRequested: false, waitsToMerge: false, lastReview: undefined });
         var pr = Object.assign({}, x, {
           mine: false, author: 'ana', requestedAt: Date.now() - 3600e3, snoozedUntil: null, mergedAt: null, closedAt: null, updatedAt: Date.now() - i * 1000,
           headOid: HEAD, checks: { passed: 3, failed: 0, pending: 0, skipped: 0, failing: [] }, reviewersAsked: [],

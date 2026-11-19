@@ -258,6 +258,15 @@ describe('boardAhead', () => {
     expect(boardAhead(board, [change({ kind: 'review-snooze', keys: [other.key], until: NOW + 1 })])).toBe(board);
   });
 
+  it('snoozes a merge of yours that waits on you as it does a review, and the mark counts it till then', () => {
+    const ready = fx.prItem({ number: 3, mine: true, state: 'approved', merge: 'clean', waitsToMerge: true });
+    const board = fx.board({ lanes: [lane([session('a', 'idle')])], prs: [ready], logoStatus: 'needs' });
+    expect(logoOf(board.lanes, board.prs)).toBe('needs');
+    const out = boardAhead(board, [change({ kind: 'review-snooze', keys: [ready.key], until: NOW + 900_000 })]);
+    expect(out.prs[0].snoozedUntil).toBe(NOW + 900_000);
+    expect(out.logoStatus).toBe('idle');
+  });
+
   it('leaves reviews out of the mark while the queue does', () => {
     const asked = fx.prItem({ number: 1, reviewRequested: true });
     const also = fx.prItem({ number: 2, reviewRequested: true });
@@ -608,6 +617,11 @@ describe('barAhead', () => {
     const both = barAhead(f, [change({ kind: 'review-snooze', keys: ['o/r#1', 'o/r#2'], until: NOW + 900_000 })]);
     expect(both.reviews).toEqual([]);
     expect(both.logoStatus).toBe('working');
+  });
+
+  it('keeps a merge of yours on the bar that was only commented on', () => {
+    const f = { ...feed([item('w', 'working', NOW)]), reviews: [fx.barReview({ key: 'o/r#1', merge: true })] };
+    expect(barAhead(f, [change({ kind: 'pr-review', key: 'o/r#1', verdict: 'comment', commit: null })]).reviews.map((r) => r.key)).toEqual(['o/r#1']);
   });
 
   it('takes a review given here off the bar', () => {

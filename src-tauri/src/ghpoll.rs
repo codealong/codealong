@@ -1082,6 +1082,8 @@ mod tests {
             state: PrState::Open,
             head_ref: "app4".into(),
             head_owner: None,
+            writes: None,
+            merging: false,
             head_oid: None,
             updated_at: 0,
             merged_at: None,

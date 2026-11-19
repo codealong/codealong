@@ -87,7 +87,7 @@
           else A = { key: s.key, lane: l.id };
         });
       });
-      (board.prs || []).forEach(function (pr) { pr.reviewRequested = false; });
+      (board.prs || []).forEach(function (pr) { pr.reviewRequested = false; pr.waitsToMerge = false; });
       return board;
     });
   };

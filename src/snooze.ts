@@ -220,12 +220,13 @@ export function snoozeMenu(keys: string[], now: number, opts: SnoozeOpts): MenuG
   return timesMenu((until) => snoozeAhead(keys, until), { keys, reviews: false }, now, opts, opts.label ?? (opts.until ? `Snoozed until ${untilWords(opts.until, now)}` : 'Snooze'));
 }
 
-/** Snooze review for several PRs at once, each an open one that asks for your review: the times,
- *  and Wake now where any is snoozed already. */
-export function reviewsSnoozeMenu(prs: Pick<PrItem, 'key' | 'snoozedUntil'>[], now: number, onDone: SnoozeOpts['onDone'], chords = false): MenuGroup {
+/** Snooze review for several PRs at once, each an open one that asks for your review or waits on
+ *  you to merge it: the times, and Wake now where any is snoozed already. */
+export function reviewsSnoozeMenu(prs: Pick<PrItem, 'key' | 'snoozedUntil' | 'reviewRequested'>[], now: number, onDone: SnoozeOpts['onDone'], chords = false): MenuGroup {
   const until = Math.max(0, ...prs.map((p) => p.snoozedUntil ?? 0)) || null;
   const keys = prs.map((p) => p.key);
-  return timesMenu((u) => snoozeReviewsAhead(keys, u), { keys, reviews: true }, now, { until, onDone, chords }, `Snooze ${prs.length} ${prs.length === 1 ? 'review' : 'reviews'}`);
+  const what = prs.every((p) => p.reviewRequested) ? (prs.length === 1 ? 'review' : 'reviews') : prs.length === 1 ? 'PR' : 'PRs';
+  return timesMenu((u) => snoozeReviewsAhead(keys, u), { keys, reviews: true }, now, { until, onDone, chords }, `Snooze ${prs.length} ${what}`);
 }
 
 /** The Snooze submenu for a todo in what waits on you (the notch's todo card): the times, and
@@ -237,10 +238,12 @@ export function todoSnoozeMenu(t: Pick<Todo, 'id' | 'snoozedUntil'>, now: number
   return timesMenu(set, null, now, { until, onDone, chords }, until ? `Snoozed until ${untilWords(until, now)}` : 'Snooze');
 }
 
-/** The Snooze review submenu for an open PR that asks for your review: the times, and Wake now
- *  for one that's snoozed already. None for any other PR. */
-export function reviewSnoozeMenu(pr: Pick<PrItem, 'key' | 'reviewRequested' | 'state' | 'snoozedUntil'>, now: number, onDone: SnoozeOpts['onDone'], chords = false): MenuGroup | undefined {
-  if (!pr.reviewRequested || pr.state === 'merged' || pr.state === 'closed') return undefined;
+/** The Snooze review submenu for an open PR that asks for your review, or Snooze for one of yours
+ *  that waits on you to merge it (`PrItem.waitsToMerge`): the times, and Wake now for one that's
+ *  snoozed already. None for any other PR. */
+export function reviewSnoozeMenu(pr: Pick<PrItem, 'key' | 'reviewRequested' | 'waitsToMerge' | 'state' | 'snoozedUntil'>, now: number, onDone: SnoozeOpts['onDone'], chords = false): MenuGroup | undefined {
+  if (!(pr.reviewRequested || pr.waitsToMerge) || pr.state === 'merged' || pr.state === 'closed') return undefined;
   const until = pr.snoozedUntil;
-  return timesMenu((u) => snoozeReviewsAhead([pr.key], u), { keys: [pr.key], reviews: true }, now, { until, onDone, chords }, until ? `Review snoozed until ${untilWords(until, now)}` : 'Snooze review');
+  const label = pr.reviewRequested ? (until ? `Review snoozed until ${untilWords(until, now)}` : 'Snooze review') : until ? `Snoozed until ${untilWords(until, now)}` : 'Snooze';
+  return timesMenu((u) => snoozeReviewsAhead([pr.key], u), { keys: [pr.key], reviews: true }, now, { until, onDone, chords }, label);
 }

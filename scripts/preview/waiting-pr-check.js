@@ -50,7 +50,7 @@
         });
       });
       board.prs = (board.prs || []).map(function (x) {
-        var none = Object.assign({}, x, { reviewRequested: false });
+        var none = Object.assign({}, x, { reviewRequested: false, waitsToMerge: false });
         return pr && x.key === pr.key ? Object.assign(none, { state: 'open', mine: false, author: 'ana', snoozedUntil: null, mergedAt: null, closedAt: null, title: 'Atlas login' }) : none;
       });
       return board;

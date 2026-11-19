@@ -145,6 +145,8 @@ export interface BarReview {
   approves?: boolean;
   /** It goes ahead of the sessions that need you in the queue (`PrItem.reviewFirst`). */
   first?: boolean;
+  /** It's yours, and waits on you to merge it rather than on your review (`PrItem.waitsToMerge`). */
+  merge?: boolean;
 }
 
 /** A PR the board lists, with the worktrees that hold it and the ones its sessions are listed

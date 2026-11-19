@@ -1,7 +1,8 @@
 //! What the floating bar shows, cut from the board: the sessions that need you, whose turn ended,
 //! or that are running, in bar order, the rest of the sessions started in the last day, the ones
-//! you snoozed, the PRs waiting on your review, the todos due, and the todos ready to start. Each
-//! names its project, and the bar narrows them to the one picked in its project menu.
+//! you snoozed, the PRs waiting on your review or your merge, the todos due, and the todos ready
+//! to start. Each names its project, and the bar narrows them to the one picked in its project
+//! menu.
 //! The bar gets this instead of the board, and only when it changes: the board is about half a
 //! megabyte and is published many times a minute, while this is a few kilobytes and changes far
 //! less often.
@@ -77,8 +78,8 @@ pub struct BarFeed {
     /// Sessions you snoozed, out of Needs you and Your turn until their time comes (running ones
     /// stay in Working), the soonest back first.
     pub snoozed: Vec<BarItem>,
-    /// Open PRs that ask for your review, the longest wait first, as Needs you is: the notch
-    /// and the quick panel work through them in this order.
+    /// Open PRs that ask for your review, and yours that wait on you to merge them, the longest
+    /// wait first, as Needs you is: the notch and the quick panel work through them in this order.
     pub reviews: Vec<BarReview>,
     /// Todos ready to start (not started, and waiting on nothing), in your order, but the ones
     /// in `due` and the ones snoozed.
@@ -212,6 +213,10 @@ pub struct BarReview {
     /// It goes ahead of the sessions that need you in the notch's queue (`PrItem::review_first`).
     #[serde(skip_serializing_if = "std::ops::Not::not")]
     pub first: bool,
+    /// It's yours, and waits on you to merge it rather than on your review
+    /// (`PrItem::waits_on_merge`).
+    #[serde(skip_serializing_if = "std::ops::Not::not")]
+    pub merge: bool,
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
@@ -335,11 +340,13 @@ pub fn feed(shown: Shown) -> BarFeed {
     snoozed.sort_by(|(a_at, a), (b_at, b)| a_at.cmp(b_at).then_with(|| a.key.cmp(&b.key)));
 
     // The ones whose repo puts reviews first lead, as the queue goes to them (src/queue.ts
-    // `byPlace`): the notch's count and the bar's reviews open the first of them.
+    // `byPlace`): the notch's count and the bar's reviews open the first of them. PRs of yours
+    // that wait on you to merge them are among them (`PrItem::waits_on_merge`), never first.
     // None while `[queue]` leaves reviews out.
-    let mut prs: Vec<_> = if board.queue.waits("reviews") { board.prs.iter().filter(|p| p.waits_on_review()).collect() } else { Vec::new() };
+    let mut prs: Vec<_> = if board.queue.waits("reviews") { board.prs.iter().filter(|p| p.waits_on_review() || p.waits_on_merge()).collect() } else { Vec::new() };
     let since = |p: &PrItem| p.requested_at.unwrap_or(p.updated_at);
-    prs.sort_by(|a, b| b.review_first.cmp(&a.review_first).then(since(a).cmp(&since(b))).then_with(|| a.key.cmp(&b.key)));
+    let first = |p: &PrItem| p.review_first && p.waits_on_review();
+    prs.sort_by(|a, b| first(b).cmp(&first(a)).then(since(a).cmp(&since(b))).then_with(|| a.key.cmp(&b.key)));
     let reviews = prs
         .into_iter()
         .map(|p| BarReview {
@@ -354,7 +361,8 @@ pub fn feed(shown: Shown) -> BarFeed {
             since: p.requested_at.unwrap_or(p.updated_at),
             updated_at: p.updated_at,
             approves: p.auto_review.as_ref().and_then(|a| a.approves.as_deref()).is_some_and(|a| p.head_oid.as_deref() == Some(a)),
-            first: p.review_first,
+            first: first(p),
+            merge: !p.waits_on_review(),
         })
         .collect();
 
@@ -882,6 +890,12 @@ mod tests {
         let b = board(vec![], vec![pr(1, true, PrState::Open, 1), pr(2, true, PrState::Merged, 3), pr(3, false, PrState::Open, 4), pr(4, true, PrState::Draft, 2), snoozed]);
         let got: Vec<(u64, String, Option<String>)> = feed(Shown::here(&b)).reviews.into_iter().map(|r| (r.number, r.project, r.requested_by)).collect();
         assert_eq!(got, vec![(1, "P".to_string(), Some("ana".to_string())), (4, "P".to_string(), None)]);
+        // A PR of yours that waits on you to merge it is among them, by its last update, never
+        // first though its repo puts reviews first; snoozed, it's off the bar too.
+        let merge = |n: u64, updated: i64| PrItem { mine: true, waits_to_merge: true, review_first: true, ..pr(n, false, PrState::Approved, updated) };
+        let b = board(vec![], vec![pr(1, true, PrState::Open, 1), merge(6, 0), PrItem { snoozed_until: Some(NOW + 1_000), ..merge(7, 0) }]);
+        let got: Vec<(u64, bool, bool)> = feed(Shown::here(&b)).reviews.into_iter().map(|r| (r.number, r.merge, r.first)).collect();
+        assert_eq!(got, vec![(6, true, false), (1, false, false)]);
     }
 
     #[test]

@@ -106,6 +106,8 @@ pub fn pr_items(seeds: &[LaneSeed], lanes: &[Lane], prs: &HashMap<String, Vec<Pr
             let mut item = pr_item(lanes, &owners, slug, repo, p, branch_freed(list, p), login, links);
             if searched.is_some() {
                 item.review_requested = false;
+                // Nor is its last read's word on a merge still good.
+                item.waits_to_merge = false;
                 item.requested_by = None;
                 item.requested_at = None;
             }
@@ -167,15 +169,53 @@ pub fn worked_prs(links: &PrLinks, lanes: &[Lane]) -> Vec<String> {
     prs.into_iter().map(|(_, pr)| pr.clone()).collect()
 }
 
-/// Applies the snoozes you gave reviews asked of you. Until its time a PR that waits on your
-/// review carries `snoozed_until`, and Review requested, the floating bar's reviews and the mark
-/// leave it out; then it's back as GitHub has it. A PR that no longer waits on you has none,
-/// and the snooze runs out in state.json unused.
+/// Whether GitHub would merge the PR now: open and not a draft, with nothing between it and a
+/// merge (no conflict, no review or rule it waits on, every check passed). src/prStatus.ts
+/// `prReady` says the same.
+fn merge_ready(p: &PrItem) -> bool {
+    p.state.is_open() && p.state != PrState::Draft && p.merge == Merge::Clean && p.checks.failed == 0 && p.checks.pending == 0
+}
+
+/// Takes `PrItem::waits_to_merge` off the PRs `pr_item` said were yours to merge where something
+/// else brings them to you. Not while one of its sessions in its worktrees on this Mac is at work
+/// on it, as PRs has it Fixing then (src/ui/PrsView.tsx `prAgentWork`): working, or set aside for
+/// its side conversation, but not a visitor, whose work elsewhere is its own, nor a primary that
+/// took the PR over and works on its own things (`PrItem::taken_over`), nor Codealong's review of
+/// it while it works for that review. Nor while its primary session waits on you, in the queue,
+/// with Merge and done for it on its strip: that's the first PR in the board's order that the
+/// session is the primary of and GitHub would merge (src/menus.ts `mergesWith`), never one it
+/// took over, so another of its PRs waits on you by itself. A PR whose work is all done with (its
+/// sessions archived, or none known) waits on you by itself, so a merge left for you isn't left
+/// unseen.
+pub fn merge_waits(prs: &mut [PrItem], lanes: &[Lane]) {
+    let session = |k: &str| home(lanes, k).map(|(_, s)| s).filter(|s| !s.archived);
+    // A session as the PR lists it, in the worktree it's listed under.
+    let listed = |x: &PrSession| lanes.iter().find(|l| l.id == x.lane).and_then(|l| l.sessions.iter().find(|s| s.key == x.key));
+    let reviewing = |s: &Session| s.helper.as_ref().is_some_and(|h| h.pr.is_some()) && s.helps_an_agent();
+    let at_work = |s: &Session| s.status == Status::Working || (s.aside.is_some() && s.status == Status::Needs);
+    // In the queue, as the floating bar lists what waits on you (barfeed.rs `feed`).
+    let waits = |s: &Session| s.visitor.is_none() && !s.unattended() && matches!(s.status, Status::Needs | Status::Error | Status::Unread) && s.snoozed_until.is_none() && s.aside.is_none();
+    // The sessions whose strip has Merge and done for a PR already.
+    let mut on_strip: HashSet<String> = HashSet::new();
+    for p in prs.iter_mut() {
+        let strip = p.primary.as_deref().filter(|k| !p.taken_over && merge_ready(p) && session(k).is_some() && !on_strip.contains(*k)).map(String::from);
+        let merged_from = strip.as_deref().and_then(session).is_some_and(waits);
+        on_strip.extend(strip);
+        let taker = |s: &Session| p.taken_over && p.primary.as_deref() == Some(s.key.as_str());
+        let worked = || p.sessions.iter().filter_map(listed).any(|s| s.visitor.is_none() && !s.archived && !taker(s) && at_work(s) && !reviewing(s));
+        p.waits_to_merge = p.waits_to_merge && merge_ready(p) && !merged_from && !worked();
+    }
+}
+
+/// Applies the snoozes you gave reviews asked of you, and PRs of yours that wait on you to merge
+/// them. Until its time such a PR carries `snoozed_until`, and Review requested, the floating
+/// bar's reviews and the mark leave it out; then it's back as GitHub has it. A PR that no longer
+/// waits on you has none, and the snooze runs out in state.json unused.
 pub fn apply_review_snoozes(prs: &mut [PrItem], snoozes: &[Snooze], now: i64) {
     if snoozes.is_empty() {
         return;
     }
-    for p in prs.iter_mut().filter(|p| p.review_requested && p.state.is_open()) {
+    for p in prs.iter_mut().filter(|p| (p.review_requested || p.waits_to_merge) && p.state.is_open()) {
         p.snoozed_until = snoozes.iter().find(|z| z.key == p.key && z.until > now).map(|z| z.until);
     }
 }
@@ -198,10 +238,12 @@ pub fn pr_card(seeds: &[LaneSeed], lanes: &[Lane], slug: &str, renamed: &HashMap
     let found = repos.iter().find(|(s, _)| {
         s.eq_ignore_ascii_case(slug) || renamed.get(&s.to_ascii_lowercase()).is_some_and(|now| now.eq_ignore_ascii_case(slug))
     });
-    match found {
+    let mut item = match found {
         Some((&local, &repo)) => pr_item(lanes, &owners, local, repo, p, None, login, links),
         None => pr_item(lanes, &owners, slug, ("", slug.rsplit('/').next().unwrap_or(slug), None), p, None, login, links),
-    }
+    };
+    merge_waits(std::slice::from_mut(&mut item), lanes);
+    item
 }
 
 /// The GitHub owners each worktree's checkout has a remote for (`LaneSeed::head_owners`), by
@@ -276,6 +318,13 @@ pub(super) fn pr_item(lanes: &[Lane], owners: &HashMap<&Path, &[String]>, slug: 
         }
     }
     let key = crate::prlinks::pr_key(&format!("{slug}#{}", p.number));
+    // The sessions that did some of the PR's work: on its branch, or pushing to it, or that its
+    // records mark or that were linked to it by hand (`links.worked`: `codealong pr link` is for
+    // work Codealong can't see). Not the one picked as its primary, which a pick links too (in the
+    // PR's menu, by a watch, or as the copy a primary was resumed as): it's there for the pick.
+    let picked = links.picked.get(&key);
+    let linked = links.worked.get(&key).into_iter().flatten().filter(|k| Some(*k) != picked);
+    let did: HashSet<String> = sessions.iter().map(|x| x.key.clone()).chain(links.made.get(&key).into_iter().flatten().map(|(s, _)| s.clone())).chain(linked.cloned()).collect();
     for k in links.worked.get(&key).into_iter().flatten() {
         if sessions.iter().any(|x| &x.key == k) {
             continue;
@@ -287,6 +336,17 @@ pub(super) fn pr_item(lanes: &[Lane], owners: &HashMap<&Path, &[String]>, slug: 
     }
     sessions.retain(|x| !links.unlinked.contains(&(key.clone(), x.key.clone())));
     let (primary, primary_by) = pr_primary(lanes, &sessions, &key, links).unzip();
+    // A helper's parent that took the PR over is listed on it, under its own worktree, so the PR
+    // shows with it and its menu can pick it.
+    if let (Some(k), Some(PrimaryBy::Helper)) = (&primary, primary_by) {
+        if let Some((l, _)) = home(lanes, k).filter(|_| !sessions.iter().any(|x| &x.key == k)) {
+            sessions.push(PrSession { key: k.clone(), lane: l.id.clone(), pushes: 0, primary: None });
+        }
+    }
+    // Its primary did none of its work: it took the PR over from a helper it started, or was
+    // picked (a watch picks the primary it begins on, and a primary resumed as a copy is picked
+    // in its place, nudges.rs `follow`).
+    let taken_over = primary.as_ref().is_some_and(|k| !did.contains(k));
     let mine = login.is_some() && p.author.as_deref() == login;
     let by_hand = links.nudged.contains(&key);
     let watched = links.watched.contains(&key) && primary_by == Some(PrimaryBy::Picked);
@@ -319,6 +379,11 @@ pub(super) fn pr_item(lanes: &[Lane], owners: &HashMap<&Path, &[String]>, slug: 
         watched,
         // As its repo's settings say: the engine knows them (engine.rs, where it sends the board).
         review_first: false,
+        // Yours to merge, where GitHub says you may and doesn't merge it by itself: `merge_waits`
+        // keeps it while GitHub would merge it now and nothing else brings it to you, once every
+        // PR is listed.
+        waits_to_merge: mine && p.writes == Some(true) && !p.merging,
+        taken_over,
         primary,
         primary_by,
         head: p.head_ref.clone(),
@@ -424,29 +489,55 @@ pub fn turn_of(p: &PrRaw, mine: bool, login: Option<&str>, agent_posts: &HashSet
 /// and says what it found, and runs in the PR's worktree on its branch, so with the session
 /// that opened it gone it took over as the one that started first, and was told of what
 /// happened on the PR in place of the work's own session.
+///
+/// With none left, a PR whose work was mostly a helper's (by the same rule over the archived ones
+/// too) goes to the session that started the helper (`helper_parent`), if you haven't archived
+/// that one: an agent hands work to a helper, which opens the PR, reports
+/// and is marked done (`codealong session done`), and the PR would otherwise have nobody to tell
+/// of a review or a failing check, and no session to merge it from.
 fn pr_primary(lanes: &[Lane], sessions: &[PrSession], key: &str, links: &PrLinks) -> Option<(String, PrimaryBy)> {
     let archived = |k: &str| home(lanes, k).is_some_and(|(_, s)| s.archived);
-    let sessions: Vec<&PrSession> = sessions.iter().filter(|s| !archived(&s.key)).collect();
-    if let Some(k) = links.picked.get(key).filter(|k| sessions.iter().any(|s| &s.key == *k)) {
+    let live: Vec<&PrSession> = sessions.iter().filter(|s| !archived(&s.key)).collect();
+    if let Some(k) = links.picked.get(key).filter(|k| live.iter().any(|s| &s.key == *k)) {
         return Some((k.clone(), PrimaryBy::Picked));
     }
     let reviews = |k: &str| home(lanes, k).is_some_and(|(_, s)| s.helper.as_ref().is_some_and(|h| h.pr.is_some()));
-    let sessions: Vec<&PrSession> = sessions.into_iter().filter(|s| !reviews(&s.key)).collect();
     let started = |k: &str| home(lanes, k).map_or(i64::MAX, |(_, s)| s.started_at.unwrap_or(s.last_activity));
     // When its records first show it.
     let mark = |k: &str| links.made.get(key).into_iter().flatten().find(|(m, _)| m == k).map(|(_, at)| crate::prlinks::mark_order(*at));
-    let opener = sessions.iter().filter_map(|s| Some((mark(&s.key)?, started(&s.key), s.key.as_str()))).min().map(|(_, _, k)| k);
-    let pushes = |s: &PrSession| if Some(s.key.as_str()) == opener { s.pushes.max(1) } else { s.pushes };
-    // A session without a mark after every one with one.
-    let best = sessions.iter().min_by_key(|s| (Reverse(pushes(s)), mark(&s.key).unwrap_or((true, i64::MAX)), started(&s.key), s.key.as_str()))?;
-    let by = if Some(best.key.as_str()) == opener {
-        PrimaryBy::Opened
-    } else if best.pushes > 0 {
-        PrimaryBy::Pushed
-    } else {
-        PrimaryBy::Started
+    // The one of `sessions` that did the most of the PR's work, and how.
+    let ranked = |sessions: Vec<&PrSession>| -> Option<(String, PrimaryBy)> {
+        let opener = sessions.iter().filter_map(|s| Some((mark(&s.key)?, started(&s.key), s.key.as_str()))).min().map(|(_, _, k)| k);
+        let pushes = |s: &PrSession| if Some(s.key.as_str()) == opener { s.pushes.max(1) } else { s.pushes };
+        // A session without a mark after every one with one.
+        let best = sessions.iter().min_by_key(|s| (Reverse(pushes(s)), mark(&s.key).unwrap_or((true, i64::MAX)), started(&s.key), s.key.as_str()))?;
+        let by = if Some(best.key.as_str()) == opener {
+            PrimaryBy::Opened
+        } else if best.pushes > 0 {
+            PrimaryBy::Pushed
+        } else {
+            PrimaryBy::Started
+        };
+        Some((best.key.clone(), by))
     };
-    Some((best.key.clone(), by))
+    if let Some(found) = ranked(live.into_iter().filter(|s| !reviews(&s.key)).collect()) {
+        return Some(found);
+    }
+    // The one of them all that did the most, as above, when it's a helper whose parent is still
+    // about and wasn't taken off the PR by hand: not a helper that only looked in on the work of
+    // a session archived since.
+    let parent = |k: &str| helper_parent(lanes, k).filter(|p| !links.unlinked.contains(&(key.to_string(), p.clone())));
+    let (best, _) = ranked(sessions.iter().filter(|s| !reviews(&s.key)).collect())?;
+    Some((parent(&best)?, PrimaryBy::Helper))
+}
+
+/// The session that started the helper `key` (`Helper::parent`), where the board lists it and you
+/// haven't archived it; none for a session that isn't a helper, or is an automatic review, which
+/// reads a PR rather than making it.
+fn helper_parent(lanes: &[Lane], key: &str) -> Option<String> {
+    let (_, s) = home(lanes, key)?;
+    let parent = s.helper.as_ref().filter(|h| h.pr.is_none())?.parent.as_deref()?;
+    home(lanes, parent).filter(|(_, p)| !p.archived).map(|(_, p)| p.key.clone())
 }
 
 #[cfg(test)]
@@ -656,6 +747,13 @@ mod tests {
         assert_eq!(got, want.map(|(k, r)| (k.to_string(), r, "Spruce".to_string())));
         let items = pr_items(&seeds, &[], &prs, &requested, &HashMap::new(), None, &PrLinks::default());
         assert_eq!(items.iter().find(|p| p.number == 7).map(|p| p.title.as_str()), Some("Let the agent add and caption project photos"));
+        // A PR of yours its last read had ready to merge doesn't wait on you on that word: GitHub
+        // may have merged or closed it since.
+        let ready = PrRaw { number: 11, merge: Merge::Clean, writes: Some(true), author: Some("gwen".into()), ..pr(PrState::Approved, 0) };
+        let prs = HashMap::from([("sprucehq/site".to_string(), vec![ready.clone()]), ("sprucehq/spark".to_string(), vec![PrRaw { number: 12, ..ready }])]);
+        let items = pr_items(&seeds, &[], &prs, &HashMap::new(), &HashMap::new(), Some("gwen"), &PrLinks::default());
+        let waits = |n: u64| items.iter().find(|p| p.number == n).is_some_and(|p| p.waits_to_merge);
+        assert!(!waits(11) && waits(12));
     }
 
     #[test]
@@ -1031,6 +1129,152 @@ mod tests {
         // Unlinked by hand, it goes as an unarchived one does.
         links.unlinked.insert((key, "maker".into()));
         assert_eq!(card(&lanes(true, false), &links).0, both[..1]);
+    }
+
+    /// An agent in another repo's checkout handed the work to a helper, which opened the PR,
+    /// reported and was marked done: the agent takes the PR over, listed on it under its own
+    /// worktree, while you haven't archived it, it wasn't taken off by hand, and no other session
+    /// that worked on it is left.
+    #[test]
+    fn a_done_helpers_pr_goes_to_the_session_that_started_it() {
+        let s = |key: &str, cwd: &str, branch: &str, archived: bool| Session { cwd: cwd.into(), branch: Some(branch.into()), started_at: Some(NOW - 3 * 3_600_000), last_activity: NOW, archived, ..crate::fixtures::session(key) };
+        let helper = |archived: bool| Session { helper: Some(Helper { parent: Some("lead".into()), report: true, ..Default::default() }), ..s("helper", "/r/spark-portal", "portal", archived) };
+        // An automatic review the lead asked for, done too: it reads the PR rather than making it.
+        let review = Session { helper: Some(Helper { parent: Some("lead".into()), pr: Some("sprucehq/spark#1037".into()), ..Default::default() }), ..s("review", "/r/spark-portal", "portal", true) };
+        let lanes = |helper_done: bool, lead_done: bool, fixer: Option<bool>| {
+            let mut portal = vec![helper(helper_done), review.clone()];
+            portal.extend(fixer.map(|done| s("fixer", "/r/spark-portal", "portal", done)));
+            vec![
+                Lane { repo_slug: Some("sprucehq/spark".into()), branch: Some("portal".into()), ..crate::fixtures::lane("/r/spark-portal", portal) },
+                Lane { repo_slug: Some("sprucehq/infra".into()), branch: Some("main".into()), ..crate::fixtures::lane("/r/infra", vec![s("lead", "/r/infra", "main", lead_done)]) },
+            ]
+        };
+        let seeds = vec![seed("/r/spark-portal", "portal")];
+        let key = "sprucehq/spark#1037".to_string();
+        let mut links = PrLinks { made: HashMap::from([(key.clone(), vec![("helper".to_string(), NOW - 2 * 3_600_000)])]), ..Default::default() };
+        let card = |lanes: &[Lane], links: &PrLinks| {
+            let item = pr_card(&seeds, lanes, "sprucehq/spark", &HashMap::new(), &pr(PrState::Open, 0), Some("gwen"), links);
+            let listed: Vec<String> = item.sessions.iter().map(|x| format!("{} {}", x.key, x.lane)).collect();
+            (listed, item.primary, item.primary_by, item.taken_over)
+        };
+        let on_branch = ["helper /r/spark-portal".to_string(), "review /r/spark-portal".to_string()];
+        let with_lead = [&on_branch[..], &["lead /r/infra".to_string()]].concat();
+        // While the helper isn't done, it's the PR's own.
+        assert_eq!(card(&lanes(false, false, None), &links), (on_branch.to_vec(), Some("helper".into()), Some(PrimaryBy::Opened), false));
+        // Done, its PR goes to the lead, which didn't do its work.
+        assert_eq!(card(&lanes(true, false, None), &links), (with_lead.clone(), Some("lead".into()), Some(PrimaryBy::Helper), true));
+        // Not to a lead you archived too, nor past another session at work on the PR's branch.
+        assert_eq!(card(&lanes(true, true, None), &links), (on_branch.to_vec(), None, None, false));
+        assert_eq!(card(&lanes(true, false, Some(false)), &links).1.as_deref(), Some("fixer"));
+        assert_eq!(card(&lanes(true, false, Some(true)), &links).1.as_deref(), Some("lead"));
+        // Nor when the most of its work was an archived session's that isn't a helper, which
+        // opened it: the helper only looked in on its branch.
+        let opened = PrLinks { made: HashMap::from([(key.clone(), vec![("fixer".to_string(), NOW - 2 * 3_600_000)])]), ..Default::default() };
+        assert_eq!(card(&lanes(true, false, Some(true)), &opened).1, None);
+        // Picked in the PR's menu, which links it, or by a watch, it's the lead's as any
+        // session's is, and still not its work.
+        links.picked.insert(key.clone(), "lead".into());
+        links.worked.insert(key.clone(), vec!["lead".into()]);
+        assert_eq!(card(&lanes(true, false, None), &links), (with_lead, Some("lead".into()), Some(PrimaryBy::Picked), true));
+        // Linked to it by hand (`codealong pr link`, for a PR opened another way), a session did
+        // its work, though nothing else shows it.
+        let mut api = lanes(true, true, None);
+        api[1].sessions.push(s("api", "/r/infra", "main", false));
+        let linked = PrLinks { worked: HashMap::from([(key.clone(), vec!["api".to_string()])]), ..Default::default() };
+        assert_eq!(card(&api, &linked).1.as_deref(), Some("api"));
+        assert!(!card(&api, &linked).3);
+        // Resumed as a copy (nudges.rs `follow` picks it), the copy did none of it either.
+        let mut copied = lanes(true, false, None);
+        copied[1].sessions.push(s("lead-copy", "/r/infra", "main", false));
+        let follow = PrLinks { picked: HashMap::from([(key.clone(), "lead-copy".to_string())]), worked: HashMap::from([(key.clone(), vec!["lead-copy".to_string()])]), made: links.made.clone(), ..Default::default() };
+        assert_eq!(card(&copied, &follow).1.as_deref(), Some("lead-copy"));
+        assert!(card(&copied, &follow).3);
+        // A lead that worked on the PR's branch itself took nothing over.
+        let mut there = lanes(true, false, None);
+        there[0].sessions.push(Session { cwd: "/r/spark-portal".into(), ..s("lead2", "/r/spark-portal", "portal", false) });
+        let picked = PrLinks { picked: HashMap::from([(key.clone(), "lead2".to_string())]), made: links.made.clone(), ..Default::default() };
+        let led = |lanes: &mut Vec<Lane>| lanes[0].sessions[0].helper.as_mut().unwrap().parent = Some("lead2".into());
+        led(&mut there);
+        assert_eq!(card(&there, &picked).2, Some(PrimaryBy::Picked));
+        assert!(!card(&there, &picked).3);
+        // Its work isn't the lead's: merged, it doesn't make the lead look finished.
+        let merged = pr_card(&seeds, &lanes(true, false, None), "sprucehq/spark", &HashMap::new(), &pr(PrState::Merged, 0), Some("gwen"), &links);
+        assert!(merged.taken_over);
+        assert!(works(&lanes(true, false, None), &[merged], &[]).get("lead").is_some_and(|w| w.prs.is_empty()));
+        // Taken off by hand, it stays off.
+        links = PrLinks { made: links.made, unlinked: HashSet::from([(key, "lead".to_string())]), ..Default::default() };
+        assert_eq!(card(&lanes(true, false, None), &links), (on_branch.to_vec(), None, None, false));
+    }
+
+    /// A PR of yours that GitHub would merge now waits on you to merge it, unless an agent is at
+    /// work on it or its primary session waits on you with Merge and done on its strip.
+    #[test]
+    fn a_ready_pr_of_yours_waits_on_you_to_merge_it_when_nothing_else_brings_it() {
+        let s = |key: &str, status: Status| Session { cwd: "/r/spark-portal".into(), branch: Some("portal".into()), started_at: Some(NOW - 3 * 3_600_000), last_activity: NOW, status, ..crate::fixtures::session(key) };
+        let lanes = |sessions: Vec<Session>| vec![Lane { repo_slug: Some("sprucehq/spark".into()), branch: Some("portal".into()), ..crate::fixtures::lane("/r/spark-portal", sessions) }];
+        let seeds = vec![seed("/r/spark-portal", "portal")];
+        let ready = PrRaw { merge: Merge::Clean, writes: Some(true), ..pr(PrState::Approved, 0) };
+        let waits = |lanes: &[Lane], raw: &PrRaw, login: &str| {
+            let mut prs = vec![pr_card(&seeds, lanes, "sprucehq/spark", &HashMap::new(), raw, Some(login), &PrLinks::default())];
+            merge_waits(&mut prs, lanes);
+            prs[0].waits_to_merge
+        };
+        let idle = lanes(vec![s("maker", Status::Idle)]);
+        assert!(waits(&idle, &ready, "gwen"));
+        // Someone else's, one GitHub wouldn't merge yet, and one that's ended don't.
+        assert!(!waits(&idle, &ready, "ana"));
+        assert!(!waits(&idle, &PrRaw { merge: Merge::Blocked, ..ready.clone() }, "gwen"));
+        assert!(!waits(&idle, &PrRaw { checks: Checks { pending: 1, ..ready.checks.clone() }, ..ready.clone() }, "gwen"));
+        assert!(!waits(&idle, &PrRaw { state: PrState::Draft, ..ready.clone() }, "gwen"));
+        assert!(!waits(&idle, &PrRaw { state: PrState::Merged, ..ready.clone() }, "gwen"));
+        // Its session at work, or waiting on you with Merge and done, brings it to you instead.
+        assert!(!waits(&lanes(vec![s("maker", Status::Working)]), &ready, "gwen"));
+        assert!(!waits(&lanes(vec![s("maker", Status::Unread)]), &ready, "gwen"));
+        assert!(!waits(&lanes(vec![s("maker", Status::Needs)]), &ready, "gwen"));
+        // Snoozed, or archived, it doesn't; nor does an automatic review at work keep it.
+        assert!(waits(&lanes(vec![Session { snoozed_until: Some(NOW + 60_000), ..s("maker", Status::Unread) }]), &ready, "gwen"));
+        assert!(waits(&lanes(vec![Session { archived: true, ..s("maker", Status::Unread) }]), &ready, "gwen"));
+        let review = Session { helper: Some(Helper { pr: Some("sprucehq/spark#1037".into()), ..Default::default() }), ..s("review", Status::Working) };
+        assert!(waits(&lanes(vec![s("maker", Status::Idle), review]), &ready, "gwen"));
+        // Nor with no session known; but not where you may only read its repo, or GitHub didn't
+        // say, nor where GitHub merges it by itself.
+        assert!(waits(&lanes(vec![]), &ready, "gwen"));
+        assert!(!waits(&idle, &PrRaw { writes: Some(false), ..ready.clone() }, "gwen"));
+        assert!(!waits(&idle, &PrRaw { writes: None, ..ready.clone() }, "gwen"));
+        assert!(!waits(&idle, &PrRaw { merging: true, ..ready.clone() }, "gwen"));
+        // Set aside for its side conversation, its session is still at work on it; so is
+        // Codealong's review of it once you talk to it yourself.
+        assert!(!waits(&lanes(vec![Session { aside: Some(NOW - 60_000), ..s("maker", Status::Needs) }]), &ready, "gwen"));
+        let yours = Session { helper: Some(Helper { pr: Some("sprucehq/spark#1037".into()), yours: true, ..Default::default() }), ..s("review", Status::Working) };
+        assert!(!waits(&lanes(vec![s("maker", Status::Idle), yours]), &ready, "gwen"));
+        // Nor is one the board lists only where it visited.
+        assert!(waits(&lanes(vec![Session { visitor: Some("/r/elsewhere".into()), ..s("maker", Status::Unread) }]), &ready, "gwen"));
+        // A primary that's a helper whose turn ended isn't in the queue to merge it from: its agent
+        // waits on it, not you.
+        let helping = Session { helper: Some(Helper { parent: Some("lead".into()), ..Default::default() }), ..s("maker", Status::Unread) };
+        assert!(waits(&lanes(vec![helping]), &ready, "gwen"));
+        // A session that came to its worktree works elsewhere: that's not the PR's work.
+        let visiting = Session { visitor: Some("/r/elsewhere".into()), ..s("guest", Status::Working) };
+        assert!(waits(&lanes(vec![s("maker", Status::Idle), visiting]), &ready, "gwen"));
+        // Two ready PRs its waiting primary is the primary of: its strip merges the first, and
+        // the other waits on you by itself.
+        // (Each read as one card while its session was idle, as the board lists them, then
+        // weighed together once it waits on you.)
+        let unread = lanes(vec![s("maker", Status::Unread)]);
+        let card = |raw: &PrRaw| pr_card(&seeds, &idle, "sprucehq/spark", &HashMap::new(), raw, Some("gwen"), &PrLinks::default());
+        let mut two = vec![card(&ready), card(&PrRaw { number: 1038, ..ready.clone() })];
+        merge_waits(&mut two, &unread);
+        assert_eq!(two.iter().map(|p| p.waits_to_merge).collect::<Vec<_>>(), [false, true]);
+        // Its primary session took it over from a helper it started, and waits on you for its own
+        // work: its strip has no Merge and done for the PR, which waits on you by itself.
+        let helper = Session { archived: true, helper: Some(Helper { parent: Some("lead".into()), ..Default::default() }), ..s("helper", Status::Idle) };
+        let mut taken = lanes(vec![helper]);
+        let infra = |status: Status| Lane { repo_slug: Some("sprucehq/infra".into()), branch: Some("main".into()), ..crate::fixtures::lane("/r/infra", vec![Session { cwd: "/r/infra".into(), branch: Some("main".into()), ..s("lead", status) }]) };
+        taken.push(infra(Status::Needs));
+        assert!(waits(&taken, &ready, "gwen"));
+        // At work on its own things, it doesn't hold the PR back either.
+        taken[1] = infra(Status::Working);
+        assert!(waits(&taken, &ready, "gwen"));
     }
 
     #[test]

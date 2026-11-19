@@ -1079,8 +1079,8 @@ pub struct QueueCfg {
 }
 
 /// What can wait on you, in the order the queue goes to them by default (asked 2026-11-18):
-/// sessions that need you, PRs waiting on your review, todos due, sessions whose turn ended, and
-/// todos ready to start. src/queue.ts `WAITS` has them too.
+/// sessions that need you, PRs waiting on your review (and yours ready to merge), todos due,
+/// sessions whose turn ended, and todos ready to start. src/queue.ts `WAITS` has them too.
 pub const QUEUE_KINDS: [&str; 5] = ["needs", "reviews", "due", "unread", "ready"];
 
 /// The kinds that always wait on you: a session needing you or whose turn ended is what the bar
@@ -2199,7 +2199,7 @@ const OWN_REVIEWS_COMMENT: &str = "# [reviews.own] auto: an agent reviews each o
 # review to the PR's primary session, once it runs and doesn't wait on you. drafts: review your draft PRs too.
 # Nothing goes on GitHub.
 ";
-const QUEUE_COMMENT: &str = "# What waits on you, in the order the notch, the waiting window and the main window's panels go through it:\n# \"needs\", sessions that need you; \"reviews\", PRs waiting on your review; \"due\", todos due; \"unread\", sessions\n# whose turn ended; \"ready\", todos ready to start, which come last. One left out doesn't wait on you, but\n# sessions always do.\n# due_within: how many days before its due date a todo comes due: 0 on the day.\n";
+const QUEUE_COMMENT: &str = "# What waits on you, in the order the notch, the waiting window and the main window's panels go through it:\n# \"needs\", sessions that need you; \"reviews\", PRs waiting on your review, and yours ready to merge that nothing\n# else brings to you; \"due\", todos due; \"unread\", sessions whose turn ended; \"ready\", todos ready to start,\n# which come last. One left out doesn't wait on you, but sessions always do.\n# due_within: how many days before its due date a todo comes due: 0 on the day.\n";
 const EXPERIMENTAL_COMMENT: &str = "# Features still being tried out, each off until it's turned on. boards: the main window's Board view, as\n# Kanban and as Canvas, Add to board in the menus, and `codealong board`. voice: a key held to talk to the\n# session you're looking at or to your orchestrator, and sessions that listen to a meeting ([voice]).\n# analytics: who began each session and turn, what your prompts did with what the agent had said, and how\n# the sessions you marked done stood, in the Analytics window and `codealong analytics`.\n";
 const VOICE_COMMENT: &str = "# Voice, once [experimental] voice is on. locale: the language spoken, such as \"en-US\"; \"\" for this Mac's own.\n# send_on_release: what you say to your orchestrator is sent as you let go of the key, not put in its box\n# first. tell_every: how often, in seconds, a session that listens is told what's new, at most.\n# meetings: as a meeting in your calendar is about to start, offer to take its notes, in a folder of its own\n# under meetings_folder (\"\" for meetings beside this file), by a session on meeting_account (an account, a\n# routing group, or \"\" for Auto) and meeting_model, meeting_lead minutes before it starts, but for the\n# calendars in meeting_calendars_off (by id; Settings lists them). meeting_countdown: from how many minutes\n# before, the notch, the floating bar and the Meetings button count down to it (0 for none).\n";
 const REPOS_COMMENT: &str = "# Your settings for one repo's pull requests, over [reviews] and [pull_requests] and over what the repo's\n# .codealong/config.toml sets for its team. Settings › Automation sets them with the repo picked.\n";

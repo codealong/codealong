@@ -608,10 +608,12 @@ export type PrItem = Holds<Same<
   | "snoozedUntil"
   | "staleApproval"
   | "state"
+  | "takenOver"
   | "title"
   | "turn"
   | "updatedAt"
   | "url"
+  | "waitsToMerge"
   | "watched",
   Names<Types.PrItem>
 >>;

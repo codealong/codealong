@@ -23,7 +23,7 @@
       // The first two open PRs wait on your review, someone else's; no other does.
       var open = board.prs.filter(function (pr) { return pr.state !== 'merged' && pr.state !== 'closed'; });
       open.forEach(function (pr, i) {
-        Object.assign(pr, i < 2 ? { state: 'open', mine: false, author: 'ana', reviewRequested: true, snoozedUntil: null, autoReview: null, requestedAt: Date.now() - (i + 1) * 3600e3 } : { reviewRequested: false });
+        Object.assign(pr, i < 2 ? { state: 'open', mine: false, author: 'ana', reviewRequested: true, snoozedUntil: null, autoReview: null, requestedAt: Date.now() - (i + 1) * 3600e3 } : { reviewRequested: false, waitsToMerge: false });
       });
       asked = open.slice(0, 2).map(function (pr) { return pr.key; });
       // Reviews first in your order, so what Todo offers once its own are through is PRs', with no

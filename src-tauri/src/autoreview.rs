@@ -871,9 +871,11 @@ pub fn wants(cfg: &ReviewsCfg, pr: &PrItem) -> bool {
 
 /// The session a PR of yours goes back to: its primary session (`PrItem::primary`), when it's
 /// on this Mac and isn't a visitor's, a helper (a review's own session, which a PR whose opener
-/// is gone could take for its primary) or archived.
+/// is gone could take for its primary) or archived; nor one that took the PR over from a helper
+/// it started (`PrItem::taken_over`), whose work it isn't, and which is told of a review through
+/// its nudge if at all. The PR's harness is then the one its records say wrote it.
 fn origin<'a>(lanes: &'a [Lane], pr: &PrItem) -> Option<(&'a Lane, &'a Session)> {
-    let key = pr.primary.as_deref()?;
+    let key = pr.primary.as_deref().filter(|_| !pr.taken_over)?;
     lanes.iter().filter(|l| l.device.is_none()).find_map(|l| l.sessions.iter().find(|s| s.key == key && s.visitor.is_none() && s.helper.is_none() && !s.archived).map(|s| (l, s)))
 }
 
@@ -3356,6 +3358,8 @@ mod tests {
             nudge_by_default: false,
             watched: false,
             review_first: false,
+            waits_to_merge: false,
+            taken_over: false,
             primary: None,
             primary_by: None,
             head: "teams".into(),

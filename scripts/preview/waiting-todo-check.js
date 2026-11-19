@@ -26,7 +26,7 @@
           if (x.status === 'needs' || x.status === 'error' || x.status === 'unread') x.status = 'idle';
         });
       });
-      (board.prs || []).forEach(function (pr) { pr.reviewRequested = false; });
+      (board.prs || []).forEach(function (pr) { pr.reviewRequested = false; pr.waitsToMerge = false; });
       // The two sample todos due, and two more due today after them (the stub's stand-in for the
       // engine's list, fake-tauri.js `withFixture`).
       // The one whose box the check writes in starts in a worktree of its own here, whatever

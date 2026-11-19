@@ -73,6 +73,8 @@ pub(super) fn pr(state: PrState, failed: u32) -> PrRaw {
         state,
         head_ref: "portal".into(),
         head_owner: Some("gwen".into()),
+        writes: None,
+        merging: false,
         head_oid: Some("0ef4ed2".into()),
         updated_at: NOW - 3_600_000,
         merged_at: if state == PrState::Merged { Some(NOW - 7_200_000) } else { None },

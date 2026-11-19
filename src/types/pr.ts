@@ -91,6 +91,16 @@ export interface PrItem {
   /** Your review of it goes ahead of the sessions that need you in what waits on you, as
    *  `[pull_requests] reviews_first` goes for its repo (queue.ts `byPlace`). */
   reviewFirst?: boolean;
+  /** It's yours and GitHub would merge it now, and nothing else brings it to you: no session of
+   *  it is at work, and its primary session doesn't wait on you with Merge and done (board.rs
+   *  `merge_waits`). It waits on you among the reviews (quick.ts `reviewRows`) until you merge it
+   *  or snooze it. */
+  waitsToMerge?: boolean;
+  /** Its primary session did none of the PR's work itself (board.rs `pr_item`): it took the PR
+   *  over from a helper it started, or was picked. It's told of what happens on the PR, but merging
+   *  it doesn't make that session done (menus.ts `mergesWith`), and its work elsewhere isn't the
+   *  PR's (PrsView.tsx `prSessionsNow`). */
+  takenOver?: boolean;
   /** The key of its primary session, of `sessions`: the one picked (`codealong pr nudge`, its
    *  menu's Primary session), else the one that pushed to its branch most, the one that opened it
    *  winning a tie, else the one that started first (board.rs `pr_primary`). Only it is nudged. */
@@ -292,10 +302,11 @@ export interface PrSession {
 }
 
 /** Why a PR's primary session is the one it is (codealong-peer's `PrimaryBy`): it was picked; it
- *  pushed to the branch more often than the session that opened it; it opened it; or no session's
- *  records show either, and it started first. `other` is one a later version names, which only
- *  another machine says. */
-export type PrimaryBy = 'picked' | 'pushed' | 'opened' | 'started' | 'other';
+ *  pushed to the branch more often than the session that opened it; it opened it; no session's
+ *  records show either, and it started first; or every session that worked on it is done with,
+ *  and it started the helper that made it (board.rs `pr_primary`). `other` is one a later version
+ *  names, which only another machine says. */
+export type PrimaryBy = 'picked' | 'pushed' | 'opened' | 'started' | 'helper' | 'other';
 
 export interface PrReview {
   author: string;

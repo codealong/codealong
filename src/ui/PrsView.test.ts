@@ -123,6 +123,18 @@ describe('prSections', () => {
       ]);
     });
 
+    it('puts a merge of yours you snoozed under Snoozed, needing nothing of you till then', () => {
+      const snoozed = row(2, { mine: true, merge: 'clean', checks: fx.checks({ passed: 2 }), waitsToMerge: true, snoozedUntil: 100 });
+      const listed = rows.map((r) => (r.pr.number === 2 ? snoozed : r));
+      expect(prSections(listed, 'status', 0, 'mine').map((s) => [s.label, s.rows.map((r) => r.pr.number)])).toEqual([
+        ['Waiting on others', [1]],
+        ['Drafts', [4]],
+        ['Snoozed', [2]],
+        ['Merged & closed', [8]],
+      ]);
+      expect(prMove(snoozed)).toBeNull();
+    });
+
     it('Others lists everyone else’s: reviews asked of you, the agent’s, snoozed, then the rest', () => {
       expect(shown('others')).toEqual([
         ['Review requested', [5]],
@@ -199,6 +211,12 @@ describe('Fixing and Working', () => {
     held.sessions.push({ lane: lane('w'), session: fx.session({ key: 'other', status: 'working' }) });
     expect(prAgentWork(held)).toBe('fixing');
     expect(prSections([held], 'status', 0, 'all').map((s) => s.id)).toEqual(['agent']);
+  });
+
+  it('leaves out a primary that took the PR over, whose work is its own things', () => {
+    const lead = { key: 'lead', status: 'working' as const };
+    expect(prAgentWork(one(lead, { primary: 'lead', takenOver: true }))).toBeNull();
+    expect(prAgentWork(one(lead, { primary: 'lead' }))).toBe('fixing');
   });
 
   it('isn’t your move while an agent is at work on it, unless your review is asked for', () => {

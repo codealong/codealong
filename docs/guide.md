@@ -1209,15 +1209,30 @@ and in its panel, whose tooltip says why it's the one:
   having pushed once at least, since its push may have left no record (a quiet `git push -q`, a
   harness that records none), and wins a tie: a session that pushes a fix or two to another's PR
   doesn't take it over, but one that goes on with the work does;
-- else the one that started first.
+- else the one that started first;
+- else, with every session that worked on it archived, and the one of them that did the most of
+  it (as above) a helper, the session that started that helper, if you haven't archived that one
+  too and didn't take it off the PR by hand (`codealong pr unlink`). An agent hands work to a
+  helper, which opens the PR, reports and is marked done (`codealong session done`): the agent
+  takes the PR over, listed on it under its own worktree, and is told of what happens on it. An
+  automatic review (see *Automatic reviews*) is no such helper: it reads the PR rather than making
+  it.
+
+A primary session that did none of the PR's work itself (not on its branch, no pushes, nothing in
+its records of it), one that took it over from a helper, or one picked (by hand, by a watch, which
+picks the primary it starts on, or as the copy a primary was resumed as), is told of what happens
+on the PR with a line saying another session did its work. The PR isn't its work: merging the PR
+doesn't make it done or finished, its strip has no Merge and done for it (the PR waits on you by
+itself: *What waits on you, and in what order*), its work on other things doesn't count as work on
+the PR (Fixing), and Codealong's review of a PR of yours isn't handed to it.
 
 A session you archived (marked done, say) stays listed on the PRs it worked on, so a merged PR
 still says which session made it, where its records, its branch, its pushes or a link by hand tie
 it to the PR; not where only its visit to the PR's worktree does, or its making it in its scratch
 folder, since an archived session visits no worktree but its own. Its status glyph is an archive box (unless it's still at work,
 waiting on you or failed, which shows instead) and its title is dimmed. It's never the PR's primary
-session, even picked: the next one takes over, and with no other the PR has none. Unarchived, it's
-the primary again where it was.
+session, even picked: the next one takes over, and with no other the PR has none, unless a helper's
+goes to the session that started it, as above. Unarchived, it's the primary again where it was.
 
 The sessions on your other machines that worked on a PR are listed on it too (see *Your other
 devices*), after this machine's, each under its worktree there with that machine's badge, as
@@ -1728,7 +1743,9 @@ dialog comes back, saying why, with the commit as you wrote it to send again; a 
 by then (another PR shown, a card put away) has its window say why instead.
 
 A PR's primary session (see [PRs](#prs)) can merge it and be done with in one go, once GitHub says
-the PR is ready to merge: Merge and done (⇧⌘M), first on the strip over the session with Seen and
+the PR is ready to merge, unless it took the PR over from a helper it started, whose own work isn't
+the PR's (the PR waits on you by itself then: *What waits on you, and in what order*): Merge and
+done (⇧⌘M), first on the strip over the session with Seen and
 Done where it has one, and in its right-click menu after Mark as done, asks first in a dialog that says what happens, with the
 method kept for the repo (from its menu), GitHub's commit for it, the email it goes under and
 whether the branch goes too. Confirmed, the dialog goes at once, as though GitHub had merged it: the
@@ -3395,7 +3412,8 @@ and last the todos ready to start, each kind the longest wait first but the read
 in your todo list's order. The waiting window has the due todos but not the ready ones, which
 always wait and would keep it from ever saying nothing does. Settings › Queue lists them in
 that order: drag one by its row or its grip, or press ⌃⌘↑ ⌃⌘↓ on its grip, to put the kinds in yours
-(`order`). A box takes a kind out of what waits on you: PRs waiting on your review taken out aren't
+(`order`). A box takes a kind out of what waits on you: PRs waiting on your review taken out (and yours
+ready to merge with them) aren't
 on the bar or in the notch, nor counted beside the camera or in the mark's color, nor in the
 waiting window; todos that
 are due taken out are among the ready ones when they're ready to start; and the todos ready to
@@ -3414,6 +3432,25 @@ session moved to the top comes before everything. config.toml writes it as:
 order = ["needs", "reviews", "due", "unread", "ready"]
 due_within = 0
 ```
+
+PRs of yours that GitHub would merge now (open and not a draft, no conflict, nothing they still
+wait on, every check passed), in a repo GitHub says you may write to, and that GitHub isn't about
+to merge by itself (in the merge queue, or with auto-merge on), wait on you with the PRs waiting on
+your review, their kind in the order (`reviews`), by when they last changed, when nothing else
+brings them to you: none of their sessions in their worktrees on this Mac is at work on them (as
+Fixing in PRs has it), and their primary session (see [PRs](#prs)) isn't in what waits on you with
+Merge and done for them on its strip (which has it for the first of its PRs that's ready, so the
+next waits by itself), so a PR whose sessions are all done with isn't left unmerged and unseen. A
+repo whose PRs are no longer read (its worktrees all back on its default branch) has none wait on
+you on its last read's word. Each shows as its card, as a review does, with the
+merge box under its title: merged from there, it leaves and the window goes on (see *Merging*); a
+comment on it leaves it waiting. Snooze (⌃⌘1 to ⌃⌘7, the PR's menu, a few picked together, or
+`codealong pr snooze`) puts one aside until its time, as it does a review, under Snoozed in PRs;
+it's back then if it still waits. They're never first for a repo that puts its reviews first. The
+mark counts them as it does reviews. On the floating bar the reviews pill says how many wait on
+your review (*2 to review*), on you to merge them (*1 to merge*), or of both (*3 PRs*), each one's
+line in its tooltip saying *ready to merge* for one of yours; the menu bar item's menu lists them
+under Ready to merge, and the quick panel under Review or merge.
 
 A kind config.toml names that isn't one, one named twice, the sessions' two left out or the ready
 todos put before another are said as an error in config.toml, and the rest is gone by as written:

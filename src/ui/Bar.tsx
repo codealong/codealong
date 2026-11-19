@@ -18,7 +18,7 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type MouseEvent, type PointerEvent, type ReactNode } from 'react';
 import { getCurrentWindow } from '@tauri-apps/api/window';
 import { barMode, dragToDesktop, fitBar, getBarFeed, onBarFeed, onDesktopDragEnd, onBarMode, onBarNote, onPeekShown, onWaitingShortcut, PEEK_AFTER_MS, peekHide, peekOpen, sessionAt, setBarMode, setNotchOpen, showMain, showQuick, showWaiting, type BarModeView, type PillRect } from '../api';
-import { BAR_PROJECT_KEY, CLICK_WAIT_MS, elsewhereWaits, fitGroups, GROUPS, plain, projectWaits, todoRowKey, type Group, type GroupFit, type WaitCounts } from '../bar';
+import { BAR_PROJECT_KEY, CLICK_WAIT_MS, elsewhereWaits, fitGroups, GROUPS, plain, projectWaits, reviewsWord, todoRowKey, type Group, type GroupFit, type WaitCounts } from '../bar';
 import { showContextMenu, type MenuAction, type MenuSpec } from '../contextMenu';
 import { useEditorIcons, type Apps } from '../editors';
 import { ago } from '../format';
@@ -189,16 +189,16 @@ function ReviewsPill({ prs, peeked, onOpen, measure }: { prs: BarReview[]; peeke
       }
     >
       <Icon name="pr" size={12} stroke={1.75} />
-      <span>{prs.length} to review</span>
+      <span>{reviewsWord(prs)}</span>
     </button>
   );
 }
 
-/** A PR that waits on your review as its menu item and tooltip line say it: its number and
- *  title, its repo (after its project, as `place` says it), who asked, and that it's a sign-off
- *  when Codealong's agent approves it. */
+/** A PR that waits on you as its menu item and tooltip line say it: its number and title, its
+ *  repo (after its project, as `place` says it), who asked, and that it's a sign-off when
+ *  Codealong's agent approves it; or that it's yours, ready to merge. */
 function reviewLabel(p: BarReview, place: PlaceWords): string {
-  return [`#${p.number} ${p.title}`, place(p.project, p.repo), p.requestedBy ? `asked by ${p.requestedBy}` : '', p.approves ? 'agent approves' : ''].filter(Boolean).join(' · ');
+  return [`#${p.number} ${p.title}`, place(p.project, p.repo), p.merge ? 'ready to merge' : '', p.requestedBy ? `asked by ${p.requestedBy}` : '', p.approves ? 'agent approves' : ''].filter(Boolean).join(' · ');
 }
 
 /** A session that's hearing, first on the bar for as long as it does, whatever project the bar

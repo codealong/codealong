@@ -129,7 +129,9 @@ pub fn settled(board: &Board, now: i64) -> Vec<&str> {
 /// a turn, working or waiting on you to allow something.
 fn allowed(board: &Board, pr: &PrItem, global: &PullRequestsCfg) -> bool {
     let in_turn = |s: &crate::model::Session| s.status == Status::Working || (s.status == Status::Needs && !s.asks);
-    board.repo_settings.pull_requests(global, pr).rerequest_after_fixes && !pr.sessions.iter().any(|s| board.session(&s.key).is_some_and(|(_, s)| in_turn(s)))
+    // A primary that took the PR over works on its own things (`PrItem::taken_over`).
+    let taker = |k: &str| pr.taken_over && pr.primary.as_deref() == Some(k);
+    board.repo_settings.pull_requests(global, pr).rerequest_after_fixes && !pr.sessions.iter().filter(|s| !taker(&s.key)).any(|s| board.session(&s.key).is_some_and(|(_, s)| in_turn(s)))
 }
 
 /// The reviewers `pr` owes a request to now: it's yours, its fixes went unsaid (`ReplyNeeded`, each
@@ -211,6 +213,8 @@ mod tests {
             nudge_by_default: false,
             watched: false,
             review_first: false,
+            waits_to_merge: false,
+            taken_over: false,
             primary: Some(A.into()),
             primary_by: None,
             head: "teams".into(),
@@ -311,6 +315,8 @@ mod tests {
             state: PrState::Changes,
             head_ref: "teams".into(),
             head_owner: None,
+            writes: None,
+            merging: false,
             head_oid: Some("bbb".into()),
             updated_at: 0,
             merged_at: None,

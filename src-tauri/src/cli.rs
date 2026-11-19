@@ -913,7 +913,7 @@ enum PrCmd {
     Watch(PrNudgeArgs),
     /// Start an agent's review of a PR now, as Review with… does in the app: a round of Codealong's own reviews (Settings › Automation), whatever `[reviews] auto` says and of a commit reviewed already too, in a session of its own where `[reviews] start` says, its review posted where `[reviews] post` says (one of a PR of yours is kept and handed back to its primary session). That reviewer's session for the PR is asked again when it has one. Not while a round of it is under way. The answer names the round's session: `codealong session wait <key>` waits for its turn, and `codealong pr show <pr>` says where the review stands.
     Review(PrReviewArgs),
-    /// Snooze your review of a PR that asks for it, as Snooze review in its menu in Codealong does: it leaves Review requested, the floating bar's reviews and the mark until WHEN, waiting under Snoozed, and is back then if it still asks for your review. --wake ends it now. WHEN as `session snooze` takes it: 30m, 5pm, tomorrow, fri 17:00.
+    /// Snooze your review of a PR that asks for it, or a PR of yours that waits on you to merge it, as Snooze in its menu in Codealong does: it leaves Review requested (or Ready to merge), the floating bar's reviews and the mark until WHEN, waiting under Snoozed, and is back then if it still waits on you. --wake ends it now. WHEN as `session snooze` takes it: 30m, 5pm, tomorrow, fri 17:00.
     Snooze {
         /// The PR: its URL, owner/name#number, or a number (#123) in the repo of the current folder's worktree.
         pr: String,
@@ -4680,8 +4680,8 @@ fn pr_snooze(c: &mut Client, pr: &str, when: &SnoozeWhen, json: bool) -> Result<
     let board = c.board()?;
     let p = find_pr(board, &key).ok_or_else(|| anyhow!("Codealong doesn't read {key}: its repo isn't in a project and no session here worked on it, or it's closed and older than GitHub's recent list."))?;
     let key = p.key.clone();
-    if until.is_some() && (!p.review_requested || matches!(p.state, PrState::Merged | PrState::Closed)) {
-        bail!("{key} doesn't ask for your review, so there's no review of it to snooze.");
+    if until.is_some() && (!(p.review_requested || p.waits_to_merge) || matches!(p.state, PrState::Merged | PrState::Closed)) {
+        bail!("{key} doesn't ask for your review, nor wait on you to merge it, so there's nothing of it to snooze.");
     }
     c.act(api::PR_SNOOZE, &key, params::Snooze { keys: vec![key.clone()], until }, None)?;
     SnoozeOut { key, until, said: snooze_said(until) }.print(json)
@@ -5332,6 +5332,7 @@ fn primary_why(by: crate::model::PrimaryBy) -> &'static str {
         Pushed => "pushed to its branch most",
         Opened => "opened it",
         Started => "started first",
+        Helper => "started the helper that made it, which is done",
         // Only another machine's PR card says one this build doesn't know, and `pr show` lists
         // this machine's sessions.
         Other => "for a reason this build doesn't know",

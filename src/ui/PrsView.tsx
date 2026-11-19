@@ -130,8 +130,11 @@ export const PR_NONE = 'No worktree here';
 /** The sessions listed on a PR whose status it takes on (the status filters, Fixing and Working):
  *  as on the board, not one from another worktree, since one agent that made many worktrees would
  *  otherwise put all of their PRs in Working, nor an archived one. */
-export function prSessionsNow(r: Pick<PrRowItem, 'sessions'>): Session[] {
-  return r.sessions.flatMap(({ session }) => (session.visitor || session.archived ? [] : [session]));
+export function prSessionsNow(r: Pick<PrRowItem, 'pr' | 'sessions'>): Session[] {
+  // Nor a primary that took the PR over and did none of its work (`PrItem.takenOver`), whose work
+  // is its own things.
+  const taker = (s: Session) => !!r.pr.takenOver && s.key === r.pr.primary;
+  return r.sessions.flatMap(({ session }) => (session.visitor || session.archived || taker(session) ? [] : [session]));
 }
 
 /** What an agent of yours is doing on an open PR, while one of its sessions, here or on another
@@ -180,9 +183,15 @@ export function waitsOnReview(pr: PrItem): boolean {
   return pr.reviewRequested && !pr.snoozedUntil && !heldForAgent(pr) && prIsOpen(pr);
 }
 
-/** Your review is asked for and you snoozed it until a time still to come. */
+/** Your review is asked for, or it's yours and waits on you to merge it (the engine snoozes no
+ *  other of yours: board.rs `apply_review_snoozes`), and you snoozed it until a time still to come. */
 export function reviewSnoozed(pr: PrItem): pr is PrItem & { snoozedUntil: number } {
-  return pr.reviewRequested && !!pr.snoozedUntil && prIsOpen(pr);
+  return (pr.reviewRequested || pr.mine) && !!pr.snoozedUntil && prIsOpen(pr);
+}
+
+/** The section a snoozed PR is out of until its time: a review's, or a merge's. */
+export function snoozedFrom(pr: Pick<PrItem, 'reviewRequested'>): string {
+  return pr.reviewRequested ? 'Review requested' : 'Ready to merge';
 }
 
 type Standing = 'requested' | 'ready' | 'work' | 'agent' | 'fixing' | 'working' | 'rest';
@@ -292,7 +301,7 @@ function PrRow({ item, domId, now, slim, opened, onShowRepo, selected, onSelect,
   const sessions = [...item.sessions].sort((a, b) => Number(b.session.key === primary) - Number(a.session.key === primary));
   const shown = sessions.slice(0, 1);
   const repo = under !== 'repo' && <RepoChip repo={pr.repo} slug={pr.repoSlug} project={pr.project} onShowOnly={onShowRepo && (() => onShowRepo(pr.repoSlug))} />;
-  const snooze = reviewSnoozed(pr) && <SnoozeChip until={pr.snoozedUntil} now={now} away="out of Review requested and off the floating bar" />;
+  const snooze = reviewSnoozed(pr) && <SnoozeChip until={pr.snoozedUntil} now={now} away={`out of ${snoozedFrom(pr)} and off the floating bar`} />;
   const diff = (
     <span className="ca-diff">
       +{pr.additions.toLocaleString('en-US')} −{pr.deletions.toLocaleString('en-US')}

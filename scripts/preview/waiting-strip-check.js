@@ -37,7 +37,7 @@
           s.title = 'Strip W';
         });
       });
-      (board.prs || []).forEach(function (pr) { pr.reviewRequested = false; });
+      (board.prs || []).forEach(function (pr) { pr.reviewRequested = false; pr.waitsToMerge = false; });
       return board;
     });
   };

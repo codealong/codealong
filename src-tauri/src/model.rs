@@ -435,6 +435,20 @@ pub struct PrItem {
     /// while it's on.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub review_first: bool,
+    /// It's yours, GitHub would merge it now and you may (`PrRaw::writes`), and nothing else
+    /// brings it to you: no session of it is at work, and its primary session doesn't wait on you
+    /// with Merge and done on its strip. board.rs `pr_item` says whether it's yours to merge, and
+    /// `merge_waits` keeps it only for the rest. It waits on you to merge it as a review does, until you
+    /// merge it or snooze it (`snoozed_until`). Said only while that's so.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub waits_to_merge: bool,
+    /// Its primary session did none of the PR's work itself (board.rs `pr_item`): it took the PR
+    /// over from a helper it started, or was picked, by hand, by a watch, or as the copy a primary
+    /// was resumed as. It's told of what happens on the PR, but the PR isn't its work: merging it
+    /// doesn't make that session done, nor finished, its own work elsewhere isn't the PR's, and
+    /// Codealong's review of a PR of yours isn't handed to it. Said only while that's so.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub taken_over: bool,
     /// The session that's the PR's own, of `sessions`, by key: the one picked as its primary,
     /// else the one that pushed to its branch most, the one that opened it winning a tie, else
     /// the one that started first (board.rs `pr_primary`). Only it is nudged.
@@ -646,6 +660,12 @@ impl PrItem {
     /// needs you.
     pub fn waits_on_review(&self) -> bool {
         self.review_requested && self.state.is_open() && self.snoozed_until.is_none() && !self.auto_review.as_ref().is_some_and(|a| a.holds)
+    }
+
+    /// It waits on you to merge it (`waits_to_merge`), and you haven't snoozed it: the floating
+    /// bar lists it with the reviews, and the queue goes to it among them.
+    pub fn waits_on_merge(&self) -> bool {
+        self.waits_to_merge && self.state.is_open() && self.snoozed_until.is_none()
     }
 }
 

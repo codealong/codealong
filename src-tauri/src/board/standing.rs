@@ -254,7 +254,9 @@ pub fn finished_of(s: &Session, work: &Work) -> Option<Finished> {
 pub fn works(lanes: &[Lane], prs: &[PrItem], todos: &[crate::todos::Todo]) -> HashMap<String, Work> {
     let mut worked: HashMap<&str, Vec<(u64, PrState)>> = HashMap::new();
     for p in prs {
-        for s in &p.sessions {
+        // Not a PR its primary took over from a helper it started: that work was the helper's.
+        let taker = |k: &str| p.taken_over && p.primary.as_deref() == Some(k);
+        for s in p.sessions.iter().filter(|s| !taker(&s.key)) {
             worked.entry(s.key.as_str()).or_default().push((p.number, p.state));
         }
     }

@@ -71,7 +71,7 @@
         });
       });
       // No PR waits on your review either: the queue is these four sessions alone.
-      (board.prs || []).forEach(function (pr) { pr.reviewRequested = false; });
+      (board.prs || []).forEach(function (pr) { pr.reviewRequested = false; pr.waitsToMerge = false; });
       boardNow = board;
       return board;
     });

@@ -57,7 +57,7 @@
         var base = { snoozedUntil: null, mergedAt: null, closedAt: null, autoReview: undefined, updatedAt: now - i * 1000 };
         // Someone else's, waiting on you; yours, with changes asked for; yours, with nobody on it.
         var as = [{ state: 'open', mine: false, author: 'kai', reviewRequested: true }, { state: 'changes', mine: true, author: 'me', reviewRequested: false }, { state: 'open', mine: true, author: 'me', reviewRequested: false }][i];
-        if (!as) return Object.assign({}, x, { reviewRequested: false });
+        if (!as) return Object.assign({}, x, { reviewRequested: false, waitsToMerge: false });
         var pr = Object.assign({}, x, base, as);
         picked[i] = pr;
         return pr;

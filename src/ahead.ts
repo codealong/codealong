@@ -318,7 +318,8 @@ export function logoOf(lanes: Lane[], prs: PrItem[]): LogoStatus {
     if (l.hidden) continue;
     for (const s of l.sessions) if (!s.archived && !s.visitor) see(logoColor(s));
   }
-  if (prs.some((p) => p.reviewRequested && !p.snoozedUntil && !heldForAgent(p) && p.state !== 'merged' && p.state !== 'closed')) see('needs');
+  const waits = (p: PrItem) => (p.reviewRequested && !heldForAgent(p)) || !!p.waitsToMerge;
+  if (prs.some((p) => waits(p) && !p.snoozedUntil && p.state !== 'merged' && p.state !== 'closed')) see('needs');
   return LOGO_RANK[best];
 }
 
@@ -365,7 +366,7 @@ export function prsAhead(prs: PrItem[], changes: Ahead[]): PrItem[] {
     // Yours shows until the board has it, or one given after it (the engine's, ghpoll.rs
     // `on_approved`, is a moment later).
     if (review && !p.mine && !((next.lastReview?.at ?? -Infinity) >= review.at)) next = { ...next, lastReview: { state: review.state, commit: review.commit ?? next.headOid ?? null, at: review.at } };
-    if (until.has(p.key) && next.reviewRequested && next.state !== 'merged' && next.state !== 'closed') {
+    if (until.has(p.key) && (next.reviewRequested || next.waitsToMerge) && next.state !== 'merged' && next.state !== 'closed') {
       const snooze = until.get(p.key) ?? null;
       if ((next.snoozedUntil ?? null) !== snooze) next = { ...next, snoozedUntil: snooze };
     }
@@ -426,7 +427,8 @@ function barReviews(feed: BarFeed, changes: Ahead[]): BarFeed {
   const merged = merges(changes);
   const done = reviewed(changes);
   if (until.size === 0 && merged.size === 0 && done.size === 0) return feed;
-  const reviews = feed.reviews.filter((r) => until.get(r.key) == null && !merged.has(r.key) && !done.has(r.key));
+  // A review given takes a review away, not a merge of yours that waits (a comment on it).
+  const reviews = feed.reviews.filter((r) => until.get(r.key) == null && !merged.has(r.key) && !(done.has(r.key) && !r.merge));
   if (reviews.length === feed.reviews.length) return feed;
   return { ...feed, reviews, logoStatus: logoOfBar(feed.items, reviews.length > 0) };
 }

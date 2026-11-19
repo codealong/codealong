@@ -806,6 +806,8 @@ reviews_first = true
             nudge_by_default: false,
             watched: false,
             review_first: false,
+            waits_to_merge: false,
+            taken_over: false,
             primary: None,
             primary_by: None,
             head: "teams".into(),

@@ -66,6 +66,17 @@ describe('queueRows', () => {
     expect(queueRows(b2, ALL_PROJECTS).map((r) => r.kind)).toEqual(['session', 'session', 'session', 'review', 'review', 'review', 'session']);
   });
 
+  it('puts the PRs of yours that wait on you to merge them among the reviews, never first, snoozed ones left out', () => {
+    const pr = (number: number, over: Partial<PrItem> = {}) => fx.prItem({ number, key: `acme/app#${number}`, project: 'Acme', state: 'approved', mine: true, merge: 'clean', waitsToMerge: true, reviewFirst: true, updatedAt: NOW - number, ...over });
+    const review = fx.prItem({ number: 50, key: 'acme/app#50', project: 'Acme', state: 'open', reviewRequested: true, requestedAt: NOW - 40, updatedAt: NOW });
+    // #2 is snoozed; #3 is ready but the board says something else brings it to you; #4 merged ahead of the board.
+    const prs = [pr(1), pr(2, { snoozedUntil: NOW + 1000 }), pr(3, { waitsToMerge: false }), pr(4, { state: 'merged' }), review];
+    const b2 = fx.board({ lanes: b.lanes, prs });
+    expect(keys(queueRows(b2, ALL_PROJECTS))).toEqual(['n1', 'e', 'n2', 'acme/app#50', 'acme/app#1', 'u1']);
+    // A repo that puts reviews first doesn't put a merge first.
+    expect(attentionRows(b2, ALL_PROJECTS, Infinity).rows.filter((r) => r.kind === 'review').map((r) => r.group)).toEqual(['reviews', 'reviews']);
+  });
+
   it('puts the PRs of a repo that puts reviews first ahead of what needs you, under a heading of their own', () => {
     const review = (number: number, over: Partial<PrItem> = {}) => fx.prItem({ number, key: `acme/app#${number}`, project: 'Acme', state: 'open', reviewRequested: true, requestedAt: NOW - number, updatedAt: NOW - number, ...over });
     const b2 = fx.board({ lanes: b.lanes, prs: [review(3, { reviewFirst: true }), review(100), review(1, { reviewFirst: true })] });

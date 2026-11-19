@@ -139,7 +139,7 @@ export function PrStrip({ pr, actions, box, after, queue, notice, hotkeys, panel
   const buttons: StripAction[] = [
     { label: 'Approve', chord: menus.PR_CHORDS.approve, title: sending ?? (approve ? `${says('approve', 'Approve it, with what’s written on Review as the review’s text')}${then}${fromBox('approve')}` : notReviewable), run: approve && !sending ? () => approve.run() : undefined },
     { label: 'Comment', chord: menus.PR_CHORDS.comment, title: sending ?? `${box.stillOpen ? '' : 'It’s closed, and a comment still goes to it. '}${says('comment', 'Comment on it with what’s written on Review')}${then}${fromBox('comment')}`, run: comment && !sending ? () => comment.run() : undefined },
-    { label: 'Snooze', keys: snoozeRange(), title: snooze ? `Snooze the review: it waits apart until its time comes. ${snoozeKeys(snooze)}` : pr.reviewRequested ? 'The review can’t be snoozed' : 'Your review isn’t asked for: there’s nothing to snooze', menu: snooze?.items },
+    { label: 'Snooze', keys: snoozeRange(), title: snooze ? `Snooze ${pr.reviewRequested ? 'the review' : 'it'}: it waits apart until its time comes. ${snoozeKeys(snooze)}` : pr.reviewRequested ? 'The review can’t be snoozed' : 'Neither your review nor your merge waits on it: there’s nothing to snooze', menu: snooze?.items },
     { label: 'Review with', chord: menus.PR_CHORDS.review, title: review ? `Start Codealong’s review of it on an account${first && first !== 'separator' && !('items' in first) ? `; the key starts it: ${first.label}` : ''}` : 'No account can start a review here', menu: review?.items },
     { label: 'GitHub', chord: menus.PR_CHORDS.github, title: 'Open it on GitHub', run: () => github.run() },
   ];

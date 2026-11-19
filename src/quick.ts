@@ -95,10 +95,12 @@ export function saidLine(hit: TextHit, words: string[]): SaidLine {
   return { text: hit.snippet, you: hit.you, marks: titleMarks(hit.snippet, words) };
 }
 
-/** A PR waiting on your review, in the empty panel's list among the sessions, keyed by the PR's
- *  key (`owner/name#12`), which no session's key looks like. ⏎ on it reviews it in the waiting
- *  window. One whose repo puts reviews first (`PrItem.reviewFirst`) is in a group of its own,
- *  ahead of the sessions that need you, as `top` is for the ones moved to the top. */
+/** A PR waiting on your review, or one of yours waiting on you to merge it
+ *  (`PrItem.waitsToMerge`), in the empty panel's list among the sessions, keyed by the PR's key
+ *  (`owner/name#12`), which no session's key looks like. ⏎ on it shows it in the waiting window,
+ *  its box to review it and its merge box under its title. A review whose repo puts reviews first
+ *  (`PrItem.reviewFirst`, `firstReview`) is in a group of its own, ahead of the sessions that need
+ *  you, as `top` is for the ones moved to the top. */
 export interface ReviewRow {
   kind: 'review';
   key: string;
@@ -108,20 +110,26 @@ export interface ReviewRow {
   marks: [number, number][];
 }
 
-/** A row the waiting window works through: a session, or a review asked of you. */
+/** A row the waiting window works through: a session, or a PR that waits on you. */
 export type QueueRow = SessionRow | ReviewRow;
 
 /** When a review began waiting on you, as the queue keeps it for the ones dealt with (queue.ts
  *  `Handled`): the latest request to you, else the PR's last update. */
 export const reviewSince = (pr: PrItem) => pr.requestedAt ?? pr.updatedAt;
 
-/** The open PRs that wait on your review, your snoozed ones and the ones Codealong's agent is
- *  still reviewing left out, the longest wait first, as the floating bar lists them (barfeed.rs).
- *  None while `[queue]` leaves reviews out. */
+/** A review asked of you whose repo puts reviews first: ahead of everything else that waits. A PR
+ *  of yours that waits on you to merge it never is. */
+export const firstReview = (pr: PrItem) => !!pr.reviewFirst && !!pr.reviewRequested;
+
+/** The open PRs that wait on your review, and yours that wait on you to merge them
+ *  (`PrItem.waitsToMerge`), your snoozed ones and the ones Codealong's agent is still reviewing
+ *  left out, the longest wait first, as the floating bar lists them (barfeed.rs). None while
+ *  `[queue]` leaves reviews out. */
 export function reviewRows(board: Board, project: string): ReviewRow[] {
   if (!queueKinds(board.queue?.order).includes('reviews')) return [];
+  const waits = (p: PrItem) => (p.reviewRequested && !heldForAgent(p)) || !!p.waitsToMerge;
   return (board.prs ?? [])
-    .filter((p) => p.reviewRequested && p.state !== 'merged' && p.state !== 'closed' && !p.snoozedUntil && !heldForAgent(p) && (project === ALL_PROJECTS || p.project === project))
+    .filter((p) => waits(p) && p.state !== 'merged' && p.state !== 'closed' && !p.snoozedUntil && (project === ALL_PROJECTS || p.project === project))
     .sort((a, b) => reviewSince(a) - reviewSince(b) || a.key.localeCompare(b.key))
     .map((pr) => ({ kind: 'review' as const, key: pr.key, group: 'reviews' as const, pr, marks: [] }));
 }
@@ -168,7 +176,7 @@ export const QUEUE_READS: Reads<QueueRow> = {
   waitsOf: (r) => (r.kind === 'session' ? statusWaits(r.session.status) : 'reviews'),
   raisedOf: (r) => (r.kind === 'session' ? r.session.raised : undefined),
   finishedOf: (r) => r.kind === 'session' && waitsFinished(r.session),
-  firstOf: (r) => r.kind === 'review' && !!r.pr.reviewFirst,
+  firstOf: (r) => r.kind === 'review' && firstReview(r.pr),
   titleOf: (r) => (r.kind === 'session' ? r.session.title : `#${r.pr.number} ${r.pr.title}`),
 };
 
@@ -204,7 +212,7 @@ export function attentionRows(board: Board, project: string, limit = MAX_ROWS): 
   const order = queueKinds(board.queue?.order);
   const ahead = order.slice(0, order.indexOf('reviews'));
   const apart = sessions.some((r) => (r.group === 'needs' || r.group === 'unread') && ahead.includes(r.group));
-  const reviews = reviewRows(board, project).map((r): ReviewRow => (apart && r.pr.reviewFirst ? { ...r, group: 'firstReviews' } : r));
+  const reviews = reviewRows(board, project).map((r): ReviewRow => (apart && firstReview(r.pr) ? { ...r, group: 'firstReviews' } : r));
   const counts = { top: 0, firstReviews: 0, needs: 0, reviews: 0, unread: 0, working: 0 };
   for (const r of [...sessions, ...reviews]) counts[r.group] += 1;
   const waiting = inQueueOrder<QueueRow>([...sessions.filter((r) => r.group !== 'working'), ...reviews], queueReads(board));
@@ -250,7 +258,7 @@ export const WINDOW_READS: Reads<WindowRow> = {
   waitsOf: (r) => (r.kind === 'todo' ? 'due' : QUEUE_READS.waitsOf(r)),
   raisedOf: (r) => (r.kind === 'todo' ? undefined : QUEUE_READS.raisedOf(r)),
   finishedOf: (r) => r.kind !== 'todo' && QUEUE_READS.finishedOf(r),
-  firstOf: (r) => r.kind === 'review' && !!r.pr.reviewFirst,
+  firstOf: (r) => r.kind === 'review' && firstReview(r.pr),
   orderOf: (r) => (r.kind === 'todo' ? r.todo.order : undefined),
   titleOf: (r) => (r.kind === 'todo' ? r.todo.title || 'Untitled todo' : QUEUE_READS.titleOf(r)),
 };

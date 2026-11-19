@@ -19,7 +19,7 @@
     return p.then(function (board) {
       var suggests = ['request-changes', 'comment', 'approve', 'request-changes'];
       board.prs = (board.prs || []).map(function (x, i) {
-        if (i >= suggests.length) return Object.assign({}, x, { reviewRequested: false });
+        if (i >= suggests.length) return Object.assign({}, x, { reviewRequested: false, waitsToMerge: false });
         var pr = Object.assign({}, x, {
           state: 'open', mine: false, author: 'ana', reviewRequested: true, requestedAt: Date.now() - 3600e3, snoozedUntil: null, mergedAt: null, closedAt: null, updatedAt: Date.now() - i * 1000,
           headOid: HEAD,

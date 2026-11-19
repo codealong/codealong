@@ -43,7 +43,7 @@
         });
       });
       // No PR waits on your review either: the three sessions are all that waits.
-      (board.prs || []).forEach(function (pr) { pr.reviewRequested = false; });
+      (board.prs || []).forEach(function (pr) { pr.reviewRequested = false; pr.waitsToMerge = false; });
       return board;
     });
   };

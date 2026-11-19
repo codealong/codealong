@@ -355,7 +355,8 @@ export function prFlag(pr: PrItem): 'ready' | 'attn' | 'alert' | null {
   // A review you snoozed waits until its time, and one the agent is on until it's done.
   if (pr.reviewRequested && !pr.snoozedUntil && !heldForAgent(pr)) return 'attn';
   if (!pr.mine) return null;
-  if (prReady(pr)) return 'ready';
+  // A merge you snoozed waits until its time, as a review does.
+  if (prReady(pr)) return pr.snoozedUntil ? null : 'ready';
   if (pr.checks.failed > 0) return 'alert';
   // Changes asked for are yours to make, unless their reviewer is asked to look again since,
   // which GitHub's request for changes doesn't say (`turnPill`).
@@ -459,6 +460,7 @@ export function primaryWords({ by, pushes, machine }: Pick<PrPrimary, 'by' | 'pu
     pushed: pushes ? `It pushed to the PR’s branch most, ${count(pushes, 'time')}.` : 'It pushed to the PR’s branch most.',
     opened: 'It opened the PR, and no other session pushed to it more.',
     started: 'No session’s records show it opened the PR or pushed to it, so it’s the one that started first.',
+    helper: 'It started the helper that made the PR, which is done, so it took the PR over.',
     other: null,
   }[by];
   const lead = machine ? `The PR’s primary session on ${machine}: when that machine nudges the PR, only this one is told what happens on it.` : 'The PR’s primary session: when the PR is nudged, only this one is told what happens on it.';

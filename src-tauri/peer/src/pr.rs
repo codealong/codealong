@@ -228,6 +228,10 @@ pub enum PrimaryBy {
     Opened,
     /// No session's records show it opened the PR or pushed to it: it started first.
     Started,
+    /// Every session that worked on it is done with, and a helper of its was among them: it
+    /// started that helper, and takes the PR over from it. Machines before 2026-11-19 read it as
+    /// `Other`.
+    Helper,
     /// One a later version names.
     #[serde(other)]
     Other,

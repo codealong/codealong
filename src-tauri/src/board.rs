@@ -596,6 +596,7 @@ pub fn compose(inp: Inputs) -> Board {
     lanes.sort_by(lane_order);
     let mut pr_list = pr_items(seeds, &lanes, prs, requested, made, github_login, pr_links);
     crate::autoreview::asked_again(&mut pr_list, auto_reviews.0, &polled_slugs(seeds), machines);
+    merge_waits(&mut pr_list, &lanes);
     apply_review_snoozes(&mut pr_list, review_snoozes, now);
     crate::autoreview::apply(&mut pr_list, auto_reviews.0, auto_reviews.1, session_settings, auto_reviews.2, &lanes, machines, now);
     // Once the PRs say whose they are and which session opened each.
@@ -716,7 +717,7 @@ pub fn logo_status<'a>(lanes: impl IntoIterator<Item = &'a Lane>, prs: &[PrItem]
             Status::Unread => LogoStatus::Unread,
             Status::Idle | Status::Stopped => LogoStatus::Idle,
         });
-    let review = prs.iter().any(PrItem::waits_on_review);
+    let review = prs.iter().any(|p| p.waits_on_review() || p.waits_on_merge());
     sessions.chain(review.then_some(LogoStatus::Needs)).min().unwrap_or_default()
 }
 
