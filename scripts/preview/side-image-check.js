@@ -52,8 +52,17 @@
         var b = bubble(first).getBoundingClientRect();
         check('it sits at the right', Math.abs(b.right - turn.right) < 1.5, Math.round(turn.right - b.right) + 'px short of it');
         check('as wide as what it says', b.width < turn.width * 0.75, Math.round(b.width) + ' of ' + Math.round(turn.width));
-        var ground = getComputedStyle(q('.ca-sidestrip')).backgroundColor;
-        check('set off from the strip’s ground', getComputedStyle(bubble(first)).backgroundColor !== ground, ground);
+        // The ground is what's painted behind it: the strip's own above a box, the window's where
+        // the strip is the window and draws none.
+        var painted = function (el) {
+          for (; el; el = el.parentElement) {
+            var c = getComputedStyle(el).backgroundColor;
+            if (c !== 'transparent' && !/rgba\(.*, 0\)$/.test(c)) return c;
+          }
+          return null;
+        };
+        var ground = painted(first.closest('.ca-sidestrip'));
+        check('set off from the strip’s ground', !!ground && getComputedStyle(bubble(first)).backgroundColor !== ground, ground);
       }
       var drawn = function () { return q('.ca-desc-img img, .ca-desc-noimg', question); };
       check('the question shows its image', !!drawn(), question.textContent);

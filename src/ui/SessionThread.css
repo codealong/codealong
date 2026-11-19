@@ -457,9 +457,10 @@
   box-shadow: inset 2px 0 0 var(--line-strong);
 }
 
-/* When it was goes at the right under a prompt of yours, as the prompt does, and at the left under
-   the agent's, where its words start (asked 2026-11-19). */
-.ca-thread-said.is-you .ca-thread-meta > .ca-meta {
+/* When it was goes at the left under the agent's reply, where its words start (asked 2026-11-19),
+   and at the right under the rest: a prompt of yours, as the prompt does, and Codealong's or
+   another session's taken back, after who sent it. */
+.ca-thread-said:not(.is-agent) .ca-thread-meta > .ca-meta {
   margin-left: auto;
 }
 /* Send now, Edit and Remove on a message its harness holds, after what it says it is, as icons
