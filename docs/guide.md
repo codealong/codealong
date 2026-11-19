@@ -1482,8 +1482,8 @@ diff, its file and line opening that line on GitHub at the commit it read, and t
 earlier commits too: the latest three a click away, each with how long ago it was reviewed, and
 a +N for the rest. Once you've submitted the agent's draft, it says so and how. `codealong
 --snapshot --review-plan <owner/name> <number>` prints what a review would do, without doing it:
-the review session it would go on in and what it would be handed, or the session it would start,
-and `codealong --snapshot --pr-draft <owner/name> <number>` your draft as the Reviews tab reads
+the review session it would go on in and what it would be handed, or the session it would start
+(with `--usage`, passing over an account at its limit as a review does), and `codealong --snapshot --pr-draft <owner/name> <number>` your draft as the Reviews tab reads
 it.
 
 When your machines are linked (see *Your other devices*) and several have automatic reviews on, one

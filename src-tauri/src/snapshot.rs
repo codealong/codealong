@@ -100,7 +100,7 @@ const MODES: &[Mode] = &[
     Mode { flag: "--pr-since", takes: "<owner/name> <commit> <commit>", run: |_, rest| match rest { [repo, from, to] => Ok(pretty(&github::since(repo, from, to).map_err(failed)?)), _ => Err(Stop::Usage) } },
     Mode { flag: "--pr", takes: "<owner/name> <number>", run: pr },
     Mode { flag: "--merge-box", takes: "<owner/name> <number>", run: merge_box },
-    Mode { flag: "--review-plan", takes: "<owner/name> <number>", run: review_plan },
+    Mode { flag: "--review-plan", takes: "<owner/name> <number> [--usage]", run: review_plan },
     Mode { flag: "--open", takes: "<lane id> <target id>", run: open },
     Mode { flag: "--link", takes: "<url>", run: link },
     Mode { flag: "--checkout", takes: "", run: |_, _| Ok(crate::CHECKOUT.unwrap_or_default().to_string()) },
@@ -846,9 +846,11 @@ fn pr(_: &Args, rest: &[String]) -> Done {
 
 /// What an automatic review of the PR would start or go on in (autoreview.rs `plan`), without
 /// doing it.
-fn review_plan(_: &Args, rest: &[String]) -> Done {
+fn review_plan(args: &Args, rest: &[String]) -> Done {
     let (repo, number) = repo_and_number(rest)?;
-    let board = engine::snapshot(true, false);
+    // With `--usage`, a kept reviewer on an account at its limit is passed over as the server
+    // would (`kept_session`).
+    let board = engine::snapshot(true, args.has("--usage"));
     let cfg = config::current().map_err(|e| Stop::Failed(format!("{e:#}")))?;
     Ok(pretty(&autoreview::plan(&board, &cfg, &format!("{repo}#{number}")).map_err(failed)?))
 }

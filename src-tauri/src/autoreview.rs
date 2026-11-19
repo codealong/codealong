@@ -1753,13 +1753,16 @@ pub fn reviewers<'a>(store: &'a Store, sessions: &[Session]) -> HashMap<String, 
 /// and it's the session kept for the next, which hands it the commits since once the branch holds
 /// still (`ask`). One cut off partway then needs nothing from you (board.rs
 /// `apply_round_to_come`): Carry on would only finish a review of a commit the PR has moved on
-/// from. A round only makes way while the PR wants its reviews (`next`), and the next one starting
-/// takes it off this list.
-pub fn to_come(store: &Store) -> HashSet<&str> {
+/// from. Only while `behind` says of the PR, by its key, that this machine has a round of newer
+/// commits than its last round's to come (`AutoReview::behind`): not once its reviews are turned
+/// off, or its branch is back at the commit the round was of, which no round goes to again. The
+/// next round starting takes it off the list too.
+pub fn to_come(store: &Store, behind: impl Fn(&str) -> bool) -> HashSet<&str> {
     store
         .prs
-        .values()
-        .filter_map(|t| Some((t, t.rounds.last().filter(|r| made_way(r))?)))
+        .iter()
+        .filter(|(pr, _)| behind(pr))
+        .filter_map(|(_, t)| Some((t, t.rounds.last().filter(|r| made_way(r))?)))
         .flat_map(|(t, r)| r.parts.iter().filter_map(|p| p.session.as_deref()).filter(move |k| t.sessions.values().any(|s| s == k)))
         .collect()
 }
@@ -2144,10 +2147,6 @@ const HANDS_OFF: &str = "Don't change any files, commit, push, or post on GitHub
 /// What the numbered diffs (`numbered`) are, said where they're handed over.
 const NUMBERED: &str = "Each line of a diff has its number in the file's new version in a column on its left; a removed line has none.";
 
-/// The first prompt of a review's own session. `holds`: its folder has the PR's branch checked
-/// out. `since`: the commit an earlier review of it was of, by a session that's gone, with
-/// `files.changes` saying what changed since where that follows on.
-#[allow(clippy::too_many_arguments)]
 /// The commit a round of `head` reads what changed since (`first_prompt`, `again_prompt`): the
 /// one its PR's last review that got done was of, when that's another (`Tracked::done_head`). A
 /// round that ended without a review, one that made way for new commits say, left none among the
@@ -2156,6 +2155,10 @@ fn since_done(t: Option<&Tracked>, head: &str) -> Option<String> {
     t.and_then(Tracked::done_head).filter(|h| *h != head).map(String::from)
 }
 
+/// The first prompt of a review's own session. `holds`: its folder has the PR's branch checked
+/// out. `since`: the commit an earlier review of it was of, by a session that's gone, with
+/// `files.changes` saying what changed since where that follows on.
+#[allow(clippy::too_many_arguments)]
 pub fn first_prompt(pr: &PrItem, head: &str, since: Option<&str>, holds: bool, login: &str, goes: &Goes, instructions: &str, files: &Reading) -> String {
     let base = pr.base.as_deref().unwrap_or("its base branch");
     let by = pr.author.as_deref().map(|a| format!(", by {a}")).unwrap_or_default();
@@ -2675,12 +2678,10 @@ fn review(engine: &Handle, pr: &PrItem, head: &str, since: Option<&str>, seat: &
             return if crate::github::unreachable(&why) { Went::Unreachable(why) } else { Went::NotStarted(why) };
         }
     };
-    // Reviewed already, from another Mac or before a restart.
-    let mark = marker(&pr.key, head);
-    if let Some(c) = detail.comments.iter().find(|c| !by_hand && !pr.mine && c.mine && c.body.contains(&mark)) {
+    if let Some(link) = posted_already(pr, head, &detail, by_hand) {
         return match reviews.post {
             ReviewPost::Draft => Went::Drafted(draft_link(pr)),
-            _ => Went::Posted(c.url.clone().unwrap_or_else(|| pr.url.clone())),
+            _ => Went::Posted(link),
         };
     }
     let changes = since.and_then(|s| crate::github::changes_since(&pr.repo_slug, s, head).ok().flatten());
@@ -2691,6 +2692,14 @@ fn review(engine: &Handle, pr: &PrItem, head: &str, since: Option<&str>, seat: &
     let fresh = engine.board();
     let Some(seat) = review_seat(&fresh, pr, seat, by_hand) else { return Went::Later };
     Went::Started(vec![ask(engine, &fresh, &cfg, pr, head, since, &login, &files, &seat)])
+}
+
+/// A review of commit `head` already among the PR's comments, by its link: posted from another Mac
+/// of yours, or before a restart (`marker`), so a round of it asks no reviewer (`review`). Only for
+/// an automatic round of a PR that waits on your review.
+fn posted_already(pr: &PrItem, head: &str, detail: &crate::github::PrDetail, by_hand: bool) -> Option<String> {
+    let mark = marker(&pr.key, head);
+    detail.comments.iter().find(|c| !by_hand && !pr.mine && c.mine && c.body.contains(&mark)).map(|c| c.url.clone().unwrap_or_else(|| pr.url.clone()))
 }
 
 /// A new session's start for a review: on the reviewer's account (Auto's for none) and model,
@@ -2857,6 +2866,9 @@ pub struct Plan {
     /// The commit its last review that got done was of, whose changes since the round reads
     /// (`since_done`).
     pub since: Option<String>,
+    /// A review of the PR's commit already among its comments, by its link (`posted_already`):
+    /// the round takes that for its review and asks no reviewer.
+    pub posted: Option<String>,
     /// The reviewer's session for the PR, which the round goes on in (`kept_session`): none when
     /// there's none it can, and a new session starts (`start`).
     pub goes_on: Option<PlannedGoOn>,
@@ -2865,7 +2877,9 @@ pub struct Plan {
     pub start: PlannedStart,
 }
 
-/// The reviewer's session going on with the round in a plan (`hand`).
+/// The reviewer's session going on with the round in a plan (`hand`). The snapshot runs no agents
+/// of its own, so a session Codealong's server runs reads as not running there, and shows where it
+/// would go on; the server types the round into it where it still runs.
 #[derive(Serialize, Debug)]
 #[serde(rename_all = "camelCase")]
 pub struct PlannedGoOn {
@@ -2899,12 +2913,16 @@ pub fn plan(board: &Board, cfg: &Config, key: &str) -> anyhow::Result<Plan> {
     let t = store.prs.get(&pr_key(key));
     let since = since_done(t, &head);
     let now = now_ms();
-    let Some(seat) = review_seat(board, pr, seat_in(&reviews, t, board, pr, now), false) else {
+    // Paused for a flagged session before the kept reviewer is passed over for an error or its
+    // limit, as `due` has it.
+    let kept = seat_for(&reviews, t, &board.lanes, pr);
+    if review_seat(board, pr, kept.clone(), false).is_none() {
         let on = if pr.mine { reviews.own.auto } else { reviews.auto };
-        let who = seat_for(&reviews, t, &board.lanes, pr).who;
-        return Ok(Plan { wanted: false, on, stands: pr.auto_review.clone(), since, goes_on: None, start: PlannedStart { who, spec: None, start: None, problem: Some(FLAGGED_REVIEW.into()) } });
-    };
-    let (md, diff, _) = crate::github::for_reading(pr)?;
+        return Ok(Plan { wanted: false, on, stands: pr.auto_review.clone(), since, posted: None, goes_on: None, start: PlannedStart { who: kept.who, spec: None, start: None, problem: Some(FLAGGED_REVIEW.into()) } });
+    }
+    let seat = review_seat(board, pr, seat_in(&reviews, t, board, pr, now), false).unwrap_or(kept);
+    let (md, diff, detail) = crate::github::for_reading(pr)?;
+    let posted = posted_already(pr, &head, &detail, false);
     let stands = pr.auto_review.clone();
     let changes = since.as_deref().and_then(|s| crate::github::changes_since(&pr.repo_slug, s, &head).ok().flatten());
     let files = keep_files(pr, &head, &md, &diff, changes.as_deref()).map_err(anyhow::Error::msg)?;
@@ -2912,7 +2930,8 @@ pub fn plan(board: &Board, cfg: &Config, key: &str) -> anyhow::Result<Plan> {
     let goes_on = kept_session(board, cfg, &seat, now).and_then(|k| board.session(k)).map(|(_, s)| {
         let prompt = again_prompt(pr, &head, since.as_deref(), &login, &goes(&reviews, &board.lanes, pr), &instructions_for(&reviews, pr), &files);
         let (place, problem) = if s.live {
-            (None, None)
+            // One waiting at a prompt takes nothing typed (send.rs `ensure_not_waiting`).
+            (None, crate::send::waits_on_you(s).then(|| format!("its session couldn't be sent it: {} is waiting on you to answer a prompt", s.title)))
         } else {
             match goes_on_in(cfg, s) {
                 Ok(p) => (Some(p), None),
@@ -2931,7 +2950,7 @@ pub fn plan(board: &Board, cfg: &Config, key: &str) -> anyhow::Result<Plan> {
         Err(e) => PlannedStart { who: seat.who.clone(), spec: None, start: None, problem: Some(e) },
     };
     let (wanted, on) = if pr.mine { (wants_own(&reviews, &board.lanes, pr), reviews.own.auto) } else { (wants(&reviews, pr), reviews.auto) };
-    Ok(Plan { wanted, on, stands, since, goes_on, start })
+    Ok(Plan { wanted, on, stands, since, posted, goes_on, start })
 }
 
 /// The review of a PR of yours as its primary session reads it: who wrote it and of which
@@ -4914,16 +4933,19 @@ mod tests {
         let mut r = Reviewer::default();
         let jobs = r.due(&board(vec![pr(7, HEAD)], vec![]), &on(), NOW);
         r.told(&jobs[0], Went::Started(vec![started(AUTO, S, NOW)]), NOW).unwrap();
-        assert!(to_come(&r.store).is_empty(), "under way");
+        assert!(to_come(&r.store, |_| true).is_empty(), "under way");
         let moved = board(vec![pr(7, NEXT)], vec![cut]);
         assert!(r.due(&moved, &on(), NOW + 60_001).is_empty(), "not told to carry on");
         let round = &r.store.prs["o/r#7"].rounds[0];
         assert_eq!((round.stage, round.note.as_deref()), (ReviewStage::Failed, Some(MADE_WAY)));
-        assert_eq!(to_come(&r.store), HashSet::from([S]));
+        assert_eq!(to_come(&r.store, |pr| pr == "o/r#7"), HashSet::from([S]));
+        // Only while a round of newer commits is to come: not once the PR's reviews are turned
+        // off, or its branch is back at the commit the round was of (`AutoReview::behind`).
+        assert!(to_come(&r.store, |_| false).is_empty(), "no round to come");
         let jobs = r.due(&moved, &on(), NOW + 60_001 + QUIET_MS);
         assert_eq!(kinds(&jobs), [format!("review 7 2222222 since None by auto in {S}")]);
         r.told(&jobs[0], Went::Started(vec![started(AUTO, S, NOW + 60_002 + QUIET_MS)]), NOW + 60_002 + QUIET_MS).unwrap();
-        assert!(to_come(&r.store).is_empty(), "its round came");
+        assert!(to_come(&r.store, |_| true).is_empty(), "its round came");
 
         // A round that made way for another machine's, or ended any other way, has nothing to come
         // here; nor has a reviewer another session took the place of for the next round.
@@ -4933,11 +4955,11 @@ mod tests {
         r.due(&moved, &on(), NOW + 60_001);
         let t = r.store.prs.get_mut("o/r#7").unwrap();
         t.rounds[0].note = Some(ELSEWHERE.into());
-        assert!(to_come(&r.store).is_empty(), "another machine's");
+        assert!(to_come(&r.store, |_| true).is_empty(), "another machine's");
         let t = r.store.prs.get_mut("o/r#7").unwrap();
         t.rounds[0].note = Some(MADE_WAY.into());
         t.sessions.insert(AUTO.into(), "claude:claude:other".into());
-        assert!(to_come(&r.store).is_empty(), "another session's");
+        assert!(to_come(&r.store, |_| true).is_empty(), "another session's");
     }
 
     /// The commits a round reads what changed since are the last a review of got done, never a

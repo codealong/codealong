@@ -1828,7 +1828,7 @@ pub fn apply_helper(s: &mut Session) {
 /// doesn't wait on you. The next round picks it up once the branch holds still, handed the
 /// commits since, and Carry on would only finish a review of a commit the PR has moved on from.
 /// It still says it was cut off (`Session::cut_off`); one you're talking to, a call to allow and
-/// any other error still wait on you, and your own Mark as unread still brings it back.
+/// any other error still wait on you.
 pub fn apply_round_to_come(s: &mut Session, to_come: bool) {
     if to_come && s.helps_an_agent() && s.status == Status::Error && s.cut_off.is_some() && !s.live {
         s.status = Status::Idle;

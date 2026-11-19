@@ -2363,7 +2363,10 @@ fn waiting_call(s: &Session, account: Option<&config::AccountCfg>) -> Option<Str
         if self.seen.snoozed.is_empty() && self.seen.unread.is_empty() && self.seen.quiet.is_empty() && self.seen.raised.is_empty() && self.seen.agent_seen.is_empty() && self.seen.labels.is_empty() && sides.is_empty() && !unattended {
             return sessions;
         }
-        let to_come = autoreview::to_come(&self.reviews);
+        // The PRs whose next round here is of newer commits than their last round's, as the board
+        // last published says (`AutoReview::behind`, worked out with the PRs and their settings).
+        let behind: HashSet<String> = self.board.read().map(|b| b.prs.iter().filter(|p| p.auto_review.as_ref().is_some_and(|a| a.behind && a.machine.is_none())).map(|p| crate::prlinks::pr_key(&p.key)).collect()).unwrap_or_default();
+        let to_come = autoreview::to_come(&self.reviews, |pr| behind.contains(pr));
         for s in &mut sessions {
             // Quiet and a helper's or headless run's rule first, so that what you do to it
             // yourself after (a side conversation you asked, a mark of unread, a snooze that
