@@ -2022,6 +2022,9 @@ export interface Board {
   /** Today on the engine's Mac, as a due date is written (`2026-11-18`): which todos are due goes
    *  by it (barfeed.rs `todo_lists`). Missing on older boards. */
   today?: string;
+  /** The next time a todo's standing in what waits on you changes by the clock alone (todos.rs
+   *  `todo_clock`), which the board changes by. Missing with nothing ahead, and on older boards. */
+  todoClock?: number;
   /** Todo labels, in your order. */
   labels: Label[];
   /** The schedules (src-tauri/src/schedules/), with what happened to each. Missing on older

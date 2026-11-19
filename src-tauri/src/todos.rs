@@ -1079,6 +1079,19 @@ pub fn awake_at(mut todos: Vec<Todo>, now: i64) -> Vec<Todo> {
     todos
 }
 
+/** The next time after `now` a todo's standing in what waits on you changes by the clock alone
+ *  (model.rs `Board::todo_clock`): a snooze ending, or the grace a session just started or linked
+ *  has to show up on the board running out (`NEW_PRIMARY_MS`, barfeed.rs `at_work`). None with
+ *  nothing ahead. */
+pub fn todo_clock(todos: &[Todo], now: i64) -> Option<i64> {
+    todos
+        .iter()
+        .flat_map(|t| [t.snoozed_until, t.primary.as_ref().map(|p| p.since + NEW_PRIMARY_MS), Some(t.updated_at + NEW_PRIMARY_MS).filter(|_| !t.sessions.is_empty())])
+        .flatten()
+        .filter(|&at| at > now)
+        .min()
+}
+
 pub fn is_ready(t: &Todo, todos: &[Todo]) -> bool {
     t.status == TodoStatus::Todo && t.archived_at.is_none() && !is_waiting(t, todos)
 }
@@ -1493,6 +1506,22 @@ mod tests {
         t.due = Some("2026-12-24".into());
         s.apply(TodoOp::Create { todo: t }, &lanes(), 100).unwrap();
         assert_eq!(s.todos[0].due.as_deref(), Some("2026-12-24"));
+    }
+
+    #[test]
+    fn the_todo_clock_is_the_next_time_a_todo_changes_by_itself() {
+        let mut a = todo("a");
+        a.snoozed_until = Some(500);
+        let mut b = todo("b");
+        b.sessions = vec!["s".into()];
+        b.updated_at = 100;
+        let mut c = todo("c");
+        c.primary = Some(Primary { session: "p".into(), since: 50 });
+        let all = vec![a, b, c];
+        assert_eq!(todo_clock(&all, 200), Some(500.min(100 + NEW_PRIMARY_MS).min(50 + NEW_PRIMARY_MS)));
+        // What's passed is passed: the next one ahead, then none.
+        assert_eq!(todo_clock(&all, 50 + NEW_PRIMARY_MS), Some(100 + NEW_PRIMARY_MS));
+        assert_eq!(todo_clock(&all, 100 + NEW_PRIMARY_MS), None);
     }
 
     #[test]

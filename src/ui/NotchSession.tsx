@@ -176,7 +176,7 @@ export function useNotchStage(items: BarItem[], reviews: BarReview[], todos: { d
     // through ⌃- or from a session it started) is still shown until you leave it. The bar has
     // no pill to say whether there's anything in it to mark seen, so ⌘E goes on from it. A
     // review has nothing to mark seen either: ⌘E skips it.
-    shown: key ? { key, title: row ? ROW_READS.titleOf(row) : 'The last one', since: row ? ROW_READS.sinceOf(row) : undefined, seenable: row?.kind === 'session' && seenable(row.item), skipsOnSeen: row?.kind === 'review' || row?.kind === 'todo', comesBack: row?.kind === 'todo' } : null,
+    shown: key ? { key, title: row ? ROW_READS.titleOf(row) : 'The last one', since: row ? ROW_READS.sinceOf(row) : undefined, seenable: row?.kind === 'session' && seenable(row.item), skipsOnSeen: row?.kind === 'review' || row?.kind === 'todo', comesBack: (row?.kind ?? kindOf(key)) === 'todo' } : null,
     show: (to) => show(to.key),
     travel: (dir) => {
       const to = dir === 'back' ? history.goBack() : history.goForward();

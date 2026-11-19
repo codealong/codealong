@@ -4,12 +4,18 @@
 // would each ask the engine again otherwise. Another device's are asked of it and kept the same
 // way, for the box of a session that's on it.
 
+import { onReload, useReloads } from './reload';
 import { useEffect, useState } from 'react';
 import { deviceStartOptions, startOptions } from './api';
 import { autoGroupIn, withLists } from './start';
 import type { RoutingGroup, Session, StartAccount, StartOptions } from './types';
 
 const FRESH_MS = 60_000;
+
+// ⌘R forgets what's kept: the boxes that offer the accounts read them again (reload.ts).
+onReload(() => {
+  read = null;
+});
 /** How long a box that has no start options waits to ask again (`useStartOptions`). */
 const RETRY_MS = 5_000;
 /** What's kept, and whether the read that answered failed (what's kept is then from before). */
@@ -78,6 +84,7 @@ export function useStartGroups(wanted = true): RoutingGroup[] {
  *  panel does (useStartChoice.ts), the todo card's. */
 export function useStartOptions(wanted = true): StartOptions | null {
   const [options, setOptions] = useState<StartOptions | null>(() => read?.options ?? null);
+  const reloads = useReloads();
   useEffect(() => {
     if (!wanted) return;
     let live = true;
@@ -95,7 +102,7 @@ export function useStartOptions(wanted = true): StartOptions | null {
       live = false;
       clearTimeout(again);
     };
-  }, [wanted]);
+  }, [wanted, reloads]);
   return options;
 }
 

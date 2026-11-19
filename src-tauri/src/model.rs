@@ -250,6 +250,12 @@ pub struct Board {
     /// brings them in on a board that's otherwise quiet.
     #[serde(default)]
     pub today: String,
+    /// The next time, epoch milliseconds, a todo's standing in what waits on you changes by the
+    /// clock alone: a snooze ending, the grace a session just started on it has to show up
+    /// running out (todos.rs `todo_clock`). It changes as that time passes, so the board does,
+    /// and a quiet board still brings the change to the bar. None with nothing ahead.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub todo_clock: Option<i64>,
     /// Todo labels, in your order.
     pub labels: Vec<crate::todos::Label>,
     /// The quick panel's shortcut, from config.toml; empty when it's off.

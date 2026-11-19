@@ -9,7 +9,6 @@
 // the pill carries only its id and title.
 
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { showQuick } from '../api';
 import { showContextMenu } from '../contextMenu';
 import { useEditorIcons } from '../editors';
 import { followBoard, type Following } from '../followBoard';
@@ -103,11 +102,11 @@ export function NotchTodo({ todoKey, now, queue, notice, onBack, keys, onKeys, o
           openSession: (lane, session) => host.open(lane, session.openTarget),
           laneMenu: (l) => show(menus.laneMenu(l, { report, open: host.open, reveal: () => host.showLane(l), editors, desktop: onDesktop })),
           sessionMenu: (l, s) => show(menus.sessionMenu(l, s, sessionCan(l, s))),
-          todoMenu: (edit) =>
+          todoMenu: (edit, start) =>
             show(
               menus.todoMenu(todo, {
                 report,
-                start: () => void showQuick({ todo: todo.id, project: todo.project || null }).catch((e: unknown) => report.error(errorText(e))),
+                start,
                 reveal: () => host.showTodo(todo),
                 edit,
                 desktop: onDesktop,

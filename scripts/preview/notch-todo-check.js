@@ -6,12 +6,18 @@
 // box starts a session on it in its worktree, told the todo, linked to it, and the notch goes on
 // to the ready todo; and ⇧⌘E marks that one done.
 //   PREVIEW_TODOS=scripts/preview/todos-sample.json PREVIEW_SIZE=1512,980 PREVIEW_WAIT=90000 scripts/preview.sh notch '' scripts/preview/notch-todo-check.js
+//   PREVIEW_PLATFORM=linux PREVIEW_TODOS=scripts/preview/todos-sample.json PREVIEW_SIZE=1512,980 PREVIEW_WAIT=90000 scripts/preview.sh notch '' scripts/preview/notch-todo-check.js
 (function () {
   var calls = sent;
   var notch = function () { return document.querySelector('.ca-notch'); };
   var shape = function () { return document.querySelector('.ca-notch-shape'); };
   var is = function (state) { return notch() && notch().classList.contains('is-' + state); };
   var key = function (init) { (document.activeElement || document.body).dispatchEvent(new KeyboardEvent('keydown', Object.assign({ bubbles: true, cancelable: true }, init))); };
+  // ⌘ is Ctrl on Linux and Windows (platform.ts), which say their keys in words.
+  var mac = !window.__CODEALONG_PLATFORM__;
+  var cmd = mac ? { metaKey: true } : { ctrlKey: true };
+  // A button's words, without its keys (SessionPanel.tsx `Hotkey`: its words are its plain span).
+  var words = function (b) { var w = b.querySelector(':scope > span:not([class])'); return w ? w.textContent.trim() : ''; };
   var enter = function () { shape().dispatchEvent(new PointerEvent('pointerover', { bubbles: true })); };
   var cardTitle = function () { var t = document.querySelector('.ca-notch-session .ca-todocard .ca-todoinsp-title'); return t ? t.value.trim() : ''; };
   var shows = function (todo) { return function () { return is('session') && !!document.querySelector('.ca-notch-session .ca-todocard') && cardTitle().indexOf(todo.title.slice(0, 20)) >= 0; }; };
@@ -69,8 +75,10 @@
     .then(function () {
       check('the due count opens the notch on the todo’s card', is('session') && is('open'));
       check('its pill is marked', document.querySelector('.ca-notch-body .ca-hud-pill.is-due').classList.contains('is-peeked'));
-      var labels = Array.prototype.map.call(document.querySelectorAll('.ca-notch-session .ca-hotkeys .ca-hotkey:not(.is-more)'), function (b) { return b.textContent; });
-      check('the strip has the todo’s actions with their keys', labels.join('|') === 'Start⌘⏎|Done⇧⌘E|Snooze⌃⌘1–7|Due…|Back⌃-|Next⌘]|esc', labels.join('|'));
+      var buttons = Array.prototype.slice.call(document.querySelectorAll('.ca-notch-session .ca-hotkeys .ca-hotkey:not(.is-more)'));
+      var labels = buttons.map(function (b) { return b.textContent; });
+      check('the strip has the todo’s actions', buttons.map(words).filter(Boolean).join('|') === 'Start|Done|Snooze|Due…|Back|Next', labels.join('|'));
+      check('each with its key, as the platform says it', !mac || labels.join('|') === 'Start⌘⏎|Done⇧⌘E|Snooze⌃⌘1–7|Due…|Back⌃-|Next⌘]|esc', labels.join('|'));
       var note = (q('.ca-notch-session .ca-reply-queue-note') || {}).textContent || '';
       check('the strip says the ready todo is next, apart from what waits', /^1 ready todo · next: /.test(note), note);
       check('the card has the todo as its panel shows it', !!document.querySelector('.ca-notch-session .ca-todocard .ca-todoinsp'));
@@ -79,7 +87,7 @@
       type(box, 'Keep it short.');
       box.focus();
       return wait(200).then(function () {
-        key({ key: 'Enter', metaKey: true });
+        key(Object.assign({ key: 'Enter' }, cmd));
         return until(function () { return calls('start_session').length > 0; }, 3000, 'the start');
       });
     })
@@ -93,7 +101,7 @@
       check('and the notch goes on to the ready todo', true);
       check('one linked to no worktree says Start asks where', !!q('.ca-notch-session .ca-todocard-nowhere') && !q('.ca-notch-session .ca-todocard-box'));
       var before = calls('todo_op').length;
-      key({ key: 'E', code: 'KeyE', metaKey: true, shiftKey: true });
+      key(Object.assign({ key: 'E', code: 'KeyE', shiftKey: true }, cmd));
       return until(function () { return calls('todo_op').length > before; }, 3000, '⇧⌘E').then(function () {
         var op = last('todo_op').op;
         check('⇧⌘E marks it done', op.op === 'update' && op.id === ready.id && op.patch.status === 'done', JSON.stringify(op));

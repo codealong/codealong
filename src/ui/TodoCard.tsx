@@ -53,8 +53,9 @@ export interface TodoCardCan {
    *  menu (menus.ts). */
   laneMenu: (lane: Lane) => void;
   sessionMenu: (lane: Lane, session: Session) => void;
-  /** The todo's own menu, its changes going as the card's do (`edit`). */
-  todoMenu: (edit: menus.TodoEdit) => void;
+  /** The todo's own menu, its changes going as the card's do (`edit`), and its Start session…
+   *  the card's (`start`). */
+  todoMenu: (edit: menus.TodoEdit, start: () => void) => void;
 }
 
 // The todos a start is on its way for, whichever card asked: its card can be left and come back
@@ -184,7 +185,7 @@ export function TodoCard({ todo, todos, labels, run, lanes, usage, projects, now
           projects={projects}
           onRun={runHere}
           onStart={start}
-          onMenu={() => can.todoMenu(edit)}
+          onMenu={() => can.todoMenu(edit, () => (launching.has(todo.id) ? report.info('A session is starting on it.') : start()))}
           onShowTodo={can.showTodo}
           onShowSession={(lane, session) => can.showSession(lane, session)}
           onOpenSession={can.openSession}
