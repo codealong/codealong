@@ -2246,7 +2246,9 @@ mod tests {
         cfg.routing.auto = "personal".into();
         cfg.projects = vec![ProjectCfg { name: "Northwind".into(), repos: vec!["github.com/northwind/*".into()], folders: Vec::new(), chrome_profile: None, default: Some("work".into()) }];
         let board = Board::default();
-        let on = |account: &str, project: Option<&str>| super::pick(&cfg, Some(&board), account, project, Some(Place::Terminal), None, None, false, NOW, Path::new("/Users/me")).map(|p| p.account).unwrap();
+        // No place asked for: a group's members are offered places by this machine's home, and
+        // on one without `claude` (Linux CI) the terminal isn't one of them.
+        let on = |account: &str, project: Option<&str>| super::pick(&cfg, Some(&board), account, project, None, None, None, false, NOW, Path::new("/Users/me")).map(|p| p.account).unwrap();
         assert_eq!(on("auto", Some("Northwind")), "claude2");
         assert_eq!(on("auto", Some("Atlas")), "claude", "a project without a group of its own");
         assert_eq!(on("auto", None), "claude");
