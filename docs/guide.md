@@ -2509,7 +2509,8 @@ on; the system keeps it rather than config.toml: on macOS System Settings › Ge
 lists Codealong, and on Linux it's an entry in `~/.config/autostart`, and turning it off there
 shows here); Appearance has the theme, glass (see *Glass*), whether keyboard shortcuts always show (see
 *Keyboard shortcuts beside what they do*) and session emblems (see *Emblems*),
-and says the keys that zoom (see *Zoom*); Sounds has the sound for each thing that starts to
+and says the keys that zoom (see *Zoom*); Queue has what waits on you and in what order (see *What
+waits on you, and in what order*); Sounds has the sound for each thing that starts to
 wait on you, and how loud (see *Sounds*); Jev has the TypeSafe key (kept in the keychain),
 what Jev's requests used and cost (see *What sessions used and cost*), and a switch per feature,
 each saying what it sends; Accounts adds, edits, turns off, removes and
@@ -3338,11 +3339,45 @@ panel; the pop-out button beside the notch's pin*
 
 A window of its own, sized and placed as you like and kept up until you close it, that works through
 what waits on you one at a time: every session that needs you, then the PRs waiting on your review,
-then the sessions whose turn ended, each the longest wait first, snoozed ones left out. With
+then the sessions whose turn ended, each the longest wait first, snoozed ones left out, or in the
+order Settings › Queue puts them in (*What waits on you, and in what order*). With
 Settings › Automation › Put reviews before sessions that need you (`[pull_requests]
 reviews_first`, everywhere or for one repo, which a repo's team file can turn on for everyone), the
-PRs waiting on your review come first instead, ahead of the sessions that need you; the notch goes
-through them in the same order. A session moved to the top still comes before them. With the bar
+PRs waiting on your review come first instead, ahead of everything else; the notch goes
+through them in the same order. A session moved to the top still comes before them.
+
+#### What waits on you, and in what order
+
+*Settings › Queue; `[queue]` in config.toml*
+
+The notch, the waiting window and a session's panel in Sessions go through what waits on you in
+one order, Next (⌘]) going on to what comes after the one you're on: by default the sessions that
+need you, the PRs waiting on your review, the todos that are due, the sessions whose turn ended,
+and last the todos ready to start, each kind the longest wait first. Settings › Queue lists them in
+that order: drag one by its row or its grip, or press ⌃⌘↑ ⌃⌘↓ on its grip, to put the kinds in yours
+(`order`). A box takes a kind out of what waits on you: PRs waiting on your review taken out aren't
+on the bar or in the notch, nor counted beside the camera or in the mark's color, nor in the
+waiting window; todos that
+are due taken out are among the ready ones when they're ready to start; and the todos ready to
+start taken out leave the notch's ready pill and the end of the queue. The sessions that need you
+and those whose turn ended are always in it, since they're what the bar is for, though they can be
+moved; and the todos ready to start always come last, after the ones you skipped have come round
+again, since they're there to pick up once nothing else waits. A kind put back goes where it comes
+by default. Todos come due picks how long before its due date a todo joins what waits on you, from
+on the day to a week before (`due_within`, in days, up to 30); an overdue one waits until it's done
+or snoozed. Beside the camera, the closed notch draws the first kind in your order that has any.
+A repo that puts its reviews first (Automation) still has its PRs go ahead of all of these, and a
+session moved to the top comes before everything. config.toml writes it as:
+
+```toml
+[queue]
+order = ["needs", "reviews", "due", "unread", "ready"]
+due_within = 0
+```
+
+A kind config.toml names that isn't one, one named twice, the sessions' two left out or the ready
+todos put before another are said as an error in config.toml, and the rest is gone by as written:
+a session's kind left out goes where it comes by default, and the ready todos last. With the bar
 docked in the notch, ⌥⌘. opens the notch instead, on what waits on you, or with nothing waiting on
 the end of what waits (below, under *The bar in the notch*), and the button beside its pin opens
 this window, on what the notch shows. Pressed while the
@@ -3757,7 +3792,8 @@ window. One the queue goes on to later, as a review, leads back nowhere, however
 Todos wait on you there too. One due today or before, and not done, comes after the PRs waiting on
 your review and before the turns that ended, the most overdue first, and counts beside the camera
 with a calendar; once nothing else waits, the queue goes on to the todos ready to start, in your
-order, which don't count, since there are nearly always some. The 1 due and 4 ready pills open the
+order, which don't count, since there are nearly always some. Settings › Queue changes that order
+and what's in it (*What waits on you, and in what order*). The 1 due and 4 ready pills open the
 first of each (a menu picks among them in the floating bar, where they open the quick panel
 instead). A todo's card has the todo as its panel in Todo shows it, its changes saved as you go, and
 at its foot a box that starts a session on it in the worktree it's linked to, on the account its

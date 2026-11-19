@@ -92,7 +92,7 @@ import { runFolder } from './ui/RunButton';
 import { afterStop } from './training';
 import { askWords, reviewSnoozeMenu, type SnoozeAsk } from './snooze';
 import { useSessionHistory } from './history';
-import { QUEUE_CHORDS } from './queue';
+import { inOrder, QUEUE_CHORDS, queueKinds } from './queue';
 import { SESSION_READS, shownSession as queueShown, useWaitingQueue } from './useWaitingQueue';
 import { openWhere, where } from './open';
 import { asText, flag, oneOf, readStored, strings, useStored } from './stored';
@@ -1359,7 +1359,8 @@ export function App() {
   // unless the caller says the keyboard stays where it is.
   const queue = useWaitingQueue<SessionItem, boolean>({
     waiting: waitingRows,
-    reads: SESSION_READS,
+    // In the order `[queue]` puts what waits on you in: of the sessions', needs you and Your turn.
+    reads: inOrder(SESSION_READS, queueKinds(board?.queue?.order)),
     shown: view === 'sessions' && selected?.kind === 'agent' ? queueShown(selected.session) : null,
     show: (row, box = true) => {
       if (box) setBoxFocus(row.key);

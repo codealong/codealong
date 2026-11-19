@@ -85,6 +85,10 @@ pub struct BarFeed {
     pub todos: Vec<BarTodo>,
     /// Todos that wait on you by their due date (`todo_lists`): the most overdue first.
     pub due: Vec<BarTodo>,
+    /// What waits on you, in the order the queue goes to it (`[queue] order`, config.rs
+    /// `QueueCfg::kinds`): the notch works through its rows and draws its count by it. The
+    /// reviews and todos of a kind left out aren't on the feed at all.
+    pub queue_order: Vec<String>,
     /// The other devices whose sessions it lists, by short id: those connected now. One that
     /// wasn't on the feed before has just come back, and what it brings isn't news to sound or
     /// knock for (sounds.rs, src/mark.ts).
@@ -312,7 +316,8 @@ pub fn feed(shown: Shown) -> BarFeed {
 
     // The ones whose repo puts reviews first lead, as the queue goes to them (src/queue.ts
     // `byPlace`): the notch's count and the bar's reviews open the first of them.
-    let mut prs: Vec<_> = board.prs.iter().filter(|p| p.waits_on_review()).collect();
+    // None while `[queue]` leaves reviews out.
+    let mut prs: Vec<_> = if board.queue.waits("reviews") { board.prs.iter().filter(|p| p.waits_on_review()).collect() } else { Vec::new() };
     let since = |p: &PrItem| p.requested_at.unwrap_or(p.updated_at);
     prs.sort_by(|a, b| b.review_first.cmp(&a.review_first).then(since(a).cmp(&since(b))).then_with(|| a.key.cmp(&b.key)));
     let reviews = prs
@@ -355,6 +360,7 @@ pub fn feed(shown: Shown) -> BarFeed {
         reviews,
         todos: ready,
         due,
+        queue_order: board.queue.kinds(),
         devices,
         // By when each began, so the one the bar names first stays the same one.
         listenings: {
@@ -377,22 +383,24 @@ pub fn feed(shown: Shown) -> BarFeed {
     }
 }
 
-/// How many days ahead a todo's due date brings it into what waits on you: 0 is due today, and
-/// overdue. The queue's settings will make it yours to set.
-const DUE_WITHIN: i64 = 0;
-
-/// The todos that wait on you, on `today` (days since 1970, here): those due by `DUE_WITHIN` days
-/// from it, open and not snoozed, the most overdue first and then in your order; and those ready
-/// to start but for those, in your order. A snoozed todo is in neither until its time comes, nor
-/// one at work (`at_work`).
+/// The todos that wait on you, on `today` (days since 1970, here): those due by `[queue]
+/// due_within` days from it, open and not snoozed, the most overdue first and then in your order;
+/// and those ready to start but for those, in your order. A snoozed todo is in neither until its
+/// time comes, nor one at work (`at_work`). A kind `[queue]` leaves out has none: with `due` out,
+/// a todo due that's ready to start is among the ready ones.
 fn todo_lists(board: &Board, today: i64) -> (Vec<BarTodo>, Vec<BarTodo>) {
+    let (due_on, ready_on) = (board.queue.waits("due"), board.queue.waits("ready"));
+    if !due_on && !ready_on {
+        return (Vec::new(), Vec::new());
+    }
+    let within = i64::from(board.queue.due_within.min(crate::config::DUE_WITHIN_MAX));
     let now = board.generated_at;
     // Every session once, by key, with its worktree: a todo's are looked up in it, not searched
     // for, for whether it's at work and where it starts.
     let sessions: Sessions = board.lanes.iter().flat_map(|l| l.sessions.iter().filter(|s| s.visitor.is_none()).map(move |s| (s.key.as_str(), (l, s)))).collect();
     let open = |t: &todos::Todo| t.archived_at.is_none() && t.snoozed_until.is_none_or(|at| at <= now);
     let day_of = |t: &todos::Todo| t.due.as_deref().and_then(due_day);
-    let due_by = |t: &todos::Todo| t.status != todos::TodoStatus::Done && day_of(t).is_some_and(|d| d <= today + DUE_WITHIN);
+    let due_by = |t: &todos::Todo| due_on && t.status != todos::TodoStatus::Done && day_of(t).is_some_and(|d| d <= today + within);
     let mut due: Vec<BarTodo> = Vec::new();
     let mut ready: Vec<BarTodo> = Vec::new();
     for (i, t) in board.todos.iter().enumerate() {
@@ -401,7 +409,7 @@ fn todo_lists(board: &Board, today: i64) -> (Vec<BarTodo>, Vec<BarTodo>) {
         }
         let is_due = due_by(t);
         // The cheap tests first: most todos are neither, and need no look at their sessions.
-        if !is_due && !todos::is_ready(t, &board.todos) || at_work(t, &sessions, now) {
+        if !is_due && !(ready_on && todos::is_ready(t, &board.todos)) || at_work(t, &sessions, now) {
             continue;
         }
         if is_due {
@@ -763,6 +771,20 @@ mod tests {
         // The feed goes by the day the board says it is.
         b.today = "2026-11-19".into();
         assert_eq!(ids(&feed(Shown::here(&b)).due), vec!["overdue", "edited", "left-off", "idle", "nap", "woke", "today", "later"]);
+        // `[queue] due_within` brings one in that many days ahead of its day.
+        b.today = "2026-11-18".into();
+        b.queue.due_within = 1;
+        assert_eq!(ids(&feed(Shown::here(&b)).due), vec!["overdue", "edited", "left-off", "idle", "nap", "woke", "today", "later"]);
+        // With due ones left out, one that's ready to start is among the ready ones, in your order.
+        b.queue.order = vec!["needs".into(), "reviews".into(), "unread".into(), "ready".into()];
+        let f = feed(Shown::here(&b));
+        assert!(f.due.is_empty(), "{:?}", f.due);
+        assert_eq!(ids(&f.todos), vec!["today", "later", "woke", "plain"]);
+        // With ready ones left out, only the due ones wait.
+        b.queue.order = vec!["needs".into(), "due".into(), "unread".into()];
+        let f = feed(Shown::here(&b));
+        assert!(f.todos.is_empty(), "{:?}", f.todos);
+        assert_eq!(ids(&f.due), vec!["overdue", "edited", "left-off", "idle", "nap", "woke", "today", "later"]);
     }
 
     #[test]
@@ -860,5 +882,11 @@ mod tests {
         let b = board(vec![], vec![pr(2, None), pr(1, Some(20)), first]);
         let got: Vec<(u64, bool)> = feed(Shown::here(&b)).reviews.into_iter().map(|r| (r.number, r.first)).collect();
         assert_eq!(got, vec![(3, true), (1, false), (2, false)]);
+        // With `[queue]` leaving reviews out, none wait on you, first or not.
+        let mut b = b;
+        b.queue.order = vec!["needs".into(), "due".into(), "unread".into(), "ready".into()];
+        let f = feed(Shown::here(&b));
+        assert!(f.reviews.is_empty(), "{:?}", f.reviews);
+        assert_eq!(f.queue_order, vec!["needs", "due", "unread", "ready"]);
     }
 }

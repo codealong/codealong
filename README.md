@@ -772,7 +772,7 @@ send = true                      # suggested
 
 [pull_requests]
 nudge_about = "feedback-and-checks"  # for everyone
-reviews_first = true             # for everyone: PRs waiting on your review come before sessions that need you
+reviews_first = true             # for everyone: PRs waiting on your review come first, before everything else
 nudge_by_default = true          # suggested
 rerequest_after_fixes = true     # suggested
 ```
@@ -894,7 +894,11 @@ drafts = false                 # review your draft PRs too; others' go by [revie
 nudge_by_default = false       # every open PR of yours tells its primary session what happens on it (Settings › Automation)
 nudge_about = "everything"     # what a nudge tells of: "feedback" only comments and changes asked for; "feedback-and-checks" adds failing checks and conflicts; "feedback-and-merges" and "feedback-checks-and-merges" add a merge to those
 rerequest_after_fixes = false  # ask a reviewer who asked for changes to look again, as you, once fixes are pushed and nobody said so (Settings › Automation)
-reviews_first = false          # PRs waiting on your review come before the sessions that need you in the notch, the waiting window and the quick panel
+reviews_first = false          # PRs waiting on your review come before everything else in the notch, the waiting window and the quick panel
+
+[queue]                        # what waits on you, in the order the notch, the waiting window and a session's panel go through it (Settings › Queue)
+order = ["needs", "reviews", "due", "unread", "ready"]  # sessions that need you, PRs waiting on your review, todos due, sessions whose turn ended, todos ready to start (always last); one left out doesn't wait on you, but the sessions' two always do
+due_within = 0                 # how many days before its due date a todo comes due: 0 on the day
 
 [sounds]                       # a short sound when something starts to wait on you (Settings › Sounds)
 needs_you = "Pop"              # a session asks you something, waits on a call to allow, or stops with an error (on Linux, "message-new-instant")

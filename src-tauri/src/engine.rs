@@ -3186,9 +3186,10 @@ fn waiting_call(s: &Session, account: Option<&config::AccountCfg>) -> Option<Str
         self.config_text = text.as_ref().ok().cloned().flatten();
         match text.and_then(|t| t.map(|t| config::load_text(&t)).transpose()) {
             Ok(Some(cfg)) => {
-                // A sound that isn't there reads fine and would only be silent, so it's said here,
-                // as Settings says it when it saves.
-                self.set_trouble(Trouble::Config, config::check_sounds(&cfg.sounds).err());
+                // A sound that isn't there reads fine and would only be silent, and a queue that
+                // names what isn't a kind is gone by without it, so they're said here, as Settings
+                // says them when it saves.
+                self.set_trouble(Trouble::Config, config::check_sounds(&cfg.sounds).and_then(|()| config::check_queue(&cfg.queue)).err());
                 self.cfg = cfg;
             }
             Ok(None) => {
@@ -4570,6 +4571,12 @@ fn waiting_call(s: &Session, account: Option<&config::AccountCfg>) -> Option<Str
         board.improve = crate::improve::Improve { installed: crate::updates::enabled(), ..crate::improve::target(&board.lanes, &self.codealong_sources) };
         board.jev = self.cfg.jev.clone();
         board.experimental = self.cfg.experimental.clone();
+        board.queue = self.cfg.queue.settled();
+        // While `[queue]` leaves reviews out, a PR waiting on your review is no cause for the
+        // mark's color, as it's none for the bar's pills or the notch's count.
+        if !board.queue.waits("reviews") {
+            board.logo_status = board::logo_status(&board.lanes, &[]);
+        }
         board.devices = self.cfg.devices.clone();
         board.project_rules = self.cfg.projects.clone();
         for lane in &mut board.lanes {

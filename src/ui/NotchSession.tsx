@@ -40,6 +40,7 @@ import { currentRow, notchRows, ROW_READS, waitingRow, waitingRows, type NotchRo
 import { useSessionHistory } from '../history';
 import { seenable } from '../lanes';
 import type { Left } from '../menus';
+import { inOrder, WAITS, type Waits } from '../queue';
 import { errorText } from '../report';
 import type { BarItem, BarReview, BarTodo, Board, PrItem } from '../types';
 import { useWaitingQueue } from '../useWaitingQueue';
@@ -131,14 +132,14 @@ export interface NotchStageState {
  *  through, and its keys. `items` are the bar's sessions as it shows them, in its order,
  *  `reviews` the PRs waiting on your review and `todos` the todos due and ready to start; `known`
  *  says whether the bar still has a key, in any of its pills; `docked` while the bar is in the
- *  notch. */
-export function useNotchStage(items: BarItem[], reviews: BarReview[], todos: { due: BarTodo[]; ready: BarTodo[] }, known: (key: string) => boolean, docked: boolean): NotchStageState {
+ *  notch; `order` what waits on you in your order (queue.ts `queueKinds`). */
+export function useNotchStage(items: BarItem[], reviews: BarReview[], todos: { due: BarTodo[]; ready: BarTodo[] }, known: (key: string) => boolean, docked: boolean, order: readonly Waits[] = WAITS): NotchStageState {
   const [shown, setShown] = useState<{ key: string; kind: ShownKind; rename: boolean; from: CameFrom | null } | null>(null);
   const [open, setOpen] = useState(false);
   const [keys, setKeys] = useState(false);
   const [endOpens, setEndOpens] = useState(0);
   const linger = useRef<number | null>(null);
-  const rows = useMemo(() => notchRows(items, reviews, todos), [items, reviews, todos]);
+  const rows = useMemo(() => notchRows(items, reviews, todos, order), [items, reviews, todos, order]);
   const rowsNow = useRef(rows);
   rowsNow.current = rows;
   // The session showing, as of the last call rather than the last render: two clicks can come
@@ -171,7 +172,7 @@ export function useNotchStage(items: BarItem[], reviews: BarReview[], todos: { d
   const queue = useWaitingQueue<NotchRow>({
     waiting: waitingRows(rows),
     along: rows,
-    reads: ROW_READS,
+    reads: inOrder(ROW_READS, order),
     // One the bar's groups no longer list (it went idle, or it's another project's, come to
     // through ⌃- or from a session it started) is still shown until you leave it. The bar has
     // no pill to say whether there's anything in it to mark seen, so ⌘E goes on from it. A
@@ -255,11 +256,11 @@ export function useNotchStage(items: BarItem[], reviews: BarReview[], todos: { d
   const opens = useCallback(
     (pick: typeof currentRow) => {
       if (shownNow.current !== null) return close();
-      const to = pick(rowsNow.current, last.current);
+      const to = pick(rowsNow.current, last.current, order);
       if (to) show(to.key);
       else end();
     },
-    [close, show, end],
+    [close, show, end, order],
   );
   const press = useCallback(() => opens(currentRow), [opens]);
   const workThrough = useCallback(() => opens(waitingRow), [opens]);

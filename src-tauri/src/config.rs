@@ -55,6 +55,8 @@ pub struct Config {
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     pub repos: BTreeMap<String, RepoCfg>,
     #[serde(default)]
+    pub queue: QueueCfg,
+    #[serde(default)]
     pub sounds: SoundsCfg,
     #[serde(default)]
     pub experimental: ExperimentalCfg,
@@ -89,6 +91,7 @@ impl Default for Config {
             reviews: ReviewsCfg::default(),
             pull_requests: PullRequestsCfg::default(),
             repos: BTreeMap::new(),
+            queue: QueueCfg::default(),
             sounds: SoundsCfg::default(),
             experimental: ExperimentalCfg::default(),
             voice: VoiceCfg::default(),
@@ -743,10 +746,10 @@ pub struct PullRequestsCfg {
     /// it's off until you turn it on.
     #[serde(default)]
     pub rerequest_after_fixes: bool,
-    /// A PR waiting on your review goes ahead of the sessions that need you in what waits on you
-    /// (src/queue.ts `byPlace`), in the notch, the waiting window and the quick panel's list. Off,
-    /// reviews come after the sessions that need you and before the turns that ended. A repo's
-    /// team can turn it on for everyone (teamfile.rs), and your table for a repo wins over both.
+    /// A PR waiting on your review goes ahead of everything else in what waits on you (src/queue.ts
+    /// `byPlace`), in the notch, the waiting window and the quick panel's list. Off, reviews come
+    /// where `[queue] order` puts them. A repo's team can turn it on for everyone (teamfile.rs),
+    /// and your table for a repo wins over both.
     #[serde(default)]
     pub reviews_first: bool,
 }
@@ -1054,6 +1057,89 @@ pub fn check_repos(cfg: &Config) -> std::result::Result<(), String> {
         }
     }
     Ok(())
+}
+
+/// What waits on you, and the order the queue goes to it in (src/queue.ts `byPlace`): the notch,
+/// the waiting window and a session's panel in Sessions go through it, ⌘] from one to the next
+/// (Settings › Queue). Each kind is one of `QUEUE_KINDS`.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct QueueCfg {
+    /// The kinds that wait on you, the first first. One left out doesn't wait on you: a PR
+    /// waiting on your review isn't on the bar or in the notch, nor is a todo, due or ready to
+    /// start. The sessions' two always wait (`ALWAYS_WAITS`): one left out goes where the default
+    /// order has it (`kinds`). Todos ready to start come last wherever they're put: they're there
+    /// to pick up once nothing else waits. A repo whose `reviews_first` is on has its reviews go
+    /// ahead of all of them.
+    #[serde(default = "default_queue_order")]
+    pub order: Vec<String>,
+    /// How many days before its due date a todo joins what waits on you as due: 0 on the day,
+    /// 1 the day before. Overdue ones wait until they're done (barfeed.rs `todo_lists`).
+    #[serde(default)]
+    pub due_within: u32,
+}
+
+/// What can wait on you, in the order the queue goes to them by default (asked 2026-11-18):
+/// sessions that need you, PRs waiting on your review, todos due, sessions whose turn ended, and
+/// todos ready to start. src/queue.ts `WAITS` has them too.
+pub const QUEUE_KINDS: [&str; 5] = ["needs", "reviews", "due", "unread", "ready"];
+
+/// The kinds that always wait on you: a session needing you or whose turn ended is what the bar
+/// and the notch are for, and leaving one out would take sessions off them.
+pub const ALWAYS_WAITS: [&str; 2] = ["needs", "unread"];
+
+/// The most days ahead of its due date a todo joins what waits on you.
+pub const DUE_WITHIN_MAX: u32 = 30;
+
+fn default_queue_order() -> Vec<String> {
+    QUEUE_KINDS.iter().map(|k| k.to_string()).collect()
+}
+
+impl Default for QueueCfg {
+    fn default() -> Self {
+        QueueCfg { order: default_queue_order(), due_within: 0 }
+    }
+}
+
+impl QueueCfg {
+    /// The kinds that wait on you, in your order: the ones `order` names that are kinds, each
+    /// once, and each of `ALWAYS_WAITS` it leaves out where the default order has it among them;
+    /// `ready` last. `check_queue` says so of a name that isn't a kind, of one left out that
+    /// can't be, and of `ready` put before another.
+    pub fn kinds(&self) -> Vec<String> {
+        let rank = |k: &str| QUEUE_KINDS.iter().position(|q| *q == k);
+        let mut out: Vec<&str> = Vec::new();
+        for k in &self.order {
+            if let Some(known) = QUEUE_KINDS.iter().find(|q| **q == k.trim()) {
+                if !out.contains(known) {
+                    out.push(known);
+                }
+            }
+        }
+        // The queue comes round to the ones you skipped before it reaches these (src/queue.ts
+        // `leftAfter`), so they're last in any order.
+        if let Some(at) = out.iter().position(|k| *k == "ready") {
+            let ready = out.remove(at);
+            out.push(ready);
+        }
+        for k in ALWAYS_WAITS {
+            if !out.contains(&k) {
+                let at = out.iter().position(|o| rank(o) > rank(k)).unwrap_or(out.len());
+                out.insert(at, k);
+            }
+        }
+        out.into_iter().map(String::from).collect()
+    }
+
+    /// Whether `kind` waits on you.
+    pub fn waits(&self, kind: &str) -> bool {
+        self.kinds().iter().any(|k| k == kind)
+    }
+
+    /// As the windows go by it: its kinds in order (`kinds`), and `due_within` no further than it
+    /// goes.
+    pub fn settled(&self) -> QueueCfg {
+        QueueCfg { order: self.kinds(), due_within: self.due_within.min(DUE_WITHIN_MAX) }
+    }
 }
 
 /// A sound when something starts to wait on you (sounds.rs): each the name of one of macOS's
@@ -2090,7 +2176,7 @@ const UPDATES_COMMENT: &str = "# check: look for a newer Codealong now and then,
 const LIMITS_COMMENT: &str = "# When a session stops at its account's usage limit. when_hit: \"suggest\" offers to move it to an account\n# of its harness that has room; \"move\" moves it there by itself, and it carries on where it stopped.\n# continue_when_lifted: when the limit lifts and it's still stopped there, tell it to carry on.\n";
 const ROUTING_COMMENT: &str = "# Model groups ([[routing.groups]]) that starts and reviews can pick, which group Auto uses (`auto`),\n# and what Jev is told when suggesting an account and model in the quick panel (`prompt`).\n# strategy: \"usage\" (most room under usage_cap), \"alternate-harness\" (rotate harnesses), \"round-robin\",\n# or \"fallback\" (the members in order, each until it's within `buffer` of its usage_cap).\n# buffer: the percent below each account's usage_cap left for the sessions already running on it (default 5).\n";
 const SESSIONS_COMMENT: &str = "# block_flagged_sessions: keep provider-flagged sessions out of automatic messages, resumes and\n# account moves. On by default; manual replies and resumes remain available.\n# continue_after_network_error: when a session's turn ends because its agent couldn't reach its API\n# (the machine slept, or the network dropped), tell it to carry on once the API can be reached again.\n# continue_after_sign_in: when a session's turn ends because its account's sign-in was turned down,\n# tell it to carry on once the account is signed in again. On unless set to false.\n# continue_after_restart: when Codealong quitting cuts off a turn of a session it runs itself, tell it to\n# carry on once Codealong is back.\n# resume_for_sessions_it_started: when a session that isn't running is sent a message by a session it\n# started, or by the one that started it, resume it out of sight with that message.\n# resume_for_any_session: the same for a message from any session, which tells it it had stopped;\n# while it's on, resume_for_sessions_it_started is part of it.\n# resume_for_pr_news: when a pull request's nudge has news that asks for work (comments, changes asked\n# for, failing checks, a conflict), or any news of one that's watched, and its primary session isn't\n# running, resume it out of sight with\n# it, unless another of the pull request's sessions is running.\n# live_replies: Claude Code sessions hand Codealong a reply as their terminal shows it, so Codealong\n# shows it as it's written; their terminals then show a reply a paragraph at a time. New sessions only.\n# hibernate_after: minutes a session in a terminal, or a background job, sits idle, wanting nothing from you,\n# before its tab closes or its job stops to free what its agent holds; a click on it or a reply resumes it.\n# 0 (the default) is off.\n";
-const PULL_REQUESTS_COMMENT: &str = "# nudge_by_default: every open PR of yours tells its primary session (the one picked in its menu, else the one\n# that pushed to it most) what happens on it (reviews, comments, an approval, a merge, failing checks,\n# conflicts), in a message from Codealong. A PR's own switch wins either way.\n# nudge_about: what a nudge tells of: \"everything\"; \"feedback\", only comments and reviews that ask for changes\n# or say something, never an approval, a merge or a close; \"feedback-and-checks\", that, failing checks and\n# conflicts; or \"feedback-and-merges\" or \"feedback-checks-and-merges\", one of those and a merge.\n# rerequest_after_fixes: on a PR of yours whose reviewer asked for changes, once commits came after their last\n# word and nobody said so on it, ask them to review it again, as you. GitHub tells a reviewer of that, not of a push.\n# reviews_first: PRs waiting on your review come before the sessions that need you in what waits on you.\n";
+const PULL_REQUESTS_COMMENT: &str = "# nudge_by_default: every open PR of yours tells its primary session (the one picked in its menu, else the one\n# that pushed to it most) what happens on it (reviews, comments, an approval, a merge, failing checks,\n# conflicts), in a message from Codealong. A PR's own switch wins either way.\n# nudge_about: what a nudge tells of: \"everything\"; \"feedback\", only comments and reviews that ask for changes\n# or say something, never an approval, a merge or a close; \"feedback-and-checks\", that, failing checks and\n# conflicts; or \"feedback-and-merges\" or \"feedback-checks-and-merges\", one of those and a merge.\n# rerequest_after_fixes: on a PR of yours whose reviewer asked for changes, once commits came after their last\n# word and nobody said so on it, ask them to review it again, as you. GitHub tells a reviewer of that, not of a push.\n# reviews_first: PRs waiting on your review come first in what waits on you, ahead of [queue] order.\n";
 const REVIEWS_COMMENT: &str = "# auto: an agent reviews each open pull request that waits on your review, and again when new commits come
 # in while it still waits. account, model and effort: what it runs on; \"\" for the account Auto would start, on its
 # own model and effort. prompt: what it's told to do (what to look for, whether to start subagents of its own); \"\" for
@@ -2113,6 +2199,7 @@ const OWN_REVIEWS_COMMENT: &str = "# [reviews.own] auto: an agent reviews each o
 # review to the PR's primary session, once it runs and doesn't wait on you. drafts: review your draft PRs too.
 # Nothing goes on GitHub.
 ";
+const QUEUE_COMMENT: &str = "# What waits on you, in the order the notch, the waiting window and a session's panel go through it:\n# \"needs\", sessions that need you; \"reviews\", PRs waiting on your review; \"due\", todos due; \"unread\", sessions\n# whose turn ended; \"ready\", todos ready to start, which come last. One left out doesn't wait on you, but\n# sessions always do.\n# due_within: how many days before its due date a todo comes due: 0 on the day.\n";
 const EXPERIMENTAL_COMMENT: &str = "# Features still being tried out, each off until it's turned on. boards: the main window's Board view, as\n# Kanban and as Canvas, Add to board in the menus, and `codealong board`. voice: a key held to talk to the\n# session you're looking at or to your orchestrator, and sessions that listen to a meeting ([voice]).\n# analytics: who began each session and turn, what your prompts did with what the agent had said, and how\n# the sessions you marked done stood, in the Analytics window and `codealong analytics`.\n";
 const VOICE_COMMENT: &str = "# Voice, once [experimental] voice is on. locale: the language spoken, such as \"en-US\"; \"\" for this Mac's own.\n# send_on_release: what you say to your orchestrator is sent as you let go of the key, not put in its box\n# first. tell_every: how often, in seconds, a session that listens is told what's new, at most.\n# meetings: as a meeting in your calendar is about to start, offer to take its notes, in a folder of its own\n# under meetings_folder (\"\" for meetings beside this file), by a session on meeting_account (an account, a\n# routing group, or \"\" for Auto) and meeting_model, meeting_lead minutes before it starts, but for the\n# calendars in meeting_calendars_off (by id; Settings lists them). meeting_countdown: from how many minutes\n# before, the notch, the floating bar and the Meetings button count down to it (0 for none).\n";
 const REPOS_COMMENT: &str = "# Your settings for one repo's pull requests, over [reviews] and [pull_requests] and over what the repo's\n# .codealong/config.toml sets for its team. Settings › Automation sets them with the repo picked.\n";
@@ -2411,7 +2498,34 @@ pub fn check(cfg: &Config) -> std::result::Result<(), String> {
     if !on.is_empty() && on != "auto" && !cfg.accounts.iter().any(|a| a.name == on) && !cfg.routing.groups.iter().any(|g| g.name == on) {
         return Err(format!("[voice] meeting_account is {on}, which is no account or routing group here."));
     }
-    check_sounds(&cfg.sounds)
+    check_sounds(&cfg.sounds)?;
+    check_queue(&cfg.queue)
+}
+
+/// Why `[queue]` can't be gone by as it says: a name in `order` that isn't a kind, one named
+/// twice, a kind left out that always waits (`ALWAYS_WAITS`), or `due_within` past
+/// `DUE_WITHIN_MAX`. The engine reads it all the same (`QueueCfg::settled`), and says so when
+/// config.toml is edited by hand.
+pub fn check_queue(queue: &QueueCfg) -> std::result::Result<(), String> {
+    let kinds = QUEUE_KINDS.map(|k| format!("\"{k}\"")).join(", ");
+    for (i, k) in queue.order.iter().enumerate() {
+        if !QUEUE_KINDS.contains(&k.trim()) {
+            return Err(format!("[queue] order has {k:?}, which is none of {kinds}."));
+        }
+        if queue.order[..i].iter().any(|o| o.trim() == k.trim()) {
+            return Err(format!("[queue] order has {k:?} twice."));
+        }
+    }
+    if queue.order.last().is_some_and(|k| k.trim() != "ready") && queue.order.iter().any(|k| k.trim() == "ready") {
+        return Err("[queue] order has \"ready\" before another: todos ready to start come once nothing else waits on you, so it goes last.".into());
+    }
+    if let Some(k) = ALWAYS_WAITS.iter().find(|k| !queue.order.iter().any(|o| o.trim() == **k)) {
+        return Err(format!("[queue] order leaves out \"{k}\": sessions always wait on you, so it goes where the default order has it."));
+    }
+    if queue.due_within > DUE_WITHIN_MAX {
+        return Err(format!("[queue] due_within is {}; it's in days, {DUE_WITHIN_MAX} at the most.", queue.due_within));
+    }
+    Ok(())
 }
 
 /// Why `[sounds]` can't be played as it is: a sound this Mac doesn't have, or a volume past the
@@ -2699,13 +2813,26 @@ pub fn with_config(text: &str, cfg: &Config) -> Result<String> {
         set_value(&mut doc["pull_requests"]["reviews_first"], Value::from(cfg.pull_requests.reviews_first));
     }
 
+    // Only a file that has the table, or changes what waits on you, gets it.
+    if cfg.queue != QueueCfg::default() || doc.get("queue").is_some() {
+        if !doc.get("queue").is_some_and(toml_edit::Item::is_table_like) {
+            let mut t = Table::new();
+            t.decor_mut().set_prefix(format!("\n{QUEUE_COMMENT}"));
+            doc.insert("queue", Item::Table(t));
+            let after = ["pull_requests", "reviews", "sessions", "routing", "limits", "updates", "devices", "search", "jev", "shortcuts"].into_iter().find(|k| doc.get(k).is_some()).unwrap_or("shortcuts");
+            place_after(&mut doc, "queue", after);
+        }
+        set_value(&mut doc["queue"]["order"], Value::Array(Array::from_iter(cfg.queue.order.iter().map(|k| k.trim()))));
+        set_value(&mut doc["queue"]["due_within"], Value::from(cfg.queue.due_within as i64));
+    }
+
     // A new file has it (`render`); an older one gets it once a sound changes.
     if cfg.sounds != SoundsCfg::default() || doc.get("sounds").is_some() {
         if !doc.get("sounds").is_some_and(toml_edit::Item::is_table_like) {
             let mut t = Table::new();
             t.decor_mut().set_prefix(format!("\n{}", sounds_comment()));
             doc.insert("sounds", Item::Table(t));
-            let after = ["pull_requests", "reviews", "sessions", "routing", "limits", "updates", "devices", "search", "jev", "shortcuts"].into_iter().find(|k| doc.get(k).is_some()).unwrap_or("shortcuts");
+            let after = ["queue", "pull_requests", "reviews", "sessions", "routing", "limits", "updates", "devices", "search", "jev", "shortcuts"].into_iter().find(|k| doc.get(k).is_some()).unwrap_or("shortcuts");
             place_after(&mut doc, "sounds", after);
         }
         let sounds = &cfg.sounds;
@@ -2722,7 +2849,7 @@ pub fn with_config(text: &str, cfg: &Config) -> Result<String> {
             let mut t = Table::new();
             t.decor_mut().set_prefix(format!("\n{EXPERIMENTAL_COMMENT}"));
             doc.insert("experimental", Item::Table(t));
-            let after = ["sounds", "pull_requests", "reviews", "sessions", "routing", "limits", "updates", "devices", "search", "jev", "shortcuts"].into_iter().find(|k| doc.get(k).is_some()).unwrap_or("shortcuts");
+            let after = ["sounds", "queue", "pull_requests", "reviews", "sessions", "routing", "limits", "updates", "devices", "search", "jev", "shortcuts"].into_iter().find(|k| doc.get(k).is_some()).unwrap_or("shortcuts");
             place_after(&mut doc, "experimental", after);
         }
         set_value(&mut doc["experimental"]["boards"], Value::from(cfg.experimental.boards));
@@ -2743,7 +2870,7 @@ pub fn with_config(text: &str, cfg: &Config) -> Result<String> {
             let mut t = Table::new();
             t.decor_mut().set_prefix(format!("\n{VOICE_COMMENT}"));
             doc.insert("voice", Item::Table(t));
-            let after = ["experimental", "sounds", "pull_requests", "reviews", "sessions", "routing", "limits", "updates", "devices", "search", "jev", "shortcuts"].into_iter().find(|k| doc.get(k).is_some()).unwrap_or("shortcuts");
+            let after = ["experimental", "sounds", "queue", "pull_requests", "reviews", "sessions", "routing", "limits", "updates", "devices", "search", "jev", "shortcuts"].into_iter().find(|k| doc.get(k).is_some()).unwrap_or("shortcuts");
             place_after(&mut doc, "voice", after);
         }
         set_value(&mut doc["voice"]["locale"], Value::from(cfg.voice.locale.trim()));
@@ -3269,6 +3396,13 @@ pub fn render(cfg: &Config) -> String {
         s.push_str(&format!("rerequest_after_fixes = {}\n", cfg.pull_requests.rerequest_after_fixes));
         s.push_str(&format!("reviews_first = {}\n", cfg.pull_requests.reviews_first));
     }
+    if cfg.queue != QueueCfg::default() {
+        s.push('\n');
+        s.push_str(QUEUE_COMMENT);
+        s.push_str("[queue]\n");
+        s.push_str(&format!("order = [{}]\n", cfg.queue.order.iter().map(|k| q(k)).collect::<Vec<_>>().join(", ")));
+        s.push_str(&format!("due_within = {}\n", cfg.queue.due_within));
+    }
     s.push('\n');
     s.push_str(&sounds_comment());
     s.push_str("[sounds]\n");
@@ -3437,6 +3571,7 @@ mod tests {
             reviews: ReviewsCfg { auto: true, account: "claude".into(), model: "opus".into(), effort: String::new(), other_harness: true, drafts: true, prompt: "Start two subagents.\nThen combine their findings.".into(), start: ReviewStart::Codealong, post: ReviewPost::None, submit: ReviewSubmit::Approve, auto_approve: false, reviewers: Vec::new(), own: OwnReviewsCfg::default(), team_instructions: String::new(), never_submit: Vec::new() },
             pull_requests: PullRequestsCfg { nudge_by_default: true, nudge_about: NudgeAbout::FeedbackAndChecks, rerequest_after_fixes: false, reviews_first: true },
             repos: BTreeMap::from([("github.com/sprucehq/web".to_string(), RepoCfg { reviews: ReviewsPatch { auto: Some(true), account: Some("codex".into()), post: Some(ReviewPost::Draft), own: OwnReviewsPatch { send: Some(false), ..OwnReviewsPatch::default() }, ..ReviewsPatch::default() }, pull_requests: PullRequestsPatch { nudge_about: Some(NudgeAbout::Feedback), reviews_first: Some(false), ..PullRequestsPatch::default() } })]),
+            queue: QueueCfg { order: vec!["reviews".into(), "needs".into(), "unread".into(), "due".into()], due_within: 2 },
             sounds: SoundsCfg { needs_you: "Tink".into(), your_turn: String::new(), review_requested: "Purr".into(), meeting: "Glass".into(), volume: 35 },
             experimental: ExperimentalCfg { boards: true, voice: true, analytics: true, glass: false },
             voice: VoiceCfg { locale: "en-GB".into(), send_on_release: true, tell_every: 45, meetings: true, meetings_folder: "~/Meetings".into(), meeting_account: String::new(), meeting_model: "haiku".into(), meeting_lead: 2, meeting_countdown: 10, meeting_calendars_off: vec!["C1".into(), "C2".into()] },
@@ -3781,6 +3916,7 @@ mod tests {
             reviews: ReviewsCfg::default(),
             pull_requests: PullRequestsCfg::default(),
             repos: BTreeMap::new(),
+            queue: QueueCfg::default(),
             sounds: SoundsCfg::default(),
             experimental: ExperimentalCfg::default(),
             voice: VoiceCfg::default(),
@@ -3829,6 +3965,58 @@ mod tests {
         let on = Config { pull_requests: PullRequestsCfg { nudge_by_default: true, ..Default::default() }, ..full() };
         let out = with_config(&old, &on).unwrap();
         assert!(out.contains("[pull_requests]\nnudge_by_default = true\n") && !out.contains("when_approved"), "{out}");
+    }
+
+    #[test]
+    fn the_queue_goes_by_the_default_order_until_the_file_changes_it() {
+        let d = toml::from_str::<Config>("").unwrap().queue;
+        assert_eq!((d.kinds(), d.due_within), (QUEUE_KINDS.map(String::from).to_vec(), 0));
+        let old = render(&full());
+        assert!(!old.contains("[queue]"), "{old}");
+        assert!(!with_config(&old, &full()).unwrap().contains("[queue]"));
+        let mine = Config { queue: QueueCfg { order: vec!["due".into(), "needs".into(), "unread".into()], due_within: 1 }, ..full() };
+        let out = with_config(&old, &mine).unwrap();
+        assert!(out.contains(&format!("{QUEUE_COMMENT}[queue]\norder = [\"due\", \"needs\", \"unread\"]\ndue_within = 1\n")), "{out}");
+        assert!(out.find("[queue]").unwrap() < out.find("[sounds]").unwrap(), "{out}");
+        assert_eq!(parse(&out).unwrap(), mine);
+        assert_eq!(parse(&render(&mine)).unwrap(), mine);
+        // Back to the default, the table stays, saying so.
+        let back = with_config(&out, &full()).unwrap();
+        assert!(back.contains("[queue]\norder = [\"needs\", \"reviews\", \"due\", \"unread\", \"ready\"]\ndue_within = 0\n"), "{back}");
+    }
+
+    #[test]
+    fn what_the_queue_leaves_out_doesnt_wait_but_sessions_always_do() {
+        let queue = |order: &[&str], due_within: u32| QueueCfg { order: order.iter().map(|k| k.to_string()).collect(), due_within };
+        // Reviews and ready todos out: they don't wait; the rest in your order.
+        let q = queue(&["due", "unread", "needs"], 0);
+        assert_eq!(q.kinds(), vec!["due", "unread", "needs"]);
+        assert!(!q.waits("reviews") && !q.waits("ready") && q.waits("due"));
+        assert_eq!(check_queue(&q), Ok(()));
+        // A session's kind left out goes where the default has it among the rest, and is said.
+        let q = queue(&["reviews", "ready"], 0);
+        assert_eq!(q.kinds(), vec!["needs", "reviews", "unread", "ready"]);
+        assert_eq!(check_queue(&q).unwrap_err(), "[queue] order leaves out \"needs\": sessions always wait on you, so it goes where the default order has it.");
+        // Ready ones go last wherever they're put, and that's said too.
+        let q = queue(&["ready", "due", "needs", "unread"], 0);
+        assert_eq!(q.kinds(), vec!["due", "needs", "unread", "ready"]);
+        assert_eq!(check_queue(&q).unwrap_err(), "[queue] order has \"ready\" before another: todos ready to start come once nothing else waits on you, so it goes last.");
+        assert_eq!(queue(&["ready", "due"], 0).kinds(), vec!["needs", "due", "unread", "ready"]);
+        // A name that isn't a kind is passed over, and one named twice goes where it's first.
+        let q = queue(&["needs", "Reviews", "unread", "needs"], 0);
+        assert_eq!(q.kinds(), vec!["needs", "unread"]);
+        assert!(check_queue(&q).unwrap_err().starts_with("[queue] order has \"Reviews\", which is none of \"needs\", "));
+        assert_eq!(check_queue(&queue(&["needs", "unread", "needs"], 0)).unwrap_err(), "[queue] order has \"needs\" twice.");
+        // Days ahead, up to a month.
+        assert_eq!(check_queue(&queue(&["needs", "unread"], 31)).unwrap_err(), "[queue] due_within is 31; it's in days, 30 at the most.");
+        assert_eq!(queue(&["needs", "unread"], 45).settled(), queue(&["needs", "unread"], 30));
+        let mut cfg = full();
+        // macOS's sounds aren't on every computer the test runs on.
+        cfg.sounds.needs_you = String::new();
+        cfg.sounds.your_turn = String::new();
+        cfg.sounds.meeting = String::new();
+        cfg.queue = queue(&["needs"], 0);
+        assert!(check(&cfg).unwrap_err().starts_with("[queue] order leaves out \"unread\""));
     }
 
     #[test]

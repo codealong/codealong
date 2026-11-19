@@ -288,6 +288,12 @@ pub struct Board {
     pub improve: crate::improve::Improve,
     /// What Codealong asks Jev, from `[jev]` in config.toml.
     pub jev: crate::config::JevCfg,
+    /// `[queue]` from config.toml as the windows go by it (config.rs `QueueCfg::settled`): what
+    /// waits on you in the order the queue goes to it, and how many days ahead of its due date a
+    /// todo comes due (barfeed.rs `todo_lists`). An older engine's board that doesn't say is read
+    /// as the default.
+    #[serde(default)]
+    pub queue: crate::config::QueueCfg,
     /// The experiments turned on, from `[experimental]` in config.toml: boards, for the main
     /// window's Board view and Add to board.
     #[serde(default)]

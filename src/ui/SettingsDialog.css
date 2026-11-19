@@ -174,6 +174,50 @@
 .ca-settings-check small {
   grid-column: 2;
 }
+/* Settings › Queue: each kind of what waits on you a row, its grip, its box, its glyph and name,
+   and what it is under them. The ones in the list are dragged by the row, their grips saying so,
+   and slide aside for one held as a routing group's accounts do; the rest keep the grip's room so
+   their boxes line up. */
+.ca-queue-kinds {
+  display: grid;
+  gap: var(--space-2);
+}
+.ca-queue-kind {
+  position: relative;
+  grid-template-columns: auto auto minmax(0, 1fr);
+  max-width: 520px;
+}
+.ca-queue-kind small {
+  grid-column: 3;
+}
+.ca-queue-kind-name {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+}
+.ca-queue-kind.is-off .ca-queue-kind-name {
+  color: var(--ink-3);
+}
+.ca-queue-kind .ca-btn.ca-queue-grip {
+  width: 16px;
+  height: 16px;
+  padding: 0;
+  color: var(--ink-3);
+  cursor: grab;
+}
+.ca-queue-grip-room {
+  width: 16px;
+}
+.ca-queue-kinds.is-sorting .ca-queue-kind {
+  transition: transform var(--dur-base) ease-out;
+}
+.ca-queue-kinds.is-sorting .ca-queue-kind.is-lifted {
+  z-index: var(--z-sorting);
+  border-radius: var(--radius-sm);
+  background: var(--surface);
+  box-shadow: var(--shadow-hud);
+  transition: none;
+}
 /* Settings › Experimental: each experiment a group of its own with a line between them, headed by
    the box that turns it on, its name as a heading; Voice's settings under two labels, Talk and
    Meetings. A search shows what it finds without the lines, as it shows any section's. */

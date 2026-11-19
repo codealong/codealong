@@ -1143,6 +1143,8 @@ export interface Config {
   /** Your settings for particular repos, `[repos."github.com/owner/name"]`, by that key
    *  (repoSettings.ts `repoKey`). Older files have none. */
   repos?: Record<string, RepoCfg>;
+  /** What waits on you, and in what order. Older engines send none: the default order. */
+  queue?: QueueCfg;
   /** A sound when something starts to wait on you. Older files have none: Pop, Tink, none, 60. */
   sounds?: SoundsCfg;
   /** Features still being tried out. Older files have none: all off. */
@@ -1503,6 +1505,14 @@ export interface TeamFile {
   skipped: string[];
   /** What it suggests that isn't how things go for you in its repo now: what Use them changes. */
   offers: RepoCfg;
+}
+
+/** `[queue]` (config.rs `QueueCfg`): what waits on you, in the order the queue goes to it
+ *  (queue.ts `WAITS` names the kinds, `queueKinds` reads it), and how many days before its due
+ *  date a todo comes due. */
+export interface QueueCfg {
+  order: string[];
+  due_within: number;
 }
 
 /** `[sounds]` (config.rs `SoundsCfg`, sounds.rs): each the name of a sound in ~/Library/Sounds or
@@ -2057,6 +2067,9 @@ export interface Board {
   /** The experiments turned on, from `[experimental]` in config.toml. Missing on older boards:
    *  none. */
   experimental?: ExperimentalCfg;
+  /** `[queue]` from config.toml as the windows go by it: its `order` the kinds in your order
+   *  (config.rs `QueueCfg::settled`). Missing on older boards: the default. */
+  queue?: QueueCfg;
   /** `[reviews]` from config.toml. Missing on older boards. */
   reviews?: ReviewsCfg;
   /** Open todos whose work Jev says looks done, by todo id. Missing on older boards. */
@@ -3078,6 +3091,10 @@ export interface BarFeed {
   /** Todos that wait on you by their due date, the most overdue first (barfeed.rs
    *  `todo_lists`). Missing on older feeds. */
   due?: BarTodo[];
+  /** What waits on you in your order (`[queue] order`, queue.ts `queueKinds`): the notch works
+   *  through its rows and counts by it. The reviews and todos of a kind left out aren't on the
+   *  feed. Missing on older feeds: the default order. */
+  queueOrder?: string[];
   /** The other devices whose sessions it lists (`[devices] in_bar`), by short id: those connected
    *  now. What one that wasn't on the feed before brings isn't news (mark.ts). Missing from a feed
    *  an older app sent. */

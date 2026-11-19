@@ -30,6 +30,7 @@ import { barAhead, barView, observe, seenAhead, snoozeAhead, useAhead } from '..
 import { ALL_PROJECTS, inProject } from '../quick';
 import { snoozeMenu, untilWords } from '../snooze';
 import type { BarFeed, BarItem, BarListening, BarRecent, BarReview, BarSnoozed, BarTodo, MeetingOffer, PeekShown, Status } from '../types';
+import { queueKinds } from '../queue';
 import { MarkLive } from './MarkLive';
 import { cx, Icon, SessionEmblem, STATUS_WORD, StatusGlyph } from './primitives';
 import { applyTheme } from './ThemeSwitch';
@@ -506,6 +507,8 @@ export function Bar() {
   const todos = useMemo(() => (feed?.todos ?? []).filter((t) => current === ALL_PROJECTS || t.project === current), [feed, current]);
   const due = useMemo(() => (feed?.due ?? []).filter((t) => current === ALL_PROJECTS || t.project === current), [feed, current]);
   const todoLists = useMemo(() => ({ due, ready: todos }), [due, todos]);
+  // What waits on you in your order (`[queue] order`): the notch goes through it and counts by it.
+  const order = queueKinds(feed?.queueOrder);
   const waits = useMemo(() => projectWaits(allItems, projects), [allItems, projects]);
   const others = useMemo(() => elsewhereWaits(waits, projects, current), [waits, projects, current]);
   const byGroup = useMemo(() => {
@@ -518,7 +521,7 @@ export function Bar() {
   // peek: which one, what it works through, and its keys.
   const listenings = useMemo(() => feed?.listenings ?? [], [feed]);
   const onBar = useMemo(() => new Set([...allItems, ...(feed?.recent ?? []), ...(feed?.snoozed ?? []), ...listenings].map((i) => i.key)), [allItems, feed, listenings]);
-  const stage = useNotchStage(items, reviews, todoLists, (key) => onBar.has(key) || reviews.some((r) => r.key === key) || [...due, ...todos].some((t) => todoRowKey(t.id) === key), notch !== null);
+  const stage = useNotchStage(items, reviews, todoLists, (key) => onBar.has(key) || reviews.some((r) => r.key === key) || [...due, ...todos].some((t) => todoRowKey(t.id) === key), notch !== null, order);
   // A key held to talk, or a listening session's cue (said.ts): under the pills while nothing
   // else is there, without the keyboard, which stays with whatever you're in.
   const { said, dismiss: dismissSaid } = useSaid(feed?.listenings);
@@ -1044,6 +1047,7 @@ export function Bar() {
           logoStatus={logoStatus}
           moment={moment}
           counts={{ needs: byGroup.needs.length, reviews: reviews.length, due: due.length, unread: byGroup.unread.length, working: byGroup.working.length }}
+          order={order}
           screen={{ w: window.screen.availWidth, h: window.screen.height }}
           onPillsRoom={fitNotch}
           zoom={feed?.zoom}

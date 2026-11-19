@@ -25,7 +25,8 @@ import { DevicesPane } from './DevicesSection';
 import { JevUsage } from './JevUsage';
 import { ChromeProfileSelect } from './PreviewBits';
 import { UpdatesFields } from './Updates';
-import { Button, CheckBox, cx, Dialog, Icon, NavItem, ReorderHint, Seg } from './primitives';
+import { Button, CheckBox, cx, Dialog, Icon, NavItem, ReorderHint, Seg, WaitsGlyph } from './primitives';
+import { ALWAYS_WAITS, queueKinds, WAITS, withKind, type Waits } from '../queue';
 import { SettingsFindField, useSettingsFind } from './SettingsFind';
 import { THEMES } from './ThemeSwitch';
 import { useSort } from './useSort';
@@ -33,11 +34,12 @@ import { reorderKey } from '../mainKeys';
 import { errorText } from '../report';
 import { bare, cmd, keysIn, keysSaid, platform, type Platform } from '../platform';
 
-export type SettingsSection = 'general' | 'appearance' | 'sounds' | 'accounts' | 'routing' | 'automation' | 'agents' | 'devices' | 'projects' | 'jev' | 'advanced' | 'experimental' | 'file';
+export type SettingsSection = 'general' | 'appearance' | 'queue' | 'sounds' | 'accounts' | 'routing' | 'automation' | 'agents' | 'devices' | 'projects' | 'jev' | 'advanced' | 'experimental' | 'file';
 
 const SECTIONS: { id: SettingsSection; label: string; icon: string }[] = [
   { id: 'general', label: 'General', icon: 'settings' },
   { id: 'appearance', label: 'Appearance', icon: 'palette' },
+  { id: 'queue', label: 'Queue', icon: 'inbox' },
   { id: 'sounds', label: 'Sounds', icon: 'bell' },
   { id: 'accounts', label: 'Accounts', icon: 'user' },
   { id: 'routing', label: 'Routing', icon: 'git-fork' },
@@ -226,6 +228,8 @@ export function SettingsDialog({ section, onSection, focus, usage, training, mcp
         return <GeneralPane cfg={cfg} view={view} disabled={!!broken} onSave={save} now={now} />;
       case 'appearance':
         return <AppearancePane cfg={cfg} theme={theme} onPickTheme={onPickTheme} disabled={!!broken} onSave={save} />;
+      case 'queue':
+        return <QueuePane cfg={cfg} disabled={!!broken} onSave={save} />;
       case 'sounds':
         return <SoundsPane cfg={cfg} names={view.sounds ?? []} disabled={!!broken} onSave={save} onError={setError} />;
       case 'routing':
@@ -685,6 +689,121 @@ function KeepAwakeField({ terminal, name, keepsTerminals }: { terminal: string; 
           {error}
         </p>
       )}
+    </>
+  );
+}
+
+/* ---- Queue ---- */
+
+/** Each kind of what waits on you (queue.ts `WAITS`), as Settings › Queue says it. */
+const QUEUE_KIND_WORDS: Record<Waits, { label: string; says: string }> = {
+  needs: { label: 'Sessions that need you', says: 'A question, a call to allow, or an error. Always in the queue.' },
+  reviews: { label: 'Pull requests waiting on your review', says: 'Open ones that ask for your review on GitHub, but those you snoozed and those Codealong’s agent is still reviewing.' },
+  due: { label: 'Todos that are due', says: 'Open todos from the day below, and overdue ones until they’re done or snoozed. While a session works on one, the session waits in its place.' },
+  unread: { label: 'Sessions whose turn ended', says: 'Their replies are yours to read. Always in the queue.' },
+  ready: { label: 'Todos ready to start', says: 'Not started and waiting on nothing, in your todo list’s order. They come last, once nothing else waits, and the notch doesn’t count them.' },
+};
+
+/** How long before its due date a todo comes due (`[queue] due_within`, in days). */
+const DUE_WITHIN: Profile[] = [
+  { id: '0', name: 'On its due date' },
+  { id: '1', name: 'A day before' },
+  { id: '2', name: '2 days before' },
+  { id: '3', name: '3 days before' },
+  { id: '7', name: 'A week before' },
+];
+
+/**
+ * Settings › Queue (`[queue]`, config.rs `QueueCfg`): what waits on you, in the order the notch,
+ * the waiting window and a session's panel in Sessions go through it. The kinds in it are dragged
+ * by their grips, or moved with ⌃⌘↑ ⌃⌘↓ there, into your order; a box takes one out, or puts it
+ * back where the default order has it (queue.ts `withKind`). The sessions' two are always in it,
+ * and the todos ready to start always last, so they're after the list rather than in it.
+ */
+function QueuePane({ cfg, disabled, onSave }: PaneProps) {
+  const dueWithin = cfg.queue?.due_within ?? 0;
+  const kinds = queueKinds(cfg.queue?.order);
+  const moving = kinds.filter((k) => k !== 'ready');
+  const out = WAITS.filter((k) => !kinds.includes(k));
+  const ready = kinds.includes('ready');
+  const save = (order: readonly Waits[], due_within = dueWithin) => void onSave({ ...cfg, queue: { order: [...queueKinds(order)], due_within } });
+  const list = useRef<HTMLDivElement>(null);
+  const sort = useSort<Waits>(list, '.ca-queue-kind', 'y', () => {}, (next) => save(ready ? [...next, 'ready'] : next));
+  const turn = (k: Waits, on: boolean) => save(on ? withKind(kinds, k) : kinds.filter((x) => x !== k));
+
+  /** A kind's row: its box, its glyph and name, and what it is; one in the list has a grip. */
+  const row = (k: Waits, at: number | null) => {
+    const on = kinds.includes(k);
+    const always = ALWAYS_WAITS.includes(k);
+    const words = QUEUE_KIND_WORDS[k];
+    const drag = at !== null && moving.length > 1 && !disabled ? sort.sortProps(at, moving) : null;
+    return (
+      <label key={k} className={cx('ca-field ca-settings-check ca-queue-kind', !on && 'is-off', drag?.className)} style={drag?.style} onPointerDown={drag?.onPointerDown} data-kind={k}>
+        {at !== null ? (
+          <Button
+            variant="ghost"
+            size="sm"
+            icon="grip-vertical"
+            className="ca-queue-grip"
+            aria-label={`Move ${words.label.toLowerCase()}`}
+            title={keysIn('Drag, or ⌃⌘↑ ⌃⌘↓, to move it')}
+            disabled={!drag}
+            onKeyDown={(e) => {
+              const by = reorderKey(e.nativeEvent);
+              const to = at + by;
+              if (!by || to < 0 || to >= moving.length) return;
+              e.preventDefault();
+              const next = [...moving];
+              [next[at], next[to]] = [next[to], next[at]];
+              save(ready ? [...next, 'ready'] : next);
+              // The keyboard goes with it: its grip at its new place.
+              requestAnimationFrame(() => list.current?.querySelectorAll<HTMLButtonElement>('.ca-queue-grip')[to]?.focus());
+            }}
+          />
+        ) : (
+          <span className="ca-queue-grip-room" aria-hidden="true" />
+        )}
+        <CheckBox checked={on} disabled={always} onChange={(next) => turn(k, next)} />
+        <span className="ca-queue-kind-name">
+          <WaitsGlyph waits={k} />
+          {words.label}
+        </span>
+        <small>{words.says}</small>
+      </label>
+    );
+  };
+
+  return (
+    <>
+      <div className="ca-settings-intro">
+        <h3>Queue</h3>
+        <p>What waits on you, in the order the notch, the waiting window and a session’s panel in Sessions go through it: Next goes on to what comes after the one you’re on. The notch counts all of it but the todos ready to start.</p>
+      </div>
+      <fieldset className="ca-settings-fields" disabled={disabled}>
+        <div className="ca-field">
+          <span>In the queue</span>
+          <small>
+            First to last. <ReorderHint />
+          </small>
+          <div ref={list} className={cx('ca-queue-kinds', sort.sorting && 'is-sorting')}>
+            {moving.map((k, i) => row(k, i))}
+          </div>
+          {ready && row('ready', null)}
+        </div>
+        {out.length > 0 && (
+          <div className="ca-field">
+            <span>Not in the queue</span>
+            <small>Turned back on, one goes where it comes by default.</small>
+            {out.map((k) => row(k, null))}
+          </div>
+        )}
+        <label className="ca-field">
+          <span>Todos come due</span>
+          <ProfileSelect value={String(dueWithin)} profiles={DUE_WITHIN} onChange={(id) => save(kinds, Number(id))} />
+          <small>How long before its due date a todo joins what waits on you{kinds.includes('due') ? '' : ', once todos that are due are in the queue'}. One that’s overdue waits until it’s done.</small>
+        </label>
+        <p className="ca-settings-lede">A repo that puts its reviews first (Automation) has its pull requests go ahead of all of these, and a session you moved to the top comes first whatever it waits as.</p>
+      </fieldset>
     </>
   );
 }
@@ -1697,8 +1816,8 @@ function ReviewsFirstField({ prs, set, scope, disabled }: { prs: Required<PullRe
           Put reviews before sessions that need you<SourceTag field="prs.reviews_first" scope={scope} />
         </span>
         <small>
-          Pull requests that wait on your review come first in what waits on you, in the notch, the waiting window and the quick panel, ahead of sessions that need you, the longest wait first. Off, they come after those and before sessions whose turn ended. A session you moved to the top
-          still comes first.
+          Pull requests that wait on your review come first in what waits on you, in the notch, the waiting window and the quick panel, ahead of everything else, the longest wait first. Off, they come where Settings › Queue puts them. A session you moved to the top still comes
+          first.
         </small>
       </label>
     </fieldset>

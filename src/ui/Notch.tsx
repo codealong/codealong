@@ -32,9 +32,10 @@
 
 import { useCallback, useEffect, useLayoutEffect, useRef, useState, type CSSProperties, type PointerEvent as ReactPointerEvent, type ReactNode } from 'react';
 import { fitBar, notchDrag, notchShape, onNotchDragEnd, onNotchPointer, type Notch } from '../api';
-import { NOTCH, NOTCH_ORDER, notchClip, notchCount, notchDragged, notchPillsRoom, notchSizes, type Group, type NotchEdge, type NotchKind, type NotchState, type Size } from '../bar';
+import { NOTCH, notchClip, notchCount, notchOrder, notchDragged, notchPillsRoom, notchSizes, type Group, type NotchEdge, type NotchKind, type NotchState, type Size } from '../bar';
 import type { Moment } from '../mark';
 import type { LogoStatus } from '../types';
+import type { Waits } from '../queue';
 import { MarkLive } from './MarkLive';
 import { cx, Icon, StatusGlyph, WaitsGlyph } from './primitives';
 import { readStored, writeStored, type Codec } from '../stored';
@@ -81,6 +82,8 @@ export interface NotchShellProps {
   /** How many sessions are in each of the bar's groups, and how many open PRs wait on your
    *  review. */
   counts: Record<NotchKind, number>;
+  /** What waits on you in your order (queue.ts `queueKinds`), which the counts go in. */
+  order?: readonly Waits[];
   /** The screen, which a session fits. */
   screen: Size;
   /** Says the room the pills have across the open notch, as it changes (a session dragged
@@ -129,7 +132,7 @@ export interface NotchShellProps {
   children: ReactNode;
 }
 
-export function NotchShell({ notch, logoStatus, moment, counts, screen, onPillsRoom, zoom, project, held, session, sessionOpen, sessionEnd, sessionKeys, onSessionLeft, onCount, onPress, onMove, keepOpen, onKeepOpen, onPopOut, onMark, onMenu, hearing, soon, children }: NotchShellProps) {
+export function NotchShell({ notch, logoStatus, moment, counts, order, screen, onPillsRoom, zoom, project, held, session, sessionOpen, sessionEnd, sessionKeys, onSessionLeft, onCount, onPress, onMove, keepOpen, onKeepOpen, onPopOut, onMark, onMenu, hearing, soon, children }: NotchShellProps) {
   // The pills show, under the pointer or pinned; a session shows under them.
   const [open, setOpen] = useState(keepOpen);
   // The pointer is on the shape.
@@ -408,9 +411,9 @@ export function NotchShell({ notch, logoStatus, moment, counts, screen, onPillsR
     <div className={`ca-notch-grip is-${edge}`} aria-hidden="true" onPointerDown={startSize(edge)} onPointerMove={moveSize} onPointerUp={endSize} onPointerCancel={endSize} onDoubleClick={resetSize} />
   );
 
-  const shown = NOTCH_ORDER.filter((k) => counts[k] > 0);
+  const shown = notchOrder(order).filter((k) => counts[k] > 0);
   // Closed, the first count is everything that waits, and its words say each kind it adds up.
-  const lead = notchCount(counts);
+  const lead = notchCount(counts, order);
   const leadWords = shown.filter((k) => k !== 'working' || lead?.kind === 'working').map((k) => countWords(k, counts[k])).join(', ');
   // The corners move and grow by their place and size, as the clip does, not by a transform:
   // WebKit runs a transform's animation apart from the page's, and the corners fell out of step

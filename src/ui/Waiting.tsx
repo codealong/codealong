@@ -43,7 +43,7 @@ import * as menus from '../menus';
 import { clearNotice, failedNotice, reportNotice } from '../notices';
 import { openWhere, where } from '../open';
 import { prRefOf } from '../prLinks';
-import { ALL_PROJECTS, attentionRows, QUEUE_READS, queueRows, reviewSince, type QueueRow } from '../quick';
+import { ALL_PROJECTS, attentionRows, QUEUE_READS, queueReads, queueRows, reviewSince, type QueueRow } from '../quick';
 import { errorText, type Report } from '../report';
 import { reuse } from '../reuse';
 import { repoReviews } from '../repoSettings';
@@ -159,7 +159,7 @@ export function Waiting() {
   const way = useWaitingQueue<QueueRow>({
     waiting: queue,
     along: queue,
-    reads: QUEUE_READS,
+    reads: everywhere ? queueReads(everywhere) : QUEUE_READS,
     shown: replying ? shownSession(replying.session) : reviewing ? { key: reviewing.key, title: `#${reviewing.number} ${reviewing.title}`, since: reviewSince(reviewing), seenable: false, skipsOnSeen: true } : null,
     show: (row) => show(row.key),
     travel: (dir) => {

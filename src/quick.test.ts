@@ -1,8 +1,9 @@
 import { afterEach, describe, expect, it } from 'vitest';
 import { agoPhrase } from './format';
-import { ALL_PROJECTS, CHATS, GENERAL_CHAT, attachmentsNote, attentionRows, draftCodec, folderChoices, foldedWords, holdsPrompt, folderStart, isFolderPath, macUnavailable, nextDraft, primaryRunningWords, queueRows, recallList, startTitle, todosStayNote, withPrompt, findPrs, findSessions, findTodos, heldSaid, laneGroups, projectCounts, pickInProject, repoChoices, repoForProject, repoKey, repoWorktrees, startLaneIn, worktreeName, readyTodos, recentRows, sendTargets, shortcutFromKey, shortcutKeys, shortcutLabel, stillSaid, TAKEN, takenFor, titleMarks, worktreeCount, deviceHits, inProject, projectLabel, projectShownIn } from './quick';
+import { ALL_PROJECTS, CHATS, GENERAL_CHAT, attachmentsNote, attentionRows, draftCodec, queueReads, folderChoices, foldedWords, holdsPrompt, folderStart, isFolderPath, macUnavailable, nextDraft, primaryRunningWords, queueRows, recallList, startTitle, todosStayNote, withPrompt, findPrs, findSessions, findTodos, heldSaid, laneGroups, projectCounts, pickInProject, repoChoices, repoForProject, repoKey, repoWorktrees, startLaneIn, worktreeName, readyTodos, recentRows, sendTargets, shortcutFromKey, shortcutKeys, shortcutLabel, stillSaid, TAKEN, takenFor, titleMarks, worktreeCount, deviceHits, inProject, projectLabel, projectShownIn } from './quick';
 import { setPlatform } from './platform';
 import * as fx from './testing/fixtures';
+import { inQueueOrder } from './queue';
 import type { Board, FolderLook, Label, Lane, PrItem, Session, Todo } from './types';
 
 const NOW = 1_790_200_000_000;
@@ -59,6 +60,28 @@ describe('queueRows', () => {
       ['u1', 'unread'],
     ]);
     expect(one.counts).toMatchObject({ firstReviews: 0, reviews: 3 });
+    // With reviews put ahead of every session (`[queue] order`), nothing comes between them either.
+    const ahead = attentionRows({ ...b2, queue: { order: ['reviews', 'needs', 'unread'], due_within: 0 } }, ALL_PROJECTS, Infinity);
+    expect(ahead.rows.map((r) => [r.key, r.group])).toEqual([
+      ['acme/app#3', 'reviews'],
+      ['acme/app#1', 'reviews'],
+      ['acme/app#100', 'reviews'],
+      ['n1', 'needs'],
+      ['e', 'needs'],
+      ['n2', 'needs'],
+      ['u1', 'unread'],
+    ]);
+  });
+
+  it('goes through what waits in your order, and leaves the reviews out when it does', () => {
+    const review = fx.prItem({ number: 1, key: 'acme/app#1', project: 'Acme', state: 'open', reviewRequested: true, requestedAt: NOW, updatedAt: NOW });
+    const yours = fx.board({ lanes: b.lanes, prs: [review], queue: { order: ['unread', 'reviews', 'needs'], due_within: 0 } });
+    expect(keys(queueRows(yours, ALL_PROJECTS))).toEqual(['u1', 'acme/app#1', 'n1', 'e', 'n2']);
+    // The waiting window goes through them by the same reads.
+    expect(keys(inQueueOrder(queueRows(yours, ALL_PROJECTS).reverse(), queueReads(yours)))).toEqual(['u1', 'acme/app#1', 'n1', 'e', 'n2']);
+    const without = fx.board({ ...yours, queue: { order: ['needs', 'unread'], due_within: 0 } });
+    expect(keys(queueRows(without, ALL_PROJECTS))).toEqual(['n1', 'e', 'n2', 'u1']);
+    expect(attentionRows(without, ALL_PROJECTS, Infinity).counts.reviews).toBe(0);
   });
 });
 

@@ -4,7 +4,7 @@
 
 import { withTimes } from './format';
 import { ALL_PROJECTS, inProject } from './quick';
-import { COUNTED, inQueueOrder, statusWaits, type Reads } from './queue';
+import { countedKinds, inOrder, inQueueOrder, statusWaits, WAITS, type Reads, type Waits } from './queue';
 import type { BarGroup, BarItem, BarReview, BarTodo } from './types';
 
 export type Group = BarGroup;
@@ -240,20 +240,23 @@ export function notchDragged(from: Size, edge: NotchEdge, dx: number, dy: number
 /** What the notch counts beside the camera: the bar's groups, the PRs that wait on your review,
  *  and the todos due. */
 export type NotchKind = Group | 'reviews' | 'due';
-/** Most urgent first, as the queue works through what waits (queue.ts `COUNTED`: not the todos
- *  ready to start), then what runs. A review asked of you ranks as the mark's colors rank it
- *  (board.rs `logo_status`): with what needs you, after the sessions that do. */
-export const NOTCH_ORDER: NotchKind[] = [...(COUNTED as NotchKind[]), 'working'];
+/** What the notch counts, in the order the queue works through what waits (queue.ts
+ *  `countedKinds`: your order, without the todos ready to start), then what runs. */
+export function notchOrder(order: readonly Waits[] = WAITS): NotchKind[] {
+  return [...(countedKinds(order) as NotchKind[]), 'working'];
+}
 
 /** What the closed notch shows beside the camera: everything that waits on you (the sessions that
- *  need you, the PRs waiting on your review and Your turn, which the queue works through), drawn
- *  as the most urgent kind among it; with nothing waiting, what's working; none when nothing runs
- *  either. The most urgent kind's count alone read as all there was: 5 need you, with 16 more
- *  Your turn unsaid (asked 2026-11-11). Open, each kind shows its own count. */
-export function notchCount(counts: Record<NotchKind, number>): { kind: NotchKind; n: number } | null {
-  const kind = NOTCH_ORDER.find((k) => counts[k] > 0);
+ *  need you, the PRs waiting on your review, the todos due and Your turn, which the queue works
+ *  through), drawn as the first kind among it in the queue's order (`notchOrder`); with nothing
+ *  waiting, what's working; none when nothing runs either. The first kind's count alone read as
+ *  all there was: 5 need you, with 16 more Your turn unsaid (asked 2026-11-11). Open, each kind
+ *  shows its own count. */
+export function notchCount(counts: Record<NotchKind, number>, order: readonly Waits[] = WAITS): { kind: NotchKind; n: number } | null {
+  const kinds = notchOrder(order);
+  const kind = kinds.find((k) => counts[k] > 0);
   if (!kind) return null;
-  return { kind, n: kind === 'working' ? counts.working : COUNTED.reduce((sum, k) => sum + counts[k as NotchKind], 0) };
+  return { kind, n: kind === 'working' ? counts.working : kinds.reduce((sum, k) => sum + (k === 'working' ? 0 : counts[k]), 0) };
 }
 
 // ---- What the notch works through (NotchSession.tsx, NotchReview.tsx) ----
@@ -290,16 +293,17 @@ export function reviewTitle(r: Pick<BarReview, 'number' | 'title'>): string {
 }
 
 /** Everything the notch can show: what waits on you in the order the queue goes to it (queue.ts
- *  `byPlace`: the ones moved to the top, the sessions that need you, the PRs waiting on your
- *  review, the todos due, the turns that ended, then the todos ready to start, with the reviews
- *  of a repo that puts them first ahead of the sessions that need you), then the running ones in
- *  the bar's order. ⌥↑ ⌥↓ step along all of it, so they go the way ⌘] does. */
-export function notchRows(items: BarItem[], reviews: BarReview[], todos: { due: BarTodo[]; ready: BarTodo[] } = { due: [], ready: [] }): NotchRow[] {
+ *  `byPlace`: the ones moved to the top, then by kind in your order, `order`: by default the
+ *  sessions that need you, the PRs waiting on your review, the todos due, the turns that ended,
+ *  then the todos ready to start, with the reviews of a repo that puts them first ahead of them
+ *  all), then the running ones in the bar's order. ⌥↑ ⌥↓ step along all of it, so they go the way
+ *  ⌘] does. */
+export function notchRows(items: BarItem[], reviews: BarReview[], todos: { due: BarTodo[]; ready: BarTodo[] } = { due: [], ready: [] }, order: readonly Waits[] = WAITS): NotchRow[] {
   const session = (i: BarItem): NotchRow => ({ kind: 'session', key: i.key, item: i });
   const review = (r: BarReview): NotchRow => ({ kind: 'review', key: r.key, review: r });
   const todo = (waits: 'due' | 'ready') => (t: BarTodo): NotchRow => ({ kind: 'todo', key: todoRowKey(t.id), todo: t, waits });
   const waiting = [...items.filter((i) => i.group !== 'working').map(session), ...reviews.map(review), ...todos.due.map(todo('due')), ...todos.ready.map(todo('ready'))];
-  return [...inQueueOrder(waiting, ROW_READS), ...items.filter((i) => i.group === 'working').map(session)];
+  return [...inQueueOrder(waiting, inOrder(ROW_READS, order)), ...items.filter((i) => i.group === 'working').map(session)];
 }
 
 /** What the notch works through, as a session's panel in Sessions does: the rows that wait on
@@ -309,15 +313,15 @@ export function waitingRows(rows: NotchRow[]): NotchRow[] {
 }
 
 /** The row the shortcut that works through what waits opens the notch on: the one it showed last
- *  while that still waits on you, else the first that waits in the queue's order (the one that
- *  has waited longest). None with nothing waiting: the end of what waits says so. */
-export function waitingRow(rows: NotchRow[], last: string | null): NotchRow | null {
-  const waiting = inQueueOrder(waitingRows(rows), ROW_READS);
+ *  while that still waits on you, else the first that waits in the queue's order (`order`; the
+ *  one that has waited longest). None with nothing waiting: the end of what waits says so. */
+export function waitingRow(rows: NotchRow[], last: string | null, order: readonly Waits[] = WAITS): NotchRow | null {
+  const waiting = inQueueOrder(waitingRows(rows), inOrder(ROW_READS, order));
   return waiting.find((r) => r.key === last) ?? waiting[0] ?? null;
 }
 
 /** The row a click on the notch itself opens it on: the shortcut's (`waitingRow`), else the one
  *  it showed last, else the first row. None with nothing on the bar. */
-export function currentRow(rows: NotchRow[], last: string | null): NotchRow | null {
-  return waitingRow(rows, last) ?? rows.find((r) => r.key === last) ?? rows[0] ?? null;
+export function currentRow(rows: NotchRow[], last: string | null, order: readonly Waits[] = WAITS): NotchRow | null {
+  return waitingRow(rows, last, order) ?? rows.find((r) => r.key === last) ?? rows[0] ?? null;
 }

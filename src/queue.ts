@@ -16,17 +16,60 @@ import type { Raised, Status } from './types';
  *  to show an answer, and an allowed tool call isn't shown ahead of it. */
 export type Handled = Map<string, number>;
 
-/** What a row waits on you as, the most urgent first: a session that needs you, a PR waiting on
- *  your review, a todo due today or before (barfeed.rs `todo_lists`), a turn that ended, and
- *  last a todo ready to start, which the queue reaches once nothing else waits. The notch lists
- *  them in this order too (bar.ts `NOTCH_ORDER`). A review whose repo puts reviews first goes
- *  ahead of them all (`Place.first`). */
+/** What a row waits on you as, in the order the queue goes to them unless you put them in
+ *  another (`[queue] order`, `queueKinds`): a session that needs you, a PR waiting on your
+ *  review, a todo due (barfeed.rs `todo_lists`), a turn that ended, and last a todo ready to
+ *  start, which the queue reaches once nothing else waits. The notch counts them in that order
+ *  too (bar.ts `notchOrder`). A review whose repo puts reviews first goes ahead of them all
+ *  (`Place.first`). config.rs `QUEUE_KINDS` has them too. */
 export const WAITS = ['needs', 'reviews', 'due', 'unread', 'ready'] as const;
 export type Waits = (typeof WAITS)[number];
 
-/** The kinds that say something waits on you, which the closed notch counts: all but the todos
- *  ready to start, of which there are nearly always some, so the count would never clear. */
-export const COUNTED: readonly Waits[] = WAITS.filter((w) => w !== 'ready');
+/** The kinds that always wait on you, which `[queue] order` can move but not leave out: the
+ *  sessions' (config.rs `ALWAYS_WAITS`). */
+export const ALWAYS_WAITS: readonly Waits[] = ['needs', 'unread'];
+
+/** `kinds` with `kind` put where the default order has it among them: before the first that
+ *  comes after it there. */
+export function withKind(kinds: readonly Waits[], kind: Waits): Waits[] {
+  if (kinds.includes(kind)) return [...kinds];
+  const rank = (w: Waits) => WAITS.indexOf(w);
+  const at = kinds.findIndex((k) => rank(k) > rank(kind));
+  return at < 0 ? [...kinds, kind] : [...kinds.slice(0, at), kind, ...kinds.slice(at)];
+}
+
+// One list for each order read, so a window's rows and reads change only when the order does.
+const KINDS = new Map<string, readonly Waits[]>();
+
+/**
+ * What waits on you in your order (`[queue] order`, as config.rs `QueueCfg::kinds` reads it): the
+ * kinds it names, each once, `ready` last, with any of `ALWAYS_WAITS` it leaves out where the
+ * default order has it (`withKind`). The default order without one, from a board or feed that
+ * doesn't say. The same order gives the same list, so it can stand in a hook's dependencies.
+ */
+export function queueKinds(order?: readonly string[] | null): readonly Waits[] {
+  const id = order ? order.join(',') : '';
+  const kept = KINDS.get(id);
+  if (kept) return kept;
+  let kinds: Waits[] = [];
+  for (const k of order ?? WAITS) {
+    const known = WAITS.find((w) => w === k.trim());
+    if (known && !kinds.includes(known)) kinds.push(known);
+  }
+  // The queue comes round to the ones you skipped before it reaches the todos ready to start
+  // (`leftAfter`), so they're last in any order.
+  kinds = [...kinds.filter((k) => k !== 'ready'), ...kinds.filter((k) => k === 'ready')];
+  for (const k of ALWAYS_WAITS) kinds = withKind(kinds, k);
+  KINDS.set(id, kinds);
+  return kinds;
+}
+
+/** The kinds that say something waits on you, which the closed notch counts, in your order: all
+ *  but the todos ready to start, of which there are nearly always some, so the count would never
+ *  clear. */
+export function countedKinds(order: readonly Waits[]): Waits[] {
+  return order.filter((w) => w !== 'ready');
+}
 
 /** What a session waits on you as, by its status: a finished turn is Your turn, and the rest that
  *  wait (a call to allow, a question, an error) need you. */
@@ -52,6 +95,22 @@ export interface Reads<T> {
    *  ready one goes by ahead of how long it's waited, and a due one after it (`byPlace`). */
   orderOf?: (row: T) => number | undefined;
   titleOf: (row: T) => string;
+  /** What waits on you in your order (`queueKinds`), which the kinds go in: the default order
+   *  without it. A window gets it from its board or feed through `inOrder`. */
+  order?: readonly Waits[];
+}
+
+// One reads for each window's reads and order, so a window's hooks see them change only when the
+// order does.
+const ORDERED = new WeakMap<object, Map<readonly Waits[], object>>();
+
+/** `reads` going by `order` (`Reads.order`), the same object each time for the same two. */
+export function inOrder<T>(reads: Reads<T>, order: readonly Waits[]): Reads<T> {
+  let byOrder = ORDERED.get(reads);
+  if (!byOrder) ORDERED.set(reads, (byOrder = new Map()));
+  let got = byOrder.get(order) as Reads<T> | undefined;
+  if (!got) byOrder.set(order, (got = { ...reads, order }));
+  return got;
 }
 
 /** Where a row stands in the queue: whether it was moved to the top, what it waits as, whether
@@ -60,6 +119,9 @@ export interface Reads<T> {
 export interface Place {
   key: string;
   waits: Waits;
+  /** Where what it waits as comes in the queue: its place in your order (`Reads.order`), or
+   *  ahead of them all for a review whose repo puts reviews first. */
+  rank: number;
   since: number;
   raised?: Raised;
   first?: boolean;
@@ -70,22 +132,22 @@ export interface Place {
 }
 
 /** What the queue reads of a row to place it. */
-export type PlaceReads<T> = Pick<Reads<T>, 'keyOf' | 'sinceOf' | 'waitsOf' | 'raisedOf' | 'finishedOf' | 'firstOf' | 'orderOf'>;
+export type PlaceReads<T> = Pick<Reads<T>, 'keyOf' | 'sinceOf' | 'waitsOf' | 'raisedOf' | 'finishedOf' | 'firstOf' | 'orderOf' | 'order'>;
 
 export function placeOf<T>(row: T, reads: PlaceReads<T>): Place {
-  return { key: reads.keyOf(row), waits: reads.waitsOf(row), since: reads.sinceOf(row), raised: reads.raisedOf(row), first: !!reads.firstOf?.(row), finished: reads.finishedOf(row), order: reads.orderOf?.(row) };
-}
-
-/** Where what a row waits as comes in the queue: `WAITS`' order, with a review whose repo puts
- *  reviews first ahead of the sessions that need you. */
-function rankOf(p: Place): number {
-  return p.first && p.waits === 'reviews' ? -1 : WAITS.indexOf(p.waits);
+  const waits = reads.waitsOf(row);
+  const first = !!reads.firstOf?.(row);
+  // A kind left out of the order isn't on the window's list; were it, it would go last.
+  const at = (reads.order ?? WAITS).indexOf(waits);
+  const rank = first && waits === 'reviews' ? -1 : at < 0 ? WAITS.length : at;
+  return { key: reads.keyOf(row), waits, rank, since: reads.sinceOf(row), raised: reads.raisedOf(row), first, finished: reads.finishedOf(row), order: reads.orderOf?.(row) };
 }
 
 /**
  * The order every window works through what waits on you in: the ones moved to the top first,
- * whatever they wait as (lanes.ts `byRaise`); then the most urgent kind first (`WAITS`, with the
- * reviews of a repo that puts them first ahead of the sessions that need you: `rankOf`), each
+ * whatever they wait as (lanes.ts `byRaise`); then by kind in your order (`Place.rank`: `WAITS`'
+ * unless `[queue] order` says otherwise, with the reviews of a repo that puts them first ahead of
+ * them all), each
  * first come, first served, the longest wait first, with the finished turns that are only yours
  * to read after the ones that want something of you. One that comes to wait, or comes back after
  * you answered it, joins the end of its kind and never goes ahead of the ones that have waited
@@ -95,7 +157,7 @@ function rankOf(p: Place): number {
 export function byPlace(a: Place, b: Place): number {
   // Ready todos go in your order; the rest by how long each has waited, then in your order.
   const yours = (a.order ?? 0) - (b.order ?? 0);
-  return byRaise(a.raised, b.raised) || rankOf(a) - rankOf(b) || Number(!!a.finished) - Number(!!b.finished) || (a.waits === 'ready' ? yours : 0) || a.since - b.since || yours || a.key.localeCompare(b.key);
+  return byRaise(a.raised, b.raised) || a.rank - b.rank || Number(!!a.finished) - Number(!!b.finished) || (a.waits === 'ready' ? yours : 0) || a.since - b.since || yours || a.key.localeCompare(b.key);
 }
 
 /** A window's rows in the queue's order (`byPlace`), whatever order it lists them in. */

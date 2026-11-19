@@ -3280,6 +3280,7 @@ pub fn compose(inp: Inputs) -> Board {
         todos_unreadable: false,
         today: String::new(),
         todo_clock: None,
+        queue: Default::default(),
         labels: Vec::new(),
         quick_shortcut: String::new(),
         chat_shortcut: String::new(),

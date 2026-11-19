@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { Raised } from './types';
-import { answered, chordPressed, firstLeft, inQueueOrder, keyStep, left, leftAfter, leftGoesOn, placeOf, QUEUE_CHORDS, queueKey, seenStep, standing, statusWaits, stepAlong, stepTo, waits, type Handled, type QueueView, type Reads, type Shown, type Waits } from './queue';
+import { answered, chordPressed, firstLeft, inOrder, inQueueOrder, keyStep, left, leftAfter, leftGoesOn, placeOf, QUEUE_CHORDS, queueKey, queueKinds, seenStep, standing, statusWaits, stepAlong, stepTo, WAITS, waits, withKind, type Handled, type QueueView, type Reads, type Shown, type Waits } from './queue';
 
 // A window's rows, as the bar's pills are: a session's key, when its status began, what it waits
 // on you as, its title.
@@ -171,6 +171,36 @@ describe('the queue’s order', () => {
     expect(keys(leftAfter(yours, 'A', none, READS, null, 100))).toEqual(['B', 'C', 'D']);
     // And a window that shows the one moved up says it's next.
     expect(stepTo('next', { ...card(B, [A, B, C, top(D, 150)]), came: 100 }, 'B', none)?.key).toBe('D');
+  });
+
+  it('goes by kind in your order, a review whose repo puts reviews first still ahead of them all', () => {
+    const review: Row = { key: 'R', since: 5, waits: 'reviews' };
+    const due: Row = { key: 'T', since: 1, waits: 'due' };
+    const yours = inOrder(READS, queueKinds(['unread', 'due', 'reviews', 'needs']));
+    expect(keys(inQueueOrder([A, B, C, D, review, due], yours))).toEqual(['C', 'D', 'T', 'R', 'A', 'B']);
+    expect(keys(inQueueOrder([A, C, { key: 'F', since: 50, waits: 'reviews', first: true }], yours))).toEqual(['F', 'C', 'A']);
+    expect(keys(leftAfter([A, B, C, D], 'D', none, yours))).toEqual(['A', 'B', 'C']);
+    // The same reads for the same order, so a window's hooks see them change only when it does.
+    expect(inOrder(READS, queueKinds(['unread', 'due', 'reviews', 'needs']))).toBe(yours);
+    expect(inOrder(READS, queueKinds())).not.toBe(yours);
+  });
+
+  it('reads your order as the engine does: each kind once, ready todos last, and sessions always in it', () => {
+    expect(queueKinds()).toEqual(WAITS);
+    expect(queueKinds(null)).toBe(queueKinds());
+    expect(queueKinds(['due', 'unread', 'needs'])).toEqual(['due', 'unread', 'needs']);
+    // The same order read twice is the same list.
+    expect(queueKinds(['due', 'unread', 'needs'])).toBe(queueKinds(['due', 'unread', 'needs']));
+    // A session's kind left out goes where the default has it among the rest (config.rs
+    // `QueueCfg::kinds`, whose test these cases are).
+    expect(queueKinds(['reviews', 'ready'])).toEqual(['needs', 'reviews', 'unread', 'ready']);
+    expect(queueKinds(['ready', 'due', 'needs', 'unread'])).toEqual(['due', 'needs', 'unread', 'ready']);
+    expect(queueKinds(['ready', 'due'])).toEqual(['needs', 'due', 'unread', 'ready']);
+    expect(queueKinds(['needs', 'Reviews', 'unread', 'needs'])).toEqual(['needs', 'unread']);
+    // Turned on in Settings, a kind goes where the default has it.
+    expect(withKind(['reviews', 'needs', 'unread'], 'due')).toEqual(['reviews', 'needs', 'due', 'unread']);
+    expect(withKind(['due', 'needs', 'unread'], 'ready')).toEqual(['due', 'needs', 'unread', 'ready']);
+    expect(withKind(['unread', 'needs'], 'reviews')).toEqual(['reviews', 'unread', 'needs']);
   });
 
   it('names what a session waits as by its status', () => {

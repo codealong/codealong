@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { barWidth, currentRow, elsewhereWaits, fitGroups, NOTCH, notchClip, notchCount, notchDragged, notchPillsRoom, notchRows, notchSizes, plain, projectWaits, ROW_READS, waitingRow, waitingRows, type Metrics, type NotchRow } from './bar';
-import { inQueueOrder, leftAfter, placeOf, stepTo } from './queue';
+import { barWidth, currentRow, elsewhereWaits, fitGroups, NOTCH, notchClip, notchCount, notchDragged, notchOrder, notchPillsRoom, notchRows, notchSizes, plain, projectWaits, ROW_READS, waitingRow, waitingRows, type Metrics, type NotchRow } from './bar';
+import { inQueueOrder, leftAfter, placeOf, queueKinds, stepTo } from './queue';
 import { ALL_PROJECTS, QUEUE_READS, queueRows } from './quick';
 import * as fx from './testing/fixtures';
 import { SESSION_READS } from './useWaitingQueue';
@@ -284,6 +284,11 @@ describe('the bar docked in the notch', () => {
     // Todos due count with the rest, after the reviews and ahead of the turns that ended.
     expect(notchCount({ needs: 0, reviews: 0, due: 2, unread: 1, working: 5 })).toEqual({ kind: 'due', n: 3 });
     expect(notchCount({ needs: 1, reviews: 0, due: 2, unread: 0, working: 0 })).toEqual({ kind: 'needs', n: 3 });
+    // In your order (`[queue] order`): the first kind there is that has any is drawn.
+    const dueFirst = queueKinds(['due', 'needs', 'unread', 'ready']);
+    expect(notchOrder(dueFirst)).toEqual(['due', 'needs', 'unread', 'working']);
+    expect(notchCount({ needs: 1, reviews: 0, due: 2, unread: 4, working: 0 }, dueFirst)).toEqual({ kind: 'due', n: 7 });
+    expect(notchCount({ needs: 1, reviews: 0, due: 0, unread: 4, working: 3 }, queueKinds(['unread', 'needs']))).toEqual({ kind: 'unread', n: 5 });
   });
 });
 
@@ -357,17 +362,27 @@ describe('what the notch works through', () => {
     expect(keys(inQueueOrder(waiting, ROW_READS))).toEqual(keys(waiting));
   });
 
+  it('goes through what waits in your order, and opens on the first of it', () => {
+    const order = queueKinds(['unread', 'reviews', 'needs']);
+    const all = notchRows([item('n1', 'needs', 10), item('u1', 'unread', 30)], [fx.barReview({ key: 'o/r#1', since: 20 })], { due: [], ready: [] }, order);
+    expect(keys(waitingRows(all))).toEqual(['u1', 'o/r#1', 'n1']);
+    expect(waitingRow(all, null, order)?.key).toBe('u1');
+    expect(currentRow(all, null, order)?.key).toBe('u1');
+    // The default order needs you first.
+    expect(waitingRow(all, null)?.key).toBe('n1');
+  });
+
   it('places what waits in the queue as the waiting window and Sessions do', () => {
     const session = fx.session({ key: 'claude:claude:u', status: 'unread', statusSince: 30 });
     const row = queueRows(fx.board({ lanes: [fx.lane({ sessions: [session] })] }), ALL_PROJECTS)[0];
     const pill = notchRows([fx.barItem({ key: session.key, group: 'unread', status: 'unread', since: 30 })], [])[0];
-    expect(placeOf(pill, ROW_READS)).toEqual({ key: session.key, waits: 'unread', since: 30, first: false, finished: false });
+    expect(placeOf(pill, ROW_READS)).toMatchObject({ key: session.key, waits: 'unread', rank: 3, since: 30, first: false, finished: false });
     expect(placeOf(row, QUEUE_READS)).toEqual(placeOf(pill, ROW_READS));
     expect(placeOf({ session }, SESSION_READS)).toEqual(placeOf(pill, ROW_READS));
     // And a finished turn, which is only yours to read, as one that comes after the rest.
     const done = { ...session, finished: { sure: true, why: ['#12 merged'] } };
     const donePill = notchRows([fx.barItem({ key: done.key, group: 'unread', status: 'unread', since: 30, finished: true })], [])[0];
-    expect(placeOf(donePill, ROW_READS)).toEqual({ key: done.key, waits: 'unread', since: 30, first: false, finished: true });
+    expect(placeOf(donePill, ROW_READS)).toMatchObject({ key: done.key, waits: 'unread', rank: 3, since: 30, first: false, finished: true });
     expect(placeOf(queueRows(fx.board({ lanes: [fx.lane({ sessions: [done] })] }), ALL_PROJECTS)[0], QUEUE_READS)).toEqual(placeOf(donePill, ROW_READS));
     expect(placeOf({ session: done }, SESSION_READS)).toEqual(placeOf(donePill, ROW_READS));
     const pr = fx.prItem({ key: 'acme/app#7', reviewRequested: true, state: 'open', requestedAt: 15, project: 'Acme' });

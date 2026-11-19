@@ -296,6 +296,16 @@
           "url": "https://github.com/o/r/pull/2"
         }
       ],
+      "queue": {
+        "due_within": 0,
+        "order": [
+          "needs",
+          "reviews",
+          "due",
+          "unread",
+          "ready"
+        ]
+      },
       "quickShortcut": "",
       "repos": {},
       "resets": [],
@@ -646,6 +656,16 @@
             "url": "https://github.com/o/r/pull/2"
           }
         ],
+        "queue": {
+          "due_within": 0,
+          "order": [
+            "needs",
+            "reviews",
+            "due",
+            "unread",
+            "ready"
+          ]
+        },
         "quickShortcut": "",
         "repos": {},
         "resets": [],
@@ -999,6 +1019,16 @@
           "url": "https://github.com/o/r/pull/2"
         }
       ],
+      "queue": {
+        "due_within": 0,
+        "order": [
+          "needs",
+          "reviews",
+          "due",
+          "unread",
+          "ready"
+        ]
+      },
       "quickShortcut": "",
       "repos": {},
       "resets": [],
@@ -1390,6 +1420,16 @@
           "url": "https://github.com/o/r/pull/2"
         }
       ],
+      "queue": {
+        "due_within": 0,
+        "order": [
+          "needs",
+          "reviews",
+          "due",
+          "unread",
+          "ready"
+        ]
+      },
       "quickShortcut": "",
       "repos": {},
       "resets": [],
@@ -1780,6 +1820,16 @@
           "url": "https://github.com/o/r/pull/2"
         }
       ],
+      "queue": {
+        "due_within": 0,
+        "order": [
+          "needs",
+          "reviews",
+          "due",
+          "unread",
+          "ready"
+        ]
+      },
       "quickShortcut": "",
       "repos": {},
       "resets": [],
@@ -2236,6 +2286,16 @@
           "url": "https://github.com/o/r/pull/3"
         }
       ],
+      "queue": {
+        "due_within": 0,
+        "order": [
+          "needs",
+          "reviews",
+          "due",
+          "unread",
+          "ready"
+        ]
+      },
       "quickShortcut": "",
       "repos": {},
       "resets": [],
@@ -2667,6 +2727,16 @@
           "url": "https://github.com/o/r/pull/3"
         }
       ],
+      "queue": {
+        "due_within": 0,
+        "order": [
+          "needs",
+          "reviews",
+          "due",
+          "unread",
+          "ready"
+        ]
+      },
       "quickShortcut": "",
       "repos": {},
       "resets": [],
