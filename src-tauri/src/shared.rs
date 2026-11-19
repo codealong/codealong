@@ -69,6 +69,17 @@ impl Machine {
     }
 }
 
+impl Machines {
+    /// Whether `other` says what this does but when each machine was last heard from and fed.
+    /// Those move with every feed (one every second or two from a linked Mac) and are read only
+    /// against minutes (`AWAY_AFTER_MS`, a schedule's settling), so the engine keeps them without
+    /// composing a board for them, which would come out the same (engine.rs `Msg::Machines`).
+    pub fn same_but_times(&self, other: &Machines) -> bool {
+        let timeless = |m: &Machines| Machines { others: m.others.iter().map(|o| Machine { last_seen: None, fed_at: None, ..o.clone() }).collect(), ..m.clone() };
+        timeless(self) == timeless(other)
+    }
+}
+
 /// Where a machine goes in line for shared work: first choices before backups, then by device
 /// key, the same on every machine.
 pub fn place(rank: Rank, key: &str) -> (Rank, &str) {
@@ -89,5 +100,13 @@ mod tests {
         // First choices go before backups whatever their keys, then keys settle it.
         assert!(place(Rank::First, "ff") < place(Rank::Backup, "00"));
         assert!(place(Rank::Backup, "0a") < place(Rank::Backup, "0b"));
+    }
+
+    #[test]
+    fn a_feed_that_moves_only_the_times_says_the_same() {
+        let m = |online: bool, at: i64| Machines { me: None, others: vec![Machine { key: "aa".into(), name: "Mini".into(), rank: Rank::First, online, last_seen: Some(at), fed_at: Some(at), prs: Vec::new(), schedules: Shared::default() }] };
+        assert!(m(true, 1_000).same_but_times(&m(true, 2_000)));
+        assert!(!m(true, 1_000).same_but_times(&m(false, 1_000)), "gone offline");
+        assert!(!m(true, 1_000).same_but_times(&Machines::default()), "one fewer");
     }
 }

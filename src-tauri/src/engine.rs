@@ -2821,8 +2821,11 @@ fn waiting_call(s: &Session, account: Option<&config::AccountCfg>) -> Option<Str
                 }
                 Ok(Msg::RunningElsewhere(_)) => {}
                 Ok(Msg::Machines(m)) if m != *self.machines => {
+                    // Kept either way; a board is composed only for more than the times, which the
+                    // next one has (the heartbeat's at most 30 s on).
+                    let moved = !m.same_but_times(&self.machines);
                     self.machines = std::sync::Arc::new(m);
-                    self.mark_dirty("machines");
+                    self.dirty_if(moved, "machines");
                 }
                 Ok(Msg::Machines(_)) => {}
                 Ok(Msg::ShownUnlocked(why, deferred)) => {
