@@ -22,7 +22,7 @@ a change to what's sent shows there. What each harness records and accepts is in
 
 1. A variant of `model::Harness` with its name in `Harness::word` and its config string in
    `Harness::config` and `from_config` (codealong-peer's `model.rs`), in `config::HARNESSES`, and
-   in `src/types.ts` and `src/harness.ts`.
+   in `src/types/session.ts` and `src/harness.ts`.
 2. A module with a struct implementing `harness::Adapter`, listed in `harness::ADAPTERS`. It must
    say `harness`, `spec` (its folder, the variable that moves it and its command, which is how
    detect.rs finds its accounts), `records`, `targets` (the ways to open a session) and `reader`;
