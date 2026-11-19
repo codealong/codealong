@@ -28,6 +28,7 @@ npm test                                # vitest
 (cd src-tauri && cargo test)            # engine rules, parsers, usage, config, launch scripts; codealong-peer's too
 scripts/engine.sh                       # builds this checkout's engine binary when src-tauri changed; prints its path
 scripts/checks.sh                       # every browser check (scripts/preview/*-check.js) on your real data; names run a few
+scripts/land.sh --reviewed-by "<who>"    # lands your branch: rebase, the checks its commits call for, push (--check: no push)
 scripts/relaunch.sh                     # builds Codealong Dev, then quits it and reopens it from Applications
 scripts/release.sh                      # the installer for other Macs: universal, Developer ID, notarized
 scripts/check-release.sh <version>      # a release on GitHub as a download gets it; the /release skill ships one
@@ -121,12 +122,17 @@ dark, cropped to what changed), and the pull request template filled in.
    origin/main`, or the one your harness made for the session. Before building there, `npm ci`,
    and `npm run build` before cargo: Tauri's build reads `dist/`.
 2. Commit with a descriptive message, and have a change to code reviewed before you push it
-   (*Review before pushing*). Then `git fetch`, rebase your branch onto `origin/main`
-   (`git rebase origin/main`), rerun the checks the rebase could affect, and `git push origin
-   HEAD:main`. We prefer rebasing to merge commits: `main` stays a straight line of real
-   changes. A rejected push means someone pushed first: fetch, rebase and push again.
-3. Bring the main checkout up to `origin/main`: step 4's `relaunch.sh` does it after its build,
-   and with nothing to relaunch, `scripts/catch-up-main.sh` does it alone. It only fast-forwards
+   (*Review before pushing*). Then land it with `scripts/land.sh --reviewed-by "<account>,
+   <model>"` (`--no-review "<why>"` when no review could be had; neither for docs and notes
+   alone). It waits its turn behind other landings, rebases your branch onto `origin/main`, runs
+   the checks your commits call for on exactly what it pushes, pushes to `main` and does step 3.
+   Never push to `main` by hand: a push no check saw is how `main` breaks under every other
+   session. A rebase that stops on a conflict is yours to finish before running it again; a
+   cargo test that fails with the rest and passes alone is this Mac's load, which it says and
+   notes without stopping. `scripts/land.sh --check` runs the same without pushing. We prefer
+   rebasing to merge commits: `main` stays a straight line of real changes.
+3. Bring the main checkout up to `origin/main`: `land.sh` does it after its push and step 4's
+   `relaunch.sh` after its build, with `scripts/catch-up-main.sh`. It only fast-forwards
    a main checkout on `main`, so it can't lose anything: git refuses when uncommitted edits there
    touch files the update changes, and a `main` with commits `origin/main` doesn't is left alone.
    It prints where the main checkout stands; when it couldn't catch up, leave the checkout as it

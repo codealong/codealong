@@ -1,5 +1,6 @@
 # Builds and tests the engine on Linux, which no Mac can (GTK's system libraries are Linux's):
-# cargo test with warnings as errors, after the UI build that Tauri's build embeds. It runs every
+# cargo test with warnings as errors, after the UI build that Tauri's build embeds, and the UI's
+# linter and unit tests, the only run of those that isn't an agent's own on a busy Mac. It runs every
 # four hours rather than on every push: agents push to main dozens of times a day, and the
 # organization's plan has 2,000 Linux minutes a month. `gh workflow run linux.yml` runs it now,
 # on main or, with `--ref`, a pushed branch; a failed run emails whoever last changed this file.
@@ -37,6 +38,12 @@ jobs:
       - run: npm ci --no-audit --no-fund
       - name: The UI
         run: npm run build
+      # Seconds each, and before the engine's build, so a failure in them says so without waiting
+      # for it.
+      - name: The UI's linter
+        run: npm run lint
+      - name: The UI's tests
+        run: npm test
       - uses: dtolnay/rust-toolchain@stable
       # Ghostty's terminal library (libghostty-vt) builds from Ghostty's source with Zig, the
       # version the pinned Ghostty asks for (docs/development.md).

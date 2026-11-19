@@ -30,7 +30,8 @@ devices is its own crate, codealong-peer (`src-tauri/peer/`), which the
 npm install
 npm run tauri dev         # the app with hot reload
 scripts/relaunch.sh       # build Codealong Dev, then quit it and reopen it from Applications
-scripts/catch-up-main.sh  # fast-forward the main checkout to origin/main (relaunch.sh does too)
+scripts/land.sh           # land your branch on main, with write access: rebase, the checks its commits call for, push
+scripts/catch-up-main.sh  # fast-forward the main checkout to origin/main (land.sh and relaunch.sh do too)
 scripts/version.sh 0.3.0  # start a release: the version everywhere, committed and tagged
 scripts/release.sh        # the installer for other Macs (design/plans/releases.md)
 scripts/check-release.sh 0.3.0  # a release on GitHub as a download gets it: notarized, signed, its update
