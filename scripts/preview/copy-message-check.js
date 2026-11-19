@@ -60,7 +60,8 @@
       var buttons = Array.prototype.slice.call(document.querySelectorAll('.ca-thread-said .ca-copybtn')).filter(function (b) { return !b.closest('.ca-codeblock'); });
       check('nothing sits under a message to copy it', buttons.length === 0, buttons.length + ' buttons');
       // Each message heads itself where the speaker changes; a reply's later messages don't.
-      var all = saids().filter(function (el) { return !el.classList.contains('is-ahead'); });
+      // Yours and the agent's: a card's message (Codealong's, another session's) says when on its line.
+      var all = saids().filter(function (el) { return !el.classList.contains('is-ahead') && !el.closest('.ca-msgcard'); });
       var wrong = [];
       var runs = 0;
       all.forEach(function (el, i) {
@@ -73,6 +74,12 @@
       var above = all.filter(function (el) { return !timeUnder(el); }).length;
       var timed = all.filter(function (el) { return !!el.querySelector(':scope > .ca-thread-meta'); }).length;
       check('its time is under its words, never above them nor empty', above === 0 && timed > 0, timed + ' with a time, ' + above + ' of them not under the words');
+      // A run's last message, the one before the next run's first or the last of all, says when.
+      var footless = all.filter(function (el, i) { var next = all[i + 1]; return (!next || headed(next)) && !el.querySelector(':scope > .ca-thread-meta'); });
+      check('the last message of each run says when', footless.length === 0, footless.length + ' runs end without a time: ' + footless.map(function (el) { return kindOf(el) + ' “' + el.textContent.slice(0, 40) + '”'; }).join('; '));
+      // And only it: a run's earlier messages go without.
+      var early = all.filter(function (el, i) { var next = all[i + 1]; return !!next && !headed(next) && !!el.querySelector(':scope > .ca-thread-meta .ca-meta'); });
+      check('and its earlier messages go without', early.length === 0, early.length + ' earlier messages with a time');
       var unheaded = all.filter(function (el) { return !headed(el); }).length;
       if (runs > 0) check('a reply’s later messages go on under its heading', unheaded > 0, runs + ' later messages, ' + unheaded + ' without a heading');
       else note('no reply here has more than one message, so going on under a heading went unchecked');

@@ -103,6 +103,25 @@ describe('headingsOf', () => {
     expect(items.filter((it) => it.kind !== 'tool' && it.kind !== 'note').map((it) => headed.get(`${it.cursor}:${it.n}`))).toEqual([0, 5 * MIN, 5 * MIN, 5 * MIN]);
   });
 
+  it('says when under the last message of each run, the one going on under its latest', () => {
+    const items = [step('you', { at: MIN }), step('agent', { at: 2 * MIN }), call('a'), step('result', { id: 'a', at: 3 * MIN }), step('agent', { at: 4 * MIN }), call('b'), step('agent', { at: 5 * MIN }), step('you', { at: 6 * MIN }), step('agent', { at: 7 * MIN }), call('c', undefined)];
+    const { footed } = headingsOf(items);
+    expect(items.map((it) => footed.get(`${it.cursor}:${it.n}`))).toEqual([MIN, undefined, undefined, undefined, undefined, undefined, 5 * MIN, 6 * MIN, 7 * MIN, undefined]);
+  });
+
+  it('ends a run at a pause, a note, a prompt taken back and another session’s message', () => {
+    const feet = (items: TranscriptItem[]) => {
+      const { footed } = headingsOf(items);
+      return items.filter((it) => it.kind !== 'note').map((it) => footed.get(`${it.cursor}:${it.n}`));
+    };
+    expect(feet([step('agent', { at: MIN }), step('agent', { at: 13 * MIN })])).toEqual([MIN, 13 * MIN]);
+    expect(feet([step('agent', { at: MIN }), step('note', { at: 2 * MIN }), step('agent', { at: 3 * MIN })])).toEqual([MIN, 3 * MIN]);
+    expect(feet([step('you', { at: MIN }), step('you', { at: 2 * MIN, withdrawn: true }), step('you', { at: 3 * MIN })])).toEqual([MIN, 2 * MIN, 3 * MIN]);
+    expect(feet([step('agent', { at: MIN }), step('peer', { at: 2 * MIN }), step('agent', { at: 3 * MIN })])).toEqual([MIN, 2 * MIN, 3 * MIN]);
+    // One its record gave no time says the last time said before it.
+    expect(feet([step('you', { at: 5 * MIN }), step('agent'), step('agent')])).toEqual([5 * MIN, undefined, 5 * MIN]);
+  });
+
   it('says who spoke last, for a message streaming in', () => {
     expect(headingsOf([step('you', { at: MIN }), step('agent', { at: 2 * MIN }), call('a', undefined)]).last).toEqual({ kind: 'agent', at: 2 * MIN });
     expect(headingsOf([]).last).toEqual({ kind: null, at: 0 });

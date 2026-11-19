@@ -3,10 +3,11 @@
 // It opens at the newest and loads older pages as you scroll up, holding your place; new steps
 // come in at the bottom as the session goes on, and the view follows them while you're at the end,
 // stopping as soon as you scroll up, however little.
-// When a message was said shows under the first of a run of them, not each one, at its right,
-// with what's said of it (Writing, Taken back): your prompt, then the agent's reply, whose later
-// messages (between its tool calls) go on without. It comes again where the speaker changes, after
-// a note, or after a pause (`headingsOf`); who said it is said first, for a screen reader. A message
+// When a message was said shows under the last of a run of them, not each one, at its right,
+// with what's said of it (Writing, Taken back): your prompt, then the agent's reply, whose earlier
+// messages (between its tool calls) go without. A run ends where the speaker changes, at a note,
+// or at a pause (`headingsOf`); the one going on says when under its latest message. Who said it
+// is said ahead of a run's first message, for a screen reader. A message
 // neither yours nor the agent's is a card (MessageCard.tsx): Codealong's says in a line what it
 // comes to, which opens to the whole; another session's says who it's from and shows its first
 // lines, a long one cut until it's opened; a file or an image it was sent with shows as in a
@@ -191,27 +192,47 @@ export function editablePrompts(items: TranscriptItem[], fromStart: boolean): Se
   return out;
 }
 
-/** The messages that show who said them and when, each with the time its heading says, and who
- *  spoke last, for one streaming in after them. A note between two messages (a message held for
- *  you to allow, the conversation compacted) starts afresh, and a prompt the session took back
- *  always heads itself, to say so, as another session's message does, to say whose: the next may
- *  be another's. The agent's tool calls are its own, so they don't; your answers to questions it
- *  asked you are yours, as a prompt is. A message its record gave no
- *  time (the replies in Cursor's command line transcript, whose prompts alone say when) says the
- *  last time said before it, when its turn began, and none when nothing above it on the page
- *  said one. */
-export function headingsOf(items: TranscriptItem[]): { headed: Map<string, number>; last: Speaker } {
+/** Where each run of messages starts (`headed`: who said them, ahead of the first) and ends
+ *  (`footed`: when, under the last), each with the time its message was said, and who spoke
+ *  last, for one streaming in after them. A note between two messages (a message held for you to
+ *  allow, the conversation compacted) starts afresh, and a prompt the session took back is a run
+ *  of its own, to say so, as another session's message is, to say whose: the next may be
+ *  another's. The agent's tool calls are its own, so they don't end its run; your answers to
+ *  questions it asked you are yours, as a prompt is. The run still going at the end of the page
+ *  says when under its latest message, until a later one goes on with it. A message its record
+ *  gave no time (the replies in Cursor's command line transcript, whose prompts alone say when)
+ *  says the last time said before it, when its turn began, and none when nothing above it on the
+ *  page said one. */
+export function headingsOf(items: TranscriptItem[]): { headed: Map<string, number>; footed: Map<string, number>; last: Speaker } {
   const headed = new Map<string, number>();
+  const footed = new Map<string, number>();
   const last: Speaker = { kind: null, at: 0 };
+  // The latest message of the run going on, and when it was said.
+  let open: [string, number] | null = null;
+  const close = () => {
+    if (open) footed.set(...open);
+    open = null;
+  };
   for (const it of items) {
     const kind = hasAnswers(it) ? 'you' : it.kind;
     if (kind === 'you' || kind === 'agent' || kind === 'codealong' || kind === 'peer') {
-      if (heads(last, kind, it.at) || it.withdrawn || kind === 'peer') headed.set(keyOf(it), it.at > 0 ? it.at : last.at);
+      const at = it.at > 0 ? it.at : last.at;
+      const alone = !!it.withdrawn || kind === 'peer';
+      if (heads(last, kind, it.at) || alone) {
+        close();
+        headed.set(keyOf(it), at);
+      }
+      open = [keyOf(it), at];
+      if (alone) close();
       last.kind = kind;
-    } else if (kind === 'note') last.kind = null;
+    } else if (kind === 'note') {
+      close();
+      last.kind = null;
+    }
     if (it.at > 0) last.at = it.at;
   }
-  return { headed, last };
+  close();
+  return { headed, footed, last };
 }
 
 /** Marks an element for a moment with a class whose animation shows it, again if it's marked. */
@@ -444,15 +465,16 @@ function ToolRunView({ calls, stateOf, inBox, onOpen }: { calls: { item: Transcr
   );
 }
 
-/** Something said: yours or the agent's, under who said it and when (`head`, the time its heading
- *  says, 0 when none was) where it `heads` a run of them. A command you ran in the session's shell with `!` shows as the command, which can run
+/** Something said: yours or the agent's, who said it ahead of it where it starts a run of them
+ *  (`head`), and when under it where it ends one (`foot`, the time it was said, 0 when none was),
+ *  with what's said of it (`label`: who sent it, Writing). A command you ran in the session's shell with `!` shows as the command, which can run
  *  again, and what it printed (`result`). A right-click gives `onMenu` Copy for what you'd
  *  selected and Copy message for the message as it was written, markdown and all, which marks
  *  the message for a moment once it's copied, and for a prompt of yours that can be gone back to,
  *  Edit from here… (`onEdit`). A command has its own Copy. Your answers to questions (`asked`,
  *  with `item` the call's result) are a message of yours too, whose `onEdit` is Rewind to this
  *  question…. */
-function SaidView({ item, result, asked, now, label, who, head, onPutBack, onMenu, onEdit }: { item: TranscriptItem; result?: TranscriptItem; asked?: Question[]; now: number; label?: string; who: string; head?: number; onPutBack?: () => void; onMenu?: (items: MenuSpec) => void; onEdit?: () => void }) {
+function SaidView({ item, result, asked, now, label, who, head, foot, onPutBack, onMenu, onEdit }: { item: TranscriptItem; result?: TranscriptItem; asked?: Question[]; now: number; label?: string; who: string; head?: number; foot?: number; onPutBack?: () => void; onMenu?: (items: MenuSpec) => void; onEdit?: () => void }) {
   const ran = item.kind === 'you' && item.input != null;
   const answers = item.kind === 'result' ? answeredOf(asked ?? [], item.answers ?? {}) : null;
   const words = answers ? answers.map((a) => `${a.header ?? a.question}: ${a.answer}`).join('\n') : item.text;
@@ -517,7 +539,7 @@ function SaidView({ item, result, asked, now, label, who, head, onPutBack, onMen
       )}
       {/* When, under it, and what's said of it: who sent it where that's said, Writing while it's
           being written, Taken back. */}
-      {head !== undefined && (label || head > 0 || item.withdrawn) && (
+      {(label || (foot !== undefined && (foot > 0 || item.withdrawn))) && (
         <div className="ca-thread-meta">
           {/* Said already, ahead of it, where it's who sent it. */}
           {label && (
@@ -525,9 +547,9 @@ function SaidView({ item, result, asked, now, label, who, head, onPutBack, onMen
               {label}
             </span>
           )}
-          {(head > 0 || item.withdrawn) && (
-            <span className="ca-meta" title={head > 0 ? absolute(head) : undefined}>
-              {[item.withdrawn && 'Taken back', head > 0 && agoPhrase(head, now)].filter(Boolean).join(' · ')}
+          {foot !== undefined && (foot > 0 || item.withdrawn) && (
+            <span className="ca-meta" title={foot > 0 ? absolute(foot) : undefined}>
+              {[item.withdrawn && 'Taken back', foot > 0 && agoPhrase(foot, now)].filter(Boolean).join(' · ')}
             </span>
           )}
         </div>
@@ -1306,7 +1328,8 @@ export function SessionThread({ session: s, now, onOpen, fallback, machine, onLo
                 if (r.kind === 'answers') {
                   const rewind = onRewind && r.questions.length > 0 ? () => onRewind(r.result, r.questions) : undefined;
                   const head = headings.headed.get(keyOf(r.result));
-                  return <Said key={keyOf(r.result)} item={r.result} asked={r.questions} now={head === undefined ? 0 : now} who="You" head={head} onMenu={onMenu} onEdit={rewind} />;
+                  const foot = headings.footed.get(keyOf(r.result));
+                  return <Said key={keyOf(r.result)} item={r.result} asked={r.questions} now={foot === undefined ? 0 : now} who="You" head={head} foot={foot} onMenu={onMenu} onEdit={rewind} />;
                 }
                 const it = r.item;
                 if (it.kind === 'tool') return inBox(it) ? null : <ToolLine key={keyOf(it)} item={it} result={r.result} state={stateOf(it)} onOpen={askHere} />;
@@ -1348,9 +1371,10 @@ export function SessionThread({ session: s, now, onOpen, fallback, machine, onLo
                       <Said item={shown} result={r.result} now={0} who={peerLabel(it)} onMenu={onMenu} />
                     </PeerCard>
                   );
-                // The clock only for one with a heading, which says how long ago: the others needn't
-                // render as it moves.
-                return <Said key={keyOf(it)} item={shown} result={r.result} now={head === undefined ? 0 : now} label={label} who={it.kind === 'you' ? 'You' : (label ?? s.account)} head={head} onPutBack={again} onMenu={onMenu} onEdit={edit} />;
+                // The clock only for one that ends a run, which says how long ago under it: the others
+                // needn't render as it moves.
+                const foot = headings.footed.get(keyOf(it));
+                return <Said key={keyOf(it)} item={shown} result={r.result} now={foot === undefined ? 0 : now} label={label} who={it.kind === 'you' ? 'You' : (label ?? s.account)} head={head} foot={foot} onPutBack={again} onMenu={onMenu} onEdit={edit} />;
               })}
               {showing.map((a) => (
                 <Unsaid key={a.id} ahead={a} onOpen={onOpen} />
