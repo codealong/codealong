@@ -2363,10 +2363,12 @@ fn waiting_call(s: &Session, account: Option<&config::AccountCfg>) -> Option<Str
         if self.seen.snoozed.is_empty() && self.seen.unread.is_empty() && self.seen.quiet.is_empty() && self.seen.raised.is_empty() && self.seen.agent_seen.is_empty() && self.seen.labels.is_empty() && sides.is_empty() && !unattended {
             return sessions;
         }
-        // The PRs whose next round here is of newer commits than their last round's, as the board
-        // last published says (`AutoReview::behind`, worked out with the PRs and their settings).
-        let behind: HashSet<String> = self.board.read().map(|b| b.prs.iter().filter(|p| p.auto_review.as_ref().is_some_and(|a| a.behind && a.machine.is_none())).map(|p| crate::prlinks::pr_key(&p.key)).collect()).unwrap_or_default();
-        let to_come = autoreview::to_come(&self.reviews, |pr| behind.contains(pr));
+        // The commits of the PRs whose next round here is of newer commits than their last
+        // round's, as the board last published says (`AutoReview::behind`, worked out with the
+        // PRs and their settings). A round makes way by that board, so it says so by then; a
+        // one-shot snapshot publishes none, and shows such a review waiting on you.
+        let behind: HashMap<String, String> = self.board.read().map(|b| b.prs.iter().filter(|p| p.auto_review.as_ref().is_some_and(|a| a.behind && a.machine.is_none())).filter_map(|p| Some((crate::prlinks::pr_key(&p.key), p.head_oid.clone()?))).collect()).unwrap_or_default();
+        let to_come = autoreview::to_come(&self.reviews, |pr| behind.get(pr).cloned());
         for s in &mut sessions {
             // Quiet and a helper's or headless run's rule first, so that what you do to it
             // yourself after (a side conversation you asked, a mark of unread, a snooze that
