@@ -3366,15 +3366,15 @@ export interface TextFound {
 /** What a message Codealong sent by itself is about, for its card's icon (glance.rs `About`). */
 export type GlanceAbout = 'pr' | 'helper' | 'schedule' | 'review' | 'carry-on' | 'other';
 
-/** A message Codealong sent by itself, in a line (glance.rs `Glance`): what it's about, the PR or
- *  session it names, and what happened, in a few words after them. */
+/** A message Codealong sent by itself, in a line (glance.rs `Glance`): what it's about, the PR it
+ *  names, and what happened, in a few words a part after it. */
 export interface Glance {
   about: GlanceAbout;
   /** The PR it's about, its address where the message gave it. */
   pr?: { number: number; title: string; url?: string };
-  /** The session it's about (a helper's), by its key and title. */
-  session?: { key: string; title: string };
-  line: string;
+  /** Each thing it tells of (each of a PR's happenings, each helper's news), with the session
+   *  it's about (a helper) by its key and title, where it names one. */
+  parts: { session?: { key: string; title: string }; line: string }[];
 }
 
 /** A step of a session's conversation, from its own record (transcript.rs). */

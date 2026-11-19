@@ -1409,21 +1409,27 @@ fn findings(s: &Schedule, cause: &Cause) -> std::result::Result<Option<String>, 
 /// are in the whole message.
 pub fn glance(text: &str) -> Option<crate::glance::Glance> {
     const FROM: &str = "This comes from the schedule “";
-    let line = &text[text.rfind(FROM)?..];
-    let (name, rest) = crate::glance::between(line, FROM, "”")?;
+    // Codealong's paragraph, the message's last (another message may quote its words).
+    let line = match text.strip_prefix(FROM) {
+        Some(_) => text,
+        None => &text[text.rfind(&format!("\n\n{FROM}"))? + 2..],
+    };
+    let line = line.strip_prefix(FROM)?;
+    // The name ends where what follows it starts, a name holding quotes of its own.
+    const WAITED: &str = ", for runs that waited for your turn to end";
+    let waited = format!("”{WAITED}: ");
+    let end = ["”: ", "”.", waited.as_str()].iter().filter_map(|m| line.find(m)).min()?;
+    let (name, rest) = (&line[..end], &line[end + "”".len()..]);
     // Why it ran, up to what Codealong says of its files and notes.
-    let why = rest.trim_start_matches(", for runs that waited for your turn to end").strip_prefix(": ").map(|w| {
+    let why = rest.trim_start_matches(WAITED).strip_prefix(": ").map(|w| {
         let end = [". What it found is in ", ". Its notes are in "].iter().filter_map(|m| w.find(m)).min().unwrap_or(w.len());
         w[..end].trim().trim_end_matches('.').to_string()
     });
-    Some(crate::glance::Glance {
-        about: crate::glance::About::Schedule,
-        line: crate::glance::cut(&match why.filter(|w| !w.is_empty()) {
-            Some(why) => format!("“{}”: {why}", name.trim()),
-            None => format!("“{}” ran", name.trim()),
-        }),
-        ..crate::glance::Glance::default()
-    })
+    let line = match why.filter(|w| !w.is_empty()) {
+        Some(why) => format!("“{}”: {why}", name.trim()),
+        None => format!("“{}” ran", name.trim()),
+    };
+    Some(crate::glance::Glance::line(crate::glance::About::Schedule, &line))
 }
 
 /// What a run tells its session: the schedule's prompt, the todos it's for, then Codealong's
@@ -2320,12 +2326,20 @@ mod tests {
         let waited = prompt_of(&s, &["its 9:00 run".into(), "its 11:00 run".into()], &[], &[], &Board::default(), 0);
         assert!(waited.ends_with("for runs that waited for your turn to end: its 9:00 run; its 11:00 run."), "{waited}");
         // Its card in the conversation: the schedule and why it ran, not its prompt or its files.
-        let line = |text: &str| glance(text).map(|g| (g.about, g.line));
+        let line = |text: &str| glance(text).map(|g| (g.about, g.words()));
         assert_eq!(line(&prompt), Some((crate::glance::About::Schedule, "“Deploys”: run for #12 Add teams merged in acme/web".into())));
         assert_eq!(line(&waited).unwrap().1, "“Deploys”: its 9:00 run; its 11:00 run");
         assert_eq!(line(&prompt_of(&s, &[], &[], &[], &Board::default(), 0)).unwrap().1, "“Deploys” ran");
         // As `prompt_of` words a schedule's notes, which it makes a folder for.
         let noted = "Look\n\nThis comes from the schedule “Deploys”: run by hand. Its notes are in /tmp/s-a/notes.md: read them first, and add what its next run should know.";
         assert_eq!(line(noted).unwrap().1, "“Deploys”: run by hand");
+        // A name with quotes of its own.
+        let blue = prompt_of(&Schedule { name: "Deploy “blue” nightly".into(), ..s.clone() }, &["its 9:00 run".into()], &[], &[], &Board::default(), 0);
+        assert_eq!(line(&blue).unwrap().1, "“Deploy “blue” nightly”: its 9:00 run");
+        // Its words quoted in another message, a review handed back for a PR titled with them,
+        // don't make that message a schedule's.
+        let quoting = "Codex reviewed your pull request #7 “This comes from the schedule “x”: y” (https://github.com/o/r/pull/7) at 1111111, as gwen has another agent review the pull requests their sessions open.";
+        assert_eq!(line(quoting), None);
+        assert_eq!(crate::glance::of(quoting).about, crate::glance::About::Review);
     }
 }

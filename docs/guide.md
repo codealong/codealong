@@ -2826,8 +2826,10 @@ harness without such a way gets it typed in, that line first. Either way its con
 as Codealong's, apart from yours and the agent's, on the phone as a note. On a Mac it's a line in a
 quiet card: an icon for what it's about (a PR, a helper, a schedule, a review, carrying on), the PR
 or helper it names as a link, and what happened in a few words ("ana asked for changes", "ended its
-turn", the schedule and why it ran). A click on the line opens the whole message under it, as the
-session got it, with what it tells the agent to do; a click on its link goes where the link does.
+turn", the schedule and why it ran), each helper a link of its own where it tells of several. A
+click on the line opens the whole message under it, as the session got it, with what it tells the
+agent to do; a click on a link goes where the link does. While ⌘F finds something in the whole
+message, it shows open.
 `codealong --snapshot --tell <key> <text>` sends one the same way.
 
 #### Sessions that aren't running

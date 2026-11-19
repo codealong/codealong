@@ -358,7 +358,9 @@ pub fn words(notes: &[Note]) -> String {
     };
     match notes {
         [one] => format!("Your helper {}", line(one)),
-        _ => format!("About your helpers:\n{}", notes.iter().map(|n| format!("- {}", named(n))).collect::<Vec<_>>().join("\n")),
+        // A note's further lines (what a helper waits on) go under it, so they don't read as
+        // another helper's news (`glance`).
+        _ => format!("About your helpers:\n{}", notes.iter().map(|n| crate::glance::item(&named(n))).collect::<Vec<_>>().join("\n")),
     }
 }
 
@@ -366,41 +368,36 @@ pub fn words(notes: &[Note]) -> String {
 /// the helper, as a link to its session, and what happened, without the commands that go with it.
 /// Several helpers' news is each in a few words.
 pub fn glance(text: &str) -> Option<crate::glance::Glance> {
-    use crate::glance::{About, Glance, Named};
+    use crate::glance::{About, Glance, Named, Part};
     // One helper's news (`line`), after "Your helper " or "The helper ": what happened, and the
-    // helper where the news names its session.
-    let one = |s: &str| -> Option<(String, Option<Named>)> {
-        if let Some((title, rest)) = crate::glance::between(s, "“", "” (") {
-            let (key, what) = rest.split_once(") ")?;
-            let named = Some(Named { key: key.to_string(), title: title.to_string() });
-            if what.starts_with("ended its turn") {
-                return Some(("ended its turn".into(), named));
-            }
-            let waits = what.strip_prefix("waits on your user")?;
-            let said = waits.split(". They answer it in Codealong").next().unwrap_or("").trim_start_matches(':').trim();
-            return Some((if said.is_empty() { "waits on you".into() } else { format!("waits on you: {said}") }, named));
+    // helper where the news names its session, as “title” (key), a title holding quotes and
+    // parentheses of its own.
+    let one = |s: &str| -> Option<Part> {
+        if let Some(at) = [") ended its turn", ") waits on your user"].iter().filter_map(|m| s.find(m)).min() {
+            let (title, key) = s[..at].strip_prefix('“')?.rsplit_once("” (")?;
+            let line = match s[at + 2..].strip_prefix("waits on your user") {
+                None => "ended its turn".to_string(),
+                Some(waits) => match waits.split(". They answer it in Codealong").next().unwrap_or("").trim_start_matches(':').trim() {
+                    "" => "waits on you".to_string(),
+                    said => format!("waits on you: {said}"),
+                },
+            };
+            return Some(Part { session: Some(Named { key: key.to_string(), title: title.to_string() }), line: crate::glance::cut(&line) });
         }
-        if s.starts_with("you started on ") {
-            return Some(("A helper you started hasn't made its session yet".into(), None));
-        }
-        let (key, _) = s.split_once(", which you started on ").filter(|(_, rest)| rest.contains("hasn't shown up"))?;
-        Some((format!("{key} hasn't shown up"), None))
+        let line = if s.starts_with("you started on ") {
+            "A helper you started hasn't made its session yet".to_string()
+        } else {
+            let (key, _) = s.split_once(", which you started on ").filter(|(_, rest)| rest.contains("hasn't shown up"))?;
+            format!("{key} hasn't shown up")
+        };
+        Some(Part { session: None, line })
     };
-    let about = |line: String| Glance { about: About::Helper, line: crate::glance::cut(&line), ..Glance::default() };
-    if let Some(s) = text.strip_prefix("Your helper ") {
-        let (line, named) = one(s)?;
-        return Some(Glance { session: named, ..about(line) });
-    }
-    let list = text.strip_prefix("About your helpers:\n")?;
-    let each: Vec<String> = list
-        .lines()
-        .filter_map(|l| l.strip_prefix("- "))
-        .filter_map(|l| {
-            let (line, named) = one(l.strip_prefix("The helper ").unwrap_or(l))?;
-            Some(named.map_or(line.clone(), |n| format!("“{}” {line}", n.title)))
-        })
-        .collect();
-    (!each.is_empty()).then(|| about(each.join(" · ")))
+    let parts: Vec<Part> = match text.strip_prefix("Your helper ") {
+        Some(s) => vec![one(s)?],
+        // Each note starts a line with "- ", its further lines indented under it.
+        None => format!("\n{}", text.strip_prefix("About your helpers:\n")?).split("\n- ").skip(1).filter_map(|l| one(l.strip_prefix("The helper ").unwrap_or(l))).collect(),
+    };
+    (!parts.is_empty()).then_some(Glance { about: About::Helper, pr: None, parts })
 }
 
 /// Sends each job's message to its session as a window's send does, and tells `reporter` how each
@@ -439,20 +436,28 @@ mod tests {
     fn its_news_reads_back_in_a_few_words_with_the_helper_as_a_link() {
         use crate::glance::{About, Named};
         let note = |key: &str, title: &str, news: News| Note { helper: key.into(), title: title.into(), news };
+        let read = |notes: &[Note]| glance(&words(notes)).unwrap();
         let ended = note("codex:codex:rev", "Review the diff", News::Ended);
-        let g = glance(&words(std::slice::from_ref(&ended))).unwrap();
-        assert_eq!((g.about, g.line.as_str()), (About::Helper, "ended its turn"));
-        assert_eq!(g.session, Some(Named { key: "codex:codex:rev".into(), title: "Review the diff".into() }));
+        let g = read(std::slice::from_ref(&ended));
+        assert_eq!((g.about, g.words().as_str()), (About::Helper, "“Review the diff” ended its turn"));
+        assert_eq!(g.parts[0].session, Some(Named { key: "codex:codex:rev".into(), title: "Review the diff".into() }));
         let asks = note("claude:claude:q", "Check staging", News::OnUser(Some("Allow `curl`?".into())));
-        assert_eq!(glance(&words(std::slice::from_ref(&asks))).unwrap().line, "waits on you: Allow `curl`?");
-        assert_eq!(glance(&words(&[note("claude:claude:q", "Check staging", News::OnUser(None))])).unwrap().line, "waits on you");
+        assert_eq!(read(std::slice::from_ref(&asks)).parts[0].line, "waits on you: Allow `curl`?");
+        assert_eq!(read(&[note("claude:claude:q", "Check staging", News::OnUser(None))]).parts[0].line, "waits on you");
         let unstarted = note("start@1", "", News::Unstarted { account: "codex".into(), place: "~/app".into(), terminal: "Ghostty".into(), minutes: 4, screen: Some("Update?".into()) });
-        assert_eq!(glance(&words(std::slice::from_ref(&unstarted))).unwrap().line, "A helper you started hasn't made its session yet");
+        assert_eq!(read(std::slice::from_ref(&unstarted)).words(), "A helper you started hasn't made its session yet");
         let unseen = note("claude:claude2:gone", "", News::Unseen { account: "claude2".into(), minutes: 10 });
-        assert_eq!(glance(&words(std::slice::from_ref(&unseen))).unwrap().line, "claude:claude2:gone hasn't shown up");
-        // Several helpers' news, each in a few words.
-        let g = glance(&words(&[ended, asks, unseen])).unwrap();
-        assert_eq!((g.session, g.line.as_str()), (None, "“Review the diff” ended its turn · “Check staging” waits on you: Allow `curl`? · claude:claude2:gone hasn't shown up"));
+        assert_eq!(read(std::slice::from_ref(&unseen)).words(), "claude:claude2:gone hasn't shown up");
+        // A title with quotes and parentheses of its own.
+        let quoted = note("codex:codex:ci", "Check “cache” (CI)", News::Ended);
+        assert_eq!(read(std::slice::from_ref(&quoted)).parts[0].session, Some(Named { key: "codex:codex:ci".into(), title: "Check “cache” (CI)".into() }));
+        // Several helpers' news, each in a few words and each named helper a link; what one waits
+        // on over several lines, a list among them, stays its.
+        let listing = note("claude:claude:l", "List", News::OnUser(Some("Pick one:\n- A\n- B".into())));
+        let g = read(&[ended, asks, unseen, quoted, listing]);
+        assert_eq!(g.words(), "“Review the diff” ended its turn · “Check staging” waits on you: Allow `curl`? · claude:claude2:gone hasn't shown up · “Check “cache” (CI)” ended its turn · “List” waits on you: Pick one: - A - B");
+        let keys: Vec<Option<&str>> = g.parts.iter().map(|p| p.session.as_ref().map(|n| n.key.as_str())).collect();
+        assert_eq!(keys, [Some("codex:codex:rev"), Some("claude:claude:q"), None, Some("codex:codex:ci"), Some("claude:claude:l")]);
     }
 
     /// origins.json with `pending` its starts waiting for their sessions, and no session noted.

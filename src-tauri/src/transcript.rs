@@ -195,6 +195,12 @@ fn shown_in(mut page: Page, images: &Path, files: &Path) -> Page {
             carried = std::mem::take(&mut it.images);
             continue;
         }
+        // Codealong's, as a harness's reader found it (Claude Code's cross-session socket), has its
+        // line for its card as one typed in does.
+        if it.kind == "codealong" {
+            it.glance = Some(crate::glance::of(&it.text));
+            continue;
+        }
         if it.kind != "you" {
             continue;
         }
@@ -456,9 +462,12 @@ mod tests {
         let shown = shown_in(page, &dir.join("images"), &dir.join("files"));
         assert_eq!((shown.items[0].kind, shown.items[0].text.as_str()), ("codealong", "On your PR #7: ken approved it."));
         assert_eq!((shown.items[1].kind, shown.items[1].text.as_str()), ("you", "Thanks, merge it."));
-        // Codealong's has its line for its card (glance.rs); yours has none.
-        assert_eq!(shown.items[0].glance.as_ref().map(|g| g.line.as_str()), Some("On your PR #7: ken approved it."));
+        // Codealong's has its line for its card (glance.rs), as one a harness's reader found as
+        // Codealong's (Claude Code's socket) does; yours has none.
+        assert_eq!(shown.items[0].glance.as_ref().map(|g| g.words()), Some("On your PR #7: ken approved it.".into()));
         assert_eq!(shown.items[1].glance, None);
+        let socket = shown_in(Page { items: vec![item(1, "codealong", "Your helper “Fix” (codex:codex:f) ended its turn: …")], before: None, after: 0 }, &dir.join("images"), &dir.join("files"));
+        assert_eq!(socket.items[0].glance.as_ref().map(|g| g.about), Some(crate::glance::About::Helper));
         // A review handed back names its file by its full path as it's typed in, and shows it as a
         // file again, as yours do.
         let (images, files) = (dir.join("images"), dir.join("files"));

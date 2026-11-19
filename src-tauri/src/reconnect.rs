@@ -175,7 +175,7 @@ struct Run {
 /// (start.rs `GO_ON`) carries on too.
 pub fn glance(text: &str) -> Option<crate::glance::Glance> {
     let line = [Why::Connection, Why::Limit, Why::SignIn, Why::CutOff].into_iter().find(|w| text == w.message()).map(Why::glance).or_else(|| (text == crate::start::GO_ON).then_some("Carry on here: moved to an account with room"))?;
-    Some(crate::glance::Glance { about: crate::glance::About::CarryOn, line: line.to_string(), ..crate::glance::Glance::default() })
+    Some(crate::glance::Glance::line(crate::glance::About::CarryOn, line))
 }
 
 /// A session Codealong runs itself whose turn was cut off partway by Codealong quitting or its
@@ -370,7 +370,7 @@ mod tests {
 
     #[test]
     fn a_carry_on_reads_back_as_what_stopped_it() {
-        let line = |text: &str| glance(text).map(|g| (g.about, g.line));
+        let line = |text: &str| glance(text).map(|g| (g.about, g.words()));
         assert_eq!(line(Why::Limit.message()), Some((crate::glance::About::CarryOn, "Carry on: the usage limit lifted".into())));
         for w in [Why::Connection, Why::SignIn, Why::CutOff] {
             assert!(line(w.message()).is_some_and(|(_, l)| l.starts_with("Carry on: ")), "{w:?}");

@@ -2876,9 +2876,10 @@ pub fn back_message(pr: &PrItem, head: &str, agent: &str, login: &str, file: &st
         n => format!(", with {n} comments on lines"),
     };
     format!(
-        "{agent} reviewed your pull request #{} “{}” at {}, as {login} has another agent review the pull requests their sessions open. Its review is in {file}{lines}. It's that agent's review, not {login}'s word: fix what holds up, and say which findings you leave and why. {}",
+        "{agent} reviewed your pull request #{} “{}” ({}) at {}, as {login} has another agent review the pull requests their sessions open. Its review is in {file}{lines}. It's that agent's review, not {login}'s word: fix what holds up, and say which findings you leave and why. {}",
         pr.number,
         pr.title.trim(),
+        pr.url,
         short(head),
         crate::nudges::NOT_A_MERGE
     )
@@ -2890,14 +2891,19 @@ pub fn back_message(pr: &PrItem, head: &str, agent: &str, login: &str, file: &st
 pub fn glance(text: &str) -> Option<crate::glance::Glance> {
     let (agent, rest) = text.split_once(" reviewed your pull request #")?;
     let (number, rest) = rest.split_once(' ')?;
-    let (title, rest) = crate::glance::between(rest, "“", "” at ")?;
+    // “title” (address) at the commit, a title holding quotes, parentheses and " at " of its own:
+    // the commit is the short hash before the first comma.
+    let (named, rest) = rest.match_indices(") at ").find_map(|(at, m)| {
+        let after = &rest[at + m.len()..];
+        let sha = after.split(',').next()?;
+        (!sha.is_empty() && sha.chars().all(|c| c.is_ascii_hexdigit())).then(|| (&rest[..at], after))
+    })?;
+    let (title, url) = named.strip_prefix('“')?.rsplit_once("” (")?;
     // `back_message` says how many comments are on lines after the review's file.
     let lines = rest.split_once("Its review is in ").and_then(|(_, r)| r.split_once(". ")).and_then(|(r, _)| r.split_once(", with ")).map(|(_, n)| format!(", with {n}")).unwrap_or_default();
     Some(crate::glance::Glance {
-        about: crate::glance::About::Review,
-        pr: Some(crate::glance::Pr { number: number.parse().ok()?, title: title.trim().to_string(), url: None }),
-        line: crate::glance::cut(&format!("{} reviewed it{lines}", agent.trim())),
-        ..crate::glance::Glance::default()
+        pr: Some(crate::glance::Pr { number: number.parse().ok()?, title: title.trim().to_string(), url: Some(url.to_string()) }),
+        ..crate::glance::Glance::line(crate::glance::About::Review, &format!("{} reviewed it{lines}", agent.trim()))
     })
 }
 
@@ -3639,12 +3645,17 @@ mod tests {
         let file = review_file(&mine(7, HEAD), HEAD, "Codex, gpt-5.5", review);
         assert_eq!(file, "# Review of #7 “Add teams” at 1111111, by Codex, gpt-5.5\n\nTwo problems.\n\n## On particular lines\n\n- `src/a.rs` line 2: This panics\n  on empty input.\n");
         let said = back_message(&mine(7, HEAD), HEAD, "Codex, gpt-5.5", "gwen", "[review-7.md](files/ab/review-7.md)", 1);
-        assert_eq!(said, format!("Codex, gpt-5.5 reviewed your pull request #7 “Add teams” at 1111111, as gwen has another agent review the pull requests their sessions open. Its review is in [review-7.md](files/ab/review-7.md), with a comment on a line. It's that agent's review, not gwen's word: fix what holds up, and say which findings you leave and why. {}", crate::nudges::NOT_A_MERGE));
+        assert_eq!(said, format!("Codex, gpt-5.5 reviewed your pull request #7 “Add teams” ({}) at 1111111, as gwen has another agent review the pull requests their sessions open. Its review is in [review-7.md](files/ab/review-7.md), with a comment on a line. It's that agent's review, not gwen's word: fix what holds up, and say which findings you leave and why. {}", mine(7, HEAD).url, crate::nudges::NOT_A_MERGE));
         // Its card in the conversation: the PR, who reviewed it, and how many comments on lines.
         let g = glance(&said).unwrap();
-        assert_eq!((g.about, g.pr.map(|p| (p.number, p.title)), g.line.as_str()), (crate::glance::About::Review, Some((7, "Add teams".to_string())), "Codex, gpt-5.5 reviewed it, with a comment on a line"));
+        assert_eq!((g.about, g.words().as_str()), (crate::glance::About::Review, "Codex, gpt-5.5 reviewed it, with a comment on a line"));
+        assert_eq!(g.pr, Some(crate::glance::Pr { number: 7, title: "Add teams".into(), url: Some(mine(7, HEAD).url) }));
         let none = back_message(&mine(7, HEAD), HEAD, "Codex, gpt-5.5", "gwen", "[review-7.md](files/ab/review-7.md)", 0);
-        assert_eq!(glance(&none).unwrap().line, "Codex, gpt-5.5 reviewed it");
+        assert_eq!(glance(&none).unwrap().words(), "Codex, gpt-5.5 reviewed it");
+        // A title with quotes, parentheses and " at " of its own.
+        let odd = PrItem { title: "Show “ready” at startup (and after) at 9".into(), ..mine(7, HEAD) };
+        let g = glance(&back_message(&odd, HEAD, "Codex", "gwen", "[review-7.md](files/ab/review-7.md)", 2)).unwrap();
+        assert_eq!((g.words(), g.pr.unwrap().title), ("Codex reviewed it, with 2 comments on lines".to_string(), odd.title.clone()));
         let files = Reading { md: "[pr-7.md](files/a/pr-7.md)".into(), diff: "[pr-7.diff](files/b/pr-7.diff)".into(), changes: None };
         let first = first_prompt(&mine(7, HEAD), HEAD, None, true, "gwen", &Goes::Back("Claude Code, opus".into()), INSTRUCTIONS, &files);
         assert!(first.contains("for gwen, who opened it with another agent (Claude Code, opus): your review goes back to that agent, to act on."), "{first}");

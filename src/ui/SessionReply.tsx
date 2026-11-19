@@ -1501,7 +1501,7 @@ function Approval({ session: s, terminal, onOpen, onAnswered, keys, onKeys, onNe
         <div className="ca-approval-head">
           <Icon name={pending.message ? 'message-circle' : 'alert'} size={14} />
           <span className="ca-approval-label">
-            <PendingLabel pending={pending} />
+            <PendingLabel pending={pending} session={s} />
           </span>
         </div>
         {pending.input && pending.input !== pending.label && (pending.message ? <Plan session={s} text={pending.input} /> : <CodeBlock text={pending.input} className="ca-approval-input" />)}
@@ -1573,7 +1573,7 @@ function Approval({ session: s, terminal, onOpen, onAnswered, keys, onKeys, onNe
           <span>Plan</span>
         ) : (
           <span className="ca-approval-label">
-            <PendingLabel pending={pending} />
+            <PendingLabel pending={pending} session={s} />
           </span>
         )}
       </div>
@@ -1600,18 +1600,19 @@ function Approval({ session: s, terminal, onOpen, onAnswered, keys, onKeys, onNe
 
 /** What a request says it is. A held message's names the session it's from, in quotes, as a link
  *  to that session where the engine knows its key, as the conversation names another session's
- *  message once it's delivered (SessionThread.tsx `PeerLabel`). */
-function PendingLabel({ pending }: { pending: Pending }) {
+ *  message once it's delivered (SessionThread.tsx `PeerLabel`): a key on the Mac `session` runs
+ *  on (`ImagesFrom`), which may be another of yours. */
+function PendingLabel({ pending, session }: { pending: Pending; session: Session }) {
   const quote = pending.label.indexOf('“');
   if (!pending.fromKey || quote < 0) return <Rich text={pending.label} now={0} />;
   const name = pending.label.slice(quote);
   return (
-    <>
+    <ImagesFrom.Provider value={shortOf(session.key)}>
       {pending.label.slice(0, quote)}
       <SessionLink name={pending.fromKey} unknown={name}>
         {name}
       </SessionLink>
-    </>
+    </ImagesFrom.Provider>
   );
 }
 

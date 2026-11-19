@@ -110,11 +110,11 @@ const LOOK_BACK = 16;
  *  the one before: the agent woken by a background job's report long after it went quiet. */
 const PAUSE = 10 * 60_000;
 /** What ⌘F searches: your prompts, the replies (another session's message among them, which
- *  reads as one), notes, the calls' lines, a call's input and output once it's open, the commands
+ *  reads as one), what Codealong sent by itself (its card opens while the find is in it), notes, the calls' lines, a call's input and output once it's open, the commands
  *  you ran with what they printed, the page a call made, and the files a call sent you, by what
  *  it said of them and their names. Of your answers to questions, what you answered: a question's
  *  header beside it would run into it. */
-const FIND_IN = '.ca-thread-you:not(.ca-thread-answers), .ca-thread-answer, .ca-thread-agent, .ca-thread-note, .ca-thread-toollabel, .ca-thread-tooldetail, .ca-thread-ran, .ca-thread-madetitle, .ca-thread-sentcaption, .ca-thread-sent .ca-md-file-name';
+const FIND_IN = '.ca-thread-you:not(.ca-thread-answers), .ca-thread-answer, .ca-thread-agent, .ca-thread-codealong, .ca-thread-note, .ca-thread-toollabel, .ca-thread-tooldetail, .ca-thread-ran, .ca-thread-madetitle, .ca-thread-sentcaption, .ca-thread-sent .ca-md-file-name';
 
 type Row =
   | { kind: 'item'; item: TranscriptItem; result?: TranscriptItem }
@@ -1391,7 +1391,7 @@ export function SessionThread({ session: s, now, onOpen, fallback, machine, onLo
                 // Codealong's own message is a line saying what it comes to, which opens to the whole.
                 if (it.kind === 'codealong' && it.glance)
                   return (
-                    <CodealongCard key={keyOf(it)} glance={it.glance} at={it.at} now={now}>
+                    <CodealongCard key={keyOf(it)} item={it} glance={it.glance} now={now}>
                       <Said item={shown} result={r.result} now={0} who="Codealong" onMenu={onMenu} />
                     </CodealongCard>
                   );

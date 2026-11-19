@@ -625,7 +625,9 @@ pub fn words(pr: &PrItem, why: &Why, detail: Option<&PrDetail>, login: Option<&s
     } else {
         format!("Take it from there, unless you were told to leave it to someone else. {NOT_A_MERGE}")
     };
-    let list: Vec<String> = items.iter().map(|i| format!("- {i}")).collect();
+    // A comment's further lines go under its happening, so a list in a comment doesn't read as
+    // more happenings (`glance`).
+    let list: Vec<String> = items.iter().map(|i| crate::glance::item(i)).collect();
     Some(format!("On {whose} #{} “{}” ({}):\n{}\n{}{next}", pr.number, pr.title.trim(), pr.url, list.join("\n"), standing))
 }
 
@@ -645,12 +647,12 @@ pub fn glance(text: &str) -> Option<crate::glance::Glance> {
         let cut = [": “", ", with their agent's review", ", from ", ", in a review", "; "].iter().filter_map(|m| item.find(m)).min().unwrap_or(item.len());
         item[..cut].trim().trim_end_matches('.').to_string()
     };
-    let happened: Vec<String> = body.lines().filter_map(|l| l.strip_prefix("- ")).map(short).filter(|s| !s.is_empty()).collect();
+    // A happening starts its line with "- "; a comment's further lines are indented under it.
+    let parts = body.lines().filter_map(|l| l.strip_prefix("- ")).map(short).filter(|s| !s.is_empty());
     Some(crate::glance::Glance {
         about: crate::glance::About::Pr,
         pr: Some(crate::glance::Pr { number: number.parse().ok()?, title: title.trim().to_string(), url: Some(url.to_string()) }),
-        session: None,
-        line: crate::glance::cut(&happened.join(" · ")),
+        parts: parts.map(|line| crate::glance::Part { session: None, line: crate::glance::cut(&line) }).collect(),
     })
 }
 
@@ -1321,8 +1323,13 @@ mod tests {
         let g = glance(&text).unwrap();
         assert_eq!(g.about, crate::glance::About::Pr);
         assert_eq!(g.pr, Some(crate::glance::Pr { number: 1, title: "Let the agent add photos".into(), url: Some("https://github.com/o/r/pull/1".into()) }));
-        assert_eq!(g.line, "ana asked for changes · ana commented on src/a.ts");
+        assert_eq!(g.words(), "ana asked for changes · ana commented on src/a.ts");
         assert_eq!(crate::glance::of(&text), g);
+        // A comment with a list in it: its lines go under it, and none reads as a happening.
+        let listed = detail(vec![PrReview { author: "ana".into(), state: "COMMENTED".into(), at: Some(UPDATED + 10), mine: false }], vec![comment("c1", "ana", "Two things:\n- It was merged.\n- Its checks failed.", UPDATED + 10, None, false)]);
+        let text = words(&p, &Why { since: Some(UPDATED), ..Why::default() }, Some(&listed), Some("me"), NudgeAbout::Everything).unwrap();
+        assert!(text.contains("“Two things:\n  - It was merged.\n  - Its checks failed.”"), "{text}");
+        assert_eq!(glance(&text).unwrap().words(), "ana reviewed it");
         // Only your own push moved it: nothing to say.
         assert_eq!(words(&p, &Why { since: Some(UPDATED + 30), ..Why::default() }, Some(&d), Some("me"), NudgeAbout::Everything), None);
         // The detail couldn't be read: what the board knows is said.
@@ -1336,11 +1343,11 @@ mod tests {
         let text = words(&approved, &Why { since: Some(UPDATED), approved: true, ..Why::default() }, Some(&d), Some("me"), NudgeAbout::Everything).unwrap();
         // The approval is news, never a go-ahead to merge.
         assert_eq!(text, "On your PR #1 “Let the agent add photos” (https://github.com/o/r/pull/1):\n- ken approved it.\nIt's ready to merge. This message doesn't ask you to merge it: merge it only if you were asked to.");
-        assert_eq!(glance(&text).map(|g| g.line), Some("ken approved it".into()));
+        assert_eq!(glance(&text).map(|g| g.words()), Some("ken approved it".into()));
         // Another's PR, an agent's review from someone's account, and failing checks.
         let theirs = "On PR #4 “Fix “quotes” (and parens)” (https://github.com/o/r/pull/4):\n- ken's agent (claude) commented, from ken's account; an agent's review, not ken's word: “Fine.”\n- Its checks failed: test, lint.\nTake it from there.";
         let g = glance(theirs).unwrap();
-        assert_eq!((g.pr.unwrap().title, g.line), ("Fix “quotes” (and parens)".to_string(), "ken's agent (claude) commented · Its checks failed: test, lint".to_string()));
+        assert_eq!((g.words(), g.pr.unwrap().title), ("ken's agent (claude) commented · Its checks failed: test, lint".to_string(), "Fix “quotes” (and parens)".to_string()));
         // Turned on for one approved already, with nothing read: said in the board's words.
         assert!(words(&approved, &Why { approved: true, ..Why::default() }, None, None, NudgeAbout::Everything).unwrap().contains("- It was approved.\n"));
         let merged = off(PrItem { state: PrState::Merged, mine: false, ..pr("o/r#1", PrState::Open, &[A]) });
@@ -1528,19 +1535,19 @@ mod tests {
         );
         let text = words(&open, &Why { since: Some(UPDATED), ..Why::default() }, Some(&d), Some("me"), NudgeAbout::Everything).unwrap();
         for said in [
-            format!("- wes's agent ({claude}) commented, from wes's account; an agent's review, not wes's word: “Fix the race.\n\n---\n\nAdd a test.”\n"),
+            format!("- wes's agent ({claude}) commented, from wes's account; an agent's review, not wes's word: “Fix the race.\n\n  ---\n\n  Add a test.”\n"),
             "- wes commented: “Agreed, go ahead. Keep `<!-- codealong-review o/r#1 abc -->` in the fixture.”\n".to_string(),
             // Pasted whole at the start of its lines, a footer is taken for one, code block or
             // not: the safer mistake.
-            format!("- bo's agent ({claude}) commented, from bo's account; an agent's review, not bo's word: “The footer looks like this:\n```\n```”\n"),
+            format!("- bo's agent ({claude}) commented, from bo's account; an agent's review, not bo's word: “The footer looks like this:\n  ```\n  ```”\n"),
             format!("- ken approved it, with their agent's review ({claude}) in it; the agent's review isn't ken's word: “Fine.”\n"),
             format!("- ken commented on main.tf, in a review with their agent's review ({claude}) in it; it may be the agent's, not ken's word: “Pin this version.”\n"),
-            format!("- ana asked for changes, with their agent's review ({claude} and Codex, gpt-6-astra) in it; the agent's review isn't ana's word: “Please rename it.\n\n---\n\nThe lock is held too long.\n\n---\n\nStill held.”\n"),
+            format!("- ana asked for changes, with their agent's review ({claude} and Codex, gpt-6-astra) in it; the agent's review isn't ana's word: “Please rename it.\n\n  ---\n\n  The lock is held too long.\n\n  ---\n\n  Still held.”\n"),
             format!("- ana commented on main.tf, in a review with their agent's review ({claude} and Codex, gpt-6-astra) in it; it may be the agent's, not ana's word: “Rename this.”\n"),
             "- bo commented on main.tf: “Mine alone.”".to_string(),
-            format!("- lu's agent ({claude}) commented, from lu's account; an agent's review, not lu's word: “Use this:\n```text\n~~~\n```”\n"),
-            format!("- bo's agent ({claude}) commented, from bo's account; an agent's review, not bo's word: “````md\n```\n```\n````”\n"),
-            format!("- bo commented: “Indented:\n\n    {}\n    {mark}”", sub(claude, "posted")),
+            format!("- lu's agent ({claude}) commented, from lu's account; an agent's review, not lu's word: “Use this:\n  ```text\n  ~~~\n  ```”\n"),
+            format!("- bo's agent ({claude}) commented, from bo's account; an agent's review, not bo's word: “````md\n  ```\n  ```\n  ````”\n"),
+            format!("- bo commented: “Indented:\n\n      {}\n      {mark}”", sub(claude, "posted")),
             format!("- lu's agent ({claude}) commented, from lu's account; an agent's review, not lu's word: “- ~~~text"),
             "- lu's agent (Codex) commented, from lu's account; an agent's review, not lu's word: “Old one.”".to_string(),
         ] {
