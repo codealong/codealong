@@ -3327,7 +3327,8 @@ through them in the same order. A session moved to the top still comes before th
 docked in the notch, ⌥⌘. opens the notch instead, on what waits on you, or with nothing waiting on
 the end of what waits (below, under *The bar in the notch*), and the button beside its pin opens
 this window, on what the notch shows. Pressed while the
-window is the one you're in, ⌥⌘. puts it away and gives the keyboard back to the app you were in. A
+window is the one you're in, ⌥⌘. puts it away and gives the keyboard back to the app you were in;
+with the bar docked it opens the notch even then, so close the window as you would any other. A
 session shows as the card the bar's peek shows: the same header (the ways to open the session, the
 check, ⋯), the session's whole menu on ⋯ and on a right-click, its conversation, and a box that
 sends it a message where it runs (⏎ sends and stays, to watch the reply; ⌘⏎ sends and goes on to the
@@ -3696,8 +3697,8 @@ shows, a session's (its usual width, or the one you dragged it to): the pills fo
 fit it, a note such as how a review went included, rather than widening it as they come and go. The pin at the end of its right
 side, or Keep the notch open in its right-click menu, keeps it open until you unpin it, across
 launches. The button beside the pin pops out into the *Waiting on you* window, on the session or PR
-the notch shows (which it puts away), or with nothing shown on the first that waits, to work
-through what waits there instead. There's no peek beside a docked bar: click a session's pill and the notch opens further,
+the notch shows (which it puts away); with nothing shown, the window opens where it was, or on the
+first that waits, to work through what waits there instead. There's no peek beside a docked bar: click a session's pill and the notch opens further,
 into that session under the pills, its header, its conversation and the box that answers it, dark as
 the notch is; ⌥⌘. from any app opens it on the session that waits on you, and with nothing waiting,
 though some run, on the end of what waits: a short card under the pills that says nothing waits on

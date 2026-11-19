@@ -1,7 +1,8 @@
 // Checks the button beside the notch's pin that pops out into the waiting window (Notch.tsx,
 // Bar.tsx): closed, it's out of sight and a click on it only opens the notch; open on its pills,
-// it opens the waiting window on the first that waits; open on a session, it opens the window on
-// that session and puts the notch's away, giving the keyboard up.
+// it opens the waiting window asking for nothing in particular (where it was, else the first that
+// waits); open on a session, it opens the window on that session and puts the notch's away,
+// giving the keyboard up.
 //   PREVIEW_SIZE=1512,980 PREVIEW_WAIT=60000 scripts/preview.sh notch '' scripts/preview/notch-popout-check.js
 (function () {
   var calls = sent;
@@ -15,12 +16,13 @@
   var opens = function () { return calls('show_waiting').map(function (a) { return a.context; }); };
   var escape = function () { window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', cancelable: true })); };
 
-  // Two of the board's sessions wait on you and one runs: the feed's own first three, said to be so.
+  // Two of the board's sessions wait on you and one runs: the feed's own first three, said to be
+  // so, none moved to the top, so the one that needs you is the first that waits.
   var items;
   var feed = fetch('./bar-feed.json').then(function (r) { return r.json(); }).then(function (f) {
     items = f.items.slice(0, 3).map(function (i, n) {
       var group = n === 0 ? 'working' : n === 1 ? 'needs' : 'unread';
-      return Object.assign({}, i, { group: group, status: group, snoozedUntil: null, since: 1000 + n, hidden: false });
+      return Object.assign({}, i, { group: group, status: group, snoozedUntil: null, since: 1000 + n, hidden: false, raised: undefined });
     });
     return Object.assign({}, f, { loading: false, items: items, recent: [], snoozed: [], reviews: [], todos: [] });
   });
@@ -55,7 +57,7 @@
     })
     .then(function () {
       var o = opens();
-      check('on the pills, it opens the waiting window on the first that waits', o.length === 1 && !o[0].key, JSON.stringify(o));
+      check('on the pills, it opens the waiting window asking for nothing in particular', o.length === 1 && !o[0].key, JSON.stringify(o));
       window.__emit('waiting-shortcut', null);
       return until(shows(items[1]), 3000, 'the first that waits');
     })

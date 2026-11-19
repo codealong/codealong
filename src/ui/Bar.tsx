@@ -1111,8 +1111,8 @@ export function Bar() {
           onKeepOpen={pinOpen}
           onPopOut={() => {
             // The waiting window goes on from the session or review shown here, which the notch
-            // puts away as the keyboard goes to the window; with neither, it opens on the first
-            // that waits.
+            // puts away as the keyboard goes to the window; with neither, it opens as it does
+            // with nothing asked (waiting.rs `open`): where it was, else on the first that waits.
             const key = stage.open && stage.kind !== 'end' ? stage.key : null;
             stage.close();
             showWaiting(key ? { key } : {}).catch((e: unknown) => setFailed({ anchor: 'waiting', message: errorText(e) }));
