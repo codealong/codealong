@@ -74,12 +74,14 @@
   justify-items: end;
 }
 .ca-thread-said.is-you > * {
+  box-sizing: border-box;
   max-width: 100%;
 }
-/* A code block of yours (a command you ran with `!`, one in a prompt) as narrow as `! ls` still
-   leaves its Copy and Run (CopyButton.css) room of their own, rather than covering its words. */
-.ca-thread-said.is-you .ca-codeblock {
-  min-width: 120px;
+/* A code block of yours (a command you ran with `!`, one in a prompt) is as wide as its words, so
+   its Copy and Run (CopyButton.css, about 56px from its right edge) would cover their end: its
+   words keep clear of them. */
+.ca-thread-said.is-you .ca-codeblock > pre {
+  padding-right: calc(2 * var(--space-8));
 }
 /* What Codealong or another session sent that its session took back: neither yours nor the
    agent's, set apart by a rule at its left; Codealong's in quieter text. The rest are cards
@@ -395,8 +397,10 @@
 }
 /* Under a prompt of yours, the artifact it was about (where you were in it, or the part a comment
    is on): in line with its text, and where you were cut short before it runs out of the panel. */
+/* In from the bubble's edges by its padding, within the width a prompt's line may take. */
 .ca-thread-said.is-you > .ca-thread-made {
-  margin: 0 10px;
+  margin: 0;
+  padding: 0 10px;
 }
 .ca-thread-said.is-you > .ca-thread-made > .ca-meta {
   flex: 0 1 auto;

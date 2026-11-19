@@ -1,9 +1,10 @@
 // Checks how a conversation sets your prompts apart from code (thread-look-init.js's stand-in):
 // your prompts sit at the right, as wide as what they say, and so does the one pinned over the
 // top; a code block is outlined, not in your prompts' tint, and in its language's colors (a
-// diff's added and removed lines too), one with no language plain; a short command you ran leaves
-// its Copy and Run room of their own; a table in a prompt wider than the conversation scrolls in
-// its box rather than pushing the conversation sideways.
+// diff's added and removed lines too), one with no language plain; the commands you ran, short
+// and long, keep their words clear of their Copy and Run; a table in a prompt wider than the
+// conversation scrolls in its box rather than pushing the conversation sideways or its prompt
+// into the room at its left.
 //   PREVIEW_WAIT=60000 PREVIEW_INIT=scripts/preview/thread-look-init.js scripts/preview.sh sessions '' scripts/preview/thread-look-check.js
 (function () {
   var thread = function () { return q('.ca-sessinsp .ca-thread'); };
@@ -48,16 +49,33 @@
       var added = diff && all('.ca-syn-tag', diff).map(function (s) { return s.textContent; });
       check('a diff’s removed lines are red, its added ones green', removed && /^-/.test(removed[0]) && added && added.length === 2 && added.every(function (a) { return /^\+/.test(a); }), diff ? JSON.stringify([removed, added]) : 'no block');
 
-      var ran = all('.ca-sessinsp .ca-thread-ran').filter(function (el) { return /! ls/.test(el.textContent); })[0];
-      var cmd = ran && ran.querySelector('.ca-codeblock');
-      var words = cmd && document.createRange();
-      if (words) words.selectNodeContents(cmd.querySelector('pre'));
-      var tools = cmd && cmd.querySelector('.ca-codeblock-tools');
-      check('a short command’s Copy and Run leave its words be', words && tools && words.getBoundingClientRect().right <= box(tools).left, words && tools ? Math.round(words.getBoundingClientRect().right) + ' > ' + Math.round(box(tools).left) : 'no command');
+      var plain = block('Duration  1.2s');
+      check('a block with no language is plain', plain && tones(plain).length === 0 && /Tests {2}40 passed/.test(plain.textContent), plain ? tones(plain).join(' ') : 'no block');
+
+      // Each command you ran, and what it printed: its words clear of its Copy and Run.
+      var covered = [];
+      var buttons = 0;
+      ['! ls', '! npm test', '! git status --short'].forEach(function (said) {
+        var ran = all('.ca-sessinsp .ca-thread-ran').filter(function (el) { return el.querySelector('pre').textContent === said; })[0];
+        if (!ran) return covered.push(said + ': not shown');
+        all('.ca-codeblock', ran).forEach(function (cb) {
+          var words = document.createRange();
+          words.selectNodeContents(cb.querySelector('pre'));
+          var tools = cb.querySelector('.ca-codeblock-tools');
+          buttons = Math.max(buttons, tools.children.length);
+          var over = words.getBoundingClientRect().right - box(tools).left;
+          if (over > 0) covered.push(cb.querySelector('pre').textContent.split('\n')[0] + ' by ' + Math.round(over) + 'px');
+        });
+      });
+      check('the commands you ran are clear of their Copy and Run', covered.length === 0, covered.join('; '));
+      check('with both buttons there', buttons === 2, buttons + ' buttons');
 
       var table = q('.ca-sessinsp .ca-thread-you .ca-md-table');
       check('a wide table in a prompt scrolls in its box', table && table.scrollWidth > table.clientWidth, table ? table.scrollWidth + ' in ' + table.clientWidth : 'no table');
       check('and the conversation doesn’t scroll sideways', thread().scrollWidth <= thread().clientWidth, thread().scrollWidth + ' in ' + thread().clientWidth);
+      var wide = table && table.closest('.ca-thread-said');
+      var inset = wide && box(wide).left + parseFloat(getComputedStyle(wide).paddingLeft);
+      check('nor into its prompt’s room at the left', wide && box(table.closest('.ca-thread-you')).left >= inset - 0.5, wide ? Math.round(inset - box(table.closest('.ca-thread-you')).left) + 'px into it' : 'no table');
       done();
     })
     .catch(stopped);
