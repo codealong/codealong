@@ -13,7 +13,7 @@
 // strip's, the panel's, ⌘⏎) opens the quick panel on it, which asks where.
 
 import { useEffect, useMemo, useRef, useState, useSyncExternalStore, type RefObject } from 'react';
-import { todoLeftAhead } from '../ahead';
+import { todoBackAhead, todoLeftAhead } from '../ahead';
 import { showQuick, startSession, todoOp } from '../api';
 import { useLatest } from '../latest';
 import { sessionHomes } from '../lanes';
@@ -107,6 +107,10 @@ export function TodoCard({ todo, todos, labels, run, lanes, usage, projects, now
 
   const sending = useLaunching(todo.id);
   // What takes it off what waits on you goes on at once, everywhere; one that fails comes back.
+  const woken = (act: Promise<void>) => {
+    todoBackAhead([todo.id]);
+    act.catch((e: unknown) => report.error(errorText(e)));
+  };
   const leaving = (done: menus.Left, act: Promise<number | null>) => {
     todoLeftAhead([todo.id], act).catch((e: unknown) => can.failed(errorText(e)));
     can.left(done);
@@ -117,12 +121,12 @@ export function TodoCard({ todo, todos, labels, run, lanes, usage, projects, now
   // Done from the panel's status or the todo's menu, or archiving it from the menu, is the strip's
   // Done: it leaves what waits on you and the card goes on. While a start is on its way it waits:
   // the start would set it back in progress. A new due date (Due…, the panel's) deals with it for
-  // now too: the card goes on, and one still due comes round again. The rest of its changes go
-  // through the store.
+  // now too: it's out of what waits until the board has the date, and the card goes on; one still
+  // due comes round again. The rest of its changes go through the store.
   const runHere = (op: TodoOp) => {
     if (op.op === 'update' && op.id === todo.id && Object.keys(op.patch).join() === 'due') {
-      run(op);
-      can.left('rescheduled');
+      if (launching.has(todo.id)) run(op);
+      else leaving('rescheduled', todoOp(op));
       return;
     }
     if (op.op === 'update' && op.id === todo.id && (op.patch.status === 'done' || op.patch.archived === true) && Object.keys(op.patch).length === 1) {
@@ -134,7 +138,10 @@ export function TodoCard({ todo, todos, labels, run, lanes, usage, projects, now
     run(op);
   };
   const edit: menus.TodoEdit = { run: runHere, todos, labels, projects };
-  const snooze = todoSnoozeMenu(todo, now, (act) => leaving('snoozed', act.then(() => null)), true);
+  // Snoozed again or woken, one that's snoozed (shown again from the window's history) doesn't
+  // wait: the board says whether it does, and nothing made a moment before keeps it out.
+  const asleep = (todo.snoozedUntil ?? 0) > now;
+  const snooze = todoSnoozeMenu(todo, now, (act) => (asleep ? woken(act) : leaving('snoozed', act.then(() => null))), true);
   const due = menus.dueItem([todo], edit);
   const starting = useStartHere(item.lane, todo, homes, usage, now, lanes, report, sending, () => leaving('started', Promise.resolve(null)));
   // Start, from the strip, the panel and ⌘⏎: from the box in its worktree, else the quick panel.

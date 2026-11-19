@@ -9,12 +9,12 @@
 
 import { useMemo } from 'react';
 import type { ListRow } from './boardLists';
-import { inOrder, queueKinds, statusWaits, type QueueAction, type Reads } from './queue';
+import { inOrder, queueKinds, type QueueAction, type Reads } from './queue';
 import { queueReads, reviewSince, type ReviewRow } from './quick';
 import type { Board, Session } from './types';
 import type { Queue } from './ui/SessionPanel';
 import { leftOf, useWaitingQueue, type WaitingQueue } from './useWaitingQueue';
-import { elsewhereOffer, prShown, prWaitingRows, TODO_READS, todoShown, todoWaitingRows, type QueueView, type TodoQueueRow, type WaitCounts } from './viewQueue';
+import { elsewhereOffer, prShown, prWaitingRows, TODO_READS, todoShown, todoWaitingRows, viewWaits, type QueueView, type TodoQueueRow } from './viewQueue';
 
 /** What the window's views need of it. */
 export interface ViewQueuesInput<S extends { key: string; session: Session }> {
@@ -71,21 +71,9 @@ export function useViewQueues<S extends { key: string; session: Session }>(o: Vi
     leftStays: true,
   });
 
-  // How many of each kind wait in each view, for what Next offers once a view's have run out.
-  // The todos are Todo's, as listed there, whichever view is shown.
-  const todoCounts = useMemo(() => todoWaitingRows(o.todoListed, todoQueue, now), [o.todoListed, todoQueue, now]);
-  // A view whose queue has nothing left that hasn't been dealt with there (an allowed call the
-  // board still lists) offers nothing: its `first` is what Next would show there.
-  const any = { sessions: !!sessions.queue.first, prs: !!prs.first, todos: !!todos.first };
-  const counts: WaitCounts = {
-    needs: any.sessions ? sessions.waiting.filter((r) => statusWaits(r.session.status) === 'needs').length : 0,
-    unread: any.sessions ? sessions.waiting.filter((r) => statusWaits(r.session.status) === 'unread').length : 0,
-    raised: any.sessions ? sessions.waiting.filter((r) => sessions.reads.raisedOf(r)).length : 0,
-    reviews: any.prs ? prWaiting.length : 0,
-    firstReviews: any.prs ? prWaiting.filter((r) => r.pr.reviewFirst).length : 0,
-    due: any.todos ? todoCounts.filter((r) => r.waits === 'due').length : 0,
-    ready: any.todos ? todoCounts.filter((r) => r.waits === 'ready').length : 0,
-  };
+  // What waits in each view not yet dealt with there, for what Next offers once a view's own have
+  // run out. The todos are Todo's, as listed there, whichever view is shown but Kanban.
+  const elsewhere = [viewWaits('sessions', sessions.queue.pending, sessions.reads), viewWaits('prs', prs.pending, prReads), viewWaits('todo', todos.pending, todoReads)];
 
   /** Goes to `to` and shows the first that waits there. */
   const goTo = (to: QueueView) => {
@@ -109,7 +97,7 @@ export function useViewQueues<S extends { key: string; session: Session }>(o: Vi
     if (!v) return undefined;
     const base = v === 'sessions' ? fromFirst(sessions.queue, sessions.waiting, sessions.reads, sessions.show) : v === 'prs' ? fromFirst(prs, prWaiting, prReads, (r) => o.select(`pr:${r.pr.key}`)) : fromFirst(todos, todoWaiting, todoReads, (r) => o.select(r.item.key));
     if (base.next) return base;
-    const offer = elsewhereOffer(v, counts, order, v === 'sessions' ? sessions.waiting.length : v === 'prs' ? prWaiting.length : todoWaiting.length);
+    const offer = elsewhereOffer(v, elsewhere, v === 'sessions' ? sessions.waiting.length : v === 'prs' ? prWaiting.length : todoWaiting.length);
     // Sending or marking seen doesn't go on to another view: only Next does.
     return offer ? { ...base, next: { title: offer.title }, left: undefined, ready: undefined, waiting: false, elsewhere: offer.words, onNext: () => goTo(offer.view) } : base;
   };

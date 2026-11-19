@@ -60,6 +60,9 @@ export interface WaitingQueue<H = undefined, T = unknown> {
   /** With nothing shown, the first that waits on you and hasn't been dealt with here (queue.ts
    *  `firstLeft`): what the waiting window and the notch's end go to. Null while something shows. */
   first: T | null;
+  /** What waits on you that hasn't been dealt with here, in the queue's order, whatever shows:
+   *  what another view's Next offers goes by it (useViewQueues.ts). */
+  pending: T[];
   /** With nothing shown, how the last one went when dealing with it ended what waits, for the
    *  end of what waits to say (QueueEnd.tsx); null while something shows, and after opening on
    *  nothing. */
@@ -186,7 +189,8 @@ export function useWaitingQueue<T, H = undefined>(options: WaitingQueueOptions<T
     ? { next: after !== undefined ? { title: view.reads.titleOf(after) } : null, ...leftOf(stands.left, view.reads), onNext: next, waiting: stands.waiting }
     : undefined;
   const notice = note && note.on === view.shown?.key ? { text: note.text, error: note.error } : null;
-  const first = view.shown ? null : (rules.firstLeft(view, handled.current) ?? null);
+  const pending = rules.leftAfter(view.waiting, '', handled.current, view.reads);
+  const first = view.shown ? null : (pending[0] ?? null);
 
-  return { queue, notice, first, ended: view.shown ? null : ended, run, onKey, answered, left, again, say, fresh };
+  return { queue, notice, first, pending, ended: view.shown ? null : ended, run, onKey, answered, left, again, say, fresh };
 }

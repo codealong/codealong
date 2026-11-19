@@ -805,6 +805,13 @@ export function todoLeftAhead(ids: string[], act: Promise<number | null>): Promi
   );
 }
 
+/** Takes back what took todos out of what waits on you ahead of the board (`todoLeftAhead`), as
+ *  one snoozed is woken: the board says whether it waits, and no snooze made a moment before keeps
+ *  it out. One taken out with others stays out. */
+export function todoBackAhead(ids: string[]): void {
+  for (const a of all) if (a.change.kind === 'todo-left' && a.change.ids.every((id) => ids.includes(id))) drop(a.id, true);
+}
+
 /** Marks sessions seen, in every window at once. Rejects with why when the engine can't. */
 /** Marks sessions unread, showing it at once (`markUnread`). */
 export function unreadAhead(keys: string[]): Promise<void> {

@@ -1,10 +1,10 @@
 import { describe, expect, it } from 'vitest';
 import * as fx from './testing/fixtures';
-import { byPlace, inOrder, placeOf } from './queue';
+import { byPlace, inOrder, inQueueOrder, placeOf, type Reads, type Waits } from './queue';
 import { prRowOf } from './boardLists';
 import { todoItem } from './todos';
-import type { BarTodo, PrItem, Todo } from './types';
-import { elsewhereOffer, prWaitingRows, TODO_READS, todoWaitingRows, type TodoQueueRow } from './viewQueue';
+import type { BarTodo, PrItem, Raised, Todo } from './types';
+import { elsewhereOffer, prWaitingRows, TODO_READS, todoWaitingRows, viewWaits, type TodoQueueRow } from './viewQueue';
 
 const NOW = fx.NOW;
 const listedTodo = (t: Todo) => todoItem(t, new Map(), new Map(), new Map());
@@ -64,29 +64,42 @@ describe('todoWaitingRows', () => {
 });
 
 describe('elsewhereOffer', () => {
-  const ORDER = ['needs', 'reviews', 'due', 'unread', 'ready'] as const;
+  const ORDER: readonly Waits[] = ['needs', 'reviews', 'due', 'unread', 'ready'];
+  type Row = { key: string; waits: Waits; since: number; raised?: Raised; first?: boolean };
+  const READS: Reads<Row> = { keyOf: (r) => r.key, sinceOf: (r) => r.since, waitsOf: (r) => r.waits, raisedOf: (r) => r.raised, finishedOf: () => false, firstOf: (r) => !!r.first, titleOf: (r) => r.key };
+  const row = (key: string, waits: Waits, extra: Partial<Row> = {}): Row => ({ key, waits, since: NOW - 1000, ...extra });
+  // Each view's rows not yet dealt with, in the queue's order, as useWaitingQueue.ts `pending` has them.
+  const views = (rows: Partial<Record<'sessions' | 'prs' | 'todo', Row[]>>, order = ORDER) => {
+    const reads = inOrder(READS, order);
+    return (['sessions', 'prs', 'todo'] as const).map((v) => viewWaits(v, inQueueOrder(rows[v] ?? [], reads), reads));
+  };
 
-  it('offers the first kind in your order that waits in another view', () => {
-    expect(elsewhereOffer('prs', { needs: 1, unread: 1, due: 2 }, ORDER, 1)).toEqual({ view: 'sessions', words: 'Nothing else waits in PRs', title: '2 sessions in Sessions' });
+  it('offers the view whose first waiting comes first in your order, saying how many of its kind', () => {
+    const w = views({ sessions: [row('n', 'needs'), row('u', 'unread')], todo: [row('d1', 'due'), row('d2', 'due'), row('r', 'ready')] });
+    expect(elsewhereOffer('prs', w, 1)).toEqual({ view: 'sessions', words: 'Nothing else waits in PRs', title: '2 sessions in Sessions' });
     // With none of its own, nothing waits there at all.
-    expect(elsewhereOffer('prs', { needs: 1 }, ORDER)?.words).toBe('Nothing waits in PRs');
-    expect(elsewhereOffer('sessions', { reviews: 1, due: 2 }, ORDER, 3)).toEqual({ view: 'prs', words: 'Nothing else waits in Sessions', title: '1 review in PRs' });
-    expect(elsewhereOffer('sessions', { due: 2, ready: 4 }, ORDER)?.title).toBe('2 due todos in Todo');
-    expect(elsewhereOffer('prs', { ready: 1 }, ORDER)?.title).toBe('1 ready todo in Todo');
+    expect(elsewhereOffer('prs', w)?.words).toBe('Nothing waits in PRs');
+    expect(elsewhereOffer('sessions', w, 3)).toEqual({ view: 'todo', words: 'Nothing else waits in Sessions', title: '2 due todos in Todo' });
+    expect(elsewhereOffer('prs', views({ todo: [row('r', 'ready')] }))?.title).toBe('1 ready todo in Todo');
+    expect(elsewhereOffer('sessions', views({ prs: [row('p', 'reviews')], todo: [row('d', 'due')] }))?.title).toBe('1 review in PRs');
     // Your order: finished turns ahead of reviews.
-    expect(elsewhereOffer('todo', { unread: 1, reviews: 3 }, ['unread', 'needs', 'reviews', 'due', 'ready'])?.view).toBe('sessions');
+    expect(elsewhereOffer('todo', views({ sessions: [row('u', 'unread')], prs: [row('p', 'reviews')] }, ['unread', 'needs', 'reviews', 'due', 'ready']))?.view).toBe('sessions');
+  });
+
+  it('goes by what hasn’t been dealt with: a finished turn after a review, once what needed you was', () => {
+    // The session that needed you was answered here, though the board still lists it: only the
+    // finished turn is left of Sessions', and it comes after the review.
+    expect(elsewhereOffer('todo', views({ sessions: [row('u', 'unread')], prs: [row('p', 'reviews')] }))?.view).toBe('prs');
   });
 
   it('offers a session moved to the top, then the reviews of a repo that puts them first, ahead of your order', () => {
-    expect(elsewhereOffer('todo', { needs: 1, reviews: 2, firstReviews: 1 }, ORDER)?.view).toBe('prs');
-    expect(elsewhereOffer('todo', { unread: 1, raised: 1, reviews: 2, firstReviews: 1 }, ORDER)?.view).toBe('sessions');
-    // From Sessions, its own moved to the top are no offer.
-    expect(elsewhereOffer('sessions', { raised: 1, unread: 1, due: 1, reviews: 1, firstReviews: 1 }, ['due', 'needs', 'reviews', 'unread', 'ready'])?.view).toBe('prs');
+    expect(elsewhereOffer('todo', views({ sessions: [row('n', 'needs')], prs: [row('p', 'reviews', { first: true })] }))?.view).toBe('prs');
+    expect(elsewhereOffer('todo', views({ sessions: [row('u', 'unread', { raised: { at: NOW } })], prs: [row('p', 'reviews', { first: true })] }))?.view).toBe('sessions');
   });
 
   it('never offers the view’s own, Kanban’s being Todo’s', () => {
-    expect(elsewhereOffer('todo', { due: 1, ready: 2 }, ORDER)).toBeNull();
-    expect(elsewhereOffer('kanban', { due: 1, ready: 2, reviews: 1 }, ORDER)?.view).toBe('prs');
-    expect(elsewhereOffer('sessions', {}, ORDER)).toBeNull();
+    expect(elsewhereOffer('todo', views({ todo: [row('d', 'due')] }))).toBeNull();
+    expect(elsewhereOffer('kanban', views({ todo: [row('d', 'due')], prs: [row('p', 'reviews')] }))?.view).toBe('prs');
+    expect(elsewhereOffer('sessions', views({}))).toBeNull();
   });
 });

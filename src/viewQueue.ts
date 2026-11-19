@@ -10,7 +10,7 @@
 
 import type { ListRow } from './boardLists';
 import { reviewRows, type ReviewRow } from './quick';
-import type { Reads, Waits } from './queue';
+import { byPlace, placeOf, type PlaceReads, type Place, type Reads, type Waits } from './queue';
 import type { TodoItem } from './todos';
 import type { BarTodo, Board, PrItem, TodoQueue } from './types';
 
@@ -78,28 +78,41 @@ export function todoShown(item: TodoItem, since: number | undefined) {
   return { key: item.todo.id, title: item.todo.title || 'Untitled todo', since, seenable: false, skipsOnSeen: true, comesBack: true };
 }
 
-/** Where each kind of what waits on you is gone through. */
-const VIEW_OF: Record<Waits, QueueView> = { needs: 'sessions', unread: 'sessions', reviews: 'prs', due: 'todo', ready: 'todo' };
 const VIEW_WORD: Record<QueueView, string> = { sessions: 'Sessions', prs: 'PRs', todo: 'Todo', kanban: 'Kanban' };
 
-/** How many of each kind wait in the views, of those not yet dealt with there, and of them how
- *  many sessions were moved to the top and how many PRs are of a repo that puts reviews first,
- *  which go ahead of every kind (queue.ts `byPlace`). */
-export type WaitCounts = Partial<Record<Waits | 'raised' | 'firstReviews', number>>;
+/** What waits in a view that hasn't been dealt with there (useWaitingQueue.ts `pending`): the
+ *  first of it, placed as the queue places it, and how many of its kind there are (of a session's
+ *  kinds, both). */
+export interface ViewWaits {
+  view: QueueView;
+  first: Place;
+  count: number;
+}
 
-/** What Next offers once the view `from` has nothing left: the first kind in your order that
- *  waits in another view, and how the strip says it, `own` being how many of the view's own wait
- *  (none: nothing waits there at all). None when nothing waits anywhere else. The sessions' two
- *  kinds are one offer: Sessions goes through them in your order itself. */
-export function elsewhereOffer(from: QueueView, counts: WaitCounts, order: readonly Waits[], own = 0): { view: QueueView; words: string; title: string } | null {
-  const ours = (k: Waits) => VIEW_OF[k] === from || (from === 'kanban' && VIEW_OF[k] === 'todo');
-  // A session moved to the top comes before everything, then the reviews of a repo that puts
-  // them first, then the kinds in your order.
-  const ahead: Waits | undefined = !ours('needs') && (counts.raised ?? 0) > 0 ? 'needs' : !ours('reviews') && (counts.firstReviews ?? 0) > 0 ? 'reviews' : undefined;
-  const kind = ahead ?? order.find((k) => !ours(k) && (counts[k] ?? 0) > 0);
-  if (!kind) return null;
-  const view = VIEW_OF[kind];
-  const n = view === 'sessions' ? (counts.needs ?? 0) + (counts.unread ?? 0) : (counts[kind] ?? 0);
-  const what = view === 'sessions' ? (n === 1 ? 'session' : 'sessions') : view === 'prs' ? (n === 1 ? 'review' : 'reviews') : `${kind} ${n === 1 ? 'todo' : 'todos'}`;
-  return { view, words: `Nothing ${own > 0 ? 'else ' : ''}waits in ${VIEW_WORD[from]}`, title: `${n} ${what} in ${VIEW_WORD[view]}` };
+/** A view's `ViewWaits`, from what waits there not yet dealt with, in the queue's order; none
+ *  with nothing. */
+export function viewWaits<T>(view: QueueView, pending: readonly T[], reads: PlaceReads<T>): ViewWaits | null {
+  const row = pending[0];
+  if (row === undefined) return null;
+  const first = placeOf(row, reads);
+  const sessions = (w: Waits) => w === 'needs' || w === 'unread';
+  const count = pending.filter((r) => {
+    const w = reads.waitsOf(r);
+    return w === first.waits || (sessions(w) && sessions(first.waits));
+  }).length;
+  return { view, first, count };
+}
+
+/** What Next offers once the view `from` has nothing left: the view whose first that waits comes
+ *  first in the queue's order (queue.ts `byPlace`: a session moved to the top, a review of a repo
+ *  that puts them first, then the kinds in your order), and how the strip says it, `own` being how
+ *  many of the view's own wait (none: nothing waits there at all). None when nothing waits
+ *  anywhere else. */
+export function elsewhereOffer(from: QueueView, waiting: readonly (ViewWaits | null)[], own = 0): { view: QueueView; words: string; title: string } | null {
+  const ours = (v: QueueView) => v === from || (from === 'kanban' && v === 'todo');
+  const best = waiting.filter((w): w is ViewWaits => !!w && !ours(w.view)).sort((a, b) => byPlace(a.first, b.first))[0];
+  if (!best) return null;
+  const n = best.count;
+  const what = best.view === 'sessions' ? (n === 1 ? 'session' : 'sessions') : best.view === 'prs' ? (n === 1 ? 'review' : 'reviews') : `${best.first.waits} ${n === 1 ? 'todo' : 'todos'}`;
+  return { view: best.view, words: `Nothing ${own > 0 ? 'else ' : ''}waits in ${VIEW_WORD[from]}`, title: `${n} ${what} in ${VIEW_WORD[best.view]}` };
 }

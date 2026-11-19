@@ -91,6 +91,10 @@ export interface Hotkeys {
   /** Why Next does nothing where what's shown has nothing to go through (a schedule, the
    *  canvas): it stays in its place, dimmed, saying so. */
   nowhere?: string;
+  /** The window's keys for a session act on another than the one shown (the main window's list
+   *  has none selected on the canvas, a schedule under a schedule's session): the session's buttons
+   *  don't say them. */
+  noKeys?: boolean;
   /** The strip is its window's title bar (the waiting window has no other): it drags the window,
    *  and leaves room at its start for the window's buttons. */
   titleBar?: boolean;
@@ -357,7 +361,7 @@ export function QueueStrip({ queue, notice, hotkeys, session, actions, onSeen, b
   const archive = actions?.archive;
   const mergeDone = actions?.mergeDone;
   const sign = (name: keyof typeof CHORDS) => chordSigns(CHORDS[name] ?? '');
-  const strip: StripAction[] = own ?? [
+  const listed: StripAction[] = own ?? [
     // Only where there's a PR to merge, and first, where its coming and going moves nothing
     // else: the strip keeps to the right.
     ...(mergeDone ? [{ label: 'Merge and done', icon: 'merge', chord: CHORDS.mergeDone, roomy: true, title: `${mergeDone.label.replace('…', '')} (${sign('mergeDone')}): it merges once you confirm, and then this session is marked done`, run: () => mergeDone.run() }] : []),
@@ -381,6 +385,8 @@ export function QueueStrip({ queue, notice, hotkeys, session, actions, onSeen, b
     { label: close?.label === 'End background job' ? 'End job' : 'Close', chord: CHORDS.close, title: close ? `${close.label}: the conversation stays, to go on with later` : 'It has no terminal of its own to close', run: close && (() => close.run()) },
     { label: archive?.label === 'Unarchive' ? 'Unarchive' : 'Archive', chord: CHORDS.archive, title: archive?.label ?? 'Archive', run: archive && (() => archive.run()) },
   ];
+  // Where the window's keys aren't this session's, its buttons say none (`Hotkeys.noKeys`).
+  const strip = hotkeys?.noKeys && !own ? listed.map((action) => ({ ...action, chord: undefined, keys: undefined })) : listed;
   const fit = useFit(stripRef, !!hotkeys, strip.map((action) => action.label).join('|'));
   if (!hotkeys) {
     if (!notice && !next) return null;

@@ -237,6 +237,20 @@ export function Waiting() {
     setKey(backTo ?? (first ? WINDOW_READS.keyOf(first) : null));
   }, [up, read, board, key, replying, reviewing, todoing, first, backTo]);
 
+  // A todo that stops waiting on you while it shows (started from the quick panel, done or given
+  // another day in another window) has nothing more to show here, as a session that answers has:
+  // the window goes on, or says nothing else waits. One shown again from the window's history that
+  // doesn't wait stays.
+  const todoKey = todoing ? todoRowKey(todoing.id) : null;
+  const todoWaits = !!todoKey && queue.some((r) => r.key === todoKey);
+  const todoWas = useRef<{ key: string | null; waits: boolean }>({ key: null, waits: false });
+  const stepOn = useLatest(() => (way.queue?.next ? void way.run('next') : went('last')));
+  useEffect(() => {
+    const was = todoWas.current;
+    todoWas.current = { key: todoKey, waits: todoWaits };
+    if (todoKey && was.key === todoKey && was.waits && !todoWaits) stepOn.current();
+  }, [todoKey, todoWaits, stepOn]);
+
   /** Done with the one shown and nothing else waits: the window says so, and how it went. */
   const went = (to: 'on' | 'last' | 'stay' | 'away') => {
     if (to === 'last') {

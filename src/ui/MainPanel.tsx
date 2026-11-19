@@ -46,7 +46,7 @@ import { SessionPickPanel } from './SessionPickPanel';
 import { WorktreePickPanel } from './WorktreePickPanel';
 import { TodoPanel, TodoPickPanel } from './TodoPanel';
 import { TodoStrip, type TodoActions } from './TodoStrip';
-import { todoLeftAhead } from '../ahead';
+import { todoBackAhead, todoLeftAhead } from '../ahead';
 import { dueItem } from '../menus';
 import { todoSnoozeMenu } from '../snooze';
 import type { ViewQueues } from '../useViewQueues';
@@ -216,6 +216,8 @@ export function MainPanel(props: MainPanelProps) {
     const asleep = (t.snoozedUntil ?? 0) > now;
     const snooze = todoSnoozeMenu(t, now, (act) => {
       if (asleep) {
+        // Nothing made a moment before keeps a woken one out: the board says whether it waits.
+        todoBackAhead([t.id]);
         act.catch((e: unknown) => setToast(errorText(e)));
         return;
       }
@@ -376,9 +378,10 @@ export function MainPanel(props: MainPanelProps) {
         // view does (Kanban's todos), or nowhere.
         queue={viewQueue}
         notice={queued ? queue.notice : null}
-        // The strip is always there, with what's commonly done to a session and the keys for it.
-        // Back and forward are in the title bar.
-        hotkeys={{ nowhere }}
+        // The strip is always there, with what's commonly done to a session and the keys for it,
+        // which are the row selected's (none on the canvas, a schedule's under its session). Back
+        // and forward are in the title bar.
+        hotkeys={{ nowhere, noKeys: !(selected?.kind === 'agent' && selected.session.key === session.key) }}
         // Everywhere, for what its header's boxes offer (Carry on, a move to another account) and
         // its account's menu in the box; the strip that also reads them is Sessions' alone.
         actions={actionsRef.current.session(lane, session, 'session')}
