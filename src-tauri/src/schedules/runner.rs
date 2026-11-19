@@ -687,6 +687,42 @@ fn target_in(board: &Board, s: &Schedule, track: Option<&Track>, origins: &crate
     (s.run.to != To::Thread || !session.archived).then_some(key)
 }
 
+/// The session `key` went on as `copy`, which takes its place (actions.rs `hand_over`): each
+/// schedule whose runs went to it, as its thread or as the session it sends to, goes to the copy
+/// from now on. Not left to `target`, which follows only a move to another account: a copy in the
+/// same account (a Claude Code background job's) can't be told from a fork you made there.
+pub fn copy_takes_place(key: &str, copy: &str) -> anyhow::Result<()> {
+    let file = load()?;
+    crate::store::change(&runs_path(), WHAT_RUNS, |runs: &mut Runs| follow_copy(&file, runs, key, copy))?;
+    Ok(())
+}
+
+/// `copy_takes_place` in `runs`, whether it changed anything. A schedule with no record yet has
+/// sent nothing to `key`, and is left to arm as it would.
+fn follow_copy(file: &File, runs: &mut Runs, key: &str, copy: &str) -> bool {
+    let mut changed = false;
+    for s in &file.schedules {
+        let Some(t) = runs.of.get_mut(&s.id) else { continue };
+        let goes_to = match s.run.to {
+            To::New => continue,
+            To::Thread => t.thread.clone(),
+            To::Session => {
+                let session = s.run.session.trim();
+                Some(t.thread.clone().filter(|_| t.follows.as_deref() == Some(session)).unwrap_or_else(|| session.to_string()))
+            }
+        };
+        if goes_to.as_deref() != Some(key) {
+            continue;
+        }
+        t.thread = Some(copy.to_string());
+        if s.run.to == To::Session {
+            t.follows = Some(s.run.session.trim().to_string());
+        }
+        changed = true;
+    }
+    changed
+}
+
 /// Whether a waiting run can go to its session: it's there and neither at work nor waiting on
 /// you, or it's gone, as a thread's is once archived (a thread then starts a new one).
 fn can_take(board: &Board, s: &Schedule, track: &Track) -> bool {
@@ -1267,7 +1303,7 @@ fn act(engine: &Handle, board: &Board, cfg: &crate::config::Config, s: &Schedule
                         if s.quiet {
                             engine.quiet(vec![went.clone()], true);
                         }
-                        crate::actions::hand_over(engine, board, &key, &went);
+                        crate::actions::hand_over(engine, &key, &went);
                     }
                     (record(cause, Outcome::Resumed, r.sent.message, Some(went.clone())), Some(went), None)
                 }
@@ -1902,6 +1938,41 @@ mod tests {
         let archived = Board { lanes: vec![lane("/r", vec![Session { archived: true, ..working }])], ..board() };
         assert_eq!(plan(&file, &runs, &archived, &HashSet::new(), 10, &z).0, vec![Job::Deliver { id: "a".into(), queued: waited }]);
         assert!(matches!(step_in(&archived, &atlas(), &s, &track, "Look", &[], 10, std::path::Path::new(HOME)), Step::Start { .. }));
+    }
+
+    #[test]
+    fn every_schedule_whose_runs_went_to_a_session_goes_to_its_copy() {
+        let thread = |id: &str| Schedule { run: Run { to: To::Thread, prompt: "Look".into(), ..Run::default() }, ..schedule(id, When::Fired) };
+        let sends_to = |id: &str, to: &str| Schedule { run: Run { to: To::Session, session: to.into(), prompt: "Look".into(), ..Run::default() }, ..schedule(id, When::Fired) };
+        let new = Schedule { run: Run { to: To::New, prompt: "Look".into(), ..Run::default() }, ..schedule("new", When::Fired) };
+        let file = File { schedules: vec![thread("kept"), thread("other"), sends_to("told", "old"), sends_to("went-on", "first"), sends_to("elsewhere", "else"), new, sends_to("unarmed", "old")], ..File::default() };
+        let mut runs = Runs {
+            of: [
+                ("kept", Track { thread: Some("old".into()), thread_since: Some(5), ..armed(1) }),
+                ("other", Track { thread: Some("else".into()), ..armed(1) }),
+                ("told", armed(1)),
+                // It went on as "old" once already, a copy of "first".
+                ("went-on", Track { thread: Some("old".into()), follows: Some("first".into()), ..armed(1) }),
+                ("elsewhere", armed(1)),
+                ("new", Track { started: Some("old".into()), ..armed(1) }),
+            ]
+            .map(|(id, t)| (id.to_string(), t))
+            .into(),
+            ..Runs::default()
+        };
+        assert!(follow_copy(&file, &mut runs, "old", "copy"));
+        let goes = |id: &str| (runs.of[id].thread.as_deref(), runs.of[id].follows.as_deref());
+        // A thread kept on it goes on with the copy, from when it began.
+        assert_eq!((goes("kept"), runs.of["kept"].thread_since), ((Some("copy"), None), Some(5)));
+        // Sent to it, whether by name or as the copy it went on as before, the copy.
+        assert_eq!(goes("told"), (Some("copy"), Some("old")));
+        assert_eq!(goes("went-on"), (Some("copy"), Some("first")));
+        // Another session's, a new session's each run, or one not yet armed: as they were.
+        assert_eq!(goes("other"), (Some("else"), None));
+        assert_eq!(goes("elsewhere"), (None, None));
+        assert_eq!(goes("new"), (None, None));
+        assert!(!runs.of.contains_key("unarmed"));
+        assert!(!follow_copy(&file, &mut runs, "gone", "copy"));
     }
 
     #[test]

@@ -1177,7 +1177,7 @@ fn resume(engine: &Handle, c: &Call) -> Result<Value, String> {
         note_talking(engine, c, resumed.key.as_deref().unwrap_or(key));
     }
     if let Some(copy) = resumed.key.as_deref().filter(|k| *k != key) {
-        hand_over(engine, &board, key, copy);
+        hand_over(engine, key, copy);
     }
     if matches!(c.from, From::Device | From::Phone) && resumed.sent.opened {
         return Err(format!("It needs someone at this device: {}", resumed.sent.message));
@@ -1516,7 +1516,7 @@ fn move_session(engine: &Handle, c: &Call) -> Result<Value, String> {
             started.message = started.message.map(|m| format!("{m} Its turn was stopped first, so it goes on from where it was interrupted."));
         }
         if let Some(copy) = started.key.as_deref().filter(|k| *k != key) {
-            hand_over(engine, &board, key, copy);
+            hand_over(engine, key, copy);
         }
         return to_value(started);
     }
@@ -1528,17 +1528,19 @@ fn move_session(engine: &Handle, c: &Call) -> Result<Value, String> {
         started.message = started.message.map(|m| format!("{m} Its turn was stopped first, so the copy goes on from where it was interrupted."));
     }
     match &started.key {
-        Some(copy) => hand_over(engine, &board, key, copy),
+        Some(copy) => hand_over(engine, key, copy),
         None => archive_moved(engine, key),
     }
     to_value(started)
 }
 
 /// The copy a session moved into takes its place: the todos it was on, as their primary session
-/// where it was theirs, its labels, and its place among the pinned sessions. The session itself is
-/// archived. A schedule's resume that went on as a copy hands over the same way (schedules/runner.rs
-/// `act`).
-pub(crate) fn hand_over(engine: &Handle, board: &crate::model::Board, key: &str, copy: &str) {
+/// where it was theirs, its labels, its place among the pinned sessions, and the schedules whose
+/// runs went to it. The session itself is archived. A schedule's resume that went on as a copy
+/// hands over the same way (schedules/runner.rs `act`). The board is read now, not before the
+/// move or resume, which takes seconds: a pin or a todo changed meanwhile isn't undone.
+pub(crate) fn hand_over(engine: &Handle, key: &str, copy: &str) {
+    let board = engine.board();
     for t in board.todos.iter().filter(|t| t.sessions.iter().any(|s| s == key)) {
         // The session stays on it too, as one that worked on it.
         let link = match t.primary.as_ref().is_some_and(|p| p.session == key) {
@@ -1549,12 +1551,16 @@ pub(crate) fn hand_over(engine: &Handle, board: &crate::model::Board, key: &str,
             eprintln!("Moved {key}, but couldn't put {copy} on todo {}: {e}", t.id);
         }
     }
-    labels_follow(engine, board, key, copy);
+    labels_follow(engine, &board, key, copy);
     // Before it's archived, which unpins it and closes its terminals: those go with the copy.
     if board.pinned.iter().any(|k| k == key) {
         engine.set_pinned(board.pinned.iter().map(|k| if k == key { copy.to_string() } else { k.clone() }).collect());
     }
     crate::terminals::follow(key, copy);
+    // Before it's archived too, which would end a thread kept on it (runner.rs `target`).
+    if let Err(e) = crate::schedules::runner::copy_takes_place(key, copy) {
+        eprintln!("Moved {key}, but couldn't send its schedules' runs to {copy}: {e:#}");
+    }
     archive_moved(engine, key);
 }
 

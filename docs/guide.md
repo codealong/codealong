@@ -2067,8 +2067,8 @@ else in tmux with no window). A run sent to a session goes at once when it's fre
 it's at work or waits on you, once its turn ends, several runs' worth in one message; one that
 isn't running goes on out of sight with it, as a PR's news resumes one. Where that goes on as a
 copy (Claude Code copies a session a background job had into a new job), the copy takes its place
-as when you resume one: its todos, labels, pin and terminals, and the schedule's later runs, while
-the session it copied is archived.
+as when you resume or move one: its todos, labels, pin and terminals, and the later runs of every
+schedule that went to it, while the session it copied is archived.
 
 What the run was for (a watch's new lines, the PR that merged, what a script fired it with, what
 *Only if* printed) is written to a file the prompt points the agent at, to read as data, not as
