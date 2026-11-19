@@ -168,6 +168,7 @@ pub fn plan(board: &Board, cfg: &Config, lane_id: &str, ending: Option<&Session>
     // in a worktree that would otherwise go.
     let kept = match &checked {
         Err(e) => Some(format!("git couldn't check it ({e})")),
+        Ok(Facts { under_way: Some(what), .. }) => Some(format!("a {what} is under way in it")),
         Ok(_) => rule(listed_inside.as_deref()).or_else(|| match repo_inside(&path) {
             Ok(None) => None,
             Ok(Some(p)) => rule(Some(&inner(p))),
@@ -194,11 +195,13 @@ pub fn plan(board: &Board, cfg: &Config, lane_id: &str, ending: Option<&Session>
 /// error, never a clean worktree; untracked files count whatever `status.showUntrackedFiles`
 /// says, and so do submodules' changes and tracked files git is told not to look at
 /// (`hidden_changes`). Commits on no remote count unless their change is in the default branch
-/// already, as a squash merge leaves them (`git::unpushed_by`).
+/// already, as a squash merge leaves them (`git::unpushed_by`), and an operation under way holds
+/// it however clean it is (`git::under_way`).
 #[derive(Debug, Clone, PartialEq)]
 struct Facts {
     dirty: u32,
     unpushed: u32,
+    under_way: Option<&'static str>,
     head: String,
     locked: Option<String>,
     /// How many times it took new work (`git::new_work`), for whether it's reusable.
@@ -219,7 +222,7 @@ fn facts(path: &Path, base: Option<&str>) -> Result<Facts, String> {
     let head = run(&["rev-parse", "--verify", "HEAD"])?.trim().to_string();
     let unpushed = crate::git::unpushed_by(&run, base)?;
     let dirty = crate::git::parse_status(&status).dirty + hidden_changes(path)?;
-    Ok(Facts { dirty, unpushed, head, locked: crate::git::locked(path), new_work: crate::git::new_work(path, base).len() as u32 })
+    Ok(Facts { dirty, unpushed, under_way: crate::git::under_way(path), head, locked: crate::git::locked(path), new_work: crate::git::new_work(path, base).len() as u32 })
 }
 
 /// Tracked files git is told not to look at (`update-index --assume-unchanged`, and
@@ -360,6 +363,9 @@ fn verify(plan: &Plan, running: usize) -> Result<bool, String> {
     }
     if now.unpushed > 0 {
         return stays("it has commits on no remote now");
+    }
+    if let Some(what) = now.under_way {
+        return stays(&format!("a {what} is under way in it now"));
     }
     match plan.ending.map(|_| repo_inside(&plan.path)) {
         None | Some(Ok(None)) => {}
@@ -708,6 +714,15 @@ mod tests {
         commit(&git, &main, "a.txt", "one two three");
         git(&["push", "-q", "origin", "main"]);
         assert_eq!(plan(&board, &cfg, wt.to_str().unwrap(), None).unwrap().kept.as_deref(), Some("2 commits on no remote"));
+        git(&["worktree", "remove", "--force", wt.to_str().unwrap()]);
+        // A rebase stopped partway holds it, clean as it is, its HEAD on main: an autostash may
+        // hold edits of yours until it ends. Called off, it goes.
+        git(&["worktree", "add", "-q", "-b", "worktree-rebasing", wt.to_str().unwrap(), "main"]);
+        let stopped = procs::run("git", &["-C", wt.to_str().unwrap(), "rebase", "-q", "--exec", "false", "HEAD~1"], None, Duration::from_secs(20));
+        assert!(stopped.is_err(), "the rebase stops at its failing exec");
+        assert_eq!(plan(&board, &cfg, wt.to_str().unwrap(), None).unwrap().kept.as_deref(), Some("a rebase is under way in it"));
+        in_wt(&["rebase", "--abort"]);
+        assert_eq!(plan(&board, &cfg, wt.to_str().unwrap(), None).unwrap().kept, None);
         git(&["worktree", "remove", "--force", wt.to_str().unwrap()]);
         // A hook-made one goes through the repo's hook, which is handed the event on stdin.
         git(&["worktree", "add", "-q", "-b", "worktree-hooked", wt.to_str().unwrap(), "main"]);

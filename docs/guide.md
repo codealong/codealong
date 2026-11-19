@@ -201,7 +201,8 @@ worktree was made, pushed and landed ones too (a branch rebased onto a `main` th
 them all), and every worktree a repo's `WorktreeCreate` hook made, which it can't count at all. So
 where those are all it asks about, Codealong answers Remove worktree itself whenever its own check,
 Clean up worktree…'s, finds nothing would be lost (nothing uncommitted, no commit that's on no
-remote and not in the default branch, no other session at work there), and the worktree is still on
+remote and not in the default branch, no rebase or merge under way, no other session at work
+there), and the worktree is still on
 the branch Claude Code would delete with it. It reads the question off the session's terminal for
 that (a Rex or tmux terminal, or one of Codealong's own; not a session started with `--tmux`, whose
 answer decides its tmux session too). The repo's `WorktreeRemove` hook, where there is one, then
@@ -4912,8 +4913,10 @@ untracked (whatever `status.showUntrackedFiles` says, and tracked files git is t
 counted by their contents), no commit that isn't on some remote (as `git rev-list HEAD --not
 --remotes` counts them, Claude Code's own rule) unless what the commits change is in the default
 branch already, as a squash or rebase merge leaves them (every file they changed is the same there,
-so a file the default branch changed again since keeps them), no session running in it, no lock a
-running session holds on it, and no other worktree or repository inside it, every ignored folder looked
+so a file the default branch changed again since keeps them), no rebase, merge, cherry-pick, revert
+or bisect under way in it (a rebase's or merge's `--autostash` holds edits of yours until it ends),
+no session running in it, no lock a running session holds on it, and no other worktree or
+repository inside it, every ignored folder looked
 through for one (a worktree with its dependencies installed takes a few seconds). A git command
 that fails keeps it. A main checkout, a plain folder and a reusable worktree are
 never removed. Files git ignores, such as installed dependencies and env files, go with it. Where it can't go, the

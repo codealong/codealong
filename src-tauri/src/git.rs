@@ -296,6 +296,25 @@ pub fn new_work(path: &Path, base: Option<&str>) -> Vec<i64> {
     String::from_utf8_lossy(tail).lines().filter_map(|l| new_work_at(l, base)).collect()
 }
 
+/// What git has under way in the worktree at `path`, keeping its state in the worktree's own git
+/// folder until it's finished or called off: a rebase (whose `--autostash` holds edits of yours
+/// until it ends), a merge (`--autostash` too), a cherry-pick or revert, or a bisect. Removing the
+/// worktree takes that state with it, clean as its tree may be. A file read, not a git run.
+pub fn under_way(path: &Path) -> Option<&'static str> {
+    let dir = git_dir(path)?;
+    const STATES: [(&str, &str); 8] = [
+        ("rebase-merge", "rebase"),
+        ("rebase-apply", "rebase"),
+        ("MERGE_HEAD", "merge"),
+        ("MERGE_AUTOSTASH", "merge"),
+        ("CHERRY_PICK_HEAD", "cherry-pick"),
+        ("REVERT_HEAD", "revert"),
+        ("sequencer", "cherry-pick or revert"),
+        ("BISECT_LOG", "bisect"),
+    ];
+    STATES.into_iter().find(|(file, _)| dir.join(file).exists()).map(|(_, what)| what)
+}
+
 /// A worktree's git folder: `.git` in a main checkout, the folder its `.git` file names in a
 /// linked worktree.
 fn git_dir(path: &Path) -> Option<PathBuf> {

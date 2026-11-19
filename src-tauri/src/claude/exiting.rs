@@ -116,8 +116,9 @@ fn asks(says: &str) -> Option<Asks> {
     let (count, rest) = says.strip_prefix("You have ")?.split_once(' ')?;
     count.parse::<u32>().ok().filter(|n| *n > 0)?;
     let rest = rest.strip_prefix("commits on ").or_else(|| rest.strip_prefix("commit on "))?;
-    let branch = rest.strip_suffix(BRANCH_GOES).filter(|b| !b.is_empty() && !b.contains(char::is_whitespace))?;
-    Some(Asks::Commits(branch.to_string()))
+    // A branch's name has no whitespace of its own: what's there is a line that broke mid-name.
+    let branch = rest.strip_suffix(BRANCH_GOES)?.split_whitespace().collect::<String>();
+    (!branch.is_empty()).then_some(Asks::Commits(branch))
 }
 
 /// Whether Codealong's own check answers `dialog`, read off its terminal: it asks whether to keep
@@ -329,6 +330,8 @@ mod tests {
         // As a terminal showed it on 2026-11-18, a branch whose HEAD had landed.
         assert_eq!(asks("You have 68 commits on worktree-kestrel. The branch will be deleted if you remove the worktree."), commits("worktree-kestrel"));
         assert_eq!(asks("You have 1 commit on worktree-kestrel. The branch will be deleted if you\nremove the worktree."), commits("worktree-kestrel"));
+        // A terminal narrower than the branch's name breaks it.
+        assert_eq!(asks("You have 1 commit on worktree-snooze-suggest\nion-reads. The branch will be deleted if you remove the worktree."), commits("worktree-snooze-suggestion-reads"));
         assert_eq!(asks(HOOKED), Some(Asks::Hooked));
         assert_eq!(asks(&format!("{HOOKED} This session was named \"atlas\". Keep the worktree to resume it later.")), Some(Asks::Hooked));
         // What else 2.1.328 may say: each is about what the check doesn't look at, or deletes a
