@@ -296,8 +296,8 @@
    rounds all four, and so does the panel when it takes the whole window. A gutter at the
    window's right edge, and at its left once the sidebar steps aside, lets the corners there show.
    The board's corners are its clip-path's (the board's rule above says why it clips that way);
-   the panel's, its overflow's. Its outer edge is card-edge, none in light, where the shadow's
-   ring draws it; the line between the board and the panel is the panel's own. */
+   the panel's, its overflow's. It has no line round it of its own: its shadow's ring is its edge
+   (shadow-card), and the line between the board and the panel is the panel's own (panel.css). */
 .ca-win--app .ca-win-body {
   --card-r: var(--radius-md);
   padding-right: var(--space-2);
@@ -306,23 +306,18 @@
   padding-left: var(--space-2);
 }
 .ca-win--app .ca-board {
-  border: 1px solid var(--card-edge);
-  border-right: 0;
   border-radius: var(--card-r) 0 0 var(--card-r);
   clip-path: inset(0 round var(--card-r) 0 0 var(--card-r));
 }
 .ca-win--app .ca-board:last-child {
-  border-right: 1px solid var(--card-edge);
   border-radius: var(--card-r);
   clip-path: inset(0 round var(--card-r));
 }
 .ca-win--app .ca-insp {
-  border: 1px solid var(--card-edge);
-  border-left-color: var(--line);
   border-radius: 0 var(--card-r) var(--card-r) 0;
 }
 .ca-win--app .ca-win-body.is-panel-max > .ca-insp {
-  border-left-color: var(--card-edge);
+  border-left: 0;
   border-radius: var(--card-r);
 }
 /* Its shadow, barely there: a box over the card's grid area (from the board's column to the last).

@@ -1,8 +1,9 @@
 // Checks the main window's chrome (App.css): the title bar, the sidebar and the status bar are one
 // ground, the window's, with no line between them; the board and the panel beside it are a card on
 // it, rounded at its four corners, with a gutter at the window's right edge and a shadow under it
-// on the window's ground, beneath the chrome's rows, whose ring is the card's edge in light (a line
-// in dark). Settings, Analytics and the GitHub link are
+// on the window's ground, beneath the chrome's rows, whose ring is the card's edge in light and in
+// dark (no line of the card's own), the panel's line between it and the board, and none when the
+// panel takes the window. Settings, Analytics and the GitHub link are
 // icons at the sidebar's foot, named for the keyboard and screen readers, with the theme switch
 // after them, and the rail the sidebar folds to has the three; the status bar ends with Refresh,
 // with no Accounts; a chip names a model's own limit only beside its others, and says how long
@@ -29,7 +30,8 @@
     var board = await until(function () { return q('.ca-win-body.is-loading > .ca-board'); }, 20000, 'the board, reading');
     check('nothing comes after the board while it reads', board.parentElement.lastElementChild === board, board.parentElement.lastElementChild.className);
     check('the board alone rounds all four corners', rounded(board, ['TopLeft', 'TopRight', 'BottomLeft', 'BottomRight']), ['TopLeft', 'TopRight', 'BottomRight', 'BottomLeft'].map(function (c) { return style(board)['border' + c + 'Radius']; }).join(' '));
-    check('and draws its hairline on the right too', style(board).borderRightWidth === '1px', style(board).borderRightWidth);
+    check('with no line of its own round it', ['Top', 'Right', 'Bottom', 'Left'].every(function (side) { return style(board)['border' + side + 'Width'] === '0px'; }), ['Top', 'Right', 'Bottom', 'Left'].map(function (side) { return style(board)['border' + side + 'Width']; }).join(' '));
+    check('its shadow’s ring is its edge', /0px 0px 0px 1px/.test(shadow().boxShadow), shadow().boxShadow);
     check('its clip-path rounds them', /round/.test(style(board).clipPath), style(board).clipPath);
     var edge = window.innerWidth - board.getBoundingClientRect().right;
     check('with the gutter at the window’s right edge', edge >= 4 && edge <= 12, Math.round(edge) + 'px');
@@ -91,14 +93,30 @@
     check('the card casts a shadow', s.content !== 'none' && s.boxShadow !== 'none' && /\d/.test(s.boxShadow), s.content + ' ' + s.boxShadow);
     check('as wide as the board and the panel together', Math.abs(parseFloat(s.width) - cardWidth) <= 1 && Math.abs(parseFloat(s.height) - board.getBoundingClientRect().height) <= 1, s.width + ' × ' + s.height + ' for ' + cardWidth);
     check('it takes no clicks', s.pointerEvents === 'none', s.pointerEvents);
-    // Its edge: in light the shadow's ring, with no line of the card's own; in dark the line.
+    // Its edge, in each theme as the page is told it (whatever the saved theme): the shadow's ring,
+    // with no line of the card's own; the panel's line between it and the board stays.
     var root = document.documentElement;
-    var dark = root.dataset.theme ? root.dataset.theme === 'dark' : matchMedia('(prefers-color-scheme: dark)').matches;
-    var edge = b.borderTopColor;
-    var line = getComputedStyle(root).getPropertyValue('--line').trim();
-    if (dark) check('in dark the card’s edge is a line', edge !== 'rgba(0, 0, 0, 0)', edge);
-    else check('in light the card’s edge is the shadow’s ring, not a line', edge === 'rgba(0, 0, 0, 0)' && /0px 0px 0px 1px/.test(s.boxShadow), edge + ' | ' + s.boxShadow + ' | line ' + line);
-    check('the line between the board and the panel stays', p.borderLeftColor !== 'rgba(0, 0, 0, 0)', p.borderLeftColor);
+    var was = root.dataset.theme;
+    var edges = ['light', 'dark'].map(function (theme) {
+      root.dataset.theme = theme;
+      var ring = /0px 0px 0px 1px/.test(shadow().boxShadow);
+      var bare = style(board).borderTopWidth === '0px' && style(board).borderLeftWidth === '0px' && style(panel).borderRightWidth === '0px' && style(panel).borderTopWidth === '0px';
+      return { theme: theme, ok: ring && bare, said: theme + ': ' + shadow().boxShadow + ' / ' + style(board).borderTopWidth + ' ' + style(panel).borderRightWidth };
+    });
+    if (was) root.dataset.theme = was; else delete root.dataset.theme;
+    check('in light and dark the card’s edge is its shadow’s ring, with no line of its own', edges.every(function (e) { return e.ok; }), edges.map(function (e) { return e.said; }).join(' | '));
+    check('the line between the board and the panel stays', p.borderLeftWidth === '1px' && p.borderLeftColor !== 'rgba(0, 0, 0, 0)', p.borderLeftWidth + ' ' + p.borderLeftColor);
+    // Expanded to the window, the panel is the card alone: no line at its left, the shadow its box.
+    var max = panel.querySelector('[aria-label="Expand to the window"]');
+    if (max) {
+      max.click();
+      await until(function () { return q('.ca-win-body.is-panel-max'); }, 3000, 'the panel taking the window');
+      var alonePanel = q('.ca-win-body > .ca-insp');
+      check('expanded, the panel has no line at its left', style(alonePanel).borderLeftWidth === '0px', style(alonePanel).borderLeftWidth);
+      check('and its shadow is its box', Math.abs(parseFloat(shadow().width) - alonePanel.getBoundingClientRect().width) <= 1, shadow().width + ' for ' + alonePanel.getBoundingClientRect().width);
+      q('.ca-win-body [aria-label="Show the list"]').click();
+      await until(function () { return !q('.ca-win-body.is-panel-max'); }, 3000, 'the list back');
+    } else note('no Expand on this panel');
     // The window isn't a stacking context: one would hold its dialogs under what's portalled to the page.
     check('and the window stays no stacking context of its own', style(win).isolation !== 'isolate' && style(win).zIndex === 'auto' && style(win).transform === 'none', style(win).isolation + ' ' + style(win).zIndex);
     // The shadow is first in the body; the sidebar and the status bar, positioned, paint after it.
