@@ -376,12 +376,12 @@ export const TEXT_SEARCH_MIN = 3;
 /**
  * Sessions with every typed word somewhere in what describes them, or in what was said in them
  * (`said`, the text search's hits by session key), the likeliest first. How closely the words name
- * each counts, in the order `codealong sessions find` ranks them (cli.rs `Match`): a title or name
- * that is the words, then a title or name that has them all, then the rest of what describes it,
- * then what was said, the words as typed best there. How long ago it was last active counts too,
- * enough that a recent session that matches less closely comes before an old one that matches
- * better (`CLOSENESS` says how far): the session you look for is most often one you worked in
- * lately, and a common word names hundreds of old ones. Archived sessions are left out unless
+ * each counts, in the order `codealong sessions find` ranks them (cli/session.rs `Match`): a title
+ * or name that is the words, then a title or name that has them all, then the rest of what
+ * describes it, then what was said, the words as typed best there. How long ago it was last active
+ * counts too, enough that a recent session that matches less closely comes before an old one that
+ * matches better (`CLOSENESS` says how far): the session you look for is most often one you worked
+ * in lately, and a common word names hundreds of old ones. Archived sessions are left out unless
  * `archived` asks for them, and then count as older than they are. A project picked doesn't hide
  * the others' sessions from a search, since the one you look for may be in another: they come
  * after the project's own as older ones would (`ANOTHER_PROJECT`), and each row says its project.

@@ -66,8 +66,8 @@ pub fn rules(key: &str) -> String {
 }
 
 /// Set on every copy to a secret of its own (`spawn`), which `codealong session send` run by the
-/// copy hands on (cli.rs `session_send`): a message to its session that carries it is the side
-/// conversation's (`sent_by_copy`). A secret rather than the session's key, which any other
+/// copy hands on (cli/session.rs `session_send`): a message to its session that carries it is the
+/// side conversation's (`sent_by_copy`). A secret rather than the session's key, which any other
 /// session's agent could name to have its message claim what the side conversation's may. A PR's
 /// conversation has one too, and no session to tell.
 pub const SIDE_VAR: &str = "CODEALONG_SIDE";

@@ -462,7 +462,7 @@ pub fn run_as(engine: &Handle, peers: &Peers, from: &From, name: &str, on: On, p
         }),
         // Until its first scan after a start ends, the board lists no sessions or worktrees, and
         // what the command names would be taken for one Codealong doesn't know. It waits for the
-        // scan on this answer, and asks again (cli.rs `act_within`).
+        // scan on this answer, and asks again (cli/client.rs `act_within`).
         (None, key) if matches!(from, From::Command(_)) && !key.is_empty() && engine.read(|b| b.loading) => Err(STILL_READING.to_string()),
         (None, key) => (req.here)(engine, &Call { key, params: &params, from }),
     }
@@ -2714,8 +2714,8 @@ mod tests {
 
     /// An app just started lists no sessions until its first scan ends. The command is told that,
     /// not that the session isn't listed, which an agent would take for a wrong key and drop; it
-    /// waits for the scan and asks again (cli.rs `act_within`). A window, which shows nothing to
-    /// ask about until then, is answered as before.
+    /// waits for the scan and asks again (cli/client.rs `act_within`). A window, which shows
+    /// nothing to ask about until then, is answered as before.
     #[test]
     fn the_command_hears_the_app_is_still_reading_rather_than_of_no_session() {
         use crate::model::Board;

@@ -109,11 +109,11 @@ pub enum Request {
     /// where each command would start a login shell to ask again (`Handle::accounts_as_kept`).
     Accounts,
     /// Which session runs the command that asks, and where its account's sign-in stands
-    /// (`codealong account check`, cli.rs `AccountCheck`), against `group` when it names one. The
-    /// command is found by the process at the socket's other end where the OS says (`pid` where
-    /// it doesn't), else by `args` in a session's open calls, else `session_var`, as `whoami`
-    /// finds it (cli.rs `session_running`). The server answers from the sign-ins it keeps, so a
-    /// guard hook asking before every command rarely waits on a provider (signin.rs).
+    /// (`codealong account check`, cli/account.rs `AccountCheck`), against `group` when it names
+    /// one. The command is found by the process at the socket's other end where the OS says (`pid`
+    /// where it doesn't), else by `args` in a session's open calls, else `session_var`, as `whoami`
+    /// finds it (cli/whoami.rs `session_running`). The server answers from the sign-ins it keeps,
+    /// so a guard hook asking before every command rarely waits on a provider (signin.rs).
     AccountCheck {
         #[serde(default)]
         pid: u32,
@@ -142,7 +142,7 @@ pub enum Request {
     Devices,
     /// Your other Macs' worktrees with their sessions, as the windows show them beside the board
     /// (shown.rs): each lane id and session key with `@<short>:` in front, and a Mac that's away
-    /// as it was last seen. The command names their sessions by them (cli.rs
+    /// as it was last seen. The command names their sessions by them (cli/lookup.rs
     /// `resolve_any_session`), and what it asks of one goes to its Mac (actions.rs `On::Key`).
     Elsewhere,
     /// Asks one of your devices on your tailnet to link; the reply is the code both show.
@@ -744,8 +744,8 @@ const FIRST_SCAN_WAIT: Duration = Duration::from_secs(120);
 /// the board doesn't have here, one for a folder that isn't there.
 fn hold_terminal_ask(engine: &Handle, ask: crate::terminal::Ask, out: &mut UnixStream) {
     // A server answers before its first scan has listed the sessions: one a relaunch just started
-    // is asked again by the commands whose requests went with the last (cli.rs `ask_to_run`), and
-    // would refuse each for a session it doesn't list yet.
+    // is asked again by the commands whose requests went with the last (cli/terminal.rs
+    // `ask_to_run`), and would refuse each for a session it doesn't list yet.
     let until = std::time::Instant::now() + FIRST_SCAN_WAIT;
     while engine.read(|b| b.loading) && std::time::Instant::now() < until {
         if hung_up(out) {

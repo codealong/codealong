@@ -17,7 +17,7 @@
 //! request lives while the command that asked waits; one whose command was stopped (an agent's tool
 //! timing out) goes from the windows. One whose server went (a relaunch with a new engine replaces
 //! it) is asked again by its command once a server answers, unless you'd allowed it as the server
-//! went (`allowed_between`, cli.rs `ask_to_run`).
+//! went (`allowed_between`, cli/terminal.rs `ask_to_run`).
 //!
 //! Running. Codealong doesn't own the terminal, and Ghostty gives a script no way to read a tab's
 //! text, so the command runs under `script(1)` in the tab: on a terminal of its own, which `script`
@@ -127,9 +127,9 @@ pub struct Ask {
     /// Where it runs: the folder the command was run in, unless it named another.
     pub cwd: PathBuf,
     /// The command's own name for its request, the same each time it asks again after the server
-    /// holding it went (cli.rs `ask_to_run`), which the run it starts keeps: how the command finds
-    /// its run, which another asking for the same command meanwhile doesn't have. None from a
-    /// command from before, and for a command you ran yourself.
+    /// holding it went (cli/terminal.rs `ask_to_run`), which the run it starts keeps: how the
+    /// command finds its run, which another asking for the same command meanwhile doesn't have.
+    /// None from a command from before, and for a command you ran yourself.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub token: Option<String>,
 }
@@ -285,7 +285,7 @@ pub fn overlay(s: &mut Session) {
 }
 
 /// How long a run counts as waited on after its command last asked where it stands. The command
-/// asks every 300 ms (cli.rs `wait_for_run`); the server may answer late on a busy Mac.
+/// asks every 300 ms (cli/terminal.rs `wait_for_run`); the server may answer late on a busy Mac.
 const WAIT_LAPSE_MS: i64 = 5_000;
 
 /// A run a command waits on, as it stood when the command last asked, and when.

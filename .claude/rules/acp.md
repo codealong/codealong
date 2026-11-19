@@ -44,7 +44,7 @@ on 2026-09-27. Paths are under `src-tauri/src/`.
   hook find its process. The board gives a hosted session no pid (`acp.rs` `overlay`); the
   `claude` itself isn't started with `CLAUDE_CODE_SESSION_ID`, but the shells it runs commands
   in are given the session's ID, which is how the `codealong` command run there finds its
-  session (`cli.rs` `hosted_above`; the app's own environment had none, 2026-10-16). A call
+  session (`cli/whoami.rs` `hosted_above`; the app's own environment had none, 2026-10-16). A call
   it asks about comes both ways: as the adapter's `session/request_permission` and through the
   hook. The app holds only the first (server.rs
   `hold_permission_ask`, `acp::runs`): one held through the hook as well showed the session
@@ -106,7 +106,7 @@ on 2026-09-27. Paths are under `src-tauri/src/`.
   instead, which Codealong doesn't set. The session id is the thread id, and the
   rollout is an ordinary one with `originator: "codealong"`. The board gives such a session no
   process; its commands carry the thread's ID in `CODEX_THREAD_ID`, which is how the `codealong`
-  command run there finds its session however it was run (`cli.rs` `hosted_above`). With `approvals_reviewer =
+  command run there finds its session however it was run (`cli/whoami.rs` `hosted_above`). With `approvals_reviewer =
   "auto_review"` in config.toml it doesn't ask: its reviewer model decides. It can put a prompt
   into the running turn, which Codealong doesn't use yet: the extension request
   `_session/steering {sessionId, prompt}` (`turn/steer` underneath), offered in `initialize`'s

@@ -167,7 +167,7 @@ export function cleanRule(r: Rule): Rule {
   return out;
 }
 
-/** What a rule takes in, in words (cli.rs `rule_text` says it the same way). */
+/** What a rule takes in, in words (cli/board_cmd.rs `rule_text` says it the same way). */
 export function ruleWords(r: Rule | null, labels: Label[]): string {
   if (!r) return 'Only what’s added';
   const or = (xs: string[]) => xs.join(' or ');

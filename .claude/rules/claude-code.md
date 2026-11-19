@@ -195,7 +195,7 @@ on this Mac; read it before changing the Claude adapter (paths are under `src-ta
   again: `claude/mod.rs` (`leftover`), which `codealong hygiene` ends.
 - A Bash call's shell, a background one too, is a child of the session's process, which is how
   the `codealong` command finds its session; a terminal keeps `CODEALONG_SESSION` after its
-  session ends: `claude/mod.rs` (`runs_its_commands`), `cli.rs` (`find_me`). The call is
+  session ends: `claude/mod.rs` (`runs_its_commands`), `cli/whoami.rs` (`find_me`). The call is
   usually in the transcript before its command runs (`open_calls`), but not always: in a long
   session Codealong ran over ACP (2.1.280, a 20 MB transcript), commands that ran within about
   130 ms of their call's stamp read the transcript before the call was there, while one that
@@ -204,7 +204,7 @@ on this Mac; read it before changing the Claude adapter (paths are under `src-ta
   through a write queue drained every 100 ms (`FLUSH_INTERVAL_MS`), and while a reply streams
   its lines are held back until its `stop_reason` is known. Such a session gets no process on
   the board, so the command finds it by `CLAUDE_CODE_SESSION_ID` in its shells instead
-  (`cli.rs` `hosted_above`).
+  (`cli/whoami.rs` `hosted_above`).
 - A PR a session made or changed, from `toolUseResult.gitOperation.pr` or a `pr-link` line:
   `claude/transcript.rs` (`pr_made`); `prlinks.rs` links the session to it, subagents' logs
   included (`engine.rs`). `gitOperation` also has `push`, `commit` and `branch`; `push.branch`,
@@ -531,9 +531,9 @@ on this Mac; read it before changing the Claude adapter (paths are under `src-ta
   `claude/start.rs` (`background_args`, `background_job`, `background_session`,
   `start_background`), `claude/mod.rs` (`background_command`, `before_start`). Without a prompt
   it prints `(idle — send a prompt to start)`. `--worktree`, `--model` and `--add-dir` work
-  with it. A stale `CODEALONG_SESSION` in the service's environment reaches the job (`cli.rs`
-  `find_me`). `stop <job>` keeps the conversation and the worktree; `rm <job>` (below) removes
-  the job's state and, by its own rule, its worktree.
+  with it. A stale `CODEALONG_SESSION` in the service's environment reaches the job
+  (`cli/whoami.rs` `find_me`). `stop <job>` keeps the conversation and the worktree; `rm <job>`
+  (below) removes the job's state and, by its own rule, its worktree.
 - The background service retires a job left idle for an hour, whether its turn ended
   (`settled`) or it sits at its prompt (`idle-prompt`): `<home>/daemon.log` says `[bg] bg retire
   <job>: idle-prompt, idle 61m`, then `bg settled <job> (done)`, and the job leaves the roster's

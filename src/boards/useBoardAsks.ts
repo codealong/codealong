@@ -1,5 +1,5 @@
-// The main window's answers to `codealong board show|move|arrange` (cli.rs), which the engine
-// hands it (boards.rs `ask`): the window works a board out (its columns, boardLists.ts
+// The main window's answers to `codealong board show|move|arrange` (cli/board_cmd.rs), which the
+// engine hands it (boards.rs `ask`): the window works a board out (its columns, boardLists.ts
 // `kanbanOf`; its canvas's layout, canvas/model.ts), so what a board holds, moving a card on its
 // Kanban, and arranging its canvas in the frames an agent names are worked out here. The canvas
 // this window shows changes through its own handle; another board's is read, changed and saved,

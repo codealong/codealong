@@ -314,8 +314,8 @@ const CARRIED: [&str; 2] = ["CODEALONG_DEVICE_KEY", "CODEALONG_UPDATE_URL"];
 /// shell's child, the app had that shell's environment (an agent's session ID, message socket and
 /// token, its editor's variables, a PATH of its own) and passed it to every process it started,
 /// long after the session had ended; everything it ran had that session above it, which the
-/// command took for the session running it (cli.rs `session_above`); and macOS didn't know it as
-/// the app (2026-10-14). `open` hands its own environment to the app it opens, so it gets the
+/// command took for the session running it (cli/whoami.rs `session_above`); and macOS didn't know
+/// it as the app (2026-10-14). `open` hands its own environment to the app it opens, so it gets the
 /// Dock's, and `-n` opens a new copy: macOS takes a copy that quit while processes it started
 /// still ran (lsappinfo: "exited-with-subordinates") for one still open, and a plain `open` only
 /// brings that forward. relaunch.sh opens the app this way too. The exit code to leave with once

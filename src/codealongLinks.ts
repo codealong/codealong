@@ -1,10 +1,10 @@
 // Links to what Codealong shows, as an agent writes them in a reply (the codealong skill says
 // how): `[its title](codealong://session/<key>)` for a session and `codealong://todo/<id>` for a
 // todo. Which session or todo a link names, how one is written, and the sessions a window lists
-// by what a link may name one by, as the command does (cli.rs `named`): its key or id, or the
-// start of only one's. The command takes the same links where it takes a key or an id (cli.rs
-// `named_by`). A link only ever shows what it names: nothing here sends, answers, stops or
-// starts.
+// by what a link may name one by, as the command does (cli/lookup.rs `named`): its key or id, or
+// the start of only one's. The command takes the same links where it takes a key or an id
+// (cli/lookup.rs `named_by`). A link only ever shows what it names: nothing here sends, answers,
+// stops or starts.
 
 import { shortOf } from './devices';
 import { sessionHomes, type Placed } from './lanes';
@@ -53,17 +53,17 @@ export type SessionNames = Map<string, Placed>;
 
 /** The sessions of `lanes`, each once: under the worktree it's listed in as its own, the first
  *  of them (lanes.ts `sessionHomes`), and one listed only where it visits, there, as the
- *  command names one (cli.rs `all_in`). A worktree a session only looked into lists a copy of it
- *  that says what it did there, not what it's doing. */
+ *  command names one (cli/lookup.rs `all_in`). A worktree a session only looked into lists a copy
+ *  of it that says what it did there, not what it's doing. */
 export function sessionNames(lanes: Lane[]): SessionNames {
   const names = sessionHomes(lanes);
   for (const lane of lanes) for (const session of lane.sessions) if (!names.has(session.key)) names.set(session.key, { lane, session });
   return names;
 }
 
-/** The one of a device's sessions that `name` names, as the command names one (cli.rs `named`):
- *  the one whose key or id it is, else the only one whose key or id starts with it, or whose
- *  short id it is. `device` is what its keys start with: `@<short>:` for another of your Macs
+/** The one of a device's sessions that `name` names, as the command names one (cli/lookup.rs
+ *  `named`): the one whose key or id it is, else the only one whose key or id starts with it, or
+ *  whose short id it is. `device` is what its keys start with: `@<short>:` for another of your Macs
  *  (`@` for any of them), nothing for this one. Null when more than one is named, and undefined
  *  when none is. */
 function namedOn(names: SessionNames, name: string, device: string): Placed | null | undefined {
@@ -83,7 +83,7 @@ function namedOn(names: SessionNames, name: string, device: string): Placed | nu
 }
 
 /** The session `name` names, among this Mac's first and then your other Macs', as the command
- *  has it (cli.rs `session_named_anywhere`); one written with its Mac (`@<short>:…`) is that
+ *  has it (cli/lookup.rs `session_named_anywhere`); one written with its Mac (`@<short>:…`) is that
  *  Mac's. In a conversation on another of your Macs (`away`, its short id) a key is that Mac's
  *  own, which this one lists after `@<short>:`, so only that Mac's sessions are named: one there
  *  isn't this Mac's of the same id. None when it names none, or more than one. */
