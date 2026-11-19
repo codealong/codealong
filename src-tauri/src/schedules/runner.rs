@@ -691,15 +691,19 @@ fn target_in(board: &Board, s: &Schedule, track: Option<&Track>, origins: &crate
 /// schedule whose runs went to it, as its thread or as the session it sends to, goes to the copy
 /// from now on. Not left to `target`, which follows only a move to another account: a copy in the
 /// same account (a Claude Code background job's) can't be told from a fork you made there.
-pub fn copy_takes_place(key: &str, copy: &str) -> anyhow::Result<()> {
+pub fn copy_takes_place(board: &Board, key: &str, copy: &str) -> anyhow::Result<()> {
     let file = load()?;
-    crate::store::change(&runs_path(), WHAT_RUNS, |runs: &mut Runs| follow_copy(&file, runs, key, copy))?;
+    let origins = crate::origins::current();
+    // A record from before moves took their place here names the session it moved from.
+    let moved = |k: &str| origins.moved_to(k, |m| board.session(m).is_some());
+    crate::store::change(&runs_path(), WHAT_RUNS, |runs: &mut Runs| follow_copy(&file, runs, key, copy, moved))?;
     Ok(())
 }
 
-/// `copy_takes_place` in `runs`, whether it changed anything. A schedule with no record yet has
-/// sent nothing to `key`, and is left to arm as it would.
-fn follow_copy(file: &File, runs: &mut Runs, key: &str, copy: &str) -> bool {
+/// `copy_takes_place` in `runs`, whether it changed anything, with `moved` saying where a session
+/// moved to (`origins::Store::moved_to`). A schedule with no record yet has sent nothing to `key`,
+/// and is left to arm as it would.
+fn follow_copy(file: &File, runs: &mut Runs, key: &str, copy: &str, moved: impl Fn(&str) -> Option<String>) -> bool {
     let mut changed = false;
     for s in &file.schedules {
         let Some(t) = runs.of.get_mut(&s.id) else { continue };
@@ -711,7 +715,8 @@ fn follow_copy(file: &File, runs: &mut Runs, key: &str, copy: &str) -> bool {
                 Some(t.thread.clone().filter(|_| t.follows.as_deref() == Some(session)).unwrap_or_else(|| session.to_string()))
             }
         };
-        if goes_to.as_deref() != Some(key) {
+        let Some(goes_to) = goes_to else { continue };
+        if goes_to != key && moved(&goes_to).as_deref() != Some(key) {
             continue;
         }
         t.thread = Some(copy.to_string());
@@ -1945,7 +1950,7 @@ mod tests {
         let thread = |id: &str| Schedule { run: Run { to: To::Thread, prompt: "Look".into(), ..Run::default() }, ..schedule(id, When::Fired) };
         let sends_to = |id: &str, to: &str| Schedule { run: Run { to: To::Session, session: to.into(), prompt: "Look".into(), ..Run::default() }, ..schedule(id, When::Fired) };
         let new = Schedule { run: Run { to: To::New, prompt: "Look".into(), ..Run::default() }, ..schedule("new", When::Fired) };
-        let file = File { schedules: vec![thread("kept"), thread("other"), sends_to("told", "old"), sends_to("went-on", "first"), sends_to("elsewhere", "else"), new, sends_to("unarmed", "old")], ..File::default() };
+        let file = File { schedules: vec![thread("kept"), thread("other"), sends_to("told", "old"), sends_to("went-on", "first"), sends_to("elsewhere", "else"), new, sends_to("unarmed", "old"), thread("moved")], ..File::default() };
         let mut runs = Runs {
             of: [
                 ("kept", Track { thread: Some("old".into()), thread_since: Some(5), ..armed(1) }),
@@ -1955,24 +1960,28 @@ mod tests {
                 ("went-on", Track { thread: Some("old".into()), follows: Some("first".into()), ..armed(1) }),
                 ("elsewhere", armed(1)),
                 ("new", Track { started: Some("old".into()), ..armed(1) }),
+                // Kept on "moved-from" before moves took their place in schedules: it moved to "old".
+                ("moved", Track { thread: Some("moved-from".into()), ..armed(1) }),
             ]
             .map(|(id, t)| (id.to_string(), t))
             .into(),
             ..Runs::default()
         };
-        assert!(follow_copy(&file, &mut runs, "old", "copy"));
+        let moved = |k: &str| (k == "moved-from").then(|| "old".to_string());
+        assert!(follow_copy(&file, &mut runs, "old", "copy", moved));
         let goes = |id: &str| (runs.of[id].thread.as_deref(), runs.of[id].follows.as_deref());
         // A thread kept on it goes on with the copy, from when it began.
         assert_eq!((goes("kept"), runs.of["kept"].thread_since), ((Some("copy"), None), Some(5)));
         // Sent to it, whether by name or as the copy it went on as before, the copy.
         assert_eq!(goes("told"), (Some("copy"), Some("old")));
         assert_eq!(goes("went-on"), (Some("copy"), Some("first")));
+        assert_eq!(goes("moved"), (Some("copy"), None));
         // Another session's, a new session's each run, or one not yet armed: as they were.
         assert_eq!(goes("other"), (Some("else"), None));
         assert_eq!(goes("elsewhere"), (None, None));
         assert_eq!(goes("new"), (None, None));
         assert!(!runs.of.contains_key("unarmed"));
-        assert!(!follow_copy(&file, &mut runs, "gone", "copy"));
+        assert!(!follow_copy(&file, &mut runs, "gone", "copy", moved));
     }
 
     #[test]

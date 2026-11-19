@@ -1558,7 +1558,7 @@ pub(crate) fn hand_over(engine: &Handle, key: &str, copy: &str) {
     }
     crate::terminals::follow(key, copy);
     // Before it's archived too, which would end a thread kept on it (runner.rs `target`).
-    if let Err(e) = crate::schedules::runner::copy_takes_place(key, copy) {
+    if let Err(e) = crate::schedules::runner::copy_takes_place(&board, key, copy) {
         eprintln!("Moved {key}, but couldn't send its schedules' runs to {copy}: {e:#}");
     }
     archive_moved(engine, key);
