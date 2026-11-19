@@ -70,12 +70,14 @@ impl Machine {
 }
 
 impl Machines {
-    /// Whether `other` says what this does but when each machine was last heard from and fed.
-    /// Those move with every feed (one every second or two from a linked Mac) and are read only
-    /// against minutes (`AWAY_AFTER_MS`, a schedule's settling), so the engine keeps them without
-    /// composing a board for them, which would come out the same (engine.rs `Msg::Machines`).
+    /// Whether `other` says what this does but when each connected machine was last heard from
+    /// and fed. Those move with every feed (one every second or two from a linked Mac) and are
+    /// read only against minutes (a schedule's settling) while it's connected, so the engine keeps
+    /// them without composing a board for them, which would come out the same (engine.rs
+    /// `Msg::Machines`). An offline machine's still count: a reconnect and drop batched into one
+    /// view moves only its `last_seen`, and that can make it around again (`around`).
     pub fn same_but_times(&self, other: &Machines) -> bool {
-        let timeless = |m: &Machines| Machines { others: m.others.iter().map(|o| Machine { last_seen: None, fed_at: None, ..o.clone() }).collect(), ..m.clone() };
+        let timeless = |m: &Machines| Machines { others: m.others.iter().map(|o| if o.online { Machine { last_seen: None, fed_at: None, ..o.clone() } } else { o.clone() }).collect(), ..m.clone() };
         timeless(self) == timeless(other)
     }
 }
@@ -108,5 +110,7 @@ mod tests {
         assert!(m(true, 1_000).same_but_times(&m(true, 2_000)));
         assert!(!m(true, 1_000).same_but_times(&m(false, 1_000)), "gone offline");
         assert!(!m(true, 1_000).same_but_times(&Machines::default()), "one fewer");
+        // A reconnect and drop in one view: still offline, but heard from again, so around again.
+        assert!(!m(false, 1_000).same_but_times(&m(false, 1_000 + AWAY_AFTER_MS)), "an offline machine heard from");
     }
 }
