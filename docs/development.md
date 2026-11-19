@@ -74,6 +74,15 @@ only macOS has (`#[cfg(target_os = "macos")]`); see Linux below. `scripts/previe
 IPC stubbed, for screenshots and scripted checks; its header lists the views and options.
 `codealong --snapshot` checks the engine's behavior without a window (`.claude/rules/snapshot.md` lists its modes).
 
+`npm test` runs in plain Node, on pure functions and made-up data (`src/testing/fixtures.ts`). A
+test of a hook or of keys asks for a page of its own: its file starts with
+`// @vitest-environment jsdom` and imports `src/testing/dom.ts` first, which mounts a hook
+(`mountHook`), presses a chord as the platform set has it (`press`, with `setPlatform`) and brings
+the engine's stand-in (`src/testing/tauri.ts`: what the page sent, what each command answers,
+events emitted to it). Unlike a browser check it runs on no one's data, so what it holds, it
+holds the same on every machine. `useWaitingQueue.test.ts` and `mainKeys.dom.test.ts` are the
+ones to copy from.
+
 ## Linux
 
 The engine and the app build and run on Linux (X11, WebKitGTK 4.1), where some of what macOS
@@ -405,6 +414,7 @@ as the engine always was.
 | `src-tauri/src/shared.rs` | The automations your machines share, so one of them runs each: where each stands (`[devices] automations`) and whether it's around; `autoreview.rs` `reviewer_of` picks which reviews a PR, `schedules/machines.rs` `line` which runs a schedule |
 | `src-tauri/peer/` | codealong-peer, what goes between devices: the protocol (each side proves its device key), link codes and iroh, feeds, the requests and their answers, the worktree and session model, the schedules your machines share, and a device that only watches. The iPhone app ([codealong-ios](https://github.com/codealong/codealong-ios)) builds on it; `design/plans/ios.md` has the plan |
 | `src-tauri/src/wiretypes.rs`, `src/testing/modelFields.ts` | Holds the windows' `src/types.ts` to the engine's model by name: the names each struct is written by go into `modelFields.ts`, which `npm run typecheck` holds each interface to; what differs on purpose is listed with why (`APART`) |
+| `src/testing/` | What only the tests import: `fixtures.ts` builds whole sessions, worktrees, PRs and boards from what a test says of them; `dom.ts` mounts a hook on a jsdom page and presses keys on it, for the test files that ask for one, and `tauri.ts` stands in for the engine under `src/api.ts` there |
 | `src/types.ts`, `src/types/` | The windows' types of what the engine sends them, a file a subject under `src/types/` (a session, a worktree, pull requests, the board, config.toml, accounts, the conversation, todos, schedules, devices, voice…), each saying which Rust it mirrors; `types.ts` re-exports them all and is what everything imports, and its header says which file holds what and where a new type goes |
 | `src-tauri/src/tailnet.rs`, `devicekey.rs` | Reaching them on your tailnet through Tailscale's command (iroh is in codealong-peer), and this device's key in the keychain |
 | `src/menus.ts`, `src/contextMenu.ts` | Right-click menus of sessions, worktrees, PRs and todos, each defined once and the same in every window (each says what it can do); native menus through Tauri |
