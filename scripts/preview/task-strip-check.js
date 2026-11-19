@@ -7,7 +7,9 @@
 // Next offers the next kind in your order that waits in another view, and goes there (the todos'
 // to PRs here, reviews being put first); a schedule's panel has
 // Run now, Pause and Edit, its Next dimmed; a worktree's has New session, Terminal, Editor and
-// GitHub, and its Next goes to the first session that waits. Two open PRs are made ones waiting on
+// GitHub, and its Next goes to the first session that waits. Each of those three strips is flush
+// with its panel's top edge, over nothing of the header, and stays there as the panel scrolls.
+// Two open PRs are made ones waiting on
 // your review, and the sample todos stand in for yours.
 //   PREVIEW_TODOS=scripts/preview/todos-sample.json PREVIEW_SCHEDULES=scripts/preview/schedules-sample.json PREVIEW_SIZE=1920,1100 PREVIEW_WAIT=90000 scripts/preview.sh todo '' scripts/preview/task-strip-check.js
 //   PREVIEW_PLATFORM=linux PREVIEW_TODOS=scripts/preview/todos-sample.json PREVIEW_SCHEDULES=scripts/preview/schedules-sample.json PREVIEW_SIZE=1920,1100 PREVIEW_WAIT=90000 scripts/preview.sh todo '' scripts/preview/task-strip-check.js
@@ -60,6 +62,26 @@
   var other = null;
   var said = function (s) { var n = q('.ca-reply-queue-note', s); return n ? n.textContent : ''; };
   var title = function () { var t = q('.ca-todoinsp .ca-todoinsp-title'); return t ? t.value : ''; };
+  // Where a panel's strip sits: its top against the panel's own (inside its border), and what
+  // comes after it below it, not under it. Scrolled, a panel held short enough to scroll.
+  var placed = function (panel, scrolled) {
+    var p = q(panel);
+    var s = strip(panel);
+    if (scrolled) { p.style.maxHeight = '160px'; p.scrollTop = 60; }
+    var edge = p.getBoundingClientRect().top + p.clientTop;
+    var at = s.getBoundingClientRect();
+    var after = s.nextElementSibling.getBoundingClientRect();
+    var moved = p.scrollTop;
+    if (scrolled) { p.scrollTop = 0; p.style.maxHeight = ''; }
+    var flush = Math.abs(at.top - edge) < 1;
+    return { ok: scrolled ? flush && moved > 0 : flush && after.top >= at.bottom - 0.5, says: 'strip at ' + at.top + '–' + at.bottom + ', panel at ' + edge + ', what follows at ' + after.top + (scrolled ? ', scrolled ' + moved : '') };
+  };
+  var flush = function (panel, what) {
+    var at = placed(panel, false);
+    check(what + '’s strip is flush with its panel’s top, over none of the header', at.ok, at.says);
+    var scrolled = placed(panel, true);
+    check(what + '’s strip stays at the top as its panel scrolls', scrolled.ok, scrolled.says);
+  };
 
   say('task strip check: the Todo view');
   until(function () { return strip('.ca-todoinsp'); }, 20000, 'the strip over a todo’s panel')
@@ -67,6 +89,7 @@
       var bar = q('.ca-hotkeys', s);
       check('a todo’s strip has its actions and Next', words(s) === 'Start|Done|Snooze|Due…|Next', words(s));
       check('it says what it’s for', bar.getAttribute('aria-label') === 'What’s commonly done to this todo', bar.getAttribute('aria-label'));
+      flush('.ca-todoinsp', 'a todo');
       check('Start and Done say their keys', /⌘N|Ctrl\+N/.test(buttons(s)[0].textContent) && /⇧⌘E|Ctrl\+Shift\+E/.test(buttons(s)[1].textContent), buttons(s).map(function (b) { return b.textContent; }).join(' / '));
       // The two due todos are the in-progress ones, listed first: which of them is first goes by how
       // the sessions on them stand on this Mac. The other one and the one ready to start wait after it.
@@ -116,6 +139,7 @@
       check('a schedule’s strip has Run now, Pause or Resume, Edit and Next', /^Run now\|(Pause|Resume)\|Edit\|Next$/.test(words(s)), words(s));
       var n = nextButton(s);
       check('its Next is dimmed, saying why', n.disabled && /Schedules don’t wait on you/.test(n.title), n.title);
+      flush('.ca-schedinsp', 'a schedule');
       say('task strip check: a worktree');
       view('s');
       return until(function () { return q('.ca-sessinsp .ca-sessinsp-lane'); }, 5000, 'a session’s panel with its worktree');
@@ -127,6 +151,7 @@
     })
     .then(function (s) {
       check('a worktree’s strip has its actions and Next', words(s) === 'New session|Terminal|Editor|GitHub|Next', words(s));
+      flush('.ca-laneinsp', 'a worktree');
       var back = q('.ca-panelback.is-strip', s);
       check('the way back to the session is at the strip’s start, not over the header', !!back && !q('.ca-laneinsp header .ca-panelback') && s.firstElementChild === back && back.textContent.indexOf(sessionTitle.slice(0, 12)) >= 0, back ? back.textContent : 'none');
       var n = nextButton(s);

@@ -245,12 +245,14 @@
 }
 /* Over a panel that scrolls as a whole, inside its padding (a todo's, TodoStrip.tsx; a worktree's,
    Inspector.tsx; a schedule's, SchedulePanel.tsx): flush with its edges, lined up as the others
-   are, and kept at its top as it scrolls, as the list's strip is (ListBar.css). */
+   are, and kept at its top as it scrolls, as the list's strip is (ListBar.css). A sticky box
+   keeps clear of its scroller's padding, so `top: 0` would hold it a padding's height down,
+   over the header under it: its top is minus the padding, as its margin is. */
 .ca-todoinsp > .ca-reply-queue,
 .ca-laneinsp > .ca-reply-queue,
 .ca-schedinsp > .ca-reply-queue {
   position: sticky;
-  top: 0;
+  top: calc(-1 * var(--space-4));
   z-index: var(--z-listbar);
   margin: calc(-1 * var(--space-4)) calc(-1 * var(--space-4)) 0;
   padding: 4px 12px 4px var(--space-4);
