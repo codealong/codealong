@@ -3,7 +3,8 @@
 // on a question shows what it wrote with it at the end of its conversation, under its account
 // rather than "writing", and the question no longer says where to read it. A later batch grows
 // it, another session's doesn't touch it, and once the record has the message it shows once,
-// from the record. A session that's working says it's writing. A change of status asks again for
+// from the record. A session that's working says it's writing, under the reply it writes after a
+// prompt of yours, its account said first for a screen reader. A change of status asks again for
 // what it's writing, as a session on another device pushes nothing here.
 //   PREVIEW_WAIT=30000 scripts/preview.sh sessions '' scripts/preview/live-reply-check.js
 (function () {
@@ -37,8 +38,16 @@
     if (cmd === 'session_newer' && mine) {
       window.__calls.push([cmd, args, options]);
       var after = (args || {}).after || 0;
-      if (!written || after >= 100) return Promise.resolve({ items: [], before: null, after: after });
-      return Promise.resolve({ items: [{ at: Date.now(), kind: 'agent', text: MORE, failed: false, cursor: 100, n: 0 }], before: null, after: 100 });
+      if (!written || after >= 101) return Promise.resolve({ items: [], before: null, after: after });
+      // The message, then a prompt of yours, so the reply written next heads itself.
+      return Promise.resolve({
+        items: [
+          { at: Date.now(), kind: 'agent', text: MORE, failed: false, cursor: 100, n: 0 },
+          { at: Date.now(), kind: 'you', text: 'Go on with the plans.', failed: false, cursor: 101, n: 0 },
+        ],
+        before: null,
+        after: 101,
+      });
     }
     var p = real(cmd, args, options);
     if (cmd !== 'get_board') return p;
@@ -114,8 +123,11 @@
       });
     })
     .then(function () {
-      var label = labelOf(last());
-      check('a working session says it’s writing', label === null || label === 'Writing', String(label));
+      var l = last();
+      var label = labelOf(l);
+      var meta = l.querySelector(':scope > .ca-thread-meta');
+      check('a working session says it’s writing, under the reply', label === 'Writing' && !!meta && !!meta.previousElementSibling && !meta.previousElementSibling.classList.contains('ca-sr'), String(label));
+      check('and whose account writes it first, for a screen reader', l.firstElementChild.classList.contains('ca-sr') && l.firstElementChild.textContent === picked.account, l.firstElementChild.outerHTML);
       done();
     })
     .catch(function (e) {

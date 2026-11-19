@@ -32,7 +32,14 @@
     return all.filter(function (el) { return kind !== 'agent' || marks(el).length; })[0] || all[0] || null;
   };
   // A run's first message says who said it, for a screen reader, ahead of it, and when, under it.
-  var headed = function (el) { return !!el.querySelector(':scope > .ca-sr, :scope > .ca-thread-meta'); };
+  var headed = function (el) { return !!el.firstElementChild && el.firstElementChild.classList.contains('ca-sr'); };
+  // Its time line, where it has one, comes after its words, not ahead of them, and says something.
+  var timeUnder = function (el) {
+    var m = el.querySelector(':scope > .ca-thread-meta');
+    if (!m) return true;
+    var before = m.previousElementSibling;
+    return !!before && !before.classList.contains('ca-sr') && m.textContent.trim() !== '';
+  };
   var kindOf = function (el) { return el.classList.contains('is-you') ? 'you' : 'agent'; };
   var sessionItems = function (labels) { return labels.some(function (l) { return /^(Archive|Snooze|Rename|Open in main window)/.test(l); }); };
 
@@ -63,6 +70,9 @@
         if (!changed && kindOf(el) === 'agent') runs++;
       });
       check('a message after the other speaker is headed', wrong.length === 0, wrong.join('; '));
+      var above = all.filter(function (el) { return !timeUnder(el); }).length;
+      var timed = all.filter(function (el) { return !!el.querySelector(':scope > .ca-thread-meta'); }).length;
+      check('its time is under its words, never above them nor empty', above === 0 && timed > 0, timed + ' with a time, ' + above + ' of them not under the words');
       var unheaded = all.filter(function (el) { return !headed(el); }).length;
       if (runs > 0) check('a reply’s later messages go on under its heading', unheaded > 0, runs + ' later messages, ' + unheaded + ' without a heading');
       else note('no reply here has more than one message, so going on under a heading went unchecked');

@@ -482,8 +482,9 @@ function SaidView({ item, result, asked, now, label, who, head, onPutBack, onMen
   };
   return (
     <div className={cx('ca-thread-said', answers ? 'is-you' : `is-${item.kind}`, item.withdrawn && 'is-withdrawn')} data-prompt={item.kind === 'you' ? keyOf(item) : undefined} onContextMenu={menu}>
-      {/* Who said it, out of sight but for a screen reader where no name shows, ahead of it. */}
-      {head !== undefined && !label && <span className="ca-sr">{who}</span>}
+      {/* Who said it, out of sight but for a screen reader, ahead of it: a label under it (who sent
+          it, Writing) comes only after it's been read. */}
+      {head !== undefined && <span className="ca-sr">{who}</span>}
       {ran ? (
         <div className="ca-thread-ran">
           {/* As typed in the session's box, led by its `!`. */}
@@ -518,7 +519,12 @@ function SaidView({ item, result, asked, now, label, who, head, onPutBack, onMen
           being written, Taken back. */}
       {head !== undefined && (label || head > 0 || item.withdrawn) && (
         <div className="ca-thread-meta">
-          {label && <span className="ca-thread-who">{label}</span>}
+          {/* Said already, ahead of it, where it's who sent it. */}
+          {label && (
+            <span className="ca-thread-who" aria-hidden={label === who || undefined}>
+              {label}
+            </span>
+          )}
           {(head > 0 || item.withdrawn) && (
             <span className="ca-meta" title={head > 0 ? absolute(head) : undefined}>
               {[item.withdrawn && 'Taken back', head > 0 && agoPhrase(head, now)].filter(Boolean).join(' · ')}
@@ -1344,7 +1350,7 @@ export function SessionThread({ session: s, now, onOpen, fallback, machine, onLo
                   );
                 // The clock only for one with a heading, which says how long ago: the others needn't
                 // render as it moves.
-                return <Said key={keyOf(it)} item={shown} result={r.result} now={head === undefined ? 0 : now} label={label} who={it.kind === 'you' ? 'You' : s.account} head={head} onPutBack={again} onMenu={onMenu} onEdit={edit} />;
+                return <Said key={keyOf(it)} item={shown} result={r.result} now={head === undefined ? 0 : now} label={label} who={it.kind === 'you' ? 'You' : (label ?? s.account)} head={head} onPutBack={again} onMenu={onMenu} onEdit={edit} />;
               })}
               {showing.map((a) => (
                 <Unsaid key={a.id} ahead={a} onOpen={onOpen} />
