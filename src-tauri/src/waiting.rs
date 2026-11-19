@@ -3,8 +3,9 @@
 //! (Waiting.tsx). Unlike the quick panel it's an ordinary window: it makes Codealong the active
 //! app, takes the size you drag it to, and stays up until you close it. The `[shortcuts] waiting`
 //! shortcut opens it, unless the bar is docked in the notch, which does that itself
-//! (`quick::work_through`); so do Window › Waiting on you, ⇥ on a session in the quick panel, and
-//! the floating bar's reviews pill.
+//! (`quick::work_through`); so do Window › Waiting on you, ⇥ on a session in the quick panel, the
+//! floating bar's reviews pill, and the docked bar's pop-out button (Notch.tsx), on what the notch
+//! shows.
 //!
 //! It has no title bar of its own: the strip along the top of what it shows is its title bar
 //! (SessionPanel.tsx `Hotkeys.titleBar`), with the window's buttons where macOS puts them, at its

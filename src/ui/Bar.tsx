@@ -1109,6 +1109,14 @@ export function Bar() {
           }}
           keepOpen={keepOpen}
           onKeepOpen={pinOpen}
+          onPopOut={() => {
+            // The waiting window goes on from the session or review shown here, which the notch
+            // puts away as the keyboard goes to the window; with neither, it opens on the first
+            // that waits.
+            const key = stage.open && stage.kind !== 'end' ? stage.key : null;
+            stage.close();
+            showWaiting(key ? { key } : {}).catch((e: unknown) => setFailed({ anchor: 'waiting', message: errorText(e) }));
+          }}
           onMark={() => {
             // The keyboard goes to Codealong's window with it.
             stage.close();

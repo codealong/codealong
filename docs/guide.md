@@ -3315,7 +3315,7 @@ Settings › Projects lists them, and suggests worktrees whose branch has carrie
 ### Waiting on you
 
 *⌥⌘. from any app, `[shortcuts] waiting`; Window › Waiting on you; ⇥ on a session in the quick
-panel*
+panel; the pop-out button beside the notch's pin*
 
 A window of its own, sized and placed as you like and kept up until you close it, that works through
 what waits on you one at a time: every session that needs you, then the PRs waiting on your review,
@@ -3325,7 +3325,8 @@ reviews_first`, everywhere or for one repo, which a repo's team file can turn on
 PRs waiting on your review come first instead, ahead of the sessions that need you; the notch goes
 through them in the same order. A session moved to the top still comes before them. With the bar
 docked in the notch, ⌥⌘. opens the notch instead, on what waits on you, or with nothing waiting on
-the end of what waits (below, under *The bar in the notch*). Pressed while the
+the end of what waits (below, under *The bar in the notch*), and the button beside its pin opens
+this window, on what the notch shows. Pressed while the
 window is the one you're in, ⌥⌘. puts it away and gives the keyboard back to the app you were in. A
 session shows as the card the bar's peek shows: the same header (the ways to open the session, the
 check, ⋯), the session's whole menu on ⋯ and on a right-click, its conversation, and a box that
@@ -3694,7 +3695,9 @@ the pointer leaves, and stays open while one of its menus is up. Open, it's one 
 shows, a session's (its usual width, or the one you dragged it to): the pills fold into a count to
 fit it, a note such as how a review went included, rather than widening it as they come and go. The pin at the end of its right
 side, or Keep the notch open in its right-click menu, keeps it open until you unpin it, across
-launches. There's no peek beside a docked bar: click a session's pill and the notch opens further,
+launches. The button beside the pin pops out into the *Waiting on you* window, on the session or PR
+the notch shows (which it puts away), or with nothing shown on the first that waits, to work
+through what waits there instead. There's no peek beside a docked bar: click a session's pill and the notch opens further,
 into that session under the pills, its header, its conversation and the box that answers it, dark as
 the notch is; ⌥⌘. from any app opens it on the session that waits on you, and with nothing waiting,
 though some run, on the end of what waits: a short card under the pills that says nothing waits on

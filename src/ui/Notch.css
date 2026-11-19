@@ -164,8 +164,9 @@ html.is-notch body {
     transform: scale(1);
   }
 }
-/* The pin that keeps the notch open, at the end of its right side. */
-.ca-notch-pin {
+/* The buttons at the end of its right side: the pop-out into the waiting window, then the pin
+   that keeps the notch open. */
+.ca-notch-button {
   appearance: none;
   flex: none;
   display: inline-flex;
@@ -180,7 +181,7 @@ html.is-notch body {
   color: var(--ink-3);
   cursor: default;
 }
-.ca-notch-pin:hover {
+.ca-notch-button:hover {
   background: var(--surface-hover);
   color: var(--ink);
 }

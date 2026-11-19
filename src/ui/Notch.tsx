@@ -5,10 +5,10 @@
 // as the most urgent of them, else how many are running (bar.ts `notchCount`). Pointing at it for
 // a moment, or clicking it, opens it down into the bar's pills, with the project and each kind's
 // own count beside the camera; it closes a moment after the pointer leaves, unless a menu is up
-// or its pin keeps it open. Open, it's one width whatever it shows, the session's: the pills fold
-// to fit it (Bar.tsx), so it never widens or narrows as they come and go. And a click opens it
-// further, into
-// a session under the pills, to read and answer (NotchSession.tsx): a click on a session's pill
+// or its pin keeps it open. Beside the pin, open, a button pops what it shows out into the waiting
+// window (waiting.rs), to work through what waits there instead. Open, it's one width whatever it
+// shows, the session's: the pills fold to fit it (Bar.tsx), so it never widens or narrows as they
+// come and go. And a click opens it further, into a session under the pills, to read and answer (NotchSession.tsx): a click on a session's pill
 // into that one, a click on the notch itself into the current one, and a second click on either
 // puts it away; with nothing to show, the end of what waits (QueueEnd.tsx) opens under the pills
 // instead, as tall as it needs, as it does once you're through the last one. There's no peek
@@ -113,6 +113,9 @@ export interface NotchShellProps {
   /** Kept open until it's unpinned, whatever the pointer does. */
   keepOpen: boolean;
   onKeepOpen: (keep: boolean) => void;
+  /** The button beside the pin: the waiting window opens on what the notch shows, which is put
+   *  away (Bar.tsx). */
+  onPopOut: () => void;
   onMark: () => void;
   onMenu: () => void;
   /** Which sessions are hearing, in words, while any is (said.ts `hearingSays`): the mark's center
@@ -125,7 +128,7 @@ export interface NotchShellProps {
   children: ReactNode;
 }
 
-export function NotchShell({ notch, logoStatus, moment, counts, screen, onPillsRoom, zoom, project, held, session, sessionOpen, sessionEnd, sessionKeys, onSessionLeft, onCount, onPress, onMove, keepOpen, onKeepOpen, onMark, onMenu, hearing, soon, children }: NotchShellProps) {
+export function NotchShell({ notch, logoStatus, moment, counts, screen, onPillsRoom, zoom, project, held, session, sessionOpen, sessionEnd, sessionKeys, onSessionLeft, onCount, onPress, onMove, keepOpen, onKeepOpen, onPopOut, onMark, onMenu, hearing, soon, children }: NotchShellProps) {
   // The pills show, under the pointer or pinned; a session shows under them.
   const [open, setOpen] = useState(keepOpen);
   // The pointer is on the shape.
@@ -489,7 +492,22 @@ export function NotchShell({ notch, logoStatus, moment, counts, screen, onPillsR
               })}
               <button
                 type="button"
-                className={cx('ca-notch-pin', 'ca-notch-extra', keepOpen && 'is-on')}
+                className="ca-notch-button ca-notch-popout ca-notch-extra"
+                title="Pop out into the waiting window, which works through what waits on you in a window of its own"
+                aria-label="Pop out into the waiting window"
+                tabIndex={open ? 0 : -1}
+                onClick={(e) => {
+                  // Closed, it's out of sight: the click opens the notch, as anywhere on it.
+                  if (!open) return;
+                  e.stopPropagation();
+                  onPopOut();
+                }}
+              >
+                <Icon name="picture-in-picture-on" size={14} />
+              </button>
+              <button
+                type="button"
+                className={cx('ca-notch-button', 'ca-notch-pin', 'ca-notch-extra', keepOpen && 'is-on')}
                 title={keepOpen ? 'Let it close' : 'Keep it open'}
                 aria-label={keepOpen ? 'Let the notch close' : 'Keep the notch open'}
                 aria-pressed={keepOpen}
