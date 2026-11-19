@@ -52,6 +52,20 @@ paths:
   over 160 rows took 2,000 ms of the page's work and 80,500 row renders before that, 625 ms and
   300 after, and a push 6 ms and 170 row renders, 3 ms and 1 (2026-11-18, in Chrome). The reply's
   Markdown is still drawn whole each frame.
+  On this Mac's board (68 sessions, 102 PRs, 2026-11-18) the main
+  window's lists (boardLists.ts `useBoardLists`) took 0.5 ms of a push's 8 ms commit in Chrome,
+  0.2 ms of the 15 s tick's 6 ms and 0.3 ms of a find-box key's 4 ms, so their memos weren't worth
+  narrowing further.
+- Every window loads the one bundle (main.tsx imports every window's root). Splitting it was
+  tried and left out (2026-11-18): giving the windows other than the board's a page of their own,
+  with only their own root's code, took a kept session's first React commit in a WKWebView from 42
+  to 34 ms, a desktop card's from 42 to 28 and the quick panel's from 49 to 39 (the bar, peek and
+  quick panel are made at launch, so only kept, side, terminal, desktop, lineage and waiting
+  windows would feel it), the main window's staying at 60: not worth a second page to keep. Loading
+  the main window's dialogs and its Canvas and Schedules views only when opened saved it 3 ms and
+  cost Settings 10 ms the first time it opened. Chrome compiles module chunks off the main thread
+  and WebKit doesn't, so a split measured in Chrome looks better than it is in the app; in a
+  WKWebView nobody sees, WebKit runs no frames, so its first commit is the number, not its paint.
 - Every window's typed keys go to the log as `ui[<window>] keys:` lines (perf.ts `useKeyPerf`):
   from the time macOS had each key to the frame after it, and, from 2026-11-16, how much of that
   came before the page had the key. Before then only the quick panel and the peek wrote them, so
