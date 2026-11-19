@@ -1,7 +1,7 @@
-// scripts/land.sh, which lands a branch on main: which checks it runs for which files, and what
-// it asks before it touches anything. The landing itself (the lock, the rebase, the push) isn't
-// run here: it needs a remote to push to. It's here rather than beside the script so that
-// typecheck and lint read it, as within.test.ts is.
+// scripts/land.sh, which lands a branch on main: which checks it runs for which files, what it
+// asks before it touches anything, and a landing itself, in a repository made for the test with
+// a remote of its own. It's here rather than beside the script so that typecheck and lint read
+// it, as within.test.ts is.
 // The project has no types for node (the tests are the only code that runs there).
 // @ts-expect-error no @types/node
 import { spawn } from 'node:child_process';
@@ -11,14 +11,15 @@ import { expect, test } from 'vitest';
 
 // Decoded, for a checkout whose path has a space in it: a URL's pathname keeps it as %20.
 const script: string = fileURLToPath(new URL('../scripts/land.sh', import.meta.url));
+const catchUp: string = fileURLToPath(new URL('../scripts/catch-up-main.sh', import.meta.url));
 
 type Run = { status: number | null; out: string; err: string };
 
 // Under a deadline of its own, and its process group killed after, as within.test.ts runs its
 // script: the test's timer can't reach a script that hangs.
-function land(args: string[], deadline = 30_000): Promise<Run> {
+function run(command: string, args: string[], deadline = 30_000): Promise<Run> {
   return new Promise((done, fail) => {
-    const child = spawn(script, args, { detached: true });
+    const child = spawn(command, args, { detached: true });
     const killGroup = () => {
       try {
         // @ts-expect-error no @types/node
@@ -33,7 +34,7 @@ function land(args: string[], deadline = 30_000): Promise<Run> {
     child.stderr.on('data', (d: unknown) => (err += String(d)));
     const timer = setTimeout(() => {
       killGroup();
-      fail(new Error(`land.sh ${args.join(' ')} was still running after ${deadline} ms`));
+      fail(new Error(`${command} ${args.join(' ').slice(0, 80)} was still running after ${deadline} ms`));
     }, deadline);
     child.on('error', (e: Error) => {
       clearTimeout(timer);
@@ -46,6 +47,8 @@ function land(args: string[], deadline = 30_000): Promise<Run> {
     });
   });
 }
+
+const land = (args: string[]) => run(script, args);
 
 /** The checks a change to these files calls for: `ui`, `engine`, and `code` for one that needs a review. */
 const plan = async (...paths: string[]) => (await land(['--plan', ...paths])).out.trim();
@@ -117,4 +120,51 @@ test('an option is never taken for who reviewed it', { timeout: 60_000 }, async 
     expect(run.status, flag).toBe(2);
     expect(run.out, flag).toBe('');
   }
+});
+
+// A repository with a remote, a main checkout and a worktree, as the script is run in: nothing
+// of this Mac's git settings or hooks, and nothing left behind. The changes are to docs, which
+// call for no checks, so only the landing itself is tried: its turn, the rebase, the push, the
+// main checkout caught up.
+const LANDING = `
+set -u
+tmp="$(mktemp -d)"
+trap 'rm -rf "$tmp"' EXIT
+export GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_SYSTEM=/dev/null
+export GIT_AUTHOR_NAME=t GIT_AUTHOR_EMAIL=t@example.com GIT_COMMITTER_NAME=t GIT_COMMITTER_EMAIL=t@example.com
+git init -q --bare "$tmp/origin.git"
+git clone -q "$tmp/origin.git" "$tmp/main" 2>/dev/null
+cd "$tmp/main" && git checkout -q -b main
+mkdir -p scripts docs && cp "$1" "$2" scripts/
+echo one >docs/a.md
+git add -A && git commit -q -m first && git push -q origin main
+git worktree add -q "$tmp/topic" -b topic origin/main
+cd "$tmp/topic" && echo two >>docs/a.md && git commit -q -am "docs: two"
+(cd "$tmp/main" && echo x >docs/b.md && git add -A && git commit -q -m "main moved" && git push -q origin main)
+echo "landing: $(scripts/land.sh 2>&1 | head -1 | sed 's/[0-9a-f]\\{7,\\}/<commit>/g')"
+echo "main: $(git -C "$tmp/origin.git" log --format=%s main | tr '\\n' ',')"
+echo "the main checkout: $(git -C "$tmp/main" log --format=%s -1)"
+echo 'echo hi' >scripts/new.sh && git add -A && git commit -q -m "a script"
+scripts/land.sh >/dev/null 2>&1
+echo "code, with no word on its review: $?"
+echo stray >left-here.txt
+scripts/land.sh --no-review "a test" >/dev/null 2>&1
+echo "with a file git doesn't know of: $?"
+echo "main, after: $(git -C "$tmp/origin.git" log --format=%s main | tr '\\n' ',')"
+ls "$tmp/main/.git" | grep -c 'codealong-landing.lock$'
+`;
+
+test('a landing rebases onto a main that moved, pushes, and brings the main checkout up', { timeout: 180_000 }, async () => {
+  const went = await run('bash', ['-c', LANDING, 'landing', script, catchUp], 150_000);
+  expect(went.out.trim().split('\n')).toEqual([
+    'landing: Landed: <commit> is in origin/main. Fast-forwarded the main checkout to origin/main (<commit>).',
+    'main: docs: two,main moved,first,',
+    'the main checkout: docs: two',
+    // Neither of these gets as far as a check or a push.
+    'code, with no word on its review: 2',
+    "with a file git doesn't know of: 1",
+    'main, after: docs: two,main moved,first,',
+    // The turn's lock is a file in .git, there once it has been taken.
+    '1',
+  ]);
 });

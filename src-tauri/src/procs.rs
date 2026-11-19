@@ -778,13 +778,20 @@ mod tests {
         assert_eq!(t.pids[0], me);
         assert!(t.pids.contains(&child.id()), "{t:?} lists {}", child.id());
         assert!(t.cpu_ns > 0, "a test that has run has used CPU");
+        // At work until the count shows a twentieth of a second of it, however long this machine
+        // takes to give the test that much of a core: by the clock, a tenth of a second at work
+        // was 15 ms of CPU on a Mac at a load of 900 (2026-11-19), and the test failed there
+        // every time, alone too.
         let mut n: u64 = 0;
-        let started = std::time::Instant::now();
-        while started.elapsed() < std::time::Duration::from_millis(100) {
-            n = std::hint::black_box(n.wrapping_add(1));
+        let until = std::time::Instant::now() + std::time::Duration::from_secs(60);
+        let mut after = super::tree(me).unwrap();
+        while after.cpu_ns < t.cpu_ns + 50_000_000 && std::time::Instant::now() < until {
+            for _ in 0..1_000_000 {
+                n = std::hint::black_box(n.wrapping_add(1));
+            }
+            after = super::tree(me).unwrap();
         }
-        let after = super::tree(me).unwrap();
-        assert!(after.cpu_ns >= t.cpu_ns + 50_000_000, "a tenth of a second at work counts: {} then {}", t.cpu_ns, after.cpu_ns);
+        assert!(after.cpu_ns >= t.cpu_ns + 50_000_000, "work counts as CPU used: {} then {}", t.cpu_ns, after.cpu_ns);
         assert!(!after.rested_since(&t));
         let _ = child.kill();
         let _ = child.wait();

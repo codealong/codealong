@@ -117,39 +117,86 @@ changed() {
   git diff --no-renames --name-only -z "origin/main...${1:-HEAD}" >"$list"
 }
 
-fetch() { GIT_TERMINAL_PROMPT=0 git fetch -q origin main 9>&-; }
+fetch() { GIT_TERMINAL_PROMPT=0 git fetch -q origin main; }
 
 die() {
   echo "$1" >&2
   exit "${2:-1}"
 }
 
-# One landing at a time: an exclusive lock on a file in the repository's .git, held through
-# descriptor 9 for as long as this process lives. The kernel lets go of it however this ends, so
-# there's no owner's pid to read, no lock left by one that was killed, and no two waiters taking
-# over the same dead one. Everything this starts (the checks, git and its hooks) is started
-# with the descriptor closed (`9>&-`): a child that outlived the script would otherwise keep
-# every later landing waiting.
+# One landing at a time: an exclusive lock (flock) on a file in the repository's .git, held by a
+# small helper for as long as this script lives. The kernel lets go of it when the helper ends,
+# and the helper ends when it's told the landing is over or sees this process gone, however
+# that came about: so there's no owner's pid to read, no lock left by one that was killed, and
+# no two waiters taking over the same dead one. Only the helper has the lock's file open, so
+# nothing this script starts (a check, git, a hook and whatever that leaves running) can keep
+# later landings waiting by outliving it.
 take_turn() {
   [ "$check_only" = 1 ] && return 0
-  [ "${CODEALONG_LANDING_HELD:-}" = "$$" ] && return 0
-  local lock="$common/codealong-landing.lock"
-  exec 9>>"$lock" || die "Couldn't open $lock, which landings take turns by."
-  until python3 -I -c 'import fcntl; fcntl.flock(9, fcntl.LOCK_EX | fcntl.LOCK_NB)' 2>/dev/null; do
-    command -v python3 >/dev/null || die "python3 isn't here, which takes the landing's lock."
-    echo "Waiting for the landing in progress ($(cat "$lock.who" 2>/dev/null || echo "which hasn't said whose"))…"
-    sleep 15 9>&-
+  command -v python3 >/dev/null || die "python3 isn't here, which holds the landing's lock."
+  local lock="$common/codealong-landing.lock" said waited=0
+  said="$(mktemp)"
+  python3 -I - "$lock" "$$" >"$said" 2>&1 <<'EOF' &
+import fcntl, os, sys, time
+
+lock, owner = sys.argv[1], int(sys.argv[2])
+
+
+def owned():
+    try:
+        os.kill(owner, 0)
+        return True
+    except OSError:
+        return False
+
+
+held = os.open(lock, os.O_RDWR | os.O_CREAT, 0o644)
+while True:
+    try:
+        fcntl.flock(held, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        break
+    except OSError:
+        if not owned():
+            sys.exit(0)
+        time.sleep(2)
+print("held", flush=True)
+while owned():
+    time.sleep(1)
+EOF
+  holder=$!
+  # Disowned, or bash says "Terminated" with the helper's whole text when it's told to go.
+  disown "$holder" 2>/dev/null
+  until grep -q held "$said" 2>/dev/null; do
+    if ! kill -0 "$holder" 2>/dev/null; then
+      cat "$said" >&2
+      rm -f "$said"
+      die "Couldn't take the landing's lock ($lock)."
+    fi
+    # Said once the helper has had a moment to take a lock that's free, then every so often.
+    if [ "$waited" -ge 5 ] && [ $(((waited - 5) % 20)) = 0 ]; then
+      echo "Waiting for the landing in progress ($(cat "$lock.who" 2>/dev/null || echo "which hasn't said whose"))…"
+    fi
+    sleep 1
+    waited=$((waited + 1))
   done
+  rm -f "$said"
   echo "pid $$, $(git rev-parse --abbrev-ref HEAD) in $PWD" >"$lock.who"
   # For this script started again as main's own (after a rebase brought a newer one): it's this
-  # process still, with the descriptor and so the turn.
-  export CODEALONG_LANDING_HELD="$$"
+  # process still, which the helper watches, and so it has the turn.
+  export CODEALONG_LANDING_HELD="$$" CODEALONG_LANDING_HOLDER="$holder"
+}
+
+# Ends the turn: the helper that holds the lock is told to go.
+let_go() {
+  [ -n "${CODEALONG_LANDING_HOLDER:-}" ] && kill "$CODEALONG_LANDING_HOLDER" 2>/dev/null
+  CODEALONG_LANDING_HOLDER=""
 }
 
 clean_or_die() {
   local dirty
-  # No answer isn't a clean checkout.
-  dirty="$(git status --porcelain)" || die "Couldn't ask git whether this checkout has uncommitted changes."
+  # No answer isn't a clean checkout, and a file git doesn't know of isn't in the commit, though
+  # a test here would find it: asked for whatever `status.showUntrackedFiles` says.
+  dirty="$(git status --porcelain --untracked-files=normal)" || die "Couldn't ask git whether this checkout has uncommitted changes."
   if [ -n "$dirty" ]; then
     echo "This checkout has uncommitted changes, and only what's committed lands:" >&2
     printf '%s\n' "$dirty" | head -10 >&2
@@ -176,7 +223,7 @@ ui_check() {
   local name="$1"
   shift
   SECONDS=0
-  if "$@" >"$log" 2>&1 9>&-; then
+  if "$@" >"$log" 2>&1; then
     note "$name (${SECONDS} s)"
     return 0
   fi
@@ -201,47 +248,53 @@ landing_target() {
     echo "$CARGO_TARGET_DIR"
     return
   fi
-  local shared own
+  local shared
   shared="$(scripts/target-dir.sh 2>/dev/null)" || return 1
-  own="${shared%/}-landing"
-  # `df -T apfs` lists the volume only when it's APFS (stat's %T is a file's type, not its
-  # volume's).
-  if [ "$check_only" = 1 ] || [ ! -f "$shared/debug/.cargo-lock" ] || [ -z "$(df -T apfs "$shared" 2>/dev/null | tail -n +2)" ]; then
+  shared="${shared%/}"
+  # Copy-on-write is APFS's, so macOS's: there `df -T apfs` lists the volume only when it is
+  # APFS (GNU's df reads -T another way, and stat's %T is a file's type, not its volume's).
+  if [ "$check_only" = 1 ] || [ ! -f "$shared/debug/.cargo-lock" ] || [ "$(uname -s)" != Darwin ] || ! df -T apfs "$shared" >/dev/null 2>&1 || [ -z "$(df -T apfs "$shared" 2>/dev/null | tail -n +2)" ]; then
     echo "$shared"
     return
   fi
-  if [ -e "$own" ] && [ ! -f "$own/landing-clone" ]; then
-    # Something else's folder, by the same name: not ours to build in or to remove.
-    echo "$shared"
-    return
-  fi
-  # `landing-clone` says the folder is this script's; `whole` that its copy finished. One that
-  # was cut short, or is a week old, is made again.
-  if [ -e "$own" ] && { [ ! -f "$own/whole" ] || [ -n "$(find "$own/whole" -mtime +7 2>/dev/null)" ]; }; then
-    rm -rf "$own"
-  fi
-  if [ ! -f "$own/whole" ]; then
-    echo "Copying the shared build folder for landings to build in (it waits for the build under way, once a week)…" >&2
-    mkdir "$own" || { echo "$shared"; return; }
-    touch "$own/landing-clone"
-    if ! python3 -I - "$shared/debug" "$own/" 9>&- <<'EOF'; then
-import fcntl, os, subprocess, sys
+  python3 -I - "$shared" <<'EOF' || echo "$shared"
+import fcntl, os, shutil, subprocess, sys, time
 
-lock = os.open(os.path.join(sys.argv[1], ".cargo-lock"), os.O_RDWR)
-fcntl.flock(lock, fcntl.LOCK_EX)
-try:
-    sys.exit(subprocess.call(["cp", "-c", "-R", sys.argv[1], sys.argv[2]]))
-finally:
-    fcntl.flock(lock, fcntl.LOCK_UN)
+shared = sys.argv[1]
+own = shared + "-landing"
+# `landing-clone` says the folder is this script's to remove; `whole` that its copy finished.
+mine, whole = os.path.join(own, "landing-clone"), os.path.join(own, "whole")
+# One at a time through here: two clones of the repository beside each other share this folder,
+# each with a landing lock of its own.
+with open(own + ".lock", "w") as turn:
+    fcntl.flock(turn, fcntl.LOCK_EX)
+    if os.path.lexists(own) and not os.path.isfile(mine):
+        # Something else's folder, by the same name: not ours to build in or to remove.
+        print(shared)
+        sys.exit(0)
+    # One whose copy was cut short, or a week old, is made again.
+    if os.path.lexists(own) and (not os.path.isfile(whole) or time.time() - os.path.getmtime(whole) > 7 * 86400):
+        shutil.rmtree(own)
+    if not os.path.isfile(whole):
+        print("Copying the shared build folder for landings to build in (it waits for the build under way, once a week)…", file=sys.stderr)
+        os.mkdir(own)
+        open(mine, "w").close()
+        # Under cargo's own lock on the folder copied, so no build is halfway through writing it.
+        lock = os.open(os.path.join(shared, "debug", ".cargo-lock"), os.O_RDWR)
+        fcntl.flock(lock, fcntl.LOCK_EX)
+        try:
+            copied = subprocess.call(["cp", "-c", "-R", os.path.join(shared, "debug"), own + "/"]) == 0
+        finally:
+            fcntl.flock(lock, fcntl.LOCK_UN)
+        if not copied:
+            shutil.rmtree(own, ignore_errors=True)
+            print(shared)
+            sys.exit(0)
+        if os.path.isfile(os.path.join(shared, "CACHEDIR.TAG")):
+            shutil.copy(os.path.join(shared, "CACHEDIR.TAG"), own)
+        open(whole, "w").close()
+    print(own)
 EOF
-      rm -rf "$own"
-      echo "$shared"
-      return
-    fi
-    cp "$shared/CACHEDIR.TAG" "$own/" 2>/dev/null || true
-    touch "$own/whole"
-  fi
-  echo "$own"
 }
 
 engine_check() {
@@ -256,7 +309,7 @@ engine_check() {
   # Every test binary, though one fails: cargo stops at the first otherwise, and the ones after
   # it would count as passed. --locked: what's tested is what Cargo.lock says, and nothing
   # rewrites it under the commit.
-  (cd src-tauri && CARGO_TARGET_DIR="$target" cargo test --locked --no-fail-fast) >"$log" 2>&1 9>&-
+  (cd src-tauri && CARGO_TARGET_DIR="$target" cargo test --locked --no-fail-fast) >"$log" 2>&1
   local status=$?
   if grep -q -E '^warning: .* generated [0-9]+ warnings?' "$log"; then
     echo "The engine builds with warnings, which CI takes for errors:" >&2
@@ -283,11 +336,12 @@ engine_check() {
   whole="$(mktemp)"
   cp "$log" "$whole"
   while IFS= read -r name; do
-    if (cd src-tauri && CARGO_TARGET_DIR="$target" cargo test --locked "$name" -- --exact) >"$log" 2>&1 9>&- && grep -q -F "test $name ... ok" "$log"; then
+    if (cd src-tauri && CARGO_TARGET_DIR="$target" cargo test --locked "$name" -- --exact) >"$log" 2>&1 && grep -q -F "test $name ... ok" "$log"; then
       alone="$alone${alone:+, }$name"
     else
       real="$real${real:+, }$name"
-      grep -F -A25 -- "---- $name stdout ----" "$whole" | head -40 >&2
+      # What it said the first time, up to the next test's.
+      awk -v head="---- $name stdout ----" '$0 == head { on = 1; print; next } on && /^---- .* stdout ----$/ { exit } on' "$whole" | head -40 >&2
     fi
   done <<EOF
 $failed
@@ -295,6 +349,7 @@ EOF
   rm -f "$whole"
   if [ -n "$real" ]; then
     echo "cargo test failed, and these fail by themselves too: $real" >&2
+    [ -z "$alone" ] || echo "(These failed with the rest and passed alone, so aren't why: $alone)" >&2
     return 1
   fi
   echo "Failed with the rest and passed alone, so taken for this Mac's load: $alone"
@@ -355,7 +410,7 @@ main() {
   common="$(git rev-parse --path-format=absolute --git-common-dir 2>/dev/null)" || die "Not in a git checkout." 2
   log="$(mktemp)"
   list="$(mktemp)"
-  trap 'rm -f "$log" "$list"' EXIT
+  trap 'rm -f "$log" "$list"; let_go' EXIT
   if [ "$plan_only" = 1 ]; then
     changed || die "Couldn't list what this branch changes."
     plan_of <"$list"
@@ -384,11 +439,16 @@ main() {
   fi
   clean_or_die
 
-  local tries=0 itself now base tested wants dirty
+  # From here only this script moves the checkout: the commit it holds is the one asked for,
+  # then the one its own rebase made of it, and anything else there stops the landing.
+  local tries=0 itself now base tested wants dirty expected
+  expected="$(git rev-parse HEAD)" || die "Couldn't read this checkout's HEAD."
   while :; do
     tries=$((tries + 1))
     fetch || die "Couldn't fetch origin/main, so there's nothing to rebase onto or push to."
     base="$(git rev-parse origin/main)"
+    now="$(git rev-parse HEAD)" || die "Couldn't read this checkout's HEAD."
+    [ "$now" = "$expected" ] || die "This checkout moved under the landing (it was $(git rev-parse --short "$expected"), and is $(git rev-parse --short "$now")): look at what's here now, and run scripts/land.sh again."
     if git merge-base --is-ancestor HEAD origin/main; then
       echo "Nothing to land: origin/main ($(git rev-parse --short origin/main)) already has this branch's commits."
       exit 0
@@ -396,7 +456,7 @@ main() {
     if ! git merge-base --is-ancestor origin/main HEAD; then
       refuse_old_history
       itself="$(git hash-object "$self")" || die "Couldn't read $self."
-      if ! git rebase -q origin/main >"$log" 2>&1 9>&-; then
+      if ! git rebase -q origin/main >"$log" 2>&1; then
         echo "The rebase onto origin/main stopped on a conflict:" >&2
         git status --short | grep -E '^(UU|AA|DU|UD|AU|UA|DD) ' | head -20 >&2
         die "Resolve it, git rebase --continue, rerun what you'd tested, and run scripts/land.sh again."
@@ -405,10 +465,12 @@ main() {
       # this one in memory. Start again as it, still holding the turn.
       now="$(git hash-object "$self")" || die "Couldn't read $self after the rebase."
       if [ "$now" != "$itself" ]; then
+        rm -f "$log" "$list"
         exec "$self" ${again[@]+"${again[@]}"}
       fi
     fi
-    tested="$(git rev-parse HEAD)"
+    tested="$(git rev-parse HEAD)" || die "Couldn't read this checkout's HEAD after the rebase."
+    expected="$tested"
 
     changed "$tested" || die "Couldn't list what these commits change, so there's no telling which checks they need."
     wants="$(plan_of <"$list")"
@@ -452,7 +514,7 @@ main() {
     # What was checked is what's pushed: the commit, with nothing a check or anyone else left
     # changed in the checkout (a rewritten Cargo.lock, a commit made meanwhile).
     now="$(git rev-parse HEAD)" || die "Couldn't read this checkout's HEAD after the checks."
-    dirty="$(git status --porcelain)" || die "Couldn't ask git whether the checks left this checkout as it was."
+    dirty="$(git status --porcelain --untracked-files=normal)" || die "Couldn't ask git whether the checks left this checkout as it was."
     if [ "$now" != "$tested" ] || [ -n "$dirty" ]; then
       echo "The checkout changed while the checks ran, so what they checked isn't what's here now:" >&2
       printf '%s\n' "$dirty" | head -10 >&2
@@ -465,7 +527,7 @@ main() {
       exit 0
     fi
 
-    if git push -q origin "$tested:refs/heads/main" 2>"$log" 9>&-; then
+    if git push -q origin "$tested:refs/heads/main" 2>"$log"; then
       break
     fi
     # Turned down. Only main having moved, from somewhere this Mac's lock doesn't reach, is
@@ -483,7 +545,7 @@ main() {
   done
 
   # The turn is over: the next landing can start while the main checkout catches up.
-  exec 9>&-
+  let_go
   fetch || true
   echo "Landed: $(git rev-parse --short "$tested") is in origin/main. $(scripts/catch-up-main.sh)"
   echo "Ran: $ran."

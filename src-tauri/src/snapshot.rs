@@ -62,8 +62,8 @@ struct Mode {
 const MODES: &[Mode] = &[
     Mode { flag: "--pending", takes: "<session key>", run: pending },
     Mode { flag: "--answer", takes: "<session key> <id> <allow|deny|always> [answers to its questions, as JSON]", run: answer },
-    // Before `--stop`, which is also its option: the first mode on the line runs, so after it
-    // `--done <key> --stop` was read as `--stop` with no key.
+    // Before `--stop`, which is also its option (`OWN_OPTIONS`): after it, `--done <key> --stop`
+    // was read as `--stop` with no key.
     Mode { flag: "--done", takes: "<session key> [--stop] [--end-helpers]", run: done },
     Mode { flag: "--stop", takes: "<session key>", run: stop },
     Mode { flag: "--steer", takes: "<session key> <queued message id>", run: steer },
@@ -495,10 +495,31 @@ fn tokens(args: &Args, rest: &[String]) -> Done {
 /// `codealong --snapshot --start-plan <folder> <account> <place> [prompt] [--model <model>]
 /// [--effort <level>] [--worktree]`: what starting one would do, without doing it: where it would
 /// go now, and for a terminal whether it would run in tmux (`start::plan_now`).
+/// A mode's option that is another mode's flag: with it, the line still names one mode.
+const OWN_OPTIONS: &[(&str, &str)] = &[("--done", "--stop")];
+
+/// The mode a line asks for: none (the board), or the one it names. Two on a line is a usage
+/// error: only the first in `MODES`' order would run, whatever the line was written to do, so
+/// `--remove-worktree <folder> --dry-run --stop <key>` stopped the session.
+fn mode_of(args: &Args) -> Result<Option<&'static Mode>, String> {
+    let named: Vec<&'static Mode> = MODES.iter().filter(|m| args.has(m.flag)).collect();
+    match named.as_slice() {
+        [] => Ok(None),
+        [mode] => Ok(Some(mode)),
+        [mode, option] if OWN_OPTIONS.contains(&(mode.flag, option.flag)) => Ok(Some(mode)),
+        [first, second, ..] => Err(format!("{} and {} are two modes, and a line runs one.", first.flag, second.flag)),
+    }
+}
+
 pub fn cli(args: &[String]) -> i32 {
     let args = Args(args);
-    let Some(mode) = MODES.iter().find(|m| args.has(m.flag)) else {
-        return print_board(&args);
+    let mode = match mode_of(&args) {
+        Ok(Some(mode)) => mode,
+        Ok(None) => return print_board(&args),
+        Err(why) => {
+            eprintln!("{why}");
+            return 2;
+        }
     };
     match (mode.run)(&args, args.after(mode.flag)) {
         Ok(text) => {
@@ -648,7 +669,8 @@ fn remove_worktree(args: &Args, rest: &[String]) -> Done {
     // anywhere on the line, would otherwise be passed over and the worktree removed.
     let at = args.0.iter().position(|a| a == "--remove-worktree").unwrap_or_default();
     let stray = args.0.iter().enumerate().any(|(i, word)| i != at + 1 && !(i == 0 && !word.starts_with('-')) && !["--snapshot", "--remove-worktree", "--dry-run"].contains(&word.as_str()));
-    if stray || folder.starts_with('-') {
+    let once = args.0.iter().filter(|word| *word == "--remove-worktree").count() == 1;
+    if stray || !once || folder.starts_with('-') {
         return Err(Stop::Usage);
     }
     let v = act(api::WORKTREE_REMOVE, folder, params::Remove { dry_run: args.has("--dry-run"), ..Default::default() })?;
@@ -922,7 +944,7 @@ mod tests {
     fn the_first_mode_in_the_tables_order_runs_and_a_short_line_is_a_usage_error() {
         let pick = |words: &[&str]| {
             let l = line(words);
-            MODES.iter().find(|m| Args(&l).has(m.flag)).map(|m| m.flag)
+            mode_of(&Args(&l)).ok().flatten().map(|m| m.flag)
         };
         assert_eq!(pick(&["--snapshot", "--table", "--no-github"]), None);
         assert_eq!(pick(&["--snapshot", "--accounts"]), Some("--accounts"));
@@ -933,7 +955,13 @@ mod tests {
         assert_eq!(pick(&["--snapshot", "--done", "claude:claude:abc", "--stop"]), Some("--done"));
         assert_eq!(pick(&["--snapshot", "--stop", "claude:claude:abc"]), Some("--stop"));
         // A dry run mistyped isn't a removal.
-        for words in [&["--snapshot", "--remove-worktree", "/r/atlas-spare", "--dryrun"][..], &["--snapshot", "--dryrun", "--remove-worktree", "/r/atlas-spare"], &["--snapshot", "--remove-worktree", "--dry-run"], &["--snapshot", "--remove-worktree", "/r/atlas-spare", "/r/kestrel-spare"]] {
+        for words in [&["--snapshot", "--remove-worktree", "/r/atlas-spare", "--dryrun"][..], &["--snapshot", "--dryrun", "--remove-worktree", "/r/atlas-spare"], &["--snapshot", "--remove-worktree", "--dry-run"], &["--snapshot", "--remove-worktree", "/r/atlas-spare", "/r/kestrel-spare"], &["--snapshot", "--remove-worktree", "/r/atlas-spare", "--remove-worktree"]] {
+            assert_eq!(cli(&line(words)), 2, "{words:?}");
+        }
+        // Two modes on a line run neither: the first in the table's order would have run, here
+        // `--stop` on a session, whatever the line set out to do.
+        for words in [&["--snapshot", "--remove-worktree", "/r/atlas-spare", "--dry-run", "--stop", "claude:claude:abc"][..], &["--snapshot", "--stop", "claude:claude:abc", "--done", "claude:claude:abc", "--rename"], &["--snapshot", "--accounts", "--found"]] {
+            assert!(mode_of(&Args(&line(words))).is_err(), "{words:?}");
             assert_eq!(cli(&line(words)), 2, "{words:?}");
         }
         // Each of these stops at its arguments, before anything is read or done.

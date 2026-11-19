@@ -26,8 +26,9 @@ changed argument is written here in the same change.
   option is passed over rather than refused: check an option's spelling before running a real
   mode. `--use-reset` and `--remove-worktree` do refuse what they don't know, anywhere on the
   line.
-- The first mode on the line, in `MODES`' order, is the one that runs: a mode whose option is
-  another mode's flag (`--done … --stop`) comes before that mode there.
+- A line names one mode. Two on it is a usage error (exit 2) and neither runs; a mode whose
+  own option is another mode's flag (`--done … --stop`) is the one exception, listed in
+  snapshot.rs `OWN_OPTIONS`.
 
 ## The board
 
