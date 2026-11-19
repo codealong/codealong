@@ -1831,11 +1831,12 @@ fn asked_to_review(board: &Board, store: &Store, global: &ReviewsCfg, review: &S
 /// asked you of (2026-10-22). One assigned to you since your last review says so already, in every
 /// repo (board.rs `pr_item`, `TurnKind::Assigned`). Before the snoozes and `apply`, which go by whether a PR waits on
 /// you, so it's reviewed as any PR that does, once for each commit: an author's words alone start
-/// nothing the agent hasn't done. Only in the repos whose PRs are read (`board::polled_slugs`):
-/// another's are kept as last read, and GitHub's search has the last word on them
+/// nothing the agent hasn't done. Only for a PR the board has as GitHub has it now (`read_now`,
+/// `board::read_now`: a repo whose PRs are read, or the PR read by its number): a repo no longer
+/// read keeps its PRs as last read, and GitHub's search has the last word on them
 /// (`board::pr_items`).
-pub fn asked_again(prs: &mut [PrItem], store: &Store, polled: &BTreeSet<String>, machines: &Machines) {
-    for pr in prs.iter_mut().filter(|p| polled.contains(&p.repo_slug) && !p.review_requested) {
+pub fn asked_again(prs: &mut [PrItem], store: &Store, read_now: impl Fn(&PrItem) -> bool, machines: &Machines) {
+    for pr in prs.iter_mut().filter(|p| !p.review_requested && read_now(p)) {
         if let Some(turn) = pr.turn.as_ref().filter(|t| t.kind == TurnKind::AuthorReplied) {
             pr.requested_at = turn.since;
             pr.review_requested = true;
@@ -3832,10 +3833,9 @@ mod tests {
         // GitHub asks nobody now: your latest review is the one submitted, a comment.
         let yours = |state: LastReviewState, at: i64| Some(LastReview { state, commit: Some(HEAD.into()), at: Some(at) });
         let after = |head: &str, last_review: Option<LastReview>| PrItem { review_requested: false, requested_at: None, last_review, ..pr(7, head) };
-        let polled = BTreeSet::from(["o/r".to_string()]);
         let again = |prs: &[PrItem], store: &Store| {
             let mut prs = prs.to_vec();
-            asked_again(&mut prs, store, &polled, &Machines::default());
+            asked_again(&mut prs, store, |_| true, &Machines::default());
             prs.iter().map(|p| p.review_requested).collect::<Vec<_>>()
         };
         let submitted = yours(LastReviewState::Commented, NOW + 64_900);
@@ -3871,9 +3871,9 @@ mod tests {
         let round = old.prs.get_mut("o/r#7").unwrap().rounds.last_mut().unwrap();
         round.ended_at = Some(NOW + 65_000 - SUBMITS_WITHIN_MS - 1);
         assert_eq!(again(&[after(NEXT, submitted.clone())], &old), [false]);
-        // A repo whose PRs aren't read keeps its PRs as last read, which GitHub's search settles.
+        // A PR not read as GitHub has it now is as last read, which GitHub's search settles.
         let mut elsewhere = vec![after(NEXT, submitted)];
-        asked_again(&mut elsewhere, &r.store, &BTreeSet::new(), &Machines::default());
+        asked_again(&mut elsewhere, &r.store, |_| false, &Machines::default());
         assert!(!elsewhere[0].review_requested);
     }
 
@@ -3882,17 +3882,16 @@ mod tests {
         use crate::model::Turn;
         let replied = |at: i64| Some(Turn { kind: TurnKind::AuthorReplied, who: "ana".into(), also: Vec::new(), since: Some(at) });
         let unasked = |turn| PrItem { review_requested: false, requested_at: None, turn, ..pr(7, HEAD) };
-        let polled = BTreeSet::from(["o/r".to_string()]);
         let mut prs = vec![unasked(replied(NOW)), unasked(None)];
-        asked_again(&mut prs, &Store::default(), &polled, &Machines::default());
+        asked_again(&mut prs, &Store::default(), |_| true, &Machines::default());
         assert_eq!(prs.iter().map(|p| (p.review_requested, p.requested_at)).collect::<Vec<_>>(), [(true, Some(NOW)), (false, None)]);
         // Asked already, GitHub's request and its time stand.
         let mut asked = vec![PrItem { review_requested: true, requested_at: Some(NOW - 5), ..unasked(replied(NOW)) }];
-        asked_again(&mut asked, &Store::default(), &polled, &Machines::default());
+        asked_again(&mut asked, &Store::default(), |_| true, &Machines::default());
         assert_eq!(asked[0].requested_at, Some(NOW - 5));
-        // A repo whose PRs aren't read is as last read.
+        // A PR not read as GitHub has it now is as last read.
         let mut elsewhere = vec![unasked(replied(NOW))];
-        asked_again(&mut elsewhere, &Store::default(), &BTreeSet::new(), &Machines::default());
+        asked_again(&mut elsewhere, &Store::default(), |_| false, &Machines::default());
         assert!(!elsewhere[0].review_requested);
         // Back with you, its commit is reviewed as any PR that waits on you is, once.
         let cfg = on();
@@ -5740,7 +5739,6 @@ mod tests {
     #[test]
     fn a_pr_another_machine_brought_back_to_wait_on_you_waits_here_too() {
         use codealong_peer::pr::{Submitted, Verdict as V};
-        let polled = BTreeSet::from(["o/r".to_string()]);
         // The other machine submitted its agent's review of HEAD for you as a comment, and the
         // author pushed NEXT since: GitHub asks nobody.
         let yours = |at: i64| Some(crate::model::LastReview { state: LastReviewState::Commented, commit: Some(HEAD.into()), at: Some(at) });
@@ -5753,7 +5751,7 @@ mod tests {
         };
         let again = |p: PrItem, m: Machine| {
             let mut prs = vec![p];
-            asked_again(&mut prs, &Store::default(), &polled, &machines(Rank::Backup, vec![m]));
+            asked_again(&mut prs, &Store::default(), |_| true, &machines(Rank::Backup, vec![m]));
             prs.remove(0)
         };
         // It waits on you here too: the other machine around, or asleep since, its latest round
@@ -5767,12 +5765,12 @@ mod tests {
         apply(&mut prs, &Store::default(), &on(), &Default::default(), &Default::default(), &[], &machines(Rank::Backup, vec![them(Some(sent.clone()), false, begun)]), NOW);
         assert_eq!(prs[0].auto_review.as_ref().map(|a| (a.stage, a.machine.clone())), Some((ReviewStage::Queued, None)));
         // Not once you've reviewed it since, nor for an approval, nor when the latest went from the
-        // PR's box (none is sent), nor in a repo whose PRs aren't read.
+        // PR's box (none is sent), nor for a PR not read as GitHub has it now.
         assert!(!again(after(yours(NOW - 600_000 + SUBMITTED_SLACK_MS + 1)), them(Some(sent.clone()), true, None)).review_requested);
         assert!(!again(after(yours(NOW - 600_000)), them(Some(Submitted { verdict: V::Approve, ..sent.clone() }), true, None)).review_requested);
         assert!(!again(after(yours(NOW - 600_000)), them(None, true, None)).review_requested);
         let mut elsewhere = vec![after(yours(NOW - 600_000))];
-        asked_again(&mut elsewhere, &Store::default(), &BTreeSet::new(), &machines(Rank::Backup, vec![them(Some(sent), true, None)]));
+        asked_again(&mut elsewhere, &Store::default(), |_| false, &machines(Rank::Backup, vec![them(Some(sent), true, None)]));
         assert!(!elsewhere[0].review_requested);
         // What this machine sends of its own: the latest it submitted for you, not one by hand.
         let at = |by_hand: bool| {

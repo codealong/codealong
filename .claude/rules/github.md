@@ -93,8 +93,8 @@ Harness facts (from GitHub's answers on this Mac, 2026-10-01). A bare file name 
   one from the PR's box), as an author who pushes the fixes doesn't always ask GitHub again. Not
   from the review's text: Codealong's marks stay in a draft you rewrote (`edit_draft`), and your
   words go before the agent's from the box. Not the review's commit either: a draft begun on an
-  earlier commit keeps it. Only in repos whose PRs are read: the search (`review-requested:@me`)
-  never lists it. By
+  earlier commit keeps it. Only in repos whose PRs are read, or for a PR read by its number (one a
+  session is linked to: `board::read_now`): the search (`review-requested:@me`) never lists it. By
   default they go into a pending review on your account (`github.rs` `draft_review`,
   `add_to_draft`, `pending_review`): GraphQL `addPullRequestReview` with no `event` leaves it
   `PENDING`, which only its author sees, its `threads` each a `path`, a `line` in the file's new

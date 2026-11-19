@@ -92,7 +92,7 @@ pub fn pr_items(seeds: &[LaneSeed], lanes: &[Lane], prs: &HashMap<String, Vec<Pr
     let repos = repos_of(seeds);
     let owners = owners_of(seeds);
     let polled = polled_slugs(seeds);
-    let read_alone: HashSet<String> = made.iter().flat_map(|(slug, list)| list.iter().map(move |p| crate::prlinks::pr_key(&format!("{slug}#{}", p.number)))).collect();
+    let read_alone = read_alone(made);
     let mut out = Vec::new();
     for (slug, list) in prs {
         let Some(&repo) = repos.get(slug.as_str()) else { continue };
@@ -225,6 +225,23 @@ pub fn apply_review_snoozes(prs: &mut [PrItem], snoozes: &[Snooze], now: i64) {
 /// review, from one search across GitHub.
 pub fn polled_slugs(seeds: &[LaneSeed]) -> BTreeSet<String> {
     seeds.iter().filter(|s| s.branch.is_some() && s.branch != s.default_branch).filter_map(|s| s.repo_slug.clone()).collect()
+}
+
+/// The PRs read one by one by their numbers (`made`), as `pr_key`s.
+fn read_alone(made: &HashMap<String, Vec<PrRaw>>) -> HashSet<String> {
+    made.iter().flat_map(|(slug, list)| list.iter().map(move |p| crate::prlinks::pr_key(&format!("{slug}#{}", p.number)))).collect()
+}
+
+/// Whether the board has a PR as GitHub has it now, which is what says it waits on you again
+/// though GitHub asks nobody (autoreview.rs `asked_again`): every PR of a repo whose PRs are read
+/// (`polled_slugs`), and the PRs read one by one by their numbers (`made`), as one an automatic
+/// review was started on is in a repo checked out only on its default branch. An author's answer
+/// to that review there was left waiting on nobody (specbook-infra#404, 2026-11-19). The rest of a
+/// repo no longer read are as it was last read, and GitHub's search has the last word on them
+/// (`pr_items`).
+pub fn read_now(seeds: &[LaneSeed], made: &HashMap<String, Vec<PrRaw>>) -> impl Fn(&PrItem) -> bool {
+    let (polled, alone) = (polled_slugs(seeds), read_alone(made));
+    move |p| polled.contains(&p.repo_slug) || alone.contains(&crate::prlinks::pr_key(&p.key))
 }
 
 /// One PR that `pr_items` doesn't list, for a link to it in a conversation: one older than the
@@ -854,6 +871,26 @@ mod tests {
         assert_eq!((other.key.as_str(), other.project.as_str(), other.repo.as_str()), ("acme/tool#1037", "", "tool"));
         assert_eq!(other.sessions.len(), 1);
         assert!(other.lanes.is_empty());
+    }
+
+    #[test]
+    fn someone_elses_pr_read_by_its_number_waits_on_you_once_its_author_writes_after_you() {
+        // Spark's PRs are read; infra is checked out on its default branch alone, so its PR is
+        // read by its number, as one an automatic review was started on is. Its author answered
+        // the review the agent posted for gwen, and nothing asks her of it on GitHub any more.
+        let infra = LaneSeed { repo: "infra".into(), repo_slug: Some("sprucehq/infra".into()), ..seed("/r/infra", "main") };
+        let seeds = vec![seed("/r/spark-portal", "portal"), infra];
+        let answered = PrRaw { number: 404, url: "https://github.com/sprucehq/infra/pull/404".into(), author: Some("ana".into()), head_owner: Some("ana".into()), said: vec![wrote("gwen", NOW - 200_000), wrote("ana", NOW - 100_000)], ..pr(PrState::Open, 0) };
+        let infra = |slug: &str, p: &PrRaw| HashMap::from([(slug.to_string(), vec![p.clone()])]);
+        let (git, visitors, order) = (HashMap::new(), HashMap::new(), vec!["Spruce".to_string()]);
+        let asked = |prs: &HashMap<String, Vec<PrRaw>>, made: &HashMap<String, Vec<PrRaw>>| {
+            let board = compose(Inputs { now: NOW, apps: &AppNames::default(), seeds: &seeds, sessions: vec![], visitors: &visitors, git: &git, prs, requested: &HashMap::new(), made, project_order: &order, notices: vec![], loading: false, github_at: None, pinned: &[], github_login: Some("gwen"), pr_links: &PrLinks::default(), previews: &Previews::default(), reusable: &HashMap::new(), review_snoozes: &[], session_settings: &Default::default(), auto_reviews: (&Default::default(), &Default::default(), &Default::default()), machines: &Default::default(), at_merged: &HashSet::new() });
+            board.prs.iter().find(|p| p.number == 404).map(|p| (p.turn.as_ref().map(|t| t.kind), p.review_requested, p.requested_at))
+        };
+        assert_eq!(asked(&HashMap::new(), &infra("SpruceHQ/infra", &answered)), Some((Some(TurnKind::AuthorReplied), true, Some(NOW - 100_000))));
+        // Kept from when the repo was last read, it's as it was then: GitHub's search, which no
+        // longer lists it, has the last word.
+        assert_eq!(asked(&infra("sprucehq/infra", &answered), &HashMap::new()), Some((Some(TurnKind::AuthorReplied), false, None)));
     }
 
     #[test]

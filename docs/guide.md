@@ -1640,11 +1640,12 @@ request to you at any review you submit, so when commits come after a comment or
 changes submitted for you, the author's answer to it, the PR waits on your review again (Review
 requested, reading Re-review, and the floating bar) and the agent reviews the new commits,
 whether or not the author asked GitHub for your review again. Only on the Mac that submitted it,
-and not in a repo checked out only on its default branch, whose PRs aren't read and which
-GitHub's search for review requests no longer lists it in. One you submitted yourself, from the
+and in a repo checked out only on its default branch, whose PRs aren't read, only while the PR is
+read by its number, as one a review session of yours is linked to is (else GitHub's search for
+review requests, which no longer lists it, has the last word). One you submitted yourself, from the
 box or on GitHub, ends the request as GitHub has it. A PR whose author answers in a comment after
 you, or your agent, wrote on it (Author replied) waits on you from then too, on any of your Macs
-that reads its repo's PRs (see Author replied for what answers it), and the agent reviews its
+that reads it (see Author replied for what answers it), and the agent reviews its
 commit if it hasn't yet; their words alone start no other review. Without a draft, a
 request for changes or a comment links to the agent's review posted as a comment, or with posting
 off carries the review itself; one whose draft went (submitted or thrown away) isn't submitted. Not
@@ -1791,7 +1792,7 @@ words of your own; your agent's review posted as you after their reply doesn't, 
 approves still waits on your sign-off, as one GitHub asks you of does. Only the Mac that posted
 it knows it for your agent's, though: another of yours takes it for your answer. Not once your own
 latest review approves the commit it's at, when what they say is theirs to act on, and only in a
-repo whose PRs are read. Someone else's PR that someone assigned you to after your last review of
+repo whose PRs are read or for a PR read by its number (one your agent reviewed, say). Someone else's PR that someone assigned you to after your last review of
 it reads Assigned (amber) and waits on your review as a request for it does (Review requested,
 Needs you, the floating bar, and the agent's review with `[reviews] auto`), whoever assigned you
 named as the one who asked: some authors ask for a review that way rather than asking GitHub,
