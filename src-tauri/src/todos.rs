@@ -1080,13 +1080,13 @@ pub fn awake_at(mut todos: Vec<Todo>, now: i64) -> Vec<Todo> {
 }
 
 /** The next time after `now` a todo's standing in what waits on you changes by the clock alone
- *  (model.rs `Board::todo_clock`): a snooze ending, or the grace a session just started or linked
- *  has to show up on the board running out (`NEW_PRIMARY_MS`, barfeed.rs `at_work`). None with
- *  nothing ahead. */
+ *  (model.rs `Board::todo_clock`): a snooze ending, or the grace a new primary session has to
+ *  show up on the board running out (`NEW_PRIMARY_MS`, barfeed.rs `at_work`). None with nothing
+ *  ahead. */
 pub fn todo_clock(todos: &[Todo], now: i64) -> Option<i64> {
     todos
         .iter()
-        .flat_map(|t| [t.snoozed_until, t.primary.as_ref().map(|p| p.since + NEW_PRIMARY_MS), Some(t.updated_at + NEW_PRIMARY_MS).filter(|_| !t.sessions.is_empty())])
+        .flat_map(|t| [t.snoozed_until, t.primary.as_ref().map(|p| p.since + NEW_PRIMARY_MS)])
         .flatten()
         .filter(|&at| at > now)
         .min()
@@ -1513,15 +1513,16 @@ mod tests {
         let mut a = todo("a");
         a.snoozed_until = Some(500);
         let mut b = todo("b");
-        b.sessions = vec!["s".into()];
-        b.updated_at = 100;
+        b.primary = Some(Primary { session: "p".into(), since: 50 });
+        // A change to a todo starts no grace.
         let mut c = todo("c");
-        c.primary = Some(Primary { session: "p".into(), since: 50 });
+        c.sessions = vec!["s".into()];
+        c.updated_at = 100;
         let all = vec![a, b, c];
-        assert_eq!(todo_clock(&all, 200), Some(500.min(100 + NEW_PRIMARY_MS).min(50 + NEW_PRIMARY_MS)));
+        assert_eq!(todo_clock(&all, 200), Some(500));
         // What's passed is passed: the next one ahead, then none.
-        assert_eq!(todo_clock(&all, 50 + NEW_PRIMARY_MS), Some(100 + NEW_PRIMARY_MS));
-        assert_eq!(todo_clock(&all, 100 + NEW_PRIMARY_MS), None);
+        assert_eq!(todo_clock(&all, 500), Some(50 + NEW_PRIMARY_MS));
+        assert_eq!(todo_clock(&all, 50 + NEW_PRIMARY_MS), None);
     }
 
     #[test]

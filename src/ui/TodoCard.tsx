@@ -54,7 +54,8 @@ export interface TodoCardCan {
   laneMenu: (lane: Lane) => void;
   sessionMenu: (lane: Lane, session: Session) => void;
   /** The todo's own menu, its changes going as the card's do (`edit`), and its Start session…
-   *  the card's (`start`). */
+   *  the quick panel on it, as every window's is, held while a start from a card is on its way
+   *  (`start`). */
   todoMenu: (edit: menus.TodoEdit, start: () => void) => void;
 }
 
@@ -185,7 +186,7 @@ export function TodoCard({ todo, todos, labels, run, lanes, usage, projects, now
           projects={projects}
           onRun={runHere}
           onStart={start}
-          onMenu={() => can.todoMenu(edit, () => (launching.has(todo.id) ? report.info('A session is starting on it.') : start()))}
+          onMenu={() => can.todoMenu(edit, () => (launching.has(todo.id) ? report.info('A session is starting on it.') : void showQuick({ todo: todo.id, project: todo.project || null }).catch((e: unknown) => report.error(errorText(e)))))}
           onShowTodo={can.showTodo}
           onShowSession={(lane, session) => can.showSession(lane, session)}
           onOpenSession={can.openSession}

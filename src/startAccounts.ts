@@ -12,9 +12,13 @@ import type { RoutingGroup, Session, StartAccount, StartOptions } from './types'
 
 const FRESH_MS = 60_000;
 
-// ⌘R forgets what's kept: the boxes that offer the accounts read them again (reload.ts).
+// ⌘R forgets what's kept, and a read on its way, whose answer is then not kept: the boxes that
+// offer the accounts read them again (reload.ts).
+let generation = 0;
 onReload(() => {
   read = null;
+  reading = null;
+  generation += 1;
 });
 /** How long a box that has no start options waits to ask again (`useStartOptions`). */
 const RETRY_MS = 5_000;
@@ -26,20 +30,23 @@ let reading: Promise<Read> | null = null;
 /** Reads them again once what's kept is a minute old, and resolves with what's kept. */
 function refresh(): Promise<Read> {
   if (read && Date.now() - read.at < FRESH_MS) return Promise.resolve(read);
-  reading ??= startOptions()
+  const mine = generation;
+  const asked = (reading ??= startOptions()
     .then(
       (o) => {
-        read = { at: Date.now(), accounts: withLists(o), groups: o.groups ?? [], options: o };
-        return read;
+        const got = { at: Date.now(), accounts: withLists(o), groups: o.groups ?? [], options: o };
+        // One asked for before a reload isn't kept: the reload asked again.
+        if (mine === generation) read = got;
+        return got;
       },
       // The last read stands, and what offers them goes without until a read works: the quick
       // panel and the main window say so when start options can't be read.
       () => ({ accounts: read?.accounts ?? [], groups: read?.groups ?? [], options: read?.options ?? null, failed: true }),
     )
     .finally(() => {
-      reading = null;
-    });
-  return reading;
+      if (mine === generation) reading = null;
+    }));
+  return asked;
 }
 
 /** What's kept, for a menu that's built at once; a stale list is read again meanwhile. */
