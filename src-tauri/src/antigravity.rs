@@ -2736,7 +2736,8 @@ mod tests {
     /// An `agy` opened in a terminal and never prompted, as one was on 2026-11-19: it holds its
     /// presence lock, and its row, once written, has gorm's zero for every time and no steps.
     /// Before the row and after, it waits at its box from when its process began, read from
-    /// the row whatever `since` says while the process has it.
+    /// the row whatever `since` says while the process has it, until its log says a prompt went
+    /// in.
     #[test]
     fn an_agy_never_prompted_waits_at_its_box() {
         use crate::model::Status;
@@ -2744,7 +2745,10 @@ mod tests {
         let dir = root.join("antigravity-cli");
         std::fs::create_dir_all(dir.join("presence")).unwrap();
         std::fs::create_dir_all(dir.join("conversations")).unwrap();
+        std::fs::create_dir_all(dir.join("log")).unwrap();
         std::fs::write(dir.join("presence/c1.lock"), "").unwrap();
+        let log = dir.join("log/cli-20261014_020000.log");
+        std::fs::write(&log, format!("{}\n", glog("02:00:00.100000", "Starting language server process with pid 7"))).unwrap();
         let summaries = Connection::open(dir.join(SUMMARIES)).unwrap();
         summaries.execute_batch(SCHEMA).unwrap();
         Connection::open(dir.join("conversations/c1.db")).unwrap().execute_batch("CREATE TABLE steps (idx INTEGER PRIMARY KEY, step_type INTEGER NOT NULL DEFAULT 0, status INTEGER NOT NULL DEFAULT 0);").unwrap();
@@ -2754,7 +2758,8 @@ mod tests {
         let now = on_14th("18:00:00.000");
         let opened = now - 16 * 3_600_000;
         let look = Look { seen: &seen, since: now - crate::util::DAY_MS / 2, now, ps: Default::default() };
-        let mut reader = Reader { processes: vec![Process { pid: 7, conversation: Some("c1".into()), terminal: true, logs: Vec::new(), started: Some(opened) }], looked_at: Some(Instant::now()), ..Reader::default() };
+        let mut reader = Reader { processes: vec![Process { pid: 7, conversation: Some("c1".into()), terminal: true, logs: vec![log.clone()], started: Some(opened) }], looked_at: Some(Instant::now()), ..Reader::default() };
+        reader.track_logs();
         let session = |reader: &Reader, now: i64| crate::board::antigravity_session(&account, &reader.conversations["antigravity"][0], reader.processes.first(), false, 0, now);
         reader.reread(&account, &look);
         let s = session(&reader, now);
@@ -2770,6 +2775,12 @@ mod tests {
         assert_eq!((c.cwd.as_deref(), c.idled_by_another), (Some("/Users/me/projects/northwind"), false), "read from its row");
         let s = session(&reader, now + 3_600_000);
         assert_eq!((s.status, s.live, s.last_activity), (Status::Idle, true, opened));
+        // You write to it at last: it works from then, before a step or its row has a time.
+        use std::io::Write as _;
+        std::fs::OpenOptions::new().append(true).open(&log).unwrap().write_all(format!("{}\n", glog("17:59:00.000000", "Forwarding user message to conversation c1 (items=1, media=0)")).as_bytes()).unwrap();
+        reader.reread(&account, &look);
+        let s = session(&reader, now);
+        assert_eq!((s.status, s.last_activity), (Status::Working, on_14th("17:59:00.000")));
         // With its process gone, it's left out as any row that old is.
         reader.processes.clear();
         reader.reread(&account, &look);

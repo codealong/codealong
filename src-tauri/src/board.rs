@@ -749,10 +749,14 @@ pub fn antigravity_session(account: &AccountCfg, c: &Conversation, process: Opti
     // of the row. The note a failed turn ended with is its latest step, read whether or not a
     // process has it.
     let written = [c.latest_step_at, c.failed.as_ref().map(|f| f.at)].into_iter().flatten().fold(c.last_modified, i64::max);
-    // One opened in a terminal and never prompted has written nothing with a time (its row's is
-    // gorm's zero): there's nothing in it to read, and it has been there since its process began.
-    let active = if written > 0 { written } else { process.and_then(|p| p.started).unwrap_or(0) };
-    let fresh = now - active < ANTIGRAVITY_STALE_MS;
+    let fresh = now - written < ANTIGRAVITY_STALE_MS;
+    // Your prompt counts too: its terminal UI's log says it went in before a step or the row has
+    // a time. One opened in a terminal and never prompted has neither (its row's time is gorm's
+    // zero): there's nothing in it to read, and it has been there since its process began.
+    let active = match written.max(c.last_input.unwrap_or(0)) {
+        0 => process.and_then(|p| p.started).unwrap_or(0),
+        at => at,
+    };
     // While its process has the conversation, its summary is the process's word, unless another
     // `agy` that started since marked it idle; a step that runs or waits says so too, and a
     // terminal UI's log. A print run writes its summary only as it ends, so its record says
@@ -769,7 +773,7 @@ pub fn antigravity_session(account: &AccountCfg, c: &Conversation, process: Opti
         Status::Needs
     } else if under_way && (c.cli || fresh) {
         Status::Working
-    } else if news && active > c.last_input.unwrap_or(0) {
+    } else if news && written > c.last_input.unwrap_or(0) {
         Status::Unread
     } else {
         Status::Idle
@@ -6236,10 +6240,12 @@ mod tests {
         let s = antigravity_session(&a, &c, Some(&ui), false, 0, NOW);
         assert_eq!((s.status, s.live, s.last_activity, s.excerpt.as_deref()), (Status::Idle, true, NOW - 16 * HOUR, None));
         assert_eq!(antigravity_session(&a, &c, Some(&ui), false, 0, NOW + HOUR).last_activity, NOW - 16 * HOUR);
-        // A prompt goes in, as its log says: it works.
+        // A prompt goes in, as its log says, before a step or the row has a time: it works, from
+        // then.
         let mut told = c.clone();
-        told.said.prompted = Some(("c5".into(), NOW - 1_000));
-        assert_eq!(antigravity_session(&a, &told, Some(&ui), false, 0, NOW).status, Status::Working);
+        (told.said.prompted, told.last_input) = (Some(("c5".into(), NOW - 1_000)), Some(NOW - 1_000));
+        let s = antigravity_session(&a, &told, Some(&ui), false, 0, NOW);
+        assert_eq!((s.status, s.last_activity, s.last_prompt_at), (Status::Working, NOW - 1_000, NOW - 1_000));
     }
 
     /// The four turns in three conversations that a dropped connection ended on 2026-10-14, the
