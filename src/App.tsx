@@ -63,8 +63,8 @@ import { byWords, FilterChips, ListBar, ListFind, ListTools, rowsSetting, ViewMe
 import { TODO_GROUPS, TODO_ROWS, TODO_SORTS, TodoComposer, TodoView } from './ui/TodoView';
 import { ScheduleDialog } from './ui/ScheduleDialog';
 import { HarnessSchedulePanel, SchedulePanel } from './ui/SchedulePanel';
-import { SchedulesView } from './ui/SchedulesView';
-import { blankSchedule, firstSchedule, newScheduleFolder, scheduleOf, scheduleProject } from './schedules';
+import { SCHEDULE_GROUPS, SCHEDULE_ROWS, SCHEDULE_SORTS, SchedulesView } from './ui/SchedulesView';
+import { blankSchedule, firstSchedule, newScheduleFolder, scheduleListing, scheduleOf, scheduleProject, type ScheduleSort } from './schedules';
 import { KanbanView } from './ui/KanbanView';
 import { applyKanbanDrop, boardOrderWith, columnWith, kanbanCardId, kanbanStep, orderedIds, type KanbanActs } from './kanban';
 import { CanvasView } from './ui/CanvasView';
@@ -116,7 +116,7 @@ import { MeetingCountdown, MeetingOffered } from './ui/Meeting';
 import { meetingWhen } from './meetings';
 import { MeetingsDialog } from './ui/Meetings';
 import { hearingNow } from './listening';
-import { ageListingChain, ageListingPr, chainOf, columnShown, currentProject, FACET_WORD, facetChips, facetsIn, facetsOn, harnessSchedulesIn, labelPick, laneInQuery, onlyPick, prInDone, prInFilter, prInQuery, projectOfCard, revealing, unarchived, scheduleSessions, schedulesIn, sessionInFacets, sessionInFilter, sessionInQuery, sessionItemOf, sessionItemsOf, showingHelper, todoInQuery, togglePick, toggleShown, useBoardLists, projectsOf, type Facets, type KanbanColumn } from './boardLists';
+import { ageListingChain, ageListingPr, chainOf, columnShown, currentProject, FACET_WORD, facetChips, facetsIn, facetsOn, harnessSchedulesIn, labelPick, laneInQuery, onlyPick, prInDone, prInFilter, prInQuery, projectOfCard, revealing, unarchived, scheduleAtWork, scheduleSessions, schedulesIn, sessionInFacets, sessionInFilter, sessionInQuery, sessionItemOf, sessionItemsOf, showingHelper, todoInQuery, togglePick, toggleShown, useBoardLists, projectsOf, type Facets, type KanbanColumn } from './boardLists';
 import { inProject, QUICK_PLACEHOLDER, queryWords, shortcutKeys, shortcutLabel } from './quick';
 import { findFor } from './threadFind';
 import { CODEALONG_REPO, improveTitle } from './improve';
@@ -155,6 +155,9 @@ const PR_SORT_KEY = 'codealong.prSort';
 const PR_TAB_KEY = 'codealong.prTab';
 const TODO_SORT_KEY = 'codealong.todoSort';
 const TODO_ROWS_KEY = 'codealong.todoRows';
+const SCHEDULE_SORT_KEY = 'codealong.scheduleSort';
+const SCHEDULE_GROUP_KEY = 'codealong.scheduleGroup';
+const SCHEDULE_ROWS_KEY = 'codealong.scheduleRows';
 const SIDEBAR_WIDTH_KEY = 'codealong.sidebarWidth';
 const SIDEBAR_COLLAPSED_KEY = 'codealong.sidebarCollapsed';
 const INSPECTOR_WIDTH_KEY = 'codealong.inspectorWidth';
@@ -241,6 +244,7 @@ const SORT_STORED = oneOf(SESSION_SORTS.map((o) => o.id));
 const PR_SORT_STORED = oneOf(PR_SORTS.map((o) => o.id));
 const PR_TAB_STORED = oneOf(PR_TABS.map((o) => o.id));
 const TODO_SORT_STORED = oneOf(TODO_SORTS.map((o) => o.id));
+const SCHEDULE_SORT_STORED = oneOf(SCHEDULE_SORTS.map((o) => o.id));
 const ROWS_STORED = oneOf(SESSION_ROWS.map((o) => o.id));
 const GROUP_STORED = oneOf(SESSION_GROUPS.map((o) => o.id));
 const PR_GROUP_STORED = oneOf(PR_GROUPS.map((o) => o.id));
@@ -527,16 +531,21 @@ export function App() {
   const [openGroups, setOpenGroups] = useState<ReadonlySet<string>>(() => new Set());
   const [openPrGroups, setOpenPrGroups] = useState<ReadonlySet<string>>(() => new Set());
   const [openTodoGroups, setOpenTodoGroups] = useState<ReadonlySet<string>>(() => new Set());
+  const [scheduleGroup, setScheduleGroup] = useStored<ListGroupBy>(SCHEDULE_GROUP_KEY, GROUP_STORED, 'none');
+  const [openScheduleGroups, setOpenScheduleGroups] = useState<ReadonlySet<string>>(() => new Set());
   // The pins of Sessions' groups: the worktrees' or the repos'.
   const sessionGroupPins = sessionGroup === 'repo' ? repoPins : lanePins;
   // How PRs and Todo order what isn't pinned or done: by status, or the newest opened or added first.
   const [prSort, setPrSort] = useStored<PrSort>(PR_SORT_KEY, PR_SORT_STORED, 'status');
   const [prTab, setPrTab] = useStored<PrTab>(PR_TAB_KEY, PR_TAB_STORED, 'all');
   const [todoSort, setTodoSort] = useStored<TodoSort>(TODO_SORT_KEY, TODO_SORT_STORED, 'status');
+  // How Schedules orders the ones Codealong keeps: the next run soonest first, until you pick otherwise.
+  const [scheduleSort, setScheduleSort] = useStored<ScheduleSort>(SCHEDULE_SORT_KEY, SCHEDULE_SORT_STORED, 'next');
   // How much each row says in Sessions, PRs and Todo, each as you left it: two lines, or one.
   const [sessionLines, setSessionLines] = useStored<RowLines>(SESSION_ROWS_KEY, ROWS_STORED, 'one');
   const [prLines, setPrLines] = useStored<RowLines>(PR_ROWS_KEY, ROWS_STORED, 'one');
   const [todoLines, setTodoLines] = useStored<RowLines>(TODO_ROWS_KEY, ROWS_STORED, 'one');
+  const [scheduleLines, setScheduleLines] = useStored<RowLines>(SCHEDULE_ROWS_KEY, ROWS_STORED, 'one');
 
   // The age filter: worktrees and sessions active since the cutoff. Pinned worktrees always
   // show on the board and in the sidebar, and pinned sessions in Sessions.
@@ -1021,10 +1030,6 @@ export function App() {
   // lists shows in the peek instead (MainPanel.tsx `peekFromPanel`), and the canvas shows each
   // thing on its own card, so nothing there shows in another's place.
   const [drill, setDrill] = useState<Drill | null>(null);
-  const panelFrom = view !== 'canvas' && pickedRows.length === 0 ? (selected?.key ?? null) : null;
-  useEffect(() => {
-    if (drill && drill.from !== panelFrom) setDrill(null);
-  }, [drill, panelFrom]);
   /** A press on a list's row, before it selects the row. On the row whose panel shows a PR or
    *  worktree in its place, it brings the row's own panel back, which selecting a row that's
    *  selected already wouldn't. */
@@ -1038,7 +1043,25 @@ export function App() {
   const shownHarnessSchedules = useMemo(() => harnessSchedulesIn(harnessItems, allHomes, board?.lanes ?? [], current, query), [harnessItems, allHomes, board?.lanes, current, query]);
   // A harness's schedule selected, by its key, which no schedule of Codealong's has.
   const selectedHarness: HarnessSchedule | null = shownHarnessSchedules.find((h) => h.key === scheduleId) ?? null;
-  const selectedSchedule: ScheduleItem | null = selectedHarness ? null : (shownSchedules.find((x) => x.id === scheduleId) ?? firstSchedule(shownSchedules));
+  // As the view lists them (its View menu): sorted, and grouped by worktree or repo, the pinned
+  // ones first, as the other lists are.
+  const scheduleHomes = view === 'schedules' ? allHomes : null;
+  const scheduleListed = useMemo(
+    () =>
+      scheduleListing(shownSchedules, scheduleSort, {
+        by: scheduleGroup,
+        lanes: board?.lanes ?? [],
+        pinned: scheduleGroup === 'repo' ? repoPins.keys : lanePins.keys,
+        opened: openScheduleGroups,
+        whole: !!query,
+        // The one picked never folds away, wherever it goes as it's shown from a card, paused, or
+        // sorted or found otherwise; nor one with a session at work under it, which takes a look
+        // through every session, so only while Schedules shows.
+        awake: (x) => x.id === scheduleId || (!!scheduleHomes && scheduleAtWork(x, scheduleHomes)),
+      }),
+    [shownSchedules, scheduleSort, scheduleGroup, board?.lanes, repoPins.keys, lanePins.keys, openScheduleGroups, query, scheduleId, scheduleHomes],
+  );
+  const selectedSchedule: ScheduleItem | null = selectedHarness ? null : (shownSchedules.find((x) => x.id === scheduleId) ?? firstSchedule(scheduleListed));
   const scheduleSessionShown = !scheduleSession
     ? null
     : selectedHarness
@@ -1063,6 +1086,21 @@ export function App() {
       window.clearInterval(every);
     };
   }, [view]);
+  // What the panel beside the list shows, which what a chip or a group's heading shows in its
+  // place (`drill`) belongs to: the row selected, and in Schedules the schedule selected or the
+  // session shown under it.
+  const scheduleFrom = selectedHarness ?? selectedSchedule;
+  const panelFrom =
+    view === 'schedules'
+      ? scheduleFrom
+        ? `schedule:${selectedHarness?.key ?? selectedSchedule?.id}${scheduleSessionShown ? `/${scheduleSessionShown.session.key}` : ''}`
+        : null
+      : view !== 'canvas' && pickedRows.length === 0
+        ? (selected?.key ?? null)
+        : null;
+  useEffect(() => {
+    if (drill && drill.from !== panelFrom) setDrill(null);
+  }, [drill, panelFrom]);
   // In the Schedules view, that session is what the window's keys act on, as a row selected in a
   // list is elsewhere (mainKeys.ts): its worktree's shortcuts and a new session's place go by it.
   const scheduleRow = view === 'schedules' && scheduleSessionShown ? sessionItemOf(scheduleSessionShown) : null;
@@ -1197,6 +1235,8 @@ export function App() {
       setView('schedules');
       setScheduleId(r.id);
       setScheduleSession(null);
+      // Its own panel, not what a heading showed in its place.
+      setDrill(null);
       return;
     }
     // A todo the quick panel found: the Todo view, in its project.
@@ -2196,6 +2236,7 @@ export function App() {
   const groupActs = groupActsFor(true, toggleIn(setOpenGroups));
   const prGroupActs = groupActsFor(false, toggleIn(setOpenPrGroups));
   const todoGroupActs = groupActsFor(false, toggleIn(setOpenTodoGroups));
+  const scheduleGroupActs = groupActsFor(false, toggleIn(setOpenScheduleGroups));
   /** A repo's menu, on its heading: its page on GitHub, its pin, its name. */
   const repoMenu = (key: string, repo: RepoName) =>
     void showContextMenu(menus.repoMenu(repo, { report, pin: { label: repoPins.set.has(key) ? 'Unpin repo' : 'Pin repo', run: () => repoPins.toggle(key) } })).catch((e: unknown) => setToast(String(e)));
@@ -2551,7 +2592,7 @@ export function App() {
         {/* Where you are for the finds (findKeys.ts): ⌘F starts here, and ⌥⌘F filters the list from here, but not while a panel takes the whole window. */}
         <main ref={boardRef} className={cx('ca-board', view === 'canvas' && 'is-canvas', view === 'kanban' && 'is-kanban')} aria-label={VIEWS.find((v) => v.id === view)?.label} data-find={maxed ? undefined : 'window'}>
           {/* One strip in every view, so the find keeps the keyboard as the view changes under it. */}
-          {!loading && (view === 'sessions' || view === 'prs' || view === 'todo' || ((view === 'kanban' || view === 'canvas') && shownBoard) || findShown) && (
+          {!loading && (view === 'sessions' || view === 'prs' || view === 'todo' || view === 'schedules' || ((view === 'kanban' || view === 'canvas') && shownBoard) || findShown) && (
             <ListBar>
               {(view === 'kanban' || view === 'canvas') && shownBoard && (
                 <BoardBar board={shownBoard} project={shownBoard.project !== current ? shownBoard.project : null} layout={boardLayout} labels={todoStore.labels} onLayout={setView} onMenu={() => boardMenu()} onEdit={() => setBoardEdit({ board: shownBoard })} />
@@ -2597,6 +2638,14 @@ export function App() {
                     settings={[viewSetting('Sort', TODO_SORTS, todoSort, 'status', setTodoSort, byWords), viewSetting('Group', TODO_GROUPS, todoGroup, 'none', setTodoGroup, byWords), rowsSetting(TODO_ROWS, todoLines, setTodoLines)]}
                   />
                   {filterChips}
+                </ListTools>
+              )}
+              {view === 'schedules' && (
+                <ListTools label="How Schedules is listed">
+                  <ViewMenu
+                    label="How Schedules is listed"
+                    settings={[viewSetting('Sort', SCHEDULE_SORTS, scheduleSort, 'next', setScheduleSort, byWords), viewSetting('Group', SCHEDULE_GROUPS, scheduleGroup, 'none', setScheduleGroup, byWords), rowsSetting(SCHEDULE_ROWS, scheduleLines, setScheduleLines)]}
+                  />
                 </ListTools>
               )}
               {findShown && (
@@ -2686,7 +2735,10 @@ export function App() {
           )}
           {view === 'schedules' && board && !loading && (
             <SchedulesView
-              items={shownSchedules}
+              listing={scheduleListed}
+              groupActs={scheduleGroupActs}
+              sort={scheduleSort}
+              slim={scheduleLines === 'one'}
               harnessItems={shownHarnessSchedules}
               problem={board.schedulesProblem}
               now={now}
@@ -2705,11 +2757,14 @@ export function App() {
                   return next;
                 })
               }
+              // A press on the row whose panel shows a worktree in its place brings its own back.
               onSelect={(id) => {
+                pressRow(`schedule:${id}`, 'one');
                 setScheduleId(id);
                 setScheduleSession(null);
               }}
               onSelectSession={(id, p) => {
+                pressRow(`schedule:${id}/${p.session.key}`, 'one');
                 setScheduleId(id);
                 setScheduleSession(p.session.key);
               }}
@@ -2984,6 +3039,7 @@ export function App() {
             report={report}
             showSchedule={(id) => reveal.current({ kind: 'schedule', id })}
             scheduleSession={scheduleSessionShown && (selectedSchedule || selectedHarness) ? { ...scheduleSessionShown, back: { label: selectedHarness?.name ?? selectedSchedule?.name ?? '', onBack: () => setScheduleSession(null) } } : null}
+            scheduleFrom={view === 'schedules' && panelFrom ? { key: panelFrom, label: scheduleSessionShown?.session.title ?? selectedHarness?.name ?? selectedSchedule?.name ?? '' } : null}
             schedulePanel={
               selectedHarness ? (
                 <HarnessSchedulePanel item={selectedHarness} now={now} sessionOf={(key) => homes.get(key) ?? allHomes.get(key) ?? null} onShowSession={showSessionFromPanel} onOpen={() => openHarness(selectedHarness)} />

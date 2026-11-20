@@ -114,6 +114,9 @@ export interface ScheduleItem extends Schedule {
   here?: string;
   /** The folder it runs in here, when that's another than its own: this machine's checkout of its repo. */
   runsIn?: string;
+  /** The worktree it runs in here, by its id, its folder read as this machine has it (`~` your
+   *  home, a link followed): what Schedules groups it under (schedules.ts `scheduleLane`). */
+  worktree?: string;
   /** When it finished: one that runs once and has, or one whose times are over (schedules/mod.rs `spent`). */
   finished?: number;
   /** What its sessions show beside their titles (emblems.rs). Missing until it has one, and for

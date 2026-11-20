@@ -1,10 +1,10 @@
-// A list grouped by worktree or by repo: Group by, over Sessions, PRs and Todo. Each group heads
-// its rows once, under the heading of its first row, with all of its rows after it in the list's
-// order, so a heading counts only the rows under it for themselves. The sections a list folds
-// away (Done, Merged & closed) group among themselves, and rows with no worktree or repo go under
-// a heading of their own at the end of each section, rather than pulling every such row into one
-// group under the first one's heading. Pinned groups (the worktrees and repos pinned, the same in
-// every list) come first. A group lists `GROUP_SHOWN` rows and folds the rest until it's opened,
+// A list grouped by worktree or by repo: Group by, over Sessions, PRs, Todo and Schedules. Each
+// group heads its rows once, under the heading of its first row, with all of its rows after it in
+// the list's order, so a heading counts only the rows under it for themselves. The sections a list
+// folds away (Done, Merged & closed) group among themselves, and rows with no worktree or repo go
+// under a heading of their own at the end of each section, rather than pulling every such row into
+// one group under the first one's heading. Pinned groups (the worktrees and repos pinned, the same
+// in every list) come first. A group lists `GROUP_SHOWN` rows and folds the rest until it's opened,
 // but never one that waits on you. Pure, with tests (groups.test.ts); each list says how its rows
 // group (`units`), where each goes (`placeOf`) and which never fold (`awake`).
 

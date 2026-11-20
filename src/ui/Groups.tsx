@@ -1,9 +1,9 @@
-// A list's groups, wherever Group by groups one (Sessions, PRs, Todo; groups.ts): each group's
-// heading (a worktree's, a repo's, or the one over rows in neither), its rows as its list draws
-// them, the way to the ones folded away, and the pinned groups' section. In Sessions a worktree's
-// heading is a row, selected for its panel and picked with others, and the pinned groups are
-// dragged among themselves (`useGroupDrag`); in PRs and Todo a press on one shows the worktree's
-// panel in place of the one beside the list. A repo's has its menu everywhere.
+// A list's groups, wherever Group by groups one (Sessions, PRs, Todo, Schedules; groups.ts): each
+// group's heading (a worktree's, a repo's, or the one over rows in neither), its rows as its list
+// draws them, the way to the ones folded away, and the pinned groups' section. In Sessions a
+// worktree's heading is a row, selected for its panel and picked with others, and the pinned groups
+// are dragged among themselves (`useGroupDrag`); in PRs, Todo and Schedules a press on one shows
+// the worktree's panel in place of the one beside the list. A repo's has its menu everywhere.
 
 import type { ReactNode } from 'react';
 import type { GroupBy, ListGroup } from '../groups';

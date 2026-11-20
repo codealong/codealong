@@ -591,6 +591,11 @@ pub struct Item {
     /// repo, which is somewhere else (`place`).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub runs_in: Option<String>,
+    /// The worktree it runs in here, by its id (`place`): what the Schedules view groups it under,
+    /// its folder read as this machine has it (`~` your home, a link followed), which the view
+    /// can't do itself.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub worktree: Option<String>,
     /// When it finished, for the Schedules view's Finished: one that runs once and has (`once`),
     /// or one whose times are over, a `once <date>` time run or missed (`spent`).
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -934,6 +939,8 @@ pub fn items(file: &File, runs: &Runs, board: &Board, cfg: &Config, now: i64, zo
         .iter()
         .map(|s| {
             let track = runs.of.get(&s.id);
+            // Where it runs here, found once: it may read the disk (`worktree`).
+            let lane = place(s, board);
             // Checked as it was when its times were said: a time once that has since run isn't a
             // problem, and a finished one has none, as nothing will run it.
             let finished = s.finished_at.or_else(|| spent(s, track, now, zone));
@@ -985,7 +992,8 @@ pub fn items(file: &File, runs: &Runs, board: &Board, cfg: &Config, now: i64, zo
                 asked: runs.fired.iter().filter(|f| f.schedule == s.id).count(),
                 runs_on_words,
                 here,
-                runs_in: place(s, board).map(|l| l.path.clone()).filter(|p| std::path::Path::new(p) != crate::util::expand(s.run.folder.trim())),
+                runs_in: lane.map(|l| l.path.clone()).filter(|p| std::path::Path::new(p) != crate::util::expand(s.run.folder.trim())),
+                worktree: lane.map(|l| l.id.clone()),
                 finished,
                 emblem: None,
             }
@@ -1768,6 +1776,22 @@ mod tests {
         assert!(worktree(&board, "~/projects/atlas").is_none());
         let s = Schedule { run: Run { folder: "~/projects/atlas".into(), prompt: "Look".into(), ..Run::default() }, ..Schedule::default() };
         assert!(board_problem(&s, &board).is_some_and(|p| p.contains("isn't a worktree")));
+    }
+
+    /// The Schedules view groups a schedule under the worktree it runs in, which only the engine
+    /// can tell for a folder written from your home, as one your machines share writes it.
+    #[test]
+    fn the_view_is_told_the_worktree_a_folder_from_your_home_is() {
+        let path = crate::util::expand("~/projects/northwind-app").to_string_lossy().into_owned();
+        let lane = crate::model::Lane { id: path.clone(), path: path.clone(), ..crate::fixtures::lane(&path, Vec::new()) };
+        let board = Board { lanes: vec![lane], ..Board::default() };
+        let s = |folder: &str| Schedule { id: "s-1".into(), run: Run { folder: folder.into(), prompt: "Look".into(), ..Run::default() }, ..Schedule::default() };
+        let item = |s: Schedule| items(&File { schedules: vec![s], ..File::default() }, &Runs::default(), &board, &Config::default(), 1_790_000_000_000, &rule::tests::Fake::utc()).remove(0);
+        let shared = item(s("~/projects/northwind-app"));
+        // Where it runs is its own folder, so there's nothing to say of it but which worktree that is.
+        assert_eq!((shared.worktree.as_deref(), shared.runs_in.as_deref()), (Some(path.as_str()), None));
+        assert_eq!(item(s(&path)).worktree.as_deref(), Some(path.as_str()));
+        assert_eq!(item(s("~/projects/atlas")).worktree, None);
     }
 
     #[test]

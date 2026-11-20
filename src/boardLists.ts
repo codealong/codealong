@@ -360,6 +360,12 @@ export function harnessSchedulesIn(items: HarnessSchedule[], homes: ReadonlyMap<
 /** A session at work, or waiting on you: listed under its schedule whichever run it's from. */
 const SESSION_AT_WORK: readonly Session['status'][] = ['needs', 'error', 'working', 'unread'];
 
+/** Whether a schedule has a session at work or waiting on you under it: grouped, it never folds
+ *  away (schedules.ts `scheduleListing`), as such a session never does in Sessions. */
+export function scheduleAtWork(item: Pick<ScheduleItem, 'runs'>, homes: ReadonlyMap<string, Placed>): boolean {
+  return scheduleSessions(item, homes, false).rows.some((p) => SESSION_AT_WORK.includes(p.session.status));
+}
+
 /** The sessions listed under a schedule in the Schedules view (SchedulesView.tsx), as helpers are
  *  under the session they work for in Sessions: each one its runs started or sent to, the latest
  *  run's first, each followed by the sessions its agent started (what a triage found, handed on),

@@ -126,13 +126,13 @@ too. Sessions are pinned here, with ⌃⌘P or the right-click menu, and their p
 
 #### Grouped by worktree or repo
 
-Group, in View over Sessions, PRs and Todo, lists the rows that aren't pinned under their worktree or
+Group, in View over Sessions, PRs, Todo and Schedules, lists the rows that aren't pinned under their worktree or
 under their repo, or as one list, as it starts; each list keeps its own. Each worktree or repo
 heads its rows once, under the heading its first row is under: a worktree with a session that
 needs you is under Needs you, with all of its sessions in Sort's order, and a heading counts
 only the rows under it for themselves. A group lists five rows and folds the rest behind Show N
-more (never a session that waits on you or is working, a review asked of you, or a todo in
-progress or in review, and none while a search is on), and a helper is in its session's group,
+more (never a session that waits on you or is working, a review asked of you, a todo in
+progress or in review, or a schedule with such a session under it, and none while a search is on), and a helper is in its session's group,
 under it, wherever it works. A row selected while its group folds it away (shown from elsewhere,
 say) opens its group.
 
@@ -140,7 +140,12 @@ In PRs a PR is under the worktree here that holds it, or under its repo by its n
 Todo a todo is under the worktree its actions use (the first linked, else its newest session's).
 The ones in no worktree here go under No worktree here (No worktree in Todo), last in each
 section rather than pulled under the first one's heading, and Merged & closed (Done in Todo) stays
-folded, grouped among its own. Grouped, todos keep your order but aren't reordered by hand.
+folded, grouped among its own. Grouped, todos keep your order but aren't reordered by hand. In
+Schedules a schedule is under the worktree it runs in, or that of the session it sends to; one that
+starts a chat of its own is under No worktree, the one-offs and the finished are grouped among
+themselves, and the harnesses' own schedules aren't grouped. The schedule selected never folds
+away, wherever pausing it or another order takes it. A press on a worktree's heading shows the
+worktree in the schedule's panel's place, with the way back on its strip.
 
 A worktree's heading is one line of what belongs to the worktree: its name, then where it is (its
 device, its repo and its branch), Free when it's a reusable worktree new work can start in
@@ -1996,6 +2001,15 @@ runs started or sent to, each followed by the sessions it started (what a triage
 latest run's, and any other still at work or waiting on you, with the rest, archived ones too, a
 click away (List N more). One picked there shows its own panel in place of the schedule's, with the
 way back; Return or a double-click opens it where it lives, and its right-click menu is a session's.
+View, in the bar over the list, has Sort, Group (see [Grouped by worktree or
+repo](#grouped-by-worktree-or-repo)) and Rows, each kept as you leave it. Sort orders the schedules
+Codealong keeps, the one-offs among themselves: Next run, as it starts, puts the soonest next run
+first, then the ones that watch, wait for an event or are paused, as they were made; Last run the
+one that ran latest first; Added the newest first, each row's age then saying when it was added
+rather than when it last ran; Name from A to Z. The finished keep the latest to finish first, and
+the harnesses' own their order. On one line, as it starts, a row is the schedule's name and when it
+runs, with what it does and when it runs next at the line's end; on two, those are on a line of
+their own.
 The panel beside a schedule says when it runs on its first line, and when next at the start of the
 strip over it, and has its prompt, the session it keeps going, and its latest runs, each with why it ran and how it went (started, sent,
 went on, waiting, skipped, missed, failed) and its session a click away. Run now, Pause and Edit

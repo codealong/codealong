@@ -544,6 +544,12 @@ export const ICONS: Record<string, string[]> = {
   "M14 15a1 1 0 0 1 1 -1h4a1 1 0 0 1 1 1v4a1 1 0 0 1 -1 1h-4a1 1 0 0 1 -1 -1v-4",
   "M17 4l-3.5 6h7l-3.5 -6"
  ],
+ "sort-ascending-letters": [
+  "M15 10v-5c0 -1.38 .62 -2 2 -2s2 .62 2 2v5m0 -3h-4",
+  "M19 21h-4l4 -7h-4",
+  "M4 15l3 3l3 -3",
+  "M7 6v12"
+ ],
  "sort-descending-numbers": [
   "M4 15l3 3l3 -3",
   "M7 6v12",

@@ -4,6 +4,7 @@
 // engine's (src-tauri/src/schedules/); these only say it.
 
 import { resetsPhrase } from './format';
+import { groupRows, groupsOf, placeIn, type Grouped, type ListGroupBy } from './groups';
 import { homeOf, sessionHomes, type Placed } from './lanes';
 import { ALL_PROJECTS, laneGroups } from './quick';
 import type { DevicesView, Lane, Schedule, ScheduleItem, ScheduleOutcome, ScheduleRunsOn, ScheduleWhen } from './types';
@@ -101,28 +102,101 @@ export function runsOnce(s: Pick<Schedule, 'once' | 'when'>): boolean {
   return !!s.once || (s.when.kind === 'time' && /^[\s,]*once(?=[\s,]|$)/i.test(s.when.rule));
 }
 
-/** The Schedules view's lists: the schedules that go on running, as they come; the ones still to
- *  run that run once (`runsOnce`: a follow-up an agent left itself, mostly), apart so they don't
- *  crowd the rest, the next to come first and the ones with no time to say (a watch, an event, a
- *  paused one) after, as they come; and the finished ones, the latest to finish first, which the
- *  view folds away. */
-export function scheduleSections(items: ScheduleItem[]): { active: ScheduleItem[]; oneOff: ScheduleItem[]; finished: ScheduleItem[] } {
+/** How the Schedules view orders what it lists (its View menu, SchedulesView.tsx
+ *  `SCHEDULE_SORTS`): the next run soonest first, the latest run first, the newest first, or by
+ *  name. */
+export type ScheduleSort = 'next' | 'last' | 'added' | 'name';
+
+/** Smaller first, two that are the same (two never coming, say) kept in their order. */
+const ascending = (a: number, b: number) => (a === b ? 0 : a < b ? -1 : 1);
+
+/** When its time next comes, for the order: a watch's `nextAt` is its next look, not a run, and a
+ *  paused one's doesn't come. */
+const comes = (x: ScheduleItem) => (x.when.kind === 'time' && !x.paused ? (x.nextAt ?? Infinity) : Infinity);
+
+/** Each order as a comparison. The ones it can't tell apart (no time to say, never run) come in
+ *  the order they were made, which the file's isn't always: one your machines share is added to
+ *  it as it arrives. */
+const BY: Record<ScheduleSort, (a: ScheduleItem, b: ScheduleItem) => number> = {
+  next: (a, b) => ascending(comes(a), comes(b)),
+  last: (a, b) => ascending(-(a.runs[0]?.at ?? -Infinity), -(b.runs[0]?.at ?? -Infinity)),
+  added: (a, b) => ascending(-a.createdAt, -b.createdAt),
+  name: (a, b) => scheduleName(a).localeCompare(scheduleName(b), undefined, { sensitivity: 'base', numeric: true }),
+};
+const SORTED = (sort: ScheduleSort) => (a: ScheduleItem, b: ScheduleItem) => BY[sort](a, b) || ascending(a.createdAt, b.createdAt);
+
+/** The Schedules view's lists: the schedules that go on running; the ones still to run that run
+ *  once (`runsOnce`: a follow-up an agent left itself, mostly), apart so they don't crowd the
+ *  rest; each in the order picked (`ScheduleSort`), by default the next to come first and the
+ *  ones with no time to say (a watch, an event, a paused one) after, as they were made; and the
+ *  finished ones, the latest to finish first whatever the order, which the view folds away. */
+export function scheduleSections(items: ScheduleItem[], sort: ScheduleSort = 'next'): { active: ScheduleItem[]; oneOff: ScheduleItem[]; finished: ScheduleItem[] } {
   const running = items.filter((x) => x.finished == null);
-  // A watch's `nextAt` is its next look, not a run.
-  const comes = (x: ScheduleItem) => (x.when.kind === 'time' && !x.paused ? (x.nextAt ?? Infinity) : Infinity);
   return {
-    active: running.filter((x) => !runsOnce(x)),
-    // Array.prototype.sort is stable, so the ones without a time keep their order.
-    oneOff: running.filter(runsOnce).sort((a, b) => (comes(a) === comes(b) ? 0 : comes(a) - comes(b))),
+    active: running.filter((x) => !runsOnce(x)).sort(SORTED(sort)),
+    oneOff: running.filter(runsOnce).sort(SORTED(sort)),
     finished: items.filter((x) => x.finished != null).sort((a, b) => (b.finished ?? 0) - (a.finished ?? 0)),
   };
 }
 
-/** The schedule the view shows until one is picked: the first as it lists them, which is another
- *  than the first there is when that one runs once or is finished. */
-export function firstSchedule(items: ScheduleItem[]): ScheduleItem | null {
-  const { active, oneOff, finished } = scheduleSections(items);
-  return active[0] ?? oneOff[0] ?? finished[0] ?? null;
+/** One of the Schedules view's sections, as Group by groups them: the ones that go on running
+ *  (no heading), the one-offs, the finished. */
+export interface ScheduleSection {
+  id: 'active' | 'oneOff' | 'finished';
+  rows: ScheduleItem[];
+}
+
+/** What the Schedules view lists, in order: its sections, and grouped by worktree or repo
+ *  (groups.ts) when the view is, the pinned groups first with the ones that go on running, and
+ *  the one-offs and the finished each grouped among themselves. */
+export interface ScheduleListing {
+  sections: ScheduleSection[];
+  grouped: Grouped<ScheduleSection, ScheduleItem> | null;
+}
+
+export interface ScheduleGrouping {
+  by: ListGroupBy;
+  /** Every worktree on the board, for where each schedule runs (`scheduleLane`). */
+  lanes: Lane[];
+  /** The groups pinned, in your order: the same worktrees, or repos, lead every list. */
+  pinned: readonly string[];
+  /** The groups opened past `GROUP_SHOWN`. */
+  opened: ReadonlySet<string>;
+  /** A search found them: every group lists all of its own. */
+  whole: boolean;
+  /** One that never folds away: the one picked, or one with a session at work or waiting on you
+   *  under it (boardLists.ts `scheduleAtWork`). */
+  awake?: (item: ScheduleItem) => boolean;
+}
+
+export function scheduleListing(items: ScheduleItem[], sort: ScheduleSort, group: ScheduleGrouping): ScheduleListing {
+  const { active, oneOff, finished } = scheduleSections(items, sort);
+  const sections: ScheduleSection[] = [
+    { id: 'active', rows: active },
+    { id: 'oneOff', rows: oneOff },
+    { id: 'finished', rows: finished },
+  ];
+  const by = group.by;
+  const grouped =
+    by === 'none'
+      ? null
+      : groupRows(sections, by, (x) => placeIn(scheduleLane(x, group.lanes), by), {
+          pinned: group.pinned,
+          lanes: group.lanes,
+          empty: false,
+          opened: group.opened,
+          whole: group.whole,
+          awake: ([x]) => !!group.awake?.(x),
+          apart: (id) => id !== 'active',
+        });
+  return { sections, grouped };
+}
+
+/** The schedule the view shows until one is picked: the first it lists, which is another than the
+ *  first there is when that one runs once, is finished, or isn't in the first group. */
+export function firstSchedule(listing: ScheduleListing): ScheduleItem | null {
+  const rows = listing.grouped ? groupsOf(listing.grouped).flatMap((g) => g.rows) : listing.sections.flatMap((s) => s.rows);
+  return rows[0] ?? null;
 }
 
 /** The machines a schedule that runs on one of yours may prefer, for its dialog's menu: none in
@@ -234,14 +308,24 @@ export function sessionFolder(lanes: Lane[], key: string): string {
 
 /** The project a schedule is in, for the Schedules view to list it under: its worktree's, else
  *  the project of the session it sends to. None for a chat of its own, or a worktree that's gone. */
-export function scheduleProject(s: Pick<ScheduleItem, 'run' | 'runsIn' | 'orchestrates'>, lanes: Lane[]): string | null {
+export function scheduleProject(s: Pick<ScheduleItem, 'run' | 'runsIn' | 'worktree' | 'orchestrates'>, lanes: Lane[]): string | null {
   // An orchestrator's is the project it keeps watch over; All projects' is in none.
   if (s.orchestrates) return s.orchestrates.project ?? null;
+  return scheduleLane(s, lanes)?.project ?? null;
+}
+
+/** The worktree a schedule runs in, on this Mac: the one the engine found for its folder
+ *  (`worktree`: a folder written from your home, `~/code/atlas`, as one your machines share writes
+ *  it, is read only there), else the one at its folder's path, else the worktree of the session it
+ *  sends to. None for a chat of its own, or a worktree that's gone. What Group by puts it under,
+ *  and what says its project (`scheduleProject`). */
+export function scheduleLane(s: Pick<ScheduleItem, 'run' | 'runsIn' | 'worktree'>, lanes: Lane[]): Lane | null {
   const folder = s.runsIn ?? s.run.folder;
-  const lane = folder ? lanes.find((l) => !l.device && !l.startsChats && l.path === folder) : null;
-  if (lane) return lane.project;
+  const here = (l: Lane) => !l.device && !l.startsChats;
+  const lane = (s.worktree ? lanes.find((l) => here(l) && l.id === s.worktree) : undefined) ?? (folder ? lanes.find((l) => here(l) && l.path === folder) : undefined);
+  if (lane) return lane;
   const home = s.run.to === 'session' ? homeOf(lanes, s.run.session) : null;
-  return home && !home.lane.device && !home.lane.startsChats ? home.lane.project : null;
+  return home && !home.lane.device && !home.lane.startsChats ? home.lane : null;
 }
 
 /** Where a new schedule starts: the worktree selected, when it's in the project shown, else the

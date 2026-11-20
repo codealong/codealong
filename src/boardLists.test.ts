@@ -61,6 +61,7 @@ import {
   todoLabelOptions,
   togglePick,
   type Facets,
+  scheduleAtWork,
   scheduleSessions,
   schedulesIn,
   harnessSchedulesIn,
@@ -1442,6 +1443,10 @@ describe('the Schedules view’s list', () => {
     const archivedHead = sessionHomes([fx.lane({ id: '/w/app', sessions: [session('claude:claude:old', { archived: true, status: 'idle' }), started('claude:claude:busy', 'claude:claude:old', { status: 'working' })] })]);
     const later = { runs: [run('claude:claude:today', 2), run('claude:claude:old', 1)] };
     expect(scheduleSessions(later, archivedHead, false).rows.map((p) => p.session.key)).toEqual(['claude:claude:busy']);
+    // One with a session at work or waiting on you under it never folds away in its group.
+    expect(scheduleAtWork(triage, homes)).toBe(true);
+    expect(scheduleAtWork({ runs: [run('claude:claude:before', 1)] }, homes)).toBe(false);
+    expect(scheduleAtWork({ runs: [] }, homes)).toBe(false);
   });
 });
 

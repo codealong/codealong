@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { ALL_PROJECTS } from './quick';
-import { asksRunsOn, blankSchedule, doesWords, fireCommand, firstSchedule, newScheduleFolder, nextWords, preferOptions, runsOnce, scheduleBySession, scheduleLanes, scheduleName, scheduleOf, scheduleProject, scheduleSections, scheduleSessions, sessionFolder } from './schedules';
+import { asksRunsOn, blankSchedule, doesWords, fireCommand, firstSchedule, newScheduleFolder, nextWords, preferOptions, runsOnce, scheduleBySession, scheduleLane, scheduleLanes, scheduleListing, scheduleName, scheduleOf, scheduleProject, scheduleSections, scheduleSessions, sessionFolder, type ScheduleGrouping, type ScheduleSort } from './schedules';
 import * as fx from './testing/fixtures';
 import type { DevicesView, Schedule, ScheduleItem } from './types';
 
@@ -10,6 +10,10 @@ const HOUR = 3_600_000;
 function item(over: Partial<ScheduleItem>): ScheduleItem {
   return { ...blankSchedule('/Users/me/projects/northwind-app'), id: 's-1', name: 'Triage', whenWords: 'Weekdays at 9:00', runs: [], asked: 0, ...over };
 }
+
+const UNGROUPED: ScheduleGrouping = { by: 'none', lanes: [], pinned: [], opened: new Set(), whole: false };
+/** The view's first schedule, listed in that order with no groups. */
+const firstOf = (items: ScheduleItem[], sort: ScheduleSort = 'next') => firstSchedule(scheduleListing(items, sort, UNGROUPED))?.id;
 
 describe('schedules', () => {
   it('says when one runs next', () => {
@@ -80,14 +84,41 @@ describe('schedules', () => {
     const weekly = item({ id: 's-weekly', when: { kind: 'time', rule: 'mon 10:00' }, nextAt: NOW + 30 * 60_000 });
     const done = item({ id: 's-done', once: true, finished: 100 });
     const { active, oneOff, finished } = scheduleSections([daily, later, deploy, dated, paused, weekly, done]);
-    expect(active.map((x) => x.id)).toEqual(['s-daily', 's-weekly']);
+    // The ones that go on running come the same way, by default.
+    expect(active.map((x) => x.id)).toEqual(['s-weekly', 's-daily']);
     expect(oneOff.map((x) => x.id)).toEqual(['s-dated', 's-later', 's-deploy', 's-paused']);
     expect(finished.map((x) => x.id)).toEqual(['s-done']);
     // Until one is picked the view shows the first it lists, not the first there is.
-    expect(firstSchedule([done, later, dated, daily])?.id).toBe('s-daily');
-    expect(firstSchedule([done, later, dated])?.id).toBe('s-dated');
-    expect(firstSchedule([done])?.id).toBe('s-done');
-    expect(firstSchedule([])).toBeNull();
+    expect(firstOf([done, later, dated, daily])).toBe('s-daily');
+    expect(firstOf([done, later, dated])).toBe('s-dated');
+    expect(firstOf([done])).toBe('s-done');
+    expect(firstOf([])).toBeUndefined();
+  });
+
+  it('orders them as the View menu says, the finished the latest to finish first whatever it says', () => {
+    const run = (at: number) => ({ at, why: '9:00', outcome: 'started' as const, said: '' });
+    const watch = { kind: 'watch' as const, command: './deploys', every: '5m', mode: 'lines' as const };
+    const triage = item({ id: 's-triage', name: 'Triage', createdAt: 1, nextAt: NOW + 5 * HOUR, runs: [run(NOW - 3 * HOUR)] });
+    const deploys = item({ id: 's-deploys', name: 'deploys', createdAt: 2, when: watch, nextAt: NOW + 60_000, runs: [run(NOW - HOUR)] });
+    const standup = item({ id: 's-standup', name: 'Standup 10', createdAt: 3, nextAt: NOW + HOUR });
+    const paused = item({ id: 's-paused', name: 'Standup 9', createdAt: 4, nextAt: NOW + 30 * 60_000, paused: true, runs: [run(NOW - 2 * HOUR)] });
+    const done = item({ id: 's-done', name: 'Archive', createdAt: 5, finished: 100 });
+    const xs = [triage, deploys, standup, paused, done];
+    const order = (sort: ScheduleSort) => scheduleSections(xs, sort).active.map((x) => x.id);
+    // The next run first; a watch's next look and a paused one's time are no run, so they come
+    // after, as they were made.
+    expect(order('next')).toEqual(['s-standup', 's-triage', 's-deploys', 's-paused']);
+    // The latest run first, the ones that haven't run after.
+    expect(order('last')).toEqual(['s-deploys', 's-paused', 's-triage', 's-standup']);
+    expect(order('added')).toEqual(['s-paused', 's-standup', 's-deploys', 's-triage']);
+    // By name in any case, numbers as numbers: 9 before 10.
+    expect(order('name')).toEqual(['s-deploys', 's-paused', 's-standup', 's-triage']);
+    expect(scheduleSections(xs, 'name').finished.map((x) => x.id)).toEqual(['s-done']);
+    expect(firstOf(xs, 'name')).toBe('s-deploys');
+    // The ones it can't tell apart come as they were made, not as the file has them: one your
+    // machines share is added to it as it arrives.
+    const shared = item({ id: 's-shared', createdAt: 0, when: watch });
+    expect(scheduleSections([...xs, shared], 'next').active.map((x) => x.id)).toEqual(['s-standup', 's-triage', 's-shared', 's-deploys', 's-paused']);
   });
 
   it('saves whether it runs once', () => {
@@ -136,6 +167,58 @@ describe('schedules', () => {
   const chats = fx.lane({ id: 'chats', path: '/Users/me/.codealong/chats', project: 'No project', startsChats: true, sessions: [fx.session({ key: 'claude:claude:chat', lastActivity: fx.NOW - 30 * 60_000 })] });
   const lanes = [main, otter, atlas, away, hidden, chats];
   const sendsTo = (session: string, folder = ''): Pick<Schedule, 'run'> => ({ run: { ...blankSchedule(folder).run, to: 'session', session } });
+
+  it('runs in its worktree, else its session’s, on this Mac', () => {
+    expect(scheduleLane(blankSchedule('/w/atlas'), lanes)?.id).toBe('/w/atlas');
+    expect(scheduleLane(sendsTo('claude:claude:b'), lanes)?.id).toBe('/w/brave-otter');
+    expect(scheduleLane(sendsTo('claude:claude:b', '/w/atlas'), lanes)?.id).toBe('/w/atlas');
+    // A chat of its own, a chat's session, another Mac's, and one that's gone are in none here.
+    expect(scheduleLane(blankSchedule(''), lanes)).toBeNull();
+    expect(scheduleLane(sendsTo('claude:claude:chat'), lanes)).toBeNull();
+    expect(scheduleLane(sendsTo('@mini:claude:claude:e'), lanes)).toBeNull();
+    expect(scheduleLane(blankSchedule('/w/gone'), lanes)).toBeNull();
+  });
+
+  it('groups them under the worktree or repo each runs in, the pinned ones first', () => {
+    const at = (id: string, folder: string, over: Partial<ScheduleItem> = {}) => item({ ...blankSchedule(folder), id, name: id, whenWords: '', runs: [], asked: 0, ...over });
+    const xs = [
+      at('s-atlas', '/w/atlas', { nextAt: NOW + HOUR }),
+      at('s-chat', '', { nextAt: NOW + 2 * HOUR }),
+      at('s-otter', '/w/brave-otter', { nextAt: NOW + 3 * HOUR }),
+      at('s-app', '/w/app', { nextAt: NOW + 4 * HOUR }),
+      at('s-once', '/w/atlas', { once: true, nextAt: NOW + 5 * HOUR }),
+      at('s-done', '/w/atlas', { finished: 100 }),
+    ];
+    const grouping = (by: ScheduleGrouping['by'], pinned: string[] = []): ScheduleGrouping => ({ by, lanes, pinned, opened: new Set(), whole: false });
+    const heads = (l: ReturnType<typeof scheduleListing>) => l.grouped?.sections.map((s) => `${s.id}: ${s.groups.map((g) => `${g.key || 'none'} ${g.rows.map((x) => x.id).join(' ')}`).join(', ')}`);
+    expect(scheduleListing(xs, 'next', UNGROUPED).grouped).toBeNull();
+    // Each worktree once, in the order of its first; the one in none last; the one-offs and the
+    // finished grouped among themselves.
+    expect(heads(scheduleListing(xs, 'next', grouping('worktree')))).toEqual(['active: /w/atlas s-atlas, /w/brave-otter s-otter, /w/app s-app, none s-chat', 'oneOff: /w/atlas s-once', 'finished: /w/atlas s-done']);
+    // By repo, the worktrees of one repo are one group (the fixtures' are all acme/app's).
+    const byRepo = scheduleListing(xs, 'next', grouping('repo'));
+    expect(byRepo.grouped?.sections[0].groups.map((g) => g.rows.map((x) => x.id).join(' '))).toEqual(['s-atlas s-otter s-app', 's-chat']);
+    // A pinned worktree leads, and the view's first schedule is its first.
+    const pinned = scheduleListing(xs, 'next', grouping('worktree', ['/w/app']));
+    expect(pinned.grouped?.pinned.map((g) => g.rows.map((x) => x.id).join(' '))).toEqual(['s-app']);
+    expect(firstSchedule(pinned)?.id).toBe('s-app');
+    // A group lists five and folds the rest, but never one with a session at work under it.
+    const many = Array.from({ length: 7 }, (_, i) => at(`s-${i}`, '/w/atlas', { nextAt: NOW + i * HOUR }));
+    const folded = scheduleListing(many, 'next', { ...grouping('worktree'), awake: (x) => x.id === 's-6' });
+    const g = folded.grouped?.sections[0].groups[0];
+    expect(g?.rows.map((x) => x.id)).toEqual(['s-0', 's-1', 's-2', 's-3', 's-4', 's-6']);
+    expect(g?.folded).toBe(1);
+  });
+
+  it('runs in the worktree the engine found for a folder written from your home', () => {
+    const kestrel = fx.lane({ id: '/Users/me/code/kestrel', project: 'Kestrel' });
+    const theirs = fx.lane({ id: '/Users/sam/code/kestrel', project: 'Kestrel' });
+    const shared = { ...blankSchedule('~/code/kestrel'), worktree: '/Users/me/code/kestrel' };
+    expect(scheduleLane(shared, [theirs, kestrel])?.id).toBe('/Users/me/code/kestrel');
+    expect(scheduleProject(shared, [theirs, kestrel])).toBe('Kestrel');
+    // The view doesn't read `~` itself: which home it is is the engine's to say.
+    expect(scheduleLane(blankSchedule('~/code/kestrel'), [theirs, kestrel])).toBeNull();
+  });
 
   it('offers this Mac’s worktrees, not its chats', () => {
     expect(scheduleLanes(lanes).map((l) => l.id)).toEqual(['/w/app', '/w/brave-otter', '/w/atlas']);

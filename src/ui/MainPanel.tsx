@@ -28,7 +28,7 @@ import { repoReviews } from '../repoSettings';
 import { errorText, type Report } from '../report';
 import { scheduleBySession } from '../schedules';
 import type * as menus from '../menus';
-import type { ListRow } from '../boardLists';
+import { unarchived, type ListRow } from '../boardLists';
 import type { TodoItem, useTodoStore } from '../todos';
 import type { Board, DevicesView, Lane, Pr, PrItem, Session, TerminalGlance, Todo } from '../types';
 import type { WaitingQueue } from '../useWaitingQueue';
@@ -144,6 +144,9 @@ export interface MainPanelProps {
   /** A session selected under its schedule there, whose own panel shows in its place, with the
    *  way back to the schedule's. */
   scheduleSession: (Placed & { back: { label: string; onBack: () => void } }) | null;
+  /** What the Schedules view's panel shows (App.tsx `panelFrom`) and what its way back says: what
+   *  a worktree's heading over the list shows in its place belongs to it (`drill`). */
+  scheduleFrom: { key: string; label: string } | null;
   showTodoFromPanel: (todo: Todo) => void;
   laneMenu: (lane: Lane) => void;
   sessionMenu: (lane: Lane, s: Session, pin: 'session' | 'worktree') => void;
@@ -167,7 +170,7 @@ export interface MainPanelProps {
 }
 
 export function MainPanel(props: MainPanelProps) {
-  const { view, selected, selectedLane, canvasPicked, board, now, loading, laneById, homes, devices, projectTodos, todoStore, todoLinks, todosFor, prRowOf, pickedRows, picks, drill, setDrill, queue, views, boxFocus, panelMax, togglePanelMax, prPanelMax, togglePrPanelMax, actionsRef, open, newSession, newSessionPanel, showLaneFromPanel, showSessionFromPanel, showSchedule, schedulePanel, scheduleSession, showTodoFromPanel, laneMenu, sessionMenu, sessionMenuSpec, lanePrMenu, showPr, prMenu, prChipMenu, reviewMenuFrom, reviewedPr, setPreviewFor, setToast, report, findIn } = props;
+  const { view, selected, selectedLane, canvasPicked, board, now, loading, laneById, homes, devices, projectTodos, todoStore, todoLinks, todosFor, prRowOf, pickedRows, picks, drill, setDrill, queue, views, boxFocus, panelMax, togglePanelMax, prPanelMax, togglePrPanelMax, actionsRef, open, newSession, newSessionPanel, showLaneFromPanel, showSessionFromPanel, showSchedule, schedulePanel, scheduleSession, scheduleFrom, showTodoFromPanel, laneMenu, sessionMenu, sessionMenuSpec, lanePrMenu, showPr, prMenu, prChipMenu, reviewMenuFrom, reviewedPr, setPreviewFor, setToast, report, findIn } = props;
   const { startForTodo, startForTodos, todoMenu, todoLinkMenu, todoMoreMenu, labelMenu, projectsForTodos, duePick, duePicked, selectTodoRow, pickMenu, todoEdit, pickDueHere } = props.todo;
   // What the strip's Next goes by in this view, or why it goes nowhere.
   const viewQueue = views.strip(view);
@@ -400,7 +403,9 @@ export function MainPanel(props: MainPanelProps) {
     if (!drill || drill.from !== from) return null;
     const back = { label, onBack: () => setDrill(null) };
     if (drill.kind === 'lane') {
-      const lane = laneById.get(drill.key);
+      // Schedules' headings name this Mac's worktrees whichever machine the sidebar shows: one it
+      // leaves out is the board's, with its archived sessions left out as everywhere else.
+      const lane = laneById.get(drill.key) ?? unarchived((board?.lanes ?? []).filter((l) => l.id === drill.key))[0];
       return lane ? inspector(lane, null, back) : null;
     }
     const pr = board?.prs.find((p) => p.key === drill.key);
@@ -427,7 +432,7 @@ export function MainPanel(props: MainPanelProps) {
   })();
 
   return view === 'schedules' ? (
-    scheduleSession ? sessionPanel(scheduleSession.lane, scheduleSession.session, scheduleSession.back) : schedulePanel
+    ((scheduleFrom ? drilledPanel(scheduleFrom.key, middleTruncate(scheduleFrom.label, 40)) : null) ?? (scheduleSession ? sessionPanel(scheduleSession.lane, scheduleSession.session, scheduleSession.back) : schedulePanel))
   ) : view === 'canvas' ? (
     canvasPanel
   ) : view === 'todo' ? (
