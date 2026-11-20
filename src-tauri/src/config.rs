@@ -3,11 +3,14 @@
 //! in place, leaving the rest of the file, comments included, as you wrote it; its config.toml
 //! tab saves the text as typed, once it parses.
 //!
-//! Everything outside this file reads the settings with `current()`, and nothing there reads
-//! config.toml for itself. Codealong writes the file only from here: a setting changed in
-//! place goes through `update`, under the file's lock, which reads the text as it is then;
-//! Settings' config.toml tab saves the text as it was typed (`save_text`), whatever the file
-//! has become meanwhile.
+//! The settings to act on are `current()`'s: the last good ones, so a mistake in the file
+//! never leaves the app half working. What isn't `current()` is here for a reason of its own:
+//! `theme`, `zoom` and `shortcuts` read the file for the app as it opens, before there are
+//! settings to run on, and `codealong config check` reads the text it's asked to check
+//! (cli/setup.rs). Codealong writes the file only from here: a setting changed in place goes
+//! through `update`, under the file's lock, which reads the text as it is then; Settings'
+//! config.toml tab saves the text as it was typed (`save_text`), whatever the file has become
+//! meanwhile.
 
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};

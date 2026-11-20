@@ -19,24 +19,113 @@
 import { describe, expect, it } from 'vitest';
 
 const windows = import.meta.glob<string>(['./**/*.{ts,tsx}', '!./**/*.test.{ts,tsx}', '!./testing/**'], { query: '?raw', import: 'default', eager: true });
-// Not the files only tests build with (`fixtures.rs`, named by a `#[cfg(test)] mod` elsewhere).
-const engine = import.meta.glob<string>(['../src-tauri/src/**/*.rs', '../src-tauri/peer/src/**/*.rs', '!../src-tauri/**/fixtures.rs'], { query: '?raw', import: 'default', eager: true });
+const rust = import.meta.glob<string>(['../src-tauri/src/**/*.rs', '../src-tauri/peer/src/**/*.rs'], { query: '?raw', import: 'default', eager: true });
+
+/** The files only tests build with: a module another file names under `#[cfg(test)]`
+ *  (`mod fixtures;` in board.rs is board/fixtures.rs; lib.rs's is where its `#[path]` says). */
+function testOnly(files: Record<string, string>): Set<string> {
+  const out = new Set<string>();
+  const tidy = (p: string) => {
+    let was = '';
+    while (was !== p) [was, p] = [p, p.replace(/\/[^/.]+\/\.\.\//, '/')];
+    return p;
+  };
+  for (const [path, text] of Object.entries(files)) {
+    const beside = path.replace(/\/[^/]+$/, '');
+    // A file's modules are beside lib.rs, main.rs and mod.rs, and in a folder of its name otherwise.
+    const dir = /\/(?:lib|main|mod)\.rs$/.test(path) ? beside : path.replace(/\.rs$/, '');
+    for (const mod of text.replace(/\r\n/g, '\n').matchAll(/^[ \t]*#\[cfg\((?:all\()?test\b[^\]]*\]\n(?:[ \t]*#\[path = "([^"]+)"\]\n)?[ \t]*(?:pub(?:\([a-z]+\))? )?mod (\w+);/gm)) {
+      if (mod[1]) out.add(tidy(`${beside}/${mod[1]}`));
+      else out.add(`${dir}/${mod[2]}.rs`).add(`${dir}/${mod[2]}/mod.rs`);
+    }
+  }
+  return out;
+}
+const tests = testOnly(rust);
+const engine = Object.fromEntries(Object.entries(rust).filter(([path]) => !tests.has(path)));
 
 /** A file's name as the lists write it: from the repo's root. */
 const named = (path: string) => (path.startsWith('../') ? path.slice(3) : `src/${path.slice(2)}`);
 
-/** Source without its comments, which name the things the rules are about: block comments and
- *  `//` to the end of its line, wherever on a line they are. Strings are left in, so a rule's
- *  pattern is one a string wouldn't hold by chance (a member read, a call, an assignment). */
+/** Source without its comments, which name the things the rules are about: `//` to the end
+ *  of its line and block comments, wherever on a line they are. What's in quotes is kept whole,
+ *  so a `/*` or a `//` in a string (a glob, a URL) isn't taken for one. Quotes are followed a
+ *  line at a time: a string that runs over several lines is read as code from its second line,
+ *  and a lone apostrophe (a lifetime, a word in JSX) keeps the rest of its line as it is, both
+ *  of which leave text in rather than take it out. */
 function bare(source: string): string {
-  return source.replace(/\/\*[\s\S]*?\*\//g, '').replace(/\/\/.*$/gm, '');
+  const out: string[] = [];
+  let block = false;
+  for (const whole of source.replace(/\r\n/g, '\n').split('\n')) {
+    let line = whole;
+    if (block) {
+      const end = line.indexOf('*/');
+      if (end < 0) {
+        out.push('');
+        continue;
+      }
+      line = line.slice(end + 2);
+      block = false;
+    }
+    let kept = '';
+    let quote = '';
+    for (let i = 0; i < line.length; i++) {
+      const c = line[i];
+      if (quote) {
+        kept += c;
+        if (c === '\\') kept += line[++i] ?? '';
+        else if (c === quote) quote = '';
+      } else if (c === '"' || c === "'" || c === '`') {
+        quote = c;
+        kept += c;
+      } else if (c === '/' && line[i + 1] === '/') {
+        break;
+      } else if (c === '/' && line[i + 1] === '*') {
+        const end = line.indexOf('*/', i + 2);
+        if (end < 0) {
+          block = true;
+          break;
+        }
+        i = end + 1;
+      } else {
+        kept += c;
+      }
+    }
+    out.push(kept);
+  }
+  return out.join('\n');
 }
 
-/** A Rust file without its test modules: each `#[cfg(test)] mod … { … }`, up to the brace
- *  that closes it at the start of a line, wherever in the file it is (peer/src/api.rs has
- *  types after its tests). A module only named there (`#[cfg(test)] mod fixtures;`) is a line. */
+/** Where a line can start something of a file's own: what follows the brace that closes a
+ *  module, as against a `}` at the start of a line inside a string in it (a JSON fixture). */
+const ITEM = /^(?:pub\b|fn\b|struct\b|enum\b|impl\b|const\b|static\b|use\b|mod\b|type\b|trait\b|unsafe\b|extern\b|macro_rules!|#!?\[|\/\/|\/\*)/;
+
+/** A Rust file without its test modules: each `#[cfg(test)] mod … { … }` (`cfg(all(test, …))`
+ *  too), wherever in the file it is (peer/src/api.rs has types after its tests). The module ends
+ *  at a `}` that starts a line and is followed by the end of the file or by something of the
+ *  file's own (`ITEM`), which a brace in a raw string inside the tests isn't. A module only
+ *  named there (`#[cfg(test)] mod fixtures;`) is a line, and stays. */
 function untested(rust: string): string {
-  return rust.replace(/^#\[cfg\((?:all\()?test\b[^\]]*\]\s*\n(?:pub(?:\([a-z]+\))? )?mod \w+ \{\n[\s\S]*?\n\}\n?/gm, '');
+  const lines = rust.replace(/\r\n/g, '\n').split('\n');
+  const out: string[] = [];
+  for (let i = 0; i < lines.length; i++) {
+    const opens = /^#\[cfg\((?:all\()?test\b[^\]]*\]\s*$/.test(lines[i]) && /^(?:pub(?:\([a-z]+\))? )?mod \w+ \{\s*$/.test(lines[i + 1] ?? '');
+    if (!opens) {
+      out.push(lines[i]);
+      continue;
+    }
+    let end = i + 2;
+    for (; end < lines.length; end++) {
+      if (lines[end] !== '}') continue;
+      let next = end + 1;
+      while (next < lines.length && lines[next].trim() === '') next++;
+      if (next >= lines.length || ITEM.test(lines[next])) break;
+    }
+    i = end;
+    // The blank line that set the tests apart goes with them.
+    if (lines[i + 1] === '' && out[out.length - 1] === '') i++;
+  }
+  return out.join('\n');
 }
 
 /** The engine's module a file is part of: `src-tauri/src/board` for board.rs and board/prs.rs. */
@@ -68,12 +157,50 @@ function drift(found: Record<string, number>, allowed: Record<string, number>, i
 const within = (...homes: string[]) => (file: string) => homes.some((h) => (h.endsWith('/') ? file.startsWith(h) : file === h));
 
 describe('what the rules are read from', () => {
-  it('is the code, without its comments and its tests', () => {
+  it('is the code without its comments, and what quotes hold is left alone', () => {
     // A comment that names a thing isn't a use of it, and one before a use doesn't hide it.
-    expect(bare('/* localStorage */ localStorage.getItem(k); // e.metaKey\nconst a = 1; /* two\nlines */ b.ctrlKey')).toBe(' localStorage.getItem(k); \nconst a = 1;  b.ctrlKey');
-    // A test module goes wherever it is, and what comes after it stays.
-    const rust = 'fn a() {}\n#[cfg(test)]\nmod tests {\n    fn t() {\n    }\n}\nstruct After;\n#[cfg(all(test, unix))]\nmod unix_tests {\n    fn u() {}\n}\n#[cfg(test)]\nmod fixtures;\n';
-    expect(untested(rust)).toBe('fn a() {}\nstruct After;\n#[cfg(test)]\nmod fixtures;\n');
+    expect(bare('/* localStorage */ localStorage.getItem(k); // e.metaKey\nconst a = 1; /* two\nlines */ b.ctrlKey')).toBe(' localStorage.getItem(k); \nconst a = 1; \n b.ctrlKey');
+    // A glob or a URL in a string isn't a comment's start: what follows it is still read.
+    expect(bare('const hint = "github.com/owner/*";\nif (e.ctrlKey) go(); /* later */\nopen("https://example.com"); e.metaKey')).toBe('const hint = "github.com/owner/*";\nif (e.ctrlKey) go(); \nopen("https://example.com"); e.metaKey');
+    // Whatever a checkout's line endings are.
+    expect(bare('a(); // one\r\nb();\r\n')).toBe('a(); \nb();\n');
+  });
+
+  it('is a Rust file without its test modules, wherever they are', () => {
+    const rust = 'fn a() {}\n\n#[cfg(test)]\nmod tests {\n    fn t() {\n    }\n}\n\nstruct After;\n#[cfg(all(test, unix))]\nmod unix_tests {\n    fn u() {}\n}\n#[cfg(test)]\nmod fixtures;\n';
+    const without = 'fn a() {}\n\nstruct After;\n#[cfg(test)]\nmod fixtures;\n';
+    expect(untested(rust)).toBe(without);
+    expect(untested(rust.replace(/\n/g, '\r\n'))).toBe(without);
+    // A brace that starts a line in a raw string in the tests isn't the module's end.
+    expect(untested('fn a() {}\n#[cfg(test)]\nmod tests {\n    const J: &str = r#"{\n  "a": 1\n}\n"#;\n    fn t() {}\n}\nfn after() {}\n')).toBe('fn a() {}\nfn after() {}\n');
+    // An empty one takes nothing after it.
+    expect(untested('#[cfg(test)]\nmod tests {\n}\nfn after() {\n}\n')).toBe('fn after() {\n}\n');
+  });
+
+  it('is every file of the engine but the ones only tests build with, read the same whatever its line endings', () => {
+    const left = Object.keys(rust).filter((path) => !(path in engine)).map(named).sort();
+    expect(left).toEqual(['src-tauri/peer/src/fixtures.rs', 'src-tauri/src/board/fixtures.rs', 'src-tauri/src/launch/stage.rs', 'src-tauri/src/wiretypes.rs']);
+    // The readers against the code itself: a test left in after `untested` is a module it
+    // misread, and every rule below would count that file's tests as the engine's.
+    const said: string[] = [];
+    for (const [path, text] of Object.entries(engine)) {
+      const read = bare(untested(text));
+      if (/^\s*#\[(?:tokio::)?test\]/m.test(read)) said.push(`${named(path)} still has a test once its test modules are out: \`untested\` here misreads it.`);
+      if (bare(untested(text.replace(/\r?\n/g, '\r\n'))) !== read) said.push(`${named(path)} is read differently with other line endings.`);
+    }
+    expect(said).toEqual([]);
+  });
+
+  it('is a branch on a harness, not a session made of one', () => {
+    const branches = (rust: string) => rust.match(BRANCH)?.length ?? 0;
+    expect(branches('if s.harness == Harness::Codex { }')).toBe(1);
+    expect(branches('matches!(s.harness, Harness::Claude | Harness::Cursor)')).toBe(1);
+    expect(branches('match h { Harness::Claude | Harness::Codex => 1, _ => 2 }')).toBe(1);
+    // A match on more than the harness.
+    expect(branches('match (h, live) {\n    (Harness::Claude, true) => 1,\n    (Harness::Codex, _) => 2,\n    _ => 3,\n}')).toBe(2);
+    // Naming one to make a session decides nothing, in a branch's body either.
+    expect(branches('Session::new(Harness::Claude, "a", "b")')).toBe(0);
+    expect(branches('if matches!(kind, Kind::Chat) { Session::new(Harness::Claude, a, b) } else { other }')).toBe(0);
   });
 });
 
@@ -110,14 +237,20 @@ describe('the windows', () => {
   });
 
   it('remember things through stored.ts', () => {
+    // The storage itself, read or handed on (`window.localStorage`), not the word in a label.
     const allowed: Record<string, number> = {
+      'src/drafts.ts': 1,
       'src/savedViews.ts': 2,
       'src/ui/Peek.tsx': 1,
     };
-    const found = counted(windows, bare, /\blocalStorage\s*[.[]/g, within('src/stored.ts'));
+    const found = counted(windows, bare, /\b(?:window\.)?localStorage\b(?!["'`\w])/g, within('src/stored.ts'));
     expect(drift(found, allowed, 'What a window remembers goes through src/stored.ts (`useStored`, `readStored`, `writeStored`), which reads a value that can be missing or unreadable and keeps each key written one way.')).toEqual([]);
   });
 });
+
+/** Where the engine decides by which harness something is: a comparison, a `matches!` (its own
+ *  arguments, not what follows it), a match arm, alone or among other things matched. */
+const BRANCH = /(?:[=!]=\s*|\bmatches!\((?:[^()]|\([^()]*\))*?)Harness::[A-Z]\w+|Harness::[A-Z]\w+[^=;{}\n]*=>/g;
 
 describe('the engine', () => {
   // A harness's own module, and the one that hands out the adapters; codealong-peer only
@@ -125,14 +258,13 @@ describe('the engine', () => {
   const harnesses = (file: string) => /^src-tauri\/src\/(claude|codex|cursor|antigravity|opencode|acp|harness)$/.test(moduleOf(file)) || file.startsWith('src-tauri/peer/');
 
   it('asks the adapter instead of branching on a harness outside its module', () => {
-    // Where the code decides by which harness it is: a comparison, a `matches!`, a match arm.
     // Naming one to make a session of it (`Session::new(Harness::Claude, …)`) decides nothing.
-    const branch = /(?:[=!]=\s*|\bmatches!\([^;]*?)Harness::[A-Z]\w+|Harness::[A-Z]\w+(?:\s*\|\s*Harness::[A-Z]\w+)*\s*=>/g;
     const allowed: Record<string, number> = {
+      'src-tauri/src/board/headlines.rs': 2,
       'src-tauri/src/peerfeed.rs': 1,
       'src-tauri/src/start.rs': 1,
     };
-    const found = counted(engine, (rust) => bare(untested(rust)), branch, harnesses);
+    const found = counted(engine, (rust) => bare(untested(rust)), BRANCH, harnesses);
     expect(drift(found, allowed, "Nothing outside a harness's module branches on which harness it is: ask `harness::adapter(session.harness)` or `harness::of(account)`, with a method on `Adapter` for what differs (.claude/rules/adding-a-harness.md).")).toEqual([]);
   });
 
@@ -154,10 +286,16 @@ describe('the engine', () => {
     // A sign-in goes to curl as its config, never on a command line, and `-q`, first, keeps curl
     // from reading ~/.curlrc too, where a `trace` would write it to a file (http.rs, whose own
     // test sees the arguments as they're passed). Two of the three other places that run curl
-    // had left it out: this sees the first argument written after `http::curl()`.
+    // had left it out. This reads the first argument of the call `http::curl()` is handed to:
+    // `.arg("…")` or `.args(["…", …])` right after it, or the array beside it; arguments it
+    // can't see there (built up in a variable) fail too, since nothing then says `-q` is first.
     const said: string[] = [];
     for (const [path, text] of Object.entries(engine)) {
-      for (const run of bare(untested(text)).matchAll(/http::curl\(\)[\s\S]{0,160}?\[\s*"([^"]*)"/g)) {
+      const code = bare(untested(text));
+      const runs = code.match(/http::curl\(\)/g)?.length ?? 0;
+      const seen = [...code.matchAll(/http::curl\(\)\)?\s*(?:\.args?\(\s*\[?\s*|,\s*&\[\s*)"([^"]*)"/g)];
+      if (seen.length < runs) said.push(`${named(path)} runs curl with arguments this can't see where it's run: write them there, \`-q\` first (http.rs).`);
+      for (const run of seen) {
         if (run[1] !== '-q') said.push(`${named(path)} runs curl with ${run[1]} first: \`-q\` comes first, so curl doesn't read ~/.curlrc (http.rs).`);
       }
     }
