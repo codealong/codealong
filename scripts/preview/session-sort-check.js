@@ -34,7 +34,7 @@
   var headings = function () {
     return Array.prototype.map.call(document.querySelectorAll('.ca-sessionlist .ca-bay'), function (h) { return h.querySelector('span').textContent; });
   };
-  var STATUS_HEADS = ['Pinned', 'Needs you', 'Your turn', 'Working', 'Snoozed', 'Today', 'Yesterday', 'Last 7 days', 'Older'];
+  var STATUS_HEADS = ['Pinned', 'Needs you', 'Your turn', 'Working', 'Snoozed', 'Idle'];
   var DAY_HEADS = ['Pinned', 'Today', 'Yesterday', 'Last 7 days', 'Older'];
   // In that order, each once, none left out but those with nothing under them.
   var inOrderOf = function (heads, order) {
