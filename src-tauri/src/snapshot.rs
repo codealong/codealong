@@ -60,7 +60,7 @@ struct Mode {
 
 /// Every mode, in the order the line is looked through for them: the first one there runs.
 const MODES: &[Mode] = &[
-    Mode { flag: "--fixture", takes: "[bar | accounts | found | setup | config | start-options | skills [folder…] | editor-icons | shell-commands | transcript <session key> [--before <cursor>] | pending <session key>]", run: fixture },
+    Mode { flag: "--fixture", takes: "[name | bar | accounts | found | setup | config | start-options | skills [folder…] | editor-icons | shell-commands | transcript <session key> [--before <cursor>] | pending <session key>]", run: fixture },
     Mode { flag: "--pending", takes: "<session key>", run: pending },
     Mode { flag: "--answer", takes: "<session key> <id> <allow|deny|always> [answers to its questions, as JSON]", run: answer },
     // Before `--stop`, which is also its option (`OWN_OPTIONS`): after it, `--done <key> --stop`
@@ -130,9 +130,11 @@ const MODES: &[Mode] = &[
 /// this one (fixture.rs). `what` names the mode without its dashes: `bar`, `accounts`, `found`,
 /// `setup`, `config`, `start-options`, `skills [folder…]`, `editor-icons`, `shell-commands`, and
 /// for one of its sessions `transcript <session key> [--before <cursor>]` and `pending <session
-/// key>`; without one, the board. It reads nothing of this Mac's but the clock, so it's the same
-/// on every Mac: what `PREVIEW_FIXTURE=1 scripts/preview.sh` and `scripts/checks.sh --fixture`
-/// render.
+/// key>`; without one, the board. It reads nothing of this Mac's but the time and its time
+/// zone, so it's the same on every Mac: what `PREVIEW_FIXTURE=1 scripts/preview.sh` and
+/// `scripts/checks.sh --fixture` render. `name` prints what the made-up Mac is called and nothing else, which is how a script
+/// knows the engine it runs has one: a build from before it did took `--fixture` for nothing and
+/// printed this Mac's board.
 #[cfg(debug_assertions)]
 fn fixture(args: &Args, rest: &[String]) -> Done {
     use crate::fixture;
@@ -152,6 +154,7 @@ fn fixture(args: &Args, rest: &[String]) -> Done {
         None => Err(Stop::Usage),
     };
     Ok(match what {
+        "name" => fixture::NAME.to_string(),
         "board" => pretty(&board),
         "bar" => pretty(&barfeed::feed(crate::shown::Shown::here(&board))),
         "accounts" => pretty(&fixture::accounts()),

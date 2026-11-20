@@ -18,6 +18,12 @@
 //! Atlas, Kestrel), their repos and people, the folders under /Users/me. Nothing here may name
 //! a real project, repo, account or person.
 //!
+//! And nothing of the machine it's made on may be in it, or it isn't the same Mac everywhere:
+//! not its home folder, its temporary folder, its sounds or the day on its clock. Only the
+//! time it's given, and the time zone that time's day is counted in, which the page that shows
+//! it counts by too. A rule of the engine's that reads any of those is given the made-up Mac's
+//! in its place, or its answer is said here (`repo`, `board`, `config`); a test holds that.
+//!
 //! Only debug builds have it (`scripts/engine.sh` builds one): the app people install doesn't.
 //! And it's a Mac's, with a Mac's terminals in its settings, so only macOS prints it; its tests
 //! run as if on macOS wherever they run.
@@ -35,6 +41,10 @@ use crate::model::*;
 use crate::start::{ModelOption, StartAccount, StartOptions};
 use crate::todos::Todo;
 use crate::transcript::{self, Page};
+
+/// What the made-up Mac is called: `--snapshot --fixture name` prints it, and `scripts/preview.sh`
+/// takes an engine for one that has a made-up Mac only when it answers with it.
+pub const NAME: &str = "the made-up Mac";
 
 const MIN: i64 = 60_000;
 const HOUR: i64 = 60 * MIN;
@@ -131,9 +141,10 @@ const API_SLUG: &str = "northwind/northwind-api";
 const ATLAS_SLUG: &str = "atlas-labs/atlas-core";
 const SITE_SLUG: &str = "kestrel-hq/kestrel-site";
 
-/// The settings `CONFIG` holds.
+/// The settings `CONFIG` holds. Read, not checked as a saved config.toml is (`config::parse`):
+/// that asks the machine it runs on for its sounds and its terminals, and this Mac is made up.
 pub fn config() -> Config {
-    config::parse(CONFIG).expect("the fixture's config.toml parses")
+    config::load_text(CONFIG).expect("the fixture's config.toml parses")
 }
 
 /// A commit's short name for a branch, the same every time: a worktree's HEAD, and the commit a
@@ -144,9 +155,11 @@ fn head_of(branch: &str) -> String {
 }
 
 /// A repo's worktrees as the engine seeds them from its main checkout (engine.rs `load_repos`):
-/// the checkout at `root` on `main`, then each `(folder, branch)`. What each is called and how
-/// it was made are the engine's own rules for its folder (`repos::callsign`, `repos::origin`).
-fn repo(project: &str, slug: &str, root: &str, worktrees: &[(&str, &str)]) -> Vec<LaneSeed> {
+/// the checkout at `root` on `main`, then each `(folder, branch, who made it)`. What each is
+/// called is the engine's own rule for its folder (`repos::callsign`); who made it is said here,
+/// as `repos::origin` has it of such a folder on a Mac whose temporary folder is elsewhere: that
+/// rule reads `TMPDIR`, and nothing of the machine this runs on may change the made-up one.
+fn repo(project: &str, slug: &str, root: &str, worktrees: &[(&str, &str, Origin)]) -> Vec<LaneSeed> {
     let (owner, name) = slug.split_once('/').expect("a repo's slug is owner/name");
     let checkout = crate::repos::Checkout {
         root: PathBuf::from(root),
@@ -157,11 +170,11 @@ fn repo(project: &str, slug: &str, root: &str, worktrees: &[(&str, &str)]) -> Ve
         github_owners: vec![owner.into(), YOU.into()],
     };
     let home = Path::new(HOME);
-    std::iter::once(&(root, "main"))
+    std::iter::once(&(root, "main", Origin::Main))
         .chain(worktrees)
-        .map(|(path, branch)| LaneSeed {
+        .map(|(path, branch, origin)| LaneSeed {
             callsign: crate::repos::callsign(&checkout, Path::new(path), Some(*branch), home),
-            origin: crate::repos::origin(&checkout, Path::new(path), home),
+            origin: *origin,
             repo_slug: checkout.slug(),
             head_owners: checkout.github_owners.clone(),
             branch: Some(branch.to_string()),
@@ -178,42 +191,61 @@ fn elsewhere(path: &str, name: &str) -> LaneSeed {
 }
 
 fn seeds() -> Vec<LaneSeed> {
+    // Made by a script beside the checkout, but for one Claude Code made and one the Codex app did.
+    let script = Origin::Script;
     let app = [
-        (CHECKOUT, "checkout-flow"),
-        (SEARCH, "search-filters"),
-        (INVOICES, "invoice-export"),
-        (ONBOARDING, "onboarding-copy"),
-        (IMPORTS, "worktree-tidy-imports"),
-        (BILLING, "billing-retries"),
-        (LIMITS, "rate-limits"),
-        (FLAGS, "feature-flags"),
-        (NAV, "old-nav"),
-        (LEGACY, "legacy-cleanup"),
-        (SPARE, "spare"),
+        (CHECKOUT, "checkout-flow", script),
+        (SEARCH, "search-filters", script),
+        (INVOICES, "invoice-export", script),
+        (ONBOARDING, "onboarding-copy", script),
+        (IMPORTS, "worktree-tidy-imports", Origin::ClaudeApp),
+        (BILLING, "billing-retries", script),
+        (LIMITS, "rate-limits", script),
+        (FLAGS, "feature-flags", script),
+        (NAV, "old-nav", script),
+        (LEGACY, "legacy-cleanup", script),
+        (SPARE, "spare", script),
     ];
     let mut seeds = repo("Northwind", APP_SLUG, APP, &app);
-    seeds.extend(repo("Northwind", API_SLUG, API, &[(WEBHOOKS, "webhook-retries")]));
-    seeds.extend(repo("Atlas", ATLAS_SLUG, ATLAS, &[(IMPORTER, "csv-importer"), (DATES, "codex/fix-dates")]));
-    seeds.extend(repo("Kestrel", SITE_SLUG, SITE, &[(FORMS, "contact-form")]));
+    seeds.extend(repo("Northwind", API_SLUG, API, &[(WEBHOOKS, "webhook-retries", script)]));
+    seeds.extend(repo("Atlas", ATLAS_SLUG, ATLAS, &[(IMPORTER, "csv-importer", script), (DATES, "codex/fix-dates", Origin::Codex)]));
+    seeds.extend(repo("Kestrel", SITE_SLUG, SITE, &[(FORMS, "contact-form", script)]));
     // In no project: Codealong's own chats, always there to start one in, and a plain folder.
     seeds.push(LaneSeed { chats: true, starts_chats: true, ..elsewhere(CHATS, "Chats") });
     seeds.push(LaneSeed { exact: true, ..elsewhere(NOTES, "notes") });
     seeds
 }
 
-/// What the cast is built with: the time everything counts back from, and the settings.
+/// What the cast is built with: the time everything counts back from, the day that's on (days
+/// since 1970), and the settings.
 struct Cast {
     now: i64,
+    today: i64,
     cfg: Config,
 }
 
 impl Cast {
+    /// The day is `now`'s, read once, so a board made as midnight passes is all of one day: in
+    /// the time zone of the machine this runs on, which the page that shows it counts days in.
+    fn at(now: i64) -> Cast {
+        Cast { now, today: crate::schedules::day_of(now, &crate::schedules::rule::Local), cfg: config() }
+    }
+
+    fn harness_of(&self, account: &str) -> Harness {
+        let a = self.cfg.accounts.iter().find(|a| a.name == account).expect("an account of the fixture's config.toml");
+        Harness::from_config(&a.harness)
+    }
+
+    /// The key of `account`'s session called `id`: its harness, its account and `id`
+    /// (`claude:claude:checkout-approval`).
+    fn key(&self, account: &str, id: &str) -> String {
+        Session::key_for(self.harness_of(account), account, id)
+    }
+
     /// A session of `account` called `id`, started in `folder`, running in a terminal tab: last
     /// prompted and last active so many minutes ago, its status as old as its last activity.
-    /// Its key is its harness, its account and `id` (`claude:claude:checkout-approval`).
     fn session(&self, account: &str, id: &str, folder: &str, title: &str, status: Status, prompted: i64, active: i64) -> Session {
-        let a = self.cfg.accounts.iter().find(|a| a.name == account).expect("an account of the fixture's config.toml");
-        let known = Session::new(Harness::from_config(&a.harness), account, id);
+        let known = Session::new(self.harness_of(account), account, id);
         Session {
             status,
             live: true,
@@ -237,6 +269,11 @@ impl Cast {
         self.now - minutes * MIN
     }
 }
+
+/// The accounts their harness's own app runs: the ones in the folder it keeps (`~/.claude` the
+/// Claude app's, `~/.codex` the Codex app's), as the readers tell them (board/sessions.rs). A
+/// session of one in a terminal can be opened in the app too.
+const APP_ACCOUNTS: [&str; 2] = ["claude", "codex"];
 
 /// The model an account's sessions are on, as its harness names it in their records; none
 /// where it doesn't say.
@@ -277,10 +314,6 @@ fn in_app(s: Session, opens: &str) -> Session {
     Session { surface: Surface::App, pid: None, terminal: None, open_target: format!("s|{}|{opens}", s.key), ..s }
 }
 
-fn key_of(account: &str, harness: Harness, id: &str) -> String {
-    Session::key_for(harness, account, id)
-}
-
 /// A mode a Claude Code session in a terminal steps through with Shift+Tab.
 fn mode(kind: ModeKind, label: &str, detail: &str, id: &str) -> SessionMode {
     SessionMode::new(kind, label, detail).with_id(id)
@@ -294,7 +327,7 @@ fn mode(kind: ModeKind, label: &str, detail: &str, id: &str) -> SessionMode {
 /// of those is a helper or a run nobody is at, which have no row of their own.
 fn sessions(c: &Cast) -> Vec<Session> {
     let now = c.now;
-    let claude = |id: &str| key_of("claude", Harness::Claude, id);
+    let claude = |id: &str| c.key("claude", id);
     let modes = vec![
         mode(ModeKind::Asks, "Manual", "Asks before it edits files or runs commands.", "default"),
         mode(ModeKind::Edits, "Accept edits", "Edits files without asking, and asks before other commands.", "acceptEdits"),
@@ -319,7 +352,7 @@ fn sessions(c: &Cast) -> Vec<Session> {
         Session { stoppable: true, steerable: true, started_at: Some(c.ago(200)), ..opus(said(c.session("claude", "search-filters", SEARCH, "Add filters to search", Status::Working, 2, 0), "`npm run typecheck`")) },
         Session {
             background: Some("gh run watch".into()),
-            origin: Some(SessionOrigin { key: key_of("claude2", Harness::Claude, "search-ranking"), how: OriginHow::Started }),
+            origin: Some(SessionOrigin { key: c.key("claude2", "search-ranking"), how: OriginHow::Started }),
             ..said(c.session("codex", "search-index", SEARCH, "Rebuild the search index nightly", Status::Working, 25, 8), "Waiting on `gh run watch`")
         },
         Session { origin: Some(SessionOrigin { key: claude("search-filters"), how: OriginHow::Fork }), ..said(c.session("claude2", "search-ranking", SEARCH, "Rank exact matches first", Status::Unread, 70, 50), "Exact matches now sort first; the tests cover ties.") },
@@ -380,8 +413,7 @@ fn sessions(c: &Cast) -> Vec<Session> {
     ];
     for s in &mut sessions {
         s.resume_command = resume_of(&s.account, &s.id, s.surface == Surface::Cli);
-        // The Claude app is signed in to the first account's folder.
-        s.app_account = c.cfg.accounts.first().is_some_and(|a| a.name == s.account);
+        s.app_account = APP_ACCOUNTS.contains(&s.account.as_str());
         // As the engine does once nothing more is laid over a session.
         s.settle_need();
     }
@@ -441,7 +473,7 @@ fn prs(c: &Cast) -> HashMap<String, Vec<PrRaw>> {
         (
             APP_SLUG.to_string(),
             vec![
-                PrRaw { authored_by: Some(Harness::Claude), reviewers_asked: vec![DANA.into()], ..pr(c, APP_SLUG, 412, "Rewrite the onboarding copy", "onboarding-copy", PrState::Open, YOU, 290) },
+                PrRaw { authored_by: Some(c.harness_of("claude")), reviewers_asked: vec![DANA.into()], ..pr(c, APP_SLUG, 412, "Rewrite the onboarding copy", "onboarding-copy", PrState::Open, YOU, 290) },
                 PrRaw { merge: Merge::Blocked, ..pr(c, APP_SLUG, 415, "Tidy the imports", "worktree-tidy-imports", PrState::Draft, YOU, 410) },
                 pr(c, APP_SLUG, 409, "Retry failed charges with backoff", "billing-retries", PrState::Approved, YOU, 420),
                 PrRaw {
@@ -549,9 +581,8 @@ fn labels() -> Vec<Label> {
 /// The todos, as todos.json would hold them: under way with its session and worktree, due
 /// today, overdue, waiting on something, blocked by another, done, and one in no project.
 fn todos(c: &Cast) -> Vec<Todo> {
-    let today = crate::util::today_local();
-    let day = |from_today: i64| crate::util::day_key(today + from_today);
-    let export = key_of("claude", Harness::Claude, "invoice-export");
+    let day = |from_today: i64| crate::util::day_key(c.today + from_today);
+    let export = c.key("claude", "invoice-export");
     let list = json!([
         { "id": "t-export", "project": "Northwind", "title": "Export invoices as CSV", "description": "Finance asks for a CSV of each month's invoices.\n\nBehind a flag until they've tried it.", "status": "in-progress", "labels": ["l-billing"], "worktrees": [INVOICES], "sessions": [export], "primary": { "session": export, "since": c.ago(35) }, "createdAt": c.now - 3 * DAY, "updatedAt": c.ago(20) },
         { "id": "t-coupons", "project": "Northwind", "title": "Review the coupon codes PR", "description": "", "status": "todo", "labels": [], "due": day(0), "createdAt": c.now - 2 * DAY, "updatedAt": c.now - 2 * DAY },
@@ -575,7 +606,7 @@ fn editors() -> Vec<Profile> {
 /// The board, as the engine would compose it from this Mac's sessions, worktrees, PRs and todos
 /// at `now`.
 pub fn board(now: i64) -> Board {
-    let c = Cast { now, cfg: config() };
+    let c = Cast::at(now);
     let cfg = &c.cfg;
     let apps = AppNames {
         terminal: crate::launch::terminal_name(&cfg.apps.terminal),
@@ -591,7 +622,7 @@ pub fn board(now: i64) -> Board {
     let seeds = seeds();
     let prs = prs(&c);
     // The session that made the hero worked in the forms' worktree too.
-    let visitors = HashMap::from([(PathBuf::from(FORMS), vec![key_of("claude", Harness::Claude, "kestrel-hero")])]);
+    let visitors = HashMap::from([(PathBuf::from(FORMS), vec![c.key("claude", "kestrel-hero")])]);
     let previews = Previews { set: vec![crate::previews::Entry { worktree: ONBOARDING.into(), url: "http://localhost:5173".into(), port: None, chrome_profile: None, at: c.ago(300) }], ..Default::default() };
     let mut board = board::compose(Inputs {
         now,
@@ -620,6 +651,15 @@ pub fn board(now: i64) -> Board {
         machines: &Default::default(),
         at_merged: &HashSet::from([PathBuf::from(FLAGS)]),
     });
+    // Where a worktree's new terminal opens is written under this Mac's home (`~/projects/…`):
+    // the board's rule shortens it by the home of the machine it runs on (board/headlines.rs
+    // `targets`), which isn't /Users/me.
+    for lane in &mut board.lanes {
+        let here = crate::util::tilde_in(Path::new(&lane.path), Path::new(HOME));
+        for target in lane.targets.iter_mut().filter(|t| t.id == "l|terminal") {
+            target.detail = Some(here.clone());
+        }
+    }
     // What the engine lays over a composed board (engine.rs `compose`): what it read of the
     // accounts and GitHub, the settings the windows go by, the todos, and what follows from them.
     board.usage = usage(&c);
@@ -649,7 +689,7 @@ pub fn board(now: i64) -> Board {
     board.devices = cfg.devices.clone();
     board.project_rules = cfg.projects.clone();
     board.todos = crate::todos::awake_at(todos(&c), now);
-    board.today = crate::util::day_key(crate::util::today_local());
+    board.today = crate::util::day_key(c.today);
     board.todo_clock = crate::todos::todo_clock(&board.todos, now);
     board.labels = labels();
     board::settle_finished(&mut board.lanes, &board.prs, &board.todos);
@@ -723,7 +763,9 @@ pub fn start_options(board: &Board) -> StartOptions {
             account
         })
         .collect();
-    let claude = accounts.iter().find(|a| a.harness == Harness::Claude);
+    // The lists a device from before each account had its own reads: the first Claude Code
+    // account's (`start::options`).
+    let claude = accounts.iter().find(|a| a.name == "claude");
     StartOptions { claude_models: claude.map(|a| a.models.clone()).unwrap_or_default(), claude_efforts: claude.map(|a| a.efforts.clone()).unwrap_or_default(), accounts, ..Default::default() }
 }
 
@@ -984,15 +1026,15 @@ mod tests {
     fn what_a_session_waits_on_is_in_its_conversation() {
         // A Mac, wherever the tests run: its terminals and its shortcuts are macOS's.
         let _mac = crate::os::AsIf::new(crate::os::Os::MacOs);
-        let b = board(NOW);
-        let key = |id: &str| key_of("claude", Harness::Claude, id);
+        let (b, c) = (board(NOW), Cast::at(NOW));
+        let key = |id: &str| c.key("claude", id);
         let waits = pending(&b, &key("checkout-approval")).expect("it waits on a call");
         assert_eq!(waits.label, "Bash · `npm run db:migrate`");
         let conversation = page(&b, &key("checkout-approval"), None).unwrap();
         assert_eq!(conversation.items.last().and_then(|i| i.id.clone()), Some(waits.id));
         assert!(conversation.items.windows(2).all(|w| w[0].cursor < w[1].cursor));
         assert!(page(&b, &key("checkout-approval"), Some(100)).unwrap().items.is_empty());
-        assert!(!pending(&b, &key_of("claude2", Harness::Claude, "checkout-question")).unwrap().questions.is_empty());
+        assert!(!pending(&b, &c.key("claude2", "checkout-question")).unwrap().questions.is_empty());
         assert!(pending(&b, &key("forms-held")).is_some_and(|p| p.message && p.from_key.is_some()));
         assert_eq!(pending(&b, &key("search-filters")), None);
         assert_eq!(page(&b, "claude:claude:nobody", None), None);
@@ -1016,9 +1058,72 @@ mod tests {
         assert!(setup().accounts.iter().any(|a| !a.listed));
     }
 
+    /// The settings are read from `CONFIG` alone. Checked as a saved config.toml is, they'd be
+    /// held to the sounds and terminals of the machine the tests run on, as if it were a Mac:
+    /// a Linux or Windows runner has neither, and every test here would stop at that.
+    #[test]
+    fn the_settings_are_read_without_asking_the_machine() {
+        use crate::os::{as_if, Os};
+        for os in [Os::MacOs, Os::Linux, Os::Windows] {
+            let cfg = as_if(os, config);
+            assert_eq!((cfg.accounts.len(), cfg.projects.len(), cfg.apps.terminal.as_str()), (6, 3, "ghostty"), "{os:?}");
+            // And they're ones a config.toml can hold, by the checks that go by the settings alone.
+            assert_eq!((config::check_accounts(&cfg.accounts), config::check_routing(&cfg), config::check_projects(&cfg.projects), config::check_repos(&cfg)), (Ok(()), Ok(()), Ok(()), Ok(())), "{os:?}");
+        }
+    }
+
+    /// `scripts/preview.sh` believes an engine has a made-up Mac when `--snapshot --fixture
+    /// name` answers with its name, so the two have one name for it.
+    #[test]
+    fn preview_sh_knows_the_made_up_mac_by_its_name() {
+        let script = std::fs::read_to_string(std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../scripts/preview.sh")).expect("scripts/preview.sh");
+        assert!(script.contains(&format!("of=\"{NAME}\"")), "scripts/preview.sh doesn't ask for {NAME:?}");
+    }
+
+    /// The made-up Mac is the same wherever and whenever it's made: nothing in it comes from
+    /// the home folder, the temporary folder or the clock of the machine it's made on.
+    #[test]
+    fn nothing_of_the_machine_its_made_on_is_in_it() {
+        let _mac = crate::os::AsIf::new(crate::os::Os::MacOs);
+        let b = board(NOW);
+        // Who made each worktree is said, not worked out with this machine's `TMPDIR`.
+        let made = |path: &str| b.lanes.iter().find(|l| l.path == path).map(|l| l.origin);
+        assert_eq!([made(APP), made(CHECKOUT), made(IMPORTS), made(DATES), made(NOTES)], [Origin::Main, Origin::Script, Origin::ClaudeApp, Origin::Codex, Origin::Folder].map(Some));
+        // A new terminal opens under the made-up home, whatever the home here is.
+        for lane in &b.lanes {
+            let at = lane.targets.iter().find(|t| t.id == "l|terminal").and_then(|t| t.detail.as_deref());
+            assert!(at.is_some_and(|at| at.starts_with("~/")), "{}: {at:?}", lane.path);
+        }
+        // The day is `now`'s (months before these tests were written), not the clock's: the todo
+        // due today is due that day, and the overdue one two days before it.
+        let day = crate::schedules::day_of(NOW, &crate::schedules::rule::Local);
+        let due = |id: &str| b.todos.iter().find(|t| t.id == id).and_then(|t| t.due.clone());
+        assert_eq!((b.today.clone(), due("t-coupons"), due("t-keys")), (crate::util::day_key(day), Some(crate::util::day_key(day)), Some(crate::util::day_key(day - 2))));
+    }
+
+    /// The accounts in their harness's own folder are the ones its app runs (`~/.claude` the
+    /// Claude app's, `~/.codex` the Codex app's), so a session of one in a terminal opens in
+    /// the app too; one in a folder of its own doesn't.
+    #[test]
+    fn a_session_of_the_account_an_app_runs_opens_in_the_app_too() {
+        let _mac = crate::os::AsIf::new(crate::os::Os::MacOs);
+        let (b, c) = (board(NOW), Cast::at(NOW));
+        for s in b.lanes.iter().flat_map(|l| &l.sessions) {
+            assert_eq!(s.app_account, ["claude", "codex"].contains(&s.account.as_str()), "{}", s.key);
+        }
+        let ways = |account: &str, id: &str| -> Vec<String> {
+            let of = format!("s|{}|", c.key(account, id));
+            b.lanes.iter().flat_map(|l| &l.targets).filter(|t| t.id.starts_with(&of)).map(|t| t.label.clone()).collect()
+        };
+        // Codex in a terminal, on `~/.codex`; and Claude Code in one, on `~/.claude2`.
+        assert!(ways("codex", "rate-limits").iter().any(|w| w == "Open in Codex"), "{:?}", ways("codex", "rate-limits"));
+        assert!(!ways("claude2", "billing-retries").is_empty() && ways("claude2", "billing-retries").iter().all(|w| !w.contains("Claude app")), "{:?}", ways("claude2", "billing-retries"));
+    }
+
     /// `scripts/checks.sh --fixture` runs the runs scripts/preview/fixture-passes.txt lists, each
     /// named by a line of its check's own header. One whose check was renamed, or whose line
-    /// was changed there, would only fail the next time the gate ran: this says so sooner.
+    /// was changed there, would only fail the next time the gate ran: this says so sooner. And
+    /// a line that's run by hand on data picked for it (`<key>`) is never one the gate can run.
     #[test]
     fn every_run_the_gate_lists_is_a_line_of_its_checks_header() {
         let repo = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("..");
@@ -1027,6 +1132,7 @@ mod tests {
         assert!(!runs.is_empty(), "the gate lists no run");
         for (n, run) in runs.iter().enumerate() {
             assert!(!runs[..n].contains(run), "listed twice: {run}");
+            assert!(!run.contains('<'), "scripts/preview/fixture-passes.txt lists a run that's made by hand, which the gate can't run: {run}");
             let script = run.rsplit(' ').next().unwrap_or_default();
             let check = std::fs::read_to_string(repo.join(script)).unwrap_or_default();
             let said = check.lines().take_while(|l| l.starts_with("//")).any(|l| l.strip_prefix("//   ") == Some(*run));

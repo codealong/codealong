@@ -37,12 +37,14 @@ changed argument is written here in the same change.
 - `--snapshot --bar [--no-github]`: the floating bar's feed.
 - `--snapshot --checkout`: the checkout the binary was built from.
 - `--snapshot --improve`: where Improve Codealong starts (improve.rs), without the pictures.
-- `--snapshot --fixture [bar | accounts | found | setup | config | start-options | skills [folder…] | editor-icons | shell-commands | transcript <session key> [--before <cursor>] | pending <session key>]`:
+- `--snapshot --fixture [name | bar | accounts | found | setup | config | start-options | skills [folder…] | editor-icons | shell-commands | transcript <session key> [--before <cursor>] | pending <session key>]`:
   a made-up Mac's board in place of this one's (fixture.rs: three projects under `/Users/me`,
   sessions in every state, PRs, todos, usage), or with a mode's name what that mode prints for
   it. The same on every Mac, with its times counted back from now: what `scripts/checks.sh
   --fixture` and `PREVIEW_FIXTURE=1 scripts/preview.sh` render. Its sessions' keys read as
   what they are (`claude:claude:checkout-approval`). A debug build's only, and macOS's.
+  `name` prints `the made-up Mac` and nothing else: an engine from before it had one printed
+  this Mac's board for `--fixture`, so `scripts/preview.sh` asks for the name first.
 
 ## Accounts and settings
 
