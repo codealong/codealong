@@ -16,7 +16,7 @@ import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties, 
 import { showContextMenu, type MenuSpec } from './contextMenu';
 import { useEditorIcons } from './editors';
 import { homeOf, runsShownKey, sidesShownKey, type BoardRow, type Filter } from './lanes';
-import { answerLink, onCloseIdle, onCloseStale, onUsageMenu, onWebsiteMenu, onWindowToast, onNewWindow, onSetupMenu, onCheckUpdates, openConfig, openProjectWindow, openUrl, orderAccounts, refresh, refreshUsage, setPinned, setPinnedPrs, setPinnedRepos, setPinnedWorktrees, setTheme, setupNeeded, showQuick, stopTraining, spendReset, windowLabel, WEBSITE, type Reveal } from './api';
+import { answerLink, onCloseIdle, onCloseStale, onUsageMenu, onWebsiteMenu, onWindowToast, onNewWindow, onSetupMenu, onCheckUpdates, openProjectWindow, openUrl, orderAccounts, refresh, refreshUsage, setPinned, setPinnedPrs, setPinnedRepos, setPinnedWorktrees, setTheme, setupNeeded, showQuick, windowLabel, WEBSITE, type Reveal } from './api';
 import { count, middleTruncate } from './format';
 import * as menus from './menus';
 import { prRefOf } from './prLinks';
@@ -24,8 +24,7 @@ import { archiveAhead, reviewAhead, seenAhead } from './ahead';
 import { usePins } from './pins';
 import { tryAgain } from './review';
 import { itemPrimaryHolds, statusSection, todoAgent, todoPrompt, useTodoStore, type TodoItem, type TodoSort } from './todos';
-import type { Lane, Pr, PrItem, Session, SideGlance, TeamFile, Theme, Todo } from './types';
-import { showSide } from './side';
+import type { Lane, Pr, PrItem, Session, TeamFile, Theme, Todo } from './types';
 import { TERMINAL_WAIT_MS } from './terminals';
 import { useKeptSessions } from './kept';
 import { shortOf, type DeviceFilter } from './devices';
@@ -40,7 +39,6 @@ import { RenameDialog } from './ui/RenameDialog';
 import { SnoozeDialog } from './ui/SnoozeDialog';
 import { useMergeDone } from './ui/MergeDone';
 import { useDoneHelpers } from './ui/DoneHelpers';
-import type { HelperActions } from './ui/HelpersCard';
 import { Button, cx, Icon, Tabs } from './ui/primitives';
 import { ALL_PROJECTS, ProjectSwitcher } from './ui/ProjectSwitcher';
 import { ProjectShown } from './ui/ProjectSaid';
@@ -83,7 +81,6 @@ import { checkedSays, untilChecked } from './ui/Updates';
 import { newSavedId, sameView, savedViewMenu, type SavedView, type ViewState } from './savedViews';
 import { useNow } from './ui/useNow';
 import { errorText } from './report';
-import { afterStop } from './training';
 import { askWords, type SnoozeAsk } from './snooze';
 import { useSessionHistory } from './history';
 import { inOrder, queueKinds } from './queue';
@@ -96,7 +93,11 @@ import { useDeviceLanes, useDevices, useObserve } from './useDevices';
 import { useTextSearch } from './useTextSearch';
 import { useLatest } from './latest';
 import { reorderKey, useMainKeys } from './mainKeys';
+import { accountActsOf } from './accountActs';
+import { cardActsOf } from './canvas/cardActs';
 import { laneCanOf, sessionCanOf, type MainHas } from './mainCan';
+import { helperActsOf } from './mainHelpers';
+import { panelKindOf, selectedRow, shownSessionOf } from './mainSelection';
 import { groupActsOf, type GroupsHas } from './mainGroups';
 import { AGES, FIND_IN, READING, VIEWS, VIEWS_SANS_BOARDS, type Age, type View } from './mainViews';
 import { ageAppliesIn, listFiltersOf, pickNamesOf, sideBoardsOf, sideFacetsOf, sideFiltersOf, sideStatusesOf, sideViewsOf, viewSuggestionOf, type FiltersOn } from './sideLists';
@@ -123,7 +124,7 @@ import { NewSessionPanel } from './ui/NewSession';
 import { ListenHost } from './ui/Listening';
 import { MeetingOffered } from './ui/Meeting';
 import { MeetingsDialog } from './ui/Meetings';
-import { ageListingChain, ageListingPr, cardMatches, chainOf, columnShown, currentProject, facetsIn, facetsOn, labelPick, onlyPick, prInDone, revealing, unarchived, scheduleSessions, sessionInFacets, sessionItemOf, sessionItemsOf, showingHelper, togglePick, toggleShown, useBoardLists, projectsOf, type Facets, type KanbanColumn } from './boardLists';
+import { ageListingChain, ageListingPr, cardMatches, chainOf, columnShown, currentProject, facetsIn, facetsOn, labelPick, onlyPick, prInDone, revealing, unarchived, scheduleSessions, sessionItemOf, sessionItemsOf, togglePick, toggleShown, useBoardLists, projectsOf, type Facets, type KanbanColumn } from './boardLists';
 import { inProject } from './quick';
 import { CODEALONG_REPO } from './improve';
 import { bare, keysIn } from './platform';
@@ -638,7 +639,7 @@ export function App() {
   // PR that leaves it stays the same way: one you merge moves under Merged & closed, folded,
   // as you confirm it (ahead.ts `mergeAhead`), and its panel says how the merge went. A session
   // you're moving stays in Sessions' panel as it was until its copy takes its place (`moving`).
-  const [selectedLaneId, selectedSessionKey] = selectedKey?.split('::') ?? [];
+  const [, selectedSessionKey] = selectedKey?.split('::') ?? [];
   const held = view === 'sessions' && moving && moving.from.session.key === selectedSessionKey ? moving.from : undefined;
   // In Sessions, a worktree selected by its id is selected whether the list has its heading or not
   // (one shown from elsewhere, `focusLane`, in a list not grouped by worktree or with no session of
@@ -647,16 +648,7 @@ export function App() {
     const lane = view === 'sessions' && selectedKey && !selectedKey.includes('::') ? laneById.get(selectedKey) : undefined;
     return lane ? headItem(lane) : undefined;
   }, [view, selectedKey, laneById]);
-  const selected =
-    visible.find((r) => r.key === selectedKey) ??
-    (view === 'todo' || (view === 'kanban' && selectedKey?.startsWith('todo:'))
-      ? todoItems.find((r) => r.key === selectedKey)
-      : view === 'prs'
-        ? prRows.find((r) => r.key === selectedKey)
-        : (visible.find((r) => r.kind === 'agent' && r.session.key === selectedSessionKey) ?? held ?? chosenLane ?? visible.find((r) => r.kind !== 'pr' && r.kind !== 'todo' && r.lane.id === selectedLaneId))) ??
-    visible.find((r) => r.kind === 'agent') ??
-    visible[0] ??
-    null;
+  const selected = selectedRow(view, selectedKey, visible, { todoItems, prRows, held, chosenLane });
   // With nothing picked yet (the window just opened, or you changed projects) the panel shows
   // the top session (grouped, not its worktree's heading), and it holds there: a session that
   // comes to the top later doesn't take it.
@@ -1159,16 +1151,7 @@ export function App() {
   // Back and forward through the sessions you looked at (history.ts): the one whose conversation
   // the panel shows, in Sessions, under a schedule, or as the canvas's selected card. One a PR's or
   // todo's panel shows in the peek isn't among them: the panel stays on the PR or todo.
-  const shownSession =
-    view === 'schedules'
-      ? (scheduleSessionShown?.session.key ?? null)
-      : view === 'sessions' || (view === 'kanban' && !drill)
-      ? selected?.kind === 'agent'
-        ? selected.session.key
-        : null
-      : view === 'canvas' && canvasSel?.ref === 'session'
-        ? canvasSel.key
-        : null;
+  const shownSession = shownSessionOf(view, { scheduleSession: scheduleSessionShown?.session.key ?? null, drilled: !!drill, selected, canvasSel });
   // Where ⌃` opens a terminal (mainKeys.ts): in the folder of that session, or of the session whose
   // line is selected on the board, else of the worktree a new session would start in.
   const terminalAt = useMemo(() => {
@@ -1342,50 +1325,12 @@ export function App() {
   const sessionCan = (lane: Lane, s: Session, pin: 'session' | 'worktree') => sessionCanOf(mainHas, lane, s, pin);
   const sessionMenuSpec = (lane: Lane, s: Session, pin: 'session' | 'worktree'): MenuSpec => menus.sessionMenu(lane, s, sessionCan(lane, s, pin));
   const sessionMenu = (lane: Lane, s: Session, pin: 'session' | 'worktree') => void showContextMenu(sessionMenuSpec(lane, s, pin)).catch((e: unknown) => setToast(String(e)));
-  // A helpers chip's card (HelpersCard.tsx): a helper shown in Sessions, under its session, which
-  // lists it first when it doesn't yet (a finished one), with its conversation in the panel;
-  // opened where it runs, listed so too, since one Codealong runs opens in its panel here; its
-  // menu.
-  const helperRow = (key: string): SessionItem | null => {
-    const home = homes.get(key);
-    return home ? sessionItemOf(home) : null;
-  };
-  // A side conversation's row under its session, or a row of its chip's card: the session
-  // selected, and the side conversation above its box, which takes what's typed.
-  const showSideOf = (key: string, side: SideGlance) => {
-    // An archived session's chip shows its side conversations too.
-    const r = helperRow(key) ?? archivedItems.find((x) => x.session.key === key);
-    if (r) picks.sessions.select(r, 'one');
-    showSide(key, side);
-    focusBox();
-  };
-  /** A helper shown from its session's chip runs on an account Agents may leave out, or wears none
-   *  of the labels picked: then it shows them all, as showing a row from elsewhere clears what
-   *  would hide it. */
-  const unhide = (r: SessionItem) => {
-    if (!sessionInFacets(r, facets)) setFacets((f) => ({ ...f, agents: [], sessionLabels: [] }));
-  };
-  const helperActions: HelperActions = {
-    show: (key) => {
-      const r = helperRow(key);
-      if (!r) return;
-      unhide(r);
-      setHelpersShownList((prev) => showingHelper(prev, sessionRows, r, sessionItemsOf(lanes)));
-      picks.sessions.select(r, 'one');
-      focusBox();
-    },
-    open: (key) => {
-      const r = helperRow(key);
-      if (!r) return;
-      unhide(r);
-      setHelpersShownList((prev) => showingHelper(prev, sessionRows, r, sessionItemsOf(lanes)));
-      openRow(r);
-    },
-    menu: (key) => {
-      const r = helperRow(key);
-      if (r) sessionMenu(r.lane, r.session, 'session');
-    },
-  };
+  // A helpers chip's card (HelpersCard.tsx, mainHelpers.ts): a helper shown in Sessions, under its
+  // session, which lists it first when it doesn't yet (a finished one), with its conversation in
+  // the panel; opened where it runs, listed so too, since one Codealong runs opens in its panel
+  // here; its menu. And a side conversation's row under its session, or a row of its chip's card:
+  // the session selected, and the side conversation above its box, which takes what's typed.
+  const { showSideOf, helperActions } = helperActsOf({ homes, archivedItems, picks, focusBox, facets, setFacets, setHelpersShownList, sessionRows, lanes, openRow, sessionMenu });
 
   /** A worktree's right-click menu, as every window has it (menus.ts), with this window's own. */
   const laneCan = (lane: Lane) => laneCanOf(mainHas, lane);
@@ -1584,67 +1529,19 @@ export function App() {
   // In the switcher, the button on the project you're looking at does the same (its tooltip
   // says ⌘⇧N); on another project it brings that project's window forward if it has one.
   const switcherWindow = (name: string) => openWindow(name, name === current);
-  const editConfig = () => {
-    openConfig().catch((e: unknown) => setToast(String(e)));
-  };
-  const startSignIn = (account: string) => {
-    menus.signInTo(account).then(setToast, (e: unknown) => setToast(String(e)));
-  };
-  // The card it was asked from has gone by the time it's done, so how it went is a toast.
-  const turnOffTraining = (account: string) => {
-    track(`Turning off training for ${account}…`, stopTraining(account)).then(
-      (after) => setToast(afterStop(after) ?? `Training is off for ${account}.`),
-      (e: unknown) => setToast(errorText(e)),
-    );
-  };
-  const resetLimits = (account: string, credit?: string) => {
-    track(`Resetting ${account}’s limits…`, spendReset(account, credit)).then(
-      (used) => setToast(used.message),
-      (e: unknown) => setToast(errorText(e)),
-    );
-  };
+  // What the usage bar, its notices and Settings ask for an account (accountActs.ts): each says how
+  // it went in a toast.
+  const { editConfig, startSignIn, turnOffTraining, resetLimits } = accountActsOf({ setToast, track });
 
-  /** Opens a card on the canvas where it lives, as a double-click on its row would. */
-  const openCard = (it: RefItem) => {
-    const e = canvasEntities;
-    if (it.ref === 'worktree') {
-      const lane = e.lanes.get(it.key);
-      if (lane) open(lane, lane.defaultTarget);
-    } else if (it.ref === 'session') {
-      const p = e.sessions.get(it.key);
-      if (p) open(p.lane, p.session.openTarget);
-    } else if (it.ref === 'todo') {
-      openRow(todoItems.find((r) => r.todo.id === it.key) ?? null);
-    } else {
-      const pr = e.prs.get(it.key);
-      if (pr) openUrl(pr.url).catch((err: unknown) => setToast(String(err)));
-    }
-  };
+  // What a card on the canvas does (canvas/cardActs.ts): opened where it lives, as a double-click on
+  // its row would, and its right-click menu, the one its row has in the other views.
+  const { openCard, cardMenu } = cardActsOf({ canvasEntities, todoItems, open, openRow, setToast, laneMenuSpec, sessionMenuSpec, todoMenuSpec, prMenuSpec, prRowOf, showTodo });
 
   /** Whether a card matches the list's find and the status filter, as its row would in its own view. */
   const canvasMatches = useCallback(
     (it: RefItem) => cardMatches(it, canvasEntities, todoItems, prRowOf, query, textSearch.said, bayFilter, since),
     [canvasEntities, todoItems, query, textSearch.said, bayFilter, since, prRowOf],
   );
-
-  /** A card's right-click menu: the one its row has in the other views. */
-  const cardMenu = (it: RefItem): MenuSpec => {
-    const e = canvasEntities;
-    if (it.ref === 'worktree') {
-      const lane = e.lanes.get(it.key);
-      return lane ? laneMenuSpec(lane) : [];
-    }
-    if (it.ref === 'session') {
-      const p = e.sessions.get(it.key);
-      return p ? sessionMenuSpec(p.lane, p.session, 'session') : [];
-    }
-    if (it.ref === 'todo') {
-      const r = todoItems.find((x) => x.todo.id === it.key);
-      return r ? [...todoMenuSpec(r), 'separator', { label: 'Show in Todo', run: () => showTodo(r.todo) }] : [];
-    }
-    const pr = e.prs.get(it.key);
-    return pr ? prMenuSpec(prRowOf(pr)) : [];
-  };
 
   // In the canvas's panel, a worktree or todo it links to is shown on the canvas when it's there.
   const showLaneFromPanel = (lane: Lane) => {
@@ -1689,21 +1586,7 @@ export function App() {
   // The Board view with no board to show: nothing can be selected, so it has no panel.
   const boardless = (view === 'kanban' || view === 'canvas') && !shownBoard;
   // Which panel is on the right, for its width: the view's own, or on the canvas the selected card's.
-  const panelKind = boardless
-    ? null
-    : view === 'schedules'
-      ? scheduleSessionShown
-        ? 'session'
-        : 'schedule'
-      : view === 'canvas'
-      ? (canvasPick?.kind ?? null)
-      : view === 'prs'
-        ? 'pr'
-        : view === 'todo' || (view === 'kanban' && selected?.kind !== 'agent')
-          ? 'todo'
-          : (view === 'sessions' || view === 'kanban') && selected?.kind === 'agent'
-            ? 'session'
-            : 'lane';
+  const panelKind = panelKindOf(view, { boardless, scheduleSession: !!scheduleSessionShown, canvasKind: canvasPick?.kind ?? null, selectedKind: selected?.kind });
   const panelWidth = { pr: prPanelWidth, todo: todoPanelWidth, session: sessionPanelWidth, schedule: schedulePanelWidth, lane: inspectorWidth };
   const setPanelWidth = { pr: setPrPanelWidth, todo: setTodoPanelWidth, session: setSessionPanelWidth, schedule: setSchedulePanelWidth, lane: setInspectorWidth };
   // The panel takes the whole window: one session's in Sessions, one PR's in PRs (⇧⌘F).

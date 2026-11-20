@@ -492,7 +492,7 @@ describe('no source file outgrows what one reading can hold', { timeout: 300_000
 
   it('in the windows: 1,200 lines', () => {
     const allowed: Record<string, number> = {
-      'src/App.tsx': 2600,
+      'src/App.tsx': 2400,
       'src/ahead.ts': 1400,
       'src/api.ts': 2600,
       'src/boardLists.ts': 1500,
