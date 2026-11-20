@@ -71,8 +71,10 @@ jobs:
           git rev-parse HEAD > "$RUNNER_TEMP/tested/commit"
           checks=true
           if [ "$EVENT" = push ]; then
-            # The last run on main that passed, and the commit it says it checked.
-            run="$(gh run list --workflow checks.yml --branch main --status success --limit 1 --json databaseId --jq '.[0].databaseId // empty' || true)"
+            # The last run on main that passed, and the commit it says it checked. Main's own:
+            # a list by branch also has a fork's pull request from a branch it calls main,
+            # which runs the fork's copy of this file and says what it likes.
+            run="$(gh api "repos/$GITHUB_REPOSITORY/actions/workflows/checks.yml/runs?branch=main&status=success&per_page=30" --jq "[.workflow_runs[] | select(.head_repository.full_name == \"$GITHUB_REPOSITORY\" and (.event == \"push\" or .event == \"schedule\" or .event == \"workflow_dispatch\"))][0].id // empty" || true)"
             passed=""
             if [ -n "$run" ]; then
               passed="$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$run/artifacts" --jq '[.artifacts[].name | select(startswith("tested-"))][0] // empty' || true)"

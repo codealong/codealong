@@ -181,9 +181,10 @@ step git commit -q -m first
 step git push -q origin main
 
 # GitHub, as the script asks it. What gh would have cut out of its answer with --jq is what
-# this prints: where a pull request stands as "state queue merged gate asked head". The files
-# the test leaves say how its queue goes: "fail" puts the pull request out once it has been
-# seen in the queue, "gone" before anyone sees it there, and "moved" has its branch pushed to.
+# this prints: where a pull request stands as "state queue merged gate id head". The files
+# the test leaves say how it goes: "slow" has the pull request's own run of CI take a look or
+# two, "fail" puts it out of the queue once it has been seen there, "gone" before anyone sees
+# it there, and "moved" has its branch pushed to.
 cat >"$tmp/bin/gh" <<'GH'
 #!/bin/bash
 f="$FAKE"
@@ -211,15 +212,6 @@ case "$1 $2" in
     done
     echo "https://github.com/acme/northwind/pull/$n"
     ;;
-  "pr merge")
-    case "$all" in
-      *--disable-auto*) rm -f "$f/asked" ;;
-      *)
-        echo "$all" >"$f/asked"
-        echo 0 >"$f/looks"
-        ;;
-    esac
-    ;;
   "run list")
     case "$all" in
       *workflow_dispatch*) echo "55 completed success https://github.com/acme/northwind/actions/runs/55" ;;
@@ -230,6 +222,12 @@ case "$1 $2" in
     case "$all" in
       *"mergeQueue(branch"*) [ -f "$f/no-queue" ] || echo Q_1 ;;
       *REMOVED_FROM_MERGE_QUEUE_EVENT*) echo FAILED_CHECKS ;;
+      *enqueuePullRequest*)
+        # A place in the queue, for the commit named.
+        echo "$all" >"$f/asked"
+        touch "$f/queued"
+        echo 0 >"$f/looks"
+        ;;
       *mergeQueueEntry*)
         # A pull request that merged stays merged, whoever asks after.
         number="\${all##*number=}"
@@ -240,19 +238,25 @@ case "$1 $2" in
         fi
         at="$(git --git-dir="$f/origin.git" rev-parse -q --verify "refs/heads/$(cat "$f/head")" || cat "$f/at")"
         echo "$at" >"$f/at"
-        if [ ! -f "$f/asked" ]; then
-          echo "OPEN - - - - $at"
+        if [ ! -f "$f/queued" ]; then
+          gate=SUCCESS
+          if [ -f "$f/slow" ]; then
+            waited=$(($(cat "$f/slow") + 1))
+            echo "$waited" >"$f/slow"
+            [ "$waited" -gt 2 ] || gate=PENDING
+          fi
+          echo "OPEN - - $gate PR_$number $at"
           exit 0
         fi
         looks=$(($(cat "$f/looks") + 1))
         echo "$looks" >"$f/looks"
         if [ -f "$f/moved" ]; then
-          echo "OPEN QUEUED - SUCCESS asked 0000000000000000000000000000000000000000"
+          echo "OPEN QUEUED - SUCCESS PR_$number 0000000000000000000000000000000000000000"
         elif [ -f "$f/gone" ] || { [ -f "$f/fail" ] && [ "$looks" -gt 1 ]; }; then
-          rm -f "$f/asked"
-          echo "OPEN - - SUCCESS - $at"
+          rm -f "$f/queued"
+          echo "OPEN - - SUCCESS PR_$number $at"
         elif [ "$looks" = 1 ]; then
-          echo "OPEN AWAITING_CHECKS - SUCCESS asked $at"
+          echo "OPEN AWAITING_CHECKS - SUCCESS PR_$number $at"
         else
           # The queue: the branch's commits written again on top of main, by another hand,
           # and the branch removed, as the repository is set to.
@@ -261,8 +265,8 @@ case "$1 $2" in
           git clone -q "$f/origin.git" "$f/queue" 2>/dev/null && cd "$f/queue" && git checkout -q main &&
             GIT_COMMITTER_NAME=queue git cherry-pick "main..origin/$branch" >/dev/null &&
             git push -q origin main ":$branch" || exit 1
-          rm -f "$f/pr" "$f/asked"
-          echo "MERGED - $(git rev-parse HEAD) SUCCESS - $at" | tee "$f/merged.$number"
+          rm -f "$f/pr" "$f/queued"
+          echo "MERGED - $(git rev-parse HEAD) SUCCESS PR_$number $at" | tee "$f/merged.$number"
         fi
         ;;
     esac
@@ -285,11 +289,15 @@ here
 echo two >>docs/a.md
 step git commit -q -am "docs: two"
 was="$(git rev-parse HEAD)"
+# Its own run of CI takes a moment, which is waited for before it's queued.
+echo 0 >"$tmp/slow"
 echo "landing: $(scripts/land.sh 2>&1 | landed)"
+rm "$tmp/slow"
 echo "main: $(onmain)"
 echo "the main checkout: $(git -C "$tmp/main" log --format=%s -1)"
 [ "$(git rev-parse HEAD)" = "$(git rev-parse origin/main)" ] && [ "$(git rev-parse HEAD)" != "$was" ] && echo "this branch is where main is, as the queue wrote it"
-echo "its pull request: $(cat "$tmp/title"), $(grep -c 'no review' "$tmp/body") word on its review"
+echo "its pull request: $(cat "$tmp/title"), $(grep -c 'no review' "$tmp/body") word on its review, $(grep -c 'scripts/land.sh queues this' "$tmp/body") line for CI"
+echo "queued as the commit it pushed, and no other: $(grep -c "head=$(cat "$tmp/at") " "$tmp/asked")"
 echo "origin's branches after: $(onorigin)"
 here
 echo 'echo hi' >scripts/new.sh
@@ -364,9 +372,9 @@ fcntl.flock(held, fcntl.LOCK_EX)
 os.ftruncate(held, 0)
 os.write(held, b"pid 4242")
 open(sys.argv[1] + ".taken", "w").close()
-time.sleep(300)' "$tmp/main/.git/codealong-landing/mine.turn" &
+time.sleep(300)' "$tmp/main/.git/codealong-landing/$(printf %s mine | git hash-object --stdin).turn" &
 other=$!
-until [ -e "$tmp/main/.git/codealong-landing/mine.turn.taken" ]; do sleep 0.1; done
+until ls "$tmp/main/.git/codealong-landing"/*.turn.taken >/dev/null 2>&1; do sleep 0.1; done
 scripts/land.sh >"$tmp/out" 2>&1
 echo "while another landing of it runs: $? $(grep -c 'Another landing of mine is under way here (pid 4242)' "$tmp/out")"
 kill "$other"
@@ -389,7 +397,8 @@ test('a landing rebases onto a main that moved, queues its pull request, and bri
     'main: docs: two,main moved,first,',
     'the main checkout: docs: two',
     'this branch is where main is, as the queue wrote it',
-    'its pull request: docs: two, 1 word on its review',
+    'its pull request: docs: two, 1 word on its review, 1 line for CI',
+    'queued as the commit it pushed, and no other: 1',
     "origin's branches after: main ",
     // Neither of these gets as far as a push or a pull request.
     'code, with no word on its review: 2 (7 pull requests so far)',

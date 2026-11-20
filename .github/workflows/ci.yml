@@ -12,14 +12,12 @@
 # minutes of a runner, and run on main after what lands (checks.yml, which says why).
 #
 #   pull_request   a pull request's own run: everything it calls for, for whoever reviews
-#                  it. Not one that GitHub has been asked to merge when it can (which is what
-#                  scripts/land.sh does as it opens one): from a branch of this repository and
-#                  into main, it leaves the checks to the queue's run rather than run
-#                  everything twice, so its `gate` passes with nothing run. That's only so
-#                  while main has a merge queue, which is asked each time. Being asked to
-#                  merge, and no longer being (the queue put it out), each start a run, so the
-#                  one that counts is of the pull request as it then stands.
-#                  `scripts/land.sh --check` runs a branch's checks without a pull request.
+#                  it. Not one scripts/land.sh opened, which says so in its description: from
+#                  a branch of this repository and into main, it leaves the checks to the
+#                  queue's run rather than run everything twice, so its `gate` passes with
+#                  nothing run, and the script queues it. That's only so while main has a
+#                  merge queue, which is asked each time. `scripts/land.sh --check` runs a
+#                  branch's checks without a pull request.
 #   merge_group    the queue's run: everything the group's changes call for.
 #   push to main   a commit that reached main some other way (a release's version commit, an
 #                  admin's push): everything it calls for, each push by itself. The queue's
@@ -33,7 +31,6 @@ name: CI
 
 on:
   pull_request:
-    types: [opened, synchronize, reopened, auto_merge_enabled, auto_merge_disabled]
   merge_group:
   push:
     branches: [main]
@@ -76,22 +73,22 @@ jobs:
           # What the change is against: a pull request's base, the queue's main, the commit a
           # push moved main from.
           BASE: ${{ github.event.pull_request.base.sha || github.event.merge_group.base_sha || github.event.before }}
-          LANDING: ${{ github.event_name == 'pull_request' && github.event.pull_request.auto_merge != null && github.event.pull_request.head.repo.full_name == github.repository && github.event.pull_request.base.ref == github.event.repository.default_branch }}
+          LANDING: ${{ github.event_name == 'pull_request' && contains(github.event.pull_request.body, 'scripts/land.sh queues this for main') && github.event.pull_request.head.repo.full_name == github.repository && github.event.pull_request.base.ref == github.event.repository.default_branch }}
           GH_TOKEN: ${{ github.token }}
           OWNER: ${{ github.repository_owner }}
           NAME: ${{ github.event.repository.name }}
         run: |
           all="ui engine"
           said=""
-          # A pull request set to merge when it can, into main from one of this repository's
-          # own branches, can only merge through main's merge queue, whose run checks it: asked
-          # for, since without the queue nothing else would.
+          # A pull request scripts/land.sh opened (its description says so), into main from
+          # one of this repository's own branches, can only merge through main's merge queue,
+          # whose run checks it: asked for, since without the queue nothing else would.
           queue=""
           if [ "$LANDING" = true ]; then
             queue="$(gh api graphql -F owner="$OWNER" -F name="$NAME" -f query='query($owner: String!, $name: String!) { repository(owner: $owner, name: $name) { mergeQueue(branch: "main") { id } } }' --jq '.data.repository.mergeQueue.id // empty' || true)"
           fi
           if [ -n "$queue" ]; then
-            said="A pull request set to merge when it can: nothing is checked here, and main's merge queue checks it before it merges."
+            said="A landing's pull request: nothing is checked here, and main's merge queue checks it before it merges."
             words=""
           elif [ "$EVENT" = push ] && [ "$ACTOR" = "github-merge-queue[bot]" ]; then
             said="The merge queue's own push: its run checked this commit before it merged."

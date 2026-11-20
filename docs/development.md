@@ -120,17 +120,18 @@ minutes on a quiet Mac, forty with twenty agents building. Now they run on GitHu
   Before landing, run the checks that cover what you changed (`scripts/checks.sh --fixture
   <names>`), not the whole list, which loads this Mac for half an hour; `gh workflow run
   checks.yml --ref <branch>` runs all of it on a pushed branch.
-- **What that takes on GitHub**, set once in the repository's settings: pull requests may be
-  merged automatically, a merged branch is deleted, and a ruleset on `main` requires the merge
-  queue (rebase as its method) and the `gate` check. The organization's admins may bypass the
+- **What that takes on GitHub**, set once in the repository's settings: a merged branch is
+  deleted, and a ruleset on `main` requires the merge queue (rebase as its method) and the
+  `gate` check. The organization's admins may bypass the
   ruleset, which is how a release's version commit (`scripts/version.sh --push`) still goes
-  straight to `main`; CI runs on that push too. A pull request that GitHub has been asked to
-  merge when it can (as `land.sh` asks of the one it opens) has a `gate` that passes with
-  nothing run, since the queue's run is the one that checks it: so the queue is what makes
-  that safe, CI asks for it each time and checks everything on the pull request when there's
-  none, and `land.sh` refuses to land where `main` has no merge queue, since asking GitHub to
-  merge would then merge at once. Any other pull request is checked as it's opened and pushed
-  to, for whoever reviews it.
+  straight to `main`; CI runs on that push too. A pull request `land.sh` opened (it says so
+  in its description) has a `gate` that passes with nothing run, since the queue's run is the
+  one that checks it: so the queue is what makes that safe, CI asks for it each time and
+  checks everything on the pull request when there's none, and `land.sh` refuses to land
+  where `main` has no merge queue. It asks for a place in the queue for the commit it pushed
+  and no other, rather than leave GitHub asked to merge the pull request when it can, which
+  would hold for whatever was pushed to it after. Any other pull request is checked as it's
+  opened and pushed to, for whoever reviews it.
 - **A red `main` is somebody's.** It can still happen: the browser checks failing on what
   landed, a commit pushed past the queue, or the daily run of everything failing for a
   toolchain or a runner's image that moved. A Codealong schedule watches both workflows' runs
