@@ -12,14 +12,16 @@
 // How the code is read. The windows, by the tree vite's own parser makes of each file: a
 // comment, a string and a label aren't code there, so none hides a use or is taken for one. The
 // engine, as text, once a lexer that knows Rust's comments and strings (`rustRead`) has blanked
-// the comments and cut the test modules; the first tests hold it to the real files. Read here
-// rather than by a cargo test, as commands.test.ts reads the engine: this takes seconds and
-// needs no build, so it's run on every landing.
+// the comments and strings and cut the test modules; the first tests hold it to the real files.
+// Read here rather than by a cargo test, as commands.test.ts reads the engine: this takes
+// seconds and needs no build, and a landing that changes code it reads runs it (land.sh).
 //
-// A rule still finds the plain form of a break and no more: a chord kept in a constant of the
-// window's own, a harness asked about through a helper written for it, a status set by a
-// function called for it all get past, and a reviewer is what's left. These are here to stop
-// the easy drift, not to prove a rule holds.
+// Each rule says exactly what it counts, which is the plain form of a break and no more: a
+// chord kept in a constant of the window's own and a status set by a function called for it
+// get past, and a reviewer is what's left. Where the plain form is wider than the rule (a
+// harness named at all, where the rule is about deciding by one), the list holds today's and
+// the commit that raises a number says why. These are here to stop the easy drift, not to
+// prove a rule holds.
 import { parseSync } from 'vite';
 import { describe, expect, it } from 'vitest';
 
@@ -36,27 +38,39 @@ const isNode = (n: unknown): n is Node => !!n && typeof n === 'object' && typeof
 const called = (n: unknown, name: string | Set<string>) => isNode(n) && n.type === 'Identifier' && (typeof name === 'string' ? n.name === name : name.has(n.name as string));
 const KEYS = new Set(['metaKey', 'ctrlKey']);
 
-/** What the windows' rules count in one file:
+/** Where a node keeps types, which say nothing of what runs. */
+const TYPES = new Set(['typeAnnotation', 'typeArguments', 'typeParameters', 'returnType', 'superTypeArguments', 'implements']);
+
+/** What the windows' rules count in one file, in what runs (not in its types):
  *  - `keys`: `metaKey` or `ctrlKey` read off something (`e.metaKey`, `e['ctrlKey']`) or taken
- *    out of it (`const { metaKey } = e`); not one set, as a made-up event's is;
- *  - `chords`: a call of `chordPressed` whose chord is written into it;
- *  - `storage`: `localStorage` itself, read or handed on, not a property someone named so. */
+ *    out of it (`const { metaKey } = e`); not one set, on a made-up event (`{ metaKey: true }`,
+ *    `init.metaKey = true`);
+ *  - `chords`: a call of `chordPressed` whose chord, or some of it, is written into it;
+ *  - `storage`: `localStorage` itself, read, handed on or taken out of `window`; not a
+ *    property someone named so. */
 function uses(file: string, source: string): { keys: number; chords: number; storage: number } {
   const { program, errors } = parseSync(file, source, { lang: file.endsWith('.tsx') ? 'tsx' : 'ts' });
   if (errors.length) throw new Error(`${file} doesn't parse: ${errors[0].message}`);
   const found = { keys: 0, chords: 0, storage: 0 };
-  const walk = (n: unknown, parent?: Node) => {
-    if (Array.isArray(n)) return n.forEach((each) => walk(each, parent));
-    if (!isNode(n)) return;
-    if (n.type === 'MemberExpression' && (n.computed ? isNode(n.property) && KEYS.has(n.property.value as string) : called(n.property, KEYS))) found.keys++;
-    if (n.type === 'Property' && parent?.type === 'ObjectPattern' && !n.computed && called(n.key, KEYS)) found.keys++;
+  const walk = (n: unknown, parent?: Node, grand?: Node) => {
+    if (Array.isArray(n)) return n.forEach((each) => walk(each, parent, grand));
+    if (!isNode(n) || n.type === 'TSTypeAliasDeclaration' || n.type === 'TSInterfaceDeclaration') return;
+    // `const { name } = …`, and `x.name = …`.
+    const taken = n.type === 'Property' && parent?.type === 'ObjectPattern' && !n.computed;
+    const set = parent?.type === 'AssignmentExpression' && parent.operator === '=' && parent.left === n;
+    if (n.type === 'MemberExpression' && !set && (n.computed ? isNode(n.property) && KEYS.has(n.property.value as string) : called(n.property, KEYS))) found.keys++;
+    if (taken && called(n.key, KEYS)) found.keys++;
     if (n.type === 'CallExpression' && (called(n.callee, 'chordPressed') || (isNode(n.callee) && called(n.callee.property, 'chordPressed')))) {
       const chord = (n.arguments as unknown[])[0];
-      if (isNode(chord) && (chord.type === 'TemplateLiteral' || (chord.type === 'Literal' && typeof chord.value === 'string'))) found.chords++;
+      const written = isNode(chord) && (chord.type === 'Literal' ? typeof chord.value === 'string' : chord.type === 'TemplateLiteral' && (chord.quasis as { value: { raw: string } }[]).some((q) => q.value.raw.trim()));
+      if (written) found.chords++;
     }
-    // A key of that name in an object or a type is someone's own property, not the storage.
-    if (called(n, 'localStorage') && !(parent && parent.key === n && !parent.computed)) found.storage++;
-    for (const key in n) if (key !== 'type') walk(n[key], n);
+    if (taken && called(n.key, 'localStorage')) found.storage++;
+    // The name as a key (`{ localStorage: 1 }`), or said twice by a `{ localStorage }` taken
+    // out, which is counted above, isn't a use of its own.
+    const key = !!parent && !parent.computed && (parent.key === n || (!!parent.shorthand && grand?.type === 'ObjectPattern'));
+    if (called(n, 'localStorage') && !key) found.storage++;
+    for (const k in n) if (k !== 'type' && !TYPES.has(k)) walk(n[k], n, parent);
   };
   walk(program);
   return found;
@@ -121,16 +135,22 @@ function rustRead(text: string, strings: boolean): string {
   return out.join('');
 }
 
-/** A module that's only built for tests, with its body: `#[cfg(test)]` (`cfg(all(test, …))`
- *  too), any other attributes, `mod name {`. Read from `rustRead`'s text, where a comment
- *  between them is only space. */
-const TEST_MODULE = /#\[cfg\((?:all\()?\s*test\b[^\]]*\]\s*(?:#\[[^\]]*\]\s*)*(?:pub(?:\([^)]*\))?\s+)?mod\s+\w+\s*\{/g;
-/** One that's a file of its own, which may be somewhere its `#[path]` says. */
-const TEST_FILE = /#\[cfg\((?:all\()?\s*test\b[^\]]*\]\s*((?:#\[[^\]]*\]\s*)*)(?:pub(?:\([^)]*\))?\s+)?mod\s+(\w+)\s*;/g;
+/** `#[cfg(…)]` for what only tests build: `test`, or an `all(…)` with `test` among its own
+ *  conditions, wherever among them (not an `any(…)`, nor a `not(test)`). */
+const CFG_TEST = String.raw`#\[cfg\(\s*(?:test|all\((?:[^()]|\([^()]*\))*?\btest\b(?:[^()]|\([^()]*\))*\))\s*\)\]`;
+/** A module declared: any attributes, `mod name`. Read from `rustRead`'s text with strings
+ *  blanked, where a comment among them is only space and a test that quotes one isn't one. */
+const MOD = String.raw`\s*(?:#\[[^\]]*\]\s*)*(?:pub(?:\([^)]*\))?\s+)?mod\s+(\w+)\s*`;
+/** A module only tests build, with its body, and one that's a file of its own. */
+const TEST_MODULE = new RegExp(`${CFG_TEST}${MOD}\\{`, 'g');
+const TEST_FILE = new RegExp(`${CFG_TEST}${MOD};`, 'g');
+const ANY_FILE = new RegExp(`${MOD};`, 'g');
 
 /** A Rust file without its test modules, wherever in it they are and however deep (peer's
  *  api.rs has types after its tests): each from its `#[cfg(test)]` to the brace that closes
- *  it, which is counted in the code alone, so a brace in a string in the tests isn't one. */
+ *  it, which is counted in the code alone, so a brace in a string in the tests isn't one.
+ *  Something else under `#[cfg(test)]` (a function for the tests, outside their module) stays,
+ *  and is read as the file's own. */
 function untested(rust: string): string {
   const text = rust.replace(/\r\n/g, '\n');
   const code = rustRead(text, false);
@@ -150,40 +170,53 @@ function untested(rust: string): string {
   return out.join('');
 }
 
-/** The files only tests build with: a module another file names under `#[cfg(test)]`
- *  (`mod fixtures;` in board.rs is board/fixtures.rs; one with a `#[path]` is where that says). */
+/** The files only tests build with: a module another file declares under `#[cfg(test)]`
+ *  (`mod fixtures;` in board.rs is board/fixtures.rs; one with a `#[path]` is where that
+ *  says), and the modules such a file declares in its turn. */
 function testOnly(files: Record<string, string>): Set<string> {
-  const out = new Set<string>();
   const tidy = (p: string) => {
     let was = '';
     while (was !== p) [was, p] = [p, p.replace(/\/[^/.]+\/\.\.\//, '/')];
     return p;
   };
-  for (const [path, text] of Object.entries(files)) {
+  /** The files of the modules `pattern` finds declared in the file at `path`. */
+  const declared = (path: string, pattern: RegExp) => {
+    const text = files[path].replace(/\r\n/g, '\n');
     const beside = path.replace(/\/[^/]+$/, '');
     // A file's modules are beside lib.rs, main.rs and mod.rs, and in a folder of its name otherwise.
     const dir = /\/(?:lib|main|mod)\.rs$/.test(path) ? beside : path.replace(/\.rs$/, '');
-    for (const mod of rustRead(text.replace(/\r\n/g, '\n'), true).matchAll(TEST_FILE)) {
-      const where = /#\[path\s*=\s*"([^"]+)"\]/.exec(mod[1])?.[1];
-      if (where) out.add(tidy(`${beside}/${where}`));
-      else out.add(`${dir}/${mod[2]}.rs`).add(`${dir}/${mod[2]}/mod.rs`);
-    }
+    return [...rustRead(text, false).matchAll(pattern)].flatMap((mod) => {
+      // Its `#[path]` is a string: read from the same place in the file as written.
+      const where = /#\[path\s*=\s*"([^"]+)"\]/.exec(text.slice(mod.index, mod.index + mod[0].length))?.[1];
+      return where ? [tidy(`${beside}/${where}`)] : [`${dir}/${mod[1]}.rs`, `${dir}/${mod[1]}/mod.rs`];
+    });
+  };
+  const out = new Set<string>();
+  const next = Object.keys(files).flatMap((path) => declared(path, TEST_FILE));
+  for (let path = next.pop(); path; path = next.pop()) {
+    if (!(path in files) || out.has(path)) continue;
+    out.add(path);
+    next.push(...declared(path, ANY_FILE));
   }
   return out;
 }
 
 const tests = testOnly(rust);
 const engine = Object.fromEntries(Object.entries(rust).filter(([path]) => !tests.has(path)));
-/** An engine file as its rules read it: no test modules, comments blanked, strings as written. */
-const code = (text: string) => rustRead(untested(text), true);
+/** An engine file as its rules read it: only its code, with no test modules, comments and what
+ *  quotes hold blanked, and each run of space one space, so how it's laid out changes nothing. */
+const code = (text: string) => rustRead(untested(text), false).replace(/\s+/g, ' ');
 
 /** The engine's module a file is part of: `src-tauri/src/board` for board.rs and board/prs.rs. */
 const moduleOf = (file: string) => file.replace(/^(src-tauri\/(?:peer\/)?src\/[^/]+?)(?:\.rs|\/.*)$/, '$1');
 
-/** Where the engine decides by which harness something is: a comparison either way round, a
- *  `matches!` (its own arguments, not what follows it), an `if let`, and a match arm, alone or
- *  among other things matched, on one line or with its tuple over several. */
-const BRANCH = /(?:[=!]=\s*|\bmatches!\s*\((?:[^()]|\([^()]*\))*?|\blet\s+(?:Some\(\s*)?)Harness::[A-Z]\w+|Harness::[A-Z]\w+(?:\s*[=!]=|[^=;{}\n]*=>|[^=;{}()]*\)\s*=>)/g;
+/** A harness named: one of the enum's variants, not something of the enum's own
+ *  (`Harness::ALL`, `Harness::parse`). */
+const NAMED = /\bHarness::[A-Z][a-z]\w*/g;
+
+/** A status set: an assignment to a `status` whose value names a `Status` before its statement
+ *  ends, however it's worked out (`s.status = if … { Status::Unread } else { … }`). */
+const STATUS = /\.status\s*=(?!=)[^;]{0,240}?\bStatus::/g;
 
 /** The first argument of each curl the engine runs, as it's written where curl is run: the
  *  array beside `http::curl()`, or the first `.arg(…)` or `.args([…])` of the command made of
@@ -197,7 +230,9 @@ function curlFirst(rustFile: string): (string | null)[] {
     const end = blanked.indexOf(';', from);
     const rest = kept.slice(from, end < 0 ? undefined : end);
     const list = /^\s*,\s*&?\[\s*|\.args?\(\s*&?\[?\s*/.exec(rest);
-    return (list && /^"(?:[^"\\]|\\.)*"/.exec(rest.slice(list.index + list[0].length))?.[0]) ?? null;
+    // A string, or a raw one: what it holds.
+    const first = list && /^(?:"((?:[^"\\]|\\.)*)"|r(#*)"([\s\S]*?)"\2)/.exec(rest.slice(list.index + list[0].length));
+    return first ? (first[1] ?? first[3]) : null;
   });
 }
 
@@ -237,14 +272,16 @@ describe('what the rules are read from', { timeout: 300_000 }, () => {
     // Read, either way of writing it, and taken out of an event; not set, as a made-up event's is.
     expect(count("if (e.metaKey || e?.['ctrlKey']) go();").keys).toBe(2);
     expect(count('const { metaKey, ctrlKey: ctrl } = e;').keys).toBe(2);
-    expect(count("window.dispatchEvent(new KeyboardEvent('keydown', { metaKey: true }));").keys).toBe(0);
-    expect(count("// e.metaKey\nconst label = 'e.ctrlKey'; /* e.metaKey */").keys).toBe(0);
-    // A chord written into the call, not one named in a table.
-    expect(count("chordPressed('Cmd+Enter', e); platform.chordPressed(`Cmd+K`, e);").chords).toBe(2);
-    expect(count("chordPressed(CHORDS.send, e); const hint = \"chordPressed('Cmd+K', e)\";").chords).toBe(0);
-    // The storage itself, read or handed on, not the word.
+    expect(count("window.dispatchEvent(new KeyboardEvent('keydown', { metaKey: true })); init.ctrlKey = true;").keys).toBe(0);
+    expect(count("// e.metaKey\nconst label = 'e.ctrlKey'; /* e.metaKey */ type Mods = Pick<KeyboardEvent, 'metaKey'> & { ctrlKey: KeyboardEvent['ctrlKey'] };").keys).toBe(0);
+    // A chord written into the call, or some of one, not one from a table.
+    expect(count("chordPressed('Cmd+Enter', e); platform.chordPressed(`Cmd+K`, e); chordPressed(`Cmd+${key}`, e);").chords).toBe(3);
+    expect(count("chordPressed(CHORDS.send, e); chordPressed(`${QUEUE_CHORDS.seen[0]}`, e); const hint = \"chordPressed('Cmd+K', e)\";").chords).toBe(0);
+    // The storage itself, read, handed on or taken out of window; not the word, nor its type.
     expect(count('const kept = localStorage.getItem(k); function store() { return window.localStorage; }').storage).toBe(2);
+    expect(count('const { localStorage: store } = window; function f({ localStorage }: Window) { send({ localStorage }); }').storage).toBe(3);
     expect(count("const label = 'Your browser has localStorage disabled.'; const what = { localStorage: 1 };").storage).toBe(0);
+    expect(count('type Kept = Pick<typeof window.localStorage, "getItem">; const s: typeof localStorage = other as typeof localStorage;').storage).toBe(0);
     expect(count('const a = <p>Your browser has localStorage disabled.</p>;').storage).toBe(0);
     // A glob in a label isn't a comment's start: what follows it is still read.
     expect(count("const a = <p>github.com/owner/*</p>;\nfunction clear() { window.localStorage.clear(); }\nconst b = <i>{/* later */}</i>;").storage).toBe(1);
@@ -274,12 +311,18 @@ describe('what the rules are read from', { timeout: 300_000 }, () => {
   });
 
   it('is the engine without the files only tests build with', () => {
+    const src = '../src-tauri/src';
     const files = {
-      '../src-tauri/src/lib.rs': '#[cfg(test)]\n#[path = "../peer/src/fixtures.rs"]\nmod fixtures;\n// Tests only.\n#[cfg(test)]\nmod wiretypes;\nmod board;\n',
-      '../src-tauri/src/board.rs': 'mod prs;\n#[cfg(test)] // made-up sessions\nmod fixtures;\n',
-      '../src-tauri/src/launch/mod.rs': '#[cfg(all(test, unix))]\npub(crate) mod stage;\n',
+      // One where its `#[path]` says, one beside lib.rs, and one only quoted, in a test.
+      [`${src}/lib.rs`]: '#[cfg(test)]\n#[path = "../peer/src/fixtures.rs"]\nmod fixtures;\n// Tests only.\n#[cfg(test)]\nmod wiretypes;\nmod board;\nmod engine;\n#[cfg(not(test))]\nmod live;\n#[cfg(test)]\nmod tests {\n    const QUOTED: &str = "#[cfg(test)] mod engine;";\n}\n',
+      // One in the folder of the file that declares it, whatever is beside its attribute.
+      [`${src}/board.rs`]: 'mod prs;\n#[cfg(test)] // made-up sessions\nmod fixtures;\n',
+      [`${src}/launch/mod.rs`]: '#[cfg(all(unix, test))]\npub(crate) mod stage;\n',
+      // And what a file only tests build declares in its turn.
+      [`${src}/wiretypes.rs`]: 'mod cases;\n',
+      ...Object.fromEntries(['../src-tauri/peer/src/fixtures.rs', `${src}/wiretypes/cases.rs`, `${src}/board/prs.rs`, `${src}/board/fixtures.rs`, `${src}/launch/stage.rs`, `${src}/engine.rs`, `${src}/live.rs`].map((path) => [path, ''])),
     };
-    expect([...testOnly(files)].filter((path) => !path.endsWith('/mod.rs')).sort()).toEqual(['../src-tauri/peer/src/fixtures.rs', '../src-tauri/src/board/fixtures.rs', '../src-tauri/src/launch/stage.rs', '../src-tauri/src/wiretypes.rs']);
+    expect([...testOnly(files)].sort()).toEqual(['../src-tauri/peer/src/fixtures.rs', `${src}/board/fixtures.rs`, `${src}/launch/stage.rs`, `${src}/wiretypes.rs`, `${src}/wiretypes/cases.rs`]);
   });
 
   it('is the real engine read right: brackets that balance, no test left in, the same whatever its line endings', () => {
@@ -301,26 +344,24 @@ describe('what the rules are read from', { timeout: 300_000 }, () => {
     expect(said).toEqual([]);
   });
 
-  it('is a branch on a harness, not a session made of one', () => {
-    const branches = (rustFile: string) => code(rustFile).match(BRANCH)?.length ?? 0;
-    expect(branches('if s.harness == Harness::Codex || Harness::Cursor != h { }')).toBe(2);
-    expect(branches('matches!(s.harness, Harness::Claude | Harness::Cursor)')).toBe(1);
-    expect(branches('if let Some(Harness::Claude) = h { }')).toBe(1);
-    expect(branches('match h { Harness::Claude | Harness::Codex => 1, _ => 2 }')).toBe(1);
-    // A match on more than the harness, however its arms are laid out.
-    expect(branches('match (need, h) {\n    (Some(Need::Approval), Harness::Claude) => 1,\n    (_, Harness::Codex | Harness::Cursor) => 2,\n    _ => 3,\n}')).toBe(2);
-    expect(branches('match (need, h) {\n    (\n        Some(Need::Approval),\n        Harness::Claude,\n    ) => 1,\n    (\n        _,\n        Harness::Codex | Harness::Cursor,\n    ) => 2,\n    _ => 3,\n}')).toBe(2);
-    // Naming one to make a session, or to answer with, decides nothing; nor does a comment.
-    expect(branches('Session::new(Harness::Claude, "a", "b") // if h == Harness::Codex')).toBe(0);
-    expect(branches('if matches!(kind, Kind::Chat) { Session::new(Harness::Claude, a, b) } else { other }')).toBe(0);
-    expect(branches('match kind {\n    Kind::A => Harness::Claude,\n    Kind::B => Harness::Codex,\n}')).toBe(0);
+  it('is the engine’s code alone to a rule, laid out any way', () => {
+    const names = (rustFile: string) => code(rustFile).match(NAMED)?.length ?? 0;
+    // A harness named, in what runs: not in a comment, a message or a test, nor the enum's own.
+    expect(names('if s.harness == Harness::Codex { Session::new(Harness::Claude, a, b) } // Harness::Cursor')).toBe(2);
+    expect(names('log("h == Harness::Claude"); for h in Harness::ALL { Harness::parse(name); }')).toBe(0);
+    expect(names('fn a() {}\n#[cfg(test)]\nmod tests {\n    fn t() { Harness::Claude; }\n}\n')).toBe(0);
+    // A status set, however far a comment pushes its value.
+    expect(code(`s.status = /* ${'why '.repeat(80)} */ if live { Status::Working } else { Status::Idle }; if s.status == Status::Idle {}`).match(STATUS)?.length).toBe(1);
+    // The same code on one line and on several reads the same, comments and all.
+    const arms = ['match (need, h) {', '(Some(Need::Approval), Harness::Claude) => 1,', '(_, Harness::Codex | Harness::Cursor) => 2,', '_ => 3,', '}'];
+    expect(code(arms.join('\n    // An arm.\n    '))).toBe(code(arms.join(' ')));
   });
 
   it('is the first argument curl is run with, where it’s run', () => {
-    expect(curlFirst('fn a() { run(crate::http::curl(), &["-q", "-H", "Accept: a; b"], &config); }')).toEqual(['"-q"']);
-    expect(curlFirst('fn a() {\n    run(\n        crate::http::curl(),\n        &["-q", "-sS"],\n    );\n}')).toEqual(['"-q"']);
-    expect(curlFirst('fn a() { Command::new(crate::http::curl())\n    .stdin(Stdio::piped())\n    .args(["-q", "-sS"])\n    .spawn(); }')).toEqual(['"-q"']);
-    expect(curlFirst('fn a() { Command::new(http::curl()).arg("-sS").args(["-q"]).spawn(); }')).toEqual(['"-sS"']);
+    expect(curlFirst('fn a() { run(crate::http::curl(), &["-q", "-H", "Accept: a; b"], &config); }')).toEqual(['-q']);
+    expect(curlFirst('fn a() {\n    run(\n        crate::http::curl(),\n        &[r"-q", "-sS"],\n    );\n}')).toEqual(['-q']);
+    expect(curlFirst('fn a() { Command::new(crate::http::curl())\n    .stdin(Stdio::piped())\n    .args(["-q", "-sS"])\n    .spawn(); }')).toEqual(['-q']);
+    expect(curlFirst('fn a() { Command::new(http::curl()).arg("-sS").args(["-q"]).spawn(); }')).toEqual(['-sS']);
     expect(curlFirst('fn a() { let args = ["-q"]; Command::new(http::curl()).args(args).spawn(); let b = ["-q"]; }')).toEqual([null]);
   });
 });
@@ -375,15 +416,20 @@ describe('the engine', { timeout: 300_000 }, () => {
   // defines the names.
   const harnesses = (file: string) => /^src-tauri\/src\/(claude|codex|cursor|antigravity|opencode|acp|harness)$/.test(moduleOf(file)) || file.startsWith('src-tauri/peer/');
 
-  it('asks the adapter instead of branching on a harness outside its module', () => {
-    // Naming one to make a session of it (`Session::new(Harness::Claude, …)`) decides nothing.
+  it('asks the adapter instead of naming a harness outside its module', () => {
+    // Every harness named, which is more than every decision made by one: what a branch looks
+    // like depends on how it's laid out, and a name doesn't. The ones here that decide nothing
+    // (a reader in board/ making its own harness's sessions) are in the list with the rest.
     const allowed: Record<string, number> = {
-      'src-tauri/src/board/headlines.rs': 2,
+      'src-tauri/src/board/headlines.rs': 5,
+      'src-tauri/src/board/sessions.rs': 7,
+      'src-tauri/src/github.rs': 5,
       'src-tauri/src/peerfeed.rs': 1,
-      'src-tauri/src/start.rs': 1,
+      'src-tauri/src/server.rs': 1,
+      'src-tauri/src/start.rs': 2,
     };
-    const found = inEngine(BRANCH, harnesses);
-    expect(drift(found, allowed, "Nothing outside a harness's module branches on which harness it is: ask `harness::adapter(session.harness)` or `harness::of(account)`, with a method on `Adapter` for what differs (.claude/rules/adding-a-harness.md).")).toEqual([]);
+    const found = inEngine(NAMED, harnesses);
+    expect(drift(found, allowed, "Nothing outside a harness's module decides by which harness something is, and naming one is where that starts: ask `harness::adapter(session.harness)` or `harness::of(account)`, with a method on `Adapter` for what differs (.claude/rules/adding-a-harness.md).")).toEqual([]);
   });
 
   it('sets a session’s status in board’s rules', () => {
@@ -396,7 +442,7 @@ describe('the engine', { timeout: 300_000 }, () => {
       'src-tauri/src/starting.rs': 1,
       'src-tauri/src/terminal.rs': 4,
     };
-    const found = inEngine(/\.status\s*=(?!=)[^;]{0,240}?\bStatus::/g, (file) => moduleOf(file) === 'src-tauri/src/board');
+    const found = inEngine(STATUS, (file) => moduleOf(file) === 'src-tauri/src/board');
     expect(drift(found, allowed, "A session's status is one of the model's rules, which board.rs and board/ hold as pure functions with tests: give the rule what it needs to decide, rather than setting the status after it.")).toEqual([]);
   });
 
@@ -410,7 +456,7 @@ describe('the engine', { timeout: 300_000 }, () => {
     for (const [path, text] of Object.entries(engine)) {
       for (const first of curlFirst(text)) {
         if (first === null) said.push(`${named(path)} runs curl with arguments this can't see where it's run: write them there, \`-q\` first, so curl doesn't read ~/.curlrc (http.rs).`);
-        else if (first !== '"-q"') said.push(`${named(path)} runs curl with ${first} first: \`-q\` comes first, so curl doesn't read ~/.curlrc (http.rs).`);
+        else if (first !== '-q') said.push(`${named(path)} runs curl with ${first} first: \`-q\` comes first, so curl doesn't read ~/.curlrc (http.rs).`);
       }
     }
     expect(said).toEqual([]);

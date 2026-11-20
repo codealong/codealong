@@ -275,8 +275,8 @@ into a terminal.
 ## Conventions
 
 Each rule names the file whose header has the rest. The ones a search can check are counted
-by `src/conventions.test.ts` (keys and chords, `localStorage`, a branch on a harness outside
-its module, a status set outside the rules, curl's `-q`, a file's length), in their plain form:
+by `src/conventions.test.ts` (keys and chords, `localStorage`, a harness named outside its
+module, a status set outside the rules, curl's `-q`, a file's length), in their plain form:
 its lists only go down.
 
 - The frontend never shells out: every side effect is a command, invoked from `src/api.ts`.
