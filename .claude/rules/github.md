@@ -6,6 +6,8 @@ paths:
   - "src-tauri/src/prasks.rs"
   - "src-tauri/src/prmerge.rs"
   - "src-tauri/src/autoreview.rs"
+  - "scripts/land.sh"
+  - ".github/workflows/*.yml"
 ---
 
 # GitHub
@@ -177,3 +179,26 @@ Harness facts (from GitHub's answers on this Mac, 2026-10-01). A bare file name 
   repos/<owner>/<name>/pulls/<n>/requested_reviewers` with `{"reviewers": [login]}` on stdin
   (`request_review`, `rerequest.rs`), no GraphQL points; checked only against a PR number that
   doesn't exist (`gh: Not Found (HTTP 404)`, exit 1), since a real one notifies the reviewer.
+- `main`'s merge queue, as `scripts/land.sh` and `.github/workflows/ci.yml` rely on it
+  (2026-11-20, from GitHub's documentation and what its API answered before the queue was on;
+  what's marked untried is to be tried on a pull request made for it):
+  - A place in the queue is asked for one commit: `enqueuePullRequest(pullRequestId,
+    expectedHeadOid)`, as `prmerge.rs` asks too. "Merge when ready" is something else, a
+    standing request (`autoMergeRequest`) that GitHub offers on a queue's branch even with the
+    repository's automatic merges off, and that holds for whatever is pushed afterwards:
+    `land.sh` makes none, and pushes to no pull request that has one.
+  - The queue's run is a `merge_group` event on a branch of its own
+    (`gh-readonly-queue/main/pr-<number>-<commit>`), of the workflow as that commit has it.
+    Why a pull request left the queue is a `RemovedFromMergeQueueEvent` in its timeline, its
+    `reason` in words.
+  - What becomes of a queued pull request whose branch is pushed to, GitHub's documentation
+    doesn't say (the reasons it gives for removal: a merge group's checks failing or timing
+    out, someone removing it, a branch protection that couldn't be met). One account
+    (github.com/orgs/community/discussions/194832, 2026-05) has the entry stay, show the new
+    commit and wait on the old run's checks until the queue evicts it. Untried here, so
+    `land.sh` relies on neither: it never pushes to a queued pull request, and says so when it
+    finds one pushed to.
+  - A pull request that conflicts with its base (`mergeable: CONFLICTING`) gets no
+    `pull_request` run at all, so a wait for its checks never ends.
+  - A workflow run's `pull_requests` lists every open pull request whose branch or commit
+    matches, not the one that started it: nothing says which pull request a run was for.

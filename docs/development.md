@@ -133,9 +133,8 @@ minutes on a quiet Mac, forty with twenty agents building. Now they run on GitHu
   where `main` has no merge queue. It asks for a place in the queue for the commit it pushed
   and no other, rather than leave GitHub asked to merge the pull request when it can, which
   would hold for whatever was pushed to it after; it won't push to a pull request someone
-  has set to merge that way, and takes one out of the queue whose branch is pushed to while
-  it waits. Any other pull request is checked as it's opened and pushed to, for whoever
-  reviews it.
+  has set to merge that way, nor to one that's in the queue. Any other pull request is
+  checked as it's opened and pushed to, for whoever reviews it.
 - **A red `main` is somebody's.** It can still happen: the browser checks failing on what
   landed, a commit pushed past the queue, or the daily run of everything failing for a
   toolchain or a runner's image that moved. A Codealong schedule watches both workflows' runs
