@@ -19,21 +19,35 @@ on this Mac; read it before changing the Claude adapter (paths are under `src-ta
 
 This file has Claude Code's live sessions and its background service, a Claude account, and the
 Claude app's records. The rest is a file a subject, each loading for the code that relies on it
-(a new file under `claude/` is added to the `paths` of its subject's):
+(a new file under `claude/` is added to the `paths` of its subject's).
+
+The adapter, `claude/mod.rs`, loads this file alone, and what its functions rely on is spread
+over all seven. Before changing one of them, read the file that names it below; this file has
+`leftover`, `runs_its_commands` and `app_link`.
 
 - `claude-transcript.md`: a transcript's lines: which are prompts, how a turn begins and ends,
-  the errors and limits it stops at, usage, compaction, names and wakeups.
+  the errors and limits it stops at, usage, compaction, names and wakeups. In the adapter:
+  `subagent_logs`, `subagent_logs_under`, `rename`, `sign_in_command`.
 - `claude-conversation.md`: what a prompt and a call's result record, as a conversation shows
-  them (images, answers, artifacts, files, the PR a call made).
+  them (images, answers, artifacts, files, the PR a call made). Nothing in the adapter.
 - `claude-start.md`: starting, resuming, copying and moving a session, the folders an account
   trusts, and what records where a session came from (a job's `state.json`, `Forks`,
-  `/background`'s `parked_job`).
+  `/background`'s `parked_job`). In the adapter: `start_in_terminal`, `background_command`,
+  `before_start`, `start_trusts`, `offers_model`, `fork_from`, `move_folder`,
+  `move_folder_background`, `move_to`, `move_to_background`, `resume_args`, `session_var`, and
+  the reader's `moved_copy`, `closed_copies` and `parent_key`.
 - `claude-send.md`: the input box, the socket for other sessions' messages and what it holds,
-  the background service's socket, the queue, `/model` and `/effort`.
+  the background service's socket, the queue, `/model` and `/effort`. In the adapter:
+  `clears_before_typing`, `typed_shell_commands`, `SEND_NOW`, `steer_queued`, `steers`,
+  `model_command`, `switches_mid_turn`, `live_mode`.
 - `claude-asks.md`: permission prompts (`PERMISSION_PROMPT`), questions (a blocked job's
   `job_questions`), the permission mode a session runs in (`launched_with`, the Claude app's
-  `Records::modes`), the plugin's hooks, and the worktree a session made, as it ends.
-- `claude-side.md`: side conversations, and why `read_registry` skips a copy's entry.
+  `Records::modes`), the plugin's hooks, and the worktree a session made, as it ends. In the
+  adapter: `answer`, `waiting_call`, `waiting_on`, `helper_logs`, `helper_waiting`,
+  `keyed_questions`, `job_pending`, `answer_job_questions`, `press_in_job`,
+  `clears_context_first`.
+- `claude-side.md`: side conversations, and why `read_registry` skips a copy's entry. In the
+  adapter: `side`, `fresh_side`.
 
 ## Live sessions
 

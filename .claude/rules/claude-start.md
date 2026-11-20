@@ -1,6 +1,5 @@
 ---
 paths:
-  - "src-tauri/src/claude/mod.rs"
   - "src-tauri/src/claude/start.rs"
   - "src-tauri/src/claude/trust.rs"
   - "src-tauri/src/start.rs"
@@ -173,5 +172,5 @@ under `src-tauri/src/`.
   and what `/exit` asks of a session in a worktree, are in `claude-asks.md`.
 - A side conversation's copy, a headless fork that keeps no record, is in `claude-side.md`.
 - How long Claude Code keeps a transcript (`origins.rs` `KEEP_MS`) is in `claude-transcript.md`.
-- The background service's jobs once they run (spares, a job retired after an hour idle) are in
-  `claude-code.md`.
+- The background service's jobs once they run (spares, a job retired after an hour idle, and how
+  one brought back with `--bg --resume` is named: `resume_job_command`) are in `claude-code.md`.

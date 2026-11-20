@@ -1,6 +1,5 @@
 ---
 paths:
-  - "src-tauri/src/claude/mod.rs"
   - "src-tauri/src/claude/transcript.rs"
   - "src-tauri/src/claude/conversation.rs"
   - "src-tauri/src/claude/turns.rs"

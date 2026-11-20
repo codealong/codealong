@@ -1,6 +1,5 @@
 ---
 paths:
-  - "src-tauri/src/claude/mod.rs"
   - "src-tauri/src/claude/side.rs"
   - "src-tauri/src/side.rs"
 ---
