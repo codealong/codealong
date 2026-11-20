@@ -1,0 +1,144 @@
+# The browser checks that hold on a made-up Mac (scripts/checks.sh --fixture: the runs listed in
+# scripts/preview/fixture-passes.txt, in headless Chrome over the engine's debug build), run on
+# main after what lands there rather than before it.
+#
+# Not in the merge queue's run (ci.yml), though they're as much a check as the others: on
+# GitHub's macOS runners the list takes about ninety minutes of one machine, and the plan runs
+# five macOS machines at once for the whole repository. Run for every landing they would hold
+# each one up for longer than the busy Mac did, and the queue behind it. Here one run goes at
+# a time and, while it does, only the latest of the runs waiting stays: so however fast changes
+# land, each run covers everything landed since the last one that passed, and a failure names
+# that stretch of commits. A red run is somebody's (scripts/watch-main.sh, docs/development.md,
+# *Keeping main working*).
+#
+# To have them on a branch before it lands: `gh workflow run checks.yml --ref <branch>`. A pull
+# request that changes this file runs them too, to see they still run.
+name: Browser checks
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    paths: [".github/workflows/checks.yml"]
+  schedule:
+    - cron: "53 9 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  actions: read
+
+concurrency:
+  group: browser-checks-${{ github.ref }}
+  cancel-in-progress: false
+
+env:
+  CARGO_TERM_COLOR: never
+
+jobs:
+  # Whether anything landed since the last run that passed calls for them (scripts/land.sh
+  # `calls_for`: the windows' code, the engine's, the checks themselves). Asked of that whole
+  # stretch and not of this push alone: a push of notes can be the one whose run stays, with a
+  # change to the windows landed just before it.
+  plan:
+    name: plan
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    outputs:
+      checks: ${{ steps.plan.outputs.checks }}
+    steps:
+      - uses: actions/checkout@v7
+      - id: plan
+        env:
+          EVENT: ${{ github.event_name }}
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          checks=true
+          if [ "$EVENT" = push ]; then
+            passed="$(gh run list --workflow checks.yml --branch main --status success --limit 1 --json headSha --jq '.[0].headSha // empty' || true)"
+            if [ -n "$passed" ] && git fetch -q --no-tags --depth=1 origin "$passed"; then
+              git diff --no-renames --name-only -z "$passed" HEAD > "$RUNNER_TEMP/changed"
+              echo "Since the last run that passed ($passed):"
+              tr '\0' '\n' < "$RUNNER_TEMP/changed" | sed 's/^/  /'
+              words=""
+              if [ -s "$RUNNER_TEMP/changed" ]; then
+                words="$(xargs -0 scripts/land.sh --plan < "$RUNNER_TEMP/changed")"
+              fi
+              case " $words " in *" checks "*) ;; *) checks=false ;; esac
+            fi
+          fi
+          echo "The browser checks: $checks"
+          echo "checks=$checks" >> "$GITHUB_OUTPUT"
+
+  # The engine the checks run: a debug build, made once for all their sets and kept for as long
+  # as src-tauri is what it was built from (scripts/engine.sh goes by the same), so a change to
+  # the windows alone builds nothing.
+  engine:
+    name: the checks' engine
+    needs: plan
+    if: needs.plan.outputs.checks == 'true'
+    runs-on: macos-26
+    timeout-minutes: 60
+    env:
+      CARGO_TARGET_DIR: ${{ github.workspace }}/../target
+    steps:
+      - uses: actions/checkout@v7
+      - id: built-from
+        run: echo "tree=$(git rev-parse HEAD:src-tauri)" >> "$GITHUB_OUTPUT"
+      - id: kept
+        uses: actions/cache@v6
+        with:
+          path: .preview/engine
+          key: checks-engine-${{ runner.os }}-${{ runner.arch }}-${{ steps.built-from.outputs.tree }}
+      - if: steps.kept.outputs.cache-hit != 'true'
+        uses: dtolnay/rust-toolchain@stable
+      - if: steps.kept.outputs.cache-hit != 'true'
+        uses: mlugg/setup-zig@v2
+        with:
+          version: 0.17.0
+      - if: steps.kept.outputs.cache-hit != 'true'
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: "src-tauri -> ../../target"
+          # A debug build of the app, not the tests': a cache of its own.
+          key: checks
+          save-if: ${{ github.ref == 'refs/heads/main' }}
+      - name: scripts/engine.sh
+        run: scripts/engine.sh
+      - uses: actions/upload-artifact@v7
+        with:
+          name: checks-engine
+          path: .preview/engine/codealong
+          retention-days: 1
+
+  # The list's checks dealt into four sets, a runner each.
+  checks:
+    name: browser checks
+    needs: [plan, engine]
+    if: needs.plan.outputs.checks == 'true'
+    runs-on: macos-26
+    timeout-minutes: 60
+    strategy:
+      fail-fast: false
+      matrix:
+        set: [1, 2, 3, 4]
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci --no-audit --no-fund
+      - uses: actions/download-artifact@v8
+        with:
+          name: checks-engine
+          path: .preview/engine
+      - name: scripts/checks.sh --fixture, this set's checks
+        env:
+          SET: ${{ matrix.set }}
+        run: |
+          chmod +x .preview/engine/codealong
+          names="$(sed -n 's#.*scripts/preview/\(.*\)-check\.js.*#\1#p' scripts/preview/fixture-passes.txt | sort -u | awk -v set="$SET" 'NR % 4 == set % 4')"
+          echo "This set: $(echo $names)"
+          # shellcheck disable=SC2086
+          PREVIEW_BIN="$PWD/.preview/engine/codealong" scripts/checks.sh --fixture --listed --jobs=3 $names

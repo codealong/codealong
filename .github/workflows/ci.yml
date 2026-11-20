@@ -6,9 +6,10 @@
 # holds a commit these didn't see. docs/development.md, *Keeping main working*, has the whole of it.
 #
 # Which checks a change calls for is one table, scripts/land.sh `calls_for`, asked here as
-# `--plan`: the docs alone call for none, the windows' code for the UI's and the browser checks,
-# the engine's for all of them. `gate` is the one check main's rules require: it passes when
-# every check that was called for passed, and so also when none was.
+# `--plan`: the docs alone call for none, the windows' code for the UI's, the engine's for both.
+# `gate` is the one check main's rules require: it passes when every check that was called for
+# passed, and so also when none was. The browser checks aren't among them: they take ninety
+# minutes of a runner, and run on main after what lands (checks.yml, which says why).
 #
 #   pull_request   a pull request's own run. One scripts/land.sh opened is labelled `land` and
 #                  leaves the checks to the queue's run rather than run everything twice, so
@@ -54,7 +55,6 @@ jobs:
     outputs:
       ui: ${{ steps.plan.outputs.ui }}
       engine: ${{ steps.plan.outputs.engine }}
-      checks: ${{ steps.plan.outputs.checks }}
       said: ${{ steps.plan.outputs.said }}
     steps:
       - uses: actions/checkout@v7
@@ -70,7 +70,7 @@ jobs:
           OWNER: ${{ github.repository_owner }}
           NAME: ${{ github.event.repository.name }}
         run: |
-          all="ui engine checks"
+          all="ui engine"
           said=""
           # A landing's pull request can only merge through main's merge queue, whose run checks
           # it: asked for, since without the queue nothing else would.
@@ -199,50 +199,10 @@ jobs:
         working-directory: src-tauri
         run: cargo test --locked
 
-  # The browser checks that hold on a made-up Mac (scripts/preview/fixture-passes.txt), in
-  # headless Chrome over the engine's debug build.
-  checks:
-    name: browser checks
-    needs: plan
-    if: needs.plan.outputs.checks == 'true'
-    runs-on: macos-26
-    timeout-minutes: 90
-    env:
-      CARGO_TARGET_DIR: ${{ github.workspace }}/../target
-    steps:
-      - uses: actions/checkout@v7
-      - uses: actions/setup-node@v7
-        with:
-          node-version: 24
-          cache: npm
-      - run: npm ci --no-audit --no-fund
-      - uses: dtolnay/rust-toolchain@stable
-      - uses: mlugg/setup-zig@v2
-        with:
-          version: 0.17.0
-      - uses: Swatinem/rust-cache@v2
-        with:
-          workspaces: "src-tauri -> ../../target"
-          # A debug build of the app, not the tests': a cache of its own.
-          key: checks
-          save-if: ${{ github.ref == 'refs/heads/main' }}
-      - name: The engine the checks run
-        run: scripts/engine.sh
-      - name: scripts/checks.sh --fixture
-        run: scripts/checks.sh --fixture --jobs=3
-      - name: What the failed checks' pages showed
-        if: failure()
-        uses: actions/upload-artifact@v7
-        with:
-          name: preview
-          path: .preview/fixture/**/*.png
-          if-no-files-found: ignore
-          retention-days: 7
-
   # The one check main's rules name. It passes when every check the change called for passed.
   gate:
     name: gate
-    needs: [plan, ui, linux, macos, checks]
+    needs: [plan, ui, linux, macos]
     if: always()
     runs-on: ubuntu-24.04
     timeout-minutes: 5
@@ -252,7 +212,7 @@ jobs:
           SAID: ${{ needs.plan.outputs.said }}
         run: |
           [ -z "$SAID" ] || echo "$SAID"
-          echo "plan, ui, engine (Linux), engine (macOS), browser checks: $RESULTS"
+          echo "plan, ui, engine (Linux), engine (macOS): $RESULTS"
           for result in $RESULTS; do
             case "$result" in
               success | skipped) ;;

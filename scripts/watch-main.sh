@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # What a Codealong schedule watches so that a broken main is somebody's to fix (docs/development.md,
-# *Keeping main working*): prints a line for each recent run of CI on main that failed, as a
-# JSON object a watch takes for one thing (its `id`, a `title`, its `url`, some
+# *Keeping main working*): prints a line for each recent run on main that failed, of CI or of
+# the browser checks, as a JSON object a watch takes for one thing (its `id`, a `title`, its `url`, some
 # `text`). A watch starts its session on a line it hasn't printed before, so each failed run is
 # told once, and a run that passes prints nothing. Failed is every way a finished run can be
 # red: a step that failed, a run that timed out, one that couldn't start. A watch's first look
@@ -14,12 +14,14 @@
 # there, and a session's own worktree is removed once its work has landed.
 #
 # A change reaches main through its merge queue, whose run of CI (.github/workflows/ci.yml) it
-# has to pass first, so main's own runs are of what got there another way (a release's version
-# commit, an admin's push) and the daily run of everything, which a toolchain or a runner's
-# image that moved can fail with no commit to blame. Before there was a watch, a failed run
-# emailed whoever last changed the workflow, and main stayed red until they read it: eight hours
-# on 2026-11-18, with 83 commits landed on top.
+# has to pass first, so CI's own runs on main are of what got there another way (a release's
+# version commit, an admin's push) and the daily run of everything, which a toolchain or a
+# runner's image that moved can fail with no commit to blame. The browser checks
+# (.github/workflows/checks.yml) run on main after what lands, so theirs is the run a landing
+# can turn red. One that was cancelled only made way for a later one. Before there was a watch,
+# a failed run emailed whoever last changed the workflow, and main stayed red until they read
+# it: eight hours on 2026-11-18, with 83 commits landed on top.
 set -euo pipefail
-gh run list --workflow ci.yml --branch main --status completed --limit 20 \
-  --json databaseId,headSha,url,createdAt,conclusion,event \
-  --jq '.[] | select(.event == "push" or .event == "schedule") | select(.conclusion == "failure" or .conclusion == "timed_out" or .conclusion == "startup_failure") | {id: (.databaseId | tostring), title: ("CI failed on main at " + .headSha[0:8]), url: .url, text: ("Run " + (.databaseId | tostring) + " (" + .conclusion + ", " + .event + "), started " + .createdAt + ", at commit " + .headSha)}'
+gh run list --branch main --status completed --limit 40 \
+  --json databaseId,headSha,url,createdAt,conclusion,event,workflowName \
+  --jq '.[] | select(.workflowName == "CI" or .workflowName == "Browser checks") | select(.event == "push" or .event == "schedule") | select(.conclusion == "failure" or .conclusion == "timed_out" or .conclusion == "startup_failure") | {id: (.databaseId | tostring), title: (.workflowName + " failed on main at " + .headSha[0:8]), url: .url, text: ("Run " + (.databaseId | tostring) + " of " + .workflowName + " (" + .conclusion + ", " + .event + "), started " + .createdAt + ", at commit " + .headSha)}'
