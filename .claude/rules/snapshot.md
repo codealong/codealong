@@ -89,8 +89,9 @@ changed argument is written here in the same change.
 
 `--decider <name>` names a decision model to ask instead (decisions.rs `named`, `trying`): one of
 the `[[decisions.models]]` by name, or any provider's as `<provider>:<model>`
-(`openai:gpt-6-luna`), which needn't be in config.toml. It stands in for every project's and the
-default's, so every project's words go to it but what a boundary group keeps to its own.
+(`openai:gpt-6-luna`), which needn't be in config.toml. It stands in for `[decisions] default`
+only, without fallbacks: what a project or boundary group chose, a model or none, still binds, so
+its words reach the model only where they chose it, and a prompt they keep from it isn't asked.
 
 - `--snapshot --route <text> [--project <name>] [--decider <name>]`: what the project's decision
   model suggests in the quick panel for it, or with `--decider` that model, whatever `[decisions]

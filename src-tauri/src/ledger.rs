@@ -358,9 +358,10 @@ fn nudger() -> &'static Mutex<Option<Sender<()>>> {
 }
 
 /// Reads every account's records after `delay`, then what's new every minute or when nudged.
-/// `project_of` says the project of a session on the board by its key, for which decision model
-/// may read its prompts (stance.rs `pass`).
-pub fn spawn(delay: Duration, project_of: impl Fn(&str) -> Option<String> + Send + 'static) {
+/// `project_of` says the projects a session on the board may be about, by its key
+/// (`decisions::session_projects`), for which decision model may read its prompts (stance.rs
+/// `pass`).
+pub fn spawn(delay: Duration, project_of: impl Fn(&str) -> Option<Vec<Option<String>>> + Send + 'static) {
     let (tx, rx) = channel::<()>();
     *nudger().lock().unwrap_or_else(|e| e.into_inner()) = Some(tx);
     FILLING.store(!path().exists(), Ordering::Relaxed);

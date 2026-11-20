@@ -393,7 +393,7 @@ pub fn request_with_routing(board: &Board, cfg: Option<&crate::config::Config>, 
 
     let mut session_cards = Map::new();
     for (i, (lane, s)) in sessions.iter().enumerate() {
-        let said = cfg.is_none_or(|c| decider.is_some_and(|d| d.carries(crate::decisions::of_session(c, lane, s).as_ref())));
+        let said = cfg.is_none_or(|c| decider.is_some_and(|d| d.carries(crate::decisions::of_session(c, &board.lanes, lane, s).as_ref())));
         session_cards.insert(format!("s{}", i + 1), session_card(lane, s, related.iter().copied().find(|r| r.key == s.key), said, now));
     }
     let mut lane_cards = Map::new();

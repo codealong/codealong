@@ -316,14 +316,18 @@ fn analytics(args: &Args, rest: &[String]) -> Done {
     Ok(pretty(&serde_json::json!({ "analytics": report, "origins": tokens.origins, "hands": tokens.hands, "subagents": tokens.subagents, "total": tokens.total, "problem": caught.problem() })))
 }
 
-/// The settings to ask with: config.toml's, or with `--decider <name>` that model standing in for
-/// every project's and the default (`decisions::trying`), its name one of the
-/// `[[decisions.models]]` or `<provider>:<model>`.
-fn deciding(args: &Args) -> Result<config::Config, Stop> {
+/// The settings to ask with, and the model a `--decider <name>` names (one of the
+/// `[[decisions.models]]`, or `<provider>:<model>`): config.toml's, or with that model as the
+/// default (`decisions::trying`), so what goes by the default goes to it and what a project or
+/// boundary group chose doesn't.
+fn deciding(args: &Args) -> Result<(config::Config, Option<crate::decisions::Decider>), Stop> {
     let cfg = config::current().map_err(failed)?;
     match args.option("--decider") {
-        Some(spec) => Ok(crate::decisions::trying(&cfg, &crate::decisions::named(&cfg, spec).map_err(failed)?)),
-        None => Ok(cfg),
+        Some(spec) => {
+            let trial = crate::decisions::named(&cfg, spec).map_err(failed)?;
+            Ok((crate::decisions::trying(&cfg, &trial), Some(trial)))
+        }
+        None => Ok((cfg, None)),
     }
 }
 
@@ -338,14 +342,17 @@ fn stance(args: &Args, rest: &[String]) -> Done {
         None => 10,
     };
     let file = args.option("--into").ok_or(Stop::Usage)?;
-    let cfg = deciding(args)?;
+    let (cfg, trial) = deciding(args)?;
     let board = board_now().board();
-    let project_of = |key: &str| board.session(key).map(|(l, s)| crate::decisions::project_of(l, s).unwrap_or_default().to_string());
+    let project_of = |key: &str| crate::decisions::session_projects(&cfg, &board.lanes, key);
     let db = crate::ledger::open(std::path::Path::new(file)).map_err(failed)?;
     let mut out = Vec::new();
     for u in crate::stance::unread(&db, n).map_err(failed)? {
-        let Some(decider) = crate::stance::decider(&cfg, &u, &project_of) else {
-            out.push(serde_json::json!({ "prompt": u, "stance": null, "kept": "Its project or boundary group keeps it from this model." }));
+        // A trial asks the model it names or nothing: a prompt whose project or boundary group
+        // chose another goes to none here.
+        let decider = crate::stance::decider(&cfg, &u, &project_of).filter(|d| trial.as_ref().is_none_or(|t| d.models[0].name == t.models[0].name));
+        let Some(decider) = decider else {
+            out.push(serde_json::json!({ "prompt": u, "stance": null, "kept": "Its project or boundary group keeps its words from this model." }));
             continue;
         };
         let answer = crate::decisions::ask(crate::jev::Feature::Prompts, &decider, &crate::stance::request(decider.model(), &u)).map_err(failed)?;
@@ -377,9 +384,10 @@ fn routes(args: &Args, rest: &[String]) -> Done {
         Some(n) => n.parse().map_err(|_| Stop::Usage)?,
         None => 20,
     };
-    let cfg = deciding(args)?;
+    let (cfg, trial) = deciding(args)?;
+    let trial = trial.ok_or(Stop::Usage)?;
     let board = route_board(&cfg);
-    Ok(pretty(&crate::routelog::replay(spec, since, most, |k| route::route(&board, &cfg, &k.project, &k.text)).map_err(failed)?))
+    Ok(pretty(&crate::routelog::replay(spec, since, most, |k| route::route_on(&board, &cfg, &trial, &k.project, &k.text)).map_err(failed)?))
 }
 
 /// The board a route is asked on here: read now, with the accounts' MCP servers, which the app
@@ -900,12 +908,13 @@ fn start_plan(args: &Args, rest: &[String]) -> Done {
 fn route_text(args: &Args, rest: &[String]) -> Done {
     let [text, ..] = rest else { return Err(Stop::Usage) };
     let project = args.option("--project").unwrap_or(route::ALL_PROJECTS);
-    let cfg = deciding(args)?;
+    let (cfg, trial) = deciding(args)?;
     let board = route_board(&cfg);
-    // Another model by hand is asked whatever the panel's switch says; the panel's own way is the
-    // app's request, as another device asks it.
-    if args.has("--decider") {
-        return Ok(pretty(&route::route(&board, &cfg, project, text).map_err(failed)?));
+    // Another model by hand is asked what you typed whatever the panel's switch says, the
+    // sessions' words where it may read them; the panel's own way is the app's request, as
+    // another device asks it.
+    if let Some(trial) = trial {
+        return Ok(pretty(&route::route_on(&board, &cfg, &trial, project, text).map_err(failed)?));
     }
     let params = params::Route { project: project.to_string(), text: text.clone() };
     Ok(pretty(&actions::local(&engine::Handle::over(board), &From::Device, api::ROUTE, "", params).map_err(Stop::Failed)?))

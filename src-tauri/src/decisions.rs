@@ -38,6 +38,7 @@ use serde_json::{json, Map, Value};
 
 use crate::config::{Config, DecisionModelCfg};
 use crate::jev::Feature;
+use crate::model::{Lane, Session};
 
 /// The providers config.toml's `provider` takes, as their adapters name them.
 pub const PROVIDERS: [&str; 3] = ["typesafe", "openai", "gemini"];
@@ -113,9 +114,12 @@ impl Decider {
 }
 
 /// Every decision model config.toml names: its `[[decisions.models]]`, and Jev as `jev` on
-/// `jev-preview` when none of them is named so.
+/// `jev-preview` when none of them is named so. What `config::check_decisions` turns down is
+/// passed over here too, for a file written by hand and read as it is: an entry named `none`,
+/// which is no model, and a `jev` that isn't TypeSafe's, which a boundary group that names no
+/// model would be sent to.
 pub fn models(cfg: &Config) -> Vec<DecisionModelCfg> {
-    let mut out = cfg.decisions.models.clone();
+    let mut out: Vec<DecisionModelCfg> = cfg.decisions.models.iter().filter(|m| m.name.trim() != "none" && (m.name.trim() != "jev" || m.provider.trim() == "typesafe")).cloned().collect();
     if !out.iter().any(|m| m.name.trim() == "jev") {
         out.insert(0, DecisionModelCfg { name: "jev".into(), provider: "typesafe".into(), model: crate::config::default_jev_model(), fallback: None });
     }
@@ -131,6 +135,9 @@ pub fn model_named(cfg: &Config, name: &str) -> Option<DecisionModelCfg> {
 /// boundary group chose it (`chosen`), and when it's `[decisions] default`, its fallbacks after
 /// it. None for `none`, or a name config.toml has no model for.
 fn allowed(cfg: &Config, name: &str, chosen: bool) -> Option<Decider> {
+    if name.trim() == "none" {
+        return None;
+    }
     let first = model_named(cfg, name)?;
     let mut models = vec![first];
     while !chosen {
@@ -144,10 +151,12 @@ fn allowed(cfg: &Config, name: &str, chosen: bool) -> Option<Decider> {
     Some(Decider { models })
 }
 
-/// The `decisions` of the project named `project`, as config.toml has it.
+/// The `decisions` of the project named `project`, as config.toml has it: by its name as written,
+/// else in any case, as a todo's project is matched (`codealong todo list --project`).
 fn project_says<'a>(cfg: &'a Config, project: Option<&str>) -> Option<&'a str> {
     let p = project.map(str::trim)?;
-    cfg.projects.iter().find(|x| x.name.trim() == p)?.decisions.as_deref().map(str::trim).filter(|d| !d.is_empty())
+    let found = cfg.projects.iter().find(|x| x.name.trim() == p).or_else(|| cfg.projects.iter().find(|x| x.name.trim().eq_ignore_ascii_case(p)))?;
+    found.decisions.as_deref().map(str::trim).filter(|d| !d.is_empty())
 }
 
 /// The decision model that may read what's said in `project` (none: in no project of yours):
@@ -176,26 +185,99 @@ pub fn for_session(cfg: &Config, account: &str, project: Option<&str>) -> Option
     }
 }
 
+/// The model every one of `projects` gives a session on `account` (`for_session`), when they
+/// agree: text that may be any of theirs goes only where each of them lets it. None when they
+/// differ, or give none.
+pub fn for_session_in(cfg: &Config, account: &str, projects: &[Option<&str>]) -> Option<Decider> {
+    let mut each = projects.iter().map(|p| for_session(cfg, account, *p));
+    let first = each.next()?;
+    each.all(|d| d == first).then_some(first).flatten()
+}
+
+/// Every project, and none (in no project of yours), as `for_session_in` takes them.
+fn every_project(cfg: &Config) -> Vec<Option<&str>> {
+    std::iter::once(None).chain(cfg.projects.iter().map(|p| Some(p.name.as_str()))).collect()
+}
+
 /// `for_session` for a session whose project isn't known (no longer on the board): what every
 /// project would give it, when they all agree. None when they don't, as its text might be a
 /// project's that keeps it from the model the others give.
 pub fn for_session_anywhere(cfg: &Config, account: &str) -> Option<Decider> {
-    let first = for_session(cfg, account, None);
-    cfg.projects.iter().all(|p| for_session(cfg, account, Some(&p.name)) == first).then_some(first).flatten()
+    for_session_in(cfg, account, &every_project(cfg))
 }
 
-/// The project a session's text belongs to: an orchestrator's is the one it keeps watch over
-/// (its own session is in Codealong's chats), anyone else's its worktree's.
-pub fn project_of<'a>(lane: &'a crate::model::Lane, s: &'a crate::model::Session) -> Option<&'a str> {
-    match &s.orchestrator {
-        Some(o) => o.project.as_deref(),
-        None => Some(lane.project.as_str()),
+/// The projects a session's text may be about: its worktree's, and the one it started in when
+/// it has moved since (its `cwd`'s lane), as what it said there came with it; an orchestrator's,
+/// the project it keeps watch over, and for All projects' every one, as it reads them all. A
+/// session started on the orchestrator's prompt that the board no longer marks as one (an
+/// earlier thread of one) goes as All projects'.
+pub fn projects_of<'a>(cfg: &'a Config, lanes: &'a [Lane], lane: &'a Lane, s: &'a Session) -> Vec<Option<&'a str>> {
+    if let Some(o) = &s.orchestrator {
+        return match o.project.as_deref() {
+            Some(p) => vec![Some(p)],
+            None => every_project(cfg),
+        };
     }
+    if crate::board::started_as_orchestrator(s) {
+        return every_project(cfg);
+    }
+    let mut out = vec![Some(lane.project.as_str())];
+    let cwd = std::path::Path::new(&s.cwd);
+    let started = lanes.iter().filter(|l| !s.cwd.is_empty() && !l.path.is_empty() && cwd.starts_with(&l.path)).max_by_key(|l| l.path.len());
+    if let Some(l) = started.filter(|l| l.project != lane.project) {
+        out.push(Some(l.project.as_str()));
+    }
+    out
 }
 
-/// `for_session` for a session on the board.
-pub fn of_session(cfg: &Config, lane: &crate::model::Lane, s: &crate::model::Session) -> Option<Decider> {
-    for_session(cfg, &s.account, project_of(lane, s))
+/// `for_session` for a session on the board, in `lane`: what every project it may be about
+/// gives it (`projects_of`).
+pub fn of_session(cfg: &Config, lanes: &[Lane], lane: &Lane, s: &Session) -> Option<Decider> {
+    for_session_in(cfg, &s.account, &projects_of(cfg, lanes, lane, s))
+}
+
+/// A session's own row on the board: the lane it's listed under as its own, never one it only
+/// visits (`board::home` falls back to one), which says nothing of where its words belong.
+pub fn own_row<'a>(lanes: &'a [Lane], key: &str) -> Option<(&'a Lane, &'a Session)> {
+    lanes.iter().find_map(|l| l.sessions.iter().find(|s| s.key == key && s.visitor.is_none()).map(|s| (l, s)))
+}
+
+/// The projects a session's text may be about, by its key, owned, for a reader off the
+/// engine's thread (the ledger's, stance.rs): None when the board doesn't list it as its own.
+pub fn session_projects(cfg: &Config, lanes: &[Lane], key: &str) -> Option<Vec<Option<String>>> {
+    let (lane, s) = own_row(lanes, key)?;
+    Some(projects_of(cfg, lanes, lane, s).into_iter().map(|p| p.map(String::from)).collect())
+}
+
+/// The model a start on `account_or_group` (an account, a routing group, or empty for Auto) in
+/// `projects` may have its words read by: what every account it may land on and every one of
+/// the projects agree on. A group that lists no member, and Auto with no group, may land on any
+/// account that's on.
+pub fn for_start(cfg: &Config, account_or_group: &str, projects: &[Option<&str>]) -> Option<Decider> {
+    let on = account_or_group.trim();
+    let group = |name: &str| cfg.routing.groups.iter().find(|g| g.name.trim() == name);
+    let named = if on.is_empty() { crate::config::auto_group(cfg, projects.first().copied().flatten()) } else { on };
+    let accounts: Vec<&str> = match group(named) {
+        Some(g) if !g.members.is_empty() => g.members.iter().map(|m| m.account.trim()).collect(),
+        Some(_) => cfg.accounts.iter().filter(|a| !a.disabled).map(|a| a.name.as_str()).collect(),
+        None if named.is_empty() => cfg.accounts.iter().filter(|a| !a.disabled).map(|a| a.name.as_str()).collect(),
+        None => vec![named],
+    };
+    let mut each = accounts.iter().map(|a| for_session_in(cfg, a, projects));
+    let first = each.next()?;
+    each.all(|d| d == first).then_some(first).flatten()
+}
+
+/// What the choice of decision models comes to in config.toml, to tell a request asked before a
+/// change from one asked after: the worker sends nothing asked under settings since changed
+/// (`Job::fingerprint`).
+pub fn fingerprint(cfg: &Config) -> u64 {
+    use std::hash::{Hash, Hasher};
+    let projects: Vec<(&str, Option<&str>)> = cfg.projects.iter().map(|p| (p.name.as_str(), p.decisions.as_deref())).collect();
+    let groups: Vec<(&str, bool, Option<&str>, Vec<&str>)> = cfg.routing.groups.iter().map(|g| (g.name.as_str(), g.boundary, g.decisions.as_deref(), g.members.iter().map(|m| m.account.as_str()).collect())).collect();
+    let mut h = std::collections::hash_map::DefaultHasher::new();
+    (serde_json::to_string(&cfg.decisions).unwrap_or_default(), projects, groups).hash(&mut h);
+    h.finish()
 }
 
 /// The decision model `spec` names, alone, for trying one by hand (`--snapshot --decider`): one
@@ -214,18 +296,16 @@ pub fn named(cfg: &Config, spec: &str) -> Result<Decider> {
     }
 }
 
-/// `cfg` with `decider`'s model in the place of every project's choice and the default's, for
-/// trying it on real sessions by hand (`--snapshot --decider`): what you asked for goes to it,
-/// every project's text but what a boundary group keeps to its own model, which still binds.
+/// `cfg` with `decider`'s model as `[decisions] default`, without fallbacks, for trying it on
+/// real sessions by hand (`--snapshot --decider`): what goes by the default goes to it. What a
+/// project or boundary group chose, a model or none, still binds, so their words reach it only
+/// where they chose it.
 pub fn trying(cfg: &Config, decider: &Decider) -> Config {
     let mut out = cfg.clone();
     let m = decider.models[0].clone();
     out.decisions.models.retain(|x| x.name.trim() != m.name);
     out.decisions.models.push(DecisionModelCfg { fallback: None, ..m.clone() });
     out.decisions.default = m.name.clone();
-    for p in &mut out.projects {
-        p.decisions = Some(m.name.clone());
-    }
     out
 }
 
@@ -283,6 +363,7 @@ fn ask_one(feature: Feature, m: &DecisionModelCfg, body: &Value) -> Result<Value
         (status, reply) = post(a, &key, &a.request(&m.model, &plain), false)?;
     }
     let mut response = reply_of(a, &m.model, &status, &reply)?;
+    with_sole_answers(body, &mut response);
     response["provider"] = json!(a.id());
     response["decider"] = json!(m.name);
     crate::ledger::note_jev(used(feature, a, &m.model, &response, crate::util::now_ms()));
@@ -329,6 +410,9 @@ pub struct Job {
     pub id: String,
     pub feature: Feature,
     pub decider: Decider,
+    /// The settings' `fingerprint` it was asked under: a change to which model may read what,
+    /// made while it waited its turn, keeps it from being sent.
+    pub fingerprint: u64,
     pub body: Value,
     pub fill: Option<Box<dyn FnOnce(&mut Value) + Send>>,
 }
@@ -341,6 +425,10 @@ pub fn worker(done: impl Fn(String, std::result::Result<Value, String>) + Send +
         .name("decisions".into())
         .spawn(move || {
             for mut job in rx {
+                if crate::config::current().map(|c| fingerprint(&c)).ok() != Some(job.fingerprint) {
+                    done(job.id, Err("Which decision model may read what changed since this was asked, so it wasn't sent.".into()));
+                    continue;
+                }
                 if let Some(fill) = job.fill.take() {
                     fill(&mut job.body);
                 }
@@ -453,6 +541,35 @@ fn reply_of(a: &dyn Adapter, model: &str, status: &str, reply: &str) -> Result<V
     }
 }
 
+/// A choice with one option has its answer whatever the model: OpenAI and Gemini take a choice
+/// of two options at least, so their adapters leave one out (`asks`), and its answer is that
+/// option, sure, as Jev gives it (the quick panel's `duplicate` with no session running, a todo's
+/// link with none open).
+fn with_sole_answers(body: &Value, response: &mut Value) {
+    for (id, q) in body["questions"].as_object().into_iter().flatten() {
+        let Some(only) = q["criteria"].as_object().filter(|c| q["type"] == "choice" && c.len() == 1).and_then(|c| c.keys().next()) else { continue };
+        if response["answers"].get(id).is_none() {
+            response["answers"][id] = json!({ "type": "choice", "choice": only, "probabilities": { only.clone(): 1.0 } });
+        }
+    }
+}
+
+/// Whether a question of Jev's is one a provider that takes a choice of two options at least
+/// can be asked (`with_sole_answers`).
+fn asks(q: &Value) -> bool {
+    q["type"] != "choice" || q["criteria"].as_object().is_some_and(|c| c.len() >= 2)
+}
+
+/// A question's instructions, or an option's description, as text: a string as it is, a card (an
+/// object, as prasks.rs puts a comment in its instructions) as its JSON, nothing as nothing.
+fn text_of(v: &Value) -> String {
+    match v {
+        Value::String(s) => s.clone(),
+        Value::Null => String::new(),
+        other => other.to_string(),
+    }
+}
+
 /* ---- Images, for the providers that take them as parts ---- */
 
 /// A piece of what goes to a model with its images in place: text, or an image (its format,
@@ -488,15 +605,6 @@ fn mime(format: &str) -> &'static str {
         "image/jpeg"
     } else {
         "image/png"
-    }
-}
-
-/// An option's description as text: a provider other than TypeSafe takes a string, and a card
-/// (an object) goes as its JSON.
-fn described(v: &Value) -> String {
-    match v {
-        Value::String(s) => s.clone(),
-        other => other.to_string(),
     }
 }
 
@@ -676,12 +784,95 @@ mod tests {
     }
 
     #[test]
-    fn a_model_tried_by_hand_stands_in_for_every_choice_but_a_boundary_groups() {
+    fn a_model_tried_by_hand_stands_in_for_the_default_and_no_ones_choice() {
         let cfg = cfg();
         let tried = trying(&cfg, &named(&cfg, "openai:gpt-6-luna").unwrap());
-        assert_eq!(names(for_project(&tried, Some("kestrel"))), Some(vec!["openai:gpt-6-luna".into()]));
+        assert_eq!(names(for_project(&tried, Some("northwind"))), Some(vec!["openai:gpt-6-luna".into()]), "no fallback");
         assert_eq!(names(for_project(&tried, None)), Some(vec!["openai:gpt-6-luna".into()]));
-        assert_eq!(names(for_session(&tried, "claude-work", Some("northwind"))), None, "the group's Jev and the project's stand-in differ");
+        assert_eq!(names(for_project(&tried, Some("kestrel"))), None, "a project that chose none still has none");
+        assert_eq!(names(for_project(&tried, Some("atlas"))), Some(vec!["luna".into()]), "nor another model");
+        assert_eq!(names(for_session(&tried, "claude-work", Some("northwind"))), Some(vec!["jev".into()]), "a boundary group's own binds");
+    }
+
+    fn session_in(key: &str, account: &str, cwd: &str) -> Session {
+        Session { account: account.into(), cwd: cwd.into(), ..crate::fixtures::session(key) }
+    }
+
+    fn lane_of(id: &str, project: &str, sessions: Vec<Session>) -> Lane {
+        Lane { path: id.into(), project: project.into(), ..crate::fixtures::lane(id, sessions) }
+    }
+
+    #[test]
+    fn a_sessions_words_go_only_where_every_project_they_may_be_about_lets_them() {
+        let cfg = cfg();
+        let lanes = vec![
+            lane_of("/w/atlas", "atlas", vec![session_in("c:moved", "claude", "/w/kestrel/sub")]),
+            lane_of("/w/kestrel", "kestrel", vec![]),
+            lane_of("/w/northwind", "northwind", vec![session_in("c:home", "claude", "/w/northwind")]),
+            lane_of("/w/harbor", "harbor", vec![]),
+        ];
+        let at = |key: &str| own_row(&lanes, key).unwrap();
+        // Started in kestrel (none) and working in atlas now: what it said in kestrel came along.
+        let (l, s) = at("c:moved");
+        assert_eq!(projects_of(&cfg, &lanes, l, s), [Some("atlas"), Some("kestrel")]);
+        assert_eq!(names(of_session(&cfg, &lanes, l, s)), None);
+        let (l, s) = at("c:home");
+        assert_eq!(names(of_session(&cfg, &lanes, l, s)), Some(vec!["jev".into(), "sol".into()]));
+        // An orchestrator: its project's, or for All projects every project's, which differ here.
+        let mut orchestrator = session_in("c:orch", "claude", "/chats/orch");
+        orchestrator.orchestrator = Some(crate::model::Orchestrator { schedule: "o".into(), project: Some("atlas".into()), ..Default::default() });
+        assert_eq!(names(of_session(&cfg, &lanes, &lanes[2], &orchestrator)), Some(vec!["luna".into()]));
+        orchestrator.orchestrator = Some(crate::model::Orchestrator { schedule: "o".into(), project: None, ..Default::default() });
+        assert_eq!(names(of_session(&cfg, &lanes, &lanes[2], &orchestrator)), None);
+        // An earlier thread of one, which no schedule marks, goes as All projects'.
+        let earlier = Session { first_prompt: Some("/codealong:orchestrate".into()), ..session_in("c:old", "claude", "/chats/old") };
+        assert_eq!(names(of_session(&cfg, &lanes, &lanes[2], &earlier)), None);
+        // A visitor's row says nothing of where a session's words belong.
+        let visiting = vec![lane_of("/w/harbor", "harbor", vec![Session { visitor: Some("/w/atlas".into()), ..session_in("c:v", "claude", "/w/atlas") }])];
+        assert!(own_row(&visiting, "c:v").is_none() && session_projects(&cfg, &visiting, "c:v").is_none());
+    }
+
+    #[test]
+    fn a_start_goes_where_every_account_it_may_land_on_agrees() {
+        let mut cfg = cfg();
+        let account = |name: &str| crate::config::AccountCfg { name: name.into(), harness: "claude".into(), home: format!("~/.{name}"), command: None, start: None, acp: None, monthly: None, per_token: false, usage_cap: None, disabled: false, chrome_profile: None };
+        cfg.accounts = vec![account("claude"), account("claude-work")];
+        cfg.routing.groups.push(RoutingGroupCfg { name: "both".into(), members: vec![GroupMemberCfg { account: "claude".into(), ..Default::default() }, GroupMemberCfg { account: "claude-work".into(), ..Default::default() }], ..Default::default() });
+        assert_eq!(names(for_start(&cfg, "claude", &[Some("northwind")])), Some(vec!["jev".into(), "sol".into()]));
+        assert_eq!(names(for_start(&cfg, "claude-work", &[Some("northwind")])), Some(vec!["jev".into()]));
+        assert_eq!(names(for_start(&cfg, "both", &[Some("northwind")])), None, "it may land in the boundary or out of it");
+        assert_eq!(names(for_start(&cfg, "work", &[Some("harbor")])), Some(vec!["jev".into()]), "a boundary group's own name");
+        assert_eq!(names(for_start(&cfg, "", &[Some("northwind")])), None, "Auto may land on either");
+        assert_eq!(names(for_start(&cfg, "", &[Some("harbor")])), Some(vec!["jev".into()]), "where both give the same");
+        assert_eq!(names(for_start(&cfg, "claude", &[Some("harbor"), Some("atlas")])), None, "two projects that differ");
+    }
+
+    #[test]
+    fn a_hand_written_none_or_jev_of_another_provider_is_passed_over() {
+        let mut cfg = cfg();
+        cfg.decisions.models.push(model("none", "openai", None));
+        cfg.decisions.models.retain(|m| m.name != "jev");
+        cfg.decisions.models.push(model("jev", "openai", None));
+        assert!(model_named(&cfg, "none").is_none());
+        assert_eq!(model_named(&cfg, "jev").map(|m| m.provider), Some("typesafe".to_string()));
+        assert_eq!(names(for_project(&cfg, Some("kestrel"))), None);
+        // A project's name in another case is the project.
+        assert_eq!(names(for_project(&cfg, Some("Atlas"))), Some(vec!["luna".into()]));
+    }
+
+    #[test]
+    fn a_choice_of_one_has_its_answer_and_a_change_of_settings_shows() {
+        let body = crate::jev::body("m", json!({}), json!({ "duplicate": { "type": "choice", "criteria": { "none": "No." } }, "action": { "type": "choice", "criteria": { "a": "", "b": "" } } }));
+        let mut response = json!({ "answers": { "action": { "type": "choice", "probabilities": { "a": 0.6, "b": 0.4 } } } });
+        with_sole_answers(&body, &mut response);
+        assert_eq!(crate::jev::choice(&response, "duplicate"), vec![("none".to_string(), 1.0)]);
+        assert_eq!(crate::jev::choice(&response, "action")[0].0, "a");
+        assert!(!asks(&body["questions"]["duplicate"]) && asks(&body["questions"]["action"]));
+        let cfg = cfg();
+        let mut changed = cfg.clone();
+        assert_eq!(fingerprint(&cfg), fingerprint(&changed));
+        changed.projects[2].decisions = Some("none".into());
+        assert_ne!(fingerprint(&cfg), fingerprint(&changed));
     }
 
     #[test]

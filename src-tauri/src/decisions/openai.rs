@@ -21,7 +21,7 @@
 use anyhow::Result;
 use serde_json::{json, Map, Value};
 
-use super::{described, mime, pieces, Adapter, Piece, Tokens};
+use super::{asks, mime, pieces, text_of, Adapter, Piece, Tokens};
 
 pub struct OpenAi;
 
@@ -60,7 +60,7 @@ impl Adapter for OpenAi {
 
     fn request(&self, model: &str, body: &Value) -> Value {
         let assets = body["assets"].as_object().cloned().unwrap_or_default();
-        let questions: Vec<Value> = body["questions"].as_object().into_iter().flatten().filter_map(|(id, q)| question(id, q, &assets)).collect();
+        let questions: Vec<Value> = body["questions"].as_object().into_iter().flatten().filter(|(_, q)| asks(q)).filter_map(|(id, q)| question(id, q, &assets)).collect();
         json!({
             "model": model,
             "input": [{ "role": "user", "content": content(&body["state"], &assets) }],
@@ -141,12 +141,12 @@ fn parts(text: &str, assets: &Map<String, Value>) -> Vec<Value> {
 /// One of Jev's questions as OpenAI's, named by its id. None for a type it has no match for
 /// (Jev's `box`), which Codealong doesn't ask.
 fn question(id: &str, q: &Value, assets: &Map<String, Value>) -> Option<Value> {
-    let mut instructions = q["instructions"].as_str().unwrap_or_default().to_string();
+    let mut instructions = text_of(&q["instructions"]);
     let criteria = &q["criteria"];
     let mut out = match q["type"].as_str()? {
         "noul" => {
             for (side, says) in [("true", "Answer yes when"), ("false", "Answer no when")] {
-                if let Some(c) = criteria.get(side).map(described).filter(|c| !c.trim().is_empty()) {
+                if let Some(c) = criteria.get(side).map(text_of).filter(|c| !c.trim().is_empty()) {
                     instructions.push_str(&format!("\n{says}: {c}"));
                 }
             }
@@ -157,7 +157,7 @@ fn question(id: &str, q: &Value, assets: &Map<String, Value>) -> Option<Value> {
                 .as_object()
                 .into_iter()
                 .flatten()
-                .map(|(value, d)| match described(d) {
+                .map(|(value, d)| match text_of(d) {
                     d if d.trim().is_empty() => json!({ "value": value }),
                     d => json!({ "value": value, "description": d }),
                 })
@@ -165,7 +165,7 @@ fn question(id: &str, q: &Value, assets: &Map<String, Value>) -> Option<Value> {
             json!({ "type": "choice", "choices": choices })
         }
         "score" => {
-            let levels: Vec<Value> = criteria.as_array().into_iter().flatten().map(|l| json!({ "label": described(l) })).collect();
+            let levels: Vec<Value> = criteria.as_array().into_iter().flatten().map(|l| json!({ "label": text_of(l) })).collect();
             json!({ "type": "score", "levels": levels })
         }
         _ => return None,
@@ -188,6 +188,8 @@ mod tests {
                 "own_worktree": { "type": "noul", "instructions": "A new worktree?", "criteria": { "true": "It says so.", "false": "It doesn't." } },
                 "risk": { "type": "score", "instructions": "How risky?", "criteria": ["Reads", "Writes"] },
                 "where": { "type": "box", "instructions": "Where?" },
+                "duplicate": { "type": "choice", "instructions": "Which?", "criteria": { "none": "None of these." } },
+                "c1": { "type": "noul", "instructions": { "comment": { "by": "ana", "text": "Rename this" }, "question": "Does `comment` ask for a change?" } },
             }),
         )
     }
@@ -209,6 +211,8 @@ mod tests {
         assert_eq!(q("own_worktree"), Some(json!({ "type": "predicate", "name": "own_worktree", "instructions": "A new worktree?\nAnswer yes when: It says so.\nAnswer no when: It doesn't." })));
         assert_eq!(q("risk"), Some(json!({ "type": "score", "name": "risk", "instructions": "How risky?", "levels": [{ "label": "Reads" }, { "label": "Writes" }] })));
         assert_eq!(q("where"), None, "no box");
+        assert_eq!(q("duplicate"), None, "a choice of one isn't asked: it has its answer");
+        assert_eq!(q("c1").map(|c| c["instructions"].clone()), Some(json!("{\"comment\":{\"by\":\"ana\",\"text\":\"Rename this\"},\"question\":\"Does `comment` ask for a change?\"}")), "a card in the instructions goes as its JSON");
     }
 
     #[test]

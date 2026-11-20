@@ -1624,14 +1624,21 @@ fn with_terminals(mut sessions: Vec<Session>) -> Vec<Session> {
 }
 
 /// The decision model that may pick an emblem's emoji (emblems.rs `subject`): a session's
-/// (decisions.rs `of_session`), or a schedule's, by the account it runs on and the project of the
-/// worktree it runs in, as one of its sessions would be.
+/// (decisions.rs `of_session`), or a schedule's, as any of the sessions it may start would be:
+/// on whatever account its account, routing group or Auto may land on, in the project it keeps
+/// watch over (an orchestrator's; All projects' is every one) or its worktree's
+/// (decisions.rs `for_start`).
 fn emblem_decider(cfg: &Config, board: &Board, key: &str) -> Option<crate::decisions::Decider> {
-    if let Some((lane, s)) = board.session(key) {
-        return crate::decisions::of_session(cfg, lane, s);
+    if let Some((lane, s)) = crate::decisions::own_row(&board.lanes, key) {
+        return crate::decisions::of_session(cfg, &board.lanes, lane, s);
     }
     let i = board.schedules.iter().find(|i| crate::emblems::schedule_key(&i.schedule.id) == key)?;
-    crate::decisions::for_session(cfg, &i.schedule.run.account, crate::schedules::place(&i.schedule, board).map(|l| l.project.as_str()))
+    let projects: Vec<Option<&str>> = match &i.schedule.orchestrates {
+        Some(o) if o.project.is_some() => vec![o.project.as_deref()],
+        Some(_) => std::iter::once(None).chain(cfg.projects.iter().map(|p| Some(p.name.as_str()))).collect(),
+        None => vec![crate::schedules::place(&i.schedule, board).map(|l| l.project.as_str())],
+    };
+    crate::decisions::for_start(cfg, &i.schedule.run.account, &projects)
 }
 
 impl Engine {
@@ -1755,7 +1762,8 @@ impl Engine {
     /// Asks with a body the worker finishes on its own thread first (`decisions::Job::fill`).
     fn ask_jev_filled(&mut self, feature: jev::Feature, decider: crate::decisions::Decider, id: String, body: serde_json::Value, fill: Option<Box<dyn FnOnce(&mut serde_json::Value) + Send>>) {
         if self.jev_pending.insert(id.clone()) {
-            let _ = self.jev_jobs.send(crate::decisions::Job { id, feature, decider, body, fill });
+            let fingerprint = crate::decisions::fingerprint(&self.cfg);
+            let _ = self.jev_jobs.send(crate::decisions::Job { id, feature, decider, fingerprint, body, fill });
         }
     }
 
@@ -1833,14 +1841,14 @@ impl Engine {
         }
         let now = now_ms();
         let cfg = &self.cfg;
-        // Each question goes to the model that may read its subject: a new session's, whose
-        // project's todos it's shown whole only when that model may read them too; a todo's
-        // project's, whose sessions it's shown by their titles when it may not read them
-        // (decisions.rs).
+        // Each question goes to the model that may read its subject (decisions.rs): a new
+        // session's, whose project's todos it's shown whole only when that model may read them
+        // too; a todo's project's, and not at all while a session linked to it keeps its words
+        // from that model.
         let asks: Vec<(String, crate::decisions::Decider, serde_json::Value, Vec<String>)> = todojev::link_candidates(board, &self.todos.todos, &self.jev_todos.asked, now)
             .into_iter()
             .filter_map(|(lane, s)| {
-                let decider = crate::decisions::of_session(cfg, lane, s)?;
+                let decider = crate::decisions::of_session(cfg, &board.lanes, lane, s)?;
                 let todos_said = decider.carries(crate::decisions::for_project(cfg, Some(&lane.project)).as_ref());
                 let (body, ids) = todojev::link_request(decider.model(), board, lane, s, &self.todos.todos, todos_said);
                 Some((s.key.clone(), decider, body, ids))
@@ -1852,7 +1860,11 @@ impl Engine {
             .iter()
             .filter_map(|t| {
                 let decider = crate::decisions::for_project(cfg, Some(t.project.as_str()).filter(|p| !p.is_empty()))?;
-                let input = todojev::done_input(board, t, |l, s| decider.carries(crate::decisions::of_session(cfg, l, s).as_ref()))?;
+                let kept = t.sessions.iter().any(|k| crate::decisions::own_row(&board.lanes, k).is_some_and(|(l, s)| !decider.carries(crate::decisions::of_session(cfg, &board.lanes, l, s).as_ref())));
+                if kept {
+                    return None;
+                }
+                let input = todojev::done_input(board, t)?;
                 Some((t.id.clone(), decider, input))
             })
             // One question per todo at a time; a newer state is asked about once it's answered.
@@ -1920,7 +1932,7 @@ impl Engine {
         let drawer = config::drawing_account(cfg).map(|a| a.name.clone()).unwrap_or_default();
         let drawer_qualifies = config::drawing_account(cfg).is_some_and(|a| crate::signin::current(a, now, crate::signin::Ask::Never).qualifies());
         let may = move |l: &Lane, s: &Session| match kind {
-            EmblemKind::Emoji => crate::decisions::of_session(cfg, l, s).is_some(),
+            EmblemKind::Emoji => crate::decisions::of_session(cfg, &board.lanes, l, s).is_some(),
             _ => crate::boundary::group_of(cfg, &s.account).is_none_or(|g| drawer_qualifies && crate::boundary::stays_inside(cfg, g, &drawer)),
         };
         let may = &may;
@@ -2016,7 +2028,7 @@ impl Engine {
             self.insights.seen(&s.key, now);
             // Its project or boundary group can keep a session from every decision model, and
             // says which one may read it (decisions.rs).
-            let Some(decider) = crate::decisions::of_session(&self.cfg, lane, s) else { continue };
+            let Some(decider) = crate::decisions::of_session(&self.cfg, &board.lanes, lane, s) else { continue };
             let Some((kind, signature)) = crate::insights::ask(s, now) else { continue };
             let id = format!("insight:{signature}|{}", s.key);
             if asks.len() < PER_BOARD && self.insights.wants(&s.key, &signature, now) && !self.jev_pending.contains(&id) {

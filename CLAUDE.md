@@ -415,7 +415,7 @@ yourself, a harness's before changing its adapter, and add what you find to it, 
 - `windows.md`: Tauri, AppKit and WebKit (panels and their levels, the notch, the keyboard,
   events). `macos-privacy.md`: macOS's privacy prompts and Gatekeeper's. `linux.md`, `microsoft-windows.md`: Linux and Windows,
   their desktops, the harnesses there, and their VMs.
-- `github.md`: `gh`, GraphQL points and polling. `jev.md`: TypeSafe. `devices.md`: Tailscale,
+- `github.md`: `gh`, GraphQL points and polling. `jev.md`: TypeSafe, and the other decision models. `devices.md`: Tailscale,
   iroh and testing linked devices.
 - `preview.md`: writing browser checks. `snapshot.md`: every `--snapshot` mode.
   `performance.md`: the timing log and benches.

@@ -2,8 +2,9 @@
 //! it's for, says when an open todo's work looks done, and suggests a new todo's project, labels
 //! and the todos it waits on. The rules and the requests are here as plain functions with tests;
 //! the engine asks (in the background, through decisions.rs, of the model that may read the
-//! question's subject) and applies the answers. What's in a request that the model asked may not
-//! read (a todo's description, a session's reply) goes by its title.
+//! question's subject) and applies the answers. A new session's project's todos go by their titles
+//! to a model that may read the session but not them; a todo with a session linked that the
+//! todo's model may not read isn't asked about.
 //!
 //! Each session is asked about once, ever, and each todo again only when something linked to it
 //! has moved on (a turn ended, a PR merged): what was asked is kept in `jev-todos.json`.
@@ -93,7 +94,7 @@ impl Memory {
             .filter(|t| is_open(t))
             .filter_map(|t| {
                 let a = self.done.get(&t.id)?;
-                let now = done_input(board, t, |_, _| true)?;
+                let now = done_input(board, t)?;
                 (a.sig == now.sig && a.p >= DONE_AT && self.dismissed.get(&t.id) != Some(&a.sig)).then(|| (t.id.clone(), TodoHint { p: a.p, why: a.why.clone() }))
             })
             .collect()
@@ -250,9 +251,7 @@ pub struct DoneInput {
     pub why: String,
 }
 
-/// What to ask about `t`, its sessions saying what their replies say only where `said` lets the
-/// model asked read them.
-pub fn done_input(board: &Board, t: &Todo, said: impl Fn(&Lane, &Session) -> bool) -> Option<DoneInput> {
+pub fn done_input(board: &Board, t: &Todo) -> Option<DoneInput> {
     if !is_open(t) {
         return None;
     }
@@ -283,7 +282,7 @@ pub fn done_input(board: &Board, t: &Todo, said: impl Fn(&Lane, &Session) -> boo
             c.insert("title".into(), json!(clip(&s.title, 200)));
             c.insert("worktree".into(), json!(l.callsign));
             c.insert("status".into(), json!(status_words(s)));
-            if let Some(r) = s.reply_tail.as_deref().or(s.excerpt.as_deref()).filter(|_| said(l, s)) {
+            if let Some(r) = s.reply_tail.as_deref().or(s.excerpt.as_deref()) {
                 c.insert("end of its last reply".into(), json!(jev::tail(r, 600)));
             }
             c.insert("last prompted".into(), json!(ago_words(s.last_prompt_at, now)));
@@ -532,27 +531,23 @@ mod tests {
         let b = board(vec![lane("/a", "Acme", vec![working.clone()], Some(pr(PrState::Open)))]);
         let mut t = todo("t1", "Acme", "Export streaming");
         t.sessions = vec!["c:1".into()];
-        assert_eq!(done_input(&b, &t, |_, _| true), None, "still working");
+        assert_eq!(done_input(&b, &t), None, "still working");
 
         working.status = Status::Unread;
         working.reply_tail = Some("…so it's merged and deployed.".into());
         let b = board(vec![lane("/a", "Acme", vec![working.clone()], Some(pr(PrState::Open)))]);
-        let open = done_input(&b, &t, |_, _| true).unwrap();
+        let open = done_input(&b, &t).unwrap();
         assert_eq!(open.why, "“Stream the export” finished its turn");
         assert_eq!(open.state["sessions"][0]["end of its last reply"], "…so it's merged and deployed.");
         assert_eq!(open.state["pull requests"][0]["state"], "open, in review");
-        // A session the model asked may not read is there by its title, none of its reply.
-        let veiled = done_input(&b, &t, |_, _| false).unwrap();
-        assert_eq!((veiled.state["sessions"][0]["title"].as_str(), veiled.sig.as_str()), (Some("Stream the export"), open.sig.as_str()));
-        assert!(veiled.state["sessions"][0].get("end of its last reply").is_none());
-        let merged = done_input(&board(vec![lane("/a", "Acme", vec![working], Some(pr(PrState::Merged)))]), &t, |_, _| true).unwrap();
+        let merged = done_input(&board(vec![lane("/a", "Acme", vec![working], Some(pr(PrState::Merged)))]), &t).unwrap();
         assert_eq!(merged.why, "#7 merged");
         assert_ne!(open.sig, merged.sig, "a merge is news");
         assert_eq!(done_request("m", &merged)["questions"]["done"]["type"], "noul");
 
         let mut plain = todo("t2", "Acme", "Nothing linked");
         plain.worktrees = vec!["/nowhere".into()];
-        assert_eq!(done_input(&b, &plain, |_, _| true), None);
+        assert_eq!(done_input(&b, &plain), None);
     }
 
     #[test]
@@ -561,7 +556,7 @@ mod tests {
         let mut t = todo("t1", "Acme", "Export streaming");
         t.sessions = vec!["c:1".into()];
         let b = board(vec![lane("/a", "Acme", vec![s.clone()], None)]);
-        let sig = done_input(&b, &t, |_, _| true).unwrap().sig;
+        let sig = done_input(&b, &t).unwrap().sig;
         let mut m = Memory::default();
         m.done.insert("t1".into(), DoneAnswer { sig: sig.clone(), p: 0.9, why: "w".into() });
         assert_eq!(m.hints(&b, std::slice::from_ref(&t)).get("t1"), Some(&TodoHint { p: 0.9, why: "w".into() }));

@@ -272,7 +272,7 @@ function spentOf(key, api, extra) {
   var t = tokensOf(api);
   return Object.assign({ key: key, api: api, paid: 0, tokens: t, calls: Math.round(api * 11), unpriced: 0, lastAt: Date.now() - Math.round(hashOf(key) * 864e5) }, extra || {});
 }
-// Settings › Jev's usage (ledger.rs `JevReport`), made up the same every time: the quick panel's
+// Settings › Decisions' usage (ledger.rs `JevReport`), made up the same every time: the quick panel's
 // requests few and big, the sessions' many and small, the rest between, and counting started
 // twelve days ago, so the 30 days say since when.
 function sampleJevUsage(days) {

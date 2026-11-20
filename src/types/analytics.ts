@@ -1,5 +1,5 @@
 // What model calls used and cost, and your part in the work, for the Analytics window and
-// Settings › Jev: ledger.rs, turns.rs, dismissed.rs and analytics.rs.
+// Settings › Decisions: ledger.rs, turns.rs, dismissed.rs and analytics.rs.
 
 /** Tokens of each kind (ledger.rs `Tokens`): input read neither from nor into the cache, cache
  *  reads, cache writes, and output with its thinking among it. */

@@ -321,7 +321,7 @@ const ORCHESTRATES: &str = "/codealong:orchestrate";
 /// orchestrator, and isn't archived or some session's helper. A running one before a stopped one,
 /// then the latest to do anything.
 pub fn orchestrator(lanes: &[Lane]) -> Option<&Session> {
-    let started_as = |s: &Session| s.first_prompt.as_deref().is_some_and(|p| p.trim_start().starts_with(ORCHESTRATES));
+    let started_as = started_as_orchestrator;
     let called = |s: &Session| s.name.as_deref().unwrap_or(&s.title).to_lowercase().contains("orchestrator");
     let own = |s: &Session| s.orchestrator.as_ref().map(|o| if o.project.is_none() { 2 } else { 1 }).unwrap_or(0);
     lanes
@@ -329,6 +329,12 @@ pub fn orchestrator(lanes: &[Lane]) -> Option<&Session> {
         .flat_map(|l| &l.sessions)
         .filter(|s| !s.archived && s.helper.is_none() && s.visitor.is_none() && (own(s) > 0 || started_as(s) || called(s)))
         .max_by_key(|s| (own(s), s.live, started_as(s), s.last_activity))
+}
+
+/// Whether a session was started on the orchestrator's prompt, whether or not a schedule marks it
+/// as one now (an earlier thread of one).
+pub fn started_as_orchestrator(s: &Session) -> bool {
+    s.first_prompt.as_deref().is_some_and(|p| p.trim_start().starts_with(ORCHESTRATES))
 }
 
 /// When a session began waiting on you, for one that needs you: the list of those is a queue,

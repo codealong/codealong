@@ -371,7 +371,10 @@ pub fn start() -> Result<Ctx, String> {
     search::spawn_warmer(Duration::from_secs(20));
     // The token ledger reads every record once, so it waits for the search index's first read.
     let board = ctx.engine.clone();
-    ledger::spawn(Duration::from_secs(45), move |key| board.read(|b| b.session(key).map(|(l, s)| crate::decisions::project_of(l, s).unwrap_or_default().to_string())));
+    ledger::spawn(Duration::from_secs(45), move |key| {
+        let cfg = config::current().ok()?;
+        board.read(|b| crate::decisions::session_projects(&cfg, &b.lanes, key))
+    });
     std::thread::spawn(acp::refresh_adapters);
     Ok(ctx)
 }

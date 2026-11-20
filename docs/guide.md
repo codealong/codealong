@@ -4455,11 +4455,15 @@ decisions = "luna"             # or "none"
 question: a project's `decisions` (Settings › Projects, Decision model), else `[decisions]
 default`. A session in a boundary group goes by its group's (see *Boundary groups*), Jev's when it
 names none, and to no model at all when its project chose another. `none` keeps a project's
-sessions from every model. A request that carries several projects' sessions (All projects in
-the quick panel, a todo's linked sessions) is asked of its own project's model, and a session
-whose words may not go there is shown by its title and where it works, nothing it said. A
-session that's no longer on the board has its prompts read only where every project would send
-them to the same model.
+sessions from every model. A session that has moved to another project's worktree since it
+started goes only where both projects agree, as what it said in the first came with it; an
+orchestrator's goes by the project it keeps watch over, and All projects' only where every project
+agrees, as it reads them all. A request that carries several projects' sessions (All projects in
+the quick panel) is asked of its own project's model, and a session whose words may not go there
+is shown by its title and where it works, nothing it said; a todo with a session linked that its
+model may not read isn't asked about. A session that's no longer on the board has its prompts
+read only where every project would send them to the same model. A change to these settings
+keeps the requests already waiting their turn from going.
 
 **A fallback** is tried only when a model fails for now, and only for what goes by the default: a
 project's or boundary group's choice goes to that model or to none, so with a fallback on the
@@ -4471,7 +4475,8 @@ fall back.
 config.toml) says where it would route a prompt; `--snapshot --routes [days] --decider luna` asks
 it again what you typed in the panel lately and sets its likeliest beside what you did and where
 that was among Jev's suggestions; `--snapshot --stance … --decider luna` reads your prompts with
-it. Each sends every project's words to that model but what a boundary group keeps to its own.
+it. The model stands in for the default only: what a project or boundary group chose, a model
+or none, still binds, so their sessions go to it by their titles alone.
 Codealong's questions and their cutoffs were tuned on Jev's answers (`.claude/rules/jev.md`), and
 another model's probabilities may sit differently: Gemini's confidence is its likeliest option's
 probability, where Jev's is its own measure.

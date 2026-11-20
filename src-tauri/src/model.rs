@@ -291,7 +291,9 @@ pub struct Board {
     /// no project yet (improve.rs).
     #[serde(default)]
     pub improve: crate::improve::Improve,
-    /// What Codealong asks decision models, from `[decisions]` in config.toml.
+    /// What Codealong asks decision models, from `[decisions]` in config.toml. Missing from an
+    /// engine from before it (which sent `jev`): all off.
+    #[serde(default)]
     pub decisions: crate::config::DecisionsCfg,
     /// `[queue]` from config.toml as the windows go by it (config.rs `QueueCfg::settled`): what
     /// waits on you in the order the queue goes to it, and how many days ahead of its due date a

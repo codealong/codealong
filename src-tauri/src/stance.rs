@@ -41,6 +41,8 @@ const UNREADABLE: &str = "unreadable";
 /// Prompts read each pass, and how many requests are out at once.
 const PER_PASS: usize = 48;
 const AT_ONCE: usize = 4;
+/// Prompts looked at for a pass's, the newest first: past the ones whose model has no key yet.
+const LOOKED_AT: usize = 400;
 
 pub fn is_stance(word: &str) -> bool {
     word == COMMAND || STANCES.iter().any(|(s, _)| *s == word)
@@ -175,26 +177,29 @@ pub fn set(db: &Connection, id: i64, stance: &str, sure: Option<f64>, by: &str) 
 }
 
 /// Reads a few of the prompts that wait on one, each with the decision model that may read its
-/// session (decisions.rs `for_session`; `project_of` says the project of a session on the board),
-/// where `[decisions] prompts` is on and there's a key: a few requests at a time, written as they
-/// come back. A request a provider turns away for now (rate limited, overloaded, no connection)
-/// ends the pass, and the next takes it up; one it can't take at all leaves its prompt unread for
-/// good, saying so.
-pub fn pass(db: &Connection, project_of: &dyn Fn(&str) -> Option<String>) {
+/// session (`decider`; `project_of` says the projects of a session on the board), where
+/// `[decisions] prompts` is on and there's a key: a few requests at a time, written as they come
+/// back. A request a provider turns away for now (rate limited, overloaded, no connection) ends
+/// the pass, and the next takes it up; one it can't take at all leaves its prompt unread for good,
+/// saying so. A prompt whose model has no key yet is passed over, left for when it has one, so it
+/// never holds up the others.
+pub fn pass(db: &Connection, project_of: &dyn Fn(&str) -> Option<Vec<Option<String>>>) {
     let Ok(cfg) = crate::config::current() else { return };
     if !cfg.experimental.analytics || !cfg.decisions.prompts || !crate::decisions::any_key(&cfg) {
         return;
     }
-    let waiting = match unread(db, PER_PASS) {
-        Ok(w) => w,
+    let waiting: Vec<(Unread, Option<crate::decisions::Decider>)> = match unread(db, LOOKED_AT) {
+        Ok(w) => w.into_iter().map(|u| (decider(&cfg, &u, project_of), u)).filter(|(d, _)| d.as_ref().is_none_or(|d| crate::decisions::has_key(&d.models[0].provider))).take(PER_PASS).map(|(d, u)| (u, d)).collect(),
         Err(e) => return eprintln!("Couldn't list the prompts waiting on a read: {e:#}"),
     };
-    for batch in waiting.chunks(AT_ONCE) {
-        let deciders: Vec<Option<crate::decisions::Decider>> = batch.iter().map(|u| decider(&cfg, u, project_of)).collect();
+    for chunk in waiting.chunks(AT_ONCE) {
+        let batch: Vec<&Unread> = chunk.iter().map(|(u, _)| u).collect();
+        let deciders: Vec<&Option<crate::decisions::Decider>> = chunk.iter().map(|(_, d)| d).collect();
         let answers: Vec<Result<Value>> = std::thread::scope(|scope| {
             let asked: Vec<_> = batch
                 .iter()
-                .zip(&deciders)
+                .copied()
+                .zip(deciders.iter().copied())
                 .map(|(u, d)| {
                     scope.spawn(move || match d {
                         Some(d) => crate::decisions::ask(jev::Feature::Prompts, d, &request(d.model(), u)),
@@ -205,7 +210,7 @@ pub fn pass(db: &Connection, project_of: &dyn Fn(&str) -> Option<String>) {
             asked.into_iter().map(|h| h.join().unwrap_or_else(|_| Err(anyhow::anyhow!("The request's thread stopped.")))).collect()
         });
         let mut later = false;
-        for ((u, d), answer) in batch.iter().zip(&deciders).zip(answers) {
+        for ((u, d), answer) in batch.iter().zip(deciders.iter().copied()).zip(answers) {
             let Ok(id) = u.id.parse::<i64>() else { continue };
             // Not read, and not kept to read, when its session's project or boundary group keeps
             // it from every decision model.
@@ -234,12 +239,13 @@ pub fn pass(db: &Connection, project_of: &dyn Fn(&str) -> Option<String>) {
 }
 
 /// The decision model that may read a prompt: its session's, by its account (the key's second
-/// part) and its project as the board has it. A session no longer on the board goes by what
-/// every project would give it, when they agree (`decisions::for_session_anywhere`).
-pub fn decider(cfg: &crate::config::Config, u: &Unread, project_of: &dyn Fn(&str) -> Option<String>) -> Option<crate::decisions::Decider> {
+/// part) and the projects the board has it in (`decisions::projects_of`). A session no longer on
+/// the board goes by what every project would give it, when they agree
+/// (`decisions::for_session_anywhere`).
+pub fn decider(cfg: &crate::config::Config, u: &Unread, project_of: &dyn Fn(&str) -> Option<Vec<Option<String>>>) -> Option<crate::decisions::Decider> {
     let account = u.session.split(':').nth(1).unwrap_or_default();
     match project_of(&u.session) {
-        Some(p) => crate::decisions::for_session(cfg, account, Some(&p)),
+        Some(ps) => crate::decisions::for_session_in(cfg, account, &ps.iter().map(|p| p.as_deref()).collect::<Vec<_>>()),
         None => crate::decisions::for_session_anywhere(cfg, account),
     }
 }

@@ -23,7 +23,7 @@
 use anyhow::{bail, Result};
 use serde_json::{json, Map, Value};
 
-use super::{described, mime, pieces, Adapter, Piece, Tokens};
+use super::{asks, mime, pieces, text_of, Adapter, Piece, Tokens};
 
 pub struct Gemini;
 
@@ -69,7 +69,7 @@ impl Adapter for Gemini {
             })
             .collect();
         let keys: Vec<String> = assets.keys().cloned().collect();
-        let questions: Map<String, Value> = body["questions"].as_object().into_iter().flatten().filter_map(|(id, q)| Some((id.clone(), question(q, &keys)?))).collect();
+        let questions: Map<String, Value> = body["questions"].as_object().into_iter().flatten().filter(|(_, q)| asks(q)).filter_map(|(id, q)| Some((id.clone(), question(q, &keys)?))).collect();
         json!({ "model": model, "input": input, "questions": questions })
     }
 
@@ -118,9 +118,9 @@ fn plain(text: &str, keys: &[String]) -> String {
 /// Codealong doesn't ask.
 fn question(q: &Value, keys: &[String]) -> Option<Value> {
     let kind = q["type"].as_str()?;
-    let instructions = plain(q["instructions"].as_str().unwrap_or_default(), keys);
+    let instructions = plain(&text_of(&q["instructions"]), keys);
     let criteria = &q["criteria"];
-    let text = |v: &Value| plain(&described(v), keys);
+    let text = |v: &Value| plain(&text_of(v), keys);
     let criteria = match kind {
         "noul" => {
             let mut sides = Map::new();
@@ -157,6 +157,8 @@ mod tests {
                 "finished": { "type": "noul", "instructions": "Finished, image-aa?" },
                 "risk": { "type": "score", "instructions": "How risky?", "criteria": ["Reads", "Writes"] },
                 "where": { "type": "box", "instructions": "Where?" },
+                "duplicate": { "type": "choice", "instructions": "Which?", "criteria": { "none": "None of these." } },
+                "c1": { "type": "noul", "instructions": { "comment": { "text": "Rename this" } } },
             }),
         );
         b["assets"] = json!({ "image-aa": { "type": "image", "format": "png", "data_base64": "AAAA" } });
@@ -169,6 +171,8 @@ mod tests {
         assert_eq!(q["finished"], json!({ "type": "noul", "instructions": "Finished, ?" }), "text only, and no criteria when Jev's had none");
         assert_eq!(q["risk"]["criteria"], json!(["Reads", "Writes"]));
         assert!(q.get("where").is_none());
+        assert!(q.get("duplicate").is_none(), "a choice of one isn't asked: Gemini takes two options at least");
+        assert_eq!(q["c1"]["instructions"], "{\"comment\":{\"text\":\"Rename this\"}}", "a card in the instructions goes as its JSON");
     }
 
     #[test]

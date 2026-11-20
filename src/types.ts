@@ -23,7 +23,7 @@ export type * from './types/board';
 export * from './types/config';
 // An account and what is read of it: plan usage and limits, resets, training, sign-in, MCP servers, setup.
 export type * from './types/accounts';
-// What model calls used and cost, and your part in the work: the Analytics window, Settings › Jev.
+// What model calls used and cost, and your part in the work: the Analytics window, Settings › Decisions.
 export type * from './types/analytics';
 // A session's conversation: transcript pages, what it waits on you to allow, what a send did, search.
 export type * from './types/conversation';
