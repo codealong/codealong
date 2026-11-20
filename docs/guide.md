@@ -4029,8 +4029,9 @@ held while the box had the keyboard. What a click began is dropped, the micropho
 box goes before it ends (another session shown, the window closed or put away), as no key will
 come up to end it. The notch's box has none. Hold ⌥⌘] instead
 to talk to your orchestrator
-(*An orchestrator*: All projects' before a project's, or failing that a session called an
-orchestrator), whatever you're looking at: what you said is in its box, with Codealong's window
+(*An orchestrator*: Codealong's own, All projects' before a project's, else a session started on
+`/codealong:orchestrate` or called an orchestrator), whatever you're looking at: what you said is in
+its box, with Codealong's window
 brought forward on it. Keep Shift down as you let go, or turn on *Send what I say to my
 orchestrator as I let go*, and it's sent instead, with a line saying it was dictated and may be
 misheard. With no orchestrator running the quick panel has it. The keys are `talk` and
