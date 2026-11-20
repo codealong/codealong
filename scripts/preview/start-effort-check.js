@@ -1,6 +1,8 @@
 // Checks the quick panel's Mac and effort choices (Quick.tsx): ⌘D picks another Mac, whose
 // accounts are asked of it; the agent menu's ← → set the effort, which the chip shows and Haiku
-// doesn't take; and ⌘⏎ starts on that Mac's worktree at that effort.
+// doesn't take; and ⌘⏎ starts on that Mac's worktree at that effort. ⌘D is pressed the moment
+// the machine chip is drawn, when the render that drew it may not have run its effects yet: the
+// panel's keys go by what's on screen (quickKeys.ts `useQuickKeys`).
 //   PREVIEW_DEVICES=scripts/preview/devices-sample.json PREVIEW_WAIT=60000 scripts/preview.sh quick '' scripts/preview/start-effort-check.js
 (function () {
   localStorage.setItem('codealong.quick.project', 'All projects');
@@ -12,11 +14,24 @@
   var effortOn = function () { var b = document.querySelector('.ca-picker-foot [aria-checked="true"]'); return b ? b.textContent : null; };
   var agentText = function () { return agentChip() ? agentChip().textContent : ''; };
 
+  // ⌘D as the machine chip is first drawn, in the turn of the page's loop that drew it: the
+  // effects of a render that data brought are often still to run then. The panel's listener read
+  // the panel as the render that put it on had it, so a key pressed here went by the render
+  // before, which knew of no other machine, and did nothing; a look every 10 ms lands here now
+  // and then, more often on a slower machine.
+  var pressed = false;
+  var watch = new MutationObserver(function () {
+    if (pressed || !deviceChip()) return;
+    pressed = true;
+    watch.disconnect();
+    key(window, { key: 'd', metaKey: true });
+  });
+  watch.observe(document.documentElement, { childList: true, subtree: true, attributes: true });
+
   say('start effort check: waiting for the panel');
-  until(function () { return !!deviceChip() && !!agentChip() && !agentChip().disabled; }, 20000)
+  until(function () { return pressed; }, 20000, 'the machine chip')
     .then(function () {
-      key(window, { key: 'd', metaKey: true });
-      return until(function () { return !!filter(); }, 2000);
+      return until(function () { return !!filter(); }, 5000, 'the machines’ menu, on ⌘D pressed as its chip was drawn');
     })
     .then(function () {
       var opts = Array.prototype.slice.call(document.querySelectorAll('.ca-picker-opt'));
