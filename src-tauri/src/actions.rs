@@ -1888,6 +1888,7 @@ fn end(engine: &Handle, s: &crate::model::Session, account: &config::AccountCfg,
     use crate::idle::{Ending, Exited};
     let ctx = harness::Ctx { account };
     let adapter = harness::adapter(s.harness);
+    let codealong_tree = s.own_worktree.as_deref().is_some_and(crate::worktree::is_tracked);
     match ends {
         Ending::Terminal(pid) => {
             let close = || match crate::launch::close_session_terminals(&[(pid, std::path::Path::new(&s.cwd))]).pop() {
@@ -1896,7 +1897,7 @@ fn end(engine: &Handle, s: &crate::model::Session, account: &config::AccountCfg,
                 None => Err("Its terminal didn't close.".to_string()),
             };
             match stopping(s, who, close) {
-                Ok(()) => Ended::said(Some("its terminal is closed".into()), None),
+                Ok(()) => Ended { what: Some("its terminal is closed".into()), note: None, left_worktree: codealong_tree },
                 Err(e) => Ended::said(None, Some(e)),
             }
         }
@@ -1945,10 +1946,10 @@ fn end(engine: &Handle, s: &crate::model::Session, account: &config::AccountCfg,
             Err(e) => Ended::said(None, Some(format!("Its background job didn't stop: {}", words(e)))),
         },
         Ending::Turn => match stopping(s, who, || adapter.interrupt(&ctx, s)) {
-            Ok(_) => Ended::said(Some("its turn is stopped".into()), None),
+            Ok(_) => Ended { what: Some("its turn is stopped".into()), note: None, left_worktree: codealong_tree },
             Err(e) => Ended::said(None, Some(format!("Its turn didn't stop: {}", words(e)))),
         },
-        Ending::Nothing(why) => Ended::said(None, why),
+        Ending::Nothing(why) => Ended { what: None, note: why.clone(), left_worktree: why.is_none() && codealong_tree },
     }
 }
 

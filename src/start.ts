@@ -667,8 +667,8 @@ export function startChoice(
   const tuned = (!!chosenModel || !!activePick?.model || (!!wanted && takesEffort)) && allPlaces.some((p) => placeTakesModel(p.place, resuming));
   const places = tuned ? allPlaces.filter((p) => placeTakesModel(p.place, resuming)) : allPlaces;
   const placeNow = [place, choice ? (settledPlace(choice, accounts, pick, groups, usage, now, lanes) ?? lastPlace(choice)) : undefined].map((p) => places.find((x) => x.place === p)?.place).find(Boolean) ?? places[0]?.place ?? null;
-  // A harness whose command line makes a worktree for a session (Claude Code's `--worktree`).
-  const makesWorktree = !!placeNow && onCommandLine(placeNow) && !!accountInfo?.worktree;
+  // A place where the harness or Codealong makes a worktree for a session (not the desktop apps).
+  const makesWorktree = !!placeNow && placeMakesWorktree(placeNow) && !!accountInfo?.worktree;
   // A harness whose command line takes a model; Codealong hands it to an adapter the same way.
   const placeTakes = !!placeNow && placeTakesModel(placeNow, resuming);
   const takesAModel = placeTakes && ((accountInfo?.models?.length ?? 0) > 0 || (!!chosenModel && !!accountInfo && offersModel(accountInfo, chosenModel)));
@@ -908,19 +908,38 @@ export function effortDefaultTitle(harness: Harness | null): string {
   return harness === 'codex' ? 'The account’s own: config.toml’s model_reasoning_effort, else the model’s' : 'The account’s own: settings.json’s effortLevel, else the model’s';
 }
 
+/** Whether a start at `place` can create a new worktree (everything except the desktop apps, which
+ *  have their own worktree UI). */
+export function placeMakesWorktree(place: StartPlace): boolean {
+  return place === 'terminal' || place === 'background' || place === 'codealong';
+}
+
+/** Whether the harness itself creates the worktree at `place`, rather than Codealong. */
+function harnessMakesOwnWorktree(place: StartPlace | null, harness: Harness | null): boolean {
+  return !!place && onCommandLine(place) && (harness === 'claude' || harness === 'cursor');
+}
+
 /** What the worktree menu's New worktree says of itself, on hover. */
 export function newWorktreeTitle(makesWorktree: boolean, place: StartPlace | null, harness: Harness | null): string {
   const who = harness ? HARNESS_WORD[harness] : 'It';
-  if (makesWorktree) return `${who} makes the worktree: its folder, branch and base.`;
-  return place && onCommandLine(place) ? `${who} can’t start in a new worktree from here.` : 'The app has its own worktree choice; pick it there before you send.';
+  if (makesWorktree) {
+    if (place && placeMakesWorktree(place) && !harnessMakesOwnWorktree(place, harness)) {
+      return 'Codealong makes the worktree in .codealong/worktrees, from the default branch.';
+    }
+    return `${who} makes the worktree: its folder, branch and base.`;
+  }
+  return place && placeMakesWorktree(place) ? `${who} can’t start in a new worktree from here.` : 'The app has its own worktree choice; pick it there before you send.';
 }
 
 /** What New worktree says under its name: who makes it from which checkout (`from`), or why it
  *  can't be made from here. */
 export function newWorktreeDetail(makesWorktree: boolean, place: StartPlace | null, harness: Harness | null, from: string): string {
   const who = harness ? HARNESS_WORD[harness] : 'It';
-  if (makesWorktree) return `${who} makes one from ${from}`;
-  return place && onCommandLine(place) ? `${who} can’t make one` : 'The app has its own choice';
+  if (makesWorktree) {
+    const maker = place && placeMakesWorktree(place) && !harnessMakesOwnWorktree(place, harness) ? 'Codealong' : who;
+    return `${maker} makes one from ${from}`;
+  }
+  return place && placeMakesWorktree(place) ? `${who} can’t make one` : 'The app has its own choice';
 }
 
 /** The effort one step along from `effort` (null is the account's own), among `efforts`, kept

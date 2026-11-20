@@ -524,6 +524,8 @@ describe('what the quick panel says of a start', () => {
 
   it('says what the New worktree box does there', () => {
     expect(newWorktreeTitle(true, 'terminal', 'claude')).toBe('Claude Code makes the worktree: its folder, branch and base.');
+    expect(newWorktreeTitle(true, 'terminal', 'antigravity')).toBe('Codealong makes the worktree in .codealong/worktrees, from the default branch.');
+    expect(newWorktreeTitle(true, 'codealong', 'claude')).toBe('Codealong makes the worktree in .codealong/worktrees, from the default branch.');
     expect(newWorktreeTitle(true, null, null)).toBe('It makes the worktree: its folder, branch and base.');
     expect(newWorktreeTitle(false, 'background', 'codex')).toBe('Codex can’t start in a new worktree from here.');
     expect(newWorktreeTitle(false, 'claude-app', 'claude')).toBe('The app has its own worktree choice; pick it there before you send.');
@@ -616,9 +618,10 @@ describe('startChoice', () => {
     expect(choose({ agent: agentId('codex', null), effort: 'max' })).toMatchObject({ takesAModel: false, effortNow: null, modelShown: 'model chosen in Codex', harness: 'codex' });
   });
 
-  it('makes a new worktree only where the harness’s command line does', () => {
+  it('makes a new worktree on the command line or in Codealong, not in desktop apps', () => {
     expect(choose({ newWorktree: true })).toMatchObject({ makesWorktree: true, inNewWorktree: true });
-    expect(choose({ agent: agentId('claude2', null), place: 'codealong', newWorktree: true })).toMatchObject({ placeNow: 'codealong', makesWorktree: false, inNewWorktree: false });
+    expect(choose({ agent: agentId('claude2', null), place: 'codealong', newWorktree: true })).toMatchObject({ placeNow: 'codealong', makesWorktree: true, inNewWorktree: true });
+    expect(choose({ agent: agentId('claude', null), place: 'claude-app', newWorktree: true })).toMatchObject({ placeNow: 'claude-app', makesWorktree: false, inNewWorktree: false });
     expect(choose({ agent: agentId('codex', null), newWorktree: true })).toMatchObject({ makesWorktree: false, inNewWorktree: false });
   });
 

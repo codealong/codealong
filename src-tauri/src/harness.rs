@@ -883,6 +883,14 @@ pub trait Adapter: Sync {
         false
     }
 
+    /// The repo's own worktree creation hook, as the harness's settings in the repo's main
+    /// checkout `main` declare it (Claude Code's `WorktreeCreate` hooks), run as the harness
+    /// would run it there (worktree.rs): none when the repo declares none, Err with why when it
+    /// declares some the account wouldn't run.
+    fn setup_worktree(&self, _ctx: &Ctx, _main: &Path, _name: &str) -> std::result::Result<Vec<crate::cleanup::Hook>, String> {
+        Ok(Vec::new())
+    }
+
     /// The repo's own teardown for its worktree `worktree`, as the harness's settings in the
     /// repo's main checkout `main` declare it (Claude Code's `WorktreeRemove` hooks), run as the
     /// harness would run it there (cleanup.rs): none when the repo declares none, Err with why

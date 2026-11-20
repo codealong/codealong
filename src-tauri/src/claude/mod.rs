@@ -1125,6 +1125,16 @@ impl crate::harness::Adapter for ClaudeCode {
         place == crate::start::Place::Background && start::isolates_in_background(&account.home_path(), folder)
     }
 
+    /// The repo's `WorktreeCreate` hooks (`teardown::create_hooks`), which Claude Code runs only
+    /// in a folder the account trusts.
+    fn setup_worktree(&self, ctx: &crate::harness::Ctx, main: &Path, name: &str) -> Result<Vec<crate::cleanup::Hook>, String> {
+        let hooks = teardown::create_hooks(main, name);
+        if hooks.is_empty() || trust::trusts(&ctx.account.home_path(), main) {
+            return Ok(hooks);
+        }
+        Err(format!("{} doesn't trust {}, so Codealong won't run its WorktreeCreate hook", ctx.account.name, crate::util::tilde(main)))
+    }
+
     /// The repo's `WorktreeRemove` hooks (`teardown::remove_hooks`), which Claude Code runs only
     /// in a folder the account trusts.
     fn teardown(&self, ctx: &crate::harness::Ctx, main: &Path, worktree: &Path) -> Result<Vec<crate::cleanup::Hook>, String> {

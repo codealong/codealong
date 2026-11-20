@@ -4407,7 +4407,8 @@ fn waiting_call(s: &Session, account: Option<&config::AccountCfg>) -> Option<Str
     /// come after both, over whatever a turn is doing; and a usage limit, a lost connection and a
     /// sign-in turned down are read off where all of that left the session.
     fn laid_over(&self, built: Vec<Session>, now: i64, usage: &[Usage], sides: &std::collections::BTreeMap<String, Vec<crate::side::Glance>>, listenings: &std::collections::BTreeMap<String, crate::listen::Glance>) -> Vec<Session> {
-        let sessions = with_terminals(built);
+        let mut sessions = with_terminals(built);
+        crate::worktree::attach_own(&mut sessions);
         let sessions = self.with_origins(sessions);
         let sessions = self.with_run_origins(sessions);
         let sessions = self.with_chrome(sessions);

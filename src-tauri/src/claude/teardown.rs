@@ -17,19 +17,31 @@ const HOOK_TIMEOUT: Duration = Duration::from_secs(60);
 /// The settings files of a project whose hooks Claude Code runs, in the project's folder.
 const SETTINGS: [&str; 2] = [".claude/settings.json", ".claude/settings.local.json"];
 
+/// The `WorktreeCreate` hooks a repo's main checkout declares, each run in it as Claude Code runs
+/// one when creating a worktree: through a shell, with `CLAUDE_PROJECT_DIR` set to the checkout
+/// and the event on stdin.
+pub fn create_hooks(main: &Path, name: &str) -> Vec<Hook> {
+    let input = json!({ "hook_event_name": "WorktreeCreate", "name": name, "cwd": main }).to_string();
+    hooks_for(main, "/hooks/WorktreeCreate", input)
+}
+
 /// The `WorktreeRemove` hooks a repo's main checkout declares, each run in it as Claude Code runs
 /// one as it removes a worktree its `WorktreeCreate` hook made: through a shell, with
 /// `CLAUDE_PROJECT_DIR` set to the checkout and the event on stdin. Both settings files count, and
 /// `disableAllHooks` in either turns them all off. Only `command` hooks run outside Claude Code.
 pub fn remove_hooks(main: &Path, worktree: &Path) -> Vec<Hook> {
+    let input = json!({ "hook_event_name": "WorktreeRemove", "worktree_path": worktree, "cwd": main }).to_string();
+    hooks_for(main, "/hooks/WorktreeRemove", input)
+}
+
+fn hooks_for(main: &Path, pointer: &str, input: String) -> Vec<Hook> {
     let settings: Vec<Value> = SETTINGS.iter().filter_map(|f| std::fs::read(main.join(f)).ok()).filter_map(|b| serde_json::from_slice(&b).ok()).collect();
     if settings.iter().any(|s| s.get("disableAllHooks").and_then(Value::as_bool) == Some(true)) {
         return Vec::new();
     }
-    let input = json!({ "hook_event_name": "WorktreeRemove", "worktree_path": worktree, "cwd": main }).to_string();
     settings
         .iter()
-        .flat_map(|s| s.pointer("/hooks/WorktreeRemove").and_then(Value::as_array).cloned().unwrap_or_default())
+        .flat_map(|s| s.pointer(pointer).and_then(Value::as_array).cloned().unwrap_or_default())
         .flat_map(|group| group.get("hooks").and_then(Value::as_array).cloned().unwrap_or_default())
         .filter(|h| h.get("type").and_then(Value::as_str).unwrap_or("command") == "command")
         .filter_map(|h| {

@@ -222,7 +222,7 @@ pub fn account_options(a: &AccountCfg, places: std::result::Result<Vec<Place>, S
         buffer: None,
         models: if tuned { models() } else { Vec::new() },
         efforts: if tuned { listed(adapter.efforts()) } else { Vec::new() },
-        worktree: adapter.makes_worktrees(),
+        worktree: true,
         resumes,
         switches_model: tuned && adapter.model_command().is_some(),
         switches_effort: tuned && !adapter.efforts().is_empty() && adapter.effort_command().is_some(),
@@ -1054,11 +1054,17 @@ fn uuid_v4(mut b: [u8; 16]) -> String {
     format!("{}-{}-{}-{}-{}", &hex[..8], &hex[8..12], &hex[12..16], &hex[16..20], &hex[20..])
 }
 
-/// Whether a start could go into a new worktree: on the command line of a harness that makes
-/// one (`Adapter::makes_worktrees`), in a terminal or in the background, in a repo's worktree.
+/// Whether a start at `place` on `adapter` uses Codealong's own worktree creation (`worktree.rs`)
+/// rather than the harness's command-line flag.
+fn codealong_makes_worktree(adapter: &dyn Adapter, place: Place) -> bool {
+    matches!(place, Place::Terminal | Place::Background | Place::Codealong) && (!adapter.makes_worktrees() || place == Place::Codealong)
+}
+
+/// Whether a start could go into a new worktree: on the command line or hosted in Codealong, in a
+/// repo's worktree.
 pub fn offers_worktree(board: &Board, cfg: &Config, spec: &StartSpec) -> bool {
     let chats = board.lanes.iter().any(|l| l.id == spec.lane_id && l.starts_chats);
-    !chats && matches!(spec.place, Place::Terminal | Place::Background) && cfg.accounts.iter().any(|a| a.name == spec.account && adapter_of(a).makes_worktrees())
+    !chats && matches!(spec.place, Place::Terminal | Place::Background | Place::Codealong) && cfg.accounts.iter().any(|a| a.name == spec.account)
 }
 
 /// A new folder among Codealong's chats (`chats`, `config::chats_dir`) for a session that
@@ -1123,8 +1129,12 @@ fn place_now(account: &AccountCfg, place: Place, offered: &[Place], cfg: &Config
 #[allow(clippy::too_many_arguments)]
 pub fn plan_now(cfg: &Config, account: &AccountCfg, place: Place, folder: &Path, prompt: &str, model: Option<&str>, effort: Option<&str>, worktree: bool) -> Result<serde_json::Value> {
     let (place, instead) = place_now(account, place, &ordered_places(account, &home()).unwrap_or_default(), cfg)?;
-    let planned = plan(account, place, folder, prompt, &new_session_id(), model, effort, worktree);
+    let codealong_tree = worktree && codealong_makes_worktree(adapter_of(account), place);
+    let planned = plan(account, place, folder, prompt, &new_session_id(), model, effort, worktree && !codealong_tree);
     let mut out = serde_json::to_value(&planned)?;
+    if codealong_tree {
+        out["createWorktree"] = serde_json::to_value(crate::worktree::plan(cfg, folder)?)?;
+    }
     if let Plan::Terminal { behind, .. } = planned {
         out["host"] = match launch::host_for(&cfg.apps.terminal, cfg.apps.tmux) {
             _ if behind && launch::out_of_sight_in_tmux(&cfg.apps.terminal, cfg.apps.tmux) => "tmux, with no tab".into(),
@@ -1173,9 +1183,19 @@ fn start_at(board: &Board, cfg: &Config, spec: &StartSpec, lane: &Lane, account:
     let adapter = adapter_of(account);
     let word = adapter.harness().word();
     let (model, effort) = tuning(adapter, place, false, spec.model.as_deref(), spec.effort.as_deref())?;
-    // A new worktree goes where the harness's command line takes it.
     let on_command_line = matches!(place, Place::Terminal | Place::Background);
-    let worktree = spec.worktree && on_command_line && chat.is_none();
+    let codealong_tree = spec.worktree && chat.is_none() && codealong_makes_worktree(adapter, place);
+    let created = if codealong_tree {
+        let made = crate::worktree::create(cfg, folder)?;
+        crate::worktree::remember(&made);
+        Some(made)
+    } else {
+        None
+    };
+    let folder = created.as_ref().map(|c| c.path.as_path()).unwrap_or(folder);
+    let callsign = created.as_ref().map(|c| c.name.as_str()).unwrap_or(lane.callsign.as_str());
+    // A new worktree the harness makes itself goes on its command line (`Adapter::makes_worktrees`).
+    let worktree = spec.worktree && on_command_line && chat.is_none() && created.is_none();
     if chat.is_some() {
         make_chat_folder(folder)?;
     }
@@ -1185,7 +1205,7 @@ fn start_at(board: &Board, cfg: &Config, spec: &StartSpec, lane: &Lane, account:
     let id = new_session_id();
     let dirs = (attachments::images_dir(), attachments::files_dir());
     let ask = asked(adapter, account, &spec.prompt, &id, model, None, effort, worktree, (&dirs.0, &dirs.1));
-    match place {
+    let launched = match place {
         Place::Background if adapter.runs_in_background() => adapter.start_in_background(account, folder, &adapter.background_command(account, &ask)),
         // A harness with no background service of its own starts out of sight, so you stay where
         // you are: in tmux with no tab where it can, else in its terminal behind your windows
@@ -1195,26 +1215,30 @@ fn start_at(board: &Board, cfg: &Config, spec: &StartSpec, lane: &Lane, account:
             let typed = adapter.start_in_terminal(account, &ask);
             // It has no title yet, so its tab goes by what it was asked.
             let label = crate::board::tab_label(&board.lanes, folder, &spec.prompt);
-            let ran = in_terminal(board, cfg, folder, label.as_deref(), behind, &typed.input, &typed.env)?;
-            // A harness that names its own sessions shows one on the board once it's written.
-            let said = typed.key.is_none().then(|| {
-                if behind && matches!(ran, launch::Ran::InApp | launch::Ran::InTmux(launch::Shown::Now)) {
-                    format!("{word} is starting in {}, in {} behind your windows.", lane.callsign, launch::terminal_name(&cfg.apps.terminal))
-                } else {
-                    format!("{word} is starting in {}.", lane.callsign)
-                }
-            });
-            Ok(Started { key: typed.key, message: with_note(said, &ran, cfg) })
+            let ran = in_terminal(board, cfg, folder, label.as_deref(), behind, &typed.input, &typed.env);
+            ran.map(|ran| {
+                // A harness that names its own sessions shows one on the board once it's written.
+                let said = typed.key.is_none().then(|| {
+                    if behind && matches!(ran, launch::Ran::InApp | launch::Ran::InTmux(launch::Shown::Now)) {
+                        format!("{word} is starting in {callsign}, in {} behind your windows.", launch::terminal_name(&cfg.apps.terminal))
+                    } else {
+                        format!("{word} is starting in {callsign}.")
+                    }
+                });
+                Started { key: typed.key, message: with_note(said, &ran, cfg) }
+            })
         }
         Place::ClaudeApp | Place::CodexApp => {
-            let link = adapter.app_link(folder, &ask).ok_or_else(|| anyhow!("{} can't start a session there.", account.name))?;
-            adapter.start_in_app(account, &lane.callsign, folder, &ask, &link)
+            adapter.app_link(folder, &ask).ok_or_else(|| anyhow!("{} can't start a session there.", account.name)).and_then(|link| adapter.start_in_app(account, callsign, folder, &ask, &link))
         }
-        Place::Codealong => {
-            let key = crate::acp::start(account, folder, &hosted_prompt(&ask), ask.model, ask.effort)?;
-            Ok(Started { key: Some(key), message: None })
+        Place::Codealong => crate::acp::start(account, folder, &hosted_prompt(&ask), ask.model, ask.effort).map(|key| Started { key: Some(key), message: None }),
+    };
+    if launched.is_err() {
+        if let Some(made) = &created {
+            crate::worktree::rollback(made);
         }
     }
+    launched
 }
 
 /// Whether a start, or a resume, at `place` takes a model and an effort level: where the
@@ -1402,7 +1426,7 @@ fn linked(spec: &StartSpec, started: &Started, harness: &str, now: i64) -> Optio
     let pending = started.key.is_none().then(|| PendingStart { lane: spec.lane_id.clone(), harness: harness.to_string(), account: spec.account.clone(), at: now });
     // A session in a new worktree won't be in the one it started from, and Codealong's chats are
     // one lane for every chat, whose later ones would each be told of it: only it is linked.
-    let new_tree = spec.worktree && matches!(spec.place, Place::Terminal | Place::Background);
+    let new_tree = spec.worktree && matches!(spec.place, Place::Terminal | Place::Background | Place::Codealong);
     let lane = (!new_tree && Path::new(&spec.lane_id) != config::chats_dir()).then(|| spec.lane_id.clone());
     Some(Linked { ids: spec.todos.clone(), lane, session: started.key.clone(), pending })
 }
@@ -2443,6 +2467,45 @@ mod tests {
         assert_eq!(o.accounts[1].default_model.as_deref(), Some("claude-fable-5-1"));
         assert_eq!(o.accounts[0].default_model, None);
         assert!(o.claude_models.iter().any(|m| m.id == "opus[1m]"));
+        assert!(o.accounts.iter().all(|a| a.worktree));
+    }
+
+    #[test]
+    fn codealong_makes_worktrees_for_non_native_harnesses_and_hosted_places() {
+        let claude = account("claude", "claude", "/Users/me/.claude", None);
+        let cursor = account("cursor", "cursor", "/Users/me/.cursor", None);
+        let ag = account("antigravity", "antigravity", "/Users/me/.gemini/antigravity", None);
+        let codex = account("codex", "codex", "/Users/me/.codex", None);
+        let oc = account("opencode", "opencode", "/Users/me/.local/share/opencode", None);
+
+        // Claude Code and Cursor use their own CLI flags on Terminal/Background; Codealong makes
+        // the worktree for Antigravity, Codex, OpenCode, and any hosted Place::Codealong start.
+        assert!(!codealong_makes_worktree(adapter_of(&claude), Place::Terminal));
+        assert!(!codealong_makes_worktree(adapter_of(&claude), Place::Background));
+        assert!(codealong_makes_worktree(adapter_of(&claude), Place::Codealong));
+        assert!(!codealong_makes_worktree(adapter_of(&cursor), Place::Terminal));
+        assert!(codealong_makes_worktree(adapter_of(&ag), Place::Terminal));
+        assert!(codealong_makes_worktree(adapter_of(&ag), Place::Background));
+        assert!(codealong_makes_worktree(adapter_of(&ag), Place::Codealong));
+        assert!(codealong_makes_worktree(adapter_of(&codex), Place::Terminal));
+        assert!(codealong_makes_worktree(adapter_of(&oc), Place::Terminal));
+        // Desktop apps manage their own worktrees.
+        assert!(!codealong_makes_worktree(adapter_of(&claude), Place::ClaudeApp));
+        assert!(!codealong_makes_worktree(adapter_of(&codex), Place::CodexApp));
+
+        // offers_worktree allows Terminal, Background, and Codealong for any account in a repo,
+        // and never in a chat folder or desktop app.
+        let mut cfg = Config::default();
+        cfg.accounts = vec![ag.clone(), codex.clone()];
+        let mut chats = crate::fixtures::lane("/Users/me/chats", vec![]);
+        chats.starts_chats = true;
+        let board = Board { lanes: vec![crate::fixtures::lane("/Users/me/app", vec![]), chats], ..Board::default() };
+        let spec = |lane_id: &str, acc: &str, place: Place| StartSpec { lane_id: lane_id.into(), account: acc.into(), place, prompt: String::new(), model: None, effort: None, worktree: true, todos: vec![], from: None, helper: false, report: false };
+        assert!(offers_worktree(&board, &cfg, &spec("/Users/me/app", "antigravity", Place::Terminal)));
+        assert!(offers_worktree(&board, &cfg, &spec("/Users/me/app", "antigravity", Place::Background)));
+        assert!(offers_worktree(&board, &cfg, &spec("/Users/me/app", "antigravity", Place::Codealong)));
+        assert!(!offers_worktree(&board, &cfg, &spec("/Users/me/app", "codex", Place::CodexApp)));
+        assert!(!offers_worktree(&board, &cfg, &spec("/Users/me/chats", "antigravity", Place::Terminal)));
     }
 
     /// In Codealong needs the account's ACP adapter: without the packages it isn't offered to the
