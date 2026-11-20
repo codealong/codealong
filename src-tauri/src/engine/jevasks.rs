@@ -1,8 +1,10 @@
-//! What the engine asks the decision models (decisions.rs) once a board is out, and what it does
-//! with their answers: which todo a new session is for and whether a todo's work looks done
-//! (todojev.rs), and a read of each session's moment (insights.rs). A question goes to a thread
-//! of its own under an id (`ask_jev`) and its answer comes back to `on_jev`, which goes by the
-//! id's first part; an emblem's emoji is asked the same way (engine/emblems.rs).
+//! What the engine asks the decision models (decisions.rs), and what it does with their answers:
+//! which todo a new session is for and whether a todo's work looks done (todojev.rs), and a read
+//! of each session's moment (insights.rs). It looks for what to ask each time `publish` has
+//! composed a board (`jev_look`), before that board is compared with the last one: whether or not
+//! it then goes out. A question goes to a thread of its own under an id (`ask_jev`) and its
+//! answer comes back to `on_jev`, which goes by the id's first part; an emblem's emoji is asked
+//! the same way (engine/emblems.rs).
 
 use super::*;
 

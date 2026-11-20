@@ -1,8 +1,11 @@
 //! The harnesses' readers as the engine drives them (`harness::Reader`, one for each harness):
 //! the scan of each, what each is given to go by as it reads (`look`), the glance at what the
 //! watcher never hears of, the tick, and taking in what a read came to (`take`). And the process
-//! table they all look at, listed off this thread once a tick (`list_processes`,
-//! `on_processes`), so that no reader runs `ps` here.
+//! table they all look at: each tick lists it off this thread (`list_processes`,
+//! `on_processes`), and the readers look at the last listing, so that none of them runs `ps`
+//! here. The one time a reader lists it itself is a scan before anything has (at launch, or a
+//! one-pass engine's): the first reader that needs it lists it then, once, on the thread the
+//! scan runs on (`scan_sessions`).
 
 use super::*;
 

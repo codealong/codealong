@@ -1,7 +1,11 @@
-//! An engine for one pass: everything read once, on the caller's thread, with no watcher and
-//! nothing asked in the background, for `--snapshot` (snapshot.rs) and for the `codealong`
-//! command when no server answers (`light_snapshot`). Such an engine is `passing`: it's gone
-//! before what it would ask in the background came back.
+//! An engine for one pass: everything read once, with no watcher and nothing asked for an answer
+//! later, for `--snapshot` (snapshot.rs) and for the `codealong` command when no server answers
+//! (`light_snapshot`). Its caller's thread runs the pass and waits for each step, but not all the
+//! reading is on that thread: git in every worktree, the records and the team files are read on
+//! a few threads at once (`parallel_map`), and the repo scan's reads of folders it doesn't own
+//! are each on a thread of its own (held.rs), where one macOS holds goes on after the scan has
+//! gone on without it. Such an engine is `passing`: it's gone before what it would ask in the
+//! background came back.
 
 use super::*;
 

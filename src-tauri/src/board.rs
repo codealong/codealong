@@ -83,8 +83,8 @@ pub struct LaneSeed {
     /// Lanes for sessions outside every project; hidden while they hold no session you haven't
     /// archived.
     pub elsewhere: bool,
-    /// The folder an app keeps its chats in, a folder for each (`engine::chat_roots`): listed
-    /// like your projects' worktrees, since you started those sessions yourself.
+    /// The folder an app keeps its chats in, a folder for each (engine/reposcan.rs `chat_roots`):
+    /// listed like your projects' worktrees, since you started those sessions yourself.
     pub chats: bool,
     /// Codealong's own chats, where a session that belongs to no project starts
     /// (`Lane::starts_chats`).
