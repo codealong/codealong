@@ -47,7 +47,6 @@ import { flushSync } from 'react-dom';
 import {
   addFolder,
   boardSeen,
-  deviceStartOptions,
   getBoard,
   getDevices,
   hideQuick,
@@ -56,7 +55,6 @@ import {
   keepStartPlace,
   hearingStatus,
   listenNow,
-  lookFolder,
   meetingsAhead,
   noteRoute,
   onBoard,
@@ -96,7 +94,7 @@ import { prRefOf } from '../prLinks';
 import { tildePath } from '../format';
 import { useLogo } from '../logo';
 import { useRowDrag } from './useRowDrag';
-import { ALL_PROJECTS, CHATS, GENERAL_CHAT, attachmentsNote, attentionRows, draftCodec, findPrs, foldedWords, GROUP_WORD, holdsPrompt as holdsAPrompt, findSessions, findTodos, folderChoices, folderStart, FOUND_SESSIONS, inProject, isFolderPath, MAX_ROWS, nextDraft, primaryRunningWords, projectCounts, projectLabel, projectShownIn, QUICK_PLACEHOLDER, queryWords, readyTodos, recallList, pickInProject, recentRows, repoChoices, repoKey, repoWorktrees, SEND_TO_PLACEHOLDER, sendTargets, shortcutLabel, startLaneIn, startTitle, todosStayNote, worktreeName, type Machines, type QuickDraft, type RowGroup, type TodoRow, withPrompt as historyWith } from '../quick';
+import { ALL_PROJECTS, CHATS, GENERAL_CHAT, attachmentsNote, attentionRows, draftCodec, findPrs, foldedWords, GROUP_WORD, holdsPrompt as holdsAPrompt, findSessions, findTodos, folderChoices, folderStart, FOUND_SESSIONS, inProject, MAX_ROWS, nextDraft, primaryRunningWords, projectCounts, projectLabel, projectShownIn, QUICK_PLACEHOLDER, queryWords, readyTodos, recallList, pickInProject, recentRows, repoChoices, repoKey, repoWorktrees, SEND_TO_PLACEHOLDER, sendTargets, shortcutLabel, startLaneIn, startTitle, todosStayNote, worktreeName, type Machines, type QuickDraft, type RowGroup, type TodoRow, withPrompt as historyWith } from '../quick';
 import {
   agentChipWords,
   autoGroupIn,
@@ -128,7 +126,7 @@ import { useSkills } from '../useSkills';
 import { alreadyOnWords, duplicateOf, rankedBy, routeChoice, routeDone, sameStart, startAgentOf, suggestedChoice, suggestionWords, todoLaneFor, todoTitle, toSessionSuggestion, worthRouting, type StartFacts, type Suggestion } from '../route';
 import { liveOrLatest, sessionHomes } from '../lanes';
 import { blockedBy, mergeAttachments, newTodo, primaryHolds, splitAttachments, todoAgent, todoItem, todoProjects, todoPrompt, todosPrompt, withAttachments } from '../todos';
-import type { Attachment, Board, DevicesView, FolderLook, HearingStatus, Lane, ListenAsk, MeetingAhead, PrItem, Route, RouteChoice, RouteNote, Session, StartOptions, StartPlace, StartSpec, Talk } from '../types';
+import type { Attachment, Board, DevicesView, HearingStatus, Lane, ListenAsk, MeetingAhead, PrItem, Route, RouteChoice, RouteNote, Session, StartOptions, StartPlace, StartSpec, Talk } from '../types';
 import { AttachmentStrip } from './DescriptionEditor';
 import { DevSetupDialog } from './DevSetupDialog';
 import { useDoneHelpers } from './DoneHelpers';
@@ -157,6 +155,9 @@ import { useTextSearch } from '../useTextSearch';
 import { cardHeight, HEIGHT, LISTEN_HEIGHT, MARGIN, useQuickSize } from './useQuickSize';
 import { bare, chordPressed, cmd, emacsCtrl, held as modsHeld, keysIn } from '../platform';
 import { useKeysShown } from '../keysShown';
+import { useFolderLook } from '../useFolderLook';
+import { OPTIONS_FOR_MS, useRemoteOptions } from '../useRemoteOptions';
+import { useTallest } from './useTallest';
 import { ListenAsked, ListenRow, QuickNotes, StartRow, TodoStrip } from './QuickBits';
 import { GroupLabel, GroupNotes, QuickRow, SuggestedStandIn, type RowsShown } from './QuickRows';
 import { COMPOSE, deskPin, deskTitle, rowSections, suggestRows, type MoreRow, type Row, type SendToRow } from '../quickRows';
@@ -187,10 +188,6 @@ const LISTEN_KEY = 'codealong.quick.listen';
 const NO_DEV_KEY = 'codealong.quick.no-dev-setup';
 /** The input grows to this many lines, then scrolls. */
 const INPUT_LINES = 8;
-/** How long a read of where accounts can start is used without waiting for a new one. */
-const OPTIONS_FOR_MS = 60_000;
-/** How long after another Mac didn't say where its accounts can start it's asked again. */
-const RETRY_MS = 5_000;
 
 type PickerKind = 'project' | 'device' | 'repo' | 'worktree' | 'agent';
 
@@ -257,9 +254,6 @@ export function Quick() {
     addTurn.current += 1;
     setAdding(null);
   };
-  // A folder's path typed in the worktree menu, and what the engine found there.
-  const [folderTyped, setFolderTyped] = useState('');
-  const [folderLook, setFolderLook] = useState<FolderLook | null>(null);
   // The account or Auto, model, effort and place picked for a new session, and whether it gets a
   // new worktree (useStartChoice.ts).
   const startPicks = useStartPicks();
@@ -267,8 +261,6 @@ export function Quick() {
   // The Mac a new session starts on, by its short id; null is this one.
   const [device, setDevice] = useState<string | null>(null);
   const [devices, setDevices] = useState<DevicesView | null>(null);
-  // Where accounts can start on your other Macs, asked of each once it's chosen.
-  const [remoteOptions, setRemoteOptions] = useState<Record<string, { at: number; options: StartOptions | null; error: string | null }>>({});
   // The todos a new session is for: one, or several started together on one prompt.
   const [todoIds, setTodoIds] = useState<string[]>([]);
   // Improve Codealong (improve.ts): the pictures of the windows the engine took as it opened the
@@ -684,15 +676,9 @@ export function Quick() {
   const macs = useMemo(() => (devices?.enabled ? devices.devices : []), [devices]);
   const deviceNow = device && (!devices || macs.some((d) => d.short === device)) ? device : null;
   const deviceInfo = macs.find((d) => d.short === deviceNow) ?? null;
-  const remote = deviceNow ? remoteOptions[deviceNow] : undefined;
-  // Where its accounts can start is asked of it, and asked again once it's a minute old.
-  useEffect(() => {
-    if (!shown || !deviceNow || (remote && Date.now() - remote.at < (remote.error ? RETRY_MS : OPTIONS_FOR_MS))) return;
-    const d = deviceNow;
-    deviceStartOptions(d)
-      .then((o) => setRemoteOptions((r) => ({ ...r, [d]: { at: Date.now(), options: o, error: null } })))
-      .catch((e: unknown) => setRemoteOptions((r) => ({ ...r, [d]: { at: Date.now(), options: r[d]?.options ?? null, error: errorText(e) } })));
-  }, [shown, deviceNow, remote]);
+  // Where its accounts can start is asked of it once it's chosen, and asked again once that's a
+  // minute old (useRemoteOptions.ts).
+  const { remote, askAgain } = useRemoteOptions(shown, deviceNow);
   const startOptionsNow = deviceNow ? (remote?.options ?? null) : options;
 
   // Where a session can start: the project's worktrees on that Mac, and one of another project
@@ -1100,18 +1086,7 @@ export function Quick() {
   // answer with fewer suggestions than the last leaves room where they were, so the rows under it
   // stay put. It lets go once what's typed no longer goes to Jev. Laid out before where the rows
   // sit is compared, below.
-  const suggestedGroup = useRef<HTMLDivElement>(null);
-  const suggestedTall = useRef(0);
-  useLayoutEffect(() => {
-    const el = suggestedGroup.current;
-    if (!el) {
-      suggestedTall.current = 0;
-      return;
-    }
-    el.style.minHeight = '';
-    suggestedTall.current = Math.max(suggestedTall.current, el.offsetHeight);
-    el.style.minHeight = `${suggestedTall.current}px`;
-  });
+  const suggestedGroup = useTallest<HTMLDivElement>();
 
   // The panel's height, one whatever it lists, told to quick.rs as it opens (useQuickSize.ts).
   const tall = listen ? LISTEN_HEIGHT : HEIGHT;
@@ -2128,28 +2103,14 @@ export function Quick() {
   const projectSections: PickerSection[] = projectMenu(projects, counts, board?.chatShortcut);
 
   // A folder's path typed in the repo menu is looked up as it's typed; an answer goes only
-  // with what was typed for it. Another Mac's folders aren't this one's to look in.
-  const typingFolder = !deviceNow && isFolderPath(folderTyped);
-  useEffect(() => {
-    if (picker !== 'repo' || !typingFolder) return;
-    let live = true;
-    lookFolder(folderTyped)
-      .then((l) => live && setFolderLook(l))
-      // A look that fails says why in the folder's row.
-      .catch((e: unknown) => live && setFolderLook({ typed: folderTyped, path: '', shown: folderTyped, name: '', exists: false, refused: errorText(e), completions: [] }));
-    return () => {
-      live = false;
-    };
-  }, [picker, typingFolder, folderTyped]);
-  useEffect(() => {
-    if (picker !== 'repo') setFolderTyped('');
-  }, [picker]);
+  // with what was typed for it. Another Mac's folders aren't this one's to look in
+  // (useFolderLook.ts).
+  const { folderTyped, setFolderTyped, typingFolder, looked } = useFolderLook(picker, deviceNow);
   // A folder added comes onto the board in a moment, and is picked from then.
   useEffect(() => {
     if (adding?.laneId && board?.lanes.some((l) => l.id === adding.laneId)) setAdding(null);
   }, [adding, board?.lanes]);
 
-  const looked = typingFolder && folderLook?.typed === folderTyped ? folderLook : null;
   // Where a pick in the repo menu would start, under the repo's name.
   const startsInRepo = (lanes: Lane[]) => {
     if (newWorktree && makesWorktree) return 'New worktree';
@@ -2284,7 +2245,7 @@ export function Quick() {
       setAgent(null);
       setPlace(null);
       // A Mac that didn't answer is asked again.
-      if (d) setRemoteOptions(({ [d]: _, ...rest }) => rest);
+      if (d) askAgain(d);
     }
     setPicker(null);
     refocus();
