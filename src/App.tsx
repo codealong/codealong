@@ -15,6 +15,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties, type Dispatch, type SetStateAction } from 'react';
 import { showContextMenu, type MenuSpec } from './contextMenu';
 import { useEditorIcons } from './editors';
+import { movedTargets } from './lineage';
 import { homeOf, runsShownKey, sidesShownKey, type BoardRow, type Filter } from './lanes';
 import { answerLink, onCloseIdle, onCloseStale, onUsageMenu, onWebsiteMenu, onWindowToast, onNewWindow, onSetupMenu, onCheckUpdates, openProjectWindow, openUrl, orderAccounts, refresh, refreshUsage, setPinned, setPinnedPrs, setPinnedRepos, setPinnedWorktrees, setTheme, setupNeeded, showQuick, windowLabel, WEBSITE, type Reveal } from './api';
 import { count, middleTruncate } from './format';
@@ -1327,6 +1328,7 @@ export function App() {
   // the panel; opened where it runs, listed so too, since one Codealong runs opens in its panel
   // here; its menu. And a side conversation's row under its session, or a row of its chip's card:
   // the session selected, and the side conversation above its box, which takes what's typed.
+  const movedByKey = useMemo(() => movedTargets(allHomes), [allHomes]);
   const { showSideOf, helperActions } = helperActsOf({ homes, archivedItems, picks, focusBox, facets, setFacets, setHelpersShownList, sessionRows, lanes, openRow, sessionMenu });
 
   /** A worktree's right-click menu, as every window has it (menus.ts), with this window's own. */
@@ -2126,6 +2128,8 @@ export function App() {
                 onShowTodo={showTodo}
                 onFilterLabel={(l) => setFacets((f) => onlyPick(f, 'sessionLabels', labelPick(l)))}
                 saidOf={saidOf}
+                movedToOf={(key) => movedByKey.get(key)}
+                onShowSession={(p) => showSessionFromPanel(p.lane, p.session)}
               />
             )}
           </div>

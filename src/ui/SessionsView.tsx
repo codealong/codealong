@@ -26,7 +26,7 @@
 import { Fragment, type ReactNode } from 'react';
 import { byDay, newestFirst } from '../days';
 import { groupOptions, groupRows, groupsOf, placeIn, type Grouped, type GroupOptions, type ListGroup, type ListGroupBy, type PlaceBy } from '../groups';
-import { bySession, byStatusTime, foldsOf, heldBack, listedStatus, listedUnder, runsShownKey, sidesListed, sidesShownKey, snoozedApart, startedOf, waitingSince, waitsFinished, workingFor, type Fold, type LaneItem } from '../lanes';
+import { bySession, byStatusTime, foldsOf, heldBack, listedStatus, listedUnder, runsShownKey, sidesListed, sidesShownKey, snoozedApart, startedOf, waitingSince, waitsFinished, workingFor, type Fold, type LaneItem, type Placed } from '../lanes';
 import type { SelectHow } from '../picks';
 import type { HelperCount, RunCount, SideCount } from '../boardLists';
 import type { SaidLine } from '../quick';
@@ -392,12 +392,15 @@ interface SessionsViewProps {
   /** The line a session the search found by what was said in it shows (boardLists.ts
    *  `saidLinesOf`). */
   saidOf?: (sessionKey: string) => SaidLine | undefined;
+  /** The copy a moved session went on as (lineage.ts `movedTargets`), and jumping to it. */
+  movedToOf?: (sessionKey: string) => Placed | undefined;
+  onShowSession?: (to: Placed) => void;
 }
 
 const NO_KEYS: ReadonlySet<string> = new Set();
 
 export function SessionsView(props: SessionsViewProps) {
-  const { orchestrators = [], listening, pinned, topHelpers, sections, groups, groupActs, sort, lines, now, selectedKey, picked, domId, onSelect, onPickThese, onOpen, onContextMenu, onPrMenu, onPrShow, onPrOpen, onPlacePinned, onUnpin, pinnedKeys, desktop, archived, showArchived, onToggleArchived, todosFor, helpersOf, helpersShown, onToggleHelpers, runsOf, onToggleRuns, sidesOf, sideGlancesOf, onToggleSides, onShowSide, helperActions, onShowTodo, onFilterLabel, saidOf } = props;
+  const { orchestrators = [], listening, pinned, topHelpers, sections, groups, groupActs, sort, lines, now, selectedKey, picked, domId, onSelect, onPickThese, onOpen, onContextMenu, onPrMenu, onPrShow, onPrOpen, onPlacePinned, onUnpin, pinnedKeys, desktop, archived, showArchived, onToggleArchived, todosFor, helpersOf, helpersShown, onToggleHelpers, runsOf, onToggleRuns, sidesOf, sideGlancesOf, onToggleSides, onShowSide, helperActions, onShowTodo, onFilterLabel, saidOf, movedToOf, onShowSession } = props;
   const shown = helpersShown ?? NO_KEYS;
   const allGroups = groups ? groupsOf(groups) : [];
   const listed = groups ? allGroups.flatMap((g) => g.rows) : sections.flatMap((s) => s.rows);
@@ -456,6 +459,8 @@ export function SessionsView(props: SessionsViewProps) {
       onShowTodo={onShowTodo}
       onFilterLabel={onFilterLabel}
       said={saidOf?.(r.session.key)}
+      movedTo={movedToOf?.(r.session.key)}
+      onShowMoved={onShowSession}
       drag={held}
     />
   );

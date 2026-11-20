@@ -180,3 +180,40 @@ export function cameOf<T extends { session: Session }>(key: string, sessions: It
   for (const x of sessions) if ((x.session.origin?.key === key && !x.session.headless) || x.session.helper?.parent === key) out.push(x);
   return out;
 }
+
+/** For every session on the board that moved to another account (a fork onto a different account),
+ *  maps its key to the latest destination copy still on the board, following any chain of moves.
+ *  Copies of the same source share its first transcript timestamp once closed, so ties break by
+ *  unarchived, live, lastActivity, then start time. */
+export function movedTargets(homes: Map<string, Placed>): Map<string, Placed> {
+  const started = (s: Session) => s.startedAt ?? s.lastPromptAt;
+  const better = (a: Session, b: Session): boolean => {
+    if (a.archived !== b.archived) return !a.archived;
+    if (a.live !== b.live) return a.live;
+    if (a.lastActivity !== b.lastActivity) return a.lastActivity > b.lastActivity;
+    if (started(a) !== started(b)) return started(a) > started(b);
+    return a.key > b.key;
+  };
+  const direct = new Map<string, Placed>();
+  for (const p of homes.values()) {
+    const origin = p.session.origin;
+    if (!origin || p.session.headless) continue;
+    const from = homes.get(origin.key);
+    if (!from || kinHow(origin.how, from.session, p.session) !== 'moved') continue;
+    const prev = direct.get(origin.key);
+    if (!prev || better(p.session, prev.session)) direct.set(origin.key, p);
+  }
+  const out = new Map<string, Placed>();
+  for (const [key, first] of direct) {
+    let cur = first;
+    const seen = new Set<string>([key, cur.session.key]);
+    while (true) {
+      const next = direct.get(cur.session.key);
+      if (!next || seen.has(next.session.key)) break;
+      seen.add(next.session.key);
+      cur = next;
+    }
+    out.set(key, cur);
+  }
+  return out;
+}

@@ -11,7 +11,7 @@ import { DeviceBadge } from './DeviceBadge';
 import { memoRow } from './memoRow';
 import type { ReactNode } from 'react';
 import { absolute, ago, agoPhrase, middleTruncate, untilShort } from '../format';
-import { branchLabel, foldWords, helperLine, raisedBy, sideTitle, startedOf, worktreeName, type Fold } from '../lanes';
+import { branchLabel, foldWords, helperLine, raisedBy, sideTitle, startedOf, worktreeName, type Fold, type Placed } from '../lanes';
 import { selectHow, type SelectHow } from '../picks';
 import { untilWords } from '../snooze';
 import type { HelperCount, RunCount, SideCount } from '../boardLists';
@@ -264,6 +264,9 @@ interface SessionLinesProps {
   sideActions?: HelperActions;
   /** What a search found it by when that's what was said in it, under the first line. */
   said?: SaidLine;
+  /** The copy this session moved to on another account, if it moved and the copy is on the board. */
+  movedTo?: Placed;
+  onShowMoved?: (to: Placed) => void;
 }
 
 /**
@@ -272,7 +275,7 @@ interface SessionLinesProps {
  * the top, snooze, quiet, its agent's seen, todo, labels and Jev's read, then its account), with `end` at the second line's end. A search
  * that found it by what was said puts the line that has the words between them.
  */
-function SessionLines({ s, now, where, end, todos, onShowTodo, onFilterLabel, onOpen, helpers, helpersShown, onToggleHelpers, helperActions, runs, runsShown, onToggleRuns, sides, sidesShown, onToggleSides, sideActions, said }: SessionLinesProps) {
+function SessionLines({ s, now, where, end, todos, onShowTodo, onFilterLabel, onOpen, helpers, helpersShown, onToggleHelpers, helperActions, runs, runsShown, onToggleRuns, sides, sidesShown, onToggleSides, sideActions, said, movedTo, onShowMoved }: SessionLinesProps) {
   return (
     <>
       <div className="ca-agentrow-line1">
@@ -282,6 +285,7 @@ function SessionLines({ s, now, where, end, todos, onShowTodo, onFilterLabel, on
       <div className="ca-lane-line2">
         <span className="ca-chips ca-lane-lead ca-agentrow-chips">
           {where}
+          <MovedChip to={movedTo} onShow={onShowMoved} inRow />
           <HelperChip session={s} />
           <HelpersChip helpers={helpers} now={now} shown={helpersShown} onToggle={onToggleHelpers} actions={helperActions} />
           <RunsChip runs={runs} shown={runsShown} onToggle={onToggleRuns} actions={helperActions} now={now} />
@@ -361,6 +365,22 @@ interface AgentRowProps {
   inWorktree?: boolean;
   /** What a search found it by when that's what was said in it (boardLists.ts `saidLinesOf`). */
   said?: SaidLine;
+  /** The copy this session moved to on another account (lineage.ts `movedTargets`), shown as a
+   *  chip that jumps to it. */
+  movedTo?: Placed;
+  onShowMoved?: (to: Placed) => void;
+}
+
+/** A session moved to another account (start.rs `move_to`): shows where it went and jumps to it. */
+export function MovedChip({ to, onShow, inRow = false }: { to: Placed | null | undefined; onShow?: (to: Placed) => void; inRow?: boolean }) {
+  if (!to) return null;
+  const t = to.session;
+  return (
+    <Chip className="ca-movedchip" title={`Moved to “${t.title}” on ${t.account}`} does="show the new session" act={onShow && (() => onShow(to))} inRow={inRow}>
+      <Icon name="arrow-up-right" size={12} />
+      Moved to {t.account}
+    </Chip>
+  );
 }
 
 /** A snooze's chip: how long until it's back, as short as the age beside it, and the time and
@@ -593,7 +613,7 @@ export function SuggestedChip({ suggestions: g }: { suggestions: Suggestions | u
  * Under its worktree's heading (`inWorktree`) it leaves those to the heading too. A search that
  * found it by what was said in it adds the line that has the words, under the first.
  */
-function AgentRowView({ lane, session: s, domId, now, age, slim = false, selected, onSelect, onOpen, pinned, onContextMenu, onPrMenu, onPrShow, onPrOpen, drag, todos, onShowTodo, onFilterLabel, helpers, helpersShown, onToggleHelpers, helperActions, runs, runsShown, onToggleRuns, sides, sidesShown, onToggleSides, sideActions, nested, elsewhere, inWorktree = false, said }: AgentRowProps) {
+function AgentRowView({ lane, session: s, domId, now, age, slim = false, selected, onSelect, onOpen, pinned, onContextMenu, onPrMenu, onPrShow, onPrOpen, drag, todos, onShowTodo, onFilterLabel, helpers, helpersShown, onToggleHelpers, helperActions, runs, runsShown, onToggleRuns, sides, sidesShown, onToggleSides, sideActions, nested, elsewhere, inWorktree = false, said, movedTo, onShowMoved }: AgentRowProps) {
   const started = age === 'started';
   const oneLine = slim || nested;
   // Where it works, said where neither its session's row nor its heading says it.
@@ -621,6 +641,7 @@ function AgentRowView({ lane, session: s, domId, now, age, slim = false, selecte
           <div className="ca-agentrow-line1">
             <SessionText s={s} now={now} flag={false} />
             <span className="ca-chips ca-lane-tags">
+              <MovedChip to={movedTo} onShow={onShowMoved} inRow />
               <FlagChip session={s} />
               <HelperChip session={s} nested={nested} />
               <HelpersChip helpers={helpers} now={now} shown={helpersShown} onToggle={onToggleHelpers} actions={helperActions} />
@@ -670,6 +691,8 @@ function AgentRowView({ lane, session: s, domId, now, age, slim = false, selecte
             onToggleSides={onToggleSides}
             sideActions={sideActions}
             said={said}
+            movedTo={movedTo}
+            onShowMoved={onShowMoved}
           />
         </div>
       )}

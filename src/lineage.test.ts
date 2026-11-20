@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { arrowhead, cameLines, cameLineWords, cameOf, cameWord, connector, lineageOf, originWord, pathOf, pointAt, polyline } from './lineage';
+import { arrowhead, cameLines, cameLineWords, cameOf, cameWord, connector, lineageOf, movedTargets, originWord, pathOf, pointAt, polyline } from './lineage';
 import * as fx from './testing/fixtures';
 
 const card = (x: number, y: number) => ({ x, y, w: 200, h: 50 });
@@ -143,5 +143,50 @@ describe('cameLines', () => {
     const stuck = { ...untitled, helper: true, opens: 'Check the atlas migration', stuck: true, screen: 'Hooks need review\n› 1. Review hooks', pid: 4242, choices: [{ number: 1, words: 'Review hooks' }] };
     const waiting = lineageOf(boss.session, homes, { starting: { boss: [start, stuck] } });
     expect(cameLines(waiting).map(cameLineWords)).toEqual(['Its helper, starting: Check the atlas migration', 'Its helper, starting: Draft the northwind release notes', 'Its helper Review the diff']);
+  });
+});
+
+describe('movedTargets', () => {
+  it('maps moved sessions to their latest destination copy and ignores same-account forks', () => {
+    const lane = fx.lane();
+    const at = (n: number) => fx.NOW - n * 60_000;
+    const a = { lane, session: fx.session({ key: 'claude:claude:a', account: 'claude', archived: true, startedAt: at(30) }) };
+    const b = { lane, session: fx.session({ key: 'claude:claude2:b', account: 'claude2', archived: true, startedAt: at(20), origin: { key: 'claude:claude:a', how: 'fork' } }) };
+    const c = { lane, session: fx.session({ key: 'claude:claude3:c', account: 'claude3', startedAt: at(10), origin: { key: 'claude:claude2:b', how: 'fork' } }) };
+    const sameFork = { lane, session: fx.session({ key: 'claude:claude:f', account: 'claude', startedAt: at(15), origin: { key: 'claude:claude:a', how: 'fork' } }) };
+    const started = { lane, session: fx.session({ key: 'claude:claude2:s', account: 'claude2', startedAt: at(5), origin: { key: 'claude:claude:a', how: 'started' } }) };
+    const homes = new Map([a, b, c, sameFork, started].map((p) => [p.session.key, p]));
+    const targets = movedTargets(homes);
+    // Follows the chain A -> B -> C to the latest copy.
+    expect(targets.get('claude:claude:a')?.session.key).toBe('claude:claude3:c');
+    expect(targets.get('claude:claude2:b')?.session.key).toBe('claude:claude3:c');
+    expect(targets.has('claude:claude3:c')).toBe(false);
+    expect(targets.has('claude:claude:f')).toBe(false);
+    expect(targets.has('claude:claude2:s')).toBe(false);
+  });
+
+  it('picks the latest move when moved more than once and guards against cycles', () => {
+    const lane = fx.lane();
+    const at = (n: number) => fx.NOW - n * 60_000;
+    const src = { lane, session: fx.session({ key: 'claude:claude:src', account: 'claude', startedAt: at(30) }) };
+    const older = { lane, session: fx.session({ key: 'claude:claude2:old', account: 'claude2', startedAt: at(20), origin: { key: 'claude:claude:src', how: 'fork' } }) };
+    const newer = { lane, session: fx.session({ key: 'claude:claude3:new', account: 'claude3', startedAt: at(5), origin: { key: 'claude:claude:src', how: 'fork' } }) };
+    const x = { lane, session: fx.session({ key: 'claude:claude:x', account: 'claude', startedAt: at(10), origin: { key: 'claude:claude2:y', how: 'fork' } }) };
+    const y = { lane, session: fx.session({ key: 'claude:claude2:y', account: 'claude2', startedAt: at(10), origin: { key: 'claude:claude:x', how: 'fork' } }) };
+    const targets = movedTargets(new Map([src, older, newer, x, y].map((p) => [p.session.key, p])));
+    expect(targets.get('claude:claude:src')?.session.key).toBe('claude:claude3:new');
+    expect(targets.get('claude:claude:x')?.session.key).toBe('claude:claude2:y');
+    expect(targets.get('claude:claude2:y')?.session.key).toBe('claude:claude:x');
+  });
+
+  it('prefers the active or newer copy when moved copies share the source transcript start time', () => {
+    const lane = fx.lane();
+    const at = (n: number) => fx.NOW - n * 60_000;
+    const src = { lane, session: fx.session({ key: 'claude:claude:src', account: 'claude', archived: true, startedAt: at(60), lastActivity: at(50) }) };
+    const dead = { lane, session: fx.session({ key: 'claude:claude2:dead', account: 'claude2', live: false, startedAt: at(60), lastActivity: at(50), origin: { key: 'claude:claude:src', how: 'fork' } }) };
+    const active = { lane, session: fx.session({ key: 'claude:claude3:active', account: 'claude3', live: true, startedAt: at(60), lastActivity: at(5), origin: { key: 'claude:claude:src', how: 'fork' } }) };
+    // Even when the dead copy appears first in homes, the live copy wins.
+    const targets = movedTargets(new Map([src, dead, active].map((p) => [p.session.key, p])));
+    expect(targets.get('claude:claude:src')?.session.key).toBe('claude:claude3:active');
   });
 });

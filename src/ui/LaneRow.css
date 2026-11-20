@@ -37,7 +37,8 @@
 .ca-chip.ca-helperchip,
 .ca-chip.ca-helperschip,
 .ca-chip.ca-runschip,
-.ca-chip.ca-sideschip {
+.ca-chip.ca-sideschip,
+.ca-chip.ca-movedchip {
   padding: 0 7px 0 6px;
   font: var(--type-caption-heading);
   color: var(--ink-3);

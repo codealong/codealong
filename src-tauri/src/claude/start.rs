@@ -112,16 +112,39 @@ pub(super) fn background_args(prompt: &str, model: Option<&str>, effort: Option<
     args
 }
 
+/// The session's title to carry onto a moved copy (`--name`), so Claude Code doesn't auto-title
+/// the fork onto something else on its next turn. Leaves out empty titles, the fallback
+/// `Session <short id>`, and titles that are just the session's first prompt (which Claude Code
+/// hasn't titled yet).
+pub(super) fn move_name(s: &Session) -> Option<&str> {
+    let title = s.title.trim();
+    if title.is_empty()
+        || title == format!("Session {}", s.short_id)
+        || s.first_prompt.as_deref().map(str::trim) == Some(title)
+    {
+        None
+    } else {
+        Some(title)
+    }
+}
+
+/// ` --name <quoted>` when `name` is non-empty, else empty.
+fn name_arg(name: Option<&str>) -> String {
+    name.map(str::trim).filter(|n| !n.is_empty()).map(|n| format!(" --name {}", crate::util::sh_quote(n))).unwrap_or_default()
+}
+
 /// The command that forks session `id` into a background job, on `prompt` when
 /// there's one: `--bg` with `--resume` and `--fork-session` starts a copy of the conversation
 /// as far as it's written, the original carrying on (checked on 2.1.286). Without a prompt the
 /// job waits for one, and writes its transcript, the conversation so far included, with it.
-pub fn fork_command(account: &AccountCfg, id: &str, prompt: &str) -> String {
-    fork_command_in(account, id, prompt, (&crate::attachments::images_dir(), &crate::attachments::files_dir()))
+/// With `name`, `--name` carries the session's title onto the copy so Claude Code keeps it
+/// (checked on 2.1.329: sets `nameSource: "user"` in the job record).
+pub fn fork_command(account: &AccountCfg, id: &str, prompt: &str, name: Option<&str>) -> String {
+    fork_command_in(account, id, prompt, name, (&crate::attachments::images_dir(), &crate::attachments::files_dir()))
 }
 
-pub(crate) fn fork_command_in(account: &AccountCfg, id: &str, prompt: &str, dirs: (&Path, &Path)) -> String {
-    format!("{} --resume {id} --fork-session{}", account.command(), background_args(prompt, None, None, false, dirs))
+pub(crate) fn fork_command_in(account: &AccountCfg, id: &str, prompt: &str, name: Option<&str>, dirs: (&Path, &Path)) -> String {
+    format!("{} --resume {id} --fork-session{}{}", account.command(), name_arg(name), background_args(prompt, None, None, false, dirs))
 }
 
 /// The job ID `--bg` prints (`backgrounded · 34b864ad`), which is also where the session's own
@@ -198,11 +221,12 @@ pub(super) fn stop_command(account: &crate::config::AccountCfg, attach: &str) ->
 /// Forks session `from` (its ID, or its transcript's path quoted for the shell) into a new one
 /// named `new_id` under `account`: `--fork-session` copies the transcript, and takes
 /// `--session-id` for the copy's ID (resuming takes it only with `--fork-session`), so the
-/// copy's key is known before it's written, as a start's is. With a prompt the copy starts on
-/// it at once (it comes in the environment, as a resume's does); without one it waits for one.
-pub(super) fn fork_as(account: &crate::config::AccountCfg, from: &str, new_id: &str, prompt: &str) -> crate::harness::Typed {
+/// copy's key is known before it's written, as a start's is. With `name`, `--name` carries the
+/// session's title onto the copy. With a prompt the copy starts on it at once (it comes in the
+/// environment, as a resume's does); without one it waits for one.
+pub(super) fn fork_as(account: &crate::config::AccountCfg, from: &str, new_id: &str, prompt: &str, name: Option<&str>) -> crate::harness::Typed {
     let key = Session::key_for(Harness::Claude, &account.name, new_id);
-    let mut input = format!("{} --resume {}", account.command(), fork_args(from, new_id));
+    let mut input = format!("{} --resume {}", account.command(), fork_args(from, new_id, name));
     let mut env = vec![(crate::start::SESSION_VAR.to_string(), key.clone())];
     let prompt = prompt.trim();
     if !prompt.is_empty() {
@@ -214,12 +238,13 @@ pub(super) fn fork_as(account: &crate::config::AccountCfg, from: &str, new_id: &
 }
 
 /// What `--resume` takes to fork `from` (an ID, or a transcript's path quoted for the shell)
-/// into a copy named `new_id`. While nothing has been written under that ID, the same arguments
-/// make the copy again: a copy whose process ended before its first prompt left no transcript,
-/// and a second run with its `--session-id` started it as the first had (checked on 2.1.288,
-/// 2026-10-03).
-pub(super) fn fork_args(from: &str, new_id: &str) -> String {
-    format!("{from} --fork-session --session-id {new_id}")
+/// into a copy named `new_id`, with `--name` when `name` is set (checked on 2.1.329: sets the
+/// title in memory and writes `custom-title` on the copy's first write, leaving a closed copy with
+/// no transcript). While nothing has been written under that ID, the same arguments make the copy
+/// again: a copy whose process ended before its first prompt left no transcript, and a second run
+/// with its `--session-id` started it as the first had (checked on 2.1.288, 2026-10-03).
+pub(super) fn fork_args(from: &str, new_id: &str, name: Option<&str>) -> String {
+    format!("{from} --fork-session --session-id {new_id}{}", name_arg(name))
 }
 
 /// The terminal input that resumes a Claude Code session, on `model` and `effort` when they're
@@ -318,7 +343,7 @@ mod tests {
     #[test]
     fn forks_under_an_id_it_picks() {
         let a = crate::config::AccountCfg { name: "claude2".into(), harness: "claude".into(), home: "~/.claude2".into(), command: None, start: None, acp: None, monthly: None, per_token: false, usage_cap: None, disabled: false, chrome_profile: None };
-        let f = fork_as(&a, "4f1c2a9e-0b7d-4e21-9c55-1a2b3c4d5e6f", "9d8c7b6a-5f4e-4d3c-8b2a-1f0e9d8c7b6a", "");
+        let f = fork_as(&a, "4f1c2a9e-0b7d-4e21-9c55-1a2b3c4d5e6f", "9d8c7b6a-5f4e-4d3c-8b2a-1f0e9d8c7b6a", "", None);
         assert_eq!(f.input, "claude2 --resume 4f1c2a9e-0b7d-4e21-9c55-1a2b3c4d5e6f --fork-session --session-id 9d8c7b6a-5f4e-4d3c-8b2a-1f0e9d8c7b6a\n");
         assert_eq!(f.key.as_deref(), Some("claude:claude2:9d8c7b6a-5f4e-4d3c-8b2a-1f0e9d8c7b6a"));
         assert_eq!(f.env, vec![("CODEALONG_SESSION".to_string(), "claude:claude2:9d8c7b6a-5f4e-4d3c-8b2a-1f0e9d8c7b6a".to_string())]);
@@ -372,6 +397,17 @@ mod tests {
         let copy_id = copy.strip_prefix("claude:claude2:").unwrap();
         assert_eq!(going.input, format!("claude2 --resume '{path}' --fork-session --session-id {copy_id} \"$CODEALONG_PROMPT\"\n"));
         assert_eq!(going.env, vec![("CODEALONG_SESSION".to_string(), copy.clone()), ("CODEALONG_PROMPT".to_string(), " -go on".to_string())]);
+        // A titled session carries its name onto the moved copy so Claude Code doesn't re-title it.
+        let named = Session { title: "northwind 3d model's mocks".into(), ..Session::new(Harness::Claude, "claude", id) };
+        let kept = super::super::ClaudeCode.move_to(&ctx, &named, &to, "").unwrap();
+        let kept_key = kept.key.clone().unwrap();
+        let kept_id = kept_key.strip_prefix("claude:claude2:").unwrap();
+        assert_eq!(kept.input, format!("claude2 --resume '{path}' --fork-session --session-id {kept_id} --name 'northwind 3d model'\\''s mocks'\n"));
+        // The fallback "Session <short id>" and an untitled first prompt aren't locked in as a name.
+        let fallback = Session { title: format!("Session {}", crate::model::short_id(id)), ..Session::new(Harness::Claude, "claude", id) };
+        assert!(!super::super::ClaudeCode.move_to(&ctx, &fallback, &to, "").unwrap().input.contains("--name"));
+        let prompt_only = Session { title: "Fix the billing chart".into(), first_prompt: Some("Fix the billing chart".into()), ..Session::new(Harness::Claude, "claude", id) };
+        assert!(!super::super::ClaudeCode.move_to(&ctx, &prompt_only, &to, "").unwrap().input.contains("--name"));
         // A live session that hasn't said anything has no transcript yet.
         let quiet = Session { live: true, ..Session::new(Harness::Claude, "claude", "0f5e1d2c") };
         assert!(super::super::ClaudeCode.move_to(&ctx, &quiet, &to, "").unwrap_err().to_string().contains("Nothing's been said"));
@@ -382,11 +418,15 @@ mod tests {
         let a = AccountCfg { name: "claude2".into(), harness: "claude".into(), home: "~/.claude2".into(), command: Some("claude2".into()), start: None, acp: None, monthly: None, per_token: false, usage_cap: None, disabled: false, chrome_profile: None };
         let dirs = (Path::new("/i"), Path::new("/f"));
         let id = "3628c9e6-0309-4a30-aed9-3e68d0e66b7e";
-        assert_eq!(fork_command_in(&a, id, "", dirs), format!("claude2 --resume {id} --fork-session --bg"));
-        assert_eq!(fork_command_in(&a, id, "  try it the other way's round  ", dirs), format!("claude2 --resume {id} --fork-session --bg -- 'try it the other way'\\''s round'"));
+        assert_eq!(fork_command_in(&a, id, "", None, dirs), format!("claude2 --resume {id} --fork-session --bg"));
+        assert_eq!(fork_command_in(&a, id, "  try it the other way's round  ", None, dirs), format!("claude2 --resume {id} --fork-session --bg -- 'try it the other way'\\''s round'"));
         assert_eq!(
-            fork_command_in(&a, id, "look\n![image](images/0123456789abcdef.png)", dirs),
+            fork_command_in(&a, id, "look\n![image](images/0123456789abcdef.png)", None, dirs),
             format!("claude2 --resume {id} --fork-session --add-dir '/i' --bg -- 'look\n@\"/i/0123456789abcdef.png\"'")
+        );
+        assert_eq!(
+            fork_command_in(&a, id, "go on", Some("northwind 3d model ui mocks"), dirs),
+            format!("claude2 --resume {id} --fork-session --name 'northwind 3d model ui mocks' --bg -- 'go on'")
         );
     }
 

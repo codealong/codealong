@@ -69,7 +69,7 @@ use names::name_transcript;
 use registry::{read_registry, registry_of, session_entry, Forks, INPUT_NEEDED, PERMISSION_PROMPT};
 use routes::claude_routes;
 use side::{pr_lookups_allowed, pr_lookups_said, side_mode, SideCopy};
-use start::{background_args, claude_resume_input, default_model, fork_args, fork_as, fork_command, resume_job_command, start_background, stop_command, EFFORTS, MODELS};
+use start::{background_args, claude_resume_input, default_model, fork_args, fork_as, fork_command, move_name, resume_job_command, start_background, stop_command, EFFORTS, MODELS};
 use transcript::{parse_transcript, reply_text, tool_request, transcript_cwd, transcript_files, typed_text, PLAN, Parsed};
 use trust::{state_file, trust_folder};
 
@@ -495,13 +495,13 @@ impl crate::harness::Adapter for ClaudeCode {
     }
 
     fn fork(&self, ctx: &crate::harness::Ctx, s: &crate::model::Session) -> anyhow::Result<crate::harness::Typed> {
-        Ok(fork_as(ctx.account, &shell_word(&resume_from(ctx.account, s)), &crate::start::new_session_id(), ""))
+        Ok(fork_as(ctx.account, &shell_word(&resume_from(ctx.account, s)), &crate::start::new_session_id(), "", None))
     }
 
     /// A background job under the account's service, whichever way the session runs: Claude
     /// Code copies the conversation from its transcript (`fork_command`).
     fn fork_background(&self, ctx: &crate::harness::Ctx, s: &crate::model::Session, cwd: &Path, prompt: &str) -> anyhow::Result<Option<String>> {
-        let command = fork_command(ctx.account, &shell_word(&resume_from(ctx.account, s)), prompt);
+        let command = fork_command(ctx.account, &shell_word(&resume_from(ctx.account, s)), prompt, None);
         let (_, id) = start_background(ctx.account, cwd, &command)?;
         Ok(id.map(|id| Session::key_for(Harness::Claude, &ctx.account.name, &id)))
     }
@@ -544,7 +544,7 @@ impl crate::harness::Adapter for ClaudeCode {
     /// `-p`). Its first reply there reads the whole conversation uncached, since a prompt cache
     /// is its org's own.
     fn move_to(&self, ctx: &crate::harness::Ctx, s: &crate::model::Session, to: &AccountCfg, prompt: &str) -> anyhow::Result<crate::harness::Typed> {
-        Ok(fork_as(to, &crate::util::sh_quote(&self.newest_record(ctx, s)?.to_string_lossy()), &crate::start::new_session_id(), prompt))
+        Ok(fork_as(to, &crate::util::sh_quote(&self.newest_record(ctx, s)?.to_string_lossy()), &crate::start::new_session_id(), prompt, move_name(s)))
     }
 
     fn moves_accounts(&self) -> bool {
@@ -562,7 +562,7 @@ impl crate::harness::Adapter for ClaudeCode {
     /// under the other account starts a job there that goes on from it (checked on 2.1.287,
     /// 2026-10-02), its session ID the service's choice, as any `--bg` start's is.
     fn move_to_background(&self, ctx: &crate::harness::Ctx, s: &crate::model::Session, to: &AccountCfg, cwd: &Path, prompt: &str) -> anyhow::Result<Option<String>> {
-        let command = fork_command(to, &crate::util::sh_quote(&self.newest_record(ctx, s)?.to_string_lossy()), prompt);
+        let command = fork_command(to, &crate::util::sh_quote(&self.newest_record(ctx, s)?.to_string_lossy()), prompt, move_name(s));
         let (_, id) = start_background(to, cwd, &command)?;
         Ok(id.map(|id| Session::key_for(Harness::Claude, &to.name, &id)))
     }
@@ -1364,7 +1364,7 @@ impl Reader {
             let seen_at = look.seen.seen_at(&from.key).max(look.seen.seen_at(key));
             let Some(mut s) = crate::board::claude_session(a, None, Some(&info), seen_at, look.now, &crate::board::Quiet::default()) else { continue };
             s.archived = look.archived_here(key, s.last_activity);
-            s.resume_command = Some(format!("{} --resume {}", a.command(), fork_args(&crate::util::sh_quote(&from.transcript.0.to_string_lossy()), id)));
+            s.resume_command = Some(format!("{} --resume {}", a.command(), fork_args(&crate::util::sh_quote(&from.transcript.0.to_string_lossy()), id, move_name(&s))));
             s.continues = Some(from.id);
             s.origin = Some(SessionOrigin { key: from.key, how: OriginHow::Fork });
             out.push(s);
@@ -1821,7 +1821,7 @@ fn moved_source(account: &AccountCfg, s: &Session, home_of: impl Fn(&str) -> Opt
 /// copy's ID (`fork_args`; `Reader::closed_copies`).
 fn resume_args(account: &AccountCfg, s: &Session, home_of: impl Fn(&str) -> Option<PathBuf>) -> String {
     match moved_source(account, s, home_of) {
-        Some(path) => fork_args(&crate::util::sh_quote(&path.to_string_lossy()), &s.id),
+        Some(path) => fork_args(&crate::util::sh_quote(&path.to_string_lossy()), &s.id, move_name(s)),
         None => s.id.clone(),
     }
 }
@@ -2765,11 +2765,16 @@ mod tests {
         assert!(reader.closed_copies(&from, &HashSet::new(), &origins, &look).is_empty());
 
         // Opened, or sent a message, it's made again from that conversation under its own ID.
+        // Without a title beyond its first prompt, no --name is locked in.
         let path = crate::util::sh_quote(&transcript.to_string_lossy());
         assert_eq!(copy.resume_command, Some(format!("claude2 --resume {path} --fork-session --session-id c0")));
         let home_of = |name: &str| (name == "claude").then(|| old_home.to_path_buf());
         let (input, _) = claude_resume_input(&to, &resume_args(&to, copy, home_of), "Go on", None, None);
         assert_eq!(input, format!("claude2 --resume {path} --fork-session --session-id c0 \"${}\"\n", crate::start::PROMPT_VAR));
+        // When the session has a title of its own, --name carries it onto the copy.
+        let titled = Session { title: "Northwind build fix".into(), ..copy.clone() };
+        let (titled_input, _) = claude_resume_input(&to, &resume_args(&to, &titled, home_of), "Go on", None, None);
+        assert_eq!(titled_input, format!("claude2 --resume {path} --fork-session --session-id c0 --name 'Northwind build fix' \"${}\"\n", crate::start::PROMPT_VAR));
 
         // While its process runs the registry has it, and the reader shows it from there.
         assert!(reader.closed_copies(&to, &HashSet::from(["c0"]), &origins, &look).is_empty());

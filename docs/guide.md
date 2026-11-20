@@ -394,8 +394,10 @@ Move to, in a Claude Code session's right-click menu, moves it to another of you
 accounts (one that's signed in). The chip at the right of the reply box's foot, which starts with
 its account, lists them too, each with a *Move it here* line under its own account's: picking one
 asks first, in a dialog that says what the move does, and Move there moves it. The conversation goes on in a new terminal under that account (a
-background job's as a job there), and the session is closed and archived; its panel and the copy's
-say where it went. The copy is a session of its own, with a new ID, and takes the session's place on
+background job's as a job there), carrying the session's title with `--name` so Claude Code keeps
+it rather than auto-titling the copy onto something else, and the session is closed and archived;
+its panel and the copy's say where it went, and the old session's row shows a *Moved to* chip
+that jumps to the copy. The copy is a session of its own, with a new ID, and takes the session's place on
 its todos, among the pinned sessions, on its card on the desktop and in its kept window. Moved from
 its panel in Sessions, the panel stays on it while it moves and then shows the copy, selected in the
 list, rather than going on to the next that waits on you; a PR opened from its chip meanwhile stays,

@@ -248,7 +248,11 @@ on this Mac; read it before changing the Claude adapter (paths are under `src-ta
   roster's `workers.<job>.dispatch.launch` says `{mode: "resume", sessionId: <id>, fork: true}`;
   without a prompt it prints `(idle — send a prompt to start)` and has no transcript until its
   first prompt, so the board shows it with the conversation it copies
-  (`claude::registry::resumed_from`).
+  (`claude::registry::resumed_from`). On 2.1.329, `--name <title>` alongside `--fork-session`
+  sets the session's title and agent name in memory and writes `custom-title` when the transcript
+  is first written (so a copy closed before its first prompt still writes nothing, which
+  `closed_copies` and `fork_args` rely on), and with `--bg` sets `nameSource: "user"` in the job
+  record, keeping Claude Code's auto-titler from renaming the copy on its next turn.
 - A copy that goes only as far as a point in the conversation (Edit from here):
   `--resume-session-at <uuid>` (and `--resume-drops-turn`) is for print mode only, and ignored
   elsewhere, `--bg` too (2.1.305's help), so the Agent SDK's `forkSession(id, {dir,
