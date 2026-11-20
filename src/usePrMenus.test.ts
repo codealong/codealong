@@ -3,6 +3,7 @@ import { beforeEach, describe, expect, it } from 'vitest';
 import { engine, mountHook, settle } from './testing/dom';
 import { menusAsked, menuWords, pick, under } from './testing/menus';
 import { sessionIndexOf, prRowOf } from './boardLists';
+import { KEYS } from './menus';
 import { clearNotice, drawNoticesHere, reportedNotices } from './notices';
 import type { Pins } from './pins';
 import { START_OPTIONS_NOTICE } from './start';
@@ -114,6 +115,9 @@ describe('a PR’s menu in the main window', () => {
     const menu = await lastMenu();
     expect(menuWords(menu)).toEqual(['Open on GitHub', 'Review with ›', '-', 'Approve #7', 'Nudge its session on updates', '-', 'Pin PR', 'Pin to desktop', '-', 'Add pr northwind/app#7 to board', '-', 'Show worktree app', 'Copy link', 'Copy branch name']);
     expect(menuWords(under(menu, 'Review with'))).toEqual(['The Codex app’s own review']);
+    // Its pin shows the key every window's Pin has (menus.ts `KEYS`), and no other item here a key.
+    expect(KEYS.pin).toBeTruthy();
+    expect(menu.flatMap((i) => (i.accelerator ? [`${i.text}=${i.accelerator}`] : []))).toEqual([`Pin PR=${KEYS.pin}`]);
     pick(menu, 'Pin PR');
     // In PRs, its worktree shows from its row, which is selected first.
     pick(menu, 'Show worktree app');

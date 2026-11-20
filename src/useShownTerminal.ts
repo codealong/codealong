@@ -11,12 +11,13 @@ import type { Board } from './types';
 
 /** The terminal asked for, by its id; whether it may yet turn out to be a session's; and when it
  *  was asked for. */
-export interface PendingTerminal {
+interface PendingTerminal {
   id: string;
   wait: boolean;
   since: number;
 }
 
+/** Answers the way to show a terminal, as a reveal of kind `terminal` asks. */
 export function useShownTerminal({ board, reveal, setToast }: { board: Board | null; reveal: { readonly current: (r: Reveal) => void }; setToast: (message: string) => void }) {
   const pendingTerminal = useRef<PendingTerminal | null>(null);
   const poppedTerminals = usePoppedTerminals();
@@ -41,6 +42,12 @@ export function useShownTerminal({ board, reveal, setToast }: { board: Board | n
     } else setDrawer(place.key, { open: true, active: p.id, focusAt: Date.now() });
   });
   useEffect(() => placeTerminal.current(), [board, placeTerminal]);
-  /** The one asked for, set as it's asked; and placing it now, by what the latest board says. */
-  return { pendingTerminal, placeTerminal };
+  /** Shows the terminal `id`: placed now, by what the latest board says, and looked at again once
+   *  the wait is up, since no board may come by then to place it. */
+  const showTerminal = (id: string, wait: boolean) => {
+    pendingTerminal.current = { id, wait, since: Date.now() };
+    placeTerminal.current();
+    window.setTimeout(() => placeTerminal.current(), TERMINAL_WAIT_MS + 100);
+  };
+  return { showTerminal };
 }

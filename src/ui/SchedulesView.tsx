@@ -295,7 +295,7 @@ export function SchedulesView(props: SchedulesViewProps) {
     );
   };
   // A group of schedules under its worktree's or repo's heading, which shows the worktree in place
-  // of the schedule's panel (App.tsx `groupActsFor`).
+  // of the schedule's panel (mainGroups.ts `groupActsOf`).
   const groupBlock = (g: ListGroup<ScheduleItem>, pinned: boolean) => (
     <GroupBlock key={`group:${g.key}`} g={g} acts={groupActs} now={now} rows={false} pinned={pinned} none={SCHEDULE_NONE}>
       {g.rows.map(scheduleRow)}

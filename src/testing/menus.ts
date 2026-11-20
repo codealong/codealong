@@ -14,12 +14,13 @@ import { act } from 'react';
 import { beforeEach } from 'vitest';
 import { engine } from './tauri';
 
-/** A menu's item as Tauri hands it to the engine: its words, or none for a line; a submenu's
- *  items; and the channel a pick is told on. */
+/** A menu's item as Tauri hands it to the engine: its words, or none for a line; the key it
+ *  shows; a submenu's items; and the channel a pick is told on. */
 export interface AskedItem {
   text?: string;
   enabled?: boolean;
   checked?: boolean;
+  accelerator?: string;
   items?: AskedItem[];
   handler?: { onmessage: (id: string) => void };
 }

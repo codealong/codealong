@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { act, engine, mountHook, settle } from './testing/dom';
+import { act, engine, mountHook } from './testing/dom';
 import type { Reveal } from './api';
 import { NEW_SESSION_WAIT_MS, type NewSession, type NewSessionShown } from './newSession';
 import * as fx from './testing/fixtures';
@@ -62,6 +62,14 @@ describe('a new session waiting for its first prompt', () => {
 });
 
 describe('sending it', () => {
+  // A start that gives a session to wait for starts the wait for it (`NEW_SESSION_WAIT_MS`): on a
+  // clock the test moves, so no wait outlasts its test and says its piece in a later one.
+  beforeEach(() => {
+    vi.useFakeTimers();
+  });
+  /** Lets what waits on the engine's answer run. */
+  const answered = () => act(() => vi.advanceTimersByTimeAsync(0));
+
   it('starts the session on what was written, saying it’s on its way, and then waits for the board to list it', async () => {
     let answer: (started: Started | null) => void = () => {};
     engine.answer('start_from_quick', () => new Promise<Started | null>((resolve) => (answer = resolve)));
@@ -70,7 +78,7 @@ describe('sending it', () => {
     let sent: Promise<void> = Promise.resolve();
     act(() => void (sent = w.current.sendNew(opened())('Fix the importer', 'fix the importer')));
     expect(w.current.newShown).toMatchObject({ sending: 'fix the importer', error: null, started: null });
-    await settle();
+    await answered();
     expect(engine.sent('start_from_quick')).toEqual([{ spec: { ...draft.spec, prompt: 'Fix the importer' } }]);
     answer({ key: KEY, message: null });
     await act(() => sent);
@@ -100,7 +108,6 @@ describe('sending it', () => {
   });
 
   it('stops waiting after a while, and says what the start said instead', async () => {
-    vi.useFakeTimers();
     engine.answer('start_from_quick', { key: KEY, message: 'Started in the background.' });
     const w = mountHook(useNewSession, has());
     act(() => w.current.setNewShown(opened()));
@@ -113,7 +120,6 @@ describe('sending it', () => {
   });
 
   it('says so itself when the start said nothing', async () => {
-    vi.useFakeTimers();
     engine.answer('start_from_quick', { key: KEY, message: null });
     const w = mountHook(useNewSession, has());
     act(() => w.current.setNewShown(opened()));
@@ -156,7 +162,7 @@ describe('sending it', () => {
     act(() => w.current.setNewShown(opened()));
     let sent: Promise<void> = Promise.resolve();
     act(() => void (sent = w.current.sendNew(opened())('Fix the importer', 'fix the importer')));
-    await settle();
+    await answered();
     // Another start opened meanwhile, in the same place.
     act(() => w.current.setNewShown(opened({ opened: 2 })));
     answer({ key: KEY, message: null });

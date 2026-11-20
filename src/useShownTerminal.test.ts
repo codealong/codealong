@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { act, engine, mountHook, settle } from './testing/dom';
+import { act, engine, mountHook } from './testing/dom';
 import type { Reveal } from './api';
 import { drawerOf, sessionViewOf, TERMINAL_WAIT_MS } from './terminals';
 import * as fx from './testing/fixtures';
@@ -24,6 +24,8 @@ let revealed: Reveal[] = [];
 beforeEach(() => {
   did = [];
   revealed = [];
+  // Showing one starts a wait: on a clock the test moves, so none outlasts its test.
+  vi.useFakeTimers();
   // No terminal has a window of its own, until the engine says one has.
   engine.answer('terminal_windows', []);
 });
@@ -31,28 +33,29 @@ afterEach(() => {
   vi.useRealTimers();
 });
 
+/** Lets what waits on the engine's answer run, and `ms` go by. */
+const pass = (ms = 0) => act(() => vi.advanceTimersByTimeAsync(ms));
 const has = (b: Board | null) => ({ board: b, reveal: { current: (r: Reveal) => void revealed.push(r) }, setToast: (m: string) => void did.push(`say “${m}”`) });
-/** The window, and the server asking it to show the terminal `id`, as the window's `reveal` takes it. */
+/** The window, and the server asking it to show the terminal `id`, as the window's `reveal` asks. */
 async function asked(b: Board | null, id: string, wait = false) {
   const w = mountHook(useShownTerminal, has(b));
-  await settle();
-  const ask = () => {
-    w.current.pendingTerminal.current = { id, wait, since: Date.now() };
-    act(() => w.current.placeTerminal.current());
-  };
+  await pass();
+  const ask = () => act(() => w.current.showTerminal(id, wait));
   return { w, ask };
 }
 
 describe('a terminal the server asked the window to show', () => {
   it('shows its session with the terminal’s tab open in its drawer, for one beside a session', async () => {
     const key = 'claude:northwind:tab';
-    const { w, ask } = await asked(board(key, [terminal('t1', key)]), 't1');
+    const { ask } = await asked(board(key, [terminal('t1', key)]), 't1');
     ask();
     expect(revealed).toEqual([{ kind: 'session', laneId: '/r/northwind/app', key }]);
     expect(drawerOf(key)).toMatchObject({ open: true, active: 't1' });
     expect(drawerOf(key).focusAt).toBeGreaterThan(0);
     expect(sessionViewOf(key)).toBe('conversation');
-    expect(w.current.pendingTerminal.current).toBeNull();
+    // Placed once: the look once the wait is up finds nothing left to place.
+    await pass(TERMINAL_WAIT_MS + 200);
+    expect(revealed).toHaveLength(1);
   });
 
   it('shows the terminal in its session’s panel, for the one the session runs in', async () => {
@@ -66,11 +69,14 @@ describe('a terminal the server asked the window to show', () => {
   });
 
   it('brings one that’s no session’s forward in a window of its own', async () => {
-    const { w, ask } = await asked(board('claude:northwind:other', [terminal('t9', '')]), 't9');
+    const { ask } = await asked(board('claude:northwind:other', [terminal('t9', '')]), 't9');
     ask();
-    await settle();
+    await pass();
     expect(engine.sent('terminal_window')).toEqual([{ key: '', id: 't9', keys: true }]);
-    expect([revealed, w.current.pendingTerminal.current]).toEqual([[], null]);
+    expect(revealed).toEqual([]);
+    // Once: not again when the wait is up.
+    await pass(TERMINAL_WAIT_MS + 200);
+    expect(engine.sent('terminal_window')).toHaveLength(1);
   });
 
   it('brings a session’s terminal forward in its own window when it’s popped out', async () => {
@@ -78,7 +84,7 @@ describe('a terminal the server asked the window to show', () => {
     const { ask } = await asked(board(key, [terminal('t2', key)]), 't2');
     act(() => engine.emit('terminal-windows', ['t2']));
     ask();
-    await settle();
+    await pass();
     expect(engine.sent('terminal_window')).toEqual([{ key, id: 't2', keys: true }]);
     expect([revealed, drawerOf(key).open]).toEqual([[], false]);
     act(() => engine.emit('terminal-windows', []));
@@ -90,7 +96,7 @@ describe('a terminal the server asked the window to show', () => {
     });
     const { ask } = await asked(board('claude:northwind:other', [terminal('t9', '')]), 't9');
     ask();
-    await settle();
+    await pass();
     expect(did).toEqual(['say “Error: That terminal has ended.”']);
   });
 });
@@ -100,44 +106,49 @@ describe('waiting for the board to say whose it is', () => {
     const key = 'claude:northwind:late';
     const { w, ask } = await asked(board(key), 't1');
     ask();
-    expect([revealed, w.current.pendingTerminal.current?.id]).toEqual([[], 't1']);
+    expect(revealed).toEqual([]);
     w.rerender(has(board(key, [terminal('t1', key)])));
     expect(revealed).toEqual([{ kind: 'session', laneId: '/r/northwind/app', key }]);
-    expect(w.current.pendingTerminal.current).toBeNull();
     // Placed once: a later board doesn't show it again.
     w.rerender(has(board(key, [terminal('t1', key)])));
     expect(revealed).toHaveLength(1);
   });
 
-  it('waits for one opened for a command, which may turn out to be a session’s, then gives it a window', async () => {
-    vi.useFakeTimers();
-    const w = mountHook(useShownTerminal, has(board('claude:northwind:other', [terminal('t9', '')])));
-    w.current.pendingTerminal.current = { id: 't9', wait: true, since: Date.now() };
-    act(() => w.current.placeTerminal.current());
-    await act(() => vi.advanceTimersByTimeAsync(TERMINAL_WAIT_MS - 100));
+  it('waits for one opened for a command, which may turn out to be a session’s, then gives it a window though no board comes', async () => {
+    const { ask } = await asked(board('claude:northwind:other', [terminal('t9', '')]), 't9', true);
+    ask();
+    await pass(TERMINAL_WAIT_MS - 100);
     expect(engine.sent('terminal_window')).toEqual([]);
-    await act(() => vi.advanceTimersByTimeAsync(200));
-    // The wait is up: the window looks again, as its `reveal` has it look.
-    act(() => w.current.placeTerminal.current());
-    await act(() => vi.advanceTimersByTimeAsync(0));
+    // The wait is up on a quiet board: the window looks again by itself.
+    await pass(300);
     expect(engine.sent('terminal_window')).toEqual([{ key: '', id: 't9', keys: true }]);
+    expect(revealed).toEqual([]);
   });
 
-  it('lets go of one the board never lists', async () => {
-    vi.useFakeTimers();
-    const w = mountHook(useShownTerminal, has(board('claude:northwind:other')));
-    w.current.pendingTerminal.current = { id: 'gone', wait: false, since: Date.now() };
-    act(() => w.current.placeTerminal.current());
-    expect(w.current.pendingTerminal.current?.id).toBe('gone');
-    await act(() => vi.advanceTimersByTimeAsync(TERMINAL_WAIT_MS + 100));
-    act(() => w.current.placeTerminal.current());
-    expect([w.current.pendingTerminal.current, revealed, engine.sent('terminal_window')]).toEqual([null, [], []]);
+  it('shows one opened for a command in its session’s drawer when the board says in time that it’s a session’s', async () => {
+    const key = 'claude:northwind:started';
+    const { w, ask } = await asked(board(key, [terminal('t9', '')]), 't9', true);
+    ask();
+    await pass(1000);
+    w.rerender(has(board(key, [terminal('t9', key)])));
+    expect(revealed).toEqual([{ kind: 'session', laneId: '/r/northwind/app', key }]);
+    await pass(TERMINAL_WAIT_MS);
+    expect(engine.sent('terminal_window')).toEqual([]);
+  });
+
+  it('lets go of one the board never lists, so a board that lists it later shows nothing', async () => {
+    const { w, ask } = await asked(board('claude:northwind:other'), 'gone');
+    ask();
+    await pass(TERMINAL_WAIT_MS + 200);
+    w.rerender(has(board('claude:northwind:other', [terminal('gone', '')])));
+    await pass();
+    expect([revealed, engine.sent('terminal_window')]).toEqual([[], []]);
   });
 
   it('does nothing with none asked for, whatever the board says', async () => {
     const key = 'claude:northwind:idle';
     const w = mountHook(useShownTerminal, has(board(key, [terminal('t1', key)])));
-    await settle();
+    await pass();
     w.rerender(has(board(key, [terminal('t1', key)])));
     expect([revealed, drawerOf(key).open]).toEqual([[], false]);
   });

@@ -92,7 +92,7 @@ export function usePrMenus(input: PrMenusInput) {
       approve: mayApprove(p) ? () => approve(p) : undefined,
       snooze: snoozeReview(p),
       showLane: lane ? { lane, run: () => focusLane(lane, view === 'prs' ? { key: r.key, select: () => selectPr(r) } : undefined) } : undefined,
-      pin: { label: prPins.set.has(p.key) ? 'Unpin PR' : 'Pin PR', run: () => prPins.toggle(p.key), accelerator: 'P' },
+      pin: { label: prPins.set.has(p.key) ? 'Unpin PR' : 'Pin PR', run: () => prPins.toggle(p.key), accelerator: menus.KEYS.pin },
       desktop: onDesktop,
       boards: boardItems('pr', [p.key]),
       lanes,

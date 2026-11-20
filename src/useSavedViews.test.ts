@@ -1,10 +1,14 @@
 // @vitest-environment jsdom
-import { describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { act, mountHook } from './testing/dom';
 import type { SavedView } from './savedViews';
 import { useSavedViews } from './useSavedViews';
 
 // The saved views as a window has them (useSavedViews.ts).
+
+afterEach(() => {
+  vi.restoreAllMocks();
+});
 
 const KEY = 'codealong.savedViews';
 const needs: SavedView = { id: 'a', name: 'Needs me', view: 'sessions', project: 'All projects', device: [], age: 'all', filter: ['needs'] };
@@ -24,17 +28,25 @@ describe('a window’s saved views', () => {
     expect(JSON.parse(window.localStorage.getItem(KEY) ?? '[]')).toEqual([needs, reviews]);
   });
 
-  it('follow what another window saves, and stop once this one goes', () => {
+  it('follow what another window saves', () => {
     const w = mountHook(useSavedViews);
-    const fromAnother = (views: SavedView[]) => act(() => void window.dispatchEvent(new StorageEvent('storage', { key: KEY, newValue: JSON.stringify(views) })));
-    fromAnother([reviews]);
+    act(() => void window.dispatchEvent(new StorageEvent('storage', { key: KEY, newValue: JSON.stringify([reviews]) })));
     expect(w.current[0]).toEqual([reviews]);
     // Another key's change is none of theirs.
     act(() => void window.dispatchEvent(new StorageEvent('storage', { key: 'codealong.view', newValue: '"prs"' })));
     expect(w.current[0]).toEqual([reviews]);
-    const last = w.current[0];
+  });
+
+  it('stop listening to the page’s storage once the window goes', () => {
+    const added = vi.spyOn(window, 'addEventListener');
+    const removed = vi.spyOn(window, 'removeEventListener');
+    /** The listeners to the page's storage that `spy` was handed. */
+    const toStorage = (spy: typeof added | typeof removed) => spy.mock.calls.filter(([type]) => type === 'storage').map(([, listener]) => listener);
+    const w = mountHook(useSavedViews);
+    expect([toStorage(added).length, toStorage(removed).length]).toEqual([1, 0]);
     w.unmount();
-    fromAnother([needs]);
-    expect(w.current[0]).toBe(last);
+    // The one it listened with, taken off: a listener left behind would hear every later save.
+    expect(toStorage(removed)).toEqual(toStorage(added));
+    expect(toStorage(removed)[0]).toBe(toStorage(added)[0]);
   });
 });

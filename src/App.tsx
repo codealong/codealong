@@ -25,7 +25,6 @@ import { usePins } from './pins';
 import { tryAgain } from './review';
 import { itemPrimaryHolds, statusSection, todoAgent, todoPrompt, useTodoStore, type TodoItem, type TodoSort } from './todos';
 import type { Lane, Pr, PrItem, Session, TeamFile, Theme, Todo } from './types';
-import { TERMINAL_WAIT_MS } from './terminals';
 import { useKeptSessions } from './kept';
 import { shortOf, type DeviceFilter } from './devices';
 import { NEW_PROJECT, SettingsDialog } from './ui/SettingsDialog';
@@ -870,9 +869,7 @@ export function App() {
       return;
     }
     if (r.kind === 'terminal') {
-      pendingTerminal.current = { id: r.id, wait: !!r.wait, since: Date.now() };
-      placeTerminal.current();
-      window.setTimeout(() => placeTerminal.current(), TERMINAL_WAIT_MS + 100);
+      showTerminal(r.id, !!r.wait);
       return;
     }
     // A view's chord pressed in a window that floats: that view, as the chord goes to it here.
@@ -987,7 +984,7 @@ export function App() {
   });
   // A terminal of Codealong's the server asked to show (useShownTerminal.ts): its session's panel,
   // or a window of its own for one that's no session's, once the board says whose it is.
-  const { pendingTerminal, placeTerminal } = useShownTerminal({ board, reveal, setToast });
+  const { showTerminal } = useShownTerminal({ board, reveal, setToast });
 
   const open = useCallback((lane: Lane | null, targetId: string | null | undefined) => {
     if (!lane || !targetId) return;

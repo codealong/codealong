@@ -21,9 +21,15 @@ const far: Lane = fx.lane({ id: '@m1:/r/atlas/site', sessions: [fx.session({ key
 
 let did: string[] = [];
 let revealed: Reveal[] = [];
+// How the window shows things and says things: the same from render to render, as its own are
+// (a value kept for later with `useLatest`, whose `current` is each render's way of showing, and
+// the toasts' own `setToast`).
+const reveal = { current: (_: Reveal): void => {} };
+const setToast = (m: string) => void did.push(`say “${m}”`);
 beforeEach(() => {
   did = [];
   revealed = [];
+  reveal.current = (r) => void revealed.push(r);
 });
 afterEach(() => {
   vi.useRealTimers();
@@ -35,12 +41,11 @@ interface Has {
   deviceLanes: Lane[];
   todos: Todo[];
 }
-const has = (over: Partial<Has> = {}): Has => ({ board: read(), devices: fx.devicesView(), deviceLanes: [], todos: [todo], ...over });
+// What the window has until a test says otherwise, the same objects from render to render: a
+// render a test asks for changes only what the test changes.
+const first: Has = { board: read(), devices: fx.devicesView(), deviceLanes: [], todos: [todo] };
+const has = (over: Partial<Has> = {}): Has => ({ ...first, ...over });
 const links = { showSession: () => {}, openSession: () => {}, sessionMenu: () => {}, prMenu: () => {} };
-// How the window shows things and says things: the same from render to render, as its own are
-// (a value kept for later with `useLatest`, and the toasts' own `setToast`).
-const reveal = { current: (r: Reveal) => void revealed.push(r) };
-const setToast = (m: string) => void did.push(`say “${m}”`);
 /** The window: its links know its sessions (usePrLinks, as App.tsx gives them), and it hears what
  *  it's asked to show. Answers what `takeLink` is. */
 function useWindow(p: Has) {
@@ -67,9 +72,13 @@ async function mount(over: Partial<Has> = {}) {
 describe('what another window asks this one to show', () => {
   it('is shown as the latest render shows things, and only what’s sent to this window', async () => {
     await mount();
+    // A render since the window began to hear shows things its own way: what's asked now goes
+    // to that, not to the way of the render that began to hear.
+    const later: Reveal[] = [];
+    reveal.current = (r) => void later.push(r);
     act(() => engine.emitTo('main', 'reveal', { kind: 'session', laneId: app.id, key: kestrel.key }));
     act(() => engine.emitTo('quick', 'reveal', { kind: 'todo', id: 't-importer' }));
-    expect(revealed).toEqual([{ kind: 'session', laneId: app.id, key: kestrel.key }]);
+    expect([revealed, later]).toEqual([[], [{ kind: 'session', laneId: app.id, key: kestrel.key }]]);
   });
 
   it('stops hearing once the window goes', async () => {
@@ -144,7 +153,9 @@ describe('a link to a session the window doesn’t list', () => {
     const reading = fx.devicesView({ devices: [fx.deviceView({ short: 'm1', loading: true })] });
     const w = await mount({ devices: reading });
     expect([revealed, did]).toEqual([[], []]);
-    w.rerender(has({ devices: fx.devicesView({ devices: [fx.deviceView({ short: 'm1' })] }), deviceLanes: [far] }));
+    // Its worktrees come and nothing else does: the board, the todos and what's known of the
+    // devices are what they were.
+    w.rerender(has({ devices: reading, deviceLanes: [far] }));
     expect(revealed).toEqual([{ kind: 'session', laneId: far.id, key: farKey }]);
     expect(did).toEqual([]);
   });
@@ -153,6 +164,8 @@ describe('a link to a session the window doesn’t list', () => {
     opened(sessionLink(farKey));
     const w = await mount({ devices: null });
     expect(did).toEqual([]);
+    // They're read and nothing else changes: the board, the todos and their worktrees (none) are
+    // what they were.
     w.rerender(has({ devices: fx.devicesView({ devices: [fx.deviceView({ short: 'm1' })] }) }));
     expect(did).toEqual([`say “There’s no session ${farKey} here.”`]);
   });
