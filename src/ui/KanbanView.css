@@ -59,7 +59,7 @@
 }
 /* The box that adds a todo, at the top of To do, as a card's width. */
 .ca-kb-cards > .ca-todonew {
-  margin: 0;
+  border: 1px solid var(--line);
   border-radius: var(--radius-md);
   background: var(--surface);
 }

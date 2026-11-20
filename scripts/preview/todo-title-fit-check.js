@@ -1,4 +1,5 @@
-// Checks that a todo's title in its panel (TodoPanel.tsx `TitleField`) shows every line it wraps
+// Checks that New todo sits flush under the View strip with no gap or second top line, and that a
+// todo's title in its panel (TodoPanel.tsx `TitleField`) shows every line it wraps
 // to, as typed and when the field narrows with the words unchanged: the chevron comes in beside it
 // as the first worktree or session is linked, so the field fits itself to its width, not only to
 // what's typed. Narrowing stands in for the chevron here; it needs frames, so the real clock.
@@ -15,6 +16,10 @@
   say('todo title fit check: waiting for todos');
   until(function () { return row('Cut the board push size'); }, 20000, 'the sample todo with nothing linked')
     .then(function (r) {
+      var bar = q('.ca-board > .ca-listbar');
+      var add = q('.ca-todonew');
+      var gap = Math.abs(add.getBoundingClientRect().top - bar.getBoundingClientRect().bottom);
+      check('New todo sits flush under the strip with no gap or second top line', gap <= 1 && getComputedStyle(add).borderTopWidth === '0px', 'gap=' + gap + ', borderTop=' + getComputedStyle(add).borderTopWidth);
       r.dispatchEvent(new MouseEvent('mousedown', { bubbles: true, button: 0 }));
       return until(function () { var f = field(); return f && f.value.indexOf('Cut the board push size') === 0 && f; }, 6000, 'its title');
     })

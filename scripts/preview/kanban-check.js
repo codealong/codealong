@@ -1,5 +1,5 @@
 // Checks the Kanban view (KanbanView.tsx): its six columns, Done folded to a rail that opens it,
-// and an empty Validating or Ready to merge too,
+// and an empty Validating or Ready to merge too, the New todo box's full border matching cards,
 // a card's press selecting it with its panel beside the board (a todo's, or a session's), the
 // arrows going up a column and across, R marking a todo ready for review, and dragging: a todo
 // to In review marks it so, one to Validating does nothing (its PR's to say), a session to Done
@@ -40,6 +40,9 @@
       check('it has To do, In progress, Validating, In review, Ready to merge and Done, in that order', ids.join('|') === 'todo|progress|validating|review|ready|done', ids.join('|'));
       check('Done is folded to a rail, and Validating and Ready to merge are while they’re empty', !!q('.ca-kb-rail[data-kb-column="done"]') && ['validating', 'ready'].every(function (id) { return column(id) ? cards(id).length > 0 : !!place(id); }), heads.join('|'));
       check('To do holds only todos, in the box’s column', cards('todo').length > 0 && cards('todo').every(function (r) { return face(r).indexOf('todo:') === 0; }) && !!q('.ca-kb-col.is-todo .ca-todonew'), cards('todo').map(face).join(' '));
+      var addBox = getComputedStyle(q('.ca-kb-col.is-todo .ca-todonew'));
+      var cardBox = getComputedStyle(q('.ca-kb-col.is-todo .ca-cv-card'));
+      check('Kanban’s New todo box keeps a full border matching its cards', addBox.borderTopWidth === cardBox.borderTopWidth && addBox.borderLeftWidth === cardBox.borderLeftWidth, 'add=' + addBox.borderTopWidth + '/' + addBox.borderLeftWidth + ', card=' + cardBox.borderTopWidth + '/' + cardBox.borderLeftWidth);
       // A label's swatch is square, as the todo's box is, so a card's line leads with when it's
       // due, by its icon, and leaves the swatches to its end.
       var dated = cards('todo').map(function (r) { return q('.ca-cv-l2', r); }).filter(function (l) { return l && q('.ca-cv-due', l) && q('.ca-cv-labels', l); })[0];

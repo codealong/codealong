@@ -1,5 +1,6 @@
 // Checks the View menu over Schedules, as the other lists have one (SchedulesView.tsx
-// `SCHEDULE_SORTS`, `SCHEDULE_GROUPS`, `SCHEDULE_ROWS`; schedules.ts `scheduleListing`): each row on
+// `SCHEDULE_SORTS`, `SCHEDULE_GROUPS`, `SCHEDULE_ROWS`; schedules.ts `scheduleListing`), and that
+// New schedule sits flush under the strip: each row on
 // one line until two are picked; the ones that go on running by their next run, the ones with a
 // time first, until Name sorts them by name; grouped by worktree, every schedule Codealong keeps
 // under a heading, the ones in no worktree last in their section, the harnesses' own not grouped,
@@ -27,6 +28,10 @@
   say('schedules view check: waiting for the schedules and the strip over them');
   until(function () { return rows().length >= 5 && q('.ca-board > .ca-listbar .ca-viewmenu-btn') && choice('Next run', 'Sort'); }, 20000, 'the schedules, with View over them')
     .then(function () {
+      var bar = q('.ca-board > .ca-listbar');
+      var add = q('.ca-schednew');
+      var gap = Math.abs(add.getBoundingClientRect().top - bar.getBoundingClientRect().bottom);
+      check('New schedule sits flush under the strip with no gap or second top line', gap <= 1 && getComputedStyle(add).borderTopWidth === '0px', 'gap=' + gap + ', borderTop=' + getComputedStyle(add).borderTopWidth);
       check('View has Sort, Group and Rows', viewChoices('Sort').join('|') === 'Next run|Last run|Added|Name' && viewChoices('Group').join('|') === 'No groups|Worktree|Repo' && viewChoices('Rows').join('|') === 'Two lines|One line', [viewChoices('Sort'), viewChoices('Group'), viewChoices('Rows')].join(' / '));
       check('each row is on one line until two are picked', on('One line', 'Rows') && rows().every(function (r) { return r.classList.contains('is-slim') && !q('.ca-lane-line2', r); }), rows().filter(function (r) { return !r.classList.contains('is-slim'); }).map(name).join(', '));
       var nexts = going().map(function (r) { var n = q('.ca-schedrow-next', r); return n ? n.textContent : ''; });
