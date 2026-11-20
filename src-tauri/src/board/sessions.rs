@@ -700,6 +700,7 @@ pub fn antigravity_session(account: &AccountCfg, c: &Conversation, process: Opti
         reply_head: c.tail.last_text.clone(),
         // From its record: the preview is the conversation's title from agy 1.4 on.
         first_prompt: c.asked.clone().or_else(|| c.preview.clone()),
+        started_at: c.started_at,
         status_since: if status == Status::Working { c.last_input } else { Some(active) },
         last_prompt_at: c.last_input.unwrap_or(active),
         last_activity: active,
@@ -1494,12 +1495,13 @@ mod tests {
             not_fully_idle: true,
             last_modified: NOW - 1_000,
             last_input: Some(NOW - 5_000),
+            started_at: Some(NOW - 10_000),
             ..Default::default()
         };
         c.tail.last_tool = Some("Run command · `npm test`".into());
         c.tail.last_text = Some("The tests pass now.".into());
         let s = antigravity_session(&a, &c, None, true, 0, NOW);
-        assert_eq!((s.status, s.live, s.surface, s.excerpt.as_deref()), (Status::Working, true, Surface::App, Some("Run command · `npm test`")));
+        assert_eq!((s.status, s.live, s.surface, s.started_at, s.excerpt.as_deref()), (Status::Working, true, Surface::App, Some(NOW - 10_000), Some("Run command · `npm test`")));
         assert_eq!(s.open_target, "s|antigravity:antigravity:c1|antigravity");
         assert_eq!((s.cwd.as_str(), s.resume_command.as_deref()), ("/r", None));
         // With the app quit nothing runs it, whatever its summary was left saying, and it goes

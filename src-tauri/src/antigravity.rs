@@ -190,9 +190,10 @@ pub struct Conversation {
     /// The summary's preview text: the conversation's opening as the app lists it, or, from
     /// `agy` 1.4, the title it gives the conversation once it's written one.
     pub preview: Option<String>,
-    /// What it was first asked, from the start of its record (`first_request`), which the
+    /// What it was first asked, and when, from the start of its record (`first_request`), which the
     /// preview no longer says.
     pub asked: Option<String>,
+    pub started_at: Option<i64>,
     pub step_count: i64,
     /// The workspace folder it works in, as a path (`work_folder`).
     pub cwd: Option<String>,
@@ -1130,12 +1131,14 @@ fn started(dirs: &[Folder], p: &Process) -> Option<Conversation> {
     let dir = dirs.iter().find(|f| f.cli && f.path.join("presence").join(format!("{id}.lock")).exists())?;
     let record = transcript_file(&dir.path, id);
     let (asked, at) = record.as_deref().and_then(first_request).unzip();
+    let at = at.filter(|&ms| ms > 0);
     let cwd = procs::cwd_of(p.pid).map(|c| c.to_string_lossy().into_owned());
     let tail = record.as_deref().map(|p| tail(p, cwd.as_deref())).unwrap_or_default();
     Some(Conversation {
         id: id.clone(),
         preview: asked.clone(),
         asked,
+        started_at: at,
         workspaces: cwd.iter().cloned().collect(),
         cwd,
         status: if p.terminal { "cascade_run_status_idle" } else { "cascade_run_status_running" }.into(),
@@ -1751,6 +1754,7 @@ impl Reader {
                 Some(old) if !held && old.last_modified == c.last_modified && old.step_count == c.step_count => {
                     c.tail = old.tail.clone();
                     c.asked = old.asked.clone();
+                    c.started_at = old.started_at;
                     c.mode = old.mode.clone();
                     c.failed = old.failed.clone();
                     c.model = old.model.clone();
@@ -1759,9 +1763,15 @@ impl Reader {
                     added |= old.is_none();
                     let record = transcript_file(&c.dir, &c.id);
                     c.tail = record.as_deref().map(|p| tail(p, c.cwd.as_deref())).unwrap_or_default();
-                    // What it was first asked doesn't change once it's written.
+                    // What it was first asked, and when, don't change once written.
                     if c.asked.is_none() {
-                        c.asked = old.and_then(|o| o.asked.clone()).or_else(|| record.as_deref().and_then(first_request).map(|(asked, _)| asked));
+                        if let Some(o) = old.filter(|o| o.asked.is_some()) {
+                            c.asked = o.asked.clone();
+                            c.started_at = c.started_at.or(o.started_at);
+                        } else if let Some((asked, at)) = record.as_deref().and_then(first_request) {
+                            c.asked = Some(asked);
+                            c.started_at = (at > 0).then_some(at);
+                        }
                     }
                     c.mode = turn_mode(&c.dir, &c.id);
                     // The note a failed turn ends with never reaches the transcript.
@@ -2758,8 +2768,9 @@ mod tests {
 
         // The panel reads its record, and what it waits on is the call with no result.
         let session = Session { surface: Surface::Cli, ..crate::board::antigravity_session(&account, c, None, false, 0, look.now) };
-        // What it was first asked comes from its record, the title from its row.
-        assert_eq!((session.first_prompt.as_deref(), session.title.as_str()), (Some("Count the lines, then fix notes.txt"), "Fix Notes File"));
+        // What it was first asked, and when, come from its record; the title from its row.
+        let began = parse_rfc3339_ms("2026-10-01T16:55:10Z");
+        assert_eq!((session.first_prompt.as_deref(), session.started_at, session.title.as_str()), (Some("Count the lines, then fix notes.txt"), began, "Fix Notes File"));
         let ctx = Ctx { account: &account };
         use crate::harness::Adapter as _;
         let page = Antigravity.conversation(&ctx, &session, None, 50).unwrap();
@@ -2804,8 +2815,12 @@ mod tests {
         reader.reread(&account, &look);
         let c = &reader.conversations["antigravity"][0];
         assert!(!c.idled_by_another && !c.step_under_way && !c.waiting);
-        assert_eq!(c.asked.as_deref(), Some("Count the lines, then fix notes.txt"), "kept from the row before");
+        assert_eq!((c.asked.as_deref(), c.started_at), (Some("Count the lines, then fix notes.txt"), began), "kept from the row before");
         assert_eq!(crate::board::antigravity_session(&account, c, reader.processes.first(), false, 0, look.now).status, crate::model::Status::Unread);
+        // Unchanged and unheld: the cached start time stays on the conversation.
+        reader.processes.clear();
+        assert!(!reader.reread(&account, &look));
+        assert_eq!(reader.conversations["antigravity"][0].started_at, began);
     }
 
     /// Read first after another `agy` marked it idle: a step that runs says the turn is under way,
