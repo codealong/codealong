@@ -170,7 +170,7 @@ under `src-tauri/src/`.
   does it again on every redraw (`inset_traffic_lights`; measured in a plain AppKit window on
   2026-10-07). The page draws under them and gets the clicks there but on the buttons, so it
   drags the window itself (`data-tauri-drag-region`): `waiting.rs`, `src/ui/SessionPanel.css`
-  (`.is-titlebar`), `src/App.tsx` (`ca-win-bar`).
+  (`.is-titlebar`), `src/ui/MainBar.tsx` (`ca-win-bar`).
 - The peek: hover shows it without the keyboard, a click gives it the keyboard, it watches the
   pointer to close, keeps a thin margin on the bar's side, and is dragged from the engine:
   `peek.rs` (module header, `watch_pointer`, `NEAR`, `drag`), `panel.rs` (`Keys::OnClick`).

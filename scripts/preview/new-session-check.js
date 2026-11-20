@@ -1,4 +1,5 @@
-// Checks a new session waiting for its first prompt (newSession.ts, NewSession.tsx, App.tsx): the
+// Checks a new session waiting for its first prompt (newSession.ts, useNewSession.ts,
+// NewSession.tsx): the
 // quick panel's start with nothing typed, in the background, asks the main window for one, and
 // Sessions shows it in place of the selected row's panel with the cursor in its box, saying what
 // sending does, with Send off while the box is empty. What's written is kept for the worktree: a

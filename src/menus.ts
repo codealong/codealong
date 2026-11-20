@@ -224,7 +224,7 @@ export interface SessionCan {
  *  both). The waiting window's menu for a session a PR's or a todo's card names, or a
  *  conversation there links, is its part and `waitingNamed`. */
 export const SESSION_CAN = {
-  /** The main window's lists and panels (App.tsx). */
+  /** The main window's lists and panels (mainCan.ts). */
   main: ['report', 'keys', 'open', 'terminal', 'editors', 'newSession', 'ownTerminal', 'todos', 'pin', 'desktop', 'windows', 'rename', 'worktrees', 'archive', 'undoDone', 'left', 'failed', 'mergeDone', 'doneHelpers', 'moving', 'boards', 'labels'],
   /** A row of the quick panel (ui/Quick.tsx). */
   quick: ['doneHelpers', 'report', 'open', 'terminal', 'reveal', 'reply', 'rename', 'labels', 'worktrees', 'editors', 'desktop'],

@@ -186,7 +186,8 @@
   say('pr chip check: waiting for a row with a PR');
   until(function () { return !!chipRow(); }, 20000)
     // What the window does as the board first lands goes first: until its effects have run, the
-    // top row is taken as the one picked (App.tsx `selected`), over a click that came in between.
+    // top row is taken as the one picked (mainSelection.ts `selectedRow`), over a click that came
+    // in between.
     .then(function () { return wait(500); })
     .then(function () {
       hit = chipRow();

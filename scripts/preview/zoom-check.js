@@ -1,4 +1,4 @@
-// Checks zooming the board's windows (zoom.ts, mainKeys.ts, App.tsx `zoom`): ⌘= and ⌘+ ask the
+// Checks zooming the board's windows (zoom.ts, mainKeys.ts, useZoomReload.ts): ⌘= and ⌘+ ask the
 // engine to zoom in, ⌘- out and ⌘0 back to actual size, from the list and from a session's box,
 // and say where it got to; View's menu asks the same; ⌃- stays history's; a menu dropped from a
 // button lands under it on a zoomed page (api.ts `popupMenu`); and the canvas keeps the keys for

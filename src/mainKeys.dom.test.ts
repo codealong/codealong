@@ -91,7 +91,7 @@ function mainWindow(over: Partial<MainKeys<View>> = {}, lists: Lists = {}): Wind
     remove: () => {},
     pinAll: () => {},
   });
-  // What the main window can do to a session and a worktree, as far as its keys go (App.tsx).
+  // What the main window can do to a session and a worktree, as far as its keys go (mainCan.ts).
   const sessionCan: menus.SessionCan = { report, open: () => {}, terminal: 'Ghostty', keys: 'chords', rename: () => {}, pin: { label: 'Pin session', run: () => {} }, mergeDone: { prs: [READY], ask: () => true } };
   const laneCan: menus.LaneCan = { report, open: () => {}, keys: 'chords', pin: { label: 'Pin worktree', run: () => {} } };
   // The rows picked together, and what the keys do to them all (useListPicks.ts).

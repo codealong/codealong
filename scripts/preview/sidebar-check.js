@@ -1,5 +1,5 @@
-// Checks the sidebar (Sidebar.tsx, App.tsx): it never scrolls sideways; statuses and devices
-// toggle, several at once, and Clear unpicks them; the view saves under a name and comes back
+// Checks the sidebar (Sidebar.tsx, sideLists.ts, App.tsx): it never scrolls sideways; statuses and
+// devices toggle, several at once, and Clear unpicks them; the view saves under a name and comes back
 // when picked; ⌃⌘S folds the sidebar to a rail whose filter button counts the filters on and
 // opens it again, and ⌃⇧⌘S folds and opens it too; and a saved view's menu deletes it.
 //   PREVIEW_DEVICES=scripts/preview/devices-sample.json scripts/preview.sh sessions '' scripts/preview/sidebar-check.js

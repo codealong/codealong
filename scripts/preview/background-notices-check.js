@@ -1,6 +1,6 @@
 // Checks that a window's own background failures are notices (notices.ts `reportNotice`,
 // `clearNotice`). In a board view: where each account can start a session, read at launch for
-// Review with (App.tsx), fails, and its notice shows in the accounts bar with what failed and
+// Review with (usePrMenus.ts), fails, and its notice shows in the accounts bar with what failed and
 // why; once it works, a PR row's menu reads it again and the notice goes; and a notice another
 // window hands on shows there too, until that window says it's over. In the quick panel, which
 // has no accounts bar, the same failure and one reading your other devices are handed on.

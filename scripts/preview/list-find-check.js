@@ -1,4 +1,5 @@
-// Checks the main window's title bar and the list's find (App.tsx, ui/ListBar.tsx). The box in the
+// Checks the main window's title bar and the list's find (ui/MainBar.tsx, useListFind.ts,
+// ui/ListBar.tsx). The box in the
 // middle of the title bar says what the quick panel's box says, with the panel's shortcut, sits in
 // the middle of the window, and a click opens the quick panel; New session and Improve Codealong
 // are icons, each named and with a tooltip. ⌥⌘F from the list opens the find in the strip over it,
