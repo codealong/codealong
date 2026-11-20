@@ -11,10 +11,10 @@
 (function () {
   var head = function () { return document.querySelector('.ca-reply .ca-sessinsp-head'); };
   var button = function (label) { return document.querySelector('.ca-reply .ca-sessinsp-head button[aria-label="' + label + '"]'); };
-  // Main window, or an Open button that says it goes to Codealong in its place. A kept session's
-  // puts it back there, as the main window's panel leaves a kept session to its window.
+  // Main window, or an Open button that says it goes to the main window in its place. A kept
+  // session's puts it back there, as the main window's panel leaves a kept session to its window.
   var mainLabel = window.__CODEALONG_KEPT__ ? 'Put back in main window' : 'Open in main window';
-  var toMain = function () { return !!button(mainLabel) !== /in Codealong/.test(head().querySelector('.ca-sessinsp-tools').textContent); };
+  var toMain = function () { return !!button(mainLabel) !== /in main window/.test(head().querySelector('.ca-sessinsp-tools').textContent); };
   var key =function (init) { window.dispatchEvent(new KeyboardEvent('keydown', Object.assign({ bubbles: true, cancelable: true }, init))); };
   var chord = function (letter) { key({ key: letter, code: 'Key' + letter.toUpperCase(), metaKey: true, ctrlKey: true }); };
   var menu = function () { var m = calls('plugin:menu|new'); return m.length ? m[m.length - 1][1].options.items : []; };

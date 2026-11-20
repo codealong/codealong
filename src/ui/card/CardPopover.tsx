@@ -178,7 +178,7 @@ export function CardDetail({ item, data, now, terminal, todos, homes, onShowPr, 
             ))}
           </div>
           {homes && <Kin session={s} homes={homes} line={line} />}
-          <div className="ca-cvp-hint">Double-click to open in {sessionPlace(s, terminal)}</div>
+          <div className="ca-cvp-hint">{s.hosted ? 'Double-click to show in the main window' : `Double-click to open in ${sessionPlace(s, terminal)}`}</div>
         </>
       );
     }

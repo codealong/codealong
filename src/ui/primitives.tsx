@@ -794,7 +794,7 @@ export function HarnessChip({ session, withStatus = true, named = false, onOpen,
     <Chip
       className={cx(named && 'ca-sesschip', className)}
       title={`${said}${detail ? `\n${detail}` : ''}`}
-      does={onShow ? 'show it, right-click for its menu' : `open in ${sessionPlace(session, 'terminal')}`}
+      does={onShow ? 'show it, right-click for its menu' : session.hosted ? 'show it in the main window' : `open in ${sessionPlace(session, 'terminal')}`}
       act={onShow ?? onOpen}
       inRow={inRow}
       onMenu={onMenu}

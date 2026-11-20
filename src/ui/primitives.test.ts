@@ -209,6 +209,8 @@ describe('the named chips', () => {
     expect(chip({})).toContain('title="claude2 · Fix the build · Idle"');
     expect(chip({ onOpen: () => {}, inRow: true })).toMatch(/^<span class="ca-chip" title="claude2 · Fix the build · Idle\. Double-click to open in [^"]+\.">/);
     expect(chip({ onOpen: () => {}, className: 'is-extra' })).toMatch(/^<button type="button" class="ca-chip ca-chip--button is-extra" title="claude2 · Fix the build · Idle\. Click to open in [^"]+\.">/);
+    const hostedChip = renderToStaticMarkup(createElement(HarnessChip, { session: fx.session({ account: 'claude2', title: 'Fix the build', status: 'idle', hosted: true }), onOpen: () => {} }));
+    expect(hostedChip).toMatch(/^<button type="button" class="ca-chip ca-chip--button" title="claude2 · Fix the build · Idle\. Click to show it in the main window\.">/);
     // Named, where the chip stands for the session: its title, with its account on hover after it.
     const named = chip({ named: true, withStatus: false, detail: 'Primary' });
     expect(named).toMatch(/^<span class="ca-chip ca-sesschip" title="Fix the build\nclaude2 \(Claude Code\) · Idle\nPrimary">/);

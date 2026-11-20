@@ -536,7 +536,7 @@ export function SessionHeader({ lane, session: s, apps, now, onOpen, onShowLane,
   // shows a session, but where ⌃` is the session's own terminal under its box), and its worktree's
   // in any editor installed here. A session past the few its worktree lists opens by its own
   // target alone.
-  const place: Target = { id: s.openTarget, icon: 'arrow-up-right', label: `Open in ${sessionPlace(s, apps.terminal)}`, detail: null, kbd: null, disabled: false, group: 'session' };
+  const place: Target = { id: s.openTarget, icon: 'arrow-up-right', label: s.hosted ? 'Show in main window' : `Open in ${sessionPlace(s, apps.terminal)}`, detail: null, kbd: null, disabled: false, group: 'session' };
   const terminal = { name: apps.terminal, key: s.key, folder: middleTruncate(tildePath(runFolder(lane, s)), 44), kbd: actions?.ownTerminal ? undefined : chordKeys(CHORDS.terminal ?? '') };
   const folder = opensInEditor(lane) ? folderTargets(apps, icons, terminal) : [];
   const targets = folder.length > 0 ? [...(own.length > 0 || shownHere ? own : [place]), ...folder] : own;
@@ -594,7 +594,7 @@ export function SessionHeader({ lane, session: s, apps, now, onOpen, onShowLane,
             <OpenInMenu targets={targets} defaultId={leads} onOpen={onOpen} size="sm" variant="secondary" />
           ) : shownHere ? null : (
             <Button size="sm" icon="arrow-up-right" onClick={() => onOpen(s.openTarget)}>
-              Open in {sessionPlace(s, apps.terminal)}
+              {s.hosted ? 'Show in main window' : `Open in ${sessionPlace(s, apps.terminal)}`}
             </Button>
           )}
           {toMain && (

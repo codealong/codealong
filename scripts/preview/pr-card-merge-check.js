@@ -1,6 +1,6 @@
 // Checks a PR's chip in a session's header, which says where the PR stands as the pills on its
 // card and in its header lead with it (prStatus.ts `chipWord`), and the card (PrLink.tsx): it has
-// no Show in Codealong, which a click on the chip does, and an open PR's card ends in GitHub's
+// no Show in main window, which a click on the chip does, and an open PR's card ends in GitHub's
 // merge box (MergeBox.tsx), read as the card shows and once for it, its button GitHub's pick for
 // you with Open on GitHub after it in the row. Left untouched, the card goes as the pointer leaves it.
 // Pressing the merge button opens a dialog over the window with the commit, and the card stays up,

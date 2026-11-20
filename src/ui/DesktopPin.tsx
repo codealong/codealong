@@ -42,7 +42,7 @@ function tooltip(d: CardData | null, now: number, terminal: string, lines: numbe
   switch (d?.ref) {
     case 'session': {
       const s = d.session;
-      return [s.title, `${STATUS_WORD[s.status]} · ${d.lane.callsign} · ${s.account}`, plain(sessionLine(s), now), `Click to read and answer it, double-click to open it in ${sessionPlace(s, terminal)}`].filter(Boolean).join('\n');
+      return [s.title, `${STATUS_WORD[s.status]} · ${d.lane.callsign} · ${s.account}`, plain(sessionLine(s), now), s.hosted ? 'Click to read and answer it, double-click to show it in the main window' : `Click to read and answer it, double-click to open it in ${sessionPlace(s, terminal)}`].filter(Boolean).join('\n');
     }
     case 'worktree':
       return [d.lane.callsign, d.lane.branch && d.lane.branch !== d.lane.callsign ? d.lane.branch : '', plain(d.lane.headline, now), lines ? 'Click a session to read and answer it, double-click to open it' : ''].filter(Boolean).join('\n');

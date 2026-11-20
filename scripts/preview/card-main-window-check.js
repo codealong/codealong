@@ -60,7 +60,7 @@
     .then(function (labels) {
       if (!labels) return;
       // (A session that runs in Codealong opens there by its own item too, its worktree's Show in
-      // Codealong, which stays.)
+      // main window, which stays.)
       check('the ⋯ menu says Open in main window', labels.indexOf('Open in main window') >= 0, labels.join(' | '));
       var before = calls('show_main').length;
       button().click();

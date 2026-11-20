@@ -8,8 +8,8 @@
 // tool's output, which keeps its words, shows it on its Changes tab; with Description picked
 // there, a link to its files in its own description switches that open panel to Changes. Show in
 // Codealong opens the PR in the PRs view. The PR is made a merged one, whatever it is today: the PRs view lists those under
-// Merged & closed, which is folded until Show in Codealong opens it. It's also made five days
-// old, with the age filter at 24 hours, so Show in Codealong has to widen the filter to list it;
+// Merged & closed, which is folded until Show in main window opens it. It's also made five days
+// old, with the age filter at 24 hours, so Show in main window has to widen the filter to list it;
 // the session stays active in the last minute, so its row shows under that filter. The PR's panel
 // lists the session.
 //   PREVIEW_WAIT=60000 scripts/preview.sh sessions '' scripts/preview/pr-link-check.js
