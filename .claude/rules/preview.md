@@ -47,22 +47,28 @@ how a check's own header names its runs, `prelude.js`'s what a check gets (`say`
 - A check that reads a date holds on every day of the year, or it fails the gate on an unchanged
   UI when its day comes (due-check.js did from December 20, when a todo due in 12 days is next
   year's and its chip says the year). It says what the window's own rule gives, and has a run on
-  the day that differs: `PREVIEW_DATE=2026-12-28` sets the page's clock to that day (only the
-  page's: the board's times stay as snapshotted, so it's for what the page dates by itself, the
-  sample todos' due dates). Only `due.ts` words a date by its year today.
+  the day that differs: `PREVIEW_DATE=2026-12-28` sets the page's clock to noon that day
+  (`scripts/preview/clock.js`; only the page's: the board's times stay as snapshotted, so it's
+  for what the page dates by itself, the sample todos' due dates). Such a run asserts the day
+  it asked for (`window.__PREVIEW_DATE__`) and what the window says on it in so many words: an
+  expectation worked out from the page's clock passes on whatever day that clock is on. Only
+  `due.ts` words a date by its year today.
 - Two `preview.sh` runs at once in one folder share its page, its check and its snapshots
   (`preview.html`, `check.js`, `board.json`), and one can be given the other's: give each a
   `PREVIEW_DIR` of its own, as `checks.sh` gives its `--jobs` sets. That has always been so of
-  `.preview`; two runs of `checks.sh` at once in one checkout meet there too.
+  `.preview`; two runs of `checks.sh` at once in one checkout meet there too. A port is another
+  matter: `preview.sh` opens its page only once its own server answers on the port with a word
+  of this run's, so a server that already had the port (or took it first) is never read for it.
 - On real data the checks read this Mac's board, so one can fail for want of data (no session
   that used Chrome) and says what it missed. `scripts/checks.sh --base <names>` tries each
   failure again with the base commit's UI and checks over the same snapshots, and clears only a
   failure the base's check words the same: one that passes there, fails there on something
   else or on fewer, or gave no result here or there still counts, and so does one whose report
-  is cut short (`prelude.js` ends a long one with an ellipsis and names only what fits) unless
-  the two are the same word for word and count for count. It's for real data only (`--fixture
-  --base` is refused), and builds the base's UI with the base's own packages when its
-  `package-lock.json` isn't this checkout's.
+  is cut short, here or there: `prelude.js` keeps the first 2,400 characters of a list of
+  failures and ends them with an ellipsis, and what's left out can't be told from what the
+  base's leaves out, so it needs a look. It's for real data only (`--fixture --base` is
+  refused), and builds the base's UI with the base's own packages when its `package-lock.json`
+  isn't this checkout's.
 - A run that gives no result (Chrome never showed the page, the run was stopped, a `--jobs` set
   stopped short before it got to it) goes again by itself once the rest are through; every run
   that said how it went keeps what it said, a set saying each as it has it. `src/checks.test.ts`

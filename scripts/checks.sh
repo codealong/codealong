@@ -17,9 +17,9 @@
 #                                     too, on the same things, are this Mac's data, not your
 #                                     change, and only the others count as failures. Among the
 #                                     others: one that fails there on something else, or on
-#                                     fewer, one whose report is cut short and isn't the base's
-#                                     word for word, and one that gave no result here or there
-#                                     (run it again)
+#                                     fewer, one whose report is cut short, here or there (it
+#                                     names only its first failures: look at it), and one that
+#                                     gave no result here or there (run it again)
 #   scripts/checks.sh --jobs=6 …      the checks in six sets side by side, each in a copy of the
 #                                     build and the snapshots, for a Mac with cores to spare:
 #                                     the gate in minutes
@@ -581,16 +581,26 @@ fi
 # check said what failed, and said the same there, is the data's (`too`): every `<name>: <why>`
 # that fails here fails so on the base, and no more fail here than there. The rest count
 # against the change: passing there; failing there on something else, which a new failure could
-# hide behind (`other`), or on fewer (`more`); a report cut short (prelude.js cuts a long one,
-# and ends it with an ellipsis), which names only its first failures and so is the base's only
-# when the two are the same word for word and count for count (`cut`); not a run of the base's (a
-# new check, a run line that changed); and a run that gave no result, here or there, which says
-# nothing of the check either way. (Its parts are set apart by a character no label has, and
-# not a tab: read takes tabs side by side for one, and a label can be empty.)
-verdicts="$(awk -F'\t' -v there="$work/runs.tsv" -v sep=$'\037' -v cut_at="…" '
+# hide behind (`other`), or on fewer (`more`); a report cut short, here or there (`cut`); not a
+# run of the base's (a new check, a run line that changed); and a run that gave no result, here
+# or there, which says nothing of the check either way.
+#
+# A report is cut short when its failures don't fit: prelude.js `done` keeps the first 2,400
+# characters of the list, the last of them an ellipsis (`cut_len`; src/checks.test.ts holds the
+# number here to the one there). What it leaves out can't be told from what the base's leaves out,
+# whatever the two have in common: nine failures both have, then `opens` failing there and
+# `saves` here, are the same words and the same count. So it's never the base's: it needs a
+# look. (One `why` cut at its own, shorter length ends with an ellipsis too, with every
+# failure still named: that one is read like any other.) Lengths are counted in bytes, which
+# no cut list has fewer of than it has characters.
+#
+# (A verdict's parts are set apart by a character no label has, and not a tab: read takes tabs
+# side by side for one, and a label can be empty.)
+cut_len=2400
+verdicts="$(LC_ALL=C awk -F'\t' -v there="$work/runs.tsv" -v sep=$'\037' -v cut_at="…" -v cut_len="$cut_len" '
   # How many failed, of a count as a row has it (7/9); -1 for a row without one.
   function failures(count,    part) { return split(count, part, "/") == 2 ? part[2] - part[1] : -1 }
-  function is_cut(text) { return length(text) >= length(cut_at) && substr(text, length(text) - length(cut_at) + 1) == cut_at }
+  function is_cut(text) { return length(text) >= cut_len && substr(text, length(text) - length(cut_at) + 1) == cut_at }
   BEGIN { while ((getline run < there) > 0) { split(run, part, FS); k = part[2] FS part[3]; on_base[k] = part[1]; failed_there[k] = part[5]; count_there[k] = part[6] } }
   $1 == "PASS" { next }
   {
@@ -601,7 +611,8 @@ verdicts="$(awk -F'\t' -v there="$work/runs.tsv" -v sep=$'\037' -v cut_at="…" 
     if (verdict == "too") {
       counts = $6 " here, " count_there[k] " there"
       if (is_cut($5) || is_cut(failed_there[k])) {
-        if ($5 != failed_there[k] || failures($6) != failures(count_there[k])) { verdict = "cut"; only = counts }
+        verdict = "cut"
+        only = counts
       } else {
         split("", there_too)
         n = split(failed_there[k], part, "; ")
@@ -635,7 +646,7 @@ while IFS=$'\037' read -r verdict name label only; do
       ;;
     cut)
       printf 'FAIL, its report cut short  %-22s %s\n' "$name" "$label"
-      printf '      %s: only what it names first is known, and the two are not the same\n' "$only"
+      printf "      %s: only the first failures are named, so it can't be told from %s's: look at it\n" "$only" "$short"
       mine=$((mine + 1))
       ;;
     gone)

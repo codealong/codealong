@@ -57,10 +57,11 @@
 #   a pr-detail.json left in the folder is taken away.
 # scripts/checks.sh --fixture runs the checks this way.
 #
-# PREVIEW_DATE=<YYYY-MM-DD> has the page take that day for today, at the time it is now: its
-# clock (Date) starts there and runs on. For what a window says differently on another day, a
-# year's end above all (a todo due next year says the year): scripts/preview/due-check.js has a
-# run on December 28. Only the page's clock moves, so it's for what the page dates by itself (the
+# PREVIEW_DATE=<YYYY-MM-DD> has the page take that day for today, from noon: its clock (Date)
+# starts there and runs on (scripts/preview/clock.js), and window.__PREVIEW_DATE__ says the day,
+# for a check to hold the page to. For what a window says differently on another day, a year's
+# end above all (a todo due next year says the year): scripts/preview/due-check.js has a run on
+# December 28. Only the page's clock moves, so it's for what the page dates by itself (the
 # sample todos' due dates, PREVIEW_TODOS); a board's own times stay as they were snapshotted.
 # PREVIEW_SCHEME=dark renders as if macOS were in dark mode (the screenshot is <view>-dark.png).
 # Under theme = "system" the page follows it; "light" and "dark" in config.toml win over it.
@@ -457,22 +458,20 @@ if [ -n "$check" ]; then
   tail="$tail"'<script src="./check.js"></script>'
   setup="$setup window.__PREVIEW_SIZE__='$size';"
 fi
-# The page's clock on another day (PREVIEW_DATE), before anything in it reads the time: Date as
-# it is, but for "now", which is as far from the real one as that day's midnight is from today's.
+# The page's clock on another day (PREVIEW_DATE), before anything in it reads the time
+# (scripts/preview/clock.js). The page is told the day, for a check to hold it to.
 clock=""
 if [ -n "${PREVIEW_DATE:-}" ]; then
-  clock="<script>(function(){var R=Date,p='$PREVIEW_DATE'.split('-'),t=new R(),shift=new R(+p[0],p[1]-1,+p[2]).getTime()-new R(t.getFullYear(),t.getMonth(),t.getDate()).getTime();function D(a,b,c,d,e,f,g){var n=arguments.length;if(!(this instanceof D))return new R(R.now()+shift).toString();return n===0?new R(R.now()+shift):n===1?new R(a):new R(a,b,n>2?c:1,n>3?d:0,n>4?e:0,n>5?f:0,n>6?g:0)}D.prototype=R.prototype;D.now=function(){return R.now()+shift};D.parse=R.parse;D.UTC=R.UTC;window.Date=D})();</script>"
+  cp scripts/preview/clock.js "$dir/"
+  clock="<script>window.__PREVIEW_DATE__='$PREVIEW_DATE';</script><script src=\"./clock.js\"></script>"
 fi
 sed -e "s#<head>#<head>$clock<script src=\"./fake-tauri.js\"></script><script>$setup</script>#" -e "s#</body>#$tail</body>#" "$dir/index.html" >"$dir/preview.html"
 
-# A free port unless one is given, so a stray server can't answer for this one. Picked here, not
-# before: a prepare, and a folder or an engine refused, open no socket, so they run where none may
-# be opened (an agent's sandbox, where src/checks.test.ts runs them).
-port="${PREVIEW_PORT:-$(python3 -c 'import socket; s = socket.socket(); s.bind(("127.0.0.1", 0)); print(s.getsockname()[1])')}"
-(cd "$dir" && exec python3 -m http.server "$port" --bind 127.0.0.1 >/dev/null 2>&1) &
-server=$!
+server=""
 browser=""
 work=""
+# What only this run's server has to give: a file by a name of this run's own.
+token="served-$$-$RANDOM$RANDOM"
 # A Chrome that hung may not go when asked: it gets a few seconds, since its profile can't be
 # removed from under it, and then it's made to.
 cleanup() {
@@ -485,10 +484,53 @@ cleanup() {
     done
     kill -9 "$browser" 2>/dev/null || true
   fi
+  rm -f "$dir/$token"
   [ -z "$work" ] || rm -rf "$work" 2>/dev/null || true
 }
 trap cleanup EXIT
-sleep 1
+# The page is served from $dir on a port: a free one unless one is given, found here and not
+# before, since a prepare, and a folder or an engine refused, open no socket and so run where
+# none may be opened (an agent's sandbox, where src/checks.test.ts runs them).
+#
+# Another server may answer on that port: one already on the port PREVIEW_PORT names, or one
+# that took a free port between its being found and this run's server binding it (two runs of
+# checks.sh --jobs at once). This run's server then fails to start, and the page opened would be
+# the other's: this Mac's under the made-up Mac's name, or another check's with its result. So
+# before anything is opened the port is asked for what only this run's server has, and one that
+# answers otherwise isn't used: `serve <port>` is true once this run's own server answers there.
+echo "$token" >"$dir/$token"
+serve() {
+  local n=0
+  port="$1"
+  (cd "$dir" && exec python3 -m http.server "$port" --bind 127.0.0.1 >/dev/null 2>&1) &
+  server=$!
+  # For as long as it's starting, which on a busy Mac is a while: half a minute at most.
+  while [ $n -lt 300 ]; do
+    [ "$(curl -s --max-time 2 "http://127.0.0.1:$port/$token" 2>/dev/null)" != "$token" ] || return 0
+    # It couldn't have the port and is gone: whoever answers there isn't it.
+    kill -0 "$server" 2>/dev/null || break
+    sleep 0.1
+    n=$((n + 1))
+  done
+  kill "$server" 2>/dev/null || true
+  server=""
+  return 1
+}
+if [ -n "${PREVIEW_PORT:-}" ]; then
+  if ! serve "$PREVIEW_PORT"; then
+    echo "Port $PREVIEW_PORT (PREVIEW_PORT) isn't this run's to serve its page on: its own server doesn't answer there, so another's page would be taken for this one. Leave PREVIEW_PORT out for a free port." >&2
+    exit 1
+  fi
+else
+  tries=0
+  until serve "$(python3 -c 'import socket; s = socket.socket(); s.bind(("127.0.0.1", 0)); print(s.getsockname()[1])')"; do
+    tries=$((tries + 1))
+    if [ $tries -ge 5 ]; then
+      echo "No port for this run to serve its page on: its own server answered on none of five free ones (the last, $port), so another's page would be taken for this one." >&2
+      exit 1
+    fi
+  done
+fi
 url="http://127.0.0.1:$port/preview.html"
 
 # Prints what a check's title says after "done: ", its result first and then, on lines of their

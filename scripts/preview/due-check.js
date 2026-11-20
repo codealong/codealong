@@ -1,7 +1,9 @@
 // Checks todos' due dates in the Todo view (due.ts, TodoView.tsx, TodoPanel.tsx): the rows' chips,
 // the panel's date and its picker, D, and the Due date submenu for one todo and for several.
 // Once more as if on December 28, when the sample's todo due in 12 days is next year's and its
-// chip says the year: a run on today's date alone found that out only from December 20.
+// chip says the year: a run on today's date alone found that out only from December 20. That
+// run says what it expects in so many words, and that the page is on the day it asked for: what
+// it works out from the page's clock would be right for whatever day that clock was on.
 //   PREVIEW_WAIT=60000 PREVIEW_TODOS=scripts/preview/todos-sample.json scripts/preview.sh todo '' scripts/preview/due-check.js
 //   PREVIEW_DATE=2026-12-28 PREVIEW_WAIT=60000 PREVIEW_TODOS=scripts/preview/todos-sample.json scripts/preview.sh todo '' scripts/preview/due-check.js
 (function () {
@@ -40,6 +42,10 @@
       check('tomorrow', chip('Write up the config.toml') === 'Due tomorrow soon', chip('Write up the config.toml'));
       check('within the week by its day', /^Due (Mon|Tue|Wed|Thu|Fri|Sat|Sun) soon$/.test(chip('Publish the release notes')), chip('Publish the release notes'));
       check('later by its date, with its year when that is another', chip('Cut the board push') === 'Due ' + dated(12) + ' later', chip('Cut the board push'));
+      // As if on another day (PREVIEW_DATE): it is that day, and on December 28 the todo due in
+      // 12 days is due on January 9 of the next year.
+      if (window.__PREVIEW_DATE__) check('the page is on the day asked for', day(0) === window.__PREVIEW_DATE__, day(0) + ', asked for ' + window.__PREVIEW_DATE__);
+      if (window.__PREVIEW_DATE__ === '2026-12-28') check('a todo due next year says the year', chip('Cut the board push') === 'Due Jan 9, 2027 later', chip('Cut the board push'));
       check('none without one', chip('Try the floating bar') === 'none', chip('Try the floating bar'));
       select('Write up the config.toml');
       return until(function () { return document.querySelector('.ca-todoinsp .ca-duenote'); }, 6000);

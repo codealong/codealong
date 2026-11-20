@@ -9,12 +9,17 @@
 // @ts-expect-error no @types/node
 import { spawn } from 'node:child_process';
 // @ts-expect-error no @types/node
+import { readFileSync } from 'node:fs';
+// @ts-expect-error no @types/node
 import { fileURLToPath } from 'node:url';
 import { expect, test } from 'vitest';
 
 // Decoded, for a checkout whose path has a space in it: a URL's pathname keeps it as %20.
 const checks: string = fileURLToPath(new URL('../scripts/checks.sh', import.meta.url));
 const preview: string = fileURLToPath(new URL('../scripts/preview.sh', import.meta.url));
+const clock: string = fileURLToPath(new URL('../scripts/preview/clock.js', import.meta.url));
+const prelude: string = fileURLToPath(new URL('../scripts/preview/prelude.js', import.meta.url));
+const text = (file: string): string => readFileSync(file, 'utf8');
 
 type Run = { status: number | null; out: string; err: string };
 
@@ -191,14 +196,79 @@ test('nothing of this Mac’s is shown as the made-up Mac’s', { timeout: WAIT 
   ]);
 });
 
+// preview.sh as far as its server: with a python3 whose server can't have the port (another
+// has it, as when PREVIEW_PORT names one in use, or a free one was taken before this run bound
+// it) and a curl that answers as that other server would. No socket is opened for it either.
+const SERVED = `${FOLDER}
+step cp "$1" scripts/preview.sh
+REAL_PYTHON="$(command -v python3)" || exit 9
+export REAL_PYTHON
+cat >"$tmp/bin/python3" <<'EOF'
+#!/usr/bin/env bash
+case "$*" in
+  *socket*) echo 45678 ;;
+  *http.server*) echo "OSError: [Errno 48] Address already in use" >&2; exit 1 ;;
+  *) exec "$REAL_PYTHON" "$@" ;;
+esac
+EOF
+cat >"$tmp/bin/curl" <<'EOF'
+#!/usr/bin/env bash
+echo "<title>done: PASS 9/9</title> another run's page"
+EOF
+cat >"$tmp/bin/engine" <<'EOF'
+#!/usr/bin/env bash
+case "\${3:-board}" in
+  name) echo "the made-up Mac" ;;
+  *) echo '{"lanes": []}' ;;
+esac
+EOF
+step chmod +x "$tmp/bin/python3" "$tmp/bin/curl" "$tmp/bin/engine"
+for file in fake-tauri.js prelude.js some-check.js; do
+  echo "// $file" >"scripts/preview/$file"
+done
+step env PREVIEW_FIXTURE=1 PREVIEW_PREPARE=only PREVIEW_BIN="$tmp/bin/engine" scripts/preview.sh >/dev/null 2>&1
+refused() { grep -c "$1" "$tmp/err"; }
+PREVIEW_FIXTURE=1 PREVIEW_PREPARE=skip scripts/preview.sh sessions '' scripts/preview/some-check.js >"$tmp/out" 2>"$tmp/err"
+echo "a free port another server had first: $?, refused $(refused 'No port for this run to serve its page on'), said $(wc -c <"$tmp/out" | tr -d ' ') bytes of a result"
+PREVIEW_PORT=8123 PREVIEW_FIXTURE=1 PREVIEW_PREPARE=skip scripts/preview.sh sessions '' scripts/preview/some-check.js >"$tmp/out" 2>"$tmp/err"
+echo "a port asked for that another server has: $?, refused $(refused "Port 8123 (PREVIEW_PORT) isn't this run's"), said $(wc -c <"$tmp/out" | tr -d ' ') bytes of a result"
+echo "left in the folder: $(ls .preview/fixture | grep -c '^served-')"
+`;
+
+test('a page is opened only from this run’s own server', { timeout: WAIT + 20_000 }, async () => {
+  expect(await said(SERVED, preview)).toEqual([
+    // The other server's page says PASS: read for this run's, it would be this check's result,
+    // and on the made-up Mac's run it could be a page of this Mac's.
+    'a free port another server had first: 1, refused 1, said 0 bytes of a result',
+    'a port asked for that another server has: 1, refused 1, said 0 bytes of a result',
+    'left in the folder: 0',
+  ]);
+});
+
 // checks.sh itself, over a preview.sh that says of each run what scripts/preview/outcomes has
 // for it: "<check> <view>[-<scheme>]: <its first go> | <its second> | …", the last for every go
 // after, and a pass for a run it doesn't name. A go is PASS, FAIL <what failed> (one of two
 // failing, or FAIL 0/10 <what failed> for a count of its own), NONE (the check never said how it
 // went) or DIE (the set of checks it's in is killed where it stands). Four checks, each with a
 // run in light and one in dark, and the lot committed: the commit is --base's.
+//
+// The set to kill is the stand-in's parent: checks.sh runs it under gtimeout where that's
+// installed, so here gtimeout hands straight on to what it's given, and the run is checks.sh's
+// own child either way. Nothing asks the process table, which a sandbox doesn't show (ps here
+// refuses, as it does there).
 const CHECKS = `${FOLDER}
 step cp "$1" scripts/checks.sh
+cat >"$tmp/bin/gtimeout" <<'EOF'
+#!/usr/bin/env bash
+shift 3
+exec "$@"
+EOF
+cat >"$tmp/bin/ps" <<'EOF'
+#!/usr/bin/env bash
+echo "ps: Operation not permitted" >&2
+exit 1
+EOF
+step chmod +x "$tmp/bin/gtimeout" "$tmp/bin/ps"
 cat >scripts/preview.sh <<'EOF'
 #!/usr/bin/env bash
 cd "$(dirname "$0")/.." || exit 1
@@ -227,11 +297,7 @@ case "$says" in
     exit 1
     ;;
   DIE)
-    pid=$PPID
-    while [ "\${pid:-1}" -gt 1 ]; do
-      case "$(ps -o command= -p "$pid")" in *scripts/checks.sh*) kill -9 "$pid"; break ;; esac
-      pid="$(ps -o ppid= -p "$pid" | tr -d ' ')"
-    done
+    kill -9 "$PPID"
     exit 1
     ;;
   FAIL\\ [0-9]*/[0-9]*\\ *)
@@ -352,14 +418,17 @@ echo "--base on the made-up Mac: $?, $(grep -c 'not with --fixture' "$tmp/out") 
 test('--base clears only a failure the base’s check words the same', { timeout: WAIT + 20_000 }, async () => {
   const lines = await said(
     `${CHECKS}
-# Three more checks, for a report that's cut short (prelude.js ends one with an ellipsis, and
-# names only the failures that fit) and for the same words with more failing.
+# Three more checks: for a report that's cut short (prelude.js keeps the first 2,400 characters
+# of a list of failures, the last an ellipsis, and so names only the ones that fit), for one
+# whose last "why" alone is cut, at its own shorter length, and for the same words with more
+# failing.
 for name in kappa lambda mu; do
   check "$name" "$(light "$name")"
 done
+cut_short="nine: that both have; $(head -c 2377 /dev/zero | tr '\\0' 'x')…"
 says "alpha sessions: FAIL saves: nothing saved" "beta sessions: FAIL saves: nothing saved; opens: no row" "gamma sessions: FAIL saves: nothing saved" \\
-  "kappa sessions: FAIL 1/10 one: a; two: b; three: and so on for as long as a title has room…" \\
-  "lambda sessions: FAIL 1/10 one: a; two: b; three: and so on for as long as a title has room…" \\
+  "kappa sessions: FAIL 1/11 $cut_short" \\
+  "lambda sessions: FAIL 1/3 saves: nothing saved; lists: Show in Ghostty, Open folder in, New terminal, and more than a why has room for…" \\
   "mu sessions: FAIL 1/3 saves: nothing saved"
 # An engine this checkout has and the base's folder doesn't, named from here as PREVIEW_BIN may.
 step mkdir mine
@@ -370,8 +439,8 @@ base="$(git rev-parse --short HEAD)"
 verdicts() { sed -n '/^Trying the .* that failed on/,$p' "$tmp/out" | grep -v -e '^    [A-Z]' -e '^$' -e '^Trying' | sed "s/$base/<base>/g" | tr -s ' '; }
 
 says "alpha sessions: NONE" "beta sessions: FAIL saves: nothing saved" "gamma sessions: FAIL saves: nothing saved; closes: still open" "delta sessions: FAIL opens: no row" \\
-  "kappa sessions: FAIL 0/10 one: a; two: b; three: and so on for as long as a title has room…" \\
-  "lambda sessions: FAIL 1/10 one: a; two: b; three: and so on for as long as a title has room…" \\
+  "kappa sessions: FAIL 1/11 $cut_short" \\
+  "lambda sessions: FAIL 1/3 saves: nothing saved; lists: Show in Ghostty, Open folder in, New terminal, and more than a why has room for…" \\
   "mu sessions: FAIL 0/3 saves: nothing saved"
 PREVIEW_BIN=mine/engine BUILT="$tmp/built" INSTALLED="$tmp/installed" scripts/checks.sh --base=HEAD >"$tmp/out" 2>&1
 echo "$?: $(count)"
@@ -397,11 +466,12 @@ echo "installed: $(cat "$tmp/installed" 2>/dev/null)"
     'FAIL here only delta sessions',
     'FAIL, not as on <base> gamma sessions',
     ' here only: closes: still open',
-    // A report cut short names only its first failures: the same words with one more failing
-    // (a tenth assertion, broken here alone, beyond the cut) are not the base's, and the same
-    // words with as many failing are.
+    // A report cut short names only its first failures, so it's never the base's, whatever
+    // the two have in common: here the same words and the same count, as when nine failures
+    // are both's and a tenth, beyond the cut, is `opens` there and `saves` here. A report
+    // whose last "why" is cut names every failure, and is read like any other.
     'FAIL, its report cut short kappa sessions',
-    ' 0/10 here, 1/10 there: only what it names first is known, and the two are not the same',
+    " 1/11 here, 1/11 there: only the first failures are named, so it can't be told from <base>'s: look at it",
     'fails on <base> too lambda sessions',
     'FAIL, more than on <base> mu sessions',
     ' 0/3 here, 1/3 there',
@@ -455,4 +525,49 @@ echo "$?: $(count) Beta's light run went $(goes 'beta sessions'), its dark $(goe
     // stopped left none, and the failure went again with the rest, and passed.
     "1: 7 passed, 1 failed. Beta's light run went 1, its dark 2, gamma's 1 and 1.",
   ]);
+});
+
+test('a list of failures is taken for cut short at the length prelude.js cuts it to', () => {
+  // checks.sh --base can't see the page, only the title it left: it takes a list for cut by its
+  // length, which is prelude.js's to change.
+  const kept = /\.join\('; '\), (\d+)\)/.exec(text(prelude))?.[1];
+  const taken = /^cut_len=(\d+)$/m.exec(text(checks))?.[1];
+  expect(kept).toMatch(/^\d+$/);
+  expect(taken).toBe(kept);
+});
+
+test('a page asked for a day is on that day, at noon, whatever the hour and the day here', () => {
+  // PREVIEW_DATE's clock (scripts/preview/clock.js), run as the page runs it, on the evening
+  // of a day with 25 hours: 23:30 on November 1, 2026 in Los Angeles, where the clocks went
+  // back that morning. Counted from midnight that's 24 and a half hours into the day, and a
+  // page set that far into December 28 is on the 29th, where due-check.js would have taken
+  // its expectation from the same clock and passed without the 28th being looked at.
+  const env = (globalThis as unknown as { process: { env: Record<string, string | undefined> } }).process.env;
+  const zone = env.TZ;
+  env.TZ = 'America/Los_Angeles';
+  try {
+    const now = new Date(2026, 10, 1, 23, 30).getTime();
+    expect(new Date(now).toISOString()).toBe('2026-11-02T07:30:00.000Z');
+    class Then extends Date {
+      constructor(...given: unknown[]) {
+        super(...((given.length ? given : [now]) as [number]));
+      }
+      static now() {
+        return now;
+      }
+    }
+    const page = { __PREVIEW_DATE__: '2026-12-28', Date: Then as unknown as DateConstructor };
+    new Function('window', 'Date', text(clock))(page, Then);
+    const there = new page.Date();
+    expect([there.getFullYear(), there.getMonth() + 1, there.getDate(), there.getHours(), there.getMinutes()]).toEqual([2026, 12, 28, 12, 0]);
+    expect(new Date(page.Date.now()).getDate()).toBe(28);
+    // The rest of Date is as it was: a day made from its parts, a time read back.
+    const due = new page.Date(2027, 0, 9);
+    expect([due instanceof Date, due.getFullYear(), due.getMonth(), due.getDate()]).toEqual([true, 2027, 0, 9]);
+    expect(new page.Date(now).getTime()).toBe(now);
+    expect(page.Date.UTC(2027, 0, 9)).toBe(Date.UTC(2027, 0, 9));
+  } finally {
+    if (zone === undefined) delete env.TZ;
+    else env.TZ = zone;
+  }
 });
