@@ -12,26 +12,24 @@
 // filters the view's list (ui/ListBar.tsx).
 // Keyboard map: the design system's Surfaces page.
 
-import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type Dispatch, type SetStateAction } from 'react';
-import { below, showContextMenu, type MenuAction, type MenuSpec } from './contextMenu';
+import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties, type Dispatch, type SetStateAction } from 'react';
+import { showContextMenu, type MenuSpec } from './contextMenu';
 import { useEditorIcons } from './editors';
 import { homeOf, runsShownKey, sidesShownKey, type BoardRow, type Filter } from './lanes';
-import { answerLink, barMode, harnessSchedules, onBarMode, onCloseIdle, onCloseStale, onUsageMenu, onWebsiteMenu, onWindowToast, onNewWindow, onReveal, takeOpenedLink, onSettings, onSetupMenu, onCheckUpdates, openConfig, openHarnessLink, openProjectWindow, openUrl, orderAccounts, refresh, refreshUsage, scheduleOp, setBarMode, startOptions, setPinned, setPinnedPrs, setPinnedRepos, setPinnedWorktrees, setTheme, setupNeeded, showQuick, startFromQuick, stopTraining, spendReset, terminalWindow, windowLabel, zoomWindows, onZoomMenu, onReloadMenu, WEBSITE, type BarMode, type Reveal } from './api';
+import { answerLink, onCloseIdle, onCloseStale, onUsageMenu, onWebsiteMenu, onWindowToast, onNewWindow, onSetupMenu, onCheckUpdates, openConfig, openProjectWindow, openUrl, orderAccounts, refresh, refreshUsage, setPinned, setPinnedPrs, setPinnedRepos, setPinnedWorktrees, setTheme, setupNeeded, showQuick, stopTraining, spendReset, windowLabel, WEBSITE, type Reveal } from './api';
 import { count, middleTruncate } from './format';
 import * as menus from './menus';
 import { prRefOf } from './prLinks';
 import { archiveAhead, reviewAhead, seenAhead } from './ahead';
 import { usePins } from './pins';
-import { reviewItems as reviewItemsFor, tryAgain } from './review';
-import { START_OPTIONS_NOTICE, startOptionsFailed } from './start';
-import { itemPrimaryHolds, statusSection, todoAgent, todoProjects, todoPrompt, useTodoStore, type TodoItem, type TodoSort } from './todos';
-import { repoReviews } from './repoSettings';
-import type { HarnessSchedule, Lane, Pr, PrItem, Schedule, ScheduleItem, Session, SideGlance, Started, StartOptions, TeamFile, Theme, Todo } from './types';
+import { tryAgain } from './review';
+import { itemPrimaryHolds, statusSection, todoAgent, todoPrompt, useTodoStore, type TodoItem, type TodoSort } from './todos';
+import type { Lane, Pr, PrItem, Session, SideGlance, TeamFile, Theme, Todo } from './types';
 import { showSide } from './side';
-import { allTerminals, placeOf, setDrawer, setSessionView, TERMINAL_WAIT_MS, usePoppedTerminals } from './terminals';
+import { TERMINAL_WAIT_MS } from './terminals';
 import { useKeptSessions } from './kept';
 import { shortOf, type DeviceFilter } from './devices';
-import { NEW_PROJECT, SettingsDialog, type SettingsSection } from './ui/SettingsDialog';
+import { NEW_PROJECT, SettingsDialog } from './ui/SettingsDialog';
 import { CleanUpDialog } from './ui/CleanUpDialog';
 import { CloseIdleDialog } from './ui/CloseIdleDialog';
 import { CloseStaleDialog } from './ui/CloseStaleDialog';
@@ -48,10 +46,8 @@ import { ALL_PROJECTS, ProjectSwitcher } from './ui/ProjectSwitcher';
 import { ProjectShown } from './ui/ProjectSaid';
 import { useLogo } from './logo';
 import { useGlass } from './glass';
-import { mayYetCome, opened } from './codealongLinks';
-import { linkHost, usePrLinks } from './ui/PrLink';
+import { usePrLinks } from './ui/PrLink';
 import { reviewedWords } from './prDraft';
-import { mayApprove } from './prStatus';
 import { inPrTab, PR_GROUPS, PR_ROWS, PR_SORTS, PR_TABS, PrsView, type PrGroupBy, type PrRowItem, type PrSort, type PrTab } from './ui/PrsView';
 import { Resizer, usePanelWidth } from './ui/Resizer';
 import { compassTitle, freeScopes, orchestratorOn, startOrchestrator } from './orchestrators';
@@ -63,33 +59,32 @@ import { TODO_GROUPS, TODO_ROWS, TODO_SORTS, TodoComposer, TodoView } from './ui
 import { ScheduleDialog } from './ui/ScheduleDialog';
 import { HarnessSchedulePanel, SchedulePanel } from './ui/SchedulePanel';
 import { SCHEDULE_GROUPS, SCHEDULE_ROWS, SCHEDULE_SORTS, SchedulesView } from './ui/SchedulesView';
-import { blankSchedule, firstSchedule, newScheduleFolder, scheduleListing, scheduleOf, scheduleProject, type ScheduleSort } from './schedules';
+import { scheduleOf, scheduleProject, type ScheduleSort } from './schedules';
 import { KanbanView } from './ui/KanbanView';
 import { applyKanbanDrop, boardOrderWith, columnWith, kanbanCardId, kanbanStep, orderedIds, type KanbanActs } from './kanban';
 import { CanvasView } from './ui/CanvasView';
 import { entitiesOf, homeLane, refId, type OnBoard, type RefItem, type RefKind } from './canvas/model';
 import { useCanvas } from './canvas/useCanvas';
-import { columnsOf, followsMove, type BoardPlace, holdsOf, newBoardId, newColumnId, takesAll, type BoardColumn, type BoardDoc } from './boards/model';
-import { columnOf, memberTest, repoOf } from './boards/rules';
-import * as boardMenus from './boards/menus';
+import { columnsOf, holdsOf, takesAll } from './boards/model';
+import { columnOf } from './boards/rules';
 import { useBoardAsks } from './boards/useBoardAsks';
+import { useBoardEdits } from './boards/useBoardEdits';
 import { useBoards } from './boards/useBoards';
 import { BoardBar, type BoardLayout } from './ui/BoardBar';
-import { BoardDialog, ColumnDialog, type BoardDraft } from './ui/BoardDialog';
+import { BoardDialog, ColumnDialog } from './ui/BoardDialog';
 import { BoardEmpty } from './ui/BoardEmpty';
 import { ThemeSwitch, useTheme } from './ui/ThemeSwitch';
 import { Reading } from './ui/Tip';
 import { UsageBar } from './ui/UsageBar';
 import { Notices } from './ui/Notices';
-import { clearNotice, keptDismissals, noticeId, reportNotice, shownNotices, useReportedNotices } from './notices';
+import { noticeId } from './notices';
 import { analyticsTitle, Sidebar } from './ui/Sidebar';
 import { checkedSays, untilChecked } from './ui/Updates';
-import { loadSaved, newSavedId, onSavedChange, sameView, savedViewMenu, storeSaved, type SavedView, type ViewState } from './savedViews';
+import { newSavedId, sameView, savedViewMenu, type SavedView, type ViewState } from './savedViews';
 import { useNow } from './ui/useNow';
-import { reloadWindow } from './reload';
 import { errorText } from './report';
 import { afterStop } from './training';
-import { askWords, reviewSnoozeMenu, type SnoozeAsk } from './snooze';
+import { askWords, type SnoozeAsk } from './snooze';
 import { useSessionHistory } from './history';
 import { inOrder, queueKinds } from './queue';
 import { SESSION_READS, shownSession as queueShown, useWaitingQueue } from './useWaitingQueue';
@@ -100,29 +95,37 @@ import { useBoard } from './useBoard';
 import { useDeviceLanes, useDevices, useObserve } from './useDevices';
 import { useTextSearch } from './useTextSearch';
 import { useLatest } from './latest';
-import { forOpen, listedIn, NEW_SESSION_WAIT_MS, newSessionAfter, type NewSessionShown } from './newSession';
 import { reorderKey, useMainKeys } from './mainKeys';
 import { laneCanOf, sessionCanOf, type MainHas } from './mainCan';
 import { groupActsOf, type GroupsHas } from './mainGroups';
 import { AGES, FIND_IN, READING, VIEWS, VIEWS_SANS_BOARDS, type Age, type View } from './mainViews';
 import { ageAppliesIn, listFiltersOf, pickNamesOf, sideBoardsOf, sideFacetsOf, sideFiltersOf, sideStatusesOf, sideViewsOf, viewSuggestionOf, type FiltersOn } from './sideLists';
+import { useBarPlace } from './useBarPlace';
+import { useListFind } from './useListFind';
 import { useListPicks } from './useListPicks';
 import type { SelectHow } from './picks';
+import { useNewSession } from './useNewSession';
+import { usePrMenus } from './usePrMenus';
+import { useRevealAsks } from './useRevealAsks';
+import { useRevealFind } from './useRevealFind';
+import { useSavedViews } from './useSavedViews';
+import { useSchedulesView } from './useSchedulesView';
+import { useSettingsAt } from './useSettingsAt';
+import { useShownNotices } from './useShownNotices';
+import { useShownTerminal } from './useShownTerminal';
+import { useZoomReload } from './useZoomReload';
 import { useTodoView } from './useTodoView';
 import { MainBar } from './ui/MainBar';
 import { canvasPicked, MainPanel, type Drill } from './ui/MainPanel';
 import { showPrTab } from './ui/PrInspector';
-import type { FindAsk } from './ui/ThreadFind';
 import { Toasts, useToasts } from './ui/Toasts';
 import { NewSessionPanel } from './ui/NewSession';
 import { ListenHost } from './ui/Listening';
 import { MeetingOffered } from './ui/Meeting';
 import { MeetingsDialog } from './ui/Meetings';
-import { ageListingChain, ageListingPr, cardMatches, chainOf, columnShown, currentProject, facetsIn, facetsOn, harnessSchedulesIn, labelPick, onlyPick, prInDone, projectOfCard, revealing, unarchived, scheduleAtWork, scheduleSessions, schedulesIn, sessionInFacets, sessionItemOf, sessionItemsOf, showingHelper, togglePick, toggleShown, useBoardLists, projectsOf, type Facets, type KanbanColumn } from './boardLists';
-import { inProject, queryWords } from './quick';
-import { findFor } from './threadFind';
+import { ageListingChain, ageListingPr, cardMatches, chainOf, columnShown, currentProject, facetsIn, facetsOn, labelPick, onlyPick, prInDone, revealing, unarchived, scheduleSessions, sessionInFacets, sessionItemOf, sessionItemsOf, showingHelper, togglePick, toggleShown, useBoardLists, projectsOf, type Facets, type KanbanColumn } from './boardLists';
+import { inProject } from './quick';
 import { CODEALONG_REPO } from './improve';
-import { setPageZoom, type ZoomStep } from './zoom';
 import { bare, keysIn } from './platform';
 import { useKeysShown } from './keysShown';
 
@@ -145,7 +148,6 @@ const BOARD_LAYOUT_KEY = 'codealong.boardLayout';
 /** Whether boards were on (`[experimental] boards`) when the window last had the board. */
 const BOARDS_ON_KEY = 'codealong.boardsOn';
 const AGE_KEY = 'codealong.age';
-const DISMISSED_KEY = 'codealong.dismissedNotices';
 const SESSION_SORT_KEY = 'codealong.sessionSort';
 const SESSION_ROWS_KEY = 'codealong.sessionRows';
 const SESSION_GROUP_KEY = 'codealong.sessionGroup';
@@ -176,11 +178,6 @@ const NO_PICKS: readonly string[] = [];
 /** How long Sessions waits for a moved session's copy to be listed before letting it go: the
  *  minute its card on the desktop waits too (lib.rs `move_session`). */
 const COPY_WAIT_MS = 60_000;
-
-/** How long a link macOS opened waits for your other devices to be read, and to have read their
- *  own sessions, before its session is said to be missing (useDevices.ts): they come a moment
- *  after the board. */
-const DEVICES_WAIT_MS = 5000;
 
 type Row = BoardRow | PrRowItem | TodoItem;
 /** No rows, as one list, so what's keyed on the rows shown doesn't see a new one on every render. */
@@ -236,18 +233,6 @@ export function App() {
   }, []);
   const [query, setQuery] = useState('');
   const [selectedKey, setSelectedKey] = useState<string | null>(null);
-  // The Schedules view's selected schedule, and the one its dialog makes or changes; a session
-  // selected under it, whose panel shows meanwhile; and the schedules listing every session of
-  // theirs, not only the latest run's and those at work.
-  const [scheduleId, setScheduleId] = useState<string | null>(null);
-  const [scheduleSession, setScheduleSession] = useState<string | null>(null);
-  const [schedulesAll, setSchedulesAll] = useState<ReadonlySet<string>>(() => new Set());
-  // The Schedules view's finished schedules are folded away until asked for.
-  const [showFinished, setShowFinished] = useState(false);
-  // The schedules the harnesses keep themselves, read while the Schedules view shows: they're read
-  // from records and files, not sent with the board.
-  const [harnessItems, setHarnessItems] = useState<HarnessSchedule[]>([]);
-  const [scheduleEdit, setScheduleEdit] = useState<Schedule | null>(null);
   // The session shown in Sessions as you moved it (menus.ts `moving`), and its copy's key once the
   // move says it: the panel holds it until the copy is listed, then shows the copy.
   const [moving, setMoving] = useState<{ from: SessionItem; to: string | null } | null>(null);
@@ -284,12 +269,7 @@ export function App() {
   // apart from the session's, since each view is used for its own.
   const [prPanelMax, setPrPanelMax] = useStored(PR_PANEL_MAX_KEY, flag, false);
   const togglePrPanelMax = useCallback(() => setPrPanelMax((m) => !m), [setPrPanelMax]);
-  const [savedViews, setSavedViews] = useState<SavedView[]>(loadSaved);
-  useEffect(() => onSavedChange(setSavedViews), []);
-  const keepSaved = (next: SavedView[]) => {
-    setSavedViews(next);
-    storeSaved(next);
-  };
+  const [savedViews, keepSaved] = useSavedViews();
   const [inspectorWidth, setInspectorWidth] = usePanelWidth(INSPECTOR_WIDTH_KEY);
   const [prPanelWidth, setPrPanelWidth] = usePanelWidth(PR_PANEL_WIDTH_KEY);
   const [todoPanelWidth, setTodoPanelWidth] = usePanelWidth(TODO_PANEL_WIDTH_KEY);
@@ -306,34 +286,13 @@ export function App() {
   // said in the usage bar.
   const toasts = useToasts();
   const { setToast, track, report, setTodoUndo } = toasts;
-  const boardRef = useRef<HTMLElement>(null);
-  // What isn't working in the background (notices.ts): the engine's and this window's own,
+  // What isn't working in the background (useShownNotices.ts): the engine's and this window's own,
   // less the ones dismissed, which stay dismissed across launches while they still stand.
-  const reported = useReportedNotices();
-  const allNotices = useMemo(() => [...(board?.notices ?? []), ...reported], [board?.notices, reported]);
-  const [dismissed, setDismissed] = useStored<string[]>(DISMISSED_KEY, strings, []);
+  const { notices, setDismissed } = useShownNotices(board);
   const boardRead = !!board && !board.loading;
-  useEffect(() => {
-    // Before the board is read it lists none, which isn't their having gone.
-    if (!boardRead) return;
-    setDismissed((d) => {
-      const kept = keptDismissals(d, allNotices);
-      return kept.length === d.length ? d : kept;
-    });
-  }, [allNotices, boardRead, setDismissed]);
-  const notices = useMemo(() => shownNotices(allNotices, dismissed), [allNotices, dismissed]);
   // Settings, open at a section; at one account when a usage chip opened it. ⌘, comes back to
-  // the section you left, as macOS settings do.
-  const [settings, setSettings] = useState<{ section: SettingsSection; focus: string | null } | null>(null);
-  const lastSection = useRef<SettingsSection>('general');
-  const openSettings = useCallback((section?: SettingsSection, focus: string | null = null) => {
-    setSettings({ section: section ?? lastSection.current, focus });
-  }, []);
-  const closeSettings = useCallback(() => setSettings(null), []);
-  useEffect(() => {
-    if (settings) lastSection.current = settings.section;
-  }, [settings]);
-  useEffect(() => onSettings(() => openSettings()), [openSettings]);
+  // the section you left, as macOS settings do (useSettingsAt.ts).
+  const { settings, setSettings, openSettings, closeSettings } = useSettingsAt();
   // The app menu's Check for updates…: a toast in the window you asked from says how it goes
   // (ui/Updates.tsx), and Settings stays shut.
   useEffect(
@@ -392,24 +351,9 @@ export function App() {
   const doneHelpers = board ? { lanes: [...board.lanes, ...deviceLanes], ask: askingHelpers.ask } : undefined;
   useEffect(() => onCloseIdle(() => setCloseIdle(true)), []);
   useEffect(() => onCloseStale(() => setCloseStale(true)), []);
-  // ⌘= ⌘- ⌘0 (mainKeys.ts) and View's zoom items zoom every board window: the engine saves the
-  // zoom and sets it on them, and the board says what it is (zoom.ts).
-  const zoom = useCallback(
-    (step: ZoomStep) => {
-      zoomWindows(step)
-        .then((percent) => setToast(`Zoomed to ${percent}%.`))
-        .catch((e: unknown) => setToast(errorText(e)));
-    },
-    [setToast],
-  );
-  useEffect(() => onZoomMenu(zoom), [zoom]);
-  // ⌘R (mainKeys.ts) and View › Reload read again what the window shows, usage too (reload.ts).
-  const reload = useCallback(() => {
-    reloadWindow({ usage: true });
-    setToast('Reloading…');
-  }, [setToast]);
-  useEffect(() => onReloadMenu(reload), [reload]);
-  useEffect(() => setPageZoom(board?.zoom), [board?.zoom]);
+  // ⌘= ⌘- ⌘0 (mainKeys.ts) and View's zoom items zoom every board window, and ⌘R and View › Reload
+  // read again what the window shows, usage too (useZoomReload.ts).
+  const { zoom, reload } = useZoomReload(board, setToast);
   /** Marks sessions seen, shown at once; the engine turning it down puts them back and says why. */
   const markSeen = useCallback(
     (keys: string[]) => {
@@ -418,26 +362,10 @@ export function App() {
     [setToast],
   );
   const now = useNow(15_000);
-  // The list's find (ui/ListBar.tsx): open from ⌥⌘F or / until the keyboard leaves it, and shown
-  // as long as it has words.
-  const searchRef = useRef<HTMLInputElement>(null);
-  const [findOpen, setFindOpen] = useState(false);
-  // Each ⌥⌘F or /, which gives the find the keyboard once what it asks for is laid out.
-  const [findAsk, setFindAsk] = useState(0);
-  const findShown = findOpen || query !== '';
-  const openFind = useCallback(() => {
-    // The find is over the list: a panel taking the whole window (⇧⌘F, `maxed` below) gives the
-    // list its place back. Only Sessions' and PRs' panels do.
-    if (boardRef.current?.getClientRects().length === 0) (view === 'prs' ? setPrPanelMax : setPanelMax)(false);
-    setFindOpen(true);
-    setFindAsk((n) => n + 1);
-  }, [view, setPanelMax, setPrPanelMax]);
-  // Asked for, or the board read once since: the keyboard goes to it, with its words ready to type over.
-  useLayoutEffect(() => {
-    if (!findOpen) return;
-    searchRef.current?.focus();
-    searchRef.current?.select();
-  }, [findOpen, findAsk, loading]);
+  // The list's find (useListFind.ts, ui/ListBar.tsx): open from ⌥⌘F or / until the keyboard leaves
+  // it, and shown as long as it has words. It's over the list, so a panel taking the whole window
+  // (⇧⌘F, `maxed` below) gives the list its place back as it opens.
+  const { boardRef, searchRef, findShown, openFind, setFindOpen } = useListFind({ query, view, loading, setPanelMax, setPrPanelMax });
   const gPending = useRef(false);
 
   useEffect(() => {
@@ -684,106 +612,11 @@ export function App() {
     setView('canvas');
     setCanvasFocus((f) => ({ ids: [id], n: (f?.n ?? 0) + 1 }));
   };
-  /** Add to board › for one thing or several of a kind picked together: each of the project's
-   *  boards that would show them (under All projects, every project's and each one's own
-   *  project's) checked when it holds them (a pick puts them on or takes them off, `boardChoices`),
-   *  saying how many of them it takes where that's fewer than all; and in Kanban, Remove from
-   *  board for the board shown. The canvas has its own Remove from board, for what's picked on it. */
-  const boardItems = (ref: RefKind, keys: string[]): MenuSpec => {
-    if (!boardsOn || keys.length === 0) return [];
-    const has = { lanes: rawLanes, todos: todoStore.todos, prs: board?.prs ?? [] };
-    const cards = keys.map((key) => ({ card: refId(ref, key), project: projectOfCard(ref, key, has) }));
-    return boardMenus.addToBoard(ref, cards, {
-      boards: boards.boards,
-      current,
-      holds: (b) => (b.id === shownBoard?.id ? member : memberTest(b, allSubjects, now)),
-      kanban: view === 'kanban' && shownBoard ? { board: shownBoard, member } : null,
-      put: (b, yes, list) => void applyBoard({ op: yes ? 'add' : 'remove', id: b.id, cards: list }),
-      create: (list) => setBoardEdit({ board: null, with: list }),
-    });
-  };
-  // Making or changing a board, or a column of its Kanban (BoardDialog.tsx).
-  const [boardEdit, setBoardEdit] = useState<{ board: BoardDoc | null; with?: string[] } | null>(null);
-  const [columnEdit, setColumnEdit] = useState<{ column: BoardColumn | null } | null>(null);
+  // Making and changing the boards (boards/useBoardEdits.ts): the board or the column its dialog
+  // makes or changes, what its menus and the dialogs' Save do, and Add to board › in the other
+  // menus (one thing's or several of a kind picked together).
+  const { boardItems, boardEdit, setBoardEdit, columnEdit, setColumnEdit, showBoard, saveBoard, boardMenu, columnMenu, saveColumn, ruleChoices } = useBoardEdits({ boards, applyBoard, boardsOn, view, setView, lastLayout, current, projects, pickProject, setSelectedKey, setToast, board, rawLanes, projectLanes, todoStore, member, allSubjects, now });
   const boardLayout: BoardLayout = view === 'canvas' ? 'canvas' : 'kanban';
-  const showBoard = (id: string) => {
-    boards.pick(id);
-    setSelectedKey(null);
-    if (view !== 'kanban' && view !== 'canvas') setView(lastLayout);
-  };
-  const saveBoard = (draft: BoardDraft) => {
-    const b = boardEdit?.board;
-    if (b) {
-      if (draft.name !== b.name) void applyBoard({ op: 'rename', id: b.id, name: draft.name });
-      if (JSON.stringify(draft.rule) !== JSON.stringify(b.rule)) void applyBoard({ op: 'rule', id: b.id, rule: draft.rule });
-      return;
-    }
-    const id = newBoardId();
-    void applyBoard({ op: 'create', board: { id, name: draft.name, project: current, rule: draft.rule, added: boardEdit?.with ?? [], removed: [], columns: draft.columns } });
-    boards.pick(id);
-    if (view !== 'kanban' && view !== 'canvas') setView(lastLayout);
-  };
-  /** Moves a board to another project. The window follows the board it shows there, unless it
-   *  shows All projects, which lists it still (`followsMove`). */
-  const boardPlace = useLatest<BoardPlace>({ project: current, showing: view === 'kanban' || view === 'canvas', board: shownBoard?.id ?? '' });
-  const moveBoard = (b: BoardDoc, project: string) => {
-    const asked = boardPlace.current;
-    void boards.apply({ op: 'project', id: b.id, project }).then(
-      () => {
-        if (!followsMove(b.id, asked, boardPlace.current)) return;
-        boards.pick(b.id, project);
-        pickProject(project);
-      },
-      (e: unknown) => setToast(errorText(e)),
-    );
-  };
-  /** A board's menu, or with none the Board view's: the project's boards to show, a new one, and
-   *  the board's settings, moving it to another project as a todo moves (every project but
-   *  Elsewhere, and All projects), deleting it. */
-  const boardMenu = (b: BoardDoc | null = shownBoard) =>
-    void showContextMenu(
-      boardMenus.boardMenu(b, {
-        boards: boards.boards,
-        showing: view === 'kanban' || view === 'canvas' ? (shownBoard?.id ?? null) : null,
-        current,
-        projects: [...todoProjects(projects), ALL_PROJECTS],
-        show: showBoard,
-        create: () => setBoardEdit({ board: null }),
-        settings: (x) => setBoardEdit({ board: x }),
-        move: moveBoard,
-        stages: (x) => void applyBoard({ op: 'columns', id: x.id, columns: null }),
-        remove: (x) => {
-          void applyBoard({ op: 'delete', id: x.id });
-          setToast(`Deleted the board ${x.name}. What was on it stays as it was.`);
-        },
-      }),
-    ).catch((e: unknown) => setToast(String(e)));
-  // A column's menu (KanbanView.tsx): its settings, folding it, moving it, taking it away.
-  const columnMenu = (c: { id: string; column: BoardColumn | null }) => {
-    if (!shownBoard) return;
-    const spec = boardMenus.columnMenu(columnsOf(shownBoard), c, {
-      settings: (column) => setColumnEdit({ column }),
-      add: () => setColumnEdit({ column: null }),
-      set: (next) => void applyBoard({ op: 'columns', id: shownBoard.id, columns: next }),
-    });
-    if (spec) void showContextMenu(spec).catch((e: unknown) => setToast(String(e)));
-  };
-  const saveColumn = (fields: Omit<BoardColumn, 'id'>) => {
-    if (!shownBoard) return;
-    const cols = columnsOf(shownBoard);
-    const editing = columnEdit?.column;
-    const next = editing ? cols.map((x) => (x.id === editing.id ? { ...fields, id: x.id } : x)) : [...cols, { ...fields, id: newColumnId(cols) }];
-    void applyBoard({ op: 'columns', id: shownBoard.id, columns: next });
-  };
-  // What a board's rule can pick: the project's labels, repos and accounts.
-  const ruleChoices = useMemo(
-    () => ({
-      labels: todoStore.labels,
-      repos: [...new Map(projectLanes.map((l) => [repoOf(l), { id: repoOf(l), label: l.repo }])).values()],
-      accounts: [...new Set(projectLanes.flatMap((l) => l.sessions.map((s) => s.account)))].sort(),
-    }),
-    [todoStore.labels, projectLanes],
-  );
   // What's pinned to the desktop, so menus offer to take it off (desktop.rs).
   const onDesktop = menus.useDesktopPins();
   // The sessions kept in windows of their own, so a session's menu offers to pop it out or show
@@ -833,23 +666,11 @@ export function App() {
     if (selectedKey === null && top !== undefined) setSelectedKey((k) => k ?? top);
   }, [selectedKey, selected?.key]);
   const selectedLane = selected?.lane ?? null;
-  // What the find bar in a session's panel opens on, wherever the panel shows it: for a session
-  // this window's search found by what was said in it, the words it found there; else the words
-  // the quick panel found it by (`Reveal.find`), until another session is selected or a search is
-  // typed here, which would otherwise hand the bar that ask again once it's cleared. Each reveal is
-  // a new ask, so showing the session again opens a bar that was closed.
-  const [revealFind, setRevealFind] = useState<{ key: string; ask: FindAsk } | null>(null);
-  useEffect(() => {
-    if (revealFind && (query || selectedSessionKey !== revealFind.key)) setRevealFind(null);
-  }, [revealFind, selectedSessionKey, query]);
-  const findIn = useCallback(
-    (key: string): FindAsk | null => {
-      const said = saidOf(key);
-      if (said) return { words: findFor(said.text, queryWords(query)), n: 0 };
-      return revealFind?.key === key ? revealFind.ask : null;
-    },
-    [saidOf, query, revealFind],
-  );
+  // What the find bar in a session's panel opens on, wherever the panel shows it (useRevealFind.ts):
+  // for a session this window's search found by what was said in it, the words it found there; else
+  // the words the quick panel found it by (`Reveal.find`), until another session is selected or a
+  // search is typed here.
+  const { findIn, setRevealFind } = useRevealFind({ selectedSessionKey, query, saidOf });
   // The runs of todos listed in your order, which ⌃⌘↑ ⌃⌘↓ move one within: the Todo view's open
   // sections while it's sorted by status. The Kanban view moves a card in its column itself
   // (`kanbanKeys`).
@@ -975,56 +796,29 @@ export function App() {
   const pressRow = (key: string, how: SelectHow) => {
     if (how === 'one' && drill?.from === key) setDrill(null);
   };
-  // The Schedules view's schedules (the project's, as the find narrows them), the one selected (the
-  // first it lists, until one is picked), and the session selected under it while it's still listed there.
-  const projectSchedules = useMemo(() => schedulesIn(board?.schedules ?? [], board?.lanes ?? [], current, ''), [board?.schedules, board?.lanes, current]);
-  const shownSchedules = useMemo(() => schedulesIn(projectSchedules, board?.lanes ?? [], ALL_PROJECTS, query), [projectSchedules, board?.lanes, query]);
-  const shownHarnessSchedules = useMemo(() => harnessSchedulesIn(harnessItems, allHomes, board?.lanes ?? [], current, query), [harnessItems, allHomes, board?.lanes, current, query]);
-  // A harness's schedule selected, by its key, which no schedule of Codealong's has.
-  const selectedHarness: HarnessSchedule | null = shownHarnessSchedules.find((h) => h.key === scheduleId) ?? null;
-  // As the view lists them (its View menu): sorted, and grouped by worktree or repo, the pinned
-  // ones first, as the other lists are.
-  const scheduleHomes = view === 'schedules' ? allHomes : null;
-  const scheduleListed = useMemo(
-    () =>
-      scheduleListing(shownSchedules, scheduleSort, {
-        by: scheduleGroup,
-        lanes: board?.lanes ?? [],
-        pinned: scheduleGroup === 'repo' ? repoPins.keys : lanePins.keys,
-        opened: openScheduleGroups,
-        whole: !!query,
-        // The one picked never folds away, wherever it goes as it's shown from a card, paused, or
-        // sorted or found otherwise; nor one with a session at work under it, which takes a look
-        // through every session, so only while Schedules shows.
-        awake: (x) => x.id === scheduleId || (!!scheduleHomes && scheduleAtWork(x, scheduleHomes)),
-      }),
-    [shownSchedules, scheduleSort, scheduleGroup, board?.lanes, repoPins.keys, lanePins.keys, openScheduleGroups, query, scheduleId, scheduleHomes],
-  );
-  const selectedSchedule: ScheduleItem | null = selectedHarness ? null : (shownSchedules.find((x) => x.id === scheduleId) ?? firstSchedule(scheduleListed));
-  const scheduleSessionShown = !scheduleSession
-    ? null
-    : selectedHarness
-      ? selectedHarness.session === scheduleSession
-        ? (allHomes.get(scheduleSession) ?? null)
-        : null
-      : selectedSchedule
-        ? (scheduleSessions(selectedSchedule, allHomes, true).rows.find((p) => p.session.key === scheduleSession) ?? null)
-        : null;
-  useEffect(() => {
-    if (view !== 'schedules') return;
-    let live = true;
-    const read = () =>
-      void harnessSchedules()
-        .then((items) => live && setHarnessItems(items))
-        // Read again in half a minute; meanwhile the list shows the last it read.
-        .catch(() => {});
-    read();
-    const every = window.setInterval(read, 30_000);
-    return () => {
-      live = false;
-      window.clearInterval(every);
-    };
-  }, [view]);
+  // The Schedules view (useSchedulesView.ts): the schedule selected and a session selected under
+  // it, whose panel shows meanwhile; the project's schedules as the find narrows them and as the
+  // view lists them, and the ones the harnesses keep themselves; and what's done to them from its
+  // rows, panel and menus. In the Schedules view, that session is what the window's keys act on
+  // (`scheduleRow`), as a row selected in a list is elsewhere (mainKeys.ts).
+  const { setScheduleId, setScheduleSession, schedulesAll, setSchedulesAll, showFinished, setShowFinished, scheduleEdit, setScheduleEdit, projectSchedules, shownHarnessSchedules, scheduleListed, selectedHarness, selectedSchedule, scheduleSessionShown, scheduleRow, sessionTitle, runSchedule, openHarness, pauseSchedule, newSchedule, scheduleMenu } = useSchedulesView({
+    view,
+    board,
+    current,
+    query,
+    homes,
+    allHomes,
+    selectedLane,
+    scheduleSort,
+    scheduleGroup,
+    repoPins,
+    lanePins,
+    openScheduleGroups,
+    report,
+    setToast,
+    // Read when a schedule opens: the window's opener is made further down.
+    open: (lane, targetId) => open(lane, targetId),
+  });
   // What the panel beside the list shows, which what a chip or a group's heading shows in its
   // place (`drill`) belongs to: the row selected, and in Schedules the schedule selected or the
   // session shown under it.
@@ -1040,9 +834,6 @@ export function App() {
   useEffect(() => {
     if (drill && drill.from !== panelFrom) setDrill(null);
   }, [drill, panelFrom]);
-  // In the Schedules view, that session is what the window's keys act on, as a row selected in a
-  // list is elsewhere (mainKeys.ts): its worktree's shortcuts and a new session's place go by it.
-  const scheduleRow = view === 'schedules' && scheduleSessionShown ? sessionItemOf(scheduleSessionShown) : null;
 
   // Where a new session starts: the selected worktree, session or PR's worktree; for a PR with
   // no worktree on this Mac, its repo's main checkout.
@@ -1074,51 +865,6 @@ export function App() {
   // Each time something asks to show a row here, which opens the group that folds it away even
   // when it's the row selected already.
   const [revealed, setRevealed] = useState(0);
-  // A terminal of Codealong's the server asked to show (launch/codealong.rs): its session's panel,
-  // or a window of its own for one that's no session's, once the board says whose it is
-  // (terminals.ts `placeOf`), looked at again as boards come and once the wait is up.
-  const pendingTerminal = useRef<{ id: string; wait: boolean; since: number } | null>(null);
-  const poppedTerminals = usePoppedTerminals();
-  const placeTerminal = useLatest(() => {
-    const p = pendingTerminal.current;
-    if (!p) return;
-    const t = allTerminals(board?.terminals).find((x) => x.id === p.id);
-    const place = placeOf(t, p.wait, Date.now() - p.since >= TERMINAL_WAIT_MS);
-    if (place.to === 'wait') return;
-    pendingTerminal.current = null;
-    if (place.to === 'none') return;
-    // One in a window of its own (no session's, or popped out) comes forward there.
-    if (place.to === 'window' || poppedTerminals.includes(p.id)) {
-      terminalWindow(t?.session ?? '', p.id, true).catch((e: unknown) => setToast(String(e)));
-      return;
-    }
-    const lane = (board?.lanes ?? []).find((l) => l.sessions.some((s) => s.key === place.key));
-    if (lane) reveal.current({ kind: 'session', laneId: lane.id, key: place.key });
-    if (place.home) {
-      setSessionView(place.key, 'terminal');
-      setDrawer(place.key, { homeAt: Date.now() });
-    } else setDrawer(place.key, { open: true, active: p.id, focusAt: Date.now() });
-  });
-  useEffect(() => placeTerminal.current(), [board, placeTerminal]);
-
-  // A link to a session or a todo clicked in another app, which macOS opens with Codealong
-  // (front.rs `open_links`): taken when the app says there's one, and once this window hears what
-  // it's told to show (below), since a click that launched the app came before there was a page
-  // to tell.
-  const [openedLink, setOpenedLink] = useState<string | null>(null);
-  // Until when a link's session is looked for among your other devices, which come after the
-  // board; 0 while no link waits for them.
-  const linkWaits = useRef(0);
-  const [linkWaited, setLinkWaited] = useState(0);
-  const takeLink = useCallback(() => {
-    // One that can't be asked for is as if none was clicked: there's nothing to say it about.
-    void takeOpenedLink().then((url) => {
-      if (!url) return;
-      linkWaits.current = 0;
-      setOpenedLink(url);
-    }, () => {});
-  }, []);
-
   const reveal = useLatest((r: Reveal) => {
     if (r.kind === 'link') {
       takeLink();
@@ -1247,6 +993,9 @@ export function App() {
       setScrollTo(`pr:${pr.key}`);
     }
   });
+  // A terminal of Codealong's the server asked to show (useShownTerminal.ts): its session's panel,
+  // or a window of its own for one that's no session's, once the board says whose it is.
+  const { pendingTerminal, placeTerminal } = useShownTerminal({ board, reveal, setToast });
 
   const open = useCallback((lane: Lane | null, targetId: string | null | undefined) => {
     if (!lane || !targetId) return;
@@ -1391,49 +1140,10 @@ export function App() {
     setBoxFocus((box) => (box && key !== box ? null : box));
   }, [selected?.key]);
 
-  // A start the quick panel left for its first prompt (newSession.ts): Sessions' panel shows it
-  // in place of the selected row's until another row is picked, and once sent, until the board
-  // lists the session it started, which then takes its place with the cursor in its box.
-  const [newShown, setNewShown] = useState<NewSessionShown | null>(null);
-  useEffect(() => setNewShown((n) => newSessionAfter(n, selectedKey)), [selectedKey]);
-  const showStarted = useLatest(() => {
-    const started = newShown?.started;
-    if (!started) return;
-    const lane = listedIn([...(board?.lanes ?? []), ...deviceLanes], started.key);
-    if (lane) {
-      setNewShown(null);
-      reveal.current({ kind: 'session', laneId: lane.id, key: started.key });
-      setBoxFocus(`${lane.id}::${started.key}`);
-    } else if (Date.now() - started.at >= NEW_SESSION_WAIT_MS) {
-      setNewShown(null);
-      setToast(started.message ?? 'It started, and shows here once it’s listed.');
-    }
-  });
-  useEffect(() => showStarted.current(), [board, deviceLanes, newShown, showStarted]);
-  /** Starts the new session `shown` on `prompt` (`written` is what was typed, shown while it
-   *  goes): what the start answers goes to that open alone. Rejects when it fails. */
-  const sendNew = (shown: NewSessionShown) => async (prompt: string, written: string) => {
-    const mine = (change: (n: NewSessionShown) => NewSessionShown | null) => setNewShown((n) => forOpen(n, shown.opened, change));
-    mine((n) => ({ ...n, sending: written, error: null }));
-    let started: Started | null;
-    try {
-      started = await startFromQuick({ ...shown.draft.spec, prompt });
-    } catch (e) {
-      mine((n) => ({ ...n, sending: null, error: errorText(e) }));
-      throw e;
-    }
-    // A harness that names its own sessions, or one that hasn't said yet, gives no key to wait
-    // for: what the start said goes instead.
-    const key = started?.key;
-    if (!key) {
-      mine(() => null);
-      if (started?.message) setToast(started.message);
-      return;
-    }
-    const message = started?.message ?? null;
-    mine((n) => ({ ...n, started: { key, at: Date.now(), message } }));
-    window.setTimeout(() => showStarted.current(), NEW_SESSION_WAIT_MS + 100);
-  };
+  // A start the quick panel left for its first prompt (useNewSession.ts, newSession.ts): Sessions'
+  // panel shows it in place of the selected row's until another row is picked, and once sent, until
+  // the board lists the session it started, which then takes its place with the cursor in its box.
+  const { newShown, setNewShown, sendNew } = useNewSession({ selectedKey, board, deviceLanes, reveal, setBoxFocus, setToast });
   // A session you click in Sessions is one you mean to answer: the cursor goes to its panel's box,
   // once the click has given the list the keyboard, as a press does. The list's chords work from
   // the box too (`listChord`), and Escape in the box gives the list the keyboard back.
@@ -1571,55 +1281,24 @@ export function App() {
   }, [moving?.to]);
 
 
-  // Where each account can start a session, for Review with: read at launch, and again each time
-  // the menu is built, so a menu goes by the last answer and never waits on one.
-  const startOpts = useRef<StartOptions | null>(null);
-  const loadStartOpts = useCallback(() => {
-    startOptions()
-      .then((o) => {
-        startOpts.current = o;
-        clearNotice(START_OPTIONS_NOTICE);
-      })
-      // Keeps the last answer, and says so until a read works.
-      .catch((e: unknown) => reportNotice(startOptionsFailed(e)));
-  }, []);
-  useEffect(loadStartOpts, [loadStartOpts]);
-  /** Review with…'s items for a PR: a round of Codealong's own reviews on an account, or its
-   *  review page in the Codex app (review.ts). */
-  const reviewItems = (pr: Pick<PrItem, 'number' | 'url' | 'repoSlug' | 'lanes'> & Partial<Pick<PrItem, 'key' | 'mine'>>): MenuAction[] => {
-    loadStartOpts();
-    return reviewItemsFor(pr, lanes, startOpts.current?.accounts ?? [], board?.usage ?? [], { error: setToast, info: setToast, busy: track }, undefined, Date.now(), repoReviews(board, pr.repoSlug), startOpts.current?.groups ?? []);
-  };
-  /** A worktree's PR as Review with… needs it: the board's, or what the worktree knows of one
-   *  the board doesn't list (on another Mac, say). */
-  const reviewedPr = (lane: Lane, p: Pr) => board?.prs.find((x) => x.url === p.url) ?? { ...p, repoSlug: lane.repoSlugNow ?? lane.repoSlug ?? '', lanes: [lane.id] };
-  /** Drops Review with… from a button, as the PR panels have it. */
-  const reviewMenuFrom = (pr: Pick<PrItem, 'number' | 'url' | 'repoSlug' | 'lanes'> & Partial<Pick<PrItem, 'key' | 'mine'>>, el: Element) => {
-    const items = reviewItems(pr);
-    const spec = items.length > 0 ? items : [{ label: 'No account can start a review here', run: () => {}, enabled: false }];
-    void showContextMenu(spec, below(el)).catch((e: unknown) => setToast(String(e)));
-  };
-
-  /** Snooze review, for a PR that asks for your review: the times it can wait, and Wake now. */
-  const snoozeReview = (p: PrItem) => reviewSnoozeMenu(p, Date.now(), (act) => void act.catch((e: unknown) => setToast(errorText(e))));
-
-  /** A PR's right-click menu, as every window has it (menus.ts), with this window's own. */
-  const prMenuSpec = (r: PrRowItem): MenuSpec => {
-    const p = r.pr;
-    const lane = r.lane;
-    return menus.prMenu(p, {
-      report,
-      review: reviewItems(p),
-      approve: mayApprove(p) ? () => approve(p) : undefined,
-      snooze: snoozeReview(p),
-      showLane: lane ? { lane, run: () => focusLane(lane, view === 'prs' ? { key: r.key, select: () => picks.prs.select(r, 'one') } : undefined) } : undefined,
-      pin: { label: prPins.set.has(p.key) ? 'Unpin PR' : 'Pin PR', run: () => prPins.toggle(p.key), accelerator: 'P' },
-      desktop: onDesktop,
-      boards: boardItems('pr', [p.key]),
-      lanes,
-    });
-  };
-  const prMenu = (r: PrRowItem, at?: { x: number; y: number }) => void showContextMenu(prMenuSpec(r), at).catch((e: unknown) => setToast(String(e)));
+  // A PR's menus (usePrMenus.ts): its right-click menu with this window's own, the same menu
+  // where a worktree or a session shows the PR on a chip, and Review with… dropped from a button.
+  const { reviewedPr, reviewMenuFrom, prMenuSpec, prMenu, lanePrMenu, prChipMenu } = usePrMenus({
+    board,
+    lanes,
+    report,
+    setToast,
+    track,
+    approve,
+    view,
+    selectPr: (r) => picks.prs.select(r, 'one'),
+    prPins,
+    onDesktop,
+    boardItems,
+    prRowOf,
+    // Read when a menu runs: the way a worktree is shown is made further down.
+    focusLane: (lane, row) => focusLane(lane, row),
+  });
   /** Opens a worktree's PR on GitHub: a double-click on its chip. */
   const openLanePr = (lane: Lane) => {
     if (lane.pr) openUrl(lane.pr.url).catch((e: unknown) => setToast(String(e)));
@@ -1643,17 +1322,6 @@ export function App() {
     }
     row?.select();
     setDrill({ from, key: item.key, kind: 'pr' });
-  };
-  /** The right-click menu of a worktree's PR chip: the PR's own. */
-  const lanePrMenu = (lane: Lane) => {
-    if (lane.pr) prChipMenu(lane, lane.pr);
-  };
-  /** A PR's menu where a worktree or one of its sessions shows it. A PR the board doesn't list,
-   *  such as one on another Mac in a repo this one doesn't have, gets what its link allows. */
-  const prChipMenu = (lane: Lane, p: Pr) => {
-    const item = board?.prs.find((x) => x.url === p.url);
-    const spec: MenuSpec = item ? prMenuSpec(prRowOf(item)) : menus.prMenu(p, { report, review: reviewItems(reviewedPr(lane, p)) });
-    void showContextMenu(spec).catch((e: unknown) => setToast(String(e)));
   };
 
   /** Pins or unpins a worktree. Its lines keep their keys as the row moves, so what was selected stays selected. */
@@ -1833,49 +1501,14 @@ export function App() {
   };
 
   // Where the bar shows: floating, docked in the notch, in the menu bar, or off; changed here, from
-  // its own menu or from the Window menu. Picking the place it's in turns it off.
-  const [barPlace, setBarPlace] = useState<BarMode>('floating');
-  useEffect(() => {
-    void barMode().then((v) => setBarPlace(v.mode));
-    return onBarMode((v) => setBarPlace(v.mode));
-  }, []);
-  const pickBarPlace = (picked: Exclude<BarMode, 'off'>) => {
-    const before = barPlace;
-    const next = before === picked ? 'off' : picked;
-    setBarPlace(next);
-    setBarMode(next).catch((e: unknown) => {
-      setBarPlace(before);
-      setToast(String(e));
-    });
-  };
+  // its own menu or from the Window menu. Picking the place it's in turns it off (useBarPlace.ts).
+  const { barPlace, pickBarPlace } = useBarPlace(setToast);
 
-  // A link that came before this window could hear of it is asked for once it can.
-  useEffect(() => onReveal((r) => reveal.current(r), takeLink), [reveal, takeLink]);
-
-  // The link macOS opened, shown once the board has been read, as a click on one in a conversation
-  // shows it (SessionLink.tsx): its session among those this window's links name (`linkHost`),
-  // here or on your other devices, or its todo. It only ever shows something. A session that
-  // isn't listed may be on another of your devices, which this window reads after the board
-  // (useDevices.ts) and which may itself still be reading its sessions: it's looked for again as
-  // they come, and said to be missing only once they have, or haven't for a while.
-  useEffect(() => {
-    if (!openedLink || !board || board.loading) return;
-    const went = opened(openedLink, linkHost.sessions(), todoStore.todos);
-    if ('none' in went && went.awaits !== null && mayYetCome(went.awaits, devices)) {
-      linkWaits.current ||= Date.now() + DEVICES_WAIT_MS;
-      const left = linkWaits.current - Date.now();
-      if (left > 0) {
-        const again = window.setTimeout(() => setLinkWaited((n) => n + 1), left);
-        return () => window.clearTimeout(again);
-      }
-    }
-    linkWaits.current = 0;
-    setOpenedLink(null);
-    if ('session' in went) reveal.current({ kind: 'session', laneId: went.session.lane.id, key: went.session.session.key });
-    else if ('todo' in went) reveal.current({ kind: 'todo', id: went.todo.id });
-    else setToast(went.none);
-  }, [openedLink, board, devices, deviceLanes, linkWaited, reveal, setToast, todoStore.todos]);
-
+  // What's asked of this window from outside it (useRevealAsks.ts): what the bar, the quick panel
+  // or a card on the desktop asks it to show, and a link to a session or a todo clicked in another
+  // app, which macOS opens with Codealong: taken once this window hears what it's told to show,
+  // and whenever the app says there's one (`takeLink`).
+  const takeLink = useRevealAsks({ board, devices, deviceLanes, reveal, setToast, todoStore });
 
   useMainKeys({
     view,
@@ -2052,31 +1685,6 @@ export function App() {
   const prGroupActs = groupActsOf(groupsHas, false, toggleIn(setOpenPrGroups));
   const todoGroupActs = groupActsOf(groupsHas, false, toggleIn(setOpenTodoGroups));
   const scheduleGroupActs = groupActsOf(groupsHas, false, toggleIn(setOpenScheduleGroups));
-
-  // The Schedules view: the project's schedules, as the find narrows them, the one selected (the
-  // first, until one is picked), and what's done to them from its rows, panel and menus.
-  const sessionTitle = (key: string) => homes.get(key)?.session.title ?? null;
-  const scheduleDone = (what: Promise<unknown>) => void what.catch((e: unknown) => setToast(errorText(e)));
-  const runSchedule = (x: ScheduleItem) => scheduleDone(scheduleOp({ op: 'run', id: x.id }).then(() => setToast(`“${x.name}” runs in a few seconds.`)));
-  // A harness's schedule opens where it lives, by its link, else in its session.
-  const openHarness = (h: HarnessSchedule) => {
-    const p = h.session ? allHomes.get(h.session) : undefined;
-    if (h.link) scheduleDone(openHarnessLink(h.harness, h.link));
-    else if (p) open(p.lane, p.session.openTarget);
-  };
-  const pauseSchedule = (x: ScheduleItem, paused: boolean) => scheduleDone(scheduleOp({ op: 'pause', id: x.id, paused }));
-  const newSchedule = () => setScheduleEdit(blankSchedule(newScheduleFolder(board?.lanes ?? [], current, selectedLane, board?.pinnedWorktrees ?? [])));
-  const scheduleMenu = (x: ScheduleItem, at?: { x: number; y: number }) =>
-    void showContextMenu(
-      menus.scheduleMenu(x, {
-        report,
-        run: () => runSchedule(x),
-        edit: () => setScheduleEdit(scheduleOf(x)),
-        pause: (paused) => pauseSchedule(x, paused),
-        remove: () => scheduleDone(scheduleOp({ op: 'remove', id: x.id }).then(() => setToast(`Deleted “${x.name}”.`))),
-      }),
-      at,
-    ).catch((e: unknown) => setToast(String(e)));
 
   // The Board view with no board to show: nothing can be selected, so it has no panel.
   const boardless = (view === 'kanban' || view === 'canvas') && !shownBoard;
