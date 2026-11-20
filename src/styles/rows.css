@@ -7,6 +7,18 @@
    label low, with more room above it than below. */
 .ca-bay { display: flex; align-items: center; gap: 6px; height: 32px; padding: 0 var(--space-3); font: var(--type-label); letter-spacing: 0.08em; text-transform: uppercase; color: var(--ink-3); }
 .ca-bay--needs { color: var(--attn); }
+.ca-bay.is-folded { border-bottom: 1px solid var(--line); }
+.ca-bay-toggle { display: flex; align-items: center; gap: 6px; flex: 1 1 auto; min-width: 0; height: 100%; padding: 0; border: 0; background: none; font: inherit; letter-spacing: inherit; text-transform: inherit; color: inherit; cursor: pointer; text-align: left; }
+.ca-bay-toggle:hover { color: var(--ink-2); }
+.ca-bay--needs .ca-bay-toggle:hover { color: var(--attn); }
+.ca-bay-toggle:focus-visible { outline: 2px solid var(--focus); outline-offset: -2px; border-radius: var(--radius-sm); }
+.ca-bay-chevron { flex: none; opacity: 0.45; transition: opacity var(--dur-fast) ease-out; }
+.ca-bay-toggle:hover .ca-bay-chevron,
+.ca-bay-toggle:focus-visible .ca-bay-chevron,
+.ca-bay.is-folded .ca-bay-chevron { opacity: 0.9; }
+@media (prefers-reduced-motion: reduce) {
+  .ca-bay-chevron { transition: none; }
+}
 .ca-bay-count { font: var(--type-code-sm); letter-spacing: 0; font-variant-numeric: tabular-nums; }
 .ca-bay-action { margin-left: auto; font: var(--type-meta-strong); letter-spacing: 0; text-transform: none; color: var(--ink-3); }
 

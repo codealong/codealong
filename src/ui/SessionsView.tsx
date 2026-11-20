@@ -363,6 +363,10 @@ interface SessionsViewProps {
   archived: SessionItem[];
   showArchived: boolean;
   onToggleArchived: () => void;
+  /** Whether a section (`orchestrators`, `listening`, `pinned`, `pinnedGroups`, a status/day id,
+   *  or `archived`) is folded, and toggling it (sectionFolds.ts). */
+  sectionFolded?: (id: string) => boolean;
+  onToggleSection?: (id: string) => void;
   /** Todos a session is linked to, for its chip. */
   todosFor?: (sessionKey: string) => Todo[] | undefined;
   /** A session's helpers, for their chip on its row. */
@@ -400,7 +404,9 @@ interface SessionsViewProps {
 const NO_KEYS: ReadonlySet<string> = new Set();
 
 export function SessionsView(props: SessionsViewProps) {
-  const { orchestrators = [], listening, pinned, topHelpers, sections, groups, groupActs, sort, lines, now, selectedKey, picked, domId, onSelect, onPickThese, onOpen, onContextMenu, onPrMenu, onPrShow, onPrOpen, onPlacePinned, onUnpin, pinnedKeys, desktop, archived, showArchived, onToggleArchived, todosFor, helpersOf, helpersShown, onToggleHelpers, runsOf, onToggleRuns, sidesOf, sideGlancesOf, onToggleSides, onShowSide, helperActions, onShowTodo, onFilterLabel, saidOf, movedToOf, onShowSession } = props;
+  const { orchestrators = [], listening, pinned, topHelpers, sections, groups, groupActs, sort, lines, now, selectedKey, picked, domId, onSelect, onPickThese, onOpen, onContextMenu, onPrMenu, onPrShow, onPrOpen, onPlacePinned, onUnpin, pinnedKeys, desktop, archived, showArchived, onToggleArchived, sectionFolded, onToggleSection, todosFor, helpersOf, helpersShown, onToggleHelpers, runsOf, onToggleRuns, sidesOf, sideGlancesOf, onToggleSides, onShowSide, helperActions, onShowTodo, onFilterLabel, saidOf, movedToOf, onShowSession } = props;
+  const isFolded = (id: string) => (id === 'archived' ? !showArchived : !!sectionFolded?.(id));
+  const toggleSection = (id: string) => (id === 'archived' ? onToggleArchived : onToggleSection ? () => onToggleSection(id) : undefined);
   const shown = helpersShown ?? NO_KEYS;
   const allGroups = groups ? groupsOf(groups) : [];
   const listed = groups ? allGroups.flatMap((g) => g.rows) : sections.flatMap((s) => s.rows);
@@ -526,8 +532,8 @@ export function SessionsView(props: SessionsViewProps) {
         // called Orchestrator, so where several are listed (All projects) their rows' chips say
         // what each keeps watch over (LaneRow.tsx `PlaceChip`).
         <section className="ca-bayblock ca-orchestrators">
-          <SectionHeader icon="compass" label={orchestrators.length === 1 ? 'Orchestrator' : 'Orchestrators'} count={orchestrators.length} />
-          <div className="ca-bay-lanes">{orchestrators.map((r) => family(r, [], null, () => undefined, orchestrators.length === 1))}</div>
+          <SectionHeader icon="compass" label={orchestrators.length === 1 ? 'Orchestrator' : 'Orchestrators'} count={orchestrators.length} folded={isFolded('orchestrators')} onToggle={toggleSection('orchestrators')} />
+          {!isFolded('orchestrators') && <div className="ca-bay-lanes">{orchestrators.map((r) => family(r, [], null, () => undefined, orchestrators.length === 1))}</div>}
         </section>
       )}
       {listening.length > 0 && (
@@ -535,8 +541,8 @@ export function SessionsView(props: SessionsViewProps) {
         // the pins: it keeps its place here while it hears, and goes out of the window to the
         // desktop as any row does.
         <section className="ca-bayblock ca-listening">
-          <SectionHeader icon="microphone" label="Listening" count={listening.length} />
-          <div className="ca-bay-lanes">{listening.map((r) => family(r, topHelpers?.get(r.session.key) ?? [], null, listedRow))}</div>
+          <SectionHeader icon="microphone" label="Listening" count={listening.length} folded={isFolded('listening')} onToggle={toggleSection('listening')} />
+          {!isFolded('listening') && <div className="ca-bay-lanes">{listening.map((r) => family(r, topHelpers?.get(r.session.key) ?? [], null, listedRow))}</div>}
         </section>
       )}
       {listedCount > 0 && (
@@ -546,6 +552,8 @@ export function SessionsView(props: SessionsViewProps) {
           {pinned.length > 0 && (
             <PinnedSection
               items={pinned}
+              folded={isFolded('pinned')}
+              onToggle={toggleSection('pinned')}
               // Its helpers under it, not pinned themselves: they move with it.
               row={(r, i) => family(r, topHelpers?.get(r.session.key) ?? [], i, (x, at) => drag.rowProps(x.session.key, at, pinned.length))}
             />
@@ -555,40 +563,37 @@ export function SessionsView(props: SessionsViewProps) {
               {/* The first pinned group lands after the pinned sessions. */}
               {groups.pinned.length === 0 && groupDrag.dropIndex === 0 && <div className="ca-dropline" />}
               {groups.pinned.length > 0 && (
-                <PinnedGroups by={groups.by} count={groups.pinned.length} reorder>
+                <PinnedGroups by={groups.by} count={groups.pinned.length} reorder folded={isFolded('pinnedGroups')} onToggle={toggleSection('pinnedGroups')}>
                   {groups.pinned.map((g, i) => group(g, i, groupActs, groups.pinned.length))}
                 </PinnedGroups>
               )}
-              {groups.sections.map((s) => (
-                <section key={s.id} className="ca-bayblock">
-                  {s.bay ? <BayHeader bay={s.bay} count={s.count} action={pickFinished(s.bay, s.groups.flatMap((g) => g.rows))} /> : <SectionHeader icon={s.icon} label={s.label} count={s.count} />}
-                  <div className="ca-bay-lanes">{s.groups.map((g) => group(g, null, groupActs, groups.pinned.length))}</div>
-                </section>
-              ))}
+              {groups.sections.map((s) => {
+                const f = isFolded(s.id);
+                return (
+                  <section key={s.id} className="ca-bayblock">
+                    {s.bay ? <BayHeader bay={s.bay} count={s.count} action={f ? undefined : pickFinished(s.bay, s.groups.flatMap((g) => g.rows))} folded={f} onToggle={toggleSection(s.id)} /> : <SectionHeader icon={s.icon} label={s.label} count={s.count} folded={f} onToggle={toggleSection(s.id)} />}
+                    {!f && <div className="ca-bay-lanes">{s.groups.map((g) => group(g, null, groupActs, groups.pinned.length))}</div>}
+                  </section>
+                );
+              })}
             </>
           ) : (
-            sections.map((s) => (
-              <section key={s.id} className="ca-bayblock">
-                {s.bay ? <BayHeader bay={s.bay} count={s.rows.length} action={pickFinished(s.bay, s.rows)} /> : <SectionHeader icon={s.icon} label={s.label} count={s.rows.length} />}
-                <div className="ca-bay-lanes">{familiesOf(s.rows).map(({ head, kids }) => family(head, kids, null, listedRow))}</div>
-              </section>
-            ))
+            sections.map((s) => {
+              const f = isFolded(s.id);
+              return (
+                <section key={s.id} className="ca-bayblock">
+                  {s.bay ? <BayHeader bay={s.bay} count={s.rows.length} action={f ? undefined : pickFinished(s.bay, s.rows)} folded={f} onToggle={toggleSection(s.id)} /> : <SectionHeader icon={s.icon} label={s.label} count={s.rows.length} folded={f} onToggle={toggleSection(s.id)} />}
+                  {!f && <div className="ca-bay-lanes">{familiesOf(s.rows).map(({ head, kids }) => family(head, kids, null, listedRow))}</div>}
+                </section>
+              );
+            })
           )}
         </div>
       )}
       {archived.length > 0 && (
         <section className="ca-bayblock ca-archived">
-          <SectionHeader
-            icon="archive"
-            label="Archived"
-            count={archived.length}
-            hint={
-              <button type="button" className="ca-linkbtn" aria-expanded={showArchived} onClick={onToggleArchived}>
-                {showArchived ? 'Hide' : 'Show'}
-              </button>
-            }
-          />
-          {showArchived && <div className="ca-bay-lanes">{archived.map((r) => family(r, [], null, () => undefined))}</div>}
+          <SectionHeader icon="archive" label="Archived" count={archived.length} folded={isFolded('archived')} onToggle={toggleSection('archived')} />
+          {!isFolded('archived') && <div className="ca-bay-lanes">{archived.map((r) => family(r, [], null, () => undefined))}</div>}
         </section>
       )}
       {drag.ghost}

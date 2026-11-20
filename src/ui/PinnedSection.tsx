@@ -9,13 +9,15 @@ interface PinnedSectionProps<T> {
   items: T[];
   /** A pinned row, at its place among them. */
   row: (item: T, index: number) => ReactNode;
+  folded?: boolean;
+  onToggle?: () => void;
 }
 
-export function PinnedSection<T>({ items, row }: PinnedSectionProps<T>) {
+export function PinnedSection<T>({ items, row, folded, onToggle }: PinnedSectionProps<T>) {
   return (
     <section className="ca-bayblock ca-pinned">
-      <SectionHeader icon="pinned" label="Pinned" count={items.length} hint={<ReorderHint />} />
-      <div className="ca-bay-lanes">{items.map((item, index) => row(item, index))}</div>
+      <SectionHeader icon="pinned" label="Pinned" count={items.length} hint={folded ? undefined : <ReorderHint />} folded={folded} onToggle={onToggle} />
+      {!folded && <div className="ca-bay-lanes">{items.map((item, index) => row(item, index))}</div>}
     </section>
   );
 }

@@ -1083,26 +1083,40 @@ export function BranchLabel({ branch, ahead, behind, dirty }: { branch: string; 
   );
 }
 
-export function BayHeader({ bay, count, action }: { bay: Bay; count: number; action?: ReactNode }) {
+function BayLead({ folded, onToggle, children }: { folded?: boolean; onToggle?: () => void; children: ReactNode }) {
+  if (!onToggle) return <>{children}</>;
+  return (
+    <button type="button" className="ca-bay-toggle" aria-expanded={!folded} onClick={onToggle}>
+      <Icon name={folded ? 'chevron-right' : 'chevron-down'} size={12} className="ca-bay-chevron" />
+      {children}
+    </button>
+  );
+}
+
+export function BayHeader({ bay, count, action, folded, onToggle }: { bay: Bay; count: number; action?: ReactNode; folded?: boolean; onToggle?: () => void }) {
   const glyph: Partial<Record<Bay, Status>> = { needs: 'needs', working: 'working', unread: 'unread', idle: 'idle' };
   const g = glyph[bay];
   return (
-    <div className={cx('ca-bay', `ca-bay--${bay}`)} role="heading" aria-level={3}>
-      {g ? <StatusGlyph status={g} size={10} title="" /> : <Icon name={bay === 'merged' ? 'merge' : 'pr'} size={12} />}
-      <span>{BAY_WORD[bay]}</span>
-      <span className="ca-bay-count">{count}</span>
+    <div className={cx('ca-bay', `ca-bay--${bay}`, folded && 'is-folded')} role="heading" aria-level={3}>
+      <BayLead folded={folded} onToggle={onToggle}>
+        {g ? <StatusGlyph status={g} size={10} title="" /> : <Icon name={bay === 'merged' ? 'merge' : 'pr'} size={12} />}
+        <span>{BAY_WORD[bay]}</span>
+        <span className="ca-bay-count">{count}</span>
+      </BayLead>
       {action && <span className="ca-bay-action">{action}</span>}
     </div>
   );
 }
 
 /** A section that isn't a bay: Pinned, the days in Sessions, Archived. */
-export function SectionHeader({ icon, label, count, hint }: { icon?: string; label: string; count: number; hint?: ReactNode }) {
+export function SectionHeader({ icon, label, count, hint, folded, onToggle }: { icon?: string; label: string; count: number; hint?: ReactNode; folded?: boolean; onToggle?: () => void }) {
   return (
-    <div className="ca-bay ca-bay--section" role="heading" aria-level={3}>
-      {icon && <Icon name={icon} size={12} />}
-      <span>{label}</span>
-      <span className="ca-bay-count">{count}</span>
+    <div className={cx('ca-bay ca-bay--section', folded && 'is-folded')} role="heading" aria-level={3}>
+      <BayLead folded={folded} onToggle={onToggle}>
+        {icon && <Icon name={icon} size={12} />}
+        <span>{label}</span>
+        <span className="ca-bay-count">{count}</span>
+      </BayLead>
       {hint && <span className="ca-bay-action ca-bay-hint">{hint}</span>}
     </div>
   );
