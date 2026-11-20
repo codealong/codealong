@@ -105,10 +105,16 @@ export function headItem(lane: Lane): LaneItem {
   return { kind: 'lane', key: lane.id, lane };
 }
 
+/** A group's rows as the keyboard goes through them: its worktree heading, then its sessions.
+ *  A repo's heading isn't a row. */
+export function groupHeadRows(g: SessionGroup): (SessionItem | LaneItem)[] {
+  return g.lane ? [headItem(g.lane), ...g.rows] : g.rows;
+}
+
 /** The grouped list's rows top to bottom, as the keyboard goes through them: each worktree's
  *  heading, then its sessions. A repo's heading isn't a row. */
 export function groupedRows(g: GroupedSessions): (SessionItem | LaneItem)[] {
-  return groupsOf(g).flatMap((x): (SessionItem | LaneItem)[] => (x.lane ? [headItem(x.lane), ...x.rows] : x.rows));
+  return groupsOf(g).flatMap(groupHeadRows);
 }
 
 /** A heading in the list and the sessions under it. The ones for what wants you or is running
@@ -361,12 +367,12 @@ interface SessionsViewProps {
   desktop: (row: SessionItem) => DesktopPinned | null;
   /** Archived sessions, listed under a fold at the end. */
   archived: SessionItem[];
-  showArchived: boolean;
-  onToggleArchived: () => void;
   /** Whether a section (`orchestrators`, `listening`, `pinned`, `pinnedGroups`, a status/day id,
-   *  or `archived`) is folded, and toggling it (sectionFolds.ts). */
+   *  or `archived`) is folded, toggling it, and whether a search is active (active sections stay
+   *  open and non-toggleable while searching; Archived still toggles). */
   sectionFolded?: (id: string) => boolean;
   onToggleSection?: (id: string) => void;
+  searching?: boolean;
   /** Todos a session is linked to, for its chip. */
   todosFor?: (sessionKey: string) => Todo[] | undefined;
   /** A session's helpers, for their chip on its row. */
@@ -404,9 +410,9 @@ interface SessionsViewProps {
 const NO_KEYS: ReadonlySet<string> = new Set();
 
 export function SessionsView(props: SessionsViewProps) {
-  const { orchestrators = [], listening, pinned, topHelpers, sections, groups, groupActs, sort, lines, now, selectedKey, picked, domId, onSelect, onPickThese, onOpen, onContextMenu, onPrMenu, onPrShow, onPrOpen, onPlacePinned, onUnpin, pinnedKeys, desktop, archived, showArchived, onToggleArchived, sectionFolded, onToggleSection, todosFor, helpersOf, helpersShown, onToggleHelpers, runsOf, onToggleRuns, sidesOf, sideGlancesOf, onToggleSides, onShowSide, helperActions, onShowTodo, onFilterLabel, saidOf, movedToOf, onShowSession } = props;
-  const isFolded = (id: string) => (id === 'archived' ? !showArchived : !!sectionFolded?.(id));
-  const toggleSection = (id: string) => (id === 'archived' ? onToggleArchived : onToggleSection ? () => onToggleSection(id) : undefined);
+  const { orchestrators = [], listening, pinned, topHelpers, sections, groups, groupActs, sort, lines, now, selectedKey, picked, domId, onSelect, onPickThese, onOpen, onContextMenu, onPrMenu, onPrShow, onPrOpen, onPlacePinned, onUnpin, pinnedKeys, desktop, archived, sectionFolded, onToggleSection, searching = false, todosFor, helpersOf, helpersShown, onToggleHelpers, runsOf, onToggleRuns, sidesOf, sideGlancesOf, onToggleSides, onShowSide, helperActions, onShowTodo, onFilterLabel, saidOf, movedToOf, onShowSession } = props;
+  const isFolded = (id: string) => !!sectionFolded?.(id);
+  const toggleSection = (id: string) => (onToggleSection && (!searching || id === 'archived') ? () => onToggleSection(id) : undefined);
   const shown = helpersShown ?? NO_KEYS;
   const allGroups = groups ? groupsOf(groups) : [];
   const listed = groups ? allGroups.flatMap((g) => g.rows) : sections.flatMap((s) => s.rows);

@@ -122,7 +122,7 @@ View). On one line, as it starts, a row is its title, then its status, worktree 
 the line's end, and its status says its account when you point at it. A snoozed session's row says how long until it's
 back, and a quiet one's says Quiet. Here letters alone do nothing, so a word typed on the list by
 mistake doesn't pin, archive or rename: the keys are the chords, and they work from the panel's box
-too. Sessions are pinned here, with ⌃⌘P or the right-click menu, and their pins show only here.
+too. Sessions are pinned here, with ⌃⌘P or the right-click menu, and their pins show only here. Clicking any section heading (Orchestrators, Listening, Pinned, Needs you, Your turn, Working, Snoozed, each day, or Archived) folds or opens its rows; ambient sections (Orchestrators, Pinned, Pinned worktrees/repos, Working, Snoozed) stay folded across launches, while urgent sections and day headings start open and Archived starts folded. Searching temporarily opens folded active sections so matches aren't hidden, and jumping to a session or worktree opens its section.
 
 #### Grouped by worktree or repo
 

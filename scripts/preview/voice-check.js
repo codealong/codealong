@@ -134,7 +134,7 @@
     .then(function () {
       check('a session that listens wears a chip on its row', !!q('.ca-listeningchip', row(0)) && !q('.ca-listeningchip', row(1)));
       var first = q('.ca-board-list .ca-bayblock');
-      check('and it leads Sessions, under Listening, pinned as it is', !!first && first.classList.contains('ca-listening') && first.contains(row(0)) && !first.contains(row(1)) && q('.ca-bay--section > span', first).textContent === 'Listening' && !(q('.ca-pinned') && q('.ca-pinned').contains(row(0))), first ? first.textContent.slice(0, 60) : 'no section');
+      check('and it leads Sessions, under Listening, pinned as it is', !!first && first.classList.contains('ca-listening') && first.contains(row(0)) && !first.contains(row(1)) && q('.ca-bay--section span', first).textContent === 'Listening' && !(q('.ca-pinned') && q('.ca-pinned').contains(row(0))), first ? first.textContent.slice(0, 60) : 'no section');
       // Out of the window to the desktop, it leaves the pins as one under Pinned does.
       var r = row(0).getBoundingClientRect();
       var press = function (target, type, x, y) { target.dispatchEvent(new PointerEvent(type, { bubbles: true, cancelable: true, button: 0, buttons: type === 'pointerup' ? 0 : 1, clientX: x, clientY: y, pointerId: 1, isPrimary: true, pointerType: 'mouse' })); };

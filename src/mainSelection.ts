@@ -17,6 +17,9 @@ export interface SelectionHas {
   prRows: readonly PrRowItem[];
   /** The session shown in Sessions as you moved it, while it's the one selected. */
   held: SessionItem | undefined;
+  /** Active sessions in Sessions, including those in folded sections: folding the section holding
+   *  the selected session keeps it in the panel until another row is picked. */
+  foldedSessions?: readonly SessionItem[];
   /** In Sessions, the worktree selected by its id, whether the list has its heading or not. */
   chosenLane: LaneItem | undefined;
 }
@@ -39,7 +42,11 @@ export function selectedRow(view: View, selectedKey: string | null, visible: rea
       ? has.todoItems.find((r) => r.key === selectedKey)
       : view === 'prs'
         ? has.prRows.find((r) => r.key === selectedKey)
-        : (visible.find((r) => r.kind === 'agent' && r.session.key === selectedSessionKey) ?? has.held ?? has.chosenLane ?? visible.find((r) => r.kind !== 'pr' && r.kind !== 'todo' && r.lane.id === selectedLaneId))) ??
+        : (visible.find((r) => r.kind === 'agent' && r.session.key === selectedSessionKey) ??
+          has.foldedSessions?.find((r) => r.key === selectedKey || r.session.key === selectedSessionKey) ??
+          has.held ??
+          has.chosenLane ??
+          visible.find((r) => r.kind !== 'pr' && r.kind !== 'todo' && r.lane.id === selectedLaneId))) ??
     visible.find((r) => r.kind === 'agent') ??
     visible[0] ??
     null

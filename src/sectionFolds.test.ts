@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { hasSessionSections, isSectionFolded, PERSISTED_SECTION_FOLDS, sectionOfRow, sectionOfSession, toggleFoldList, unfoldList, visibleSessionRows, type SessionSectionParts } from './sectionFolds';
+import { activeSessionRows, hasSessionSections, isSectionFolded, PERSISTED_SECTION_FOLDS, sectionOfRow, toggleFoldList, unfoldList, visibleSessionRows, type SessionSectionParts } from './sectionFolds';
 import { lane as makeLane, NOW, session as makeSession } from './testing/fixtures';
 import { groupSessions, sessionSections, type SessionItem } from './ui/SessionsView';
 
@@ -30,11 +30,12 @@ describe('sectionFolds', () => {
     }
   });
 
-  it('toggles and unfolds lists without duplicates', () => {
+  it('toggles and unfolds lists without duplicates, keeping the same array when absent', () => {
     expect(toggleFoldList([], 'working')).toEqual(['working']);
     expect(toggleFoldList(['working', 'snoozed'], 'working')).toEqual(['snoozed']);
     expect(unfoldList(['working', 'snoozed'], 'working')).toEqual(['snoozed']);
-    expect(unfoldList(['snoozed'], 'working')).toEqual(['snoozed']);
+    const kept = ['snoozed'];
+    expect(unfoldList(kept, 'working')).toBe(kept);
   });
 
   it('omits rows from folded sections in visibleSessionRows while keeping hasSessionSections true', () => {
@@ -63,6 +64,9 @@ describe('sectionFolds', () => {
     const someFolded = visibleSessionRows(parts, (id) => isSectionFolded(id, folded, false, false));
     expect(someFolded.map((r) => r.key)).toEqual([needs.key]);
 
+    // activeSessionRows keeps all active sessions regardless of folds, excluding archived.
+    expect(activeSessionRows(parts).map((r) => r.key)).toEqual([orch.key, pin.key, pinHelper.key, needs.key, work.key]);
+
     // Folding every active section leaves no visible rows, yet still reports sections exist.
     const allFolded = visibleSessionRows(parts, () => true);
     expect(allFolded).toEqual([]);
@@ -71,6 +75,33 @@ describe('sectionFolds', () => {
     // Opening archived adds archived rows at the end.
     const withArchived = visibleSessionRows(parts, (id) => isSectionFolded(id, folded, true, false));
     expect(withArchived.map((r) => r.key)).toEqual([needs.key, arch.key]);
+  });
+
+  it('skips folded pinnedGroups and sections in grouped visibleSessionRows, with worktree headings as rows', () => {
+    const needs = item('needs', { status: 'needs' }, 'lane-a');
+    const work = item('work', { status: 'working' }, 'lane-b');
+    const sections = sessionSections([needs, work], 'status', NOW);
+    const groups = groupSessions(sections, 'worktree', {
+      pinned: ['lane-a'],
+      lanes: [needs.lane, work.lane],
+      empty: false,
+      opened: new Set(),
+      whole: false,
+    });
+    const parts: SessionSectionParts = {
+      orchestrators: [],
+      listening: [],
+      pinned: [],
+      topHelpers: new Map(),
+      sections,
+      groups,
+      archived: [],
+    };
+
+    expect(visibleSessionRows(parts, () => false).map((r) => r.key)).toEqual(['lane-a', needs.key, 'lane-b', work.key]);
+    expect(visibleSessionRows(parts, (id) => id === 'pinnedGroups').map((r) => r.key)).toEqual(['lane-b', work.key]);
+    expect(visibleSessionRows(parts, (id) => id === 'working').map((r) => r.key)).toEqual(['lane-a', needs.key]);
+    expect(activeSessionRows(parts).map((r) => r.key)).toEqual([needs.key, work.key]);
   });
 
   it('finds the section of any row, both flat and grouped', () => {
@@ -109,21 +140,5 @@ describe('sectionFolds', () => {
     expect(sectionOfRow('lane-a', grouped)).toBe('pinnedGroups');
     expect(sectionOfRow(work.key, grouped)).toBe('working');
     expect(sectionOfRow('lane-b', grouped)).toBe('working');
-  });
-
-  it('determines sectionOfSession for reveal even before the row is listed', () => {
-    const opts = { pinnedKeys: new Set(['pin']), sort: 'status' as const, started: 'apart' as const, group: 'none' as const, groupPins: [] as string[], now: NOW };
-    const pin = item('pin', { status: 'idle' });
-    const helperOfPin = item('pin-h', { status: 'working', helper: { parent: 'pin' } });
-    const work = item('work', { status: 'working' });
-    const arch = item('arch', { archived: true });
-    const orch = item('orch', { orchestrator: { schedule: 's1' } });
-    const all = [pin, helperOfPin, work, arch, orch];
-
-    expect(sectionOfSession(arch, all, opts)).toBe('archived');
-    expect(sectionOfSession(orch, all, opts)).toBe('orchestrators');
-    expect(sectionOfSession(pin, all, opts)).toBe('pinned');
-    expect(sectionOfSession(helperOfPin, all, opts)).toBe('pinned');
-    expect(sectionOfSession(work, all, opts)).toBe('working');
   });
 });

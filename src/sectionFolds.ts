@@ -3,16 +3,13 @@
 // Ambient sections (`PERSISTED_SECTION_FOLDS`) remember their state across launches via stored.ts;
 // urgent sections (Needs you, Your turn, Listening) and rotating day buckets start open each
 // launch; Archived starts folded each launch (`showArchived`). While a search query is active,
-// folded active sections open temporarily so matching rows are never hidden; Archived stays
-// folded until opened or revealed.
+// folded active sections open temporarily and can't be toggled so matching rows are never hidden;
+// Archived stays controlled by `showArchived`.
 
 import { useCallback, useMemo, useState } from 'react';
-import { hearingShows } from './listening';
-import { listedUnder } from './lanes';
 import { strings, useStored } from './stored';
 import type { ListRow } from './boardLists';
-import { groupKeyOf, sessionSections, type GroupedSessions, type SessionGroupBy, type SessionItem, type SessionSection, type SessionSort, type StartedPlace } from './ui/SessionsView';
-import { headItem } from './ui/SessionsView';
+import { groupHeadRows, type GroupedSessions, type SessionItem, type SessionSection } from './ui/SessionsView';
 
 export const SESSION_FOLDS_KEY = 'codealong.sessionFolds';
 
@@ -45,22 +42,20 @@ export function toggleFoldList(list: readonly string[], id: string): string[] {
 }
 
 /** Removes `id` from a stored list of folded section IDs, keeping the same array when absent. */
-export function unfoldList(list: readonly string[], id: string): string[] {
-  return list.includes(id) ? list.filter((x) => x !== id) : [...list];
+export function unfoldList(list: string[], id: string): string[] {
+  return list.includes(id) ? list.filter((x) => x !== id) : list;
 }
 
 const withTopHelpers = (rows: readonly SessionItem[], topHelpers: ReadonlyMap<string, readonly SessionItem[]>): SessionItem[] =>
   rows.flatMap((r) => [r, ...(topHelpers.get(r.session.key) ?? [])]);
-
-const groupListRows = (g: GroupedSessions['pinned'][number]): ListRow[] => (g.lane ? [headItem(g.lane), ...g.rows] : g.rows);
 
 /** The Sessions list's visible rows top to bottom, skipping any section that's folded. */
 export function visibleSessionRows(parts: SessionSectionParts, folded: (id: string) => boolean): ListRow[] {
   const { orchestrators, listening, pinned, topHelpers, sections, groups, archived } = parts;
   const body: ListRow[] = groups
     ? [
-        ...(folded('pinnedGroups') ? [] : groups.pinned.flatMap(groupListRows)),
-        ...groups.sections.flatMap((s) => (folded(s.id) ? [] : s.groups.flatMap(groupListRows))),
+        ...(folded('pinnedGroups') ? [] : groups.pinned.flatMap(groupHeadRows)),
+        ...groups.sections.flatMap((s) => (folded(s.id) ? [] : s.groups.flatMap(groupHeadRows))),
       ]
     : sections.flatMap((s) => (folded(s.id) ? [] : s.rows));
   return [
@@ -70,6 +65,14 @@ export function visibleSessionRows(parts: SessionSectionParts, folded: (id: stri
     ...body,
     ...(folded('archived') ? [] : archived),
   ];
+}
+
+/** Every active (non-archived) session in `parts`, folded or not: keeps a selected session in the
+ *  panel when the user folds its section (mainSelection.ts `selectedRow`). */
+export function activeSessionRows(parts: SessionSectionParts): SessionItem[] {
+  const { orchestrators, listening, pinned, topHelpers, sections, groups } = parts;
+  const body = groups ? [...groups.pinned.flatMap((g) => g.all), ...groups.sections.flatMap((s) => s.groups.flatMap((g) => g.all))] : sections.flatMap((s) => s.rows);
+  return [...orchestrators, ...withTopHelpers(listening, topHelpers), ...withTopHelpers(pinned, topHelpers), ...body];
 }
 
 /** Whether the Sessions view has any section to show (even if every section is folded), so the
@@ -102,33 +105,6 @@ export function sectionOfRow(key: string, parts: SessionSectionParts): string | 
   return null;
 }
 
-/** Which section `item` will land in, even before filters or age widen to list it (for `reveal`). */
-export function sectionOfSession(
-  item: SessionItem,
-  all: readonly SessionItem[],
-  o: { pinnedKeys: ReadonlySet<string>; sort: SessionSort; started: StartedPlace; group: SessionGroupBy; groupPins: readonly string[]; now: number },
-): string {
-  if (item.session.archived) return 'archived';
-  if (item.session.orchestrator) return 'orchestrators';
-  if (item.session.listening && hearingShows(item.session.status)) return 'listening';
-  if (o.pinnedKeys.has(item.session.key)) return 'pinned';
-  // Walk up to the session this one is listed under (if any), since nested rows share its section.
-  const byKey = new Map(all.map((r) => [r.session.key, r]));
-  let root = item;
-  const seen = new Set<string>([item.session.key]);
-  for (;;) {
-    const up = listedUnder(root.session, o.started === 'under');
-    const parent = up ? byKey.get(up) : undefined;
-    if (!parent || seen.has(parent.session.key)) break;
-    seen.add(parent.session.key);
-    root = parent;
-    if (root.session.listening && hearingShows(root.session.status)) return 'listening';
-    if (o.pinnedKeys.has(root.session.key)) return 'pinned';
-  }
-  if (o.group !== 'none' && o.groupPins.includes(groupKeyOf(root.lane, o.group))) return 'pinnedGroups';
-  return sessionSections([root], o.sort, o.now, o.started)[0]?.id ?? 'needs';
-}
-
 export interface SectionFolds {
   showArchived: boolean;
   setShowArchived: (show: boolean) => void;
@@ -156,6 +132,8 @@ export function useSectionFolds(searching: boolean): SectionFolds {
     (id: string) => {
       if (id === 'archived') {
         setShowArchived((s) => !s);
+      } else if (searching) {
+        return;
       } else if (PERSISTED_SECTION_FOLDS.has(id)) {
         setPersisted((prev) => toggleFoldList(prev, id));
       } else {
@@ -166,7 +144,7 @@ export function useSectionFolds(searching: boolean): SectionFolds {
         });
       }
     },
-    [setPersisted],
+    [searching, setPersisted],
   );
 
   const unfold = useCallback(
@@ -174,7 +152,7 @@ export function useSectionFolds(searching: boolean): SectionFolds {
       if (id === 'archived') {
         setShowArchived(true);
       } else if (PERSISTED_SECTION_FOLDS.has(id)) {
-        setPersisted((prev) => (prev.includes(id) ? unfoldList(prev, id) : prev));
+        setPersisted((prev) => unfoldList(prev, id));
       } else {
         setEphemeral((prev) => {
           if (!prev.has(id)) return prev;
