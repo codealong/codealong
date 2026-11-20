@@ -231,6 +231,13 @@ case "$1 $2" in
       *"mergeQueue(branch"*) [ -f "$f/no-queue" ] || echo Q_1 ;;
       *REMOVED_FROM_MERGE_QUEUE_EVENT*) echo FAILED_CHECKS ;;
       *mergeQueueEntry*)
+        # A pull request that merged stays merged, whoever asks after.
+        number="\${all##*number=}"
+        number="\${number%% *}"
+        if [ -f "$f/merged.$number" ]; then
+          cat "$f/merged.$number"
+          exit 0
+        fi
         at="$(git --git-dir="$f/origin.git" rev-parse -q --verify "refs/heads/$(cat "$f/head")" || cat "$f/at")"
         echo "$at" >"$f/at"
         if [ ! -f "$f/asked" ]; then
@@ -255,7 +262,7 @@ case "$1 $2" in
             GIT_COMMITTER_NAME=queue git cherry-pick "main..origin/$branch" >/dev/null &&
             git push -q origin main ":$branch" || exit 1
           rm -f "$f/pr" "$f/asked"
-          echo "MERGED - $(git rev-parse HEAD) SUCCESS - $at"
+          echo "MERGED - $(git rev-parse HEAD) SUCCESS - $at" | tee "$f/merged.$number"
         fi
         ;;
     esac
@@ -333,8 +340,9 @@ echo "checked: $(scripts/land.sh --check 2>&1 | tail -1 | commits)"
 echo "origin's branches after: $(onorigin)"
 # Queued and left: GitHub lands it with nobody waiting, and asking again says so and catches up.
 echo "queued and left: $(scripts/land.sh --no-wait 2>&1 | head -1 | commits)"
-gh api graphql mergeQueueEntry >/dev/null
-gh api graphql mergeQueueEntry >/dev/null
+echo "asked again, still queued: $(scripts/land.sh --no-wait 2>&1 | head -1 | commits)"
+gh api graphql mergeQueueEntry number=9 >/dev/null
+gh api graphql mergeQueueEntry number=9 >/dev/null
 echo "asked again: $(scripts/land.sh 2>&1 | landed)"
 [ "$(git rev-parse HEAD)" = "$(git rev-parse origin/main)" ] && echo "and this branch is where main is"
 # Put out before anyone saw it in the queue: still said, not waited on for ever.
@@ -349,14 +357,20 @@ touch "$tmp/moved"
 scripts/land.sh >"$tmp/out" 2>&1
 echo "its branch moved under it: $? $(grep -c "no longer this landing's" "$tmp/out")"
 rm "$tmp/moved"
-# Another landing of this branch under way here.
-sleep 300 &
+# Another landing of this branch under way here: its turn is held, as the script holds it.
+python3 -c 'import fcntl, os, sys, time
+held = os.open(sys.argv[1], os.O_RDWR | os.O_CREAT, 0o644)
+fcntl.flock(held, fcntl.LOCK_EX)
+os.ftruncate(held, 0)
+os.write(held, b"pid 4242")
+open(sys.argv[1] + ".taken", "w").close()
+time.sleep(300)' "$tmp/main/.git/codealong-landing/mine.turn" &
 other=$!
-mkdir -p "$tmp/main/.git/codealong-landing"
-echo "$other" >"$tmp/main/.git/codealong-landing/mine"
+until [ -e "$tmp/main/.git/codealong-landing/mine.turn.taken" ]; do sleep 0.1; done
 scripts/land.sh >"$tmp/out" 2>&1
-echo "while another landing of it runs: $? $(grep -c 'Another landing of mine is under way' "$tmp/out")"
+echo "while another landing of it runs: $? $(grep -c 'Another landing of mine is under way here (pid 4242)' "$tmp/out")"
 kill "$other"
+wait "$other" 2>/dev/null
 # Without main's merge queue, asking GitHub to merge would merge unchecked.
 touch "$tmp/no-queue"
 scripts/land.sh >"$tmp/out" 2>&1
@@ -388,7 +402,8 @@ test('a landing rebases onto a main that moved, queues its pull request, and bri
     'checked: Checked, not landed: <commit> passed CI (https://github.com/acme/northwind/actions/runs/55).',
     "origin's branches after: main theirs ",
     "queued and left: Queued: pull request #9 (https://github.com/acme/northwind/pull/9) lands <commit> when main's merge queue has checked it.",
-    "asked again: Nothing to land: origin/main (<commit>) already has this branch's commits. Fast-forwarded the main checkout to origin/main (<commit>).",
+    "asked again, still queued: Queued still: pull request #9 (https://github.com/acme/northwind/pull/9) lands <commit> when main's merge queue has checked it.",
+    'asked again: Landed: <commit> is in origin/main. Fast-forwarded the main checkout to origin/main (<commit>).',
     'and this branch is where main is',
     'put out unseen: 1 1',
     'its branch moved under it: 1 1',

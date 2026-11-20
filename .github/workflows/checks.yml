@@ -9,8 +9,11 @@
 # a time and, while it does, only one of the runs waiting stays (GitHub keeps the last to
 # arrive, which needn't be the latest push's). So a run on main checks main as it is when the
 # run starts, not the commit that started it: however fast changes land, each run covers
-# everything landed by then, and a failure names the stretch since the last run that passed. A
-# red run is somebody's (scripts/watch-main.sh, docs/development.md, *Keeping main working*).
+# everything landed by then, and a failure names the stretch since the last run that passed.
+# GitHub lists a run under the commit that started it, so each says which commit it checked
+# in an artifact's name (`tested-<commit>`), which is what the next run's plan and a release
+# go by. A red run is somebody's (scripts/watch-main.sh, docs/development.md, *Keeping main
+# working*).
 #
 # To have them on a branch before it lands: `gh workflow run checks.yml --ref <branch>`. A pull
 # request that changes this file runs them too, to see they still run.
@@ -54,15 +57,27 @@ jobs:
           # Main as it is now, for a run on main; the commit asked for otherwise.
           ref: ${{ (github.event_name == 'push' || github.event_name == 'schedule') && 'main' || '' }}
       - id: plan
+        # bash as GitHub runs it when it's named: a planner that fails fails this step, where
+        # the default would take the last command of its pipe, which is tr, for how it went.
+        shell: bash
         env:
           EVENT: ${{ github.event_name }}
           GH_TOKEN: ${{ github.token }}
         run: |
           # Every job after this checks this commit, whatever lands while they run.
           echo "commit=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+          echo "Checking $(git rev-parse HEAD)."
+          mkdir -p "$RUNNER_TEMP/tested"
+          git rev-parse HEAD > "$RUNNER_TEMP/tested/commit"
           checks=true
           if [ "$EVENT" = push ]; then
-            passed="$(gh run list --workflow checks.yml --branch main --status success --limit 1 --json headSha --jq '.[0].headSha // empty' || true)"
+            # The last run on main that passed, and the commit it says it checked.
+            run="$(gh run list --workflow checks.yml --branch main --status success --limit 1 --json databaseId --jq '.[0].databaseId // empty' || true)"
+            passed=""
+            if [ -n "$run" ]; then
+              passed="$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$run/artifacts" --jq '[.artifacts[].name | select(startswith("tested-"))][0] // empty' || true)"
+              passed="${passed#tested-}"
+            fi
             if [ -n "$passed" ] && git fetch -q --no-tags --depth=1 origin "$passed"; then
               git diff --no-renames --name-only -z "$passed" HEAD > "$RUNNER_TEMP/changed"
               echo "Since the last run that passed ($passed):"
@@ -76,6 +91,11 @@ jobs:
           fi
           echo "The browser checks: $checks"
           echo "checks=$checks" >> "$GITHUB_OUTPUT"
+      - uses: actions/upload-artifact@v7
+        with:
+          name: tested-${{ steps.plan.outputs.commit }}
+          path: ${{ runner.temp }}/tested/commit
+          retention-days: 30
 
   # The engine the checks run: a debug build, made once for all their sets and kept for as long
   # as src-tauri is what it was built from (scripts/engine.sh goes by the same) and how it's

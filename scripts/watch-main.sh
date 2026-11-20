@@ -22,14 +22,19 @@
 # a failed run emailed whoever last changed the workflow, and main stayed red until they read
 # it: eight hours on 2026-11-18, with 83 commits landed on top.
 #
-# Asked workflow by workflow and way of failing by way of failing, the last few of each: a
-# list of every run on main is mostly the queue's own pushes, and a browser run that took an
-# hour to fail would be past its end by the time it did.
+#
+# Asked a workflow, a way of starting and a way of failing at a time, the last ten of each: a
+# list of every run on main is mostly the queue's own pushes and runs started by hand, and a
+# browser run that took an hour to fail would be past its end by the time it did. A browser
+# run checks main as it was when the run started, which its plan says and needn't be the
+# commit it's listed under.
 set -euo pipefail
 for workflow in ci.yml checks.yml; do
-  for how in failure timed_out startup_failure; do
-    gh run list --workflow "$workflow" --branch main --status "$how" --limit 5 \
-      --json databaseId,headSha,url,createdAt,conclusion,event,workflowName \
-      --jq '.[] | select(.event == "push" or .event == "schedule") | {id: (.databaseId | tostring), title: (.workflowName + " failed on main at " + .headSha[0:8]), url: .url, text: ("Run " + (.databaseId | tostring) + " of " + .workflowName + " (" + .conclusion + ", " + .event + "), started " + .createdAt + ", at commit " + .headSha)}'
+  for event in push schedule; do
+    for how in failure timed_out startup_failure; do
+      gh run list --workflow "$workflow" --branch main --event "$event" --status "$how" --limit 10 \
+        --json databaseId,headSha,url,createdAt,conclusion,event,workflowName \
+        --jq '.[] | {id: (.databaseId | tostring), title: (.workflowName + " failed on main at " + .headSha[0:8]), url: .url, text: ("Run " + (.databaseId | tostring) + " of " + .workflowName + " (" + .conclusion + ", " + .event + "), started " + .createdAt + " by commit " + .headSha)}'
+    done
   done
 done

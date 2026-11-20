@@ -31,7 +31,8 @@ git describe --tags --abbrev=0 origin/main          # the last version tag
 gh release list -R codealong/codealong --limit 5     # drafts waiting, the latest published
 git rev-parse origin/main                            # the commit the release will tag
 gh run list -R codealong/codealong --workflow ci.yml --commit "$(git rev-parse origin/main)" --json event,status,conclusion,url   # CI's runs on that commit
-gh run list -R codealong/codealong --workflow checks.yml --branch main --limit 3 --json headSha,event,status,conclusion,url      # the browser checks' last runs on main
+gh run list -R codealong/codealong --workflow checks.yml --branch main --limit 3 --json databaseId,event,status,conclusion,url   # the browser checks' last runs on main
+gh api repos/codealong/codealong/actions/runs/<a run's id>/artifacts --jq '.artifacts[].name'   # tested-<commit>: the commit that run checked
 ```
 
 Say what's there: the last release and whether it's published, any draft still waiting (a draft
@@ -44,11 +45,13 @@ and the engine's on macOS and Linux) it has to pass, so the commit being release
 that passed, its `merge_group` one, unless it got there another way, as the last release's
 version commit did. The queue's own `push` run on a commit checks nothing and says nothing of
 it. The browser checks (`checks.yml`) run on `main` after what lands, a run covering everything
-landed when it started, so the last one may be of an older commit, or still going.
+landed when it started, so the last one may be of an older commit, or still going. The commit
+a run checked is in the name of its `tested-<commit>` artifact, not the commit it's listed
+under, which is only the push that started it.
 
 A release needs both to have passed on the commit it's made from: a run of CI that ran the
 checks (a `merge_group`, `workflow_dispatch` or `schedule` one), and a run of the browser
-checks whose `headSha` is that commit. Start the one that's missing (`gh workflow run ci.yml
+checks that checked that commit. Start the one that's missing (`gh workflow run ci.yml
 -R codealong/codealong --ref main`, the same for `checks.yml`; each prints its link, which
 ends in its id), and wait for it, or for one still going, in the background (`gh run watch <id>
 -R codealong/codealong --exit-status`) while you write the notes. One that fails is fixed and
