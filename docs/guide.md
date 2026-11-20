@@ -4755,13 +4755,14 @@ Code's background service, say) and whose session still hasn't shown up ten minu
 to its session too, once: its start likely failed before it made one (a worktree its repo's hook
 couldn't make, say), and the agent that started it can start that part again or tell you.
 
-A helper's message to the session that started it (`codealong session send`) isn't held for
-you to allow when that session is a Claude Code one that skips permission prompts: it's work the
-session asked for, and would read anyway. That holds only when the start said which session it
-made, as one in Codealong, in Claude Code's background service or in Claude Code in a terminal
-does; a helper found afterwards as the next session in its worktree (Codex, OpenCode or
-Antigravity started in a terminal) could be another session started about then, so its message
-is held as any agent's is. Such a start takes the next session of its account in its worktree for
+A helper's message to the session that started it (`codealong session send`), and that session's
+messages to its helper, aren't held for you to allow when the receiver is a Claude Code one that
+skips permission prompts: the helper's replies are work its session asked for and would read
+anyway, and the parent already wrote the helper's opening prompt. That holds only when the start
+said which session it made, as one in Codealong, in Claude Code's background service or in Claude
+Code in a terminal does; a helper found afterwards as the next session in its worktree (Codex,
+OpenCode or Antigravity started in a terminal) could be another session started about then, so
+messages between them are held as any agent's are. Such a start takes the next session of its account in its worktree for
 half an hour, and after that, for up to a day, only one that opens with the prompt it was started
 with and whose process began as the start did (or, its process gone, that began then itself, as
 one found only once the app is opened again): a terminal UI can stop on a screen of its own

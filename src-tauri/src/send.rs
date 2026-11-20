@@ -397,6 +397,15 @@ impl<'a> Message<'a> {
     }
 }
 
+/// Whether `helper` is still a helper of `parent` on the board and was started as one by a start
+/// that said which session it made (`origins::Store::known_helper_of`). One found only by matching
+/// its start to the next session in its worktree (`origins::resolve`) isn't, nor one you made your
+/// own (`Session::helper` gone, state.rs `own`).
+fn is_known_helper(board: &Board, origins: &crate::origins::Store, helper: &str, parent: &str) -> bool {
+    let helps = board.session(helper).is_some_and(|(_, s)| s.helper.as_ref().and_then(|h| h.parent.as_deref()) == Some(parent));
+    helps && origins.known_helper_of(helper) == Some(parent)
+}
+
 /// Whether an agent's message comes from a helper the session it goes to started
 /// (`codealong start --helper`), by a start that said which session it made
 /// (`origins::Store::known_helper_of`), or from the automatic review of a PR that session opened,
@@ -410,8 +419,17 @@ impl<'a> Message<'a> {
 /// other.
 fn from_its_helper(board: &Board, cfg: &Config, origins: &crate::origins::Store, sender: &Sender, to: &str) -> bool {
     let Sender::Agent(Some(from)) = sender else { return false };
-    let helps = board.session(from).is_some_and(|(_, s)| s.helper.as_ref().and_then(|h| h.parent.as_deref()) == Some(to));
-    (helps && origins.known_helper_of(from) == Some(to)) || crate::autoreview::reviews_for(board, &cfg.reviews, from, to)
+    is_known_helper(board, origins, from, to) || crate::autoreview::reviews_for(board, &cfg.reviews, from, to)
+}
+
+/// Whether an agent's message goes to a helper its session started (`codealong start --helper`),
+/// by a start that said which session it made (`is_known_helper`), while it's still that session's
+/// helper on the board. That session already wrote the helper's opening prompt, so follow-up
+/// messages to it are more of the work it started the helper for and claim the helper's own class,
+/// rather than being held for you.
+fn to_its_helper(board: &Board, origins: &crate::origins::Store, sender: &Sender, to: &str) -> bool {
+    let Sender::Agent(Some(from)) = sender else { return false };
+    is_known_helper(board, origins, to, from)
 }
 
 /// Whether an agent's message would take what a boundary group's session says (boundary.rs) to
@@ -820,7 +838,7 @@ fn deliver(board: &Board, cfg: &Config, session_key: &str, text: &str, sender: &
     let account = cfg.accounts.iter().find(|a| a.name == session.account).ok_or_else(|| anyhow!("There's no account named {} in config.toml.", session.account))?;
     let origins = crate::origins::current();
     let mut msg = Message::new(board, cfg, text, sender, now);
-    if from_its_helper(board, cfg, &origins, sender, session_key) {
+    if from_its_helper(board, cfg, &origins, sender, session_key) || to_its_helper(board, &origins, sender, session_key) {
         msg.bypasses = true;
     }
     if let Some(group) = leaves_boundary(board, cfg, sender, session) {
@@ -1685,6 +1703,35 @@ mod tests {
         // Made your own, it's a helper no more, whatever its start said.
         let owned = Board { lanes: vec![crate::fixtures::lane("/r", vec![of("claude:claude:boss", None), of("codex:codex:rev", None)])], ..Board::default() };
         assert!(!from_its_helper(&owned, &cfg, &origins, &from("codex:codex:rev"), "claude:claude:boss"));
+    }
+
+    /// A session's message to a helper it started claims the helper's class too, as yours does,
+    /// so a helper that skips prompts doesn't hold follow-ups from its parent.
+    #[test]
+    fn a_sessions_message_to_its_own_helper_isnt_held() {
+        use crate::model::OriginHow;
+        use crate::origins::{Entry, Store};
+        let entry = |helper: bool, known: bool| Entry { from: "antigravity:antigravity:boss".into(), how: OriginHow::Started, at: 1, helper, report: false, known };
+        let mut origins = Store::default();
+        origins.sessions.insert("claude:claude2:rev".into(), entry(true, true));
+        // Matched to its start afterwards: it may be another session started about then.
+        origins.sessions.insert("claude:claude2:matched".into(), entry(true, false));
+        // Started by it, not as a helper.
+        origins.sessions.insert("claude:claude2:started".into(), entry(false, true));
+        let of = |key: &str, parent: Option<&str>| Session { key: key.into(), helper: parent.map(|p| crate::model::Helper { parent: Some(p.into()), ..Default::default() }), ..Session::new(Harness::Claude, "claude2", key) };
+        let helpers = ["claude:claude2:rev", "claude:claude2:matched", "claude:claude2:started"].map(|k| of(k, Some("antigravity:antigravity:boss")));
+        let board = Board { lanes: vec![crate::fixtures::lane("/r", [vec![of("antigravity:antigravity:boss", None)], helpers.to_vec()].concat())], ..Board::default() };
+        let from = |k: &str| Sender::Agent(Some(k.into()));
+        assert!(to_its_helper(&board, &origins, &from("antigravity:antigravity:boss"), "claude:claude2:rev"));
+        // From another session, or to a matched / non-helper session: still held.
+        assert!(!to_its_helper(&board, &origins, &from("antigravity:antigravity:other"), "claude:claude2:rev"));
+        assert!(!to_its_helper(&board, &origins, &from("antigravity:antigravity:boss"), "claude:claude2:matched"));
+        assert!(!to_its_helper(&board, &origins, &from("antigravity:antigravity:boss"), "claude:claude2:started"));
+        assert!(!to_its_helper(&board, &origins, &Sender::Agent(None), "claude:claude2:rev"));
+        assert!(!to_its_helper(&board, &origins, &Sender::Elsewhere, "claude:claude2:rev"));
+        // Made your own, it's a helper no more, whatever its start said.
+        let owned = Board { lanes: vec![crate::fixtures::lane("/r", vec![of("antigravity:antigravity:boss", None), of("claude:claude2:rev", None)])], ..Board::default() };
+        assert!(!to_its_helper(&owned, &origins, &from("antigravity:antigravity:boss"), "claude:claude2:rev"));
     }
 
     /// One of a harness's own ways in is sent by the harness, with whose the message is and
