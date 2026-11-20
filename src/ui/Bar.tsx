@@ -407,8 +407,9 @@ export function Bar() {
   const hoverFor = useRef<string | null>(null);
   // Where the pointer last moved on the bar, in screen points.
   const pointerAt = useRef<{ x: number; y: number } | null>(null);
-  // Fonts load after the first layout; pills are measured again once they have.
-  const [fontsReady, setFontsReady] = useState(false);
+  // Fonts load after the first layout; pills are measured again once they have: how many
+  // times some have come.
+  const [fontsLoaded, setFontsLoaded] = useState(0);
   const [project, setProject] = useState(() => readStored(BAR_PROJECT_KEY, asText, ALL_PROJECTS));
   const [projectMenuOpen, setProjectMenuOpen] = useState(false);
   // How many of the bar's menus are up: docked in the notch, it stays open under them.
@@ -452,8 +453,15 @@ export function Bar() {
     return stop;
   }, []);
 
+  // Each time, not once: `fonts.ready` resolves at once on a page with nothing loading yet,
+  // and a face the pills need starts loading only as they're first drawn. Pills fitted in
+  // between are measured in the fallback's widths, wider, and one that fits stayed folded until
+  // the feed next changed.
   useEffect(() => {
-    void document.fonts.ready.then(() => setFontsReady(true));
+    const loaded = () => setFontsLoaded((n) => n + 1);
+    void document.fonts.ready.then(loaded);
+    document.fonts.addEventListener('loadingdone', loaded);
+    return () => document.fonts.removeEventListener('loadingdone', loaded);
   }, []);
 
   useEffect(() => {
@@ -596,7 +604,7 @@ export function Bar() {
     // The same fit keeps the bar as it is: a session dragged wider asks again every frame.
     setFits((was) => (was && was.every((f, i) => f.shown === next[i]?.shown && f.folded === next[i]?.folded) ? was : next));
   });
-  useLayoutEffect(() => fit.current(), [fit, items, listenings, meeting, soon, notch, snoozed, recent, reviews, due, todos, picking, current, others, failed, fontsReady]);
+  useLayoutEffect(() => fit.current(), [fit, items, listenings, meeting, soon, notch, snoozed, recent, reviews, due, todos, picking, current, others, failed, fontsLoaded]);
   const fitNotch = useCallback(
     (room: number) => {
       notchRoom.current = room;

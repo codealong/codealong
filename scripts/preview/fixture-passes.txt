@@ -37,6 +37,7 @@ PREVIEW_INIT=scripts/preview/team-init.js PREVIEW_WAIT=60000 PREVIEW_GROUP=workt
 PREVIEW_INIT=scripts/preview/team-init.js PREVIEW_WAIT=60000 scripts/preview.sh prs '' scripts/preview/team-settings-check.js
 PREVIEW_KEYS=held scripts/preview.sh sessions '' scripts/preview/keys-shown-check.js
 PREVIEW_LOADING=1 PREVIEW_DEVICES=scripts/preview/devices-sample.json PREVIEW_WAIT=60000 scripts/preview.sh sessions '' scripts/preview/loading-check.js
+PREVIEW_LOADING=1 PREVIEW_WAIT=60000 scripts/preview.sh bar '' scripts/preview/loading-check.js
 PREVIEW_LOADING=1 PREVIEW_WAIT=60000 scripts/preview.sh quick '' scripts/preview/tips-check.js
 PREVIEW_LOADING=1 PREVIEW_WAIT=60000 scripts/preview.sh sessions '' scripts/preview/tips-check.js
 PREVIEW_LOADING=1 PREVIEW_WAIT=60000 scripts/preview.sh waiting '' scripts/preview/tips-check.js
@@ -107,6 +108,7 @@ PREVIEW_VOICE=1 PREVIEW_WAIT=60000 scripts/preview.sh quick '' scripts/preview/q
 PREVIEW_VOICE=1 PREVIEW_WAIT=60000 scripts/preview.sh quick '' scripts/preview/quick-talk-check.js
 PREVIEW_WAIT=120000 PREVIEW_GROUP=worktree scripts/preview.sh sessions '' scripts/preview/rows-check.js
 PREVIEW_WAIT=120000 scripts/preview.sh sessions '' scripts/preview/rows-check.js
+PREVIEW_WAIT=20000 scripts/preview.sh bar '' scripts/preview/menus-check.js
 PREVIEW_WAIT=20000 scripts/preview.sh desktop '' scripts/preview/menus-check.js
 PREVIEW_WAIT=20000 scripts/preview.sh peek '' scripts/preview/menus-check.js
 PREVIEW_WAIT=20000 scripts/preview.sh quick '' scripts/preview/menus-check.js
@@ -199,7 +201,9 @@ PREVIEW_WAIT=60000 PREVIEW_TODOS=scripts/preview/todos-sample.json scripts/previ
 PREVIEW_WAIT=60000 PREVIEW_TODOS=scripts/preview/todos-sample.json scripts/preview.sh todo '' scripts/preview/group-lists-check.js
 PREVIEW_WAIT=60000 PREVIEW_TODOS=scripts/preview/todos-sample.json scripts/preview.sh todo '' scripts/preview/todo-archive-check.js
 PREVIEW_WAIT=60000 PREVIEW_TODOS=scripts/preview/todos-sample.json scripts/preview.sh todo '' scripts/preview/todo-menus-check.js
+PREVIEW_WAIT=60000 scripts/preview.sh bar '' scripts/preview/bar-drag-check.js
 PREVIEW_WAIT=60000 scripts/preview.sh bar '' scripts/preview/bar-slide-check.js
+PREVIEW_WAIT=60000 scripts/preview.sh bar '' scripts/preview/snooze-check.js
 PREVIEW_WAIT=60000 scripts/preview.sh bar '' scripts/preview/voice-meeting-check.js
 PREVIEW_WAIT=60000 scripts/preview.sh bar '' scripts/preview/voice-meeting-soon-check.js
 PREVIEW_WAIT=60000 scripts/preview.sh kept '' scripts/preview/keep-check.js
@@ -324,6 +328,7 @@ PREVIEW_WAIT=60000 scripts/preview.sh waiting '' scripts/preview/waiting-review-
 PREVIEW_WAIT=60000 scripts/preview.sh waiting '' scripts/preview/waiting-titlebar-check.js
 PREVIEW_WAIT=90000 PREVIEW_BOARDS=scripts/preview/boards-everything.json scripts/preview.sh canvas '' scripts/preview/canvas-arrange-check.js
 PREVIEW_WAIT=90000 scripts/preview.sh sessions '' scripts/preview/panel-kin-check.js
+scripts/preview.sh bar '' scripts/preview/rename-check.js
 scripts/preview.sh kanban '' scripts/preview/boards-empty-check.js
 scripts/preview.sh kept '' scripts/preview/session-window-check.js
 scripts/preview.sh peek '' scripts/preview/box-caret-check.js
