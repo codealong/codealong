@@ -11,7 +11,7 @@
 import type { ListRow } from './boardLists';
 import { reviewRows, type ReviewRow } from './quick';
 import { byPlace, placeOf, type PlaceReads, type Place, type Reads, type Waits } from './queue';
-import type { TodoItem } from './todos';
+import { hasSession, type TodoItem } from './todos';
 import type { BarTodo, Board, PrItem, TodoQueue } from './types';
 
 /** A view the main window can go through with Next. */
@@ -43,7 +43,8 @@ export interface TodoQueueRow {
 
 /** The todos a view lists that wait on you, as the board has them (`Board.todoQueue`): the due
  *  ones, then the ready ones. Only the ones listed, as the list has them now: one this window
- *  marked done, archived or snoozed (todos.ts `useTodoStore`, ahead of the board) has left. */
+ *  marked done, archived, snoozed or assigned a session (todos.ts `useTodoStore`, ahead of the
+ *  board) has left. */
 export function todoWaitingRows(listed: readonly ListRow[], queue: TodoQueue | undefined, now: number): TodoQueueRow[] {
   if (!queue) return [];
   const items = new Map(listed.flatMap((r) => (r.kind === 'todo' ? [[r.todo.id, r] as const] : [])));
@@ -51,7 +52,7 @@ export function todoWaitingRows(listed: readonly ListRow[], queue: TodoQueue | u
     list.flatMap((waiting) => {
       const item = items.get(waiting.id);
       const t = item?.todo;
-      return item && t && t.status !== 'done' && !t.archivedAt && !((t.snoozedUntil ?? 0) > now) ? [{ item, waiting, waits }] : [];
+      return item && t && !hasSession(t) && t.status !== 'done' && !t.archivedAt && !((t.snoozedUntil ?? 0) > now) ? [{ item, waiting, waits }] : [];
     });
   return [...rows(queue.due, 'due'), ...rows(queue.ready, 'ready')];
 }

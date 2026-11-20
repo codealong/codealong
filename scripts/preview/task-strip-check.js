@@ -31,6 +31,15 @@
       board.queue = { order: ['reviews', 'needs', 'due', 'unread', 'ready'], due_within: 0 };
       board.lanes.forEach(function (l) { l.sessions.forEach(function (x) { x.raised = undefined; }); });
       board.prs.forEach(function (pr) { pr.reviewFirst = false; });
+      // The two sample todos due are unassigned here so they wait in Todo's queue ahead of the
+      // ready one.
+      board.todos.forEach(function (t) {
+        if (t.id === 't-sample1' || t.id === 't-sample2') {
+          t.sessions = [];
+          t.primary = null;
+        }
+      });
+      board.todoQueue = window.__todoQueue(board, Date.now());
       return board;
     });
   };
@@ -90,11 +99,11 @@
       check('it says what it’s for', bar.getAttribute('aria-label') === 'What’s commonly done to this todo', bar.getAttribute('aria-label'));
       flush('.ca-todoinsp', 'a todo');
       check('Start and Done say their keys', /⌘N|Ctrl\+N/.test(buttons(s)[0].textContent) && /⇧⌘E|Ctrl\+Shift\+E/.test(buttons(s)[1].textContent), buttons(s).map(function (b) { return b.textContent; }).join(' / '));
-      // The two due todos are the in-progress ones, listed first: which of them is first goes by how
-      // the sessions on them stand on this Mac. The other one and the one ready to start wait after it.
+      // The two unassigned due todos are listed first under In progress (`t-sample1` is overdue,
+      // `t-sample2` is due today); the other and the one ready to start wait after it.
       first = (selected() || '').replace('row-todo:', '');
       other = first === 't-sample1' ? 't-sample2' : 't-sample1';
-      check('it shows a todo due first', first === 't-sample1' || first === 't-sample2', first);
+      check('it shows the most overdue todo first', first === 't-sample1', first);
       check('it says what’s next among the todos', said(s).indexOf('1 more waiting · next: ' + TITLES[other]) === 0 && /then 1 ready todo$/.test(said(s)), said(s));
       next();
       return until(function () { return title().indexOf(TITLES[other]) === 0 && title(); }, 3000, '⌘] on to the other todo due');

@@ -12,7 +12,6 @@
 (function () {
   var d = new Date();
   var today = d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0');
-  var midnight = new Date(d.getFullYear(), d.getMonth(), d.getDate()).getTime();
   var real = window.__TAURI_INTERNALS__.invoke;
   window.__TAURI_INTERNALS__.invoke = function (cmd, args, options) {
     var p = real(cmd, args, options);
@@ -27,19 +26,20 @@
         });
       });
       (board.prs || []).forEach(function (pr) { pr.reviewRequested = false; pr.waitsToMerge = false; });
-      // The two sample todos due, and two more due today after them (the stub's stand-in for the
-      // engine's list, fake-tauri.js `withFixture`).
-      // The one whose box the check writes in starts in a worktree of its own here, whatever
-      // sessions this Mac has for the fixture's to stand for.
+      // Four unassigned todos due (two from the sample fixture with their sessions cleared, and
+      // two more set due today after them). The one whose box the check writes in starts in a
+      // worktree of its own here, whatever sessions this Mac has for the fixture's to stand for.
       var here = board.lanes.filter(function (l) { return !l.hidden && !l.device; })[0];
-      board.todos.forEach(function (t) { if (t.id === 't-sample2' && here) t.worktrees = [here.id]; });
-      ['t-sample3', 't-sample4'].forEach(function (id) {
-        var i = board.todos.findIndex(function (t) { return t.id === id; });
-        var t = board.todos[i];
-        t.due = today;
-        board.todoQueue.ready = board.todoQueue.ready.filter(function (x) { return x.id !== id; });
-        if (!board.todoQueue.due.some(function (x) { return x.id === id; })) board.todoQueue.due.push({ id: id, title: t.title, project: t.project || '', callsign: null, due: today, since: midnight, order: i });
+      board.todos.forEach(function (t) {
+        if (t.id === 't-sample1' || t.id === 't-sample2') {
+          t.sessions = [];
+          t.primary = null;
+          if (t.id === 't-sample2' && here) t.worktrees = [here.id];
+        } else if (t.id === 't-sample3' || t.id === 't-sample4') {
+          t.due = today;
+        }
       });
+      board.todoQueue = window.__todoQueue(board, Date.now());
       return board;
     });
   };

@@ -4763,7 +4763,7 @@ fn waiting_call(s: &Session, account: Option<&config::AccountCfg>) -> Option<Str
         board.shared_schedules = crate::schedules::machines::outgoing(&self.schedules, &self.schedule_runs, &board, &self.cfg, &crate::schedules::rule::Local);
         board.shared_schedules.list.iter_mut().for_each(|x| x.emblem = self.emblems.shared(&x.id));
         board.schedules_problem = self.schedules_problem.clone();
-        // Once the board has its sessions, its todos, the day and `[queue]`.
+        // Once the board has its worktrees, its todos, the day and `[queue]`.
         board.todo_queue = crate::barfeed::todo_queue(&board);
         board
     }

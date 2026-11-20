@@ -1949,12 +1949,13 @@ archived. `codealong todo archive <id>` and `unarchive <id>` do the same, and `c
 due, its labels, what it waits on, the sessions on it, its worktrees and its PR: on one line they
 follow at the line's end as they fit, its PR always; on two lines they're under it.
 
-A due date keeps your order as it is, and on its day the todo comes to wait on you: from the start
-of the day it's due until it's done, it's among what waits on you in the notch, the most overdue
-first (*In the notch*), its count beside the camera with the rest. While a session is starting on
-it, or one on it is working or waits on you itself, that session is what waits instead; one only
-left open, its turn seen, leaves the todo to wait on you again. Snoozed from there, it's out of
-what waits on you until its time comes, its due date as it was.
+A due date keeps your order as it is, and on its day an unassigned todo comes to wait on you: from
+the start of the day it's due until a session is assigned or it's done, it's among what waits on you
+in the notch, the most overdue first (*In the notch*), its count beside the camera with the rest.
+Only todos with no session assigned wait in the queue (whether due or ready to start): once a
+session is started on or linked to one, the todo leaves the queue; unlinking its sessions brings an
+open due one back (and resetting its status to To do brings a ready one back). Snoozed from there,
+it's out of what waits on you until its time comes, its due date as it was.
 
 #### Linking
 
@@ -3429,23 +3430,23 @@ through them in the same order. A session moved to the top still comes before th
 The notch, the waiting window and the main window's panels go through what waits on you in
 one order, Next (⌘]) going on to what comes after the one you're on (in the main window, within the
 view: *The strip over every panel*): by default the sessions that
-need you, the PRs waiting on your review, the todos that are due, the sessions whose turn ended,
-and last the todos ready to start, each kind the longest wait first but the ready todos, which go
-in your todo list's order. The waiting window has the due todos but not the ready ones, which
-always wait and would keep it from ever saying nothing does. Settings › Queue lists them in
-that order: drag one by its row or its grip, or press ⌃⌘↑ ⌃⌘↓ on its grip, to put the kinds in yours
-(`order`). A box takes a kind out of what waits on you: PRs waiting on your review taken out (and yours
-ready to merge with them) aren't
-on the bar or in the notch, nor counted beside the camera or in the mark's color, nor in the
-waiting window; todos that
-are due taken out are among the ready ones when they're ready to start; and the todos ready to
-start taken out leave the notch's ready pill and the end of the queue. The sessions that need you
-and those whose turn ended are always in it, since they're what the bar is for, though they can be
-moved; and the todos ready to start always come last, after the ones you skipped have come round
-again, since they're there to pick up once nothing else waits. A kind put back goes where it comes
-by default. Todos come due picks how long before its due date a todo joins what waits on you, from
-on the day to a week before (`due_within`, in days, up to 30); an overdue one waits until it's done
-or snoozed. Beside the camera, the closed notch draws the first kind in your order that has any.
+need you, the PRs waiting on your review, the unassigned todos that are due, the sessions whose turn
+ended, and last the unassigned todos ready to start, each kind the longest wait first but the ready
+todos, which go in your todo list's order. The waiting window has the due todos but not the ready
+ones, which always wait and would keep it from ever saying nothing does. Settings › Queue lists them
+in that order: drag one by its row or its grip, or press ⌃⌘↑ ⌃⌘↓ on its grip, to put the kinds in
+yours (`order`). A box takes a kind out of what waits on you: PRs waiting on your review taken out
+(and yours ready to merge with them) aren't on the bar or in the notch, nor counted beside the
+camera or in the mark's color, nor in the waiting window; todos that are due taken out are among the
+ready ones when they're ready to start; and the todos ready to start taken out leave the notch's
+ready pill and the end of the queue. The sessions that need you and those whose turn ended are
+always in it, since they're what the bar is for, though they can be moved; and the todos ready to
+start always come last, after the ones you skipped have come round again, since they're there to
+pick up once nothing else waits. A kind put back goes where it comes by default. Todos come due
+picks how long before its due date an unassigned todo joins what waits on you, from on the day to a
+week before (`due_within`, in days, up to 30); an overdue one waits until a session is assigned, or
+it's done or snoozed. Beside the camera, the closed notch draws the first kind in your order that
+has any.
 A repo that puts its reviews first (Automation) still has its PRs go ahead of all of these, and a
 session moved to the top comes before everything. config.toml writes it as:
 
@@ -3891,10 +3892,11 @@ from a session's panel in the main window leads back to it. Snooze is dimmed on 
 your review isn't asked for, and Open in main window in the PR's menu still opens it in the main
 window. One the queue goes on to later, as a review, leads back nowhere, however you come back to it.
 
-Todos wait on you there too. One due today or before, and not done, comes after the PRs waiting on
-your review and before the turns that ended, the most overdue first, and counts beside the camera
-with a calendar; once nothing else waits, the queue goes on to the todos ready to start, in your
-order, which don't count, since there are nearly always some. Settings › Queue changes that order
+Todos wait on you there too, while no session is assigned to them. An unassigned one due today or
+before, and not done, comes after the PRs waiting on your review and before the turns that ended,
+the most overdue first, and counts beside the camera with a calendar; once nothing else waits, the
+queue goes on to the unassigned todos ready to start, in your order, which don't count, since there
+are nearly always some. Settings › Queue changes that order
 and what's in it (*What waits on you, and in what order*). The 1 due and 4 ready pills open the
 first of each (a menu picks among them in the floating bar, where they open the quick panel
 instead). A todo's card has the todo as its panel in Todo shows it, its changes saved as you go, and

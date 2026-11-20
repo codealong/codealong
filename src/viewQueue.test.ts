@@ -43,10 +43,13 @@ describe('todoWaitingRows', () => {
     ]);
   });
 
-  it('leaves out one this window marked done, archived or snoozed ahead of the board', () => {
+  it('leaves out one this window marked done, archived, snoozed or assigned a session ahead of the board', () => {
     const list = [listedTodo({ ...due, status: 'done' }), listedTodo({ ...ready, snoozedUntil: NOW + 60_000 })];
     expect(todoWaitingRows(list, queue, NOW)).toEqual([]);
     expect(todoWaitingRows([listedTodo({ ...ready, archivedAt: NOW })], queue, NOW)).toEqual([]);
+    expect(todoWaitingRows([listedTodo({ ...due, sessions: ['claude:a:1'] })], queue, NOW)).toEqual([]);
+    expect(todoWaitingRows([listedTodo({ ...due, primary: { session: 'claude:a:1', since: NOW } })], queue, NOW)).toEqual([]);
+    expect(todoWaitingRows([listedTodo({ ...ready, pending: [{ lane: '/a', harness: 'claude', account: 'a', at: NOW }] })], queue, NOW)).toEqual([]);
     // A snooze that's over is no snooze.
     expect(todoWaitingRows([listedTodo({ ...ready, snoozedUntil: NOW - 1 })], queue, NOW)).toHaveLength(1);
     expect(todoWaitingRows([listedTodo(ready)], undefined, NOW)).toEqual([]);

@@ -1,8 +1,8 @@
 // Due dates on todos: a day on the calendar, written `2026-10-03`, with no time or zone, so it's
 // the same day wherever it's read. The engine keeps it (`due` in todos.rs); this file has how
 // the windows say it and the days a menu offers. A due date says when you mean a todo done by:
-// the list keeps your order, and on the day it comes to wait on you in the notch until it's done
-// (barfeed.rs `todo_lists`, bar.ts `notchRows`).
+// the list keeps your order, and on the day an unassigned todo comes to wait on you in the notch
+// until a session is assigned or it's done (barfeed.rs `todo_lists`, bar.ts `notchRows`).
 
 const DAY = 24 * 3600e3;
 

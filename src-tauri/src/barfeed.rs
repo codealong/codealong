@@ -14,8 +14,6 @@
 //! worktrees are beside the board (shown.rs), and the feed is cut again whenever either changes
 //! (lib.rs `Floating`).
 
-use std::collections::HashMap;
-
 use serde::{Deserialize, Serialize};
 
 use crate::config::Theme;
@@ -81,11 +79,11 @@ pub struct BarFeed {
     /// Open PRs that ask for your review, and yours that wait on you to merge them, the longest
     /// wait first, as Needs you is: the notch and the quick panel work through them in this order.
     pub reviews: Vec<BarReview>,
-    /// Todos ready to start (not started, and waiting on nothing), in your order, but the ones
-    /// in `due` and the ones snoozed.
+    /// Unassigned todos ready to start (not started, no session assigned, and waiting on
+    /// nothing), in your order, but the ones in `due` and the ones snoozed.
     pub todos: Vec<BarTodo>,
-    /// Todos that wait on you by their due date (`todo_lists`): the most overdue first. Both
-    /// lists are the board's (`Board::todo_queue`).
+    /// Unassigned todos that wait on you by their due date (`todo_lists`): the most overdue
+    /// first. Both lists are the board's (`Board::todo_queue`).
     pub due: Vec<BarTodo>,
     /// What waits on you, in the order the queue goes to it (`[queue] order`, config.rs
     /// `QueueCfg::kinds`): the notch works through its rows and draws its count by it. The
@@ -226,8 +224,7 @@ pub struct BarTodo {
     pub title: String,
     /// Empty until you pick one or link a worktree.
     pub project: String,
-    /// The worktree a session for it starts in, as the Todo view picks it: the first one linked
-    /// to it, else its latest session's.
+    /// The worktree a session for it starts in: the first one linked to it.
     pub callsign: Option<String>,
     /// The day it's due, as `2026-10-03`.
     pub due: Option<String>,
@@ -409,11 +406,12 @@ pub fn feed(shown: Shown) -> BarFeed {
     }
 }
 
-/// The todos that wait on you, on `today` (days since 1970, here): those due by `[queue]
-/// due_within` days from it, open and not snoozed, the most overdue first and then in your order;
-/// and those ready to start but for those, in your order. A snoozed todo is in neither until its
-/// time comes, nor one at work (`at_work`). A kind `[queue]` leaves out has none: with `due` out,
-/// a todo due that's ready to start is among the ready ones.
+/// The todos that wait on you, on `today` (days since 1970, here): open, awake, unassigned todos
+/// (no session assigned: `todos::has_session`) due by `[queue] due_within` days from it, the most
+/// overdue first and then in your order; and those ready to start but for those, in your order.
+/// A snoozed todo is in neither until its time comes, nor one with a session assigned. A kind
+/// `[queue]` leaves out has none: with `due` out, a todo due that's ready to start is among the
+/// ready ones.
 fn todo_lists(board: &Board, today: i64) -> (Vec<BarTodo>, Vec<BarTodo>) {
     let (due_on, ready_on) = (board.queue.waits("due"), board.queue.waits("ready"));
     if !due_on && !ready_on {
@@ -421,60 +419,29 @@ fn todo_lists(board: &Board, today: i64) -> (Vec<BarTodo>, Vec<BarTodo>) {
     }
     let within = i64::from(board.queue.due_within.min(crate::config::DUE_WITHIN_MAX));
     let now = board.generated_at;
-    // Every session once, by key, with its worktree: a todo's are looked up in it, not searched
-    // for, for whether it's at work and where it starts.
-    let sessions: Sessions = board.lanes.iter().flat_map(|l| l.sessions.iter().filter(|s| s.visitor.is_none()).map(move |s| (s.key.as_str(), (l, s)))).collect();
     let open = |t: &todos::Todo| t.archived_at.is_none() && t.snoozed_until.is_none_or(|at| at <= now);
     let day_of = |t: &todos::Todo| t.due.as_deref().and_then(due_day);
     let due_by = |t: &todos::Todo| due_on && t.status != todos::TodoStatus::Done && day_of(t).is_some_and(|d| d <= today + within);
     let mut due: Vec<BarTodo> = Vec::new();
     let mut ready: Vec<BarTodo> = Vec::new();
     for (i, t) in board.todos.iter().enumerate() {
-        if !open(t) {
+        if !open(t) || todos::has_session(t) {
             continue;
         }
         let is_due = due_by(t);
-        // The cheap tests first: most todos are neither, and need no look at their sessions.
-        if !is_due && !(ready_on && todos::is_ready(t, &board.todos)) || at_work(t, &sessions, now) {
+        if !is_due && !(ready_on && todos::is_ready(t, &board.todos)) {
             continue;
         }
         if is_due {
             let day = day_of(t).unwrap_or(today);
             let (y, m, d) = crate::util::civil_from_days(day);
-            due.push(BarTodo { since: crate::util::local_ms(y, m, d, 0, 0, 0, 0).unwrap_or(day * crate::util::DAY_MS), ..bar_todo(board, &sessions, t, i) });
+            due.push(BarTodo { since: crate::util::local_ms(y, m, d, 0, 0, 0, 0).unwrap_or(day * crate::util::DAY_MS), ..bar_todo(board, t, i) });
         } else {
-            ready.push(bar_todo(board, &sessions, t, i));
+            ready.push(bar_todo(board, t, i));
         }
     }
     due.sort_by_key(|t| (t.since, t.order));
     (due, ready)
-}
-
-/// The board's sessions by key, each with its worktree.
-type Sessions<'a> = HashMap<&'a str, (&'a crate::model::Lane, &'a crate::model::Session)>;
-
-/// A todo at work, which waits on you neither as due nor as ready: a start of it on its way (one
-/// whose session id isn't known yet is `pending`; one whose is, its new primary session that the
-/// board doesn't list yet, for as long as `todos::holds` gives it), or a session on it the queue
-/// reaches instead: working, snoozed or not, as the bar shows it; or waiting on you itself on the
-/// bar (needing you, or its turn ended and not yet seen, even with its terminal closed; not
-/// snoozed, nor a helper the bar leaves to its agent). One only left open, its turn seen, leaves
-/// the todo to wait on you again. The board's `todo_clock` brings in what changes as the grace
-/// runs out. A second session started with its id known, while a primary one holds, isn't waited
-/// for: it shows up within a scan, and the windows keep the todo out meanwhile (ahead.ts
-/// `todoLeftAhead`); timing it from the todo's last change would hide it at every edit.
-fn at_work(t: &todos::Todo, sessions: &Sessions, now: i64) -> bool {
-    use crate::model::Status;
-    let covers = |s: &crate::model::Session| {
-        !s.archived
-            && match s.status {
-                Status::Working => s.live,
-                Status::Needs | Status::Error | Status::Unread => s.snoozed_until.is_none() && !s.unattended(),
-                Status::Idle | Status::Stopped => false,
-            }
-    };
-    let new_primary = t.primary.as_ref().is_some_and(|p| !sessions.contains_key(p.session.as_str()) && now - p.since < todos::NEW_PRIMARY_MS);
-    !t.pending.is_empty() || new_primary || t.sessions.iter().any(|k| sessions.get(k.as_str()).is_some_and(|(_, s)| covers(s)))
 }
 
 /// A due date, `2026-10-03`, as days since 1970.
@@ -484,20 +451,11 @@ fn due_day(due: &str) -> Option<i64> {
     Some(crate::util::days_from_civil(y, m, d))
 }
 
-/// A todo on the bar, the `order`th in yours. Where it starts is `todoItem`'s rule in
-/// src/todos.ts: the first linked worktree that's on the board, else the worktree of its latest
-/// session (from `sessions`, the feed's index).
-fn bar_todo<'a>(board: &'a Board, sessions: &Sessions<'a>, t: &todos::Todo, order: usize) -> BarTodo {
+/// A todo on the bar, the `order`th in yours. Where it starts is the first linked worktree that's
+/// on the board.
+fn bar_todo(board: &Board, t: &todos::Todo, order: usize) -> BarTodo {
     let linked = t.worktrees.iter().find_map(|w| board.lanes.iter().find(|l| &l.id == w));
-    let latest = || {
-        t.sessions
-            .iter()
-            .filter_map(|k| sessions.get(k.as_str()))
-            .filter(|(_, s)| s.visitor.is_none())
-            .max_by_key(|(_, s)| s.last_activity)
-            .map(|(l, _)| *l)
-    };
-    BarTodo { id: t.id.clone(), title: t.title.clone(), project: t.project.clone(), callsign: linked.or_else(latest).map(|l| l.callsign.clone()), due: t.due.clone(), since: t.created_at, order }
+    BarTodo { id: t.id.clone(), title: t.title.clone(), project: t.project.clone(), callsign: linked.map(|l| l.callsign.clone()), due: t.due.clone(), since: t.created_at, order }
 }
 
 #[cfg(test)]
@@ -751,31 +709,24 @@ mod tests {
         let running = Session { live: true, ..session("s1", Status::Working, NOW) };
         let stopped = Session { live: false, ..session("s2", Status::Idle, NOW) };
         let open = Session { live: true, ..session("s3", Status::Idle, NOW) };
-        // Its terminal closed after its turn ended, not yet seen: it waits on you itself.
         let unseen = Session { live: false, ..session("s4", Status::Unread, NOW) };
-        // Snoozed, its turn unseen: it's off what waits on you until then, so it stands in for nothing.
         let napping = Session { live: true, snoozed_until: Some(NOW + 60_000), ..session("s5", Status::Unread, NOW) };
-        let snoozed_at_work = Session { live: true, snoozed_until: Some(NOW + 60_000), ..session("s6", Status::Working, NOW) };
-        let mut b = board(vec![lane("/a", vec![running, stopped, open, unseen, napping, snoozed_at_work], false)], vec![]);
+        let archived = Session { archived: true, ..session("s6", Status::Idle, NOW) };
+        let mut b = board(vec![lane("/a", vec![running, stopped, open, unseen, napping, archived], false)], vec![]);
         b.generated_at = NOW;
         b.todos = vec![
-            // A session on it runs: that's what waits on you, not the todo, until it stops.
+            // Any todo with an assigned session (linked, primary or pending) stays out of the
+            // queue, whatever that session's status is.
             todo("at-work", serde_json::json!({ "due": "2026-11-17", "status": "in-progress", "sessions": ["s1"] })),
             todo("left-off", serde_json::json!({ "due": "2026-11-16", "status": "in-progress", "sessions": ["s2"] })),
-            // Its session only left open, its turn seen: the todo waits on you again.
             todo("idle", serde_json::json!({ "due": "2026-11-16", "status": "in-progress", "sessions": ["s3"] })),
-            // A start of it on its way, its session not on the board yet: at work too.
             todo("launching", serde_json::json!({ "due": "2026-11-15", "pending": [{ "lane": "/a", "harness": "claude", "account": "claude", "at": NOW }] })),
-            // Set back to Todo while its session runs: not ready to start again either.
-            todo("rerun", serde_json::json!({ "sessions": ["s1"] })),
+            todo("rerun", serde_json::json!({ "sessions": ["s2"] })),
             todo("unseen", serde_json::json!({ "due": "2026-11-14", "status": "in-progress", "sessions": ["s4"] })),
-            // Started in a terminal a moment ago, its session not on the board yet.
             todo("just-started", serde_json::json!({ "due": "2026-11-14", "status": "in-progress", "primary": { "session": "s9", "since": NOW - 1000 } })),
             todo("nap", serde_json::json!({ "due": "2026-11-16", "status": "in-progress", "sessions": ["s5"] })),
-            // Changed a moment ago, linked to a session long gone from the board: it still waits.
-            todo("edited", serde_json::json!({ "due": "2026-11-14", "status": "in-progress", "sessions": ["s8"], "updatedAt": NOW - 1000 })),
-            // Its session snoozed while it works: the bar shows it working, so it still stands in.
-            todo("busy", serde_json::json!({ "due": "2026-11-13", "status": "in-progress", "sessions": ["s6"] })),
+            todo("gone-session", serde_json::json!({ "due": "2026-11-14", "status": "in-progress", "sessions": ["s8"] })),
+            todo("archived-session", serde_json::json!({ "due": "2026-11-13", "status": "in-progress", "sessions": ["s6"] })),
             todo("today", serde_json::json!({ "due": "2026-11-18" })),
             todo("later", serde_json::json!({ "due": "2026-11-19" })),
             todo("overdue", serde_json::json!({ "due": "2026-11-10", "status": "in-progress" })),
@@ -787,11 +738,12 @@ mod tests {
         ];
         let (due, ready) = todo_lists(&b, crate::util::days_from_civil(2026, 11, 18));
         let ids = |l: &[BarTodo]| l.iter().map(|t| t.id.clone()).collect::<Vec<_>>();
-        // Due today and before, open, and awake: the longest overdue first, an in-progress one too.
-        assert_eq!(ids(&due), vec!["overdue", "edited", "left-off", "idle", "nap", "woke", "today"]);
+        // Due today and before, open, awake and unassigned: the longest overdue first, an
+        // unassigned in-progress one too.
+        assert_eq!(ids(&due), vec!["overdue", "woke", "today"]);
         // By their day, and the same day in your order.
         assert!(due.windows(2).all(|w| (w[0].since, w[0].order) < (w[1].since, w[1].order)), "{due:?}");
-        // Ready but for the due ones and the snoozed one, in your order, each with its place in it.
+        // Ready but for the due ones, the snoozed one and any with a session, in your order.
         assert_eq!(ids(&ready), vec!["later", "plain"]);
         assert_eq!(ready.iter().map(|t| t.order).collect::<Vec<_>>(), vec![11, 16]);
         // The feed takes them from the board, which goes by the day it says it is.
@@ -800,11 +752,11 @@ mod tests {
             feed(Shown::here(b))
         };
         b.today = "2026-11-19".into();
-        assert_eq!(ids(&fed(&mut b).due), vec!["overdue", "edited", "left-off", "idle", "nap", "woke", "today", "later"]);
+        assert_eq!(ids(&fed(&mut b).due), vec!["overdue", "woke", "today", "later"]);
         // `[queue] due_within` brings one in that many days ahead of its day.
         b.today = "2026-11-18".into();
         b.queue.due_within = 1;
-        assert_eq!(ids(&fed(&mut b).due), vec!["overdue", "edited", "left-off", "idle", "nap", "woke", "today", "later"]);
+        assert_eq!(ids(&fed(&mut b).due), vec!["overdue", "woke", "today", "later"]);
         // With due ones left out, one that's ready to start is among the ready ones, in your order.
         b.queue.order = vec!["needs".into(), "reviews".into(), "unread".into(), "ready".into()];
         let f = fed(&mut b);
@@ -814,7 +766,7 @@ mod tests {
         b.queue.order = vec!["needs".into(), "due".into(), "unread".into()];
         let f = fed(&mut b);
         assert!(f.todos.is_empty(), "{:?}", f.todos);
-        assert_eq!(ids(&f.due), vec!["overdue", "edited", "left-off", "idle", "nap", "woke", "today", "later"]);
+        assert_eq!(ids(&f.due), vec!["overdue", "woke", "today", "later"]);
     }
 
     #[test]
@@ -829,24 +781,26 @@ mod tests {
             vec![],
         );
         b.todos = vec![
-            todo("linked", serde_json::json!({ "worktrees": ["/gone", "/b"], "sessions": ["s2"] })),
+            todo("linked", serde_json::json!({ "worktrees": ["/gone", "/b"] })),
+            todo("assigned", serde_json::json!({ "worktrees": ["/b"], "sessions": ["s2"] })),
             todo("started", serde_json::json!({ "status": "in-progress", "sessions": ["s1"] })),
             todo("waiting", serde_json::json!({ "waiting": { "note": "design", "since": NOW } })),
             todo("blocked", serde_json::json!({ "dependsOn": ["open"] })),
             todo("open", serde_json::json!({ "project": "" })),
             todo("finished", serde_json::json!({ "status": "done" })),
-            todo("unblocked", serde_json::json!({ "dependsOn": ["finished"], "sessions": ["s3", "s2"] })),
+            todo("unblocked", serde_json::json!({ "dependsOn": ["finished"] })),
+            todo("pending", serde_json::json!({ "pending": [{ "lane": "/a", "harness": "claude", "account": "claude", "at": NOW }] })),
+            todo("primary", serde_json::json!({ "primary": { "session": "s1", "since": 0 } })),
         ];
         b.todo_queue = todo_queue(&b);
         let got: Vec<(String, String, Option<String>)> = feed(Shown::here(&b)).todos.into_iter().map(|t| (t.id, t.project, t.callsign)).collect();
         assert_eq!(
             got,
             vec![
-                // The first linked worktree that's on the board wins over its sessions'.
+                // The first linked worktree that's on the board.
                 ("linked".to_string(), "P".to_string(), Some("b".to_string())),
                 ("open".to_string(), String::new(), None),
-                // Without one, the worktree of its latest session.
-                ("unblocked".to_string(), "P".to_string(), Some("a".to_string())),
+                ("unblocked".to_string(), "P".to_string(), None),
             ]
         );
     }

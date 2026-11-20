@@ -153,6 +153,12 @@ export function isOpen(t: Todo): boolean {
   return t.status !== 'done' && !t.archivedAt;
 }
 
+/** Whether a todo has a session assigned (a linked session, a primary session, or a start on its
+ *  way): only unassigned todos wait in the queue (`has_session` in todos.rs). */
+export function hasSession(t: Pick<Todo, 'sessions' | 'primary' | 'pending'>): boolean {
+  return t.sessions.length > 0 || !!t.primary || t.pending.length > 0;
+}
+
 /** The todos `todo` waits on that aren't done, in its order. Deleted and archived ones don't
  *  count. */
 export function blockedBy(todo: Todo, todos: Todo[]): Todo[] {
