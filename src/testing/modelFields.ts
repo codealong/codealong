@@ -1245,6 +1245,7 @@ export type SideTurn = Holds<Same<
 export type StartAccount = Holds<Same<
   | "buffer"
   | "chosen"
+  | "codealongWorktree"
   | "defaultModel"
   | "efforts"
   | "harness"

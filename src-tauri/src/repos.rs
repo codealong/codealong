@@ -299,6 +299,11 @@ fn made_by_claude(wt: &Path) -> bool {
     wt.parent().is_some_and(|p| p.ends_with(".claude/worktrees"))
 }
 
+/// A worktree Codealong made: `<main>/.codealong/worktrees/<slug>`.
+pub fn made_by_codealong(wt: &Path) -> bool {
+    wt.parent().is_some_and(|p| p.ends_with(".codealong/worktrees"))
+}
+
 /// Who made the lane. See *The model*, Where a lane came from.
 pub fn origin(checkout: &Checkout, wt: &Path, home: &Path) -> Origin {
     if wt == checkout.root {

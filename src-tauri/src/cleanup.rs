@@ -189,7 +189,7 @@ pub fn plan(board: &Board, cfg: &Config, lane_id: &str, ending: Option<&Session>
         }),
     };
     let unlock = lock.is_some() && !held;
-    let ends_first = claude.map(|(pid, _)| pid).or(ending_pid).filter(|pid| Some(*pid) == ending_pid);
+    let ends_first = claude.map(|(pid, _)| pid).or_else(|| ending_pid.filter(|_| crate::worktree::is_tracked(&lane.path))).filter(|pid| Some(*pid) == ending_pid);
     let (hooks, skipped) = teardown(cfg, &main, &path);
     let mut after: Vec<String> = Vec::new();
     for account in &cfg.accounts {

@@ -751,6 +751,14 @@ export function whatDoneDoes(s: Session): string {
   if (s.attachCommand != null && s.live) {
     return `its background job stops, and the worktree ${harness} made for it (${worktree}) goes too unless something there would be lost: uncommitted files, or commits on no remote. It’s marked seen and archived`;
   }
+  // A worktree Codealong made (not Claude's own `-w`): goes once the session ends, stays while a
+  // hosted session stays loaded.
+  if (s.harness !== 'claude' || s.ownWorktree.includes('/.codealong/worktrees/')) {
+    if (s.live && !closable(s)) {
+      return `${plain}. Its worktree (${worktree}) stays while it runs`;
+    }
+    return `${plain}, and its worktree (${worktree}) goes too unless something there would be lost: uncommitted files, or commits on no remote`;
+  }
   return `${plain}. While it’s busy or waiting on you, its terminal just closes and the worktree ${harness} made for it (${worktree}) stays`;
 }
 

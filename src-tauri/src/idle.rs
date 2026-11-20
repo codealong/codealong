@@ -423,6 +423,7 @@ fn shares_its_worktree(board: &Board, s: &Session) -> bool {
 /// you would take it as the answer; those hang up as before, and the worktree stays.
 fn exits_its_own_way(s: &Session) -> bool {
     s.own_worktree.is_some()
+        && !s.own_worktree.as_deref().is_some_and(crate::worktree::is_tracked)
         && crate::harness::adapter(s.harness).exit_command().is_some()
         && s.status != Status::Working
         && s.stalled_since.is_none()
@@ -1005,6 +1006,10 @@ mod tests {
         // A harness with no exit command of its own hangs up.
         let codex = Session { harness: Harness::Codex, ..own.clone() };
         assert_eq!(ending(&board(vec![codex.clone()]), &codex, false), Ok(Ending::Terminal(1)));
+        // A Claude Code session in a Codealong-made worktree hangs up too (Codealong cleans it up,
+        // not Claude Code's `/exit`).
+        let ca_wt = Session { own_worktree: Some("/work/.codealong/worktrees/calm-otter".into()), ..own.clone() };
+        assert_eq!(ending(&board(vec![ca_wt.clone()]), &ca_wt, false), Ok(Ending::Terminal(1)));
         // So does one another session still works beside, in its worktree (a helper of its kept
         // as yours): the exit would remove a clean worktree from under it. One that's stopped or
         // archived there doesn't count.

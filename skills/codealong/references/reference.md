@@ -1567,7 +1567,8 @@ Options:
           The worktree its sessions start in: a path, or `.` (a new schedule's)
 
       --new-worktree[=<YES|NO>]
-          Have Claude Code make a fresh worktree for each session (`claude --worktree`)
+          Start each session in a fresh git worktree (via the harness's `--worktree`
+          flag when it has one, else Codealong creates it in `.codealong/worktrees/`)
 
       --chat
           Start its sessions in no project, each in a folder of its own among
@@ -1750,7 +1751,8 @@ Options:
           The worktree its sessions start in: a path, or `.` (a new schedule's)
 
       --new-worktree[=<YES|NO>]
-          Have Claude Code make a fresh worktree for each session (`claude --worktree`)
+          Start each session in a fresh git worktree (via the harness's `--worktree`
+          flag when it has one, else Codealong creates it in `.codealong/worktrees/`)
 
       --chat
           Start its sessions in no project, each in a folder of its own among
@@ -4185,7 +4187,8 @@ Options:
           as one of that device's
 
       --new-worktree
-          Have Claude Code make a fresh worktree for it (`claude --worktree`)
+          Start in a fresh git worktree (via the harness's `--worktree` flag when it has
+          one, else Codealong creates it in `.codealong/worktrees/`)
 
       --chat
           Start it in no project: in a new folder of its own among Codealong's chats,

@@ -222,7 +222,8 @@ pub fn account_options(a: &AccountCfg, places: std::result::Result<Vec<Place>, S
         buffer: None,
         models: if tuned { models() } else { Vec::new() },
         efforts: if tuned { listed(adapter.efforts()) } else { Vec::new() },
-        worktree: true,
+        worktree: adapter.makes_worktrees(),
+        codealong_worktree: true,
         resumes,
         switches_model: tuned && adapter.model_command().is_some(),
         switches_effort: tuned && !adapter.efforts().is_empty() && adapter.effort_command().is_some(),
@@ -2467,7 +2468,9 @@ mod tests {
         assert_eq!(o.accounts[1].default_model.as_deref(), Some("claude-fable-5-1"));
         assert_eq!(o.accounts[0].default_model, None);
         assert!(o.claude_models.iter().any(|m| m.id == "opus[1m]"));
-        assert!(o.accounts.iter().all(|a| a.worktree));
+        assert!(o.accounts.iter().all(|a| a.codealong_worktree));
+        assert!(o.accounts.iter().find(|a| a.name == "claude").unwrap().worktree);
+        assert!(!o.accounts.iter().find(|a| a.name == "codex").unwrap().worktree);
     }
 
     #[test]

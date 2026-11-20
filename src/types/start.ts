@@ -137,6 +137,9 @@ export interface StartAccount {
   efforts?: { id: string; label: string }[];
   /** Its command line makes a new worktree for a session when asked. */
   worktree?: boolean;
+  /** Codealong itself can make a new worktree on this device when the harness or place doesn't.
+   *  Missing from Macs before 2026-11-20. */
+  codealongWorktree?: boolean;
   /** Of `places`, where one of its sessions that isn't running can go on, in the same order.
    *  Missing from Macs before 2026-10-06, which resume one only in a terminal. */
   resumes?: StartPlace[];

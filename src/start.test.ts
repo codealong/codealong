@@ -524,8 +524,8 @@ describe('what the quick panel says of a start', () => {
 
   it('says what the New worktree box does there', () => {
     expect(newWorktreeTitle(true, 'terminal', 'claude')).toBe('Claude Code makes the worktree: its folder, branch and base.');
-    expect(newWorktreeTitle(true, 'terminal', 'antigravity')).toBe('Codealong makes the worktree in .codealong/worktrees, from the default branch.');
-    expect(newWorktreeTitle(true, 'codealong', 'claude')).toBe('Codealong makes the worktree in .codealong/worktrees, from the default branch.');
+    expect(newWorktreeTitle(true, 'terminal', 'antigravity', true)).toBe('Codealong makes the worktree in .codealong/worktrees, from the default branch.');
+    expect(newWorktreeTitle(true, 'codealong', 'claude', true)).toBe('Codealong makes the worktree in .codealong/worktrees, from the default branch.');
     expect(newWorktreeTitle(true, null, null)).toBe('It makes the worktree: its folder, branch and base.');
     expect(newWorktreeTitle(false, 'background', 'codex')).toBe('Codex can’t start in a new worktree from here.');
     expect(newWorktreeTitle(false, 'claude-app', 'claude')).toBe('The app has its own worktree choice; pick it there before you send.');
@@ -566,9 +566,9 @@ describe('startChoice', () => {
   const background = { place: 'background' as const, label: 'Background' };
   const codealong = { place: 'codealong' as const, label: 'Codealong' };
   const accounts = [
-    fx.startAccount({ name: 'claude', places: [ghostty, background, claudeApp], defaultModel: 'opus', models, efforts, worktree: true }),
-    fx.startAccount({ name: 'claude2', places: [ghostty, codealong], defaultModel: 'haiku', models, efforts, worktree: true }),
-    fx.startAccount({ name: 'codex', harness: 'codex', places: [codexApp] }),
+    fx.startAccount({ name: 'claude', places: [ghostty, background, claudeApp], defaultModel: 'opus', models, efforts, worktree: true, codealongWorktree: true }),
+    fx.startAccount({ name: 'claude2', places: [ghostty, codealong], defaultModel: 'haiku', models, efforts, worktree: true, codealongWorktree: true }),
+    fx.startAccount({ name: 'codex', harness: 'codex', places: [codexApp], codealongWorktree: true }),
   ];
   const none: StartPicks = { agent: null, effort: null, place: null, newWorktree: false };
   const choose = (picks: Partial<StartPicks>, usage: Usage[] = [], lastPlace: (c: string) => 'terminal' | 'background' | undefined = () => undefined) => {
@@ -619,10 +619,30 @@ describe('startChoice', () => {
   });
 
   it('makes a new worktree on the command line or in Codealong, not in desktop apps', () => {
-    expect(choose({ newWorktree: true })).toMatchObject({ makesWorktree: true, inNewWorktree: true });
-    expect(choose({ agent: agentId('claude2', null), place: 'codealong', newWorktree: true })).toMatchObject({ placeNow: 'codealong', makesWorktree: true, inNewWorktree: true });
+    expect(choose({ newWorktree: true })).toMatchObject({ makesWorktree: true, codealongMakesWorktree: false, inNewWorktree: true });
+    expect(choose({ agent: agentId('claude2', null), place: 'codealong', newWorktree: true })).toMatchObject({ placeNow: 'codealong', makesWorktree: true, codealongMakesWorktree: true, inNewWorktree: true });
     expect(choose({ agent: agentId('claude', null), place: 'claude-app', newWorktree: true })).toMatchObject({ placeNow: 'claude-app', makesWorktree: false, inNewWorktree: false });
     expect(choose({ agent: agentId('codex', null), newWorktree: true })).toMatchObject({ makesWorktree: false, inNewWorktree: false });
+    // Non-native harnesses (Antigravity, Codex in terminal) get Codealong-made worktrees when the
+    // Mac advertises `codealongWorktree`, and stay disabled on older Macs without it.
+    const withAg = [...accounts, fx.startAccount({ name: 'ag', harness: 'antigravity', places: [ghostty, background], codealongWorktree: true })];
+    const pickAg = autoPick(withAg, [], NOW);
+    expect(startChoice(withAg, models, efforts, [], pickAg, agentOptions(withAg, models, pickAg), initialChoice(withAg, pickAg, undefined), { ...none, agent: agentId('ag', null), newWorktree: true }, () => undefined)).toMatchObject({
+      placeNow: 'terminal',
+      makesWorktree: true,
+      codealongMakesWorktree: true,
+      inNewWorktree: true,
+    });
+    const older = withAg.map((a) => ({ ...a, codealongWorktree: false }));
+    const pickOlder = autoPick(older, [], NOW);
+    expect(startChoice(older, models, efforts, [], pickOlder, agentOptions(older, models, pickOlder), initialChoice(older, pickOlder, undefined), { ...none, agent: agentId('ag', null), newWorktree: true }, () => undefined)).toMatchObject({
+      makesWorktree: false,
+      inNewWorktree: false,
+    });
+    expect(startChoice(older, models, efforts, [], pickOlder, agentOptions(older, models, pickOlder), initialChoice(older, pickOlder, undefined), { ...none, agent: agentId('claude2', null), place: 'codealong', newWorktree: true }, () => undefined)).toMatchObject({
+      makesWorktree: false,
+      inNewWorktree: false,
+    });
   });
 
   it('starts Auto on the next model when its own is nearly used, and speaks of that one', () => {

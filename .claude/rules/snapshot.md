@@ -169,8 +169,9 @@ Starting is checked without starting one.
 
 - `--snapshot --start-options`: where each account can start a session.
 - `--snapshot --start-plan <folder> <account> <terminal|background|claude-app|codex-app|codealong> [prompt] [--model <model>] [--effort <level>] [--worktree]`:
-  what a start would run, without starting: where it would go now, and for a terminal whether it
-  would run in tmux (`start::plan_now`). `codealong` is a session Codealong runs itself.
+  what a start would run, without starting: where it would go now, whether Codealong would create a
+  worktree (`createWorktree`), and for a terminal whether it would run in tmux (`start::plan_now`).
+  `codealong` is a session Codealong runs itself.
 
 ## Terminals, hibernating and hearing
 

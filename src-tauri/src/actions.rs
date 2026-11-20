@@ -1946,10 +1946,10 @@ fn end(engine: &Handle, s: &crate::model::Session, account: &config::AccountCfg,
             Err(e) => Ended::said(None, Some(format!("Its background job didn't stop: {}", words(e)))),
         },
         Ending::Turn => match stopping(s, who, || adapter.interrupt(&ctx, s)) {
-            Ok(_) => Ended { what: Some("its turn is stopped".into()), note: None, left_worktree: codealong_tree },
+            Ok(_) => Ended::said(Some("its turn is stopped".into()), None),
             Err(e) => Ended::said(None, Some(format!("Its turn didn't stop: {}", words(e)))),
         },
-        Ending::Nothing(why) => Ended { what: None, note: why.clone(), left_worktree: why.is_none() && codealong_tree },
+        Ending::Nothing(why) => Ended { what: None, note: why.clone(), left_worktree: why.is_none() && !s.live && codealong_tree },
     }
 }
 

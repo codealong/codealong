@@ -3011,8 +3011,8 @@ work is under way there, as it joins none of it: Claude Code's background jobs d
 a Claude Code account), unless `worktree.bgIsolation` is `none` in the account's or the repo's
 settings. The repo picked follows the place: pick another and where it starts in the repo changes
 with it. The worktree menu lists that repo's
-worktrees: the main checkout (*main*) first, then *New worktree* (where the account makes one,
-below), the reusable ones ready for new work and the ones you pinned; the reusable ones with
+worktrees: the main checkout (*main*) first, then *New worktree* (where the account or Codealong
+makes one, below), the reusable ones ready for new work and the ones you pinned; the reusable ones with
 work under way and the rest, each kept for the one piece of work it was made for, fold away
 under *N more*, which opens on a click or ⏎ and while what you type matches one of them. Then
 pick the account and model in one menu (⌘L, every account on every model it can start on, with its limits, and the effort under them: Default, Low, Medium, High, Extra or Max, for Codex
@@ -3030,9 +3030,11 @@ control on over there).
 
 Your terminal (Ghostty, iTerm2, Terminal or Rex) starts Claude Code on your prompt, on the account's
 default model or the one you picked (Fable, Opus, Sonnet, Haiku, 1M context, Opus Plan Mode) at the
-effort you picked (`--effort`; Haiku takes none, and Default is the account's `effortLevel`), and
-with New worktree Claude Code makes a fresh worktree for it from the repo's main checkout (`claude --worktree`: its folder, branch
-and base are Claude Code's choice). Codealong trusts the folder for that account first, as Yes at
+effort you picked (`--effort`; Haiku takes none, and Default is the account's `effortLevel`), and with New worktree Claude Code and Cursor make a fresh worktree themselves (`--worktree`), while
+for other harnesses (Antigravity, Codex, OpenCode) and hosted Codealong sessions Codealong creates
+one in `<main>/.codealong/worktrees/` (running the repo's trusted `WorktreeCreate` hook when one is
+declared, otherwise `git worktree add --no-track` from the default branch, with `.codealong/worktrees/`
+excluded in `.git/info/exclude`). Codealong trusts the folder for that account first, as Yes at
 Claude Code's trust prompt does (the prompt's default answer quits, and `--bg` refuses a folder it
 hasn't trusted). Background starts it the same way under Claude Code's background service (`claude
 --bg`), with no terminal: it shows on the board like any other, takes prompts from Codealong, and

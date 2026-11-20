@@ -1299,6 +1299,10 @@ pub struct StartAccount {
     /// Its command line makes a new worktree for a session when asked.
     #[serde(default)]
     pub worktree: bool,
+    /// Codealong itself can make a new worktree for a session on this device when the harness or
+    /// place doesn't (`worktree.rs`). Missing from Macs before 2026-11-20.
+    #[serde(default)]
+    pub codealong_worktree: bool,
     /// Of `places`, where one of its sessions that isn't running can go on (`ResumeIn`), in the
     /// same order. Missing from devices before 2026-10-06, which resume one only in a terminal.
     #[serde(default)]

@@ -4,8 +4,9 @@
 //!
 //! A worktree Codealong makes goes in `<main>/.codealong/worktrees/<slug>` on branch
 //! `worktree-<slug>`, based on the repo's default remote branch (`repos::default_branch`, falling
-//! back to `HEAD`), with `.codealong/` added to `<main>/.git/info/exclude` so the main checkout's
-//! git status stays clean. When a repo declares a `WorktreeCreate` hook that an account trusts
+//! back to `HEAD`) with `--no-track`, with `.codealong/worktrees/` added to the repo's
+//! `info/exclude` so the main checkout's git status stays clean without hiding `.codealong/`
+//! team settings. When a repo declares a `WorktreeCreate` hook that an account trusts
 //! (`Adapter::setup_worktree`), that hook runs in git's place, matching how `cleanup.rs` runs
 //! `WorktreeRemove` hooks on teardown.
 //!
@@ -89,11 +90,6 @@ struct Store {
     worktrees: Vec<Entry>,
 }
 
-/// Whether `wt` sits in Codealong's own worktrees folder (`<main>/.codealong/worktrees/<slug>`).
-pub fn made_by_codealong(wt: &Path) -> bool {
-    wt.parent().is_some_and(|p| p.ends_with(".codealong/worktrees"))
-}
-
 /// What creating a new worktree from `folder` would do, without modifying the repository.
 pub fn plan(cfg: &Config, folder: &Path) -> Result<Plan> {
     let (_, main) = crate::repos::locate(folder).ok_or_else(|| anyhow!("{} isn't in a git repository, so Codealong can't make a worktree there.", tilde(folder)))?;
@@ -130,7 +126,7 @@ fn create_with_git(main: &Path, slug: &str) -> Result<Created> {
     let base = base_ref(main);
     let main_s = main.to_string_lossy().into_owned();
     let path_s = path.to_string_lossy().into_owned();
-    procs::run("git", &["-C", &main_s, "worktree", "add", "-b", &branch, &path_s, &base], None, GIT_WAIT)
+    procs::run("git", &["-C", &main_s, "worktree", "add", "--no-track", "-b", &branch, &path_s, &base], None, GIT_WAIT)
         .map_err(|e| anyhow!("Git couldn't make a worktree in {}: {}", tilde(main), last_line(&e.to_string())))?;
     let path = dunce::canonicalize(&path).unwrap_or(path);
     Ok(Created { path, main: main.to_path_buf(), name: slug.to_string(), branch: Some(branch), by_hook: false })
@@ -162,11 +158,13 @@ fn create_with_hooks(main: &Path, hooks: &[Hook]) -> Result<Created> {
 }
 
 /// Cleans up a git-created worktree when launching its session fails right after creation.
+/// Hook-made worktrees are left tracked (not torn down blindly here) so Clean up worktree or
+/// WorktreeRemove can handle their repo-specific teardown safely.
 pub fn rollback(created: &Created) {
-    forget(&created.path);
     if created.by_hook {
         return;
     }
+    forget(&created.path);
     let main = created.main.to_string_lossy();
     let path = created.path.to_string_lossy();
     let _ = procs::run("git", &["-C", &main, "worktree", "remove", &path], None, GIT_WAIT);
@@ -196,15 +194,26 @@ fn setup_hooks(cfg: &Config, main: &Path, name: &str) -> (Vec<Hook>, Option<Stri
     (Vec::new(), skipped)
 }
 
-/// Adds `.codealong/` to `<main>/.git/info/exclude` when not already listed, so worktrees under
-/// `.codealong/worktrees/` never show as untracked files in the main checkout.
+/// Adds `.codealong/worktrees/` to the repo's `info/exclude` when not already listed, so worktrees
+/// under `.codealong/worktrees/` never show as untracked files while `.codealong/config.toml` and
+/// other committed team files remain visible to git.
 fn ensure_excluded(main: &Path) -> Result<()> {
-    ensure_excluded_in(&main.join(".git").join("info").join("exclude"))
+    let main_s = main.to_string_lossy();
+    let git_dir = procs::run("git", &["-C", &main_s, "rev-parse", "--git-common-dir"], None, CHECK_WAIT)
+        .ok()
+        .map(|s| s.trim().to_string())
+        .filter(|s| !s.is_empty())
+        .map(|s| {
+            let p = PathBuf::from(s);
+            if p.is_absolute() { p } else { main.join(p) }
+        })
+        .unwrap_or_else(|| main.join(".git"));
+    ensure_excluded_in(&git_dir.join("info").join("exclude"))
 }
 
 fn ensure_excluded_in(exclude: &Path) -> Result<()> {
     let existing = std::fs::read_to_string(exclude).unwrap_or_default();
-    if existing.lines().any(|l| matches!(l.trim(), ".codealong/" | ".codealong" | "/.codealong/" | "/.codealong")) {
+    if existing.lines().any(|l| matches!(l.trim(), ".codealong/worktrees/" | ".codealong/worktrees" | "/.codealong/worktrees/" | "/.codealong/worktrees")) {
         return Ok(());
     }
     if let Some(parent) = exclude.parent() {
@@ -214,7 +223,7 @@ fn ensure_excluded_in(exclude: &Path) -> Result<()> {
     if !next.is_empty() && !next.ends_with('\n') {
         next.push('\n');
     }
-    next.push_str(".codealong/\n");
+    next.push_str(".codealong/worktrees/\n");
     std::fs::write(exclude, next).map_err(|e| anyhow!("Couldn't update {}: {e}", tilde(exclude)))
 }
 
@@ -286,25 +295,29 @@ fn invalidate_cache() {
 /// Records `created` in `made-worktrees.json`, pruning entries whose folders are gone.
 pub fn remember(created: &Created) {
     let entry_path = created.path.to_string_lossy().into_owned();
-    let _ = store::change(&store_path(), WHAT, |s: &mut Store| {
+    if let Err(e) = store::change(&store_path(), WHAT, |s: &mut Store| {
         s.worktrees.retain(|e| e.path != entry_path && Path::new(&e.path).exists());
         s.worktrees.push(Entry { path: entry_path.clone(), branch: created.branch.clone(), at: now_ms() });
         true
-    });
+    }) {
+        eprintln!("codealong: couldn't save made-worktrees.json: {e:#}");
+    }
     invalidate_cache();
 }
 
 /// Removes `path` from `made-worktrees.json` once the worktree is gone.
 pub fn forget(path: &Path) {
     let real = dunce::canonicalize(path).ok();
-    let _ = store::change(&store_path(), WHAT, |s: &mut Store| {
+    if let Err(e) = store::change(&store_path(), WHAT, |s: &mut Store| {
         let before = s.worktrees.len();
         s.worktrees.retain(|e| {
             let ep = Path::new(&e.path);
             ep != path && real.as_deref().is_none_or(|r| ep != r && dunce::canonicalize(ep).ok().as_deref() != Some(r))
         });
         s.worktrees.len() != before
-    });
+    }) {
+        eprintln!("codealong: couldn't update made-worktrees.json: {e:#}");
+    }
     invalidate_cache();
 }
 
@@ -312,7 +325,7 @@ pub fn forget(path: &Path) {
 /// recorded in `made-worktrees.json`, e.g. from a `WorktreeCreate` hook).
 pub fn is_tracked(path: &str) -> bool {
     let p = Path::new(path);
-    if made_by_codealong(p) {
+    if crate::repos::made_by_codealong(p) {
         return true;
     }
     let tracked = tracked_paths();
@@ -350,7 +363,7 @@ fn attach_own_from(sessions: &mut [Session], tracked: &[PathBuf]) {
 fn codealong_worktree_ancestor(cwd: &Path) -> Option<PathBuf> {
     let mut cur = Some(cwd);
     while let Some(d) = cur {
-        if made_by_codealong(d) {
+        if crate::repos::made_by_codealong(d) {
             return Some(d.to_path_buf());
         }
         cur = d.parent();
@@ -388,17 +401,23 @@ mod tests {
         assert_eq!(created.branch.as_deref(), Some("worktree-calm-otter"));
         assert!(created.path.ends_with(".codealong/worktrees/calm-otter"));
         assert!(created.path.is_dir());
-        assert!(made_by_codealong(&created.path));
+        assert!(crate::repos::made_by_codealong(&created.path));
 
-        // `.codealong/` is excluded so main's git status stays clean.
+        // Only `.codealong/worktrees/` is excluded, so main's git status stays clean while
+        // committed team settings under `.codealong/config.toml` remain visible to git.
         let exclude = std::fs::read_to_string(main.join(".git/info/exclude")).unwrap();
-        assert!(exclude.lines().any(|l| l.trim() == ".codealong/"));
+        assert!(exclude.lines().any(|l| l.trim() == ".codealong/worktrees/"));
         assert!(git(&main, &["status", "--porcelain"]).trim().is_empty());
+        std::fs::write(main.join(".codealong/config.toml"), "review = true\n").unwrap();
+        let st = git(&main, &["status", "--porcelain", "-uall"]);
+        assert!(st.contains(".codealong/config.toml"), "expected config.toml in status, got: {st}");
+        assert!(!st.contains(".codealong/worktrees"), "worktrees should be excluded, got: {st}");
+        std::fs::remove_file(main.join(".codealong/config.toml")).unwrap();
 
         // Calling ensure_excluded again doesn't duplicate the entry.
         ensure_excluded(&main).unwrap();
         let exclude2 = std::fs::read_to_string(main.join(".git/info/exclude")).unwrap();
-        assert_eq!(exclude2.lines().filter(|l| l.trim() == ".codealong/").count(), 1);
+        assert_eq!(exclude2.lines().filter(|l| l.trim() == ".codealong/worktrees/").count(), 1);
 
         // Rollback removes both the worktree folder and its branch.
         rollback(&created);
@@ -436,6 +455,8 @@ mod tests {
         let created = create_with_slug(&Config::default(), &main, "sage-fox").unwrap();
         let wt_head = git(&created.path, &["rev-parse", "HEAD"]).trim().to_string();
         assert_eq!(wt_head, remote_head);
+        // `--no-track` keeps the new branch from tracking `origin/main`.
+        assert!(procs::run("git", &["-C", &main.to_string_lossy(), "config", "branch.worktree-sage-fox.remote"], None, CHECK_WAIT).is_err());
     }
 
     #[test]

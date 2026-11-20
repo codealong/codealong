@@ -1353,7 +1353,7 @@ struct StartArgs {
     /// Start it on another of your machines, by name or short id (`codealong devices` lists them), which needs remote control on there. That machine picks the worktree, account, model and place as `codealong start` run there would, from its own folders, accounts and settings; the session it starts is listed here as one of that device's.
     #[arg(long, conflicts_with_all = ["todo", "take", "helper"])]
     device: Option<String>,
-    /// Have Claude Code make a fresh worktree for it (`claude --worktree`).
+    /// Start in a fresh git worktree (via the harness's `--worktree` flag when it has one, else Codealong creates it in `.codealong/worktrees/`).
     #[arg(long)]
     new_worktree: bool,
     /// Start it in no project: in a new folder of its own among Codealong's chats, for a question that belongs to none of your repos. The board lists it under Chats.
@@ -1511,7 +1511,7 @@ struct ScheduleOptions {
     /// The worktree its sessions start in: a path, or `.` (a new schedule's).
     #[arg(long)]
     worktree: Option<String>,
-    /// Have Claude Code make a fresh worktree for each session (`claude --worktree`).
+    /// Start each session in a fresh git worktree (via the harness's `--worktree` flag when it has one, else Codealong creates it in `.codealong/worktrees/`).
     #[arg(long, value_name = "YES|NO", num_args = 0..=1, require_equals = true, default_missing_value = "yes", value_parser = yes_no)]
     new_worktree: Option<bool>,
     /// Start its sessions in no project, each in a folder of its own among Codealong's chats.

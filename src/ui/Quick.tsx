@@ -807,6 +807,7 @@ export function Quick() {
     places,
     placeNow,
     makesWorktree: harnessMakesWorktree,
+    codealongMakesWorktree,
     inNewWorktree: newWorktreePicked,
     isolatesIn,
     modelNow,
@@ -1957,7 +1958,7 @@ export function Quick() {
   // that hold other work folded away (quick.ts `repoWorktrees`). Listening makes no worktree.
   const inRepo = repoNow ? repoWorktrees(repoNow.lanes, pinnedWorktrees ?? []) : null;
   const worktreeSections: PickerSection[] = inRepo
-    ? worktreeMenu(inRepo, inRepo.from && !listen ? newWorktreeOption(newWorktreeDetail(harnessMakesWorktree, placeNow, harness, worktreeName(inRepo.from)), newWorktreeTitle(harnessMakesWorktree, placeNow, harness), !harnessMakesWorktree) : null)
+    ? worktreeMenu(inRepo, inRepo.from && !listen ? newWorktreeOption(newWorktreeDetail(harnessMakesWorktree, placeNow, harness, worktreeName(inRepo.from), codealongMakesWorktree), newWorktreeTitle(harnessMakesWorktree, placeNow, harness, codealongMakesWorktree), !harnessMakesWorktree) : null)
     : [];
 
   /** A repo picked in its menu: where new work starts in it, as the place picked has it now or
@@ -2343,7 +2344,7 @@ export function Quick() {
             </div>
             {lane && repoNow && !addingNow && (
               <div className="ca-quick-pick">
-                <button type="button" data-picker-trigger className="ca-quick-chip" title={keysIn(`${inNewWorktree ? newWorktreeTitle(true, placeNow, harness) : tildePath(lane.path)}\nWorktree (⌘B)`)} aria-haspopup="dialog" aria-expanded={picker === 'worktree'} onClick={() => togglePicker('worktree')}>
+                <button type="button" data-picker-trigger className="ca-quick-chip" title={keysIn(`${inNewWorktree ? newWorktreeTitle(true, placeNow, harness, codealongMakesWorktree) : tildePath(lane.path)}\nWorktree (⌘B)`)} aria-haspopup="dialog" aria-expanded={picker === 'worktree'} onClick={() => togglePicker('worktree')}>
                   <Icon name={inNewWorktree ? 'plus' : 'branch'} size={14} />
                   <span>{inNewWorktree ? 'New worktree' : worktreeName(lane)}</span>
                   <Icon name="chevron-down" size={12} />
