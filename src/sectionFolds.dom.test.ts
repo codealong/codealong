@@ -58,6 +58,8 @@ describe('useSectionFolds', () => {
 
     expect(view.current.isFolded('working')).toBe(false);
     expect(view.current.isFolded('archived')).toBe(true);
+    expect(view.current.toggleFor('working')).toBeUndefined();
+    expect(view.current.toggleFor('archived')).toBeTypeOf('function');
 
     // Toggling an active section while searching does not mutate stored state; Archived still toggles.
     act(() => {

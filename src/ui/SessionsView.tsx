@@ -368,11 +368,10 @@ interface SessionsViewProps {
   /** Archived sessions, listed under a fold at the end. */
   archived: SessionItem[];
   /** Whether a section (`orchestrators`, `listening`, `pinned`, `pinnedGroups`, a status/day id,
-   *  or `archived`) is folded, toggling it, and whether a search is active (active sections stay
-   *  open and non-toggleable while searching; Archived still toggles). */
+   *  or `archived`) is folded, and its header toggle handler (undefined when non-toggleable, e.g.
+   *  active sections while searching). */
   sectionFolded?: (id: string) => boolean;
-  onToggleSection?: (id: string) => void;
-  searching?: boolean;
+  sectionToggle?: (id: string) => (() => void) | undefined;
   /** Todos a session is linked to, for its chip. */
   todosFor?: (sessionKey: string) => Todo[] | undefined;
   /** A session's helpers, for their chip on its row. */
@@ -410,9 +409,9 @@ interface SessionsViewProps {
 const NO_KEYS: ReadonlySet<string> = new Set();
 
 export function SessionsView(props: SessionsViewProps) {
-  const { orchestrators = [], listening, pinned, topHelpers, sections, groups, groupActs, sort, lines, now, selectedKey, picked, domId, onSelect, onPickThese, onOpen, onContextMenu, onPrMenu, onPrShow, onPrOpen, onPlacePinned, onUnpin, pinnedKeys, desktop, archived, sectionFolded, onToggleSection, searching = false, todosFor, helpersOf, helpersShown, onToggleHelpers, runsOf, onToggleRuns, sidesOf, sideGlancesOf, onToggleSides, onShowSide, helperActions, onShowTodo, onFilterLabel, saidOf, movedToOf, onShowSession } = props;
+  const { orchestrators = [], listening, pinned, topHelpers, sections, groups, groupActs, sort, lines, now, selectedKey, picked, domId, onSelect, onPickThese, onOpen, onContextMenu, onPrMenu, onPrShow, onPrOpen, onPlacePinned, onUnpin, pinnedKeys, desktop, archived, sectionFolded, sectionToggle, todosFor, helpersOf, helpersShown, onToggleHelpers, runsOf, onToggleRuns, sidesOf, sideGlancesOf, onToggleSides, onShowSide, helperActions, onShowTodo, onFilterLabel, saidOf, movedToOf, onShowSession } = props;
   const isFolded = (id: string) => !!sectionFolded?.(id);
-  const toggleSection = (id: string) => (onToggleSection && (!searching || id === 'archived') ? () => onToggleSection(id) : undefined);
+  const toggleSection = (id: string) => sectionToggle?.(id);
   const shown = helpersShown ?? NO_KEYS;
   const allGroups = groups ? groupsOf(groups) : [];
   const listed = groups ? allGroups.flatMap((g) => g.rows) : sections.flatMap((s) => s.rows);
