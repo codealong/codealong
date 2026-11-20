@@ -394,7 +394,7 @@ pub(super) fn pr_item(lanes: &[Lane], owners: &HashMap<&Path, &[String]>, slug: 
         nudge,
         nudge_by_default: nudge && !by_hand,
         watched,
-        // As its repo's settings say: the engine knows them (engine.rs, where it sends the board).
+        // As its repo's settings say: the engine knows them (engine/publish.rs, where it sends the board).
         review_first: false,
         // Yours to merge, where GitHub says you may and doesn't merge it by itself: `merge_waits`
         // keeps it while GitHub would merge it now and nothing else brings it to you, once every

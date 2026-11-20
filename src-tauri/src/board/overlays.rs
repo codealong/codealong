@@ -7,7 +7,7 @@
 //! a helper and what it helps, a headless run and who started it, a listening session.
 //!
 //! Each is a pure function over a session already built. The order they're laid in is
-//! `Engine::laid_over`'s (engine.rs), a stage at a time, where a later one has the last word:
+//! `Engine::laid_over`'s (engine/sessions.rs), a stage at a time, where a later one has the last word:
 //! Jev's read (`with_insights`), then `quiet_orchestrator` on its own, the suggested replies
 //! (`with_suggestions`), and the rest as `with_snoozes` lists them. An overlay's doc says what
 //! it comes after and before: a new one says so too, and goes into that order. A rule's test

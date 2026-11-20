@@ -102,7 +102,7 @@ export interface FolderTerminal {
   kbd?: string[];
 }
 
-/** The target that opens a new terminal in a session's folder (engine.rs `open_on`). */
+/** The target that opens a new terminal in a session's folder (engine/open.rs `open_on`). */
 export const terminalTarget = (key: string) => `s|${key}|terminal`;
 
 /** Your terminal, then every editor, as Open folder in <app>, for a session's Open menu, whose

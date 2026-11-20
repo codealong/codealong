@@ -783,7 +783,7 @@ pub trait Adapter: Sync {
 
     /// Text that marks a line of its records as what a tool gave back, which can name any
     /// folder: the engine passes over such lines when it looks for the folders sessions worked
-    /// in without parsing them (engine.rs).
+    /// in without parsing them (engine/records.rs).
     fn output_marks(&self) -> &'static [&'static str] {
         &[]
     }

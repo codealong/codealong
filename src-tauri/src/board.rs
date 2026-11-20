@@ -134,7 +134,7 @@ pub struct Inputs<'a> {
     /// reviews each PR that asks for yours (`autoreview::reviewer_of`).
     pub machines: &'a crate::shared::Machines,
     /// The worktrees whose HEAD, as git last read it, GitHub says is the last commit of a PR that
-    /// merged (ghpoll.rs `Heads`, engine.rs `heads_now`): they lose nothing to their commits on no
+    /// merged (ghpoll.rs `Heads`, engine/gitruns.rs `heads_now`): they lose nothing to their commits on no
     /// remote (`cleanup`).
     pub at_merged: &'a HashSet<PathBuf>,
 }

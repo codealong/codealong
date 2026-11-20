@@ -545,7 +545,7 @@ impl RepoSettings {
     }
 
     /// What's been read and which repos are here, in order, for telling a board from the last
-    /// (engine.rs `board_hash`): none of it is sent to the windows, and a branch read without a
+    /// (engine/publish.rs `board_hash`): none of it is sent to the windows, and a branch read without a
     /// file changes nothing that is, yet what waits on it (`pending`) goes on once it's read.
     pub fn readiness(&self) -> (bool, Vec<&(String, String)>, Vec<&String>, Vec<(&String, &String)>) {
         let mut read: Vec<_> = self.read.iter().collect();

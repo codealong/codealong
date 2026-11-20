@@ -187,11 +187,11 @@ over all seven. Before changing one of them, read the file that names it below; 
   maps to max, pro, team and enterprise): `claude/signin.rs` (module header).
 - Plan usage, `GET https://api.anthropic.com/api/oauth/usage`: the request and its `limits`
   list in `claude/usage.rs` (`fetch`, `claude_meters`), how often the app asks and how it backs
-  off in `engine.rs` (`USAGE_EVERY`, `USAGE_BACKOFF`, `keep_last_good`). It returns 429 when
-  called often, so don't loop `--usage` snapshots. The same answer has `extra_usage`, this billing
-  period's extra-usage spend in minor units (`claude/usage.rs` `extra_spend`; Claude Code
-  2.1.296's schema for it describes the units), and `spend`, the same as `{used, limit}` of
-  `{amount_minor, currency, exponent}` with `balance` and `auto_reload`, and
+  off in `engine.rs` (`USAGE_EVERY`, `USAGE_BACKOFF`) and `engine/polls.rs` (`keep_last_good`).
+  It returns 429 when called often, so don't loop `--usage` snapshots. The same answer has
+  `extra_usage`, this billing period's extra-usage spend in minor units (`claude/usage.rs`
+  `extra_spend`; Claude Code 2.1.296's schema for it describes the units), and `spend`, the same
+  as `{used, limit}` of `{amount_minor, currency, exponent}` with `balance` and `auto_reload`, and
   `seven_day_breakdown`, the week's share by surface (Claude Code, Chats, Cowork; read
   2026-10-12). Nothing in a transcript says which calls extra usage paid for: overage fields
   (`quotaLimits.isUsingOverage`) are only on refused turns. Claude took away its 5-hour limits
@@ -268,7 +268,7 @@ over all seven. Before changing one of them, read the file that names it below; 
   Before it, a session waiting on one read as stuck after 30 minutes (2026-10-27).
 - A Code session started without a folder runs in a scratch workspace the app makes for it and
   removes once the session is gone (2.9939's code): `claude/app.rs` (`scratch_dir`). The engine
-  lists every such session in one lane (`engine.rs` `chat_roots`), and the app's
+  lists every such session in one lane (`engine/reposcan.rs` `chat_roots`), and the app's
   `<system-reminder>` ahead of the first prompt is skipped, as is the `<artifact-view-context>`
   ahead of a prompt sent while you look at an artifact, in the app or a terminal
   (`claude/transcript.rs` `AHEAD_OF_PROMPT`). A comment sent to a session from an artifact's

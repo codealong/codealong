@@ -15,7 +15,7 @@
 //!
 //! What a session is given is kept for its life (emblems.json), whatever its title becomes, and
 //! the newest sessions are given theirs first. A helper shows the emblem of the session it works
-//! for and gets none of its own. The engine asks (`engine.rs` `look_emblems`, `draw_emblem`);
+//! for and gets none of its own. The engine asks (`engine/emblems.rs` `look_emblems`, `draw_emblem`);
 //! `Store::emblem_of` is what each session shows.
 //!
 //! A schedule that starts sessions has one emblem, picked as a session's is from its name and

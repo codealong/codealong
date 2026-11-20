@@ -1068,7 +1068,7 @@ pub fn is_waiting(t: &Todo, todos: &[Todo]) -> bool {
 /// Whether `t` is under Ready: not started, not archived, and waiting on nothing.
 /** The todos as a board shows them at `now`: one whose snooze has run out shows as awake. The board
  *  then changes as a snooze ends, so the heartbeat's publish brings the todo back into what waits
- *  on you (engine.rs `publish` skips a board that's the same); the store keeps the time until the
+ *  on you (engine/publish.rs `publish` skips a board that's the same); the store keeps the time until the
  *  todo next changes. */
 pub fn awake_at(mut todos: Vec<Todo>, now: i64) -> Vec<Todo> {
     for t in &mut todos {

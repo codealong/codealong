@@ -232,14 +232,14 @@ fn owed(s: &Session, usage: &[Usage], now: i64, cut_offs: bool, ended_with_serve
 
 /// Whether `usage` says `account` is signed in since `at` (ms): its usage was read after then with
 /// the account's sign-in, and wasn't turned away for want of one. A read that failed for another
-/// reason keeps the time of the last good one (engine.rs `keep_last_good`), so it says nothing.
+/// reason keeps the time of the last good one (engine/polls.rs `keep_last_good`), so it says nothing.
 fn signed_in_since(usage: &[Usage], account: &str, at: i64) -> bool {
     usage.iter().any(|u| u.account == account && !u.needs_sign_in && u.as_of.is_some_and(|t| t > at))
 }
 
 /// The sessions on `board` whose limit has lifted long enough at `now` to be carried on
 /// (`owed`). Nothing the windows get says so, and it comes with time alone, so the board's hash
-/// takes it in (engine.rs `board_hash`): the board that's composed then goes out, and `due` runs
+/// takes it in (engine/publish.rs `board_hash`): the board that's composed then goes out, and `due` runs
 /// on it.
 pub fn lifted(board: &Board, now: i64) -> Vec<String> {
     board.lanes.iter().flat_map(|l| &l.sessions).filter(|s| matches!(owed(s, &board.usage, now, false, None), Some((Why::Limit, ..)))).map(|s| s.key.clone()).collect()

@@ -20,7 +20,7 @@ before changing how a conversation reads (`claude/conversation.rs`) or what's ke
   `auto_restore_cancel`): `claude/conversation.rs` (the comment above `fate_of`, and `fate_of`).
 - A PR a session made or changed, from `toolUseResult.gitOperation.pr` or a `pr-link` line:
   `claude/transcript.rs` (`pr_made`); `prlinks.rs` links the session to it, subagents' logs
-  included (`engine.rs`). `gitOperation` also has `push`, `commit` and `branch`; `push.branch`,
+  included (`engine/records.rs`). `gitOperation` also has `push`, `commit` and `branch`; `push.branch`,
   the remote's branch, is how often a session pushed to a PR's (`claude/transcript.rs` `pushed`,
   board/prs.rs `pr_primary`), though a quiet push leaves none. Its `pr` is
   written only for commands Claude Code reads as acting on a PR (`gh pr create`…): a PR made

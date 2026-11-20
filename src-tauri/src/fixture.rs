@@ -154,7 +154,7 @@ fn head_of(branch: &str) -> String {
     format!("{:07x}", hash & 0x0fff_ffff)
 }
 
-/// A repo's worktrees as the engine seeds them from its main checkout (engine.rs `load_repos`):
+/// A repo's worktrees as the engine seeds them from its main checkout (engine/reposcan.rs `load_repos`):
 /// the checkout at `root` on `main`, then each `(folder, branch, who made it)`. What each is
 /// called is the engine's own rule for its folder (`repos::callsign`); who made it is said here,
 /// as `repos::origin` has it of such a folder on a Mac whose temporary folder is elsewhere: that
@@ -185,7 +185,7 @@ fn repo(project: &str, slug: &str, root: &str, worktrees: &[(&str, &str, Origin)
         .collect()
 }
 
-/// A folder outside every project, which is no repo's checkout (engine.rs `stray_seeds`).
+/// A folder outside every project, which is no repo's checkout (engine/reposcan.rs `stray_seeds`).
 fn elsewhere(path: &str, name: &str) -> LaneSeed {
     LaneSeed { origin: Origin::Folder, ..crate::engine::folder_seed(PathBuf::from(path), ELSEWHERE, name, true) }
 }
@@ -660,7 +660,7 @@ pub fn board(now: i64) -> Board {
             target.detail = Some(here.clone());
         }
     }
-    // What the engine lays over a composed board (engine.rs `compose`): what it read of the
+    // What the engine lays over a composed board (engine/publish.rs `compose`): what it read of the
     // accounts and GitHub, the settings the windows go by, the todos, and what follows from them.
     board.usage = usage(&c);
     board.github_polled = true;

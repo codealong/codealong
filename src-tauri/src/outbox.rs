@@ -291,7 +291,7 @@ fn save(out: &Outbox) -> Result<()> {
 
 /// Has this process hold messages for sessions that wait on their user, and send them (`send_due`)
 /// as boards come and on a clock of its own: the server, which runs for as long as the sessions
-/// do. The clock is for a board that sits still, which isn't published again (engine.rs
+/// do. The clock is for a board that sits still, which isn't published again (engine/publish.rs
 /// `publish`), while a failed send waits to be tried again or a message to be dropped. What a
 /// server before it held is read now, to go as the first boards allow.
 pub fn start(engine: Handle) {

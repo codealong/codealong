@@ -2,7 +2,7 @@
 // published, made from a type or opened), in its header: a chip each among its links, the latest
 // first, the first few and then a "+N" as its PRs are (SessionHeader.tsx). What was last done with
 // one and when is said on hover. A click on one opens it in the browser: in the Chrome profile its
-// account names, where it has one (engine.rs `open_link`). A right-click offers each of Chrome's
+// account names, where it has one (engine/open.rs `open_link`). A right-click offers each of Chrome's
 // profiles and the link copied (menus.ts `linkMenu`), and what went wrong there is said in place,
 // as a conversation's links say it: the header has no other way to.
 
