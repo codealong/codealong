@@ -49,11 +49,12 @@
 #
 # It lands only what's committed: uncommitted changes here, yours or another session's, stop it
 # before anything is touched. It's for a worktree that's yours alone (CLAUDE.md, *Landing
-# work*). What another session does in the same checkout while this runs is never lost or
-# undone, and never lands as yours; but git has no way to move a branch only if nothing
-# changed since it was looked at, so between two of its commands such a session can be caught
-# up in the last step: a branch it switches the checkout to just then is the one moved onto
-# main. One landing of a branch runs at a time. `--check` runs CI on the
+# work*). What another session does in the same checkout while this runs is never lost,
+# undone or landed as yours: nothing here rebases, merges, resets or stashes, a branch is
+# moved only if it's still at the commit that landed, and the files only by git's own
+# checkout. Such a session can still find the checkout moved under it in the last step, to
+# main's commit and back onto this branch. One landing of a branch runs at a time. `--check`
+# runs CI on the
 # commit as it is here, on a branch made for that run and removed after, so a landing under way
 # isn't touched. There is no flag to skip the checks, and none to run them here: `npm test` and
 # `cargo test` are still yours to run while you work.
@@ -703,62 +704,59 @@ EOF
   exit "$went"
 }
 
-# The first file that `$2` has and `$1` didn't which is here already. With the checkout clean
-# at `$1`, that's a file git ignores (anything else it would have listed), and moving to `$2`
-# would write over it with nothing kept of it anywhere.
-in_the_way() {
-  local path
-  git diff --no-renames --name-only -z --diff-filter=A "$1" "$2" 2>/dev/null | while IFS= read -r -d '' path; do
-    if [ -e "$path" ] || [ -L "$path" ]; then
-      printf '%s\n' "$path"
-      break
-    fi
-  done
-  return 0
+# Moves this checkout and its branch from `$1` to `$2`, a commit that has all `$1` has, by
+# three steps of git's that each change one thing and none of which can take anything away.
+# Why it didn't, when it didn't, is left in `why_not`.
+# 1. The files: a checkout of `$2` with HEAD on no branch. Git moves no branch for that,
+#    carries what's uncommitted along or refuses, and with `--no-overwrite-ignore` writes over
+#    no file it ignores (by default it would, and a file of the author's that main has begun
+#    to track, or to keep a directory where it is, would be gone with nothing kept of it).
+# 2. The branch: to `$2`, only if it's still at `$1`. A commit made on it meanwhile stays on
+#    it, and the checkout goes back onto it as it is.
+# 3. HEAD: back onto the branch, which is the commit it's at already, so no file moves. Not if
+#    HEAD has moved since step 1 (a commit made on it there would be left on no branch).
+# So the branch's own commits are never written again or weighed as patches: they're left
+# behind as landed, which is what's known of them.
+move_to() {
+  why_not=""
+  if ! git checkout -q --detach --no-overwrite-ignore "$2" >"$log" 2>&1; then
+    why_not="Git wouldn't move this checkout to origin/main, so it's left as it was and isn't at origin/main: $(grep -v '^Aborting' "$log" | head -4 | tr -s '\t\n' '  ')"
+    return 1
+  fi
+  if ! git update-ref "refs/heads/$branch" "$2" "$1" 2>/dev/null; then
+    git checkout -q "$branch" >/dev/null 2>&1
+    why_not="This branch gained commits while this landed (git log $(short "$2")..$branch), so it's left with them: it isn't at origin/main."
+    return 1
+  fi
+  if [ "$(git rev-parse HEAD)" != "$2" ] || git symbolic-ref -q HEAD >/dev/null || ! git checkout -q "$branch" >/dev/null 2>&1; then
+    why_not="This checkout changed while its branch was moved to origin/main, so it's left as it is (git status): the branch is at origin/main, and the checkout may not be on it."
+    return 1
+  fi
 }
 
 # Brings this checkout and the main checkout up to main once the change is in it, and says
 # where each stands. `$1` is the commit the branch was at, all of which is in `$2`, main's
 # commit as it was fetched: landed there by the queue, or merging into it as nothing new. So
-# the branch has nothing main lacks up to `$1`, and goes to `$2`:
-# - behind it, by a fast-forward and nothing else;
-# - otherwise by a rebase onto it of what's after `$1`, which is nothing: the branch's commits
-#   aren't written again, or weighed as patches (git would skip one that looks like one of
-#   main's, and write again one that undoes another), they're left behind as landed.
-# What another session does here between one command and the next is never undone. A commit
-# it makes on the branch is after `$1`, so it's carried onto main, every one and a merge as a
-# merge, and said; its uncommitted changes, or a rebase of its own, stop git from starting;
-# and nothing here aborts, resets or stashes. Other branches stay where they are, whatever
-# `rebase.updateRefs` says. A file here that git ignores isn't git's to write over, though a
-# clean status says nothing of it: where main has begun to track one, the branch stays where
-# it was. Where this checkout stands is read last, after main has been fetched for the last
-# time (by catch-up-main.sh): on its branch, at origin/main as that is by then, with nothing
-# uncommitted, or it isn't said to be at origin/main.
+# the branch has nothing main lacks, and goes to `$2` (`move_to`). Where this checkout stands
+# is read last, after main has been fetched for the last time (by catch-up-main.sh): on its
+# branch, at origin/main as that is by then, with nothing uncommitted, or it isn't said to be
+# at origin/main.
 caught_up() {
-  local here="" said now mine
+  local here="" said now
   if ! still_here "$1"; then
     here="This checkout moved or changed while the landing waited, so it's left as it is: it isn't at origin/main."
-  elif mine="$(in_the_way "$1" "$2")" && [ -n "$mine" ]; then
-    here="origin/main now has $mine, which is a file of yours here that git was ignoring and would write over. This branch is left as it was, so it isn't at origin/main: move the file aside, then git rebase --onto origin/main $(short "$1")."
-  elif git merge-base --is-ancestor "$1" "$2"; then
-    git merge -q --ff-only --no-overwrite-ignore --no-autostash "$2" >"$log" 2>&1 || here="This branch couldn't be moved up to origin/main, so it's left as it was: it isn't at origin/main."
-  elif ! git -c rebase.updateRefs=false rebase -q --no-autostash --rebase-merges --reapply-cherry-picks --empty=keep --onto "$2" "$1" >"$log" 2>&1; then
-    if [ -d "$(git rev-parse --git-path rebase-merge)" ] || [ -d "$(git rev-parse --git-path rebase-apply)" ]; then
-      here="A rebase is under way in this checkout, so it isn't at origin/main: finish it (git rebase --continue) or give it up (git rebase --abort), and look at what's here before landing from it."
-    else
-      here="This branch couldn't be moved onto origin/main, so it's left as it was: it isn't at origin/main."
-    fi
+  elif [ "$1" != "$2" ] && ! move_to "$1" "$2"; then
+    here="$why_not"
   fi
   said="$(scripts/catch-up-main.sh)"
   if [ -z "$here" ]; then
     now="$(git rev-parse -q --verify "$MAIN")"
-    # Main moved on while this ran: a fast-forward more, which is all it can take, of this
-    # branch where the move above left it and of nothing else.
-    if [ "$now" != "$2" ] && still_here "$2" && [ -z "$(in_the_way "$2" "$now")" ]; then
-      git merge -q --ff-only --no-overwrite-ignore --no-autostash "$now" >/dev/null 2>&1
+    # Main moved on while this ran: once more, from where the first move left this branch.
+    if [ "$now" != "$2" ] && still_here "$2" && git merge-base --is-ancestor "$2" "$now"; then
+      move_to "$2" "$now" || true
     fi
     if ! still_here "$now"; then
-      here="This checkout isn't at origin/main ($(short "$now")): it has commits main doesn't, made here while this landed, or it changed meanwhile (git status; git log origin/main..HEAD)."
+      here="${why_not:-This checkout isn't at origin/main ($(short "$now")): it has commits main doesn't, made here while this landed, or it changed meanwhile (git status; git log origin/main..HEAD).}"
     fi
   fi
   echo "$said${here:+ $here}"
@@ -860,18 +858,19 @@ main() {
   # What's landed is what was here when this was asked, read before anything else is: the
   # waits are long, and in a checkout that isn't ours alone another session can commit or
   # change branch meanwhile, which would go out under this one's review.
+  # A pull request is of a branch, and main isn't one to land from. The branch is read first
+  # and the commit from the branch, so the two are one branch's: by its whole name, since the
+  # short one git gives for a branch that shares its name with a tag is another
+  # (heads/<name>), and would be pushed as that.
   local asked_for
-  asked_for="$(git rev-parse HEAD)" || die "Couldn't read this checkout's HEAD."
+  branch="$(git symbolic-ref -q HEAD)" || die "This checkout is on no branch, and a landing is a branch's: git switch -c <topic>, then run this again."
+  asked_for="$(git rev-parse -q --verify "$branch^{commit}")" || die "Couldn't read this checkout's branch."
+  branch="${branch#refs/heads/}"
   clean_or_die
   if [ -d "$(git rev-parse --git-path rebase-merge)" ] || [ -d "$(git rev-parse --git-path rebase-apply)" ]; then
     die "A rebase is under way here: finish it (git rebase --continue) and run this again."
   fi
   command -v gh >/dev/null || die "gh isn't here, which is how this reaches GitHub: https://cli.github.com."
-  # A pull request is of a branch, and main isn't one to land from. The branch by its whole
-  # name: the short one git gives for a branch that shares its name with a tag is another
-  # (heads/<name>), and would be pushed as that.
-  branch="$(git symbolic-ref -q HEAD)" || die "This checkout is on no branch, and a landing is a branch's: git switch -c <topic>, then run this again."
-  branch="${branch#refs/heads/}"
   [ "$branch" != main ] || die "This checkout is on main, and a landing is a branch's of its own (CLAUDE.md, *Landing work*): git switch -c <topic>, then run this again."
   # What this keeps of a branch's landings, in the repository's .git: the turn, and the note of
   # a landing that's with GitHub.

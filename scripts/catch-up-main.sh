@@ -24,16 +24,21 @@ GIT_TERMINAL_PROMPT=0 git fetch -q origin main 2>/dev/null || echo "Couldn't fet
 # Refs by their whole names: `origin/main` and `main` alone are also what git calls a branch
 # or a tag someone named that. The fast-forward writes over no file git ignores there, and
 # stashes nothing: both are another session's.
-theirs=refs/remotes/origin/main
+# Origin's main is read once: another worktree's fetch moves it, and what's said of the main
+# checkout is of the commit it was moved to.
+theirs="$(git rev-parse -q --verify refs/remotes/origin/main)" || {
+  echo "Couldn't read origin/main, so the main checkout is left as it is."
+  exit 0
+}
 branch="$(git -C "$top" symbolic-ref -q HEAD || true)"
 branch="${branch#refs/heads/}"
 if [ "$branch" != main ]; then
   echo "The main checkout is on ${branch:-a detached HEAD}, not main, so it's left as it is."
-elif [ "$(git -C "$top" rev-parse HEAD)" = "$(git rev-parse "$theirs")" ]; then
+elif [ "$(git -C "$top" rev-parse HEAD)" = "$theirs" ]; then
   echo "The main checkout is at origin/main."
 elif ! git merge-base --is-ancestor refs/heads/main "$theirs"; then
   echo "The main checkout's main has commits origin/main doesn't, so it's left as it is."
-elif out="$(git -C "$top" merge -q --ff-only --no-overwrite-ignore --no-autostash "$theirs" 2>&1)"; then
+elif out="$(git -C "$top" merge -q --ff-only --no-overwrite-ignore --no-autostash "$theirs" 2>&1)" && [ "$(git -C "$top" rev-parse HEAD)" = "$theirs" ]; then
   echo "Fast-forwarded the main checkout to origin/main ($(git rev-parse --short "$theirs"))."
 else
   # Git lists the files whose uncommitted edits stood in the way one to a line, indented by a tab.
