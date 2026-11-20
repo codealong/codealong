@@ -650,6 +650,7 @@ pub fn board(now: i64) -> Board {
         session_settings: &cfg.sessions,
         machines: &Default::default(),
         at_merged: &HashSet::from([PathBuf::from(FLAGS)]),
+        working_elsewhere: &Default::default(),
     });
     // Where a worktree's new terminal opens is written under this Mac's home (`~/projects/…`):
     // the board's rule shortens it by the home of the machine it runs on (board/headlines.rs

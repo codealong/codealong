@@ -99,8 +99,8 @@ export function yourReviewNote(pr: Pick<PrFacts, 'lastReview' | 'headOid' | 'min
 const listed = (names: string[]) => (names.length > 1 ? `${names.slice(0, -1).join(', ')} and ${names[names.length - 1]}` : names[0]);
 
 /** A PR approved only before its latest commits, in a sentence, for its mark's and pill's titles:
- *  who approved which commit, and that GitHub still counts it, which is why it can read Ready to
- *  merge. Null for a PR that isn't approved, or is approved as it is. */
+ *  who approved which commit, and that GitHub still counts it even though Codealong holds it out of
+ *  Ready to merge. Null for a PR that isn't approved, or is approved as it is. */
 export function staleWords(pr: Pick<PrFacts, 'state' | 'staleApproval'>): string | null {
   const s = pr.state === 'approved' ? pr.staleApproval : undefined;
   if (!s) return null;
@@ -162,10 +162,11 @@ export function approvedBefore(pr: AgentFacts): string | null {
 
 const plural = (n: number, word: string) => `${n} ${word}${n === 1 ? '' : 's'}`;
 
-/** GitHub says it can be merged now: the reviews the repo requires, passing checks and no conflicts.
- *  Only GitHub can say so; approved with passing checks can still conflict with its base. */
+/** GitHub says it can be merged now: the reviews the repo requires, passing checks and no conflicts,
+ *  and not resting only on approvals of an earlier commit (`staleWords`). Only GitHub can say so;
+ *  approved with passing checks can still conflict with its base. */
 export function prReady(pr: PrFacts): boolean {
-  return isOpen(pr.state) && pr.state !== 'draft' && pr.merge === 'clean' && pr.checks.failed === 0 && pr.checks.pending === 0;
+  return isOpen(pr.state) && pr.state !== 'draft' && pr.merge === 'clean' && pr.checks.failed === 0 && pr.checks.pending === 0 && !staleWords(pr);
 }
 
 const reviewPillOf = (tone: PrTone, text: string, title: string, icon: string | null = null): PrPill => ({ key: 'review', tone, icon, text, short: null, title });
@@ -239,8 +240,7 @@ function reviewPill(pr: PrFacts): PrPill {
   }
 }
 
-/** An approved PR's approvals are all of an earlier commit (`staleWords`): it goes after the pill
- *  they make it, Approved or Ready to merge, which stays first, as GitHub says it. */
+/** An approved PR's approvals are all of an earlier commit (`staleWords`): it goes after Approved. */
 function stalePill(pr: PrFacts): PrPill | null {
   const title = staleWords(pr);
   return title ? { key: 'stale', tone: 'attn', icon: 'history', text: 'Stale approval', short: '', title } : null;

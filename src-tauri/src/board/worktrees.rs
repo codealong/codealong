@@ -313,7 +313,7 @@ mod tests {
                 previews: &Previews::default(),
                 reusable: marks,
                 review_snoozes: &[],
-                session_settings: &Default::default(), auto_reviews: (&Default::default(), &Default::default(), &Default::default()), machines: &Default::default(), at_merged: &HashSet::new(),
+                session_settings: &Default::default(), auto_reviews: (&Default::default(), &Default::default(), &Default::default()), machines: &Default::default(), at_merged: &HashSet::new(), working_elsewhere: &BTreeSet::new(),
             })
         };
         let marked = HashMap::from([(path.to_string(), true)]);
@@ -445,7 +445,7 @@ mod tests {
         running.archived = true;
         let (prs, visitors) = (HashMap::new(), HashMap::new());
         let order = vec!["Spruce".to_string()];
-        let board = compose(Inputs { now: NOW, apps: &apps, seeds: &seeds, sessions: vec![running], visitors: &visitors, git: &git, prs: &prs, requested: &HashMap::new(), made: &HashMap::new(), project_order: &order, notices: vec![], loading: false, github_at: None, pinned: &[], github_login: None, pr_links: &PrLinks::default(), previews: &Previews::default(), reusable: &HashMap::new(), review_snoozes: &[], session_settings: &Default::default(), auto_reviews: (&Default::default(), &Default::default(), &Default::default()), machines: &Default::default(), at_merged: &HashSet::from([PathBuf::from("/r/spark/.claude/worktrees/landed")]) });
+        let board = compose(Inputs { now: NOW, apps: &apps, seeds: &seeds, sessions: vec![running], visitors: &visitors, git: &git, prs: &prs, requested: &HashMap::new(), made: &HashMap::new(), project_order: &order, notices: vec![], loading: false, github_at: None, pinned: &[], github_login: None, pr_links: &PrLinks::default(), previews: &Previews::default(), reusable: &HashMap::new(), review_snoozes: &[], session_settings: &Default::default(), auto_reviews: (&Default::default(), &Default::default(), &Default::default()), machines: &Default::default(), at_merged: &HashSet::from([PathBuf::from("/r/spark/.claude/worktrees/landed")]), working_elsewhere: &BTreeSet::new() });
         let said = |p: &str| board.lanes.iter().find(|l| l.path == p).unwrap().cleanup.clone().map(|c| (c.ok, c.why));
         assert_eq!(said("/r/spark"), Some((false, "the main checkout".into())));
         assert_eq!(said("/r/spark/.claude/worktrees/landed"), Some((true, String::new())));

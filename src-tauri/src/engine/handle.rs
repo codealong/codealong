@@ -268,9 +268,10 @@ impl Handle {
 
     /// What your other devices run, as their latest boards say (peers.rs): the PRs a session runs
     /// on there, which a PR's primary session here isn't resumed beside (nudges.rs
-    /// `stopped_primaries`).
-    pub fn peer_lanes(&self, lanes: &[Lane]) {
-        let _ = self.tx.send(Msg::RunningElsewhere(crate::nudges::running_elsewhere(lanes)));
+    /// `stopped_primaries`), and the PRs a session is actively working on there (board/prs.rs
+    /// `working_elsewhere`), which stay out of `waits_to_merge`.
+    pub fn peer_lanes(&self, lanes: &[Lane], pr_sessions: &std::collections::BTreeMap<String, Vec<crate::model::PrSession>>) {
+        let _ = self.tx.send(Msg::RunningElsewhere(crate::nudges::running_elsewhere(lanes), crate::board::working_elsewhere(lanes, pr_sessions)));
     }
 
     /// Your machines that share automations, as their feeds say (peers.rs `machines`): which of
