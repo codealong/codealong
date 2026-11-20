@@ -60,6 +60,10 @@ mod engine;
 #[cfg(test)]
 #[path = "../peer/src/fixtures.rs"]
 mod fixtures;
+// A made-up Mac for the browser checks to run against (`--snapshot --fixture`): in debug builds,
+// which is what the checks run (scripts/engine.sh), and not in the app people install.
+#[cfg(debug_assertions)]
+mod fixture;
 mod geometry;
 mod flash;
 mod frames;

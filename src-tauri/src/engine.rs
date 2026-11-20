@@ -5164,7 +5164,9 @@ fn is_noise(p: &Path) -> bool {
     })
 }
 
-fn folder_seed(path: PathBuf, project: &str, name: &str, elsewhere: bool) -> LaneSeed {
+/// A folder that's no repo's worktree, called by its name, with nothing said of a branch or a
+/// remote. The made-up Mac's seeds start from it too (fixture.rs).
+pub(crate) fn folder_seed(path: PathBuf, project: &str, name: &str, elsewhere: bool) -> LaneSeed {
     LaneSeed {
         path,
         project: project.to_string(),

@@ -60,6 +60,7 @@ struct Mode {
 
 /// Every mode, in the order the line is looked through for them: the first one there runs.
 const MODES: &[Mode] = &[
+    Mode { flag: "--fixture", takes: "[bar | accounts | found | setup | config | start-options | skills [folder…] | editor-icons | shell-commands | transcript <session key> [--before <cursor>] | pending <session key>]", run: fixture },
     Mode { flag: "--pending", takes: "<session key>", run: pending },
     Mode { flag: "--answer", takes: "<session key> <id> <allow|deny|always> [answers to its questions, as JSON]", run: answer },
     // Before `--stop`, which is also its option (`OWN_OPTIONS`): after it, `--done <key> --stop`
@@ -124,6 +125,55 @@ const MODES: &[Mode] = &[
     Mode { flag: "--schedule-run", takes: "<schedule>", run: schedule_run },
     Mode { flag: "--schedule-times", takes: "<time, as a schedule writes it>", run: |_, rest| Ok(pretty(&crate::schedules::times(&rest.join(" "), util::now_ms(), &crate::schedules::rule::Local))) },
 ];
+
+/// `codealong --snapshot --fixture [what]`: what a mode prints, for a made-up Mac in place of
+/// this one (fixture.rs). `what` names the mode without its dashes: `bar`, `accounts`, `found`,
+/// `setup`, `config`, `start-options`, `skills [folder…]`, `editor-icons`, `shell-commands`, and
+/// for one of its sessions `transcript <session key> [--before <cursor>]` and `pending <session
+/// key>`; without one, the board. It reads nothing of this Mac's but the clock, so it's the same
+/// on every Mac: what `PREVIEW_FIXTURE=1 scripts/preview.sh` and `scripts/checks.sh --fixture`
+/// render.
+#[cfg(debug_assertions)]
+fn fixture(args: &Args, rest: &[String]) -> Done {
+    use crate::fixture;
+    // It's a Mac, with a Mac's terminals in its settings, as the checks' browser is a Mac's.
+    if !crate::os::is_macos() {
+        return Err(failed(crate::os::only_on_macos("The made-up Mac the browser checks run against")));
+    }
+    let board = fixture::board(util::now_ms());
+    let (what, more) = match rest {
+        [] => ("board", rest),
+        [what, more @ ..] => (what.as_str(), more),
+    };
+    // One of the board's sessions, by its key.
+    let session = || match more.first() {
+        Some(key) if board.session(key).is_some() => Ok(key.as_str()),
+        Some(key) => Err(Stop::Failed(format!("The made-up board has no session {key}; `codealong --snapshot --fixture` lists them."))),
+        None => Err(Stop::Usage),
+    };
+    Ok(match what {
+        "board" => pretty(&board),
+        "bar" => pretty(&barfeed::feed(crate::shown::Shown::here(&board))),
+        "accounts" => pretty(&fixture::accounts()),
+        "found" => pretty(&fixture::found()),
+        "setup" => pretty(&fixture::setup()),
+        "config" => pretty(&fixture::config_view()),
+        "start-options" => pretty(&fixture::start_options(&board)),
+        "skills" => pretty(&fixture::skills(&more.iter().filter(|a| !a.starts_with("--")).cloned().collect::<Vec<_>>())),
+        "editor-icons" => serde_json::to_string(&fixture::editor_icons()).unwrap_or_default(),
+        "shell-commands" => serde_json::to_string(&fixture::shell_commands()).unwrap_or_default(),
+        "transcript" => pretty(&fixture::page(&board, session()?, args.option("--before").and_then(|b| b.parse().ok()))),
+        "pending" => pretty(&fixture::pending(&board, session()?)),
+        _ => return Err(Stop::Usage),
+    })
+}
+
+/// The made-up Mac is in debug builds only, and a build without it says so rather than print
+/// this Mac's data to a check that asked for the made-up one.
+#[cfg(not(debug_assertions))]
+fn fixture(_: &Args, _: &[String]) -> Done {
+    Err(Stop::Failed("This build has no made-up board: `--snapshot --fixture` is a debug build's, which scripts/engine.sh builds.".into()))
+}
 
 /// `codealong --snapshot --tab-picture <session key> <file>`: the terminal tab a session runs in,
 /// as Improve Codealong finds it for a picture when a window shows the session (improve.rs), and

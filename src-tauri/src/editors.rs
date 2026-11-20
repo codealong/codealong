@@ -236,7 +236,7 @@ pub fn diff(id: &str, old: &Path, new: &Path) -> Result<()> {
 
 /// The side editors' icons are drawn at, in pixels: menus show an item's image 18 points high
 /// (muda), and pages at 16, so this is sharp at 2x in both.
-const ICON_PX: usize = 36;
+pub(crate) const ICON_PX: usize = 36;
 
 /// An installed editor's app icon, `size` pixels square: straight (not premultiplied) RGBA, top
 /// row first, as native menus take it and a page's canvas does.

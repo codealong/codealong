@@ -174,58 +174,61 @@ pub fn place_changes(accounts: &[AccountCfg], names: &[String], place: Place, ho
 /// account's default model. The places keep their order whatever the account's `start` says
 /// (`chosen` says that), so the quick panel's places hold still as a start there changes it.
 pub fn options(accounts_in: &[AccountCfg], terminal: &str, codex_projects: Vec<String>, home: &Path, default_model: impl Fn(&AccountCfg) -> Option<String>) -> StartOptions {
-    let accounts = accounts_in
-        .iter()
-        .map(|a| {
-            let harness = harness_of(a);
-            let (places, unavailable) = match places_of(a, home) {
-                Ok(ps) => (ps, None),
-                Err(why) => (Vec::new(), Some(why)),
-            };
-            let adapter = adapter_of(a);
-            let resumes = places.iter().copied().filter(|&p| adapter.resumes_in(p)).collect();
-            let places = places
-                .into_iter()
-                .map(|place| {
-                    let label = match place {
-                        Place::Terminal => terminal.to_string(),
-                        Place::Background => "Background".into(),
-                        Place::ClaudeApp => "Claude app".into(),
-                        Place::CodexApp => "Codex app".into(),
-                        Place::Codealong => "Codealong".into(),
-                    };
-                    let background = place == Place::Background;
-                    PlaceOption { place, label, behind: background && !adapter.runs_in_background(), service: background && adapter.runs_in_background(), isolates_in: Vec::new() }
-                })
-                .collect();
-            let chosen = a.start.as_deref().and_then(Place::from_word);
-            // What its command line takes; an account with nowhere to start is asked nothing.
-            let tuned = adapter.takes_model() && unavailable.is_none();
-            StartAccount {
-                name: a.name.clone(),
-                harness,
-                places,
-                chosen,
-                unavailable,
-                default_model: if tuned { default_model(a) } else { None },
-                preferred: false,
-                usage_cap: a.usage_cap,
-                buffer: None,
-                models: if tuned { adapter.models(a) } else { Vec::new() },
-                efforts: if tuned { listed(adapter.efforts()) } else { Vec::new() },
-                worktree: adapter.makes_worktrees(),
-                resumes,
-                switches_model: tuned && adapter.model_command().is_some(),
-                switches_effort: tuned && !adapter.efforts().is_empty() && adapter.effort_command().is_some(),
-                switches_mid_turn: tuned && adapter.switches_mid_turn(),
-                switches_in_app: tuned && matches!(adapter.app_way(), Some(crate::send::Route::Own(own)) if own.switches()),
-            }
-        })
-        .collect();
+    let accounts = accounts_in.iter().map(|a| account_options(a, places_of(a, home), terminal, || default_model(a), || adapter_of(a).models(a))).collect();
     // Devices that read the lists from here, before each account had its own, start Claude Code.
     let claude = crate::harness::adapter(Harness::Claude);
     let claude_models = accounts_in.iter().find(|a| harness_of(a) == Harness::Claude).map(|a| claude.models(a)).unwrap_or_default();
     StartOptions { accounts, codex_projects, claude_models, claude_efforts: listed(claude.efforts()), groups: Vec::new(), auto_group: String::new(), project_defaults: Default::default() }
+}
+
+/// An account as the sheet offers it, given the places it can start in and what reads its
+/// models: `options` asks this Mac for both (`places_of`, its harness's list), and the made-up
+/// Mac the browser checks run against says its own (fixture.rs). The rest is what its harness
+/// does everywhere.
+pub fn account_options(a: &AccountCfg, places: std::result::Result<Vec<Place>, String>, terminal: &str, default_model: impl FnOnce() -> Option<String>, models: impl FnOnce() -> Vec<ModelOption>) -> StartAccount {
+    let harness = harness_of(a);
+    let (places, unavailable) = match places {
+        Ok(ps) => (ps, None),
+        Err(why) => (Vec::new(), Some(why)),
+    };
+    let adapter = adapter_of(a);
+    let resumes = places.iter().copied().filter(|&p| adapter.resumes_in(p)).collect();
+    let places = places
+        .into_iter()
+        .map(|place| {
+            let label = match place {
+                Place::Terminal => terminal.to_string(),
+                Place::Background => "Background".into(),
+                Place::ClaudeApp => "Claude app".into(),
+                Place::CodexApp => "Codex app".into(),
+                Place::Codealong => "Codealong".into(),
+            };
+            let background = place == Place::Background;
+            PlaceOption { place, label, behind: background && !adapter.runs_in_background(), service: background && adapter.runs_in_background(), isolates_in: Vec::new() }
+        })
+        .collect();
+    let chosen = a.start.as_deref().and_then(Place::from_word);
+    // What its command line takes; an account with nowhere to start is asked nothing.
+    let tuned = adapter.takes_model() && unavailable.is_none();
+    StartAccount {
+        name: a.name.clone(),
+        harness,
+        places,
+        chosen,
+        unavailable,
+        default_model: if tuned { default_model() } else { None },
+        preferred: false,
+        usage_cap: a.usage_cap,
+        buffer: None,
+        models: if tuned { models() } else { Vec::new() },
+        efforts: if tuned { listed(adapter.efforts()) } else { Vec::new() },
+        worktree: adapter.makes_worktrees(),
+        resumes,
+        switches_model: tuned && adapter.model_command().is_some(),
+        switches_effort: tuned && !adapter.efforts().is_empty() && adapter.effort_command().is_some(),
+        switches_mid_turn: tuned && adapter.switches_mid_turn(),
+        switches_in_app: tuned && matches!(adapter.app_way(), Some(crate::send::Route::Own(own)) if own.switches()),
+    }
 }
 
 fn listed(list: &[(&str, &str)]) -> Vec<ModelOption> {

@@ -34,6 +34,20 @@
 # PREVIEW_PREPARE=skip renders from what such a run left, so many runs share one build and one
 # board (scripts/checks.sh does both).
 #
+# PREVIEW_FIXTURE=1 renders the engine's made-up Mac in place of this one (`codealong --snapshot
+# --fixture`, src-tauri/src/fixture.rs): three projects (Northwind, Atlas, Kestrel) under
+# /Users/me, worktrees in every bay, sessions in every status on five harnesses, PRs in every
+# state with some that wait on your review, todos and usage, the same on every Mac and every
+# day, with its times counted back from now. Everything else is as it is without it: the
+# PREVIEW_* files' "$lane:N" and "$session:N" stand for its worktrees and sessions, and
+# PREVIEW_TRANSCRIPT names one of its sessions (their keys read as what they are,
+# `claude:claude:checkout-approval`; `"$(scripts/engine.sh)" --snapshot --fixture` lists them),
+# whose conversation and what it waits on are made up too. None of this Mac's kept images are
+# copied unless PREVIEW_IMAGES names a folder of them, and a pr-detail.json left in $PREVIEW_DIR
+# is taken away. $PREVIEW_DIR remembers which Mac its snapshots are of, and a run with
+# PREVIEW_PREPARE=skip that asks for the other one stops rather than render the wrong one.
+# scripts/checks.sh --fixture runs the checks this way.
+#
 # PREVIEW_SCHEME=dark renders as if macOS were in dark mode (the screenshot is <view>-dark.png).
 # Under theme = "system" the page follows it; "light" and "dark" in config.toml win over it.
 # PREVIEW_PLATFORM=linux draws the windows as Linux has them (src/platform.ts): its keys in
@@ -177,6 +191,17 @@ if [ -n "$bin" ] && [ ! -x "$bin" ]; then
   echo "No engine at $bin (PREVIEW_BIN)." >&2
   exit 1
 fi
+# What the engine is asked for: this Mac's, each by its mode (--snapshot --accounts), or with
+# PREVIEW_FIXTURE its made-up Mac's, each by the mode's name (--snapshot --fixture accounts).
+# $dir/snapshot-of says which of the two its snapshots are of.
+snap=(--snapshot)
+mode="--"
+of="this Mac"
+if [ -n "${PREVIEW_FIXTURE:-}" ]; then
+  snap=(--snapshot --fixture)
+  mode=""
+  of="the made-up Mac"
+fi
 
 # The build and the snapshots, which PREVIEW_PREPARE=skip takes from an earlier run.
 if [ "$prepare" != skip ]; then
@@ -184,25 +209,38 @@ if [ "$prepare" != skip ]; then
   mkdir -p "$dir"
   rm -rf "$dir/assets"
   cp -R dist/. "$dir/"
-  "$bin" --snapshot >"$dir/board.json" 2>/dev/null
+  # Why the first snapshot failed is worth saying: a build with no made-up Mac, for one.
+  if ! "$bin" "${snap[@]}" >"$dir/board.json" 2>"$dir/snapshot.err"; then
+    cat "$dir/snapshot.err" >&2
+    echo "The engine at $bin couldn't snapshot $of." >&2
+    exit 1
+  fi
+  rm -f "$dir/snapshot.err"
+  echo "$of" >"$dir/snapshot-of"
   # The floating bar gets its own small feed from the engine, not the board.
-  { [ "$view" = bar ] || [ "$view" = notch ] || [ "$prepare" = only ]; } && "$bin" --snapshot --bar >"$dir/bar-feed.json" 2>/dev/null
-  "$bin" --snapshot --accounts >"$dir/accounts.json" 2>/dev/null
-  "$bin" --snapshot --start-options >"$dir/start-options.json" 2>/dev/null
-  "$bin" --snapshot --editor-icons >"$dir/editor-icons.json" 2>/dev/null
-  "$bin" --snapshot --shell-commands >"$dir/shell-commands.json" 2>/dev/null
+  { [ "$view" = bar ] || [ "$view" = notch ] || [ "$prepare" = only ]; } && "$bin" "${snap[@]}" "${mode}bar" >"$dir/bar-feed.json" 2>/dev/null
+  "$bin" "${snap[@]}" "${mode}accounts" >"$dir/accounts.json" 2>/dev/null
+  "$bin" "${snap[@]}" "${mode}start-options" >"$dir/start-options.json" 2>/dev/null
+  "$bin" "${snap[@]}" "${mode}editor-icons" >"$dir/editor-icons.json" 2>/dev/null
+  "$bin" "${snap[@]}" "${mode}shell-commands" >"$dir/shell-commands.json" 2>/dev/null
   # The skills of every worktree on the board, for the `/` lists.
   python3 -c 'import json, sys; sys.stdout.write("\0".join(sorted({l["path"] for l in json.load(open(sys.argv[1]))["lanes"] if not l.get("device")})))' "$dir/board.json" 2>/dev/null |
-    xargs -0 "$bin" --snapshot --skills >"$dir/skills.json" 2>/dev/null
-  "$bin" --snapshot --config >"$dir/config.json" 2>/dev/null
+    xargs -0 "$bin" "${snap[@]}" "${mode}skills" >"$dir/skills.json" 2>/dev/null
+  "$bin" "${snap[@]}" "${mode}config" >"$dir/config.json" 2>/dev/null
   if [ -z "${PREVIEW_FOUND:-}" ] || [ "$prepare" = only ]; then
-    "$bin" --snapshot --found >"$dir/found-here.json" 2>/dev/null
+    "$bin" "${snap[@]}" "${mode}found" >"$dir/found-here.json" 2>/dev/null
   fi
   if [ -z "${PREVIEW_SETUP:-}" ] || [ "$prepare" = only ]; then
-    "$bin" --snapshot --setup >"$dir/setup-here.json" 2>/dev/null
+    "$bin" "${snap[@]}" "${mode}setup" >"$dir/setup-here.json" 2>/dev/null
   fi
+  # A real PR's details left here would be the one thing the made-up Mac's page isn't.
+  [ -z "${PREVIEW_FIXTURE:-}" ] || rm -f "$dir/pr-detail.json"
 elif [ ! -f "$dir/board.json" ]; then
   echo "PREVIEW_PREPARE=skip, but $dir has no build and snapshots: run with PREVIEW_PREPARE=only first." >&2
+  exit 1
+elif [ "$(cat "$dir/snapshot-of" 2>/dev/null || echo "this Mac")" != "$of" ]; then
+  # A folder an earlier version prepared says nothing, and holds this Mac's.
+  echo "PREVIEW_PREPARE=skip, but $dir holds snapshots of $(cat "$dir/snapshot-of" 2>/dev/null || echo "this Mac"), not of $of: run with PREVIEW_PREPARE=only first, with PREVIEW_FIXTURE=1 for the made-up Mac and without it for this one." >&2
   exit 1
 fi
 [ "$prepare" = only ] && exit 0
@@ -232,8 +270,8 @@ fixture skills "${PREVIEW_SKILLS:-}"
 fixture tokens "${PREVIEW_TOKENS:-}"
 rm -f "$dir/transcript.json" "$dir/transcript-key.json" "$dir/pending.json"
 if [ -n "${PREVIEW_TRANSCRIPT:-}" ]; then
-  "$bin" --snapshot --transcript "$PREVIEW_TRANSCRIPT" ${PREVIEW_BEFORE:+--before "$PREVIEW_BEFORE"} >"$dir/transcript.json" 2>/dev/null
-  "$bin" --snapshot --pending "$PREVIEW_TRANSCRIPT" >"$dir/pending.json" 2>/dev/null
+  "$bin" "${snap[@]}" "${mode}transcript" "$PREVIEW_TRANSCRIPT" ${PREVIEW_BEFORE:+--before "$PREVIEW_BEFORE"} >"$dir/transcript.json" 2>/dev/null
+  "$bin" "${snap[@]}" "${mode}pending" "$PREVIEW_TRANSCRIPT" >"$dir/pending.json" 2>/dev/null
   echo "{\"key\": \"$PREVIEW_TRANSCRIPT\"}" >"$dir/transcript-key.json"
 fi
 # The files its calls sent you, which the page loads from ./files as the app loads them from
@@ -249,11 +287,16 @@ if [ -s "$dir/transcript.json" ]; then
       fi
     done
 fi
-# After the conversation is read: reading it keeps the images its prompts came with.
-images="${PREVIEW_IMAGES:-$HOME/Library/Application Support/Codealong/images}"
+# After the conversation is read: reading it keeps the images its prompts came with. The made-up
+# Mac has kept none, so this Mac's stay out of its page.
+images="${PREVIEW_IMAGES:-}"
+if [ -z "$images" ] && [ -z "${PREVIEW_FIXTURE:-}" ]; then
+  images="$HOME/Library/Application Support/Codealong/images"
+fi
 rm -rf "$dir/images"
-if [ -d "$images" ]; then
-  cp -R "$images" "$dir/images"
+if [ -n "$images" ] && [ -d "$images" ]; then
+  # One the app removes while they're copied is no reason to stop.
+  cp -R "$images" "$dir/images" 2>/dev/null || true
 fi
 if [ "${PREVIEW_EMBLEMS:-}" = drawn ]; then
   mkdir -p "$dir/images"
