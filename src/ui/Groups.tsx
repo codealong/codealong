@@ -95,11 +95,11 @@ export function GroupBlock({ children, ...head }: HeadProps & { children: ReactN
 }
 
 /** The pinned groups, after a list's pinned rows: reordered by dragging where `reorder`. */
-export function PinnedGroups({ by, count, reorder, children }: { by: GroupBy; count: number; reorder: boolean; children: ReactNode }) {
+export function PinnedGroups({ by, count, reorder, folded, onToggle, children }: { by: GroupBy; count: number; reorder: boolean; folded?: boolean; onToggle?: () => void; children: ReactNode }) {
   return (
     <section className="ca-bayblock ca-pinned">
-      <SectionHeader icon="pinned" label={by === 'worktree' ? 'Pinned worktrees' : 'Pinned repos'} count={count} hint={reorder ? <ReorderHint /> : undefined} />
-      <div className="ca-bay-lanes">{children}</div>
+      <SectionHeader icon="pinned" label={by === 'worktree' ? 'Pinned worktrees' : 'Pinned repos'} count={count} hint={reorder && !folded ? <ReorderHint /> : undefined} folded={folded} onToggle={onToggle} />
+      {!folded && <div className="ca-bay-lanes">{children}</div>}
     </section>
   );
 }

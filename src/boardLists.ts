@@ -21,8 +21,9 @@ import { scheduleProject } from './schedules';
 import type { Board, DevicesView, HarnessSchedule, Label, Lane, PrItem, PrSession, ProjectSummary, ScheduleItem, Session, TextHit, Todo } from './types';
 import type { ActionCounts } from './ui/ProjectSwitcher';
 import { inPrTab, prIsOpen, prMove, prPlace, prPlaces, prSections, prSessionsNow, prTabCounts, waitsOnReview, type PrGroupBy, type PrRowItem, type PrSort, type PrTab } from './ui/PrsView';
-import { groupedRows, groupSessions, helpersUnder, sessionSections, waitingQueue, type SessionItem, type SessionSort, type StartedPlace } from './ui/SessionsView';
+import { groupSessions, helpersUnder, sessionSections, waitingQueue, type SessionItem, type SessionSort, type StartedPlace } from './ui/SessionsView';
 import { groupRows, placeIn, type ListGroupBy } from './groups';
+import { hasSessionSections, visibleSessionRows, type SessionSectionParts } from './sectionFolds';
 
 const ELSEWHERE = 'Elsewhere';
 /** The todos at work, which never fold away in their group: in progress, or in review. */
@@ -1157,6 +1158,8 @@ export interface ListsInput {
   prTab: PrTab;
   todoSort: TodoSort;
   showArchived: boolean;
+  /** Whether a Sessions section is folded (sectionFolds.ts). */
+  sectionFolded: (id: string) => boolean;
   showDonePrs: boolean;
   todos: Todo[];
   labels: Label[];
@@ -1172,7 +1175,7 @@ export interface ListsInput {
 
 /** The lists, each kept while what it's made from stays the same. */
 export function useBoardLists(input: ListsInput) {
-  const { board, deviceLanes, devices, deviceFilter, project, loading, cutoff, since, now, query, said, filter, sessionPins, helpersShown, lanePins, prPins, sessionSort, sessionStarted, sessionGroup, repoPins, openGroups, prGroup, openPrGroups, todoGroup, openTodoGroups, prSort, prTab, todoSort, showArchived, showDonePrs, todos, labels, facets, showDoneTodos, showArchivedTodos, shownBoard, columnOpen } = input;
+  const { board, deviceLanes, devices, deviceFilter, project, loading, cutoff, since, now, query, said, filter, sessionPins, helpersShown, lanePins, prPins, sessionSort, sessionStarted, sessionGroup, repoPins, openGroups, prGroup, openPrGroups, todoGroup, openTodoGroups, prSort, prTab, todoSort, showArchived, sectionFolded, showDonePrs, todos, labels, facets, showDoneTodos, showArchivedTodos, shownBoard, columnOpen } = input;
 
   const projects = useMemo(() => projectsOf(board?.projects ?? [], deviceLanes), [board?.projects, deviceLanes]);
   const current = currentProject(project, projects, loading);
@@ -1231,11 +1234,12 @@ export function useBoardLists(input: ListsInput) {
     () => (sessionGroup === 'none' ? null : groupSessions(sessionSecs, sessionGroup, { pinned: sessionGroupPins, lanes: projectLanes, empty: !narrowing, opened: openGroups, whole: !!query })),
     [sessionGroup, sessionSecs, sessionGroupPins, projectLanes, narrowing, openGroups, query],
   );
-  const sessionList = useMemo<ListRow[]>(() => (groupedSecs ? groupedRows(groupedSecs) : sessionSecs.flatMap((s) => s.rows)), [groupedSecs, sessionSecs]);
-  const sessionRows = useMemo<ListRow[]>(
-    () => [...orchestratorRows, ...[...listeningRows, ...pinnedRows].flatMap((r) => [r, ...(topHelpers.get(r.session.key) ?? [])]), ...sessionList, ...(showArchived ? archivedItems : [])],
-    [orchestratorRows, listeningRows, pinnedRows, topHelpers, sessionList, showArchived, archivedItems],
+  const sessionParts = useMemo<SessionSectionParts>(
+    () => ({ orchestrators: orchestratorRows, listening: listeningRows, pinned: pinnedRows, topHelpers, sections: sessionSecs, groups: groupedSecs, archived: archivedItems }),
+    [orchestratorRows, listeningRows, pinnedRows, topHelpers, sessionSecs, groupedSecs, archivedItems],
   );
+  const sessionRows = useMemo<ListRow[]>(() => visibleSessionRows(sessionParts, sectionFolded), [sessionParts, sectionFolded]);
+  const hasSessions = useMemo(() => hasSessionSections(sessionParts, showArchived), [sessionParts, showArchived]);
   // What waits on you, for working through it from a session's panel (useWaitingQueue.ts).
   const waitingRows = useMemo(() => waitingQueue([...orchestratorRows, ...shownSessions]), [orchestratorRows, shownSessions]);
 
@@ -1393,7 +1397,9 @@ export function useBoardLists(input: ListsInput) {
     groupedSecs,
     groupedPrs,
     groupedTodos,
+    sessionParts,
     sessionRows,
+    hasSessions,
     waitingRows,
     laneById,
     prRowOf: prRow,

@@ -125,6 +125,7 @@ import { ListenHost } from './ui/Listening';
 import { MeetingOffered } from './ui/Meeting';
 import { MeetingsDialog } from './ui/Meetings';
 import { ageListingChain, ageListingPr, canvasLabelOptions, cardMatches, chainOf, columnShown, currentProject, facetsIn, facetsOn, labelPick, onlyPick, prInDone, revealing, unarchived, scheduleSessions, sessionItemOf, sessionItemsOf, togglePick, toggleShown, useBoardLists, projectsOf, type FacetId, type Facets, type KanbanColumn } from './boardLists';
+import { sectionOfRow, sectionOfSession, useSectionFolds } from './sectionFolds';
 import { inProject } from './quick';
 import { CODEALONG_REPO } from './improve';
 import { bare, keysIn } from './platform';
@@ -276,7 +277,8 @@ export function App() {
   const [todoPanelWidth, setTodoPanelWidth] = usePanelWidth(TODO_PANEL_WIDTH_KEY);
   const [sessionPanelWidth, setSessionPanelWidth] = usePanelWidth(SESSION_PANEL_WIDTH_KEY);
   const [schedulePanelWidth, setSchedulePanelWidth] = usePanelWidth(SCHEDULE_PANEL_WIDTH_KEY);
-  const [showArchived, setShowArchived] = useState(false);
+  const sectionFolds = useSectionFolds(!!query);
+  const { showArchived, setShowArchived } = sectionFolds;
   // The sessions whose finished helpers Sessions lists under them too, as their chip's
   // double-click left them; remembered across launches.
   const [helpersShownList, setHelpersShownList] = useStored(HELPERS_SHOWN_KEY, strings, [] as string[]);
@@ -487,7 +489,9 @@ export function App() {
     groupedSecs,
     groupedPrs,
     groupedTodos,
+    sessionParts,
     sessionRows,
+    hasSessions,
     waitingRows,
     laneById,
     prRowOf,
@@ -558,6 +562,7 @@ export function App() {
     prTab,
     todoSort,
     showArchived,
+    sectionFolded: sectionFolds.isFolded,
     showDonePrs,
     todos: todoStore.todos,
     labels: todoStore.labels,
@@ -965,6 +970,8 @@ export function App() {
       const wider = ageListingChain(chainOf(item, items).map((r) => r.session), sessionPins.set, AGES, age, Date.now());
       if (wider) setAge(wider);
       setHelpersShownList((prev) => revealing(prev, items, item));
+      const sec = sectionOfRow(item.key, sessionParts) ?? sectionOfSession(item, items, { pinnedKeys: sessionPins.set, sort: sessionSort, started: sessionStarted, group: sessionGroup, groupPins: sessionGroup === 'repo' ? repoPins.keys : lanePins.keys, now });
+      sectionFolds.unfold(sec);
       setSelectedKey(`${lane.id}::${session.key}`);
     } else if (pr) {
       if (r.kind === 'pr' && r.tab) showPrTab(pr.key, r.tab);
@@ -1084,6 +1091,8 @@ export function App() {
     reads: inOrder(SESSION_READS, queueKinds(board?.queue?.order)),
     shown: view === 'sessions' && selected?.kind === 'agent' ? queueShown(selected.session) : null,
     show: (row, box = true) => {
+      const sec = sectionOfRow(row.key, sessionParts);
+      if (sec) sectionFolds.unfold(sec);
       if (box) setBoxFocus(row.key);
       setSelectedKey(row.key);
     },
@@ -1108,6 +1117,8 @@ export function App() {
       queue,
       show: (row) => {
         unpick.current();
+        const sec = sectionOfRow(row.key, sessionParts);
+        if (sec) sectionFolds.unfold(sec);
         setBoxFocus(row.key);
         setSelectedKey(row.key);
       },
@@ -1865,7 +1876,7 @@ export function App() {
           {loadError && <div className="ca-board-empty">{loadError}</div>}
           {/* One reading from launch until the PRs view has its PRs, so its tip carries on through. */}
           {reading && <Reading what={loading ? READING[view] : 'Reading PRs from GitHub…'} place={view === 'prs' ? 'pr' : 'board'} className="ca-board-loading" />}
-          {board && !board.loading && view === 'sessions' && sessionRows.length === 0 && (
+          {board && !board.loading && view === 'sessions' && !hasSessions && (
             <div className="ca-board-empty">
               {query
                 ? `No sessions in ${current} match “${query}”${textSearch.building ? ' yet: Codealong is still reading what recent sessions said' : ''}.`
@@ -2127,6 +2138,8 @@ export function App() {
                 archived={archivedItems}
                 showArchived={showArchived}
                 onToggleArchived={() => setShowArchived(!showArchived)}
+                sectionFolded={sectionFolds.isFolded}
+                onToggleSection={sectionFolds.toggle}
                 todosFor={todosFor}
                 helpersOf={helpersOf}
                 helpersShown={helpersShown}
