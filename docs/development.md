@@ -159,7 +159,8 @@ each command answers, which window the page is, and events emitted to every wind
 Unlike a browser check it runs on no one's data, so what it holds, it holds the same on every
 machine, in any order: what a module keeps for as long as its page lives (side.ts's side
 conversations, api.ts's board) is the next test's too, so a test gives it keys of its own.
-`useWaitingQueue.test.ts` and `mainKeys.dom.test.ts` are the ones to copy from.
+`useWaitingQueue.test.ts` and `mainKeys.dom.test.ts` are the ones to copy from, and
+`ui/Quick.test.ts` for a window's whole page, mounted and opened as the engine opens it.
 
 ## Linux
 
@@ -469,7 +470,7 @@ as the engine always was.
 | `src-tauri/src/cleanup.rs`, `claude/teardown.rs`, `src/ui/CleanUpDialog.tsx` | Clean up worktree: whether one can go with nothing in it lost (`board::cleanup`, pure, tested, on each lane), checked again against git as it goes; the repo's own `WorktreeRemove` hook or git removing it, then `claude rm` for a background job that held it; Mark as done on such a job; the dialog that asks first |
 | `src-tauri/src/start.rs`, `src/start.ts` | New sessions: where each account can start one, the launch it makes, the agent menu (every account on every model, and the effort levels) and Auto's pick; and going on with one that isn't running, by the same rules (`resume`) |
 | `src/newSession.ts`, `src/ui/NewSession.tsx` | A start from the quick panel with nothing typed, in the background or In Codealong: a new session in Sessions' panel that waits for its first prompt and starts only once it's sent |
-| `src-tauri/src/quick.rs`, `src/quick.ts`, `src/ui/Quick.tsx` | The quick panel: its window (a panel that takes the keyboard over any app), its shortcut and the waiting window's, and its page (what needs you, finding sessions, starting one) |
+| `src-tauri/src/quick.rs`, `src/quick.ts`, `src/quickRows.ts`, `src/quickKeys.ts`, `src/ui/Quick.tsx`, `src/ui/QuickRows.tsx`, `src/ui/QuickBits.tsx` | The quick panel: its window (a panel that takes the keyboard over any app), its shortcut and the waiting window's, and its page (what needs you, finding sessions, starting one). `Quick.tsx` has the page's state and what it does; `quick.ts` and `quickRows.ts` what it lists; `QuickRows.tsx` and `QuickBits.tsx` draw the list and the pieces around it; `quickKeys.ts` has its keys, as functions of the key and what the panel has. `ui/Quick.test.ts` mounts the whole page and presses them |
 | `src-tauri/src/waiting.rs`, `src/ui/Waiting.tsx` | The waiting window: an ordinary window, made when first asked for and hidden on close, that keeps where it was, comes from ⌥⌘., Window › Waiting on you and ⇥ in the quick panel, and works through what waits on you one card at a time (`quick.ts` `queueRows`, `queue.ts`) |
 | `src-tauri/src/frames.rs` | Where an ordinary window was, for the next launch: the main window's `window.json` and the waiting window's `waiting.json`, noted as it moves and written once it stops, and where one opens (`start_frame`) |
 | `src/ui/StartControls.tsx`, `src/startAccounts.ts` | Where a session goes and on what, as the start row and a stopped session's box both draw it (the places, a model menu's lines, the effort row), and this Mac's accounts as they offer them, read once a minute |
