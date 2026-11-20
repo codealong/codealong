@@ -691,47 +691,34 @@ EOF
   exit "$went"
 }
 
-# Brings this checkout and the main checkout up to origin/main once the change is in it, and
-# says where each stands. `$2` says how it's known to be in main: `landed`, by the queue just
-# now, or `same`, by merging it changing nothing. Whichever, nothing here resets a branch or
-# puts one back, so a commit another session makes in this checkout meanwhile is never the one
-# that goes:
-# - Behind main, the branch is moved up to it, by a fast-forward and nothing else.
-# - Its commits main's as the queue wrote them (copies), it's rebased onto main, where they
-#   drop out. Whatever doesn't drop out stays, on top, and is said.
-# - In main some other way, it's left as it is. A branch can merge as nothing new and still
-#   rebase as something: a commit that takes back another of its own, where main has since got
-#   what the first one added from elsewhere, would be written on top of main as a change main
-#   never had, one landing away.
-# Main is the commit fetched here, whatever another worktree fetches meanwhile, and other
-# branches stay where they are whatever `rebase.updateRefs` says. Nothing is said to be at
-# origin/main that isn't.
+# Brings this checkout and the main checkout up to main once the change is in it, and says
+# where each stands. `$1` is the commit the branch was at, all of which is in `$2`, main's
+# commit as it was fetched: landed there by the queue, or merging into it as nothing new. So
+# the branch has nothing main lacks up to `$1`, and goes to `$2`:
+# - behind it, by a fast-forward and nothing else;
+# - otherwise by a rebase onto it of what's after `$1`, which is nothing: the branch's commits
+#   aren't written again, or weighed as patches (git would skip one that looks like one of
+#   main's, and write again one that undoes another), they're left behind as landed.
+# Another session can share this checkout, and what it does between one command here and the
+# next is never undone: a commit it makes on the branch is after `$1`, so it's carried onto
+# main (every one, `--reapply-cherry-picks`) and said; a rebase of its own, or files it has
+# changed, stop git from starting, and nothing here aborts or resets. Other branches stay
+# where they are, whatever `rebase.updateRefs` says. Nothing is said to be at origin/main that
+# isn't.
 caught_up() {
-  local here="" target new=""
-  if ! fetch; then
-    here="Couldn't fetch origin/main, so this checkout is as it was: it isn't at origin/main."
-  elif ! still_here "$1"; then
+  local here=""
+  if ! still_here "$1"; then
     here="This checkout moved or changed while the landing waited, so it's left as it is: it isn't at origin/main."
-  elif ! target="$(git rev-parse -q --verify origin/main)"; then
-    here="Couldn't read origin/main, so this checkout is as it was: it isn't at origin/main."
-  elif git merge-base --is-ancestor "$1" "$target"; then
-    git merge -q --ff-only "$target" >"$log" 2>&1 || here="This branch couldn't be moved up to origin/main, so it's left as it was: it isn't at origin/main."
-  else
-    # Copies, by their patches: every commit of it has one in main. The queue's just now are
-    # taken for that without asking (main can have changed around one since, which changes
-    # its patch and not what it does).
-    [ "$2" = landed ] || new="$(git cherry "$target" "$1" 2>/dev/null)" || new="+"
-    case "$new" in
-      *+*) here="All this branch holds is in origin/main, though not as these commits, so it's left as it is: it isn't at origin/main." ;;
-      *)
-        if ! git -c rebase.updateRefs=false rebase -q "$target" >"$log" 2>&1; then
-          git rebase --abort >/dev/null 2>&1
-          here="This branch didn't rebase onto origin/main, so it's left as it was: it isn't at origin/main."
-        elif [ "$(git rev-parse HEAD)" != "$target" ]; then
-          here="This branch has commits origin/main doesn't (git log origin/main..HEAD), so it isn't at origin/main: look at them before landing anything from here."
-        fi
-        ;;
-    esac
+  elif git merge-base --is-ancestor "$1" "$2"; then
+    git merge -q --ff-only "$2" >"$log" 2>&1 || here="This branch couldn't be moved up to origin/main, so it's left as it was: it isn't at origin/main."
+  elif ! git -c rebase.updateRefs=false rebase -q --reapply-cherry-picks --onto "$2" "$1" >"$log" 2>&1; then
+    if [ -d "$(git rev-parse --git-path rebase-merge)" ] || [ -d "$(git rev-parse --git-path rebase-apply)" ]; then
+      here="A rebase is under way in this checkout, so it isn't at origin/main: finish it (git rebase --continue) or give it up (git rebase --abort), and look at what's here before landing from it."
+    else
+      here="This branch couldn't be moved onto origin/main, so it's left as it was: it isn't at origin/main."
+    fi
+  elif [ "$(git rev-parse HEAD)" != "$2" ]; then
+    here="This branch has commits origin/main doesn't, made here while this landed (git log origin/main..HEAD): it isn't at origin/main."
   fi
   echo "$(scripts/catch-up-main.sh)${here:+ $here}"
   [ -z "$here" ]
@@ -740,14 +727,18 @@ caught_up() {
 # The end of a landing that's with GitHub: waited for, then this checkout and the main one
 # caught up, and what happened said for the status line.
 see_through() {
-  local number="$1" at_main=1 where
+  local number="$1" at_main=1 where main_at=""
   landed=""
   wait_landed "$number"
-  where="$(caught_up "$head" landed)" || at_main=0
-  if ! git merge-base --is-ancestor "$landed" origin/main 2>/dev/null; then
+  # Main as it's fetched now has to have what landed before anything here is moved onto it: a
+  # main from before it would have the branch written again, as other commits than the ones
+  # noted.
+  fetch && main_at="$(git rev-parse -q --verify origin/main)"
+  if [ -z "$main_at" ] || ! git merge-base --is-ancestor "$landed" "$main_at" 2>/dev/null; then
     echo "GitHub says pull request #$number ($pr_url) merged as $(short "$landed"), which origin/main here doesn't have:" >&2
-    die "it couldn't be fetched, or isn't there. Run scripts/land.sh again to see (it's still noted as with GitHub), or look: git fetch origin main; git log origin/main."
+    die "it couldn't be fetched, or isn't there. Nothing here was touched, and it's still noted as with GitHub: run scripts/land.sh again to see, or look (git fetch origin main; git log origin/main)." 3
   fi
+  where="$(caught_up "$head" "$main_at")" || at_main=0
   # Landed, and seen to be: the note of it has done its work.
   rm -f "$sent"
   echo "Landed: $(short "$landed") is in origin/main. $where"
@@ -864,7 +855,7 @@ main() {
   # A landing of this very commit that's already with GitHub (sent with --no-wait, or by a run
   # of this that was stopped or gave up waiting) is taken up where it got to, and nothing is
   # pushed under it.
-  local number wants noted noted_branch why ahead nothing=0
+  local number wants noted noted_branch why ahead nothing=0 main_at
   if [ -f "$sent" ]; then
     read -r number noted since noted_branch <"$sent"
     if [ "$noted" = "$head" ] && [ -n "$number" ] && [ "$noted_branch" = "$branch" ]; then
@@ -895,6 +886,9 @@ main() {
   fetch || die "Couldn't fetch origin/main, so there's no telling whether this is in it or applies on it."
   still_here "$head" || die "This checkout moved or changed while origin/main was fetched (it was $branch at $(short "$head")): look at what's here now, and run scripts/land.sh again."
   refuse_old_history
+  # Main as fetched, read once: another worktree's fetch moves origin/main, and what's found of
+  # one main mustn't be acted on against another.
+  main_at="$(git rev-parse -q --verify origin/main)" || die "Couldn't read origin/main."
 
   # What merging it into main as main is now would make, asked without touching the checkout:
   # the queue writes the commits on top of main itself. Nothing new, and it's in main already:
@@ -903,17 +897,17 @@ main() {
   # which git compares without their whitespace, so that a change that differs only by that
   # from one in main is still a change to land. A conflict is yours to rebase and resolve. (A
   # git too old to say leaves that to GitHub, which won't queue a pull request that conflicts.)
-  if git merge-base --is-ancestor "$head" origin/main; then
+  if git merge-base --is-ancestor "$head" "$main_at"; then
     nothing=1
-  elif git merge-tree --write-tree origin/main "$head" >"$log" 2>/dev/null; then
-    [ "$(head -1 "$log")" != "$(git rev-parse 'origin/main^{tree}')" ] || nothing=1
+  elif git merge-tree --write-tree "$main_at" "$head" >"$log" 2>/dev/null; then
+    [ "$(head -1 "$log")" != "$(git rev-parse "$main_at^{tree}")" ] || nothing=1
   elif grep '^CONFLICT' "$log" >/dev/null; then
     echo "This branch doesn't apply on origin/main as it is:" >&2
     grep '^CONFLICT' "$log" | head -10 >&2
     die "Rebase it (git rebase --reapply-cherry-picks origin/main), resolve, rerun what you'd tested, and run scripts/land.sh again."
   fi
   if [ "$nothing" = 1 ]; then
-    echo "Nothing to land: origin/main ($(git rev-parse --short origin/main)) already has this branch's commits. $(caught_up "$head" same)"
+    echo "Nothing to land: origin/main ($(short "$main_at")) already has all this branch holds. $(caught_up "$head" "$main_at")"
     exit 0
   fi
   # Some of its commits in main already, by their patches, under ones that aren't: a rebase
@@ -921,7 +915,7 @@ main() {
   # which is yours to do and to look at; with every commit written again, so that one git
   # takes for main's by its patch and isn't (their whitespace aside) shows as the conflict it
   # is, and the ones that are come to nothing and drop out.
-  ahead="$(git cherry origin/main "$head" 2>"$log")" || { cat "$log" >&2; die "Couldn't compare this branch with origin/main."; }
+  ahead="$(git cherry "$main_at" "$head" 2>"$log")" || { cat "$log" >&2; die "Couldn't compare this branch with origin/main."; }
   case "$ahead" in
     *-*) die "Some of this branch's commits look to be in origin/main already, as the queue wrote them, under ones that aren't: git rebase --reapply-cherry-picks origin/main, where those come to nothing and drop out, and run scripts/land.sh again." ;;
   esac

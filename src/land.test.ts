@@ -189,7 +189,8 @@ step git push -q origin main
 # ("late" holds how many looks it then takes to show as queued), and with "swapped" it has
 # merged by then as another commit; "refused" has GitHub say no to queueing it, and "dropped"
 # has the asking never reach it, and "muddled" has it queued with an error in the answering;
-# "fail" puts it out of the queue once
+# "unseen" has it merged without origin's main having the commit yet; "fail" puts it out of
+# the queue once
 # it has been seen there, "gone" before anyone sees it there, and "mute" has GitHub not say
 # whether it was; "moved" has its branch pushed to.
 cat >"$tmp/bin/gh" <<'GH'
@@ -307,7 +308,7 @@ case "$1 $2" in
           rm -rf "$f/queue"
           git clone -q "$f/origin.git" "$f/queue" 2>/dev/null && cd "$f/queue" && git checkout -q main &&
             GIT_COMMITTER_NAME=queue git cherry-pick "main..origin/$branch" >/dev/null &&
-            git push -q origin main ":$branch" || exit 1
+            { [ -f "$f/unseen" ] || git push -q origin main ":$branch"; } || exit 1
           rm -f "$f/pr" "$f/queued"
           echo "MERGED - $(git rev-parse HEAD) PR_$number - MERGEABLE $at" | tee "$f/merged.$number"
         fi
@@ -557,9 +558,9 @@ was="$(git rev-parse HEAD)"
 scripts/land.sh >"$tmp/out" 2>&1
 echo "differing from main's only by a space: $? $(grep -c 'Nothing to land' "$tmp/out") $(grep -c "doesn't apply on origin/main" "$tmp/out") $([ "$(git rev-parse HEAD)" = "$was" ] && echo kept)"
 # A branch that adds a file and takes it away again, where main has since been given the same
-# file from elsewhere: merging it would change nothing, but a rebase skips the adding for
-# main's and writes the taking away on top of main. Left as it was, not one commit from
-# landing that.
+# file from elsewhere: merging it would change nothing, so there's nothing to land, and the
+# branch goes to main as it is. A rebase of its commits would have skipped the adding for
+# main's and written the taking away on top of main, one landing from taking main's file away.
 step git worktree add -q "$tmp/undone" -b undone origin/main
 step cd "$tmp/undone"
 here
@@ -572,9 +573,64 @@ echo u >"$tmp/main/docs/u.md"
 step git -C "$tmp/main" add -A
 step git -C "$tmp/main" commit -q -m "main: the same file"
 step git -C "$tmp/main" push -q origin main
-was="$(git rev-parse HEAD)"
 scripts/land.sh >"$tmp/out" 2>&1
-echo "adding and taking away what main has since: $? $(grep -c '^Nothing to land' "$tmp/out") $(grep -c "it's left as it is" "$tmp/out") $([ "$(git rev-parse HEAD)" = "$was" ] && echo kept)"
+echo "adding and taking away what main has since: $? $(grep -c '^Nothing to land' "$tmp/out") $([ "$(git rev-parse HEAD)" = "$(git rev-parse origin/main)" ] && [ -f docs/u.md ] && echo at main, with its file)"
+# Another session commits in this checkout just as the branch is caught up: slipped in here
+# before git's rebase starts, by a git that does that and then what it was asked. Its commit
+# is one git would take for one of main's by its patch (the same file, a space apart) and skip.
+# It's carried onto main instead, where it stops on main's file, and that's said; nothing is
+# skipped, put back or given up, and the commit is still there.
+step git worktree add -q "$tmp/shared" -b shared origin/main
+step cd "$tmp/shared"
+here
+echo s >docs/shared.md
+step git add -A
+step git commit -q -m "shared: one"
+echo 'say("ab")' >"$tmp/main/docs/late.md"
+step git -C "$tmp/main" add -A
+step git -C "$tmp/main" commit -q -m "main: late"
+step git -C "$tmp/main" push -q origin main
+step mkdir "$tmp/shim"
+real="$(command -v git)"
+cat >"$tmp/shim/git" <<GIT
+#!/bin/bash
+for word in "\\$@"; do
+  if [ "\\$word" = rebase ] && [ -f "$tmp/meanwhile" ]; then
+    rm "$tmp/meanwhile"
+    echo 'say("a b")' >docs/late.md
+    "$real" add docs/late.md
+    "$real" commit -q -m "another session's, meanwhile"
+  fi
+done
+exec "$real" "\\$@"
+GIT
+step chmod +x "$tmp/shim/git"
+touch "$tmp/meanwhile"
+PATH="$tmp/shim:$PATH" scripts/land.sh >"$tmp/out" 2>&1
+echo "a commit made here as it's caught up: $? $(grep -c '^Landed' "$tmp/out") $(grep -c 'A rebase is under way' "$tmp/out")"
+git rebase --abort 2>/dev/null
+echo "and is still here: $(git log --format=%s -1)"
+# GitHub says it merged before the main fetched here has the commit, main having moved since
+# the branch was made: nothing here is touched (moved onto that main, the branch would be
+# other commits than the ones noted), it's still noted, and asked again once main has it, it
+# lands as any other.
+step git worktree add -q "$tmp/early" -b early origin/main
+step cd "$tmp/early"
+here
+echo e >docs/early.md
+step git add -A
+step git commit -q -m "early: one"
+echo m >"$tmp/main/docs/m.md"
+step git -C "$tmp/main" add -A
+step git -C "$tmp/main" commit -q -m "main: meanwhile"
+step git -C "$tmp/main" push -q origin main
+was="$(git rev-parse HEAD)"
+touch "$tmp/unseen"
+scripts/land.sh >"$tmp/out" 2>&1
+echo "merged, by GitHub's word, before main here has it: $? $(grep -c 'still noted' "$tmp/out") $([ "$(git rev-parse HEAD)" = "$was" ] && echo untouched)"
+rm "$tmp/unseen"
+step git -C "$tmp/queue" push -q origin main :early
+echo "asked again: $(scripts/land.sh 2>&1 | landed)"
 step cd "$tmp/main"
 scripts/land.sh >"$tmp/out" 2>&1
 echo "from main: $(grep -c 'is on main' "$tmp/out")"
@@ -626,9 +682,13 @@ test('a landing queues its pull request as the commit that was asked for, on a m
     "and it's left as it was, here and on origin",
     'half of it landed already: 1 1',
     "differing from main's only by a space: 1 0 1 kept",
-    'adding and taking away what main has since: 0 1 1 kept',
+    'adding and taking away what main has since: 0 1 at main, with its file',
+    "a commit made here as it's caught up: 0 1 1",
+    "and is still here: another session's, meanwhile",
+    "merged, by GitHub's word, before main here has it: 3 1 untouched",
+    'asked again: Landed: <commit> is in origin/main. Fast-forwarded the main checkout to origin/main (<commit>).',
     'from main: 1',
-    'main, at the end: main: the same file,main: ab,half: one,main, on the same lines,docs: four,docs: three,a script, fixed,a script,main moved again,docs: two,main moved,first,',
+    'main, at the end: early: one,main: meanwhile,shared: one,main: late,main: the same file,main: ab,half: one,main, on the same lines,docs: four,docs: three,a script, fixed,a script,main moved again,docs: two,main moved,first,',
     'tags on origin: 0',
   ]);
 });
