@@ -180,24 +180,28 @@ Harness facts (from GitHub's answers on this Mac, 2026-10-01). A bare file name 
   (`request_review`, `rerequest.rs`), no GraphQL points; checked only against a PR number that
   doesn't exist (`gh: Not Found (HTTP 404)`, exit 1), since a real one notifies the reviewer.
 - `main`'s merge queue, as `scripts/land.sh` and `.github/workflows/ci.yml` rely on it
-  (2026-11-20, from GitHub's documentation and what its API answered before the queue was on;
-  what's marked untried is to be tried on a pull request made for it):
+  (2026-11-20, from GitHub's documentation and from two pull requests made to try it, #5 and
+  #6, each with a unit test that always fails so that neither could land):
   - A place in the queue is asked for one commit: `enqueuePullRequest(pullRequestId,
-    expectedHeadOid)`, as `prmerge.rs` asks too. "Merge when ready" is something else, a
+    expectedHeadOid)`, as `prmerge.rs` asks too; asked for a commit the branch isn't at,
+    GitHub answers `UNPROCESSABLE`, "expected head oid does not match". It goes from `QUEUED`
+    to `AWAITING_CHECKS` within half a minute. "Merge when ready" is something else, a
     standing request (`autoMergeRequest`) that GitHub offers on a queue's branch even with the
     repository's automatic merges off, and that holds for whatever is pushed afterwards:
     `land.sh` makes none, and pushes to no pull request that has one.
   - The queue's run is a `merge_group` event on a branch of its own
     (`gh-readonly-queue/main/pr-<number>-<commit>`), of the workflow as that commit has it.
     Why a pull request left the queue is a `RemovedFromMergeQueueEvent` in its timeline, its
-    `reason` in words.
-  - What becomes of a queued pull request whose branch is pushed to, GitHub's documentation
-    doesn't say (the reasons it gives for removal: a merge group's checks failing or timing
-    out, someone removing it, a branch protection that couldn't be met). One account
-    (github.com/orgs/community/discussions/194832, 2026-05) has the entry stay, show the new
-    commit and wait on the old run's checks until the queue evicts it. Untried here, so
-    `land.sh` relies on neither: it never pushes to a queued pull request, and says so when it
-    finds one pushed to.
+    `reason` in words (`manual` for one taken out by hand or by `dequeuePullRequest`).
+  - A queued pull request's branch can't be pushed to, by anyone, an organization's admin who
+    may bypass the ruleset included: `git push` and `git push --force` are both turned down
+    (`GH006: Protected branch update failed`, "Branches that are queued for merging cannot be
+    updated. To modify this branch, dequeue the associated pull request"), and the contents
+    API answers 409 with the same words. The pull request stayed queued as the commit it was
+    queued at. So what's in the queue is what lands, and a branch moves again only once its
+    pull request is out of it. GitHub's documentation says none of this, and one account
+    (github.com/orgs/community/discussions/194832, 2026-05) has a force-push accepted and the
+    entry showing the new commit: not what happened here.
   - A pull request that conflicts with its base (`mergeable: CONFLICTING`) gets no
     `pull_request` run at all, so a wait for its checks never ends.
   - A workflow run's `pull_requests` lists every open pull request whose branch or commit

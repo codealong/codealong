@@ -21,9 +21,10 @@
 # In order:
 #   1. It fetches origin/main and sees that the branch applies on it. It rewrites nothing of
 #      yours: the commit it lands is the one that's here when it's asked, and a branch that
-#      doesn't apply is yours to rebase (`git rebase origin/main`), resolve and test before
-#      running this again. A branch from before the history was rewritten is turned away, with
-#      the rebase CLAUDE.md gives for it.
+#      doesn't apply is yours to rebase (`git rebase --reapply-cherry-picks origin/main`, so
+#      that git doesn't skip a commit of yours for one of main's that only looks the same),
+#      resolve and test before running this again. A branch from before the history was
+#      rewritten is turned away, with the rebase CLAUDE.md gives for it.
 #   2. It pushes the branch to origin under its own name: adding to what's there, or, when
 #      you've rebased it, replacing what this script itself pushed there before and nothing
 #      else.
@@ -36,11 +37,11 @@
 #      commit): what lands is copies of yours.
 #   4. It waits for the queue, saying where the change stands, and stops when it has landed or
 #      can't as it is: a check failed and the queue put it out (it says which run, and how to
-#      read it), it no longer applies on main, someone took it out of the queue, or its branch
-#      was pushed to meanwhile (what's there then isn't this landing's to see through). It's
-#      still the pull request: fix it on this branch, commit, and run this again. A landing
-#      that's with GitHub is noted, and running this again for the same commit takes it up
-#      where it got to.
+#      read it), it no longer applies on main, or someone took it out of the queue (GitHub
+#      lets nobody push to a queued pull request's branch, so what's queued is what lands).
+#      It's still the pull request: fix it on this branch, commit, and run this again. A
+#      landing that's with GitHub is noted, and running this again for the same commit takes
+#      it up where it got to.
 #   5. It brings this branch and the main checkout up to origin/main (catch-up-main.sh) and
 #      prints the commit and where things stand, for the status line, saying so when this
 #      checkout isn't at origin/main after all. Relaunching is still yours: scripts/relaunch.sh,
@@ -386,12 +387,13 @@ standing() {
 # The pull request's own run of CI on the commit being landed, as four words: its status, how
 # it came out (or -), its id and its address; nothing while there's none yet. The run, and not
 # the `gate` check by its name: a run started again is still the one run, where the checks of
-# its first go stay listed until the new ones start. (GitHub doesn't say which pull request a
-# run was for, only its branch and commit: a second pull request of this branch at this commit,
-# into another branch than main, has runs this can't tell from this one's.)
+# its first go stay listed until the new ones start. And this pull request's (`$1`, its
+# number), which only the run's name says: ci.yml names a pull request's run for it, since a
+# second pull request of this branch at this commit, into another branch than main, has runs
+# of its own that nothing else tells apart.
 own_run() {
-  gh run list --workflow ci.yml --branch "$branch" --commit "$head" --event pull_request --limit 1 --json databaseId,status,conclusion,url \
-    --jq '.[0] | select(. != null) | [.status, (if (.conclusion // "") == "" then "-" else .conclusion end), (.databaseId | tostring), .url] | join(" ")' 2>/dev/null
+  gh run list --workflow ci.yml --branch "$branch" --commit "$head" --event pull_request --limit 20 --json databaseId,status,conclusion,url,displayTitle \
+    --jq "[.[] | select(.displayTitle | startswith(\"#$1 \"))][0] | select(. != null) | [.status, (if (.conclusion // \"\") == \"\" then \"-\" else .conclusion end), (.databaseId | tostring), .url] | join(\" \")" 2>/dev/null
 }
 
 # A pull request that was there already is looked at before anything is pushed to it. One that
@@ -462,11 +464,11 @@ say_failed() {
 # in the queue is asked for by commit, where a standing request to merge the pull request when
 # it can would go on to whatever was pushed after. Its own run of CI has to have passed first,
 # which for a landing's pull request is moments (CI leaves its checks to the queue's run);
-# nothing is asked of a pull request that isn't open at this commit. What becomes of one that's
-# pushed to once it's in the queue is GitHub's to say (.claude/rules/github.md has what's
-# known): this script never does that, and the wait after this stops when it sees it done.
+# nothing is asked of a pull request that isn't open at this commit. Once it's in the queue
+# GitHub lets nobody push to its branch (.claude/rules/github.md), so what's queued is this
+# commit until it lands or is put out.
 queue_it() {
-  local number="$1" said=0 began=$SECONDS run status conclusion run_id run_url
+  local number="$1" said=0 began=$SECONDS run status conclusion run_id run_url looks=0
   while :; do
     look "$number"
     if [ "$state" != OPEN ]; then
@@ -484,10 +486,10 @@ queue_it() {
     # that conflicts, so its own run of CI would be waited on for nothing.
     if [ "$mergeable" = CONFLICTING ]; then
       rm -f "$sent"
-      die "Pull request #$number ($pr_url) no longer applies on main, which moved under it: git rebase origin/main, resolve, rerun what you'd tested, and run scripts/land.sh again."
+      die "Pull request #$number ($pr_url) no longer applies on main, which moved under it: git rebase --reapply-cherry-picks origin/main, resolve, rerun what you'd tested, and run scripts/land.sh again."
     fi
     status="" conclusion="" run_id="" run_url=""
-    run="$(own_run)"
+    run="$(own_run "$number")"
     read -r status conclusion run_id run_url <<EOF
 $run
 EOF
@@ -511,18 +513,31 @@ EOF
   gh pr ready "$number" >/dev/null 2>&1 || true
   if ! gh api graphql -f pr="$id" -f head="$head" -f query='
     mutation($pr: ID!, $head: GitObjectID!) { enqueuePullRequest(input: {pullRequestId: $pr, expectedHeadOid: $head}) { mergeQueueEntry { id } } }' >"$said_no" 2>&1; then
-    # No yes; but GitHub may have taken it and its answer been lost on the way. Where the pull
-    # request stands now is what counts: queued as this commit, or merged already, which
-    # whoever called this sees through as any merge (`state` says which).
-    look "$number"
-    if [ "$state" = MERGED ] || { [ "$state" = OPEN ] && [ "$entry" != - ] && [ "$at" = "$head" ]; }; then
-      return 0
-    fi
-    rm -f "$sent"
-    echo "GitHub wouldn't queue pull request #$number ($pr_url):" >&2
-    cat "$said_no" >&2
-    echo "If that's a conflict with main: git rebase origin/main, resolve, rerun what you'd tested, and run scripts/land.sh again." >&2
-    exit 1
+    # No yes. GitHub's own no comes with its reasons (`errors` in what it sent back): a
+    # refusal. Anything else is an answer lost on the way, with the pull request queued or
+    # not, and GitHub can take a moment to show what it was just asked: so where it stands is
+    # looked at a few times, as the wait does, before anything is made of it. Queued as this
+    # commit, or merged already, is a yes (whoever called this sees a merge through as any
+    # other; `state` says which).
+    while :; do
+      look "$number"
+      if [ "$state" = MERGED ] || { [ "$state" = OPEN ] && [ "$entry" != - ] && [ "$at" = "$head" ]; }; then
+        return 0
+      fi
+      if grep '"errors"' "$said_no" >/dev/null; then
+        rm -f "$sent"
+        echo "GitHub wouldn't queue pull request #$number ($pr_url):" >&2
+        cat "$said_no" >&2
+        echo "If that's a conflict with main: git rebase --reapply-cherry-picks origin/main, resolve, rerun what you'd tested, and run scripts/land.sh again." >&2
+        exit 1
+      fi
+      looks=$((looks + 1))
+      if [ "$looks" -ge 6 ]; then
+        cat "$said_no" >&2
+        die "GitHub didn't answer when asked to queue pull request #$number ($pr_url), and it isn't in the queue so far. It's still noted: run scripts/land.sh again, which sees where it stands and asks again if it has to." 3
+      fi
+      pause
+    done
   fi
 }
 
@@ -669,26 +684,36 @@ EOF
     done
   fi
   # The branch was only for the run, and is this run's own: made above, removed while it's
-  # still this commit.
-  git push -q --force-with-lease="refs/heads/$on:$head" origin ":refs/heads/$on" 2>/dev/null || true
+  # still this commit. No tags go with this push either: git picks them by the branch's old
+  # commit even as it removes it.
+  git push -q --no-follow-tags --force-with-lease="refs/heads/$on:$head" origin ":refs/heads/$on" 2>/dev/null || true
   exit "$went"
 }
 
 # Brings this checkout and the main checkout up to origin/main once the change is in it, and
 # says where each stands. The queue wrote the commits again on top of main, so the ones here
 # are copies of what landed: rebased onto origin/main they drop out, and the branch is where
-# main is. Nothing is said to be at origin/main that isn't.
+# main is. A rebase that writes any of them again on top of main isn't that (a commit that
+# takes back another of the branch's, where main has what the first one added from somewhere
+# else, is written again as a change main never had): the branch goes back to where it was,
+# rather than be left one commit from landing it. Nothing is said to be at origin/main that
+# isn't.
 caught_up() {
   local here=""
   if ! fetch; then
-    here="Couldn't fetch origin/main, so this checkout is as it was: git fetch, then git rebase origin/main."
+    here="Couldn't fetch origin/main, so this checkout is as it was: it isn't at origin/main."
   elif ! still_here "$1"; then
     here="This checkout moved or changed while the landing waited, so it's left as it is: it isn't at origin/main."
   elif ! git rebase -q origin/main >"$log" 2>&1; then
     git rebase --abort >/dev/null 2>&1
     here="This branch didn't rebase onto origin/main, so it's left as it was: it isn't at origin/main."
   elif [ "$(git rev-parse HEAD)" != "$(git rev-parse origin/main)" ]; then
-    here="This branch has commits origin/main doesn't: it isn't at origin/main."
+    # Back to where it was, keeping whatever another session has changed here since.
+    if git reset -q --keep "$1" 2>/dev/null; then
+      here="Rebased onto origin/main this branch would put commits on top of it, though all it holds is in main, so it's left as it was: it isn't at origin/main."
+    else
+      here="Rebased onto origin/main this branch puts commits on top of it, though all it held is in main, and it couldn't be put back where it was ($(short "$1")): look at it before landing anything from here."
+    fi
   fi
   echo "$(scripts/catch-up-main.sh)${here:+ $here}"
   [ -z "$here" ]
@@ -867,7 +892,7 @@ main() {
   elif grep '^CONFLICT' "$log" >/dev/null; then
     echo "This branch doesn't apply on origin/main as it is:" >&2
     grep '^CONFLICT' "$log" | head -10 >&2
-    die "Rebase it (git rebase origin/main), resolve, rerun what you'd tested, and run scripts/land.sh again."
+    die "Rebase it (git rebase --reapply-cherry-picks origin/main), resolve, rerun what you'd tested, and run scripts/land.sh again."
   fi
   if [ "$nothing" = 1 ]; then
     echo "Nothing to land: origin/main ($(git rev-parse --short origin/main)) already has this branch's commits. $(caught_up "$head")"
@@ -875,10 +900,12 @@ main() {
   fi
   # Some of its commits in main already, by their patches, under ones that aren't: a rebase
   # drops those, where the queue would be given them to write again. Only a reason to rebase,
-  # which is yours to do and to look at.
+  # which is yours to do and to look at; with every commit written again, so that one git
+  # takes for main's by its patch and isn't (their whitespace aside) shows as the conflict it
+  # is, and the ones that are come to nothing and drop out.
   ahead="$(git cherry origin/main "$head" 2>"$log")" || { cat "$log" >&2; die "Couldn't compare this branch with origin/main."; }
   case "$ahead" in
-    *-*) die "Some of this branch's commits look to be in origin/main already, as the queue wrote them, under ones that aren't: git rebase origin/main, which drops those (and says which), and run scripts/land.sh again." ;;
+    *-*) die "Some of this branch's commits look to be in origin/main already, as the queue wrote them, under ones that aren't: git rebase --reapply-cherry-picks origin/main, where those come to nothing and drop out, and run scripts/land.sh again." ;;
   esac
 
   changed "$head" || die "Couldn't list what these commits change, so there's no telling whether they need a review."
