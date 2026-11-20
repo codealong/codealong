@@ -1,12 +1,13 @@
 // Collapsible sections in the Sessions view (ui/SessionsView.tsx): Orchestrators, Listening,
-// Pinned, Pinned groups, Needs you, Your turn, Working, Snoozed, each day section, and Archived.
-// Ambient sections (`PERSISTED_SECTION_FOLDS`) remember their state across launches via stored.ts;
-// urgent sections (Needs you, Your turn, Listening) and rotating day buckets start open each
-// launch; Archived starts folded each launch (`showArchived`). While a search query is active,
-// folded active sections open temporarily and can't be toggled so matching rows are never hidden;
-// Archived stays controlled by `showArchived`.
+// Pinned, Pinned groups, Needs you, Your turn, Working, Snoozed, Idle, and Archived. Day dividers
+// in Started sort (`NON_FOLDABLE_SECTIONS`) are plain headers and don't fold. Ambient sections
+// (`PERSISTED_SECTION_FOLDS`) remember their state across launches via stored.ts; urgent sections
+// (Needs you, Your turn, Listening) start open each launch; Archived starts folded each launch
+// (`showArchived`). While a search query is active, folded active sections open temporarily and
+// can't be toggled so matching rows are never hidden; Archived stays controlled by `showArchived`.
 
 import { useCallback, useMemo, useState } from 'react';
+import { DAYS } from './days';
 import { strings, useStored } from './stored';
 import type { ListRow } from './boardLists';
 import { groupHeadRows, type GroupedSessions, type SessionItem, type SessionSection } from './ui/SessionsView';
@@ -14,8 +15,11 @@ import { groupHeadRows, type GroupedSessions, type SessionItem, type SessionSect
 export const SESSION_FOLDS_KEY = 'codealong.sessionFolds';
 
 /** The fixed ambient sections whose collapsed state is remembered across launches. Urgent bays
- *  (`needs`, `unread`, `listening`) and rotating day headings start open each launch. */
-export const PERSISTED_SECTION_FOLDS: ReadonlySet<string> = new Set(['orchestrators', 'pinned', 'pinnedGroups', 'working', 'snoozed']);
+ *  (`needs`, `unread`, `listening`) start open each launch. */
+export const PERSISTED_SECTION_FOLDS: ReadonlySet<string> = new Set(['orchestrators', 'pinned', 'pinnedGroups', 'working', 'snoozed', 'idle']);
+
+/** Chronological day headings (Started sort) act as dividers rather than collapsible groups. */
+const NON_FOLDABLE_SECTIONS: ReadonlySet<string> = new Set(DAYS.map((d) => d.id));
 
 /** The uncollapsed sections of the Sessions view, for computing visible rows and finding which
  *  section holds a row. */
@@ -30,9 +34,10 @@ export interface SessionSectionParts {
 }
 
 /** Whether section `id` is currently folded. Searching temporarily opens active sections so
- *  matches aren't hidden; Archived stays controlled by `showArchived`. */
+ *  matches aren't hidden; Archived stays controlled by `showArchived`; day dividers never fold. */
 export function isSectionFolded(id: string, folded: ReadonlySet<string>, showArchived: boolean, searching: boolean): boolean {
   if (id === 'archived') return !showArchived;
+  if (NON_FOLDABLE_SECTIONS.has(id)) return false;
   return !searching && folded.has(id);
 }
 
@@ -135,7 +140,7 @@ export function useSectionFolds(searching: boolean): SectionFolds {
     (id: string) => {
       if (id === 'archived') {
         setShowArchived((s) => !s);
-      } else if (searching) {
+      } else if (searching || NON_FOLDABLE_SECTIONS.has(id)) {
         return;
       } else if (PERSISTED_SECTION_FOLDS.has(id)) {
         setPersisted((prev) => toggleFoldList(prev, id));
@@ -154,6 +159,8 @@ export function useSectionFolds(searching: boolean): SectionFolds {
     (id: string) => {
       if (id === 'archived') {
         setShowArchived(true);
+      } else if (NON_FOLDABLE_SECTIONS.has(id)) {
+        return;
       } else if (PERSISTED_SECTION_FOLDS.has(id)) {
         setPersisted((prev) => unfoldList(prev, id));
       } else {
@@ -168,7 +175,7 @@ export function useSectionFolds(searching: boolean): SectionFolds {
     [setPersisted],
   );
 
-  const toggleFor = useCallback((id: string) => (!searching || id === 'archived' ? () => toggle(id) : undefined), [searching, toggle]);
+  const toggleFor = useCallback((id: string) => (!NON_FOLDABLE_SECTIONS.has(id) && (!searching || id === 'archived') ? () => toggle(id) : undefined), [searching, toggle]);
 
   return { showArchived, setShowArchived, isFolded, toggle, toggleFor, unfold };
 }

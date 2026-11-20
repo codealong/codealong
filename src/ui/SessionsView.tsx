@@ -1,8 +1,8 @@
 // The Sessions view: every session in the project, the ones hearing a meeting first, under
 // Listening while they hear, then Pinned in your order (boardLists.ts `sessionTops`).
 // The rest go by status under the headings the other views have (Needs you, Your turn, Working,
-// Snoozed, then the days they were last active), or by when they started, under the days they
-// started; the bar over the list picks which, whether they're grouped by worktree or by repo,
+// Snoozed, Idle), or by when they started, under the days they started; the bar over the list
+// picks which, whether they're grouped by worktree or by repo,
 // whether a session another one started goes under that one, and two lines a row or one
 // (`SessionsBar`). Drag a pinned session, or press ⌃⌘↑ ⌃⌘↓, to reorder;
 // drag any session up among them to pin it there, a pinned one down to unpin it, and any out of
@@ -55,7 +55,7 @@ export interface SessionItem {
 export type SessionSort = 'status' | 'started';
 
 export const SESSION_SORTS: { id: SessionSort; label: string; icon: string; title: string }[] = [
-  { id: 'status', label: 'Status', icon: 'sort-descending-shapes', title: 'Sort by status: what needs you first, then your turns, working agents and snoozed ones, then the rest by the day they were last active' },
+  { id: 'status', label: 'Status', icon: 'sort-descending-shapes', title: 'Sort by status: what needs you first, then your turns, working agents, snoozed ones and idle ones' },
   { id: 'started', label: 'Started', icon: 'sort-descending-numbers', title: 'Sort by start: the newest session first, under the day it started' },
 ];
 
@@ -170,9 +170,8 @@ export function waitingQueue(rows: SessionItem[]): SessionItem[] {
 /**
  * The sessions under their headings, in `sort`'s order; a heading with none under it is left out.
  * By status: Needs you, Your turn and Working first, in the floating bar's order (each the longest
- * first), then Snoozed, the soonest back first, then the rest under the local day they were last
- * active, each day the one you last sent a prompt first. By start: under the day each started,
- * the newest first.
+ * first), then Snoozed, the soonest back first, then Idle, the one you last sent a prompt first.
+ * By start: under the day each started, the newest first.
  *
  * A helper or headless run listed with the session it works for (lanes.ts `workingFor`) goes
  * under that session (`nested`), its own in the headings' order (`byHeading`), and with `place`
@@ -205,8 +204,8 @@ export function sessionSections(rows: SessionItem[], sort: SessionSort, now: num
   const rowsOf = (rs: typeof ranked) => rs.map((r) => r.row);
   const attention = ATTENTION.map(({ bay, statuses }) => ({ id: bay, label: BAY_WORD[bay], bay, rows: rowsOf(ranked.filter(inGroup(statuses)).sort(byGroupTime)) }));
   const snoozed = { id: 'snoozed', label: 'Snoozed', icon: 'zzz', rows: rowsOf(ranked.filter((r) => snoozedApart(r.session)).sort(bySnooze)) };
-  const rest = rowsOf(ranked.filter((r) => !snoozedApart(r.session) && !ATTENTION.some((g) => g.statuses.includes(listedStatus(r.session)))).sort((a, b) => bySession(a.session, b.session)));
-  return [...attention, snoozed, ...byDay(rest, (r) => r.session.lastActivity, now)].filter((s) => s.rows.length > 0).map(withHelpers);
+  const idle: SessionSection = { id: 'idle', label: BAY_WORD.idle, bay: 'idle', rows: rowsOf(ranked.filter((r) => !snoozedApart(r.session) && !ATTENTION.some((g) => g.statuses.includes(listedStatus(r.session)))).sort((a, b) => bySession(a.session, b.session))) };
+  return [...attention, snoozed, idle].filter((s) => s.rows.length > 0).map(withHelpers);
 }
 
 /** The helpers listed under each of `heads` (pinned sessions, which Pinned lists apart), as

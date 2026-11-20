@@ -13,18 +13,18 @@ const item = (key: string, lastActivity: number, status: Session['status'] = 'id
 const keys = (rows: SessionItem[]) => rows.map((r) => r.session.key);
 
 describe('sortSessions by status', () => {
-  it('orders the rest by local day, newest first', () => {
+  it('orders the rest newest first by last prompt', () => {
     const now = new Date(2026, 8, 24, 15, 0).getTime();
     const at = (d: number, h: number) => new Date(2026, 8, d, h, 0).getTime();
     const rows = [item('old', at(10, 9)), item('today2', at(24, 14)), item('yday', at(23, 23)), item('today1', at(24, 1)), item('week', at(19, 12))];
     expect(keys(sortSessions(rows, 'status', now))).toEqual(['today2', 'today1', 'yday', 'week', 'old']);
   });
 
-  it('keeps a day ahead of an older prompt: last active today comes before prompted yesterday', () => {
+  it('orders idle sessions by last prompt, falling back to last activity', () => {
     const now = new Date(2026, 8, 24, 15, 0).getTime();
     const at = (d: number, h: number) => new Date(2026, 8, d, h, 0).getTime();
-    const rows = [item('yday', at(23, 20), 'idle', at(23, 20)), item('woke', at(24, 9), 'idle', at(20, 9))];
-    expect(keys(sortSessions(rows, 'status', now))).toEqual(['woke', 'yday']);
+    const rows = [item('yday', at(23, 20), 'idle', at(23, 20)), item('older-prompt', at(24, 9), 'idle', at(20, 9))];
+    expect(keys(sortSessions(rows, 'status', now))).toEqual(['yday', 'older-prompt']);
   });
 
   it("puts what needs you, your turns and working agents first, in the bar's order", () => {
@@ -108,9 +108,9 @@ describe('sessionSections', () => {
       item('today', at(24, 14)),
     ];
     const sections = sessionSections(rows, 'status', now);
-    expect(heads(sections)).toEqual(['Needs you blocked', 'Working busy', 'Snoozed later', 'Today today', 'Older old']);
-    // What wants you or runs heads as a bay does; the rest as a section.
-    expect(sections.map((s) => s.bay ?? s.icon ?? null)).toEqual(['needs', 'working', 'zzz', null, null]);
+    expect(heads(sections)).toEqual(['Needs you blocked', 'Working busy', 'Snoozed later', 'Idle today,old']);
+    // What wants you, runs or is idle heads as a bay does; Snoozed as a section.
+    expect(sections.map((s) => s.bay ?? s.icon ?? null)).toEqual(['needs', 'working', 'zzz', 'idle']);
     expect(keys(sortSessions(rows, 'status', now))).toEqual(sections.flatMap((s) => keys(s.rows)));
   });
 
@@ -139,7 +139,7 @@ describe('helpers in Sessions', () => {
       item('other', at(12), 'working', at(11), at(11)),
     ];
     // The longest at work first, as Working lists them.
-    expect(rows(sessionSections(list, 'status', now))).toEqual(['working other', 'today boss', 'today   slow', 'today   quick']);
+    expect(rows(sessionSections(list, 'status', now))).toEqual(['working other', 'idle boss', 'idle   slow', 'idle   quick']);
     // By start too, under the day the session started.
     expect(rows(sessionSections(list, 'started', now)).filter((r) => r.includes('boss') || r.includes('  '))).toEqual(['today boss', 'today   slow', 'today   quick']);
   });
@@ -174,8 +174,8 @@ describe('sessions another one started, in Sessions', () => {
 
   it('lists one under the session that started it only when asked to, and a fork on its own', () => {
     const list = [item('boss', at(13), 'idle', at(13)), from(item('kid', at(12), 'idle', at(12)), 'boss'), from(item('copy', at(11), 'idle', at(11)), 'boss', 'fork')];
-    expect(rows(sessionSections(list, 'status', now))).toEqual(['today boss', 'today kid', 'today copy']);
-    expect(rows(sessionSections(list, 'status', now, 'under'))).toEqual(['today boss', 'today   kid', 'today copy']);
+    expect(rows(sessionSections(list, 'status', now))).toEqual(['idle boss', 'idle kid', 'idle copy']);
+    expect(rows(sessionSections(list, 'status', now, 'under'))).toEqual(['idle boss', 'idle   kid', 'idle copy']);
     expect(rows(sessionSections(list, 'started', now, 'under'))).toEqual(['today boss', 'today   kid', 'today copy']);
   });
 
@@ -191,7 +191,7 @@ describe('sessions another one started, in Sessions', () => {
     // A helper of it at work stays with its session, as it does under a session of yours.
     const check = helper(item('check', at(14), 'working', at(12), at(12)), 'kid');
     const idleKid = from(item('kid', at(11), 'idle', at(11)), 'boss');
-    expect(rows(sessionSections([boss, idleKid, check, other], 'status', now, 'under'))).toEqual(['working other', 'today boss', 'today   check', 'today   kid']);
+    expect(rows(sessionSections([boss, idleKid, check, other], 'status', now, 'under'))).toEqual(['working other', 'idle boss', 'idle   check', 'idle   kid']);
   });
 
   it('lists the ones under a session as its headings list sessions: Needs you, Your turn, Working, Snoozed, the rest', () => {
@@ -235,9 +235,9 @@ describe('sessions another one started, in Sessions', () => {
   });
 
   it('lists one on its own when its session isn’t listed, and sessions that name each other both', () => {
-    expect(rows(sessionSections([from(item('kid', at(12), 'idle', at(12)), 'gone')], 'status', now, 'under'))).toEqual(['today kid']);
+    expect(rows(sessionSections([from(item('kid', at(12), 'idle', at(12)), 'gone')], 'status', now, 'under'))).toEqual(['idle kid']);
     const loop = [from(item('a', at(13), 'idle', at(13)), 'b'), from(item('b', at(12), 'idle', at(12)), 'a')];
-    expect(rows(sessionSections(loop, 'status', now, 'under'))).toEqual(['today a', 'today b']);
+    expect(rows(sessionSections(loop, 'status', now, 'under'))).toEqual(['idle a', 'idle b']);
   });
 
   it('lists the sessions a pinned session started under it, with their helpers, when asked to', () => {

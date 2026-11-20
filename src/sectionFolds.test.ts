@@ -10,22 +10,25 @@ function item(id: string, over: Parameters<typeof makeSession>[0] = {}, laneId =
 }
 
 describe('sectionFolds', () => {
-  it('folds active sections only when not searching, and keeps Archived under showArchived', () => {
-    const folded = new Set(['working', 'pinned']);
+  it('folds active sections only when not searching, never folds day dividers, and keeps Archived under showArchived', () => {
+    const folded = new Set(['working', 'pinned', 'today', 'yesterday', 'week', 'older']);
     expect(isSectionFolded('working', folded, false, false)).toBe(true);
     expect(isSectionFolded('working', folded, false, true)).toBe(false);
     expect(isSectionFolded('needs', folded, false, false)).toBe(false);
+    for (const day of ['today', 'yesterday', 'week', 'older']) {
+      expect(isSectionFolded(day, folded, false, false)).toBe(false);
+    }
     // Archived starts folded and stays folded during search unless opened.
     expect(isSectionFolded('archived', folded, false, false)).toBe(true);
     expect(isSectionFolded('archived', folded, false, true)).toBe(true);
     expect(isSectionFolded('archived', folded, true, false)).toBe(false);
   });
 
-  it('persists only ambient sections, never urgent bays or rotating days', () => {
-    for (const id of ['orchestrators', 'pinned', 'pinnedGroups', 'working', 'snoozed']) {
+  it('persists only ambient sections, never urgent bays or day dividers', () => {
+    for (const id of ['orchestrators', 'pinned', 'pinnedGroups', 'working', 'snoozed', 'idle']) {
       expect(PERSISTED_SECTION_FOLDS.has(id)).toBe(true);
     }
-    for (const id of ['needs', 'unread', 'listening', 'today', 'yesterday', 'archived']) {
+    for (const id of ['needs', 'unread', 'listening', 'today', 'yesterday', 'week', 'older', 'archived']) {
       expect(PERSISTED_SECTION_FOLDS.has(id)).toBe(false);
     }
   });

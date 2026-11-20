@@ -12,17 +12,22 @@ describe('useSectionFolds', () => {
     window.localStorage.clear();
   });
 
-  it('persists ambient sections across mounts while keeping urgent bays, days, and Archived ephemeral', () => {
+  it('persists ambient sections across mounts, keeps urgent bays and Archived ephemeral, and leaves day dividers non-foldable', () => {
     const first = mountHook((searching: boolean) => useSectionFolds(searching), false);
 
     expect(first.current.isFolded('working')).toBe(false);
+    expect(first.current.isFolded('idle')).toBe(false);
     expect(first.current.isFolded('needs')).toBe(false);
     expect(first.current.isFolded('archived')).toBe(true);
     expect(first.current.showArchived).toBe(false);
+    expect(first.current.toggleFor('idle')).toBeTypeOf('function');
+    expect(first.current.toggleFor('today')).toBeUndefined();
+    expect(first.current.toggleFor('yesterday')).toBeUndefined();
 
     act(() => {
       first.current.toggle('working');
       first.current.toggle('orchestrators');
+      first.current.toggle('idle');
       first.current.toggle('needs');
       first.current.toggle('today');
       first.current.toggle('archived');
@@ -30,25 +35,27 @@ describe('useSectionFolds', () => {
 
     expect(first.current.isFolded('working')).toBe(true);
     expect(first.current.isFolded('orchestrators')).toBe(true);
+    expect(first.current.isFolded('idle')).toBe(true);
     expect(first.current.isFolded('needs')).toBe(true);
-    expect(first.current.isFolded('today')).toBe(true);
+    expect(first.current.isFolded('today')).toBe(false);
     expect(first.current.isFolded('archived')).toBe(false);
     expect(first.current.showArchived).toBe(true);
-    expect(JSON.parse(window.localStorage.getItem(SESSION_FOLDS_KEY) ?? '[]')).toEqual(['working', 'orchestrators']);
+    expect(JSON.parse(window.localStorage.getItem(SESSION_FOLDS_KEY) ?? '[]')).toEqual(['working', 'orchestrators', 'idle']);
 
     first.unmount();
 
-    // Fresh mount: ambient folds stay folded; urgent, day, and Archived reset to defaults.
+    // Fresh mount: ambient folds stay folded; urgent and Archived reset to defaults.
     const second = mountHook((searching: boolean) => useSectionFolds(searching), false);
     expect(second.current.isFolded('working')).toBe(true);
     expect(second.current.isFolded('orchestrators')).toBe(true);
+    expect(second.current.isFolded('idle')).toBe(true);
     expect(second.current.isFolded('needs')).toBe(false);
     expect(second.current.isFolded('today')).toBe(false);
     expect(second.current.isFolded('archived')).toBe(true);
 
     act(() => second.current.unfold('working'));
     expect(second.current.isFolded('working')).toBe(false);
-    expect(JSON.parse(window.localStorage.getItem(SESSION_FOLDS_KEY) ?? '[]')).toEqual(['orchestrators']);
+    expect(JSON.parse(window.localStorage.getItem(SESSION_FOLDS_KEY) ?? '[]')).toEqual(['orchestrators', 'idle']);
     second.unmount();
   });
 
