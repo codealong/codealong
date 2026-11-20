@@ -10,6 +10,8 @@ use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
 
+mod side;
+
 use rusqlite::types::Value as Sql;
 use rusqlite::Connection;
 use serde_json::Value;
@@ -177,7 +179,7 @@ fn has_cli(account: &AccountCfg, home: &Path) -> bool {
 }
 
 /// `agy`, when the account runs it and it isn't on this Mac (`Adapter::missing_cli`).
-pub(crate) fn missing_cli(account: &AccountCfg, home: &Path) -> Option<&'static str> {
+fn missing_cli(account: &AccountCfg, home: &Path) -> Option<&'static str> {
     crate::harness::missing_program(cli_command(account), CLI, home, || cli_installed(home))
 }
 
@@ -709,6 +711,9 @@ fn token_files_for(account: &AccountCfg) -> Vec<crate::ledger::TokenFile> {
     let mut seen = HashSet::new();
     for folder in folders(&account.home_path()) {
         for c in read_conversations_in(&folder, 0, &HashSet::new(), true) {
+            if side::is_hidden(&c.id) {
+                continue;
+            }
             let Some(path) = transcript_file(&c.dir, &c.id) else { continue };
             if !seen.insert(path.clone()) {
                 continue;
@@ -1213,11 +1218,15 @@ fn open_logs(open_files: &[PathBuf]) -> Vec<PathBuf> {
 /// open files as the kernel lists them: an `lsof` for each took half a second at a high load,
 /// on the engine's thread.
 pub fn processes(listed: &[procs::PsLine]) -> (Vec<Process>, bool) {
+    processes_excluding(listed, crate::side::runs)
+}
+
+fn processes_excluding(listed: &[procs::PsLine], skip: impl Fn(u32) -> bool) -> (Vec<Process>, bool) {
     let mut app = false;
     let mut found = Vec::new();
     for p in listed {
         app |= is_app_agent(&p.command);
-        if crate::side::runs(p.pid) {
+        if skip(p.pid) {
             continue;
         }
         if let Some(interactive) = cli_args(&p.command) {
@@ -1722,7 +1731,7 @@ impl Reader {
         keep.extend(self.processes.iter().filter_map(|p| p.conversation.clone()));
         let before: HashMap<String, Conversation> = self.conversations.remove(&a.name).unwrap_or_default().into_iter().map(|c| (c.id.clone(), c)).collect();
         let mut rows = once_each(dirs.iter().flat_map(|f| read_conversations(f, look.since, &keep)).collect(), |c| keeps_record(&c.dir, &c.id));
-        rows.retain(|c| !crate::antigravity_side::is_hidden(&c.id));
+        rows.retain(|c| !side::is_hidden(&c.id));
         let listed: HashSet<String> = rows.iter().map(|c| c.id.clone()).collect();
         rows.extend(self.processes.iter().filter(|p| p.conversation.as_ref().is_some_and(|id| !listed.contains(id))).filter_map(|p| started(&dirs, p)));
         rows.sort_by(|x, y| y.last_modified.cmp(&x.last_modified));
@@ -2142,7 +2151,7 @@ impl crate::harness::Adapter for Antigravity {
 
     /// Each conversation's transcript, in both folders.
     fn search_files(&self, account: &AccountCfg, since: i64) -> Vec<(PathBuf, String, i64)> {
-        let rows = folders(&account.home_path()).into_iter().flat_map(|f| read_conversations(&f, since, &HashSet::new())).filter(|c| !crate::antigravity_side::is_hidden(&c.id));
+        let rows = folders(&account.home_path()).into_iter().flat_map(|f| read_conversations(&f, since, &HashSet::new())).filter(|c| !side::is_hidden(&c.id));
         rows.filter_map(|c| Some((transcript_file(&c.dir, &c.id)?, Session::key_for(Harness::Antigravity, &account.name, &c.id), c.last_modified))).collect()
     }
 
@@ -2215,16 +2224,16 @@ impl crate::harness::Adapter for Antigravity {
     }
 
     fn session_cwds(&self, home: &Path, since: i64) -> Vec<String> {
-        folders(home).iter().flat_map(|f| read_conversations(f, since, &HashSet::new())).filter(|c| !crate::antigravity_side::is_hidden(&c.id)).filter_map(|c| c.cwd).collect()
+        folders(home).iter().flat_map(|f| read_conversations(f, since, &HashSet::new())).filter(|c| !side::is_hidden(&c.id)).filter_map(|c| c.cwd).collect()
     }
 
     /// A headless `agy -p` stream-json run seeded with the session's transcript
-    /// (`antigravity_side.rs`), since `agy` has no native ephemeral fork flag.
+    /// (`antigravity/side.rs`), since `agy` has no native ephemeral fork flag.
     fn side(&self, ctx: &Ctx, s: &Session, _cwd: &Path) -> anyhow::Result<crate::side::Recipe> {
         let dir = folder_of(ctx.account, s);
         let model = s.model.clone().or_else(|| turn_model(&dir, &s.id));
         let mode = s.mode.clone().or_else(|| turn_mode(&dir, &s.id));
-        crate::antigravity_side::side_recipe(ctx.account, s, &dir, model, mode)
+        side::recipe(ctx.account, s, &dir, model, mode)
     }
 
     /// `CLOUD_CODE`'s host, where `agy` sends the model's requests (its error notes name it).
@@ -3739,5 +3748,50 @@ mod tests {
         assert_eq!(report.sessions.len(), 1, "subagent calls roll up to parent session");
         assert_eq!(report.sessions[0].key, "antigravity:antigravity:p1");
         assert_eq!(report.folders[0].key, "/work/app");
+    }
+
+    #[test]
+    fn hidden_side_conversations_stay_off_board_search_cwds_tokens_and_processes() {
+        use crate::harness::Adapter;
+        let root = crate::fixtures::scratch("agy-side-filter");
+        let dir = root.join(CLI_DIR);
+        std::fs::create_dir_all(dir.join("brain/keep1/.system_generated/logs")).unwrap();
+        std::fs::create_dir_all(dir.join("brain/side1/.system_generated/logs")).unwrap();
+        let db = Connection::open(dir.join(SUMMARIES)).unwrap();
+        db.execute_batch(
+            "CREATE TABLE conversation_summaries (conversation_id TEXT, title TEXT, preview TEXT, step_count INTEGER, last_modified_time INTEGER, workspace_uris TEXT, status TEXT, source TEXT, parent_conversation_id TEXT, nesting_depth INTEGER, not_fully_idle INTEGER, killed INTEGER, last_user_input_time INTEGER, app_data_dir TEXT);",
+        )
+        .unwrap();
+        let now = crate::util::now_ms();
+        for (id, uri) in [("keep1", r#"["file:///work/keep"]"#), ("side1", r#"["file:///work/side"]"#)] {
+            db.execute(
+                "INSERT INTO conversation_summaries VALUES (?1,'t','p',2,?2,?3,'CASCADE_RUN_STATUS_IDLE','',NULL,0,0,0,?2,'antigravity-cli')",
+                rusqlite::params![id, now, uri],
+            )
+            .unwrap();
+            std::fs::write(dir.join(format!("brain/{id}/.system_generated/logs/transcript_full.jsonl")), "{}\n").unwrap();
+        }
+        side::hide("side1");
+        let account = AccountCfg { name: "antigravity".into(), harness: "antigravity".into(), home: root.join(APP_DIR).to_string_lossy().into_owned(), command: None, start: None, usage_cap: None, acp: None, monthly: None, per_token: false, disabled: false, chrome_profile: None };
+
+        let mut reader = Reader::default();
+        let seen = crate::state::SeenState::default();
+        let look = Look { since: 0, now, seen: &seen, ps: Default::default() };
+        reader.reread(&account, &look);
+        let ids: Vec<&str> = reader.conversations.get(&account.name).unwrap().iter().map(|c| c.id.as_str()).collect();
+        assert_eq!(ids, vec!["keep1"]);
+
+        let searched: Vec<String> = Antigravity.search_files(&account, 0).into_iter().map(|(_, k, _)| k).collect();
+        assert_eq!(searched, vec!["antigravity:antigravity:keep1"]);
+        assert_eq!(Antigravity.session_cwds(&account.home_path(), 0), vec!["/work/keep"]);
+        let tokens: Vec<String> = token_files_for(&account).into_iter().map(|t| t.session).collect();
+        assert_eq!(tokens, vec!["antigravity:antigravity:keep1"]);
+
+        let listed = vec![
+            procs::PsLine { pid: 101, ppid: 1, tty: "ttys001".into(), cpu: None, command: "agy".into() },
+            procs::PsLine { pid: 202, ppid: 1, tty: "??".into(), cpu: None, command: "agy -p '' --input-format stream-json --output-format stream-json".into() },
+        ];
+        let (found, _) = processes_excluding(&listed, |pid| pid == 202);
+        assert_eq!(found.iter().map(|p| p.pid).collect::<Vec<_>>(), vec![101]);
     }
 }

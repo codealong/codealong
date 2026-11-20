@@ -111,14 +111,14 @@ runs on this Mac (2026-10-01). Paths are under `src-tauri/src/`.
   still has to be given, empty, as `-p ''` and first: `-p --input-format …` takes the flag as
   the prompt. Its `init` event names the tools and `permission_mode` (`request-review`), but
   1.3.1 has no event to ask a permission over stdin or answer one.
-- Side conversations (`antigravity_side.rs`, `Antigravity::side`): `agy` 1.5.13 has no native
+- Side conversations (`antigravity/side.rs`, `Antigravity::side`): `agy` 1.5.13 has no native
   ephemeral fork flag and `agy acp` has no `session/fork`, so `/side` runs a fresh headless
   `agy -p '' --input-format stream-json --output-format stream-json --disable-slash-commands`
   with `--log-file` in Codealong's logs folder and `--add-dir` on the session's `brain/<id>`
   folder, seeded on its first turn with the rules and a chronological excerpt of the session's
   transcript. Each throwaway run's `conversation_id` (from `init`) is recorded in memory and
-  persisted to `antigravity-sides.json` so `Reader::reread`, `search_files` and `session_cwds`
-  keep it off the board, while `side::runs(pid)` skips its process in `processes`.
+  persisted to `antigravity-sides.json` so `Reader::reread`, `search_files`, `session_cwds` and
+  `token_files_for` keep it off the board, while `side::runs(pid)` skips its process in `processes`.
 - A print run writes its summary row only as it ends. The terminal UI writes its row as a turn
   starts (running, the time and step count as they were), when a step waits on you, as a
   command's step starts (running, counting that step; 1.3.5) and as the turn ends (idle, with

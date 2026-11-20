@@ -517,7 +517,7 @@ OpenCode's service. Paste screenshots or files into it. From there you can also:
 - **stop** a turn (Esc or ⌘.), or **send now** to slip a message into the running turn (⌃⏎);
 - **switch a session's model or effort** without starting over (a running Claude Code session, a
   Codex app thread, or any session run in Codealong);
-- **ask on the side**: `/side <question>` asks a throwaway copy of a Claude Code or Codex session,
+- **ask on the side**: `/side <question>` asks a throwaway copy of a Claude Code, Codex or Antigravity session,
   which never hears of it;
 - **fork** a session into a copy that carries on alongside (`/fork`);
 - **copy** any code block, or **run** a shell block in a new terminal where the session works;

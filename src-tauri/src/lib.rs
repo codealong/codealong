@@ -36,7 +36,6 @@ mod claude;
 mod cleanup;
 mod cli;
 mod antigravity;
-mod antigravity_side;
 mod cursor;
 mod cycle;
 mod decisions;

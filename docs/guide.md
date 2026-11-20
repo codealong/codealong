@@ -536,13 +536,13 @@ place as a move to another account's does.
 
 #### Side conversations
 
-`/side <question>` (or `/btw`) asks something about a Claude Code or Codex session on the side: a
+`/side <question>` (or `/btw`) asks something about a Claude Code, Codex or Antigravity session on the side: a
 throwaway copy of its conversation answers above the box, and the session carries on and hears
 nothing of it unless you ask the copy to tell it something (below). The copy reads files and runs commands to answer, and is told to change nothing unless your
 question asks for that change in so many words, as Codex's own `/side` is; then it can do what the
 session itself can without asking (a Claude Code session that skips permission prompts, a Codex
-thread's sandbox), and what would have to ask you is refused. The harness keeps nothing of the copy:
-no transcript, no session on the board. While the copy answers, the command or tool it runs shows
+thread's sandbox, an Antigravity session's mode), and what would have to ask you is refused. Claude Code and Codex keep nothing of the copy:
+no transcript, no session on the board. Antigravity's `agy` has no ephemeral fork yet, so Codealong runs a fresh headless `agy -p` seeded with the session's transcript and hides that throwaway conversation from the board. While the copy answers, the command or tool it runs shows
 under your question, and under that the working line a session's conversation has while its agent
 works (the square tumbling, and how long since you asked), so a copy busy for minutes on a
 slow command still reads as working. While it shows, the box under it asks the side conversation,

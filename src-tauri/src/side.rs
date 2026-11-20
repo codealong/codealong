@@ -1,10 +1,13 @@
 //! Side conversations: something asked about a session without telling the session. Codealong
 //! runs a throwaway copy of the session's conversation as far as it's written (Claude Code: a
-//! headless fork that keeps no record; Codex: an ephemeral fork of the thread), asks the copy,
+//! headless fork that keeps no record; Codex: an ephemeral fork of the thread; Antigravity: a
+//! fresh headless `agy -p` stream-json run seeded with the session's transcript, whose throwaway
+//! `conversation_id` is hidden from Codealong's board), asks the copy,
 //! and shows what it says beside the session. The session never hears of it and carries on. The
 //! copy may do what the session itself may without asking (`Adapter::side`), and is told to look
 //! and answer, changing something only when a question asks for that change in so many words: as
-//! Codex's own `/side` has it. The harness keeps no record of the copy. Closing it gives the
+//! Codex's own `/side` has it. Claude Code and Codex keep no record of the copy; Antigravity's
+//! throwaway run writes a record of its own that Codealong filters out (`antigravity/side.rs`). Closing it gives the
 //! session's box back at once, but a copy that's answering answers what it was asked first and
 //! only then ends (`close`, `Side::closed`), so an answer asked for is never lost to a close;
 //! quitting Codealong is the end of it.
