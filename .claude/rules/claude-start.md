@@ -27,7 +27,7 @@ under `src-tauri/src/`.
   agent started with `start_new_session` was launchd's once its launcher returned, and it and
   every `claude -p` its judge ran (named `cwd-xx` from the judge's `cwd` folder) still named
   the agent's session, which is how a headless run no session is above is found to be one's
-  (`claude/mod.rs` `session_var`, `engine.rs` `with_run_origins`). An inherited
+  (`claude/mod.rs` `session_var`, `engine/sessions.rs` `with_run_origins`). An inherited
   `CLAUDE_CODE_ENTRYPOINT=cli` didn't keep such a run from being `sdk-cli` (2.1.296,
   2026-10-14).
 - Starting with `--session-id`, attaching files with `@"<path>"` mentions in the prompt (up to

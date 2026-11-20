@@ -5873,7 +5873,7 @@ mod tests {
     }
 
     /// What a machine's reviews of a PR come to isn't in its windows, but has to reach your other
-    /// machines: a board where only that changed is a change to publish (engine.rs `board_hash`).
+    /// machines: a board where only that changed is a change to publish (engine/publish.rs `board_hash`).
     #[test]
     fn a_change_in_what_a_machines_reviews_come_to_is_a_change_to_publish() {
         let board = |state: ClaimState| {

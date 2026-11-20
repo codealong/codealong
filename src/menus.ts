@@ -473,7 +473,7 @@ export interface AccountMoves {
  *  why, whether or not the harness hands its agent the error. */
 export const TRY_AGAIN = 'Your last turn ended on an API error. Try again, carrying on where you left off.';
 
-/** Opens a terminal on this Mac that signs `account` in, with its harness's own sign-in (engine.rs
+/** Opens a terminal on this Mac that signs `account` in, with its harness's own sign-in (engine/handle.rs
  *  `sign_in`), and says so. The usage bar's chip, a signed-out session's Sign in and `/login` in
  *  its box all go this way. */
 export function signInTo(account: string): Promise<string> {
@@ -1368,7 +1368,7 @@ export function fileMenu(path: string, kind: PathKind, can: FileCan): MenuSpec {
 }
 
 /** A web link's menu, wherever a window shows one (Markdown.tsx `Link`, a session's pages in its
- *  header): Open link does what a click does (engine.rs `open_link`: a worktree's app in its
+ *  header): Open link does what a click does (engine/open.rs `open_link`: a worktree's app in its
  *  preview's Chrome profile, a page a session made in its account's), then an item for each of
  *  Chrome's profiles, then the link copied. A profile is named as Chrome's picker names it, with
  *  the account signed in to it where two share a name. */

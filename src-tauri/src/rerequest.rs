@@ -118,7 +118,7 @@ fn quiet_since(pr: &PrItem) -> Option<i64> {
 }
 
 /// The PRs on `board` whose unsaid fixes have been quiet `SETTLE_MS` at `now`. Nothing the windows
-/// get says so, and it comes with time alone, so the board's hash takes it in (engine.rs
+/// get says so, and it comes with time alone, so the board's hash takes it in (engine/publish.rs
 /// `board_hash`), as reconnect.rs `lifted` is: the board that's composed then goes out, and `due`
 /// runs on it.
 pub fn settled(board: &Board, now: i64) -> Vec<&str> {

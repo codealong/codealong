@@ -686,7 +686,7 @@ window.__TAURI_INTERNALS__ = {
       return window.__TAURI_INTERNALS__.invoke('get_board').then(function () { return window.__harnessSchedules || []; });
     }
     if (cmd === 'open_harness_link') return Promise.resolve(null);
-    // A terminal that signs an account in (engine.rs `sign_in`): nothing opens here.
+    // A terminal that signs an account in (engine/handle.rs `sign_in`): nothing opens here.
     if (cmd === 'sign_in') return Promise.resolve(null);
     if (cmd === 'session_tokens') {
       var key = (args || {}).key || '';

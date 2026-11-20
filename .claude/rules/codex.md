@@ -108,7 +108,7 @@ checked on this Mac, most of them by reading the apps' own bundles and files. Pa
   0.156.1 (codex-acp's) and on 0.163.0-alpha.10.2 (the app's, which adds `CODEX_TOOL_CALL_ID`),
   2026-10-27. Codealong goes by it only for a thread it runs itself (`codex/mod.rs`
   `session_var`, `cli/whoami.rs` `hosted_above`), and for a headless run no session is above
-  (`engine.rs` `with_run_origins`); the app's own threads are still found by their calls, since a
+  (`engine/sessions.rs` `with_run_origins`); the app's own threads are still found by their calls, since a
   terminal or tmux server started from a thread's shell keeps its ID after the thread moves on.
 - `codex exec` runs (`originator: "codex_exec"`, `source: "exec"`, `thread_source: "user"`,
   0.157.1) are threads like any other, with nobody at them: `codex/rollout.rs`

@@ -678,7 +678,7 @@ pub fn list() -> Vec<Glance> {
     state().list.iter().map(|e| e.glance.clone()).collect()
 }
 
-/// A session's own process runs in terminal `id` (found by its device, `engine.rs`): the
+/// A session's own process runs in terminal `id` (found by its device, `engine/publish.rs`): the
 /// terminal is the session's, where it lives, and goes where its terminals go.
 pub fn adopt(id: &str, key: &str) {
     update(id, |g| {

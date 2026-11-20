@@ -17,7 +17,7 @@
 //!
 //! A stuck one waits on you, so it's yours to answer from Codealong: the session that asked needs
 //! you for it (`overlay`), and its line offers what the screen offers (`choices`), picked as you'd
-//! pick it there (`answer`), shows its tab (engine.rs `open_with`), or stops it, closing its tab
+//! pick it there (`answer`), shows its tab (engine/open.rs `open_with`), or stops it, closing its tab
 //! and forgetting the start (`stop`). A start no session asked for (yours), or whose session is
 //! taking a turn, has its notice (origins.rs `stuck_notices`). Codex
 //! asks about a repo's untrusted hooks at every start there, and its prompt goes on once that's

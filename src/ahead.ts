@@ -381,7 +381,7 @@ export function boardAhead(board: Board, changes: Ahead[]): Board {
   const lanes = lanesAhead(board.lanes, changes);
   const prs = prsAhead(board.prs, changes);
   // While `[queue]` leaves reviews out, a PR waiting on your review is no cause for the mark's
-  // color, as the engine has it (engine.rs `compose`).
+  // color, as the engine has it (engine/publish.rs `compose`).
   const reviews = queueKinds(board.queue?.order).includes('reviews');
   const todoQueue = todoQueueAhead(board.todoQueue, changes);
   if (lanes === board.lanes && prs === board.prs) return todoQueue === board.todoQueue ? board : { ...board, todoQueue };

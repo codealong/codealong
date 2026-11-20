@@ -162,7 +162,7 @@ its facts go in. Paths are under `src-tauri/src/`.
   the terminal's other side as it opens), not by the processes above it, which are the server's
   (it runs ACP sessions too) or, after a hand-over, launchd's: `launch.rs` `terminal_kind` asks
   `codealong::hosting` first. The engine marks a terminal opened for a start or resume as its
-  session's own once the session's process turns up on the board (`engine.rs` `adopt_terminals`).
+  session's own once the session's process turns up on the board (`engine/publish.rs` `adopt_terminals`).
 - A send pastes as the program asked for pastes and presses Return 0.3 s later, as Rex's does:
   Claude Code takes a Return that comes while it's still taking a paste in as part of it, which
   Sculptor's code measured at about 0.2 s (`PASTE_WAIT`).

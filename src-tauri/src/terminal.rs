@@ -338,7 +338,7 @@ pub fn running_label(run: &Run) -> String {
 }
 
 /// Lays a run its agent waits on over the session, as the engine reads it, after Jev's read
-/// (engine.rs `with_runs`): it's working, on that, there, since you allowed it. The command it
+/// (engine/sessions.rs `with_runs`): it's working, on that, there, since you allowed it. The command it
 /// waits with has printed nothing, so its harness and Jev may take it for stuck; Codealong knows
 /// it's running. What the session asks you meanwhile (an approval, another command to allow, a
 /// reply asking you something since you allowed it) stays as it is, and so does a session that
@@ -371,7 +371,7 @@ pub fn yours_label(run: &Run) -> String {
     format!("Waiting on your command · {}", code(&truncate(&one_line(without_cd(&run.command), 200), 80)))
 }
 
-/// Lays a command you ran for the session over it, after Jev's read (engine.rs `with_runs`), from
+/// Lays a command you ran for the session over it, after Jev's read (engine/sessions.rs `with_runs`), from
 /// when you ran it until the session has been sent what it printed (`report_ended`): its turn is
 /// over, and what comes next is its turn on that, so it's working, waiting on the command as on
 /// one its turn left running in the background (`RunningIn::yours`), not waiting on you. Only a
@@ -399,7 +399,7 @@ pub fn input_label(asks: &str) -> String {
 }
 
 /// Lays a run that stopped at a question over its session, after `overlay_running` and
-/// `overlay_yours` laid a run over it (engine.rs `with_runs`): a command the session waits on,
+/// `overlay_yours` laid a run over it (engine/sessions.rs `with_runs`): a command the session waits on,
 /// its agent's or yours, runs in a terminal of Codealong's whose program waits for you to type
 /// something (terminals.rs `Glance::asks`, which `asking` reads by the terminal's id, and which
 /// a command that has ended never has), so the session needs you, for that, since it asked; the
