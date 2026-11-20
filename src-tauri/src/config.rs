@@ -3,14 +3,16 @@
 //! in place, leaving the rest of the file, comments included, as you wrote it; its config.toml
 //! tab saves the text as typed, once it parses.
 //!
-//! The settings to act on are `current()`'s: the last good ones, so a mistake in the file
-//! never leaves the app half working. What isn't `current()` is here for a reason of its own:
-//! `theme`, `zoom` and `shortcuts` read the file for the app as it opens, before there are
-//! settings to run on, and `codealong config check` reads the text it's asked to check
-//! (cli/setup.rs). Codealong writes the file only from here: a setting changed in place goes
-//! through `update`, under the file's lock, which reads the text as it is then; Settings'
-//! config.toml tab saves the text as it was typed (`save_text`), whatever the file has become
-//! meanwhile.
+//! The settings to act on are `current()`'s: in the app the last good ones, so a mistake in the
+//! file never leaves it half working. That holds for what asks `current()` and no further. The
+//! functions here that read the file themselves (`theme`, `zoom`, `shortcuts`, `glass`,
+//! `experimental`, `updates_check`) each fall back to a default while the file has an error, as
+//! its comment says, most of them because the app opens before there are settings to run on;
+//! and `codealong config check` reads the text it's asked to check (cli/setup.rs). A new
+//! setting is read through `current()`. Codealong writes the file only from here: a setting
+//! changed in place goes through `update`, under the file's lock, which reads the text as it is
+//! then; Settings' config.toml tab saves the text as it was typed (`save_text`), whatever the
+//! file has become meanwhile.
 
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
