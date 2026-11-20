@@ -9,11 +9,7 @@ impl Engine {
     /// A PR the board doesn't list, matched to these lanes' worktrees and sessions.
     pub(super) fn pr_card(&self, lanes: &[Lane], slug: &str, raw: &PrRaw, login: Option<&str>) -> PrItem {
         let links = self.pr_links();
-        let mut item = board::pr_card(&self.seeds, lanes, slug, self.github.repo_names(), raw, self.github.login().or(login), &links);
-        if self.working_elsewhere.contains(&prlinks::pr_key(&item.key)) {
-            item.waits_to_merge = false;
-        }
-        item
+        board::pr_card(&self.seeds, lanes, slug, self.github.repo_names(), raw, self.github.login().or(login), &links, &self.working_elsewhere)
     }
 
     /// What pr-links.json and the sessions' records say of PRs, for the board, a moved

@@ -214,9 +214,9 @@ describe('Fixing and Working', () => {
     expect(prSections([held], 'status', 0, 'all').map((s) => s.id)).toEqual(['agent']);
   });
 
-  it('leaves out a primary that took the PR over, whose work is its own things', () => {
+  it('includes a primary that took the PR over while it is working, matching merge_waits', () => {
     const lead = { key: 'lead', status: 'working' as const };
-    expect(prAgentWork(one(lead, { primary: 'lead', takenOver: true }))).toBeNull();
+    expect(prAgentWork(one(lead, { primary: 'lead', takenOver: true }))).toBe('fixing');
     expect(prAgentWork(one(lead, { primary: 'lead' }))).toBe('fixing');
   });
 

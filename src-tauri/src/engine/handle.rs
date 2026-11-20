@@ -431,7 +431,7 @@ impl Handle {
                 return Ok(item);
             }
         }
-        Ok(board::pr_card(&[], &[], slug, &HashMap::new(), &raw, login.as_deref(), &board::PrLinks::default()))
+        Ok(board::pr_card(&[], &[], slug, &HashMap::new(), &raw, login.as_deref(), &board::PrLinks::default(), &std::collections::BTreeSet::new()))
     }
 
     /// The accounts in config.toml, each with whether it's signed in.

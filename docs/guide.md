@@ -75,8 +75,8 @@ windows, it's the PR's row in PRs. A click waits a quarter of a second for a sec
 double-click doesn't show the PR first. After the number, a mark says where its review stands:
 approved, approved only before its latest commits (an amber clock), changes asked for, your review
 asked for (amber), or Codealong's agent still reviewing it; a chip that says its state in words (a
-session's header) marks only the last three, so Ready to merge, which is GitHub's word, shows the
-clock beside it when the approval that has it ready is of an earlier commit.
+session's header) marks only the last three, so Approved shows the amber clock beside it when its
+approval is of an earlier commit.
 A right-click (or ⌃-click) opens a row's menu and leaves the selection where it was; the row is
 ringed while its menu is up. A right-click on the header of a
 panel (a session's, a worktree's, a PR's, a todo's, or the rows picked together) is its row's menu,
@@ -1236,8 +1236,9 @@ its records of it), one that took it over from a helper, or one picked (by hand,
 picks the primary it starts on, or as the copy a primary was resumed as), is told of what happens
 on the PR with a line saying another session did its work. The PR isn't its work: merging the PR
 doesn't make it done or finished, its strip has no Merge and done for it (the PR waits on you by
-itself: *What waits on you, and in what order*), its work on other things doesn't count as work on
-the PR (Fixing), and Codealong's review of a PR of yours isn't handed to it.
+itself: *What waits on you, and in what order*), and Codealong's review of a PR of yours isn't
+handed to it. While it is working, it still holds the PR out of Ready to merge and the merge queue
+(Fixing).
 
 A session you archived (marked done, say) stays listed on the PRs it worked on, so a merged PR
 still says which session made it, where its records, its branch, its pushes or a link by hand tie
@@ -1818,9 +1819,10 @@ requests for changes left out; a push is taken to be when its latest commit was 
 long before it was pushed reads as earlier than it was, and where the twenty don't reach back to
 the push it doesn't say Reply needed, as a word since can't be ruled out.
 A PR whose approvals are all of an earlier commit than the one it's at has an amber Stale approval
-after its Approved or Ready to merge, its tooltip saying who approved which commit: a repo that
-doesn't dismiss approvals when commits come goes on counting them, so GitHub would merge commits
-no reviewer approved. The merge box says so under Ready to merge. One approval of the commit it's
+after its Approved pill and stays out of Ready to merge and the merge queue, its tooltip saying who
+approved which commit: a repo that doesn't dismiss approvals when commits come goes on counting
+them, so GitHub would still let you merge commits no reviewer approved (the merge box still shows
+GitHub's Ready to merge, with the stale-approval note beneath it). One approval of the commit it's
 at is enough to clear it, yours given here at once.
 Rows that are your move are marked at the left edge, as a session that needs you is: amber for a review asked of you or
 something to fix (not changes asked for whose reviewer is asked to look again: Re-review asked), red for failing checks, green for your PRs that are ready to merge. On one line a
@@ -3469,13 +3471,14 @@ due_within = 0
 ```
 
 PRs of yours that GitHub would merge now (open and not a draft, no conflict, nothing they still
-wait on, every check passed), in a repo GitHub says you may write to, and that GitHub isn't about
-to merge by itself (in the merge queue, or with auto-merge on), wait on you with the PRs waiting on
-your review, their kind in the order (`reviews`), by when they last changed, when nothing else
-brings them to you: none of their sessions in their worktrees on this Mac is at work on them (as
-Fixing in PRs has it), and their primary session (see [PRs](#prs)) isn't in what waits on you with
-Merge and done for them on its strip (which has it for the first of its PRs that's ready, so the
-next waits by itself), so a PR whose sessions are all done with isn't left unmerged and unseen. A
+wait on, every check passed, and not resting only on stale approvals), in a repo GitHub says you
+may write to, and that GitHub isn't about to merge by itself (in the merge queue, or with
+auto-merge on), wait on you with the PRs waiting on your review, their kind in the order
+(`reviews`), by when they last changed, when nothing else brings them to you: none of their
+sessions on this Mac or another online Mac is at work on them (as Fixing in PRs has it), and their
+primary session (see [PRs](#prs)) isn't in what waits on you with Merge and done for them on its
+strip (which has it for the first of its PRs that's ready, so the next waits by itself), so a PR
+whose sessions are all done with isn't left unmerged and unseen. A
 repo whose PRs are no longer read (its worktrees all back on its default branch) has none wait on
 you on its last read's word. Each shows as its card, as a review does, with the
 merge box under its title: merged from there, it leaves and the window goes on (see *Merging*); a

@@ -289,7 +289,7 @@ pub fn read_now(seeds: &[LaneSeed], made: &HashMap<String, Vec<PrRaw>>) -> impl 
 /// as the listed ones are. `slug` is the repo as the link names it; a project's repo that
 /// answers to it in another case, or by the name it had before a rename (`renamed`, old name to
 /// new, lowercased), is the one it's matched in.
-pub fn pr_card(seeds: &[LaneSeed], lanes: &[Lane], slug: &str, renamed: &HashMap<String, String>, p: &PrRaw, login: Option<&str>, links: &PrLinks) -> PrItem {
+pub fn pr_card(seeds: &[LaneSeed], lanes: &[Lane], slug: &str, renamed: &HashMap<String, String>, p: &PrRaw, login: Option<&str>, links: &PrLinks, working_elsewhere: &BTreeSet<String>) -> PrItem {
     let repos = repos_of(seeds);
     let owners = owners_of(seeds);
     let found = repos.iter().find(|(s, _)| {
@@ -299,7 +299,7 @@ pub fn pr_card(seeds: &[LaneSeed], lanes: &[Lane], slug: &str, renamed: &HashMap
         Some((&local, &repo)) => pr_item(lanes, &owners, local, repo, p, None, login, links),
         None => pr_item(lanes, &owners, slug, ("", slug.rsplit('/').next().unwrap_or(slug), None), p, None, login, links),
     };
-    merge_waits(std::slice::from_mut(&mut item), lanes, &BTreeSet::new());
+    merge_waits(std::slice::from_mut(&mut item), lanes, working_elsewhere);
     item
 }
 
@@ -875,7 +875,7 @@ mod tests {
         };
         let listed = |owner: &str| {
             let p = PrRaw { head_owner: Some(owner.into()), author: Some(owner.into()), ..pr(PrState::Open, 0) };
-            let item = pr_card(&seeds, &lanes, "sprucehq/spark", &HashMap::new(), &p, Some("gwen"), &links);
+            let item = pr_card(&seeds, &lanes, "sprucehq/spark", &HashMap::new(), &p, Some("gwen"), &links, &BTreeSet::new());
             item.sessions.into_iter().map(|x| (x.key, x.pushes)).collect::<Vec<_>>()
         };
         assert_eq!(listed("gwen"), vec![("ours".to_string(), 1), ("reviewer".to_string(), 1)]);
@@ -901,13 +901,13 @@ mod tests {
         // In another case, or by the repo's name now: the project's repo, and the session its
         // records say made it.
         for slug in ["SpruceHQ/Spark", "spruce/spark"] {
-            let item = pr_card(&seeds, &board.lanes, slug, &renamed, &old, Some("gwen"), &links);
+            let item = pr_card(&seeds, &board.lanes, slug, &renamed, &old, Some("gwen"), &links, &BTreeSet::new());
             assert_eq!((item.key.as_str(), item.project.as_str(), item.repo.as_str()), ("sprucehq/spark#1037", "Spruce", "spark"), "{slug}");
             assert_eq!(item.sessions.iter().map(|x| x.key.as_str()).collect::<Vec<_>>(), vec![maker.key.as_str()], "{slug}");
             assert!(item.mine);
         }
         // A repo no project covers still gets the sessions linked to it.
-        let other = pr_card(&seeds, &board.lanes, "acme/tool", &renamed, &old, None, &links);
+        let other = pr_card(&seeds, &board.lanes, "acme/tool", &renamed, &old, None, &links, &BTreeSet::new());
         assert_eq!((other.key.as_str(), other.project.as_str(), other.repo.as_str()), ("acme/tool#1037", "", "tool"));
         assert_eq!(other.sessions.len(), 1);
         assert!(other.lanes.is_empty());
@@ -1051,7 +1051,7 @@ mod tests {
         let seeds = vec![seed("/r/spark-portal", "portal")];
         let pushed = |n: usize| (0..n).map(|i| ("portal".to_string(), opened + 3_600_000 * (i as i64 + 1))).collect::<Vec<_>>();
         let card = |links: &PrLinks| {
-            let p = pr_card(&seeds, &lanes, "sprucehq/spark", &HashMap::new(), &pr(PrState::Open, 0), Some("gwen"), links);
+            let p = pr_card(&seeds, &lanes, "sprucehq/spark", &HashMap::new(), &pr(PrState::Open, 0), Some("gwen"), links, &BTreeSet::new());
             let listed: Vec<(String, u32)> = p.sessions.iter().map(|x| (x.key.clone(), x.pushes)).collect();
             (p.primary.unwrap_or_default(), p.primary_by, listed)
         };
@@ -1095,7 +1095,7 @@ mod tests {
         let mut merged = pr(PrState::Merged, 0);
         merged.merged_at = Some(opened + 3_600_000 * 2 + 1);
         links.pushed.insert("opener".into(), vec![]);
-        let p = pr_card(&seeds, &lanes, "sprucehq/spark", &HashMap::new(), &merged, Some("gwen"), &links);
+        let p = pr_card(&seeds, &lanes, "sprucehq/spark", &HashMap::new(), &merged, Some("gwen"), &links, &BTreeSet::new());
         assert_eq!(p.sessions.iter().find(|x| x.key == "router").map(|x| x.pushes), Some(2));
         // Picked by hand wins.
         links.picked.insert(key.clone(), "fixer".into());
@@ -1131,7 +1131,7 @@ mod tests {
     fn a_pr_of_yours_nudges_by_default_unless_turned_off_for_it() {
         let seeds = vec![seed("/r/spark-portal", "portal")];
         let card = |p: &PrRaw, login: Option<&str>, links: &PrLinks| {
-            let item = pr_card(&seeds, &[], "sprucehq/spark", &HashMap::new(), p, login, links);
+            let item = pr_card(&seeds, &[], "sprucehq/spark", &HashMap::new(), p, login, links, &BTreeSet::new());
             (item.nudge, item.nudge_by_default)
         };
         let open = pr(PrState::Open, 0);
@@ -1160,7 +1160,7 @@ mod tests {
         let seeds = vec![seed("/r/spark-portal", "portal")];
         let key = "sprucehq/spark#1037".to_string();
         let card = |p: PrRaw, archived: bool, links: &PrLinks| {
-            let item = pr_card(&seeds, &lanes(archived), "sprucehq/spark", &HashMap::new(), &p, Some("gwen"), links);
+            let item = pr_card(&seeds, &lanes(archived), "sprucehq/spark", &HashMap::new(), &p, Some("gwen"), links, &BTreeSet::new());
             (item.watched, item.primary.unwrap_or_default())
         };
         let mut links = PrLinks { watched: HashSet::from([key.clone()]), picked: HashMap::from([(key.clone(), "watcher".to_string())]), worked: HashMap::from([(key.clone(), vec!["watcher".to_string()])]), ..Default::default() };
@@ -1194,7 +1194,7 @@ mod tests {
         let key = "sprucehq/spark#1037".to_string();
         let mut links = PrLinks { worked: HashMap::from([(key.clone(), vec!["maker".to_string()])]), made: HashMap::from([(key.clone(), vec![("maker".to_string(), NOW - 2 * 86_400_000)])]), ..Default::default() };
         let card = |lanes: &[Lane], links: &PrLinks| {
-            let item = pr_card(&seeds, lanes, "sprucehq/spark", &HashMap::new(), &pr(PrState::Merged, 0), Some("gwen"), links);
+            let item = pr_card(&seeds, lanes, "sprucehq/spark", &HashMap::new(), &pr(PrState::Merged, 0), Some("gwen"), links, &BTreeSet::new());
             (item.sessions.into_iter().map(|x| (x.key, x.lane)).collect::<Vec<_>>(), item.primary)
         };
         let both = vec![("fixer".to_string(), "/r/spark-portal".to_string()), ("maker".to_string(), "/r/app".to_string())];
@@ -1230,7 +1230,7 @@ mod tests {
         let key = "sprucehq/spark#1037".to_string();
         let mut links = PrLinks { made: HashMap::from([(key.clone(), vec![("helper".to_string(), NOW - 2 * 3_600_000)])]), ..Default::default() };
         let card = |lanes: &[Lane], links: &PrLinks| {
-            let item = pr_card(&seeds, lanes, "sprucehq/spark", &HashMap::new(), &pr(PrState::Open, 0), Some("gwen"), links);
+            let item = pr_card(&seeds, lanes, "sprucehq/spark", &HashMap::new(), &pr(PrState::Open, 0), Some("gwen"), links, &BTreeSet::new());
             let listed: Vec<String> = item.sessions.iter().map(|x| format!("{} {}", x.key, x.lane)).collect();
             (listed, item.primary, item.primary_by, item.taken_over)
         };
@@ -1275,7 +1275,7 @@ mod tests {
         assert_eq!(card(&there, &picked).2, Some(PrimaryBy::Picked));
         assert!(!card(&there, &picked).3);
         // Its work isn't the lead's: merged, it doesn't make the lead look finished.
-        let merged = pr_card(&seeds, &lanes(true, false, None), "sprucehq/spark", &HashMap::new(), &pr(PrState::Merged, 0), Some("gwen"), &links);
+        let merged = pr_card(&seeds, &lanes(true, false, None), "sprucehq/spark", &HashMap::new(), &pr(PrState::Merged, 0), Some("gwen"), &links, &BTreeSet::new());
         assert!(merged.taken_over);
         assert!(works(&lanes(true, false, None), &[merged], &[]).get("lead").is_some_and(|w| w.prs.is_empty()));
         // Taken off by hand, it stays off.
@@ -1292,9 +1292,7 @@ mod tests {
         let seeds = vec![seed("/r/spark-portal", "portal")];
         let ready = PrRaw { merge: Merge::Clean, writes: Some(true), ..pr(PrState::Approved, 0) };
         let waits_with = |lanes: &[Lane], raw: &PrRaw, login: &str, elsewhere: &BTreeSet<String>| {
-            let mut prs = vec![pr_card(&seeds, lanes, "sprucehq/spark", &HashMap::new(), raw, Some(login), &PrLinks::default())];
-            merge_waits(&mut prs, lanes, elsewhere);
-            prs[0].waits_to_merge
+            pr_card(&seeds, lanes, "sprucehq/spark", &HashMap::new(), raw, Some(login), &PrLinks::default(), elsewhere).waits_to_merge
         };
         let waits = |lanes: &[Lane], raw: &PrRaw, login: &str| waits_with(lanes, raw, login, &BTreeSet::new());
         let idle = lanes(vec![s("maker", Status::Idle)]);
@@ -1340,7 +1338,7 @@ mod tests {
         // (Each read as one card while its session was idle, as the board lists them, then
         // weighed together once it waits on you.)
         let unread = lanes(vec![s("maker", Status::Unread)]);
-        let card = |raw: &PrRaw| pr_card(&seeds, &idle, "sprucehq/spark", &HashMap::new(), raw, Some("gwen"), &PrLinks::default());
+        let card = |raw: &PrRaw| pr_card(&seeds, &idle, "sprucehq/spark", &HashMap::new(), raw, Some("gwen"), &PrLinks::default(), &BTreeSet::new());
         let mut two = vec![card(&ready), card(&PrRaw { number: 1038, ..ready.clone() })];
         merge_waits(&mut two, &unread, &BTreeSet::new());
         assert_eq!(two.iter().map(|p| p.waits_to_merge).collect::<Vec<_>>(), [false, true]);
@@ -1371,8 +1369,8 @@ mod tests {
         let lanes = vec![
             // Online lane with a working session tied via pr_sessions (different lane than the PR's).
             peer_lane("@abc:/w/lead", true, Some("SpruceHQ/infra"), None, vec![sess("@abc:lead", Status::Working)]),
-            // Online lane holding a PR directly with a set-aside session.
-            peer_lane("@abc:/w/hold", true, Some("SpruceHQ/spark"), Some(42), vec![Session { aside: Some(NOW - 10), ..sess("@abc:aside", Status::Needs) }]),
+            // Online lane holding a PR directly with a set-aside session, under a renamed repo too.
+            Lane { repo_slug_now: Some("SpruceHQ/spark-new".into()), ..peer_lane("@abc:/w/hold", true, Some("SpruceHQ/spark"), Some(42), vec![Session { aside: Some(NOW - 10), ..sess("@abc:aside", Status::Needs) }]) },
             // Offline lane with a working session: ignored.
             peer_lane("@def:/w/off", false, Some("SpruceHQ/spark"), Some(99), vec![sess("@def:off", Status::Working)]),
             // Online lane with an idle session, a visitor, an archived session, and an unattended auto-review: ignored.
@@ -1394,7 +1392,7 @@ mod tests {
             ("sprucehq/spark#99".to_string(), vec![PrSession { key: "@def:off".into(), lane: "@def:/w/off".into(), pushes: 0, primary: None }]),
             ("sprucehq/spark#77".to_string(), vec![PrSession { key: "@abc:rev".into(), lane: "@abc:/w/skip".into(), pushes: 0, primary: None }]),
         ]);
-        assert_eq!(working_elsewhere(&lanes, &pr_sessions), BTreeSet::from(["sprucehq/spark#10".to_string(), "sprucehq/spark#42".to_string()]));
+        assert_eq!(working_elsewhere(&lanes, &pr_sessions), BTreeSet::from(["sprucehq/spark#10".to_string(), "sprucehq/spark#42".to_string(), "sprucehq/spark-new#42".to_string()]));
     }
 
     #[test]

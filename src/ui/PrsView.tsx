@@ -131,10 +131,7 @@ export const PR_NONE = 'No worktree here';
  *  as on the board, not one from another worktree, since one agent that made many worktrees would
  *  otherwise put all of their PRs in Working, nor an archived one. */
 export function prSessionsNow(r: Pick<PrRowItem, 'pr' | 'sessions'>): Session[] {
-  // Nor a primary that took the PR over and did none of its work (`PrItem.takenOver`), whose work
-  // is its own things.
-  const taker = (s: Session) => !!r.pr.takenOver && s.key === r.pr.primary;
-  return r.sessions.flatMap(({ session }) => (session.visitor || session.archived || taker(session) ? [] : [session]));
+  return r.sessions.flatMap(({ session }) => (session.visitor || session.archived ? [] : [session]));
 }
 
 /** What an agent of yours is doing on an open PR, while one of its sessions, here or on another
