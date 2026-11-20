@@ -1,44 +1,32 @@
-//! TypeSafe's Jev (docs.typesafe.ai): one endpoint that answers typed questions about a state
-//! with a probability for every option. Codealong asks it narrow things, each feature behind its
-//! own switch in `[jev]` (config.rs): where a prompt goes (route.rs), how a session's turn ended
-//! (insights.rs), which todo a session is for (todos), which review comments ask for a change.
-//!
-//! The API key lives in the login keychain (service `Codealong TypeSafe`, os/secrets.rs), never in
-//! config.toml or on a command line: curl gets it and the request on stdin, and saving it hands
-//! it over on stdin too. It's read from the keychain once and
-//! kept in memory, since the engine asks often. `TYPESAFE_API_KEY` works when the keychain has
-//! none, for the command line.
+//! The request Codealong writes for a decision model, in the shape TypeSafe's Jev takes
+//! (docs.typesafe.ai), whoever answers it: a state and typed questions about it, each answered
+//! with a probability for every option. decisions.rs sends it to the model a request's text may go
+//! to, through that provider's adapter, which translates it and the answer, so what's here and
+//! the files that build questions are the same for every provider. Each feature is behind its own
+//! switch in `[decisions]` (config.rs): where a prompt goes (route.rs), how a session's turn ended
+//! (insights.rs), which todo a session is for (todojev.rs), which review comments ask for a
+//! change (prasks.rs).
 //!
 //! Jev reads questions literally and is weak at dates and numbers: callers hand it times as
-//! words (`ago_words`) and keep each question to one plain thing.
+//! words (`ago_words`) and keep each question to one plain thing. The questions and their cutoffs
+//! were tuned on Jev's answers (.claude/rules/jev.md); `--snapshot --route` and `--stance` with
+//! `--decider` try another model on the same requests.
 //!
 //! Images pasted into what a request says go with it (`Images`), as TypeSafe's experiment
 //! (docs.typesafe.ai/images): each is an asset of the body, named in the text by a key that Jev
-//! reads as the image in its place, and sent with `TypeSafe-Danger-Zone-Images: true`.
+//! reads as the image in its place. The other providers' adapters put each image where its key
+//! is.
 
-use std::io::Write;
 use std::path::Path;
-use std::process::{Command, Stdio};
 use std::sync::atomic::{AtomicU64, Ordering};
-use std::sync::mpsc::{channel, Sender};
 use std::sync::Mutex;
-use std::time::{Duration, Instant};
+use std::time::Duration;
 
-use anyhow::{anyhow, bail, Result};
 use serde_json::{json, Map, Value};
 
-const ENDPOINT: &str = "https://api.typesafe.ai/v1/systemone";
-const KEYCHAIN_SERVICE: &str = "Codealong TypeSafe";
-/// How long a key read from the keychain is used before it's read again, so a key replaced
-/// from another place (the `security` command) is picked up.
-const KEY_FOR: Duration = Duration::from_secs(10 * 60);
-
-/// Dollars per million input tokens, on every Jev model; output tokens are free.
-pub const PRICE: f64 = 0.042;
-
-/// What a request was for: the switch in `[jev]` that asked it, or Settings' Test button. Its
-/// tokens are kept under it in the ledger (`ledger::note_jev`), so Settings › Jev can say what
-/// each feature costs.
+/// What a request was for: the switch in `[decisions]` that asked it, or Settings' Test button.
+/// Its tokens are kept under it in the ledger (`ledger::note_jev`), so Settings › Decisions can
+/// say what each feature costs.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Feature {
     QuickPanel,
@@ -66,45 +54,10 @@ impl Feature {
     }
 }
 
-/// A request's body: the model, the state and the questions.
+/// A request's body: the model, the state and the questions. The model is the one asked first
+/// (`decisions::Decider::model`); each adapter names its own as it sends it.
 pub fn body(model: &str, state: Value, questions: Value) -> Value {
     json!({ "model": model, "state": state, "questions": questions })
-}
-
-/// Asks Jev for a feature. The answer is the whole response: `model`, `answers` by question
-/// id, `usage`, whose tokens go in the ledger. A request TypeSafe refused says no usage and isn't
-/// kept.
-pub fn ask(feature: Feature, body: &Value) -> Result<Value> {
-    let key = api_key().ok_or_else(|| anyhow!("There's no TypeSafe API key yet. Add it in Settings › Jev."))?;
-    let (mut status, mut reply) = post(&key, body)?;
-    // Images are an experiment of TypeSafe's, and one it won't take fails the whole request
-    // (400, or 413 for size): asked again without them, the question is answered from the words.
-    if has_images(body) && matches!(status.as_str(), "400" | "413") {
-        (status, reply) = post(&key, &without_images(body))?;
-    }
-    let response = answer(&status, &reply)?;
-    crate::ledger::note_jev(used(feature, &response, body, crate::util::now_ms()));
-    Ok(response)
-}
-
-/// What an answer says its request used, for the ledger. The model is the version that
-/// answered, or the one asked for when the reply doesn't say.
-fn used(feature: Feature, response: &Value, body: &Value, at: i64) -> crate::ledger::JevUse {
-    let usage = &response["usage"];
-    crate::ledger::JevUse {
-        at,
-        feature: feature.name().to_string(),
-        model: response["model"].as_str().or(body["model"].as_str()).unwrap_or_default().to_string(),
-        input: usage["input_tokens"].as_u64().unwrap_or(0),
-        output: usage["output_tokens"].as_u64().unwrap_or(0),
-    }
-}
-
-/// One call with a tiny question, for Settings' Test button: proves the key and says how fast.
-pub fn check(model: &str) -> Result<String> {
-    let started = Instant::now();
-    let v = ask(Feature::Test, &body(model, json!("Fix the flaky login test"), json!({ "task": { "type": "noul", "instructions": "Does this ask for a change to code?" } })))?;
-    Ok(format!("{} answered in {} ms.", v["model"].as_str().unwrap_or(model), started.elapsed().as_millis()))
 }
 
 /* ---- Reading answers ---- */
@@ -258,12 +211,12 @@ fn image_key(name: &str) -> String {
     format!("image-{}", name.split('.').next().unwrap_or(name))
 }
 
-fn has_images(body: &Value) -> bool {
+pub(crate) fn has_images(body: &Value) -> bool {
     body.get("assets").is_some()
 }
 
 /// The body with its images taken out: no assets, and no key left in its text.
-fn without_images(body: &Value) -> Value {
+pub(crate) fn without_images(body: &Value) -> Value {
     let keys: Vec<String> = body["assets"].as_object().map(|a| a.keys().cloned().collect()).unwrap_or_default();
     let mut out = body.clone();
     if let Some(o) = out.as_object_mut() {
@@ -459,184 +412,6 @@ fn exif_of(b: &[u8]) -> Option<&[u8]> {
     None
 }
 
-/* ---- In the background ---- */
-
-/// A request for the worker, and what its answer is for: the id comes back with it. `fill`
-/// finishes the body on the worker's thread just before it's sent, for state that takes a slow
-/// read (a harness's pending call, over HTTP for OpenCode): the engine's thread never waits on it.
-pub struct Job {
-    pub id: String,
-    pub feature: Feature,
-    pub body: Value,
-    pub fill: Option<Box<dyn FnOnce(&mut Value) + Send>>,
-}
-
-/// A thread that asks Jev one request at a time and hands each answer to `done`. The engine
-/// sends it jobs and hears back through its own channel, so a slow answer never holds up a
-/// board.
-pub fn worker(done: impl Fn(String, std::result::Result<Value, String>) + Send + 'static) -> Sender<Job> {
-    let (tx, rx) = channel::<Job>();
-    std::thread::Builder::new()
-        .name("jev".into())
-        .spawn(move || {
-            for mut job in rx {
-                if let Some(fill) = job.fill.take() {
-                    fill(&mut job.body);
-                }
-                let answer = ask(job.feature, &job.body).map_err(|e| format!("{e:#}"));
-                // Rate limited or overloaded: wait a moment before the next one.
-                if answer.as_ref().err().is_some_and(|e| e.contains("rate limiting") || e.contains("overloaded")) {
-                    std::thread::sleep(Duration::from_secs(5));
-                }
-                done(job.id, answer);
-            }
-        })
-        .expect("spawning the jev thread");
-    tx
-}
-
-/* ---- The request ---- */
-
-/// Escapes a value for a double-quoted string in a curl config file.
-fn curl_quoted(s: &str) -> String {
-    let mut out = String::with_capacity(s.len() + 2);
-    out.push('"');
-    for c in s.chars() {
-        match c {
-            '\\' => out.push_str("\\\\"),
-            '"' => out.push_str("\\\""),
-            '\n' => out.push_str("\\n"),
-            '\r' => out.push_str("\\r"),
-            '\t' => out.push_str("\\t"),
-            c => out.push(c),
-        }
-    }
-    out.push('"');
-    out
-}
-
-/// The curl config for one request: the key and the body both go on curl's stdin. A body with
-/// images says so in a header, which TypeSafe refuses one without.
-fn curl_config(key: &str, body: &Value) -> String {
-    format!(
-        "url = {}\nrequest = \"POST\"\nheader = {}\nheader = \"Content-Type: application/json\"\nheader = \"Accept: application/json\"\nheader = \"User-Agent: codealong/{}\"\n{}data-binary = {}\n",
-        curl_quoted(ENDPOINT),
-        curl_quoted(&format!("Authorization: Bearer {key}")),
-        env!("CARGO_PKG_VERSION"),
-        if has_images(body) { "header = \"TypeSafe-Danger-Zone-Images: true\"\n" } else { "" },
-        curl_quoted(&body.to_string()),
-    )
-}
-
-/// Sends a request: the HTTP status and the reply. Images take longer to send, so they get
-/// longer.
-fn post(key: &str, body: &Value) -> Result<(String, String)> {
-    if key.chars().any(|c| c.is_control() || c == '"' || c == '\\') {
-        bail!("The TypeSafe API key has characters a key can't have. Paste it again in Settings › Jev.");
-    }
-    // `-q`, first, as http.rs has it: the key goes to curl as its config, and a `trace` in
-    // ~/.curlrc would write it to a file.
-    let mut child = Command::new(crate::http::curl())
-        .args(["-q", "-sS", "-m", if has_images(body) { "40" } else { "15" }, "-w", "\n%{http_code}", "-K", "-"])
-        .stdin(Stdio::piped())
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped())
-        .spawn()
-        .map_err(|e| anyhow!("curl: {e}"))?;
-    if let Some(mut stdin) = child.stdin.take() {
-        stdin.write_all(curl_config(key, body).as_bytes())?;
-    }
-    let out = child.wait_with_output().map_err(|e| anyhow!("curl: {e}"))?;
-    let text = String::from_utf8_lossy(&out.stdout);
-    let (reply, status) = text.rsplit_once('\n').unwrap_or(("", &text));
-    if matches!(status.trim(), "000" | "") {
-        let err = String::from_utf8_lossy(&out.stderr);
-        bail!("Couldn't reach TypeSafe: {}", err.trim().trim_start_matches("curl: ").chars().take(160).collect::<String>())
-    }
-    Ok((status.trim().to_string(), reply.to_string()))
-}
-
-/// What a reply says: the answer, or why there's none.
-fn answer(status: &str, reply: &str) -> Result<Value> {
-    // A 400's detail is `{error_type, message}`.
-    let detail = || -> String {
-        serde_json::from_str::<Value>(reply)
-            .ok()
-            .and_then(|v| v.get("detail").or_else(|| v.get("error")).or_else(|| v.get("message")).cloned())
-            .map(|d| match d.get("message").unwrap_or(&d) {
-                Value::String(s) => s.clone(),
-                d => d.to_string(),
-            })
-            .unwrap_or_default()
-            .chars()
-            .take(200)
-            .collect()
-    };
-    match status {
-        "200" => serde_json::from_str(reply).map_err(|_| anyhow!("TypeSafe sent an answer Codealong can't read.")),
-        "401" | "403" => {
-            forget_key();
-            bail!("TypeSafe didn't accept the API key. Check it in Settings › Jev.")
-        }
-        "400" | "422" => bail!("TypeSafe couldn't take the request: {}", detail()),
-        "413" => bail!("TypeSafe couldn't take a request that big."),
-        "429" => bail!("TypeSafe is rate limiting; try again in a moment."),
-        "529" => bail!("TypeSafe is overloaded; try again in a moment."),
-        other => bail!("TypeSafe answered HTTP {other}. {}", detail()),
-    }
-}
-
-/* ---- The key ---- */
-
-static KEY: Mutex<Option<(Instant, String)>> = Mutex::new(None);
-
-fn forget_key() {
-    if let Ok(mut k) = KEY.lock() {
-        *k = None;
-    }
-}
-
-/// The API key: the keychain's, else `TYPESAFE_API_KEY`.
-fn api_key() -> Option<String> {
-    if let Some((at, key)) = KEY.lock().ok().and_then(|k| k.clone()) {
-        if at.elapsed() < KEY_FOR {
-            return Some(key);
-        }
-    }
-    let key = crate::os::secrets::read(KEYCHAIN_SERVICE)
-        .or_else(|| std::env::var("TYPESAFE_API_KEY").ok().map(|k| k.trim().to_string()).filter(|k| !k.is_empty()))?;
-    if let Ok(mut k) = KEY.lock() {
-        *k = Some((Instant::now(), key.clone()));
-    }
-    Some(key)
-}
-
-/// Whether there's a key, without reading it.
-pub fn has_key() -> bool {
-    crate::os::secrets::has(KEYCHAIN_SERVICE) || std::env::var("TYPESAFE_API_KEY").is_ok_and(|k| !k.trim().is_empty())
-}
-
-/// Saves the key in the keychain, replacing one that's there. The command goes to `security`
-/// on stdin, so the key never shows in the process list.
-pub fn save_key(key: &str) -> Result<()> {
-    let key = key.trim();
-    if key.is_empty() || key.chars().any(|c| c.is_control() || c.is_whitespace() || c == '"' || c == '\\') {
-        bail!("That doesn't look like an API key.");
-    }
-    let saved = crate::os::secrets::save(KEYCHAIN_SERVICE, key);
-    forget_key();
-    if saved.is_err() || !has_key() {
-        bail!("The keychain didn't take the key.");
-    }
-    Ok(())
-}
-
-pub fn delete_key() -> Result<()> {
-    crate::os::secrets::delete(KEYCHAIN_SERVICE);
-    forget_key();
-    Ok(())
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -672,18 +447,6 @@ mod tests {
         assert_eq!(choice(&v, "b"), vec![("x".to_string(), 0.7), ("y".to_string(), 0.3)]);
         assert_eq!(score(&v, "c"), Some(1.4));
         assert_eq!(noul(&v, "missing"), None);
-    }
-
-    #[test]
-    fn an_answer_says_what_its_request_used() {
-        // As TypeSafe answered on 2026-10-16.
-        let reply = json!({ "model": "jev-1.14.0", "answers": { "task": { "type": "noul", "noul": 0.92 } }, "usage": { "input_tokens": 281, "output_tokens": 20 } });
-        let asked = body("jev-preview", json!("Fix the flaky login test"), json!({}));
-        let u = used(Feature::QuickPanel, &reply, &asked, 1_000);
-        assert_eq!((u.at, u.feature.as_str(), u.model.as_str(), u.input, u.output), (1_000, "quick_panel", "jev-1.14.0", 281, 20));
-        // A reply that names no model or usage is kept as the model asked for, with no tokens.
-        let u = used(Feature::Test, &json!({ "answers": {} }), &asked, 1_000);
-        assert_eq!((u.feature.as_str(), u.model.as_str(), u.input), ("test", "jev-preview", 0));
     }
 
     #[test]
@@ -724,7 +487,6 @@ mod tests {
         let sent = data_encoding::BASE64.decode(assets["image-0123456789abcdef"]["data_base64"].as_str().unwrap().as_bytes()).unwrap();
         let side = |at: usize| u32::from_be_bytes(sent[at..at + 4].try_into().unwrap());
         assert_eq!((&sent[..8], side(16), side(20)), (&b"\x89PNG\r\n\x1a\n"[..], 280, 280));
-        assert!(curl_config("k", &b).contains("header = \"TypeSafe-Danger-Zone-Images: true\"\n"));
         let _ = std::fs::remove_dir_all(&dir);
     }
 
@@ -736,7 +498,7 @@ mod tests {
         b["state"]["message"] = json!(clip(b["state"]["message"].as_str().unwrap(), 10));
         images.attach_from(&dir, &mut b);
         assert_eq!((b["state"]["message"].as_str(), b.get("assets")), (Some("Fix image…"), None));
-        assert!(!curl_config("k", &b).contains("Danger-Zone"));
+        assert!(!has_images(&b));
         let _ = std::fs::remove_dir_all(&dir);
     }
 
@@ -863,22 +625,5 @@ mod tests {
         let plain = without_images(&b);
         assert_eq!((plain["state"]["message"].as_str(), plain.get("assets")), (Some("Fix  now"), None));
         assert!(has_images(&b) && !has_images(&plain));
-    }
-
-    #[test]
-    fn a_reply_says_why_there_is_no_answer() {
-        let refused = r#"{"detail":{"error_type":"api_usage_error","message":"Invalid image dimensions."}}"#;
-        assert_eq!(answer("400", refused).unwrap_err().to_string(), "TypeSafe couldn't take the request: Invalid image dimensions.");
-        assert_eq!(answer("422", r#"{"detail":"bad"}"#).unwrap_err().to_string(), "TypeSafe couldn't take the request: bad");
-        assert_eq!(answer("200", r#"{"answers":{}}"#).unwrap(), json!({ "answers": {} }));
-    }
-
-    #[test]
-    fn the_key_and_body_are_escaped_for_curl() {
-        let body = json!({ "state": "say \"hi\"\nback\\slash" });
-        let cfg = curl_config("tsk_123", &body);
-        assert!(cfg.contains("header = \"Authorization: Bearer tsk_123\"\n"));
-        assert!(cfg.contains(r#"data-binary = "{\"state\":\"say \\\"hi\\\"\\nback\\\\slash\"}""#), "{cfg}");
-        assert!(cfg.starts_with("url = \"https://api.typesafe.ai/v1/systemone\"\n"));
     }
 }

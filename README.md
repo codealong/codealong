@@ -496,8 +496,9 @@ and the session improves Codealong itself. With Codealong's source in none of yo
 panel offers to add one. In the installed app, it first offers to have an agent switch you to
 Codealong Dev, a build of the source that runs what you change.
 
-**Optional suggestions.** Turn on Jev (Settings › Jev, with your own [TypeSafe](https://typesafe.ai)
-key) and the panel suggests where your prompt belongs: the agent already working on it, a free
+**Optional suggestions.** Turn on a decision model (Settings › Decisions, with your own API key for
+[TypeSafe](https://typesafe.ai)'s Jev, OpenAI's or Google's, chosen per project) and the panel
+suggests where your prompt belongs: the agent already working on it, a free
 worktree, a new chat, or a todo for later, each with how likely it is. It warns you when a running
 agent may already be doing the same work, so two agents don't quietly race each other. Everything
 else works without it.
@@ -811,16 +812,22 @@ talk = "Option+Cmd+["               # with voice on: held while you talk to the 
 talk_orchestrator = "Option+Cmd+]"  # with voice on: held while you talk to your orchestrator
 listen = "Option+Cmd+="             # with voice on: opens the quick panel set to listen to a meeting from then on (Listen now)
 
-[jev]                          # TypeSafe's Jev, each feature off until turned on (Settings › Jev)
-model = "jev-preview"          # TypeSafe's newest release; jev-latest its newest stable one, or a version (jev-1.14.0)
+[decisions]                    # decision models, each feature off until turned on (Settings › Decisions); an old [jev] reads as this
+default = "jev"                # the model a project that names none goes to; "none" for none. jev is TypeSafe's Jev, always there
 quick_panel = false            # suggestions as you type in the quick panel
 sessions = false               # how each turn ended: asks you, stuck, landed, finished, risk
 todos = false                  # links sessions to todos, done hints, new todos' labels
 pull_requests = false          # review comments that ask for a change
 prompts = false                # with [experimental] analytics: what each prompt you typed did with the reply before it
 
+[[decisions.models]]           # a model of your own naming; each provider's key is in the keychain (Settings › Decisions)
+name = "luna"
+provider = "openai"            # "typesafe" (jev-preview, jev-latest, jev-1.14.0), "openai" (gpt-6-luna) or "gemini" (gemini-decision-1)
+model = "gpt-6-luna"
+fallback = "jev"               # asked when this one fails for now (429, overloaded, unreachable), for what goes by the default only
+
 [emblems]                      # something to know each session by beside its title (Settings › Appearance)
-kind = "off"                   # "emoji" (Jev picks one) or "drawn" (an account draws one)
+kind = "off"                   # "emoji" (a decision model picks one) or "drawn" (an account draws one)
 account = "codex"              # drawn: the account that draws them; the first that can when unset
 prompt = "Pixel art on a 16 by 16 grid, with a dark outline."  # drawn: how; Codealong's own when unset
 
@@ -865,7 +872,7 @@ members = [{ account = "claude-work", model = "opus", effort = "high" }, { accou
 [[routing.groups]]
 name = "authorized"
 boundary = true                # a boundary: only members whose provider says they're on a commercial plan count as in it, and what its members' sessions say stays with sessions in it (`codealong account check --group authorized` for a repo's guard hook)
-decisions = "jev"              # with boundary: the decision model that may read its sessions, "jev" (the default) or "none"
+decisions = "jev"              # with boundary: the one decision model that may read its sessions, or "none"; without it, Jev, whatever [decisions] default says
 members = [{ account = "claude-work" }]  # a boundary lists its members, each in one boundary at most
 
 [reviews]
@@ -980,6 +987,7 @@ repos = ["github.com/acme/*"]
 folders = []                   # folders that belong to it too; a repo in one is this project's, whatever its remote
 chrome_profile = "Work"        # its worktrees' previews, and links into them, open in this Chrome profile; without it, the default browser
 default = "authorized"         # the routing group a start here on Auto goes on (sessions, schedules, reviews, meetings), in place of [routing] auto; without it, [routing] auto's
+decisions = "luna"             # the one decision model its sessions' words may go to, or "none"; without it, [decisions] default
 ```
 
 </details>
@@ -1004,9 +1012,12 @@ in the guide's [Files Codealong keeps](docs/guide.md#files-codealong-keeps).
   keeps those with a hash of your IP address, never the address, made with a salt it deletes the
   next day (its database can restore deleted rows for 30 days). `[updates] check = false` turns
   the checks off.
-- **Jev is opt-in.** Each Jev feature is off until you add your own TypeSafe key and switch it on,
-  and Settings › Jev says what each one sends (what you type, and your sessions' titles, branches
-  and latest lines). The key stays in your login keychain (on Linux, the desktop's Secret Service).
+- **Decision models are opt-in, and chosen per project.** Each feature is off until you add your
+  own key (TypeSafe's, OpenAI's or Google's) and switch it on, and Settings › Decisions says what
+  each one sends (what you type, and your sessions' titles, branches and latest lines). A
+  project's sessions' words go only to the model chosen for that project, or to none; a boundary
+  group's only to its own. Keys stay in your login keychain (on Linux, the desktop's Secret
+  Service).
 - **Linked devices talk to each other**, encrypted end to end (directly, or through relays that
   can't read what they pass along), and read a conversation or search what was said only by
   asking the machine it's on. Remote control is off until you turn it on at that machine;
@@ -1041,8 +1052,8 @@ names the folders it's waiting on.
 
 **Is Codealong really free?**
 Yes. It's free and open source under the Apache License 2.0, with no account, no trial and no paid
-tier. You pay only for what you already pay for: your agents' subscriptions, and a TypeSafe key if
-you turn on Jev.
+tier. You pay only for what you already pay for: your agents' subscriptions, and a decision model's
+key (TypeSafe's, OpenAI's or Google's) if you turn one on.
 
 **What do automatic reviews of pull requests cost?**
 Nothing beyond the plans you already pay for. A review is an agent session on one of your accounts,

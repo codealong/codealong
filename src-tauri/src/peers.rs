@@ -2705,9 +2705,9 @@ mod tests {
     #[test]
     fn other_devices_worktrees_go_into_this_devices_projects_by_repo() {
         let projects = vec![
-            ProjectCfg { name: "Spur".into(), repos: vec!["github.com/spurhq/*".into()], folders: vec![], chrome_profile: None, default: None },
-            ProjectCfg { name: "Spruce".into(), repos: vec!["github.com/sprucehq/*".into()], folders: vec![], chrome_profile: None, default: None },
-            ProjectCfg { name: "Notes".into(), repos: vec![], folders: vec!["~/notes".into()], chrome_profile: None, default: None },
+            ProjectCfg { name: "Spur".into(), repos: vec!["github.com/spurhq/*".into()], folders: vec![], chrome_profile: None, default: None, decisions: None },
+            ProjectCfg { name: "Spruce".into(), repos: vec!["github.com/sprucehq/*".into()], folders: vec![], chrome_profile: None, default: None, decisions: None },
+            ProjectCfg { name: "Notes".into(), repos: vec![], folders: vec!["~/notes".into()], chrome_profile: None, default: None, decisions: None },
         ];
         let with = |slug: Option<&str>, project: &str, hidden: bool| {
             let mut l = lane("/x", vec![]);

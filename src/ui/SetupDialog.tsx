@@ -37,9 +37,9 @@ const MORE: { section: SettingsSection; icon: string; title: string; says: strin
   {
     section: 'jev',
     icon: 'sparkles',
-    title: 'Jev',
-    says: 'Finds the session a prompt in the quick panel is for, says when an agent’s reply asks you something, and links sessions to their todos. It needs a TypeSafe key, and a question costs a fraction of a cent.',
-    button: 'Set up Jev',
+    title: 'Decision models',
+    says: 'Finds the session a prompt in the quick panel is for, says when an agent’s reply asks you something, and links sessions to their todos. It needs an API key for a decision model (TypeSafe’s Jev, OpenAI’s or Google’s), and a question costs a fraction of a cent.',
+    button: 'Set up decisions',
   },
   {
     section: 'devices',

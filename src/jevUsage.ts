@@ -1,6 +1,7 @@
-// What Settings › Jev says Codealong's requests to Jev used (ledger.rs `JevReport`), worked out as
-// pure functions so tests can pin them: a period's totals, in all and by feature; when counting
-// started, if that was inside the period; and costs in words fine enough for fractions of a cent.
+// What Settings › Decisions says Codealong's requests to decision models used (ledger.rs
+// `JevReport`), worked out as pure functions so tests can pin them: a period's totals, in all, by
+// feature and by model; when counting started, if that was inside the period; and costs in words
+// fine enough for fractions of a cent.
 
 import { money } from './spend';
 import type { JevReport, JevUsed } from './types';
@@ -18,14 +19,22 @@ function plus(a: JevUsed, b: JevUsed): JevUsed {
   return { requests: a.requests + b.requests, tokens: a.tokens + b.tokens, cost: a.cost + b.cost };
 }
 
-/** What the report's last `days` days used, in all and by feature, the most tokens first. */
-export function jevTotals(r: JevReport, days: number): { total: JevUsed; features: { feature: string; used: JevUsed }[] } {
+/** Each key's sum over `days`, the most tokens first. */
+function summed(days: Record<string, JevUsed>[]): { key: string; used: JevUsed }[] {
   const by = new Map<string, JevUsed>();
-  for (const d of r.days.slice(-days)) {
-    for (const [feature, used] of Object.entries(d.features)) by.set(feature, plus(by.get(feature) ?? NONE, used));
+  for (const d of days) {
+    for (const [key, used] of Object.entries(d)) by.set(key, plus(by.get(key) ?? NONE, used));
   }
-  const features = [...by].map(([feature, used]) => ({ feature, used })).sort((a, b) => b.used.tokens - a.used.tokens || a.feature.localeCompare(b.feature));
-  return { total: features.reduce((t, f) => plus(t, f.used), NONE), features };
+  return [...by].map(([key, used]) => ({ key, used })).sort((a, b) => b.used.tokens - a.used.tokens || a.key.localeCompare(b.key));
+}
+
+/** What the report's last `days` days used, in all, by feature and by model (`<provider>:<model>`),
+ *  the most tokens first. */
+export function jevTotals(r: JevReport, days: number): { total: JevUsed; features: { feature: string; used: JevUsed }[]; models: { model: string; used: JevUsed }[] } {
+  const last = r.days.slice(-days);
+  const features = summed(last.map((d) => d.features)).map(({ key, used }) => ({ feature: key, used }));
+  const models = summed(last.map((d) => d.models ?? {})).map(({ key, used }) => ({ model: key, used }));
+  return { total: features.reduce((t, f) => plus(t, f.used), NONE), features, models };
 }
 
 /** When counting started, if that was after the first of the last `days` days began: nothing
@@ -37,7 +46,7 @@ export function countedSince(r: JevReport, days: number): number | null {
   return r.since > new Date(y, m - 1, d).getTime() ? r.since : null;
 }
 
-/** Dollars fine enough for Jev, whose requests cost hundredths of a cent: `$0.0029` under a cent,
+/** Dollars fine enough for decision models, whose requests cost hundredths of a cent: `$0.0029` under a cent,
  *  and as the Analytics window says them from a cent up. */
 export function jevMoney(n: number): string {
   if (n <= 0) return '$0';

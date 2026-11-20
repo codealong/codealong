@@ -1,13 +1,14 @@
-// Checks Settings › Jev's usage (JevUsage.tsx) against fake-tauri.js's made-up report, with a key
-// saved: the last 7 days at first, their cost large with the requests and tokens beside it, and a
-// row for each feature that asked, the most tokens first, named as its switch is. Today sums only
+// Checks Settings › Decisions' usage (JevUsage.tsx) against fake-tauri.js's made-up report, with
+// TypeSafe's key saved: the last 7 days at first, their cost large with the requests and tokens
+// beside it, a row for each feature that asked, the most tokens first, named as its switch is,
+// and one for each model that answered, named by its provider. Today sums only
 // today; 30 days reaches back past when counting started, and says since when. The Test button
 // reads the usage again.
 //   scripts/preview.sh sessions '' scripts/preview/jev-usage-check.js
 (function () {
   var real = window.__TAURI_INTERNALS__.invoke;
   window.__TAURI_INTERNALS__.invoke = function (cmd, args, options) {
-    if (cmd === 'jev_key') return Promise.resolve(true);
+    if (cmd === 'decision_keys') return Promise.resolve({ typesafe: true });
     return real(cmd, args, options);
   };
   var nav = function (label) { return all('.ca-settings-nav button').filter(function (b) { return b.textContent.trim() === label; })[0]; };
@@ -34,7 +35,8 @@
     return {
       cost: (q('.ca-jev-usage-cost', f) || {}).textContent,
       counts: (q('.ca-jev-usage-counts', f) || {}).textContent || '',
-      rows: all('tbody th', f).map(function (th) { return th.textContent; }),
+      rows: all('table', f).length ? all('tbody th', all('table', f)[0]).map(function (th) { return th.textContent; }) : [],
+      models: all('table', f).length > 1 ? all('tbody th', all('table', f)[1]).map(function (th) { return th.textContent; }) : [],
       note: (q('small', f) || {}).textContent || '',
       on: (q('.ca-segctl .is-on', f) || {}).textContent,
     };
@@ -45,7 +47,7 @@
     try {
       var gear = await until(function () { return q('.ca-side-config'); }, 20000, 'no settings button');
       gear.click();
-      (await until(function () { return nav('Jev'); }, 10000, 'no Jev in Settings')).click();
+      (await until(function () { return nav('Decisions'); }, 10000, 'no Decisions in Settings')).click();
       await until(function () { return field() && q('.ca-jev-usage-cost', field()); }, 10000, 'the usage never showed');
       var report = await real('jev_usage', { days: 30 });
 
@@ -55,6 +57,7 @@
       check('their requests are summed', s.counts.indexOf(week.requests.toLocaleString('en-US') + ' requests') === 0, s.counts);
       check('a row for each feature, the most tokens first', s.rows.join(' | ') === week.order.join(' | '), s.rows.join(' | ') + ' / ' + week.order.join(' | '));
       check('a cost to the cent or finer', /^\$\d/.test(s.cost), s.cost);
+      check('a row for each model that answered, named by its provider', s.models.length === 2 && s.models.indexOf('TypeSafe jev-1.14.0') >= 0 && s.models.indexOf('OpenAI gpt-6-luna') >= 0, s.models.join(' | '));
       check('no since when inside the days counted', s.note.indexOf('Counted since') < 0, s.note);
 
       segment('Today').click();

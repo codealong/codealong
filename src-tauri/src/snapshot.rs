@@ -85,8 +85,8 @@ const MODES: &[Mode] = &[
     Mode { flag: "--start-options", takes: "", run: start_options },
     Mode { flag: "--skills", takes: "[folder…]", run: skills },
     Mode { flag: "--start-plan", takes: "<folder> <account> <terminal|background|claude-app|codex-app|codealong> [prompt] [--model <model>] [--effort <level>] [--worktree]", run: start_plan },
-    Mode { flag: "--route", takes: "<text> [--project <name>]", run: route_text },
-    Mode { flag: "--routes", takes: "[days]", run: routes },
+    Mode { flag: "--route", takes: "<text> [--project <name>] [--decider <name>]", run: route_text },
+    Mode { flag: "--routes", takes: "[days] [--decider <name>] [--most <n>]", run: routes },
     Mode { flag: "--config", takes: "", run: |_, _| Ok(pretty(&config::view())) },
     Mode { flag: "--setup", takes: "", run: |_, _| Ok(pretty(&crate::setup::view().map_err(|e| Stop::Failed(format!("{e:#}")))?)) },
     Mode { flag: "--found", takes: "", run: |_, _| Ok(pretty(&detect::unlisted().map_err(|e| Stop::Failed(format!("{e:#}")))?)) },
@@ -111,7 +111,7 @@ const MODES: &[Mode] = &[
     Mode { flag: "--tokens", takes: "[days] [--account <name>] [--session <key>] [--into <ledger file>]", run: tokens },
     Mode { flag: "--jev-usage", takes: "[days]", run: jev_usage },
     Mode { flag: "--analytics", takes: "[days] [--account <name>] [--into <ledger file>]", run: analytics },
-    Mode { flag: "--stance", takes: "[how many] --into <ledger file>", run: stance },
+    Mode { flag: "--stance", takes: "[how many] --into <ledger file> [--decider <name>]", run: stance },
     Mode { flag: "--stale-terminals", takes: "[how long unused: 90m, 24h, 3d, 1w]", run: stale_terminals },
     Mode { flag: "--hearing", takes: "", run: hearing },
     Mode { flag: "--transcribe", takes: "<sound file> [locale]", run: transcribe },
@@ -273,8 +273,9 @@ fn schedule_check(_: &Args, rest: &[String]) -> Done {
     Ok(pretty(&crate::schedules::runner::check_now(&s, &track, &board)))
 }
 
-/// `codealong --snapshot --jev-usage [days]`: what Settings › Jev says Codealong's requests to Jev
-/// used each of the last `days` days (30 unless given), read from the app's ledger.
+/// `codealong --snapshot --jev-usage [days]`: what Settings › Decisions says Codealong's requests
+/// to decision models used each of the last `days` days (30 unless given), by feature and by
+/// model, read from the app's ledger.
 fn jev_usage(_: &Args, rest: &[String]) -> Done {
     let days: u32 = match rest.first() {
         Some(d) => d.parse().map_err(|_| Stop::Usage)?,
@@ -315,39 +316,80 @@ fn analytics(args: &Args, rest: &[String]) -> Done {
     Ok(pretty(&serde_json::json!({ "analytics": report, "origins": tokens.origins, "hands": tokens.hands, "subagents": tokens.subagents, "total": tokens.total, "problem": caught.problem() })))
 }
 
-/// `codealong --snapshot --stance [how many] --into <ledger file>`: reads the newest prompts that
-/// wait on a read in a check's ledger (one `--snapshot --analytics --into` made), 10 unless given,
-/// as the app would with `[jev] prompts` on, and prints each with what Jev made of it: for trying
-/// the question's wording. Real: it asks TypeSafe, and keeps each read in that ledger.
+/// The settings to ask with: config.toml's, or with `--decider <name>` that model standing in for
+/// every project's and the default (`decisions::trying`), its name one of the
+/// `[[decisions.models]]` or `<provider>:<model>`.
+fn deciding(args: &Args) -> Result<config::Config, Stop> {
+    let cfg = config::current().map_err(failed)?;
+    match args.option("--decider") {
+        Some(spec) => Ok(crate::decisions::trying(&cfg, &crate::decisions::named(&cfg, spec).map_err(failed)?)),
+        None => Ok(cfg),
+    }
+}
+
+/// `codealong --snapshot --stance [how many] --into <ledger file> [--decider <name>]`: reads the
+/// newest prompts that wait on a read in a check's ledger (one `--snapshot --analytics --into`
+/// made), 10 unless given, as the app would with `[decisions] prompts` on, and prints each with
+/// what the model made of it: for trying the question's wording, or another model on the same
+/// prompts. Real: it asks the decision model, and keeps each read in that ledger.
 fn stance(args: &Args, rest: &[String]) -> Done {
     let n: usize = match rest.first().filter(|d| !d.starts_with("--")) {
         Some(d) => d.parse().map_err(|_| Stop::Usage)?,
         None => 10,
     };
     let file = args.option("--into").ok_or(Stop::Usage)?;
-    let cfg = config::current().map_err(failed)?;
+    let cfg = deciding(args)?;
+    let board = board_now().board();
+    let project_of = |key: &str| board.session(key).map(|(l, s)| crate::decisions::project_of(l, s).unwrap_or_default().to_string());
     let db = crate::ledger::open(std::path::Path::new(file)).map_err(failed)?;
     let mut out = Vec::new();
     for u in crate::stance::unread(&db, n).map_err(failed)? {
-        let answer = crate::jev::ask(crate::jev::Feature::Prompts, &crate::stance::request(&cfg.jev.model, &u)).map_err(failed)?;
+        let Some(decider) = crate::stance::decider(&cfg, &u, &project_of) else {
+            out.push(serde_json::json!({ "prompt": u, "stance": null, "kept": "Its project or boundary group keeps it from this model." }));
+            continue;
+        };
+        let answer = crate::decisions::ask(crate::jev::Feature::Prompts, &decider, &crate::stance::request(decider.model(), &u)).map_err(failed)?;
         let read = crate::stance::read(&answer);
         if let (Some((stance, sure)), Ok(id)) = (&read, u.id.parse::<i64>()) {
-            crate::stance::keep_read(&db, id, stance, *sure, answer["model"].as_str().unwrap_or(&cfg.jev.model)).map_err(failed)?;
+            crate::stance::keep_read(&db, id, stance, *sure, answer["model"].as_str().unwrap_or(decider.model())).map_err(failed)?;
         }
-        out.push(serde_json::json!({ "prompt": u, "stance": read.map(|(s, _)| s), "probabilities": crate::jev::choice(&answer, "stance") }));
+        out.push(serde_json::json!({ "prompt": u, "stance": read.map(|(s, _)| s), "probabilities": crate::jev::choice(&answer, "stance"), "model": answer["model"] }));
     }
     Ok(pretty(&out))
 }
 
-/// `codealong --snapshot --routes [days]`: how often what you did with what you typed in the quick
-/// panel was Jev's first suggestion, over the last `days` (7 by default), with the times it
-/// wasn't (routelog.rs).
-fn routes(_: &Args, rest: &[String]) -> Done {
-    let days: u32 = match rest.first() {
+/// `codealong --snapshot --routes [days] [--decider <name>] [--most <n>]`: how often what you did
+/// with what you typed in the quick panel was Jev's first suggestion, over the last `days` (7 by
+/// default), with the times it wasn't (routelog.rs). With `--decider`, the latest `most` of them
+/// (20 unless given) are asked again of that model on today's board, each set beside what you did
+/// and where it was among Jev's suggestions then (`routelog::replay`). Real then: each is a
+/// request to the model.
+fn routes(args: &Args, rest: &[String]) -> Done {
+    let days: u32 = match rest.first().filter(|d| !d.starts_with("--")) {
         Some(d) => d.parse().map_err(|_| Stop::Usage)?,
         None => 7,
     };
-    Ok(pretty(&crate::routelog::report(crate::routelog::since_days(days, crate::util::now_ms())).map_err(failed)?))
+    let since = crate::routelog::since_days(days, crate::util::now_ms());
+    let Some(spec) = args.option("--decider") else {
+        return Ok(pretty(&crate::routelog::report(since).map_err(failed)?));
+    };
+    let most: usize = match args.option("--most") {
+        Some(n) => n.parse().map_err(|_| Stop::Usage)?,
+        None => 20,
+    };
+    let cfg = deciding(args)?;
+    let board = route_board(&cfg);
+    Ok(pretty(&crate::routelog::replay(spec, since, most, |k| route::route(&board, &cfg, &k.project, &k.text)).map_err(failed)?))
+}
+
+/// The board a route is asked on here: read now, with the accounts' MCP servers, which the app
+/// reads in the background, for the `needs` question, and what was said in the sessions, which it
+/// indexes in the background, for what they share with the text.
+fn route_board(cfg: &config::Config) -> model::Board {
+    let mut board = engine::snapshot(false, false);
+    board.mcp = crate::mcp::read_all(&cfg.accounts);
+    crate::search::build_now(crate::search::Scope { accounts: cfg.accounts.clone(), days: cfg.search.days });
+    board
 }
 
 /// `codealong --snapshot --training-off <account>`: turns training off for the account at its
@@ -450,10 +492,11 @@ fn tokens(args: &Args, rest: &[String]) -> Done {
 /// its panel gets it. It only reads: what the box does is GitHub's, on the PR.
 /// `codealong --snapshot --pr-draft <owner/name> <number>`: your draft review of a PR with its
 /// comments, and an agent's review of yours you submitted, as its Review tab gets them.
-/// `codealong --snapshot --route <text> [--project <name>]`: where the quick panel would suggest
-/// sending it (asks TypeSafe; needs the key, and `[jev] quick_panel` on).
-/// `codealong --snapshot --jev-usage [days]`: what Codealong's requests to Jev used, by day and
-/// feature, as Settings › Jev gets it.
+/// `codealong --snapshot --route <text> [--project <name>] [--decider <name>]`: where the quick
+/// panel would suggest sending it (asks the project's decision model; needs its key, and
+/// `[decisions] quick_panel` on), or with `--decider` where that model would.
+/// `codealong --snapshot --jev-usage [days]`: what Codealong's requests to decision models used,
+/// by day, feature and model, as Settings › Decisions gets it.
 /// `codealong --snapshot --transcript <session key> [--before <cursor>]`: a page of a session's
 /// conversation, as its panel gets it.
 /// `codealong --snapshot --pending <session key>`: what a session waits on you to allow, as its
@@ -857,13 +900,13 @@ fn start_plan(args: &Args, rest: &[String]) -> Done {
 fn route_text(args: &Args, rest: &[String]) -> Done {
     let [text, ..] = rest else { return Err(Stop::Usage) };
     let project = args.option("--project").unwrap_or(route::ALL_PROJECTS);
-    // The accounts' MCP servers, which the app reads in the background, for Jev's `needs`, and
-    // what was said in the sessions, which it indexes in the background, for what they share
-    // with the text.
-    let mut board = engine::snapshot(false, false);
-    let cfg = config::current().map_err(failed)?;
-    board.mcp = crate::mcp::read_all(&cfg.accounts);
-    crate::search::build_now(crate::search::Scope { accounts: cfg.accounts.clone(), days: cfg.search.days });
+    let cfg = deciding(args)?;
+    let board = route_board(&cfg);
+    // Another model by hand is asked whatever the panel's switch says; the panel's own way is the
+    // app's request, as another device asks it.
+    if args.has("--decider") {
+        return Ok(pretty(&route::route(&board, &cfg, project, text).map_err(failed)?));
+    }
     let params = params::Route { project: project.to_string(), text: text.clone() };
     Ok(pretty(&actions::local(&engine::Handle::over(board), &From::Device, api::ROUTE, "", params).map_err(Stop::Failed)?))
 }

@@ -1,20 +1,29 @@
 ---
 paths:
   - "src-tauri/src/jev.rs"
+  - "src-tauri/src/decisions.rs"
+  - "src-tauri/src/decisions/*.rs"
   - "src-tauri/src/route.rs"
   - "src-tauri/src/todojev.rs"
   - "src-tauri/src/insights.rs"
   - "src-tauri/src/stance.rs"
 ---
 
-# TypeSafe
+# TypeSafe, and the other decision models
 
 What TypeSafe's Jev takes and what it's good at, moved from CLAUDE.md's Harness facts (from
 docs.typesafe.ai, 2026-09-25, and its models and images pages with requests tried here,
-2026-10-14).
+2026-10-14). Jev's request is the one every caller writes (jev.rs); OpenAI's Decisions API and
+Google's Gemini Decision 1 have adapters that translate it and the answer (decisions/openai.rs,
+decisions/gemini.rs: their module headers have what their docs said, read 2026-11-19, and how each
+of Jev's question types maps). Neither was asked for real here yet: the wording and cutoffs below
+are Jev's, measured on Jev, and `--snapshot --route`, `--routes` and `--stance` with `--decider`
+are how another model is tried on the same requests (snapshot.md). Which model a request goes to,
+and what text of a request's may go to it, is decisions.rs's (module header).
 
 - The endpoint, the request's body, reading answers and the errors (400, 401, 413, 422, 429,
-  529): `jev.rs` (`ENDPOINT`, `body`, `noul`, `choice`, `score`, `post`, `answer`). Questions are
+  529): decisions/typesafe.rs (`endpoint`, `headers`), jev.rs (`body`, `noul`, `choice`,
+  `score`) and decisions.rs (`post`, `reply_of`). Questions are
   `choice` (up to 255 options, each described by a string or an object), `score` (2 to 10
   levels), `noul` (yes/no) or, on 1.14 with the images header, `box` (one bounding box); answers
   carry `probabilities` and a `confidence`. A 400's `detail` is `{error_type, message}`.
@@ -27,8 +36,8 @@ docs.typesafe.ai, 2026-09-25, and its models and images pages with requests trie
   with `TypeSafe-Danger-Zone-Long-Context: true`, slower and less accurate); $0.042 per million
   input tokens, output free. The state is billed once however many questions there are. A 200's
   `usage` is `{input_tokens, output_tokens}` (a one-question noul: 281 and 20 on 1.14,
-  2026-10-16); every answer's goes in the ledger by the feature that asked (`jev::ask`,
-  `ledger::note_jev`), for Settings › Jev's usage.
+  2026-10-16); every answer's goes in the ledger by the feature that asked and the provider and
+  model that answered (`decisions::ask`, `ledger::note_jev`), for Settings › Decisions' usage.
 - Images: `jev.rs` (`Images`, `fit`, `make_ready`, `MAX_BODY`). A top-level `assets` map, each
   `{type: "image", format: "png"|"jpg", data_base64}` (or a multipart `part`), named by its key
   anywhere in `state`, `instructions` or `criteria`, inside longer strings too; each place a key
@@ -43,7 +52,8 @@ docs.typesafe.ai, 2026-09-25, and its models and images pages with requests trie
   `-z` then `-p` in one run scales, then pads around the middle. An image cost about a token per 370 pixels on 1.14 (1568 × 958: 3,934 tokens;
   784 × 479: 1,022; 280 × 280: 214). A quick panel request was about 36,000 tokens before images.
 - curl takes the body on one line of its config (`-K -`), which curl 8.7 caps at 10 MiB
-  (10,485,760 bytes: longer fails as "error encountered when reading a file").
+  (10,485,760 bytes: longer fails as "error encountered when reading a file"), for every
+  provider (decisions.rs `post`).
 - It reads instructions literally and is weak at dates, counting and arithmetic, so times go in
   as words and each question asks one plain thing: `jev.rs` and `route.rs` (module headers). The
   blog post for 1.14 says every model does worse on images than on text, and to ask the simplest

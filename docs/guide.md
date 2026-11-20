@@ -257,9 +257,9 @@ step (see *Set up Codealong*), which offers the same choices. Each is one of two
   (the latest, for OpenCode, which keeps only that), out of some 250 that each stand for
   something sessions work on, a pun where one is handy (a spool for threads, a dinosaur for Rex).
   Where another session of the project shows the emoji Jev likes best, the session gets the next
-  that fits nearly as well. It needs Jev's key (Settings › Jev), and a question costs a fraction of
+  that fits nearly as well. It needs Jev's key (Settings › Decisions), and a question costs a fraction of
   a cent; picked while there's no key, Emoji shows a box to paste one into, which saves it to the
-  keychain as Settings › Jev does.
+  keychain as Settings › Decisions does.
 - **Drawn**: an account that can draw (Codex, with its image tool: the one you pick, else the first
   that can) draws a small picture of one
   thing that stands for what the session works on, told what the sessions beside it show so it
@@ -1864,7 +1864,7 @@ it, then whoever is asked to review and hasn't yet. Each says where their review
 approval or request for changes, else a comment), Asked again when their review was asked for
 since, and under it everything they wrote, the newest first: their reviews' text, the threads they
 began on the code, and their comments on the conversation. What's still open comes first, marked
-down its left edge: a thread nobody resolved, and, with `[jev] pull_requests`, a comment asking for
+down its left edge: a thread nobody resolved, and, with `[decisions] pull_requests`, a comment asking for
 a change or an answer. An agent's review that Codealong posted or submitted for someone, with
 nothing of theirs in it (not a draft they submitted), stops counting once their agent's review of
 another commit is posted: a review of new commits starts with which of the earlier findings are
@@ -1980,7 +1980,7 @@ naming it; `--take` takes the todo over.
 
 #### Jev and todos
 
-With Jev on for todos (Settings › Jev, `[jev] todos`), a session that starts outside a todo is
+With Jev on for todos (Settings › Decisions, `[decisions] todos`), a session that starts outside a todo is
 linked to the open todo it's for when Jev is sure, by what its title and first prompt say, not a
 worktree it shares with the todo, and a helper never is; a todo whose linked sessions ended their turns,
 or whose PR merged, shows Looks done when Jev reads it as finished (Mark done, or Not yet until
@@ -2555,7 +2555,7 @@ a wizard over the main window has you confirm it, and offers session emblems, in
   installed.
 - **Your sessions**: session emblems (see *Emblems*), with Settings › Appearance's own choices, None
   to start with (or what config.toml has, when you go through it again): Emoji, with a box for
-  Jev's TypeSafe key while there's none, which saves it to the keychain there and then; and Drawn,
+  the default decision model's key (Jev's, TypeSafe's) while there's none, which saves it to the keychain there and then; and Drawn,
   only while you keep an account that can draw (a Codex account you're signed in to), with the box
   for how they're drawn, and which of them draws them when you keep more than one.
 - **Ready**: putting Codealong in the accounts you kept (the plugin in Claude Code, the skill
@@ -2588,9 +2588,9 @@ shows here); Appearance has the theme, glass (see *Glass*), whether keyboard sho
 *Keyboard shortcuts beside what they do*) and session emblems (see *Emblems*),
 and says the keys that zoom (see *Zoom*); Queue has what waits on you and in what order (see *What
 waits on you, and in what order*); Sounds has the sound for each thing that starts to
-wait on you, and how loud (see *Sounds*); Jev has the TypeSafe key (kept in the keychain),
-what Jev's requests used and cost (see *What sessions used and cost*), and a switch per feature,
-each saying what it sends; Accounts adds, edits, turns off, removes and
+wait on you, and how loud (see *Sounds*); Decisions has the decision models and each
+provider's key (kept in the keychain), the default model, what their requests used and cost (see
+*Decision models*), and a switch per feature, each saying what it sends; Accounts adds, edits, turns off, removes and
 signs in accounts, says how each pays (a plan's price a month, or by the token; see *What sessions
 used and cost*), tags one whose command line isn't on this machine (Cursor's app without
 `cursor-agent`, say: not on the PATH a terminal has, nor where its installer puts it), which then
@@ -2823,9 +2823,10 @@ dialog.
 
 ### Suggestions in the quick panel
 
-*Optional; Settings › Jev, `[jev] quick_panel` in config.toml*
+*Optional; Settings › Decisions, `[decisions] quick_panel` in config.toml*
 
-Once you pause typing, TypeSafe's Jev reads what you wrote against the project's sessions and
+Once you pause typing, the project's decision model (TypeSafe's Jev unless you chose another: see
+*Decision models*; All projects is `[decisions] default`'s) reads what you wrote against the project's sessions and
 worktrees and the panel leads with up to five suggestions, each with how likely it is: send it to a
 session that's already going, start new work in a repo (a new worktree when it's a change of its own)
 or, for a question that needs none of your repos, in a chat of its own, open a session, or keep it
@@ -2860,7 +2861,7 @@ service what you typed needs, and when it's sure (70% or more), new work starts 
 reaches it, the one Auto would pick among them, and the row says so: "what does my email say" goes to
 an account connected to Gmail, even when Jev's agent pick or the start menu names one that isn't.
 Work on code, which needs none, starts as it would anyway. The service names and their tools'
-names go to TypeSafe with the rest.
+names go to the model with the rest.
 
 What you type is also looked for in what was said in your sessions (the same prompts and replies
 that searching by what was said reads, over `[search] days`): the sessions with messages that have
@@ -2878,10 +2879,11 @@ times it wasn't. Only prompts that went to Jev are kept, from this machine's pan
 
 The API key stays in
 the login keychain. What you type, repo names, session titles and latest lines, and the lines of
-sessions' conversations that share your words go to TypeSafe.
+sessions' conversations that share your words go to the project's decision model; a session whose
+project or boundary group chose another model goes by its title and where it works alone.
 Images you paste go too, each where it is in the text, so a screenshot can say which app or
 session you mean: up to four, scaled down to what Jev takes (padded out when they're tiny). When
-TypeSafe won't take one, Jev answers from the words alone.
+the model won't take one, it answers from the words alone.
 
 #### How a prompt gets to a session
 
@@ -3207,10 +3209,14 @@ members = [{ account = "claude-work" }]
   --helper`) starts in the group unless `--account` names where, and Codealong notes it when that
   may be outside. A start on the group itself, from the command or a schedule, lands only on a
   member whose sign-in qualifies now. Codealong's windows show everything: they're yours.
-- **Decision models.** `decisions` names the decision model that may read the group's sessions:
-  `"jev"`, the default, or `"none"`, which keeps them out of Jev's reads of each turn and out of
-  what the quick panel shows Jev of sessions (their titles and where they work still go). A
-  boundary group without `decisions` stays on Jev whatever other decision models come.
+- **Decision models.** `decisions` names the one decision model that may read the group's
+  sessions (see *Decision models*): one of the `[[decisions.models]]`, or `"none"`, which keeps
+  them out of every model's reads of each turn and out of what the quick panel shows a model of
+  sessions (their titles and where they work still go). A boundary group without `decisions` is
+  Jev's whatever `[decisions] default` says, so changing the default never sends its sessions to
+  another provider, and a fallback never takes them anywhere else. Where a member's session is in
+  a project that names another model, its words go to none. Settings › Routing's form for a
+  boundary group has the choice.
 - **What it doesn't do.** It holds the ways Codealong hands one session another's words: the
   `codealong` command as a session runs it, what Codealong sends sessions by itself, and Jev. It
   isn't the operating system's: an agent that can read another account's folder on disk reads its
@@ -4408,9 +4414,74 @@ Settings records them with Ctrl and Alt; they're Ctrl+Alt and a key by default.
 
 ## What Codealong works out
 
+### Decision models
+
+*Settings › Decisions, `[decisions]` in config.toml*
+
+A decision model answers narrow typed questions about what it's shown, with a probability for
+every option: which session a prompt is for, whether a reply asks you something, which todo a
+session is for. Codealong asks one for the quick panel's suggestions, session status, todos, pull
+request comments, what your prompts did and emoji emblems, each feature off until you turn it on.
+Three providers have one, each with a key of its own in your login keychain (Settings › Decisions,
+never config.toml):
+
+- **TypeSafe's Jev** (`provider = "typesafe"`, `jev-preview`): $0.042 a million tokens sent. It's
+  always there as `jev`, and the default.
+- **OpenAI's** (`"openai"`, `gpt-6-luna`): $0.10 a million tokens sent, $0.01 for ones it has
+  cached, output free.
+- **Google's Gemini Decision 1** (`"gemini"`, `gemini-decision-1`): $0.10 a million tokens sent
+  on its paid tier; its free tier costs nothing, and Google may learn from what it's sent there.
+
+A Codex or ChatGPT sign-in isn't an API key, and none is used. Each model is an entry with a name
+of your own (Settings › Decisions › Add model):
+
+```toml
+[decisions]
+default = "jev"                # what reads a project that names none, and anything in no project
+quick_panel = true
+
+[[decisions.models]]
+name = "luna"
+provider = "openai"
+model = "gpt-6-luna"
+fallback = "jev"               # asked when luna fails for now: rate limited, overloaded, unreachable
+
+[[projects]]
+name = "atlas"
+decisions = "luna"             # or "none"
+```
+
+**Which model reads what** is where your sessions' words go, so it's chosen per project, not per
+question: a project's `decisions` (Settings › Projects, Decision model), else `[decisions]
+default`. A session in a boundary group goes by its group's (see *Boundary groups*), Jev's when it
+names none, and to no model at all when its project chose another. `none` keeps a project's
+sessions from every model. A request that carries several projects' sessions (All projects in
+the quick panel, a todo's linked sessions) is asked of its own project's model, and a session
+whose words may not go there is shown by its title and where it works, nothing it said. A
+session that's no longer on the board has its prompts read only where every project would send
+them to the same model.
+
+**A fallback** is tried only when a model fails for now, and only for what goes by the default: a
+project's or boundary group's choice goes to that model or to none, so with a fallback on the
+default, a project that chose the default's model by name keeps its words out of requests that may
+fall back.
+
+**Trying another model** on your own sessions before a project switches to it: `codealong
+--snapshot --route "<text>" --decider luna` (or `--decider openai:gpt-6-luna`, which needn't be in
+config.toml) says where it would route a prompt; `--snapshot --routes [days] --decider luna` asks
+it again what you typed in the panel lately and sets its likeliest beside what you did and where
+that was among Jev's suggestions; `--snapshot --stance … --decider luna` reads your prompts with
+it. Each sends every project's words to that model but what a boundary group keeps to its own.
+Codealong's questions and their cutoffs were tuned on Jev's answers (`.claude/rules/jev.md`), and
+another model's probabilities may sit differently: Gemini's confidence is its likeliest option's
+probability, where Jev's is its own measure.
+
+An old `[jev]` table is read as `[decisions]` with Jev the only model, and Settings writes it as
+`[decisions]` the next time it saves.
+
 ### Session status from Jev
 
-*Optional; Settings › Jev, `[jev] sessions`*
+*Optional; Settings › Decisions, `[decisions] sessions`*
 
 Once per turn, Jev reads the end of the last reply, with the latest prompt it answers and the
 first prompt the session was started on, and the command a session runs or waits on. A reply that
@@ -4472,7 +4543,7 @@ show` and `changes` says whether it's sure and why.
 
 #### Tags from an agent
 
-An agent that reads a session can say the same things itself, with `[jev] sessions` on or off: an
+An agent that reads a session can say the same things itself, with `[decisions] sessions` on or off: an
 orchestrator going over the sessions it started (`codealong sessions`, then `codealong session
 transcript` for each) tags each one with `codealong session tag` (asks you or how its reply ends,
 how far the work got, finished, how risky the waiting call is, what a background command does,
@@ -4925,8 +4996,8 @@ What a prompt did is a read, not a record, and each says what read it. A rule re
 record is sure of: the first thing said in a session sets out its work, a command is a command,
 and an answer to a question the agent put to you agreed when you picked its first choice (the one
 an agent recommends when it recommends one) and steered when you picked another. The rest wait
-for a reader. **Have Jev read what your prompts did** (under Analytics in Settings, `prompts =
-true` under `[jev]`) sends TypeSafe each prompt with the end of the reply before it, once, a few a
+for a reader. **Have a decision model read what your prompts did** (under Analytics in Settings, `prompts =
+true` under `[decisions]`) sends each prompt with the end of the reply before it to the model that may read its session, once, a few a
 minute, the newest first; tried on 70 of one machine's prompts it agreed with a reading by hand
 on about nine in ten, and missed mostly where a prompt answered an earlier part of a long reply
 than its end. Or an agent can read them: `codealong analytics prompts` lists the ones that wait,
@@ -4968,12 +5039,12 @@ each call for the Analytics window, whether a subagent made it.
 began` and `--by turn` what it cost. Cursor records no tokens, so its sessions
 have turns and no cost. Other machines' sessions aren't in it: each machine keeps its own.
 
-Codealong's own questions to TypeSafe's Jev aren't a session's work, so they're in Settings › Jev,
-under Usage: what they cost today or over the last 7 or 30 days, how many there were and their
-tokens, and the same for each feature that asked (the Test button's too), the one that sent the
-most first. TypeSafe charges for what's sent, $0.042 a million tokens, and Jev's answers are free.
-Each answer says what its request used, and the ledger keeps it; a request TypeSafe refused isn't
-counted. Counting began with the version of Codealong that added it, and Usage says since when for
+Codealong's own questions to decision models aren't a session's work, so they're in Settings ›
+Decisions, under Usage: what they cost today or over the last 7 or 30 days, how many there were
+and their tokens, and the same for each feature that asked (the Test button's too) and each model
+that answered, the one that sent the most first. Each provider charges for what's sent at its own
+price (see *Decision models*), and answers are free. Each answer says what its request used, and
+the ledger keeps it with the provider and model; a request a provider refused isn't counted. Counting began with the version of Codealong that added it, and Usage says since when for
 a period that reaches back past that.
 
 ## Tidying up

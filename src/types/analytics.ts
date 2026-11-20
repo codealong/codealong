@@ -224,7 +224,8 @@ export interface SessionSpent {
   models: Spent[];
 }
 
-/** What Jev's requests for one feature used on a day: input tokens, all TypeSafe charges for. */
+/** What decision models' requests for one feature, or on one model, used on a day: input tokens,
+ *  which are what the providers charge for, and what they cost at each one's prices. */
 export interface JevUsed {
   requests: number;
   tokens: number;
@@ -232,11 +233,13 @@ export interface JevUsed {
   cost: number;
 }
 
-/** What Codealong's requests to Jev used each day (ledger.rs `JevReport`), for Settings › Jev. */
+/** What Codealong's requests to decision models used each day (ledger.rs `JevReport`), for
+ *  Settings › Decisions. */
 export interface JevReport {
-  /** Oldest first, today last; each day's `features` by the switch in `[jev]` that asked, or
-   *  `test` for Settings' Test button. */
-  days: { day: string; features: Record<string, JevUsed> }[];
+  /** Oldest first, today last; each day's `features` by the switch in `[decisions]` that asked,
+   *  or `test` for Settings' Test button, and `models` by the model that answered, as
+   *  `<provider>:<model>` (missing from an older engine's). */
+  days: { day: string; features: Record<string, JevUsed>; models?: Record<string, JevUsed> }[];
   /** When the ledger kept its first request: none before it were counted. */
   since: number | null;
 }

@@ -259,9 +259,9 @@ export function MainPanel(props: MainPanelProps) {
         onMenu={() => todoMenu(item)}
         onLabelMenu={labelMenu}
         onError={setToast}
-        hint={board?.jev?.todos ? board.todoHints?.[item.todo.id] : null}
+        hint={board?.decisions?.todos ? board.todoHints?.[item.todo.id] : null}
         onDismissHint={() => void dismissTodoHint(item.todo.id)}
-        suggest={!!board?.jev?.todos}
+        suggest={!!board?.decisions?.todos}
         projects={projectsForTodos}
         pickDue={duePick === item.todo.id}
         onPickDue={duePicked}

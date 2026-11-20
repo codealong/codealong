@@ -204,6 +204,82 @@ fn report_of(routes: &[Kept], since: i64) -> Report {
     }
 }
 
+/// The routes kept since a time asked again of another decision model on today's board
+/// (`--snapshot --routes --decider`), to set beside what Jev suggested and what you did.
+#[derive(Serialize, Debug, PartialEq, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct Replay {
+    pub decider: String,
+    pub routes: usize,
+    /// What you did was the model's likeliest, by `agrees`.
+    pub agreed: usize,
+    /// What you did was Jev's first suggestion, of the same routes.
+    pub jev_first: usize,
+    /// Asked and not answered.
+    pub failed: usize,
+    pub each: Vec<Replayed>,
+}
+
+#[derive(Serialize, Debug, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct Replayed {
+    pub at: i64,
+    pub project: String,
+    pub text: String,
+    pub did: Choice,
+    /// Where it was among Jev's suggestions then (`Kept::rank`).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub jev_rank: Option<usize>,
+    /// The model's likeliest (`likeliest`), or why it didn't answer.
+    pub first: std::result::Result<Choice, String>,
+    pub agreed: bool,
+}
+
+/// The likeliest thing a route says to do, in a route's own words: its action with its likeliest
+/// session (a send, or a search that fits one, opened) or worktree (a start, a todo). Only near
+/// what the panel suggests first (route.ts `suggestions` weighs more), so a replay compares
+/// models with each other, not with the panel's rows.
+pub fn likeliest(r: &crate::route::Route) -> Choice {
+    use crate::route::Action;
+    let top = |picks: &[crate::route::Pick]| picks.first().map(|p| (p.id.clone(), p.p));
+    let (kind, target) = match r.action {
+        Action::Send => (Kind::Send, top(&r.sessions)),
+        Action::Find => match top(&r.sessions).filter(|(_, p)| *p > r.no_session) {
+            Some(s) => (Kind::Open, Some(s)),
+            None => (Kind::Other, None),
+        },
+        Action::Start => (Kind::Start, top(&r.lanes)),
+        Action::Todo => (Kind::Todo, top(&r.lanes)),
+    };
+    Choice { kind, target: target.as_ref().map(|t| t.0.clone()), new_worktree: r.action == Action::Start && r.own_worktree >= 0.5, p: target.map(|t| t.1) }
+}
+
+/// Whether a model's likeliest is what you did: the same thing to the same session or worktree,
+/// a new worktree or not alike; a todo by its kind alone, as where it's kept isn't a target.
+pub fn agrees(first: &Choice, did: &Choice) -> bool {
+    first.kind == did.kind && (first.kind == Kind::Todo || (first.target == did.target && first.new_worktree == did.new_worktree))
+}
+
+/// Asks again the latest `most` routes kept since `since` that Jev answered, with `ask`.
+pub fn replay(decider: &str, since: i64, most: usize, ask: impl Fn(&Kept) -> Result<crate::route::Route>) -> Result<Replay> {
+    let file: File = store::read(&path(), WHAT)?.unwrap_or_default();
+    Ok(replay_of(decider, &file.routes, since, most, ask))
+}
+
+fn replay_of(decider: &str, routes: &[Kept], since: i64, most: usize, ask: impl Fn(&Kept) -> Result<crate::route::Route>) -> Replay {
+    let mut out = Replay { decider: decider.to_string(), ..Default::default() };
+    for k in routes.iter().rev().filter(|k| k.at >= since && k.suggested.is_some()).take(most) {
+        let first = ask(k).map(|r| likeliest(&r)).map_err(|e| format!("{e:#}"));
+        let agreed = first.as_ref().is_ok_and(|f| agrees(f, &k.did));
+        out.routes += 1;
+        out.agreed += agreed as usize;
+        out.jev_first += (k.rank == Some(0)) as usize;
+        out.failed += first.is_err() as usize;
+        out.each.push(Replayed { at: k.at, project: k.project.clone(), text: k.text.clone(), did: k.did.clone(), jev_rank: k.rank, first, agreed });
+    }
+    out
+}
+
 /// The time `days` ago.
 pub fn since_days(days: u32, now: i64) -> i64 {
     now - days as i64 * DAY_MS
@@ -274,5 +350,31 @@ mod tests {
         assert_eq!(r.first_share, Some(0.5));
         assert_eq!(r.misses.iter().map(|k| k.at).collect::<Vec<_>>(), vec![12, 11], "the latest first");
         assert_eq!(report_of(&[], 0).first_share, None);
+    }
+
+    /// A route as route.rs reads one, with `action` likeliest.
+    fn route(action: &str, session: (&str, f64), lane: &str, own_worktree: f64) -> crate::route::Route {
+        serde_json::from_value(serde_json::json!({
+            "action": action, "actions": [[action, 0.9]], "sessions": [{ "id": session.0, "p": session.1 }], "noSession": 0.2,
+            "lanes": [{ "id": lane, "p": 0.8 }], "repos": [], "ownWorktree": own_worktree, "duplicate": null, "model": "m", "ms": 1, "inputTokens": 1,
+        }))
+        .unwrap()
+    }
+
+    #[test]
+    fn a_replay_sets_another_models_likeliest_beside_what_you_did() {
+        assert_eq!(likeliest(&route("send", ("c:1", 0.7), "/p/api", 0.0)), Choice { p: Some(0.7), ..choice(Kind::Send, "c:1") });
+        assert_eq!(likeliest(&route("find", ("c:1", 0.1), "/p/api", 0.0)).kind, Kind::Other, "no session likelier than none");
+        let start = likeliest(&route("start", ("c:1", 0.7), "/p/api", 0.6));
+        assert!(start.new_worktree && agrees(&start, &Choice { new_worktree: true, ..choice(Kind::Start, "/p/api") }));
+        assert!(!agrees(&start, &choice(Kind::Start, "/p/api")), "a start beside it is another start");
+        assert!(agrees(&likeliest(&route("todo", ("c:1", 0.7), "/p/api", 0.0)), &choice(Kind::Todo, "elsewhere")));
+
+        let kept = |at: i64, did: Choice, rank: Option<usize>| Kept { at, project: "Acme".into(), text: format!("t{at}"), suggested: Some(vec![]), did, via: Via::Suggested, rank, asked: None };
+        let routes = vec![kept(1, choice(Kind::Send, "c:1"), Some(0)), kept(2, choice(Kind::Send, "c:2"), None), Kept { suggested: None, ..kept(3, choice(Kind::Send, "c:1"), None) }, kept(4, choice(Kind::Start, "/p/api"), Some(0))];
+        let r = replay_of("luna", &routes, 0, 10, |k| if k.at == 4 { anyhow::bail!("rate limited") } else { Ok(route("send", ("c:1", 0.7), "/p/api", 0.0)) });
+        assert_eq!((r.routes, r.agreed, r.jev_first, r.failed), (3, 1, 2, 1), "the one acted on before Jev answered isn't asked");
+        assert_eq!(r.each.iter().map(|e| e.at).collect::<Vec<_>>(), vec![4, 2, 1], "the latest first");
+        assert_eq!(replay_of("luna", &routes, 0, 1, |_| Ok(route("send", ("c:1", 0.7), "/p/api", 0.0))).routes, 1, "at most `most`");
     }
 }

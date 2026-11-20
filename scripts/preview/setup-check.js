@@ -28,11 +28,11 @@
         return view;
       });
     }
-    if (cmd === 'jev_key') {
+    if (cmd === 'decision_keys') {
       window.__calls.push([cmd, args]);
-      return Promise.resolve(jevKey !== '');
+      return Promise.resolve({ typesafe: jevKey !== '' });
     }
-    if (cmd === 'set_jev_key') {
+    if (cmd === 'set_decision_key') {
       window.__calls.push([cmd, args]);
       jevKey = args.key.trim();
       return Promise.resolve(null);
@@ -91,12 +91,12 @@
       check('no box for Jev’s key before Emoji', !field('Jev’s key'));
       choice('Emoji').click();
       var keyBox = await until(function () { var f = field('Jev’s key'); return f && f.querySelector('input[type="password"]'); }, 5000, 'Emoji didn’t ask for Jev’s key');
-      check('Emoji says Jev picks one, and asks for its key while there’s none', /Jev picks an emoji/.test(field('Session emblems').textContent) && !!keyBox);
+      check('Emoji says a decision model picks one, and asks for Jev’s key while there’s none', /model picks an emoji/.test(field('Session emblems').textContent) && !!keyBox);
       keyBox.focus();
       setValue(keyBox, '  ts-made-up-key  ');
       keyBox.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }));
-      await until(function () { return calls('set_jev_key').length === 1; }, 5000, 'Return didn’t save the key');
-      check('Return saves the key to the keychain', last('set_jev_key').key.trim() === 'ts-made-up-key', JSON.stringify(last('set_jev_key')));
+      await until(function () { return calls('set_decision_key').length === 1; }, 5000, 'Return didn’t save the key');
+      check('Return saves the key to the keychain', last('set_decision_key').key.trim() === 'ts-made-up-key' && last('set_decision_key').provider === 'typesafe', JSON.stringify(last('set_decision_key')));
       await until(function () { var f = field('Jev’s key'); return f && /Saved in the keychain/.test(f.textContent); }, 5000, 'the key’s field didn’t say it was saved');
       check('and stays on the step, saying it’s saved', heading() === 'Your sessions', heading());
       button('Next').click();
@@ -148,7 +148,7 @@
       button('Next').click();
       await until(function () { return heading() === 'Ready'; }, 5000, 'Next didn’t go on to the last step again');
       var more = all('.ca-setup-more-row .ca-setup-label', dialog()).map(function (l) { return l.textContent.trim(); });
-      check('the last step suggests pull request reviews first, then Jev, other devices and automation', more.join(',') === 'Pull request reviews,Jev,Your other devices,Automation', more.join(','));
+      check('the last step suggests pull request reviews first, then decision models, other devices and automation', more.join(',') === 'Pull request reviews,Decision models,Your other devices,Automation', more.join(','));
       var finished = calls('finish_setup').length;
       button('Set up reviews').click();
       await until(function () { return !dialog(); }, 5000, 'Set up reviews didn’t close the wizard');

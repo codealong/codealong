@@ -322,7 +322,7 @@ export function PrDetails({ item, now, onMenu, onShowSession, onOpenSession, onS
     }
     let live = true;
     const ask = commentsToAsk(detail.comments).map((c) => ({ id: c.id, author: c.author, body: c.body, path: c.path }));
-    prCommentAsks(pr.title, ask)
+    prCommentAsks(pr.title, pr.project, ask)
       .then((a) => {
         askCache.set(cacheKey, a);
         clearNotice('jev-pr-comments');
@@ -332,7 +332,7 @@ export function PrDetails({ item, now, onMenu, onShowSession, onOpenSession, onS
     return () => {
       live = false;
     };
-  }, [detail, cacheKey, pr.title]);
+  }, [detail, cacheKey, pr.title, pr.project]);
   const comments = detail?.comments ?? [];
   const asking = asksFor(comments, asks.key === cacheKey ? asks.asks : {});
   // Everyone on it, each with what they wrote, once it's read.

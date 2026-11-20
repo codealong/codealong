@@ -37,7 +37,7 @@
     var p = real(cmd, args, options);
     if (cmd !== 'get_board') return p;
     return p.then(function (board) {
-      board.jev = Object.assign({}, board.jev, { quick_panel: true });
+      board.decisions = Object.assign({}, board.decisions, { quick_panel: true });
       return board;
     });
   };

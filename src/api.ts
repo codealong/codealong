@@ -244,9 +244,9 @@ export async function prCard(repo: string, number: number): Promise<PrItem> {
 }
 
 /** Which of a PR's comments ask for a change, by comment id, from Jev. Empty while that's off. */
-export async function prCommentAsks(title: string, comments: { id: string; author: string; body: string; path: string | null }[]): Promise<Record<string, number>> {
+export async function prCommentAsks(title: string, project: string | null, comments: { id: string; author: string; body: string; path: string | null }[]): Promise<Record<string, number>> {
   if (!inTauri || comments.length === 0) return {};
-  return (await invoke<Record<string, number> | null>('pr_comment_asks', { title, comments })) ?? {};
+  return (await invoke<Record<string, number> | null>('pr_comment_asks', { title, project, comments })) ?? {};
 }
 
 /** Reviews a PR as you: approves it, comments on it or asks for changes, with `body` as the
@@ -1356,27 +1356,28 @@ export async function switchSessionMode(key: string, mode: string): Promise<Mode
   return invoke<ModeSwitched>('switch_session_mode', { key, mode });
 }
 
-/** Whether there's a TypeSafe API key in the keychain. */
-export async function jevKey(): Promise<boolean> {
-  if (!inTauri) return false;
-  return (await invoke<boolean | null>('jev_key')) ?? false;
+/** Which decision-model providers have an API key in the keychain, by provider. */
+export async function decisionKeys(): Promise<Record<string, boolean>> {
+  if (!inTauri) return {};
+  return (await invoke<Record<string, boolean> | null>('decision_keys')) ?? {};
 }
 
-/** Saves the TypeSafe API key in the keychain; an empty one removes it. */
-export async function setJevKey(key: string): Promise<void> {
+/** Saves a provider's API key in the keychain; an empty one removes it. */
+export async function setDecisionKey(provider: string, key: string): Promise<void> {
   if (!inTauri) return;
-  await invoke('set_jev_key', { key });
+  await invoke('set_decision_key', { provider, key });
 }
 
-/** One small call to TypeSafe: which model answered and how fast. */
-export async function testJev(model: string): Promise<string> {
+/** One small call to a provider's model: which model answered and how fast. */
+export async function testDecider(provider: string, model: string): Promise<string> {
   if (!inTauri) throw new Error('Testing needs the app.');
-  return invoke<string>('test_jev', { model });
+  return invoke<string>('test_decider', { provider, model });
 }
 
-/** What Codealong's requests to Jev used each of the last `days` days, by feature. */
+/** What Codealong's requests to decision models used each of the last `days` days, by feature
+ *  and by model. */
 export async function jevUsage(days: number): Promise<JevReport> {
-  if (!inTauri) throw new Error('Jev’s usage needs the app.');
+  if (!inTauri) throw new Error('The decision models’ usage needs the app.');
   return invoke<JevReport>('jev_usage', { days });
 }
 

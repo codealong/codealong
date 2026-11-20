@@ -8,12 +8,12 @@ const report: JevReport = {
   days: [
     { day: '2026-10-14', features: { sessions: used(40, 120_000) } },
     { day: '2026-10-15', features: {} },
-    { day: '2026-10-16', features: { quick_panel: used(3, 108_000), sessions: used(10, 30_000), test: used(1, 281) } },
+    { day: '2026-10-16', features: { quick_panel: used(3, 108_000), sessions: used(10, 30_000), test: used(1, 281) }, models: { 'typesafe:jev-1.14.0': used(13, 138_000), 'openai:gpt-6-luna': used(1, 281) } },
   ],
   since: new Date(2026, 9, 14, 15, 12).getTime(),
 };
 
-describe('Jev’s usage', () => {
+describe('Decision models’ usage', () => {
   it('sums the last days in all and by feature, the most tokens first', () => {
     const today = jevTotals(report, 1);
     expect(today.features.map((f) => f.feature)).toEqual(['quick_panel', 'sessions', 'test']);
@@ -26,11 +26,16 @@ describe('Jev’s usage', () => {
       ['test', 1],
     ]);
     expect(all.total.cost).toBeCloseTo((258_281 * 0.042) / 1e6, 12);
+    // By model where the report says, as an older engine's doesn't.
+    expect(all.models.map((m) => [m.model, m.used.requests])).toEqual([
+      ['typesafe:jev-1.14.0', 13],
+      ['openai:gpt-6-luna', 1],
+    ]);
   });
 
   it('says nothing for a period with no requests', () => {
     const none = jevTotals({ ...report, days: [{ day: '2026-10-16', features: {} }] }, 7);
-    expect(none).toEqual({ total: { requests: 0, tokens: 0, cost: 0 }, features: [] });
+    expect(none).toEqual({ total: { requests: 0, tokens: 0, cost: 0 }, features: [], models: [] });
   });
 
   it('says when counting started only when that was inside the period', () => {

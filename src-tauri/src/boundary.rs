@@ -15,9 +15,10 @@
 //!   worktree, branch, PR and todos (`veil`). A member's message to a session outside isn't sent
 //!   (send.rs `leaves_boundary`): the agent is told to ask its user, who can send it from the
 //!   windows, which show everything: they're the person's.
-//! - Which decision model may read its sessions (`decisions`): Jev unless the group says `none`.
-//!   An absent `decisions` stays Jev even once other decision models come, so a change of the
-//!   default never sends a boundary's sessions to another provider.
+//! - Which decision model may read its sessions (`decisions`, decisions.rs): the one it names
+//!   from `[[decisions.models]]`, or `none`. An absent `decisions` is Jev, whatever `[decisions]
+//!   default` says, so a change of the default never sends a boundary's sessions to another
+//!   provider; and a fallback never takes them to a model the group didn't name.
 //!
 //! It holds Codealong's own ways between sessions, not the operating system's: an agent that can
 //! read another account's folder on disk reads its transcripts there. A guard hook that stops an
@@ -36,9 +37,6 @@ pub fn account_of_key(key: &str) -> Option<&str> {
     let (_, account, _) = (parts.next()?, parts.next()?, parts.next()?);
     Some(account).filter(|a| !a.is_empty())
 }
-
-/// What a boundary group's `decisions` takes, until other decision models come.
-pub const DECISION_MODELS: [&str; 2] = ["jev", "none"];
 
 /// The boundary group an account is listed in (config.rs lets it be in one).
 pub fn group_of<'a>(cfg: &'a Config, account: &str) -> Option<&'a RoutingGroupCfg> {
@@ -131,14 +129,11 @@ pub fn start_may_read(cfg: &Config, account_or_group: &str, account: &str, quali
     members.iter().all(|m| lists(g, m) && qualifies(m))
 }
 
-/// The decision model that may read a session on `account`'s text: `jev`, or `none` for none.
-pub fn decision_model<'a>(cfg: &'a Config, account: &str) -> &'a str {
-    group_of(cfg, account).and_then(|g| g.decisions.as_deref()).unwrap_or("jev")
-}
-
-/// Whether Jev may read what a session on `account` says.
-pub fn jev_reads(cfg: &Config, account: &str) -> bool {
-    decision_model(cfg, account) == "jev"
+/// The decision model the boundary group of `account` lets read its sessions' text: its
+/// `decisions` (a model's name, or `none`), Jev's `jev` when it names none. None for an account in
+/// no boundary group, whose sessions go by their project (decisions.rs `for_session`).
+pub fn decisions<'a>(cfg: &'a Config, account: &str) -> Option<&'a str> {
+    group_of(cfg, account).map(|g| g.decisions.as_deref().map(str::trim).unwrap_or("jev"))
 }
 
 /// A session as a reader outside its boundary has it: its metadata, none of what was said. The
@@ -266,9 +261,10 @@ mod tests {
     #[test]
     fn the_decision_model_is_jev_unless_the_boundary_says_otherwise() {
         let mut cfg = cfg();
-        assert_eq!((decision_model(&cfg, "claude-work"), decision_model(&cfg, "claude")), ("none", "jev"));
+        assert_eq!((decisions(&cfg, "claude-work"), decisions(&cfg, "claude")), (Some("none"), None));
         cfg.routing.groups[0].decisions = None;
-        assert!(jev_reads(&cfg, "claude-work"));
+        cfg.decisions.default = "luna".into();
+        assert_eq!(decisions(&cfg, "claude-work"), Some("jev"), "whatever the default is");
     }
 
     #[test]

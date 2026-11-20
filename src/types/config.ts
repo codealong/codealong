@@ -81,7 +81,8 @@ export interface RoutingGroupCfg {
   /** A boundary (boundary.rs): only members on a commercial sign-in count as in it, and what
    *  its members' sessions say stays with sessions in it. */
   boundary?: boolean;
-  /** For a boundary, the decision model that may read its sessions: `jev`, or `none`. */
+  /** For a boundary, the decision model that may read its sessions: a `[[decisions.models]]`
+   *  name, or `none`. Missing is Jev, whatever `[decisions] default` says. */
   decisions?: string | null;
 }
 
@@ -110,6 +111,9 @@ export interface ProjectCfg {
   /** The routing group a start here on Auto goes on, over `[routing] auto`; missing for
    *  `[routing] auto`'s. */
   default?: string;
+  /** The decision model that may read what's said here: a `[[decisions.models]]` name, or
+   *  `none`; missing for `[decisions] default`'s (decisions.rs `for_project`). */
+  decisions?: string;
 }
 
 /** config.toml, as the engine parses it (src-tauri/src/config.rs). Keys are the file's own. */
@@ -123,8 +127,9 @@ export interface Config {
   appearance: { theme: Theme; zoom?: number; glass?: boolean; show_keys?: boolean };
   /** Shortcuts that work in any app, as config.toml writes them (`Option+Cmd+/`); empty is off. */
   shortcuts: { quick_panel: string; chat?: string; waiting: string; improve?: string; main_window?: string; talk?: string; talk_orchestrator?: string; listen?: string };
-  /** What Codealong asks TypeSafe's Jev, feature by feature. Older files have none: all off. */
-  jev?: JevCfg;
+  /** What Codealong asks decision models, feature by feature, and the models. Older files have
+   *  none (or `[jev]`, which the engine reads as this): all off, Jev the only model. */
+  decisions?: DecisionsCfg;
   /** Session emblems. Older files have none: off. */
   emblems?: EmblemsCfg;
   accounts: AccountCfg[];
@@ -437,16 +442,32 @@ export interface ChromeProfile {
 /** `suggest` offers to move a session a usage limit stopped; `move` moves it by itself. */
 export type WhenLimited = 'suggest' | 'move';
 
-/** `[jev]` in config.toml: the model, and each feature's switch. */
-export interface JevCfg {
-  model: string;
+/** `[decisions]` in config.toml (config.rs `DecisionsCfg`): the default model, each feature's
+ *  switch, and the models. */
+export interface DecisionsCfg {
+  /** The model whatever names none goes to: a `models` name (`jev` is always one), or `none`. */
+  default: string;
   quick_panel: boolean;
   sessions: boolean;
   todos: boolean;
   pull_requests: boolean;
   /** Reads what each prompt you typed did with what its agent had said, once `[experimental]
-   *  analytics` is on. Missing from files before it: off. */
-  prompts?: boolean;
+   *  analytics` is on. */
+  prompts: boolean;
+  /** `[[decisions.models]]`; Jev is there without one (decisions.ts `modelsOf`). Missing when
+   *  there are none. */
+  models?: DecisionModelCfg[];
+}
+
+/** A `[[decisions.models]]` table (config.rs `DecisionModelCfg`). */
+export interface DecisionModelCfg {
+  name: string;
+  /** `typesafe`, `openai` or `gemini` (decisions.ts `PROVIDERS`). */
+  provider: string;
+  model: string;
+  /** The model a request goes on to when this one fails for now, for what goes by the default
+   *  only. */
+  fallback?: string;
 }
 
 /** What each session gets beside its title (`[emblems] kind`): nothing, an emoji Jev picks, or a

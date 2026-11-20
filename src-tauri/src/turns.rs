@@ -768,7 +768,7 @@ pub fn part_in(db: &Connection, cfg: &crate::config::Config, days: u32, account:
         prompts,
         since,
         unread: unread as u64,
-        reading: cfg.jev.prompts && crate::jev::has_key(),
+        reading: cfg.decisions.prompts && crate::decisions::any_key(&cfg),
     })
 }
 

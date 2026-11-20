@@ -501,6 +501,7 @@ export type Notice = Holds<Same<
 export type Board = Holds<Same<
   | "apps"
   | "chatShortcut"
+  | "decisions"
   | "devices"
   | "experimental"
   | "generatedAt"
@@ -511,7 +512,6 @@ export type Board = Holds<Same<
   | "glass"
   | "improve"
   | "improveShortcut"
-  | "jev"
   | "labels"
   | "lanes"
   | "listenShortcut"
@@ -925,10 +925,10 @@ export type Config = Holds<Same<
   | "appearance"
   | "apps"
   | "debug"
+  | "decisions"
   | "devices"
   | "emblems"
   | "experimental"
-  | "jev"
   | "limits"
   | "prices"
   | "projects"
@@ -945,6 +945,25 @@ export type Config = Holds<Same<
   | "updates"
   | "voice",
   Names<Types.Config>
+>>;
+
+export type DecisionModelCfg = Holds<Same<
+  | "fallback"
+  | "model"
+  | "name"
+  | "provider",
+  Names<Types.DecisionModelCfg>
+>>;
+
+export type DecisionsCfg = Holds<Same<
+  | "default"
+  | "models"
+  | "prompts"
+  | "pull_requests"
+  | "quick_panel"
+  | "sessions"
+  | "todos",
+  Names<Types.DecisionsCfg>
 >>;
 
 export type DevicesCfg = Holds<Same<
@@ -980,16 +999,6 @@ export type GroupMemberCfg = Holds<Same<
   Names<Types.GroupMemberCfg>
 >>;
 
-export type JevCfg = Holds<Same<
-  | "model"
-  | "prompts"
-  | "pull_requests"
-  | "quick_panel"
-  | "sessions"
-  | "todos",
-  Names<Types.JevCfg>
->>;
-
 export type OwnReviewsCfg = Holds<Same<
   | "account"
   | "auto"
@@ -1010,6 +1019,7 @@ export type Profile = Holds<Same<
 
 export type ProjectCfg = Holds<Same<
   | "chrome_profile"
+  | "decisions"
   | "default"
   | "folders"
   | "name"

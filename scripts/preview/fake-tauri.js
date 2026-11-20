@@ -283,14 +283,24 @@ function sampleJevUsage(days) {
     var d = new Date(today.getFullYear(), today.getMonth(), today.getDate() - i);
     var day = d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0');
     var features = {};
+    // Jev answers all but the quick panel, which a project put on OpenAI's model.
+    var models = {};
+    var add = function (key, u, price) {
+      var m = models[key] || { requests: 0, tokens: 0, cost: 0 };
+      models[key] = { requests: m.requests + u.requests, tokens: m.tokens + u.tokens, cost: m.cost + (u.tokens * price) / 1e6 };
+    };
     if (i < 12) {
       Object.keys(sizes).forEach(function (f) {
         var requests = Math.round(sizes[f][0] * (0.4 + hashOf(day + f)));
         var tokens = Math.round(requests * sizes[f][1] * (0.8 + 0.4 * hashOf(f + day)));
-        if (requests > 0) features[f] = { requests: requests, tokens: tokens, cost: (tokens * 0.042) / 1e6 };
+        var price = f === 'quick_panel' ? 0.1 : 0.042;
+        if (requests > 0) {
+          features[f] = { requests: requests, tokens: tokens, cost: (tokens * price) / 1e6 };
+          add(f === 'quick_panel' ? 'openai:gpt-6-luna' : 'typesafe:jev-1.14.0', features[f], price);
+        }
       });
     }
-    out.push({ day: day, features: features });
+    out.push({ day: day, features: features, models: models });
   }
   var since = new Date(today.getFullYear(), today.getMonth(), today.getDate() - 11, 15, 12).getTime();
   return { days: out, since: since };
@@ -645,7 +655,7 @@ window.__TAURI_INTERNALS__ = {
         if (window.__sides || window.__past) board.sides = sideGlances();
         // Terminals of Codealong's own a check opened (`terminal_open`), as terminals.rs lists them.
         if (window.__terminals) board.terminals = window.__terminals;
-        if (all[3]) board.jev = Object.assign({ model: 'jev-latest', quick_panel: false, sessions: false, todos: false, pull_requests: false }, board.jev, { quick_panel: true });
+        if (all[3]) board.decisions = Object.assign({ default: 'jev', quick_panel: false, sessions: false, todos: false, pull_requests: false, prompts: false }, board.decisions, { quick_panel: true });
         return all[2] ? withUsage(board, all[2]) : board;
       });
     }
@@ -660,9 +670,9 @@ window.__TAURI_INTERNALS__ = {
       });
     }
     if (cmd === 'jev_usage') return Promise.resolve(sampleJevUsage((args || {}).days || 30));
-    // The keychain has no key for Jev here, as on a new Mac: Settings › Jev and Session emblems'
-    // Emoji ask for one. A check that wants one answers jev_key itself.
-    if (cmd === 'jev_key') return Promise.resolve(false);
+    // The keychain has no key for any decision model here, as on a new Mac: Settings › Decisions
+    // and Session emblems' Emoji ask for one. A check that wants one answers decision_keys itself.
+    if (cmd === 'decision_keys') return Promise.resolve({});
     // A schedule's time read back as the engine would: the words as written, and the next three
     // days at this hour. A save answers with the schedule it was given.
     if (cmd === 'schedule_times') {

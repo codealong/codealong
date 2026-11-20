@@ -96,7 +96,7 @@ fn others() -> Vec<Pair> {
         of!(crate::signin: SignIn),
         of!(crate::peers: DeviceView, ProjectThere),
         of!(
-            crate::config: AccountCfg, Config, DevicesCfg, EmblemsCfg, ExperimentalCfg, GroupMemberCfg, JevCfg, OwnReviewsCfg, Profile, ProjectCfg, PullRequestsCfg, RepoCfg, ReviewsCfg, ReviewsPatch,
+            crate::config: AccountCfg, Config, DecisionModelCfg, DecisionsCfg, DevicesCfg, EmblemsCfg, ExperimentalCfg, GroupMemberCfg, OwnReviewsCfg, Profile, ProjectCfg, PullRequestsCfg, RepoCfg, ReviewsCfg, ReviewsPatch,
             RoutingCfg, RoutingGroupCfg, SessionsCfg, SoundsCfg, VoiceCfg
         ),
         of!(

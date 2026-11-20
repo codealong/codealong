@@ -7,8 +7,11 @@
 //! Jev reads questions literally and is weak at dates and numbers, so times go in as words
 //! ("5 minutes ago") and each question asks one plain thing.
 //!
-//! The request goes through jev.rs, which holds the key. Images pasted into what you type go
-//! with it, each where it was in the text (`jev::Images`).
+//! The request goes to the decision model that may read what's typed in the panel's project
+//! (decisions.rs `for_project`; All projects' is `[decisions] default`), Jev unless you chose
+//! another, through decisions.rs, which holds the keys. A session whose text may not go to that
+//! model is offered by its title and where it works, none of what it said (`session_card`).
+//! Images pasted into what you type go with it, each where it was in the text (`jev::Images`).
 //!
 //! Jev sees each session as a card: its title, where it is, its status and its latest line. A
 //! message often names what was said in a conversation rather than its title ("the backoff we
@@ -141,9 +144,9 @@ fn lane_name(l: &Lane) -> String {
     }
 }
 
-/// `said`: whether Jev may have what it said, its latest words and lines of its conversation,
-/// which a boundary group can keep from it (boundary.rs `jev_reads`); its title and where it
-/// works go either way.
+/// `said`: whether the model asked may have what it said, its latest words and lines of its
+/// conversation, which its project or boundary group can keep from it (decisions.rs
+/// `Decider::carries`); its title and where it works go either way.
 fn session_card(lane: &Lane, s: &Session, related: Option<&crate::search::Related>, said: bool, now: i64) -> Value {
     let mut card = Map::new();
     card.insert("title".into(), json!(clip(&s.title)));
@@ -371,12 +374,14 @@ fn led_by_auto(board: &Board, cfg: &crate::config::Config, project: Option<&str>
 /// The request for what you typed, in the panel's project.
 #[cfg(test)]
 pub fn request(board: &Board, project: &str, text: &str, model: &str, now: i64) -> Result<Request> {
-    request_with_routing(board, None, project, text, &[], model, now)
+    request_with_routing(board, None, None, project, text, &[], model, now)
 }
 
 /// `request`, with the sessions whose conversations share its words (`related`), and an `agent`
-/// question when `[routing] prompt` is set in `cfg`.
-pub fn request_with_routing(board: &Board, cfg: Option<&crate::config::Config>, project: &str, text: &str, related: &[crate::search::Related], model: &str, now: i64) -> Result<Request> {
+/// question when `[routing] prompt` is set in `cfg`. With `cfg`, a session says what it said only
+/// when `decider`, the model asked, may read it.
+#[allow(clippy::too_many_arguments)]
+pub fn request_with_routing(board: &Board, cfg: Option<&crate::config::Config>, decider: Option<&crate::decisions::Decider>, project: &str, text: &str, related: &[crate::search::Related], model: &str, now: i64) -> Result<Request> {
     let text = text.trim();
     if text.is_empty() {
         bail!("Nothing to route.");
@@ -388,7 +393,7 @@ pub fn request_with_routing(board: &Board, cfg: Option<&crate::config::Config>, 
 
     let mut session_cards = Map::new();
     for (i, (lane, s)) in sessions.iter().enumerate() {
-        let said = cfg.is_none_or(|c| crate::boundary::jev_reads(c, &s.account));
+        let said = cfg.is_none_or(|c| decider.is_some_and(|d| d.carries(crate::decisions::of_session(c, lane, s).as_ref())));
         session_cards.insert(format!("s{}", i + 1), session_card(lane, s, related.iter().copied().find(|r| r.key == s.key), said, now));
     }
     let mut lane_cards = Map::new();
@@ -660,17 +665,25 @@ pub fn read(req: &Request, response: &Value, ms: u64) -> Result<Route> {
 }
 
 /// Where typed text goes on this device's board, for its quick panel or a linked phone's:
-/// `route`, with the settings as they stand, and only while `[jev] quick_panel` is on.
+/// `route`, with the settings as they stand, and only while `[decisions] quick_panel` is on.
 pub fn suggest(board: &Board, project: &str, text: &str) -> Result<Route> {
     let cfg = crate::config::current()?;
-    if !cfg.jev.quick_panel {
+    if !cfg.decisions.quick_panel {
         bail!("Suggestions in the quick panel are off.");
     }
     route(board, &cfg, project, text)
 }
 
-/// Routes what you typed: builds the request, asks Jev, reads the answer.
+/// Routes what you typed: asks the decision model that may read the panel's project
+/// (`route_on`). None may in a project whose `decisions` is `none`.
 pub fn route(board: &Board, cfg: &crate::config::Config, project: &str, text: &str) -> Result<Route> {
+    let in_project = Some(project).filter(|p| *p != ALL_PROJECTS);
+    let decider = crate::decisions::for_project(cfg, in_project).ok_or_else(|| anyhow!("No decision model reads what's typed in {project}: its decisions is \"none\"."))?;
+    route_on(board, cfg, &decider, project, text)
+}
+
+/// Routes what you typed with `decider`: builds the request, asks it, reads the answer.
+pub fn route_on(board: &Board, cfg: &crate::config::Config, decider: &crate::decisions::Decider, project: &str, text: &str) -> Result<Route> {
     let searched = Instant::now();
     let lanes: Vec<&Lane> = board.lanes.iter().filter(|l| in_project(l, project)).collect();
     let keys: HashSet<&str> = offered(&lanes).into_iter().map(|(_, s)| s.key.as_str()).collect();
@@ -678,10 +691,10 @@ pub fn route(board: &Board, cfg: &crate::config::Config, project: &str, text: &s
     if crate::perf::enabled() {
         crate::perf::log(&format!("route: {} sessions share words, in {} ms", related.len(), searched.elapsed().as_millis()));
     }
-    let mut req = request_with_routing(board, Some(cfg), project, text, &related, cfg.jev.model.trim(), crate::util::now_ms())?;
+    let mut req = request_with_routing(board, Some(cfg), Some(decider), project, text, &related, decider.model(), crate::util::now_ms())?;
     let started = Instant::now();
     req.images.attach(&mut req.body);
-    let response = crate::jev::ask(crate::jev::Feature::QuickPanel, &req.body)?;
+    let response = crate::decisions::ask(crate::jev::Feature::QuickPanel, decider, &req.body)?;
     let route = read(&req, &response, started.elapsed().as_millis() as u64)?;
     crate::routelog::asked(project, text, crate::routelog::Asked { model: route.model.clone(), ms: route.ms, related: req.related.clone() });
     let habit = route.repos.first().map(|r| crate::starts::habit(&r.id)).unwrap_or_default();
@@ -762,7 +775,7 @@ mod tests {
         let b = board();
         let related = |key: &str, line: &str| crate::search::Related { key: key.into(), shared: vec!["backoff".into()], lines: vec![(true, line.into()), (false, "Added `backoff` to the retries".into())] };
         let found = [related("c:old", "Retry the webhook with backoff"), related("c:2", "the backoff copy"), related("c:a", "archived"), related("claude:elsewhere", "not on the board")];
-        let req = request_with_routing(&b, None, "Acme", "add jitter to the backoff", &found, "m", NOW).unwrap();
+        let req = request_with_routing(&b, None, None, "Acme", "add jitter to the backoff", &found, "m", NOW).unwrap();
         // Stopped five days ago, too long to be offered otherwise, it comes after the others;
         // archived ones and ones not in the project stay out.
         assert_eq!(req.sessions, vec!["c:1", "c:2", "c:old"]);
@@ -770,6 +783,47 @@ mod tests {
         let lines = &req.body["state"]["sessions"]["s3"]["lines of its conversation that share words with the message"];
         assert_eq!(lines, &json!(["the user: Retry the webhook with backoff", "the agent: Added backoff to the retries"]));
         assert!(req.body["state"]["sessions"]["s1"].get("lines of its conversation that share words with the message").is_none());
+    }
+
+    /// All projects puts every project's sessions in one request: a session whose project chose
+    /// another model than the one asked goes by its title and where it works, nothing it said.
+    #[test]
+    fn a_session_says_what_it_said_only_to_a_model_its_project_lets_read_it() {
+        use crate::config::{DecisionModelCfg, ProjectCfg};
+        let mut b = board();
+        b.lanes[3].sessions[0].excerpt = Some("Drafted the merger memo".into());
+        b.lanes[1].sessions[0].excerpt = Some("Wrote the pricing copy".into());
+        let mut cfg = crate::config::Config::default();
+        cfg.decisions.models = vec![DecisionModelCfg { name: "luna".into(), provider: "openai".into(), model: "gpt-6-luna".into(), fallback: None }];
+        cfg.projects = vec![ProjectCfg { name: "Acme".into(), repos: vec![], folders: vec![], chrome_profile: None, default: None, decisions: Some("luna".into()) }];
+        let related = [crate::search::Related { key: "c:2".into(), shared: vec!["copy".into()], lines: vec![(true, "rewrite the pricing copy".into())] }];
+        let card = |req: &Request, key: &str| req.body["state"]["sessions"][format!("s{}", req.sessions.iter().position(|k| k == key).unwrap() + 1)].clone();
+        let lines = "lines of its conversation that share words with the message";
+
+        // All projects goes to the default, Jev: Acme's sessions by their titles alone.
+        let jev = crate::decisions::for_project(&cfg, None).unwrap();
+        let req = request_with_routing(&b, Some(&cfg), Some(&jev), ALL_PROJECTS, "the copy", &related, jev.model(), NOW).unwrap();
+        assert_eq!((card(&req, "c:2")["title"].as_str(), card(&req, "c:2")["repo"].as_str()), (Some("Landing page copy"), Some("web")));
+        assert!(card(&req, "c:2").get("latest").is_none() && card(&req, "c:2").get(lines).is_none());
+        assert!(card(&req, "c:1").get("latest").is_none());
+        assert_eq!(card(&req, "c:x")["latest"], "Drafted the merger memo");
+        assert!(!req.body.to_string().contains("pricing copy"), "{}", req.body);
+
+        // Asked of Luna, the other way round.
+        let luna = crate::decisions::for_project(&cfg, Some("Acme")).unwrap();
+        let req = request_with_routing(&b, Some(&cfg), Some(&luna), ALL_PROJECTS, "the copy", &related, luna.model(), NOW).unwrap();
+        assert_eq!((card(&req, "c:2")["latest"].as_str(), card(&req, "c:2")[lines][0].as_str()), (Some("Wrote the pricing copy"), Some("the user: rewrite the pricing copy")));
+        assert!(card(&req, "c:x").get("latest").is_none());
+        assert!(!req.body.to_string().contains("merger"), "{}", req.body);
+        assert_eq!(req.body["model"], "gpt-6-luna");
+
+        // With a fallback, the default's text may go to two models, and a project that chose one
+        // of them alone keeps its text from the request.
+        cfg.decisions.models.push(DecisionModelCfg { name: "jev".into(), provider: "typesafe".into(), model: "jev-preview".into(), fallback: Some("luna".into()) });
+        cfg.projects[0].decisions = Some("jev".into());
+        let default = crate::decisions::for_project(&cfg, None).unwrap();
+        let req = request_with_routing(&b, Some(&cfg), Some(&default), ALL_PROJECTS, "the copy", &related, default.model(), NOW).unwrap();
+        assert!(card(&req, "c:2").get("latest").is_none() && card(&req, "c:x").get("latest").is_some());
     }
 
     #[test]

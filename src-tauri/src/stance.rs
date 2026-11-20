@@ -6,11 +6,12 @@
 //! What the records say for sure is read by rule, as a prompt is noted (`by_rule`): the first
 //! thing said in a session sets out its work, a slash command is a command, and an answer that
 //! picks what the agent offered agrees with it (its first choice, the one an agent recommends
-//! when it recommends one) or steers it (another one). The rest is Jev's (`[jev] prompts`): one
-//! choice question a prompt, with the end of the reply before it, asked by the ledger's thread
-//! a few at a time, newest first (`pass`). An agent that read a conversation can say the same
-//! (`codealong analytics tag`), and its word stands over Jev's, as a session's tag does over
-//! Jev's read of it (tags.rs).
+//! when it recommends one) or steers it (another one). The rest is a decision model's
+//! (`[decisions] prompts`), the one that may read the prompt's session: one choice question a
+//! prompt, with the end of the reply before it, asked by the ledger's thread a few at a time,
+//! newest first (`pass`). An agent that read a conversation can say the same (`codealong
+//! analytics tag`), and its word stands over the model's, as a session's tag does over a model's
+//! read of it (tags.rs).
 //!
 //! The wording was tried on this machine's own prompts before anything was built on it:
 //! `.claude/rules/jev.md` has how it did.
@@ -173,13 +174,15 @@ pub fn set(db: &Connection, id: i64, stance: &str, sure: Option<f64>, by: &str) 
     Ok(())
 }
 
-/// Reads a few of the prompts that wait on one, with Jev, where `[jev] prompts` is on and there's
-/// a key: a few requests at a time, written as they come back. A request TypeSafe turns away for
-/// now (rate limited, overloaded, no connection) ends the pass, and the next takes it up; one it
-/// can't take at all leaves its prompt unread for good, saying so.
-pub fn pass(db: &Connection) {
+/// Reads a few of the prompts that wait on one, each with the decision model that may read its
+/// session (decisions.rs `for_session`; `project_of` says the project of a session on the board),
+/// where `[decisions] prompts` is on and there's a key: a few requests at a time, written as they
+/// come back. A request a provider turns away for now (rate limited, overloaded, no connection)
+/// ends the pass, and the next takes it up; one it can't take at all leaves its prompt unread for
+/// good, saying so.
+pub fn pass(db: &Connection, project_of: &dyn Fn(&str) -> Option<String>) {
     let Ok(cfg) = crate::config::current() else { return };
-    if !cfg.experimental.analytics || !cfg.jev.prompts || !jev::has_key() {
+    if !cfg.experimental.analytics || !cfg.decisions.prompts || !crate::decisions::any_key(&cfg) {
         return;
     }
     let waiting = match unread(db, PER_PASS) {
@@ -187,21 +190,31 @@ pub fn pass(db: &Connection) {
         Err(e) => return eprintln!("Couldn't list the prompts waiting on a read: {e:#}"),
     };
     for batch in waiting.chunks(AT_ONCE) {
+        let deciders: Vec<Option<crate::decisions::Decider>> = batch.iter().map(|u| decider(&cfg, u, project_of)).collect();
         let answers: Vec<Result<Value>> = std::thread::scope(|scope| {
-            let asked: Vec<_> = batch.iter().map(|u| scope.spawn(|| if jev_may_read(&cfg, u) { jev::ask(jev::Feature::Prompts, &request(&cfg.jev.model, u)) } else { Ok(Value::Null) })).collect();
+            let asked: Vec<_> = batch
+                .iter()
+                .zip(&deciders)
+                .map(|(u, d)| {
+                    scope.spawn(move || match d {
+                        Some(d) => crate::decisions::ask(jev::Feature::Prompts, d, &request(d.model(), u)),
+                        None => Ok(Value::Null),
+                    })
+                })
+                .collect();
             asked.into_iter().map(|h| h.join().unwrap_or_else(|_| Err(anyhow::anyhow!("The request's thread stopped.")))).collect()
         });
         let mut later = false;
-        for (u, answer) in batch.iter().zip(answers) {
+        for ((u, d), answer) in batch.iter().zip(&deciders).zip(answers) {
             let Ok(id) = u.id.parse::<i64>() else { continue };
-            // Not read, and not kept to read, when its session's boundary group keeps it from
-            // Jev (boundary.rs `jev_reads`).
-            if !jev_may_read(&cfg, u) {
+            // Not read, and not kept to read, when its session's project or boundary group keeps
+            // it from every decision model.
+            let Some(d) = d else {
                 let _ = unreadable(db, id);
                 continue;
-            }
+            };
             let done = match answer.as_ref().map(read) {
-                Ok(Some((stance, sure))) => keep_read(db, id, &stance, sure, answer.as_ref().ok().and_then(|a| a["model"].as_str()).unwrap_or(&cfg.jev.model)).map(|_| ()),
+                Ok(Some((stance, sure))) => keep_read(db, id, &stance, sure, answer.as_ref().ok().and_then(|a| a["model"].as_str()).unwrap_or(d.model())).map(|_| ()),
                 // An answer with no stance in it, or a request Jev can't take: not asked again.
                 Ok(None) => unreadable(db, id),
                 Err(e) if refused(e) => unreadable(db, id),
@@ -220,12 +233,18 @@ pub fn pass(db: &Connection) {
     }
 }
 
-/// Whether Jev may read a prompt, by its session's account (the key's second part).
-fn jev_may_read(cfg: &crate::config::Config, u: &Unread) -> bool {
-    u.session.split(':').nth(1).is_none_or(|account| crate::boundary::jev_reads(cfg, account))
+/// The decision model that may read a prompt: its session's, by its account (the key's second
+/// part) and its project as the board has it. A session no longer on the board goes by what
+/// every project would give it, when they agree (`decisions::for_session_anywhere`).
+pub fn decider(cfg: &crate::config::Config, u: &Unread, project_of: &dyn Fn(&str) -> Option<String>) -> Option<crate::decisions::Decider> {
+    let account = u.session.split(':').nth(1).unwrap_or_default();
+    match project_of(&u.session) {
+        Some(p) => crate::decisions::for_session(cfg, account, Some(&p)),
+        None => crate::decisions::for_session_anywhere(cfg, account),
+    }
 }
 
-/// Whether TypeSafe refused the request itself (too big, not something it takes), as against
+/// Whether a provider refused the request itself (too big, not something it takes), as against
 /// turning it away for now.
 fn refused(e: &anyhow::Error) -> bool {
     let words = e.to_string();

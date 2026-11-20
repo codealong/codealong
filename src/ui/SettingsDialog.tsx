@@ -5,7 +5,7 @@
 // (SettingsFind.tsx).
 
 import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react';
-import { askForCalendar, getConfig, hearingStatus, onQuickShortcut, openAtLogin, openTeamFile, openUrl, pauseQuickShortcut, playSound, quickShortcut, jevKey, saveConfig, saveConfigText, setJevKey, setOpenAtLogin, setReusable, setTerminalAwake, startOptions, takeTeamSettings, terminalAwake, testJev } from '../api';
+import { askForCalendar, getConfig, hearingStatus, onQuickShortcut, openAtLogin, openTeamFile, openUrl, pauseQuickShortcut, playSound, quickShortcut, decisionKeys, saveConfig, saveConfigText, setDecisionKey, setOpenAtLogin, setReusable, setTerminalAwake, startOptions, takeTeamSettings, terminalAwake, testDecider } from '../api';
 import { nudgeKind, nudgeMerges, withMerges } from '../prStatus';
 import { heldSaid, shortcutFromKey, shortcutLabel, takenFor } from '../quick';
 import { DRAWS, HARNESS_WORD, MOVES_ACCOUNTS } from '../harness';
@@ -15,8 +15,9 @@ import { REUSE_STATE, REUSE_WORDS } from '../reusable';
 import { groupReviewWords, reviewsRunIn } from '../review';
 import { type Field, mineOf, offerWords, pullRequestsFor, repoChoices, reviewsEverywhere, reviewsFor, type Reviews, sourceOf, type Source, teamFileOf, withOwn, withPullRequests, withRepo, withReviews, without, PULL_REQUESTS_OFF } from '../repoSettings';
 import { BUFFER, modelName, withGroupRenamed, withLists } from '../start';
-import type { AtLogin, CalendarStatus, ChromeProfile, Config, ConfigView, EmblemKind, EmblemsCfg, ExperimentalCfg, GroupMemberCfg, JevCfg, Lane, Mcp, NewTerminal, NudgeAbout, OwnReviewsCfg, Profile, ProjectCfg, PullRequestsCfg, RepoCfg, ReviewPost, ReviewsCfg, ReviewStart, ReviewSubmit, RoutingCfg, RoutingGroup, RoutingGroupCfg, RoutingStrategy, SessionsCfg, ShortcutStatus, SignIn, SoundsCfg, StartAccount, TeamCfg, TeamFile, Theme, TmuxUse, Training, Usage, Verdict, VoiceCfg, WhenLimited } from '../types';
+import type { AtLogin, CalendarStatus, ChromeProfile, Config, ConfigView, DecisionModelCfg, DecisionsCfg, EmblemKind, EmblemsCfg, ExperimentalCfg, GroupMemberCfg, Lane, Mcp, NewTerminal, NudgeAbout, OwnReviewsCfg, Profile, ProjectCfg, PullRequestsCfg, RepoCfg, ReviewPost, ReviewsCfg, ReviewStart, ReviewSubmit, RoutingCfg, RoutingGroup, RoutingGroupCfg, RoutingStrategy, SessionsCfg, ShortcutStatus, SignIn, SoundsCfg, StartAccount, TeamCfg, TeamFile, Theme, TmuxUse, Training, Usage, Verdict, VoiceCfg, WhenLimited } from '../types';
 import { outsideMembers } from '../boundary';
+import { choices, decisionsOf, forGroup, forProject, JEV, modelsOf, newModelProblem, provider, PROVIDERS, providersInUse, type Provider, withModels, withoutModel } from '../decisions';
 import { AccountsSection } from './AccountsSection';
 import { AgentMenu, type AgentPick } from './AgentMenu';
 import { AgentPromptBox } from './AgentPromptBox';
@@ -47,7 +48,7 @@ const SECTIONS: { id: SettingsSection; label: string; icon: string }[] = [
   { id: 'agents', label: 'Agents', icon: 'terminal' },
   { id: 'devices', label: 'Devices', icon: 'device-desktop' },
   { id: 'projects', label: 'Projects', icon: 'folder' },
-  { id: 'jev', label: 'Jev', icon: 'sparkles' },
+  { id: 'jev', label: 'Decisions', icon: 'sparkles' },
   { id: 'advanced', label: 'Advanced', icon: 'gauge' },
   { id: 'experimental', label: 'Experimental', icon: 'flask' },
   { id: 'file', label: 'config.toml', icon: 'file' },
@@ -241,7 +242,7 @@ export function SettingsDialog({ section, onSection, focus, usage, training, mcp
       case 'projects':
         return <ProjectsPane cfg={cfg} chromeProfiles={view.chromeProfiles ?? []} disabled={!!broken} onSave={save} lanes={lanes} adding={aim === NEW_PROJECT} />;
       case 'jev':
-        return <JevPane jev={{ ...JEV_OFF, ...cfg.jev }} disabled={!!broken} onChange={(jev) => void save({ ...cfg, jev })} />;
+        return <DecisionsPane cfg={cfg} disabled={!!broken} onSave={(next) => void save(next)} />;
       case 'advanced':
         return <AdvancedPane cfg={cfg} view={view} disabled={!!broken} onSave={save} />;
       case 'experimental':
@@ -517,7 +518,7 @@ const EMBLEM_KINDS: { id: EmblemKind; label: string; says: string }[] = [
   {
     id: 'emoji',
     label: 'Emoji',
-    says: 'Jev picks an emoji for what each session works on, from its title and first prompt, and one the sessions beside it don’t show where another fits nearly as well. It needs a TypeSafe key for Jev, and costs a fraction of a cent a session.',
+    says: 'A decision model picks an emoji for what each session works on, from its title and first prompt, and one the sessions beside it don’t show where another fits nearly as well: the one that may read the session’s project, Jev unless you chose another in Settings › Decisions. It needs that model’s API key, and costs a fraction of a cent a session.',
   },
   {
     id: 'drawn',
@@ -527,8 +528,8 @@ const EMBLEM_KINDS: { id: EmblemKind; label: string; says: string }[] = [
 ];
 
 /**
- * Session emblems: what each session gets beside its title, for emoji ones Jev's key while
- * there's none, and for drawn ones the account that draws them and how, in words of your own. The
+ * Session emblems: what each session gets beside its title, for emoji ones the default decision
+ * model's key while there's none, and for drawn ones the account that draws them and how, in words of your own. The
  * prompt is saved as you leave its box, as the routing instructions are. Settings › Appearance's,
  * and the setup wizard's (SetupDialog.tsx), which holds what's picked until its Done and passes
  * the accounts you kept that can draw as `drawers`; Settings' are every account turned on whose
@@ -545,9 +546,14 @@ export function EmblemsFields({ cfg, drawers: canDraw, disabled, onSave }: { cfg
   const save = (next: Partial<EmblemsCfg>) => onSave({ ...cfg, emblems: { ...emblems, ...next } });
   // Drawn only with an account that draws, or its save would be refused; one already set stays.
   const kinds = EMBLEM_KINDS.filter((k) => k.id !== 'drawn' || drawers.length > 0 || emblems.kind === 'drawn');
-  // For emoji, the key's field shows while there's no key, and stays once one was saved in it,
-  // saying so.
-  const hasKey = useJevKey();
+  // For emoji, the default model's key's field shows while there's no key, and stays once one was
+  // saved in it, saying so.
+  const d = decisionsOf(cfg);
+  const picker = modelsOf(d).find((m) => m.name === d.default) ?? JEV;
+  const pickerProvider = provider(picker.provider) ?? PROVIDERS[0];
+  const pickerWord = picker.name === 'jev' ? 'Jev' : picker.name;
+  const keys = useDecisionKeys();
+  const hasKey = keys == null ? null : !!keys[pickerProvider.id];
   const [keyHere, setKeyHere] = useState(false);
   return (
     <>
@@ -560,7 +566,7 @@ export function EmblemsFields({ cfg, drawers: canDraw, disabled, onSave }: { cfg
         </small>
       </div>
       {emblems.kind === 'emoji' && (hasKey === false || keyHere) && (
-        <JevKeyField label="Jev’s key" model={cfg.jev?.model ?? JEV_OFF.model} saved="Saved in the keychain: Jev picks your sessions’ emoji from now on." onChanged={() => setKeyHere(true)} />
+        <KeyField provider={pickerProvider} label={`${pickerWord}’s key`} model={picker.model} saved={`Saved in the keychain: ${pickerWord} picks your sessions’ emoji from now on.`} onChanged={() => setKeyHere(true)} />
       )}
       {emblems.kind === 'drawn' && drawers.length > 1 && (
         <label className="ca-field">
@@ -1463,6 +1469,9 @@ function RoutingPane({ cfg, disabled, onSave, usage, now, signIns }: PaneProps &
     useForAuto: boolean;
     useForReviews: boolean;
     useForOwnReviews: boolean;
+    /** A boundary's decision model, '' for Jev's (one that names none); null for a group that
+     *  isn't a boundary, which names none. */
+    decisions?: string | null;
   } | null>(null);
   const fallback = draft?.strategy === 'fallback';
   // A member dragged up or down the group's list goes there, whatever the strategy: a fallback
@@ -1485,9 +1494,9 @@ function RoutingPane({ cfg, disabled, onSave, usage, now, signIns }: PaneProps &
   const submitGroup = (e: React.FormEvent) => {
     e.preventDefault();
     if (!draft || !draft.name.trim()) return;
-    // What the form doesn't show (a boundary, its decision model) stays as config.toml has it.
+    // What the form doesn't show (whether it's a boundary) stays as config.toml has it.
     const was = groups.find((g) => g.name === draft.original);
-    const entry: RoutingGroupCfg = { ...was, name: draft.name.trim(), strategy: draft.strategy, members: draft.members };
+    const entry: RoutingGroupCfg = { ...was, name: draft.name.trim(), strategy: draft.strategy, members: draft.members, ...(draft.decisions != null ? { decisions: draft.decisions || null } : {}) };
     const nextGroups = draft.original ? groups.map((g) => (g.name === draft.original ? entry : g)) : [...groups, entry];
     const nextAuto = draft.useForAuto ? entry.name : draft.original && routing.auto === draft.original ? '' : routing.auto;
     const wasReviewGroup = !!draft.original && reviews.account === draft.original;
@@ -1546,7 +1555,7 @@ function RoutingPane({ cfg, disabled, onSave, usage, now, signIns }: PaneProps &
                     <div className="ca-ucard-head">
                       <span className="ca-ucard-name">{g.name}</span>
                       <span className="ca-ucard-plan">{strat.label} · {membersWord}</span>
-                      {g.boundary && <span className="ca-tag">Boundary</span>}
+                      {g.boundary && <span className="ca-tag">Boundary · decisions: {forGroup(g) ?? 'none'}</span>}
                       {routing.auto === g.name && <span className="ca-tag is-ok">New sessions (Auto)</span>}
                       {reviews.account === g.name && <span className="ca-tag is-ok">PR reviews</span>}
                       {reviews.own.account === g.name && <span className="ca-tag is-ok">Your PR reviews</span>}
@@ -1569,6 +1578,7 @@ function RoutingPane({ cfg, disabled, onSave, usage, now, signIns }: PaneProps &
                             useForAuto: routing.auto === g.name,
                             useForReviews: reviews.account === g.name,
                             useForOwnReviews: reviews.own.account === g.name,
+                            decisions: g.boundary ? (g.decisions?.trim() ?? '') : null,
                           })
                         }
                       >
@@ -1684,6 +1694,13 @@ function RoutingPane({ cfg, disabled, onSave, usage, now, signIns }: PaneProps &
                   <AgentMenu accounts={offered} usage={usage} now={now} value={null} label="Add account" icon="plus" title="Add an account to the group, on a model" disabled={disabled || offered.length === 0} down onPick={(p) => setDraft({ ...draft, members: [...draft.members, memberOf(p)] })} />
                 </div>
               </div>
+              {draft.decisions != null && (
+                <label className="ca-field">
+                  <span>Decision model</span>
+                  <ProfileSelect value={draft.decisions || 'jev'} profiles={choices(decisionsOf(cfg), false)} onChange={(id) => setDraft({ ...draft, decisions: id === 'jev' ? '' : id })} />
+                  <small>The one model its members’ sessions’ words may go to, whatever the default or their project says: Jev unless you pick another. Where their project chose another, they go to none.</small>
+                </label>
+              )}
               <div className="ca-field">
                 <span>Use this group for</span>
                 <small>The same settings as Auto routing above and the reviewers in Automation: checking one here picks this group there.</small>
@@ -1896,17 +1913,15 @@ function dayOptions(current: number): Profile[] {
   return days.map((d) => ({ id: String(d), name: d === 0 ? 'Off: titles only' : d === 1 ? 'The last day' : `The last ${d} days` }));
 }
 
-const JEV_OFF: JevCfg = { model: 'jev-preview', quick_panel: false, sessions: false, todos: false, pull_requests: false };
+type DecisionFeature = 'quick_panel' | 'sessions' | 'todos' | 'pull_requests';
 
-type JevFeature = 'quick_panel' | 'sessions' | 'todos' | 'pull_requests';
-
-/** Each switch: what it does, and what it sends to TypeSafe to do it. */
-const JEV_FEATURES: { id: JevFeature; label: string; does: string; sends: string }[] = [
+/** Each switch: what it does, and what it sends to the decision model that may read it. */
+const DECISION_FEATURES: { id: DecisionFeature; label: string; does: string; sends: string }[] = [
   {
     id: 'quick_panel',
     label: 'Quick panel suggestions',
     does: 'As you type, suggests the session to send it to or the worktree to start it in; ⏎ does the first. Warns when a running session may already be on the same work, puts the sessions it thinks you mean first in the search, starts work that needs a service (your mail, say) on an account whose MCP servers reach it, and, when Auto starts Claude Code, a smaller model for a small change.',
-    sends: 'What you type, with the images you paste into it, and the project’s session titles and latest lines, branches, pull request titles and worktree names, with the names of the services your accounts’ MCP servers reach and of their tools when the accounts differ. Once each time you pause typing.',
+    sends: 'What you type, with the images you paste into it, and the project’s session titles and latest lines, branches, pull request titles and worktree names, with the names of the services your accounts’ MCP servers reach and of their tools when the accounts differ. Once each time you pause typing. A session whose project or boundary group chose another model goes by its title and where it works alone.',
   },
   {
     id: 'sessions',
@@ -1928,52 +1943,53 @@ const JEV_FEATURES: { id: JevFeature; label: string; does: string; sends: string
   },
 ];
 
-/** A feature's name in Jev's usage: its switch's label, Session emblems' (Settings › Appearance), or
+/** A feature's name in the usage: its switch's label, Session emblems' (Settings › Appearance), or
  *  the Test button's. */
-function jevFeatureName(feature: string): string {
-  return JEV_FEATURES.find((f) => f.id === feature)?.label ?? ({ emblems: 'Session emblems', test: 'Test button', prompts: 'What your prompts did' } as Record<string, string>)[feature] ?? feature;
+function decisionFeatureName(feature: string): string {
+  return DECISION_FEATURES.find((f) => f.id === feature)?.label ?? ({ emblems: 'Session emblems', test: 'Test button', prompts: 'What your prompts did' } as Record<string, string>)[feature] ?? feature;
 }
 
-/** Whether the keychain has a key for Jev, as it was last read: null until it has been. One value
- *  for every field that shows it, so a key saved or removed in one shows in the others (Settings'
- *  search shows General's Session emblems and Settings › Jev at once). */
-let jevKeySaved: boolean | null = null;
-const jevKeyWatchers = new Set<() => void>();
+/** Which providers the keychain has a key for, as it was last read: null until it has been. One
+ *  value for every field that shows a key, so a key saved or removed in one shows in the others
+ *  (Settings' search shows Appearance's Session emblems and Settings › Decisions at once). */
+let keysSaved: Record<string, boolean> | null = null;
+const keyWatchers = new Set<() => void>();
 
-function watchJevKey(tell: () => void): () => void {
-  jevKeyWatchers.add(tell);
+function watchKeys(tell: () => void): () => void {
+  keyWatchers.add(tell);
   return () => {
-    jevKeyWatchers.delete(tell);
+    keyWatchers.delete(tell);
   };
 }
 
-/** Reads the keychain again, for every field that shows the key. One that can't be read counts as
+/** Reads the keychain again, for every field that shows a key. One that can't be read counts as
  *  none: the box to paste one into shows, and saving a key there says what's wrong. */
-async function readJevKey(): Promise<void> {
-  const has = await jevKey().catch(() => false);
-  if (has === jevKeySaved) return;
-  jevKeySaved = has;
-  jevKeyWatchers.forEach((tell) => tell());
+async function readKeys(): Promise<void> {
+  const has = await decisionKeys().catch(() => ({}) as Record<string, boolean>);
+  if (keysSaved && JSON.stringify(has) === JSON.stringify(keysSaved)) return;
+  keysSaved = has;
+  keyWatchers.forEach((tell) => tell());
 }
 
-/** `jevKeySaved`, read again as a field that shows it opens. */
-function useJevKey(): boolean | null {
-  const has = useSyncExternalStore(watchJevKey, () => jevKeySaved);
+/** `keysSaved`, read again as a field that shows them opens. */
+function useDecisionKeys(): Record<string, boolean> | null {
+  const has = useSyncExternalStore(watchKeys, () => keysSaved);
   useEffect(() => {
-    void readJevKey();
+    void readKeys();
   }, []);
   return has;
 }
 
 /**
- * The TypeSafe key's field: a box to paste one into while there's none, else Test, Replace and
- * Remove. The key goes to the keychain as its button is pressed and never comes back to the page;
- * `onChanged` hears that a button was pressed, once the keychain is read again. Settings › Jev's,
- * and Session emblems' while emoji want one (`EmblemsFields`), which the setup wizard shows too:
- * it's no form of its own, so Return saves the key, not the form it's in.
+ * A provider's key field: a box to paste one into while there's none, else Test (on `model`),
+ * Replace and Remove. The key goes to the keychain as its button is pressed and never comes back
+ * to the page; `onChanged` hears that a button was pressed, once the keychain is read again.
+ * Settings › Decisions', and Session emblems' while emoji want one (`EmblemsFields`), which the
+ * setup wizard shows too: it's no form of its own, so Return saves the key, not the form it's in.
  */
-function JevKeyField({ label, model, saved, onChanged }: { label: string; model: string; saved: string; onChanged?: () => void }) {
-  const hasKey = useJevKey();
+function KeyField({ provider: p, label, model, saved, onChanged }: { provider: Provider; label: string; model: string; saved: string; onChanged?: () => void }) {
+  const keys = useDecisionKeys();
+  const hasKey = keys == null ? null : !!keys[p.id];
   const [editing, setEditing] = useState(false);
   const [key, setKey] = useState('');
   const [busy, setBusy] = useState(false);
@@ -1988,7 +2004,7 @@ function JevKeyField({ label, model, saved, onChanged }: { label: string; model:
     } catch (e) {
       setNote({ ok: false, text: errorText(e) });
     }
-    await readJevKey();
+    await readKeys();
     onChanged?.();
     setBusy(false);
   };
@@ -1996,7 +2012,7 @@ function JevKeyField({ label, model, saved, onChanged }: { label: string; model:
   const saveKey = () => {
     if (busy || !key.trim()) return;
     void run(async () => {
-      await setJevKey(key);
+      await setDecisionKey(p.id, key);
       setKey('');
       setEditing(false);
       return saved;
@@ -2012,10 +2028,10 @@ function JevKeyField({ label, model, saved, onChanged }: { label: string; model:
             type="password"
             className="ca-jev-key"
             value={key}
-            placeholder="Paste your TypeSafe API key"
+            placeholder={`Paste your ${p.word} API key`}
             autoComplete="off"
             spellCheck={false}
-            aria-label="TypeSafe API key"
+            aria-label={`${p.word} API key`}
             onChange={(e) => setKey(e.target.value)}
             onKeyDown={(e) => {
               if (e.key === 'Enter') {
@@ -2039,13 +2055,13 @@ function JevKeyField({ label, model, saved, onChanged }: { label: string; model:
             <Icon name="lock" size={12} />
             Saved in the keychain
           </span>
-          <Button variant="ghost" size="sm" disabled={busy} onClick={() => void run(() => testJev(model))}>
+          <Button variant="ghost" size="sm" disabled={busy} onClick={() => void run(() => testDecider(p.id, model))}>
             Test
           </Button>
           <Button variant="ghost" size="sm" disabled={busy} onClick={() => setEditing(true)}>
             Replace
           </Button>
-          <Button variant="ghost" size="sm" disabled={busy} onClick={() => void run(async () => (await setJevKey(''), null))}>
+          <Button variant="ghost" size="sm" disabled={busy} onClick={() => void run(async () => (await setDecisionKey(p.id, ''), null))}>
             Remove
           </Button>
         </div>
@@ -2054,46 +2070,196 @@ function JevKeyField({ label, model, saved, onChanged }: { label: string; model:
       )}
       {note && <p className={note.ok ? 'ca-jev-ok' : 'ca-form-error'}>{note.text}</p>}
       <small>
-        Kept in your login keychain, never in config.toml.{' '}
-        <button type="button" className="ca-linkbtn" onClick={() => void openUrl('https://console.typesafe.ai/keys')}>
-          Get a key from TypeSafe
+        Kept in your login keychain, never in config.toml. {p.word} charges {p.price}, nothing for what it answers.{' '}
+        <button type="button" className="ca-linkbtn" onClick={() => void openUrl(p.keys)}>
+          Get a key from {p.word}
         </button>
       </small>
     </div>
   );
 }
 
+/** A model being added in Settings › Decisions. */
+interface ModelDraft {
+  provider: string;
+  name: string;
+  model: string;
+}
+
+function modelDraft(p: Provider, taken: string[]): ModelDraft {
+  const name = taken.includes(p.name) ? '' : p.name;
+  return { provider: p.id, name, model: p.model };
+}
+
 /**
- * Settings › Jev: the TypeSafe key (`JevKeyField`), what Jev's requests have used and cost, and a
- * switch per feature that says what it does and what it sends.
+ * Settings › Decisions: the decision models, Jev's always among them, each with what reads its
+ * way (the default, projects, boundary groups) and what it falls back to; each provider's key
+ * (`KeyField`); what the models' requests have used and cost; and a switch per feature that says
+ * what it does and what it sends. Which model reads a project's sessions is set on the project
+ * (Settings › Projects), a boundary group's on the group (Settings › Routing).
  */
-function JevPane({ jev, disabled, onChange }: { jev: JevCfg; disabled: boolean; onChange: (j: JevCfg) => void }) {
-  const hasKey = useJevKey();
-  // Bumped after each of the key's buttons, so the usage reads again with the Test button's
+function DecisionsPane({ cfg, disabled, onSave }: { cfg: Config; disabled: boolean; onSave: (next: Config) => void }) {
+  const d = decisionsOf(cfg);
+  const models = modelsOf(d);
+  const keys = useDecisionKeys();
+  // Bumped after each of the keys' buttons, so the usage reads again with the Test button's
   // request in it.
   const [asked, setAsked] = useState(0);
-
-  const noKey = hasKey === false;
+  const [adding, setAdding] = useState<ModelDraft | null>(null);
+  const [removing, setRemoving] = useState<string | null>(null);
+  const save = (next: Partial<DecisionsCfg>) => onSave({ ...cfg, decisions: { ...d, ...next } });
+  const change = (name: string, patch: Partial<DecisionModelCfg>) => save({ models: withModels(models.map((m) => (m.name === name ? { ...m, ...patch } : m))) });
+  // The features want a key for some model they may ask.
+  const anyKey = keys == null ? null : models.some((m) => keys[m.provider]);
+  const noKey = anyKey === false;
+  const groups = (cfg.routing?.groups ?? []).filter((g) => g.boundary);
+  const problem = adding && newModelProblem(d, adding);
 
   return (
     <>
       <div className="ca-settings-intro">
-        <h3>Jev</h3>
+        <h3>Decisions</h3>
         <p>
-          TypeSafe’s Jev answers narrow questions in a fraction of a second: which session a prompt is for, whether a reply asks you something, which todo a session is for. Each feature is off until you turn it on,
-          and each says what it sends to TypeSafe. It costs $0.042 per million tokens sent and nothing for what Jev answers, so a question costs a fraction of a cent; Usage says what yours have cost.
+          A decision model answers narrow questions in a fraction of a second: which session a prompt is for, whether a reply asks you something, which todo a session is for. TypeSafe’s Jev is the first; OpenAI’s and Google’s are others. Which one reads a project is where its sessions’ words go, so you choose it per project (Settings › Projects) and per boundary group (Settings › Routing); the default reads the rest. Each feature is off until you turn it on, and each says what it sends.
         </p>
       </div>
       <fieldset className="ca-settings-fields" disabled={disabled}>
-        <JevKeyField label="API key" model={jev.model} saved="Saved in the keychain. Test it, then turn on what you want below." onChanged={() => setAsked((n) => n + 1)} />
-        <JevUsage nameOf={jevFeatureName} stamp={asked} hasKey={hasKey === true} />
         <div className="ca-field">
-          <span>What to use it for</span>
+          <span>Models</span>
+          <div className="ca-settings-cards">
+            {models.map((m) => {
+              const p = provider(m.provider);
+              const projects = cfg.projects.filter((x) => x.decisions === m.name).map((x) => x.name);
+              const bounded = groups.filter((g) => forGroup(g) === m.name).map((g) => g.name);
+              return (
+                <div key={m.name} className="ca-ucard">
+                  <div className="ca-ucard-head">
+                    <span className="ca-ucard-name">{m.name}</span>
+                    <span className="ca-ucard-plan">
+                      {p?.word ?? m.provider} · {m.model}
+                    </span>
+                    {d.default === m.name && <span className="ca-tag is-ok">Default</span>}
+                    {keys && !keys[m.provider] && <span className="ca-tag">No key</span>}
+                  </div>
+                  {(projects.length > 0 || bounded.length > 0) && (
+                    <dl className="ca-kv">
+                      {projects.length > 0 && (
+                        <>
+                          <dt>Projects</dt>
+                          <dd>{projects.join(', ')}</dd>
+                        </>
+                      )}
+                      {bounded.length > 0 && (
+                        <>
+                          <dt>Boundary groups</dt>
+                          <dd>{bounded.join(', ')}</dd>
+                        </>
+                      )}
+                    </dl>
+                  )}
+                  <label className="ca-field">
+                    <span>When it fails for now</span>
+                    <ProfileSelect
+                      value={m.fallback ?? ''}
+                      profiles={[{ id: '', name: 'Try again later' }, ...models.filter((x) => x.name !== m.name).map((x) => ({ id: x.name, name: `Ask ${x.name} instead` }))]}
+                      onChange={(fallback) => change(m.name, { fallback: fallback || undefined })}
+                    />
+                  </label>
+                  {removing === m.name ? (
+                    <div className="ca-acct-confirm" role="alert">
+                      <span>
+                        Remove <strong>{m.name}</strong>? What chose it goes back to the default; a boundary group that chose it goes back to Jev.
+                      </span>
+                      <Button size="sm" onClick={() => (onSave(withoutModel(cfg, m.name)), setRemoving(null))}>
+                        Remove
+                      </Button>
+                      <Button variant="ghost" size="sm" onClick={() => setRemoving(null)}>
+                        Cancel
+                      </Button>
+                    </div>
+                  ) : (
+                    (d.default !== m.name || m.name !== 'jev') && (
+                      <div className="ca-acct-actions">
+                        {d.default !== m.name && (
+                          <Button variant="ghost" size="sm" onClick={() => save({ default: m.name })}>
+                            Make default
+                          </Button>
+                        )}
+                        {m.name !== 'jev' && (
+                          <Button variant="ghost" size="sm" onClick={() => setRemoving(m.name)}>
+                            Remove
+                          </Button>
+                        )}
+                      </div>
+                    )
+                  )}
+                </div>
+              );
+            })}
+            {d.default === 'none' && <p className="ca-acct-note">No default: only a project or boundary group that names a model has one.</p>}
+          </div>
+          <small>A fallback is asked only for what goes by the default. What a project or a boundary group chose goes to that model or to none. To pin Jev to one version, give it an entry with <code className="ca-ic">model</code> under <code className="ca-ic">[[decisions.models]]</code> in config.toml.</small>
+          {adding ? (
+            <form
+              className="ca-ucard ca-acct-form"
+              onSubmit={(e) => {
+                e.preventDefault();
+                if (problem) return;
+                save({ models: withModels([...models, { name: adding.name.trim(), provider: adding.provider, model: adding.model.trim() }]) });
+                setAdding(null);
+              }}
+            >
+              <div className="ca-acct-form-head">
+                <span className="ca-ucard-name">New decision model</span>
+              </div>
+              <div className="ca-field">
+                <span>Provider</span>
+                <Seg label="Provider" options={PROVIDERS.map((p) => ({ id: p.id, label: p.word }))} value={adding.provider} onPick={(id) => setAdding(modelDraft(provider(id) ?? PROVIDERS[0], models.map((m) => m.name)))} />
+              </div>
+              <label className="ca-field">
+                <span>Name</span>
+                <input value={adding.name} spellCheck={false} autoCapitalize="off" autoCorrect="off" onChange={(e) => setAdding({ ...adding, name: e.target.value })} />
+                <small>What projects and boundary groups name it by.</small>
+              </label>
+              <label className="ca-field">
+                <span>Model</span>
+                <input value={adding.model} spellCheck={false} autoCapitalize="off" autoCorrect="off" onChange={(e) => setAdding({ ...adding, model: e.target.value })} />
+              </label>
+              {problem && adding.name.trim() && <p className="ca-form-error">{problem}</p>}
+              <div className="ca-acct-actions">
+                <Button variant="primary" size="sm" type="submit" disabled={!!problem}>
+                  Add model
+                </Button>
+                <Button variant="ghost" size="sm" onClick={() => setAdding(null)}>
+                  Cancel
+                </Button>
+              </div>
+            </form>
+          ) : (
+            <div>
+              <Button size="sm" icon="plus" onClick={() => setAdding(modelDraft(PROVIDERS[1], models.map((m) => m.name)))}>
+                Add model
+              </Button>
+            </div>
+          )}
+        </div>
+        <label className="ca-field">
+          <span>Default model</span>
+          <ProfileSelect value={d.default} profiles={choices(d, false)} onChange={(def) => save({ default: def })} />
+          <small>What reads a project that names no model, and anything in no project. A boundary group that names none is Jev’s, whatever this says.</small>
+        </label>
+        {providersInUse(d).map((p) => {
+          const model = models.find((m) => m.provider === p.id) ?? { name: p.name, model: p.model };
+          return <KeyField key={p.id} provider={p} label={`${p.word} API key`} model={model.model} saved={`Saved in the keychain. Test it, then turn on what you want below.`} onChanged={() => setAsked((n) => n + 1)} />;
+        })}
+        <JevUsage nameOf={decisionFeatureName} stamp={asked} hasKey={anyKey === true} />
+        <div className="ca-field">
+          <span>What to use them for</span>
           <div className="ca-jev-features">
-            {JEV_FEATURES.map((f) => (
+            {DECISION_FEATURES.map((f) => (
               <label key={f.id} className={cx('ca-jev-feature', noKey && 'is-disabled')}>
                 <span className="ca-check">
-                  <CheckBox checked={jev[f.id]} disabled={noKey} onChange={(on) => onChange({ ...jev, [f.id]: on })} />
+                  <CheckBox checked={d[f.id]} disabled={noKey} onChange={(on) => save({ [f.id]: on })} />
                   <span className="ca-jev-feature-name">{f.label}</span>
                 </span>
                 <span className="ca-jev-feature-does">{keysIn(f.does)}</span>
@@ -2104,13 +2270,6 @@ function JevPane({ jev, disabled, onChange }: { jev: JevCfg; disabled: boolean; 
             ))}
           </div>
           {noKey && <small>Save a key above to turn these on.</small>}
-        </div>
-        <div className="ca-field">
-          <span>Model</span>
-          <code className="ca-ic ca-jev-model">{jev.model}</code>
-          <small>
-            <code className="ca-ic">jev-preview</code> follows TypeSafe’s newest release as it comes out, and <code className="ca-ic">jev-latest</code> its newest stable one. To change it, or stay on one version, set <code className="ca-ic">model</code> under <code className="ca-ic">[jev]</code> in config.toml.
-          </small>
         </div>
       </fieldset>
     </>
@@ -2270,9 +2429,11 @@ interface ProjectDraft {
   chromeProfile: string;
   /** The routing group Auto starts from here; '' for Routing's. */
   group: string;
+  /** The decision model that may read it; '' for the default. */
+  decisions: string;
 }
 
-const NO_DRAFT: ProjectDraft = { original: null, name: '', repos: [], folders: [], chromeProfile: '', group: '' };
+const NO_DRAFT: ProjectDraft = { original: null, name: '', repos: [], folders: [], chromeProfile: '', group: '', decisions: '' };
 
 /** The groups a project's Auto can start from, after Routing's own (''), which says what that is. */
 function projectGroupProfiles(groups: RoutingGroupCfg[], auto: string): Profile[] {
@@ -2300,6 +2461,7 @@ function ProjectsPane({ cfg, chromeProfiles, disabled, onSave, lanes, adding }: 
       folders: draft.folders,
       ...(draft.chromeProfile.trim() ? { chrome_profile: draft.chromeProfile.trim() } : {}),
       ...(draft.group ? { default: draft.group } : {}),
+      ...(draft.decisions ? { decisions: draft.decisions } : {}),
     };
     const next = draft.original ? cfg.projects.map((p) => (p.name === draft.original ? entry : p)) : [...cfg.projects, entry];
     if (await commit(next)) setDraft(null);
@@ -2351,6 +2513,11 @@ function ProjectsPane({ cfg, chromeProfiles, disabled, onSave, lanes, adding }: 
           <small>The routing group a session started here on Auto goes on, from the quick panel, codealong start, a schedule, a review or a meeting, in place of the one Routing sets. Picking an account or a group yourself still goes where you pick.</small>
         </label>
       )}
+      <label className="ca-field">
+        <span>Decision model</span>
+        <ProfileSelect value={draft.decisions} profiles={choices(decisionsOf(cfg), true)} onChange={(decisions) => setDraft({ ...draft, decisions })} />
+        <small>The one model what’s said here may go to, for the quick panel, session status, todos and pull requests (Settings › Decisions): its sessions’ words go nowhere else, and to none with None. A session in a boundary group goes by its group’s, and to none when the two differ.</small>
+      </label>
       <div className="ca-acct-actions">
         <Button variant="primary" size="sm" type="submit" disabled={busy || !draft.name.trim()}>
           {draft.original ? 'Save' : 'Add project'}
@@ -2393,6 +2560,12 @@ function ProjectsPane({ cfg, chromeProfiles, disabled, onSave, lanes, adding }: 
                     <dd>Group: {p.default}</dd>
                   </>
                 )}
+                {p.decisions && (
+                  <>
+                    <dt>Decisions</dt>
+                    <dd>{forProject(decisionsOf(cfg), p) ?? 'None'}</dd>
+                  </>
+                )}
               </dl>
               {removing === p.name ? (
                 <div className="ca-acct-confirm" role="alert">
@@ -2413,7 +2586,7 @@ function ProjectsPane({ cfg, chromeProfiles, disabled, onSave, lanes, adding }: 
                     size="sm"
                     onClick={() => {
                       setRemoving(null);
-                      setDraft({ original: p.name, name: p.name, repos: p.repos, folders: p.folders, chromeProfile: p.chrome_profile ?? '', group: p.default?.trim() ?? '' });
+                      setDraft({ original: p.name, name: p.name, repos: p.repos, folders: p.folders, chromeProfile: p.chrome_profile ?? '', group: p.default?.trim() ?? '', decisions: p.decisions?.trim() ?? '' });
                     }}
                   >
                     Edit
@@ -2733,10 +2906,10 @@ function ExperimentalPane({ cfg, view, disabled, onSave }: PaneProps & { view: C
           </label>
           {experimental.analytics && (
             <label className="ca-field ca-settings-check">
-              <CheckBox checked={!!cfg.jev?.prompts} onChange={(on) => void onSave({ ...cfg, jev: { ...JEV_OFF, ...cfg.jev, prompts: on } })} />
-              <span>Have Jev read what your prompts did</span>
+              <CheckBox checked={!!cfg.decisions?.prompts} onChange={(on) => void onSave({ ...cfg, decisions: { ...decisionsOf(cfg), prompts: on } })} />
+              <span>Have a decision model read what your prompts did</span>
               <small>
-                Whether each prompt you typed set out new work, agreed with what the agent had said, steered it, redirected it or asked it something. Sends TypeSafe the prompt and the end of the reply before it, once per prompt, with the key in Settings › Jev. Off, only what the records say for sure is counted: the first prompt of a session, an offered answer picked, a suggested reply sent as written.
+                Whether each prompt you typed set out new work, agreed with what the agent had said, steered it, redirected it or asked it something. Sends the prompt and the end of the reply before it to the decision model that may read its session’s project, once per prompt, with its key in Settings › Decisions. Off, only what the records say for sure is counted: the first prompt of a session, an offered answer picked, a suggested reply sent as written.
               </small>
             </label>
           )}

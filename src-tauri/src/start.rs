@@ -2244,7 +2244,7 @@ mod tests {
         let mut cfg = Config { accounts: vec![account("claude", "claude", "/Users/me/.claude", Some("claude")), account("claude2", "claude", "/Users/me/.claude2", Some("claude2"))], ..Config::default() };
         cfg.routing.groups = vec![RoutingGroupCfg { name: "personal".into(), members: vec![member("claude")], ..RoutingGroupCfg::default() }, RoutingGroupCfg { name: "work".into(), members: vec![member("claude2")], ..RoutingGroupCfg::default() }];
         cfg.routing.auto = "personal".into();
-        cfg.projects = vec![ProjectCfg { name: "Northwind".into(), repos: vec!["github.com/northwind/*".into()], folders: Vec::new(), chrome_profile: None, default: Some("work".into()) }];
+        cfg.projects = vec![ProjectCfg { name: "Northwind".into(), repos: vec!["github.com/northwind/*".into()], folders: Vec::new(), chrome_profile: None, default: Some("work".into()), decisions: None }];
         let board = Board::default();
         // No place asked for: a group's members are offered places by this machine's home, and
         // on one without `claude` (Linux CI) the terminal isn't one of them.

@@ -1,7 +1,9 @@
-//! What Jev does for todos (`[jev] todos`): links a new session to the todo it's for, says when
-//! an open todo's work looks done, and suggests a new todo's project, labels and the todos it
-//! waits on. The rules and the requests are here as plain functions with tests; the engine asks
-//! (in the background, through jev.rs) and applies the answers.
+//! What a decision model does for todos (`[decisions] todos`): links a new session to the todo
+//! it's for, says when an open todo's work looks done, and suggests a new todo's project, labels
+//! and the todos it waits on. The rules and the requests are here as plain functions with tests;
+//! the engine asks (in the background, through decisions.rs, of the model that may read the
+//! question's subject) and applies the answers. What's in a request that the model asked may not
+//! read (a todo's description, a session's reply) goes by its title.
 //!
 //! Each session is asked about once, ever, and each todo again only when something linked to it
 //! has moved on (a turn ended, a PR merged): what was asked is kept in `jev-todos.json`.
@@ -91,7 +93,7 @@ impl Memory {
             .filter(|t| is_open(t))
             .filter_map(|t| {
                 let a = self.done.get(&t.id)?;
-                let now = done_input(board, t)?;
+                let now = done_input(board, t, |_, _| true)?;
                 (a.sig == now.sig && a.p >= DONE_AT && self.dismissed.get(&t.id) != Some(&a.sig)).then(|| (t.id.clone(), TodoHint { p: a.p, why: a.why.clone() }))
             })
             .collect()
@@ -171,15 +173,16 @@ fn open_todos<'a>(todos: &'a [Todo], project: &'a str) -> impl Iterator<Item = &
     todos.iter().filter(move |t| is_open(t) && t.project == project)
 }
 
-/// A todo as the question has it. Only the repos of its worktrees, not the worktrees: sharing one
-/// says nothing of what a session is for, and Jev took it to. With a worktree named on both sides,
-/// "Carry on with this branch" was the todo noted there at 0.79, and 0.1 without (1.14, 2026-11-09),
-/// where a session that said what it was for was its todo at 1.0 either way.
-fn todo_card(t: &Todo, board: &Board) -> Value {
+/// A todo as the question has it, its description only when `said`. Only the repos of its
+/// worktrees, not the worktrees: sharing one says nothing of what a session is for, and Jev took
+/// it to. With a worktree named on both sides, "Carry on with this branch" was the todo noted
+/// there at 0.79, and 0.1 without (1.14, 2026-11-09), where a session that said what it was for
+/// was its todo at 1.0 either way.
+fn todo_card(t: &Todo, board: &Board, said: bool) -> Value {
     let mut card = Map::new();
     card.insert("title".into(), json!(clip(&t.title, 200)));
     let d = clip(&plain_description(&t.description), 400);
-    if !d.is_empty() {
+    if said && !d.is_empty() {
         card.insert("description".into(), json!(d));
     }
     let repos: BTreeSet<&str> = t.worktrees.iter().filter_map(|w| board.lanes.iter().find(|l| &l.id == w)).map(|l| l.repo.as_str()).collect();
@@ -190,11 +193,13 @@ fn todo_card(t: &Todo, board: &Board) -> Value {
 }
 
 /// The question for one new session, and the todo ids its options stand for (`t1` is the first).
-pub fn link_request(model: &str, board: &Board, lane: &Lane, s: &Session, todos: &[Todo]) -> (Value, Vec<String>) {
+/// The todos, its project's, say what their descriptions say only when `todos_said`: when the
+/// model asked of the session may read its project's text.
+pub fn link_request(model: &str, board: &Board, lane: &Lane, s: &Session, todos: &[Todo], todos_said: bool) -> (Value, Vec<String>) {
     let offered: Vec<&Todo> = open_todos(todos, &lane.project).take(MAX_TODOS).collect();
     let mut options = Map::new();
     for (i, t) in offered.iter().enumerate() {
-        options.insert(format!("t{}", i + 1), todo_card(t, board));
+        options.insert(format!("t{}", i + 1), todo_card(t, board, todos_said));
     }
     options.insert("none".into(), json!("The session's work isn't for any of these todos."));
     let mut session = Map::new();
@@ -245,7 +250,9 @@ pub struct DoneInput {
     pub why: String,
 }
 
-pub fn done_input(board: &Board, t: &Todo) -> Option<DoneInput> {
+/// What to ask about `t`, its sessions saying what their replies say only where `said` lets the
+/// model asked read them.
+pub fn done_input(board: &Board, t: &Todo, said: impl Fn(&Lane, &Session) -> bool) -> Option<DoneInput> {
     if !is_open(t) {
         return None;
     }
@@ -276,7 +283,7 @@ pub fn done_input(board: &Board, t: &Todo) -> Option<DoneInput> {
             c.insert("title".into(), json!(clip(&s.title, 200)));
             c.insert("worktree".into(), json!(l.callsign));
             c.insert("status".into(), json!(status_words(s)));
-            if let Some(r) = s.reply_tail.as_deref().or(s.excerpt.as_deref()) {
+            if let Some(r) = s.reply_tail.as_deref().or(s.excerpt.as_deref()).filter(|_| said(l, s)) {
                 c.insert("end of its last reply".into(), json!(jev::tail(r, 600)));
             }
             c.insert("last prompted".into(), json!(ago_words(s.last_prompt_at, now)));
@@ -338,17 +345,20 @@ pub struct SuggestRequest {
     deps: Vec<String>,
 }
 
-/// What Jev suggests for a todo being written, on this board: its project, labels and the
-/// todos it waits on. An error when `[jev] todos` is off or there's nothing to ask.
+/// What a decision model suggests for a todo being written, on this board: its project, labels
+/// and the todos it waits on, from the model that may read the project it's in (none chosen yet:
+/// `[decisions] default`'s). An error when `[decisions] todos` is off, the project keeps its
+/// text from every model, or there's nothing to ask.
 pub fn suggest(board: &Board, id: Option<&str>, title: &str, description: &str, project: &str) -> anyhow::Result<Suggested> {
     let cfg = crate::config::current()?;
-    if !cfg.jev.todos {
+    if !cfg.decisions.todos {
         anyhow::bail!("Todo suggestions are off.");
     }
+    let decider = crate::decisions::for_project(&cfg, Some(project).filter(|p| !p.is_empty())).ok_or_else(|| anyhow::anyhow!("No decision model reads {project}'s todos: its decisions is \"none\"."))?;
     let projects: Vec<String> = board.projects.iter().map(|p| p.name.clone()).filter(|p| p != crate::board::ELSEWHERE).collect();
-    let mut req = suggest_request(cfg.jev.model.trim(), id, title, description, project, &projects, &board.labels, &board.todos, board).ok_or_else(|| anyhow::anyhow!("Nothing to suggest."))?;
+    let mut req = suggest_request(decider.model(), id, title, description, project, &projects, &board.labels, &board.todos, board).ok_or_else(|| anyhow::anyhow!("Nothing to suggest."))?;
     req.images.attach(&mut req.body);
-    Ok(suggest_read(&req, &jev::ask(jev::Feature::Todos, &req.body)?))
+    Ok(suggest_read(&req, &crate::decisions::ask(jev::Feature::Todos, &decider, &req.body)?))
 }
 
 pub fn suggest_request(model: &str, id: Option<&str>, title: &str, description: &str, project: &str, projects: &[String], labels: &[Label], todos: &[Todo], board: &Board) -> Option<SuggestRequest> {
@@ -483,7 +493,7 @@ mod tests {
         let mut done = todo("t0", "Acme", "Finished thing");
         done.status = TodoStatus::Done;
         let todos = vec![done, todo("t1", "Acme", "Export streaming"), todo("t2", "Acme", "Fix login"), todo("t3", "Blog", "Post")];
-        let (body, ids) = link_request("m", &b, &b.lanes[0], &s, &todos);
+        let (body, ids) = link_request("m", &b, &b.lanes[0], &s, &todos, true);
         assert_eq!(ids, vec!["t1", "t2"]);
         assert_eq!(body["questions"]["todo"]["criteria"]["t1"]["title"], "Export streaming");
         assert!(body["questions"]["todo"]["criteria"]["none"].is_string());
@@ -492,6 +502,14 @@ mod tests {
         assert_eq!(link_pick(&answer(0.9, 0.05, 0.05), &ids).as_deref(), Some("t1"));
         assert_eq!(link_pick(&answer(0.7, 0.1, 0.2), &ids), None, "not sure enough");
         assert_eq!(link_pick(&answer(0.1, 0.1, 0.8), &ids), None, "none");
+        // A model that may read the session but not its project's todos gets them by their titles.
+        let mut described = todos.clone();
+        described[1].description = "Rows stream from the warehouse query".into();
+        let (body, _) = link_request("m", &b, &b.lanes[0], &s, &described, true);
+        assert_eq!(body["questions"]["todo"]["criteria"]["t1"]["description"], "Rows stream from the warehouse query");
+        let (body, _) = link_request("m", &b, &b.lanes[0], &s, &described, false);
+        assert_eq!(body["questions"]["todo"]["criteria"]["t1"]["title"], "Export streaming");
+        assert!(!body.to_string().contains("warehouse"), "{body}");
     }
 
     /// Sharing a worktree is no reason for a session to be a todo's: the question names none.
@@ -501,7 +519,7 @@ mod tests {
         let s = session("c:new", "Carry on with this branch", Status::Working, NOW);
         let mut noted = todo("t1", "Acme", "Export streaming");
         noted.worktrees = vec!["/a".into()];
-        let (body, _) = link_request("m", &b, &b.lanes[0], &s, &[noted]);
+        let (body, _) = link_request("m", &b, &b.lanes[0], &s, &[noted], true);
         let asked = body.to_string();
         assert!(!asked.contains("quiet-river") && !asked.contains("worktree"), "{asked}");
         assert_eq!(body["questions"]["todo"]["criteria"]["t1"]["repos"], json!(["api"]));
@@ -514,23 +532,27 @@ mod tests {
         let b = board(vec![lane("/a", "Acme", vec![working.clone()], Some(pr(PrState::Open)))]);
         let mut t = todo("t1", "Acme", "Export streaming");
         t.sessions = vec!["c:1".into()];
-        assert_eq!(done_input(&b, &t), None, "still working");
+        assert_eq!(done_input(&b, &t, |_, _| true), None, "still working");
 
         working.status = Status::Unread;
         working.reply_tail = Some("…so it's merged and deployed.".into());
         let b = board(vec![lane("/a", "Acme", vec![working.clone()], Some(pr(PrState::Open)))]);
-        let open = done_input(&b, &t).unwrap();
+        let open = done_input(&b, &t, |_, _| true).unwrap();
         assert_eq!(open.why, "“Stream the export” finished its turn");
         assert_eq!(open.state["sessions"][0]["end of its last reply"], "…so it's merged and deployed.");
         assert_eq!(open.state["pull requests"][0]["state"], "open, in review");
-        let merged = done_input(&board(vec![lane("/a", "Acme", vec![working], Some(pr(PrState::Merged)))]), &t).unwrap();
+        // A session the model asked may not read is there by its title, none of its reply.
+        let veiled = done_input(&b, &t, |_, _| false).unwrap();
+        assert_eq!((veiled.state["sessions"][0]["title"].as_str(), veiled.sig.as_str()), (Some("Stream the export"), open.sig.as_str()));
+        assert!(veiled.state["sessions"][0].get("end of its last reply").is_none());
+        let merged = done_input(&board(vec![lane("/a", "Acme", vec![working], Some(pr(PrState::Merged)))]), &t, |_, _| true).unwrap();
         assert_eq!(merged.why, "#7 merged");
         assert_ne!(open.sig, merged.sig, "a merge is news");
         assert_eq!(done_request("m", &merged)["questions"]["done"]["type"], "noul");
 
         let mut plain = todo("t2", "Acme", "Nothing linked");
         plain.worktrees = vec!["/nowhere".into()];
-        assert_eq!(done_input(&b, &plain), None);
+        assert_eq!(done_input(&b, &plain, |_, _| true), None);
     }
 
     #[test]
@@ -539,7 +561,7 @@ mod tests {
         let mut t = todo("t1", "Acme", "Export streaming");
         t.sessions = vec!["c:1".into()];
         let b = board(vec![lane("/a", "Acme", vec![s.clone()], None)]);
-        let sig = done_input(&b, &t).unwrap().sig;
+        let sig = done_input(&b, &t, |_, _| true).unwrap().sig;
         let mut m = Memory::default();
         m.done.insert("t1".into(), DoneAnswer { sig: sig.clone(), p: 0.9, why: "w".into() });
         assert_eq!(m.hints(&b, std::slice::from_ref(&t)).get("t1"), Some(&TodoHint { p: 0.9, why: "w".into() }));

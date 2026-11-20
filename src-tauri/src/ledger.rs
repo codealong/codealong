@@ -22,9 +22,10 @@
 //! its usage endpoint reports it (`note_extra`), what a harness recorded a call cost (OpenCode,
 //! from your provider), and an account that pays by the token (`per_token`) at API prices.
 //!
-//! Codealong's own requests to TypeSafe's Jev (jev.rs) are kept here too, a row each in a table
-//! of their own (`note_jev`), by the feature that asked: they belong to no session or account,
-//! and Settings › Jev reports them (`jev_report`), not the Analytics window.
+//! Codealong's own requests to decision models (decisions.rs) are kept here too, a row each in
+//! a table of their own (`jev`, from when Jev was the only one; `note_jev`), by the feature that
+//! asked and the provider and model that answered: they belong to no session or account, and
+//! Settings › Decisions reports them (`jev_report`), not the Analytics window.
 //!
 //! With `[experimental] analytics` on, the same file keeps what came in to each session and who
 //! from (turns.rs, which gives each call its turn), where each session came from (began.rs) and
@@ -203,7 +204,10 @@ CREATE TABLE IF NOT EXISTS jev (
   feature TEXT NOT NULL,
   model TEXT NOT NULL,
   input INTEGER NOT NULL DEFAULT 0,
-  output INTEGER NOT NULL DEFAULT 0
+  output INTEGER NOT NULL DEFAULT 0,
+  provider TEXT,
+  cached INTEGER NOT NULL DEFAULT 0,
+  cache_write INTEGER NOT NULL DEFAULT 0
 );
 CREATE INDEX IF NOT EXISTS jev_at ON jev(at);
 CREATE TABLE IF NOT EXISTS turns (
@@ -266,9 +270,10 @@ CREATE TABLE IF NOT EXISTS meta (
 ";
 
 /// Columns a ledger from before them has its tables without: what `began.rs` notes of each
-/// session, and what `turns.rs` says of each call. SQLite adds a column to a table in place,
-/// every row reading NULL for it: not known.
-const ADDED: [(&str, &str, &str); 7] = [
+/// session, what `turns.rs` says of each call, and which provider answered a request to a
+/// decision model (NULL from before: TypeSafe, the only one then). SQLite adds a column to a table
+/// in place, every row reading NULL for it, or the default given.
+const ADDED: [(&str, &str, &str); 10] = [
     ("turns", "seq", "INTEGER NOT NULL DEFAULT 0"),
     ("sessions", "began", "TEXT"),
     ("sessions", "began_by", "TEXT"),
@@ -276,6 +281,9 @@ const ADDED: [(&str, &str, &str); 7] = [
     ("sessions", "started", "INTEGER"),
     ("calls", "turn", "INTEGER"),
     ("calls", "sub", "INTEGER"),
+    ("jev", "provider", "TEXT"),
+    ("jev", "cached", "INTEGER NOT NULL DEFAULT 0"),
+    ("jev", "cache_write", "INTEGER NOT NULL DEFAULT 0"),
 ];
 
 fn add_columns(db: &Connection) -> Result<()> {
@@ -350,7 +358,9 @@ fn nudger() -> &'static Mutex<Option<Sender<()>>> {
 }
 
 /// Reads every account's records after `delay`, then what's new every minute or when nudged.
-pub fn spawn(delay: Duration) {
+/// `project_of` says the project of a session on the board by its key, for which decision model
+/// may read its prompts (stance.rs `pass`).
+pub fn spawn(delay: Duration, project_of: impl Fn(&str) -> Option<String> + Send + 'static) {
     let (tx, rx) = channel::<()>();
     *nudger().lock().unwrap_or_else(|e| e.into_inner()) = Some(tx);
     FILLING.store(!path().exists(), Ordering::Relaxed);
@@ -386,10 +396,10 @@ pub fn spawn(delay: Duration) {
             if caught.read > 0 {
                 crate::perf::log(&format!("token ledger: read {} MB in {:?}", caught.read / (1024 * 1024), t.elapsed()));
             }
-            // Last, and after the numbers are said to be caught up: a read asks TypeSafe, a few
-            // prompts at a time, and takes as long as it answers.
+            // Last, and after the numbers are said to be caught up: a read asks a decision model,
+            // a few prompts at a time, and takes as long as it answers.
             if analytics {
-                crate::stance::pass(&db);
+                crate::stance::pass(&db, &project_of);
             }
             match rx.recv_timeout(Duration::from_secs(60)) {
                 Ok(()) | Err(std::sync::mpsc::RecvTimeoutError::Timeout) => {}
@@ -1174,20 +1184,20 @@ pub fn session_in(db: &Connection, cfg: &crate::config::Config, key: &str) -> Re
     Ok(SessionSpent { total, models })
 }
 
-// ---- Jev ----
+// ---- Decision models ----
 
-/// One request to Jev: when, what asked it (`jev::Feature::name`), the model that answered and
-/// its tokens.
+/// One request to a decision model: when, what asked it (`jev::Feature::name`), the provider
+/// and model that answered, and its tokens.
 #[derive(Debug, Clone, Default, PartialEq)]
 pub struct JevUse {
     pub at: i64,
     pub feature: String,
+    pub provider: String,
     pub model: String,
-    pub input: u64,
-    pub output: u64,
+    pub tokens: crate::decisions::Tokens,
 }
 
-/// Keeps a request to Jev. A thread of its own writes it, on a connection of its own, so an
+/// Keeps a request to a decision model. A thread of its own writes it, on a connection of its own, so an
 /// answer never waits on the ledger: the quick panel's suggestions wait on theirs, and the read
 /// of every account's records holds the ledger's writes a file at a time. A process that ends
 /// right after asking (a snapshot) may end before its row is written.
@@ -1220,7 +1230,7 @@ fn keep_jev(db: &mut Option<Connection>, u: &JevUse, open: impl FnOnce() -> Resu
         }
         Err(e) => Err(e),
     };
-    kept.err().map(|e| format!("Codealong couldn't keep a request to Jev in the token ledger, so Settings › Jev leaves it out: {e:#}"))
+    kept.err().map(|e| format!("Codealong couldn't keep a request to a decision model in the token ledger, so Settings › Decisions leaves it out: {e:#}"))
 }
 
 fn jev_problem_slot() -> &'static Mutex<Option<String>> {
@@ -1234,12 +1244,16 @@ pub fn jev_problem() -> Option<String> {
 }
 
 fn put_jev(db: &Connection, u: &JevUse) -> Result<()> {
-    db.execute("INSERT INTO jev (at, feature, model, input, output) VALUES (?1, ?2, ?3, ?4, ?5)", params![u.at, u.feature, u.model, u.input as i64, u.output as i64])?;
+    let t = &u.tokens;
+    db.execute(
+        "INSERT INTO jev (at, feature, provider, model, input, output, cached, cache_write) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
+        params![u.at, u.feature, u.provider, u.model, t.input as i64, t.output as i64, t.cached as i64, t.cache_write as i64],
+    )?;
     Ok(())
 }
 
-/// What Jev's requests for one feature used on a day: their input tokens, which are all
-/// TypeSafe charges for, and what those cost.
+/// What decision models' requests for one feature, or on one model, used on a day: their input
+/// tokens, which are what the providers charge for, and what those cost at each one's prices.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct JevUsed {
@@ -1248,15 +1262,26 @@ pub struct JevUsed {
     pub cost: f64,
 }
 
+impl JevUsed {
+    fn add(&mut self, requests: u64, tokens: u64, cost: f64) {
+        self.requests += requests;
+        self.tokens += tokens;
+        self.cost += cost;
+    }
+}
+
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct JevDay {
     pub day: String,
     /// By the feature that asked (`jev::Feature::name`); one that asked nothing that day isn't here.
     pub features: BTreeMap<String, JevUsed>,
+    /// By the model that answered, as `<provider>:<model>` (`typesafe:jev-1.14.0`).
+    #[serde(default)]
+    pub models: BTreeMap<String, JevUsed>,
 }
 
-/// What Jev's requests used, for Settings › Jev.
+/// What decision models' requests used, for Settings › Decisions.
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct JevReport {
@@ -1266,7 +1291,7 @@ pub struct JevReport {
     pub since: Option<i64>,
 }
 
-/// What Jev's requests used each of the last `days` days, today's included.
+/// What decision models' requests used each of the last `days` days, today's included.
 pub fn jev_report(days: u32) -> Result<JevReport> {
     with_db(|db| jev_report_in(db, days, now_ms()))
 }
@@ -1275,16 +1300,25 @@ pub fn jev_report_in(db: &Connection, days: u32, now: i64) -> Result<JevReport> 
     let dates = day_range(db, days)?;
     // A day's requests start at its local midnight, at most a day and a bit before its date in UTC.
     let from = now - (days.max(1) as i64 + 1) * DAY_MS;
-    let mut stmt = db.prepare("SELECT date(at / 1000, 'unixepoch', 'localtime') AS day, feature, count(*), sum(input) FROM jev WHERE at >= ?1 GROUP BY day, feature")?;
-    let rows = stmt.query_map([from], |r| Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?, r.get::<_, i64>(2)? as u64, r.get::<_, i64>(3)? as u64)))?;
-    let mut by_day: BTreeMap<String, BTreeMap<String, JevUsed>> = BTreeMap::new();
+    // Priced by provider, whose prices differ; a row from before providers were kept is TypeSafe's.
+    let mut stmt = db.prepare(
+        "SELECT date(at / 1000, 'unixepoch', 'localtime') AS day, feature, coalesce(provider, 'typesafe') AS p, model, count(*), sum(input), sum(cached), sum(cache_write), sum(output) \
+         FROM jev WHERE at >= ?1 GROUP BY day, feature, p, model",
+    )?;
+    let rows = stmt.query_map([from], |r| {
+        let n = |i: usize| r.get::<_, i64>(i).map(|v| v.max(0) as u64);
+        Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?, r.get::<_, String>(2)?, r.get::<_, String>(3)?, n(4)?, crate::decisions::Tokens { input: n(5)?, cached: n(6)?, cache_write: n(7)?, output: n(8)? }))
+    })?;
+    let mut by_day: BTreeMap<String, JevDay> = BTreeMap::new();
     for row in rows {
-        let (day, feature, requests, tokens) = row?;
-        let cost = tokens as f64 * crate::jev::PRICE / 1_000_000.0;
-        by_day.entry(day).or_default().insert(feature, JevUsed { requests, tokens, cost });
+        let (day, feature, provider, model, requests, tokens) = row?;
+        let cost = crate::decisions::cost(&provider, &tokens);
+        let d = by_day.entry(day).or_default();
+        d.features.entry(feature).or_default().add(requests, tokens.input, cost);
+        d.models.entry(format!("{provider}:{model}")).or_default().add(requests, tokens.input, cost);
     }
     let since = db.query_row("SELECT min(at) FROM jev", [], |r| r.get::<_, Option<i64>>(0))?;
-    let days = dates.into_iter().map(|day| JevDay { features: by_day.remove(&day).unwrap_or_default(), day }).collect();
+    let days = dates.into_iter().map(|day| JevDay { day: day.clone(), ..by_day.remove(&day).unwrap_or_default() }).collect();
     Ok(JevReport { days, since })
 }
 
@@ -1576,10 +1610,10 @@ mod tests {
     }
 
     #[test]
-    fn jevs_requests_are_summed_by_day_and_feature_and_priced_by_their_input() {
+    fn decision_requests_are_summed_by_day_feature_and_model_and_priced_by_their_provider() {
         let db = db();
         let now = now_ms();
-        let jev = |at: i64, feature: &str, input: u64| JevUse { at, feature: feature.into(), model: "jev-1.14.0".into(), input, output: 20 };
+        let jev = |at: i64, feature: &str, input: u64| JevUse { at, feature: feature.into(), provider: "typesafe".into(), model: "jev-1.14.0".into(), tokens: crate::decisions::Tokens { input, output: 20, ..Default::default() } };
         assert_eq!(jev_report_in(&db, 7, now).unwrap().since, None);
         put_jev(&db, &jev(now - 40 * DAY_MS, "sessions", 9_999)).unwrap();
         put_jev(&db, &jev(now - 3 * DAY_MS, "quick_panel", 36_000)).unwrap();
@@ -1592,15 +1626,27 @@ mod tests {
         let sum = |feature: &str| r.days.iter().filter_map(|d| d.features.get(feature)).fold(JevUsed::default(), |a, u| JevUsed { requests: a.requests + u.requests, tokens: a.tokens + u.tokens, cost: a.cost + u.cost });
         let quick = sum("quick_panel");
         assert_eq!((quick.requests, quick.tokens), (2, 70_000));
-        assert!((quick.cost - 70_000.0 * crate::jev::PRICE / 1e6).abs() < 1e-12);
+        assert!((quick.cost - 70_000.0 * 0.042 / 1e6).abs() < 1e-12);
         // The request before the report's days isn't in it, but says since when there are any.
         assert_eq!((sum("sessions").requests, sum("sessions").tokens), (1, 2_500));
         assert_eq!(r.since, Some(now - 40 * DAY_MS));
+        // Another provider's at its own prices, by model as well as by feature; a row from before
+        // providers were kept is TypeSafe's.
+        let luna = JevUse { provider: "openai".into(), model: "gpt-6-luna".into(), tokens: crate::decisions::Tokens { input: 10_000, cached: 4_000, cache_write: 0, output: 30 }, ..jev(now - 1_000, "sessions", 0) };
+        put_jev(&db, &luna).unwrap();
+        db.execute("INSERT INTO jev (at, feature, model, input, output) VALUES (?1, 'todos', 'jev-1.13.0', 1000000, 0)", [now - 1_000]).unwrap();
+        let r = jev_report_in(&db, 7, now).unwrap();
+        let today = r.days.last().unwrap();
+        let luna = &today.models["openai:gpt-6-luna"];
+        assert_eq!((luna.requests, luna.tokens), (1, 10_000));
+        assert!((luna.cost - (6_000.0 * 0.10 + 4_000.0 * 0.01) / 1e6).abs() < 1e-12, "{}", luna.cost);
+        assert!((today.models["typesafe:jev-1.13.0"].cost - 0.042).abs() < 1e-12);
+        assert_eq!((today.features["sessions"].requests, today.features["sessions"].tokens), (2, 12_500));
     }
 
     #[test]
     fn a_ledger_that_wouldnt_open_is_tried_again_with_the_next_request_to_jev() {
-        let u = JevUse { at: now_ms(), feature: "sessions".into(), model: "jev-1.14.0".into(), input: 2_500, output: 20 };
+        let u = JevUse { at: now_ms(), feature: "sessions".into(), provider: "typesafe".into(), model: "jev-1.14.0".into(), tokens: crate::decisions::Tokens { input: 2_500, output: 20, ..Default::default() } };
         let mut open = None;
         let problem = keep_jev(&mut open, &u, || anyhow::bail!("disk full"));
         assert!(problem.is_some_and(|p| p.contains("disk full")), "says why");

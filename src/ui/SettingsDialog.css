@@ -424,9 +424,6 @@
 .ca-jev-feature-sends b {
   font: var(--type-heading-xs);
 }
-.ca-jev-model {
-  justify-self: start;
-}
 
 /* Settings › Projects: a reusable worktree and what it holds, or one that looks reusable and
    its buttons, at the end. */

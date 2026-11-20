@@ -1118,7 +1118,7 @@ export function Quick() {
   const routePrompt = query ? withShots(withAttachments(query, attached)) : '';
   // Not while it's being said: the words change until the key comes up. On General chat a prompt
   // starts a chat, with no worktree for Jev to weigh, so it isn't asked and the start row leads.
-  const routeFor = board?.jev?.quick_panel && !todo && !talking && !chatting && worthRouting(routePrompt) ? `${current}\n${routePrompt}` : null;
+  const routeFor = board?.decisions?.quick_panel && !todo && !talking && !chatting && worthRouting(routePrompt) ? `${current}\n${routePrompt}` : null;
   const [routed, setRouted] = useState<{ for: string; route: Route } | null>(null);
   const [routeError, setRouteError] = useState<{ for: string; message: string } | null>(null);
   useEffect(() => {

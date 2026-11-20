@@ -38,9 +38,12 @@ pub struct Config {
     #[serde(default)]
     pub projects: Vec<ProjectCfg>,
     #[serde(default)]
-    pub jev: JevCfg,
+    pub decisions: DecisionsCfg,
+    /// `[jev]` from before `[decisions]` (`LegacyJev`).
+    #[serde(default, skip_serializing)]
+    pub jev: Option<LegacyJev>,
     /// `[router]` from before `[jev]`: its `enabled` turns the quick panel's suggestions on.
-    /// Read, folded into `jev`, and never written back.
+    /// Read, folded into `decisions`, and never written back.
     #[serde(default, skip_serializing)]
     pub router: Option<LegacyRouter>,
     #[serde(default)]
@@ -89,7 +92,8 @@ impl Default for Config {
             shortcuts: ShortcutsCfg::default(),
             accounts: Vec::new(),
             projects: Vec::new(),
-            jev: JevCfg::default(),
+            decisions: DecisionsCfg::default(),
+            jev: None,
             router: None,
             emblems: EmblemsCfg::default(),
             search: SearchCfg::default(),
@@ -111,14 +115,15 @@ impl Default for Config {
     }
 }
 
-/// What Codealong asks TypeSafe's Jev (jev.rs), feature by feature. Everything is off until you
-/// turn it on; the API key lives in the login keychain, not here.
+/// The decision models Codealong asks narrow questions of (decisions.rs), feature by feature, and
+/// the one a request goes to when nothing chose another for it. Every feature is off until you
+/// turn it on; each provider's API key lives in the login keychain, not here.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-pub struct JevCfg {
-    /// The model every request names: `jev-preview`, TypeSafe's newest release, by default;
-    /// `jev-latest`, its newest stable one; or a version such as `jev-1.14.0`.
-    #[serde(default = "default_jev_model")]
-    pub model: String,
+pub struct DecisionsCfg {
+    /// The model whatever names none goes to: a project without `decisions`, a session outside
+    /// any boundary group. A name from `models` (Jev, `jev`, is always there), or `none`.
+    #[serde(default = "default_decider")]
+    pub default: String,
     /// The quick panel suggests where what you type goes, warns about work already under way and
     /// suggests a model for it.
     #[serde(default)]
@@ -139,28 +144,72 @@ pub struct JevCfg {
     /// analytics` is on.
     #[serde(default)]
     pub prompts: bool,
-    /// `emblems = true` from before `[emblems]`, when Jev gave sessions icons: read, folded into
-    /// `[emblems]` as emoji, and never written back.
-    #[serde(default, skip_serializing)]
-    pub emblems: bool,
+    /// The models a project, a boundary group or `default` can name, `[[decisions.models]]`. Jev
+    /// is there without one, as `jev` on `jev-preview` (`decisions::models`).
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub models: Vec<DecisionModelCfg>,
 }
 
-impl Default for JevCfg {
+impl Default for DecisionsCfg {
     fn default() -> Self {
-        JevCfg { model: default_jev_model(), quick_panel: false, sessions: false, todos: false, pull_requests: false, prompts: false, emblems: false }
+        DecisionsCfg { default: default_decider(), quick_panel: false, sessions: false, todos: false, pull_requests: false, prompts: false, models: Vec::new() }
     }
 }
 
-impl JevCfg {
+impl DecisionsCfg {
     pub fn any(&self) -> bool {
         self.quick_panel || self.sessions || self.todos || self.pull_requests || self.prompts
     }
 }
 
+/// A decision model, `[[decisions.models]]`: a provider's model under a name of your own, which
+/// `[decisions] default`, a project's `decisions` and a boundary group's name it by.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct DecisionModelCfg {
+    pub name: String,
+    /// Who answers: `typesafe`, `openai` or `gemini` (`decisions::PROVIDERS`).
+    pub provider: String,
+    /// The provider's model: `jev-preview`, `gpt-6-luna`, `gemini-decision-1`.
+    pub model: String,
+    /// The model a request goes on to when this one fails for now (rate limited, overloaded,
+    /// unreachable), for what goes by `[decisions] default` only: what a project or boundary
+    /// group chose goes to that model or nowhere.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub fallback: Option<String>,
+}
+
+/// `[decisions] default` unless set: Jev.
+fn default_decider() -> String {
+    "jev".to_string()
+}
+
 /// The alias TypeSafe moves to each release as it comes out; `jev-latest` waits until a release
-/// is called stable (1.14 came out a week before it).
-fn default_jev_model() -> String {
+/// is called stable (1.14 came out a week before it). Jev's model unless `[[decisions.models]]`
+/// names another.
+pub fn default_jev_model() -> String {
     "jev-preview".to_string()
+}
+
+/// `[jev]` from before `[decisions]`: its switches and its model. Read, folded into `decisions`,
+/// and never written back.
+#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq)]
+pub struct LegacyJev {
+    #[serde(default)]
+    pub model: Option<String>,
+    #[serde(default)]
+    pub quick_panel: bool,
+    #[serde(default)]
+    pub sessions: bool,
+    #[serde(default)]
+    pub todos: bool,
+    #[serde(default)]
+    pub pull_requests: bool,
+    #[serde(default)]
+    pub prompts: bool,
+    /// `emblems = true` from before `[emblems]`, when Jev gave sessions icons: folded into
+    /// `[emblems]` as emoji.
+    #[serde(default)]
+    pub emblems: bool,
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq)]
@@ -171,8 +220,9 @@ pub struct LegacyRouter {
     pub model: Option<String>,
 }
 
-/// Settings from config.toml's text, with an old `[router]` folded into `[jev]`, an old
-/// `[jev] emblems` into `[emblems]` and an old `[experimental] glass` into `[appearance]`.
+/// Settings from config.toml's text, with an old `[jev]` or older `[router]` folded into
+/// `[decisions]`, an old `[jev] emblems` into `[emblems]` and an old `[experimental] glass` into
+/// `[appearance]`.
 fn from_text(text: &str) -> std::result::Result<Config, toml::de::Error> {
     let mut cfg: Config = toml::from_str(text)?;
     if let Some(first) = cfg.reviews.reviewers.first().cloned() {
@@ -193,10 +243,19 @@ fn from_text(text: &str) -> std::result::Result<Config, toml::de::Error> {
         }
     }
     cfg.reviews.auto_approve = false;
-    if cfg.jev.emblems && !text.parse::<toml_edit::DocumentMut>().is_ok_and(|d| d.get("emblems").is_some()) {
+    let has_table = |name: &str| text.parse::<toml_edit::DocumentMut>().is_ok_and(|d| d.get(name).is_some());
+    if cfg.jev.as_ref().is_some_and(|j| j.emblems) && !has_table("emblems") {
         cfg.emblems.kind = EmblemKind::Emoji;
     }
-    cfg.jev.emblems = false;
+    // `[jev]` as `[decisions]` with Jev the only model, unless the file has `[decisions]` too,
+    // which then has the say.
+    if let Some(old) = cfg.jev.take().filter(|_| !has_table("decisions")) {
+        let d = &mut cfg.decisions;
+        (d.quick_panel, d.sessions, d.todos, d.pull_requests, d.prompts) = (old.quick_panel, old.sessions, old.todos, old.pull_requests, old.prompts);
+        if let Some(m) = old.model.map(|m| m.trim().to_string()).filter(|m| !m.is_empty() && *m != default_jev_model()) {
+            d.models.push(DecisionModelCfg { name: "jev".into(), provider: "typesafe".into(), model: m, fallback: None });
+        }
+    }
     // As the old file has it, on or off: glass turned off as an experiment stays off now it's on by
     // default.
     if let Ok(doc) = text.parse::<toml_edit::DocumentMut>() {
@@ -207,11 +266,10 @@ fn from_text(text: &str) -> std::result::Result<Config, toml::de::Error> {
     }
     cfg.experimental.glass = false;
     if let Some(old) = cfg.router.take() {
-        let has_jev = text.parse::<toml_edit::DocumentMut>().is_ok_and(|d| d.get("jev").is_some());
-        if !has_jev {
-            cfg.jev.quick_panel = old.enabled;
-            if let Some(m) = old.model.filter(|m| !m.trim().is_empty()) {
-                cfg.jev.model = m;
+        if !has_table("jev") && !has_table("decisions") {
+            cfg.decisions.quick_panel = old.enabled;
+            if let Some(m) = old.model.map(|m| m.trim().to_string()).filter(|m| !m.is_empty() && *m != default_jev_model()) {
+                cfg.decisions.models.push(DecisionModelCfg { name: "jev".into(), provider: "typesafe".into(), model: m, fallback: None });
             }
         }
     }
@@ -1692,6 +1750,10 @@ pub struct ProjectCfg {
     /// schedule's run, a review, a meeting's session. None is `[routing] auto`'s.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub default: Option<String>,
+    /// The decision model that may read what's said in this project (decisions.rs `for_project`):
+    /// a name from `[[decisions.models]]`, or `none`. None is `[decisions] default`'s.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub decisions: Option<String>,
 }
 
 /// The routing group Auto starts from in `project`: the project's `default`, else
@@ -1973,13 +2035,9 @@ pub fn check_routing(cfg: &Config) -> std::result::Result<(), String> {
         if g.boundary && g.members.is_empty() {
             return Err(format!("Routing group {name} is a boundary, so it lists its members: an empty list would let every account in."));
         }
-        if let Some(d) = g.decisions.as_deref() {
-            if !g.boundary {
-                return Err(format!("Routing group {name} names a decision model, which only a boundary group (boundary = true) does."));
-            }
-            if !crate::boundary::DECISION_MODELS.contains(&d) {
-                return Err(format!("Routing group {name}'s decisions is {d:?}; it takes {}.", crate::boundary::DECISION_MODELS.map(|m| format!("{m:?}")).join(" or ")));
-            }
+        // What it names is `check_decisions`'s to say.
+        if g.decisions.is_some() && !g.boundary {
+            return Err(format!("Routing group {name} names a decision model, which only a boundary group (boundary = true) does."));
         }
         if g.boundary {
             for m in &g.members {
@@ -2179,7 +2237,7 @@ fn set_accounts(doc: &mut toml_edit::DocumentMut, accounts: &[AccountCfg]) {
 
 const APPS_COMMENT: &str = "# Where Codealong opens things. terminal: \"ghostty\", \"iterm2\", \"terminal\" or \"rex\". editor: \"vscode\", \"cursor\", \"zed\", \"xcode\" and the others\n# Settings lists, or any app's name. Picking another editor from an Open in menu sets it here.\n# new_terminal: \"window\", \"tab\" (in the front window), or \"project\" (a tab beside the same repo or project).\n# move_pointer: move the pointer to a terminal Codealong brings forward on another screen.\n# close_command_tabs_after: minutes after a command Codealong runs in your terminal ends that its tab\n# closes, unless you pressed Return for a shell there; 0 keeps it open.\n# tmux: when the sessions Codealong starts run in tmux, shown in your terminal: \"always\", \"when-locked\"\n# (only while the screen is locked, when Ghostty can't start a terminal) or \"never\".\n# run_in: where a session's new terminals (⌃`) and the commands you run from it open: \"codealong\", in a\n# terminal of Codealong's own under the session, or \"terminal\", in a tab of your terminal app.\n";
 const APPEARANCE_COMMENT: &str = "# Light or dark. \"system\" follows macOS. The buttons at the foot of the sidebar set this too.\n# zoom: how big the windows draw, in percent, 50 to 200. View › Zoom in and Zoom out (⌘= and ⌘-) set it.\n# glass: the main and the project windows show what's behind them through macOS's glass; on by default.\n# show_keys: keyboard shortcuts show beside what they do; on by default. Off, they show while you hold ⌘ or ⌃.\n";
-const JEV_COMMENT: &str = "# What Codealong asks TypeSafe's Jev, feature by feature (Settings › Jev says what each one sends).\n# The API key is kept in the login keychain; set it in Settings.\n";
+const DECISIONS_COMMENT: &str = "# What Codealong asks a decision model (TypeSafe's Jev unless you add others), feature by feature;\n# Settings › Decisions says what each one sends. default: the model a project or boundary group that\n# names none goes to (`decisions = \"<name>\"` or \"none\" on [[projects]]). Each provider's API key is\n# kept in the login keychain; set it in Settings.\n";
 const EMBLEMS_COMMENT: &str = "# Something to know each session by beside its title (Settings › Appearance): an emoji Jev picks\n# (`kind = \"emoji\"`), or a picture an account draws (`\"drawn\"`), as `prompt` says.\n";
 const SEARCH_COMMENT: &str = "# The quick panel, the main window's filter and `codealong sessions find` search what was said in\n# sessions active in the last `days` days, not just their titles. 0 turns it off; 14, the board's\n# reach, is the most.\n";
 const DEVICES_COMMENT: &str = "# Your other devices: Codealong on each shows the others' sessions and can read and search them.\n# tailscale finds them on your tailnet; iroh reaches devices you link with a code, anywhere.\n# remote_control lets your linked devices send prompts, answer approvals and start sessions here.\n# in_bar shows their sessions in the bar, the notch and Waiting on you too, while they're connected.\n# automations: \"first\" or \"backup\", where this machine stands for what your machines share, so one of them\n# runs it (reviewing a PR that asks for yours): a backup does only when no first choice can.\n";
@@ -2432,6 +2490,72 @@ pub fn check_projects(projects: &[ProjectCfg]) -> std::result::Result<(), String
     Ok(())
 }
 
+/// Why the decision models, and what names them, can't be saved, in words. `jev` is TypeSafe's
+/// whatever else changes, since a boundary group that names no model is Jev's (boundary.rs), and
+/// `none` is no model.
+pub fn check_decisions(cfg: &Config) -> std::result::Result<(), String> {
+    let d = &cfg.decisions;
+    let mut names = std::collections::HashSet::new();
+    for m in &d.models {
+        let name = m.name.trim();
+        if name.is_empty() {
+            return Err("Every [[decisions.models]] entry needs a name.".into());
+        }
+        if name == "none" {
+            return Err("A decision model can't be named \"none\": that's what a project or boundary group says for no model.".into());
+        }
+        if !names.insert(name) {
+            return Err(format!("Two decision models are named {name}."));
+        }
+        if !crate::decisions::PROVIDERS.contains(&m.provider.trim()) {
+            return Err(format!("Decision model {name}'s provider is {:?}; it takes {}.", m.provider, crate::decisions::PROVIDERS.map(|p| format!("{p:?}")).join(", ")));
+        }
+        if name == "jev" && m.provider.trim() != "typesafe" {
+            return Err("The decision model named jev is TypeSafe's (provider = \"typesafe\"): a boundary group that names no model goes to it, so it can't be another provider's.".into());
+        }
+        if m.model.trim().is_empty() {
+            return Err(format!("Decision model {name} names no model; TypeSafe's is \"jev-preview\", OpenAI's \"gpt-6-luna\", Google's \"gemini-decision-1\"."));
+        }
+    }
+    let known = |n: &str| crate::decisions::model_named(cfg, n).is_some();
+    for m in &d.models {
+        let name = m.name.trim();
+        let Some(f) = m.fallback.as_deref().map(str::trim) else { continue };
+        if f == name || f == "none" || !known(f) {
+            return Err(format!("Decision model {name}'s fallback is {f:?}; it takes the name of another of the [[decisions.models]]."));
+        }
+        // Each model's fallbacks, followed, end without coming back to one of them.
+        let mut seen = vec![name.to_string()];
+        let mut at = Some(f.to_string());
+        while let Some(next) = at {
+            if seen.contains(&next) {
+                return Err(format!("Decision model {name}'s fallbacks come back to {next}; a fallback can't lead round to a model before it."));
+            }
+            at = crate::decisions::model_named(cfg, &next).and_then(|x| x.fallback).map(|x| x.trim().to_string());
+            seen.push(next);
+        }
+    }
+    let names_a_model = |what: &str, said: &str| -> std::result::Result<(), String> {
+        let said = said.trim();
+        if said == "none" || known(said) {
+            return Ok(());
+        }
+        Err(format!("{what} is {said:?}; it takes \"none\" or the name of one of the [[decisions.models]] (jev is always there)."))
+    };
+    names_a_model("[decisions] default", &d.default)?;
+    for p in &cfg.projects {
+        if let Some(said) = &p.decisions {
+            names_a_model(&format!("Project {}'s decisions", p.name.trim()), said)?;
+        }
+    }
+    for g in cfg.routing.groups.iter().filter(|g| g.boundary) {
+        if let Some(said) = &g.decisions {
+            names_a_model(&format!("Routing group {}'s decisions", g.name.trim()), said)?;
+        }
+    }
+    Ok(())
+}
+
 /// Why the whole config can't be saved, in words.
 pub fn check(cfg: &Config) -> std::result::Result<(), String> {
     check_accounts(&cfg.accounts)?;
@@ -2444,9 +2568,7 @@ pub fn check(cfg: &Config) -> std::result::Result<(), String> {
     if cfg.search.days > MAX_SEARCH_DAYS {
         return Err(format!("[search] days is {}; the board goes back {MAX_SEARCH_DAYS} days, so that's the most.", cfg.search.days));
     }
-    if cfg.jev.model.trim().is_empty() {
-        return Err("[jev] model is empty; use \"jev-preview\".".into());
-    }
+    check_decisions(cfg)?;
     let reviewer = cfg.reviews.account.trim();
     if !reviewer.is_empty() && !valid_reviewer(cfg, reviewer) {
         return Err(format!("[reviews] account is {reviewer:?}, which isn't one of the [[accounts]] or [[routing.groups]]; use one of them, or \"\" for Auto."));
@@ -2609,24 +2731,25 @@ pub fn with_config(text: &str, cfg: &Config) -> Result<String> {
     }
     set_shortcuts(&mut doc, &cfg.shortcuts, cfg.experimental.voice);
 
-    // Only a file that has the table, or turns something on, gets it: it's opt-in. An old
-    // `[router]` gives way to it.
-    if cfg.jev != JevCfg::default() || doc.get("jev").is_some() || doc.get("router").is_some() {
-        place_jev(&mut doc);
+    // Only a file that has the table, or turns something on, gets it: it's opt-in. An old `[jev]`
+    // or `[router]` gives way to it, in its place.
+    if cfg.decisions != DecisionsCfg::default() || ["decisions", "jev", "router"].iter().any(|t| doc.get(t).is_some()) {
+        place_decisions(&mut doc);
         doc.remove("router");
-        set_value(&mut doc["jev"]["model"], Value::from(cfg.jev.model.trim()));
-        set_value(&mut doc["jev"]["quick_panel"], Value::from(cfg.jev.quick_panel));
-        set_value(&mut doc["jev"]["sessions"], Value::from(cfg.jev.sessions));
-        set_value(&mut doc["jev"]["todos"], Value::from(cfg.jev.todos));
-        set_value(&mut doc["jev"]["pull_requests"], Value::from(cfg.jev.pull_requests));
+        doc.remove("jev");
+        let d = &cfg.decisions;
+        if d.default.trim() != default_decider() || doc["decisions"].get("default").is_some() {
+            set_value(&mut doc["decisions"]["default"], Value::from(d.default.trim()));
+        }
+        set_value(&mut doc["decisions"]["quick_panel"], Value::from(d.quick_panel));
+        set_value(&mut doc["decisions"]["sessions"], Value::from(d.sessions));
+        set_value(&mut doc["decisions"]["todos"], Value::from(d.todos));
+        set_value(&mut doc["decisions"]["pull_requests"], Value::from(d.pull_requests));
         // Its experiment's: only a file that has it or turns it on gets the line.
-        if cfg.jev.prompts || doc["jev"].get("prompts").is_some() {
-            set_value(&mut doc["jev"]["prompts"], Value::from(cfg.jev.prompts));
+        if d.prompts || doc["decisions"].get("prompts").is_some() {
+            set_value(&mut doc["decisions"]["prompts"], Value::from(d.prompts));
         }
-        // Folded into [emblems] as it was read.
-        if let Some(jev) = doc["jev"].as_table_like_mut() {
-            jev.remove("emblems");
-        }
+        set_decision_models(&mut doc, &d.models);
     }
 
     // Like [search], only a file that has the table or turns emblems on gets it.
@@ -2635,7 +2758,7 @@ pub fn with_config(text: &str, cfg: &Config) -> Result<String> {
             let mut t = Table::new();
             t.decor_mut().set_prefix(format!("\n{EMBLEMS_COMMENT}"));
             doc.insert("emblems", Item::Table(t));
-            let after = if doc.get("jev").is_some() { "jev" } else { "shortcuts" };
+            let after = if doc.get("decisions").is_some() { "decisions" } else { "shortcuts" };
             place_after(&mut doc, "emblems", after);
         }
         let e = &cfg.emblems;
@@ -2654,7 +2777,7 @@ pub fn with_config(text: &str, cfg: &Config) -> Result<String> {
             let mut t = Table::new();
             t.decor_mut().set_prefix(format!("\n{SEARCH_COMMENT}"));
             doc.insert("search", Item::Table(t));
-            let after = if doc.get("jev").is_some() { "jev" } else { "shortcuts" };
+            let after = if doc.get("decisions").is_some() { "decisions" } else { "shortcuts" };
             place_after(&mut doc, "search", after);
         }
         set_value(&mut doc["search"]["days"], Value::from(cfg.search.days as i64));
@@ -2666,7 +2789,7 @@ pub fn with_config(text: &str, cfg: &Config) -> Result<String> {
             let mut t = Table::new();
             t.decor_mut().set_prefix(format!("\n{DEVICES_COMMENT}"));
             doc.insert("devices", Item::Table(t));
-            let after = ["search", "jev", "shortcuts"].into_iter().find(|k| doc.get(k).is_some()).unwrap_or("shortcuts");
+            let after = ["search", "decisions", "shortcuts"].into_iter().find(|k| doc.get(k).is_some()).unwrap_or("shortcuts");
             place_after(&mut doc, "devices", after);
         }
         let d = &cfg.devices;
@@ -2694,7 +2817,7 @@ pub fn with_config(text: &str, cfg: &Config) -> Result<String> {
             let mut t = Table::new();
             t.decor_mut().set_prefix(format!("\n{UPDATES_COMMENT}"));
             doc.insert("updates", Item::Table(t));
-            let after = ["devices", "search", "jev", "shortcuts"].into_iter().find(|k| doc.get(k).is_some()).unwrap_or("shortcuts");
+            let after = ["devices", "search", "decisions", "shortcuts"].into_iter().find(|k| doc.get(k).is_some()).unwrap_or("shortcuts");
             place_after(&mut doc, "updates", after);
         }
         set_value(&mut doc["updates"]["check"], Value::from(cfg.updates.check));
@@ -2706,7 +2829,7 @@ pub fn with_config(text: &str, cfg: &Config) -> Result<String> {
             let mut t = Table::new();
             t.decor_mut().set_prefix(format!("\n{LIMITS_COMMENT}"));
             doc.insert("limits", Item::Table(t));
-            let after = ["updates", "devices", "search", "jev", "shortcuts"].into_iter().find(|k| doc.get(k).is_some()).unwrap_or("shortcuts");
+            let after = ["updates", "devices", "search", "decisions", "shortcuts"].into_iter().find(|k| doc.get(k).is_some()).unwrap_or("shortcuts");
             place_after(&mut doc, "limits", after);
         }
         set_value(&mut doc["limits"]["when_hit"], Value::from(cfg.limits.when_hit.as_str()));
@@ -2721,7 +2844,7 @@ pub fn with_config(text: &str, cfg: &Config) -> Result<String> {
             let mut t = Table::new();
             t.decor_mut().set_prefix(format!("\n{SESSIONS_COMMENT}"));
             doc.insert("sessions", Item::Table(t));
-            let after = ["routing", "limits", "updates", "devices", "search", "jev", "shortcuts"].into_iter().find(|k| doc.get(k).is_some()).unwrap_or("shortcuts");
+            let after = ["routing", "limits", "updates", "devices", "search", "decisions", "shortcuts"].into_iter().find(|k| doc.get(k).is_some()).unwrap_or("shortcuts");
             place_after(&mut doc, "sessions", after);
         }
         set_value(&mut doc["sessions"]["block_flagged_sessions"], Value::from(cfg.sessions.block_flagged_sessions));
@@ -2747,7 +2870,7 @@ pub fn with_config(text: &str, cfg: &Config) -> Result<String> {
             let mut t = Table::new();
             t.decor_mut().set_prefix(format!("\n{REVIEWS_COMMENT}"));
             doc.insert("reviews", Item::Table(t));
-            let after = ["sessions", "routing", "limits", "updates", "devices", "search", "jev", "shortcuts"].into_iter().find(|k| doc.get(k).is_some()).unwrap_or("shortcuts");
+            let after = ["sessions", "routing", "limits", "updates", "devices", "search", "decisions", "shortcuts"].into_iter().find(|k| doc.get(k).is_some()).unwrap_or("shortcuts");
             place_after(&mut doc, "reviews", after);
         }
         set_value(&mut doc["reviews"]["auto"], Value::from(cfg.reviews.auto));
@@ -2815,7 +2938,7 @@ pub fn with_config(text: &str, cfg: &Config) -> Result<String> {
             let mut t = Table::new();
             t.decor_mut().set_prefix(format!("\n{PULL_REQUESTS_COMMENT}"));
             doc.insert("pull_requests", Item::Table(t));
-            let after = ["reviews", "sessions", "routing", "limits", "updates", "devices", "search", "jev", "shortcuts"].into_iter().find(|k| doc.get(k).is_some()).unwrap_or("shortcuts");
+            let after = ["reviews", "sessions", "routing", "limits", "updates", "devices", "search", "decisions", "shortcuts"].into_iter().find(|k| doc.get(k).is_some()).unwrap_or("shortcuts");
             place_after(&mut doc, "pull_requests", after);
         }
         set_value(&mut doc["pull_requests"]["nudge_by_default"], Value::from(cfg.pull_requests.nudge_by_default));
@@ -2830,7 +2953,7 @@ pub fn with_config(text: &str, cfg: &Config) -> Result<String> {
             let mut t = Table::new();
             t.decor_mut().set_prefix(format!("\n{QUEUE_COMMENT}"));
             doc.insert("queue", Item::Table(t));
-            let after = ["pull_requests", "reviews", "sessions", "routing", "limits", "updates", "devices", "search", "jev", "shortcuts"].into_iter().find(|k| doc.get(k).is_some()).unwrap_or("shortcuts");
+            let after = ["pull_requests", "reviews", "sessions", "routing", "limits", "updates", "devices", "search", "decisions", "shortcuts"].into_iter().find(|k| doc.get(k).is_some()).unwrap_or("shortcuts");
             place_after(&mut doc, "queue", after);
         }
         set_value(&mut doc["queue"]["order"], Value::Array(Array::from_iter(cfg.queue.order.iter().map(|k| k.trim()))));
@@ -2843,7 +2966,7 @@ pub fn with_config(text: &str, cfg: &Config) -> Result<String> {
             let mut t = Table::new();
             t.decor_mut().set_prefix(format!("\n{}", sounds_comment()));
             doc.insert("sounds", Item::Table(t));
-            let after = ["queue", "pull_requests", "reviews", "sessions", "routing", "limits", "updates", "devices", "search", "jev", "shortcuts"].into_iter().find(|k| doc.get(k).is_some()).unwrap_or("shortcuts");
+            let after = ["queue", "pull_requests", "reviews", "sessions", "routing", "limits", "updates", "devices", "search", "decisions", "shortcuts"].into_iter().find(|k| doc.get(k).is_some()).unwrap_or("shortcuts");
             place_after(&mut doc, "sounds", after);
         }
         let sounds = &cfg.sounds;
@@ -2860,7 +2983,7 @@ pub fn with_config(text: &str, cfg: &Config) -> Result<String> {
             let mut t = Table::new();
             t.decor_mut().set_prefix(format!("\n{EXPERIMENTAL_COMMENT}"));
             doc.insert("experimental", Item::Table(t));
-            let after = ["sounds", "queue", "pull_requests", "reviews", "sessions", "routing", "limits", "updates", "devices", "search", "jev", "shortcuts"].into_iter().find(|k| doc.get(k).is_some()).unwrap_or("shortcuts");
+            let after = ["sounds", "queue", "pull_requests", "reviews", "sessions", "routing", "limits", "updates", "devices", "search", "decisions", "shortcuts"].into_iter().find(|k| doc.get(k).is_some()).unwrap_or("shortcuts");
             place_after(&mut doc, "experimental", after);
         }
         set_value(&mut doc["experimental"]["boards"], Value::from(cfg.experimental.boards));
@@ -2881,7 +3004,7 @@ pub fn with_config(text: &str, cfg: &Config) -> Result<String> {
             let mut t = Table::new();
             t.decor_mut().set_prefix(format!("\n{VOICE_COMMENT}"));
             doc.insert("voice", Item::Table(t));
-            let after = ["experimental", "sounds", "queue", "pull_requests", "reviews", "sessions", "routing", "limits", "updates", "devices", "search", "jev", "shortcuts"].into_iter().find(|k| doc.get(k).is_some()).unwrap_or("shortcuts");
+            let after = ["experimental", "sounds", "queue", "pull_requests", "reviews", "sessions", "routing", "limits", "updates", "devices", "search", "decisions", "shortcuts"].into_iter().find(|k| doc.get(k).is_some()).unwrap_or("shortcuts");
             place_after(&mut doc, "voice", after);
         }
         set_value(&mut doc["voice"]["locale"], Value::from(cfg.voice.locale.trim()));
@@ -2929,6 +3052,9 @@ fn set_projects(doc: &mut toml_edit::DocumentMut, projects: &[ProjectCfg]) {
             if let Some(d) = p.default.as_deref().map(str::trim).filter(|d| !d.is_empty()) {
                 t["default"] = Item::Value(Value::from(d));
             }
+            if let Some(d) = p.decisions.as_deref().map(str::trim).filter(|d| !d.is_empty()) {
+                t["decisions"] = Item::Value(Value::from(d));
+            }
             t
         })
         .collect();
@@ -2962,7 +3088,7 @@ pub fn with_folder(text: &str, folder: &str, project: Option<&str>) -> Result<(S
     match cfg.projects.iter_mut().find(|p| p.name.trim() == name) {
         Some(p) => p.folders.push(folder.to_string()),
         None if project.is_some() => return Err(anyhow!("There's no project named {name} any more.")),
-        None => cfg.projects.push(ProjectCfg { name: name.clone(), repos: Vec::new(), folders: vec![folder.to_string()], chrome_profile: None, default: None }),
+        None => cfg.projects.push(ProjectCfg { name: name.clone(), repos: Vec::new(), folders: vec![folder.to_string()], chrome_profile: None, default: None, decisions: None }),
     }
     check_projects(&cfg.projects).map_err(anyhow::Error::msg)?;
     let mut doc: toml_edit::DocumentMut = text.parse().context("config.toml has an error; fix it before adding a folder")?;
@@ -2979,7 +3105,7 @@ fn set_routing(doc: &mut toml_edit::DocumentMut, routing: &RoutingCfg) {
         let mut t = Table::new();
         t.decor_mut().set_prefix(format!("\n{ROUTING_COMMENT}"));
         doc.insert("routing", Item::Table(t));
-        let after = ["limits", "updates", "devices", "search", "jev", "shortcuts"].into_iter().find(|k| doc.get(k).is_some()).unwrap_or("shortcuts");
+        let after = ["limits", "updates", "devices", "search", "decisions", "shortcuts"].into_iter().find(|k| doc.get(k).is_some()).unwrap_or("shortcuts");
         place_after(doc, "routing", after);
     }
     set_value(&mut doc["routing"]["auto"], Value::from(routing.auto.trim()));
@@ -3033,16 +3159,42 @@ fn set_routing(doc: &mut toml_edit::DocumentMut, routing: &RoutingCfg) {
     }
 }
 
-/// Adds `[jev]` with its comment when the file has none, after `[shortcuts]`.
-fn place_jev(doc: &mut toml_edit::DocumentMut) {
+/// Adds `[decisions]` with its comment when the file has none: where an old `[jev]` or
+/// `[router]` is, which it takes the place of, else after `[shortcuts]`.
+fn place_decisions(doc: &mut toml_edit::DocumentMut) {
     use toml_edit::{Item, Table};
-    if doc.get("jev").is_some_and(Item::is_table_like) {
+    if doc.get("decisions").is_some_and(Item::is_table_like) {
         return;
     }
     let mut t = Table::new();
-    t.decor_mut().set_prefix(format!("\n{JEV_COMMENT}"));
-    doc.insert("jev", Item::Table(t));
-    place_after(doc, "jev", "shortcuts");
+    t.decor_mut().set_prefix(format!("\n{DECISIONS_COMMENT}"));
+    doc.insert("decisions", Item::Table(t));
+    let after = ["jev", "router"].into_iter().find(|k| doc.get(k).is_some()).unwrap_or("shortcuts");
+    place_after(doc, "decisions", after);
+}
+
+/// Sets `[[decisions.models]]` to `models`, or takes them out for none.
+fn set_decision_models(doc: &mut toml_edit::DocumentMut, models: &[DecisionModelCfg]) {
+    use toml_edit::{ArrayOfTables, Item, Table, Value};
+    if models.is_empty() {
+        if let Some(t) = doc["decisions"].as_table_like_mut() {
+            t.remove("models");
+        }
+        return;
+    }
+    let mut tables = ArrayOfTables::new();
+    for m in models {
+        let mut t = Table::new();
+        t.decor_mut().set_prefix("\n");
+        t["name"] = Item::Value(Value::from(m.name.trim()));
+        t["provider"] = Item::Value(Value::from(m.provider.trim()));
+        t["model"] = Item::Value(Value::from(m.model.trim()));
+        if let Some(f) = m.fallback.as_deref().map(str::trim).filter(|f| !f.is_empty()) {
+            t["fallback"] = Item::Value(Value::from(f));
+        }
+        tables.push(t);
+    }
+    doc["decisions"]["models"] = Item::ArrayOfTables(tables);
 }
 
 /// Sets a value and keeps the comments and spacing around the old one.
@@ -3210,6 +3362,7 @@ pub fn suggest_projects(owners: &BTreeMap<String, usize>, display_name: impl Fn(
             folders: vec![],
             chrome_profile: None,
             default: None,
+            decisions: None,
         })
         .collect()
 }
@@ -3271,17 +3424,26 @@ pub fn render(cfg: &Config) -> String {
         s.push_str(&format!("talk_orchestrator = {}\n", q(&cfg.shortcuts.talk_orchestrator)));
         s.push_str(&format!("listen = {}\n", q(&cfg.shortcuts.listen)));
     }
-    if cfg.jev != JevCfg::default() {
+    if cfg.decisions != DecisionsCfg::default() {
+        let d = &cfg.decisions;
         s.push('\n');
-        s.push_str(JEV_COMMENT);
-        s.push_str("[jev]\n");
-        s.push_str(&format!("model = {}\n", q(&cfg.jev.model)));
-        s.push_str(&format!("quick_panel = {}\n", cfg.jev.quick_panel));
-        s.push_str(&format!("sessions = {}\n", cfg.jev.sessions));
-        s.push_str(&format!("todos = {}\n", cfg.jev.todos));
-        s.push_str(&format!("pull_requests = {}\n", cfg.jev.pull_requests));
-        if cfg.jev.prompts {
+        s.push_str(DECISIONS_COMMENT);
+        s.push_str("[decisions]\n");
+        if d.default.trim() != default_decider() {
+            s.push_str(&format!("default = {}\n", q(d.default.trim())));
+        }
+        s.push_str(&format!("quick_panel = {}\n", d.quick_panel));
+        s.push_str(&format!("sessions = {}\n", d.sessions));
+        s.push_str(&format!("todos = {}\n", d.todos));
+        s.push_str(&format!("pull_requests = {}\n", d.pull_requests));
+        if d.prompts {
             s.push_str("prompts = true\n");
+        }
+        for m in &d.models {
+            s.push_str(&format!("\n[[decisions.models]]\nname = {}\nprovider = {}\nmodel = {}\n", q(m.name.trim()), q(m.provider.trim()), q(m.model.trim())));
+            if let Some(f) = m.fallback.as_deref().map(str::trim).filter(|f| !f.is_empty()) {
+                s.push_str(&format!("fallback = {}\n", q(f)));
+            }
         }
     }
     if cfg.emblems != EmblemsCfg::default() {
@@ -3492,6 +3654,9 @@ pub fn render(cfg: &Config) -> String {
         if let Some(d) = &p.default {
             s.push_str(&format!("default = {}\n", q(d)));
         }
+        if let Some(d) = &p.decisions {
+            s.push_str(&format!("decisions = {}\n", q(d)));
+        }
     }
     if !cfg.repos.is_empty() {
         let mut repos = toml_edit::DocumentMut::new();
@@ -3553,8 +3718,21 @@ mod tests {
                 folders: vec!["~/projects/sparkhq/vault".into()],
                 chrome_profile: Some("Work".into()),
                 default: Some("authorized".into()),
+                decisions: Some("luna".into()),
             }],
-            jev: JevCfg { model: "jev-1.13.0".into(), quick_panel: true, sessions: false, todos: true, pull_requests: false, prompts: false, emblems: false },
+            decisions: DecisionsCfg {
+                default: "jev".into(),
+                quick_panel: true,
+                sessions: false,
+                todos: true,
+                pull_requests: false,
+                prompts: false,
+                models: vec![
+                    DecisionModelCfg { name: "jev".into(), provider: "typesafe".into(), model: "jev-1.13.0".into(), fallback: None },
+                    DecisionModelCfg { name: "luna".into(), provider: "openai".into(), model: "gpt-6-luna".into(), fallback: Some("jev".into()) },
+                ],
+            },
+            jev: None,
             router: None,
             emblems: EmblemsCfg { kind: EmblemKind::Emoji, account: String::new(), prompt: "Pixel art, 16 by 16.".into() },
             search: SearchCfg { days: 7 },
@@ -3598,7 +3776,7 @@ mod tests {
     fn saving_accounts_keeps_the_rest_of_the_file() {
         let text = render(&Config {
             accounts: vec![AccountCfg { name: "claude".into(), harness: "claude".into(), home: "~/.claude".into(), command: Some("claude".into()), start: None, acp: None, monthly: None, per_token: false, usage_cap: None, disabled: false, chrome_profile: None }],
-            projects: vec![ProjectCfg { name: "Spruce".into(), repos: vec!["github.com/sprucehq/*".into()], folders: vec![], chrome_profile: None, default: None }],
+            projects: vec![ProjectCfg { name: "Spruce".into(), repos: vec!["github.com/sprucehq/*".into()], folders: vec![], chrome_profile: None, default: None, decisions: None }],
             ..Config::default()
         });
         let text = text.replace("[apps]\n", "[apps]\n# my editor of choice\n");
@@ -3656,7 +3834,7 @@ mod tests {
         // A file written before there was a theme: no [appearance] table.
         let text = render(&Config {
             accounts: vec![AccountCfg { name: "claude".into(), harness: "claude".into(), home: "~/.claude".into(), command: Some("claude".into()), start: None, acp: None, monthly: None, per_token: false, usage_cap: None, disabled: false, chrome_profile: None }],
-            projects: vec![ProjectCfg { name: "Spruce".into(), repos: vec!["github.com/sprucehq/*".into()], folders: vec![], chrome_profile: None, default: None }],
+            projects: vec![ProjectCfg { name: "Spruce".into(), repos: vec!["github.com/sprucehq/*".into()], folders: vec![], chrome_profile: None, default: None, decisions: None }],
             ..Config::default()
         });
         let start = text.find(APPEARANCE_COMMENT).unwrap();
@@ -3912,10 +4090,11 @@ mod tests {
                 AccountCfg { name: "codex".into(), harness: "codex".into(), home: "~/.codex".into(), command: None, start: None, acp: None, monthly: None, per_token: false, usage_cap: None, disabled: false, chrome_profile: None },
             ],
             projects: vec![
-                ProjectCfg { name: "Spruce".into(), repos: vec!["github.com/sprucehq/*".into()], folders: vec!["~/projects/sparkhq/vault".into()], chrome_profile: None, default: None },
-                ProjectCfg { name: "Spur".into(), repos: vec!["github.com/spurhq/*".into()], folders: vec![], chrome_profile: None, default: None },
+                ProjectCfg { name: "Spruce".into(), repos: vec!["github.com/sprucehq/*".into()], folders: vec!["~/projects/sparkhq/vault".into()], chrome_profile: None, default: None, decisions: None },
+                ProjectCfg { name: "Spur".into(), repos: vec!["github.com/spurhq/*".into()], folders: vec![], chrome_profile: None, default: None, decisions: None },
             ],
-            jev: JevCfg::default(),
+            decisions: DecisionsCfg::default(),
+            jev: None,
             router: None,
             emblems: EmblemsCfg::default(),
             search: SearchCfg::default(),
@@ -4759,21 +4938,107 @@ mod tests {
     }
 
     #[test]
-    fn jev_is_added_after_the_shortcuts_only_once_something_is_on() {
+    fn decisions_are_added_after_the_shortcuts_only_once_something_is_on() {
         let text = render(&full());
-        assert!(!text.contains("[jev]"), "{text}");
-        assert!(!with_config(&text, &full()).unwrap().contains("[jev]"));
+        assert!(!text.contains("[decisions]"), "{text}");
+        assert!(!with_config(&text, &full()).unwrap().contains("[decisions]"));
         let mut on = full();
-        on.jev.sessions = true;
+        on.decisions.sessions = true;
         let out = with_config(&text, &on).unwrap();
         let shortcuts = out.find("[shortcuts]").unwrap();
-        let jev = out
-            .find(&format!("{JEV_COMMENT}[jev]\nmodel = \"jev-preview\"\nquick_panel = false\nsessions = true\ntodos = false\npull_requests = false\n"))
-            .unwrap_or_else(|| panic!("{out}"));
-        assert!(jev > shortcuts && jev < out.find("[[accounts]]").unwrap(), "{out}");
+        let table = out.find(&format!("{DECISIONS_COMMENT}[decisions]\nquick_panel = false\nsessions = true\ntodos = false\npull_requests = false\n")).unwrap_or_else(|| panic!("{out}"));
+        assert!(table > shortcuts && table < out.find("[[accounts]]").unwrap(), "{out}");
         // Turned off again, the table stays and says so.
         assert!(with_config(&out, &full()).unwrap().contains("sessions = false\n"));
-        assert_eq!(parse(&out).unwrap().jev, on.jev);
+        assert_eq!(parse(&out).unwrap().decisions, on.decisions);
+        // Its models after it, a project's model in its table, and back.
+        on.decisions.default = "none".into();
+        on.decisions.models = vec![DecisionModelCfg { name: "luna".into(), provider: "openai".into(), model: "gpt-6-luna".into(), fallback: Some("jev".into()) }];
+        on.projects[0].decisions = Some("luna".into());
+        let out = with_config(&out, &on).unwrap();
+        // A line the table didn't have goes at its end, as every table's does.
+        assert!(out.contains("pull_requests = false\ndefault = \"none\"\n"), "{out}");
+        assert!(out.contains("[[decisions.models]]\nname = \"luna\"\nprovider = \"openai\"\nmodel = \"gpt-6-luna\"\nfallback = \"jev\"\n"), "{out}");
+        assert!(out.contains("decisions = \"luna\"\n"), "{out}");
+        let back = parse(&out).unwrap();
+        assert_eq!((&back.decisions, &back.projects), (&on.decisions, &on.projects));
+        assert_eq!(parse(&render(&on)).unwrap().decisions, on.decisions);
+        // Taken out again, the models go.
+        on.decisions.models.clear();
+        on.projects[0].decisions = None;
+        on.decisions.default = "jev".into();
+        assert!(!with_config(&out, &on).unwrap().contains("decisions.models"));
+    }
+
+    /// The text of `render(&full())` with `table` put in right after `[shortcuts]`, where an old
+    /// file has `[jev]`.
+    fn after_shortcuts(table: &str) -> String {
+        let text = render(&full());
+        let at = text.find("[shortcuts]").unwrap();
+        let end = at + text[at..].find("\n\n").unwrap() + 1;
+        format!("{}{table}{}", &text[..end], &text[end..])
+    }
+
+    #[test]
+    fn an_old_jev_table_is_read_as_decisions_and_gives_way_to_them_in_its_place() {
+        // As a file from before has it, Jev on its own default model.
+        let old = after_shortcuts("\n# What Codealong asks TypeSafe's Jev.\n[jev]\nmodel = \"jev-preview\"\nquick_panel = true\nsessions = true\ntodos = true\npull_requests = true\nprompts = true\n");
+        let cfg = parse(&old).unwrap();
+        let d = &cfg.decisions;
+        assert!(d.quick_panel && d.sessions && d.todos && d.pull_requests && d.prompts);
+        assert_eq!((d.default.as_str(), d.models.len(), cfg.jev.as_ref()), ("jev", 0, None));
+        assert_eq!(crate::decisions::model_named(&cfg, "jev").map(|m| m.model), Some("jev-preview".to_string()));
+        let out = with_config(&old, &cfg).unwrap();
+        assert!(!out.contains("[jev]") && !out.contains("TypeSafe's Jev.\n"), "{out}");
+        let table = out.find("[decisions]\nquick_panel = true\nsessions = true\ntodos = true\npull_requests = true\nprompts = true\n").unwrap_or_else(|| panic!("{out}"));
+        assert!(table > out.find("[shortcuts]").unwrap() && table < out.find("[[accounts]]").unwrap(), "{out}");
+        assert_eq!(parse(&out).unwrap().decisions, cfg.decisions);
+        // Another model of Jev's is Jev's entry.
+        let pinned = parse(&old.replace("model = \"jev-preview\"", "model = \"jev-1.13.0\"")).unwrap();
+        assert_eq!(pinned.decisions.models, [DecisionModelCfg { name: "jev".into(), provider: "typesafe".into(), model: "jev-1.13.0".into(), fallback: None }]);
+        let out = with_config(&old, &pinned).unwrap();
+        assert!(out.contains("[[decisions.models]]\nname = \"jev\"\nprovider = \"typesafe\"\nmodel = \"jev-1.13.0\"\n"), "{out}");
+        // With [decisions] in the file too, it has the say.
+        let both = format!("{old}\n[decisions]\nsessions = false\n");
+        let cfg = parse(&both).unwrap();
+        assert!(!cfg.decisions.sessions && !cfg.decisions.quick_panel);
+    }
+
+    #[test]
+    fn decision_models_are_checked_with_what_names_them() {
+        let model = |name: &str, provider: &str, fallback: Option<&str>| DecisionModelCfg { name: name.into(), provider: provider.into(), model: "m".into(), fallback: fallback.map(String::from) };
+        let with = |models: Vec<DecisionModelCfg>| {
+            let mut cfg = full();
+            cfg.decisions.models = models;
+            cfg
+        };
+        assert_eq!(check(&with(vec![model("luna", "openai", Some("jev")), model("sol", "gemini", Some("luna"))])), Ok(()));
+        let refused = |cfg: &Config, says: &str| {
+            let e = check(cfg).unwrap_err();
+            assert!(e.contains(says), "{e}");
+        };
+        refused(&with(vec![model("luna", "anthropic", None)]), "provider is \"anthropic\"");
+        refused(&with(vec![model("jev", "openai", None)]), "jev is TypeSafe's");
+        refused(&with(vec![model("none", "openai", None)]), "can't be named \"none\"");
+        refused(&with(vec![model("luna", "openai", None), model("luna", "gemini", None)]), "Two decision models are named luna");
+        refused(&with(vec![model("luna", "openai", Some("sol"))]), "fallback is \"sol\"");
+        refused(&with(vec![model("luna", "openai", Some("luna"))]), "fallback is \"luna\"");
+        refused(&with(vec![model("luna", "openai", Some("sol")), model("sol", "gemini", Some("luna"))]), "come back to luna");
+        refused(&with(vec![DecisionModelCfg { model: " ".into(), ..model("luna", "openai", None) }]), "names no model");
+        let mut cfg = with(vec![model("luna", "openai", None)]);
+        cfg.decisions.default = "sol".into();
+        refused(&cfg, "[decisions] default is \"sol\"");
+        cfg.decisions.default = "none".into();
+        cfg.projects[0].decisions = Some("sol".into());
+        refused(&cfg, "decisions is \"sol\"");
+        cfg.projects[0].decisions = Some("luna".into());
+        assert_eq!(check(&cfg), Ok(()));
+        cfg.routing.groups.push(RoutingGroupCfg { name: "work".into(), members: vec![GroupMemberCfg { account: "claude".into(), ..Default::default() }], boundary: true, decisions: Some("sol".into()), ..Default::default() });
+        refused(&cfg, "Routing group work's decisions is \"sol\"");
+        cfg.routing.groups[0].decisions = Some("luna".into());
+        assert_eq!(check(&cfg), Ok(()));
+        cfg.routing.groups[0].boundary = false;
+        refused(&cfg, "only a boundary group");
     }
 
     #[test]
@@ -4793,7 +5058,7 @@ mod tests {
         // `[jev] emblems = true` from before is emoji, and is written as the table.
         let old = format!("{text}\n[jev]\nmodel = \"jev-preview\"\nemblems = true\n");
         let cfg = parse(&old).unwrap();
-        assert_eq!((cfg.emblems.kind, cfg.jev.emblems), (EmblemKind::Emoji, false));
+        assert_eq!((cfg.emblems.kind, cfg.jev.is_none()), (EmblemKind::Emoji, true));
         let out = with_config(&old, &cfg).unwrap();
         assert!(!out.contains("emblems = true") && out.contains("[emblems]\nkind = \"emoji\"\n"), "{out}");
         // A table of its own wins over the old switch.
@@ -4821,13 +5086,14 @@ mod tests {
     }
 
     #[test]
-    fn an_old_router_table_turns_the_quick_panel_on_and_gives_way_to_jev() {
+    fn an_old_router_table_turns_the_quick_panel_on_and_gives_way_to_decisions() {
         let old = format!("{}\n[router]\nenabled = true\nmodel = \"jev-1.13.0\"\n", render(&full()));
         let cfg = parse(&old).unwrap();
-        assert!(cfg.jev.quick_panel && !cfg.jev.sessions);
-        assert_eq!(cfg.jev.model, "jev-1.13.0");
+        assert!(cfg.decisions.quick_panel && !cfg.decisions.sessions);
+        assert_eq!(crate::decisions::model_named(&cfg, "jev").map(|m| m.model), Some("jev-1.13.0".to_string()));
         let out = with_config(&old, &cfg).unwrap();
-        assert!(!out.contains("[router]") && out.contains("[jev]\nmodel = \"jev-1.13.0\"\nquick_panel = true\n"), "{out}");
+        assert!(!out.contains("[router]") && out.contains("[decisions]\nquick_panel = true\n"), "{out}");
+        assert!(out.contains("[[decisions.models]]\nname = \"jev\"\nprovider = \"typesafe\"\nmodel = \"jev-1.13.0\"\n"), "{out}");
     }
 
     #[test]
@@ -4842,7 +5108,7 @@ mod tests {
         next.accounts.pop();
         next.projects[1].folders.push("~/extra".into());
         next.projects[0].chrome_profile = Some("Work".into());
-        next.projects.push(ProjectCfg { name: "Codealong".into(), repos: vec!["github.com/codealong/*".into()], folders: vec![], chrome_profile: None, default: None });
+        next.projects.push(ProjectCfg { name: "Codealong".into(), repos: vec!["github.com/codealong/*".into()], folders: vec![], chrome_profile: None, default: None, decisions: None });
         let out = with_config(&text, &next).unwrap();
         assert_eq!(toml::from_str::<Config>(&out).unwrap(), next);
         for kept in ["# my editor of choice", "# roots", "# Harness accounts.", "# Projects group repos", APPS_COMMENT, &debug_comment()] {

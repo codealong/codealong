@@ -85,15 +85,24 @@ changed argument is written here in the same change.
   asks about a PR the board lists on an account, as Ask in its card's box does, and prints the
   questions with their answers. **Real:** it spends usage.
 
-## The quick panel and Jev
+## The quick panel and decision models
 
-- `--snapshot --route <text> [--project <name>]`: what Jev suggests in the quick panel for it.
-  **Real:** it asks TypeSafe, a request that's paid for; it needs the key, and `[jev]
-  quick_panel` on.
-- `--snapshot --routes [days]`: how often what you did there was Jev's first suggestion, over the
-  last days (7 unless given), with the times it wasn't (routelog.rs).
-- `--snapshot --jev-usage [days]`: what Settings › Jev says Jev's requests used each of the last
-  days (30 unless given), from the app's ledger.
+`--decider <name>` names a decision model to ask instead (decisions.rs `named`, `trying`): one of
+the `[[decisions.models]]` by name, or any provider's as `<provider>:<model>`
+(`openai:gpt-6-luna`), which needn't be in config.toml. It stands in for every project's and the
+default's, so every project's words go to it but what a boundary group keeps to its own.
+
+- `--snapshot --route <text> [--project <name>] [--decider <name>]`: what the project's decision
+  model suggests in the quick panel for it, or with `--decider` that model, whatever `[decisions]
+  quick_panel` says. **Real:** it asks the provider, a request that's paid for; it needs the key,
+  and without `--decider` `[decisions] quick_panel` on.
+- `--snapshot --routes [days] [--decider <name>] [--most <n>]`: how often what you did there was
+  Jev's first suggestion, over the last days (7 unless given), with the times it wasn't
+  (routelog.rs). With `--decider`, the latest `most` (20 unless given) are asked again of that
+  model on today's board and its likeliest set beside what you did (`routelog::replay`).
+  **Real** then: a paid request each.
+- `--snapshot --jev-usage [days]`: what Settings › Decisions says decision models' requests used
+  each of the last days (30 unless given), by feature and by model, from the app's ledger.
 
 ## A session, read
 
@@ -193,6 +202,7 @@ name one of your own, never the app's ledger.
   session's instead.
 - `--snapshot --analytics [days] [--account <name>] [--into <ledger file>]`: Analytics' Your part
   and Sessions.
-- `--snapshot --stance [how many] --into <ledger file>`: reads the newest prompts that wait on a
-  read in such a ledger (10 unless given) and prints each with what Jev made of it. **Real:** it
-  asks TypeSafe, and keeps each read in that ledger.
+- `--snapshot --stance [how many] --into <ledger file> [--decider <name>]`: reads the newest
+  prompts that wait on a read in such a ledger (10 unless given) and prints each with what the
+  decision model that may read its session made of it, or `--decider`'s (see *The quick panel and
+  decision models*). **Real:** it asks the provider, and keeps each read in that ledger.

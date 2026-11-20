@@ -4,7 +4,7 @@
 
 import type { Mcp, Resets, SignIn, Training, Usage } from './accounts';
 import type { Improve } from './app';
-import type { DevicesCfg, ExperimentalCfg, JevCfg, NewTerminal, NudgeAbout, Profile, QueueCfg, RepoCfg, ReviewsCfg, SessionsCfg, TeamFile, Theme, WhenLimited } from './config';
+import type { DecisionsCfg, DevicesCfg, ExperimentalCfg, NewTerminal, NudgeAbout, Profile, QueueCfg, RepoCfg, ReviewsCfg, SessionsCfg, TeamFile, Theme, WhenLimited } from './config';
 import type { TodoQueue } from './feeds';
 import type { Lane } from './lane';
 import type { PrItem, PrStopped } from './pr';
@@ -185,8 +185,9 @@ export interface Board {
   listenShortcut?: string;
   /** Where a session that improves Codealong goes (improve.ts). Missing on older boards. */
   improve?: Improve;
-  /** What Codealong asks Jev, from `[jev]` in config.toml. Missing on older boards. */
-  jev?: JevCfg;
+  /** What Codealong asks decision models, from `[decisions]` in config.toml. Missing on older
+   *  boards. */
+  decisions?: DecisionsCfg;
   /** The experiments turned on, from `[experimental]` in config.toml. Missing on older boards:
    *  none. */
   experimental?: ExperimentalCfg;

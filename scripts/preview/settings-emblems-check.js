@@ -1,7 +1,7 @@
 // Checks Settings › Appearance's session emblems (`[emblems]`): None, Emoji and Drawn, each saying
-// what it does; Emoji with a box for Jev's key while the keychain has none (the check's has none
-// until one is saved), and under a search that shows it beside Settings › Jev's, a key saved in one
-// shows in the other; Drawn offered with an account that draws (Codex), and once picked, a box for
+// what it does; Emoji with a box for the default model's key (Jev's) while the keychain has none
+// (the check's has none until one is saved), and under a search that shows it beside Settings ›
+// Decisions', a key saved in one shows in the other; Drawn offered with an account that draws (Codex), and once picked, a box for
 // how they're drawn that shows Codealong's own style until you write yours and saves yours as you
 // leave it. config.toml reads back as it was saved, as the engine's would.
 //   scripts/preview.sh sessions '' scripts/preview/settings-emblems-check.js
@@ -11,8 +11,8 @@
   var invoke = window.__TAURI_INTERNALS__.invoke;
   window.__TAURI_INTERNALS__.invoke = function (cmd, args, options) {
     if (cmd === 'save_config') latest = args.config;
-    if (cmd === 'jev_key') return Promise.resolve(jevKey !== '');
-    if (cmd === 'set_jev_key') {
+    if (cmd === 'decision_keys') return Promise.resolve({ typesafe: jevKey !== '' });
+    if (cmd === 'set_decision_key') {
       window.__calls.push([cmd, args]);
       jevKey = args.key.trim();
       return Promise.resolve(null);
@@ -42,27 +42,28 @@
     }
     choice('Emoji').click();
     await until(function () { return latest && latest.emblems && latest.emblems.kind === 'emoji'; }, 5000, 'Emoji saved');
-    await until(function () { return /Jev picks an emoji/.test(named('Session emblems').textContent); }, 5000, 'what Emoji does');
-    check('Emoji says Jev picks one, and needs its key', /needs a TypeSafe key for Jev/.test(named('Session emblems').textContent));
-    // The keychain has no key yet, so its field asks for one here, as Settings › Jev does.
+    await until(function () { return /model picks an emoji/.test(named('Session emblems').textContent); }, 5000, 'what Emoji does');
+    check('Emoji says a decision model picks one, and needs its key', /needs that model’s API key/.test(named('Session emblems').textContent));
+    // The keychain has no key yet, so its field asks for one here, as Settings › Decisions does.
     check('with no key yet, a box for it', !!(named('Jev’s key') && named('Jev’s key').querySelector('input[type="password"]')));
     check('no box for how they’re drawn', !named('How they’re drawn'));
-    // A search that finds both key fields shows General's and Jev's at once: a key saved in one
-    // shows in the other.
+    // A search that finds both key fields shows General's and Decisions' at once: a key saved in
+    // one shows in the other.
     var find = q('.ca-settings-find input');
     type(find, 'TypeSafe');
     var both = await until(function () {
       var here = named('Jev’s key');
-      var jev = named('API key');
+      var jev = named('TypeSafe API key');
       return here && jev && here.querySelector('input[type="password"]') && jev.querySelector('input[type="password"]') && [here, jev];
     }, 5000, 'a search for TypeSafe didn’t show both key fields');
     var keyBox = both[0].querySelector('input[type="password"]');
     keyBox.focus();
     type(keyBox, 'ts-made-up-key');
     key(keyBox, { key: 'Enter' });
-    await until(function () { return calls('set_jev_key').length === 1; }, 5000, 'Return didn’t save the key');
-    await until(function () { return /Saved in the keychain/.test(named('API key').textContent); }, 5000, 'Settings › Jev’s field didn’t hear the key was saved');
-    check('a key saved under Session emblems shows in Settings › Jev’s field too', !named('API key').querySelector('input[type="password"]') && /Saved in the keychain/.test(named('Jev’s key').textContent));
+    await until(function () { return calls('set_decision_key').length === 1; }, 5000, 'Return didn’t save the key');
+    check('the key goes to TypeSafe’s entry', last('set_decision_key').provider === 'typesafe', JSON.stringify(last('set_decision_key')));
+    await until(function () { return /Saved in the keychain/.test(named('TypeSafe API key').textContent); }, 5000, 'Settings › Decisions’ field didn’t hear the key was saved');
+    check('a key saved under Session emblems shows in Settings › Decisions’ field too', !named('TypeSafe API key').querySelector('input[type="password"]') && /Saved in the keychain/.test(named('Jev’s key').textContent));
     type(find, '');
     await until(function () { return named('Session emblems'); }, 5000, 'clearing the search didn’t bring General back');
     if (!draws) {

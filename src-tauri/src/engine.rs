@@ -241,7 +241,8 @@ pub enum Msg {
     /// A session started from todos (one, or several on one prompt): its worktree (none for a
     /// new one), and the session's key when Codealong chose its ID, or the start to wait for.
     TodoStarted { ids: Vec<String>, lane: Option<String>, session: Option<String>, pending: Option<todos::PendingStart> },
-    /// Jev's answer to a question the engine asked (`ask_jev`), by the id it was asked under.
+    /// A decision model's answer to a question the engine asked (`ask_jev`), by the id it was
+    /// asked under.
     JevDone(String, std::result::Result<serde_json::Value, String>),
     /// "Looks done" was wrong for this todo, for now.
     DismissTodoHint(String),
@@ -1574,8 +1575,9 @@ struct Engine {
     loading: bool,
     last_publish: Option<Instant>,
     perf: perf::Counters,
-    /// Questions for Jev go to its own thread (jev.rs); answers come back as `Msg::JevDone`.
-    jev_jobs: Sender<jev::Job>,
+    /// Questions for decision models go to their own thread (decisions.rs); answers come back as
+    /// `Msg::JevDone`.
+    jev_jobs: Sender<crate::decisions::Job>,
     /// Ids asked and not answered yet, so nothing is asked twice at once.
     jev_pending: HashSet<String>,
     /// What Jev was asked about todos and said (todojev.rs), kept in jev-todos.json.
@@ -1621,6 +1623,17 @@ fn with_terminals(mut sessions: Vec<Session>) -> Vec<Session> {
     sessions
 }
 
+/// The decision model that may pick an emblem's emoji (emblems.rs `subject`): a session's
+/// (decisions.rs `of_session`), or a schedule's, by the account it runs on and the project of the
+/// worktree it runs in, as one of its sessions would be.
+fn emblem_decider(cfg: &Config, board: &Board, key: &str) -> Option<crate::decisions::Decider> {
+    if let Some((lane, s)) = board.session(key) {
+        return crate::decisions::of_session(cfg, lane, s);
+    }
+    let i = board.schedules.iter().find(|i| crate::emblems::schedule_key(&i.schedule.id) == key)?;
+    crate::decisions::for_session(cfg, &i.schedule.run.account, crate::schedules::place(&i.schedule, board).map(|l| l.project.as_str()))
+}
+
 impl Engine {
     fn new(emit: Box<dyn Fn(&Board) + Send>, tx: Sender<Msg>, board: Arc<RwLock<Board>>) -> Engine {
         let git_jobs = spawn_git_workers(tx.clone());
@@ -1630,7 +1643,7 @@ impl Engine {
             let _ = back.send(Msg::Github(event));
         }));
         let back = tx.clone();
-        let jev_jobs = jev::worker(move |id, answer| {
+        let jev_jobs = crate::decisions::worker(move |id, answer| {
             let _ = back.send(Msg::JevDone(id, answer));
         });
         let back = Mutex::new(tx.clone());
@@ -1732,16 +1745,17 @@ impl Engine {
         }
     }
 
-    /// Asks Jev in the background for a feature. The answer comes back to `on_jev` under the
-    /// same id; an id already waiting for its answer isn't asked again.
-    fn ask_jev(&mut self, feature: jev::Feature, id: String, body: serde_json::Value) {
-        self.ask_jev_filled(feature, id, body, None);
+    /// Asks a decision model in the background for a feature: `decider`, the one that may read
+    /// what the body says (decisions.rs). The answer comes back to `on_jev` under the same id; an
+    /// id already waiting for its answer isn't asked again.
+    fn ask_jev(&mut self, feature: jev::Feature, decider: crate::decisions::Decider, id: String, body: serde_json::Value) {
+        self.ask_jev_filled(feature, decider, id, body, None);
     }
 
-    /// Asks with a body the worker finishes on its own thread first (`jev::Job::fill`).
-    fn ask_jev_filled(&mut self, feature: jev::Feature, id: String, body: serde_json::Value, fill: Option<Box<dyn FnOnce(&mut serde_json::Value) + Send>>) {
+    /// Asks with a body the worker finishes on its own thread first (`decisions::Job::fill`).
+    fn ask_jev_filled(&mut self, feature: jev::Feature, decider: crate::decisions::Decider, id: String, body: serde_json::Value, fill: Option<Box<dyn FnOnce(&mut serde_json::Value) + Send>>) {
         if self.jev_pending.insert(id.clone()) {
-            let _ = self.jev_jobs.send(jev::Job { id, feature, body, fill });
+            let _ = self.jev_jobs.send(crate::decisions::Job { id, feature, decider, body, fill });
         }
     }
 
@@ -1817,51 +1831,55 @@ impl Engine {
         if self.jev_todos_failed.is_some_and(|t| t.elapsed() < JEV_RETRY) {
             return;
         }
-        let model = self.cfg.jev.model.trim().to_string();
         let now = now_ms();
-        // A boundary group can keep its sessions from Jev (boundary.rs `jev_reads`): a todo they
-        // worked on isn't asked about either.
-        let kept: HashSet<&str> = board.lanes.iter().flat_map(|l| &l.sessions).filter(|s| !crate::boundary::jev_reads(&self.cfg, &s.account)).map(|s| s.key.as_str()).collect();
-        let reads = |s: &Session| !kept.contains(s.key.as_str());
-        let kept_from_jev = |t: &todos::Todo| t.sessions.iter().any(|k| kept.contains(k.as_str()));
-        let asks: Vec<(String, serde_json::Value, Vec<String>)> = todojev::link_candidates(board, &self.todos.todos, &self.jev_todos.asked, now)
+        let cfg = &self.cfg;
+        // Each question goes to the model that may read its subject: a new session's, whose
+        // project's todos it's shown whole only when that model may read them too; a todo's
+        // project's, whose sessions it's shown by their titles when it may not read them
+        // (decisions.rs).
+        let asks: Vec<(String, crate::decisions::Decider, serde_json::Value, Vec<String>)> = todojev::link_candidates(board, &self.todos.todos, &self.jev_todos.asked, now)
             .into_iter()
-            .filter(|(_, s)| reads(s))
-            .map(|(lane, s)| {
-                let (body, ids) = todojev::link_request(&model, board, lane, s, &self.todos.todos);
-                (s.key.clone(), body, ids)
+            .filter_map(|(lane, s)| {
+                let decider = crate::decisions::of_session(cfg, lane, s)?;
+                let todos_said = decider.carries(crate::decisions::for_project(cfg, Some(&lane.project)).as_ref());
+                let (body, ids) = todojev::link_request(decider.model(), board, lane, s, &self.todos.todos, todos_said);
+                Some((s.key.clone(), decider, body, ids))
             })
             .collect();
-        for (key, body, ids) in asks {
-            self.jev_todos.asked.insert(key.clone());
-            self.jev_link_asking.insert(key.clone(), ids);
-            self.ask_jev(jev::Feature::Todos, format!("todolink:{key}"), body);
-        }
-        let done: Vec<(String, todojev::DoneInput)> = self
+        let done: Vec<(String, crate::decisions::Decider, todojev::DoneInput)> = self
             .todos
             .todos
             .iter()
-            .filter(|t| !kept_from_jev(t))
-            .filter_map(|t| todojev::done_input(board, t).map(|i| (t.id.clone(), i)))
+            .filter_map(|t| {
+                let decider = crate::decisions::for_project(cfg, Some(t.project.as_str()).filter(|p| !p.is_empty()))?;
+                let input = todojev::done_input(board, t, |l, s| decider.carries(crate::decisions::of_session(cfg, l, s).as_ref()))?;
+                Some((t.id.clone(), decider, input))
+            })
             // One question per todo at a time; a newer state is asked about once it's answered.
-            .filter(|(id, i)| self.jev_todos.done.get(id).is_none_or(|a| a.sig != i.sig) && !self.jev_done_asking.contains_key(id))
+            .filter(|(id, _, i)| self.jev_todos.done.get(id).is_none_or(|a| a.sig != i.sig) && !self.jev_done_asking.contains_key(id))
             .collect();
-        for (id, input) in done {
+        for (key, decider, body, ids) in asks {
+            self.jev_todos.asked.insert(key.clone());
+            self.jev_link_asking.insert(key.clone(), ids);
+            self.ask_jev(jev::Feature::Todos, decider, format!("todolink:{key}"), body);
+        }
+        for (id, decider, input) in done {
             self.jev_done_asking.insert(id.clone(), (input.sig.clone(), input.why.clone()));
-            self.ask_jev(jev::Feature::Todos, format!("tododone:{id}"), todojev::done_request(&model, &input));
+            let body = todojev::done_request(decider.model(), &input);
+            self.ask_jev(jev::Feature::Todos, decider, format!("tododone:{id}"), body);
         }
     }
 
     /// What to ask Jev about the board just composed: each feature that's on looks for what's
     /// changed since it last asked.
     fn jev_look(&mut self, board: &Board) {
-        if !self.cfg.jev.any() {
+        if !self.cfg.decisions.any() {
             return;
         }
-        if self.cfg.jev.todos {
+        if self.cfg.decisions.todos {
             self.jev_look_todos(board);
         }
-        if self.cfg.jev.sessions {
+        if self.cfg.decisions.sessions {
             self.look_insights(board);
         }
     }
@@ -1895,17 +1913,18 @@ impl Engine {
             })
             .collect();
         let took = self.emblems.inherit(&scheduled, now);
-        // A boundary group's sessions only where what they said may go: to Jev as its group says,
-        // and drawn only by an account inside the group (boundary.rs).
+        // A session's only where what it said may go: to the decision model its project or
+        // boundary group lets read it (decisions.rs), and drawn only by an account inside its
+        // boundary group (boundary.rs).
         let cfg = &self.cfg;
         let drawer = config::drawing_account(cfg).map(|a| a.name.clone()).unwrap_or_default();
         let drawer_qualifies = config::drawing_account(cfg).is_some_and(|a| crate::signin::current(a, now, crate::signin::Ask::Never).qualifies());
-        let may = move |s: &Session| match kind {
-            EmblemKind::Emoji => crate::boundary::jev_reads(cfg, &s.account),
+        let may = move |l: &Lane, s: &Session| match kind {
+            EmblemKind::Emoji => crate::decisions::of_session(cfg, l, s).is_some(),
             _ => crate::boundary::group_of(cfg, &s.account).is_none_or(|g| drawer_qualifies && crate::boundary::stays_inside(cfg, g, &drawer)),
         };
         let may = &may;
-        let sessions = board.lanes.iter().filter(|l| l.device.is_none()).flat_map(move |l| l.sessions.iter().filter(move |s| s.visitor.is_none() && may(s)).map(move |s| (l.project.as_str(), s)));
+        let sessions = board.lanes.iter().filter(|l| l.device.is_none()).flat_map(move |l| l.sessions.iter().filter(move |s| s.visitor.is_none() && may(l, s)).map(move |s| (l.project.as_str(), s)));
         let wanting = self.emblems.look(sessions, kind, now);
         if kind == EmblemKind::Emoji {
             let mut asked = 0;
@@ -1915,7 +1934,9 @@ impl Engine {
                     break;
                 }
                 let Some(subject) = crate::emblems::subject(board, &key).filter(|_| !self.jev_pending.contains(&id)) else { continue };
-                self.ask_jev(jev::Feature::Emblems, id, crate::emblems::emoji_request(subject, &self.cfg.jev.model));
+                let Some(decider) = emblem_decider(&self.cfg, board, &key) else { continue };
+                let body = crate::emblems::emoji_request(subject, decider.model());
+                self.ask_jev(jev::Feature::Emblems, decider, id, body);
                 asked += 1;
             }
         } else if let Some(key) = wanting.into_iter().next().filter(|_| self.emblems.can_draw(now)) {
@@ -1991,21 +2012,20 @@ impl Engine {
         const PER_BOARD: usize = 20;
         let now = now_ms();
         let mut asks = Vec::new();
-        for s in board.lanes.iter().flat_map(|l| &l.sessions).filter(|s| s.visitor.is_none()) {
+        for (lane, s) in board.lanes.iter().flat_map(|l| l.sessions.iter().map(move |s| (l, s))).filter(|(_, s)| s.visitor.is_none()) {
             self.insights.seen(&s.key, now);
-            // A boundary group can keep its sessions from Jev (boundary.rs `jev_reads`).
-            if !crate::boundary::jev_reads(&self.cfg, &s.account) {
-                continue;
-            }
+            // Its project or boundary group can keep a session from every decision model, and
+            // says which one may read it (decisions.rs).
+            let Some(decider) = crate::decisions::of_session(&self.cfg, lane, s) else { continue };
             let Some((kind, signature)) = crate::insights::ask(s, now) else { continue };
             let id = format!("insight:{signature}|{}", s.key);
             if asks.len() < PER_BOARD && self.insights.wants(&s.key, &signature, now) && !self.jev_pending.contains(&id) {
-                let body = crate::insights::request(s, kind, &self.cfg.jev.model, None);
+                let body = crate::insights::request(s, kind, decider.model(), None);
                 // An approval is judged by the whole call, which its harness may take a slow read
                 // to show (OpenCode's over HTTP): read on the worker's thread, never on this one.
                 let fill: Option<Box<dyn FnOnce(&mut serde_json::Value) + Send>> = match kind {
                     crate::insights::Kind::Approval => {
-                        let (s, account, model) = (s.clone(), self.cfg.accounts.iter().find(|a| a.name == s.account).cloned(), self.cfg.jev.model.clone());
+                        let (s, account, model) = (s.clone(), self.cfg.accounts.iter().find(|a| a.name == s.account).cloned(), decider.model().to_string());
                         Some(Box::new(move |body: &mut serde_json::Value| {
                             if let Some(waiting) = Self::waiting_call(&s, account.as_ref()) {
                                 *body = crate::insights::request(&s, crate::insights::Kind::Approval, &model, Some(&waiting));
@@ -2014,11 +2034,11 @@ impl Engine {
                     }
                     _ => None,
                 };
-                asks.push((id, body, fill));
+                asks.push((id, decider, body, fill));
             }
         }
-        for (id, body, fill) in asks {
-            self.ask_jev_filled(jev::Feature::Sessions, id, body, fill);
+        for (id, decider, body, fill) in asks {
+            self.ask_jev_filled(jev::Feature::Sessions, decider, id, body, fill);
         }
         self.insights.save(now);
     }
@@ -2087,7 +2107,7 @@ impl Engine {
 
     fn with_insights(&self, mut sessions: Vec<Session>, now: i64) -> Vec<Session> {
         let tags = tags::current();
-        if !self.cfg.jev.sessions && tags.sessions.is_empty() {
+        if !self.cfg.decisions.sessions && tags.sessions.is_empty() {
             return sessions;
         }
         for s in &mut sessions {
@@ -2095,7 +2115,7 @@ impl Engine {
             // A turn too long ago for its read to stand keeps the time its reply put the work off
             // to, and nothing else of the read (`Store::put_off`).
             let put_off;
-            let (jev, said) = if self.cfg.jev.sessions {
+            let (jev, said) = if self.cfg.decisions.sessions {
                 let asked = crate::insights::ask(s, now);
                 put_off = match asked {
                     Some(_) => None,
@@ -4685,7 +4705,7 @@ fn waiting_call(s: &Session, account: Option<&config::AccountCfg>) -> Option<Str
         let sources: HashSet<PathBuf> = self.codealong_sources.iter().map(|(root, _)| root.clone()).collect();
         crate::improve::mark(&mut board.lanes, &self.lane_checkout, &sources);
         board.improve = crate::improve::Improve { installed: crate::updates::enabled(), ..crate::improve::target(&board.lanes, &self.codealong_sources) };
-        board.jev = self.cfg.jev.clone();
+        board.decisions = self.cfg.decisions.clone();
         board.experimental = self.cfg.experimental.clone();
         board.queue = self.cfg.queue.settled();
         // While `[queue]` leaves reviews out, a PR waiting on your review is no cause for the
@@ -4706,7 +4726,7 @@ fn waiting_call(s: &Session, account: Option<&config::AccountCfg>) -> Option<Str
         board.labels = self.todos.labels.clone();
         // Once the board has the PRs and the todos a session's work is known by.
         board::settle_finished(&mut board.lanes, &board.prs, &board.todos);
-        if self.cfg.jev.todos {
+        if self.cfg.decisions.todos {
             board.todo_hints = self.jev_todos.hints(&board, &self.todos.todos);
         }
         board.machines = self.machines.clone();
@@ -5655,7 +5675,7 @@ mod tests {
         let (tx, _rx) = channel();
         let mut engine = Engine::new(Box::new(|_| {}), tx, Arc::new(RwLock::new(Board::default())));
         engine.cfg.accounts = vec![serde_json::from_value(serde_json::json!({ "name": "kestrel", "harness": "codex", "home": home.to_string_lossy() })).unwrap()];
-        engine.cfg.jev.sessions = true;
+        engine.cfg.decisions.sessions = true;
         let now = now_ms();
         let stuck = Session {
             surface: Surface::App,
@@ -6040,7 +6060,7 @@ mod tests {
         for name in ["stuck", "late", "plain"] {
             git(&main, &["worktree", "add", "-q", &path(name).to_string_lossy(), "-b", name]);
         }
-        let project = crate::config::ProjectCfg { name: "Team".into(), repos: vec!["example.com/team/*".into()], folders: vec![], chrome_profile: None, default: None };
+        let project = crate::config::ProjectCfg { name: "Team".into(), repos: vec!["example.com/team/*".into()], folders: vec![], chrome_profile: None, default: None, decisions: None };
         config::write(&Config { scan: vec!["~/projects".into()], projects: vec![project], ..Config::default() }).unwrap();
 
         let boards: Arc<Mutex<Vec<Board>>> = Arc::default();

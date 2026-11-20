@@ -2825,7 +2825,7 @@ export function App() {
                 dropContext={{ columns: columnsOf(shownBoard), placed: shownBoard.placed, subjects, todos: todoStore.todos, prs: board.prs, now }}
                 canReorder
                 composerColumn={composerColumn}
-                hints={board.jev?.todos ? board.todoHints : undefined}
+                hints={board.decisions?.todos ? board.todoHints : undefined}
                 composer={todoComposer}
               />
             )}
@@ -2864,7 +2864,7 @@ export function App() {
                 onOpenPr={(p) => openUrl(p.url).catch((e: unknown) => setToast(String(e)))}
                 onFilterLabel={(l) => setFacets((f) => onlyPick(f, 'labels', l.id))}
                 onMove={moveTodo}
-                hints={board.jev?.todos ? board.todoHints : undefined}
+                hints={board.decisions?.todos ? board.todoHints : undefined}
                 showDone={showDoneTodos}
                 onToggleDone={() => setShowDoneTodos(!showDoneTodos)}
                 showArchived={showArchivedTodos}

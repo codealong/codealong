@@ -370,7 +370,8 @@ pub fn start() -> Result<Ctx, String> {
     // After the first scan and the first git runs, which have the Mac to themselves.
     search::spawn_warmer(Duration::from_secs(20));
     // The token ledger reads every record once, so it waits for the search index's first read.
-    ledger::spawn(Duration::from_secs(45));
+    let board = ctx.engine.clone();
+    ledger::spawn(Duration::from_secs(45), move |key| board.read(|b| b.session(key).map(|(l, s)| crate::decisions::project_of(l, s).unwrap_or_default().to_string())));
     std::thread::spawn(acp::refresh_adapters);
     Ok(ctx)
 }

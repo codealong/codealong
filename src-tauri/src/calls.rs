@@ -9,13 +9,13 @@
 //! ones left out as `None`, and its answer goes back as the command's would: its `Ok` as JSON,
 //! its `Err` as the words the window shows. `calls!` makes the table from the functions.
 
-use std::collections::HashMap;
+use std::collections::{BTreeMap, HashMap};
 use std::sync::{Arc, Mutex};
 
 use serde_json::Value;
 
 use crate::util::{self, words};
-use crate::{acp, actions, analytics, api, autoreview, boards, config, detect, engine, github, harness, idle, improve, install, jev, ledger, model, newfolder, peers, prasks, prlinks, prmerge, resets, route, routelog, runcode, schedules, search, send, setup, side, skills, stale, start, starting, store, terminals, todojev, todos, training, views, zoom};
+use crate::{acp, actions, analytics, api, autoreview, boards, config, detect, engine, github, harness, idle, improve, install, ledger, model, newfolder, peers, prasks, prlinks, prmerge, resets, route, routelog, runcode, schedules, search, send, setup, side, skills, stale, start, starting, store, terminals, todojev, todos, training, views, zoom};
 
 /// What a call runs with: the server's engine, your other devices, and the automatic reviewer.
 #[derive(Clone)]
@@ -426,22 +426,24 @@ calls! {
         Ok(())
     }
 
-    /// Whether there's a TypeSafe API key, for Settings. Reads no secret.
-    fn jev_key(c) -> Result<bool, String> {
-        Ok(jev::has_key())
+    /// Which decision-model providers have an API key, by provider (`decisions::PROVIDERS`), for
+    /// Settings. Reads no secret.
+    fn decision_keys(c) -> Result<BTreeMap<String, bool>, String> {
+        Ok(crate::decisions::PROVIDERS.iter().map(|p| (p.to_string(), crate::decisions::has_key(p))).collect())
     }
 
-    /// Saves the TypeSafe API key in the keychain, or removes it when it's empty.
-    fn set_jev_key(c, key: String) -> Result<(), String> {
-        if key.trim().is_empty() { jev::delete_key() } else { jev::save_key(&key) }.map_err(words)
+    /// Saves a provider's API key in the keychain, or removes it when it's empty.
+    fn set_decision_key(c, provider: String, key: String) -> Result<(), String> {
+        if key.trim().is_empty() { crate::decisions::delete_key(&provider) } else { crate::decisions::save_key(&provider, &key) }.map_err(words)
     }
 
-    /// One small call to TypeSafe, for Settings' Test button.
-    fn test_jev(c, model: String) -> Result<String, String> {
-        jev::check(model.trim()).map_err(words)
+    /// One small call to a provider's model, for Settings' Test button.
+    fn test_decider(c, provider: String, model: String) -> Result<String, String> {
+        crate::decisions::check(&provider, &model).map_err(words)
     }
 
-    /// What Codealong's requests to Jev used each of the last `days` days, by feature.
+    /// What Codealong's requests to decision models used each of the last `days` days, by
+    /// feature and by model.
     fn jev_usage(c, days: u32) -> Result<ledger::JevReport, String> {
         ledger::jev_report(days).map_err(words)
     }
@@ -462,14 +464,18 @@ calls! {
         c.engine.pr_card(&repo, number).map_err(words)
     }
 
-    /// Which of a PR's comments ask for a change, by comment id, from Jev (prasks.rs). Empty while
-    /// `[jev] pull_requests` is off or there's no key.
-    fn pr_comment_asks(c, title: String, comments: Vec<prasks::CommentIn>) -> Result<HashMap<String, f64>, String> {
+    /// Which of a PR's comments ask for a change, by comment id, from the decision model that may
+    /// read its project (prasks.rs). Empty while `[decisions] pull_requests` is off, while the
+    /// project keeps its text from every model, or with no key for the model.
+    fn pr_comment_asks(c, title: String, project: Option<String>, comments: Vec<prasks::CommentIn>) -> Result<HashMap<String, f64>, String> {
         let cfg = config::current().map_err(words)?;
-        if !cfg.jev.pull_requests || !jev::has_key() {
+        let Some(decider) = crate::decisions::for_project(&cfg, project.as_deref()).filter(|_| cfg.decisions.pull_requests) else {
+            return Ok(Default::default());
+        };
+        if !crate::decisions::has_key(&decider.models[0].provider) {
             return Ok(Default::default());
         }
-        prasks::asks(cfg.jev.model.trim(), &title, &comments).map_err(words)
+        prasks::asks(&decider, &title, &comments).map_err(words)
     }
 
     /// Reviews a PR as you: approves it, comments on it or asks for changes, with `body` as the
@@ -1029,7 +1035,7 @@ mod tests {
         let err = call(&c, "idle_sessions", serde_json::json!({ "archive": false })).unwrap().unwrap_err();
         assert!(err.contains("idle_sessions") && err.contains("afterMs"), "{err}");
         // Arguments it doesn't take, such as the window it came from, are left alone.
-        assert_eq!(call(&c, "jev_key", serde_json::json!({ "windowLabel": "main" })).map(|r| r.is_ok()), Some(true));
+        assert_eq!(call(&c, "decision_keys", serde_json::json!({ "windowLabel": "main" })).map(|r| r.is_ok()), Some(true));
         assert!(call(&c, "no_such_call", serde_json::json!({})).is_none());
     }
 

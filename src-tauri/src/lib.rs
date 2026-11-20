@@ -38,6 +38,7 @@ mod cli;
 mod antigravity;
 mod cursor;
 mod cycle;
+mod decisions;
 mod codex;
 mod opencode;
 mod origins;

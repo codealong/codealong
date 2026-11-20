@@ -154,7 +154,7 @@ export const TIPS: readonly Tip[] = [
   { id: 'queue-order', places: ['board', 'waiting', 'end'], says: says`Settings › Queue chooses whether reviews and due or ready todos wait on you, and the order the notch and waiting window go through them.` },
   { id: 'sounds', places: ['board', 'end'], says: says`Settings › Sounds picks the sound for a session that needs you, a turn that ends and a review asked of you, or None.` },
   // Not `emblems`, the icons on colors these replaced: whoever saw that tip sees these as new.
-  { id: 'emblem-kinds', places: BOARD, says: says`Session emblems, in Settings › Appearance, give each session an emoji Jev picks or a picture Codex draws, so the ones side by side read apart.` },
+  { id: 'emblem-kinds', places: BOARD, says: says`Session emblems, in Settings › Appearance, give each session an emoji a model picks or a picture Codex draws, so the ones side by side read apart.` },
   { id: 'emblem-prompt', places: ['board', 'working'], says: says`Drawn emblems follow a prompt of yours in Settings › Appearance: “Pixel art on a 16 by 16 grid”, say.` },
   { id: 'devices', places: BOARD, says: says`Link your other machines in Settings › Devices, and their sessions show here beside yours.` },
   { id: 'zoom', places: BOARD, says: says`${key('Cmd+=')} and ${key('Cmd+-')} make the windows bigger or smaller, and ${key('Cmd+0')} puts them back.` },

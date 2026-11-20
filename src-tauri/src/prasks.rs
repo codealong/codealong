@@ -1,6 +1,7 @@
 //! Which review comments on a PR ask for something: a change, or an answer before it can merge
-//! (`[jev] pull_requests`). The PR panel shows the comments first and asks here after, so it
-//! never waits on TypeSafe. Every comment is one yes/no question, all in one request, and each
+//! (`[decisions] pull_requests`), asked of the decision model that may read the PR's project
+//! (decisions.rs `for_project`). The PR panel shows the comments first and asks here after, so it
+//! never waits on the model. Every comment is one yes/no question, all in one request, and each
 //! answer is kept by the comment's id and text in `jev-prs.json`, so a PR opened again asks only
 //! about what's new or edited.
 
@@ -94,7 +95,7 @@ pub fn request(model: &str, pr_title: &str, comments: &[&CommentIn]) -> Value {
 
 /// How likely each comment is to ask for something, by comment id. Your own comments and
 /// comments on resolved threads aren't passed in; the panel leaves them out.
-pub fn asks(model: &str, pr_title: &str, comments: &[CommentIn]) -> Result<HashMap<String, f64>> {
+pub fn asks(decider: &crate::decisions::Decider, pr_title: &str, comments: &[CommentIn]) -> Result<HashMap<String, f64>> {
     let mut cache = load();
     let mut out = HashMap::new();
     let mut todo: Vec<&CommentIn> = Vec::new();
@@ -109,7 +110,7 @@ pub fn asks(model: &str, pr_title: &str, comments: &[CommentIn]) -> Result<HashM
     if todo.is_empty() {
         return Ok(out);
     }
-    let answer = jev::ask(jev::Feature::PullRequests, &request(model, pr_title, &todo))?;
+    let answer = crate::decisions::ask(jev::Feature::PullRequests, decider, &request(decider.model(), pr_title, &todo))?;
     let now = crate::util::now_ms();
     for (i, c) in todo.iter().enumerate() {
         if let Some(p) = jev::noul(&answer, &format!("c{}", i + 1)) {

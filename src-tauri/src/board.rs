@@ -678,7 +678,7 @@ pub fn compose(inp: Inputs) -> Board {
         talk_orchestrator_shortcut: String::new(),
         listen_shortcut: String::new(),
         improve: Default::default(),
-        jev: Default::default(),
+        decisions: Default::default(),
         experimental: Default::default(),
         reviews: Default::default(),
         todo_hints: Default::default(),

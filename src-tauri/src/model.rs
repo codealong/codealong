@@ -291,8 +291,8 @@ pub struct Board {
     /// no project yet (improve.rs).
     #[serde(default)]
     pub improve: crate::improve::Improve,
-    /// What Codealong asks Jev, from `[jev]` in config.toml.
-    pub jev: crate::config::JevCfg,
+    /// What Codealong asks decision models, from `[decisions]` in config.toml.
+    pub decisions: crate::config::DecisionsCfg,
     /// `[queue]` from config.toml as the windows go by it (config.rs `QueueCfg::settled`): what
     /// waits on you in the order the queue goes to it, and how many days ahead of its due date a
     /// todo comes due (barfeed.rs `todo_lists`). An older engine's board that doesn't say is read

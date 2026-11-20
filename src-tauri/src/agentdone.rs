@@ -162,7 +162,7 @@ fn due(board: &Board, now: i64) -> Vec<Due> {
         return Vec::new();
     }
     // Without settings that read, a reply is taken to ask something by its question mark alone.
-    let jev = crate::config::current().is_ok_and(|c| c.jev.sessions);
+    let jev = crate::config::current().is_ok_and(|c| c.decisions.sessions);
     w.due(board, now, jev)
 }
 
