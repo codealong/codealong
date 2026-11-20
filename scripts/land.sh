@@ -48,7 +48,12 @@
 #      when what the app runs changed.
 #
 # It lands only what's committed: uncommitted changes here, yours or another session's, stop it
-# before anything is touched. One landing of a branch runs at a time. `--check` runs CI on the
+# before anything is touched. It's for a worktree that's yours alone (CLAUDE.md, *Landing
+# work*). What another session does in the same checkout while this runs is never lost or
+# undone, and never lands as yours; but git has no way to move a branch only if nothing
+# changed since it was looked at, so between two of its commands such a session can be caught
+# up in the last step: a branch it switches the checkout to just then is the one moved onto
+# main. One landing of a branch runs at a time. `--check` runs CI on the
 # commit as it is here, on a branch made for that run and removed after, so a landing under way
 # isn't touched. There is no flag to skip the checks, and none to run them here: `npm test` and
 # `cargo test` are still yours to run while you work.
@@ -161,10 +166,10 @@ plan_of() {
 
 # The files this branch's commits change, into the file `$list`: both names of one that moved
 # (a rename shows only where it went, and the checks its old place called for would be skipped),
-# each as it is with a NUL after it. Fails when git can't say, so that no answer isn't taken for
-# no changes.
+# each as it is with a NUL after it. Against main as `$2` has it, or origin/main. Fails when
+# git can't say, so that no answer isn't taken for no changes.
 changed() {
-  git diff --no-renames --name-only -z "origin/main...${1:-HEAD}" >"$list"
+  git diff --no-renames --name-only -z "${2:-origin/main}...${1:-HEAD}" >"$list"
 }
 
 fetch() { GIT_TERMINAL_PROMPT=0 git fetch -q origin main; }
@@ -332,7 +337,7 @@ pull_request() {
 
 # What the pull request says: the commits, and who reviewed them.
 describe() {
-  git log --reverse --format='- %s' "origin/main..$head"
+  git log --reverse --format='- %s' "$main_at..$head"
   echo
   if [ -n "$reviewed" ]; then
     echo "Reviewed by: $reviewed."
@@ -349,7 +354,7 @@ describe() {
 
 open_pull_request() {
   local title body url
-  title="$(git log --reverse --format=%s "origin/main..$head" | head -1)"
+  title="$(git log --reverse --format=%s "$main_at..$head" | head -1)"
   body="$(mktemp)"
   describe >"$body"
   url="$(gh pr create --base main --head "$branch" --title "$title" --body-file "$body" 2>"$log")" || url=""
@@ -699,28 +704,36 @@ EOF
 # - otherwise by a rebase onto it of what's after `$1`, which is nothing: the branch's commits
 #   aren't written again, or weighed as patches (git would skip one that looks like one of
 #   main's, and write again one that undoes another), they're left behind as landed.
-# Another session can share this checkout, and what it does between one command here and the
-# next is never undone: a commit it makes on the branch is after `$1`, so it's carried onto
-# main (every one, `--reapply-cherry-picks`) and said; a rebase of its own, or files it has
-# changed, stop git from starting, and nothing here aborts or resets. Other branches stay
-# where they are, whatever `rebase.updateRefs` says. Nothing is said to be at origin/main that
-# isn't.
+# What another session does here between one command and the next is never undone. A commit
+# it makes on the branch is after `$1`, so it's carried onto main, every one and a merge as a
+# merge, and said; its uncommitted changes, or a rebase of its own, stop git from starting;
+# and nothing here aborts, resets or stashes. Other branches stay where they are, whatever
+# `rebase.updateRefs` says. Where this checkout stands is read last, after main has been
+# fetched for the last time (by catch-up-main.sh): on its branch, at origin/main as that is by
+# then, with nothing uncommitted, or it isn't said to be at origin/main.
 caught_up() {
-  local here=""
+  local here="" said now
   if ! still_here "$1"; then
     here="This checkout moved or changed while the landing waited, so it's left as it is: it isn't at origin/main."
   elif git merge-base --is-ancestor "$1" "$2"; then
     git merge -q --ff-only "$2" >"$log" 2>&1 || here="This branch couldn't be moved up to origin/main, so it's left as it was: it isn't at origin/main."
-  elif ! git -c rebase.updateRefs=false rebase -q --reapply-cherry-picks --onto "$2" "$1" >"$log" 2>&1; then
+  elif ! git -c rebase.updateRefs=false rebase -q --no-autostash --rebase-merges --reapply-cherry-picks --onto "$2" "$1" >"$log" 2>&1; then
     if [ -d "$(git rev-parse --git-path rebase-merge)" ] || [ -d "$(git rev-parse --git-path rebase-apply)" ]; then
       here="A rebase is under way in this checkout, so it isn't at origin/main: finish it (git rebase --continue) or give it up (git rebase --abort), and look at what's here before landing from it."
     else
       here="This branch couldn't be moved onto origin/main, so it's left as it was: it isn't at origin/main."
     fi
-  elif [ "$(git rev-parse HEAD)" != "$2" ]; then
-    here="This branch has commits origin/main doesn't, made here while this landed (git log origin/main..HEAD): it isn't at origin/main."
   fi
-  echo "$(scripts/catch-up-main.sh)${here:+ $here}"
+  said="$(scripts/catch-up-main.sh)"
+  if [ -z "$here" ]; then
+    now="$(git rev-parse -q --verify origin/main)"
+    # Main moved on while this ran: a fast-forward more, which is all it can take.
+    [ "$(git rev-parse HEAD)" = "$now" ] || git merge -q --ff-only "$now" >/dev/null 2>&1
+    if ! still_here "$now"; then
+      here="This checkout isn't at origin/main ($(short "$now")): it has commits main doesn't, made here while this landed, or it changed meanwhile (git status; git log origin/main..HEAD)."
+    fi
+  fi
+  echo "$said${here:+ $here}"
   [ -z "$here" ]
 }
 
@@ -855,7 +868,7 @@ main() {
   # A landing of this very commit that's already with GitHub (sent with --no-wait, or by a run
   # of this that was stopped or gave up waiting) is taken up where it got to, and nothing is
   # pushed under it.
-  local number wants noted noted_branch why ahead nothing=0 main_at
+  local number wants noted noted_branch why ahead nothing=0
   if [ -f "$sent" ]; then
     read -r number noted since noted_branch <"$sent"
     if [ "$noted" = "$head" ] && [ -n "$number" ] && [ "$noted_branch" = "$branch" ]; then
@@ -920,7 +933,7 @@ main() {
     *-*) die "Some of this branch's commits look to be in origin/main already, as the queue wrote them, under ones that aren't: git rebase --reapply-cherry-picks origin/main, where those come to nothing and drop out, and run scripts/land.sh again." ;;
   esac
 
-  changed "$head" || die "Couldn't list what these commits change, so there's no telling whether they need a review."
+  changed "$head" "$main_at" || die "Couldn't list what these commits change, so there's no telling whether they need a review."
   wants="$(plan_of <"$list")" || die "Couldn't tell what these commits call for (scripts/land.sh --plan)."
   case " $wants " in
     *" code "*)

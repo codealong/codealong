@@ -595,7 +595,7 @@ real="$(command -v git)"
 cat >"$tmp/shim/git" <<GIT
 #!/bin/bash
 for word in "\\$@"; do
-  if [ "\\$word" = rebase ] && [ -f "$tmp/meanwhile" ]; then
+  if [ "\\$word" = "\\$(cat "$tmp/meanwhile" 2>/dev/null)" ]; then
     rm "$tmp/meanwhile"
     echo 'say("a b")' >docs/late.md
     "$real" add docs/late.md
@@ -605,7 +605,7 @@ done
 exec "$real" "\\$@"
 GIT
 step chmod +x "$tmp/shim/git"
-touch "$tmp/meanwhile"
+echo rebase >"$tmp/meanwhile"
 PATH="$tmp/shim:$PATH" scripts/land.sh >"$tmp/out" 2>&1
 echo "a commit made here as it's caught up: $? $(grep -c '^Landed' "$tmp/out") $(grep -c 'A rebase is under way' "$tmp/out")"
 git rebase --abort 2>/dev/null
@@ -631,6 +631,12 @@ echo "merged, by GitHub's word, before main here has it: $? $(grep -c 'still not
 rm "$tmp/unseen"
 step git -C "$tmp/queue" push -q origin main :early
 echo "asked again: $(scripts/land.sh 2>&1 | landed)"
+# Asked once more, with nothing to land, and another session commits here just before the
+# branch is moved up to main: the move has nothing to do and says it went, but the checkout
+# isn't at origin/main, and isn't said to be.
+echo merge >"$tmp/meanwhile"
+PATH="$tmp/shim:$PATH" scripts/land.sh >"$tmp/out" 2>&1
+echo "a commit made here with nothing to land: $(grep -c '^Nothing to land' "$tmp/out") $(grep -c "isn't at origin/main" "$tmp/out"), $(git log --format=%s -1)"
 step cd "$tmp/main"
 scripts/land.sh >"$tmp/out" 2>&1
 echo "from main: $(grep -c 'is on main' "$tmp/out")"
@@ -687,6 +693,7 @@ test('a landing queues its pull request as the commit that was asked for, on a m
     "and is still here: another session's, meanwhile",
     "merged, by GitHub's word, before main here has it: 3 1 untouched",
     'asked again: Landed: <commit> is in origin/main. Fast-forwarded the main checkout to origin/main (<commit>).',
+    "a commit made here with nothing to land: 1 1, another session's, meanwhile",
     'from main: 1',
     'main, at the end: early: one,main: meanwhile,shared: one,main: late,main: the same file,main: ab,half: one,main, on the same lines,docs: four,docs: three,a script, fixed,a script,main moved again,docs: two,main moved,first,',
     'tags on origin: 0',
