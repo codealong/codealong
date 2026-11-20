@@ -211,7 +211,7 @@ const code = (text: string) => rustRead(untested(text), false).replace(/\s+/g, '
 const moduleOf = (file: string) => file.replace(/^(src-tauri\/(?:peer\/)?src\/[^/]+?)(?:\.rs|\/.*)$/, '$1');
 
 /** A harness named: one of the enum's variants, not something of the enum's own
- *  (`Harness::ALL`, `Harness::parse`). */
+ *  (`Harness::from_config`). */
 const NAMED = /\bHarness::[A-Z][a-z]\w*/g;
 
 /** A status set: an assignment to a `status` whose value names a `Status` before its statement
@@ -348,7 +348,7 @@ describe('what the rules are read from', { timeout: 300_000 }, () => {
     const names = (rustFile: string) => code(rustFile).match(NAMED)?.length ?? 0;
     // A harness named, in what runs: not in a comment, a message or a test, nor the enum's own.
     expect(names('if s.harness == Harness::Codex { Session::new(Harness::Claude, a, b) } // Harness::Cursor')).toBe(2);
-    expect(names('log("h == Harness::Claude"); for h in Harness::ALL { Harness::parse(name); }')).toBe(0);
+    expect(names('log("h == Harness::Claude"); let h = Harness::from_config(&account.harness);')).toBe(0);
     expect(names('fn a() {}\n#[cfg(test)]\nmod tests {\n    fn t() { Harness::Claude; }\n}\n')).toBe(0);
     // A status set, however far a comment pushes its value.
     expect(code(`s.status = /* ${'why '.repeat(80)} */ if live { Status::Working } else { Status::Idle }; if s.status == Status::Idle {}`).match(STATUS)?.length).toBe(1);
@@ -384,9 +384,10 @@ describe('the windows', { timeout: 300_000 }, () => {
   });
 
   it('keep a chord in a table, not in the call that matches it', () => {
-    // A chord written into `chordPressed('Cmd+Enter', e)` is in one window only: the menus, the
-    // strip and the other windows don't show it or press it, and platform.test.ts's list of the
-    // chords that must stay apart on Linux doesn't know it.
+    // A chord written into the call that matches it (`chordPressed('Cmd+Enter', e)`) is a copy
+    // of its own. Nothing holds it to the table the menus, the strip and the other windows show
+    // and press that chord from, so the two can drift apart, and a chord that's nowhere else
+    // isn't in platform.test.ts's list of the ones that must stay apart on Linux.
     const allowed: Record<string, number> = {
       'src/history.ts': 2,
       'src/mainKeys.ts': 5,
