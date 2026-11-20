@@ -12,6 +12,8 @@
 //!   `open_link`), over a board read once.
 //! - `engine/trouble.rs`: what goes wrong in the background (`Trouble`), and the board's
 //!   notices.
+//! - `engine/readers.rs`: the harnesses' readers as the engine drives them, and the process
+//!   table they look at.
 //! - `engine/reposcan.rs`: the repo scan: checkouts and their worktrees as seeds for lanes,
 //!   and the reads macOS may hold.
 //! - `engine/gitruns.rs`: git in the worktrees: the workers, the queue, what comes back.
@@ -19,6 +21,11 @@
 //!   (`apply_fs`).
 //! - `engine/records.rs`: what sessions' records show besides the sessions: who worked in a
 //!   worktree nobody runs in, and the PRs, pushes, pages and Chrome tabs.
+//! - `engine/polls.rs`: what's read in the background on a clock of its own: usage, team
+//!   files, the accounts' settings, the terminals of starts.
+//! - `engine/seen.rs`: state.json, what's done to sessions' marks (`on_raise`, `on_label`),
+//!   and the marks forgotten once they're spent.
+//! - `engine/todofile.rs`: todos.json as the engine holds and changes it.
 //! - `engine/jevasks.rs`: what's asked of the decision models, and what's done with their
 //!   answers.
 //! - `engine/emblems.rs`: giving sessions and schedules their emblems.
@@ -38,8 +45,9 @@
 //!
 //! - A subsystem is a struct of its own with `on_*` methods the engine calls, as `GhPoll`
 //!   (ghpoll.rs) is, its rules tested on made-up clocks: not more fields on `Engine` and another
-//!   arm's worth of logic in `run`. This file is far past the length one reading holds
-//!   (src/conventions.test.ts keeps it from growing), so new work goes in a module of its own.
+//!   arm's worth of logic in `run`. src/conventions.test.ts holds this file and each part to
+//!   what one reading holds, so new work goes in a module of its own, or in the part it's
+//!   about.
 //! - Work the engine waits on from another thread goes through `throttle::background`, which
 //!   tells whoever started it that it's over however it ends (with nothing when it fell over or
 //!   never started): the mark set for it is taken off there. A mark that only the work's own
@@ -97,8 +105,6 @@ use crate::attachments;
 use crate::usage;
 use crate::util::{expand, file_name, home, mtime_ms, now_ms, parallel_map, tilde, DAY_MS};
 
-/// How far back sessions are read.
-const WINDOW_MS: i64 = 14 * DAY_MS;
 const PUBLISH_EVERY: Duration = Duration::from_millis(300);
 /// Claude usage is read this often; Codex usage updates with every Codex turn.
 const USAGE_EVERY: Duration = Duration::from_secs(2 * 60);
@@ -448,19 +454,6 @@ pub fn light_snapshot() -> Board {
     e.compose()
 }
 
-/// A read that failed for a reason other than sign-in keeps the last good numbers; its error
-/// says why they aren't fresh and `as_of` says how old they are.
-fn keep_last_good(prev: Option<&Usage>, mut fresh: Usage) -> Usage {
-    if fresh.error.is_some() && !fresh.needs_sign_in {
-        if let Some(prev) = prev.filter(|p| !p.meters.is_empty()) {
-            fresh.meters = prev.meters.clone();
-            fresh.plan = fresh.plan.or_else(|| prev.plan.clone());
-            fresh.as_of = prev.as_of;
-        }
-    }
-    fresh
-}
-
 /// What's done about a fall of the engine's thread: its first scan and its loop run under
 /// `guard::run_guarded`, and a host says what an engine that can't get going comes to with
 /// `when_spent`.
@@ -475,9 +468,13 @@ mod gitruns;
 mod handle;
 mod jevasks;
 mod open;
+mod polls;
+mod readers;
 mod records;
 mod reposcan;
+mod seen;
 mod sessions;
+mod todofile;
 mod trouble;
 mod watch;
 use gitruns::*;
@@ -788,137 +785,6 @@ impl Engine {
         }
     }
 
-    /// Forgets the tags on sessions that have moved on since: something was sent to them since
-    /// they were read, or a turn of theirs started since they were tagged (`tags::moved_on`),
-    /// keeping which for `codealong changes` to say.
-    fn forget_stale_tags(&self, board: &Board) {
-        let store = tags::current();
-        if store.sessions.is_empty() {
-            return;
-        }
-        let stale: Vec<_> = store.sessions.iter().filter_map(|(key, t)| board.session(key).and_then(|(_, s)| tags::moved_on(s, t)).map(|moved| (key.clone(), t.at, moved))).collect();
-        if stale.is_empty() {
-            return;
-        }
-        if let Err(e) = tags::forget(&stale) {
-            eprintln!("Couldn't forget the tags on sessions that moved on: {e:#}");
-        }
-    }
-
-    /// Forgets the marks of seen from sessions' agents whose sessions have moved on since
-    /// (`board::agent_seen_spent`), so the turn a later one ends with is never taken for the one
-    /// its agent marked, whatever its record keeps of how it started.
-    /// Forgets sessions set aside that no longer wait on their side conversation
-    /// (`board::aside_holds`): the board shows them as it shows any, and one asked on the side
-    /// again later isn't set aside unless you set it aside again.
-    fn forget_spent_aside(&mut self, board: &Board) {
-        let spent: Vec<String> = self.seen.aside.iter().filter(|m| board.session(&m.key).is_some_and(|(_, s)| s.aside.is_none())).map(|m| m.key.clone()).collect();
-        if spent.is_empty() {
-            return;
-        }
-        for k in &spent {
-            self.seen.forget_aside(k);
-        }
-        self.save_state();
-    }
-
-    /// Takes away the snoozes of sessions a turn of their own has left waiting on you
-    /// (`board::snooze_called_back`), which the board already shows awake: for good, so that
-    /// once you've answered, the snooze doesn't take the session back off your list, nor bring a
-    /// quiet one's next report back as Your turn when its time comes.
-    fn wake_called_back(&mut self, board: &Board) {
-        let now = now_ms();
-        let called: Vec<String> = self.seen.snoozed.iter().filter(|z| z.until > now && board.session(&z.key).is_some_and(|(_, s)| board::snooze_called_back(s, z.at))).map(|z| z.key.clone()).collect();
-        if called.is_empty() {
-            return;
-        }
-        for k in &called {
-            self.seen.forget_snooze(k);
-        }
-        self.save_state();
-    }
-
-    fn forget_spent_agent_seen(&mut self, board: &Board) {
-        let spent: Vec<String> = self.seen.agent_seen.iter().filter(|m| board.session(&m.key).is_some_and(|(_, s)| board::agent_seen_spent(s, m.seen.at))).map(|m| m.key.clone()).collect();
-        if spent.is_empty() {
-            return;
-        }
-        for k in &spent {
-            self.seen.forget_agent_seen(k);
-        }
-        self.save_state();
-    }
-
-    /// Forgets the replies suggested for sessions that have moved on since: something was sent to
-    /// them since they were read, or a turn of theirs started since they were suggested
-    /// (`suggestions::moved_on`), keeping which for `codealong changes` to say. A turn that
-    /// started and then ended would hold them again by `board::suggestions_hold` alone, so
-    /// they're forgotten as soon as it's seen.
-    fn forget_stale_suggestions(&self, board: &Board) {
-        let store = suggestions::current();
-        if store.sessions.is_empty() {
-            return;
-        }
-        let stale: Vec<_> = store.sessions.iter().filter_map(|(key, g)| board.session(key).and_then(|(_, s)| suggestions::moved_on(s, g)).map(|moved| (key.clone(), g.at, moved))).collect();
-        if stale.is_empty() {
-            return;
-        }
-        if let Err(e) = suggestions::forget(&stale) {
-            eprintln!("Couldn't forget the replies suggested for sessions that moved on: {e:#}");
-        }
-    }
-
-    /// Moves sessions to the top, as `raise` asks (`Msg::Raise`), or back to their places. An
-    /// agent's move either way is turned down, before any is made, where `board::raise_refused`
-    /// says, and one of yours wakes a snooze. True when anything changed.
-    fn on_raise(&mut self, keys: &[String], raised: bool, by: Raised, now: i64) -> Result<bool, String> {
-        if by.agent {
-            let b = self.board.read().map_err(|_| "Codealong couldn't read its board.".to_string())?;
-            for k in keys {
-                let Some((_, s)) = b.session(k) else { return Err("Codealong doesn't list that session.".to_string()) };
-                if let Some(why) = board::raise_refused(s, self.seen.raise_of(k), raised) {
-                    return Err(why);
-                }
-            }
-        }
-        if !raised {
-            return Ok(keys.iter().fold(false, |changed, k| self.seen.lower(k, now, !by.agent) | changed));
-        }
-        for k in keys {
-            if !by.agent {
-                self.seen.wake(k, now);
-            }
-            self.seen.raise(k, Raised { at: now, ..by.clone() });
-        }
-        Ok(!keys.is_empty())
-    }
-
-    /// Puts labels on sessions and takes others off, making a label of each name to put on that's
-    /// none yet. True when that changed the labels or what a session wears.
-    fn on_label(&mut self, keys: &[String], add: &[String], remove: &[String]) -> std::result::Result<bool, String> {
-        let mut made = false;
-        let add = if add.is_empty() {
-            Vec::new()
-        } else {
-            // Under the lock the command takes too, against the file as it is now, as a todo's
-            // change is (`change_todos`).
-            let lanes = self.lane_index();
-            let _lock = self.lock_todos()?;
-            self.reload_todos();
-            if self.todos_unreadable {
-                return Err(self.trouble(Trouble::Todos).cloned().unwrap_or_default());
-            }
-            let (labels, ids) = todos::named(&self.todos.labels, add, now_ms());
-            if labels != self.todos.labels {
-                made = self.todos.apply(TodoOp::Labels { labels }, &lanes, now_ms()).map_err(|e| format!("{e:#}"))?;
-                self.save_todos();
-            }
-            ids
-        };
-        let remove = todos::named_ids(&self.todos.labels, remove);
-        Ok(keys.iter().fold(made, |changed, k| self.seen.label(k, &add, &remove) | changed))
-    }
-
     fn full_scan(&mut self) {
         self.load_config();
         self.load_state();
@@ -963,214 +829,6 @@ impl Engine {
         self.load_previews();
         self.load_reusable();
         self.config_settled = true;
-    }
-
-    /// What a reader goes by as it reads (`harness::Look`), with the processes last listed
-    /// (`processes`), or none before the first scan has: never a `ps` of its own. Borrows only
-    /// what you've seen, so the readers can be changed meanwhile.
-    fn look<'a>(seen: &'a SeenState, processes: &Option<Arc<procs::Listed>>) -> harness::Look<'a> {
-        let now = now_ms();
-        harness::Look { seen, since: now - WINDOW_MS, now, ps: procs::Listing::of(processes.clone().unwrap_or_default()) }
-    }
-
-    /// Takes in what a read came to: the board is to be published again, and the lines sessions
-    /// wrote are checked. True when a session appeared, which may need a lane (`place_sessions`).
-    fn take(&mut self, applied: harness::Applied) -> bool {
-        // Its callers name the reads that asked (`asked`), by harness or account.
-        self.dirty |= applied.dirty;
-        for l in applied.lines {
-            self.check_new_lines(&l.path, l.from, l.to, &l.key);
-        }
-        self.read_found_logs(applied.found);
-        applied.added
-    }
-
-    /// Has each reader ask what only a running service knows (`Reader::poll`).
-    fn poll_readers(&mut self) {
-        for r in &mut self.readers {
-            let t = Instant::now();
-            r.poll(&harness::accounts_of(&self.cfg, r.harness()));
-            perf::took(|| format!("poll {}", r.harness().config()), t.elapsed());
-        }
-    }
-
-    /// Has each reader look at what the watcher never hears of (`Reader::glance`).
-    fn glance_readers(&mut self) {
-        let look = Self::look(&self.seen, &self.processes);
-        let mut all = harness::Applied::default();
-        let mut asked = Vec::new();
-        for r in &mut self.readers {
-            let t = Instant::now();
-            let applied = r.glance(&harness::accounts_of(&self.cfg, r.harness()), &look);
-            perf::took(|| format!("glance {}", r.harness().config()), t.elapsed());
-            if applied.dirty && perf::enabled() {
-                asked.push(format!("glance {}", r.harness().config()));
-            }
-            all.and(applied);
-        }
-        for a in asked {
-            self.asked(|| a);
-        }
-        if self.take(all) {
-            self.place_sessions();
-        }
-    }
-
-    /// Reads usage on a background thread for the accounts whose harness keeps it somewhere slow
-    /// to ask (`Adapter::polls_usage`: Claude Code's endpoint). Usage that comes with the
-    /// sessions is the reader's (`Reader::usage`: Codex's, in its rollouts).
-    fn fetch_usage(&mut self) {
-        if self.usage_inflight {
-            return;
-        }
-        let accounts: Vec<AccountCfg> = self.cfg.accounts.iter().filter(|a| harness::of(a).is_some_and(|h| h.polls_usage(a))).cloned().collect();
-        self.usage_last = Some(Instant::now());
-        if accounts.is_empty() {
-            return;
-        }
-        self.usage_inflight = true;
-        let tx = self.tx.clone();
-        // `on_usage` hears that the read is over however it ends, so usage is read again.
-        throttle::background("codealong-usage", move || usage::read_all(&accounts), move |list| {
-            let _ = tx.send(Msg::UsageDone(list));
-        });
-    }
-
-    /// Reads the team files of the repos checked out here that are due (`TeamFiles::due`), on a
-    /// background thread: from each repo's default branch and the branches its open PRs merge
-    /// into.
-    fn read_team_files(&mut self) {
-        let asks = self.team_file_asks();
-        if asks.is_empty() {
-            return;
-        }
-        let tx = self.tx.clone();
-        // `on_read` hears that the read is over however it ends, so the next one can go.
-        throttle::background("codealong-team-files", move || asks.iter().map(teamfile::read).collect(), move |answers| {
-            let _ = tx.send(Msg::TeamFiles(answers));
-        });
-    }
-
-    /// Reads the data settings of the accounts that are due (`TrainingPoll::due`), on a
-    /// background thread.
-    fn read_training(&mut self) {
-        if self.passing {
-            return;
-        }
-        let asks = self.training.due(&self.cfg.accounts, Instant::now());
-        if asks.is_empty() {
-            return;
-        }
-        let tx = self.tx.clone();
-        // `on_read` hears that the read is over however it ends, so the next one can go.
-        throttle::background("codealong-training", move || training::read_all(&asks), move |list| {
-            let _ = tx.send(Msg::TrainingRead(list));
-        });
-    }
-
-    /// Reads the limit resets of the accounts that are due (`ResetPoll::due`), on a background
-    /// thread.
-    fn read_resets(&mut self) {
-        if self.passing {
-            return;
-        }
-        let asks = self.resets.due(&self.cfg.accounts, Instant::now());
-        if asks.is_empty() {
-            return;
-        }
-        let tx = self.tx.clone();
-        // `on_read` hears that the read is over however it ends, so the next one can go.
-        throttle::background("codealong-resets", move || crate::resets::read_all(&asks), move |list| {
-            let _ = tx.send(Msg::ResetsRead(list));
-        });
-    }
-
-    /// Reads the boundary groups' members' sign-ins when they're due (`SignInPoll::due`), on a
-    /// background thread: the provider is asked only of one whose answer is getting old.
-    fn read_sign_ins(&mut self) {
-        let asks = self.sign_ins.due(&self.cfg, Instant::now());
-        if asks.is_empty() {
-            return;
-        }
-        let tx = self.tx.clone();
-        // `on_read` hears that the read is over however it ends, so the next one can go.
-        throttle::background("codealong-sign-ins", move || asks.iter().map(|a| crate::signin::current(a, now_ms(), crate::signin::Ask::Warm)).collect(), move |list| {
-            let _ = tx.send(Msg::SignInsRead(list));
-        });
-    }
-
-    /// Reads the MCP servers of the accounts that are due (`McpPoll::due`), on a background
-    /// thread.
-    fn read_mcp(&mut self) {
-        if self.passing {
-            return;
-        }
-        let asks = self.mcp.due(&self.cfg.accounts, Instant::now());
-        if asks.is_empty() {
-            return;
-        }
-        let tx = self.tx.clone();
-        // `on_read` hears that the read is over however it ends, so the next one can go.
-        throttle::background("codealong-mcp", move || crate::mcp::read_all(&asks), move |list| {
-            let _ = tx.send(Msg::McpRead(list));
-        });
-    }
-
-    /// Reads the terminals of starts waiting in one for their session that are due
-    /// (`starting::Screens::due`), on a background thread, their processes found in the latest
-    /// listing.
-    fn read_screens(&mut self) {
-        if self.passing {
-            return;
-        }
-        let Some(listed) = self.processes.clone() else { return };
-        let now = now_ms();
-        let waiting = self.board.read().map(|b| origins::waiting_for(&b, now)).unwrap_or_default();
-        let asks = self.screens.due(&waiting, now);
-        if asks.is_empty() {
-            return;
-        }
-        // Every start still waiting in a terminal, which a read asks whether another could claim
-        // the process it finds.
-        let all: Vec<crate::starting::Ask> = waiting.iter().filter(|p| p.terminal).map(crate::starting::Ask::of).collect();
-        let tx = self.tx.clone();
-        // `on_read` hears that the read is over however it ends, so the next one can go.
-        throttle::background("codealong-screens", move || crate::starting::read(&asks, &all, &listed.lines), move |found| {
-            let _ = tx.send(Msg::Screens(found));
-        });
-    }
-
-    /// The team files due to be read now (`TeamFiles::due`), marked under way.
-    fn team_file_asks(&mut self) -> Vec<teamfile::Ask> {
-        let repos: Vec<teamfile::Repo> = self
-            .checkouts
-            .iter()
-            .filter_map(|(_, c)| {
-                let (owner, name) = c.github.clone()?;
-                let default = self.default_branch.get(&c.root).cloned().flatten().and_then(|b| b.strip_prefix("origin/").map(String::from));
-                Some(teamfile::Repo { slug: format!("{owner}/{name}"), root: c.root.clone(), default })
-            })
-            .collect();
-        let open = self.github.prs().iter().chain(self.github.requested()).flat_map(|(slug, prs)| prs.iter().filter(|p| p.state.is_open()).map(move |p| (slug.as_str(), p.base_ref.as_deref())));
-        let bases = teamfile::bases(open);
-        self.team_files.due(&repos, &bases, Instant::now())
-    }
-
-    /// The usage read is over. One that fell over, or never started, read nothing: the numbers
-    /// and the backoff stay as they were, and the next read goes at its usual time.
-    fn on_usage(&mut self, list: Option<Vec<Usage>>) {
-        self.usage_inflight = false;
-        let Some(list) = list else { return };
-        self.usage_backoff = list.iter().any(|u| u.rate_limited);
-        for u in list {
-            let u = keep_last_good(self.usage.get(&u.account), u);
-            self.usage.insert(u.account.clone(), u);
-        }
-        // This engine's tests make their numbers up.
-        if !cfg!(test) {
-            usage::keep(&self.cfg.accounts, &self.usage);
-        }
-        self.mark_dirty("usage");
     }
 
     /// Everything that depends on config.toml, read again. When nothing but the theme, the
@@ -1776,30 +1434,6 @@ impl Engine {
         self.seen.know_accounts(keys)
     }
 
-    fn scan_sessions(&mut self) {
-        let mut look = Self::look(&self.seen, &self.processes);
-        // At launch nothing has listed the processes yet: the first reader that looks lists them,
-        // here, once, and the looks go on with that until the first tick's.
-        if self.processes.is_none() {
-            look.ps = procs::Listing::default();
-        }
-        for r in &mut self.readers {
-            r.scan(&harness::accounts_of(&self.cfg, r.harness()), &look);
-        }
-        if self.processes.is_none() {
-            self.processes = look.ps.made();
-        }
-    }
-
-    fn session_cwds(&self) -> BTreeSet<String> {
-        self.readers.iter().flat_map(|r| r.cwds()).collect()
-    }
-
-    /// Every session's record that's a file of lines, with the session's key (`Reader::logs`).
-    fn session_logs(&self) -> Vec<(PathBuf, String)> {
-        self.readers.iter().flat_map(|r| r.logs()).collect()
-    }
-
     fn load_previews(&mut self) {
         if let Some(store) = self.read_or_warn(Trouble::Previews, previews::load()) {
             self.previews.set = store.previews;
@@ -1903,71 +1537,6 @@ impl Engine {
         perf::took(|| "engine tick".into(), t.elapsed());
     }
 
-    /// Lists the processes for the readers' tick on a thread of its own: `ps` takes seconds at a
-    /// high load, and the engine's thread would wait for it, and every change behind it. Not
-    /// while a listing is on its way.
-    fn list_processes(&mut self) {
-        if self.processes_inflight {
-            return;
-        }
-        self.processes_inflight = true;
-        let tx = self.tx.clone();
-        // `on_processes` hears that the listing is over however it ends, so the next one can go.
-        let work = || {
-            let t = Instant::now();
-            let listed = procs::list(PS_WAIT);
-            perf::took(|| format!("ps for the tick, off the engine's thread ({} processes),", listed.lines.len()), t.elapsed());
-            listed
-        };
-        throttle::background("codealong-ps", work, move |listed| {
-            let _ = tx.send(Msg::Processes(listed));
-        });
-    }
-
-    /// The processes are listed: the readers look at what came or went (`Reader::processes`),
-    /// and Close stale terminals at when each tab was used (`stale::Uses`).
-    /// One listing that fell over lists none, which says nothing: the readers are left as they
-    /// are, and the looks go on with the last that worked.
-    fn on_processes(&mut self, listed: Option<procs::Listed>) {
-        self.processes_inflight = false;
-        let Some(listed) = listed.filter(|l| !l.lines.is_empty()) else { return };
-        if let Some(Ok(mut uses)) = self.terminal_use.as_ref().map(|u| u.lock()) {
-            let now = crate::util::now_ms();
-            if uses.on_look(now, &crate::stale::device_times(&listed.lines)) {
-                uses.save(now);
-            }
-        }
-        self.processes = Some(Arc::new(listed));
-        self.read_with_readers("processes", |r, accounts, look| r.processes(accounts, look));
-    }
-
-    /// The readers' tick: what the watcher doesn't say of the files (one its writer holds open).
-    fn tick_readers(&mut self) {
-        self.read_with_readers("tick", |r, accounts, look| r.tick(accounts, look));
-    }
-
-    /// Has each reader read something (`what`, for the log), and takes in what it came to.
-    fn read_with_readers(&mut self, what: &str, mut read: impl FnMut(&mut Box<dyn harness::Reader>, &[AccountCfg], &harness::Look) -> harness::Applied) {
-        let look = Self::look(&self.seen, &self.processes);
-        let mut all = harness::Applied::default();
-        let mut asked = Vec::new();
-        for r in &mut self.readers {
-            let t = Instant::now();
-            let applied = read(r, &harness::accounts_of(&self.cfg, r.harness()), &look);
-            perf::took(|| format!("{what} {}", r.harness().config()), t.elapsed());
-            if applied.dirty && perf::enabled() {
-                asked.push(format!("{what} {}", r.harness().config()));
-            }
-            all.and(applied);
-        }
-        for a in asked {
-            self.asked(|| a);
-        }
-        if self.take(all) {
-            self.place_sessions();
-        }
-    }
-
     /// A PR the board doesn't list, matched to these lanes' worktrees and sessions.
     fn pr_card(&self, lanes: &[Lane], slug: &str, raw: &PrRaw, login: Option<&str>) -> PrItem {
         let links = self.pr_links();
@@ -2025,155 +1594,6 @@ impl Engine {
         if let Some(store) = self.read_or_warn(Trouble::PrLinks, prlinks::load()) {
             self.pr_store = store;
         }
-    }
-
-    /// state.json, read again. One that doesn't read is left alone: the engine goes on with what
-    /// it has in memory, a first run's state at launch, and says so (`notices`).
-    fn load_state(&mut self) {
-        let read = self.read_or_warn(Trouble::State, SeenState::load());
-        self.state_unreadable = read.is_none();
-        match read {
-            Some(state) => self.seen = state,
-            None => {
-                if self.seen.first_run == 0 {
-                    self.seen = SeenState::fresh();
-                }
-                if let Some(why) = self.troubles.get_mut(&Trouble::State) {
-                    why.push_str(" What you pin, archive, snooze and mark seen meanwhile lasts only until Codealong quits.");
-                }
-            }
-        }
-    }
-
-    fn save_state(&mut self) {
-        // A file that didn't read is left for you to fix, not replaced with what's in memory.
-        if self.state_unreadable {
-            return;
-        }
-        let warning = self.seen.save().err().map(|e| format!("Couldn't save state.json: {e:#}"));
-        if warning.as_ref() != self.trouble(Trouble::State) {
-            self.set_trouble(Trouble::State, warning);
-            self.mark_dirty("state.json trouble");
-        }
-    }
-
-    /// The lock on todos.json that the `codealong` command takes too. Without it a change here
-    /// could write over one the command is making, so the change isn't made: whoever asked for
-    /// it hears why, and the board says so until the lock is had again.
-    fn lock_todos(&mut self) -> std::result::Result<todos::Lock, String> {
-        let lock = todos::lock().map_err(|e| format!("{e:#}"));
-        let warning = lock.as_ref().err().cloned();
-        if warning.as_ref() != self.trouble(Trouble::TodosLock) {
-            self.set_trouble(Trouble::TodosLock, warning);
-            self.mark_dirty("todos lock");
-        }
-        lock
-    }
-
-    /// A change to the todos from a window or the command, and the time of the board that
-    /// shows it.
-    fn change_todos(&mut self, op: TodoOp) -> std::result::Result<i64, String> {
-        let lanes = self.lane_index();
-        // Under the lock the command takes too, and against the file as it is now, so
-        // a change the command made a moment ago isn't written over.
-        let lock = self.lock_todos()?;
-        self.reload_todos();
-        let changed = match self.todos_unreadable {
-            // A change now would be lost when the file is fixed, so it's turned away.
-            true => Err(self.trouble(Trouble::Todos).cloned().unwrap_or_default()),
-            false => self.todos.apply(op, &lanes, now_ms()).map_err(|e| format!("{e:#}")),
-        }?;
-        if changed {
-            self.save_todos();
-            drop(lock);
-            // Now rather than on the next tick: the window waits for it.
-            self.publish_for("todos changed");
-        }
-        Ok(self.board.read().map(|b| b.generated_at).unwrap_or(0))
-    }
-
-    /// Links a session started from todos to each of them, or notes that it's still to show up.
-    fn todos_started(&mut self, ids: Vec<String>, lane: Option<String>, session: Option<String>, pending: Option<todos::PendingStart>) {
-        let lanes = self.lane_index();
-        let Ok(_lock) = self.lock_todos() else { return };
-        self.reload_todos();
-        if !self.todos_unreadable {
-            let now = now_ms();
-            let mut changed = false;
-            for id in &ids {
-                changed |= self.todos.started(id, lane.as_deref(), session.as_deref(), pending.clone(), &lanes, now);
-            }
-            if changed {
-                self.save_todos();
-            }
-        }
-    }
-
-    fn load_todos(&mut self) {
-        let read = self.read_or_warn(Trouble::Todos, todos::load());
-        self.todos_unreadable = read.is_none();
-        if let Some((store, text)) = read {
-            self.todos = store;
-            self.todos_text = text;
-        }
-    }
-
-    /// todos.json changed on disk. Our own writes come back through the watcher too; only
-    /// someone else's edit is read again, or any change while the file didn't read.
-    fn reload_todos(&mut self) {
-        let text = std::fs::read_to_string(todos::path()).unwrap_or_default();
-        if text == self.todos_text && !self.todos_unreadable {
-            return;
-        }
-        self.load_todos();
-        self.mark_dirty("todos file");
-    }
-
-    fn save_todos(&mut self) {
-        self.mark_dirty("todos saved");
-        // A file that didn't read is left for you to fix, not replaced.
-        if self.todos_unreadable {
-            return;
-        }
-        match todos::save(&self.todos) {
-            Ok(text) => {
-                self.todos_text = text;
-                self.set_trouble(Trouble::Todos, None);
-            }
-            Err(e) => self.set_trouble(Trouble::Todos, Some(format!("Couldn't save todos.json: {e:#}"))),
-        }
-    }
-
-    /// Each lane's project and repo, for linking todos.
-    fn lane_index(&self) -> todos::LaneIndex {
-        self.board.read().map(|b| todos::LaneIndex::of(&b.lanes)).unwrap_or_default()
-    }
-
-    /// Links sessions that starts in the apps were waiting for, from the board just composed.
-    fn link_pending(&mut self, board: &Board) -> bool {
-        if self.todos.todos.iter().all(|t| t.pending.is_empty()) {
-            return false;
-        }
-        let sessions: Vec<todos::SessionRef> = board
-            .lanes
-            .iter()
-            .flat_map(|l| {
-                l.sessions.iter().filter(|s| s.visitor.is_none()).map(move |s| todos::SessionRef {
-                    key: &s.key,
-                    lane: &l.id,
-                    harness: s.harness.config(),
-                    account: &s.account,
-                    started: s.started_at.unwrap_or(s.last_activity),
-                    helper: s.helper.is_some(),
-                })
-            })
-            .collect();
-        let lanes = todos::LaneIndex::of(&board.lanes);
-        let changed = self.todos.resolve_pending(&sessions, &lanes, now_ms());
-        if changed {
-            self.save_todos();
-        }
-        changed
     }
 
     /// Writes down where headless runs came from once they've outlived their process
@@ -2590,237 +2010,6 @@ mod tests {
         std::fs::write(home().join("ran"), "").unwrap();
     }
 
-    /// state.json holds what you pinned, archived, snoozed and saw. One that doesn't read, as
-    /// when an older build meets a newer one's shape, is never written over: the engine runs on a
-    /// first run's state in memory, says so, and takes the file up again once it reads. A save
-    /// that fails is said too. Runs in a copy of this test binary with a home of its own, as a
-    /// scan reads and writes there.
-    #[test]
-    #[cfg(unix)]
-    fn a_state_file_that_does_not_read_is_never_written_over() {
-        use super::*;
-        use std::os::unix::fs::PermissionsExt;
-
-        let Some(own) = std::env::var_os("CODEALONG_TEST_HOME") else {
-            let home = std::env::temp_dir().join(format!("codealong-state-scan-{}", std::process::id()));
-            let _ = std::fs::remove_dir_all(&home);
-            std::fs::create_dir_all(&home).unwrap();
-            let run = std::process::Command::new(std::env::current_exe().unwrap())
-                .args(["engine::tests::a_state_file_that_does_not_read_is_never_written_over", "--exact", "--nocapture"])
-                .env("HOME", &home)
-                .env("CODEALONG_TEST_HOME", &home)
-                .output()
-                .unwrap();
-            let ran = home.join("ran").exists();
-            std::fs::remove_dir_all(&home).unwrap();
-            assert!(run.status.success() && ran, "{}{}", String::from_utf8_lossy(&run.stdout), String::from_utf8_lossy(&run.stderr));
-            return;
-        };
-        assert_eq!(home(), PathBuf::from(own), "never the real home folder");
-
-        // No accounts and nothing to scan, so the scan stays in this home.
-        config::write(&Config { scan: vec![], ..Config::default() }).unwrap();
-        let path = crate::state::path();
-        let said = |e: &Engine| e.notices().into_iter().find(|n| n.key == "state").map(|n| n.text);
-        let engine = || {
-            let (tx, _rx) = channel();
-            Engine::new(Box::new(|_| {}), tx, Arc::new(RwLock::new(Board::default())))
-        };
-
-        // A snooze as a later build might write it.
-        let newer = r#"{"firstRun":5,"pinned":["claude:claude:a"],"snoozed":[{"key":"claude:claude:a","at":1,"until":"tomorrow"}]}"#;
-        std::fs::write(&path, newer).unwrap();
-        let mut e = engine();
-        e.full_scan();
-        assert!(said(&e).is_some_and(|t| t.starts_with("state.json doesn't read as what you've seen, pinned and snoozed")), "{:?}", said(&e));
-        assert!(e.compose().notices.iter().any(|n| n.key == "state" && n.title == "state.json has a problem"));
-        assert!(e.seen.first_run > 5 && e.seen.pinned.is_empty(), "a first run's state, in memory");
-        assert_eq!(std::fs::read_to_string(&path).unwrap(), newer, "the scan's own save left it alone");
-        // What's done meanwhile stays in memory.
-        e.seen.set_pinned(vec!["codex:codex:b".into()]);
-        e.save_state();
-        assert_eq!(std::fs::read_to_string(&path).unwrap(), newer);
-        assert_eq!(e.seen.pinned, ["codex:codex:b"]);
-
-        // Fixed by hand: the file is the state again, and is saved to from then on.
-        std::fs::write(&path, r#"{"firstRun":5,"pinned":["claude:claude:a"]}"#).unwrap();
-        e.apply_fs(vec![path.clone()]);
-        assert_eq!(said(&e), None);
-        assert_eq!((e.seen.first_run, e.seen.pinned.clone()), (5, vec!["claude:claude:a".to_string()]));
-        e.seen.set_pinned_prs(vec!["o/r#12".into()]);
-        e.save_state();
-        let kept = std::fs::read_to_string(&path).unwrap();
-        assert!(kept.contains("claude:claude:a") && kept.contains("o/r#12"), "{kept}");
-
-        // A save that can't land is said, until one does.
-        let dir = config::support_dir();
-        std::fs::set_permissions(&dir, std::fs::Permissions::from_mode(0o555)).unwrap();
-        e.seen.set_pinned_prs(vec![]);
-        e.save_state();
-        std::fs::set_permissions(&dir, std::fs::Permissions::from_mode(0o755)).unwrap();
-        assert!(said(&e).is_some_and(|t| t.starts_with("Couldn't save state.json: Couldn't write ")), "{:?}", said(&e));
-        assert_eq!(std::fs::read_to_string(&path).unwrap(), kept);
-        e.save_state();
-        assert_eq!(said(&e), None);
-        assert!(!std::fs::read_to_string(&path).unwrap().contains("o/r#12"));
-
-        // Deleted while it didn't read: what's in memory is the state from then on.
-        std::fs::write(&path, "{").unwrap();
-        let mut e = engine();
-        e.load_config();
-        e.load_state();
-        assert!(said(&e).is_some());
-        e.seen.set_pinned(vec!["codex:codex:c".into()]);
-        e.save_state();
-        assert_eq!(std::fs::read_to_string(&path).unwrap(), "{");
-        std::fs::remove_file(&path).unwrap();
-        e.apply_fs(vec![path.clone()]);
-        assert_eq!(said(&e), None);
-        assert!(std::fs::read_to_string(&path).unwrap().contains("codex:codex:c"));
-        std::fs::write(home().join("ran"), "").unwrap();
-    }
-
-    /// The app and the `codealong` command change todos.json under one lock. When the lock can't
-    /// be had, a change isn't made without it, where it could write over the command's: it's
-    /// turned away with the reason, and the board says so until the lock is had again. Runs in a
-    /// copy of this test binary with a home of its own.
-    #[test]
-    fn a_todo_change_without_the_lock_is_turned_away() {
-        use super::*;
-
-        let Some(own) = std::env::var_os("CODEALONG_TEST_HOME") else {
-            let home = std::env::temp_dir().join(format!("codealong-todos-lock-{}", std::process::id()));
-            let _ = std::fs::remove_dir_all(&home);
-            std::fs::create_dir_all(&home).unwrap();
-            let run = std::process::Command::new(std::env::current_exe().unwrap())
-                .args(["engine::tests::a_todo_change_without_the_lock_is_turned_away", "--exact", "--nocapture"])
-                .env("HOME", &home)
-                .env("CODEALONG_TEST_HOME", &home)
-                .output()
-                .unwrap();
-            let ran = home.join("ran").exists();
-            std::fs::remove_dir_all(&home).unwrap();
-            assert!(run.status.success() && ran, "{}{}", String::from_utf8_lossy(&run.stdout), String::from_utf8_lossy(&run.stderr));
-            return;
-        };
-        assert_eq!(home(), PathBuf::from(own), "never the real home folder");
-
-        config::write(&Config { scan: vec![], ..Config::default() }).unwrap();
-        let (tx, _rx) = channel();
-        let mut e = Engine::new(Box::new(|_| {}), tx, Arc::new(RwLock::new(Board::default())));
-        e.load_config();
-        e.load_todos();
-        let said = |e: &Engine| e.notices().into_iter().find(|n| n.key == "todos-lock").map(|n| n.text);
-        let labels = |name: &str| TodoOp::Labels { labels: vec![todos::Label { id: "l1".into(), name: name.into(), color: "blue".into() }] };
-        e.change_todos(labels("first")).unwrap();
-        let before = std::fs::read_to_string(todos::path()).unwrap();
-        assert!(before.contains("first") && said(&e).is_none());
-
-        // The lock's file can't be opened: a folder is in its place.
-        let lock = todos::path().with_extension("json.lock");
-        std::fs::remove_file(&lock).unwrap();
-        std::fs::create_dir(&lock).unwrap();
-        let why = e.change_todos(labels("second")).unwrap_err();
-        assert!(why.starts_with("Couldn't lock todos.json: "), "{why}");
-        assert_eq!(said(&e), Some(why));
-        e.todos_started(vec!["t1".into()], None, Some("claude:claude:a".into()), None);
-        assert_eq!(std::fs::read_to_string(todos::path()).unwrap(), before);
-        assert_eq!(e.todos.labels[0].name, "first");
-
-        // With the lock back, changes go through and the notice goes.
-        std::fs::remove_dir(&lock).unwrap();
-        e.change_todos(labels("second")).unwrap();
-        assert!(std::fs::read_to_string(todos::path()).unwrap().contains("second"));
-        assert_eq!(said(&e), None);
-        std::fs::write(home().join("ran"), "").unwrap();
-    }
-
-    /// A snooze a turn of the session's own called back (`board::snooze_called_back`) is taken
-    /// away for good: once you've answered, the session back at work isn't snoozed again.
-    #[test]
-    fn a_called_back_snooze_is_taken_away() {
-        use super::*;
-
-        let Some(own) = std::env::var_os("CODEALONG_TEST_HOME") else {
-            let home = std::env::temp_dir().join(format!("codealong-called-back-{}", std::process::id()));
-            let _ = std::fs::remove_dir_all(&home);
-            std::fs::create_dir_all(&home).unwrap();
-            let run = std::process::Command::new(std::env::current_exe().unwrap())
-                .args(["engine::tests::a_called_back_snooze_is_taken_away", "--exact", "--nocapture"])
-                .env("HOME", &home)
-                .env("CODEALONG_TEST_HOME", &home)
-                .output()
-                .unwrap();
-            let ran = home.join("ran").exists();
-            std::fs::remove_dir_all(&home).unwrap();
-            assert!(run.status.success() && ran, "{}{}", String::from_utf8_lossy(&run.stdout), String::from_utf8_lossy(&run.stderr));
-            return;
-        };
-        assert_eq!(home(), PathBuf::from(own), "never the real home folder");
-
-        config::write(&Config { scan: vec![], ..Config::default() }).unwrap();
-        let (tx, _rx) = channel();
-        let mut e = Engine::new(Box::new(|_| {}), tx, Arc::new(RwLock::new(Board::default())));
-        e.load_config();
-        const MIN: i64 = 60_000;
-        let now = now_ms();
-        let key = "claude:claude:a";
-        e.seen.snooze(key, now - 10 * MIN, now + 60 * MIN);
-        // A scheduled wakeup five minutes ago, its turn ended a minute ago.
-        let after_wakeup = |status| Session { status, status_since: Some(now - MIN), input_at: Some(now - 5 * MIN), ..crate::fixtures::session(key) };
-        let on_board = |s| Board { lanes: vec![crate::fixtures::lane("/a", vec![s])], ..Board::default() };
-        e.wake_called_back(&on_board(after_wakeup(Status::Unread)));
-        assert!(e.seen.snooze_of(key).is_some(), "a report keeps it");
-        e.wake_called_back(&on_board(after_wakeup(Status::Needs)));
-        assert!(e.seen.snooze_of(key).is_none(), "a question takes it away");
-        let mut answered = after_wakeup(Status::Working);
-        board::apply_snooze(&mut answered, e.seen.snooze_of(key), 0, now);
-        assert_eq!(answered.snoozed_until, None, "answered, it isn't snoozed again");
-        std::fs::write(home().join("ran"), "").unwrap();
-    }
-
-    /// A label put on a session by a name that's none yet is made, with the todos' labels, and one
-    /// taken off by its name comes off.
-    #[test]
-    fn a_session_is_labelled_by_name_and_a_new_name_made_a_label() {
-        use super::*;
-
-        let Some(own) = std::env::var_os("CODEALONG_TEST_HOME") else {
-            let home = std::env::temp_dir().join(format!("codealong-session-labels-{}", std::process::id()));
-            let _ = std::fs::remove_dir_all(&home);
-            std::fs::create_dir_all(&home).unwrap();
-            let run = std::process::Command::new(std::env::current_exe().unwrap())
-                .args(["engine::tests::a_session_is_labelled_by_name_and_a_new_name_made_a_label", "--exact", "--nocapture"])
-                .env("HOME", &home)
-                .env("CODEALONG_TEST_HOME", &home)
-                .output()
-                .unwrap();
-            let ran = home.join("ran").exists();
-            std::fs::remove_dir_all(&home).unwrap();
-            assert!(run.status.success() && ran, "{}{}", String::from_utf8_lossy(&run.stdout), String::from_utf8_lossy(&run.stderr));
-            return;
-        };
-        assert_eq!(home(), PathBuf::from(own), "never the real home folder");
-
-        config::write(&Config { scan: vec![], ..Config::default() }).unwrap();
-        let (tx, _rx) = channel();
-        let mut e = Engine::new(Box::new(|_| {}), tx, Arc::new(RwLock::new(Board::default())));
-        e.load_config();
-        e.load_todos();
-        e.change_todos(TodoOp::Labels { labels: vec![todos::Label { id: "l1".into(), name: "Bug".into(), color: "red".into() }] }).unwrap();
-        let key = "claude:claude:a".to_string();
-        assert_eq!(e.on_label(std::slice::from_ref(&key), &["bug".into(), "Release".into()], &[]), Ok(true));
-        let release = e.todos.labels.iter().find(|l| l.name == "Release").expect("made").id.clone();
-        assert_eq!(e.seen.labels_of(&key), ["l1".to_string(), release.clone()].as_slice());
-        assert!(std::fs::read_to_string(todos::path()).unwrap().contains("Release"), "kept with the todos' labels");
-        assert_eq!(e.on_label(std::slice::from_ref(&key), &["Bug".into()], &[]), Ok(false), "nothing new");
-        assert_eq!(e.on_label(std::slice::from_ref(&key), &[], &["BUG".into()]), Ok(true));
-        assert_eq!(e.seen.labels_of(&key), [release].as_slice());
-        let s = e.with_snoozes(vec![crate::fixtures::session(&key)], &Default::default(), &Default::default(), now_ms());
-        assert_eq!(s[0].labels.iter().map(|l| l.name.as_str()).collect::<Vec<_>>(), ["Release"]);
-        std::fs::write(home().join("ran"), "").unwrap();
-    }
-
     #[test]
     fn boards_that_differ_only_in_their_time_hash_alike() {
         use super::*;
@@ -2863,115 +2052,6 @@ mod tests {
         assert_ne!(board_hash(&mut before), board_hash(&mut lifted));
         assert_eq!(board_hash(&mut lifted), board_hash(&mut later), "only once");
     }
-
-    fn usage(error: Option<&str>, needs_sign_in: bool, percent: f64) -> Usage {
-        Usage {
-            account: "claude".into(),
-            harness: Harness::Claude,
-            plan: Some("Max 20x".into()),
-            meters: if error.is_some() {
-                vec![]
-            } else {
-                vec![Meter { key: "week".into(), label: "Week".into(), window: "Weekly".into(), percent, resets_at: None, severity: Severity::Normal, model: None }]
-            },
-            as_of: if error.is_some() { None } else { Some(1) },
-            error: error.map(str::to_string),
-            needs_sign_in,
-            loading: false,
-            no_limits: false,
-            preferred: false,
-            rate_limited: false,
-        }
-    }
-
-    /// Usage is read on a thread nobody watches, and isn't read again while a read is on its
-    /// way: one that fell over has to be over too.
-    #[test]
-    fn a_usage_read_that_falls_over_is_over() {
-        use super::*;
-        let (tx, _rx) = channel();
-        let mut engine = Engine::new(Box::new(|_| {}), tx, Arc::new(RwLock::new(Board::default())));
-        engine.usage.insert("claude".into(), usage(None, false, 47.0));
-        (engine.usage_inflight, engine.usage_backoff) = (true, true);
-        engine.on_usage(None);
-        assert!(!engine.usage_inflight, "the next read can go");
-        assert!(engine.usage_backoff && !engine.dirty, "nothing was read: nothing else changes");
-        assert_eq!(engine.usage["claude"].meters[0].percent, 47.0);
-
-        engine.usage_inflight = true;
-        engine.on_usage(Some(vec![usage(None, false, 50.0)]));
-        assert!(!engine.usage_inflight && !engine.usage_backoff && engine.dirty);
-        assert_eq!(engine.usage["claude"].meters[0].percent, 50.0);
-    }
-
-    /// The tick's process table is listed on a thread of its own, and not again while a listing
-    /// is out: one that fell over has to be over too. Each that worked goes to the readers as it
-    /// lands; between listings they look at the last that worked, and never run `ps`.
-    #[test]
-    fn a_process_listing_that_falls_over_is_over() {
-        use super::*;
-        /// A reader that notes the processes it's given.
-        struct Noting(Arc<Mutex<Vec<Vec<u32>>>>);
-        impl harness::Reader for Noting {
-            fn harness(&self) -> Harness {
-                Harness::Codex
-            }
-            fn scan(&mut self, _: &[AccountCfg], _: &harness::Look) {}
-            fn watch(&self, _: &AccountCfg) -> Vec<(PathBuf, bool)> {
-                vec![]
-            }
-            fn owns(&self, _: &AccountCfg, _: &Path) -> bool {
-                false
-            }
-            fn apply(&mut self, _: &AccountCfg, _: &[PathBuf], _: &harness::Look) -> harness::Applied {
-                harness::Applied::default()
-            }
-            fn processes(&mut self, _: &[AccountCfg], look: &harness::Look) -> harness::Applied {
-                self.0.lock().unwrap().push(look.ps.all().iter().map(|p| p.pid).collect());
-                harness::Applied::default()
-            }
-            fn sessions(&self, _: &AccountCfg, _: &harness::Look) -> Vec<Session> {
-                vec![]
-            }
-            fn cwds(&self) -> Vec<String> {
-                vec![]
-            }
-        }
-        let (tx, rx) = channel();
-        let mut engine = Engine::new(Box::new(|_| {}), tx, Arc::new(RwLock::new(Board::default())));
-        let noted = Arc::new(Mutex::new(Vec::new()));
-        engine.readers = vec![Box::new(Noting(noted.clone()))];
-        // Before anything has listed them, a look has none, and lists none itself.
-        let look = Engine::look(&engine.seen, &engine.processes);
-        assert_eq!((look.ps.at(), look.ps.all().len()), (Some(0), 0));
-        engine.processes_inflight = true;
-        engine.list_processes();
-        assert!(rx.try_recv().is_err(), "one listing at a time");
-        engine.on_processes(None);
-        assert!(!engine.processes_inflight, "the next listing can go");
-        let row = |pid: u32, command: &str| procs::PsLine { pid, ppid: 1, tty: "??".into(), cpu: None, command: command.into() };
-        let listed = procs::Listed { at: 1_792_000_000_000, lines: vec![row(7, "codex")] };
-        engine.on_processes(Some(procs::Listed { at: 1_792_000_000_000, lines: vec![row(7, "codex")] }));
-        engine.on_processes(Some(procs::Listed { at: 1_792_000_010_000, lines: vec![] }));
-        assert_eq!(*noted.lock().unwrap(), [vec![7]], "the readers hear of the one that worked, as it lands");
-        let look = Engine::look(&engine.seen, &engine.processes);
-        assert_eq!((look.ps.at(), look.ps.all()), (Some(listed.at), &listed.lines[..]));
-    }
-
-    #[test]
-    fn a_failed_usage_read_keeps_the_last_numbers() {
-        let good = usage(None, false, 47.0);
-        let kept = keep_last_good(Some(&good), usage(Some("Couldn't read usage: HTTP 500"), false, 0.0));
-        assert_eq!(kept.meters, good.meters);
-        assert_eq!(kept.as_of, Some(1));
-        assert!(kept.error.is_some());
-        // Signing out isn't papered over.
-        let signed_out = keep_last_good(Some(&good), usage(Some("Sign-in expired"), true, 0.0));
-        assert!(signed_out.meters.is_empty());
-    }
-
-    use super::keep_last_good;
-    use crate::model::{Harness, Meter, Severity, Usage};
 
     /// What the engine's thread spends on this Mac's real data: composing the board, hashing it,
     /// each reader's tick and glance, and a big batch from the file watcher. `CODEALONG_BENCH_FS` names folders whose files go in
