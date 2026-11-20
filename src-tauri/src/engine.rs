@@ -1636,7 +1636,9 @@ fn emblem_decider(cfg: &Config, board: &Board, key: &str) -> Option<crate::decis
     let projects: Vec<Option<&str>> = match &i.schedule.orchestrates {
         Some(o) if o.project.is_some() => vec![o.project.as_deref()],
         Some(_) => std::iter::once(None).chain(cfg.projects.iter().map(|p| Some(p.name.as_str()))).collect(),
-        None => vec![crate::schedules::place(&i.schedule, board).map(|l| l.project.as_str())],
+        // A folder the board no longer has could be any project's: none is asked.
+        None if !i.schedule.run.folder.trim().is_empty() => vec![Some(crate::schedules::place(&i.schedule, board)?.project.as_str())],
+        None => vec![None],
     };
     crate::decisions::for_start(cfg, &i.schedule.run.account, &projects)
 }
@@ -1860,7 +1862,7 @@ impl Engine {
             .iter()
             .filter_map(|t| {
                 let decider = crate::decisions::for_project(cfg, Some(t.project.as_str()).filter(|p| !p.is_empty()))?;
-                let kept = t.sessions.iter().any(|k| crate::decisions::own_row(&board.lanes, k).is_some_and(|(l, s)| !decider.carries(crate::decisions::of_session(cfg, &board.lanes, l, s).as_ref())));
+                let kept = t.sessions.iter().any(|k| crate::decisions::rows(&board.lanes, k).any(|(l, s)| !decider.carries(crate::decisions::of_session(cfg, &board.lanes, l, s).as_ref())));
                 if kept {
                     return None;
                 }

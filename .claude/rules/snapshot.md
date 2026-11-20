@@ -100,7 +100,8 @@ its words reach the model only where they chose it, and a prompt they keep from 
 - `--snapshot --routes [days] [--decider <name>] [--most <n>]`: how often what you did there was
   Jev's first suggestion, over the last days (7 unless given), with the times it wasn't
   (routelog.rs). With `--decider`, the latest `most` (20 unless given) are asked again of that
-  model on today's board and its likeliest set beside what you did (`routelog::replay`).
+  model on today's board and its likeliest set beside what you did (`routelog::replay`); one
+  typed in a project that chose another model is passed over, said as failed.
   **Real** then: a paid request each.
 - `--snapshot --jev-usage [days]`: what Settings › Decisions says decision models' requests used
   each of the last days (30 unless given), by feature and by model, from the app's ledger.

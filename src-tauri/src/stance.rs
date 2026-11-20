@@ -94,13 +94,18 @@ pub struct Unread {
 
 /// The prompts of yours that wait on a read, the newest first.
 pub fn unread(db: &Connection, limit: usize) -> Result<Vec<Unread>> {
+    unread_from(db, limit, 0)
+}
+
+/// `unread`, past the newest `skip`.
+fn unread_from(db: &Connection, limit: usize, skip: usize) -> Result<Vec<Unread>> {
     let mut stmt = db.prepare_cached(
         "SELECT t.id, t.at, s.key, coalesce(s.title, ''), t.text, coalesce(t.before, ''), t.after_stop, t.mid, t.kind
          FROM turns t JOIN sessions s ON s.id = t.session
          WHERE t.text IS NOT NULL AND t.stance IS NULL AND t.source = 'you' AND coalesce(t.counts_as, 'you') = 'you'
-         ORDER BY t.at DESC LIMIT ?1",
+         ORDER BY t.at DESC LIMIT ?1 OFFSET ?2",
     )?;
-    let rows = stmt.query_map([limit as i64], |r| {
+    let rows = stmt.query_map([limit as i64, skip as i64], |r| {
         Ok(Unread {
             id: r.get::<_, i64>(0)?.to_string(),
             at: r.get(1)?,
@@ -188,11 +193,26 @@ pub fn pass(db: &Connection, project_of: &dyn Fn(&str) -> Option<Vec<Option<Stri
     if !cfg.experimental.analytics || !cfg.decisions.prompts || !crate::decisions::any_key(&cfg) {
         return;
     }
-    let waiting: Vec<(Unread, Option<crate::decisions::Decider>)> = match unread(db, LOOKED_AT) {
-        Ok(w) => w.into_iter().map(|u| (decider(&cfg, &u, project_of), u)).filter(|(d, _)| d.as_ref().is_none_or(|d| crate::decisions::has_key(&d.models[0].provider))).take(PER_PASS).map(|(d, u)| (u, d)).collect(),
-        Err(e) => return eprintln!("Couldn't list the prompts waiting on a read: {e:#}"),
-    };
+    let then = crate::decisions::fingerprint(&cfg);
+    let mut waiting: Vec<(Unread, Option<crate::decisions::Decider>)> = Vec::new();
+    // A page at a time, the newest first, past the ones whose model has no key yet.
+    for page in 0.. {
+        let got = match unread_from(db, LOOKED_AT, page * LOOKED_AT) {
+            Ok(w) => w,
+            Err(e) => return eprintln!("Couldn't list the prompts waiting on a read: {e:#}"),
+        };
+        let last = got.len() < LOOKED_AT;
+        waiting.extend(got.into_iter().map(|u| (decider(&cfg, &u, project_of), u)).filter(|(d, _)| d.as_ref().is_none_or(|d| crate::decisions::has_key(&d.models[0].provider))).map(|(d, u)| (u, d)));
+        if last || waiting.len() >= PER_PASS {
+            break;
+        }
+    }
+    waiting.truncate(PER_PASS);
     for chunk in waiting.chunks(AT_ONCE) {
+        // Each batch only while the settings it was picked under stand.
+        if !crate::decisions::still(then) {
+            break;
+        }
         let batch: Vec<&Unread> = chunk.iter().map(|(u, _)| u).collect();
         let deciders: Vec<&Option<crate::decisions::Decider>> = chunk.iter().map(|(_, d)| d).collect();
         let answers: Vec<Result<Value>> = std::thread::scope(|scope| {
@@ -223,10 +243,13 @@ pub fn pass(db: &Connection, project_of: &dyn Fn(&str) -> Option<Vec<Option<Stri
                 // An answer with no stance in it, or a request Jev can't take: not asked again.
                 Ok(None) => unreadable(db, id),
                 Err(e) if refused(e) => unreadable(db, id),
-                Err(_) => {
+                // Turned away for now: the next pass takes it up.
+                Err(e) if crate::decisions::is_busy(e) => {
                     later = true;
                     Ok(())
                 }
+                // Anything else (a key the provider turned down): left unread, and the rest go on.
+                Err(_) => Ok(()),
             };
             if let Err(e) = done {
                 eprintln!("Couldn't keep the read of a prompt: {e:#}");

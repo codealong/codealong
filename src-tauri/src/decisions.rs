@@ -107,10 +107,21 @@ impl Decider {
     }
 
     /// Whether text that may go to `readers` (`for_project`, `for_session`) may go into a request
-    /// asked of this one: every model this one may try may read it.
+    /// asked of this one: every model this one may try may read it. A model is where its text
+    /// goes, its provider and model, whatever config.toml names it (`same`).
     pub fn carries(&self, readers: Option<&Decider>) -> bool {
-        readers.is_some_and(|r| self.models.iter().all(|m| r.models.iter().any(|x| x.name == m.name)))
+        readers.is_some_and(|r| self.models.iter().all(|m| r.models.iter().any(|x| same(x, m))))
     }
+
+    /// Whether this asks just the one model `m` is, as a trial by hand does (`trying`).
+    pub fn is(&self, m: &DecisionModelCfg) -> bool {
+        self.models.len() == 1 && same(&self.models[0], m)
+    }
+}
+
+/// Whether two entries send text to the same place: one provider's one model.
+pub fn same(a: &DecisionModelCfg, b: &DecisionModelCfg) -> bool {
+    a.provider.trim() == b.provider.trim() && a.model.trim() == b.model.trim()
 }
 
 /// Every decision model config.toml names: its `[[decisions.models]]`, and Jev as `jev` on
@@ -206,11 +217,11 @@ pub fn for_session_anywhere(cfg: &Config, account: &str) -> Option<Decider> {
     for_session_in(cfg, account, &every_project(cfg))
 }
 
-/// The projects a session's text may be about: its worktree's, and the one it started in when
-/// it has moved since (its `cwd`'s lane), as what it said there came with it; an orchestrator's,
-/// the project it keeps watch over, and for All projects' every one, as it reads them all. A
-/// session started on the orchestrator's prompt that the board no longer marks as one (an
-/// earlier thread of one) goes as All projects'.
+/// The projects a session's text may be about: its worktree's, every worktree's it has worked in
+/// as the board shows it (a lane lists it as a visitor), and its `cwd`'s, as what it said in one
+/// came with it to the next; an orchestrator's, the project it keeps watch over, and for All
+/// projects' every one, as it reads them all. A session started on an orchestrator's prompt that
+/// the board no longer marks as one (an earlier thread of one) goes as All projects'.
 pub fn projects_of<'a>(cfg: &'a Config, lanes: &'a [Lane], lane: &'a Lane, s: &'a Session) -> Vec<Option<&'a str>> {
     if let Some(o) = &s.orchestrator {
         return match o.project.as_deref() {
@@ -218,14 +229,22 @@ pub fn projects_of<'a>(cfg: &'a Config, lanes: &'a [Lane], lane: &'a Lane, s: &'
             None => every_project(cfg),
         };
     }
-    if crate::board::started_as_orchestrator(s) {
+    let prompted = s.first_prompt.as_deref().map(str::trim_start).unwrap_or_default();
+    if crate::board::started_as_orchestrator(s) || prompted.starts_with(crate::schedules::orchestrate::PROMPT_OPENS) {
         return every_project(cfg);
     }
     let mut out = vec![Some(lane.project.as_str())];
+    let mut add = |p: &'a str| {
+        if !out.contains(&Some(p)) {
+            out.push(Some(p));
+        }
+    };
+    for l in lanes.iter().filter(|l| l.sessions.iter().any(|x| x.key == s.key)) {
+        add(l.project.as_str());
+    }
     let cwd = std::path::Path::new(&s.cwd);
-    let started = lanes.iter().filter(|l| !s.cwd.is_empty() && !l.path.is_empty() && cwd.starts_with(&l.path)).max_by_key(|l| l.path.len());
-    if let Some(l) = started.filter(|l| l.project != lane.project) {
-        out.push(Some(l.project.as_str()));
+    if let Some(l) = lanes.iter().filter(|l| !s.cwd.is_empty() && !l.path.is_empty() && cwd.starts_with(&l.path)).max_by_key(|l| l.path.len()) {
+        add(l.project.as_str());
     }
     out
 }
@@ -234,6 +253,12 @@ pub fn projects_of<'a>(cfg: &'a Config, lanes: &'a [Lane], lane: &'a Lane, s: &'
 /// gives it (`projects_of`).
 pub fn of_session(cfg: &Config, lanes: &[Lane], lane: &Lane, s: &Session) -> Option<Decider> {
     for_session_in(cfg, &s.account, &projects_of(cfg, lanes, lane, s))
+}
+
+/// Every row a session has on the board, its own and the ones where it visits, each with its
+/// lane: what each makes of it is what may read it, so all of them together must agree.
+pub fn rows<'a>(lanes: &'a [Lane], key: &'a str) -> impl Iterator<Item = (&'a Lane, &'a Session)> + 'a {
+    lanes.iter().flat_map(move |l| l.sessions.iter().filter(move |s| s.key == key).map(move |s| (l, s)))
 }
 
 /// A session's own row on the board: the lane it's listed under as its own, never one it only
@@ -249,35 +274,38 @@ pub fn session_projects(cfg: &Config, lanes: &[Lane], key: &str) -> Option<Vec<O
     Some(projects_of(cfg, lanes, lane, s).into_iter().map(|p| p.map(String::from)).collect())
 }
 
-/// The model a start on `account_or_group` (an account, a routing group, or empty for Auto) in
-/// `projects` may have its words read by: what every account it may land on and every one of
-/// the projects agree on. A group that lists no member, and Auto with no group, may land on any
-/// account that's on.
+/// The model a start on `account_or_group` (an account, a routing group, or Auto: empty or
+/// `auto`) in `projects` may have its words read by: what every account it may land on and every
+/// one of the projects agree on. Auto, whose group depends on where the start resolves it, and a
+/// group that lists no member may land on any account that's on.
 pub fn for_start(cfg: &Config, account_or_group: &str, projects: &[Option<&str>]) -> Option<Decider> {
     let on = account_or_group.trim();
-    let group = |name: &str| cfg.routing.groups.iter().find(|g| g.name.trim() == name);
-    let named = if on.is_empty() { crate::config::auto_group(cfg, projects.first().copied().flatten()) } else { on };
-    let accounts: Vec<&str> = match group(named) {
+    let every = || cfg.accounts.iter().filter(|a| !a.disabled).map(|a| a.name.as_str()).collect::<Vec<_>>();
+    let accounts: Vec<&str> = match cfg.routing.groups.iter().find(|g| g.name.trim() == on) {
+        _ if on.is_empty() || on == "auto" => every(),
         Some(g) if !g.members.is_empty() => g.members.iter().map(|m| m.account.trim()).collect(),
-        Some(_) => cfg.accounts.iter().filter(|a| !a.disabled).map(|a| a.name.as_str()).collect(),
-        None if named.is_empty() => cfg.accounts.iter().filter(|a| !a.disabled).map(|a| a.name.as_str()).collect(),
-        None => vec![named],
+        Some(_) => every(),
+        None => vec![on],
     };
     let mut each = accounts.iter().map(|a| for_session_in(cfg, a, projects));
     let first = each.next()?;
     each.all(|d| d == first).then_some(first).flatten()
 }
 
-/// What the choice of decision models comes to in config.toml, to tell a request asked before a
-/// change from one asked after: the worker sends nothing asked under settings since changed
-/// (`Job::fingerprint`).
+/// The settings as they stand, to tell a request asked before a change from one asked after:
+/// which model may read what follows from much of config.toml (the decision models, projects and
+/// what they hold, routing groups, accounts), so any change counts, and the worker sends nothing
+/// asked under settings since changed (`Job::fingerprint`).
 pub fn fingerprint(cfg: &Config) -> u64 {
     use std::hash::{Hash, Hasher};
-    let projects: Vec<(&str, Option<&str>)> = cfg.projects.iter().map(|p| (p.name.as_str(), p.decisions.as_deref())).collect();
-    let groups: Vec<(&str, bool, Option<&str>, Vec<&str>)> = cfg.routing.groups.iter().map(|g| (g.name.as_str(), g.boundary, g.decisions.as_deref(), g.members.iter().map(|m| m.account.as_str()).collect())).collect();
     let mut h = std::collections::hash_map::DefaultHasher::new();
-    (serde_json::to_string(&cfg.decisions).unwrap_or_default(), projects, groups).hash(&mut h);
+    serde_json::to_string(cfg).unwrap_or_default().hash(&mut h);
     h.finish()
+}
+
+/// Whether the settings are still the ones `fingerprint` was taken of.
+pub fn still(fingerprint_then: u64) -> bool {
+    crate::config::current().map(|c| fingerprint(&c)).ok() == Some(fingerprint_then)
 }
 
 /// The decision model `spec` names, alone, for trying one by hand (`--snapshot --decider`): one
@@ -335,14 +363,22 @@ pub fn is_busy(e: &anyhow::Error) -> bool {
 /// the feature that asked (`ledger::note_jev`). A request a provider refused says no usage and
 /// isn't kept.
 pub fn ask(feature: Feature, decider: &Decider, body: &Value) -> Result<Value> {
-    first_answer(decider, |m| ask_one(feature, m, body))
+    ask_while(feature, decider, body, || true)
+}
+
+/// `ask`, going on to a fallback only while `ok` says the settings it was asked under stand.
+pub fn ask_while(feature: Feature, decider: &Decider, body: &Value, ok: impl Fn() -> bool) -> Result<Value> {
+    first_answer(decider, ok, |m| ask_one(feature, m, body))
 }
 
 /// The first answer `ask` gets of the decider's models in order, going on only past one that
-/// failed for now; the last such failure when every one did.
-fn first_answer(decider: &Decider, ask: impl Fn(&DecisionModelCfg) -> Result<Value>) -> Result<Value> {
+/// failed for now, and only while `ok`; the last such failure when every one did.
+fn first_answer(decider: &Decider, ok: impl Fn() -> bool, ask: impl Fn(&DecisionModelCfg) -> Result<Value>) -> Result<Value> {
     let mut busy = None;
-    for m in &decider.models {
+    for (i, m) in decider.models.iter().enumerate() {
+        if i > 0 && !ok() {
+            break;
+        }
         match ask(m) {
             Err(e) if is_busy(&e) => busy = Some(e),
             done => return done,
@@ -425,14 +461,21 @@ pub fn worker(done: impl Fn(String, std::result::Result<Value, String>) + Send +
         .name("decisions".into())
         .spawn(move || {
             for mut job in rx {
-                if crate::config::current().map(|c| fingerprint(&c)).ok() != Some(job.fingerprint) {
-                    done(job.id, Err("Which decision model may read what changed since this was asked, so it wasn't sent.".into()));
+                let changed = || Err("The settings changed since this was asked, so it wasn't sent: it's asked again as they stand.".to_string());
+                if !still(job.fingerprint) {
+                    done(job.id, changed());
                     continue;
                 }
                 if let Some(fill) = job.fill.take() {
                     fill(&mut job.body);
+                    // The fill can take a while (OpenCode's pending call, over HTTP).
+                    if !still(job.fingerprint) {
+                        done(job.id, changed());
+                        continue;
+                    }
                 }
-                let answer = ask(job.feature, &job.decider, &job.body);
+                let then = job.fingerprint;
+                let answer = ask_while(job.feature, &job.decider, &job.body, || still(then));
                 // Rate limited or overloaded everywhere it may go: wait a moment before the next.
                 if answer.as_ref().err().is_some_and(is_busy) {
                     std::thread::sleep(Duration::from_secs(5));
@@ -752,7 +795,7 @@ mod tests {
         let asked = std::cell::RefCell::new(Vec::new());
         let answer = |busy: &'static [&'static str]| {
             asked.borrow_mut().clear();
-            first_answer(&default, |m| {
+            first_answer(&default, || true, |m| {
                 asked.borrow_mut().push(m.name.clone());
                 if busy.contains(&m.name.as_str()) {
                     return Err(Busy(format!("{} is rate limiting", m.name)).into());
@@ -766,11 +809,13 @@ mod tests {
         let e = answer(&["jev", "sol"]).unwrap_err();
         assert!(is_busy(&e) && e.to_string().contains("sol"), "{e}");
         // A request the model turned down isn't sent elsewhere.
-        let refused = first_answer(&default, |m| if m.name == "jev" { anyhow::bail!("TypeSafe couldn't take the request") } else { Ok(json!({})) });
+        let refused = first_answer(&default, || true, |m| if m.name == "jev" { anyhow::bail!("TypeSafe couldn't take the request") } else { Ok(json!({})) });
         assert!(refused.is_err());
         // A project's choice never falls back.
         let luna = for_project(&cfg, Some("atlas")).unwrap();
-        assert!(is_busy(&first_answer(&luna, |m| Err(Busy(m.name.clone()).into())).unwrap_err()));
+        assert!(is_busy(&first_answer(&luna, || true, |m| Err(Busy(m.name.clone()).into())).unwrap_err()));
+        // Nor once the settings it was asked under changed.
+        assert!(is_busy(&first_answer(&default, || false, |m| if m.name == "jev" { Err(Busy("jev".into()).into()) } else { Ok(json!({})) }).unwrap_err()));
     }
 
     #[test]
@@ -844,6 +889,7 @@ mod tests {
         assert_eq!(names(for_start(&cfg, "work", &[Some("harbor")])), Some(vec!["jev".into()]), "a boundary group's own name");
         assert_eq!(names(for_start(&cfg, "", &[Some("northwind")])), None, "Auto may land on either");
         assert_eq!(names(for_start(&cfg, "", &[Some("harbor")])), Some(vec!["jev".into()]), "where both give the same");
+        assert_eq!(names(for_start(&cfg, "auto", &[Some("northwind")])), None, "`auto` is Auto");
         assert_eq!(names(for_start(&cfg, "claude", &[Some("harbor"), Some("atlas")])), None, "two projects that differ");
     }
 

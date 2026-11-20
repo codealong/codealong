@@ -112,6 +112,10 @@ pub fn keeps(file: &File, s: &Schedule, project: &str) -> bool {
     owner(file, project).is_some_and(|o| o.id == s.id)
 }
 
+/// How its session's prompt opens, by which a thread of an orchestrator's is known after its
+/// schedule moved on to another (decisions.rs `projects_of`).
+pub const PROMPT_OPENS: &str = "You're Codealong's orchestrator for";
+
 /// What its session is told each run, before what it found and its notes.
 pub fn prompt(scope: &Orchestrates) -> String {
     let over = match &scope.project {
@@ -119,7 +123,7 @@ pub fn prompt(scope: &Orchestrates) -> String {
         None => "every project's sessions that hasn't an orchestrator of its own, and the sessions in no project".to_string(),
     };
     format!(
-        "You're Codealong's orchestrator for {}: you keep watch over {over} for your user. Run a tick as the codealong skill's references/orchestrate.md says, from *Each tick*.",
+        "{PROMPT_OPENS} {}: you keep watch over {over} for your user. Run a tick as the codealong skill's references/orchestrate.md says, from *Each tick*.",
         scope.words()
     )
 }

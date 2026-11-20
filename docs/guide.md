@@ -4455,8 +4455,8 @@ decisions = "luna"             # or "none"
 question: a project's `decisions` (Settings › Projects, Decision model), else `[decisions]
 default`. A session in a boundary group goes by its group's (see *Boundary groups*), Jev's when it
 names none, and to no model at all when its project chose another. `none` keeps a project's
-sessions from every model. A session that has moved to another project's worktree since it
-started goes only where both projects agree, as what it said in the first came with it; an
+sessions from every model. A session that has worked in more than one project's worktrees (as
+the board shows it) goes only where all of them agree, as what it said in one came with it; an
 orchestrator's goes by the project it keeps watch over, and All projects' only where every project
 agrees, as it reads them all. A request that carries several projects' sessions (All projects in
 the quick panel) is asked of its own project's model, and a session whose words may not go there
@@ -4476,7 +4476,8 @@ config.toml) says where it would route a prompt; `--snapshot --routes [days] --d
 it again what you typed in the panel lately and sets its likeliest beside what you did and where
 that was among Jev's suggestions; `--snapshot --stance … --decider luna` reads your prompts with
 it. The model stands in for the default only: what a project or boundary group chose, a model
-or none, still binds, so their sessions go to it by their titles alone.
+or none, still binds, so their sessions go to it by their titles alone, and what was typed in
+such a project's panel isn't asked again.
 Codealong's questions and their cutoffs were tuned on Jev's answers (`.claude/rules/jev.md`), and
 another model's probabilities may sit differently: Gemini's confidence is its likeliest option's
 probability, where Jev's is its own measure.
