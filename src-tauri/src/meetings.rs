@@ -104,6 +104,11 @@ const TICK: Duration = Duration::from_secs(5);
 /// How long a new session has to show on the board before its listening starts.
 const SHOWS_WITHIN: Duration = Duration::from_secs(45);
 
+/// How long a session started on a harness that names its own has to open its terminal, take
+/// its opening prompt and show on the board: longer than `SHOWS_WITHIN` for a busy Mac, well
+/// under `listen::UNCLAIMED_MS`.
+const SHOWS_STARTED_WITHIN: Duration = Duration::from_secs(90);
+
 /// How long an answer to an offer is remembered: past any meeting's being on offer.
 const ANSWERS_KEPT_MS: i64 = 2 * AHEAD_MS;
 
@@ -794,16 +799,24 @@ fn session_name(m: &Meeting) -> String {
 }
 
 /// Starts the session that takes a meeting, in `lane`, and waits for the board to list it,
-/// which is where its listening is given it from: its key.
+/// which is where its listening is given it from: its key. Harnesses that name their own sessions
+/// (Codex, OpenCode, Antigravity) return no key from `START`, so we snapshot the local sessions
+/// in `lane` beforehand and wait for the new one whose prompt opens with the meeting's.
 fn session_for(engine: &Handle, meeting: &Meeting, lane: &str, pick: crate::start::Pick) -> Result<String> {
     use codealong_peer::api;
-    let spec = api::StartSpec { lane_id: lane.to_string(), account: pick.account, place: pick.place, prompt: opening(meeting), model: pick.model, effort: pick.effort, worktree: false, todos: Vec::new(), from: None, helper: false, report: false };
-    let on = spec.account.clone();
+    let prompt = opening(meeting);
+    let on = pick.account.clone();
+    let before = sessions_in(&engine.board(), lane, &on);
+    let at = util::now_ms();
+    let spec = api::StartSpec { lane_id: lane.to_string(), account: pick.account, place: pick.place, prompt: prompt.clone(), model: pick.model, effort: pick.effort, worktree: false, todos: Vec::new(), from: None, helper: false, report: false };
     let started: api::Started = crate::actions::local(engine, &crate::actions::From::Here, api::START, lane, api::params::Start { spec }).and_then(crate::actions::typed).map_err(|e| anyhow!(e))?;
-    let Some(key) = started.key else {
-        bail!("A session was started on {on} for it, but its harness names its own sessions, so Codealong can't tell which to have listen. Have it listen from its menu once it shows, or name another account in Settings › Voice.");
+    let key = match started.key {
+        Some(key) => {
+            shows(engine, &key)?;
+            key
+        }
+        None => shows_started(engine, lane, &on, &prompt, at, &before)?,
     };
-    shows(engine, &key)?;
     // Named for its meeting, where its harness would name it for what it was first asked.
     let _ = crate::actions::local(engine, &crate::actions::From::Here, api::SESSION_RENAME, &key, api::params::Rename { key: String::new(), name: session_name(meeting) });
     Ok(key)
@@ -861,6 +874,41 @@ fn follow_in(folder: &Path, l: &Listening) {
     }
 }
 
+/// The local sessions of `account` in `lane` now, by key: excluded when waiting for a new
+/// session of a harness that names its own (`find_started`).
+fn sessions_in(board: &crate::model::Board, lane: &str, account: &str) -> HashSet<String> {
+    board
+        .lanes
+        .iter()
+        .find(|l| l.id == lane && l.device.is_none())
+        .into_iter()
+        .flat_map(|l| &l.sessions)
+        .filter(|s| s.account == account && s.visitor.is_none())
+        .map(|s| s.key.clone())
+        .collect()
+}
+
+/// The session a meeting's start made when its harness names its own (Codex, OpenCode,
+/// Antigravity): a new local session of `account` in `lane`, not in `before`, started since `at` (with `origins::PENDING_SLACK_MS` leeway, falling back to `last_activity` where
+/// the harness keeps no start time, as Antigravity does), whose first prompt (else latest, for
+/// OpenCode) opens with `prompt` (`origins::opening`).
+///
+/// Only a prompt match is taken: another session of the same account started in `lane` for
+/// something else is never attached, and a session whose prompt isn't written yet is waited on
+/// until it is (which also means its harness has taken the opening prompt).
+fn find_started(board: &crate::model::Board, lane: &str, account: &str, prompt: &str, at: i64, before: &HashSet<String>) -> Option<String> {
+    let want = crate::origins::opening(prompt)?;
+    let lane = board.lanes.iter().find(|l| l.id == lane && l.device.is_none())?;
+    let opens = |s: &crate::model::Session| s.first_prompt.as_deref().or(s.last_prompt.as_deref()).and_then(crate::origins::opening).as_deref() == Some(want.as_str());
+    lane.sessions
+        .iter()
+        .filter(|s| s.account == account && s.visitor.is_none() && !s.archived && !before.contains(&s.key))
+        .filter(|s| s.started_at.unwrap_or(s.last_activity) >= at - crate::origins::PENDING_SLACK_MS)
+        .filter(|s| opens(s))
+        .min_by_key(|s| (s.started_at.unwrap_or(s.last_activity), s.key.as_str()))
+        .map(|s| s.key.clone())
+}
+
 /// Waits for a session just started to show on the board, which its listening is started from.
 fn shows(engine: &Handle, key: &str) -> Result<()> {
     let since = Instant::now();
@@ -871,6 +919,19 @@ fn shows(engine: &Handle, key: &str) -> Result<()> {
         std::thread::sleep(Duration::from_millis(300));
     }
     bail!("Its session was started but hasn't shown yet. Have it listen from its menu once it does.")
+}
+
+/// Waits for a session started on a harness that names its own to show on the board
+/// (`find_started`), polling until it appears or `SHOWS_STARTED_WITHIN` elapses.
+fn shows_started(engine: &Handle, lane: &str, account: &str, prompt: &str, at: i64, before: &HashSet<String>) -> Result<String> {
+    let since = Instant::now();
+    while since.elapsed() < SHOWS_STARTED_WITHIN {
+        if let Some(key) = find_started(&engine.board(), lane, account, prompt, at, before) {
+            return Ok(key);
+        }
+        std::thread::sleep(Duration::from_millis(300));
+    }
+    bail!("Its session was started on {account} but hasn't shown yet. Have it listen from its menu once it does.")
 }
 
 #[cfg(test)]
@@ -1313,5 +1374,57 @@ mod tests {
         let text = serde_json::to_string_pretty(&record).unwrap();
         assert!(text.contains("\"title\": \"Renewal call\"") && text.contains("\"session\": \"claude:work:abc\"") && text.contains("\"takenAt\""), "{text}");
         assert_eq!(serde_json::from_str::<Record>(&text).unwrap(), record);
+    }
+
+    #[test]
+    fn finds_a_meetings_session_when_its_harness_names_its_own() {
+        use crate::fixtures;
+        use crate::model::{Board, Lane, Session};
+
+        let prompt = opening(&meeting("a", NOW, 30));
+        let clipped = crate::origins::opening(&prompt).unwrap();
+        let lane_id = "/Users/me/Library/Application Support/Codealong/chats";
+        let make = |account: &str, key: &str, started_at: Option<i64>, last_activity: i64, first: Option<&str>, last: Option<&str>| Session {
+            account: account.to_string(),
+            started_at,
+            last_activity,
+            first_prompt: first.map(String::from),
+            last_prompt: last.map(String::from),
+            ..fixtures::session(key)
+        };
+        let board_of = |lanes: Vec<Lane>| Board { lanes, ..Board::default() };
+
+        // Existing sessions in the lane beforehand are excluded, even with the same opening prompt
+        // (e.g. a retried meeting or an earlier unplanned one).
+        let earlier = make("antigravity", "antigravity:antigravity:old", None, NOW, Some(&clipped), None);
+        let before = sessions_in(&board_of(vec![fixtures::lane(lane_id, vec![earlier.clone()])]), lane_id, "antigravity");
+        assert_eq!(before, HashSet::from(["antigravity:antigravity:old".to_string()]));
+
+        // Antigravity leaves started_at as None and uses last_activity; another session of the
+        // same account with a different prompt (or no prompt yet) is ignored rather than attached.
+        let other = make("antigravity", "antigravity:antigravity:other", None, NOW + 500, Some("Fix the build"), None);
+        let unwritten = make("antigravity", "antigravity:antigravity:booting", None, NOW + 500, None, None);
+        let board = board_of(vec![fixtures::lane(lane_id, vec![earlier.clone(), other.clone(), unwritten.clone()])]);
+        assert_eq!(find_started(&board, lane_id, "antigravity", &prompt, NOW, &before), None);
+
+        // Once the meeting's session writes its first prompt, it's matched even among peers.
+        let mine = make("antigravity", "antigravity:antigravity:mine", None, NOW + 1_000, Some(&clipped), None);
+        let board = board_of(vec![fixtures::lane(lane_id, vec![earlier.clone(), other, unwritten, mine.clone()])]);
+        assert_eq!(find_started(&board, lane_id, "antigravity", &prompt, NOW, &before).as_deref(), Some("antigravity:antigravity:mine"));
+
+        // OpenCode populates last_prompt rather than first_prompt, and sets started_at.
+        let oc = make("opencode", "opencode:opencode:ses1", Some(NOW + 200), NOW + 200, None, Some(&clipped));
+        let board = board_of(vec![fixtures::lane(lane_id, vec![oc])]);
+        assert_eq!(find_started(&board, lane_id, "opencode", &prompt, NOW, &HashSet::new()).as_deref(), Some("opencode:opencode:ses1"));
+
+        // Visitors, archived sessions, remote lanes, stale sessions, and other accounts are ignored.
+        let visitor = Session { visitor: Some("other-lane".into()), ..mine.clone() };
+        let archived = Session { archived: true, ..mine.clone() };
+        let stale = make("antigravity", "antigravity:antigravity:stale", None, NOW - crate::origins::PENDING_SLACK_MS - 1, Some(&clipped), None);
+        let other_account = make("codex", "codex:codex:c1", Some(NOW + 100), NOW + 100, Some(&clipped), None);
+        let mut remote = fixtures::lane(lane_id, vec![mine.clone()]);
+        remote.device = Some(crate::model::DeviceTag { name: "other-mac".into(), short: "other".into(), color: "gray".into(), online: true, last_seen: None });
+        let board = board_of(vec![remote, fixtures::lane(lane_id, vec![visitor, archived, stale, other_account])]);
+        assert_eq!(find_started(&board, lane_id, "antigravity", &prompt, NOW, &HashSet::new()), None);
     }
 }
