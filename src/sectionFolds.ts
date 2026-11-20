@@ -116,13 +116,13 @@ export interface SectionFolds {
   isFolded: (id: string) => boolean;
   toggle: (id: string) => void;
   /** Click handler for section `id`'s header, or undefined when the section can't toggle right
-   *  now (active sections while searching; Archived still toggles). */
+   *  now (day dividers, and active sections while searching; Archived still toggles). */
   toggleFor: (id: string) => (() => void) | undefined;
   unfold: (id: string) => void;
 }
 
 /** Fold state for the Sessions view's sections: persisted for ambient sections, ephemeral for
- *  urgent/day sections, and default-folded for Archived. */
+ *  urgent sections, non-foldable for day dividers, and default-folded for Archived. */
 export function useSectionFolds(searching: boolean): SectionFolds {
   const [persisted, setPersisted] = useStored(SESSION_FOLDS_KEY, strings, [] as string[]);
   const [ephemeral, setEphemeral] = useState<ReadonlySet<string>>(() => new Set());
@@ -159,8 +159,6 @@ export function useSectionFolds(searching: boolean): SectionFolds {
     (id: string) => {
       if (id === 'archived') {
         setShowArchived(true);
-      } else if (NON_FOLDABLE_SECTIONS.has(id)) {
-        return;
       } else if (PERSISTED_SECTION_FOLDS.has(id)) {
         setPersisted((prev) => unfoldList(prev, id));
       } else {
