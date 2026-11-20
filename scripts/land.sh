@@ -53,8 +53,9 @@
 # set to main's commit by git's own change of branch, which refuses rather than write over a
 # file. What another session does in the same checkout while this runs isn't landed as yours,
 # but it can find the checkout moved under it, and a commit it makes on the branch in the
-# moment that move is made is left off the branch (git's log of the branch has it): git can't
-# be asked to move a branch only if it's where it was last seen. One landing of a branch runs
+# moment that move is made is left off the branch (`git reflog show <branch>` has it, where
+# the branch keeps a log): git can't be asked to move a branch only if it's where it was last
+# seen. One landing of a branch runs
 # at a time. `--check` runs CI on the
 # commit as it is here, on a branch made for that run and removed after, so a landing under way
 # isn't touched. There is no flag to skip the checks, and none to run them here: `npm test` and
@@ -728,7 +729,7 @@ move_to() {
   why_not=""
   git switch -q --no-overwrite-ignore -C "$branch" "$2" >"$log" 2>&1
   if ! still_here "$2"; then
-    why_not="Git didn't move this checkout to origin/main, so it isn't at origin/main: $(grep -v '^Aborting' "$log" | head -4 | tr -s '\t\n' '  ') Look at git status and git diff --cached before committing anything here: what's staged that isn't yours is main's, from a move git began."
+    why_not="This checkout isn't at origin/main after git was asked to move it there. $(grep -v '^Aborting' "$log" | head -4 | tr -s '\t\n' '  ') Look at git status and git diff --cached before committing anything here: a move git began and couldn't finish leaves main's changes staged."
     return 1
   fi
 }

@@ -204,9 +204,23 @@ jobs:
             exit 1
           fi
           echo "Run again by themselves: $(echo $again)"
+          # How the second run comes out is read from its results, run by run (a check has
+          # several: the notch, the peek…): the same run failing both times is a failure, and
+          # any other that failed once is unsteady, in whichever of the two.
           # shellcheck disable=SC2086
-          scripts/checks.sh --fixture --listed --jobs=1 $again
-          for name in $again; do
-            said="$(awk -F'\t' -v name="$name" '$1 != "PASS" && $2 == name { print $4 ": " $5; exit }' "$RUNNER_TEMP/runs.tsv")"
-            echo "::warning title=An unsteady browser check::$name failed and passed when run again by itself ($said)"
-          done
+          scripts/checks.sh --fixture --listed --jobs=1 "--results=$RUNNER_TEMP/again.tsv" $again || true
+          if [ ! -s "$RUNNER_TEMP/again.tsv" ]; then
+            echo "The second run said nothing of how it went."
+            exit 1
+          fi
+          twice="$(awk -F'\t' 'NR == FNR { if ($1 != "PASS") first[$2 FS $3] = $4 ": " $5; next } $1 != "PASS" && (($2 FS $3) in first) { print $2 " (" $4 "): " $5 }' "$RUNNER_TEMP/runs.tsv" "$RUNNER_TEMP/again.tsv")"
+          awk -F'\t' '
+            NR == FNR { if ($1 != "PASS") first[$2 FS $3] = $2 " (" $4 "): " $5; else passed[$2 FS $3] = 1; next }
+            $1 == "PASS" && (($2 FS $3) in first) { print "::warning title=An unsteady browser check::" first[$2 FS $3] " -- failed, and passed when run again by itself" }
+            $1 != "PASS" && (($2 FS $3) in passed) { print "::warning title=An unsteady browser check::" $2 " (" $4 "): " $5 " -- passed, and failed when run again by itself" }
+          ' "$RUNNER_TEMP/runs.tsv" "$RUNNER_TEMP/again.tsv"
+          if [ -n "$twice" ]; then
+            echo "Failed both times:"
+            printf '%s\n' "$twice"
+            exit 1
+          fi
