@@ -619,8 +619,8 @@ impl crate::harness::Adapter for ClaudeCode {
     /// refused: edits and commands that change things, and commands it doesn't know only look
     /// (a fresh run asked to `gh pr diff` was refused, 2.1.292). So Codealong hands it what it
     /// reads in `reads`, which `--add-dir` lets it read without asking (`=`, since the flag takes
-    /// several folders), and lets it look further on GitHub and fetch `origin` (`PR_LOOKUPS`),
-    /// which it's told after its rules. It runs on the model and effort picked for it (`--model`,
+    /// several folders), and lets it look further on GitHub (`PR_LOOKUPS`), which it's told after
+    /// its rules. It runs on the model and effort picked for it (`--model`,
     /// `--effort`), else the account's usual ones, and has its rules with its first question as a
     /// copy does.
     fn fresh_side(&self, ctx: &crate::harness::Ctx, _cwd: &Path, rules: &str, reads: &Path, on: crate::side::RunsOn) -> anyhow::Result<crate::side::Recipe> {

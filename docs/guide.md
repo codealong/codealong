@@ -3506,7 +3506,8 @@ questions about the PR to an agent on a Claude Code or Codex account (Auto's, on
 effort, or one picked beside Ask in the agent menu, with a model and effort of its own): Codealong
 hands it the PR's description, discussion and whole diff, it runs in a
 checkout of the repo here (the PR's own worktree when there is one), and it reads and runs only what
-looks. The answers show above the box as a session's side conversation's do, and are kept to read
+looks; on Claude Code that includes `gh`'s lookups (a PR, its checks, issues, runs, searches), so it
+can see GitHub as it is now when the checkout here is behind. The answers show above the box as a session's side conversation's do, and are kept to read
 again (N earlier); neither GitHub nor anyone on the PR sees them, and Review keeps its text
 meanwhile. It has no title bar: a strip along the top, with the window's buttons at its start and
 that drags the window, has what's commonly done, with its keys (⌘E marks a finished turn seen, ⌃⌘1
