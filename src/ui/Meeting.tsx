@@ -2,7 +2,8 @@
 // about to start, every window that has a place for it asks whether to take its notes. One
 // component, drawn as a card under the notch's pills or as one line (ahead of the floating bar's
 // pills, and in the main window beside its notices). Take notes starts a session for the
-// meeting, which listens; Not this one puts the offer away for good.
+// meeting, which listens; Not this one puts the offer away for good. Docked in the notch, Close
+// (or a click on the notch) tucks the card away without answering it.
 //
 // Before its offer, from `[voice] meeting_countdown` minutes before it starts, the notch and the
 // floating bar count down to it (`MeetingSoon`), quietly: no sound, and nothing opens by itself.
@@ -53,7 +54,7 @@ export function MeetingCountdown({ meeting }: { meeting: Meeting }) {
   return <>{meetingCountdown(meeting, now)}</>;
 }
 
-export function MeetingOffered({ offer, look }: { offer: MeetingOffer; look: 'card' | 'line' }) {
+export function MeetingOffered({ offer, look, onClose }: { offer: MeetingOffer; look: 'card' | 'line'; onClose?: () => void }) {
   // When it starts is said to the minute, so the clock is looked at more often than that.
   const now = useNow(5000);
   const [asked, setAsked] = useState(false);
@@ -95,6 +96,20 @@ export function MeetingOffered({ offer, look }: { offer: MeetingOffer; look: 'ca
         <Icon name="calendar" size={13} />
         <span className="ca-meeting-title">{title}</span>
         <span className="ca-meeting-when">{when}</span>
+        {onClose && (
+          <Button
+            size="sm"
+            variant="ghost"
+            icon="x"
+            className="ca-meeting-close"
+            aria-label="Close"
+            title="Hide from the notch"
+            onClick={(e) => {
+              e.stopPropagation();
+              onClose();
+            }}
+          />
+        )}
       </span>
       {who && <span className="ca-meeting-who">{who}</span>}
       {failed && <span className="ca-meeting-failed">{failed}</span>}

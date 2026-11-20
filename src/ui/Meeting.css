@@ -39,6 +39,9 @@
   font-variant-numeric: tabular-nums;
   white-space: nowrap;
 }
+.ca-meeting-close {
+  margin: -3px -5px -3px 0;
+}
 .ca-meeting-who {
   overflow: hidden;
   color: var(--ink-2);

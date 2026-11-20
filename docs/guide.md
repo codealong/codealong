@@ -3873,7 +3873,8 @@ into that session under the pills, its header, its conversation and the box that
 the notch is; ⌥⌘. from any app opens it on the session that waits on you, and with nothing waiting,
 though some run, on the end of what waits: a short card under the pills that says nothing waits on
 you, with a tip under it (*Tips*), rather than the *Waiting on you* window. A click on the notch itself opens it on the one you
-looked at last, running or not, and on that card only with nothing on the bar. The reviews pill opens it
+looked at last, running or not, and on that card only with nothing on the bar (or tucks a meeting
+offer away while one is showing). The reviews pill opens it
 the same way on a PR waiting on your review (the one PR; a menu picks among several, and the count
 beside the camera opens the first): the PR's card, with its details and a box at its foot that
 reviews it. It has the keyboard from the click, with the cursor in the box, and works through what
@@ -4234,7 +4235,9 @@ take its notes: a card under the notch's pills, a line ahead of the floating bar
 pills, and a line in the main window beside its notices, with the meeting's name, when it starts
 and who else is in it. A sound comes with it (*Sounds*, `[sounds] meeting`), since the notch may
 be on another screen than the one you're looking at. The offer
-stays until ten minutes into the meeting, or its end.
+stays until ten minutes into the meeting, or its end. Docked in the notch, its Close button (or a
+click on the notch itself) tucks that meeting's card away without passing on it — it stays on offer
+in the main window and your meetings, and the next meeting opens the notch again.
 
 Before that, from five minutes before it starts (*A countdown shows*, `meeting_countdown`: never,
 or up to an hour before), the minutes to go show quietly: beside the notch's camera, ahead of

@@ -546,9 +546,16 @@ export function Bar() {
     stage.close();
     setEarly((was) => (was === soon.id ? null : soon.id));
   };
-  // The meeting on offer (meetings.rs): in the same place, ahead of what's said, until answered.
-  const meeting = asked ?? feed?.meeting ?? null;
+  // The meeting on offer (meetings.rs): in the same place, ahead of what's said, until answered,
+  // or tucked away in this notch (still offered in the other windows).
+  const [tucked, setTucked] = useState<string | null>(null);
+  const offered = feed?.meeting && feed.meeting.id !== tucked ? feed.meeting : null;
+  const meeting = asked ?? (notch ? offered : (feed?.meeting ?? null));
   const offering = stage.open ? null : meeting;
+  const closeOffering = () => {
+    if (asked) setEarly(null);
+    else if (feed?.meeting) setTucked(feed.meeting.id);
+  };
   const hearing = hearingSays(feed?.listenings);
   // The shortcut that goes through what waits on you, docked in the notch: the notch opens on the
   // session that waits (or puts it away), and with nothing waiting, on the end of what waits,
@@ -1109,7 +1116,7 @@ export function Bar() {
             ) : stage.key && stage.kind === 'end' ? (
               <QueueEnd key={stage.endOpens} said={stage.ended} className="ca-notch-end" />
             ) : offering ? (
-              <MeetingOffered offer={offering} look="card" />
+              <MeetingOffered offer={offering} look="card" onClose={closeOffering} />
             ) : saying ? (
               <SaidCard said={saying} onDismiss={dismissSaid} />
             ) : stage.key ? (
@@ -1146,11 +1153,14 @@ export function Bar() {
           soon={soon && <MeetingSoon meeting={soon} look="notch" onOpen={askSoon} />}
           onSessionLeft={() => {
             // A meeting's offer asked for early goes with the pointer, as a session without the
-            // keyboard does; one that's on offer stays until it's answered.
+            // keyboard does; one that's on offer stays until it's answered or closed.
             setEarly(null);
             stage.close();
           }}
-          onPress={stage.press}
+          onPress={() => {
+            if (offering) closeOffering();
+            else stage.press();
+          }}
           onMove={stage.close}
           onCount={(kind) => {
             const first = kind === 'reviews' ? reviews[0]?.key : kind === 'due' ? due[0] && todoRowKey(due[0].id) : byGroup[kind][0]?.key;

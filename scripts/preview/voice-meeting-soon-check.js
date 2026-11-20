@@ -79,6 +79,15 @@
         window.__emit('notch-pointer', true);
         countdown().click();
         return until(function () { return offer(); }, 3000, 'its offer again');
+      })
+      .then(function () {
+        button('Close').click();
+        return until(function () { return !offer(); }, 3000, 'Close to put the early offer away');
+      })
+      .then(function () {
+        check('Close puts an early offer away, the countdown still there', !offer() && !!countdown() && asked().length === 0);
+        countdown().click();
+        return until(function () { return offer(); }, 3000, 'its offer once more');
       });
   };
 

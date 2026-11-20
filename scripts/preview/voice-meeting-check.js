@@ -4,7 +4,9 @@
 // window asked and in the others (the offer's `taking`); a take that failed says why, and the
 // offer stays; Not this one passes on it; and the offer goes when the board has none. The same
 // in the main window's bar and the floating bar (one line) and under the notch's pills (a card,
-// which opens the notch without taking the keyboard). In the main window, the bar's Meetings
+// which opens the notch without taking the keyboard, and can be closed — by its Close button or
+// a click on the notch — without passing on the meeting, staying closed for that one until the
+// next). In the main window, the bar's Meetings
 // button opens your meetings (ui/Meetings.tsx): the day ahead, opened on the one going on, each
 // of which shows on a click with when it is and who's in it and can be listened to whatever its
 // time (Take notes, or Listen… for the quick panel set to listen to it), and the ones that were
@@ -150,7 +152,8 @@
         // over a layout made for a bigger one, so a card can be there and cut off.
         var card = offer().getBoundingClientRect();
         var shape = last('notch_shape');
-        check('all of it inside the notch’s shape, its answers too', card.left >= shape.x - 1 && card.right <= shape.x + shape.w + 1 && button('Not this one').getBoundingClientRect().bottom <= shape.y + shape.h + 1 && button('Take notes').getBoundingClientRect().left >= shape.x, JSON.stringify({ card: [Math.round(card.left), Math.round(card.right), Math.round(card.bottom)], shape: shape }));
+        var closeBtn = button('Close');
+        check('all of it inside the notch’s shape, its answers too', !!closeBtn && card.left >= shape.x - 1 && card.right <= shape.x + shape.w + 1 && closeBtn.getBoundingClientRect().right <= shape.x + shape.w + 1 && button('Not this one').getBoundingClientRect().bottom <= shape.y + shape.h + 1 && button('Take notes').getBoundingClientRect().left >= shape.x, JSON.stringify({ card: [Math.round(card.left), Math.round(card.right), Math.round(card.bottom)], shape: shape }));
       } else {
         check('and who else is in it, on hover', (offer().getAttribute('title') || '').indexOf('with Dana Kestrel and Lee Atlas') > 0, offer().getAttribute('title'));
       }
@@ -184,6 +187,48 @@
     })
     .then(function () { return until(function () { return !offer(); }, 3000, 'the offer to go'); })
     .then(function () { check('and it goes when the board has none on offer', !q('.ca-meeting')); })
+    .then(function () {
+      if (where() !== 'notch') return null;
+      var before;
+      // Closing the card in the notch tucks it away without passing on the meeting, stays tucked
+      // for that meeting, and opens again for the next; a click on the notch itself tucks it too.
+      return again(soon({ id: 'E2@1794330000000', title: 'Standup' }))
+        .then(function () { return until(function () { return offer() && q('.ca-notch').classList.contains('is-end'); }, 3000, 'a second meeting on offer'); })
+        .then(function () {
+          before = asked().length;
+          window.__emit('notch-pointer', true);
+          button('Close').click();
+          return until(function () { return !offer() && !q('.ca-notch').classList.contains('is-end'); }, 3000, 'Close to hide the meeting card');
+        })
+        .then(function () {
+          window.__emit('notch-pointer', false);
+          return until(function () { return !q('.ca-notch').classList.contains('is-open'); }, 3000, 'the notch to close once the pointer leaves');
+        })
+        .then(function () {
+          check('Close closes the notch without passing on the meeting', !offer() && !q('.ca-notch').classList.contains('is-end') && !q('.ca-notch').classList.contains('is-open') && asked().length === before, q('.ca-notch').className);
+          return again(soon({ id: 'E2@1794330000000', title: 'Standup' }));
+        })
+        .then(function () {
+          check('and the same meeting stays tucked on further updates', !offer() && !q('.ca-notch').classList.contains('is-end'), q('.ca-notch').className);
+          return again(soon({ id: 'E3@1794330000000', title: 'Sync' }));
+        })
+        .then(function () { return until(function () { return offer() && text('.ca-meeting-title') === 'Sync'; }, 3000, 'a new meeting to open again'); })
+        .then(function () {
+          check('a new meeting opens the notch again', text('.ca-meeting-title') === 'Sync' && q('.ca-notch').classList.contains('is-end'));
+          before = asked().length;
+          window.__emit('notch-pointer', true);
+          q('.ca-notch-cam').click();
+          return until(function () { return !offer() && !q('.ca-notch').classList.contains('is-end'); }, 3000, 'a click on the notch to tuck it');
+        })
+        .then(function () {
+          window.__emit('notch-pointer', false);
+          return until(function () { return !q('.ca-notch').classList.contains('is-open'); }, 3000, 'the notch to close after clicking it');
+        })
+        .then(function () {
+          check('a click on the notch tucks the meeting away without passing on it', !offer() && !q('.ca-notch').classList.contains('is-end') && !q('.ca-notch').classList.contains('is-open') && asked().length === before, q('.ca-notch').className);
+          return again(null);
+        });
+    })
     .then(function () { return where() === 'window' ? library() : null; })
     .then(done)
     .catch(stopped);
