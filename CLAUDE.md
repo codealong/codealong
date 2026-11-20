@@ -259,6 +259,12 @@ ones that show keys on Linux too (`PREVIEW_PLATFORM=linux`).
 Native menus, window creation and real opens can't be seen this way: say so rather than claiming
 they were checked. `.claude/rules/preview.md` has what writing a check needs.
 
+`scripts/checks.sh --fixture` is the gate for a UI change: the runs
+`scripts/preview/fixture-passes.txt` lists, against a made-up Mac the engine prints
+(`fixture.rs`), the same on every machine, so a failure there is the change's (`--jobs=6` runs
+it in minutes). A new check is written to pass there and added to the list. On real data a check
+can fail for want of data: `--base` tells those failures from the ones a change made.
+
 Performance work starts from `[debug] perf_log = true` in config.toml: see
 `.claude/rules/performance.md`.
 

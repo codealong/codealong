@@ -30,11 +30,27 @@ how a check's own header names its runs, `prelude.js`'s what a check gets (`say`
   list; what it needs that the made-up Mac lacks (a session in some state, a PR, a todo) is
   added to fixture.rs, whose own test says what the board must have, rather than left to chance
   on a real board. A check the list doesn't have assumes something of a real board; it still
-  runs on real data.
+  runs on real data. The list holds only runs the gate can run: one made by hand (`<key>`), or
+  one no check has any more, fails it.
+- Nothing of this Mac's may reach the made-up Mac's page, and nothing of whoever runs the gate
+  may change what it checks. Its build and snapshots are in `.preview/fixture`, apart from this
+  Mac's in `.preview`; a folder says which Mac it's of (`snapshot-of`) only once every snapshot
+  is in it, and `PREVIEW_PREPARE=skip` stops at one that says anything else; the engine is asked
+  for the made-up Mac's name first (`--snapshot --fixture name`), since one built before it had
+  one prints this Mac's board for `--fixture`; and `checks.sh --fixture` takes away every
+  `PREVIEW_*` variable it was started with but `PREVIEW_BIN` and `PREVIEW_DIR`. fixture.rs reads
+  nothing of the machine it runs on but its time zone (not its home, its temporary folder, its
+  sounds or the day on its clock): a rule that would is given the made-up Mac's instead.
 - On real data the checks read this Mac's board, so one can fail for want of data (no session
   that used Chrome) and says what it missed. `scripts/checks.sh --base <names>` tries each
-  failure again with the base commit's UI and checks over the same snapshots, and counts only
-  the ones that pass there: a failure it says the base has too isn't the change's.
+  failure again with the base commit's UI and checks over the same snapshots, and clears only a
+  failure the base's check words the same: one that passes there, fails there on something
+  else, or gave no result here or there still counts. It's for real data only (`--fixture
+  --base` is refused), and builds the base's UI with the base's own packages when its
+  `package-lock.json` isn't this checkout's.
+- A run that gives no result (Chrome never showed the page, the run was stopped, a `--jobs` set
+  stopped short) goes again by itself once the rest are through; its check's other runs keep
+  what they said. `src/checks.test.ts` runs both scripts over stand-ins and pins all of this.
 - The made-up Mac's sessions have keys that read as what they are
   (`claude:claude:checkout-approval`, a session waiting on a call to allow;
   `claude:claude2:checkout-question`, on a question): `PREVIEW_FIXTURE=1

@@ -42,10 +42,19 @@
 # PREVIEW_* files' "$lane:N" and "$session:N" stand for its worktrees and sessions, and
 # PREVIEW_TRANSCRIPT names one of its sessions (their keys read as what they are,
 # `claude:claude:checkout-approval`; `"$(scripts/engine.sh)" --snapshot --fixture` lists them),
-# whose conversation and what it waits on are made up too. None of this Mac's kept images are
-# copied unless PREVIEW_IMAGES names a folder of them, and a pr-detail.json left in $PREVIEW_DIR
-# is taken away. $PREVIEW_DIR remembers which Mac its snapshots are of, and a run with
-# PREVIEW_PREPARE=skip that asks for the other one stops rather than render the wrong one.
+# whose conversation and what it waits on are made up too. Nothing of this Mac's may be in its
+# page, so:
+# - its build and snapshots have a folder of their own, .preview/fixture, where the screenshot is
+#   written too (PREVIEW_DIR names another, for either Mac);
+# - the engine is asked to name the made-up Mac before anything it prints is believed
+#   (`--snapshot --fixture name`): one built before it had one, which PREVIEW_BIN may name,
+#   prints this Mac's board whatever it's asked, and a release build has none;
+# - a folder says which Mac its snapshots are of ($PREVIEW_DIR/snapshot-of) only once it has
+#   all of them, the other Mac's are taken away before the first is written, and a run with
+#   PREVIEW_PREPARE=skip stops at a folder that holds the other Mac's, or one a run left half
+#   made, rather than render it;
+# - none of this Mac's kept images are copied unless PREVIEW_IMAGES names a folder of them, and
+#   a pr-detail.json left in the folder is taken away.
 # scripts/checks.sh --fixture runs the checks this way.
 #
 # PREVIEW_SCHEME=dark renders as if macOS were in dark mode (the screenshot is <view>-dark.png).
@@ -167,7 +176,8 @@ cd "$(dirname "$0")/.."
 view="${1:-sessions}"
 project="${2:-}"
 check="${3:-}"
-dir="${PREVIEW_DIR:-.preview}"
+# The made-up Mac's build and snapshots are kept apart from this Mac's.
+dir="${PREVIEW_DIR:-.preview${PREVIEW_FIXTURE:+/fixture}}"
 # A free port unless one is given, so a stray server can't answer for this one.
 port="${PREVIEW_PORT:-$(python3 -c 'import socket; s = socket.socket(); s.bind(("127.0.0.1", 0)); print(s.getsockname()[1])')}"
 chrome="/Applications/Google Chrome.app/Contents/MacOS/Google Chrome"
@@ -193,7 +203,7 @@ if [ -n "$bin" ] && [ ! -x "$bin" ]; then
 fi
 # What the engine is asked for: this Mac's, each by its mode (--snapshot --accounts), or with
 # PREVIEW_FIXTURE its made-up Mac's, each by the mode's name (--snapshot --fixture accounts).
-# $dir/snapshot-of says which of the two its snapshots are of.
+# $dir/snapshot-of says which of the two its snapshots are of, once it has them all.
 snap=(--snapshot)
 mode="--"
 of="this Mac"
@@ -201,12 +211,31 @@ if [ -n "${PREVIEW_FIXTURE:-}" ]; then
   snap=(--snapshot --fixture)
   mode=""
   of="the made-up Mac"
+  # An engine from before it had a made-up Mac takes --fixture for nothing and prints this Mac's
+  # board, which would be shown, and kept, as the made-up one. So it's asked for the made-up
+  # Mac's name first, which only an engine that has one answers with (fixture.rs `NAME`).
+  if [ -n "$bin" ] && [ "$("$bin" --snapshot --fixture name 2>/dev/null)" != "$of" ]; then
+    echo "The engine at $bin has no made-up Mac: it was built before it had one, or isn't a debug build. scripts/engine.sh builds this checkout's, which PREVIEW_BIN is used in place of." >&2
+    exit 1
+  fi
 fi
+# What a folder says its snapshots are of while they're being taken, and so of a run that stopped
+# before it had them all.
+unfinished="a run that stopped before it had them all"
 
 # The build and the snapshots, which PREVIEW_PREPARE=skip takes from an earlier run.
 if [ "$prepare" != skip ]; then
   npx vite build >/dev/null
   mkdir -p "$dir"
+  # What an earlier run left of the other Mac, or of a run that stopped part way, is taken away
+  # before anything is written: some of these are only written for some views (the bar's feed),
+  # and would stay to be shown as this run's. (What it left of the same Mac stays, as it did.)
+  was="$(cat "$dir/snapshot-of" 2>/dev/null || echo "this Mac")"
+  echo "$unfinished" >"$dir/snapshot-of"
+  if [ "$was" != "$of" ]; then
+    rm -f "$dir/board.json" "$dir/bar-feed.json" "$dir/accounts.json" "$dir/start-options.json" "$dir/editor-icons.json" \
+      "$dir/shell-commands.json" "$dir/skills.json" "$dir/config.json" "$dir/found-here.json" "$dir/setup-here.json"
+  fi
   rm -rf "$dir/assets"
   cp -R dist/. "$dir/"
   # Why the first snapshot failed is worth saying: a build with no made-up Mac, for one.
@@ -216,7 +245,6 @@ if [ "$prepare" != skip ]; then
     exit 1
   fi
   rm -f "$dir/snapshot.err"
-  echo "$of" >"$dir/snapshot-of"
   # The floating bar gets its own small feed from the engine, not the board.
   { [ "$view" = bar ] || [ "$view" = notch ] || [ "$prepare" = only ]; } && "$bin" "${snap[@]}" "${mode}bar" >"$dir/bar-feed.json" 2>/dev/null
   "$bin" "${snap[@]}" "${mode}accounts" >"$dir/accounts.json" 2>/dev/null
@@ -235,12 +263,14 @@ if [ "$prepare" != skip ]; then
   fi
   # A real PR's details left here would be the one thing the made-up Mac's page isn't.
   [ -z "${PREVIEW_FIXTURE:-}" ] || rm -f "$dir/pr-detail.json"
+  # Every snapshot is in it, a failed one having stopped the script, so now it says whose.
+  echo "$of" >"$dir/snapshot-of"
 elif [ ! -f "$dir/board.json" ]; then
   echo "PREVIEW_PREPARE=skip, but $dir has no build and snapshots: run with PREVIEW_PREPARE=only first." >&2
   exit 1
 elif [ "$(cat "$dir/snapshot-of" 2>/dev/null || echo "this Mac")" != "$of" ]; then
   # A folder an earlier version prepared says nothing, and holds this Mac's.
-  echo "PREVIEW_PREPARE=skip, but $dir holds snapshots of $(cat "$dir/snapshot-of" 2>/dev/null || echo "this Mac"), not of $of: run with PREVIEW_PREPARE=only first, with PREVIEW_FIXTURE=1 for the made-up Mac and without it for this one." >&2
+  echo "PREVIEW_PREPARE=skip, but $dir holds the snapshots of $(cat "$dir/snapshot-of" 2>/dev/null || echo "this Mac"), not of $of: run with PREVIEW_PREPARE=only first, with PREVIEW_FIXTURE=1 for the made-up Mac and without it for this one." >&2
   exit 1
 fi
 [ "$prepare" = only ] && exit 0
