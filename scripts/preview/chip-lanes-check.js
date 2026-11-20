@@ -122,7 +122,7 @@
       return all('.ca-seg-main, .ca-seg-age', r).some(function (seg) { return parseFloat(getComputedStyle(seg).borderLeftWidth) > 0; });
     });
   };
-  var account = function (row) { return all('.ca-chip', row).filter(function (c) { return /Double-click to open in/.test(c.title); })[0]; };
+  var account = function (row) { return all('.ca-chip', row).filter(function (c) { return /Double-click to (open in|show it in the main window)/.test(c.title); })[0]; };
 
   var oneLine = function (name, rows) {
     // A row a helper's or side conversation's is on one line either way.
