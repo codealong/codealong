@@ -103,10 +103,11 @@ Paths are under `src-tauri/src/`.
   `bypassPermissions` (and `plan` entered from it). Where the socket comes among Codealong's
   ways in (last for every live session, and the only one for an agent's message) and when
   Codealong claims `bypass` (what you type in its windows on this Mac or on a linked phone, which
-  runs no agents, an agent's message when the agent's own session skips prompts too, and a
-  helper's message to the session that started it, when the start said which session it made,
-  send.rs `from_its_helper`, or to the session whose PR it reviews, autoreview.rs `reviews_for`;
-  never from another Mac, where an agent may have asked for it:
+  runs no agents, an agent's message when the agent's own session skips prompts too, a helper's
+  message to the session that started it or that session's message to its helper, when the start
+  said which session it made, send.rs `from_its_helper` and `to_its_helper`, or a review to the
+  session whose PR it reviews, autoreview.rs `reviews_for`; never from another Mac, where an agent
+  may have asked for it:
   actions.rs `From::Phone`, `asked_by`):
   `claude/routes.rs` (`claude_routes`), `claude/peer.rs` (module header, `Message`).
 - A message is held when the session bypasses permissions and the sender claims another class
