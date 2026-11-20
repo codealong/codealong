@@ -1,4 +1,13 @@
 //! Codealong: every agent runs in a worktree, and every worktree is a lane.
+//!
+//! This file is the app: its windows, its menus, and the commands the windows invoke that are
+//! the app's own (`app_commands!`). The app has no engine. A command that reads or changes what
+//! the engine, your devices or Codealong's files hold is the server's, in calls.rs, and the
+//! invoke handler hands it over by name (`forward`); a command here reads the board the server
+//! publishes through `view::Mirror`. A command without `async` runs on the main thread, so one
+//! that can wait on a script, the server, `gh` or curl goes through `blocking`. The tests at the
+//! foot of the file hold the two lists of commands apart, and keep one here from asking for an
+//! engine it hasn't got.
 
 mod accountpoll;
 mod acp;

@@ -1,4 +1,11 @@
 // Small pieces from the Codealong design system, typed for the live board.
+//
+// Look here before writing one of these again: a dialog (`Dialog`), a list row (`Row`), a
+// segmented control (`Seg`), a checkbox (`CheckBox`), a chip (`Chip`, and `HarnessChip`,
+// `WorktreeChip`, `PrChip` for what they name), a keycap (`Kbd`, which says a key as the
+// platform has it), and `cx` for a class list. Closing on a press outside or on Escape is
+// `useDismiss` (ui/useDismiss.ts). A window that needs one of them a little different gets a
+// prop here, not a copy of its own: the same thing drawn twice drifts apart.
 
 import type { AriaRole, ButtonHTMLAttributes, CSSProperties, DOMAttributes, FormEvent, KeyboardEvent as ReactKeyboardEvent, MouseEvent as ReactMouseEvent, ReactNode, TextareaHTMLAttributes } from 'react';
 import { createContext, forwardRef, Fragment, useContext, useEffect, useId, useLayoutEffect, useMemo, useRef, useState } from 'react';

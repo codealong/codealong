@@ -52,9 +52,81 @@ Applications, so the Dock doesn't show the app as a question mark.
 
 Builds go to `codealong-target` next to the main checkout, one directory shared by every
 checkout and worktree (`.cargo/config.toml`); `scripts/target-dir.sh` prints it and has
-worktrees inside the checkout build there too. Release builds take minutes and queue on one lock,
+worktrees inside the checkout build there too. The workspace's own crates (codealong,
+codealong-peer) build to the same files from every checkout, which cargo would take for fresh by
+their times alone and link another checkout's copy; so `.cargo/config.toml` names the checkout
+(`CODEALONG_CHECKOUT`) and both crates read it, and cargo rebuilds them whenever another checkout
+built them last (lib.rs `CHECKOUT`). Release builds take minutes and queue on one lock,
 so only `relaunch.sh` and `release.sh` make them; the engine the checks run is a debug build of
-your checkout, with its dependencies optimized (`scripts/engine.sh`).
+your checkout, with its dependencies optimized (`scripts/engine.sh`). `scripts/land.sh` builds
+the engine's tests in a folder of landings' own beside it (`codealong-target-landing`, a
+copy-on-write clone it makes and renews), so a landing doesn't wait behind every session's build.
+
+### Tests on a busy Mac
+
+This Mac often runs twenty agents' builds at once (a load average in the hundreds on ten cores),
+and a test that passes on a quiet machine can fail there with nothing wrong. What's known, so
+nobody spends an hour proving a failure isn't theirs:
+
+- `scripts/land.sh` runs a cargo test that failed again by itself. One that passes then is put
+  down to load, said, and noted in `<the repository's .git>/codealong-flaky.log` with the load
+  at the time: read that file to see which tests those are, and fix one that keeps turning up
+  (it waits on the clock, or on another process) rather than leaving it to be rerun.
+- The ones seen so far: `a_watching_device_links_with_a_code_and_reads` (peers),
+  `reads_a_process_line_and_terminal_from_the_kernel` (a process reparented between `ps` and
+  `sysctl`, or `ps` timing out), `the_first_scan_publishes_while_a_worktree_read_is_held` (a
+  30 s limit), `a_view_hears_what_it_starts_from_then_what_is_emitted`, the tests under
+  `codex::ipc` and `launch::codealong`, and `a_process_tree_lists…`. Each passes alone.
+- Unit tests get 30 s each (vite.config.ts), where vitest's 5 s timed out the tests that read
+  every source file. A unit test never holds one run to a limit in milliseconds: the best of a
+  few runs against a limit far from both what's right and what's wrong (syntax.test.ts's
+  long-line test) says the same thing on any machine.
+- Headless Chrome sometimes never shows a page on a busy Mac: `preview.sh` exits 3 for that,
+  which says nothing of the check, and `checks.sh` gives such a run one more go.
+- The browser checks read whatever this Mac has, so some fail for want of data on any given day
+  (no session that used Chrome, nothing in Your turn): a check that fails on `origin/main`'s UI
+  over the same snapshot isn't your change's.
+
+### Keeping main working
+
+Agents push to `main` dozens of times a day, and every other session builds on what lands. Three
+things keep a break from staying there:
+
+- **A landing is checked as it's pushed.** `scripts/land.sh` takes its turn (one landing at a
+  time on this Mac), rebases the branch onto `origin/main`, runs the checks its commits call for
+  by the files they change (its `calls_for`; `scripts/land.sh --plan <path…>` says which), and
+  pushes the commit it checked. `src/land.test.ts` pins which files call for what.
+- **A run that isn't anyone's own.** `.github/workflows/linux.yml` runs the UI's build, linter
+  and unit tests and `cargo test` with warnings as errors, on Linux, every four hours (GitHub's
+  minutes don't stretch to every push). It catches what a Mac can't see: code only macOS uses
+  (a dead-code error there), a test that needed a harness's command line installed, a default
+  that's macOS's.
+- **A red run is somebody's.** A Codealong schedule watches that workflow with
+  `scripts/watch-main.sh`, which prints each failed run on `main` once, and starts (or tells) a
+  session to fix it:
+
+  ```bash
+  codealong schedule add "main is red" --watch scripts/watch-main.sh --every 15m \
+    --thread --fresh-after 1d --prompt-file <the words below, in a file>
+  ```
+
+  ```text
+  The Linux run on main failed; the run is named below. It's the only run of the checks that
+  isn't a session's own, so until it passes again every session is building on a broken main.
+
+  1. Read why: gh run view <its id> --log-failed. If a later run on main has passed since
+     (gh run list --workflow linux.yml --branch main --limit 3), say so in a line and stop.
+  2. Find the commit that broke it, between the last run that passed and this one, and fix it
+     in a worktree of your own as CLAUDE.md's Landing work says: the smallest fix, and a test
+     that would have caught it on a Mac where one can be written (a test that needed a
+     harness's command line or macOS's defaults is made to hold on any machine).
+  3. Land it with scripts/land.sh, start the run again (gh workflow run linux.yml) and wait
+     for it: your last message says whether it passed.
+
+  If it failed for something no commit did (GitHub's runner, a download), say so and stop. If
+  you've landed a fix for this already and it failed the same way again, stop and say what you
+  tried: your user decides what's next.
+  ```
 
 ## Tests and checks
 

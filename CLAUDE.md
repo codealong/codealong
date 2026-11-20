@@ -19,89 +19,31 @@ link to it), so a test keeps it under that. What another program records and acc
 an area of the code works, goes beside the code that relies on it, and in the `.claude/rules/`
 file for that area when it's more than that code needs (see *Where facts live*).
 
-## Commands
+## What every change needs
 
-```bash
-npm run typecheck                       # tsc
-npm run lint                            # oxlint: only the rules of hooks and their dependency lists
-npm test                                # vitest
-(cd src-tauri && cargo test)            # engine rules, parsers, usage, config, launch scripts; codealong-peer's too
-scripts/engine.sh                       # builds this checkout's engine binary when src-tauri changed; prints its path
-scripts/checks.sh                       # every browser check (scripts/preview/*-check.js) on your real data; names run a few
-scripts/land.sh --reviewed-by "<who>"    # lands your branch: rebase, the checks its commits call for, push (--check: no push)
-scripts/relaunch.sh                     # builds Codealong Dev, then quits it and reopens it from Applications
-scripts/release.sh                      # the installer for other Macs: universal, Developer ID, notarized
-scripts/check-release.sh <version>      # a release on GitHub as a download gets it; the /release skill ships one
-scripts/{linux,windows}-vm.sh [test|build|run]  # a VM (Lima, QEMU) to build, test and run it in
-```
+Many agents work here at once and push to `main` all day: what one breaks, it breaks under all
+of them. So, before the rest:
 
-Every checkout and worktree builds into one directory, `codealong-target` next to the main
-checkout, so dependencies compile once and builds queue on cargo's lock; `scripts/target-dir.sh`
-prints it (its header says how a worktree inside another gets it). The workspace's own crates
-(codealong, codealong-peer) build to the same files from every checkout, which cargo would take
-for fresh by their times alone and link another checkout's copy. So `.cargo/config.toml` names
-the checkout (`CODEALONG_CHECKOUT`) and both crates read it: cargo rebuilds them whenever another
-checkout built them last (lib.rs `CHECKOUT`), and no touching is needed.
-
-Release builds are relaunch.sh's and release.sh's alone: every checkout's queue on one lock, and
-each takes minutes. The engine for snapshots and checks is `scripts/engine.sh`'s, a debug build
-copied into your checkout (`.preview/engine/codealong`), which `cargo test` has mostly compiled
-already; preview.sh and style-diff.mjs use it. Don't `cargo build --release` to check a change.
-
-Hand a change to the user with `scripts/relaunch.sh`: it waits its turn behind other relaunches,
-builds, and only then quits the running app and opens the new one, which it puts in Applications
-so a launcher always opens the latest build; its last line says which commit it launched and how
-that stands against `origin/main`. What it builds is Codealong Dev
-(`src-tauri/tauri.dev.conf.json`, its own id, name and icon), never Codealong, the app
-`scripts/release.sh` builds and people install. The two share their data folder (config.toml,
-todos, the socket), so one runs at a time: a copy opened the usual way asks the running one to
-quit (view.rs `take_over`). The server runs on through a relaunch, keeping the sessions it runs,
-unless the build changed the engine (build.rs `CODEALONG_ENGINE`), when the new app replaces it.
-Don't `pkill` the app or `codealong serve` by hand; a pattern that contains the app's
-path also matches other sessions' shells, and kills their builds.
-
-Don't open a second copy of the app where the user can see it. Opened the usual way it quits
-theirs; a bare binary from a build folder shows up beside it as a second Codealong, and its bar
-and pinned cards float over every app as the real ones do, which the user takes for their own
-app misbehaving. Check UI with `scripts/preview.sh` and behavior with `--snapshot`. A copy you
-must run to debug gets a home of its own (`HOME=/tmp/ca-<topic> …`, short for its socket: its own
-settings, todos, socket and server job), you say so, and you quit it when you're done (`codealong
-server stop` there stops both). Its config.toml lists none of the user's account folders: an app
-brings their skills and prompt hooks up to date from its own build at launch (`install::refresh_installed`).
-A debug binary run with a subcommand `main.rs` doesn't know starts the app; kill it by pid.
-
-The engine binary is also the `codealong` command for agents and people (`cli.rs`;
-`codealong --help`, or `skills/codealong/references/reference.md`, lists what it does). JSON
-when piped, tables in a terminal. It asks the server over `codealong.sock` (`server.rs`), starting
-one when none answers; where it can't (an agent's sandbox), it reads a light board itself
-(`CODEALONG_NO_SERVER=1` makes it). What it does to a session is the app's own request in actions.rs, asked as the command (`actions::From::Command`). Settings are changed
-by editing config.toml, not through the command; `codealong config check` checks the result.
-After changing `cli.rs`, run `scripts/skill-reference.sh`, which rewrites `reference.md` from
-`--help`: a cargo test fails while it's stale.
-
-`codealong --snapshot` checks behavior without a window (snapshot.rs); `"$(scripts/engine.sh)"
---snapshot …` runs your checkout's. With no mode it prints the board (`--table` as a table,
-`--bar` the floating bar's feed). A mode prints one thing the app shows, or does one thing it
-does: a PR's detail, a page of a conversation, what a start, a schedule's run or an automatic
-review would do without doing it, a message sent or a call answered for real.
-`.claude/rules/snapshot.md` lists every mode with its arguments and marks the ones that act for
-real; read it before checking behavior this way, and write a new mode's line there (a test holds
-the list to snapshot.rs `MODES`). Claude usage is read only with `--usage`, and its endpoint
-rate-limits: don't loop it.
-
-## Checking UI changes
-
-`scripts/preview.sh [view] [project] [check.js]` builds the UI, snapshots real data, stubs
-Tauri's IPC and renders in headless Chrome: a screenshot in `.preview/`, or with a check
-(`scripts/preview/*-check.js`), its result. Its header lists the views and every `PREVIEW_*`
-variable (sample todos, usage, devices, a real transcript, dark mode…); `scripts/checks.sh` runs
-every check, or the ones named. Check UI changes in light and dark (`PREVIEW_SCHEME=dark`), and
-ones that show keys on Linux too (`PREVIEW_PLATFORM=linux`).
-Native menus, window creation and real opens can't be seen this way: say so rather than claiming
-they were checked. `.claude/rules/preview.md` has what writing a check needs.
-
-Performance work starts from `[debug] perf_log = true` in config.toml: see
-`.claude/rules/performance.md`.
+- **A fix comes with the test that would have caught it**, and a new rule with a test beside
+  it. A fix nothing pins comes back. A hook or a key handler can have one too: a test file
+  that starts `// @vitest-environment jsdom` mounts it (`src/testing/dom.ts`) against a
+  stand-in for the engine (`src/testing/tauri.ts`).
+- **Change what you were asked to.** Don't tidy, rename or restructure the code around it:
+  another session is editing that code now, and nobody asked for the diff.
+- **Look before you add.** A helper, a hook, a component, a command or a style for it is
+  probably there: search for what it does, and read the header of the file it would be in
+  (*Conventions* names them). A second way of doing a thing is how the first one rots.
+- **New code goes in a file of its own** when the one it would go in is long. An agent reads a
+  few screens around what it searched for and misses the rule further off;
+  `src/conventions.test.ts` holds each file to a length.
+- **A test holds on any machine.** None waits on the clock against a limit in milliseconds
+  (this Mac is often too busy), needs a harness's command line installed (CI has none), or goes
+  by this Mac's settings: an OS's own behaviour is asked for as if on it (`os::as_if`), and a
+  config is made up in the test.
+- **A check that fails isn't yours until you know it is, nor noise until you know that.**
+  `scripts/land.sh` runs a failing cargo test again by itself and says which it was. Never
+  loosen or skip a test to get past it: say what failed, and what you found, in your last
+  message.
 
 ## Landing work
 
@@ -211,8 +153,11 @@ none. These notes are your user's say-so for the helper it starts: don't ask.
    ```text
    Review the commits on this branch that origin/main doesn't have (git log origin/main..HEAD,
    git diff origin/main...HEAD). They <what they're for, in a sentence or two>. CLAUDE.md has
-   the repo's rules. Look for bugs, regressions, cases nothing handles, missing tests and breaks
-   of CLAUDE.md, and for where the change doesn't fit the code around it in a way that costs:
+   the repo's rules; read the header of each file they change too, and the .claude/rules/ file
+   for its area (CLAUDE.md, Where facts live), which your harness may not have loaded. Look for
+   bugs, regressions, what they take away that something still relies on, cases nothing
+   handles, missing tests and breaks of CLAUDE.md, and for where the change doesn't fit the
+   code around it in a way that costs:
    something in another place than the code keeps it, a way of doing things other than the one
    beside it, a copy of what's already written, more machinery than it needs; not matters of
    taste. Read whatever code you need. Change nothing: no edits, and no git command that
@@ -234,32 +179,133 @@ none. These notes are your user's say-so for the helper it starts: don't ask.
    raised, and what you did with each finding: fixed, or left and why. When no review could be
    had (the helper failed on every account you tried), push without one and say why there.
 
+## Commands
+
+```bash
+npm run typecheck                       # tsc
+npm run lint                            # oxlint: only the rules of hooks and their dependency lists
+npm test                                # vitest
+(cd src-tauri && cargo test)            # engine rules, parsers, usage, config, launch scripts; codealong-peer's too
+scripts/engine.sh                       # builds this checkout's engine binary when src-tauri changed; prints its path
+scripts/checks.sh                       # every browser check (scripts/preview/*-check.js) on your real data; names run a few
+scripts/land.sh --reviewed-by "<who>"    # lands your branch: rebase, the checks its commits call for, push (--check: no push)
+scripts/relaunch.sh                     # builds Codealong Dev, then quits it and reopens it from Applications
+scripts/release.sh                      # the installer for other Macs: universal, Developer ID, notarized
+scripts/check-release.sh <version>      # a release on GitHub as a download gets it; the /release skill ships one
+scripts/{linux,windows}-vm.sh [test|build|run]  # a VM (Lima, QEMU) to build, test and run it in
+```
+
+Every checkout and worktree builds into one directory, `codealong-target` next to the main
+checkout, so dependencies compile once and builds queue on cargo's lock (`scripts/target-dir.sh`
+prints it; docs/development.md says how each checkout's own crates are kept apart in it).
+
+Release builds are relaunch.sh's and release.sh's alone: every checkout's queue on one lock, and
+each takes minutes. The engine for snapshots and checks is `scripts/engine.sh`'s, a debug build
+copied into your checkout (`.preview/engine/codealong`), which `cargo test` has mostly compiled
+already; preview.sh and style-diff.mjs use it. Don't `cargo build --release` to check a change.
+
+Hand a change to the user with `scripts/relaunch.sh`: it waits its turn behind other relaunches,
+builds, and only then quits the running app and opens the new one, which it puts in Applications
+so a launcher always opens the latest build; its last line says which commit it launched and how
+that stands against `origin/main`. What it builds is Codealong Dev
+(`src-tauri/tauri.dev.conf.json`, its own id, name and icon), never Codealong, the app
+`scripts/release.sh` builds and people install. The two share their data folder (config.toml,
+todos, the socket), so one runs at a time: a copy opened the usual way asks the running one to
+quit (view.rs `take_over`). The server runs on through a relaunch, keeping the sessions it runs,
+unless the build changed the engine (build.rs `CODEALONG_ENGINE`), when the new app replaces it.
+Don't `pkill` the app or `codealong serve` by hand; a pattern that contains the app's
+path also matches other sessions' shells, and kills their builds.
+
+Don't open a second copy of the app where the user can see it. Opened the usual way it quits
+theirs; a bare binary from a build folder shows up beside it as a second Codealong, and its bar
+and pinned cards float over every app as the real ones do, which the user takes for their own
+app misbehaving. Check UI with `scripts/preview.sh` and behavior with `--snapshot`. A copy you
+must run to debug gets a home of its own (`HOME=/tmp/ca-<topic> …`, short for its socket: its own
+settings, todos, socket and server job), you say so, and you quit it when you're done (`codealong
+server stop` there stops both). Its config.toml lists none of the user's account folders: an app
+brings their skills and prompt hooks up to date from its own build at launch (`install::refresh_installed`).
+A debug binary run with a subcommand `main.rs` doesn't know starts the app; kill it by pid.
+
+The engine binary is also the `codealong` command for agents and people (`codealong --help`,
+or `skills/codealong/references/reference.md`, lists what it does). `cli.rs` has the commands as
+clap reads them and their dispatch; a family's handlers are its file under `cli/`, where a new
+command's goes. JSON when piped, tables in a terminal. It asks the server over `codealong.sock`
+(`server.rs`), starting one when none answers; where it can't (an agent's sandbox), it reads a
+light board itself (`CODEALONG_NO_SERVER=1` makes it). What it does to a session is the app's
+own request in actions.rs, asked as the command (`actions::From::Command`). Settings are
+changed by editing config.toml, not through the command; `codealong config check` checks the
+result. After changing a command's arguments or help, run `scripts/skill-reference.sh`, which
+rewrites `reference.md` from `--help`: a cargo test fails while it's stale.
+
+`codealong --snapshot` checks behavior without a window (snapshot.rs); `"$(scripts/engine.sh)"
+--snapshot …` runs your checkout's. With no mode it prints the board (`--table` as a table,
+`--bar` the floating bar's feed). A mode prints one thing the app shows, or does one thing it
+does: a PR's detail, a page of a conversation, what a start, a schedule's run or an automatic
+review would do without doing it, a message sent or a call answered for real.
+`.claude/rules/snapshot.md` lists every mode with its arguments and marks the ones that act for
+real; read it before checking behavior this way, and write a new mode's line there (a test holds
+the list to snapshot.rs `MODES`). Claude usage is read only with `--usage`, and its endpoint
+rate-limits: don't loop it.
+
+## Checking UI changes
+
+`scripts/preview.sh [view] [project] [check.js]` builds the UI, snapshots real data, stubs
+Tauri's IPC and renders in headless Chrome: a screenshot in `.preview/`, or with a check
+(`scripts/preview/*-check.js`), its result. Its header lists the views and every `PREVIEW_*`
+variable (sample todos, usage, devices, a real transcript, dark mode…); `scripts/checks.sh` runs
+every check, or the ones named. Check UI changes in light and dark (`PREVIEW_SCHEME=dark`), and
+ones that show keys on Linux too (`PREVIEW_PLATFORM=linux`).
+Native menus, window creation and real opens can't be seen this way: say so rather than claiming
+they were checked. `.claude/rules/preview.md` has what writing a check needs.
+
+Performance work starts from `[debug] perf_log = true` in config.toml: see
+`.claude/rules/performance.md`.
+
+## Testing against real data
+
+Real sessions are fine to test with, actions included: typing into them, sending prompts,
+answering approvals, archiving. What reaches other people isn't: don't approve or merge PRs to
+test. Starting sessions is checked without starting one:
+`--snapshot --start-plan` prints the launch. The opt-in tests that open real windows or reach
+real accounts say so in their own docs and in their area's rules file (terminals, devices;
+Codex's archive round trip is in `codex/appserver.rs`); don't type on the Mac while one types
+into a terminal.
+
 ## Conventions
 
-Each rule names the file whose header has the rest.
+Each rule names the file whose header has the rest. The ones a search can check are counted
+by `src/conventions.test.ts` (keys and chords, `localStorage`, a harness named outside its
+module, a status set outside the rules, threads, curl's `-q`, a file's length): its lists only
+go down.
 
-- The frontend never shells out; every side effect is a command: the server's in
-  `src-tauri/src/calls.rs` when it reads or changes what the engine, your devices or Codealong's
-  files hold, which the app hands it (lib.rs `forward`), else the app's own in lib.rs (its
-  windows, opening things on your screen), which reads the board through `view::Mirror`, never
-  an engine of its own. An app command without `async` runs on the main thread; one that can
-  wait on a script, the server, `gh` or curl goes through lib.rs's `blocking`.
-- What goes between devices is codealong-peer (`src-tauri/peer/`, its `lib.rs` says what each
-  module holds). A new field on a session or lane goes in `peer/src/model.rs`, with its neutral
-  value in `Session::new` or `Lane::new`, which everything that builds one starts from, and bumps
-  `feed::READS` when another device shows it, so a kept copy without it is sent again; tests
-  build them from the shared fixtures (`peer/src/fixtures.rs`). The windows' types (`src/types/`,
-  a file a subject, re-exported by `src/types.ts`) name every field of the model:
-  `wiretypes.rs` writes the names down, and the typecheck holds them to it. The iPhone app builds on the
-  crate at a pinned commit and talks to Macs of other builds, so a new message goes only to
-  peers that say they know it.
+- The frontend never shells out: every side effect is a command, invoked from `src/api.ts`.
+  - One that reads or changes what the engine, your devices or Codealong's files hold is the
+    server's, in `src-tauri/src/calls.rs`; the app hands it over (lib.rs `forward`).
+  - Any other (the app's windows, opening things on your screen) is the app's own, in lib.rs.
+    It reads the board through `view::Mirror`: the app has no engine of its own.
+  - An app command without `async` runs on the main thread; one that can wait on a script, the
+    server, `gh` or curl goes through lib.rs's `blocking`.
+- What goes between devices is codealong-peer (`src-tauri/peer/`; its `lib.rs` says what each
+  module holds). A new field on a session or a lane:
+  - goes in `peer/src/model.rs`, with its neutral value in `Session::new` or `Lane::new`, which
+    everything that builds one starts from (tests through `peer/src/fixtures.rs`);
+  - bumps `feed::READS` when another device shows it, so a kept copy without it is sent again;
+  - goes in the windows' type too (`src/types/`, a file a subject, re-exported by
+    `src/types.ts`): `wiretypes.rs` writes the model's names down, and the typecheck holds the
+    types to them.
+
+  A new message goes only to peers that say they know it: the iPhone app builds on the crate at
+  a pinned commit and talks to Macs of other builds.
 - Other Macs' worktrees never go into the board, which is what the engine acts on and sends
   them: what the engine cuts for a window from both goes through `shown.rs` (`Shown`), and a
   window that shows both follows them through `src/useDevices.ts`, never on its own.
-- `src-tauri/src/board.rs` holds the model's rules as pure functions with tests; each harness's
-  reader gathers a session's inputs and calls them, and the engine the rest. `src/lanes.ts`
-  mirrors `bay_of`, the agent bays' headlines and the order of sessions (`sort_sessions`) for
-  the filters; `src/rules.test.ts` holds them in step, on what `rule_cases` there composes.
+- `src-tauri/src/board.rs` and `board/` hold the model's rules as pure functions with tests, a
+  file a kind of rule (`board.rs`'s header maps them; callers write `board::rule` as before). A
+  new rule goes in the file of its kind with its test beside it. Each harness's reader gathers
+  a session's inputs and calls them, and the engine the rest. `src/lanes.ts` mirrors `bay_of`
+  and the agent bays' headlines (`board/headlines.rs`) and the order of sessions
+  (`sort_sessions`) for the filters; `src/rules.test.ts` holds them in step, on what
+  `rule_cases` in `board.rs` composes.
 - What the main window's views list is worked out from the board, the filters and the search in
   `src/boardLists.ts`, as pure functions with tests; a new list or filter goes there, not into
   `App.tsx`. The quick panel's words are pure functions in `start.ts`, `route.ts` and
@@ -279,21 +325,23 @@ Each rule names the file whose header has the rest.
   `launch::terminals()`; `launch/stage.rs` pins what each is sent. send.rs, usage.rs,
   transcript.rs and search.rs keep what every harness shares and ask the adapter for the rest.
   `.claude/rules/adding-a-harness.md` says how to add a harness.
-- One thing, one component, wherever it shows: a card's face is `src/ui/card/` (`CanvasCard.tsx`
-  and `DesktopPin.tsx` add where it goes and what a click does); a session with its conversation
-  is `ui/SessionPanel.tsx`, its header `ui/SessionHeader.tsx`; and every window that shows one
-  session as a card (the peek, a kept session, the notch, the waiting window) goes
-  through `ui/SessionCard.tsx`, the ones that aren't the board's reading through
-  `ui/cardHost.ts`; a PR waiting on your review, shown with a box to review it in the notch and
-  the waiting window, is `ui/PrCard.tsx` the same way (the PR panel's `PrDetails`, `PrStrip.tsx`, the
-  box, its chords in `menus.ts` `PR_CHORDS`; a review is one engine command, `review_pr`). A
-  change goes there, never into one window's file.
-- Keys for getting about what waits on you are `src/queue.ts`'s (`QUEUE_CHORDS`, `keyStep`),
-  which `useWaitingQueue` runs for each window over its rows: sessions, reviews and todos as
-  one list (`bar.ts` `notchRows` for the notch, `quick.ts` `windowRows` for the waiting window,
-  `useViewQueues.ts` per main-window view), one leaving it through `left`. An action's key
-  is in `menus.ts` `CHORDS` and shows on the queue strip, in the menus and in every window at
-  once. No key is written into one window or into the strip.
+- One thing, one component, wherever it shows. A change goes there, never into one window's
+  file:
+  - a card's face: `src/ui/card/` (`CanvasCard.tsx` and `DesktopPin.tsx` add where it goes and
+    what a click does);
+  - a session with its conversation: `ui/SessionPanel.tsx`, its header `ui/SessionHeader.tsx`;
+  - one session as a card (the peek, a kept session, the notch, the waiting window):
+    `ui/SessionCard.tsx`, the windows that aren't the board's reading through `ui/cardHost.ts`;
+  - a PR waiting on your review, with a box to review it (the notch, the waiting window):
+    `ui/PrCard.tsx`, of the PR panel's `PrDetails`, `PrStrip.tsx` and the box, its chords in
+    `menus.ts` `PR_CHORDS`. A review is one engine command, `review_pr`.
+- No key is written into one window or into the strip:
+  - an action's key is in `menus.ts` `CHORDS`, and shows on the queue strip, in the menus and
+    in every window at once;
+  - the keys for getting about what waits on you are `src/queue.ts`'s (`QUEUE_CHORDS`,
+    `keyStep`), which `useWaitingQueue` runs for each window over its rows: sessions, reviews
+    and todos as one list (`bar.ts` `notchRows` for the notch, `quick.ts` `windowRows` for the
+    waiting window, `useViewQueues.ts` per main-window view), one leaving it through `left`.
 - Keys are written for macOS (`Ctrl+Cmd+W`, ⌃⌘W) and `src/platform.ts` presses and says them as
   the platform has them: a key is matched with `chordPressed`, `held` or `cmd`, never by reading
   `metaKey` or `ctrlKey`, and text that names one goes through `keysIn` (a keycap, `Kbd`, does
@@ -317,17 +365,18 @@ Each rule names the file whose header has the rest.
   render is `useLatest` (`latest.ts`).
 - Settings are read with `config::current()`; nothing reads config.toml again for itself.
   Codealong writes it only from config.rs, under its lock (`config::update`).
-- What AppKit is told about the windows that float is in `src-tauri/src/panel.rs` and nowhere
-  else; rectangles, the flip between AppKit's y and a page's, and which screen a thing is on are
+- What the window system is told about the windows that float goes through
+  `src-tauri/src/panel.rs` (AppKit's side of it is `os/windows/macos.rs`) and nowhere else;
+  rectangles, the flip between AppKit's y and a page's, and which screen a thing is on are
   `src-tauri/src/geometry.rs`, not arithmetic where they're used.
 - A session's, worktree's, PR's or todo's right-click menu is defined once, in `src/menus.ts`,
   and every window builds it from there, from the row it's for, never from the selection. A
   right-click on a row opens its menu and doesn't select it.
-- A dialog, a dismissal, a list row, a segmented control, a checkbox and a chip are each one
-  component or hook in `ui/primitives.tsx` (`Dialog`, `useDismiss`, `Row`, `Seg`, `CheckBox`,
-  `Chip`; `HarnessChip`, `WorktreeChip`, `PrChip`), and a class list goes through `cx`. A row's chips go in a
-  `.ca-chips` lane, which never cuts one off. A session's account is said last, never before its
-  title (asked 2026-10-01).
+- A dialog, a list row, a segmented control, a checkbox and a chip are each one component in
+  `ui/primitives.tsx` (`Dialog`, `Row`, `Seg`, `CheckBox`, `Chip`; `HarnessChip`,
+  `WorktreeChip`, `PrChip`), a dismissal one hook (`ui/useDismiss.ts`), and a class list goes
+  through `cx`. A row's chips go in a `.ca-chips` lane, which never cuts one off. A session's
+  account is said last, never before its title (asked 2026-10-01).
 - Styles are plain global CSS, every class named `ca-…`; a component's styles go in a file
   beside it and what several share in `src/styles/` (read those before styling something new).
   `src/styles/app.css` is the one stylesheet code imports, and its order is the cascade (its
@@ -344,15 +393,16 @@ Each rule names the file whose header has the rest.
   one asked for what only macOS does fails with `os::only_on_macos`. `scripts/linux-vm.sh test`
   checks it builds and passes there; CI checks `main` every four hours
   (`.github/workflows/linux.yml`, `gh workflow run linux.yml` for now).
-- `rustfmt` isn't installed here, so Rust formatting is unchecked; match the surrounding code.
+- Rust isn't formatted by `rustfmt` and nothing checks its layout: match the code around
+  yours, and don't run it over a file (it would rewrite all of it, under every other session).
 
 ## Where facts live
 
 What other programs record and accept (most of it found by reading their code and testing on
 this Mac) is written beside the code that relies on it, and what's more than that code needs is
-in `.claude/rules/`. Each file there loads when a session reads or edits a file its `paths`
-name; read one yourself when you need it elsewhere. Read the one for a harness before changing
-its adapter, and add what you find to it, not here.
+in `.claude/rules/`. In Claude Code each file there loads when a session reads or edits a file
+its `paths` name; no other harness loads them, so read the one for the area you're changing
+yourself, a harness's before changing its adapter, and add what you find to it, not here.
 
 - `claude-code.md`: Claude Code and the Claude app. `codex.md`, `opencode.md`,
   `antigravity.md`, `cursor.md`, `acp.md` (the Agent Client Protocol adapters). `skills.md`: skills and the
@@ -369,12 +419,3 @@ its adapter, and add what you find to it, not here.
   `performance.md`: the timing log and benches.
   `voice.md`: macOS's speech recognition and audio capture (codealong-ear).
 
-## Testing against real data
-
-Real sessions are fine to test with, actions included: typing into them, sending prompts,
-answering approvals, archiving. What reaches other people isn't: don't approve or merge PRs to
-test. Starting sessions is checked without starting one:
-`--snapshot --start-plan` prints the launch. The opt-in tests that open real windows or reach
-real accounts say so in their own docs and in their area's rules file (terminals, devices;
-Codex's archive round trip is in `codex/appserver.rs`); don't type on the Mac while one types
-into a terminal.

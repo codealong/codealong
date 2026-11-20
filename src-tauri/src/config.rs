@@ -2,6 +2,10 @@
 //! run from what it finds. After that you edit it, or Settings does: its form sets each value
 //! in place, leaving the rest of the file, comments included, as you wrote it; its config.toml
 //! tab saves the text as typed, once it parses.
+//!
+//! Everything else reads the settings with `current()`: nothing reads config.toml again for
+//! itself. Codealong writes the file only from here, under its lock (`update`), so a change
+//! from Settings and one the engine makes don't lose each other.
 
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
