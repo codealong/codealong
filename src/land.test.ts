@@ -175,7 +175,7 @@ here
 step git checkout -q -b main
 step mkdir -p scripts docs "$tmp/bin"
 step cp "$1" "$2" scripts/
-echo one >docs/a.md
+printf '%s\\n' one a b c d e >docs/a.md
 step git add -A
 step git commit -q -m first
 step git push -q origin main
@@ -188,7 +188,8 @@ step git push -q origin main
 # it, and "conflicting" has main moved under it; "lost" loses GitHub's yes to queueing it
 # ("late" holds how many looks it then takes to show as queued), and with "swapped" it has
 # merged by then as another commit; "refused" has GitHub say no to queueing it, and "dropped"
-# has the asking never reach it; "fail" puts it out of the queue once
+# has the asking never reach it, and "muddled" has it queued with an error in the answering;
+# "fail" puts it out of the queue once
 # it has been seen there, "gone" before anyone sees it there, and "mute" has GitHub not say
 # whether it was; "moved" has its branch pushed to.
 cat >"$tmp/bin/gh" <<'GH'
@@ -259,6 +260,10 @@ case "$1 $2" in
           rm -f "$f/pr" "$f/queued"
           echo "MERGED - $(git --git-dir="$f/origin.git" rev-parse main) PR_$number - MERGEABLE 0000000000000000000000000000000000000000" >"$f/merged.$number"
         fi
+        if [ -f "$f/muddled" ]; then
+          echo '{"data":{"enqueuePullRequest":{"mergeQueueEntry":null}},"errors":[{"type":"INTERNAL","path":["enqueuePullRequest","mergeQueueEntry","id"],"message":"Something went wrong"}]}'
+          exit 1
+        fi
         # Taken, with the answer lost on its way back.
         [ ! -f "$f/lost" ] || exit 1
         ;;
@@ -319,6 +324,10 @@ landed() { grep -E '^(Landed|Nothing to land|Reviewed)' | commits | paste -sd' '
 
 step git worktree add -q "$tmp/topic" -b topic origin/main
 echo x >docs/b.md
+# Beside the lines the branch is about to change, though not on them: the queue's copy of its
+# commit then isn't the same patch as the commit, and a rebase onto main writes it again (as
+# nothing) rather than skip it.
+printf '%s\\n' one a b "c, moved" d e >docs/a.md
 step git add -A
 step git commit -q -m "main moved"
 step git push -q origin main
@@ -331,6 +340,10 @@ was="$(git rev-parse HEAD)"
 # branch alone.
 step git tag -a -m "a version" v9.9.9
 step git config push.followTags true
+# And a second branch at the commit, in a checkout set to move such branches along with a
+# rebase: catching this one up leaves that one where it is.
+step git branch keep
+step git config rebase.updateRefs true
 # Main has moved, and the branch lands as it is: the queue writes it on top. Its own run of CI
 # takes a moment, which is waited for before it's queued.
 echo 2 >"$tmp/slow"
@@ -339,6 +352,7 @@ rm "$tmp/slow"
 echo "main: $(onmain)"
 echo "the main checkout: $(git -C "$tmp/main" log --format=%s -1)"
 [ "$(git rev-parse HEAD)" = "$(git rev-parse origin/main)" ] && [ "$(git rev-parse HEAD)" != "$was" ] && echo "this branch is where main is, as the queue wrote it"
+[ "$(git rev-parse keep)" = "$was" ] && echo "and a second branch at the commit it was at is still there"
 echo "its pull request: $(cat "$tmp/title"), $(grep -c 'no review' "$tmp/body") word on its review, $(grep -c 'scripts/land.sh queues this' "$tmp/body") line for CI"
 echo "queued as the commit it pushed, and no other: $(grep -c "head=$(cat "$tmp/at") " "$tmp/asked")"
 echo "origin's branches after: $(onorigin)"
@@ -427,7 +441,12 @@ touch "$tmp/mute"
 scripts/land.sh >"$tmp/out" 2>&1
 echo "with no word on whether it was put out: $? ($(ls "$tmp" | grep -c '^queued$') queued)"
 rm "$tmp/mute"
+# Taken up again, and queued with an error in GitHub's answering, which it takes a look to show
+# as queued: an error isn't a no unless it says so.
+touch "$tmp/muddled"
+echo 1 >"$tmp/late"
 echo "asked again: $(scripts/land.sh 2>&1 | landed)"
+rm "$tmp/muddled" "$tmp/late"
 # Put out before anyone saw it in the queue: still said, not waited on for ever.
 echo five >>docs/a.md
 step git commit -q -am "docs: five"
@@ -555,7 +574,7 @@ step git -C "$tmp/main" commit -q -m "main: the same file"
 step git -C "$tmp/main" push -q origin main
 was="$(git rev-parse HEAD)"
 scripts/land.sh >"$tmp/out" 2>&1
-echo "adding and taking away what main has since: $? $(grep -c '^Nothing to land' "$tmp/out") $(grep -c "it's left as it was" "$tmp/out") $([ "$(git rev-parse HEAD)" = "$was" ] && echo kept)"
+echo "adding and taking away what main has since: $? $(grep -c '^Nothing to land' "$tmp/out") $(grep -c "it's left as it is" "$tmp/out") $([ "$(git rev-parse HEAD)" = "$was" ] && echo kept)"
 step cd "$tmp/main"
 scripts/land.sh >"$tmp/out" 2>&1
 echo "from main: $(grep -c 'is on main' "$tmp/out")"
@@ -571,6 +590,7 @@ test('a landing queues its pull request as the commit that was asked for, on a m
     'main: docs: two,main moved,first,',
     'the main checkout: docs: two',
     'this branch is where main is, as the queue wrote it',
+    'and a second branch at the commit it was at is still there',
     'its pull request: docs: two, 1 word on its review, 1 line for CI',
     'queued as the commit it pushed, and no other: 1',
     "origin's branches after: main ",

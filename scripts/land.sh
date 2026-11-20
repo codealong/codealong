@@ -392,7 +392,7 @@ standing() {
 # second pull request of this branch at this commit, into another branch than main, has runs
 # of its own that nothing else tells apart.
 own_run() {
-  gh run list --workflow ci.yml --branch "$branch" --commit "$head" --event pull_request --limit 20 --json databaseId,status,conclusion,url,displayTitle \
+  gh run list --workflow ci.yml --branch "$branch" --commit "$head" --event pull_request --limit 200 --json databaseId,status,conclusion,url,displayTitle \
     --jq "[.[] | select(.displayTitle | startswith(\"#$1 \"))][0] | select(. != null) | [.status, (if (.conclusion // \"\") == \"\" then \"-\" else .conclusion end), (.databaseId | tostring), .url] | join(\" \")" 2>/dev/null
 }
 
@@ -513,18 +513,19 @@ EOF
   gh pr ready "$number" >/dev/null 2>&1 || true
   if ! gh api graphql -f pr="$id" -f head="$head" -f query='
     mutation($pr: ID!, $head: GitObjectID!) { enqueuePullRequest(input: {pullRequestId: $pr, expectedHeadOid: $head}) { mergeQueueEntry { id } } }' >"$said_no" 2>&1; then
-    # No yes. GitHub's own no comes with its reasons (`errors` in what it sent back): a
-    # refusal. Anything else is an answer lost on the way, with the pull request queued or
-    # not, and GitHub can take a moment to show what it was just asked: so where it stands is
-    # looked at a few times, as the wait does, before anything is made of it. Queued as this
-    # commit, or merged already, is a yes (whoever called this sees a merge through as any
-    # other; `state` says which).
+    # No yes. GitHub's own no to the asking is an error of a kind that says so (what can't be
+    # done, isn't allowed or isn't there): a refusal. Anything else, an error in answering
+    # included, can be an answer lost on the way with the pull request queued or not, and
+    # GitHub can take a moment to show what it was just asked: so where it stands is looked at
+    # a few times, as the wait does, before anything is made of it. Queued as this commit, or
+    # merged already, is a yes (whoever called this sees a merge through as any other;
+    # `state` says which).
     while :; do
       look "$number"
       if [ "$state" = MERGED ] || { [ "$state" = OPEN ] && [ "$entry" != - ] && [ "$at" = "$head" ]; }; then
         return 0
       fi
-      if grep '"errors"' "$said_no" >/dev/null; then
+      if grep -E '"type": ?"(UNPROCESSABLE|FORBIDDEN|NOT_FOUND|INSUFFICIENT_SCOPES)"' "$said_no" >/dev/null; then
         rm -f "$sent"
         echo "GitHub wouldn't queue pull request #$number ($pr_url):" >&2
         cat "$said_no" >&2
@@ -691,29 +692,46 @@ EOF
 }
 
 # Brings this checkout and the main checkout up to origin/main once the change is in it, and
-# says where each stands. The queue wrote the commits again on top of main, so the ones here
-# are copies of what landed: rebased onto origin/main they drop out, and the branch is where
-# main is. A rebase that writes any of them again on top of main isn't that (a commit that
-# takes back another of the branch's, where main has what the first one added from somewhere
-# else, is written again as a change main never had): the branch goes back to where it was,
-# rather than be left one commit from landing it. Nothing is said to be at origin/main that
-# isn't.
+# says where each stands. `$2` says how it's known to be in main: `landed`, by the queue just
+# now, or `same`, by merging it changing nothing. Whichever, nothing here resets a branch or
+# puts one back, so a commit another session makes in this checkout meanwhile is never the one
+# that goes:
+# - Behind main, the branch is moved up to it, by a fast-forward and nothing else.
+# - Its commits main's as the queue wrote them (copies), it's rebased onto main, where they
+#   drop out. Whatever doesn't drop out stays, on top, and is said.
+# - In main some other way, it's left as it is. A branch can merge as nothing new and still
+#   rebase as something: a commit that takes back another of its own, where main has since got
+#   what the first one added from elsewhere, would be written on top of main as a change main
+#   never had, one landing away.
+# Main is the commit fetched here, whatever another worktree fetches meanwhile, and other
+# branches stay where they are whatever `rebase.updateRefs` says. Nothing is said to be at
+# origin/main that isn't.
 caught_up() {
-  local here=""
+  local here="" target new=""
   if ! fetch; then
     here="Couldn't fetch origin/main, so this checkout is as it was: it isn't at origin/main."
   elif ! still_here "$1"; then
     here="This checkout moved or changed while the landing waited, so it's left as it is: it isn't at origin/main."
-  elif ! git rebase -q origin/main >"$log" 2>&1; then
-    git rebase --abort >/dev/null 2>&1
-    here="This branch didn't rebase onto origin/main, so it's left as it was: it isn't at origin/main."
-  elif [ "$(git rev-parse HEAD)" != "$(git rev-parse origin/main)" ]; then
-    # Back to where it was, keeping whatever another session has changed here since.
-    if git reset -q --keep "$1" 2>/dev/null; then
-      here="Rebased onto origin/main this branch would put commits on top of it, though all it holds is in main, so it's left as it was: it isn't at origin/main."
-    else
-      here="Rebased onto origin/main this branch puts commits on top of it, though all it held is in main, and it couldn't be put back where it was ($(short "$1")): look at it before landing anything from here."
-    fi
+  elif ! target="$(git rev-parse -q --verify origin/main)"; then
+    here="Couldn't read origin/main, so this checkout is as it was: it isn't at origin/main."
+  elif git merge-base --is-ancestor "$1" "$target"; then
+    git merge -q --ff-only "$target" >"$log" 2>&1 || here="This branch couldn't be moved up to origin/main, so it's left as it was: it isn't at origin/main."
+  else
+    # Copies, by their patches: every commit of it has one in main. The queue's just now are
+    # taken for that without asking (main can have changed around one since, which changes
+    # its patch and not what it does).
+    [ "$2" = landed ] || new="$(git cherry "$target" "$1" 2>/dev/null)" || new="+"
+    case "$new" in
+      *+*) here="All this branch holds is in origin/main, though not as these commits, so it's left as it is: it isn't at origin/main." ;;
+      *)
+        if ! git -c rebase.updateRefs=false rebase -q "$target" >"$log" 2>&1; then
+          git rebase --abort >/dev/null 2>&1
+          here="This branch didn't rebase onto origin/main, so it's left as it was: it isn't at origin/main."
+        elif [ "$(git rev-parse HEAD)" != "$target" ]; then
+          here="This branch has commits origin/main doesn't (git log origin/main..HEAD), so it isn't at origin/main: look at them before landing anything from here."
+        fi
+        ;;
+    esac
   fi
   echo "$(scripts/catch-up-main.sh)${here:+ $here}"
   [ -z "$here" ]
@@ -725,7 +743,7 @@ see_through() {
   local number="$1" at_main=1 where
   landed=""
   wait_landed "$number"
-  where="$(caught_up "$head")" || at_main=0
+  where="$(caught_up "$head" landed)" || at_main=0
   if ! git merge-base --is-ancestor "$landed" origin/main 2>/dev/null; then
     echo "GitHub says pull request #$number ($pr_url) merged as $(short "$landed"), which origin/main here doesn't have:" >&2
     die "it couldn't be fetched, or isn't there. Run scripts/land.sh again to see (it's still noted as with GitHub), or look: git fetch origin main; git log origin/main."
@@ -895,7 +913,7 @@ main() {
     die "Rebase it (git rebase --reapply-cherry-picks origin/main), resolve, rerun what you'd tested, and run scripts/land.sh again."
   fi
   if [ "$nothing" = 1 ]; then
-    echo "Nothing to land: origin/main ($(git rev-parse --short origin/main)) already has this branch's commits. $(caught_up "$head")"
+    echo "Nothing to land: origin/main ($(git rev-parse --short origin/main)) already has this branch's commits. $(caught_up "$head" same)"
     exit 0
   fi
   # Some of its commits in main already, by their patches, under ones that aren't: a rebase
