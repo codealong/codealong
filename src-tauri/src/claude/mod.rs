@@ -584,7 +584,8 @@ impl crate::harness::Adapter for ClaudeCode {
 
     /// As itself, unless a background job has had it (`resume_job_command`); the roster says which.
     fn move_folder_background(&self, ctx: &crate::harness::Ctx, s: &crate::model::Session, cwd: &Path, keep: Option<&Path>, prompt: &str) -> anyhow::Result<Option<String>> {
-        let command = resume_job_command(ctx.account, &resume_args(ctx.account, s, home_of_account), keep, prompt, None, None);
+        let (from, name) = resume_job_from(ctx.account, s, home_of_account);
+        let command = resume_job_command(ctx.account, &from, name, keep, prompt, None, None);
         let (_, id) = start_background(ctx.account, cwd, &command)?;
         Ok(id.map(|id| Session::key_for(Harness::Claude, &ctx.account.name, &id)))
     }
@@ -914,7 +915,8 @@ impl crate::harness::Adapter for ClaudeCode {
 
     /// As itself, unless a background job has had it (`resume_job_command`); the roster says which.
     fn resume_in_background(&self, ctx: &crate::harness::Ctx, s: &Session, cwd: &Path, ask: &crate::harness::StartAsk) -> anyhow::Result<Option<String>> {
-        let command = resume_job_command(ctx.account, &resume_args(ctx.account, s, home_of_account), None, ask.prompt, ask.model, ask.effort);
+        let (from, name) = resume_job_from(ctx.account, s, home_of_account);
+        let command = resume_job_command(ctx.account, &from, name, None, ask.prompt, ask.model, ask.effort);
         let (_, id) = start_background(ctx.account, cwd, &command)?;
         Ok(id.map(|id| Session::key_for(Harness::Claude, &ctx.account.name, &id)))
     }
@@ -1820,9 +1822,17 @@ fn moved_source(account: &AccountCfg, s: &Session, home_of: impl Fn(&str) -> Opt
 /// that has written nothing yet, the conversation it was moved with, forked again under the
 /// copy's ID (`fork_args`; `Reader::closed_copies`).
 fn resume_args(account: &AccountCfg, s: &Session, home_of: impl Fn(&str) -> Option<PathBuf>) -> String {
+    resume_job_from(account, s, home_of).0
+}
+
+/// `resume_args` paired with the title to pass as `--name` when resuming as a background job
+/// (`resume_job_command`), so `--bg`'s auto-namer keeps the session's title instead of re-naming
+/// it from the follow-up prompt. A moved copy's `fork_args` already carries `--name`, so the
+/// pair leaves it `None` to avoid duplicating the flag.
+fn resume_job_from<'a>(account: &AccountCfg, s: &'a Session, home_of: impl Fn(&str) -> Option<PathBuf>) -> (String, Option<&'a str>) {
     match moved_source(account, s, home_of) {
-        Some(path) => fork_args(&crate::util::sh_quote(&path.to_string_lossy()), &s.id, move_name(s)),
-        None => s.id.clone(),
+        Some(path) => (fork_args(&crate::util::sh_quote(&path.to_string_lossy()), &s.id, move_name(s)), None),
+        None => (s.id.clone(), move_name(s)),
     }
 }
 
@@ -2771,10 +2781,12 @@ mod tests {
         let home_of = |name: &str| (name == "claude").then(|| old_home.to_path_buf());
         let (input, _) = claude_resume_input(&to, &resume_args(&to, copy, home_of), "Go on", None, None);
         assert_eq!(input, format!("claude2 --resume {path} --fork-session --session-id c0 \"${}\"\n", crate::start::PROMPT_VAR));
-        // When the session has a title of its own, --name carries it onto the copy.
+        // When the session has a title of its own, --name carries it onto the copy, once.
         let titled = Session { title: "Northwind build fix".into(), ..copy.clone() };
         let (titled_input, _) = claude_resume_input(&to, &resume_args(&to, &titled, home_of), "Go on", None, None);
         assert_eq!(titled_input, format!("claude2 --resume {path} --fork-session --session-id c0 --name 'Northwind build fix' \"${}\"\n", crate::start::PROMPT_VAR));
+        let (bg_from, bg_name) = resume_job_from(&to, &titled, home_of);
+        assert_eq!(resume_job_command(&to, &bg_from, bg_name, None, "Go on", None, None), format!("claude2 --resume {path} --fork-session --session-id c0 --name 'Northwind build fix' --bg -- 'Go on'"));
 
         // While its process runs the registry has it, and the reader shows it from there.
         assert!(reader.closed_copies(&to, &HashSet::from(["c0"]), &origins, &look).is_empty());
@@ -2785,11 +2797,18 @@ mod tests {
         let look_archived = Look { seen: &archived, ..look };
         assert!(reader.closed_copies(&to, &HashSet::new(), &origins, &look_archived)[0].archived);
 
-        // Once its first message has written its own transcript, it resumes by its own ID.
+        // Once its first message has written its own transcript, it resumes by its own ID,
+        // carrying its title onto a background job so --bg doesn't auto-name it from the prompt.
         let own = new_home.join("projects").join("-Users-me-app");
         std::fs::create_dir_all(&own).unwrap();
         std::fs::write(own.join("c0.jsonl"), "{}\n").unwrap();
-        assert_eq!(resume_args(&to, &Session { continues: None, ..copy.clone() }, home_of), "c0");
+        let own_untitled = Session { continues: None, ..copy.clone() };
+        assert_eq!(resume_args(&to, &own_untitled, home_of), "c0");
+        let (bg_from, bg_name) = resume_job_from(&to, &own_untitled, home_of);
+        assert_eq!(resume_job_command(&to, &bg_from, bg_name, None, "Go on", None, None), "claude2 --resume c0 --bg -- 'Go on'");
+        let own_titled = Session { title: "Northwind build fix".into(), ..own_untitled };
+        let (bg_from, bg_name) = resume_job_from(&to, &own_titled, home_of);
+        assert_eq!(resume_job_command(&to, &bg_from, bg_name, None, "Go on", None, None), "claude2 --resume c0 --name 'Northwind build fix' --bg -- 'Go on'");
 
         // A conversation whose last turn an API error ended moves without it: the copy hasn't
         // taken a turn, so it has nothing to try again.

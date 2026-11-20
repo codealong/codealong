@@ -552,6 +552,9 @@ on this Mac; read it before changing the Claude adapter (paths are under `src-ta
   <job>: idle-prompt, idle 61m`, then `bg settled <job> (done)`, and the job leaves the roster's
   `workers`. Its `state.json` keeps `state: "done"` (`lastTerminalAt` the retirement), and
   `--resume <id> --bg` brings it back under the same job ID (`bg claimed-spare <job> (fleet)`).
+  On 2.1.329 (by its code), a fresh `--bg --resume <id>` job starts with no `name` in `state.json`
+  and runs `agent_namer` on its next turn unless `--name <title>` sets `nameSource: "user"`
+  (`claude/start.rs` `resume_job_command`).
   Seen across a day's jobs on 2.1.296 (2026-10-12); whether a setting changes the hour wasn't
   looked into. Why another session's message may resume it: send.rs (`wakes`). It doesn't
   retire one a tab is attached to (`claude attach` running): jobs attached for a day and more,

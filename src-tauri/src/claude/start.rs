@@ -112,11 +112,15 @@ pub(super) fn background_args(prompt: &str, model: Option<&str>, effort: Option<
     args
 }
 
-/// The session's title to carry onto a moved copy (`--name`), so Claude Code doesn't auto-title
-/// the fork onto something else on its next turn. Leaves out empty titles, the fallback
-/// `Session <short id>`, and titles that are just the session's first prompt (which Claude Code
-/// hasn't titled yet).
+/// The session's title to carry onto a moved copy or a resumed background job (`--name`), so
+/// Claude Code doesn't auto-title it onto something else on its next turn. Leaves out empty
+/// titles, the fallback `Session <short id>`, titles that are just the session's first prompt
+/// (which Claude Code hasn't titled yet), and orchestrators (whose board title is shortened to
+/// `"Orchestrator"` while their transcript keeps the project's name).
 pub(super) fn move_name(s: &Session) -> Option<&str> {
+    if s.orchestrator.is_some() {
+        return None;
+    }
     let title = s.title.trim();
     if title.is_empty()
         || title == format!("Session {}", s.short_id)
@@ -278,14 +282,16 @@ pub fn claude_resume_input(account: &AccountCfg, from: &str, text: &str, model: 
 }
 
 /// The command that goes on with a session as a background job: `--bg` with `--resume`, on
-/// `model` and `effort` when they're asked for, with `keep` a folder it may still read, and on
-/// `prompt` when there's one, else waiting for one. `from` is what `--resume` takes. While no
-/// background job has had the session it goes on as itself; one that has is copied into a job
-/// under a new ID (`fork: true` in the roster; checked on 2.1.289, 2026-10-05).
-pub(super) fn resume_job_command(account: &AccountCfg, from: &str, keep: Option<&Path>, prompt: &str, model: Option<&str>, effort: Option<&str>) -> String {
+/// `model` and `effort` when they're asked for, with `name` (`--name`) so `--bg`'s auto-namer
+/// keeps the session's title instead of naming the fresh job from the follow-up prompt (checked
+/// on 2.1.329, by its code), `keep` a folder it may still read, and `prompt` when there's one,
+/// else waiting for one. `from` is what `--resume` takes. While no background job has had the
+/// session it goes on as itself; one that has is copied into a job under a new ID (`fork: true`
+/// in the roster; checked on 2.1.289, 2026-10-05).
+pub(super) fn resume_job_command(account: &AccountCfg, from: &str, name: Option<&str>, keep: Option<&Path>, prompt: &str, model: Option<&str>, effort: Option<&str>) -> String {
     let keep = keep.map(|d| format!(" --add-dir={}", crate::util::sh_quote(&d.to_string_lossy()))).unwrap_or_default();
     let dirs = (attachments::images_dir(), attachments::files_dir());
-    format!("{} --resume {from}{keep}{}", account.command(), background_args(prompt, model, effort, false, (&dirs.0, &dirs.1)))
+    format!("{} --resume {from}{}{keep}{}", account.command(), name_arg(name), background_args(prompt, model, effort, false, (&dirs.0, &dirs.1)))
 }
 
 #[cfg(test)]
@@ -428,6 +434,28 @@ mod tests {
             fork_command_in(&a, id, "go on", Some("northwind 3d model ui mocks"), dirs),
             format!("claude2 --resume {id} --fork-session --name 'northwind 3d model ui mocks' --bg -- 'go on'")
         );
+    }
+
+    #[test]
+    fn resumes_in_the_background_with_the_previous_name() {
+        let a = AccountCfg { name: "claude2".into(), harness: "claude".into(), home: "~/.claude2".into(), command: Some("claude2".into()), start: None, acp: None, monthly: None, per_token: false, usage_cap: None, disabled: false, chrome_profile: None };
+        let id = "5a8b7c6d-1234-4e56-9abc-def012345678";
+        assert_eq!(
+            resume_job_command(&a, id, Some("northwind release pipeline"), None, "check build", None, None),
+            format!("claude2 --resume {id} --name 'northwind release pipeline' --bg -- 'check build'")
+        );
+        assert_eq!(
+            resume_job_command(&a, id, None, Some(Path::new("/c/chats/old")), "go on", Some("sonnet"), Some("high")),
+            format!("claude2 --resume {id} --add-dir='/c/chats/old' --bg --model 'sonnet' --effort high -- 'go on'")
+        );
+        // An orchestrator's board title is shortened to "Orchestrator" while its transcript keeps
+        // its project's name, so move_name leaves it alone rather than overwriting it.
+        let orch = Session {
+            title: "Orchestrator".into(),
+            orchestrator: Some(crate::model::Orchestrator { schedule: "s1".into(), project: Some("Northwind".into()), paused: false, looked_at: None }),
+            ..Session::new(Harness::Claude, "claude2", id)
+        };
+        assert_eq!(move_name(&orch), None);
     }
 
     #[test]
