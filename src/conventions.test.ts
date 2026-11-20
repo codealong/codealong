@@ -391,10 +391,10 @@ describe('the windows', { timeout: 300_000 }, () => {
     const allowed: Record<string, number> = {
       'src/history.ts': 2,
       'src/mainKeys.ts': 5,
+      'src/quickKeys.ts': 1,
       'src/ui/EditFrom.tsx': 1,
       'src/ui/PrBox.tsx': 2,
       'src/ui/QuestionList.tsx': 1,
-      'src/ui/Quick.tsx': 1,
       'src/ui/SessionReply.tsx': 5,
     };
     const found = counted(files(), within('src/platform.ts'), (file) => inWindows()[file].chords);
@@ -498,7 +498,7 @@ describe('no source file outgrows what one reading can hold', { timeout: 300_000
       'src/boardLists.ts': 1500,
       'src/menus.ts': 2000,
       'src/ui/Bar.tsx': 1300,
-      'src/ui/Quick.tsx': 2700,
+      'src/ui/Quick.tsx': 2500,
       'src/ui/SessionReply.tsx': 2000,
       'src/ui/SessionThread.tsx': 1600,
       'src/ui/SettingsDialog.tsx': 2900,

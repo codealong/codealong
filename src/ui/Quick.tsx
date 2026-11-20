@@ -84,7 +84,7 @@ import { place } from '../talk';
 import { boardAhead, sendAhead, useAhead } from '../ahead';
 import { filesToAttach, keepFiles, useFileDrop } from '../attachInput';
 import { deviceLabel, floatingLanes, shortOf } from '../devices';
-import { CALMER_CHORD, calmerMachine, type Calmer } from '../machineLoad';
+import { calmerMachine, type Calmer } from '../machineLoad';
 import { useDeviceLanes, useObserve } from '../useDevices';
 import { usePerf } from '../perf';
 import { showContextMenu, type MenuSpec } from '../contextMenu';
@@ -130,7 +130,6 @@ import type { Attachment, Board, DevicesView, HearingStatus, Lane, ListenAsk, Me
 import { AttachmentStrip } from './DescriptionEditor';
 import { DevSetupDialog } from './DevSetupDialog';
 import { useDoneHelpers } from './DoneHelpers';
-import { dialogUp } from './focusTrap';
 import { Level } from './Said';
 import { filterWords, matches, Picker, type PickerSection } from './Picker';
 import { addsTo, anotherFolderOption, chatOption, folderOptions, HERE, machineMenu, namedWorktreeOption, NEW_WORKTREE, newWorktreeOption, projectMenu, REPO, repoOption, repoSections, worktreeMenu } from './pickerOptions';
@@ -138,7 +137,6 @@ import { AgentFoot } from './AgentMenu';
 import { agentMenuSections, placeIcon } from './StartControls';
 import { Button, cx, Icon, Kbd, Mark } from './primitives';
 import { ProjectShown } from './ProjectSaid';
-import { projectForDigit } from './ProjectSwitcher';
 import { usePrLinks } from './PrLink';
 import { useTheme } from './ThemeSwitch';
 import { useGlass } from '../glass';
@@ -153,8 +151,9 @@ import { useStartChoice, useStartPicks } from '../useStartChoice';
 import { findFor } from '../threadFind';
 import { useTextSearch } from '../useTextSearch';
 import { cardHeight, HEIGHT, LISTEN_HEIGHT, MARGIN, useQuickSize } from './useQuickSize';
-import { bare, chordPressed, cmd, emacsCtrl, held as modsHeld, keysIn } from '../platform';
+import { keysIn } from '../platform';
 import { useKeysShown } from '../keysShown';
+import { onQuickBoxKey, useQuickKeys, type PickerKind } from '../quickKeys';
 import { useFolderLook } from '../useFolderLook';
 import { OPTIONS_FOR_MS, useRemoteOptions } from '../useRemoteOptions';
 import { useTallest } from './useTallest';
@@ -188,8 +187,6 @@ const LISTEN_KEY = 'codealong.quick.listen';
 const NO_DEV_KEY = 'codealong.quick.no-dev-setup';
 /** The input grows to this many lines, then scrolls. */
 const INPUT_LINES = 8;
-
-type PickerKind = 'project' | 'device' | 'repo' | 'worktree' | 'agent';
 
 /** Where in the box a press that's being heard shows (dictation.rs `Talk::id`): the open of the
  *  panel it began in, and what was selected in the box then. */
@@ -1873,230 +1870,52 @@ export function Quick() {
   // The agent menu opened for where it runs (⌘O): its ← → step the place, not the effort.
   const [stepsPlace, setStepsPlace] = useState(false);
 
-  const onInputKey = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
-    if (e.nativeEvent.isComposing) return;
-    // While a press is heard into the box, what it shows isn't what it holds yet, so nothing is
-    // done with it. ⏎ ends a press begun with the microphone: what was said is typed, to read.
-    if (hearingHere) {
-      if (e.key === 'Enter') {
-        e.preventDefault();
-        void talkTo(false).catch((err: unknown) => setError(errorText(err)));
-      }
-      return;
-    }
-    // Set to listen there's nothing listed to move through, and no earlier prompts to bring
-    // back: ⏎ starts listening, and ⇧⏎ is a new line.
-    if (listen) {
-      if (e.key === 'Enter' && !e.shiftKey) {
-        e.preventDefault();
-        listenToIt();
-      }
-      return;
-    }
-    const el = e.currentTarget;
-    // In Send to the box finds a session: ⏎ (or ⌘⏎) sends to it, ⌫ in the empty box goes back to
-    // the prompt as Escape does, and the arrows move through the list, never back through
-    // earlier prompts. What's typed there is one line.
-    if (inSendTo && e.key !== 'Tab') {
-      if (e.key === 'Enter') {
-        e.preventDefault();
-        if (!e.shiftKey) activate(active, e.altKey);
-      } else if (e.key === 'Backspace' && !el.value && bare(e)) {
-        e.preventDefault();
-        closeSendTo();
-      } else if ((e.key === 'ArrowDown' || e.key === 'ArrowUp') && !e.altKey && !cmd(e) && !e.shiftKey) {
-        e.preventDefault();
-        move(e.key === 'ArrowDown' ? 1 : -1);
-      } else if (!cmd(e) && (emacsCtrl(e, 'n') || emacsCtrl(e, 'p'))) {
-        e.preventDefault();
-        move(e.key === 'n' ? 1 : -1);
-      }
-      return;
-    }
-    // ⇥ on a session answers it in the waiting window; elsewhere it moves the focus as usual.
-    if (e.key === 'Tab' && bare(e)) {
-      const row = rows.find((r) => r.key === active);
-      if (row?.kind === 'skill') {
-        e.preventDefault();
-        pickSkill(row);
-        return;
-      }
-      const at = row?.kind === 'session' ? row : row?.kind === 'suggest' && (row.s.kind === 'send' || row.s.kind === 'open') ? row.s : null;
-      if (at) {
-        e.preventDefault();
-        answerSession(at.lane, at.session);
-        return;
-      }
-      // And on a PR waiting on your review, it reviews it there, as ⏎ does.
-      if (row?.kind === 'review') {
-        e.preventDefault();
-        answerIn(row.pr.key);
-        return;
-      }
-    }
-    if (e.key === 'Enter') {
-      if (e.shiftKey) return;
-      e.preventDefault();
-      if (cmd(e)) start();
-      else activate(active, e.altKey);
-      return;
-    }
-    // ↑ in the empty input brings back the draft, then earlier prompts, and ↓ goes forward again
-    // to the empty input; once you change what came back, the arrows move through the list.
-    const recalled = recall !== null && withAttachments(el.value, attached) === recallable[recall];
-    const plainKey = bare(e);
-    const walk = (e.key === 'ArrowUp' && (recalled || (!el.value && attached.length === 0 && keys.indexOf(active) <= 0))) || (e.key === 'ArrowDown' && recalled);
-    if (plainKey && walk) {
-      const at = recalled ? recall + (e.key === 'ArrowUp' ? 1 : -1) : 0;
-      if (at >= recallable.length) return e.preventDefault();
-      e.preventDefault();
-      const next = at < 0 ? '' : recallable[at];
-      const shownText = loadPrompt(next);
-      setRecall(at < 0 ? null : at);
-      const fromDraft = at === 0 && draft && recallable[0] === draft.text ? draft : null;
-      setTodoIds(fromDraft?.todos ?? []);
-      // A draft written over Improve Codealong's pictures brings them back, and with them the
-      // start in Codealong's source; walking on puts back the panel's own pictures and place.
-      if (fromDraft?.shots) {
-        if (!recalledOver.current) {
-          recalledOver.current = { improve, place: improve ? null : { project, laneId, device, asChat } };
-          if (!improve) {
-            // Where an Improve open starts: the source's worktree, or none until it's found.
-            const at = board?.improve?.laneId ?? null;
-            setLaneId(at);
-            setDevice(at ? shortOf(at) : null);
-            if (board?.improve?.project) setProject(board.improve.project);
-            setAsChat(false);
-            improveFollowed.current = false;
-          }
-        }
-        setImprove({ shots: fromDraft.shots });
-      } else if (recalledOver.current) {
-        const before = recalledOver.current;
-        recalledOver.current = null;
-        setImprove(before.improve);
-        if (before.place) {
-          setProject(before.place.project);
-          setLaneId(before.place.laneId);
-          setDevice(before.place.device);
-          setAsChat(before.place.asChat);
+  /** ↑ and ↓ through the draft and earlier prompts, in the box `el` (quickKeys.ts): brings back
+   *  the one at `at` of `recallable`, or the empty box past the newest of them (-1). */
+  const recallAt = (at: number, el: HTMLTextAreaElement) => {
+    const next = at < 0 ? '' : recallable[at];
+    const shownText = loadPrompt(next);
+    setRecall(at < 0 ? null : at);
+    const fromDraft = at === 0 && draft && recallable[0] === draft.text ? draft : null;
+    setTodoIds(fromDraft?.todos ?? []);
+    // A draft written over Improve Codealong's pictures brings them back, and with them the
+    // start in Codealong's source; walking on puts back the panel's own pictures and place.
+    if (fromDraft?.shots) {
+      if (!recalledOver.current) {
+        recalledOver.current = { improve, place: improve ? null : { project, laneId, device, asChat } };
+        if (!improve) {
+          // Where an Improve open starts: the source's worktree, or none until it's found.
+          const at = board?.improve?.laneId ?? null;
+          setLaneId(at);
+          setDevice(at ? shortOf(at) : null);
+          if (board?.improve?.project) setProject(board.improve.project);
+          setAsChat(false);
+          improveFollowed.current = false;
         }
       }
-      setActiveKey(null);
-      window.requestAnimationFrame(() => el.setSelectionRange(shownText.length, shownText.length));
-      return;
+      setImprove({ shots: fromDraft.shots });
+    } else if (recalledOver.current) {
+      const before = recalledOver.current;
+      recalledOver.current = null;
+      setImprove(before.improve);
+      if (before.place) {
+        setProject(before.place.project);
+        setLaneId(before.place.laneId);
+        setDevice(before.place.device);
+        setAsChat(before.place.asChat);
+      }
     }
-    if ((e.key === 'ArrowDown' || e.key === 'ArrowUp') && !e.altKey && !cmd(e) && !e.shiftKey) {
-      // In a prompt of several lines the arrows move the cursor, and the selection only from
-      // its first or last line.
-      const before = el.value.slice(0, el.selectionStart);
-      const after = el.value.slice(el.selectionEnd);
-      if (e.key === 'ArrowUp' && before.includes('\n')) return;
-      if (e.key === 'ArrowDown' && after.includes('\n')) return;
-      e.preventDefault();
-      move(e.key === 'ArrowDown' ? 1 : -1);
-      return;
-    }
-    if (!cmd(e) && (emacsCtrl(e, 'n') || emacsCtrl(e, 'p'))) {
-      e.preventDefault();
-      move(e.key === 'n' ? 1 : -1);
-    }
+    setActiveKey(null);
+    window.requestAnimationFrame(() => el.setSelectionRange(shownText.length, shownText.length));
   };
 
-  // The panel's own keys, wherever the focus is in it. A menu's filter handles its own first.
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent) => {
-      // Switch to Codealong Dev? has the keys while it's up, Escape closing it (useEscape), and
-      // so does any other dialog (Mark as done's about helpers).
-      if (e.defaultPrevented || e.isComposing || askingDev || dialogUp()) return;
-      // Folded, the panel has the keyboard only for the moment a click on the chip takes to open
-      // it again. Escape puts it away, and so do ⌘Q and ⌘H, which mean the app in front (below).
-      if (folded) {
-        if (e.key === 'Escape' || (modsHeld(e, 'Cmd') && (e.key.toLowerCase() === 'q' || e.key.toLowerCase() === 'h'))) {
-          e.preventDefault();
-          void hideQuick();
-        }
-        return;
-      }
-      if (e.key === 'Escape') {
-        e.preventDefault();
-        if (picker) {
-          setPicker(null);
-          refocus();
-        } else if (inSendTo) closeSendTo();
-        else void hideQuick();
-        return;
-      }
-      // The panel's other keys wait for a press that's being heard into the box.
-      if (hearingHere) return;
-      // ⌥⌘ digits switch projects, as in the main window. ⌥ changes the character, so they go by
-      // the key's code.
-      const digit = /^Digit(\d)$/.exec(e.code);
-      if (digit && chordPressed(`Alt+Cmd+${digit[1]}`, e)) {
-        e.preventDefault();
-        const name = projectForDigit(Number(digit[1]), projects);
-        if (name) pickProject(name);
-        return;
-      }
-      if (!modsHeld(e, 'Cmd') && !modsHeld(e, 'Shift', 'Cmd')) return;
-      if (/^[1-9]$/.test(e.key)) {
-        const row = numbered[Number(e.key) - 1];
-        if (row) {
-          e.preventDefault();
-          activate(row.key, false);
-        }
-        return;
-      }
-      const k = e.key.toLowerCase();
-      // ⇧⌘A, while there's a search: the box on Sessions' heading. ⌘A alone selects what's typed.
-      if (k === 'a' && e.shiftKey && query) {
-        e.preventDefault();
-        toggleArchived();
-        return;
-      }
-      // ⌘F, under a prompt: Send to, and back.
-      if (k === 'f' && !e.shiftKey && (inSendTo || sendable > 0)) {
-        e.preventDefault();
-        if (inSendTo) closeSendTo();
-        else openSendTo();
-        return;
-      }
-      // ⇧⌘D: the calm machine offered while this start's is strained.
-      if (calmer && chordPressed(CALMER_CHORD, e)) {
-        e.preventDefault();
-        takeCalmer(calmer);
-        return;
-      }
-      // The menus for a new session are put away in Send to, with their keys.
-      // And set to listen, all but the repo's and the worktree's: its session starts on this
-      // Mac, on the account Settings names for meetings.
-      const startMenu = !inSendTo && (k === 't' || (k === 'b' && !!repoNow) || (!listen && (k === 'l' || (k === 'd' && macs.length > 0) || (k === 'o' && places.length > 1))));
-      if (k === 'p' || startMenu) {
-        e.preventDefault();
-        // ⌘O opens the agent menu too, its ← → stepping where it runs, a row under its lines
-        // (AgentMenu.tsx `AgentFoot`); with the menu up, ⌘O and ⌘L switch which row they step.
-        const kind = k === 'p' ? 'project' : k === 'd' ? 'device' : k === 't' ? 'repo' : k === 'b' ? 'worktree' : 'agent';
-        const forPlace = k === 'o';
-        if (kind === 'agent' && picker === 'agent' && forPlace !== stepsPlace) setStepsPlace(forPlace);
-        else {
-          setStepsPlace(forPlace);
-          togglePicker(kind);
-        }
-      } else if (k === 'q' || k === 'h') {
-        // The menu bar is the other app's while the panel is up, so ⌘Q and ⌘H mean that app,
-        // not Codealong: they close the panel instead of quitting or hiding Codealong.
-        e.preventDefault();
-        void hideQuick();
-      } else if (e.key === 'Enter') {
-        e.preventDefault();
-        if (inSendTo) activate(active, false);
-        else if (listen) listenToIt();
-        else start();
-      }
-    };
-    window.addEventListener('keydown', onKey);
-    return () => window.removeEventListener('keydown', onKey);
-  });
+  // The box's keys (quickKeys.ts).
+  const onInputKey = (e: React.KeyboardEvent<HTMLTextAreaElement>) =>
+    onQuickBoxKey(e, { hearingHere, listen, inSendTo, rows, keys, active, recallable, recall, attached, setError, listenToIt, activate, closeSendTo, move, pickSkill, answerSession, answerIn, start, recallAt });
+
+  // The panel's own keys, wherever the focus is in it (quickKeys.ts). A menu's filter handles its
+  // own first. The calmer machine is taken by a function further down.
+  useQuickKeys({ askingDev, folded, picker, inSendTo, hearingHere, listen, projects, numbered, active, query, sendable, calmer, repoNow, macs, places, stepsPlace, setPicker, togglePicker, setStepsPlace, refocus, openSendTo, closeSendTo, pickProject, activate, toggleArchived, takeCalmer: (c) => takeCalmer(c), listenToIt, start });
 
   /* ---- Menus ---- */
 
