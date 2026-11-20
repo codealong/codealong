@@ -50,6 +50,10 @@ describe('the row selected', () => {
     expect(selected('sessions', row.kestrel.key, [head(docs), row.atlas])).toBe(row.atlas.key);
   });
 
+  it('stays on a session whose section is folded rather than jumping to another', () => {
+    expect(selected('sessions', row.kestrel.key, [row.atlas], { foldedSessions: [row.kestrel, row.atlas] })).toBe(row.kestrel.key);
+  });
+
   it('holds a session you’re moving in Sessions until its copy takes its place', () => {
     expect(selected('sessions', row.kestrel.key, [row.atlas], { held: row.kestrel })).toBe(row.kestrel.key);
   });

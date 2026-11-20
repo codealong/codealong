@@ -125,7 +125,7 @@ import { ListenHost } from './ui/Listening';
 import { MeetingOffered } from './ui/Meeting';
 import { MeetingsDialog } from './ui/Meetings';
 import { ageListingChain, ageListingPr, canvasLabelOptions, cardMatches, chainOf, columnShown, currentProject, facetsIn, facetsOn, labelPick, onlyPick, prInDone, revealing, unarchived, scheduleSessions, sessionItemOf, sessionItemsOf, togglePick, toggleShown, useBoardLists, projectsOf, type FacetId, type Facets, type KanbanColumn } from './boardLists';
-import { sectionOfRow, sectionOfSession, useSectionFolds } from './sectionFolds';
+import { activeSessionRows, sectionOfRow, useSectionFolds } from './sectionFolds';
 import { inProject } from './quick';
 import { CODEALONG_REPO } from './improve';
 import { bare, keysIn } from './platform';
@@ -278,7 +278,8 @@ export function App() {
   const [sessionPanelWidth, setSessionPanelWidth] = usePanelWidth(SESSION_PANEL_WIDTH_KEY);
   const [schedulePanelWidth, setSchedulePanelWidth] = usePanelWidth(SCHEDULE_PANEL_WIDTH_KEY);
   const sectionFolds = useSectionFolds(!!query);
-  const { showArchived, setShowArchived } = sectionFolds;
+  const { showArchived, setShowArchived, unfold: unfoldSection } = sectionFolds;
+  const [pendingUnfold, setPendingUnfold] = useState<string | null>(null);
   // The sessions whose finished helpers Sessions lists under them too, as their chip's
   // double-click left them; remembered across launches.
   const [helpersShownList, setHelpersShownList] = useStored(HELPERS_SHOWN_KEY, strings, [] as string[]);
@@ -653,7 +654,8 @@ export function App() {
     const lane = view === 'sessions' && selectedKey && !selectedKey.includes('::') ? laneById.get(selectedKey) : undefined;
     return lane ? headItem(lane) : undefined;
   }, [view, selectedKey, laneById]);
-  const selected = selectedRow(view, selectedKey, visible, { todoItems, prRows, held, chosenLane });
+  const foldedSessions = useMemo(() => activeSessionRows(sessionParts), [sessionParts]);
+  const selected = selectedRow(view, selectedKey, visible, { todoItems, prRows, held, foldedSessions, chosenLane });
   // With nothing picked yet (the window just opened, or you changed projects) the panel shows
   // the top session (grouped, not its worktree's heading), and it holds there: a session that
   // comes to the top later doesn't take it.
@@ -970,9 +972,9 @@ export function App() {
       const wider = ageListingChain(chainOf(item, items).map((r) => r.session), sessionPins.set, AGES, age, Date.now());
       if (wider) setAge(wider);
       setHelpersShownList((prev) => revealing(prev, items, item));
-      const sec = sectionOfRow(item.key, sessionParts) ?? sectionOfSession(item, items, { pinnedKeys: sessionPins.set, sort: sessionSort, started: sessionStarted, group: sessionGroup, groupPins: sessionGroup === 'repo' ? repoPins.keys : lanePins.keys, now });
-      sectionFolds.unfold(sec);
-      setSelectedKey(`${lane.id}::${session.key}`);
+      const key = `${lane.id}::${session.key}`;
+      setPendingUnfold(key);
+      setSelectedKey(key);
     } else if (pr) {
       if (r.kind === 'pr' && r.tab) showPrTab(pr.key, r.tab);
       setView('prs');
@@ -1414,6 +1416,18 @@ export function App() {
       if (g) opening(setOpenTodoGroups, [g.fold]);
     }
   }, [loading, selectedKey, revealed, visible, view, sessionGroup, sessionStarted, prGroup, todoGroup, homes, lanes, groupedPrs, groupedTodos]);
+  // A revealed session's section opens after filters and age widen to list it (`pendingUnfold`).
+  useEffect(() => {
+    if (!pendingUnfold) return;
+    if (pendingUnfold !== selectedKey) {
+      setPendingUnfold(null);
+      return;
+    }
+    const sec = sectionOfRow(pendingUnfold, sessionParts);
+    if (!sec) return;
+    unfoldSection(sec);
+    setPendingUnfold(null);
+  }, [pendingUnfold, selectedKey, sessionParts, unfoldSection]);
   useEffect(() => {
     if (!scrollTo) return;
     // Only while it's still the row selected: another selected meanwhile is scrolled to as it's
@@ -1437,10 +1451,14 @@ export function App() {
       showOnCanvas('worktree', lane.id);
       return;
     }
-    if (!moved && view === 'sessions' && sessionRows.some((r) => r.kind === 'lane' && r.key === lane.id)) {
-      setDrill(null);
-      setSelectedKey(lane.id);
-      return;
+    if (!moved && view === 'sessions') {
+      const sec = sectionOfRow(lane.id, sessionParts);
+      if (sec) {
+        unfoldSection(sec);
+        setDrill(null);
+        setSelectedKey(lane.id);
+        return;
+      }
     }
     const from = moved ? null : (row?.key ?? panelFrom);
     if (view !== 'canvas' && from) {
@@ -2136,10 +2154,9 @@ export function App() {
                 onUnpin={sessionPins.remove}
                 desktop={(r) => (r.lane.device || r.session.archived ? null : { ref: 'session', key: r.session.key })}
                 archived={archivedItems}
-                showArchived={showArchived}
-                onToggleArchived={() => setShowArchived(!showArchived)}
                 sectionFolded={sectionFolds.isFolded}
                 onToggleSection={sectionFolds.toggle}
+                searching={!!query}
                 todosFor={todosFor}
                 helpersOf={helpersOf}
                 helpersShown={helpersShown}

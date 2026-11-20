@@ -166,9 +166,9 @@
       check('Clear shows every session again', true);
 
       // Archived sessions are narrowed too: an agent of one of them picked, they're all its.
-      var fold = q('.ca-archived .ca-linkbtn');
+      var fold = q('.ca-archived .ca-bay-toggle');
       if (fold) {
-        if (fold.textContent === 'Show') fold.click();
+        if (fold.getAttribute('aria-expanded') === 'false') fold.click();
         await until(function () { return all('.ca-archived .ca-lane.is-agent').length > 0; }, 3000, 'the archived sessions');
         var accountOf = function (x) { return q('.ca-seg-glyph', x).title.split(' · ').pop(); };
         var archivedAll = all('.ca-archived .ca-lane.is-agent').map(accountOf);
