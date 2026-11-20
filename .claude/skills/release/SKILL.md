@@ -31,6 +31,7 @@ git describe --tags --abbrev=0 origin/main          # the last version tag
 gh release list -R codealong/codealong --limit 5     # drafts waiting, the latest published
 git rev-parse origin/main                            # the commit the release will tag
 gh run list -R codealong/codealong --workflow ci.yml --commit "$(git rev-parse origin/main)" --json event,status,conclusion,url   # CI's runs on that commit
+gh run list -R codealong/codealong --workflow checks.yml --branch main --limit 3 --json headSha,event,status,conclusion,url      # the browser checks' last runs on main
 ```
 
 Say what's there: the last release and whether it's published, any draft still waiting (a draft
@@ -38,15 +39,20 @@ older than `main` is stale: offer to delete it, with its tag, once the new one i
 whether `main` is green. Something already wrong on `main` is fixed and landed first, the usual
 way (CLAUDE.md's *Landing work*), not in the release.
 
-A change reaches `main` through its merge queue, whose run of CI (`ci.yml`: the UI's checks,
-the engine's on macOS and Linux, the browser checks) it has to pass, so the commit being
-released has a run that passed (its `merge_group` one) unless it got there another way, as the
-last release's version commit did (its `push` one). A release needs a run that passed on the
-commit it's made from: when there's none, start one (`gh workflow run ci.yml -R
-codealong/codealong --ref main` prints its link, which ends in its id), and wait for one still
-going, in the background (`gh run watch <id> -R codealong/codealong --exit-status`) while you
-write the notes. One that fails is fixed and landed like anything else wrong on `main`, and
-checked again on the commit with the fix.
+A change reaches `main` through its merge queue, whose run of CI (`ci.yml`: the UI's checks
+and the engine's on macOS and Linux) it has to pass, so the commit being released has a run
+that passed, its `merge_group` one, unless it got there another way, as the last release's
+version commit did. The queue's own `push` run on a commit checks nothing and says nothing of
+it. The browser checks (`checks.yml`) run on `main` after what lands, a run covering everything
+landed when it started, so the last one may be of an older commit, or still going.
+
+A release needs both to have passed on the commit it's made from: a run of CI that ran the
+checks (a `merge_group`, `workflow_dispatch` or `schedule` one), and a run of the browser
+checks whose `headSha` is that commit. Start the one that's missing (`gh workflow run ci.yml
+-R codealong/codealong --ref main`, the same for `checks.yml`; each prints its link, which
+ends in its id), and wait for it, or for one still going, in the background (`gh run watch <id>
+-R codealong/codealong --exit-status`) while you write the notes. One that fails is fixed and
+landed like anything else wrong on `main`, and checked again on the commit with the fix.
 
 ## 2. The version and the notes
 

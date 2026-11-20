@@ -50,7 +50,9 @@
 # such a failure from one a change made. With --fixture they read the made-up Mac
 # (PREVIEW_FIXTURE in preview.sh, src-tauri/src/fixture.rs), where nothing is missing by chance.
 # scripts/preview/fixture-passes.txt lists the runs that pass there, by their run lines, and
-# --fixture alone runs exactly those: the checks to run before a change to the UI lands. A check
+# --fixture alone runs exactly those. GitHub runs them on main after what lands
+# (.github/workflows/checks.yml); before a change to the UI lands, run the ones that cover it,
+# by name, rather than the list, which is half an hour of a busy Mac. A check
 # that isn't listed assumes something of a real board the made-up one doesn't have, and is still
 # real data's to run; the list's own header says how a run gets onto it. A listed run that no
 # check has any more fails, so the list can't go stale unseen.

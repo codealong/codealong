@@ -11,7 +11,9 @@
 #   scripts/land.sh --reviewed-by "<account>, <model>"   a change to code, after its review
 #   scripts/land.sh --no-review "<why>"                   one no review could be had for
 #   scripts/land.sh                                       docs and notes only
-#   scripts/land.sh --no-wait …                           queue it and come back: GitHub lands it
+#   scripts/land.sh --no-wait …                           queue it and come back: GitHub lands
+#                                                         it, and running this again says how
+#                                                         it went and catches up
 #   scripts/land.sh --check                               the checks alone, on GitHub: no landing
 #   scripts/land.sh --plan [path…]                        only says which checks those paths (or
 #                                                         this branch's commits) call for
@@ -20,22 +22,28 @@
 #   1. It fetches, and rebases the branch onto origin/main. A conflict stops it there with the
 #      rebase under way: finish it (`git rebase --continue`) and run this again. A branch from
 #      before the history was rewritten is turned away, with the rebase CLAUDE.md gives for it.
-#   2. It pushes the branch to origin under its own name, over what this checkout pushed there
-#      before and over nothing else.
-#   3. It opens the branch's pull request (or takes the one that's open), labelled `land`, which
-#      tells CI that the queue's run is the one that counts, and asks GitHub to merge it when
-#      it can. The queue writes the commits again on top of main (a rebase, no merge commit).
+#   2. It pushes the branch to origin under its own name: adding to what's there, or, after a
+#      rebase, replacing what this script itself pushed there before and nothing else.
+#   3. It opens the branch's pull request (or takes the one that's open for it, of this
+#      repository's own branch) and asks GitHub to merge it when it can, as the commit pushed
+#      here. CI leaves such a pull request's checks to the queue's run, so nothing runs twice.
+#      The queue writes the commits again on top of main (a rebase, no merge commit).
 #   4. It waits for the queue, saying where the change stands, and stops when it has landed or
-#      was put out of the queue: a check failed (it says which run, and how to read it) or it
-#      no longer applies on main. It's still the pull request then: fix it on this branch,
-#      commit, and run this again.
+#      can't as it is: a check failed and the queue put it out (it says which run, and how to
+#      read it), it no longer applies on main, its branch was pushed to by another landing, or
+#      someone told GitHub not to merge it. It's still the pull request then: fix it on this
+#      branch, commit, and run this again.
 #   5. It brings this branch and the main checkout up to origin/main (catch-up-main.sh) and
-#      prints the commit and where things stand, for the status line. Relaunching is still
-#      yours: scripts/relaunch.sh, when what the app runs changed.
+#      prints the commit and where things stand, for the status line, saying so when this
+#      checkout isn't at origin/main after all. Relaunching is still yours: scripts/relaunch.sh,
+#      when what the app runs changed.
 #
 # It lands only what's committed: uncommitted changes here, yours or another session's, stop it
-# before anything is touched. There is no flag to skip the checks, and none to run them here:
-# `npm test` and `cargo test` are still yours to run while you work.
+# before anything is touched, and the commit it lands is the one that was here when it was
+# asked. One landing of a branch runs at a time. `--check` runs CI on a branch of its own named
+# for the commit, which it removes after, so a landing under way isn't touched. There is no
+# flag to skip the checks, and none to run them here: `npm test` and `cargo test` are still
+# yours to run while you work.
 set -uo pipefail
 
 # Everything is in functions, read whole before any of it runs: the rebase can rewrite this
@@ -187,42 +195,66 @@ short() { git rev-parse --short "$1" 2>/dev/null || echo "${1:0:8}"; }
 # Waits between two looks at GitHub: twenty seconds, or what a test asks for.
 pause() { sleep "${CODEALONG_LAND_POLL:-20}"; }
 
-# Pushes the branch to origin under its own name. What's there already is replaced only when
-# it's this checkout's own earlier push (a commit this branch has been at, which a rebase since
-# has rewritten): anything else is someone's work this would throw away.
-push_branch() {
-  local there
-  there="$(git ls-remote origin "refs/heads/$branch" 2>"$log" | cut -f1)" || { cat "$log" >&2; die "Couldn't ask origin for its $branch."; }
-  [ "$there" = "$head" ] && return 0
-  if [ -n "$there" ]; then
-    # Read whole before it's searched: a search that stops at its first match would end the
-    # list's writer early, which `pipefail` takes for a failure.
-    case "$(git reflog show --format=%H "$branch" 2>/dev/null)" in
-      *"$there"*) ;;
-      *)
-        echo "origin has a $branch already, at $(short "$there"), where this checkout's $branch never was:" >&2
-        die "someone else pushed it. Look at it (git fetch origin $branch) before landing over it, or land from a branch with another name."
-        ;;
-    esac
-  fi
-  if ! git push -q --force-with-lease="refs/heads/$branch:$there" origin "$head:refs/heads/$branch" 2>"$log"; then
-    echo "The push of $branch was turned down:" >&2
-    cat "$log" >&2
-    exit 1
-  fi
+# Whether the checkout is still what this landing is of: on its branch, at `$1`, with nothing
+# uncommitted. Another session can share a checkout, and the waits here are long.
+still_here() {
+  [ "$(git symbolic-ref -q --short HEAD)" = "$branch" ] && [ "$(git rev-parse HEAD)" = "$1" ] &&
+    [ -z "$(git status --porcelain --untracked-files=normal)" ]
 }
 
-# The pull request this branch lands as: the one open for it, or a new one. Labelled `land`
-# before anything is pushed to it, so its own run of CI leaves the checks to the queue's.
-pull_request() {
-  local number
-  number="$(gh pr list --head "$branch" --base main --state open --json number --jq '.[0].number // empty' 2>"$log")" || { cat "$log" >&2; die "Couldn't ask GitHub for this branch's pull request (gh)."; }
-  if [ -n "$number" ]; then
-    gh pr edit "$number" --add-label land >/dev/null 2>"$log" || { cat "$log" >&2; die "Couldn't label pull request #$number."; }
-    echo "$number"
-    return 0
+# One landing of a branch at a time in a repository: two would rebase and push under each
+# other. The turn is a file with this process's number in the repository's .git, taken only
+# when there's none or its owner is gone.
+take_turn() {
+  local dir other
+  dir="$(git rev-parse --path-format=absolute --git-common-dir)/codealong-landing" || die "Not in a git checkout." 2
+  mkdir -p "$dir" || die "Couldn't make $dir."
+  turn="$dir/$(printf %s "$branch" | tr '/ ' '__')"
+  while ! (set -C && echo $$ >"$turn") 2>/dev/null; do
+    other="$(cat "$turn" 2>/dev/null)"
+    # This script started again as main's own, after its rebase: the same process still.
+    [ "$other" != "$$" ] || break
+    if [ -n "$other" ] && kill -0 "$other" 2>/dev/null; then
+      turn=""
+      die "Another landing of $branch is under way here (pid $other): wait for it, or stop it, before starting one."
+    fi
+    rm -f "$turn"
+  done
+}
+
+# Pushes `$head` to origin as the branch `$1`. What's there already is added to when this only
+# adds to it. It's replaced (a rebase has rewritten it) only when it's what this script itself
+# pushed there last, which it notes in a ref of its own: anything else is someone's work, or
+# yours pushed by hand, and this doesn't throw either away.
+push_as() {
+  local name="$1" there mine note
+  note="refs/codealong/pushed/$name"
+  there="$(git ls-remote origin "refs/heads/$name" 2>"$log" | cut -f1)" || { cat "$log" >&2; die "Couldn't ask origin for its $name."; }
+  if [ "$there" != "$head" ]; then
+    if [ -n "$there" ] && ! git merge-base --is-ancestor "$there" "$head" 2>/dev/null; then
+      mine="$(git rev-parse -q --verify "$note" 2>/dev/null || true)"
+      if [ "$there" != "$mine" ]; then
+        echo "origin has a $name already, at $(short "$there"), which isn't in what's being landed and isn't what this" >&2
+        echo "script pushed there last: someone else's, or yours pushed by hand before a rebase." >&2
+        echo "Look at it (git fetch origin $name). If it's yours to replace:" >&2
+        die "  git push --force-with-lease=$name:$there origin $head:refs/heads/$name"
+      fi
+    fi
+    if ! git push -q --force-with-lease="refs/heads/$name:$there" origin "$head:refs/heads/$name" 2>"$log"; then
+      echo "The push of $name was turned down:" >&2
+      cat "$log" >&2
+      exit 1
+    fi
   fi
-  echo ""
+  git update-ref "$note" "$head" || true
+}
+
+# The pull request open for this branch, of this repository's own branch and into main: its
+# number, or nothing. A fork's branch of the same name is another pull request.
+pull_request() {
+  gh pr list --head "$branch" --base main --state open --json number,isCrossRepository \
+    --jq '[.[] | select(.isCrossRepository == false)][0].number // empty' 2>"$log" ||
+    { cat "$log" >&2; die "Couldn't ask GitHub for this branch's pull request (gh)."; }
 }
 
 # What the pull request says: the commits, and who reviewed them.
@@ -245,14 +277,7 @@ open_pull_request() {
   title="$(git log --reverse --format=%s "origin/main..$head" | head -1)"
   body="$(mktemp)"
   describe >"$body"
-  if ! url="$(gh pr create --base main --head "$branch" --title "$title" --body-file "$body" --label land 2>"$log")"; then
-    # The label is made the first time it's wanted.
-    if grep -q -i "label" "$log" && gh label create land --description "Opened by scripts/land.sh: the merge queue's run of CI is the one that counts" --color 1f883d >/dev/null 2>&1; then
-      url="$(gh pr create --base main --head "$branch" --title "$title" --body-file "$body" --label land 2>"$log")" || url=""
-    else
-      url=""
-    fi
-  fi
+  url="$(gh pr create --base main --head "$branch" --title "$title" --body-file "$body" 2>"$log")" || url=""
   rm -f "$body"
   if [ -z "$url" ]; then
     echo "Couldn't open the pull request:" >&2
@@ -262,28 +287,39 @@ open_pull_request() {
   echo "${url##*/}"
 }
 
-# Where a pull request stands, as four words: its state (OPEN, MERGED, CLOSED), its place in
-# the merge queue (QUEUED, AWAITING_CHECKS, MERGEABLE, UNMERGEABLE, LOCKED, or - when it isn't
-# in it), the commit it merged as (or -), and how `gate` came out on its own head (or -).
+# Where a pull request stands, as six words: its state (OPEN, MERGED, CLOSED), its place in the
+# merge queue (QUEUED, AWAITING_CHECKS, MERGEABLE, UNMERGEABLE, LOCKED, or - when it isn't in
+# it), the commit it merged as (or -), how `gate` came out on its own head (or -), whether
+# GitHub has been asked to merge it when it can (asked, or -), and the commit its branch is at.
 standing() {
   gh api graphql -F owner="${repo%%/*}" -F name="${repo#*/}" -F number="$1" -f query='
     query($owner: String!, $name: String!, $number: Int!) {
       repository(owner: $owner, name: $name) {
         pullRequest(number: $number) {
           state
+          headRefOid
           mergeCommit { oid }
           mergeQueueEntry { state }
+          autoMergeRequest { enabledAt }
           commits(last: 1) { nodes { commit { statusCheckRollup { contexts(first: 100) { nodes { ... on CheckRun { name conclusion } } } } } } }
         }
       }
-    }' --jq '.data.repository.pullRequest | [.state, (.mergeQueueEntry.state // "-"), (.mergeCommit.oid // "-"), ([.commits.nodes[0].commit.statusCheckRollup.contexts.nodes[]? | select(.name == "gate") | .conclusion // "PENDING"] | last // "-")] | join(" ")'
+    }' --jq '.data.repository.pullRequest | [.state, (.mergeQueueEntry.state // "-"), (.mergeCommit.oid // "-"), ([.commits.nodes[0].commit.statusCheckRollup.contexts.nodes[]? | select(.name == "gate") | .conclusion // "PENDING"] | last // "-"), (if .autoMergeRequest then "asked" else "-" end), .headRefOid] | join(" ")'
 }
 
-# The run of CI that failed for a pull request: the queue's (its branch is named for the pull
-# request), or the pull request's own.
+# Why the queue put a pull request out, as GitHub words it, when it has since this began.
+put_out() {
+  gh api graphql -F owner="${repo%%/*}" -F name="${repo#*/}" -F number="$1" -f query='
+    query($owner: String!, $name: String!, $number: Int!) { repository(owner: $owner, name: $name) { pullRequest(number: $number) {
+      timelineItems(last: 1, itemTypes: [REMOVED_FROM_MERGE_QUEUE_EVENT]) { nodes { ... on RemovedFromMergeQueueEvent { reason createdAt } } } } } }' \
+    --jq ".data.repository.pullRequest.timelineItems.nodes[0] | select(. != null and .createdAt >= \"$since\") | .reason // \"it doesn't say why\"" 2>/dev/null
+}
+
+# The run of CI that failed for a pull request since this landing began: the queue's (its
+# branch is named for the pull request), or the pull request's own.
 failed_run() {
-  gh run list --workflow ci.yml --limit 40 --json databaseId,headBranch,headSha,conclusion,url \
-    --jq "[.[] | select(.conclusion == \"failure\" or .conclusion == \"timed_out\" or .conclusion == \"startup_failure\") | select((.headBranch | test(\"/pr-$1-\")) or .headSha == \"$head\")] | first | select(. != null) | (.databaseId | tostring) + \" \" + .url" 2>/dev/null
+  gh run list --workflow ci.yml --limit 40 --json databaseId,headBranch,headSha,conclusion,url,createdAt \
+    --jq "[.[] | select(.createdAt >= \"$since\") | select(.conclusion == \"failure\" or .conclusion == \"timed_out\" or .conclusion == \"startup_failure\" or .conclusion == \"cancelled\") | select((.headBranch | test(\"/pr-$1-\")) or .headSha == \"$head\")] | first | select(. != null) | (.databaseId | tostring) + \" \" + .url" 2>/dev/null
 }
 
 say_failed() {
@@ -297,45 +333,56 @@ say_failed() {
 }
 
 # Waits until the pull request has landed, and sets `landed` to the commit it landed as. Stops
-# the script when it can't land as it is.
+# the script when it can't land as it is, and after three hours of a queue that hasn't got to
+# it (it still lands then, without this).
 wait_landed() {
-  local number="$1" line state entry merged gate queued=0 was="" quiet=0 why
+  local number="$1" line state entry merged gate asked at was="" quiet=0 why began=$SECONDS
   while :; do
     if ! line="$(standing "$number" 2>"$log")" || [ -z "$line" ]; then
       # GitHub not answering for a moment isn't the landing's end; for five minutes it is ours.
       quiet=$((quiet + 1))
       if [ "$quiet" -ge 15 ]; then
         cat "$log" >&2
-        die "GitHub hasn't answered for a while. The pull request is #$number ($pr_url): the queue lands it without this; run scripts/land.sh again to see where it stands."
+        die "GitHub hasn't answered for a while. The pull request is #$number ($pr_url): the queue lands it without this; run scripts/land.sh again to see where it stands." 3
       fi
       pause
       continue
     fi
     quiet=0
-    read -r state entry merged gate <<EOF
+    read -r state entry merged gate asked at <<EOF
 $line
 EOF
     case "$state" in
       MERGED)
+        if [ "$at" != "$head" ]; then
+          echo "Pull request #$number ($pr_url) merged, but as $(short "$at"), not the commit this landing pushed ($(short "$head")):" >&2
+          die "its branch was pushed to meanwhile. Look at what landed (git log origin/main) before anything else."
+        fi
         landed="$merged"
         return 0
         ;;
       CLOSED) die "Pull request #$number ($pr_url) was closed without landing." ;;
     esac
-    if [ "$entry" != - ]; then
-      queued=1
-    elif [ "$queued" = 1 ]; then
-      why="$(gh api graphql -F owner="${repo%%/*}" -F name="${repo#*/}" -F number="$number" -f query='
-        query($owner: String!, $name: String!, $number: Int!) { repository(owner: $owner, name: $name) { pullRequest(number: $number) {
-          timelineItems(last: 1, itemTypes: [REMOVED_FROM_MERGE_QUEUE_EVENT]) { nodes { ... on RemovedFromMergeQueueEvent { reason } } } } } }' \
-        --jq '.data.repository.pullRequest.timelineItems.nodes[0].reason // empty' 2>/dev/null)"
-      echo "The merge queue put pull request #$number out${why:+: $why}." >&2
+    if [ "$at" != "$head" ]; then
+      die "Pull request #$number's branch moved to $(short "$at") while this waited, so it's no longer this landing's: another one of this branch took it over."
+    fi
+    if [ "$entry" = - ] && [ "$asked" = - ]; then
+      # Neither in the queue nor waiting to join it: the queue put it out, or someone told
+      # GitHub not to merge it after all. However quickly that went by.
+      why="$(put_out "$number")"
+      if [ -n "$why" ]; then
+        echo "The merge queue put pull request #$number out: $why." >&2
+      else
+        echo "Pull request #$number is no longer set to merge: someone turned that off, or it can't merge as it is." >&2
+      fi
       say_failed "$number"
       exit 1
-    else
+    fi
+    if [ "$entry" = - ]; then
       case "$gate" in
         FAILURE | TIMED_OUT | CANCELLED | STARTUP_FAILURE | ACTION_REQUIRED)
           echo "CI's own run on pull request #$number didn't pass ($gate), so it can't join the queue." >&2
+          gh pr merge "$number" --disable-auto >/dev/null 2>&1 || true
           say_failed "$number"
           exit 1
           ;;
@@ -351,22 +398,36 @@ EOF
       esac
       was="$entry"
     fi
+    if [ $((SECONDS - began)) -gt "${CODEALONG_LAND_WAIT:-10800}" ]; then
+      die "Still waiting after three hours. The pull request is #$number ($pr_url): the queue lands it without this; run scripts/land.sh again to see where it stands." 3
+    fi
     pause
   done
 }
 
-# `--check`: CI's whole run on the branch as pushed, without a pull request or a landing.
+# `--check`: CI's whole run on the commit, without a pull request or a landing. On a branch of
+# its own, named for the commit, so nothing a landing of this branch is waiting on moves.
 check_on_github() {
-  local since run line status conclusion url tries=0
+  local name since run line status conclusion url tries=0 went
+  name="check/$branch-$(short "$head")"
+  push_as "$name"
   since="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
-  gh workflow run ci.yml --ref "$branch" >/dev/null 2>"$log" || { cat "$log" >&2; die "Couldn't start CI on $branch (gh workflow run ci.yml)."; }
-  echo "CI is running on $branch at $(short "$head")…"
+  if ! gh workflow run ci.yml --ref "$name" >/dev/null 2>"$log"; then
+    cat "$log" >&2
+    git push -q --force-with-lease="refs/heads/$name:$head" origin ":refs/heads/$name" 2>/dev/null || true
+    die "Couldn't start CI on $name (gh workflow run ci.yml)."
+  fi
+  echo "CI is running on $(short "$head") (as $name)…"
+  went=3
   while :; do
-    line="$(gh run list --workflow ci.yml --branch "$branch" --event workflow_dispatch --limit 10 --json databaseId,headSha,createdAt,status,conclusion,url \
+    line="$(gh run list --workflow ci.yml --branch "$name" --event workflow_dispatch --limit 10 --json databaseId,headSha,createdAt,status,conclusion,url \
       --jq "[.[] | select(.headSha == \"$head\" and .createdAt >= \"$since\")] | first | select(. != null) | [(.databaseId | tostring), .status, (.conclusion // \"-\"), .url] | join(\" \")" 2>/dev/null)"
     if [ -z "$line" ]; then
       tries=$((tries + 1))
-      [ "$tries" -lt 15 ] || die "CI's run on $branch never showed up: look at the repository's Actions."
+      if [ "$tries" -ge 15 ]; then
+        echo "CI's run on $name never showed up: look at the repository's Actions." >&2
+        break
+      fi
       pause
       continue
     fi
@@ -376,13 +437,40 @@ EOF
     if [ "$status" = completed ]; then
       if [ "$conclusion" = success ]; then
         echo "Checked, not landed: $(short "$head") passed CI ($url)."
-        exit 0
+        went=0
+      else
+        echo "CI didn't pass on $(short "$head") ($conclusion): $url" >&2
+        echo "Read why with: gh run view $run --log-failed" >&2
+        went=1
       fi
-      echo "CI didn't pass on $(short "$head") ($conclusion): $url" >&2
-      die "Read why with: gh run view $run --log-failed"
+      break
     fi
     pause
   done
+  # The branch was only for the run. Removed only while it's still this commit.
+  git push -q --force-with-lease="refs/heads/$name:$head" origin ":refs/heads/$name" 2>/dev/null || true
+  git update-ref -d "refs/codealong/pushed/$name" 2>/dev/null || true
+  exit "$went"
+}
+
+# Brings this checkout and the main checkout up to origin/main once the change is in it, and
+# says where each stands. The queue wrote the commits again on top of main, so the ones here
+# are copies of what landed: rebased onto origin/main they drop out, and the branch is where
+# main is. Nothing is said to be at origin/main that isn't.
+caught_up() {
+  local here=""
+  if ! fetch; then
+    here="Couldn't fetch origin/main, so this checkout is as it was: git fetch, then git rebase origin/main."
+  elif ! still_here "$1"; then
+    here="This checkout moved or changed while the landing waited, so it's left as it is: it isn't at origin/main."
+  elif ! git rebase -q origin/main >"$log" 2>&1; then
+    git rebase --abort >/dev/null 2>&1
+    here="This branch didn't rebase onto origin/main, so it's left as it was: it isn't at origin/main."
+  elif [ "$(git rev-parse HEAD)" != "$(git rev-parse origin/main)" ]; then
+    here="This branch has commits origin/main doesn't: it isn't at origin/main."
+  fi
+  echo "$(scripts/catch-up-main.sh)${here:+ $here}"
+  [ -z "$here" ]
 }
 
 main() {
@@ -393,6 +481,7 @@ main() {
 
   reviewed=""
   unreviewed=""
+  turn=""
   local check_only=0 no_wait=0 plan_only=0 plan_paths=() again=("$@")
   while [ $# -gt 0 ]; do
     case "$1" in
@@ -437,7 +526,7 @@ main() {
   git rev-parse --git-dir >/dev/null 2>&1 || die "Not in a git checkout." 2
   log="$(mktemp)"
   list="$(mktemp)"
-  trap 'rm -f "$log" "$list"' EXIT
+  trap 'rm -f "$log" "$list"; [ -z "$turn" ] || [ "$(cat "$turn" 2>/dev/null)" != "$$" ] || rm -f "$turn"' EXIT
   if [ "$plan_only" = 1 ]; then
     changed || die "Couldn't list what this branch changes."
     plan_of <"$list"
@@ -452,14 +541,17 @@ main() {
   # A pull request is of a branch, and main isn't one to land from.
   branch="$(git symbolic-ref -q --short HEAD)" || die "This checkout is on no branch, and a landing is a branch's: git switch -c <topic>, then run this again."
   [ "$branch" != main ] || die "This checkout is on main, and a landing is a branch's of its own (CLAUDE.md, *Landing work*): git switch -c <topic>, then run this again."
+  # What's landed is what was here when this was asked: the waits are long, and in a checkout
+  # that isn't ours alone another session can commit or change branch meanwhile, which would
+  # go out under this one's review.
+  local asked
+  asked="$(git rev-parse HEAD)" || die "Couldn't read this checkout's HEAD."
+  take_turn
 
   fetch || die "Couldn't fetch origin/main, so there's nothing to rebase onto."
-  if git merge-base --is-ancestor HEAD origin/main; then
-    echo "Nothing to land: origin/main ($(git rev-parse --short origin/main)) already has this branch's commits."
-    exit 0
-  fi
+  still_here "$asked" || die "This checkout moved or changed while origin/main was fetched (it was $branch at $(short "$asked")): look at what's here now, and run scripts/land.sh again."
   local itself now
-  if ! git merge-base --is-ancestor origin/main HEAD; then
+  if ! git merge-base --is-ancestor HEAD origin/main && ! git merge-base --is-ancestor origin/main HEAD; then
     refuse_old_history
     itself="$(git hash-object "$self")" || die "Couldn't read $self."
     if ! git rebase -q origin/main >"$log" 2>&1; then
@@ -468,7 +560,7 @@ main() {
       die "Resolve it, git rebase --continue, rerun what you'd tested, and run scripts/land.sh again."
     fi
     # main's own land.sh came in with the rebase: it's the one to land with, and bash has this
-    # one in memory. Start again as it.
+    # one in memory. Start again as it; the turn is still this process's.
     now="$(git hash-object "$self")" || die "Couldn't read $self after the rebase."
     if [ "$now" != "$itself" ]; then
       rm -f "$log" "$list"
@@ -476,15 +568,18 @@ main() {
     fi
   fi
   head="$(git rev-parse HEAD)" || die "Couldn't read this checkout's HEAD."
+  # In main already: landed before, by the queue while nothing waited (--no-wait), whose copies
+  # of the commits the rebase has just dropped. All that's left is to catch up.
+  if git merge-base --is-ancestor "$head" origin/main; then
+    echo "Nothing to land: origin/main ($(git rev-parse --short origin/main)) already has this branch's commits. $(caught_up "$head")"
+    exit 0
+  fi
 
   local wants
   changed "$head" || die "Couldn't list what these commits change, so there's no telling whether they need a review."
   wants="$(plan_of <"$list")"
 
-  if [ "$check_only" = 1 ]; then
-    push_branch
-    check_on_github
-  fi
+  [ "$check_only" = 0 ] || check_on_github
 
   case " $wants " in
     *" code "*)
@@ -502,22 +597,30 @@ main() {
   queue="$(gh api graphql -F owner="${repo%%/*}" -F name="${repo#*/}" -f query='query($owner: String!, $name: String!) { repository(owner: $owner, name: $name) { mergeQueue(branch: "main") { id } } }' --jq '.data.repository.mergeQueue.id // empty' 2>"$log")" || { cat "$log" >&2; die "Couldn't ask GitHub for main's merge queue."; }
   [ -n "$queue" ] || die "main has no merge queue on $repo, so nothing would check this before it merged: docs/development.md, *Keeping main working*, says how it's set up."
 
-  # An open pull request is labelled before the push, a new one opened after it: either way
-  # the label is there when CI's run on the pull request starts.
-  local number
+  local number line
   number="$(pull_request)" || exit 1
-  push_branch
+  push_as "$branch"
+  still_here "$head" || die "This checkout moved or changed while the branch was pushed: look at what's here now, and run scripts/land.sh again."
   if [ -z "$number" ]; then
     number="$(open_pull_request)" || exit 1
   fi
   pr_url="https://github.com/$repo/pull/$number"
-  # A draft can't merge.
-  gh pr ready "$number" >/dev/null 2>&1 || true
-  # Merged when it can be, and only as the commit pushed here.
-  if ! gh pr merge "$number" --auto --match-head-commit "$head" >"$log" 2>&1; then
-    echo "GitHub wouldn't queue pull request #$number ($pr_url):" >&2
-    cat "$log" >&2
-    exit 1
+  since="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+  # Asked to merge when it can, and only as the commit pushed here; not again when it's
+  # queued already (this is a second look at one sent with --no-wait). A draft can't merge.
+  line="$(standing "$number" 2>/dev/null)"
+  case "$line" in
+    "OPEN - "*" - $head") line="" ;;
+    "OPEN "*" $head") ;;
+    *) line="" ;;
+  esac
+  if [ -z "$line" ]; then
+    gh pr ready "$number" >/dev/null 2>&1 || true
+    if ! gh pr merge "$number" --auto --match-head-commit "$head" >"$log" 2>&1; then
+      echo "GitHub wouldn't queue pull request #$number ($pr_url):" >&2
+      cat "$log" >&2
+      exit 1
+    fi
   fi
 
   if [ "$no_wait" = 1 ]; then
@@ -529,15 +632,9 @@ main() {
   landed=""
   wait_landed "$number"
 
-  fetch || true
-  # The queue wrote these commits again on top of main, so the ones here are copies of what
-  # landed: rebased onto origin/main they drop out, and the branch is where main is.
-  if [ "$(git rev-parse HEAD)" = "$head" ] && [ -z "$(git status --porcelain --untracked-files=no)" ]; then
-    git rebase -q origin/main >"$log" 2>&1 || git rebase --abort >/dev/null 2>&1
-  fi
-  # GitHub removes a merged branch when the repository is set to; this is for when it isn't.
-  git push -q origin --delete "$branch" >/dev/null 2>&1 || true
-  echo "Landed: $(short "$landed") is in origin/main. $(scripts/catch-up-main.sh)"
+  local at_main=1 where
+  where="$(caught_up "$head")" || at_main=0
+  echo "Landed: $(short "$landed") is in origin/main. $where"
   echo "Checked on GitHub: $pr_url."
   if [ -n "$reviewed" ]; then
     echo "Reviewed by: $reviewed."
@@ -545,7 +642,13 @@ main() {
     echo "No review: $unreviewed."
   fi
   case " $wants " in
-    *" ui "* | *" engine "*) echo "If what the app runs changed, relaunch it from here: scripts/relaunch.sh." ;;
+    *" ui "* | *" engine "*)
+      if [ "$at_main" = 1 ]; then
+        echo "If what the app runs changed, relaunch it from here: scripts/relaunch.sh."
+      else
+        echo "If what the app runs changed, relaunch it from a checkout that's clean and at origin/main: scripts/relaunch.sh."
+      fi
+      ;;
   esac
 }
 

@@ -6,10 +6,11 @@
 # GitHub's macOS runners the list takes about ninety minutes of one machine, and the plan runs
 # five macOS machines at once for the whole repository. Run for every landing they would hold
 # each one up for longer than the busy Mac did, and the queue behind it. Here one run goes at
-# a time and, while it does, only the latest of the runs waiting stays: so however fast changes
-# land, each run covers everything landed since the last one that passed, and a failure names
-# that stretch of commits. A red run is somebody's (scripts/watch-main.sh, docs/development.md,
-# *Keeping main working*).
+# a time and, while it does, only one of the runs waiting stays (GitHub keeps the last to
+# arrive, which needn't be the latest push's). So a run on main checks main as it is when the
+# run starts, not the commit that started it: however fast changes land, each run covers
+# everything landed by then, and a failure names the stretch since the last run that passed. A
+# red run is somebody's (scripts/watch-main.sh, docs/development.md, *Keeping main working*).
 #
 # To have them on a branch before it lands: `gh workflow run checks.yml --ref <branch>`. A pull
 # request that changes this file runs them too, to see they still run.
@@ -46,13 +47,19 @@ jobs:
     timeout-minutes: 5
     outputs:
       checks: ${{ steps.plan.outputs.checks }}
+      commit: ${{ steps.plan.outputs.commit }}
     steps:
       - uses: actions/checkout@v7
+        with:
+          # Main as it is now, for a run on main; the commit asked for otherwise.
+          ref: ${{ (github.event_name == 'push' || github.event_name == 'schedule') && 'main' || '' }}
       - id: plan
         env:
           EVENT: ${{ github.event_name }}
           GH_TOKEN: ${{ github.token }}
         run: |
+          # Every job after this checks this commit, whatever lands while they run.
+          echo "commit=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
           checks=true
           if [ "$EVENT" = push ]; then
             passed="$(gh run list --workflow checks.yml --branch main --status success --limit 1 --json headSha --jq '.[0].headSha // empty' || true)"
@@ -62,7 +69,7 @@ jobs:
               tr '\0' '\n' < "$RUNNER_TEMP/changed" | sed 's/^/  /'
               words=""
               if [ -s "$RUNNER_TEMP/changed" ]; then
-                words="$(xargs -0 scripts/land.sh --plan < "$RUNNER_TEMP/changed")"
+                words="$(xargs -0 scripts/land.sh --plan < "$RUNNER_TEMP/changed" | tr '\n' ' ')"
               fi
               case " $words " in *" checks "*) ;; *) checks=false ;; esac
             fi
@@ -71,8 +78,8 @@ jobs:
           echo "checks=$checks" >> "$GITHUB_OUTPUT"
 
   # The engine the checks run: a debug build, made once for all their sets and kept for as long
-  # as src-tauri is what it was built from (scripts/engine.sh goes by the same), so a change to
-  # the windows alone builds nothing.
+  # as src-tauri is what it was built from (scripts/engine.sh goes by the same) and how it's
+  # built hasn't changed, so a change to the windows alone builds nothing.
   engine:
     name: the checks' engine
     needs: plan
@@ -83,13 +90,15 @@ jobs:
       CARGO_TARGET_DIR: ${{ github.workspace }}/../target
     steps:
       - uses: actions/checkout@v7
+        with:
+          ref: ${{ needs.plan.outputs.commit }}
       - id: built-from
         run: echo "tree=$(git rev-parse HEAD:src-tauri)" >> "$GITHUB_OUTPUT"
       - id: kept
         uses: actions/cache@v6
         with:
           path: .preview/engine
-          key: checks-engine-${{ runner.os }}-${{ runner.arch }}-${{ steps.built-from.outputs.tree }}
+          key: checks-engine-${{ runner.os }}-${{ runner.arch }}-${{ steps.built-from.outputs.tree }}-${{ hashFiles('.cargo/**', 'scripts/engine.sh', 'scripts/target-dir.sh') }}
       - if: steps.kept.outputs.cache-hit != 'true'
         uses: dtolnay/rust-toolchain@stable
       - if: steps.kept.outputs.cache-hit != 'true'
@@ -100,7 +109,8 @@ jobs:
         uses: Swatinem/rust-cache@v2
         with:
           workspaces: "src-tauri -> ../../target"
-          # A debug build of the app, not the tests': a cache of its own.
+          # A debug build of the app, not the tests': a cache of its own, which main's runs
+          # write.
           key: checks
           save-if: ${{ github.ref == 'refs/heads/main' }}
       - name: scripts/engine.sh
@@ -124,6 +134,8 @@ jobs:
         set: [1, 2, 3, 4]
     steps:
       - uses: actions/checkout@v7
+        with:
+          ref: ${{ needs.plan.outputs.commit }}
       - uses: actions/setup-node@v7
         with:
           node-version: 24

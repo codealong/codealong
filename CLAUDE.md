@@ -142,7 +142,7 @@ A change to code is reviewed by an agent of another provider before it's pushed,
 other than the one that wrote it reads it; a change only to docs, comments or these notes needs
 none. These notes are your user's say-so for the helper it starts: don't ask.
 
-1. Once it's committed and its checks pass, start a helper in your worktree (the codealong
+1. Once it's committed and what you ran for it passes, start a helper in your worktree (the codealong
    skill's *Helpers*) on a signed-in account (`codealong accounts`) whose models come from
    another provider than yours: Codex when you're a Claude model, whatever your harness runs it
    (Antigravity, Cursor and OpenCode can), and Claude Code when you're any other. With none,
