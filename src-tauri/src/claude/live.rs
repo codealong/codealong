@@ -5,7 +5,7 @@
 //! message at the end of the conversation until the record has it. Claude Code writes a reply to
 //! its record only once the whole message is in, and the message a question comes in, with what
 //! the agent wrote before it, often only once the question is answered
-//! (.claude/rules/claude-code.md), so until then this is the one copy outside its terminal.
+//! (.claude/rules/claude-asks.md), so until then this is the one copy outside its terminal.
 //!
 //! Each batch's hook is a process of its own, so batches come in any order, a message's even
 //! after the next one's has begun: a message's are kept by their index and read as far as they run

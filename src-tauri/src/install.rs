@@ -471,7 +471,7 @@ pub fn marketplace_dir() -> PathBuf {
 /// The plugin's `MessageDisplay` hook, put in its hooks.json with `[sessions] live_replies` on: it
 /// hands the app each batch of a reply as Claude Code shows it (claude/live.rs). Async, so Claude
 /// Code shows a batch without waiting on the hook; but any such hook has it show a reply a batch,
-/// a paragraph, at a time rather than a line at a time (.claude/rules/claude-code.md), which is
+/// a paragraph, at a time rather than a line at a time (.claude/rules/claude-asks.md), which is
 /// why it's a setting.
 pub const LIVE_HOOK: &str = r#"[{"hooks":[{"type":"command","command":"\"${CLAUDE_PLUGIN_ROOT}/bin/codealong\" session hook message-display 2>/dev/null || true","async":true,"timeout":15}]}]"#;
 

@@ -108,7 +108,7 @@ pub fn opened_links(event: &tauri::RunEvent) -> Vec<String> {
 /// claims the scheme too. LaunchServices keeps the choice by the app's bundle ID, through that
 /// app being replaced and the other one registering again, asks nobody for a scheme that's an
 /// app's own (it does for the web's and mail's), and answers at once
-/// (`.claude/rules/windows.md`). What goes wrong is only said: the links then open in whichever
+/// (`.claude/rules/tauri.md`). What goes wrong is only said: the links then open in whichever
 /// app macOS picks, the one registered last.
 pub fn claim_links(bundle: &Path, scheme: &str) {
     let app = objc2_foundation::NSURL::fileURLWithPath(&NSString::from_str(&bundle.to_string_lossy()));

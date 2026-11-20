@@ -16,7 +16,7 @@
 //! add (`holds_sessions`). Bringing a tab forward asks the app to show its session
 //! (`session.select`), which the app does only with Remote Control on in its settings; typing,
 //! keys, starting and closing go to the server and need nothing.
-//! See .claude/rules/terminals.md.
+//! See .claude/rules/rex.md.
 
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};

@@ -283,7 +283,7 @@ fn is_job_id(name: &str) -> bool {
 /// description}]}]}`, each question's header and whether it takes several left out (2.1.303's
 /// code, and a Haiku job's record, 2026-10-19). It's written whether or not the plugin's hook has
 /// the questions, and while the transcript doesn't have the call yet: an Opus 5.5 session holds
-/// the message a question comes in back until it's answered (`.claude/rules/claude-code.md`).
+/// the message a question comes in back until it's answered (`.claude/rules/claude-asks.md`).
 /// None when the job isn't waiting on questions.
 pub fn job_questions(home: &Path, job: &str) -> Option<Value> {
     if !is_job_id(job) {

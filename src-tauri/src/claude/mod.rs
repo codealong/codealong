@@ -881,7 +881,7 @@ impl crate::harness::Adapter for ClaudeCode {
         crate::attachments::Style::Mention
     }
 
-    /// `!` at the start of its box is bash mode, a paste led by one too (.claude/rules/claude-code.md).
+    /// `!` at the start of its box is bash mode, a paste led by one too (.claude/rules/claude-send.md).
     fn typed_shell_commands(&self) -> bool {
         true
     }

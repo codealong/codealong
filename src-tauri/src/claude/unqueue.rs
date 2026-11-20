@@ -8,7 +8,7 @@
 //! came back is typed in again, in the order it was held, as a send from Codealong types it, and
 //! goes on being held. Checked on 2.1.312 through a background job's attach (2026-10-29): three
 //! held, all three given back, the box empty, the command the turn ran carrying on, and the two
-//! typed in again held anew. See .claude/rules/claude-code.md.
+//! typed in again held anew. See .claude/rules/claude-send.md.
 
 use std::path::PathBuf;
 

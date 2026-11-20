@@ -75,7 +75,7 @@ pub const PENDING_MS: i64 = 30 * 60_000;
 /// How long after its prompt a run's session is named after its schedule (runner.rs `Job::Name`).
 /// A harness can miss a name written while its first prompt's writes pour out: Claude Code reads a
 /// name only from the last 64 KB of its transcript, and of three runs named at once, two never took
-/// it up (2026-11-09; claude-code.md). Those writes were over within 15 seconds.
+/// it up (2026-11-09; claude-transcript.md). Those writes were over within 15 seconds.
 pub const NAME_AFTER_MS: i64 = 30 * 1000;
 
 #[derive(Serialize, Deserialize, Clone, Debug, Default, PartialEq)]

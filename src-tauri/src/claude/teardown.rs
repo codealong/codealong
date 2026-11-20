@@ -1,7 +1,7 @@
 //! What Claude Code knows of removing a worktree, for Codealong's own removal (cleanup.rs): the
 //! repo's `WorktreeRemove` hooks, run as Claude Code runs them, and the background jobs whose
 //! records name the worktree, which `claude rm <job>` drops once it's gone. Checked on 2.1.296
-//! (2026-10-12) in a scratch repo; see .claude/rules/claude-code.md.
+//! (2026-10-12) in a scratch repo; see .claude/rules/claude-asks.md.
 
 use std::path::{Path, PathBuf};
 use std::time::Duration;

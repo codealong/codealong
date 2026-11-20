@@ -1,5 +1,5 @@
 //! The process table on macOS, from the kernel: `proc_pidinfo` for your own processes, `sysctl`
-//! for any (`.claude/rules/windows.md` says what each answers).
+//! for any (`.claude/rules/tauri.md` says what each answers).
 
 use std::collections::HashMap;
 
