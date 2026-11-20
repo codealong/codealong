@@ -501,7 +501,7 @@ describe('no source file outgrows what one reading can hold', { timeout: 300_000
       'src/ui/Quick.tsx': 3300,
       'src/ui/SessionReply.tsx': 2000,
       'src/ui/SessionThread.tsx': 1600,
-      'src/ui/SettingsDialog.tsx': 3100,
+      'src/ui/SettingsDialog.tsx': 2900,
     };
     expect(outgrown(windows, lines, 1200, allowed, 'lines', "Put what you're adding in a file of its own (a hook, a component, pure functions with a test) and call it from here.")).toEqual([]);
   });

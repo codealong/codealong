@@ -22,6 +22,8 @@ use serde::{Deserialize, Serialize};
 use crate::util::expand;
 
 pub use codealong_peer::feed::Rank;
+pub use crate::decisions::{DecisionModelCfg, DecisionsCfg};
+use crate::decisions::default_decider;
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct Config {
@@ -113,74 +115,6 @@ impl Default for Config {
             prices: BTreeMap::new(),
         }
     }
-}
-
-/// The decision models Codealong asks narrow questions of (decisions.rs), feature by feature, and
-/// the one a request goes to when nothing chose another for it. Every feature is off until you
-/// turn it on; each provider's API key lives in the login keychain, not here.
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-pub struct DecisionsCfg {
-    /// The model whatever names none goes to: a project without `decisions`, a session outside
-    /// any boundary group. A name from `models` (Jev, `jev`, is always there), or `none`.
-    #[serde(default = "default_decider")]
-    pub default: String,
-    /// The quick panel suggests where what you type goes, warns about work already under way and
-    /// suggests a model for it.
-    #[serde(default)]
-    pub quick_panel: bool,
-    /// Reads how each session's turn ended: a question for you, stuck or just slow, how far the
-    /// work landed, whether it's finished, how risky a waiting command looks.
-    #[serde(default)]
-    pub sessions: bool,
-    /// Links new sessions to the todo they're for, says when a todo looks done, and suggests a
-    /// new todo's project, labels and what it waits on.
-    #[serde(default)]
-    pub todos: bool,
-    /// Marks the review comments on a pull request that ask for a change.
-    #[serde(default)]
-    pub pull_requests: bool,
-    /// Reads what each prompt you typed did with what its agent had last said: set out new work,
-    /// agreed, steered, redirected or asked (stance.rs). It does nothing until `[experimental]
-    /// analytics` is on.
-    #[serde(default)]
-    pub prompts: bool,
-    /// The models a project, a boundary group or `default` can name, `[[decisions.models]]`. Jev
-    /// is there without one, as `jev` on `jev-preview` (`decisions::models`).
-    #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    pub models: Vec<DecisionModelCfg>,
-}
-
-impl Default for DecisionsCfg {
-    fn default() -> Self {
-        DecisionsCfg { default: default_decider(), quick_panel: false, sessions: false, todos: false, pull_requests: false, prompts: false, models: Vec::new() }
-    }
-}
-
-impl DecisionsCfg {
-    pub fn any(&self) -> bool {
-        self.quick_panel || self.sessions || self.todos || self.pull_requests || self.prompts
-    }
-}
-
-/// A decision model, `[[decisions.models]]`: a provider's model under a name of your own, which
-/// `[decisions] default`, a project's `decisions` and a boundary group's name it by.
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
-pub struct DecisionModelCfg {
-    pub name: String,
-    /// Who answers: `typesafe`, `openai` or `gemini` (`decisions::PROVIDERS`).
-    pub provider: String,
-    /// The provider's model: `jev-preview`, `gpt-6-luna`, `gemini-decision-1`.
-    pub model: String,
-    /// The model a request goes on to when this one fails for now (rate limited, overloaded,
-    /// unreachable), for what goes by `[decisions] default` only: what a project or boundary
-    /// group chose goes to that model or nowhere.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub fallback: Option<String>,
-}
-
-/// `[decisions] default` unless set: Jev.
-fn default_decider() -> String {
-    "jev".to_string()
 }
 
 /// The alias TypeSafe moves to each release as it comes out; `jev-latest` waits until a release
@@ -2035,7 +1969,7 @@ pub fn check_routing(cfg: &Config) -> std::result::Result<(), String> {
         if g.boundary && g.members.is_empty() {
             return Err(format!("Routing group {name} is a boundary, so it lists its members: an empty list would let every account in."));
         }
-        // What it names is `check_decisions`'s to say.
+        // What it names is decisions.rs `check_config`'s to say.
         if g.decisions.is_some() && !g.boundary {
             return Err(format!("Routing group {name} names a decision model, which only a boundary group (boundary = true) does."));
         }
@@ -2490,72 +2424,6 @@ pub fn check_projects(projects: &[ProjectCfg]) -> std::result::Result<(), String
     Ok(())
 }
 
-/// Why the decision models, and what names them, can't be saved, in words. `jev` is TypeSafe's
-/// whatever else changes, since a boundary group that names no model is Jev's (boundary.rs), and
-/// `none` is no model.
-pub fn check_decisions(cfg: &Config) -> std::result::Result<(), String> {
-    let d = &cfg.decisions;
-    let mut names = std::collections::HashSet::new();
-    for m in &d.models {
-        let name = m.name.trim();
-        if name.is_empty() {
-            return Err("Every [[decisions.models]] entry needs a name.".into());
-        }
-        if name == "none" {
-            return Err("A decision model can't be named \"none\": that's what a project or boundary group says for no model.".into());
-        }
-        if !names.insert(name) {
-            return Err(format!("Two decision models are named {name}."));
-        }
-        if !crate::decisions::PROVIDERS.contains(&m.provider.trim()) {
-            return Err(format!("Decision model {name}'s provider is {:?}; it takes {}.", m.provider, crate::decisions::PROVIDERS.map(|p| format!("{p:?}")).join(", ")));
-        }
-        if name == "jev" && m.provider.trim() != "typesafe" {
-            return Err("The decision model named jev is TypeSafe's (provider = \"typesafe\"): a boundary group that names no model goes to it, so it can't be another provider's.".into());
-        }
-        if m.model.trim().is_empty() {
-            return Err(format!("Decision model {name} names no model; TypeSafe's is \"jev-preview\", OpenAI's \"gpt-6-luna\", Google's \"gemini-decision-1\"."));
-        }
-    }
-    let known = |n: &str| crate::decisions::model_named(cfg, n).is_some();
-    for m in &d.models {
-        let name = m.name.trim();
-        let Some(f) = m.fallback.as_deref().map(str::trim) else { continue };
-        if f == name || f == "none" || !known(f) {
-            return Err(format!("Decision model {name}'s fallback is {f:?}; it takes the name of another of the [[decisions.models]]."));
-        }
-        // Each model's fallbacks, followed, end without coming back to one of them.
-        let mut seen = vec![name.to_string()];
-        let mut at = Some(f.to_string());
-        while let Some(next) = at {
-            if seen.contains(&next) {
-                return Err(format!("Decision model {name}'s fallbacks come back to {next}; a fallback can't lead round to a model before it."));
-            }
-            at = crate::decisions::model_named(cfg, &next).and_then(|x| x.fallback).map(|x| x.trim().to_string());
-            seen.push(next);
-        }
-    }
-    let names_a_model = |what: &str, said: &str| -> std::result::Result<(), String> {
-        let said = said.trim();
-        if said == "none" || known(said) {
-            return Ok(());
-        }
-        Err(format!("{what} is {said:?}; it takes \"none\" or the name of one of the [[decisions.models]] (jev is always there)."))
-    };
-    names_a_model("[decisions] default", &d.default)?;
-    for p in &cfg.projects {
-        if let Some(said) = &p.decisions {
-            names_a_model(&format!("Project {}'s decisions", p.name.trim()), said)?;
-        }
-    }
-    for g in cfg.routing.groups.iter().filter(|g| g.boundary) {
-        if let Some(said) = &g.decisions {
-            names_a_model(&format!("Routing group {}'s decisions", g.name.trim()), said)?;
-        }
-    }
-    Ok(())
-}
-
 /// Why the whole config can't be saved, in words.
 pub fn check(cfg: &Config) -> std::result::Result<(), String> {
     check_accounts(&cfg.accounts)?;
@@ -2568,7 +2436,7 @@ pub fn check(cfg: &Config) -> std::result::Result<(), String> {
     if cfg.search.days > MAX_SEARCH_DAYS {
         return Err(format!("[search] days is {}; the board goes back {MAX_SEARCH_DAYS} days, so that's the most.", cfg.search.days));
     }
-    check_decisions(cfg)?;
+    crate::decisions::check_config(cfg)?;
     let reviewer = cfg.reviews.account.trim();
     if !reviewer.is_empty() && !valid_reviewer(cfg, reviewer) {
         return Err(format!("[reviews] account is {reviewer:?}, which isn't one of the [[accounts]] or [[routing.groups]]; use one of them, or \"\" for Auto."));

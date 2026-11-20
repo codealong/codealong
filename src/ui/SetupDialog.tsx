@@ -19,7 +19,8 @@ import { accountsAfter, configAfter, emblemDrawers, firstPicks, folderNote, SETU
 import type { ConfigView, SetupView } from '../types';
 import { foundNote } from './AccountsSection';
 import { Button, CheckBox, cx, Dialog, Icon, Kbd } from './primitives';
-import { EmblemsFields, ProfileSelect, type SettingsSection } from './SettingsDialog';
+import { ProfileSelect } from './ProfileSelect';
+import { EmblemsFields, type SettingsSection } from './SettingsDialog';
 
 /** What the last step suggests setting up once the basics are in. Pull request reviews lead, as
  *  the one most worth having and the least likely to be found alone: they're off until turned on,
