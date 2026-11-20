@@ -1,0 +1,240 @@
+# The checks a change has to pass to reach main, run here rather than on the Mac that made it:
+# agents land dozens of changes a day from one busy Mac, where the same checks took from five
+# minutes to forty and queued one behind another. scripts/land.sh pushes a branch, opens its pull
+# request and puts it in main's merge queue; the queue runs this on the change as it would land
+# (on top of main and of what's queued before it) and merges it when `gate` passes, so main never
+# holds a commit these didn't see. docs/development.md, *Keeping main working*, has the whole of it.
+#
+# Which checks a change calls for is one table, scripts/land.sh `calls_for`, asked here as
+# `--plan`: the docs alone call for none, the windows' code for the UI's and the browser checks,
+# the engine's for all of them. `gate` is the one check main's rules require: it passes when
+# every check that was called for passed, and so also when none was.
+#
+#   pull_request   a pull request's own run. One scripts/land.sh opened is labelled `land` and
+#                  waits for the queue's run rather than run everything twice; anyone else's
+#                  (a fork's) runs everything, for whoever reviews it.
+#   merge_group    the queue's run: everything the group's changes call for.
+#   push to main   a commit that reached main some other way (a release's version commit, an
+#                  admin's push): everything it calls for. The queue's own pushes ran already.
+#   schedule       once a day on main, everything: a toolchain or a runner's image that moved.
+#   workflow_dispatch  everything, on any pushed branch: `gh workflow run ci.yml --ref <branch>`
+#                  (scripts/land.sh --check does it and waits).
+#
+# The public repository's minutes on GitHub's own runners are free, macOS's too.
+name: CI
+
+on:
+  pull_request:
+  merge_group:
+  push:
+    branches: [main]
+  schedule:
+    - cron: "23 9 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.event_name }}-${{ github.ref }}
+  # A pull request pushed to again has no use for the run on what it was. Every other run is of
+  # a commit that's on main or about to be.
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+env:
+  CARGO_TERM_COLOR: never
+
+jobs:
+  plan:
+    name: plan
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    outputs:
+      ui: ${{ steps.plan.outputs.ui }}
+      engine: ${{ steps.plan.outputs.engine }}
+      checks: ${{ steps.plan.outputs.checks }}
+    steps:
+      - uses: actions/checkout@v7
+      - id: plan
+        env:
+          EVENT: ${{ github.event_name }}
+          ACTOR: ${{ github.actor }}
+          # What the change is against: a pull request's base, the queue's main, the commit a
+          # push moved main from.
+          BASE: ${{ github.event.pull_request.base.sha || github.event.merge_group.base_sha || github.event.before }}
+          DEFERRED: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && contains(github.event.pull_request.labels.*.name, 'land') }}
+        run: |
+          all="ui engine checks"
+          if [ "$DEFERRED" = true ]; then
+            echo "A landing's pull request: the merge queue's run is the one that counts."
+            words=""
+          elif [ "$EVENT" = push ] && [ "$ACTOR" = "github-merge-queue[bot]" ]; then
+            echo "The merge queue's own push: its run saw this commit already."
+            words=""
+          elif [ "$EVENT" = schedule ] || [ "$EVENT" = workflow_dispatch ]; then
+            words="$all"
+          elif [ -z "$BASE" ] || ! git fetch -q --no-tags --depth=1 origin "$BASE"; then
+            echo "Nothing to compare with: everything."
+            words="$all"
+          else
+            git diff --no-renames --name-only -z "$BASE" HEAD > "$RUNNER_TEMP/changed"
+            tr '\0' '\n' < "$RUNNER_TEMP/changed" | sed 's/^/  /'
+            words="$(xargs -0 scripts/land.sh --plan < "$RUNNER_TEMP/changed")"
+          fi
+          echo "Calls for: ${words:-nothing}"
+          for word in $all; do
+            case " $words " in
+              *" $word "*) echo "$word=true" >> "$GITHUB_OUTPUT" ;;
+              *) echo "$word=false" >> "$GITHUB_OUTPUT" ;;
+            esac
+          done
+
+  # The windows: the typecheck and the bundle, the linter, the unit tests.
+  ui:
+    name: ui
+    needs: plan
+    if: needs.plan.outputs.ui == 'true'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci --no-audit --no-fund
+      - run: npm run build
+      - run: npm run lint
+      - run: npm test
+
+  # The engine on Linux, which no Mac can build (GTK's system libraries are Linux's): it catches
+  # code only macOS uses, a test that needed a harness's command line, a default that's macOS's.
+  linux:
+    name: engine (Linux)
+    needs: plan
+    if: needs.plan.outputs.engine == 'true'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    env:
+      # Outside the checkout, as every checkout's builds are on a Mac (.cargo/config.toml).
+      CARGO_TARGET_DIR: ${{ github.workspace }}/../target
+      RUSTFLAGS: -D warnings
+    steps:
+      - uses: actions/checkout@v7
+      - name: What Tauri builds on, and what the tests run
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends libwebkit2gtk-4.1-dev libgtk-3-dev \
+            libayatana-appindicator3-dev librsvg2-dev libxdo-dev libssl-dev pkg-config tmux zsh
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci --no-audit --no-fund
+      # Tauri's build embeds the bundle.
+      - run: npm run build
+      - uses: dtolnay/rust-toolchain@stable
+      # Ghostty's terminal library (libghostty-vt) builds from Ghostty's source with Zig, the
+      # version the pinned Ghostty asks for (docs/development.md).
+      - uses: mlugg/setup-zig@v2
+        with:
+          version: 0.17.0
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: "src-tauri -> ../../target"
+          # Main's runs write the cache; a change's run reads it.
+          save-if: ${{ github.ref == 'refs/heads/main' }}
+      - name: cargo test
+        working-directory: src-tauri
+        run: cargo test --locked
+
+  # The engine on macOS, where most of what it does is: the same macOS as the app is built on.
+  macos:
+    name: engine (macOS)
+    needs: plan
+    if: needs.plan.outputs.engine == 'true'
+    runs-on: macos-26
+    timeout-minutes: 90
+    env:
+      CARGO_TARGET_DIR: ${{ github.workspace }}/../target
+      RUSTFLAGS: -D warnings
+    steps:
+      - uses: actions/checkout@v7
+      - name: What the tests run
+        run: brew install tmux
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci --no-audit --no-fund
+      - run: npm run build
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: mlugg/setup-zig@v2
+        with:
+          version: 0.17.0
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: "src-tauri -> ../../target"
+          save-if: ${{ github.ref == 'refs/heads/main' }}
+      - name: cargo test
+        working-directory: src-tauri
+        run: cargo test --locked
+
+  # The browser checks that hold on a made-up Mac (scripts/preview/fixture-passes.txt), in
+  # headless Chrome over the engine's debug build.
+  checks:
+    name: browser checks
+    needs: plan
+    if: needs.plan.outputs.checks == 'true'
+    runs-on: macos-26
+    timeout-minutes: 90
+    env:
+      CARGO_TARGET_DIR: ${{ github.workspace }}/../target
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci --no-audit --no-fund
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: mlugg/setup-zig@v2
+        with:
+          version: 0.17.0
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: "src-tauri -> ../../target"
+          # A debug build of the app, not the tests': a cache of its own.
+          key: checks
+          save-if: ${{ github.ref == 'refs/heads/main' }}
+      - name: The engine the checks run
+        run: scripts/engine.sh
+      - name: scripts/checks.sh --fixture
+        run: scripts/checks.sh --fixture --jobs=3
+      - name: What the failed checks' pages showed
+        if: failure()
+        uses: actions/upload-artifact@v7
+        with:
+          name: preview
+          path: .preview/fixture/**/*.png
+          if-no-files-found: ignore
+          retention-days: 7
+
+  # The one check main's rules name. It passes when every check the change called for passed.
+  gate:
+    name: gate
+    needs: [plan, ui, linux, macos, checks]
+    if: always()
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - env:
+          RESULTS: ${{ join(needs.*.result, ' ') }}
+        run: |
+          echo "plan, ui, engine (Linux), engine (macOS), browser checks: $RESULTS"
+          for result in $RESULTS; do
+            case "$result" in
+              success | skipped) ;;
+              *) echo "A check didn't pass."; exit 1 ;;
+            esac
+          done

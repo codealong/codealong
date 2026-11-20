@@ -59,7 +59,7 @@ function run(command: string, args: string[], deadline = WAIT): Promise<Run> {
 
 const land = (args: string[]) => run(script, args);
 
-/** The checks a change to these files calls for: `ui`, `engine`, and `code` for one that needs a review. */
+/** The checks a change to these files calls for: `ui`, `engine`, `checks` (the browser checks), and `code` for one that needs a review. */
 const plan = async (...paths: string[]) => (await land(['--plan', ...paths])).out.trim();
 
 test('the docs alone run no checks and need no review', { timeout: SEVERAL }, async () => {
@@ -83,37 +83,45 @@ test('what the bundle carries of the skill and the plugin runs the engine’s ch
   }
 });
 
-test('the windows’ code runs their checks and needs a review', { timeout: SEVERAL }, async () => {
-  for (const path of ['src/App.tsx', 'src/ui/Quick.css', 'scripts/preview/queue-check.js', 'vite.config.ts']) {
-    expect(await plan(path), path).toBe('ui code');
+test('the windows’ code runs their checks, the browser’s among them, and needs a review', { timeout: SEVERAL }, async () => {
+  for (const path of ['src/App.tsx', 'src/ui/Quick.css', 'scripts/preview/queue-check.js', 'scripts/checks.sh', 'vite.config.ts', 'index.html']) {
+    expect(await plan(path), path).toBe('ui checks code');
   }
   // A name with a space, a quote or a tab in it is still the path it is.
-  expect(await plan('src-tauri/src/odd "name"\tx.rs')).toBe('ui engine code');
+  expect(await plan('src-tauri/src/odd "name"\tx.rs')).toBe('ui engine checks code');
+});
+
+test('a unit test, its stand-ins and a script no page loads run the unit tests alone', { timeout: SEVERAL }, async () => {
+  for (const path of ['src/ui/Quick.test.ts', 'src/land.test.ts', 'src/boards/menus.test.tsx', 'scripts/land.sh', 'scripts/relaunch.sh']) {
+    expect(await plan(path), path).toBe('ui code');
+  }
 });
 
 test('a change to what’s installed installs it first, as a clean checkout would', { timeout: SEVERAL }, async () => {
   // One of the two changed without the other passes on what's installed here and fails CI's
   // clean install.
-  expect(await plan('package.json')).toBe('ui code install');
-  expect(await plan('package-lock.json')).toBe('ui code install');
+  expect(await plan('package.json')).toBe('ui checks code install');
+  expect(await plan('package-lock.json')).toBe('ui checks code install');
 });
 
-test('the engine’s code runs both sides’ checks, since the windows’ tests read it', { timeout: SEVERAL }, async () => {
-  expect(await plan('src-tauri/src/board.rs')).toBe('ui engine code');
-  expect(await plan('src-tauri/peer/src/model.rs')).toBe('ui engine code');
+test('the engine’s code runs every check: the windows’ tests read it, and the browser checks’ made-up Mac is its', { timeout: SEVERAL }, async () => {
+  expect(await plan('src-tauri/src/board.rs')).toBe('ui engine checks code');
+  expect(await plan('src-tauri/peer/src/model.rs')).toBe('ui engine checks code');
 });
 
 test('what the engine’s tests read of the windows’ runs both', { timeout: SEVERAL }, async () => {
   for (const path of ['src/testing/ruleCases.json', 'src/testing/modelFields.ts', 'src/styles/tokens.css', 'src/ui/SettingsDialog.tsx', 'design/tokens.json']) {
-    expect(await plan(path), path).toBe('ui engine code');
+    expect(await plan(path), path).toBe('ui engine checks code');
   }
   // The unit tests' own helpers there are no engine test's to read.
   expect(await plan('src/testing/tauri.ts', 'src/testing/dom.ts')).toBe('ui code');
 });
 
 test('several files call for what any of them does', { timeout: SEVERAL }, async () => {
-  expect(await plan('docs/guide.md', 'src/menus.ts', 'CLAUDE.md')).toBe('ui engine code');
-  expect(await plan('.github/workflows/linux.yml')).toBe('code');
+  expect(await plan('docs/guide.md', 'src/menus.ts', 'CLAUDE.md')).toBe('ui engine checks code');
+  // The checks themselves changed: all of them run, to see they still do.
+  expect(await plan('.github/workflows/ci.yml')).toBe('ui engine checks code');
+  expect(await plan('.github/dependabot.yml')).toBe('code');
 });
 
 test('it says what it doesn’t understand before doing anything', { timeout: SEVERAL }, async () => {

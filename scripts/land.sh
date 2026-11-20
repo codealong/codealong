@@ -47,8 +47,11 @@ usage() {
 }
 
 # Which checks a changed file calls for, one word to a line: `ui` (build, lint, unit tests),
-# `engine` (cargo test), `code` (it needs a review) and `install` (npm ci first). The lists err towards running a check:
-# each side's tests read some of the other's files, named here with what reads them.
+# `engine` (cargo test, on macOS and on Linux), `checks` (the browser checks on the made-up Mac),
+# `code` (it needs a review) and `install` (what's installed changed). CI asks this table
+# (.github/workflows/ci.yml, through --plan), so it's the one place that says. The lists err
+# towards running a check: each side's tests read some of the other's files, named here with
+# what reads them.
 calls_for() {
   case "$1" in
     # Docs nothing tests or builds. CLAUDE.md, the rules and the skills aren't among them.
@@ -65,6 +68,7 @@ calls_for() {
     src-tauri/* | .cargo/*)
       echo engine
       echo ui
+      echo checks
       echo code
       ;;
     # What the engine's tests read of the windows': the fixtures it writes for them
@@ -74,6 +78,7 @@ calls_for() {
     src/testing/modelFields.ts | src/testing/ruleCases.json | src/testing/boardPushes.json | src/styles/tokens.css | src/ui/SettingsDialog.tsx | design/*)
       echo engine
       echo ui
+      echo checks
       echo code
       ;;
     # The skill and the plugin as the bundle carries them and install.rs copies them.
@@ -81,31 +86,56 @@ calls_for() {
       echo engine
       echo code
       ;;
-    # A workflow runs on GitHub, which nothing here can try; it still wants a second reader.
+    # The checks themselves: all of them, to see they still run.
+    .github/workflows/*)
+      echo ui
+      echo engine
+      echo checks
+      echo code
+      ;;
+    # The rest of what GitHub reads (a template, an action's settings) wants a second reader.
     .github/*) echo code ;;
     # What's installed: one changed without the other fails a clean install, as CI's is.
     package.json | package-lock.json)
       echo ui
+      echo checks
       echo code
       echo install
       ;;
-    # Everything else is the windows' or a script, which the unit tests cover some of.
+    # The unit tests and their stand-ins, which no page loads.
+    src/*.test.ts | src/*.test.tsx | src/testing/*)
+      echo ui
+      echo code
+      ;;
+    # The browser checks and what runs them.
+    scripts/preview/* | scripts/preview.sh | scripts/checks.sh | scripts/engine.sh)
+      echo ui
+      echo checks
+      echo code
+      ;;
+    # The other scripts, which the unit tests cover some of.
+    scripts/*)
+      echo ui
+      echo code
+      ;;
+    # Everything else is the windows'.
     *)
       echo ui
+      echo checks
       echo code
       ;;
   esac
 }
 
 # The checks for a list of paths on stdin, a NUL after each as git writes them (a name can
-# hold anything else), as a line of words: "ui engine code", or "" for none.
+# hold anything else), as a line of words: "ui engine checks code", or "" for none.
 plan_of() {
   local path word wants="" out=""
   while IFS= read -r -d '' path; do
     [ -n "$path" ] || continue
     wants="$wants $(calls_for "$path" | tr '\n' ' ')"
   done
-  for word in ui engine code install; do
+  for word in ui engine checks code install; do
     case " $wants " in *" $word "*) out="$out $word" ;; esac
   done
   echo "${out# }"
