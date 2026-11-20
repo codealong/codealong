@@ -521,7 +521,7 @@ echo i >docs/i.md
 step git add -A
 step git commit -q -m "half: two"
 scripts/land.sh >"$tmp/out" 2>&1
-echo "half of it landed already: $? $(grep -c 'which drops those' "$tmp/out")"
+echo "half of it landed already: $? $(grep -c 'come to nothing and drop out' "$tmp/out")"
 # A change that differs from one main has only by its whitespace is still a change: git takes
 # the two patches for one, and a landing that went by that would call it landed and drop it.
 step git worktree add -q "$tmp/spaced" -b spaced origin/main
