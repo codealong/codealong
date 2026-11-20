@@ -375,6 +375,12 @@ git merge -q --no-ff --no-commit HEAD@{1} >/dev/null 2>&1
 scripts/land.sh --no-review "a test" >"$tmp/out" 2>&1
 echo "with a merge under way: $? $(grep -c 'MERGE_HEAD' "$tmp/out")"
 step git merge --abort
+# And a run of cherry-picks with some still to go, as git leaves it between two of them: its
+# list of what's left, and nothing else to say so.
+step mkdir "$(git rev-parse --git-path sequencer)"
+scripts/land.sh --no-review "a test" >"$tmp/out" 2>&1
+echo "with picks still to go: $? $(grep -c '(sequencer)' "$tmp/out")"
+step rmdir "$(git rev-parse --git-path sequencer)"
 # Its checks fail in the queue: it's put out, and stays a pull request.
 touch "$tmp/fail"
 scripts/land.sh --reviewed-by "an account, a model" >"$tmp/out" 2>&1
@@ -583,12 +589,11 @@ step git -C "$tmp/main" commit -q -m "main: the same file"
 step git -C "$tmp/main" push -q origin main
 scripts/land.sh >"$tmp/out" 2>&1
 echo "adding and taking away what main has since: $? $(grep -c '^Nothing to land' "$tmp/out") $([ "$(git rev-parse HEAD)" = "$(git rev-parse origin/main)" ] && [ -f docs/u.md ] && echo at main, with its file)"
-# Another session commits in this checkout just as the branch is caught up: slipped in here
-# before git moves the checkout to main, by a git that does that (the file and what to put in
-# it are in the test's "meanwhile", after the word of git's to do it before) and then what it
-# was asked. Its commit is one git would take for one of main's by its patch (the same file, a
-# space apart), which a rebase skips. Git sets the branch to main without it; where the
-# branch was is read from its own log, it's put back there with the commit, and that's said.
+# Another session commits in this checkout just after the branch has been moved to main,
+# before the script reads where the checkout stands: slipped in by a git that does that (the
+# word of git's to do it before is in the test's "meanwhile", with a file and what to put in
+# it; it waits for the checkout to be at origin's main) and then what it was asked. The branch
+# has a commit main doesn't, and isn't said to be at origin/main.
 step git worktree add -q "$tmp/shared" -b shared origin/main
 step cd "$tmp/shared"
 here
@@ -606,7 +611,7 @@ cat >"$tmp/shim/git" <<GIT
 on="" file="" text=""
 [ ! -f "$tmp/meanwhile" ] || read -r on file text <"$tmp/meanwhile"
 for word in "\\$@"; do
-  if [ -n "\\$on" ] && [ "\\$word" = "\\$on" ]; then
+  if [ -n "\\$on" ] && [ "\\$word" = "\\$on" ] && [ "\\$("$real" rev-parse HEAD)" = "\\$("$real" rev-parse -q --verify refs/remotes/origin/main)" ]; then
     rm "$tmp/meanwhile"
     echo "\\$text" >"\\$file"
     "$real" add "\\$file"
@@ -616,9 +621,9 @@ done
 exec "$real" "\\$@"
 GIT
 step chmod +x "$tmp/shim/git"
-echo '-C docs/late.md say("a b")' >"$tmp/meanwhile"
+echo 'fetch docs/late.md say("a b")' >"$tmp/meanwhile"
 PATH="$tmp/shim:$PATH" scripts/land.sh >"$tmp/out" 2>&1
-echo "a commit made here as it's caught up: $? $(grep -c '^Landed' "$tmp/out") $(grep -c 'gained commits while this landed' "$tmp/out")"
+echo "a commit made here as it's caught up: $? $(grep -c '^Landed' "$tmp/out") $(grep -c "isn't at origin/main" "$tmp/out")"
 echo "and is still here: $(git log --format=%s -1), on $(git symbolic-ref -q --short HEAD)"
 # GitHub says it merged before the main fetched here has the commit, main having moved since
 # the branch was made: nothing here is touched (moved onto that main, the branch would be
@@ -647,7 +652,7 @@ echo o >"$tmp/main/docs/o.md"
 step git -C "$tmp/main" add -A
 step git -C "$tmp/main" commit -q -m "main: once more"
 step git -C "$tmp/main" push -q origin main
-echo '-C docs/late.md say("a b")' >"$tmp/meanwhile"
+echo 'fetch docs/late.md say("a b")' >"$tmp/meanwhile"
 PATH="$tmp/shim:$PATH" scripts/land.sh >"$tmp/out" 2>&1
 echo "a commit made here with nothing to land: $(grep -c '^Nothing to land' "$tmp/out") $(grep -c "isn't at origin/main" "$tmp/out"), $(git log --format=%s -1)"
 # Names git finds two of: a tag called what the branch is, and a local branch called
@@ -706,6 +711,7 @@ test('a landing queues its pull request as the commit that was asked for, on a m
     'code, with no word on its review: 2 (7 pull requests so far)',
     "with a file git doesn't know of: 1",
     'with a merge under way: 1 1',
+    'with picks still to go: 1 1',
     'put out of the queue: 1 1 1',
     'main, after: docs: two,main moved,first,',
     "set to merge by itself: 1 1, origin's still a script",
