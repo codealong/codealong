@@ -439,7 +439,7 @@ describe('the engine', { timeout: 300_000 }, () => {
     const allowed: Record<string, number> = {
       'src-tauri/src/acp.rs': 5,
       'src-tauri/src/claude/asks.rs': 1,
-      'src-tauri/src/engine.rs': 1,
+      'src-tauri/src/engine/sessions.rs': 1,
       'src-tauri/src/starting.rs': 1,
       'src-tauri/src/terminal.rs': 4,
     };
@@ -515,7 +515,7 @@ describe('no source file outgrows what one reading can hold', { timeout: 300_000
       'src-tauri/src/cli.rs': 2200,
       'src-tauri/src/config.rs': 3600,
       'src-tauri/src/cursor.rs': 2700,
-      'src-tauri/src/engine.rs': 4100,
+      'src-tauri/src/engine.rs': 3400,
       'src-tauri/src/github.rs': 2400,
     };
     expect(outgrown(engine, (text) => lines(untested(text)), 2000, allowed, 'lines outside its tests', "Put what you're adding in a module of its own (a subsystem is a struct with on_* methods, as ghpoll.rs is) and call it from here.")).toEqual([]);
