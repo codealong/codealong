@@ -1,8 +1,9 @@
 //! state.json (`SeenState`: what you've seen, pinned, archived and snoozed) as the engine holds
 //! it: read, saved, and never written over when it doesn't read. And what's done to sessions'
 //! marks that takes more than setting one: moving sessions to the top (`on_raise`), labelling
-//! them (`on_label`), and forgetting, once a board is out, the marks, tags and suggested replies
-//! their sessions have moved past.
+//! them (`on_label`), and forgetting the marks, tags and suggested replies their sessions have
+//! moved past, which `publish` does each time it has composed a board, before that board is
+//! compared with the last one: whether or not it then goes out.
 
 use super::*;
 
