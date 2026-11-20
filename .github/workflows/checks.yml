@@ -8,8 +8,9 @@
 # each one up for longer than the busy Mac did, and the queue behind it. Here one run goes at
 # a time and, while it does, only one of the runs waiting stays (GitHub keeps the last to
 # arrive, which needn't be the latest push's). So a run on main checks main as it is when the
-# run starts, not the commit that started it: however fast changes land, each run covers
-# everything landed by then, and a failure names the stretch since the last run that passed.
+# run starts, not the commit that started it (unless this file has changed between the two,
+# when it checks its own): however fast changes land, each run covers everything landed by
+# then, and a failure names the stretch since the last run that passed.
 # GitHub lists a run under the commit that started it, so each says which commit it checked
 # in an artifact's name (`tested-<commit>`), which is what the next run's plan and a release
 # go by. A red run is somebody's (scripts/watch-main.sh, docs/development.md, *Keeping main
@@ -64,6 +65,18 @@ jobs:
           EVENT: ${{ github.event_name }}
           GH_TOKEN: ${{ github.token }}
         run: |
+          # GitHub runs this file as the commit that started the run has it, which on a busy
+          # main can be older than main's by now. A run vouches only for commits whose copy of
+          # this file is the one it runs (an older one would pass main for jobs it doesn't
+          # have): where main's has changed since, it checks its own commit, and main is the
+          # next run's, or the day's.
+          if [ "$EVENT" = push ] || [ "$EVENT" = schedule ]; then
+            git fetch -q --no-tags --depth=1 origin "$GITHUB_SHA"
+            if ! git diff --quiet "$GITHUB_SHA" HEAD -- .github/workflows/checks.yml; then
+              echo "This file has changed on main since $GITHUB_SHA, which this run is of: checking that commit."
+              git checkout -q --detach "$GITHUB_SHA"
+            fi
+          fi
           # Every job after this checks this commit, whatever lands while they run.
           echo "commit=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
           echo "Checking $(git rev-parse HEAD)."
