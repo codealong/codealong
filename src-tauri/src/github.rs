@@ -1783,8 +1783,8 @@ fn file_of(f: &Value) -> PrFile {
     }
 }
 
-/// What a conversation about a PR reads of it (side.rs `ask_pr`), which has no `gh` of its own
-/// to ask with, and an automatic review too (autoreview.rs): what it is, its description, reviews
+/// What a conversation about a PR reads of it (side.rs `ask_pr`), which may run little or
+/// nothing of `gh` to ask with, and an automatic review too (autoreview.rs): what it is, its description, reviews
 /// and comments as Markdown (`reading_md`), and its whole diff as `gh pr diff` gives it, with the
 /// detail they were made from. `detail`'s requests and the diff go in parallel. A diff GitHub
 /// won't give whole (it refuses very large ones) is made of the files' own diffs, which leave out

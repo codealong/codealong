@@ -22,6 +22,33 @@ pub(super) fn side_mode(session: Option<&str>) -> &'static str {
     }
 }
 
+/// What a conversation of its own about a PR (`Adapter::fresh_side`) may run without asking,
+/// past what Claude Code lets through by itself in `default` mode with nobody to ask (reading
+/// files, `grep`, `git log`, `git diff`): `gh`'s lookups, which change nothing, and a fetch of
+/// `origin`, which moves only its remote-tracking branches, so `origin/<base>` says where the
+/// PR's base is now in a checkout that's fallen behind. Without them `gh pr view`, `gh pr list`,
+/// `git fetch origin` and `git -C <folder> log` were each refused ("This command requires
+/// approval"), and asked whether a PR had been superseded, the conversation said it couldn't
+/// tell (2.1.329, 2026-11-19); with them the same run ran the first three. Each is a whole
+/// subcommand of `gh` that only reads: not `gh api`, which takes any method, nor anything that
+/// checks out, comments, merges or edits. `git fetch` goes bare or for `origin` alone, an exact
+/// rule each, since a refspec (`origin main:main`) would move a local branch.
+pub(super) const PR_LOOKUPS: &[&str] = &["gh pr view *", "gh pr list *", "gh pr diff *", "gh pr checks *", "gh issue view *", "gh issue list *", "gh run view *", "gh run list *", "gh search *", "gh repo view *", "git fetch", "git fetch origin"];
+
+/// `PR_LOOKUPS` as one `--allowedTools` argument (`=`, since the flag takes several).
+pub(super) fn pr_lookups_allowed() -> String {
+    let rules: Vec<String> = PR_LOOKUPS.iter().map(|c| format!("Bash({c})")).collect();
+    format!("--allowedTools={}", rules.join(","))
+}
+
+/// What a PR's conversation is told of `PR_LOOKUPS`, after its rules: the `gh` lookups by name,
+/// that the fetch is the one change to git state it may make, and to run git where it is, since
+/// `git -C` is refused.
+pub(super) fn pr_lookups_said() -> String {
+    let gh: Vec<String> = PR_LOOKUPS.iter().filter_map(|c| c.strip_suffix(" *")).map(|c| format!("`{c}`")).collect();
+    format!("You may also run {} to look things up on GitHub, and `git fetch origin` to see where its base branch is now: that fetch is the one change to git state you may make. Run git in the folder you're in, without `-C`. Other commands that don't only read are refused.", gh.join(", "))
+}
+
 /// How Codealong talks to a side conversation's copy (side.rs, `Adapter::side`): Claude Code's
 /// stream-json, a line a message each way. A question is a `user` line; the answer comes as
 /// `stream_event` lines (the API's own events: `content_block_delta` with a `text_delta`), each
@@ -186,13 +213,29 @@ mod tests {
         use crate::harness::Adapter;
         let other = crate::config::AccountCfg { name: "c2".into(), harness: "claude".into(), home: "/Users/me/.claude2".into(), command: None, start: None, acp: None, monthly: None, per_token: false, usage_cap: None, disabled: false, chrome_profile: None };
         let mut r = ClaudeCode.fresh_side(&crate::harness::Ctx { account: &other }, Path::new("/w"), "About PR #7.", Path::new("/support/pr/7"), crate::side::RunsOn::default()).unwrap();
-        assert_eq!(r.args.join(" "), "-p --input-format stream-json --output-format stream-json --verbose --include-partial-messages --no-session-persistence --permission-mode default --add-dir=/support/pr/7");
+        let looks = pr_lookups_allowed();
+        assert_eq!(r.args.join(" "), format!("-p --input-format stream-json --output-format stream-json --verbose --include-partial-messages --no-session-persistence --permission-mode default --add-dir=/support/pr/7 {looks}"));
         assert_eq!(r.env, [("CLAUDE_CONFIG_DIR".to_string(), "/Users/me/.claude2".to_string())]);
         let first = r.dialect.ask("Why?");
-        assert_eq!(first[0].pointer("/message/content").and_then(Value::as_str), Some("<system-reminder>\nAbout PR #7.\n</system-reminder>\n\nWhy?"));
+        assert_eq!(first[0].pointer("/message/content").and_then(Value::as_str), Some(format!("<system-reminder>\nAbout PR #7. {}\n</system-reminder>\n\nWhy?", pr_lookups_said()).as_str()));
         // On the model and effort picked with the account, where they were.
         let on = crate::side::RunsOn { model: Some("opus[1m]"), effort: Some("xhigh") };
         let r = ClaudeCode.fresh_side(&crate::harness::Ctx { account: &other }, Path::new("/w"), "About PR #7.", Path::new("/support/pr/7"), on).unwrap();
-        assert!(r.args.join(" ").ends_with("--add-dir=/support/pr/7 --model opus[1m] --effort xhigh"), "{:?}", r.args);
+        assert!(r.args.join(" ").ends_with(&format!("--add-dir=/support/pr/7 {looks} --model opus[1m] --effort xhigh")), "{:?}", r.args);
+    }
+
+    /// A PR's conversation may look things up on GitHub and fetch `origin`, which it's told, and
+    /// nothing it may run unasked writes: each rule is a `gh` subcommand that only reads, or a
+    /// fetch with no refspec, and the flag is one argument of `Bash(…)` rules.
+    #[test]
+    fn a_prs_conversation_may_only_look_things_up() {
+        for rule in PR_LOOKUPS {
+            let gh_read = rule.strip_prefix("gh ").and_then(|c| c.strip_suffix(" *")).is_some_and(|c| c == "search" || ["view", "list", "diff", "checks"].iter().any(|v| c.ends_with(&format!(" {v}")) && c.split(' ').count() == 2));
+            assert!(gh_read || ["git fetch", "git fetch origin"].contains(rule), "{rule:?} may change something");
+        }
+        assert!(PR_LOOKUPS.iter().all(|r| !r.starts_with("gh api")));
+        assert_eq!(pr_lookups_allowed(), "--allowedTools=Bash(gh pr view *),Bash(gh pr list *),Bash(gh pr diff *),Bash(gh pr checks *),Bash(gh issue view *),Bash(gh issue list *),Bash(gh run view *),Bash(gh run list *),Bash(gh search *),Bash(gh repo view *),Bash(git fetch),Bash(git fetch origin)");
+        let said = pr_lookups_said();
+        assert!(said.contains("`gh pr view`, `gh pr list`") && said.contains("`git fetch origin`") && said.contains("without `-C`"), "{said}");
     }
 }

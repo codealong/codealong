@@ -394,6 +394,14 @@ on this Mac; read it before changing the Claude adapter (paths are under `src-ta
   `grep`, `sed -n` and `head` on files went ahead, and a `touch` was refused as a sensitive edit
   (2.1.292, 2026-10-07), so Codealong fetches the PR itself and the run reads it from a folder
   `--add-dir` names. The Codealong plugin's `SessionStart` (`startup`) hook runs for it too.
+  On 2.1.329 (Haiku, a scratch repo, 2026-11-19) `git log origin/main` with `--format` and
+  `--since` ran unasked, while `git -C <the folder it's in> log`, `git fetch origin`, `gh pr view`
+  and `gh pr list` were refused ("This command requires approval"); with `--allowedTools=Bash(gh
+  pr view *),Bash(gh pr list *),Bash(git fetch origin)`, one argument, the three ran and `-C` was
+  still refused. So it may run `gh`'s lookups and fetch `origin` (`claude/side.rs` `PR_LOOKUPS`).
+  Allowed so, `gh pr view … > <file>` was still refused, in the folder and outside it ("…which is
+  a sensitive file"), as were `gh pr view $(…)` ("A nested command in this command can't be
+  checked before it runs") and `git fetch origin main:<branch>`, and nothing was written.
 - `--model`'s aliases (2.1.282) and the account's `settings.json` `model` a start goes on without
   it: `claude/start.rs` (`MODELS`, `default_model`); it takes a full name too (`claude/mod.rs`
   `offers_model`). Quote it when typing it: zsh reads `fable[1m]` as a file pattern ("no matches

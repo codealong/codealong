@@ -16,8 +16,9 @@
 //!
 //! A PR's questions are a side conversation too, by the PR's key (`ask_pr`): nobody's copy, but a
 //! conversation of its own on an account you pick (`Adapter::fresh_side`), in a checkout of the
-//! PR's repo here, handed the PR's description, discussion and whole diff to read, since it has
-//! no `gh` it may run. It only looks, and is kept, closed and read as a session's is.
+//! PR's repo here, handed the PR's description, discussion and whole diff to read, since it may
+//! run little or nothing of `gh` (Claude Code's only its lookups, `claude/side.rs`
+//! `PR_LOOKUPS`). It only looks, and is kept, closed and read as a session's is.
 //!
 //! Each harness says how its copy runs and how to talk to it (`Adapter::side`: a `Recipe`, the
 //! process and a `Dialect` for its lines). This module runs the processes, keeps what was asked
