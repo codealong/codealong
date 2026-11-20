@@ -38,7 +38,8 @@ elif [ "$(git -C "$top" rev-parse HEAD)" = "$theirs" ]; then
   echo "The main checkout is at origin/main."
 elif ! git merge-base --is-ancestor refs/heads/main "$theirs"; then
   echo "The main checkout's main has commits origin/main doesn't, so it's left as it is."
-elif out="$(git -C "$top" merge -q --ff-only --no-overwrite-ignore --no-autostash "$theirs" 2>&1)" && [ "$(git -C "$top" rev-parse HEAD)" = "$theirs" ]; then
+elif out="$(git -C "$top" merge -q --ff-only --no-overwrite-ignore --no-autostash "$theirs" 2>&1)" &&
+  [ "$(git -C "$top" symbolic-ref -q HEAD)" = refs/heads/main ] && [ "$(git rev-parse -q --verify refs/heads/main)" = "$theirs" ]; then
   echo "Fast-forwarded the main checkout to origin/main ($(git rev-parse --short "$theirs"))."
 else
   # Git lists the files whose uncommitted edits stood in the way one to a line, indented by a tab.

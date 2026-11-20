@@ -367,6 +367,14 @@ echo stray >left-here.txt
 scripts/land.sh --no-review "a test" >/dev/null 2>&1
 echo "with a file git doesn't know of: $?"
 rm left-here.txt
+# A merge under way that has nothing uncommitted to show for it (what it merges changes
+# nothing): the move to main at the end of a landing would be the end of it.
+step git commit -q --allow-empty -m "nothing"
+step git reset -q --hard HEAD~1
+git merge -q --no-ff --no-commit HEAD@{1} >/dev/null 2>&1
+scripts/land.sh --no-review "a test" >"$tmp/out" 2>&1
+echo "with a merge under way: $? $(grep -c 'MERGE_HEAD' "$tmp/out")"
+step git merge --abort
 # Its checks fail in the queue: it's put out, and stays a pull request.
 touch "$tmp/fail"
 scripts/land.sh --reviewed-by "an account, a model" >"$tmp/out" 2>&1
@@ -579,8 +587,8 @@ echo "adding and taking away what main has since: $? $(grep -c '^Nothing to land
 # before git moves the checkout to main, by a git that does that (the file and what to put in
 # it are in the test's "meanwhile", after the word of git's to do it before) and then what it
 # was asked. Its commit is one git would take for one of main's by its patch (the same file, a
-# space apart), which a rebase skips. The branch is moved only if it's where it was, so it
-# stays where that commit put it, the checkout goes back onto it, and that's said.
+# space apart), which a rebase skips. Git sets the branch to main without it; where the
+# branch was is read from its own log, it's put back there with the commit, and that's said.
 step git worktree add -q "$tmp/shared" -b shared origin/main
 step cd "$tmp/shared"
 here
@@ -608,7 +616,7 @@ done
 exec "$real" "\\$@"
 GIT
 step chmod +x "$tmp/shim/git"
-echo '--detach docs/late.md say("a b")' >"$tmp/meanwhile"
+echo '-C docs/late.md say("a b")' >"$tmp/meanwhile"
 PATH="$tmp/shim:$PATH" scripts/land.sh >"$tmp/out" 2>&1
 echo "a commit made here as it's caught up: $? $(grep -c '^Landed' "$tmp/out") $(grep -c 'gained commits while this landed' "$tmp/out")"
 echo "and is still here: $(git log --format=%s -1), on $(git symbolic-ref -q --short HEAD)"
@@ -639,7 +647,7 @@ echo o >"$tmp/main/docs/o.md"
 step git -C "$tmp/main" add -A
 step git -C "$tmp/main" commit -q -m "main: once more"
 step git -C "$tmp/main" push -q origin main
-echo '--detach docs/late.md say("a b")' >"$tmp/meanwhile"
+echo '-C docs/late.md say("a b")' >"$tmp/meanwhile"
 PATH="$tmp/shim:$PATH" scripts/land.sh >"$tmp/out" 2>&1
 echo "a commit made here with nothing to land: $(grep -c '^Nothing to land' "$tmp/out") $(grep -c "isn't at origin/main" "$tmp/out"), $(git log --format=%s -1)"
 # Names git finds two of: a tag called what the branch is, and a local branch called
@@ -697,6 +705,7 @@ test('a landing queues its pull request as the commit that was asked for, on a m
     // Neither of these gets as far as a push or a pull request.
     'code, with no word on its review: 2 (7 pull requests so far)',
     "with a file git doesn't know of: 1",
+    'with a merge under way: 1 1',
     'put out of the queue: 1 1 1',
     'main, after: docs: two,main moved,first,',
     "set to merge by itself: 1 1, origin's still a script",

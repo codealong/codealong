@@ -21,8 +21,8 @@
 # In order:
 #   1. It fetches origin/main and sees that the branch applies on it. It rewrites nothing of
 #      yours: the commit it lands is the one that's here when it's asked, and a branch that
-#      doesn't apply is yours to rebase (`git rebase --reapply-cherry-picks origin/main`, so
-#      that git doesn't skip a commit of yours for one of main's that only looks the same),
+#      doesn't apply is yours to rebase (it says how: with every commit written again, so
+#      that git doesn't skip one of yours for one of main's that only looks the same),
 #      resolve and test before running this again. A branch from before the history was
 #      rewritten is turned away, with the rebase CLAUDE.md gives for it.
 #   2. It pushes the branch to origin under its own name: adding to what's there, or, when
@@ -49,12 +49,12 @@
 #
 # It lands only what's committed: uncommitted changes here, yours or another session's, stop it
 # before anything is touched. It's for a worktree that's yours alone (CLAUDE.md, *Landing
-# work*). What another session does in the same checkout while this runs is never lost,
-# undone or landed as yours: nothing here rebases, merges, resets or stashes, a branch is
-# moved only if it's still at the commit that landed, and the files only by git's own
-# checkout. Such a session can still find the checkout moved under it in the last step, to
-# main's commit and back onto this branch. One landing of a branch runs at a time. `--check`
-# runs CI on the
+# work*). Nothing here rebases, merges or stashes: once its commits have landed the branch is
+# set to main's commit by git's own change of branch, which refuses rather than write over
+# anything. What another session does in the same checkout while this runs isn't landed as
+# yours, and a commit it makes on the branch in the moment before that move is put back and
+# said; but it can find the checkout moved under it. One landing of a branch runs at a time.
+# `--check` runs CI on the
 # commit as it is here, on a branch made for that run and removed after, so a landing under way
 # isn't touched. There is no flag to skip the checks, and none to run them here: `npm test` and
 # `cargo test` are still yours to run while you work.
@@ -63,6 +63,9 @@ set -uo pipefail
 # Main as origin has it, by its whole name: `origin/main` alone is also what git calls a local
 # branch someone named that, which it would take first.
 MAIN=refs/remotes/origin/main
+# The rebase an author is asked for when a branch doesn't apply on main: every commit written
+# again, so that git doesn't skip one of theirs for one of main's that only looks the same.
+REBASE="git rebase --reapply-cherry-picks $MAIN"
 
 # Everything is in functions, read whole before any of it runs: catching up at the end can
 # rewrite this file, and bash reads a script as it goes.
@@ -499,7 +502,7 @@ queue_it() {
     # that conflicts, so its own run of CI would be waited on for nothing.
     if [ "$mergeable" = CONFLICTING ]; then
       rm -f "$sent"
-      die "Pull request #$number ($pr_url) no longer applies on main, which moved under it: git rebase --reapply-cherry-picks origin/main, resolve, rerun what you'd tested, and run scripts/land.sh again."
+      die "Pull request #$number ($pr_url) no longer applies on main, which moved under it: $REBASE, resolve, rerun what you'd tested, and run scripts/land.sh again."
     fi
     status="" conclusion="" run_id="" run_url=""
     run="$(own_run "$number")"
@@ -542,7 +545,7 @@ EOF
         rm -f "$sent"
         echo "GitHub wouldn't queue pull request #$number ($pr_url):" >&2
         cat "$said_no" >&2
-        echo "If that's a conflict with main: git rebase --reapply-cherry-picks origin/main, resolve, rerun what you'd tested, and run scripts/land.sh again." >&2
+        echo "If that's a conflict with main: $REBASE, resolve, rerun what you'd tested, and run scripts/land.sh again." >&2
         exit 1
       fi
       looks=$((looks + 1))
@@ -704,32 +707,38 @@ EOF
   exit "$went"
 }
 
-# Moves this checkout and its branch from `$1` to `$2`, a commit that has all `$1` has, by
-# three steps of git's that each change one thing and none of which can take anything away.
-# Why it didn't, when it didn't, is left in `why_not`.
-# 1. The files: a checkout of `$2` with HEAD on no branch. Git moves no branch for that,
-#    carries what's uncommitted along or refuses, and with `--no-overwrite-ignore` writes over
-#    no file it ignores (by default it would, and a file of the author's that main has begun
-#    to track, or to keep a directory where it is, would be gone with nothing kept of it).
-# 2. The branch: to `$2`, only if it's still at `$1`. A commit made on it meanwhile stays on
-#    it, and the checkout goes back onto it as it is.
-# 3. HEAD: back onto the branch, which is the commit it's at already, so no file moves. Not if
-#    HEAD has moved since step 1 (a commit made on it there would be left on no branch).
-# So the branch's own commits are never written again or weighed as patches: they're left
-# behind as landed, which is what's known of them.
+# Moves this checkout and its branch from `$1` to `$2`, a commit that has all `$1` has, with
+# one command of git's: `git switch -C <the branch> <$2>`, which sets the branch that's checked
+# out to that commit and the files with it, as a change of branch does. So the checks are
+# git's own, made by the command that moves: what's uncommitted is carried along or it
+# refuses; a merge or the like under way, it refuses; and with `--no-overwrite-ignore` it
+# writes over no file it ignores (by default it would, and a file of the author's that main
+# has begun to track, or to keep a directory where it is, would be gone with nothing kept of
+# it). The branch stays the one checked out here throughout, so no other worktree can take it
+# meanwhile, and there's no state in between to be stopped in. Its own commits are never
+# written again or weighed as patches: they're left behind as landed, which is what's known
+# of them. Why it didn't move, when it didn't, is left in `why_not`.
+#
+# What git can't be asked is to move the branch only if it's still at `$1`. In a checkout
+# another session shares, a commit made on the branch since it was last looked at would be
+# left off it: so where the branch was is read afterwards from its own log, and one that
+# wasn't at `$1` is set back to where it was, with that commit, and said.
 move_to() {
+  local before
   why_not=""
-  if ! git checkout -q --detach --no-overwrite-ignore "$2" >"$log" 2>&1; then
-    why_not="Git wouldn't move this checkout to origin/main, so it's left as it was and isn't at origin/main: $(grep -v '^Aborting' "$log" | head -4 | tr -s '\t\n' '  ')"
+  git switch -q --no-overwrite-ignore -C "$branch" "$2" >"$log" 2>&1
+  # Where it stands is what counts, not what git returned: a hook can fail after the move.
+  if ! still_here "$2"; then
+    why_not="Git wouldn't move this checkout to origin/main, so it isn't at origin/main (git status says where it is): $(grep -v '^Aborting' "$log" | head -4 | tr -s '\t\n' '  ')"
     return 1
   fi
-  if ! git update-ref "refs/heads/$branch" "$2" "$1" 2>/dev/null; then
-    git checkout -q "$branch" >/dev/null 2>&1
-    why_not="This branch gained commits while this landed (git log $(short "$2")..$branch), so it's left with them: it isn't at origin/main."
-    return 1
-  fi
-  if [ "$(git rev-parse HEAD)" != "$2" ] || git symbolic-ref -q HEAD >/dev/null || ! git checkout -q "$branch" >/dev/null 2>&1; then
-    why_not="This checkout changed while its branch was moved to origin/main, so it's left as it is (git status): the branch is at origin/main, and the checkout may not be on it."
+  before="$(git rev-parse -q --verify "refs/heads/$branch@{1}" 2>/dev/null || true)"
+  if [ -n "$before" ] && [ "$before" != "$1" ]; then
+    if git switch -q --no-overwrite-ignore -C "$branch" "$before" >"$log" 2>&1; then
+      why_not="This branch gained commits while this landed (git log $(short "$2")..$branch), so it's left with them: it isn't at origin/main."
+    else
+      why_not="This branch gained a commit while this landed ($(short "$before")), which isn't on it now that it's at origin/main: git branch <a name> $before keeps it."
+    fi
     return 1
   fi
 }
@@ -870,6 +879,12 @@ main() {
   if [ -d "$(git rev-parse --git-path rebase-merge)" ] || [ -d "$(git rev-parse --git-path rebase-apply)" ]; then
     die "A rebase is under way here: finish it (git rebase --continue) and run this again."
   fi
+  # Nor a merge, a cherry-pick, a revert or a bisect: one can be under way with nothing
+  # uncommitted to show for it, and the move to main at the end would be the end of it.
+  local under_way
+  for under_way in MERGE_HEAD CHERRY_PICK_HEAD REVERT_HEAD BISECT_LOG; do
+    [ ! -e "$(git rev-parse --git-path "$under_way")" ] || die "Something is under way in this checkout ($under_way): finish it or give it up (git status says how), and run this again."
+  done
   command -v gh >/dev/null || die "gh isn't here, which is how this reaches GitHub: https://cli.github.com."
   [ "$branch" != main ] || die "This checkout is on main, and a landing is a branch's of its own (CLAUDE.md, *Landing work*): git switch -c <topic>, then run this again."
   # What this keeps of a branch's landings, in the repository's .git: the turn, and the note of
@@ -947,7 +962,7 @@ main() {
   elif grep '^CONFLICT' "$log" >/dev/null; then
     echo "This branch doesn't apply on origin/main as it is:" >&2
     grep '^CONFLICT' "$log" | head -10 >&2
-    die "Rebase it (git rebase --reapply-cherry-picks origin/main), resolve, rerun what you'd tested, and run scripts/land.sh again."
+    die "Rebase it ($REBASE), resolve, rerun what you'd tested, and run scripts/land.sh again."
   fi
   if [ "$nothing" = 1 ]; then
     echo "Nothing to land: origin/main ($(short "$main_at")) already has all this branch holds. $(caught_up "$head" "$main_at")"
@@ -960,7 +975,7 @@ main() {
   # is, and the ones that are come to nothing and drop out.
   ahead="$(git cherry "$main_at" "$head" 2>"$log")" || { cat "$log" >&2; die "Couldn't compare this branch with origin/main."; }
   case "$ahead" in
-    *-*) die "Some of this branch's commits look to be in origin/main already, as the queue wrote them, under ones that aren't: git rebase --reapply-cherry-picks origin/main, where those come to nothing and drop out, and run scripts/land.sh again." ;;
+    *-*) die "Some of this branch's commits look to be in origin/main already, as the queue wrote them, under ones that aren't: $REBASE, where those come to nothing and drop out, and run scripts/land.sh again." ;;
   esac
 
   changed "$head" "$main_at" || die "Couldn't list what these commits change, so there's no telling whether they need a review."
