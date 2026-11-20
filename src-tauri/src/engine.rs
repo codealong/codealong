@@ -199,8 +199,9 @@ pub enum Msg {
     /// How something Codealong does by itself in the background went (`Handle::went`): why it
     /// didn't work if it didn't, and which didn't if it was several.
     Went(Trouble, Option<String>),
-    /// The PRs another of your devices runs a session on (nudges.rs `running_elsewhere`).
-    RunningElsewhere(std::collections::BTreeSet<String>),
+    /// The PRs another of your devices runs a session on (nudges.rs `running_elsewhere`), and the
+    /// ones a session is actively working on there (board/prs.rs `working_elsewhere`).
+    RunningElsewhere(std::collections::BTreeSet<String>, std::collections::BTreeSet<String>),
     /// Your other machines that share automations, as their feeds said (shared.rs).
     Machines(crate::shared::Machines),
     /// Sessions started in tmux while the screen was locked shown in your terminal once it
@@ -505,6 +506,8 @@ struct Engine {
     reusable: HashMap<String, bool>,
     /// The PRs another of your devices runs a session on (`Handle::peer_lanes`).
     running_elsewhere: std::collections::BTreeSet<String>,
+    /// The PRs a session on another online device is actively working on (`Handle::peer_lanes`).
+    working_elsewhere: std::collections::BTreeSet<String>,
     /// Your machines that share automations (`Handle::peer_machines`).
     machines: std::sync::Arc<crate::shared::Machines>,
     /// The files changed in the background whose last change couldn't be made, by name with
@@ -658,6 +661,7 @@ impl Engine {
             previews: board::Previews::default(),
             reusable: HashMap::new(),
             running_elsewhere: Default::default(),
+            working_elsewhere: Default::default(),
             machines: Default::default(),
             store_warnings: Vec::new(),
             servers: None,
@@ -966,12 +970,13 @@ impl Engine {
                     self.load_pr_links();
                     self.mark_dirty("PR links");
                 }
-                // Another device's board comes often; only what it runs on PRs is looked at.
-                Ok(Msg::RunningElsewhere(prs)) if prs != self.running_elsewhere => {
+                // Another device's board comes often; only what it runs or works on for PRs is looked at.
+                Ok(Msg::RunningElsewhere(prs, working)) if prs != self.running_elsewhere || working != self.working_elsewhere => {
                     self.running_elsewhere = prs;
+                    self.working_elsewhere = working;
                     self.mark_dirty("running elsewhere");
                 }
-                Ok(Msg::RunningElsewhere(_)) => {}
+                Ok(Msg::RunningElsewhere(_, _)) => {}
                 Ok(Msg::Machines(m)) if m != *self.machines => {
                     // Kept either way; a board is composed only for more than the times, which the
                     // next one has (the heartbeat's at most 30 s on).

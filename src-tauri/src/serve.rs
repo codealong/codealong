@@ -172,7 +172,7 @@ pub fn start() -> Result<Ctx, String> {
                     // The engine goes by what they run too (nudges.rs `running_elsewhere`), and the
                     // apps show them beside the board.
                     if let Some(engine) = runs.get() {
-                        engine.peer_lanes(&view.lanes);
+                        engine.peer_lanes(&view.lanes, &view.pr_sessions);
                         engine.peer_machines(view.machines.clone());
                     }
                     views::emit("devices", view);

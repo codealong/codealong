@@ -137,6 +137,9 @@ pub struct Inputs<'a> {
     /// merged (ghpoll.rs `Heads`, engine/gitruns.rs `heads_now`): they lose nothing to their commits on no
     /// remote (`cleanup`).
     pub at_merged: &'a HashSet<PathBuf>,
+    /// The PRs (lowercase `owner/name#number`) that a session on another online Mac is actively
+    /// working on (`working_elsewhere`), which stay out of `waits_to_merge`.
+    pub working_elsewhere: &'a BTreeSet<String>,
 }
 
 /// Worktrees' app URLs set by hand, and the servers listening in their folders (previews.rs).
@@ -447,7 +450,7 @@ pub fn signed_out_notices(board: &Board) -> Vec<Notice> {
 }
 
 pub fn compose(inp: Inputs) -> Board {
-    let Inputs { now, apps, seeds, mut sessions, visitors, git, prs, requested, made, project_order, notices, loading, github_at, pinned, github_login, pr_links, previews, reusable: marks, review_snoozes, auto_reviews, session_settings, machines, at_merged } = inp;
+    let Inputs { now, apps, seeds, mut sessions, visitors, git, prs, requested, made, project_order, notices, loading, github_at, pinned, github_login, pr_links, previews, reusable: marks, review_snoozes, auto_reviews, session_settings, machines, at_merged, working_elsewhere } = inp;
     for s in &mut sessions {
         let (h, d) = session_headline(s);
         s.headline = h;
@@ -602,7 +605,7 @@ pub fn compose(inp: Inputs) -> Board {
     lanes.sort_by(lane_order);
     let mut pr_list = pr_items(seeds, &lanes, prs, requested, made, github_login, pr_links);
     crate::autoreview::asked_again(&mut pr_list, auto_reviews.0, read_now(seeds, made), machines);
-    merge_waits(&mut pr_list, &lanes);
+    merge_waits(&mut pr_list, &lanes, working_elsewhere);
     apply_review_snoozes(&mut pr_list, review_snoozes, now);
     crate::autoreview::apply(&mut pr_list, auto_reviews.0, auto_reviews.1, session_settings, auto_reviews.2, &lanes, machines, now);
     // Once the PRs say whose they are and which session opened each.
@@ -878,7 +881,7 @@ mod tests {
             previews: &Previews::default(),
             reusable: &HashMap::new(),
             review_snoozes: &[],
-            session_settings: &Default::default(), auto_reviews: (&Default::default(), &Default::default(), &Default::default()), machines: &Default::default(), at_merged: &HashSet::new(),
+            session_settings: &Default::default(), auto_reviews: (&Default::default(), &Default::default(), &Default::default()), machines: &Default::default(), at_merged: &HashSet::new(), working_elsewhere: &BTreeSet::new(),
         })
     }
 
@@ -1113,7 +1116,7 @@ mod tests {
         let (git, prs, visitors) = (HashMap::new(), HashMap::new(), HashMap::new());
         let order = vec!["Spruce".to_string()];
         let hidden = |sessions: Vec<Session>| {
-            let board = compose(Inputs { now: NOW, apps: &apps, seeds: &seeds, sessions, visitors: &visitors, git: &git, prs: &prs, requested: &HashMap::new(), made: &HashMap::new(), project_order: &order, notices: vec![], loading: false, github_at: None, pinned: &[], github_login: None, pr_links: &PrLinks::default(), previews: &Previews::default(), reusable: &HashMap::new(), review_snoozes: &[], session_settings: &Default::default(), auto_reviews: (&Default::default(), &Default::default(), &Default::default()), machines: &Default::default(), at_merged: &HashSet::new() });
+            let board = compose(Inputs { now: NOW, apps: &apps, seeds: &seeds, sessions, visitors: &visitors, git: &git, prs: &prs, requested: &HashMap::new(), made: &HashMap::new(), project_order: &order, notices: vec![], loading: false, github_at: None, pinned: &[], github_login: None, pr_links: &PrLinks::default(), previews: &Previews::default(), reusable: &HashMap::new(), review_snoozes: &[], session_settings: &Default::default(), auto_reviews: (&Default::default(), &Default::default(), &Default::default()), machines: &Default::default(), at_merged: &HashSet::new(), working_elsewhere: &BTreeSet::new() });
             let lane = |p: &str| board.lanes.iter().find(|l| l.path == p).unwrap().clone();
             assert!(!lane(root).looks_finished);
             assert!(lane(root).chats && !lane("/Users/me/notes").chats);
@@ -1135,7 +1138,7 @@ mod tests {
         let seeds = vec![seed("/r/spark", "main"), chats];
         let (git, prs, visitors) = (HashMap::new(), HashMap::new(), HashMap::new());
         let order = vec!["Spruce".to_string()];
-        let board = |sessions: Vec<Session>| compose(Inputs { now: NOW, apps: &apps, seeds: &seeds, sessions, visitors: &visitors, git: &git, prs: &prs, requested: &HashMap::new(), made: &HashMap::new(), project_order: &order, notices: vec![], loading: false, github_at: None, pinned: &[], github_login: None, pr_links: &PrLinks::default(), previews: &Previews::default(), reusable: &HashMap::new(), review_snoozes: &[], session_settings: &Default::default(), auto_reviews: (&Default::default(), &Default::default(), &Default::default()), machines: &Default::default(), at_merged: &HashSet::new() });
+        let board = |sessions: Vec<Session>| compose(Inputs { now: NOW, apps: &apps, seeds: &seeds, sessions, visitors: &visitors, git: &git, prs: &prs, requested: &HashMap::new(), made: &HashMap::new(), project_order: &order, notices: vec![], loading: false, github_at: None, pinned: &[], github_login: None, pr_links: &PrLinks::default(), previews: &Previews::default(), reusable: &HashMap::new(), review_snoozes: &[], session_settings: &Default::default(), auto_reviews: (&Default::default(), &Default::default(), &Default::default()), machines: &Default::default(), at_merged: &HashSet::new(), working_elsewhere: &BTreeSet::new() });
         let empty = board(vec![]);
         let lane = empty.lanes.iter().find(|l| l.path == root).unwrap();
         assert!(lane.starts_chats && lane.hidden, "there to start in, out of sight");
@@ -1157,7 +1160,7 @@ mod tests {
         s.work = vec!["/r/codealong-pins".into(); 3];
         let (git, prs, visitors) = (HashMap::new(), HashMap::new(), HashMap::new());
         let order = vec!["Spruce".to_string()];
-        let board = compose(Inputs { now: NOW, apps: &apps, seeds: &seeds, sessions: vec![s], visitors: &visitors, git: &git, prs: &prs, requested: &HashMap::new(), made: &HashMap::new(), project_order: &order, notices: vec![], loading: false, github_at: None, pinned: &[], github_login: None, pr_links: &PrLinks::default(), previews: &Previews::default(), reusable: &HashMap::new(), review_snoozes: &[], session_settings: &Default::default(), auto_reviews: (&Default::default(), &Default::default(), &Default::default()), machines: &Default::default(), at_merged: &HashSet::new() });
+        let board = compose(Inputs { now: NOW, apps: &apps, seeds: &seeds, sessions: vec![s], visitors: &visitors, git: &git, prs: &prs, requested: &HashMap::new(), made: &HashMap::new(), project_order: &order, notices: vec![], loading: false, github_at: None, pinned: &[], github_login: None, pr_links: &PrLinks::default(), previews: &Previews::default(), reusable: &HashMap::new(), review_snoozes: &[], session_settings: &Default::default(), auto_reviews: (&Default::default(), &Default::default(), &Default::default()), machines: &Default::default(), at_merged: &HashSet::new(), working_elsewhere: &BTreeSet::new() });
         let lane = |p: &str| board.lanes.iter().find(|l| l.path == p).unwrap();
         assert_eq!(lane("/r/codealong-pins").bay, Bay::Working);
         assert_eq!(lane("/r/codealong-pins").sessions.len(), 1);
@@ -1235,7 +1238,7 @@ mod tests {
         maker.cwd = "/r/vault".into();
         let (git, prs, order) = (HashMap::new(), HashMap::new(), vec!["Spruce".to_string()]);
         let visitors = HashMap::new();
-        let board = compose(Inputs { now: NOW, apps: &apps, seeds: &seeds, sessions: vec![maker], visitors: &visitors, git: &git, prs: &prs, requested: &HashMap::new(), made: &HashMap::new(), project_order: &order, notices: vec![], loading: false, github_at: None, pinned: &[], github_login: None, pr_links: &PrLinks::default(), previews: &Previews::default(), reusable: &HashMap::new(), review_snoozes: &[], session_settings: &Default::default(), auto_reviews: (&Default::default(), &Default::default(), &Default::default()), machines: &Default::default(), at_merged: &HashSet::new() });
+        let board = compose(Inputs { now: NOW, apps: &apps, seeds: &seeds, sessions: vec![maker], visitors: &visitors, git: &git, prs: &prs, requested: &HashMap::new(), made: &HashMap::new(), project_order: &order, notices: vec![], loading: false, github_at: None, pinned: &[], github_login: None, pr_links: &PrLinks::default(), previews: &Previews::default(), reusable: &HashMap::new(), review_snoozes: &[], session_settings: &Default::default(), auto_reviews: (&Default::default(), &Default::default(), &Default::default()), machines: &Default::default(), at_merged: &HashSet::new(), working_elsewhere: &BTreeSet::new() });
         let lane = board.lanes.iter().find(|l| l.path == scratch).unwrap();
         assert_eq!(lane.sessions.len(), 1);
         assert_eq!(lane.sessions[0].visitor.as_deref(), Some("made this worktree"));
@@ -1274,7 +1277,7 @@ mod tests {
             previews: &Previews::default(),
             reusable: &HashMap::new(),
             review_snoozes: &[],
-            session_settings: &Default::default(), auto_reviews: (&Default::default(), &Default::default(), &Default::default()), machines: &Default::default(), at_merged: &HashSet::new(),
+            session_settings: &Default::default(), auto_reviews: (&Default::default(), &Default::default(), &Default::default()), machines: &Default::default(), at_merged: &HashSet::new(), working_elsewhere: &BTreeSet::new(),
         });
         let lane = &board.lanes[0];
         assert_eq!(lane.bay, Bay::Idle);
@@ -1323,7 +1326,7 @@ mod tests {
             previews: &Previews::default(),
             reusable: &HashMap::new(),
             review_snoozes: &[],
-            session_settings: &Default::default(), auto_reviews: (&Default::default(), &Default::default(), &Default::default()), machines: &Default::default(), at_merged: &HashSet::new(),
+            session_settings: &Default::default(), auto_reviews: (&Default::default(), &Default::default(), &Default::default()), machines: &Default::default(), at_merged: &HashSet::new(), working_elsewhere: &BTreeSet::new(),
         });
         let lane = &board.lanes[0];
         assert_eq!(lane.sessions.len(), MAX_SESSIONS_PER_LANE + 2);
@@ -1354,7 +1357,7 @@ mod tests {
         let (git, prs, visitors) = (HashMap::new(), HashMap::new(), HashMap::new());
         let order = vec!["Spruce".to_string()];
         let keys = |sessions: Vec<Session>| {
-            let board = compose(Inputs { now: NOW, apps: &apps, seeds: &seeds, sessions, visitors: &visitors, git: &git, prs: &prs, requested: &HashMap::new(), made: &HashMap::new(), project_order: &order, notices: vec![], loading: false, github_at: None, pinned: &[], github_login: None, pr_links: &PrLinks::default(), previews: &Previews::default(), reusable: &HashMap::new(), review_snoozes: &[], session_settings: &Default::default(), auto_reviews: (&Default::default(), &Default::default(), &Default::default()), machines: &Default::default(), at_merged: &HashSet::new() });
+            let board = compose(Inputs { now: NOW, apps: &apps, seeds: &seeds, sessions, visitors: &visitors, git: &git, prs: &prs, requested: &HashMap::new(), made: &HashMap::new(), project_order: &order, notices: vec![], loading: false, github_at: None, pinned: &[], github_login: None, pr_links: &PrLinks::default(), previews: &Previews::default(), reusable: &HashMap::new(), review_snoozes: &[], session_settings: &Default::default(), auto_reviews: (&Default::default(), &Default::default(), &Default::default()), machines: &Default::default(), at_merged: &HashSet::new(), working_elsewhere: &BTreeSet::new() });
             board.lanes[0].sessions.iter().map(|s| s.key.clone()).collect::<Vec<_>>()
         };
         let read = keys(sessions.clone());
@@ -1394,7 +1397,7 @@ mod tests {
             previews: &Previews::default(),
             reusable: &HashMap::new(),
             review_snoozes: &[],
-            session_settings: &Default::default(), auto_reviews: (&Default::default(), &Default::default(), &Default::default()), machines: &Default::default(), at_merged: &HashSet::new(),
+            session_settings: &Default::default(), auto_reviews: (&Default::default(), &Default::default(), &Default::default()), machines: &Default::default(), at_merged: &HashSet::new(), working_elsewhere: &BTreeSet::new(),
         });
         assert_eq!(board.lanes.len(), 2);
         assert_eq!(board.lanes[0].bay, Bay::Needs);
@@ -1417,7 +1420,7 @@ mod tests {
         let seeds = vec![seed("/r/spark", "main"), seed("/r/spark-pins", "pins"), other_repo, elsewhere, folder("/Users/me/Documents/Codex", true), folder("/Users/me/notes", false)];
         let (git, prs, visitors) = (HashMap::new(), HashMap::new(), HashMap::new());
         let order = vec!["Spruce".to_string()];
-        let board = compose(Inputs { now: NOW, apps: &apps, seeds: &seeds, sessions: vec![], visitors: &visitors, git: &git, prs: &prs, requested: &HashMap::new(), made: &HashMap::new(), project_order: &order, notices: vec![], loading: false, github_at: None, pinned: &[], github_login: None, pr_links: &PrLinks::default(), previews: &Previews::default(), reusable: &HashMap::new(), review_snoozes: &[], session_settings: &Default::default(), auto_reviews: (&Default::default(), &Default::default(), &Default::default()), machines: &Default::default(), at_merged: &HashSet::new() });
+        let board = compose(Inputs { now: NOW, apps: &apps, seeds: &seeds, sessions: vec![], visitors: &visitors, git: &git, prs: &prs, requested: &HashMap::new(), made: &HashMap::new(), project_order: &order, notices: vec![], loading: false, github_at: None, pinned: &[], github_login: None, pr_links: &PrLinks::default(), previews: &Previews::default(), reusable: &HashMap::new(), review_snoozes: &[], session_settings: &Default::default(), auto_reviews: (&Default::default(), &Default::default(), &Default::default()), machines: &Default::default(), at_merged: &HashSet::new(), working_elsewhere: &BTreeSet::new() });
         let near = |p: &str| terminal_neighbours(&board.lanes, Path::new(p));
         let at = |p: &str| (near(p).folders, near(p).project);
         let strings = |groups: &[&[&str]]| groups.iter().map(|g| g.iter().map(|f| f.to_string()).collect()).collect::<Vec<Vec<String>>>();
@@ -1610,7 +1613,7 @@ mod tests {
             review_snoozes: &[],
             session_settings: &Default::default(),
             auto_reviews: (&Default::default(), &Default::default(), &Default::default()),
-            machines: &Default::default(), at_merged: &HashSet::new(),
+            machines: &Default::default(), at_merged: &HashSet::new(), working_elsewhere: &BTreeSet::new(),
         });
         // As the engine does once the board has its PRs and todos.
         let mut lanes = board.lanes;

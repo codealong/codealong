@@ -76,13 +76,14 @@ describe('prSections', () => {
       row(6, { mine: true, state: 'changes' }),
       row(7, { mine: true, state: 'changes', turn: { kind: 'rereviewAsked', who: 'ken' } }),
       row(8, { merge: 'clean' }),
+      row(9, { mine: true, state: 'approved', merge: 'clean', checks: fx.checks({ passed: 2 }), staleApproval: { by: ['ana'], commit: 'a11ce55' } }),
     ];
     expect(prSections(rows).map((s) => [s.id, s.label, s.rows.map((r) => r.pr.number)])).toEqual([
       ['requested', 'Review requested', [5]],
       ['ready', 'Ready to merge', [2]],
       ['work', 'Needs work', [4, 6]],
       ['agent', 'Agent reviewing', [3]],
-      ['mine', 'Yours', [1, 7]],
+      ['mine', 'Yours', [1, 7, 9]],
       ['others', 'Others', [8]],
     ]);
   });

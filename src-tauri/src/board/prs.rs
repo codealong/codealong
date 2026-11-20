@@ -170,29 +170,70 @@ pub fn worked_prs(links: &PrLinks, lanes: &[Lane]) -> Vec<String> {
 }
 
 /// Whether GitHub would merge the PR now: open and not a draft, with nothing between it and a
-/// merge (no conflict, no review or rule it waits on, every check passed). src/prStatus.ts
-/// `prReady` says the same.
+/// merge (no conflict, no review or rule it waits on, every check passed), and not resting only on
+/// approvals of an earlier commit (`stale_approval`). src/prStatus.ts `prReady` says the same.
 fn merge_ready(p: &PrItem) -> bool {
-    p.state.is_open() && p.state != PrState::Draft && p.merge == Merge::Clean && p.checks.failed == 0 && p.checks.pending == 0
+    p.state.is_open()
+        && p.state != PrState::Draft
+        && p.merge == Merge::Clean
+        && p.checks.failed == 0
+        && p.checks.pending == 0
+        && !(p.state == PrState::Approved && p.stale_approval.is_some())
+}
+
+/// Whether a session listed on a PR is actively working on it: working, or set aside for its side
+/// conversation, leaving out visitors, archived sessions and unattended automatic reviews.
+fn pr_session_at_work(s: &Session) -> bool {
+    let reviewing = s.helper.as_ref().is_some_and(|h| h.pr.is_some()) && s.helps_an_agent();
+    let at_work = s.status == Status::Working || (s.aside.is_some() && s.status == Status::Needs);
+    s.visitor.is_none() && !s.archived && at_work && !reviewing
+}
+
+/// The PRs (lowercase `owner/name#number`) that a session on another of your online devices is
+/// actively working on (`pr_session_at_work`): from the sessions each device's PR list tied to the
+/// PR (`pr_sessions`), and from any online lane that holds the PR itself.
+pub fn working_elsewhere(lanes: &[Lane], pr_sessions: &BTreeMap<String, Vec<PrSession>>) -> BTreeSet<String> {
+    let online = |l: &&Lane| l.device.as_ref().is_some_and(|d| d.online);
+    let mut out: BTreeSet<String> = BTreeSet::new();
+    for (pr, sessions) in pr_sessions {
+        let working = sessions.iter().any(|x| {
+            lanes
+                .iter()
+                .filter(online)
+                .find(|l| l.id == x.lane)
+                .and_then(|l| l.sessions.iter().find(|s| s.key == x.key))
+                .is_some_and(pr_session_at_work)
+        });
+        if working {
+            out.insert(crate::prlinks::pr_key(pr));
+        }
+    }
+    for l in lanes.iter().filter(online) {
+        let Some(number) = l.pr.as_ref().map(|p| p.number) else { continue };
+        if !l.sessions.iter().any(pr_session_at_work) {
+            continue;
+        }
+        for slug in [&l.repo_slug, &l.repo_slug_now].into_iter().flatten() {
+            out.insert(crate::prlinks::pr_key(&format!("{slug}#{number}")));
+        }
+    }
+    out
 }
 
 /// Takes `PrItem::waits_to_merge` off the PRs `pr_item` said were yours to merge where something
-/// else brings them to you. Not while one of its sessions in its worktrees on this Mac is at work
-/// on it, as PRs has it Fixing then (src/ui/PrsView.tsx `prAgentWork`): working, or set aside for
-/// its side conversation, but not a visitor, whose work elsewhere is its own, nor a primary that
-/// took the PR over and works on its own things (`PrItem::taken_over`), nor Codealong's review of
-/// it while it works for that review. Nor while its primary session waits on you, in the queue,
-/// with Merge and done for it on its strip: that's the first PR in the board's order that the
-/// session is the primary of and GitHub would merge (src/menus.ts `mergesWith`), never one it
-/// took over, so another of its PRs waits on you by itself. A PR whose work is all done with (its
-/// sessions archived, or none known) waits on you by itself, so a merge left for you isn't left
-/// unseen.
-pub fn merge_waits(prs: &mut [PrItem], lanes: &[Lane]) {
+/// else brings them to you or it isn't ready yet. Not while one of its sessions on this Mac (a
+/// taken-over primary too) or on another online Mac (`working_elsewhere`) is at work on it
+/// (`pr_session_at_work`): working, or set aside for its side conversation, but not a visitor,
+/// whose work elsewhere is its own, nor Codealong's review of it while it works for that review.
+/// Nor while its primary session waits on you, in the queue, with Merge and done for it on its
+/// strip: that's the first PR in the board's order that the session is the primary of and GitHub
+/// would merge (src/menus.ts `mergesWith`), never one it took over, so another of its PRs waits on
+/// you by itself. A PR whose work is all done with (its sessions archived, or none known) waits on
+/// you by itself, so a merge left for you isn't left unseen.
+pub fn merge_waits(prs: &mut [PrItem], lanes: &[Lane], working_elsewhere: &BTreeSet<String>) {
     let session = |k: &str| home(lanes, k).map(|(_, s)| s).filter(|s| !s.archived);
     // A session as the PR lists it, in the worktree it's listed under.
     let listed = |x: &PrSession| lanes.iter().find(|l| l.id == x.lane).and_then(|l| l.sessions.iter().find(|s| s.key == x.key));
-    let reviewing = |s: &Session| s.helper.as_ref().is_some_and(|h| h.pr.is_some()) && s.helps_an_agent();
-    let at_work = |s: &Session| s.status == Status::Working || (s.aside.is_some() && s.status == Status::Needs);
     // In the queue, as the floating bar lists what waits on you (barfeed.rs `feed`).
     let waits = |s: &Session| s.visitor.is_none() && !s.unattended() && matches!(s.status, Status::Needs | Status::Error | Status::Unread) && s.snoozed_until.is_none() && s.aside.is_none();
     // The sessions whose strip has Merge and done for a PR already.
@@ -201,8 +242,7 @@ pub fn merge_waits(prs: &mut [PrItem], lanes: &[Lane]) {
         let strip = p.primary.as_deref().filter(|k| !p.taken_over && merge_ready(p) && session(k).is_some() && !on_strip.contains(*k)).map(String::from);
         let merged_from = strip.as_deref().and_then(session).is_some_and(waits);
         on_strip.extend(strip);
-        let taker = |s: &Session| p.taken_over && p.primary.as_deref() == Some(s.key.as_str());
-        let worked = || p.sessions.iter().filter_map(listed).any(|s| s.visitor.is_none() && !s.archived && !taker(s) && at_work(s) && !reviewing(s));
+        let worked = || working_elsewhere.contains(&crate::prlinks::pr_key(&p.key)) || p.sessions.iter().filter_map(listed).any(pr_session_at_work);
         p.waits_to_merge = p.waits_to_merge && merge_ready(p) && !merged_from && !worked();
     }
 }
@@ -259,7 +299,7 @@ pub fn pr_card(seeds: &[LaneSeed], lanes: &[Lane], slug: &str, renamed: &HashMap
         Some((&local, &repo)) => pr_item(lanes, &owners, local, repo, p, None, login, links),
         None => pr_item(lanes, &owners, slug, ("", slug.rsplit('/').next().unwrap_or(slug), None), p, None, login, links),
     };
-    merge_waits(std::slice::from_mut(&mut item), lanes);
+    merge_waits(std::slice::from_mut(&mut item), lanes, &BTreeSet::new());
     item
 }
 
@@ -808,7 +848,7 @@ mod tests {
             previews: &Previews::default(),
             reusable: &HashMap::new(),
             review_snoozes: &[],
-            session_settings: &Default::default(), auto_reviews: (&Default::default(), &Default::default(), &Default::default()), machines: &Default::default(), at_merged: &HashSet::new(),
+            session_settings: &Default::default(), auto_reviews: (&Default::default(), &Default::default(), &Default::default()), machines: &Default::default(), at_merged: &HashSet::new(), working_elsewhere: &BTreeSet::new(),
         });
         assert_eq!(board.prs.len(), 1);
         let p = &board.prs[0];
@@ -854,7 +894,7 @@ mod tests {
         maker.branch = Some("app4".into());
         let (git, visitors, prs) = (HashMap::new(), HashMap::new(), HashMap::new());
         let order = vec!["Spruce".to_string()];
-        let board = compose(Inputs { now: NOW, apps: &AppNames::default(), seeds: &seeds, sessions: vec![maker.clone()], visitors: &visitors, git: &git, prs: &prs, requested: &HashMap::new(), made: &HashMap::new(), project_order: &order, notices: vec![], loading: false, github_at: None, pinned: &[], github_login: None, pr_links: &PrLinks::default(), previews: &Previews::default(), reusable: &HashMap::new(), review_snoozes: &[], session_settings: &Default::default(), auto_reviews: (&Default::default(), &Default::default(), &Default::default()), machines: &Default::default(), at_merged: &HashSet::new() });
+        let board = compose(Inputs { now: NOW, apps: &AppNames::default(), seeds: &seeds, sessions: vec![maker.clone()], visitors: &visitors, git: &git, prs: &prs, requested: &HashMap::new(), made: &HashMap::new(), project_order: &order, notices: vec![], loading: false, github_at: None, pinned: &[], github_login: None, pr_links: &PrLinks::default(), previews: &Previews::default(), reusable: &HashMap::new(), review_snoozes: &[], session_settings: &Default::default(), auto_reviews: (&Default::default(), &Default::default(), &Default::default()), machines: &Default::default(), at_merged: &HashSet::new(), working_elsewhere: &BTreeSet::new() });
         let old = pr(PrState::Merged, 0);
         let links = PrLinks { worked: HashMap::from([("sprucehq/spark#1037".to_string(), vec![maker.key.clone()]), ("acme/tool#1037".to_string(), vec![maker.key.clone()])]), ..Default::default() };
         let renamed = HashMap::from([("sprucehq/spark".to_string(), "Spruce/spark".to_string())]);
@@ -884,7 +924,7 @@ mod tests {
         let infra = |slug: &str, p: &PrRaw| HashMap::from([(slug.to_string(), vec![p.clone()])]);
         let (git, visitors, order) = (HashMap::new(), HashMap::new(), vec!["Spruce".to_string()]);
         let asked = |prs: &HashMap<String, Vec<PrRaw>>, made: &HashMap<String, Vec<PrRaw>>| {
-            let board = compose(Inputs { now: NOW, apps: &AppNames::default(), seeds: &seeds, sessions: vec![], visitors: &visitors, git: &git, prs, requested: &HashMap::new(), made, project_order: &order, notices: vec![], loading: false, github_at: None, pinned: &[], github_login: Some("gwen"), pr_links: &PrLinks::default(), previews: &Previews::default(), reusable: &HashMap::new(), review_snoozes: &[], session_settings: &Default::default(), auto_reviews: (&Default::default(), &Default::default(), &Default::default()), machines: &Default::default(), at_merged: &HashSet::new() });
+            let board = compose(Inputs { now: NOW, apps: &AppNames::default(), seeds: &seeds, sessions: vec![], visitors: &visitors, git: &git, prs, requested: &HashMap::new(), made, project_order: &order, notices: vec![], loading: false, github_at: None, pinned: &[], github_login: Some("gwen"), pr_links: &PrLinks::default(), previews: &Previews::default(), reusable: &HashMap::new(), review_snoozes: &[], session_settings: &Default::default(), auto_reviews: (&Default::default(), &Default::default(), &Default::default()), machines: &Default::default(), at_merged: &HashSet::new(), working_elsewhere: &BTreeSet::new() });
             board.prs.iter().find(|p| p.number == 404).map(|p| (p.turn.as_ref().map(|t| t.kind), p.review_requested, p.requested_at))
         };
         assert_eq!(asked(&HashMap::new(), &infra("SpruceHQ/infra", &answered)), Some((Some(TurnKind::AuthorReplied), true, Some(NOW - 100_000))));
@@ -1251,17 +1291,19 @@ mod tests {
         let lanes = |sessions: Vec<Session>| vec![Lane { repo_slug: Some("sprucehq/spark".into()), branch: Some("portal".into()), ..crate::fixtures::lane("/r/spark-portal", sessions) }];
         let seeds = vec![seed("/r/spark-portal", "portal")];
         let ready = PrRaw { merge: Merge::Clean, writes: Some(true), ..pr(PrState::Approved, 0) };
-        let waits = |lanes: &[Lane], raw: &PrRaw, login: &str| {
+        let waits_with = |lanes: &[Lane], raw: &PrRaw, login: &str, elsewhere: &BTreeSet<String>| {
             let mut prs = vec![pr_card(&seeds, lanes, "sprucehq/spark", &HashMap::new(), raw, Some(login), &PrLinks::default())];
-            merge_waits(&mut prs, lanes);
+            merge_waits(&mut prs, lanes, elsewhere);
             prs[0].waits_to_merge
         };
+        let waits = |lanes: &[Lane], raw: &PrRaw, login: &str| waits_with(lanes, raw, login, &BTreeSet::new());
         let idle = lanes(vec![s("maker", Status::Idle)]);
         assert!(waits(&idle, &ready, "gwen"));
-        // Someone else's, one GitHub wouldn't merge yet, and one that's ended don't.
+        // Someone else's, one GitHub wouldn't merge yet, a stale approval, and one that's ended don't.
         assert!(!waits(&idle, &ready, "ana"));
         assert!(!waits(&idle, &PrRaw { merge: Merge::Blocked, ..ready.clone() }, "gwen"));
         assert!(!waits(&idle, &PrRaw { checks: Checks { pending: 1, ..ready.checks.clone() }, ..ready.clone() }, "gwen"));
+        assert!(!waits(&idle, &PrRaw { stale_approval: Some(StaleApproval { by: vec!["ana".into()], commit: "a11ce55".into() }), ..ready.clone() }, "gwen"));
         assert!(!waits(&idle, &PrRaw { state: PrState::Draft, ..ready.clone() }, "gwen"));
         assert!(!waits(&idle, &PrRaw { state: PrState::Merged, ..ready.clone() }, "gwen"));
         // Its session at work, or waiting on you with Merge and done, brings it to you instead.
@@ -1300,7 +1342,7 @@ mod tests {
         let unread = lanes(vec![s("maker", Status::Unread)]);
         let card = |raw: &PrRaw| pr_card(&seeds, &idle, "sprucehq/spark", &HashMap::new(), raw, Some("gwen"), &PrLinks::default());
         let mut two = vec![card(&ready), card(&PrRaw { number: 1038, ..ready.clone() })];
-        merge_waits(&mut two, &unread);
+        merge_waits(&mut two, &unread, &BTreeSet::new());
         assert_eq!(two.iter().map(|p| p.waits_to_merge).collect::<Vec<_>>(), [false, true]);
         // Its primary session took it over from a helper it started, and waits on you for its own
         // work: its strip has no Merge and done for the PR, which waits on you by itself.
@@ -1309,9 +1351,50 @@ mod tests {
         let infra = |status: Status| Lane { repo_slug: Some("sprucehq/infra".into()), branch: Some("main".into()), ..crate::fixtures::lane("/r/infra", vec![Session { cwd: "/r/infra".into(), branch: Some("main".into()), ..s("lead", status) }]) };
         taken.push(infra(Status::Needs));
         assert!(waits(&taken, &ready, "gwen"));
-        // At work on its own things, it doesn't hold the PR back either.
+        // While its taken-over primary is working, it holds the PR out of the merge queue.
         taken[1] = infra(Status::Working);
-        assert!(waits(&taken, &ready, "gwen"));
+        assert!(!waits(&taken, &ready, "gwen"));
+        // A session working on the PR on another online Mac holds it out too.
+        assert!(!waits_with(&idle, &ready, "gwen", &BTreeSet::from(["sprucehq/spark#1037".to_string()])));
+    }
+
+    #[test]
+    fn working_elsewhere_tracks_active_sessions_on_online_peers() {
+        let tag = |online: bool| Some(DeviceTag { name: "Mac mini".into(), short: "abc".into(), color: "teal".into(), online, last_seen: None });
+        let sess = |key: &str, status: Status| Session { status, ..crate::fixtures::session(key) };
+        let peer_lane = |id: &str, online: bool, slug: Option<&str>, pr_num: Option<u64>, sessions: Vec<Session>| Lane {
+            device: tag(online),
+            repo_slug: slug.map(String::from),
+            pr: pr_num.map(|number| Pr { number, title: String::new(), url: String::new(), state: PrState::Approved, checks: Checks::default(), merge: Merge::Clean, updated_at: 0, merged_at: None, closed_at: None, stale_approval: None }),
+            ..crate::fixtures::lane(id, sessions)
+        };
+        let lanes = vec![
+            // Online lane with a working session tied via pr_sessions (different lane than the PR's).
+            peer_lane("@abc:/w/lead", true, Some("SpruceHQ/infra"), None, vec![sess("@abc:lead", Status::Working)]),
+            // Online lane holding a PR directly with a set-aside session.
+            peer_lane("@abc:/w/hold", true, Some("SpruceHQ/spark"), Some(42), vec![Session { aside: Some(NOW - 10), ..sess("@abc:aside", Status::Needs) }]),
+            // Offline lane with a working session: ignored.
+            peer_lane("@def:/w/off", false, Some("SpruceHQ/spark"), Some(99), vec![sess("@def:off", Status::Working)]),
+            // Online lane with an idle session, a visitor, an archived session, and an unattended auto-review: ignored.
+            peer_lane(
+                "@abc:/w/skip",
+                true,
+                Some("SpruceHQ/spark"),
+                Some(77),
+                vec![
+                    sess("@abc:idle", Status::Idle),
+                    Session { visitor: Some("/elsewhere".into()), ..sess("@abc:vis", Status::Working) },
+                    Session { archived: true, ..sess("@abc:arch", Status::Working) },
+                    Session { helper: Some(Helper { pr: Some("sprucehq/spark#77".into()), ..Default::default() }), ..sess("@abc:rev", Status::Working) },
+                ],
+            ),
+        ];
+        let pr_sessions = BTreeMap::from([
+            ("SpruceHQ/Spark#10".to_string(), vec![PrSession { key: "@abc:lead".into(), lane: "@abc:/w/lead".into(), pushes: 0, primary: None }]),
+            ("sprucehq/spark#99".to_string(), vec![PrSession { key: "@def:off".into(), lane: "@def:/w/off".into(), pushes: 0, primary: None }]),
+            ("sprucehq/spark#77".to_string(), vec![PrSession { key: "@abc:rev".into(), lane: "@abc:/w/skip".into(), pushes: 0, primary: None }]),
+        ]);
+        assert_eq!(working_elsewhere(&lanes, &pr_sessions), BTreeSet::from(["sprucehq/spark#10".to_string(), "sprucehq/spark#42".to_string()]));
     }
 
     #[test]
@@ -1355,7 +1438,7 @@ mod tests {
             previews: &Previews::default(),
             reusable: &HashMap::new(),
             review_snoozes: &[],
-            session_settings: &Default::default(), auto_reviews: (&Default::default(), &Default::default(), &Default::default()), machines: &Default::default(), at_merged: &HashSet::new(),
+            session_settings: &Default::default(), auto_reviews: (&Default::default(), &Default::default(), &Default::default()), machines: &Default::default(), at_merged: &HashSet::new(), working_elsewhere: &BTreeSet::new(),
         });
         assert_eq!(board.prs[0].sessions, vec![PrSession { key: s.key.clone(), lane: "/r/spark-portal".into(), pushes: 0, primary: None }]);
         // Main was the checkout's branch, not one it worked on: the windows show the worktree's,
@@ -1384,7 +1467,7 @@ mod tests {
         let prs = HashMap::from([("sprucehq/spark".to_string(), vec![pr(PrState::Open, 0), photos])]);
         let (git, visitors) = (HashMap::new(), HashMap::new());
         let order = vec!["Spruce".to_string()];
-        let board = compose(Inputs { now: NOW, apps: &apps, seeds: &seeds, sessions: vec![s.clone()], visitors: &visitors, git: &git, prs: &prs, requested: &HashMap::new(), made: &HashMap::new(), project_order: &order, notices: vec![], loading: false, github_at: None, pinned: &[], github_login: None, pr_links: &PrLinks::default(), previews: &Previews::default(), reusable: &HashMap::new(), review_snoozes: &[], session_settings: &Default::default(), auto_reviews: (&Default::default(), &Default::default(), &Default::default()), machines: &Default::default(), at_merged: &HashSet::new() });
+        let board = compose(Inputs { now: NOW, apps: &apps, seeds: &seeds, sessions: vec![s.clone()], visitors: &visitors, git: &git, prs: &prs, requested: &HashMap::new(), made: &HashMap::new(), project_order: &order, notices: vec![], loading: false, github_at: None, pinned: &[], github_login: None, pr_links: &PrLinks::default(), previews: &Previews::default(), reusable: &HashMap::new(), review_snoozes: &[], session_settings: &Default::default(), auto_reviews: (&Default::default(), &Default::default(), &Default::default()), machines: &Default::default(), at_merged: &HashSet::new(), working_elsewhere: &BTreeSet::new() });
         let linked = |number: u64| board.prs.iter().find(|p| p.number == number).unwrap().sessions.iter().map(|x| x.key.clone()).collect::<Vec<_>>();
         assert_eq!((linked(1037), linked(1038)), (vec![s.key.clone()], vec![s.key.clone()]));
         let listed = board.lanes.iter().find(|l| l.path == "/r/spark-portal").unwrap();
@@ -1434,7 +1517,7 @@ mod tests {
             previews: &Previews::default(),
             reusable: &HashMap::new(),
             review_snoozes: &[],
-            session_settings: &Default::default(), auto_reviews: (&Default::default(), &Default::default(), &Default::default()), machines: &Default::default(), at_merged: &HashSet::new(),
+            session_settings: &Default::default(), auto_reviews: (&Default::default(), &Default::default(), &Default::default()), machines: &Default::default(), at_merged: &HashSet::new(), working_elsewhere: &BTreeSet::new(),
         });
         let get = |n: u64| board.prs.iter().find(|p| p.number == n).unwrap();
         let listed = |key: &str| PrSession { key: key.into(), lane: "/r/spark-portal".into(), pushes: 0, primary: None };
@@ -1488,7 +1571,7 @@ mod tests {
                 previews: &Previews::default(),
                 reusable: &HashMap::new(),
                 review_snoozes: &[],
-                session_settings: &Default::default(), auto_reviews: (&Default::default(), &Default::default(), &Default::default()), machines: &Default::default(), at_merged: &HashSet::new(),
+                session_settings: &Default::default(), auto_reviews: (&Default::default(), &Default::default(), &Default::default()), machines: &Default::default(), at_merged: &HashSet::new(), working_elsewhere: &BTreeSet::new(),
             })
         };
         let listed = |key: &str| PrSession { key: key.into(), lane: scratch.into(), pushes: 0, primary: None };

@@ -17,12 +17,13 @@ describe('prPills', () => {
     expect(prPills(facts({ merge: 'clean', checks: checks() }))[0].title).toBe('No conflicts: GitHub can merge it');
   });
 
-  it('says a stale approval after what it makes the PR, which stays first as GitHub says it', () => {
+  it('says a stale approval after Approved and keeps it out of Ready to merge', () => {
     const stale = { by: ['ana'], commit: 'a11ce55e6aa9' };
-    expect(texts({ state: 'approved', merge: 'clean', staleApproval: stale })).toEqual([['Ready to merge', 'ready'], ['Stale approval', 'attn']]);
+    expect(prReady(facts({ state: 'approved', merge: 'clean', staleApproval: stale }))).toBe(false);
+    expect(texts({ state: 'approved', merge: 'clean', staleApproval: stale })).toEqual([['Approved', 'pass'], ['Stale approval', 'attn'], ['12', 'pass']]);
     expect(prPills(facts({ state: 'approved', merge: 'clean', staleApproval: stale }))[1]).toMatchObject({ key: 'stale', icon: 'history', short: '', title: 'Approved before its latest commits: ana approved a11ce55. GitHub still counts the approval, as the repo doesn’t dismiss it when commits come.' });
     expect(texts({ state: 'approved', checks: checks({ passed: 3, pending: 2 }), staleApproval: stale })).toEqual([['Approved', 'pass'], ['Stale approval', 'attn'], ['2 running', 'plain']]);
-    expect(chipWord(facts({ state: 'approved', merge: 'clean', staleApproval: stale }))).toBe('Ready to merge');
+    expect(chipWord(facts({ state: 'approved', merge: 'clean', staleApproval: stale }))).toBe('Approved');
     // Only an approved PR's approvals make it anything.
     expect(texts({ state: 'changes', staleApproval: stale }).map(([t]) => t)).not.toContain('Stale approval');
     expect(staleWords({ state: 'approved', staleApproval: { by: ['ana', 'ken'], commit: 'a11ce55e6aa9' } })).toBe('Approved before its latest commits: ana and ken approved earlier ones, the latest a11ce55. GitHub still counts the approvals, as the repo doesn’t dismiss them when commits come.');
@@ -128,6 +129,7 @@ describe('prFlag', () => {
   it("leaves waiting PRs, other people's and finished ones alone", () => {
     expect(prFlag(item())).toBeNull();
     expect(prFlag(item({ state: 'approved', merge: 'unknown' }))).toBeNull();
+    expect(prFlag(item({ state: 'approved', merge: 'clean', staleApproval: { by: ['ana'], commit: 'a11ce55e6aa9' } }))).toBeNull();
     // Changes asked for whose reviewer is asked to look again: theirs, whatever GitHub still says.
     expect(prFlag(item({ state: 'changes', turn: { kind: 'rereviewAsked', who: 'ken' } }))).toBeNull();
     expect(prFlag(item({ mine: false, state: 'approved', merge: 'clean' }))).toBeNull();

@@ -1325,7 +1325,7 @@ mod tests {
             apply_helper(&mut s);
             s
         };
-        let board = |h: Session| compose(Inputs { now: NOW, apps: &apps, seeds: &seeds, sessions: vec![h, boss.clone()], visitors: &visitors, git: &git, prs: &prs, requested: &HashMap::new(), made: &HashMap::new(), project_order: &order, notices: vec![], loading: false, github_at: None, pinned: &[], github_login: None, pr_links: &PrLinks::default(), previews: &Previews::default(), reusable: &HashMap::new(), review_snoozes: &[], session_settings: &Default::default(), auto_reviews: (&Default::default(), &Default::default(), &Default::default()), machines: &Default::default(), at_merged: &HashSet::new() });
+        let board = |h: Session| compose(Inputs { now: NOW, apps: &apps, seeds: &seeds, sessions: vec![h, boss.clone()], visitors: &visitors, git: &git, prs: &prs, requested: &HashMap::new(), made: &HashMap::new(), project_order: &order, notices: vec![], loading: false, github_at: None, pinned: &[], github_login: None, pr_links: &PrLinks::default(), previews: &Previews::default(), reusable: &HashMap::new(), review_snoozes: &[], session_settings: &Default::default(), auto_reviews: (&Default::default(), &Default::default(), &Default::default()), machines: &Default::default(), at_merged: &HashSet::new(), working_elsewhere: &BTreeSet::new() });
         // Working, it's its agent's work: the worktree stands as its own sessions do, and the mark
         // doesn't spin for it. It's listed after them.
         let working = board(helper("busy"));
