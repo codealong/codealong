@@ -42,9 +42,8 @@ of them. So, before the rest:
   settings: an OS's own behaviour is asked for as if on it (`os::as_if`), and a config is made
   up in the test.
 - **A check that fails isn't yours until you know it is, nor noise until you know that.**
-  `scripts/land.sh` runs a failing cargo test again by itself and says which it was. Never
-  loosen or skip a test to get past it: say what failed, and what you found, in your last
-  message.
+  Run it again by itself, and at `origin/main`. Never loosen or skip a test to get past it:
+  say what failed, and what you found, in your last message.
 
 ## Landing work
 
@@ -64,19 +63,23 @@ dark, cropped to what changed), and the pull request template filled in.
 1. Work in a worktree of your own: `git worktree add ../codealong-<topic> -b <topic>
    origin/main`, or the one your harness made for the session. Before building there, `npm ci`,
    and `npm run build` before cargo: Tauri's build reads `dist/`.
-2. Commit with a descriptive message, and have a change to code reviewed before you push it
+2. Commit with a descriptive message, and have a change to code reviewed before it lands
    (*Review before pushing*). Then land it with `scripts/land.sh --reviewed-by "<account>,
    <model>"` (`--no-review "<why>"` when no review could be had; neither for docs and notes
-   alone). It waits its turn behind other landings, rebases your branch onto `origin/main`, runs
-   the checks your commits call for on exactly what it pushes, pushes to `main` and does step 3.
-   Never push to `main` by hand: a push no check saw is how `main` breaks under every other
-   session (a release's version commit, `scripts/version.sh --push`, is the one that still
-   does). A rebase that stops on a conflict is yours to finish before running it again; a
-   cargo test that fails with the rest and passes alone is this Mac's load, which it says and
-   notes without stopping. `scripts/land.sh --check` runs the same without pushing. We prefer
-   rebasing to merge commits: `main` stays a straight line of real changes.
-3. Bring the main checkout up to `origin/main`: `land.sh` does it after its push and step 4's
-   `relaunch.sh` after its build, with `scripts/catch-up-main.sh`. It only fast-forwards
+   alone). It rebases your branch onto `origin/main`, pushes it and puts its pull request in
+   `main`'s merge queue, where GitHub runs the checks your commits call for
+   (`.github/workflows/ci.yml`) on the change as it would land and merges it when they pass;
+   then it does step 3. Nothing is checked on this Mac, so it only waits, for minutes. Never
+   push to `main` by hand: a push no check saw is how `main` breaks under every other session
+   (a release's version commit, `scripts/version.sh --push`, is the one that still does). A
+   rebase that stops on a conflict is yours to finish before running it again. A change the
+   queue puts out (it names the run; `gh run view <id> --log-failed` says why) is still its
+   pull request: fix it on the branch, commit, run it again. `scripts/land.sh --check` runs
+   the checks without landing. The queue rebases, so `main` stays a straight line, of copies
+   of your commits with ids of their own: report the one it prints.
+3. Bring the main checkout up to `origin/main`: `land.sh` does it once the change has landed
+   (and your branch with it), and step 4's `relaunch.sh` after its build, with
+   `scripts/catch-up-main.sh`. It only fast-forwards
    a main checkout on `main`, so it can't lose anything: git refuses when uncommitted edits there
    touch files the update changes, and a `main` with commits `origin/main` doesn't is left alone.
    It prints where the main checkout stands; when it couldn't catch up, leave the checkout as it
@@ -107,8 +110,8 @@ dark, cropped to what changed), and the pull request template filled in.
 - Ask before anything destructive: force-push, reset, rebasing commits that are already
   pushed, deleting branches. Rebasing your own unpushed branch onto `origin/main` needs no ask,
   nor removing your own worktree and branch once they've landed (step 5).
-- A third-party pull request lands as one: merged through GitHub (`gh pr merge <n> --rebase`)
-  once your user says to, never by pushing its commits to `main`. What it needs to land (a
+- A third-party pull request lands as one: put in the merge queue (`gh pr merge <n>`) once
+  your user says to, never by pushing its commits to `main`. What it needs to land (a
   conflict with `main`, a review's findings, a failing check) goes onto its branch without
   asking, when GitHub lets us edit it (`maintainerCanModify`) and the fix doesn't change what
   it's for: your commits after its author's, reviewed as any change, and a rebase onto
@@ -189,7 +192,7 @@ npm test                                # vitest
 (cd src-tauri && cargo test)            # engine rules, parsers, usage, config, launch scripts; codealong-peer's too
 scripts/engine.sh                       # builds this checkout's engine binary when src-tauri changed; prints its path
 scripts/checks.sh                       # every browser check (scripts/preview/*-check.js) on your real data; names run a few
-scripts/land.sh --reviewed-by "<who>"    # lands your branch: rebase, the checks its commits call for, push (--check: no push)
+scripts/land.sh --reviewed-by "<who>"    # lands your branch through main's merge queue; CI checks it (--check: only that)
 scripts/relaunch.sh                     # builds Codealong Dev, then quits it and reopens it from Applications
 scripts/release.sh                      # the installer for other Macs: universal, Developer ID, notarized
 scripts/check-release.sh <version>      # a release on GitHub as a download gets it; the /release skill ships one
@@ -399,8 +402,7 @@ its lists only go down.
   (a path, the program that opens a link, which terminals there are) goes by `os::current()`, so
   both sides compile and are tested on either (`os::as_if`). A side with nothing to do says why;
   one asked for what only macOS does fails with `os::only_on_macos`. `scripts/linux-vm.sh test`
-  checks it builds and passes there; CI checks `main` every four hours
-  (`.github/workflows/linux.yml`, `gh workflow run linux.yml` for now).
+  checks it builds and passes there, as CI does for every landing that changes the engine.
 - Rust isn't formatted by `rustfmt` and nothing checks its layout: match the code around
   yours, and don't run it over a file (it would rewrite all of it, under every other session).
 

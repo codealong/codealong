@@ -1,7 +1,7 @@
-// scripts/land.sh, which lands a branch on main: which checks it runs for which files, what it
-// asks before it touches anything, and a landing itself, in a repository made for the test with
-// a remote of its own. It's here rather than beside the script so that typecheck and lint read
-// it, as within.test.ts is.
+// scripts/land.sh, which lands a branch on main: which checks it calls for for which files (CI
+// asks it), what it asks before it touches anything, and a landing itself, in a repository made
+// for the test with a remote of its own and a stand-in for GitHub. It's here rather than beside
+// the script so that typecheck and lint read it, as within.test.ts is.
 // The project has no types for node (the tests are the only code that runs there).
 // @ts-expect-error no @types/node
 import { spawn } from 'node:child_process';
@@ -133,7 +133,7 @@ test('it says what it doesn’t understand before doing anything', { timeout: SE
 });
 
 test('an option is never taken for who reviewed it', { timeout: SEVERAL }, async () => {
-  // `--reviewed-by --check` read `--check` as the reviewer, and so would have pushed.
+  // `--reviewed-by --check` read `--check` as the reviewer, and so would have landed.
   for (const flag of ['--reviewed-by', '--no-review']) {
     const run = await land([flag, '--check']);
     expect(run.status, flag).toBe(2);
@@ -142,9 +142,12 @@ test('an option is never taken for who reviewed it', { timeout: SEVERAL }, async
 });
 
 // A repository with a remote, a main checkout and a worktree, as the script is run in: nothing
-// of this Mac's git settings or hooks, and nothing left behind. The changes are to docs, which
-// call for no checks, so only the landing itself is tried: its turn, the rebase, the push, the
-// main checkout caught up.
+// of this Mac's git settings or hooks, and nothing left behind. GitHub is a stand-in for `gh`,
+// written below: it keeps the one pull request the script opens, and its merge queue writes
+// the branch's commits again on top of main in the test's own remote, as GitHub's rebase does,
+// or puts the pull request out when the test says its checks fail. So what's tried is the
+// landing itself: the rebase, the push of the branch, the pull request, the wait, and this
+// branch and the main checkout caught up.
 //
 // It commits and pushes, so it must never do either anywhere but in its own folder: git's own
 // variables are cleared first (under a hook or a rebase's `exec` they name the repository the
@@ -164,17 +167,83 @@ tmp="$(cd "$tmp" && pwd -P)" || exit 9
 trap 'rm -rf "$tmp"' EXIT
 step() { "$@" || { echo "setup failed: $*"; exit 9; }; }
 here() { case "$(pwd -P)" in "$tmp"/*) ;; *) echo "not in the test's own folder: $(pwd -P)"; exit 9 ;; esac; }
+commits() { sed 's/[0-9a-f]\\{7,\\}/<commit>/g'; }
 step git init -q --bare "$tmp/origin.git"
 step git clone -q "$tmp/origin.git" "$tmp/main" 2>/dev/null
 step cd "$tmp/main"
 here
 step git checkout -q -b main
-step mkdir -p scripts docs
+step mkdir -p scripts docs "$tmp/bin"
 step cp "$1" "$2" scripts/
 echo one >docs/a.md
 step git add -A
 step git commit -q -m first
 step git push -q origin main
+
+# GitHub, as the script asks it. What gh would have cut out of its answer with --jq is what
+# this prints.
+cat >"$tmp/bin/gh" <<'GH'
+#!/bin/bash
+f="$FAKE"
+all="$*"
+case "$1 $2" in
+  "repo view") echo acme/northwind ;;
+  "pr list") [ ! -f "$f/pr" ] || cat "$f/pr" ;;
+  "pr create")
+    n=$(($(cat "$f/last" 2>/dev/null || echo 6) + 1))
+    echo "$n" >"$f/last"
+    echo "$n" >"$f/pr"
+    while [ $# -gt 0 ]; do
+      case "$1" in
+        --title) echo "$2" >"$f/title" ;;
+        --body-file) cp "$2" "$f/body" ;;
+        --label) echo "$2" >"$f/label" ;;
+        --head) echo "$2" >"$f/head" ;;
+      esac
+      shift
+    done
+    echo "https://github.com/acme/northwind/pull/$n"
+    ;;
+  "pr edit") echo "$all" >>"$f/edits" ;;
+  "pr merge")
+    echo "$all" >"$f/asked"
+    echo 0 >"$f/looks"
+    ;;
+  "run list")
+    case "$all" in
+      *workflow_dispatch*) echo "55 completed success https://github.com/acme/northwind/actions/runs/55" ;;
+      *) echo "99 https://github.com/acme/northwind/actions/runs/99" ;;
+    esac
+    ;;
+  "api graphql")
+    case "$all" in
+      *"mergeQueue(branch"*) [ -f "$f/no-queue" ] || echo Q_1 ;;
+      *REMOVED_FROM_MERGE_QUEUE_EVENT*) echo FAILED_CHECKS ;;
+      *mergeQueueEntry*)
+        looks=$(($(cat "$f/looks") + 1))
+        echo "$looks" >"$f/looks"
+        if [ "$looks" = 1 ]; then
+          echo "OPEN AWAITING_CHECKS - SUCCESS"
+        elif [ -f "$f/fail" ]; then
+          echo "OPEN - - SUCCESS"
+        else
+          # The queue: the branch's commits written again on top of main, by another hand.
+          rm -rf "$f/queue"
+          git clone -q "$f/origin.git" "$f/queue" 2>/dev/null && cd "$f/queue" && git checkout -q main &&
+            git rev-parse "origin/$(cat "$f/head")" >"$f/pushed" &&
+            GIT_COMMITTER_NAME=queue git cherry-pick "main..origin/$(cat "$f/head")" >/dev/null && git push -q origin main || exit 1
+          rm -f "$f/pr"
+          echo "MERGED - $(git rev-parse HEAD) SUCCESS"
+        fi
+        ;;
+    esac
+    ;;
+esac
+GH
+step chmod +x "$tmp/bin/gh"
+export FAKE="$tmp" PATH="$tmp/bin:$PATH" CODEALONG_LAND_POLL=0
+onmain() { git -C "$tmp/origin.git" log --format=%s main | tr '\\n' ','; }
+
 step git worktree add -q "$tmp/topic" -b topic origin/main
 echo x >docs/b.md
 step git add -A
@@ -184,43 +253,84 @@ step cd "$tmp/topic"
 here
 echo two >>docs/a.md
 step git commit -q -am "docs: two"
-echo "landing: $(scripts/land.sh 2>&1 | head -1 | sed 's/[0-9a-f]\\{7,\\}/<commit>/g')"
-echo "main: $(git -C "$tmp/origin.git" log --format=%s main | tr '\\n' ',')"
+was="$(git rev-parse HEAD)"
+echo "landing: $(scripts/land.sh 2>&1 | grep '^Landed' | commits)"
+echo "main: $(onmain)"
 echo "the main checkout: $(git -C "$tmp/main" log --format=%s -1)"
+[ "$(git rev-parse HEAD)" = "$(git rev-parse origin/main)" ] && [ "$(git rev-parse HEAD)" != "$was" ] && echo "this branch is where main is, as the queue wrote it"
+echo "its pull request: $(cat "$tmp/title"), labelled $(cat "$tmp/label"), $(grep -c 'no review' "$tmp/body") word on its review"
+[ "$(sed 's/.*--match-head-commit //' "$tmp/asked")" = "$(cat "$tmp/pushed")" ] && echo "asked to merge only the commit it pushed"
+echo "its branch on origin after: $(git -C "$tmp/origin.git" branch --list topic | wc -l | tr -d ' ')"
 here
 echo 'echo hi' >scripts/new.sh
 step git add -A
 step git commit -q -m "a script"
 scripts/land.sh >/dev/null 2>&1
-echo "code, with no word on its review: $?"
+echo "code, with no word on its review: $? ($(cat "$tmp/last") pull requests so far)"
 echo stray >left-here.txt
 scripts/land.sh --no-review "a test" >/dev/null 2>&1
 echo "with a file git doesn't know of: $?"
-echo "main, after: $(git -C "$tmp/origin.git" log --format=%s main | tr '\\n' ',')"
-# Run under another landing (whose unit tests run this very test), it's handed that one's turn
-# in the environment, and leaves it alone.
-sleep 300 &
-other=$!
-CODEALONG_LANDING_HELD=1 CODEALONG_LANDING_HOLDER=$other scripts/land.sh --no-review "a test" >/dev/null 2>&1
-kill -0 $other 2>/dev/null && echo "another landing's turn is left to it"
-kill $other
-ls "$tmp/main/.git" | grep -c 'codealong-landing.lock$'
+rm left-here.txt
+# Its checks fail in the queue: it's put out, and stays a pull request.
+touch "$tmp/fail"
+scripts/land.sh --reviewed-by "an account, a model" >"$tmp/out" 2>&1
+echo "put out of the queue: $? $(grep -c 'put pull request #8 out: FAILED_CHECKS' "$tmp/out") $(grep -c 'gh run view 99 --log-failed' "$tmp/out")"
+echo "main, after: $(onmain)"
+rm "$tmp/fail"
+# Fixed and landed again: the same pull request, labelled before the push, and the branch
+# pushed over this checkout's own earlier push of it.
+echo 'echo hello' >scripts/new.sh
+step git commit -q -am "a script, fixed"
+echo "landing again: $(scripts/land.sh --reviewed-by "an account, a model" 2>&1 | grep -E '^(Landed|Reviewed)' | commits | paste -sd' ' -)"
+echo "main: $(onmain) ($(cat "$tmp/last") pull requests, $(grep -c -- '--add-label land' "$tmp/edits") labelled again)"
+# A branch of this name that someone else pushed isn't pushed over.
+step git -C "$tmp/main" pull -q origin main
+step git -C "$tmp/main" push -q origin HEAD~1:refs/heads/theirs
+step git worktree add -q "$tmp/theirs" -b theirs origin/main
+step cd "$tmp/theirs"
+here
+echo three >>docs/a.md
+step git commit -q -am "docs: three"
+scripts/land.sh >"$tmp/out" 2>&1
+echo "over someone else's branch: $? $(grep -c 'someone else pushed it' "$tmp/out")"
+# The checks alone, on the branch as pushed (its own name this time).
+step git branch -q -m mine
+echo "checked: $(scripts/land.sh --check 2>&1 | tail -1 | commits)"
+echo "queued and left: $(scripts/land.sh --no-wait 2>&1 | head -1 | commits)"
+# Without main's merge queue, asking GitHub to merge would merge unchecked.
+touch "$tmp/no-queue"
+scripts/land.sh >"$tmp/out" 2>&1
+echo "with no merge queue: $? $(grep -c 'has no merge queue' "$tmp/out")"
+step cd "$tmp/main"
+scripts/land.sh >"$tmp/out" 2>&1
+echo "from main: $(grep -c 'is on main' "$tmp/out")"
+echo "main, at the end: $(onmain)"
 `;
 
-test('a landing rebases onto a main that moved, pushes, and brings the main checkout up', { timeout: LANDING_WAIT + 20_000 }, async () => {
+test('a landing rebases onto a main that moved, queues its pull request, and brings this branch and the main checkout up', { timeout: LANDING_WAIT + 20_000 }, async () => {
   const went = await run('bash', ['-c', LANDING, 'landing', script, catchUp], LANDING_WAIT);
   expect(went.status, went.out + went.err).toBe(0);
   expect(went.out.trim().split('\n')).toEqual([
     'landing: Landed: <commit> is in origin/main. Fast-forwarded the main checkout to origin/main (<commit>).',
     'main: docs: two,main moved,first,',
     'the main checkout: docs: two',
-    // Neither of these gets as far as a check or a push.
-    'code, with no word on its review: 2',
+    'this branch is where main is, as the queue wrote it',
+    'its pull request: docs: two, labelled land, 1 word on its review',
+    'asked to merge only the commit it pushed',
+    'its branch on origin after: 0',
+    // Neither of these gets as far as a push or a pull request.
+    'code, with no word on its review: 2 (7 pull requests so far)',
     "with a file git doesn't know of: 1",
+    'put out of the queue: 1 1 1',
     'main, after: docs: two,main moved,first,',
-    "another landing's turn is left to it",
-    // The turn's lock is a file in .git, there once it has been taken.
-    '1',
+    'landing again: Landed: <commit> is in origin/main. Fast-forwarded the main checkout to origin/main (<commit>). Reviewed by: an account, a model.',
+    'main: a script, fixed,a script,docs: two,main moved,first, (8 pull requests, 1 labelled again)',
+    "over someone else's branch: 1 1",
+    'checked: Checked, not landed: <commit> passed CI (https://github.com/acme/northwind/actions/runs/55).',
+    "queued and left: Queued: pull request #9 (https://github.com/acme/northwind/pull/9) lands <commit> when main's merge queue has checked it.",
+    'with no merge queue: 1 1',
+    'from main: 1',
+    'main, at the end: a script, fixed,a script,docs: two,main moved,first,',
   ]);
 });
 
@@ -231,4 +341,3 @@ test('the landing test stops at a setup step that fails, where it began', { time
   expect(went.out).toContain('setup failed: cp /nowhere/land.sh');
   expect(went.out).not.toContain('landing:');
 });
-

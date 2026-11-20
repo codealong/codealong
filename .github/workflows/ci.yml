@@ -11,8 +11,10 @@
 # every check that was called for passed, and so also when none was.
 #
 #   pull_request   a pull request's own run. One scripts/land.sh opened is labelled `land` and
-#                  waits for the queue's run rather than run everything twice; anyone else's
-#                  (a fork's) runs everything, for whoever reviews it.
+#                  leaves the checks to the queue's run rather than run everything twice, so
+#                  its `gate` passes with nothing run: that's only so while main has a merge
+#                  queue, which is asked each time. Anyone else's (a fork's) runs everything,
+#                  for whoever reviews it.
 #   merge_group    the queue's run: everything the group's changes call for.
 #   push to main   a commit that reached main some other way (a release's version commit, an
 #                  admin's push): everything it calls for. The queue's own pushes ran already.
@@ -53,6 +55,7 @@ jobs:
       ui: ${{ steps.plan.outputs.ui }}
       engine: ${{ steps.plan.outputs.engine }}
       checks: ${{ steps.plan.outputs.checks }}
+      said: ${{ steps.plan.outputs.said }}
     steps:
       - uses: actions/checkout@v7
       - id: plan
@@ -62,14 +65,24 @@ jobs:
           # What the change is against: a pull request's base, the queue's main, the commit a
           # push moved main from.
           BASE: ${{ github.event.pull_request.base.sha || github.event.merge_group.base_sha || github.event.before }}
-          DEFERRED: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && contains(github.event.pull_request.labels.*.name, 'land') }}
+          LANDING: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && contains(github.event.pull_request.labels.*.name, 'land') }}
+          GH_TOKEN: ${{ github.token }}
+          OWNER: ${{ github.repository_owner }}
+          NAME: ${{ github.event.repository.name }}
         run: |
           all="ui engine checks"
-          if [ "$DEFERRED" = true ]; then
-            echo "A landing's pull request: the merge queue's run is the one that counts."
+          said=""
+          # A landing's pull request can only merge through main's merge queue, whose run checks
+          # it: asked for, since without the queue nothing else would.
+          queue=""
+          if [ "$LANDING" = true ]; then
+            queue="$(gh api graphql -F owner="$OWNER" -F name="$NAME" -f query='query($owner: String!, $name: String!) { repository(owner: $owner, name: $name) { mergeQueue(branch: "main") { id } } }' --jq '.data.repository.mergeQueue.id // empty' || true)"
+          fi
+          if [ -n "$queue" ]; then
+            said="A landing's pull request: nothing is checked here, and main's merge queue checks it before it merges."
             words=""
           elif [ "$EVENT" = push ] && [ "$ACTOR" = "github-merge-queue[bot]" ]; then
-            echo "The merge queue's own push: its run saw this commit already."
+            said="The merge queue's own push: its run checked this commit before it merged."
             words=""
           elif [ "$EVENT" = schedule ] || [ "$EVENT" = workflow_dispatch ]; then
             words="$all"
@@ -79,9 +92,15 @@ jobs:
           else
             git diff --no-renames --name-only -z "$BASE" HEAD > "$RUNNER_TEMP/changed"
             tr '\0' '\n' < "$RUNNER_TEMP/changed" | sed 's/^/  /'
-            words="$(xargs -0 scripts/land.sh --plan < "$RUNNER_TEMP/changed")"
+            # With no path, --plan would ask about a branch this checkout hasn't got.
+            words=""
+            if [ -s "$RUNNER_TEMP/changed" ]; then
+              words="$(xargs -0 scripts/land.sh --plan < "$RUNNER_TEMP/changed")"
+            fi
+            [ -n "$words" ] || said="Nothing this changes is checked: docs and notes."
           fi
-          echo "Calls for: ${words:-nothing}"
+          echo "${said:-Calls for: $words}"
+          echo "said=$said" >> "$GITHUB_OUTPUT"
           for word in $all; do
             case " $words " in
               *" $word "*) echo "$word=true" >> "$GITHUB_OUTPUT" ;;
@@ -230,7 +249,9 @@ jobs:
     steps:
       - env:
           RESULTS: ${{ join(needs.*.result, ' ') }}
+          SAID: ${{ needs.plan.outputs.said }}
         run: |
+          [ -z "$SAID" ] || echo "$SAID"
           echo "plan, ui, engine (Linux), engine (macOS), browser checks: $RESULTS"
           for result in $RESULTS; do
             case "$result" in

@@ -30,7 +30,7 @@ devices is its own crate, codealong-peer (`src-tauri/peer/`), which the
 npm install
 npm run tauri dev         # the app with hot reload
 scripts/relaunch.sh       # build Codealong Dev, then quit it and reopen it from Applications
-scripts/land.sh           # land your branch on main, with write access: rebase, the checks its commits call for, push
+scripts/land.sh           # land your branch on main, with write access: rebase, push, its pull request through main's merge queue
 scripts/catch-up-main.sh  # fast-forward the main checkout to origin/main (land.sh and relaunch.sh do too)
 scripts/version.sh 0.3.0  # start a release: the version everywhere, committed and tagged
 scripts/release.sh        # the installer for other Macs (design/plans/releases.md)
@@ -58,9 +58,8 @@ their times alone and link another checkout's copy; so `.cargo/config.toml` name
 (`CODEALONG_CHECKOUT`) and both crates read it, and cargo rebuilds them whenever another checkout
 built them last (lib.rs `CHECKOUT`). Release builds take minutes and queue on one lock,
 so only `relaunch.sh` and `release.sh` make them; the engine the checks run is a debug build of
-your checkout, with its dependencies optimized (`scripts/engine.sh`). `scripts/land.sh` builds
-the engine's tests in a folder of landings' own beside it (`codealong-target-landing`, a
-copy-on-write clone it makes and renews), so a landing doesn't wait behind every session's build.
+your checkout, with its dependencies optimized (`scripts/engine.sh`). A landing builds nothing
+here: its checks run on GitHub (*Keeping main working*).
 
 ### Tests on a busy Mac
 
@@ -68,10 +67,11 @@ This Mac often runs twenty agents' builds at once (a load average in the hundred
 and a test that passes on a quiet machine can fail there with nothing wrong. What's known, so
 nobody spends an hour proving a failure isn't theirs:
 
-- `scripts/land.sh` runs a cargo test that failed again by itself. One that passes then is put
-  down to load, said, and noted in `<the repository's .git>/codealong-flaky.log` with the load
-  at the time: read that file to see which tests those are, and fix one that keeps turning up
-  (it waits on the clock, or on another process) rather than leaving it to be rerun.
+- A landing's checks run on GitHub, on machines with nothing else to do, so a test that only
+  fails here under load doesn't hold a landing up. It still fails for you: run a cargo test
+  that failed again by itself (`cargo test <its name> -- --exact`) before taking it for yours,
+  and fix one that keeps turning up (it waits on the clock, or on another process) rather than
+  leaving it to be rerun.
 - The ones seen so far: `a_watching_device_links_with_a_code_and_reads` (peers),
   `reads_a_process_line_and_terminal_from_the_kernel` (a process reparented between `ps` and
   `sysctl`, or `ps` timing out), `the_first_scan_publishes_while_a_worktree_read_is_held` (a
@@ -89,21 +89,37 @@ nobody spends an hour proving a failure isn't theirs:
 
 ### Keeping main working
 
-Agents push to `main` dozens of times a day, and every other session builds on what lands. Three
-things keep a break from staying there:
+Agents land dozens of changes a day, and every other session builds on what lands. Until
+2026-11-20 a landing ran its checks on the Mac that made the change, one landing at a time: five
+minutes on a quiet Mac, forty with twenty agents building. Now they run on GitHub:
 
-- **A landing is checked as it's pushed.** `scripts/land.sh` takes its turn (one landing at a
-  time on this Mac), rebases the branch onto `origin/main`, runs the checks its commits call for
-  by the files they change (its `calls_for`; `scripts/land.sh --plan <path…>` says which), and
-  pushes the commit it checked. `src/land.test.ts` pins which files call for what.
-- **A run that isn't anyone's own.** `.github/workflows/linux.yml` runs the UI's build, linter
-  and unit tests and `cargo test` with warnings as errors, on Linux, every four hours (GitHub's
-  minutes don't stretch to every push). It catches what a Mac can't see: code only macOS uses
-  (a dead-code error there), a test that needed a harness's command line installed, a default
-  that's macOS's.
-- **A red run is somebody's.** A Codealong schedule watches that workflow with
-  `scripts/watch-main.sh`, which prints each failed run on `main` once, and starts (or tells) a
-  session to fix it:
+- **Nothing reaches `main` unchecked.** `scripts/land.sh` rebases the branch onto `origin/main`,
+  pushes it, opens its pull request (labelled `land`) and asks GitHub to merge it. `main`'s
+  merge queue runs CI on the change as it would land, on top of `main` and of whatever is
+  queued before it, and merges it when `gate` passes. The queue rebases: `main` stays a
+  straight line, and its commits are copies of the branch's with ids of their own. A change
+  whose checks fail is put out of the queue and stays its pull request: `land.sh` names the
+  run, `gh run view <id> --log-failed` says why, and landing the fix takes the same pull
+  request. Nothing is built or tested on the Mac, so landings don't wait on each other there.
+- **CI is `.github/workflows/ci.yml`:** the UI's build, linter and unit tests; `cargo test`
+  with warnings as errors on macOS and on Linux, which catches what a Mac can't see (code only
+  macOS uses, a test that needed a harness's command line installed, a default that's
+  macOS's); and the browser checks on the made-up Mac (`scripts/checks.sh --fixture`). Which
+  of them a change calls for is one table, `land.sh`'s `calls_for` by the files it changes
+  (`scripts/land.sh --plan <path…>` says which; `src/land.test.ts` pins it), and `gate` is the
+  one check `main` requires: it passes when everything called for passed. `scripts/land.sh
+  --check` runs all of it on your branch without landing. The repository is public, so the
+  runners' minutes cost nothing, macOS's too.
+- **What that takes on GitHub**, set once in the repository's settings: pull requests may be
+  merged automatically, a merged branch is deleted, and a ruleset on `main` requires the merge
+  queue (rebase as its method) and the `gate` check. The organization's admins may bypass the
+  ruleset, which is how a release's version commit (`scripts/version.sh --push`) still goes
+  straight to `main`; CI runs on that push too. `land.sh` refuses to land where `main` has no
+  merge queue, since asking GitHub to merge would then merge at once.
+- **A red `main` is somebody's.** It can still happen: a commit pushed past the queue, or the
+  daily run of everything failing for a toolchain or a runner's image that moved. A Codealong
+  schedule watches CI's runs on `main` with `scripts/watch-main.sh`, which prints each failed
+  one once, and starts (or tells) a session to fix it:
 
   ```bash
   codealong schedule add "main is red" --watch scripts/watch-main.sh --every 15m \
@@ -115,17 +131,18 @@ things keep a break from staying there:
   already red when the schedule is made isn't told.
 
   ```text
-  The Linux run on main failed; the run is named below. It's the only run of the checks that
-  isn't a session's own, so until it passes again every session is building on a broken main.
+  CI failed on main; the run is named below. Every session builds on main, so until it passes
+  again they're all building on something broken.
 
   1. Read why: gh run view <its id> --log-failed. If a later run on main has passed since
-     (gh run list --workflow linux.yml --branch main --limit 3), say so in a line and stop.
+     (gh run list --workflow ci.yml --branch main --limit 3), say so in a line and stop.
   2. Find the commit that broke it, between the last run that passed and this one, and fix it
      in a worktree of your own as CLAUDE.md's Landing work says: the smallest fix, and a test
      that would have caught it on a Mac where one can be written (a test that needed a
      harness's command line or macOS's defaults is made to hold on any machine).
-  3. Land it with scripts/land.sh, start the run again (gh workflow run linux.yml) and wait
-     for it: your last message says whether it passed.
+  3. Land it with scripts/land.sh, which checks it on the way in, and wait for main's own run
+     of it (gh run list --workflow ci.yml --branch main --limit 1): your last message says
+     whether it passed.
 
   If it failed for something no commit did (GitHub's runner, a download), say so and stop. If
   you've landed a fix for this already and it failed the same way again, stop and say what you
@@ -217,10 +234,9 @@ other with `os::as_if`:
 | `os/secrets.rs` | the login keychain (`security`) | the desktop's Secret Service (`secret-tool`) |
 | `launch::terminals()` | Ghostty, iTerm2 and Terminal through AppleScript; Rex through its command | `launch/linux.rs`: each new terminal a tmux session, shown in the desktop's terminal emulator |
 
-CI (`.github/workflows/linux.yml`) builds and tests the engine on Linux every four hours, on
-`main`, with warnings as errors; `gh workflow run linux.yml` runs it now (`--ref <branch>` for a
-pushed branch), and `gh run list --workflow linux.yml` says how the last ones went. It isn't run
-on every push, which would spend the organization's plan's Actions minutes within days.
+CI (`.github/workflows/ci.yml`, its `engine (Linux)` job) builds and tests the engine on Linux
+for every landing that changes it, with warnings as errors; `scripts/land.sh --check` runs it on
+your branch without landing, and `gh run list --workflow ci.yml` says how the last ones went.
 
 What Linux goes without: the notch, the focus outline round a terminal on another screen
 (flash.rs), app icons in the editor menus, pictures of the windows for Improve Codealong, the
