@@ -2,7 +2,8 @@
 // `zoomKey`): the card of the session shown draws at the board's zoom and still fills its window
 // across; ⌘= and ⌘- from its box ask the engine to zoom, as in the board's windows; the notch
 // opens its session as much wider (bar.ts `notchSizes`), and a step while it's up resizes the
-// shape at once, with no easing, in the window it had (Notch.tsx `zooming`). The board and the bar's feed here say
+// shape at once, with no easing, in the window it had (Notch.tsx `zooming`), and then eases as it
+// did before, which on a machine set to reduce motion is not at all (Notch.css). The board and the bar's feed here say
 // 125%; the stub's answers to a step are fake-tauri.js's. A peek's window opening bigger is the
 // engine's (peek.rs `place`), which the preview doesn't size.
 //   PREVIEW_WAIT=60000 scripts/preview.sh peek '' scripts/preview/card-zoom-check.js
@@ -94,13 +95,22 @@
       var classes = [];
       var watch = new MutationObserver(function () { classes.push(document.querySelector('.ca-notch').className); });
       watch.observe(document.querySelector('.ca-notch'), { attributes: true, attributeFilter: ['class'] });
+      // How the shape eases before the step, which is what has to come back after it. Not held
+      // to easing at all: a machine set to reduce motion gives the shape none (Notch.css), and
+      // the step has none to take away there, nor to give back.
+      var shape = function () { return document.querySelector('.ca-notch-shape'); };
+      var easedBefore = getComputedStyle(shape()).transitionProperty;
+      var still = matchMedia('(prefers-reduced-motion: reduce)').matches;
+      var zoomed = function () { return classes.some(function (c) { return /is-zooming/.test(c); }); };
+      var over = function () { return !/is-zooming/.test(document.querySelector('.ca-notch').className); };
       window.__emit('bar-feed', Object.assign({}, feed, { zoom: 150 }));
-      return until(function () { return getComputedStyle(card()).zoom === '1.5'; }, 3000, 'the card at 150%')
-        .then(function () { return wait(400); })
+      return until(function () { return getComputedStyle(card()).zoom === '1.5'; }, 5000, 'the card at 150%')
+        // The step is over two frames after it's drawn, however long this machine's frames are.
+        .then(function () { return until(function () { return zoomed() && over(); }, 10000).catch(function () {}); })
         .then(function () {
           watch.disconnect();
-          var eased = getComputedStyle(document.querySelector('.ca-notch-shape')).transitionProperty;
-          check('a zoom step resizes the shape with no easing, and the easing comes back', classes.some(function (c) { return /is-zooming/.test(c); }) && !/is-zooming/.test(document.querySelector('.ca-notch').className) && eased !== 'none', classes.join(' → ') + '; then ' + eased);
+          var eased = getComputedStyle(shape()).transitionProperty;
+          check('a zoom step resizes the shape with no easing, and the easing comes back', zoomed() && over() && eased === easedBefore && (still || eased !== 'none'), classes.join(' → ') + '; eased by ' + easedBefore + ', then ' + eased + (still ? ', on a machine set to reduce motion' : ''));
           check('in the window it had', fits().pop() === windowBefore, windowBefore + ' → ' + fits().pop());
         });
     })

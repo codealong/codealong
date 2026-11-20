@@ -134,7 +134,10 @@
       var starts = sent('start_from_quick').length;
       said('Summarize the open PRs.\n\n' + NOTE, { start: true });
       talk({ phase: 'started', text: 'Summarize the open PRs.' });
-      return until(function () { return sent('start_from_quick').length > starts; }, 5000, 'the session started');
+      return until(function () { return sent('start_from_quick').length > starts; }, 5000, 'the session started')
+        // The start is asked for and the box emptied in one go, but the box is drawn empty a
+        // render later: waited for, since a look in between found what was said still in it.
+        .then(function () { return until(function () { return input().value === ''; }, 5000).catch(function () {}); });
     })
     .then(function () {
       var spec = last('start_from_quick').spec;

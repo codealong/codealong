@@ -1,7 +1,9 @@
 // Checks the model a Cursor app chat is set to, after its account in the chip beside Send in its box
 // (SessionReply.tsx, SessionAgent.tsx): Cursor's name for it and, quieter, its effort as Cursor writes the level,
 // between turns too, since the chat keeps the model its next turn goes on with; and no menu,
-// since nothing switches a Cursor chat's model from outside.
+// since nothing switches a Cursor chat's model from outside. Cursor's name for the model is the
+// one its account lists it by (start-options.json), which the chip says once the window has read
+// the account's models; for the moment before that it says the name the chat's record has.
 //   scripts/preview.sh peek '' scripts/preview/cursor-model-check.js
 (function () {
   // This runs before the app's script: pick a Cursor app chat on this Mac that says its model.
@@ -22,6 +24,12 @@
   localStorage.setItem('codealong.preview.peek', picked.key);
   localStorage.removeItem('codealong.draft.' + picked.key);
 
+  // The model as the chat's account names it (start.ts `modelName`): the label it lists it by,
+  // up to a colon, or the record's own name for one it doesn't list.
+  var account = read('./start-options.json').accounts.filter(function (a) { return a.name === picked.account && a.harness === picked.harness; })[0];
+  var listed = ((account && account.models) || []).filter(function (m) { return m.id === picked.model; })[0];
+  var named = listed ? listed.label.split(':')[0] : picked.model;
+
   var said = function () { return q('.ca-peek .ca-composer-buttons .ca-modelmenu-said'); };
   // After the account, quieter: `model · effort`.
   var detail = function () { var d = said() && q('.ca-modelmenu-detail', said()); return d ? d.textContent : ''; };
@@ -33,11 +41,19 @@
   };
 
   say('cursor model check: ' + picked.key + ' on ' + picked.model + (picked.effort ? ' ' + picked.effort : ''));
-  // Between turns, as a chat the app isn't generating is.
-  window.__emit('board', withSession(function (s) { s.live = false; s.status = 'idle'; }));
-  until(function () { return !!said(); }, 20000, 'no model beside Send for a chat between turns')
+  until(function () { return !!said(); }, 20000, 'no model beside Send in the peek’s box')
     .then(function () {
-      check('it says the model by Cursor’s name for it, after its account', said().textContent.indexOf(picked.account) === 0 && detail().indexOf(picked.model) === 0, said().textContent);
+      // Between turns, as a chat the app isn't generating is: sent once the peek shows its box,
+      // which is when the window hears of a board (this runs before the app's script, and a
+      // board sent as it starts is heard by nobody).
+      window.__emit('board', withSession(function (s) { s.live = false; s.status = 'idle'; }));
+      // And once the chip names the model as its account does, which comes with the account's
+      // models, read after the box shows: how long after is the machine's to say. Read the moment
+      // the chip showed, it said the record's name on a fast Mac and the account's on a slow one.
+      return until(function () { return !!said() && detail().indexOf(named) === 0; }, 5000).catch(function () {});
+    })
+    .then(function () {
+      check('it says the model by Cursor’s name for it, after its account', said().textContent.indexOf(picked.account) === 0 && detail().indexOf(named) === 0, said().textContent + ' (' + named + ')');
       if (picked.effort) check('after the model, its effort as Cursor writes the level', effort() === picked.effort, effort() || 'none');
       check('it’s no menu: nothing switches a Cursor chat’s model from here', !q('.ca-peek .ca-composer-buttons .ca-modelmenu-chip'), 'a menu');
       check('the chip sits beside Send', !!q('.ca-composer-send', said().closest('.ca-composer-buttons')), 'apart');
