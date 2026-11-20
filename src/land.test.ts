@@ -181,10 +181,12 @@ step git commit -q -m first
 step git push -q origin main
 
 # GitHub, as the script asks it. What gh would have cut out of its answer with --jq is what
-# this prints: where a pull request stands as "state queue merged gate id head". The files
-# the test leaves say how it goes: "slow" has the pull request's own run of CI take a look or
-# two, "fail" puts it out of the queue once it has been seen there, "gone" before anyone sees
-# it there, and "moved" has its branch pushed to.
+# this prints: where a pull request stands as "state queue merged id standing head", and a
+# run of CI as "status conclusion id address". The files the test leaves say how it goes:
+# "slow" holds how many looks the pull request's own run of CI is still going for and "red"
+# has it fail; "standing" has someone's request to merge the pull request by itself on it;
+# "lost" loses GitHub's yes to queueing it; "fail" puts it out of the queue once it has been
+# seen there, "gone" before anyone sees it there, and "moved" has its branch pushed to.
 cat >"$tmp/bin/gh" <<'GH'
 #!/bin/bash
 f="$FAKE"
@@ -202,6 +204,7 @@ case "$1 $2" in
     n=$(($(cat "$f/last" 2>/dev/null || echo 6) + 1))
     echo "$n" >"$f/last"
     echo "$n" >"$f/pr"
+    rm -f "$f/evicted"
     while [ $# -gt 0 ]; do
       case "$1" in
         --title) echo "$2" >"$f/title" ;;
@@ -215,18 +218,36 @@ case "$1 $2" in
   "run list")
     case "$all" in
       *workflow_dispatch*) echo "55 completed success https://github.com/acme/northwind/actions/runs/55" ;;
+      *pull_request*)
+        # The pull request's own run.
+        if [ -f "$f/red" ]; then
+          echo "completed failure 77 https://github.com/acme/northwind/actions/runs/77"
+        elif [ -f "$f/slow" ] && [ "$(cat "$f/slow")" -gt 0 ]; then
+          echo $(($(cat "$f/slow") - 1)) >"$f/slow"
+          echo "in_progress - 77 https://github.com/acme/northwind/actions/runs/77"
+        else
+          echo "completed success 77 https://github.com/acme/northwind/actions/runs/77"
+        fi
+        ;;
       *) echo "99 https://github.com/acme/northwind/actions/runs/99" ;;
     esac
     ;;
   "api graphql")
     case "$all" in
       *"mergeQueue(branch"*) [ -f "$f/no-queue" ] || echo Q_1 ;;
-      *REMOVED_FROM_MERGE_QUEUE_EVENT*) echo FAILED_CHECKS ;;
+      *REMOVED_FROM_MERGE_QUEUE_EVENT*) [ ! -f "$f/evicted" ] || echo FAILED_CHECKS ;;
+      *dequeuePullRequest*)
+        rm -f "$f/queued"
+        touch "$f/dequeued"
+        ;;
       *enqueuePullRequest*)
         # A place in the queue, for the commit named.
         echo "$all" >"$f/asked"
         touch "$f/queued"
+        rm -f "$f/evicted"
         echo 0 >"$f/looks"
+        # Taken, with the answer lost on its way back.
+        [ ! -f "$f/lost" ] || exit 1
         ;;
       *mergeQueueEntry*)
         # A pull request that merged stays merged, whoever asks after.
@@ -239,24 +260,21 @@ case "$1 $2" in
         at="$(git --git-dir="$f/origin.git" rev-parse -q --verify "refs/heads/$(cat "$f/head")" || cat "$f/at")"
         echo "$at" >"$f/at"
         if [ ! -f "$f/queued" ]; then
-          gate=SUCCESS
-          if [ -f "$f/slow" ]; then
-            waited=$(($(cat "$f/slow") + 1))
-            echo "$waited" >"$f/slow"
-            [ "$waited" -gt 2 ] || gate=PENDING
-          fi
-          echo "OPEN - - $gate PR_$number $at"
+          standing=-
+          [ ! -f "$f/standing" ] || standing=set
+          echo "OPEN - - PR_$number $standing $at"
           exit 0
         fi
         looks=$(($(cat "$f/looks") + 1))
         echo "$looks" >"$f/looks"
         if [ -f "$f/moved" ]; then
-          echo "OPEN QUEUED - SUCCESS PR_$number 0000000000000000000000000000000000000000"
+          echo "OPEN QUEUED - PR_$number - 0000000000000000000000000000000000000000"
         elif [ -f "$f/gone" ] || { [ -f "$f/fail" ] && [ "$looks" -gt 1 ]; }; then
           rm -f "$f/queued"
-          echo "OPEN - - SUCCESS PR_$number $at"
+          touch "$f/evicted"
+          echo "OPEN - - PR_$number - $at"
         elif [ "$looks" = 1 ]; then
-          echo "OPEN AWAITING_CHECKS - SUCCESS PR_$number $at"
+          echo "OPEN AWAITING_CHECKS - PR_$number - $at"
         else
           # The queue: the branch's commits written again on top of main, by another hand,
           # and the branch removed, as the repository is set to.
@@ -266,7 +284,7 @@ case "$1 $2" in
             GIT_COMMITTER_NAME=queue git cherry-pick "main..origin/$branch" >/dev/null &&
             git push -q origin main ":$branch" || exit 1
           rm -f "$f/pr" "$f/queued"
-          echo "MERGED - $(git rev-parse HEAD) SUCCESS PR_$number $at" | tee "$f/merged.$number"
+          echo "MERGED - $(git rev-parse HEAD) PR_$number - $at" | tee "$f/merged.$number"
         fi
         ;;
     esac
@@ -289,8 +307,9 @@ here
 echo two >>docs/a.md
 step git commit -q -am "docs: two"
 was="$(git rev-parse HEAD)"
-# Its own run of CI takes a moment, which is waited for before it's queued.
-echo 0 >"$tmp/slow"
+# Main has moved, and the branch lands as it is: the queue writes it on top. Its own run of CI
+# takes a moment, which is waited for before it's queued.
+echo 2 >"$tmp/slow"
 echo "landing: $(scripts/land.sh 2>&1 | landed)"
 rm "$tmp/slow"
 echo "main: $(onmain)"
@@ -314,8 +333,8 @@ touch "$tmp/fail"
 scripts/land.sh --reviewed-by "an account, a model" >"$tmp/out" 2>&1
 echo "put out of the queue: $? $(grep -c 'put pull request #8 out: FAILED_CHECKS' "$tmp/out") $(grep -c 'gh run view 99 --log-failed' "$tmp/out")"
 echo "main, after: $(onmain)"
-# Fixed and landed again, main having moved meanwhile: the same pull request, and the branch,
-# which the rebase rewrote, pushed over this script's own earlier push of it.
+# Fixed, main having moved meanwhile, and rebased onto it by hand, as one that didn't apply
+# would have to be.
 step git -C "$tmp/main" pull -q origin main
 echo y >"$tmp/main/docs/c.md"
 step git -C "$tmp/main" add -A
@@ -324,7 +343,19 @@ step git -C "$tmp/main" push -q origin main
 rm "$tmp/fail"
 echo 'echo hello' >scripts/new.sh
 step git commit -q -am "a script, fixed"
+step git fetch -q origin main
+step git rebase -q origin/main
+# Someone has its pull request set to merge by itself: nothing is pushed to one that would land
+# whatever it was given.
+touch "$tmp/standing"
+scripts/land.sh --reviewed-by "an account, a model" >"$tmp/out" 2>&1
+echo "set to merge by itself: $? $(grep -c 'disable-auto' "$tmp/out"), origin's still $(git -C "$tmp/origin.git" log --format=%s -1 topic)"
+rm "$tmp/standing"
+# Landed again: the same pull request, and the branch pushed over this script's own earlier
+# push of it. GitHub's yes to queueing it is lost on its way back, and it's seen to be queued.
+touch "$tmp/lost"
 echo "landing again: $(scripts/land.sh --reviewed-by "an account, a model" 2>&1 | landed)"
+rm "$tmp/lost"
 echo "main: $(onmain) ($(cat "$tmp/last") pull requests)"
 # A branch of this name that someone else pushed, with work of theirs on it, isn't pushed over.
 step git -C "$tmp/main" pull -q origin main
@@ -353,18 +384,33 @@ gh api graphql mergeQueueEntry number=9 >/dev/null
 gh api graphql mergeQueueEntry number=9 >/dev/null
 echo "asked again: $(scripts/land.sh 2>&1 | landed)"
 [ "$(git rev-parse HEAD)" = "$(git rev-parse origin/main)" ] && echo "and this branch is where main is"
-# Put out before anyone saw it in the queue: still said, not waited on for ever.
+# Stopped while the pull request's own run of CI was still going, before there was a place in
+# the queue to ask for: asked again, it's queued then, not waited on as if it had been.
 echo four >>docs/a.md
 step git commit -q -am "docs: four"
+echo 99 >"$tmp/slow"
+CODEALONG_LAND_WAIT=-1 scripts/land.sh >"$tmp/out" 2>&1
+echo "stopped before it was queued: $? ($(ls "$tmp" | grep -c '^queued$') queued)"
+rm "$tmp/slow"
+echo "asked again: $(scripts/land.sh 2>&1 | landed)"
+# Put out before anyone saw it in the queue: still said, not waited on for ever.
+echo five >>docs/a.md
+step git commit -q -am "docs: five"
 touch "$tmp/gone"
 scripts/land.sh >"$tmp/out" 2>&1
-echo "put out unseen: $? $(grep -c 'put pull request #10 out: FAILED_CHECKS' "$tmp/out")"
+echo "put out unseen: $? $(grep -c 'put pull request #11 out: FAILED_CHECKS' "$tmp/out")"
 rm "$tmp/gone"
-# Its branch pushed to by someone else while this waits: no longer this landing's.
+# Its branch pushed to by someone else while it's in the queue: no longer this landing's, and
+# taken out, since what's there isn't what was queued.
 touch "$tmp/moved"
 scripts/land.sh >"$tmp/out" 2>&1
-echo "its branch moved under it: $? $(grep -c "no longer this landing's" "$tmp/out")"
+echo "its branch moved under it: $? $(grep -c "no longer this landing's" "$tmp/out") $(grep -c 'has been taken out' "$tmp/out") $(ls "$tmp" | grep -c '^dequeued$')"
 rm "$tmp/moved"
+# Its own run of CI fails: it's said with that run, and nothing is queued.
+touch "$tmp/red"
+scripts/land.sh >"$tmp/out" 2>&1
+echo "its own run of CI failing: $? $(grep -c "can't join the queue" "$tmp/out") $(grep -c 'gh run view 77 --log-failed' "$tmp/out") ($(ls "$tmp" | grep -c '^queued$') queued)"
+rm "$tmp/red"
 # Another landing of this branch under way here: its turn is held, as the script holds it.
 python3 -c 'import fcntl, os, sys, time
 held = os.open(sys.argv[1], os.O_RDWR | os.O_CREAT, 0o644)
@@ -381,15 +427,49 @@ kill "$other"
 wait "$other" 2>/dev/null
 # Without main's merge queue, asking GitHub to merge would merge unchecked.
 touch "$tmp/no-queue"
-scripts/land.sh >"$tmp/out" 2>&1
+# Started as the script from before would start it, holding that one's turn: let go.
+sleep 300 &
+old=$!
+bash -c 'export CODEALONG_LANDING_HELD=$$ CODEALONG_LANDING_HOLDER="$1"; exec scripts/land.sh' land "$old" >"$tmp/out" 2>&1
 echo "with no merge queue: $? $(grep -c 'has no merge queue' "$tmp/out")"
+wait "$old" 2>/dev/null
+[ $? -gt 128 ] && echo "and the turn of the script before this one is let go"
+rm "$tmp/no-queue"
+# Main has changed the same lines meanwhile: it's said, and the checkout is left as it was,
+# with nothing pushed.
+step git -C "$tmp/main" pull -q origin main
+echo other >>"$tmp/main/docs/a.md"
+step git -C "$tmp/main" commit -q -am "main, on the same lines"
+step git -C "$tmp/main" push -q origin main
+there="$(git -C "$tmp/origin.git" rev-parse mine)"
+echo six >>docs/a.md
+step git commit -q -am "docs: six"
+was="$(git rev-parse HEAD)"
+scripts/land.sh >"$tmp/out" 2>&1
+echo "not applying on main: $? $(grep -c "doesn't apply on origin/main" "$tmp/out") $(grep -c '^CONFLICT' "$tmp/out")"
+[ "$(git rev-parse HEAD)" = "$was" ] && [ -z "$(git status --porcelain)" ] && [ "$(git -C "$tmp/origin.git" rev-parse mine)" = "$there" ] && echo "and it's left as it was, here and on origin"
+# A branch whose first commit has landed, as the queue's copy of it, with one on top that
+# hasn't: rebased first, which drops the copy.
+step git worktree add -q "$tmp/half" -b half origin/main
+step cd "$tmp/half"
+here
+echo h >docs/h.md
+step git add -A
+step git commit -q -m "half: one"
+step env GIT_COMMITTER_NAME=queue git -C "$tmp/main" cherry-pick "$(git rev-parse HEAD)" >/dev/null
+step git -C "$tmp/main" push -q origin main
+echo i >docs/i.md
+step git add -A
+step git commit -q -m "half: two"
+scripts/land.sh >"$tmp/out" 2>&1
+echo "half of it landed already: $? $(grep -c 'which drops those' "$tmp/out")"
 step cd "$tmp/main"
 scripts/land.sh >"$tmp/out" 2>&1
 echo "from main: $(grep -c 'is on main' "$tmp/out")"
 echo "main, at the end: $(onmain)"
 `;
 
-test('a landing rebases onto a main that moved, queues its pull request, and brings this branch and the main checkout up', { timeout: LANDING_WAIT + 20_000 }, async () => {
+test('a landing queues its pull request as the commit that was asked for, on a main that moved, and brings this branch and the main checkout up', { timeout: LANDING_WAIT + 20_000 }, async () => {
   const went = await run('bash', ['-c', LANDING, 'landing', script, catchUp], LANDING_WAIT);
   expect(went.status, went.out + went.err).toBe(0);
   expect(went.out.trim().split('\n')).toEqual([
@@ -405,6 +485,7 @@ test('a landing rebases onto a main that moved, queues its pull request, and bri
     "with a file git doesn't know of: 1",
     'put out of the queue: 1 1 1',
     'main, after: docs: two,main moved,first,',
+    "set to merge by itself: 1 1, origin's still a script",
     'landing again: Landed: <commit> is in origin/main. Fast-forwarded the main checkout to origin/main (<commit>). Reviewed by: an account, a model.',
     'main: a script, fixed,a script,main moved again,docs: two,main moved,first, (8 pull requests)',
     "over someone else's branch: 1 1, theirs still theirs",
@@ -414,12 +495,19 @@ test('a landing rebases onto a main that moved, queues its pull request, and bri
     "asked again, still queued: Queued still: pull request #9 (https://github.com/acme/northwind/pull/9) lands <commit> when main's merge queue has checked it.",
     'asked again: Landed: <commit> is in origin/main. Fast-forwarded the main checkout to origin/main (<commit>).',
     'and this branch is where main is',
+    'stopped before it was queued: 3 (0 queued)',
+    'asked again: Landed: <commit> is in origin/main. Fast-forwarded the main checkout to origin/main (<commit>).',
     'put out unseen: 1 1',
-    'its branch moved under it: 1 1',
+    'its branch moved under it: 1 1 1 1',
+    'its own run of CI failing: 1 1 1 (0 queued)',
     'while another landing of it runs: 1 1',
     'with no merge queue: 1 1',
+    'and the turn of the script before this one is let go',
+    'not applying on main: 1 1 1',
+    "and it's left as it was, here and on origin",
+    'half of it landed already: 1 1',
     'from main: 1',
-    'main, at the end: docs: three,a script, fixed,a script,main moved again,docs: two,main moved,first,',
+    'main, at the end: half: one,main, on the same lines,docs: four,docs: three,a script, fixed,a script,main moved again,docs: two,main moved,first,',
   ]);
 });
 

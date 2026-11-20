@@ -30,7 +30,7 @@ devices is its own crate, codealong-peer (`src-tauri/peer/`), which the
 npm install
 npm run tauri dev         # the app with hot reload
 scripts/relaunch.sh       # build Codealong Dev, then quit it and reopen it from Applications
-scripts/land.sh           # land your branch on main, with write access: rebase, push, its pull request through main's merge queue
+scripts/land.sh           # land your branch on main, with write access: push, its pull request through main's merge queue
 scripts/catch-up-main.sh  # fast-forward the main checkout to origin/main (land.sh and relaunch.sh do too)
 scripts/version.sh 0.3.0  # start a release: the version everywhere, committed and tagged
 scripts/release.sh        # the installer for other Macs (design/plans/releases.md)
@@ -93,11 +93,13 @@ Agents land dozens of changes a day, and every other session builds on what land
 2026-11-20 a landing ran its checks on the Mac that made the change, one landing at a time: five
 minutes on a quiet Mac, forty with twenty agents building. Now they run on GitHub:
 
-- **Nothing reaches `main` unchecked.** `scripts/land.sh` rebases the branch onto `origin/main`,
-  pushes it, opens its pull request and asks GitHub to merge it. `main`'s
-  merge queue runs CI on the change as it would land, on top of `main` and of whatever is
-  queued before it, and merges it when `gate` passes. The queue rebases: `main` stays a
-  straight line, and its commits are copies of the branch's with ids of their own. A change
+- **Nothing reaches `main` unchecked.** `scripts/land.sh` pushes the branch as it is, opens
+  its pull request and puts it in `main`'s merge queue, which runs CI on the change as it
+  would land, on top of `main` and of whatever is queued before it, and merges it when `gate`
+  passes. The queue rebases: `main` stays a straight line, and its commits are copies of the
+  branch's with ids of their own. The script rewrites nothing itself, so what lands is the
+  commit that was reviewed, and a branch that doesn't apply on `main` is its author's to
+  rebase and test again. A change
   whose checks fail is put out of the queue and stays its pull request: `land.sh` names the
   run, `gh run view <id> --log-failed` says why, and landing the fix takes the same pull
   request. Nothing is built or tested on the Mac, so landings don't wait on each other there.
@@ -130,8 +132,10 @@ minutes on a quiet Mac, forty with twenty agents building. Now they run on GitHu
   checks everything on the pull request when there's none, and `land.sh` refuses to land
   where `main` has no merge queue. It asks for a place in the queue for the commit it pushed
   and no other, rather than leave GitHub asked to merge the pull request when it can, which
-  would hold for whatever was pushed to it after. Any other pull request is checked as it's
-  opened and pushed to, for whoever reviews it.
+  would hold for whatever was pushed to it after; it won't push to a pull request someone
+  has set to merge that way, and takes one out of the queue whose branch is pushed to while
+  it waits. Any other pull request is checked as it's opened and pushed to, for whoever
+  reviews it.
 - **A red `main` is somebody's.** It can still happen: the browser checks failing on what
   landed, a commit pushed past the queue, or the daily run of everything failing for a
   toolchain or a runner's image that moved. A Codealong schedule watches both workflows' runs
