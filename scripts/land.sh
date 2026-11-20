@@ -50,11 +50,12 @@
 # It lands only what's committed: uncommitted changes here, yours or another session's, stop it
 # before anything is touched. It's for a worktree that's yours alone (CLAUDE.md, *Landing
 # work*). Nothing here rebases, merges or stashes: once its commits have landed the branch is
-# set to main's commit by git's own change of branch, which refuses rather than write over
-# anything. What another session does in the same checkout while this runs isn't landed as
-# yours, and a commit it makes on the branch in the moment before that move is put back and
-# said; but it can find the checkout moved under it. One landing of a branch runs at a time.
-# `--check` runs CI on the
+# set to main's commit by git's own change of branch, which refuses rather than write over a
+# file. What another session does in the same checkout while this runs isn't landed as yours,
+# but it can find the checkout moved under it, and a commit it makes on the branch in the
+# moment that move is made is left off the branch (git's log of the branch has it): git can't
+# be asked to move a branch only if it's where it was last seen. One landing of a branch runs
+# at a time. `--check` runs CI on the
 # commit as it is here, on a branch made for that run and removed after, so a landing under way
 # isn't touched. There is no flag to skip the checks, and none to run them here: `npm test` and
 # `cargo test` are still yours to run while you work.
@@ -715,30 +716,19 @@ EOF
 # writes over no file it ignores (by default it would, and a file of the author's that main
 # has begun to track, or to keep a directory where it is, would be gone with nothing kept of
 # it). The branch stays the one checked out here throughout, so no other worktree can take it
-# meanwhile, and there's no state in between to be stopped in. Its own commits are never
-# written again or weighed as patches: they're left behind as landed, which is what's known
-# of them. Why it didn't move, when it didn't, is left in `why_not`.
+# meanwhile. Its own commits are never written again or weighed as patches: they're left
+# behind as landed, which is what's known of them.
 #
-# What git can't be asked is to move the branch only if it's still at `$1`. In a checkout
-# another session shares, a commit made on the branch since it was last looked at would be
-# left off it: so where the branch was is read afterwards from its own log, and one that
-# wasn't at `$1` is set back to where it was, with that commit, and said.
+# Whether it moved is read from where the checkout stands, not from what git returned (a hook
+# can fail after the move). Git changes the files before the branch, so a move it couldn't
+# finish (the branch locked, say) can leave main's changes staged on a branch that hasn't
+# moved, which `why_not` says how to see. Nothing is done about a move that didn't happen:
+# no second try, nothing put back.
 move_to() {
-  local before
   why_not=""
   git switch -q --no-overwrite-ignore -C "$branch" "$2" >"$log" 2>&1
-  # Where it stands is what counts, not what git returned: a hook can fail after the move.
   if ! still_here "$2"; then
-    why_not="Git wouldn't move this checkout to origin/main, so it isn't at origin/main (git status says where it is): $(grep -v '^Aborting' "$log" | head -4 | tr -s '\t\n' '  ')"
-    return 1
-  fi
-  before="$(git rev-parse -q --verify "refs/heads/$branch@{1}" 2>/dev/null || true)"
-  if [ -n "$before" ] && [ "$before" != "$1" ]; then
-    if git switch -q --no-overwrite-ignore -C "$branch" "$before" >"$log" 2>&1; then
-      why_not="This branch gained commits while this landed (git log $(short "$2")..$branch), so it's left with them: it isn't at origin/main."
-    else
-      why_not="This branch gained a commit while this landed ($(short "$before")), which isn't on it now that it's at origin/main: git branch <a name> $before keeps it."
-    fi
+    why_not="Git didn't move this checkout to origin/main, so it isn't at origin/main: $(grep -v '^Aborting' "$log" | head -4 | tr -s '\t\n' '  ') Look at git status and git diff --cached before committing anything here: what's staged that isn't yours is main's, from a move git began."
     return 1
   fi
 }
@@ -881,8 +871,10 @@ main() {
   fi
   # Nor a merge, a cherry-pick, a revert or a bisect: one can be under way with nothing
   # uncommitted to show for it, and the move to main at the end would be the end of it.
+  # (`sequencer` is a run of cherry-picks or reverts with some still to go, which is there
+  # between two of them with nothing else to say so.)
   local under_way
-  for under_way in MERGE_HEAD CHERRY_PICK_HEAD REVERT_HEAD BISECT_LOG; do
+  for under_way in MERGE_HEAD CHERRY_PICK_HEAD REVERT_HEAD BISECT_LOG sequencer; do
     [ ! -e "$(git rev-parse --git-path "$under_way")" ] || die "Something is under way in this checkout ($under_way): finish it or give it up (git status says how), and run this again."
   done
   command -v gh >/dev/null || die "gh isn't here, which is how this reaches GitHub: https://cli.github.com."
