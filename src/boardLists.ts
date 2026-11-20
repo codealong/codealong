@@ -166,8 +166,8 @@ export function prIn(r: PrRowItem, f: Filter): boolean {
 }
 
 /** What the sidebar narrows a view to beside its statuses: Sessions to agents (accounts) and the
- *  labels you put on them, PRs to repos, their labels and who opened them, Todo and Kanban to
- *  todos' labels. Each takes any number of picks, none showing everything; a row shows when it has
+ *  labels you put on them, PRs to repos, their labels and who opened them, Todo and the Board view
+ *  (Kanban and Canvas) to labels. Each takes any number of picks, none showing everything; a row shows when it has
  *  any of a facet's picks and every facet holds. A session's labels are picked by name in any case
  *  (`labelPick`), since a session on another device wears that Mac's labels; todos' by id. */
 export type FacetId = 'agents' | 'sessionLabels' | 'repos' | 'prLabels' | 'authors' | 'labels';
@@ -177,7 +177,7 @@ export const FACET_WORD: Record<FacetId, string> = { agents: 'Agents', sessionLa
 
 /** The facets the sidebar offers in each view. */
 export function facetsIn(view: string): FacetId[] {
-  return view === 'sessions' ? ['agents', 'sessionLabels'] : view === 'prs' ? ['repos', 'prLabels', 'authors'] : view === 'todo' || view === 'kanban' ? ['labels'] : [];
+  return view === 'sessions' ? ['agents', 'sessionLabels'] : view === 'prs' ? ['repos', 'prLabels', 'authors'] : view === 'todo' || view === 'kanban' || view === 'canvas' ? ['labels'] : [];
 }
 
 /** One pick a facet offers, with how many of the view's rows it would show. */
@@ -1015,29 +1015,42 @@ export function canvasCards({ todoItems, todos, sessions, prs, board, member }: 
   ]);
 }
 
-/** Whether a card on the canvas matches the list's find and the status filter, as its row would
- *  in its own view. */
-export function cardMatches(it: Pick<RefItem, 'ref' | 'key'>, e: Entities, todoItems: TodoItem[], prRowOf: (pr: PrItem) => PrRowItem, query: string, said: Said, filter: readonly Filter[], since: string): boolean {
+/** Whether a card on the canvas matches the list's find, the status filter and any labels picked,
+ *  as its row would in its own view (and a session or worktree by the labels it or a todo on it
+ *  wears, as board rules read them). */
+export function cardMatches(it: Pick<RefItem, 'ref' | 'key'>, e: Entities, todoItems: TodoItem[], prRowOf: (pr: PrItem) => PrRowItem, query: string, said: Said, filter: readonly Filter[], since: string, labelIds: readonly string[] = [], labels: readonly Label[] = []): boolean {
+  const inLabels = (ids: readonly string[]) => labelIds.length === 0 || ids.some((id) => labelIds.includes(id));
   switch (it.ref) {
     case 'worktree': {
       const lane = e.lanes.get(it.key);
-      return !!lane && laneInQuery(lane, query, said) && !!narrowed(lane, filter, since);
+      if (!lane || !laneInQuery(lane, query, said) || !narrowed(lane, filter, since)) return false;
+      if (labelIds.length === 0) return true;
+      const keys = new Set(lane.sessions.map((s) => s.key));
+      return lane.sessions.some((s) => inLabels(ownLabels(s, labels))) || todoItems.some((r) => (r.todo.worktrees.includes(lane.id) || r.todo.sessions.some((k) => keys.has(k))) && inLabels(r.todo.labels));
     }
     case 'session': {
       const p = e.sessions.get(it.key);
       const row: SessionItem | null = p ? { kind: 'agent', key: it.key, lane: p.lane, session: p.session } : null;
-      return !!row && sessionInQuery(row, query, said) && sessionInFilter(row, filter);
+      if (!row || !sessionInQuery(row, query, said) || !sessionInFilter(row, filter)) return false;
+      if (labelIds.length === 0) return true;
+      return inLabels(ownLabels(p!.session, labels)) || todoItems.some((r) => r.todo.sessions.includes(p!.session.key) && inLabels(r.todo.labels));
     }
     case 'todo': {
       const r = todoItems.find((x) => x.todo.id === it.key);
-      return !!r && todoInQuery(r, query, said) && todoInFilter(r, filter);
+      return !!r && todoInQuery(r, query, said) && todoInFilter(r, filter) && inLabels(r.todo.labels);
     }
     case 'pr': {
       const pr = e.prs.get(it.key);
       const row = pr && prRowOf(pr);
-      return !!row && prInQuery(row, query, said) && prInFilter(row, filter);
+      return !!row && prInQuery(row, query, said) && prInFilter(row, filter) && labelIds.length === 0;
     }
   }
+}
+
+/** Whether anything beyond the age filter narrows Sessions: search, statuses, or a Sessions facet
+ *  (agents, labels). Pinned groups with no matching session hide while this holds. */
+export function sessionsNarrowed(query: string, filter: readonly Filter[], facets: Facets): boolean {
+  return !!query || filter.length > 0 || facetsOn(facets, 'sessions').length > 0;
 }
 
 /** A board's Kanban as `codealong board show` and `move` see it (boards/useBoardAsks.ts): from
@@ -1190,7 +1203,7 @@ export function useBoardLists(input: ListsInput) {
   // Grouped by worktree or repo (SessionsView.tsx `groupSessions`): the pinned groups after the
   // pinned sessions, then each group under its first session's heading. A pinned group with no
   // session listed still shows while only the age narrows the list.
-  const narrowing = !!query || filter.length > 0 || !!facets.agents?.length;
+  const narrowing = sessionsNarrowed(query, filter, facets);
   const groupedSecs = useMemo(
     () => (sessionGroup === 'none' ? null : groupSessions(sessionSecs, sessionGroup, { pinned: sessionGroupPins, lanes: projectLanes, empty: !narrowing, opened: openGroups, whole: !!query })),
     [sessionGroup, sessionSecs, sessionGroupPins, projectLanes, narrowing, openGroups, query],
@@ -1327,12 +1340,21 @@ export function useBoardLists(input: ListsInput) {
     () => (shownBoard ? canvasCards({ todoItems: part.todoItems, todos, sessions: boardSessions, prs: part.prs, board: shownBoard, member }) : new Set<string>()),
     [shownBoard, part.todoItems, todos, boardSessions, part.prs, member],
   );
+  // Its canvas's Labels count the open todos and sessions on the canvas, so one only sessions wear
+  // is there to pick too.
+  const canvasLabels = useMemo(() => {
+    if (!shownBoard) return todoLabelOptions([], labels, facets);
+    const onTodos = part.todoItems.filter((r) => canvasShows.has(`todo:${r.todo.id}`));
+    const onSessions = boardSessions.filter((r) => canvasShows.has(`session:${r.session.key}`));
+    return todoLabelOptions(onTodos, labels, facets, onSessions);
+  }, [shownBoard, part.todoItems, boardSessions, canvasShows, labels, facets]);
   // What's open on it: the cards outside the columns that start folded (Done).
   const openCardCount = useMemo(() => kanbanCols.reduce((n, c) => (c.column?.folded ? n : n + c.cards.length), 0), [kanbanCols]);
 
   // The sidebar's and the switcher's counts, and what each facet offers.
   const facetOptions = useMemo<Record<FacetId, FacetOption[]>>(() => ({ agents, sessionLabels, repos: prFacets.repos, prLabels: prFacets.prLabels, authors: prFacets.authors, labels: todoLabels }), [agents, sessionLabels, prFacets, todoLabels]);
   const kanbanFacetOptions = useMemo<Record<FacetId, FacetOption[]>>(() => ({ ...facetOptions, labels: kanbanLabels }), [facetOptions, kanbanLabels]);
+  const canvasFacetOptions = useMemo<Record<FacetId, FacetOption[]>>(() => ({ ...facetOptions, labels: canvasLabels }), [facetOptions, canvasLabels]);
   const counts = useMemo(() => inboxCounts(recentLanes), [recentLanes]);
   const totalLanes = useMemo(() => lanes.filter((l) => !l.hidden).length, [lanes]);
   const actions = useMemo(() => projectActions(lanes, projects, cutoff, lanePins.set, since), [lanes, projects, cutoff, lanePins.set, since]);
@@ -1374,6 +1396,7 @@ export function useBoardLists(input: ListsInput) {
     labelById,
     facetOptions,
     kanbanFacetOptions,
+    canvasFacetOptions,
     projectTodos,
     todoItems,
     todoSecs,

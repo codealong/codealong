@@ -124,7 +124,7 @@ import { NewSessionPanel } from './ui/NewSession';
 import { ListenHost } from './ui/Listening';
 import { MeetingOffered } from './ui/Meeting';
 import { MeetingsDialog } from './ui/Meetings';
-import { ageListingChain, ageListingPr, cardMatches, chainOf, columnShown, currentProject, facetsIn, facetsOn, labelPick, onlyPick, prInDone, revealing, unarchived, scheduleSessions, sessionItemOf, sessionItemsOf, togglePick, toggleShown, useBoardLists, projectsOf, type Facets, type KanbanColumn } from './boardLists';
+import { ageListingChain, ageListingPr, cardMatches, chainOf, columnShown, currentProject, facetsIn, facetsOn, labelPick, onlyPick, prInDone, revealing, unarchived, scheduleSessions, sessionItemOf, sessionItemsOf, togglePick, toggleShown, useBoardLists, projectsOf, type FacetId, type Facets, type KanbanColumn } from './boardLists';
 import { inProject } from './quick';
 import { CODEALONG_REPO } from './improve';
 import { bare, keysIn } from './platform';
@@ -504,6 +504,7 @@ export function App() {
     labelById,
     facetOptions,
     kanbanFacetOptions,
+    canvasFacetOptions,
     projectTodos,
     todoItems,
     todoSecs,
@@ -1518,6 +1519,11 @@ export function App() {
     setBayFilter((fs) => (fs.includes(f) ? fs.filter((x) => x !== f) : [...fs, f]));
     if (view === 'canvas' && !bayFilter.includes(f)) setCanvasFit((n) => n + 1);
   };
+  const toggleFacet = (id: FacetId, pick: string) => {
+    const adding = !(facets[id] ?? NO_PICKS).includes(pick);
+    setFacets((f) => togglePick(f, id, pick));
+    if (view === 'canvas' && adding) setCanvasFit((n) => n + 1);
+  };
   const toggleDevice = (id: string) => setDeviceFilter((d) => (d.includes(id) ? d.filter((x) => x !== id) : [...d, id]));
   const openWindow = (name: string, another = false) => {
     openProjectWindow(name, another).catch((e: unknown) => setToast(String(e)));
@@ -1536,10 +1542,10 @@ export function App() {
   // its row would, and its right-click menu, the one its row has in the other views.
   const { openCard, cardMenu } = cardActsOf({ canvasEntities, todoItems, open, openRow, setToast, laneMenuSpec, sessionMenuSpec, todoMenuSpec, prMenuSpec, prRowOf, showTodo });
 
-  /** Whether a card matches the list's find and the status filter, as its row would in its own view. */
+  /** Whether a card matches the list's find, the status filter and any labels picked, as its row would in its own view. */
   const canvasMatches = useCallback(
-    (it: RefItem) => cardMatches(it, canvasEntities, todoItems, prRowOf, query, textSearch.said, bayFilter, since),
-    [canvasEntities, todoItems, query, textSearch.said, bayFilter, since, prRowOf],
+    (it: RefItem) => cardMatches(it, canvasEntities, todoItems, prRowOf, query, textSearch.said, bayFilter, since, facets.labels ?? NO_PICKS, todoStore.labels),
+    [canvasEntities, todoItems, query, textSearch.said, bayFilter, since, prRowOf, facets.labels, todoStore.labels],
   );
 
   // In the canvas's panel, a worktree or todo it links to is shown on the canvas when it's there.
@@ -1612,8 +1618,8 @@ export function App() {
   const sideStatuses = sideStatusesOf(counts);
   const ageApplies = ageAppliesIn(view);
   // The facets the view offers, and the picks among them that narrow it now, by their names.
-  // The Kanban's labels count its sessions too (boardLists.ts `todoLabelOptions`).
-  const sideFacets = sideFacetsOf(view, view === 'kanban' ? kanbanFacetOptions : facetOptions, facets);
+  // The Kanban's and canvas's labels count their sessions too (boardLists.ts `todoLabelOptions`).
+  const sideFacets = sideFacetsOf(view, view === 'kanban' ? kanbanFacetOptions : view === 'canvas' ? canvasFacetOptions : facetOptions, facets);
   const facetsNow = Object.fromEntries(facetsOn(facets, view).map((id) => [id, facets[id]])) as Facets;
   const pickNames = pickNamesOf(sideFacets);
   const viewNow: ViewState = { view, project: current, device: deviceFilter, age, filter: bayFilter, facets: facetsNow };
@@ -1726,7 +1732,7 @@ export function App() {
           onFilter={toggleBay}
           onClearFilters={() => setBayFilter([])}
           facets={sideFacets}
-          onFacet={(id, pick) => setFacets((f) => togglePick(f, id, pick))}
+          onFacet={toggleFacet}
           onClearFacet={(id) => setFacets((f) => ({ ...f, [id]: [] }))}
           saved={savedViews}
           savedOn={savedOn}
@@ -1888,7 +1894,7 @@ export function App() {
               keys={canvasKeys}
               onSelectItem={setCanvasSel}
               query={query}
-              filtering={!!query.trim() || bayFilter.length > 0}
+              filtering={!!query.trim() || bayFilter.length > 0 || facetsOn(facets, 'canvas').length > 0}
               matches={canvasMatches}
               fitMatches={canvasFit}
             />

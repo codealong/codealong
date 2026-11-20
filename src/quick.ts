@@ -410,7 +410,7 @@ export function findSessions(board: Board, project: string, query: string, now: 
     const pr = lane.pr ? `#${lane.pr.number} ${lane.pr.title}` : '';
     // An orchestrator, in Codealong's chats and called Orchestrator, by the project it keeps watch over.
     const watches = s.orchestrator ? `${s.orchestrator.project ?? ALL_PROJECTS} orchestrator` : '';
-    const hay = [...names, s.account, lane.callsign, lane.repo, lane.branch ?? '', s.branch ?? '', lane.project, pr, watches].join('\n').toLowerCase();
+    const hay = [...names, s.account, lane.callsign, lane.repo, lane.branch ?? '', s.branch ?? '', lane.project, pr, watches, ...(s.labels ?? []).map((l) => l.name)].join('\n').toLowerCase();
     if (hasWords(hay, words)) return [{ row: row(), cost: cost(CLOSENESS.described) }];
     const hit = said.get(s.key);
     if (!hit) return [];

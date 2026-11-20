@@ -58,6 +58,7 @@ import {
   prInFacets,
   sessionInFacets,
   sessionLabelOptions,
+  sessionsNarrowed,
   todoInFacets,
   todoLabelOptions,
   togglePick,
@@ -286,9 +287,16 @@ describe('the sidebar’s facets', () => {
     expect(facetsIn('prs')).toEqual(['repos', 'prLabels', 'authors']);
     expect(facetsIn('todo')).toEqual(['labels']);
     expect(facetsIn('kanban')).toEqual(['labels']);
+    expect(facetsIn('canvas')).toEqual(['labels']);
     expect(facetsIn('worktrees')).toEqual([]);
     expect(facetsOn({ agents: ['codex'], repos: [], labels: ['l1'] }, 'sessions')).toEqual(['agents']);
     expect(facetsOn({ agents: ['codex'], repos: [] }, 'prs')).toEqual([]);
+    expect(sessionsNarrowed('', [], {})).toBe(false);
+    expect(sessionsNarrowed('', [], { labels: ['l1'] })).toBe(false);
+    expect(sessionsNarrowed('', [], { sessionLabels: ['bug'] })).toBe(true);
+    expect(sessionsNarrowed('', [], { agents: ['codex'] })).toBe(true);
+    expect(sessionsNarrowed('q', [], {})).toBe(true);
+    expect(sessionsNarrowed('', ['needs'], {})).toBe(true);
   });
 
   it('lets a row through with any of a facet’s picks, when every facet holds', () => {
@@ -1516,5 +1524,30 @@ describe('a card on the canvas, under the find and the status filter', () => {
     expect([matches('worktree', app.id, '', ['working']), matches('worktree', docs.id, '', ['working'])]).toEqual([true, false]);
     expect([matches('todo', 't1', '', ['working']), matches('todo', 't2', '', ['working'])]).toEqual([true, false]);
     expect([matches('pr', failing.key, '', ['work']), matches('pr', fine.key, '', ['work'])]).toEqual([true, false]);
+  });
+
+  it('goes by labels picked: todos with one, sessions and worktrees wearing one or linked to a todo with one', () => {
+    const bug: Label = { id: 'l-bug', name: 'Bug', color: 'red' };
+    const ui: Label = { id: 'l-ui', name: 'UI', color: 'blue' };
+    const labels = [bug, ui];
+    const own = session('claude:northwind:own', { title: 'Own label', labels: [{ id: 'l-other-mac', name: 'bug', color: 'teal' }] });
+    const onTodo = session('claude:northwind:linked', { title: 'Linked to todo' });
+    const plain = session('claude:northwind:plain', { title: 'Plain' });
+    const lOwn = lane('/r/northwind/own', [own], { project: 'Northwind' });
+    const lLinked = lane('/r/northwind/linked', [onTodo], { project: 'Northwind' });
+    const lPlain = lane('/r/northwind/plain', [plain], { project: 'Northwind' });
+    const tUi = fx.todo({ id: 't-ui', title: 'Polish UI', project: 'Northwind', labels: ['l-ui'], sessions: [onTodo.key] });
+    const tPlain = fx.todo({ id: 't-plain', title: 'Other', project: 'Northwind' });
+    const lanes = [lOwn, lLinked, lPlain];
+    const ents = entitiesOf(fx.board({ prs: [failing] }), lanes, [tUi, tPlain], () => true);
+    const items = [tUi, tPlain].map((t) => todoItem(t, new Map(lanes.map((l) => [l.id, l])), sessionHomes(lanes), new Map(labels.map((l) => [l.id, l]))));
+    const match = (ref: 'worktree' | 'session' | 'todo' | 'pr', key: string, picks: string[]) => cardMatches({ ref, key }, ents, items, rowOf, '', new Map(), [], '', picks, labels);
+
+    // Session wearing the label directly (matched across devices by name) and its worktree.
+    expect([match('session', own.key, ['l-bug']), match('worktree', lOwn.id, ['l-bug']), match('session', plain.key, ['l-bug']), match('worktree', lPlain.id, ['l-bug'])]).toEqual([true, true, false, false]);
+    // Todo with the label, its linked session, and that session's worktree.
+    expect([match('todo', 't-ui', ['l-ui']), match('session', onTodo.key, ['l-ui']), match('worktree', lLinked.id, ['l-ui']), match('todo', 't-plain', ['l-ui'])]).toEqual([true, true, true, false]);
+    // PRs carry no todo labels, so they fade when a label is picked.
+    expect([match('pr', failing.key, ['l-bug']), match('pr', failing.key, [])]).toEqual([false, true]);
   });
 });

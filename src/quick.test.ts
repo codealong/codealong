@@ -216,6 +216,17 @@ describe('findSessions', () => {
     expect(findSessions(o, ALL_PROJECTS, 'orchestrator', NOW).map((r) => r.key)).toEqual(['o1', 'o2']);
   });
 
+  it('finds a session by the labels it wears, after one whose title has the word', () => {
+    const labelled = board([
+      lane('app2', [
+        session('s1', 'idle', NOW - 10, { title: 'Fix export', labels: [{ id: 'l1', name: 'Release', color: 'blue' }] }),
+        session('s2', 'idle', NOW - 20, { title: 'Release notes' }),
+      ]),
+    ]);
+    expect(findSessions(labelled, ALL_PROJECTS, 'release', NOW).map((r) => r.key)).toEqual(['s2', 's1']);
+    expect(findSessions(labelled, ALL_PROJECTS, 'export release', NOW).map((r) => r.key)).toEqual(['s1']);
+  });
+
   it('needs every word somewhere: title, account, worktree, branch, repo or project', () => {
     expect(findSessions(b, ALL_PROJECTS, 'login', NOW).map((r) => r.key)).toEqual(['s2', 's1', 's4']);
     expect(findSessions(b, ALL_PROJECTS, 'login claude2', NOW).map((r) => r.key)).toEqual(['s2']);
