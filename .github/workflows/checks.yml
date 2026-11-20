@@ -187,5 +187,26 @@ jobs:
           chmod +x .preview/engine/codealong
           names="$(sed -n 's#.*scripts/preview/\(.*\)-check\.js.*#\1#p' scripts/preview/fixture-passes.txt | sort -u | awk -v set="$SET" 'NR % 4 == set % 4')"
           echo "This set: $(echo $names)"
+          export PREVIEW_BIN="$PWD/.preview/engine/codealong"
           # shellcheck disable=SC2086
-          PREVIEW_BIN="$PWD/.preview/engine/codealong" scripts/checks.sh --fixture --listed --jobs=3 $names
+          if scripts/checks.sh --fixture --listed --jobs=3 "--results=$RUNNER_TEMP/runs.tsv" $names; then
+            exit 0
+          fi
+          # A check that failed is run again, by itself. Failing again, it fails this job: that's
+          # what a change that broke it does. Passing, it's unsteady on this machine (three
+          # cores, slower than the Mac the checks are written on, and each run of the list has
+          # had one such, a different check each time): warned of on the run, with what it
+          # said, for somebody to find the cause of (docs/development.md, *Keeping main
+          # working*), and not a red main for every session to stop at.
+          again="$(awk -F'\t' '$1 != "PASS" { print $2 }' "$RUNNER_TEMP/runs.tsv" | sort -u)"
+          if [ -z "$again" ]; then
+            echo "The checks failed without saying which."
+            exit 1
+          fi
+          echo "Run again by themselves: $(echo $again)"
+          # shellcheck disable=SC2086
+          scripts/checks.sh --fixture --listed --jobs=1 $again
+          for name in $again; do
+            said="$(awk -F'\t' -v name="$name" '$1 != "PASS" && $2 == name { print $4 ": " $5; exit }' "$RUNNER_TEMP/runs.tsv")"
+            echo "::warning title=An unsteady browser check::$name failed and passed when run again by itself ($said)"
+          done

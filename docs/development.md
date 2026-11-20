@@ -118,7 +118,13 @@ minutes on a quiet Mac, forty with twenty agents building. Now they run on GitHu
   once for the whole repository, so in every landing's run they'd hold each one up for longer
   than the busy Mac did. One run goes at a time, and while it does only the latest one waiting
   stays, so each covers everything landed since the last that passed, and a failure names that
-  stretch. So a landing can still turn `main` red there, which is the next point's to catch.
+  stretch. A check that fails there is run again by itself: failing again it fails the run, as
+  one a change broke does; passing, it's unsteady on that machine (each run of the list has
+  had one, a different check each time) and is warned of on the run with what it said,
+  somebody's to find the cause of, and not a red `main`. GitHub's macOS runners are set to
+  reduce motion and are slower than a Mac, and a check that reads a state the moment it can,
+  or expects an animation, is what fails there (`.claude/rules/preview.md`). So a landing can
+  still turn `main` red there, which is the next point's to catch.
   Before landing, run the checks that cover what you changed (`scripts/checks.sh --fixture
   <names>`), not the whole list, which loads this Mac for half an hour; `gh workflow run
   checks.yml --ref <branch>` runs all of it on a pushed branch.
