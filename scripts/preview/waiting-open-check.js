@@ -42,8 +42,10 @@
           s.title = 'Queue ' + 'CAB'[n];
         });
       });
-      // No PR waits on your review either: the three sessions are all that waits.
+      // No PR waits on your review either, and no todo that's due (a board may have some: the
+      // made-up Mac has two): the three sessions are all that waits.
       (board.prs || []).forEach(function (pr) { pr.reviewRequested = false; pr.waitsToMerge = false; });
+      if (board.todoQueue) board.todoQueue.due = [];
       return board;
     });
   };

@@ -57,6 +57,11 @@
 #   a pr-detail.json left in the folder is taken away.
 # scripts/checks.sh --fixture runs the checks this way.
 #
+# PREVIEW_DATE=<YYYY-MM-DD> has the page take that day for today, at the time it is now: its
+# clock (Date) starts there and runs on. For what a window says differently on another day, a
+# year's end above all (a todo due next year says the year): scripts/preview/due-check.js has a
+# run on December 28. Only the page's clock moves, so it's for what the page dates by itself (the
+# sample todos' due dates, PREVIEW_TODOS); a board's own times stay as they were snapshotted.
 # PREVIEW_SCHEME=dark renders as if macOS were in dark mode (the screenshot is <view>-dark.png).
 # Under theme = "system" the page follows it; "light" and "dark" in config.toml win over it.
 # PREVIEW_PLATFORM=linux draws the windows as Linux has them (src/platform.ts): its keys in
@@ -178,8 +183,6 @@ project="${2:-}"
 check="${3:-}"
 # The made-up Mac's build and snapshots are kept apart from this Mac's.
 dir="${PREVIEW_DIR:-.preview${PREVIEW_FIXTURE:+/fixture}}"
-# A free port unless one is given, so a stray server can't answer for this one.
-port="${PREVIEW_PORT:-$(python3 -c 'import socket; s = socket.socket(); s.bind(("127.0.0.1", 0)); print(s.getsockname()[1])')}"
 chrome="/Applications/Google Chrome.app/Contents/MacOS/Google Chrome"
 # As it starts, Chrome links its own program into a folder of its own, so an update can't change
 # it under the running browser. macOS counts that as changing an app, and refuses it for a
@@ -190,6 +193,14 @@ scheme=""
 case "${PREVIEW_SCHEME:-}" in
   dark) scheme="--blink-settings=preferredColorScheme=0" ;;
   light) scheme="--blink-settings=preferredColorScheme=1" ;;
+esac
+# A day, and nothing else: it's written into the page.
+case "${PREVIEW_DATE:-}" in
+  "" | [0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]) ;;
+  *)
+    echo "PREVIEW_DATE is a day, written 2026-12-28; it's $PREVIEW_DATE." >&2
+    exit 1
+    ;;
 esac
 shot="$dir/${PREVIEW_NAME:-$view}${PREVIEW_PLATFORM:+-$PREVIEW_PLATFORM}${PREVIEW_SCHEME:+-$PREVIEW_SCHEME}.png"
 prepare="${PREVIEW_PREPARE:-}"
@@ -203,14 +214,19 @@ if [ -n "$bin" ] && [ ! -x "$bin" ]; then
 fi
 # What the engine is asked for: this Mac's, each by its mode (--snapshot --accounts), or with
 # PREVIEW_FIXTURE its made-up Mac's, each by the mode's name (--snapshot --fixture accounts).
-# $dir/snapshot-of says which of the two its snapshots are of, once it has them all.
+# $dir/snapshot-of says which of the two its snapshots are of, once it has them all ($marked).
+# The made-up Mac's says more than its name: a folder marked before the engine was asked for
+# its name (a commit of the branch this came in on, never landed) could hold this Mac's board
+# under the bare name, and no such folder says this.
 snap=(--snapshot)
 mode="--"
 of="this Mac"
+marked="$of"
 if [ -n "${PREVIEW_FIXTURE:-}" ]; then
   snap=(--snapshot --fixture)
   mode=""
   of="the made-up Mac"
+  marked="$of, as its engine named it"
   # An engine from before it had a made-up Mac takes --fixture for nothing and prints this Mac's
   # board, which would be shown, and kept, as the made-up one. So it's asked for the made-up
   # Mac's name first, which only an engine that has one answers with (fixture.rs `NAME`).
@@ -232,7 +248,7 @@ if [ "$prepare" != skip ]; then
   # and would stay to be shown as this run's. (What it left of the same Mac stays, as it did.)
   was="$(cat "$dir/snapshot-of" 2>/dev/null || echo "this Mac")"
   echo "$unfinished" >"$dir/snapshot-of"
-  if [ "$was" != "$of" ]; then
+  if [ "$was" != "$marked" ]; then
     rm -f "$dir/board.json" "$dir/bar-feed.json" "$dir/accounts.json" "$dir/start-options.json" "$dir/editor-icons.json" \
       "$dir/shell-commands.json" "$dir/skills.json" "$dir/config.json" "$dir/found-here.json" "$dir/setup-here.json"
   fi
@@ -264,13 +280,13 @@ if [ "$prepare" != skip ]; then
   # A real PR's details left here would be the one thing the made-up Mac's page isn't.
   [ -z "${PREVIEW_FIXTURE:-}" ] || rm -f "$dir/pr-detail.json"
   # Every snapshot is in it, a failed one having stopped the script, so now it says whose.
-  echo "$of" >"$dir/snapshot-of"
+  echo "$marked" >"$dir/snapshot-of"
 elif [ ! -f "$dir/board.json" ]; then
   echo "PREVIEW_PREPARE=skip, but $dir has no build and snapshots: run with PREVIEW_PREPARE=only first." >&2
   exit 1
-elif [ "$(cat "$dir/snapshot-of" 2>/dev/null || echo "this Mac")" != "$of" ]; then
+elif [ "$(cat "$dir/snapshot-of" 2>/dev/null || echo "this Mac")" != "$marked" ]; then
   # A folder an earlier version prepared says nothing, and holds this Mac's.
-  echo "PREVIEW_PREPARE=skip, but $dir holds the snapshots of $(cat "$dir/snapshot-of" 2>/dev/null || echo "this Mac"), not of $of: run with PREVIEW_PREPARE=only first, with PREVIEW_FIXTURE=1 for the made-up Mac and without it for this one." >&2
+  echo "PREVIEW_PREPARE=skip, but $dir holds the snapshots of $(cat "$dir/snapshot-of" 2>/dev/null || echo "this Mac"), not of $marked: run with PREVIEW_PREPARE=only first, with PREVIEW_FIXTURE=1 for the made-up Mac and without it for this one." >&2
   exit 1
 fi
 [ "$prepare" = only ] && exit 0
@@ -441,8 +457,18 @@ if [ -n "$check" ]; then
   tail="$tail"'<script src="./check.js"></script>'
   setup="$setup window.__PREVIEW_SIZE__='$size';"
 fi
-sed -e "s#<head>#<head><script src=\"./fake-tauri.js\"></script><script>$setup</script>#" -e "s#</body>#$tail</body>#" "$dir/index.html" >"$dir/preview.html"
+# The page's clock on another day (PREVIEW_DATE), before anything in it reads the time: Date as
+# it is, but for "now", which is as far from the real one as that day's midnight is from today's.
+clock=""
+if [ -n "${PREVIEW_DATE:-}" ]; then
+  clock="<script>(function(){var R=Date,p='$PREVIEW_DATE'.split('-'),t=new R(),shift=new R(+p[0],p[1]-1,+p[2]).getTime()-new R(t.getFullYear(),t.getMonth(),t.getDate()).getTime();function D(a,b,c,d,e,f,g){var n=arguments.length;if(!(this instanceof D))return new R(R.now()+shift).toString();return n===0?new R(R.now()+shift):n===1?new R(a):new R(a,b,n>2?c:1,n>3?d:0,n>4?e:0,n>5?f:0,n>6?g:0)}D.prototype=R.prototype;D.now=function(){return R.now()+shift};D.parse=R.parse;D.UTC=R.UTC;window.Date=D})();</script>"
+fi
+sed -e "s#<head>#<head>$clock<script src=\"./fake-tauri.js\"></script><script>$setup</script>#" -e "s#</body>#$tail</body>#" "$dir/index.html" >"$dir/preview.html"
 
+# A free port unless one is given, so a stray server can't answer for this one. Picked here, not
+# before: a prepare, and a folder or an engine refused, open no socket, so they run where none may
+# be opened (an agent's sandbox, where src/checks.test.ts runs them).
+port="${PREVIEW_PORT:-$(python3 -c 'import socket; s = socket.socket(); s.bind(("127.0.0.1", 0)); print(s.getsockname()[1])')}"
 (cd "$dir" && exec python3 -m http.server "$port" --bind 127.0.0.1 >/dev/null 2>&1) &
 server=$!
 browser=""

@@ -1,11 +1,21 @@
 // Checks todos' due dates in the Todo view (due.ts, TodoView.tsx, TodoPanel.tsx): the rows' chips,
 // the panel's date and its picker, D, and the Due date submenu for one todo and for several.
+// Once more as if on December 28, when the sample's todo due in 12 days is next year's and its
+// chip says the year: a run on today's date alone found that out only from December 20.
 //   PREVIEW_WAIT=60000 PREVIEW_TODOS=scripts/preview/todos-sample.json scripts/preview.sh todo '' scripts/preview/due-check.js
+//   PREVIEW_DATE=2026-12-28 PREVIEW_WAIT=60000 PREVIEW_TODOS=scripts/preview/todos-sample.json scripts/preview.sh todo '' scripts/preview/due-check.js
 (function () {
   var day = function (n) {
     var d = new Date();
     d = new Date(d.getFullYear(), d.getMonth(), d.getDate() + n);
     return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0');
+  };
+  // A date beyond the week as a chip says it (due.ts `dueWords`): the month and the day, and
+  // the year once it isn't this one.
+  var dated = function (n) {
+    var now = new Date();
+    var d = new Date(now.getFullYear(), now.getMonth(), now.getDate() + n);
+    return d.toLocaleDateString('en-US', d.getFullYear() === now.getFullYear() ? { month: 'short', day: 'numeric' } : { month: 'short', day: 'numeric', year: 'numeric' });
   };
   var row = function (title) {
     return Array.prototype.find.call(document.querySelectorAll('.ca-todorow'), function (r) { return r.querySelector('.ca-todorow-title').textContent.indexOf(title) === 0; });
@@ -29,7 +39,7 @@
       check('due today in amber', chip('Show how long each check') === 'Due today today', chip('Show how long each check'));
       check('tomorrow', chip('Write up the config.toml') === 'Due tomorrow soon', chip('Write up the config.toml'));
       check('within the week by its day', /^Due (Mon|Tue|Wed|Thu|Fri|Sat|Sun) soon$/.test(chip('Publish the release notes')), chip('Publish the release notes'));
-      check('later by its date', /^Due [A-Z][a-z]{2} \d+ later$/.test(chip('Cut the board push')), chip('Cut the board push'));
+      check('later by its date, with its year when that is another', chip('Cut the board push') === 'Due ' + dated(12) + ' later', chip('Cut the board push'));
       check('none without one', chip('Try the floating bar') === 'none', chip('Try the floating bar'));
       select('Write up the config.toml');
       return until(function () { return document.querySelector('.ca-todoinsp .ca-duenote'); }, 6000);

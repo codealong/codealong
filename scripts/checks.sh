@@ -16,18 +16,26 @@
 #                                     another), over the same snapshots: the ones that fail there
 #                                     too, on the same things, are this Mac's data, not your
 #                                     change, and only the others count as failures. Among the
-#                                     others: one that fails there on something else, and one
-#                                     that gave no result here or there (run it again)
+#                                     others: one that fails there on something else, or on
+#                                     fewer, one whose report is cut short and isn't the base's
+#                                     word for word, and one that gave no result here or there
+#                                     (run it again)
 #   scripts/checks.sh --jobs=6 …      the checks in six sets side by side, each in a copy of the
 #                                     build and the snapshots, for a Mac with cores to spare:
 #                                     the gate in minutes
 #   scripts/checks.sh --fixture --listed queue   only the runs of queue-check.js the gate lists
+#   scripts/checks.sh --prepared …    against the UI and the snapshots an earlier run left in the
+#                                     folder, building and reading nothing again: its last line
+#                                     says the UI wasn't built, so what passed isn't taken for
+#                                     today's code. Only this asks for it: a PREVIEW_PREPARE left
+#                                     exported does nothing here
 #   scripts/checks.sh -v …            also what each check noted for a pass, and the commands
 #                                     the stub had no answer for
 #   scripts/checks.sh --results=<file> …  also writes a line for each run to <file>: its result
 #                                     (PASS, FAIL, or NONE for a run that failed before its check
-#                                     said anything), its check, its run line, its label and what
-#                                     failed as the check worded it, with tabs between
+#                                     said anything), its check, its run line, its label, what
+#                                     failed as the check worded it and how many passed of how
+#                                     many (7/9), with tabs between
 #
 # How a check runs is in its own header: each comment line there that is a whole preview.sh
 # command for that file,
@@ -51,15 +59,14 @@
 # this checkout's, PREVIEW_DIR, PREVIEW_SCHEME=dark. With --fixture only PREVIEW_BIN and
 # PREVIEW_DIR do, and every other PREVIEW_* variable is taken away, so the made-up Mac's runs
 # are the same whoever starts them; its build and snapshots are in .preview/fixture, apart from
-# this Mac's in .preview. PREVIEW_PREPARE=skip runs against the build and the snapshots an
-# earlier run left in that folder, for several sets of checks side by side, each in a copy of it.
+# this Mac's in .preview.
 #
 # Each run gets as long as its PREVIEW_WAIT and a minute and a half more (two and a half minutes
 # on virtual time), then it's stopped and fails: headless Chrome can hang on a busy Mac.
 # gtimeout (coreutils) does the stopping when it's installed. A run whose page Chrome never
 # showed gets one more go at once, and a run that gave no result (that, a run stopped, a
-# preview.sh that failed, a set of --jobs that stopped short) gets another once the rest are
-# through, by itself; the check's other runs keep what they said.
+# preview.sh that failed, one a set of --jobs never got to before it stopped short) gets another
+# once the rest are through, by itself; every run that said how it went keeps what it said.
 set -uo pipefail
 cd "$(dirname "$0")/.."
 
@@ -70,6 +77,7 @@ only_listed=0
 jobs=1
 base=""
 results=""
+prepared=0
 wanted=()
 for arg in "$@"; do
   case "$arg" in
@@ -89,6 +97,7 @@ for arg in "$@"; do
     --base) base="merge-base" ;;
     --base=*) base="${arg#--base=}" ;;
     --results=*) results="${arg#--results=}" ;;
+    --prepared) prepared=1 ;;
     -h | --help)
       sed -n '2,/^set -uo/p' "$0" | sed '$d; s/^# \{0,1\}//'
       exit 0
@@ -145,9 +154,10 @@ listed() {
 # apart from this Mac's.
 dir="${PREVIEW_DIR:-.preview}"
 [ $fixture -eq 0 ] || dir="${PREVIEW_DIR:-.preview/fixture}"
-# Only what a check's own run line sets reaches it.
-prepared="${PREVIEW_PREPARE:-}"
-unset PREVIEW_WAIT PREVIEW_TODOS PREVIEW_INSIGHTS PREVIEW_ROUTE PREVIEW_CANVAS PREVIEW_USAGE PREVIEW_DEVICES \
+# Only what a check's own run line sets reaches it. PREVIEW_PREPARE among them: left exported,
+# it would have this run skip the build and pass on the UI of whenever that folder was built
+# (--prepared asks for that, and the run says so).
+unset PREVIEW_WAIT PREVIEW_DATE PREVIEW_TODOS PREVIEW_INSIGHTS PREVIEW_ROUTE PREVIEW_CANVAS PREVIEW_USAGE PREVIEW_DEVICES \
   PREVIEW_NOTICES PREVIEW_SKILLS PREVIEW_FOUND PREVIEW_TRANSCRIPT PREVIEW_LOADING PREVIEW_PIN PREVIEW_SIZE PREVIEW_NOTCH \
   PREVIEW_INIT PREVIEW_NAME PREVIEW_PORT PREVIEW_PREPARE PREVIEW_BOARDS PREVIEW_BOARDS_OFF PREVIEW_GROUP PREVIEW_VOICE PREVIEW_KEYS \
   PREVIEW_FIXTURE
@@ -197,11 +207,20 @@ limited() {
 
 out="$(mktemp)"
 work=""
-trap 'rm -f "$out" "$out.err" "$out.stopped" "$out.runs" "$out.again" "$out.kept"; [ -z "$work" ] || rm -rf "$work"' EXIT
+# What's said last of all, whichever way the run ends: that the UI wasn't built (--prepared).
+unbuilt=""
+trap 'rm -f "$out" "$out.err" "$out.stopped" "$out.runs" "$out.again" "$out.kept"; [ -z "$work" ] || rm -rf "$work"; [ -z "$unbuilt" ] || echo "$unbuilt"' EXIT
 : >"$out.runs"
 : >"$out.again"
+# A set of a run side by side says each result as it has it (--results), so that one stopped
+# part way has said all it found; any other run writes its results once, at the end.
+publish=""
+if [ -n "${CHECKS_SET:-}" ] && [ -n "$results" ]; then
+  publish="$results"
+  : >"$publish"
+fi
 
-if [ "$prepared" = skip ]; then
+if [ $prepared -eq 1 ]; then
   echo "Running against what $dir holds…"
 else
   echo "Building the UI and $([ $fixture -eq 1 ] && echo "making up a board" || echo "reading the board")…"
@@ -216,14 +235,25 @@ failed=0
 skipped=0
 unanswered=""
 # One run's result, for --results and --base: PASS or FAIL as the check said, or NONE for a run
-# that failed without the check saying (`said` below); then its check, run line and label, and
-# for a failure what failed, as the check worded it (`<name>: <why>; <name>: <why>`).
+# that failed without the check saying (`said` below); then its check, run line and label, for
+# a failure what failed, as the check worded it (`<name>: <why>; <name>: <why>`), and how many
+# passed of how many (`7/9`).
 record() {
-  printf '%s\t%s\t%s\t%s\t%s\n' "$1" "$2" "$3" "$4" "${5:-}" >>"$out.runs"
+  local row
+  row="$(printf '%s\t%s\t%s\t%s\t%s\t%s' "$1" "$2" "$3" "$4" "${5:-}" "${6:-}")"
+  printf '%s\n' "$row" >>"$out.runs"
+  [ -z "$publish" ] || printf '%s\n' "$row" >>"$publish"
 }
-# Whether a run is one to go again: with nothing to go again, every run is.
+# Whether a run has a row already: its check and its run line, the whole of each.
+ran() {
+  check="$1" asked="$2" awk -F'\t' '$2 == ENVIRON["check"] && $3 == ENVIRON["asked"] { found = 1 } END { exit !found }' "$out.runs"
+}
+# Whether a run is one to go again: with nothing to go again, every run is; else one that's
+# named, and of a check whose set stopped short, which names none, each it left no row for.
 going_again() {
-  [ ! -s "$out.again" ] || grep -qxF -- "$1"$'\t'"$2" "$out.again" || grep -qxF -- "$1"$'\t' "$out.again"
+  [ -s "$out.again" ] || return 0
+  ! grep -qxF -- "$1"$'\t'"$2" "$out.again" || return 0
+  grep -qxF -- "$1"$'\t' "$out.again" && ! ran "$1" "$2"
 }
 # Whether a results file has a row whose field `$2` is `$3`, the whole of it. (Not `cut | grep
 # -q`: under pipefail a grep that has its answer fails the cut still writing to it.)
@@ -343,11 +373,11 @@ run_here() {
       case "$result" in
         PASS\ *)
           passed=$((passed + 1))
-          record PASS "$name" "$asked" "$label"
+          record PASS "$name" "$asked" "$label" "" "$count"
           ;;
         *)
           failed=$((failed + 1))
-          record "$said" "$name" "$asked" "$label" "${why# }"
+          record "$said" "$name" "$asked" "$label" "${why# }" "$count"
           ;;
       esac
       # What the check noted is always worth a line; what went unanswered is for a failure, or -v.
@@ -394,7 +424,7 @@ run_side_by_side() {
     [ $gate -eq 0 ] || args+=(--listed)
     [ $verbose -eq 0 ] || args+=(-v)
     # shellcheck disable=SC2046
-    CHECKS_SET=1 PREVIEW_PREPARE=skip PREVIEW_DIR="$sets/$k" scripts/checks.sh "${args[@]}" $(cat "$sets/names.$k") >"$sets/out.$k" 2>&1 &
+    CHECKS_SET=1 PREVIEW_DIR="$sets/$k" scripts/checks.sh --prepared "${args[@]}" $(cat "$sets/names.$k") >"$sets/out.$k" 2>&1 &
     pids+=($!)
   done
   # While they run, a word a minute on how far along they are.
@@ -413,15 +443,17 @@ run_side_by_side() {
     awk -v name="$name" 'FNR == 1 { on = 0 } /^(PASS|FAIL|SKIP)  /{ on = ($2 == name) } /^$/{ on = 0 } on' "$sets"/out.*
   done
   cat "$sets"/runs.* >>"$out.runs" 2>/dev/null
-  # A set that didn't get to its count stopped short: what it said instead. Its results are
-  # written as it ends, so it left none, and each of its checks is recorded as having given no
-  # result: a failure that stands, and that --base can see, unless its other go says otherwise.
+  # A set that didn't get to its count stopped short: what it said instead. It said each result
+  # as it had it, and those stand: a failure it found isn't to be run away by another go. What
+  # it never got to has no row, so each of its checks is recorded as having given no result,
+  # with no run named, and the runs without a row go again: a failure that stands, and that
+  # --base can see, unless its other go says otherwise.
   for item in $(grep -L -E '^[0-9]+ passed, ' "$sets"/out.* 2>/dev/null); do
     k="${item##*.}"
     echo "FAIL  a set of checks stopped short ($(tr '\n' ' ' <"$sets/names.$k")):"
     sed 's/^/      /' "$item" | tail -5
     while IFS= read -r name; do
-      has_row "$sets/runs.$k" 2 "$name" || record NONE "$name" "" "" "its set of checks stopped short"
+      record NONE "$name" "" "" "its set of checks stopped short"
     done <"$sets/names.$k"
   done
   skipped=$(($(cat "$sets"/out.* | grep -c '^SKIP  ')))
@@ -437,13 +469,13 @@ fi
 # or the Mac was too busy for the page to come in time. Those runs get one more go, one at a
 # time now that the rest are through, and what they say then is what counts. Only those: a run
 # of the same check that did say how it went keeps what it said. (A check whose set stopped
-# short has no run to name, and all of its runs go again.) Not in a set of a run side by side,
-# whose results the run that started it goes over.
+# short has no run to name: the ones it left no row for go again.) Not in a set of a run side by
+# side, whose results the run that started it goes over.
 awk -F'\t' '$1 == "NONE" { print $2 FS $3 }' "$out.runs" >"$out.again"
 if [ -s "$out.again" ] && [ -z "${CHECKS_SET:-}" ]; then
   again="$(cut -f1 "$out.again" | sort -u)"
   echo
-  echo "Trying again the $(($(grep -c '' "$out.again"))) that gave no result, of: $(echo $again)"
+  echo "Trying again the runs that gave no result, of: $(echo $again)"
   awk -F'\t' '$1 != "NONE"' "$out.runs" >"$out.kept"
   mv "$out.kept" "$out.runs"
   kept=$skipped
@@ -455,7 +487,8 @@ fi
 # The gate's list names runs: one no check has any more (its check renamed, its run line
 # changed) would otherwise stop being checked without a word. With checks named, their lines.
 if [ $gate -eq 1 ]; then
-  while IFS= read -r asked; do
+  # (`read` fails at a last line with no newline after it, having read it.)
+  while IFS= read -r asked || [ -n "$asked" ]; do
     case "$asked" in "" | "#"*) continue ;; esac
     name="$(basename "${asked##* }" -check.js)"
     [ $named -eq 0 ] || case " ${asked_for[*]} " in *" $name "*) ;; *) continue ;; esac
@@ -468,10 +501,14 @@ fi
 # Counted from what's recorded, whichever way they ran.
 passed=$(($(grep -c '^PASS' "$out.runs")))
 failed=$(($(grep -c -v '^PASS' "$out.runs")))
-[ -z "$results" ] || cp "$out.runs" "$results"
+[ -z "$results" ] || [ -n "$publish" ] || cp "$out.runs" "$results"
 
 echo
 echo "$passed passed, $failed failed$([ $skipped -eq 0 ] || echo ", $skipped not run")."
+# Said last, by the run someone started and not by a set of it.
+if [ $prepared -eq 1 ] && [ -z "${CHECKS_SET:-}" ]; then
+  unbuilt="Not built (--prepared): these ran against the UI and the snapshots $dir already held, which may not be this checkout's code."
+fi
 # Every command the stub answered null, across the runs: a new one whose answer the page shows
 # belongs in fake-tauri.js.
 names="$(printf '%s' "$unanswered" | sed '/^$/d' | sort -u | tr '\n' ' ')"
@@ -523,14 +560,14 @@ fi
 [ ! -f "$dir/snapshot-of" ] || cp "$dir/snapshot-of" "$work/.preview/"
 # This script runs them there, so whatever the base's own did, the two runs are read alike.
 cp scripts/checks.sh "$work/scripts/checks.sh"
-there=(env -u PREVIEW_DIR -u PREVIEW_BIN PREVIEW_PREPARE=skip)
+there=(env -u PREVIEW_DIR -u PREVIEW_BIN)
 # The engine the snapshots came from, for a run that asks it for more (a conversation): the one
 # named, else this checkout's as the first run left it, not built again now. By its whole path,
 # as it's run from the base's folder.
 engine="${PREVIEW_BIN:-.preview/engine/codealong}"
 case "$engine" in /*) ;; *) engine="$PWD/$engine" ;; esac
 [ ! -x "$engine" ] || there+=("PREVIEW_BIN=$engine")
-there+=(scripts/checks.sh "--results=$work/runs.tsv" "--jobs=$jobs")
+there+=(scripts/checks.sh --prepared "--results=$work/runs.tsv" "--jobs=$jobs")
 again=()
 while IFS= read -r name; do
   [ -z "$name" ] || [ ! -f "$work/scripts/preview/$name-check.js" ] || again+=("$name")
@@ -542,25 +579,38 @@ if [ ${#again[@]} -gt 0 ]; then
 fi
 # Each failure here by what the base made of the same run of the same check. Only one whose
 # check said what failed, and said the same there, is the data's (`too`): every `<name>: <why>`
-# that fails here fails so on the base. The rest count against the change: passing there; failing
-# there on something else, which a new failure could hide behind; not a run of the base's (a new
-# check, a run line that changed); and a run that gave no result, here or there, which says
+# that fails here fails so on the base, and no more fail here than there. The rest count
+# against the change: passing there; failing there on something else, which a new failure could
+# hide behind (`other`), or on fewer (`more`); a report cut short (prelude.js cuts a long one,
+# and ends it with an ellipsis), which names only its first failures and so is the base's only
+# when the two are the same word for word and count for count (`cut`); not a run of the base's (a
+# new check, a run line that changed); and a run that gave no result, here or there, which says
 # nothing of the check either way. (Its parts are set apart by a character no label has, and
 # not a tab: read takes tabs side by side for one, and a label can be empty.)
-verdicts="$(awk -F'\t' -v there="$work/runs.tsv" -v sep=$'\037' '
-  BEGIN { while ((getline run < there) > 0) { split(run, part, FS); on_base[part[2] FS part[3]] = part[1]; failed_there[part[2] FS part[3]] = part[5] } }
+verdicts="$(awk -F'\t' -v there="$work/runs.tsv" -v sep=$'\037' -v cut_at="…" '
+  # How many failed, of a count as a row has it (7/9); -1 for a row without one.
+  function failures(count,    part) { return split(count, part, "/") == 2 ? part[2] - part[1] : -1 }
+  function is_cut(text) { return length(text) >= length(cut_at) && substr(text, length(text) - length(cut_at) + 1) == cut_at }
+  BEGIN { while ((getline run < there) > 0) { split(run, part, FS); k = part[2] FS part[3]; on_base[k] = part[1]; failed_there[k] = part[5]; count_there[k] = part[6] } }
   $1 == "PASS" { next }
   {
-    was = on_base[$2 FS $3]
+    k = $2 FS $3
+    was = on_base[k]
     verdict = $1 == "NONE" ? "unsaid" : was == "PASS" ? "new" : was == "NONE" ? "unsettled" : was == "FAIL" ? "too" : "gone"
     only = ""
     if (verdict == "too") {
-      split("", there_too)
-      n = split(failed_there[$2 FS $3], part, "; ")
-      for (i = 1; i <= n; i++) there_too[part[i]] = 1
-      n = split($5, part, "; ")
-      for (i = 1; i <= n; i++) if (!(part[i] in there_too)) only = only (only == "" ? "" : "; ") part[i]
-      if (only != "") verdict = "other"
+      counts = $6 " here, " count_there[k] " there"
+      if (is_cut($5) || is_cut(failed_there[k])) {
+        if ($5 != failed_there[k] || failures($6) != failures(count_there[k])) { verdict = "cut"; only = counts }
+      } else {
+        split("", there_too)
+        n = split(failed_there[k], part, "; ")
+        for (i = 1; i <= n; i++) there_too[part[i]] = 1
+        n = split($5, part, "; ")
+        for (i = 1; i <= n; i++) if (!(part[i] in there_too)) only = only (only == "" ? "" : "; ") part[i]
+        if (only != "") verdict = "other"
+        else if (failures($6) > failures(count_there[k]) && failures(count_there[k]) >= 0) { verdict = "more"; only = counts }
+      }
     }
     print verdict sep $2 sep $4 sep only
   }' "$out.runs")"
@@ -576,6 +626,16 @@ while IFS=$'\037' read -r verdict name label only; do
     other)
       printf 'FAIL, not as on %s  %-22s %s\n' "$short" "$name" "$label"
       printf '      here only: %s\n' "$only"
+      mine=$((mine + 1))
+      ;;
+    more)
+      printf 'FAIL, more than on %s  %-22s %s\n' "$short" "$name" "$label"
+      printf '      %s\n' "$only"
+      mine=$((mine + 1))
+      ;;
+    cut)
+      printf 'FAIL, its report cut short  %-22s %s\n' "$name" "$label"
+      printf '      %s: only what it names first is known, and the two are not the same\n' "$only"
       mine=$((mine + 1))
       ;;
     gone)

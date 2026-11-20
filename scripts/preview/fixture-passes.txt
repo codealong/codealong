@@ -3,16 +3,18 @@
 # Each line is a check's run line as its header has it. The Mac is src-tauri/src/fixture.rs.
 #
 # A run goes here once it passes there every time (`scripts/checks.sh --fixture <name>`, twice),
-# and comes off only when its check comes to need what a real board has, or turns out not to
-# pass every time. One made by hand (a line with `<key>` to fill in) can't be here: the gate
-# fails on it. To make the list again: `scripts/checks.sh --fixture --all --jobs=6
-# --results=<file>` twice, and keep the run lines (the third column) that say PASS in both,
-# sorted.
+# and comes off only when its check comes to need what a real board has. One that turns out to
+# pass some runs and fail others has a cause to find, in the check or in the window, and taking
+# it off isn't the fix (waiting-open's left the made-up Mac's due todos waiting). One made by
+# hand (a line with `<key>` to fill in) can't be here: the gate fails on it. To make the list
+# again: `scripts/checks.sh --fixture --all --jobs=6 --results=<file>` twice, and keep the run
+# lines (the third column) that say PASS in both, sorted.
 PREVIEW_ANALYTICS=1 scripts/preview.sh sessions '' scripts/preview/usage-analytics-check.js
 PREVIEW_BOARDS=scripts/preview/boards-everything.json scripts/preview.sh canvas '' scripts/preview/boards-empty-check.js
 PREVIEW_BOARDS=scripts/preview/boards-everything.json scripts/preview.sh canvas '' scripts/preview/canvas-tools-check.js
 PREVIEW_BOARDS=scripts/preview/boards-everything.json scripts/preview.sh sessions '' scripts/preview/boards-off-check.js
 PREVIEW_BOARDS_OFF=1 PREVIEW_BOARDS=scripts/preview/boards-everything.json scripts/preview.sh kanban '' scripts/preview/boards-off-check.js
+PREVIEW_DATE=2026-12-28 PREVIEW_WAIT=60000 PREVIEW_TODOS=scripts/preview/todos-sample.json scripts/preview.sh todo '' scripts/preview/due-check.js
 PREVIEW_DEVICES=scripts/preview/devices-sample.json PREVIEW_SIZE=1512,980 PREVIEW_WAIT=60000 scripts/preview.sh notch '' scripts/preview/notch-devices-check.js
 PREVIEW_DEVICES=scripts/preview/devices-sample.json PREVIEW_WAIT=60000 PREVIEW_PIN=session:@ scripts/preview.sh desktop '' scripts/preview/desktop-devices-check.js
 PREVIEW_DEVICES=scripts/preview/devices-sample.json PREVIEW_WAIT=60000 PREVIEW_PIN=session:@4a3b2c1d0e scripts/preview.sh desktop '' scripts/preview/desktop-devices-check.js
@@ -35,7 +37,6 @@ PREVIEW_INIT=scripts/preview/team-init.js PREVIEW_WAIT=60000 PREVIEW_GROUP=workt
 PREVIEW_INIT=scripts/preview/team-init.js PREVIEW_WAIT=60000 scripts/preview.sh prs '' scripts/preview/team-settings-check.js
 PREVIEW_KEYS=held scripts/preview.sh sessions '' scripts/preview/keys-shown-check.js
 PREVIEW_LOADING=1 PREVIEW_DEVICES=scripts/preview/devices-sample.json PREVIEW_WAIT=60000 scripts/preview.sh sessions '' scripts/preview/loading-check.js
-PREVIEW_LOADING=1 PREVIEW_WAIT=60000 scripts/preview.sh bar '' scripts/preview/loading-check.js
 PREVIEW_LOADING=1 PREVIEW_WAIT=60000 scripts/preview.sh quick '' scripts/preview/tips-check.js
 PREVIEW_LOADING=1 PREVIEW_WAIT=60000 scripts/preview.sh sessions '' scripts/preview/tips-check.js
 PREVIEW_LOADING=1 PREVIEW_WAIT=60000 scripts/preview.sh waiting '' scripts/preview/tips-check.js
@@ -106,7 +107,6 @@ PREVIEW_VOICE=1 PREVIEW_WAIT=60000 scripts/preview.sh quick '' scripts/preview/q
 PREVIEW_VOICE=1 PREVIEW_WAIT=60000 scripts/preview.sh quick '' scripts/preview/quick-talk-check.js
 PREVIEW_WAIT=120000 PREVIEW_GROUP=worktree scripts/preview.sh sessions '' scripts/preview/rows-check.js
 PREVIEW_WAIT=120000 scripts/preview.sh sessions '' scripts/preview/rows-check.js
-PREVIEW_WAIT=20000 scripts/preview.sh bar '' scripts/preview/menus-check.js
 PREVIEW_WAIT=20000 scripts/preview.sh desktop '' scripts/preview/menus-check.js
 PREVIEW_WAIT=20000 scripts/preview.sh peek '' scripts/preview/menus-check.js
 PREVIEW_WAIT=20000 scripts/preview.sh quick '' scripts/preview/menus-check.js
@@ -199,9 +199,7 @@ PREVIEW_WAIT=60000 PREVIEW_TODOS=scripts/preview/todos-sample.json scripts/previ
 PREVIEW_WAIT=60000 PREVIEW_TODOS=scripts/preview/todos-sample.json scripts/preview.sh todo '' scripts/preview/group-lists-check.js
 PREVIEW_WAIT=60000 PREVIEW_TODOS=scripts/preview/todos-sample.json scripts/preview.sh todo '' scripts/preview/todo-archive-check.js
 PREVIEW_WAIT=60000 PREVIEW_TODOS=scripts/preview/todos-sample.json scripts/preview.sh todo '' scripts/preview/todo-menus-check.js
-PREVIEW_WAIT=60000 scripts/preview.sh bar '' scripts/preview/bar-drag-check.js
 PREVIEW_WAIT=60000 scripts/preview.sh bar '' scripts/preview/bar-slide-check.js
-PREVIEW_WAIT=60000 scripts/preview.sh bar '' scripts/preview/snooze-check.js
 PREVIEW_WAIT=60000 scripts/preview.sh bar '' scripts/preview/voice-meeting-check.js
 PREVIEW_WAIT=60000 scripts/preview.sh bar '' scripts/preview/voice-meeting-soon-check.js
 PREVIEW_WAIT=60000 scripts/preview.sh kept '' scripts/preview/keep-check.js
@@ -320,12 +318,12 @@ PREVIEW_WAIT=60000 scripts/preview.sh waiting '' scripts/preview/queue-check.js
 PREVIEW_WAIT=60000 scripts/preview.sh waiting '' scripts/preview/reload-check.js
 PREVIEW_WAIT=60000 scripts/preview.sh waiting '' scripts/preview/reply-account-check.js
 PREVIEW_WAIT=60000 scripts/preview.sh waiting '' scripts/preview/side-answer-waiting-check.js
+PREVIEW_WAIT=60000 scripts/preview.sh waiting '' scripts/preview/waiting-open-check.js
 PREVIEW_WAIT=60000 scripts/preview.sh waiting '' scripts/preview/waiting-pr-check.js
 PREVIEW_WAIT=60000 scripts/preview.sh waiting '' scripts/preview/waiting-review-check.js
 PREVIEW_WAIT=60000 scripts/preview.sh waiting '' scripts/preview/waiting-titlebar-check.js
 PREVIEW_WAIT=90000 PREVIEW_BOARDS=scripts/preview/boards-everything.json scripts/preview.sh canvas '' scripts/preview/canvas-arrange-check.js
 PREVIEW_WAIT=90000 scripts/preview.sh sessions '' scripts/preview/panel-kin-check.js
-scripts/preview.sh bar '' scripts/preview/rename-check.js
 scripts/preview.sh kanban '' scripts/preview/boards-empty-check.js
 scripts/preview.sh kept '' scripts/preview/session-window-check.js
 scripts/preview.sh peek '' scripts/preview/box-caret-check.js

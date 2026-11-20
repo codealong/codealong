@@ -2,8 +2,9 @@
 // which runs get another go, what --base makes of a failure, and that nothing of this Mac's
 // ends up in the made-up Mac's page. Each is run for real, in a folder made for the test, over
 // stand-ins for what it starts (an engine, vite's build, and for checks.sh a preview.sh that
-// says what each run is told to), so no browser, no build and no board is needed. It's here
-// rather than beside the scripts so that typecheck and lint read it, as land.test.ts is.
+// says what each run is told to), so no browser, no build, no board and no socket is needed:
+// every landing runs this, some of them in a sandbox that lets a program listen on nothing. It's
+// here rather than beside the scripts so that typecheck and lint read it, as land.test.ts is.
 // The project has no types for node (the tests are the only code that runs there).
 // @ts-expect-error no @types/node
 import { spawn } from 'node:child_process';
@@ -98,9 +99,18 @@ step chmod +x "$tmp/bin/npx" "$tmp/bin/npm"
 
 // preview.sh itself, with two engines to run: one that has a made-up Mac and says of everything
 // it prints which Mac it's of (FAIL_AT names a snapshot it fails at), and one from before there
-// was one, which prints this Mac's whatever it's asked.
+// was one, which prints this Mac's whatever it's asked. And a python3 that opens no socket, as
+// in a sandbox: nothing here gets as far as a page, so nothing here may ask for a port.
 const PREVIEW = `${FOLDER}
 step cp "$1" scripts/preview.sh
+REAL_PYTHON="$(command -v python3)" || exit 9
+export REAL_PYTHON
+cat >"$tmp/bin/python3" <<'EOF'
+#!/usr/bin/env bash
+case "$*" in *socket*) echo "PermissionError: [Errno 1] Operation not permitted" >&2; exit 1 ;; esac
+exec "$REAL_PYTHON" "$@"
+EOF
+step chmod +x "$tmp/bin/python3"
 cat >"$tmp/bin/engine" <<'EOF'
 #!/usr/bin/env bash
 if [ "\${2:-}" != --fixture ]; then
@@ -134,7 +144,16 @@ echo "the made-up Mac: $?, a folder of $(of .preview/fixture) with $(real .previ
 PREVIEW_FIXTURE=1 PREVIEW_PREPARE=skip PREVIEW_DIR=.preview scripts/preview.sh >/dev/null 2>"$tmp/err"
 echo "the made-up Mac, from this Mac's folder: $?, refused $(refused "holds the snapshots of this Mac, not of the made-up Mac")"
 PREVIEW_PREPARE=skip PREVIEW_DIR=.preview/fixture scripts/preview.sh >/dev/null 2>"$tmp/err"
-echo "this Mac, from the made-up Mac's folder: $?, refused $(refused "holds the snapshots of the made-up Mac, not of this Mac")"
+echo "this Mac, from the made-up Mac's folder: $?, refused $(refused "holds the snapshots of the made-up Mac, as its engine named it, not of this Mac")"
+# A folder marked as the made-up Mac's before an engine was asked for its name, which an engine
+# from before could have filled with this Mac's.
+step mkdir "$tmp/before"
+echo '{"of": "REAL"}' >"$tmp/before/board.json"
+echo "the made-up Mac" >"$tmp/before/snapshot-of"
+PREVIEW_FIXTURE=1 PREVIEW_PREPARE=skip PREVIEW_DIR="$tmp/before" scripts/preview.sh >/dev/null 2>"$tmp/err"
+echo "the made-up Mac, from a folder marked before engines were asked: $?, refused $(refused "holds the snapshots of the made-up Mac, not of the made-up Mac, as its engine named it")"
+PREVIEW_DATE=soon PREVIEW_FIXTURE=1 PREVIEW_PREPARE=only PREVIEW_BIN="$tmp/bin/engine" scripts/preview.sh >/dev/null 2>"$tmp/err"
+echo "a day that isn't one: $?, refused $(refused 'PREVIEW_DATE is a day')"
 PREVIEW_FIXTURE=1 PREVIEW_PREPARE=skip PREVIEW_TRANSCRIPT=claude:claude:checkout-reply PREVIEW_BIN="$tmp/bin/old-engine" scripts/preview.sh >/dev/null 2>"$tmp/err"
 echo "a conversation, asked of the engine from before: $?, refused $(refused 'has no made-up Mac'), $(real .preview/fixture) of this Mac's kept"
 
@@ -156,9 +175,12 @@ test('nothing of this Mac’s is shown as the made-up Mac’s', { timeout: WAIT 
     "an engine from before it had a made-up Mac: 1, refused 1, 0 of this Mac's kept",
     'this Mac: 0, a folder of this Mac',
     // In a folder of its own, beside this Mac's and not over it.
-    "the made-up Mac: 0, a folder of the made-up Mac with 0 of this Mac's, beside this Mac's",
+    "the made-up Mac: 0, a folder of the made-up Mac, as its engine named it with 0 of this Mac's, beside this Mac's",
     "the made-up Mac, from this Mac's folder: 1, refused 1",
     "this Mac, from the made-up Mac's folder: 1, refused 1",
+    // The bare name was once written over whatever an engine printed, so it says nothing now.
+    'the made-up Mac, from a folder marked before engines were asked: 1, refused 1',
+    "a day that isn't one: 1, refused 1",
     "a conversation, asked of the engine from before: 1, refused 1, 0 of this Mac's kept",
     // The snapshots a run didn't get to are this Mac's from the run before, unless they're
     // taken away first; and the folder is the made-up Mac's only once it has every one.
@@ -171,10 +193,10 @@ test('nothing of this Mac’s is shown as the made-up Mac’s', { timeout: WAIT 
 
 // checks.sh itself, over a preview.sh that says of each run what scripts/preview/outcomes has
 // for it: "<check> <view>[-<scheme>]: <its first go> | <its second> | …", the last for every go
-// after, and a pass for a run it doesn't name. A go is PASS, FAIL <what failed>, NONE (the check
-// never said how it went) or DIE (the set of checks it's in is killed, before it writes what
-// it found). Four checks, each with a run in light and one in dark, and the lot committed: the
-// commit is --base's.
+// after, and a pass for a run it doesn't name. A go is PASS, FAIL <what failed> (one of two
+// failing, or FAIL 0/10 <what failed> for a count of its own), NONE (the check never said how it
+// went) or DIE (the set of checks it's in is killed where it stands). Four checks, each with a
+// run in light and one in dark, and the lot committed: the commit is --base's.
 const CHECKS = `${FOLDER}
 step cp "$1" scripts/checks.sh
 cat >scripts/preview.sh <<'EOF'
@@ -210,6 +232,10 @@ case "$says" in
       case "$(ps -o command= -p "$pid")" in *scripts/checks.sh*) kill -9 "$pid"; break ;; esac
       pid="$(ps -o ppid= -p "$pid" | tr -d ' ')"
     done
+    exit 1
+    ;;
+  FAIL\\ [0-9]*/[0-9]*\\ *)
+    echo "$says"
     exit 1
     ;;
   *)
@@ -265,12 +291,17 @@ test('the made-up Mac’s runs get nothing from whoever starts them, and the gat
     `${CHECKS}
 says
 { light alpha; dark alpha; } >scripts/preview/fixture-passes.txt
-SEEN="$tmp/seen" PREVIEW_PLATFORM=linux PREVIEW_SCHEME=dark PREVIEW_SCHEDULES=s.json PREVIEW_SETUP=u.json PREVIEW_ANALYTICS=1 PREVIEW_IMAGES=/pictures scripts/checks.sh --fixture >"$tmp/out" 2>&1
-echo "the gate: $?: $(count)"
+SEEN="$tmp/seen" PREVIEW_PREPARE=skip PREVIEW_PLATFORM=linux PREVIEW_SCHEME=dark PREVIEW_SCHEDULES=s.json PREVIEW_SETUP=u.json PREVIEW_ANALYTICS=1 PREVIEW_IMAGES=/pictures PREVIEW_DATE=2026-12-28 scripts/checks.sh --fixture >"$tmp/out" 2>&1
+echo "the gate: $?: $(tail -n 1 "$tmp/out")"
 cat "$tmp/seen"
 rm "$tmp/seen"
-SEEN="$tmp/seen" PREVIEW_SCHEME=dark scripts/checks.sh beta >"$tmp/out" 2>&1
-echo "this Mac's data: $?: $(count)"
+SEEN="$tmp/seen" PREVIEW_PREPARE=skip PREVIEW_SCHEME=dark scripts/checks.sh beta >"$tmp/out" 2>&1
+echo "this Mac's data: $?: $(tail -n 1 "$tmp/out")"
+cat "$tmp/seen"
+rm "$tmp/seen"
+SEEN="$tmp/seen" scripts/checks.sh --fixture --prepared >"$tmp/out" 2>&1
+echo "the gate, asked not to build: $?: $(count)"
+tail -n 1 "$tmp/out"
 cat "$tmp/seen"
 
 check zeta "PREVIEW_TRANSCRIPT=<key> scripts/preview.sh sessions '' scripts/preview/zeta-check.js"
@@ -278,7 +309,8 @@ echo "PREVIEW_TRANSCRIPT=<key> scripts/preview.sh sessions '' scripts/preview/ze
 scripts/checks.sh --fixture >"$tmp/out" 2>&1
 echo "a run made by hand, listed: $?: $(count) $(grep -c "lists a run that's made by hand" "$tmp/out") said so."
 
-{ light alpha; echo "PREVIEW_SCHEME=sepia scripts/preview.sh sessions '' scripts/preview/alpha-check.js"; light beta; } >scripts/preview/fixture-passes.txt
+# The run its check has lost is the list's last line, with no newline after it.
+printf '%s\n%s\n%s' "$(light alpha)" "$(light beta)" "PREVIEW_SCHEME=sepia scripts/preview.sh sessions '' scripts/preview/alpha-check.js" >scripts/preview/fixture-passes.txt
 scripts/checks.sh --fixture --listed alpha >"$tmp/out" 2>&1
 echo "a listed run its check has lost, the check named: $?: $(count) $(grep -c 'lists a run no check has' "$tmp/out") said so."
 scripts/checks.sh --fixture --listed beta >"$tmp/out" 2>&1
@@ -294,6 +326,8 @@ echo "--base on the made-up Mac: $?, $(grep -c 'not with --fixture' "$tmp/out") 
     'the gate: 0: 2 passed, 0 failed.',
     // In the made-up Mac's own folder, and with nothing but what a run's own line sets: the
     // platform would have had every run check Linux's keys, and the scheme run light in dark.
+    // And built, whatever was left exported: a gate that skips the build passes on the UI of
+    // whenever the folder was made.
     'the build and the snapshots: PREVIEW_DIR=.preview/fixture PREVIEW_FIXTURE=1 PREVIEW_PREPARE=only',
     'alpha sessions: PREVIEW_DIR=.preview/fixture PREVIEW_FIXTURE=1 PREVIEW_PREPARE=skip',
     'alpha sessions-dark: PREVIEW_DIR=.preview/fixture PREVIEW_FIXTURE=1 PREVIEW_PREPARE=skip PREVIEW_SCHEME=dark',
@@ -302,6 +336,11 @@ echo "--base on the made-up Mac: $?, $(grep -c 'not with --fixture' "$tmp/out") 
     'the build and the snapshots: PREVIEW_DIR=.preview PREVIEW_PREPARE=only PREVIEW_SCHEME=dark',
     'beta sessions-dark: PREVIEW_DIR=.preview PREVIEW_PREPARE=skip PREVIEW_SCHEME=dark',
     'beta sessions-dark: PREVIEW_DIR=.preview PREVIEW_PREPARE=skip PREVIEW_SCHEME=dark',
+    // Only the command line asks for the folder as it stands, and the run's last word is that.
+    'the gate, asked not to build: 0: 2 passed, 0 failed.',
+    "Not built (--prepared): these ran against the UI and the snapshots .preview/fixture already held, which may not be this checkout's code.",
+    'alpha sessions: PREVIEW_DIR=.preview/fixture PREVIEW_FIXTURE=1 PREVIEW_PREPARE=skip',
+    'alpha sessions-dark: PREVIEW_DIR=.preview/fixture PREVIEW_FIXTURE=1 PREVIEW_PREPARE=skip PREVIEW_SCHEME=dark',
     // Not run, it would pass the gate every time.
     'a run made by hand, listed: 1: 2 passed, 1 failed. 1 said so.',
     'a listed run its check has lost, the check named: 1: 1 passed, 1 failed. 1 said so.',
@@ -313,7 +352,15 @@ echo "--base on the made-up Mac: $?, $(grep -c 'not with --fixture' "$tmp/out") 
 test('--base clears only a failure the base’s check words the same', { timeout: WAIT + 20_000 }, async () => {
   const lines = await said(
     `${CHECKS}
-says "alpha sessions: FAIL saves: nothing saved" "beta sessions: FAIL saves: nothing saved; opens: no row" "gamma sessions: FAIL saves: nothing saved"
+# Three more checks, for a report that's cut short (prelude.js ends one with an ellipsis, and
+# names only the failures that fit) and for the same words with more failing.
+for name in kappa lambda mu; do
+  check "$name" "$(light "$name")"
+done
+says "alpha sessions: FAIL saves: nothing saved" "beta sessions: FAIL saves: nothing saved; opens: no row" "gamma sessions: FAIL saves: nothing saved" \\
+  "kappa sessions: FAIL 1/10 one: a; two: b; three: and so on for as long as a title has room…" \\
+  "lambda sessions: FAIL 1/10 one: a; two: b; three: and so on for as long as a title has room…" \\
+  "mu sessions: FAIL 1/3 saves: nothing saved"
 # An engine this checkout has and the base's folder doesn't, named from here as PREVIEW_BIN may.
 step mkdir mine
 step cp "$tmp/bin/npx" mine/engine
@@ -322,7 +369,10 @@ base="$(git rev-parse --short HEAD)"
 # What --base says of each failure, without the runs' own lines and with one space for many.
 verdicts() { sed -n '/^Trying the .* that failed on/,$p' "$tmp/out" | grep -v -e '^    [A-Z]' -e '^$' -e '^Trying' | sed "s/$base/<base>/g" | tr -s ' '; }
 
-says "alpha sessions: NONE" "beta sessions: FAIL saves: nothing saved" "gamma sessions: FAIL saves: nothing saved; closes: still open" "delta sessions: FAIL opens: no row"
+says "alpha sessions: NONE" "beta sessions: FAIL saves: nothing saved" "gamma sessions: FAIL saves: nothing saved; closes: still open" "delta sessions: FAIL opens: no row" \\
+  "kappa sessions: FAIL 0/10 one: a; two: b; three: and so on for as long as a title has room…" \\
+  "lambda sessions: FAIL 1/10 one: a; two: b; three: and so on for as long as a title has room…" \\
+  "mu sessions: FAIL 0/3 saves: nothing saved"
 PREVIEW_BIN=mine/engine BUILT="$tmp/built" INSTALLED="$tmp/installed" scripts/checks.sh --base=HEAD >"$tmp/out" 2>&1
 echo "$?: $(count)"
 verdicts
@@ -341,20 +391,28 @@ echo "installed: $(cat "$tmp/installed" 2>/dev/null)"
     checks,
   );
   expect(lines).toEqual([
-    '1: 4 passed, 4 failed.',
+    '1: 4 passed, 7 failed.',
     // The base's failure covers this one only when everything that fails here fails so there.
     'fails on <base> too beta sessions',
     'FAIL here only delta sessions',
     'FAIL, not as on <base> gamma sessions',
     ' here only: closes: still open',
+    // A report cut short names only its first failures: the same words with one more failing
+    // (a tenth assertion, broken here alone, beyond the cut) are not the base's, and the same
+    // words with as many failing are.
+    'FAIL, its report cut short kappa sessions',
+    ' 0/10 here, 1/10 there: only what it names first is known, and the two are not the same',
+    'fails on <base> too lambda sessions',
+    'FAIL, more than on <base> mu sessions',
+    ' 0/3 here, 1/3 there',
     // No result twice says nothing of the check, whatever the base's run of it said.
     'FAIL, no result here alpha sessions',
-    '4 failed: 1 on <base> too, 3 not.',
+    '7 failed: 2 on <base> too, 5 not.',
     // The same packages as the base asks for: this checkout's, and the engine by its whole path
     // (the base's runs would have had no engine, and so no result, by the path it was given).
     "built with this checkout's packages",
     'installed: ',
-    '0: 7 passed, 1 failed.',
+    '0: 10 passed, 1 failed.',
     // Other packages than the base asks for: its UI is built with its own, or a failure an
     // update to one made would fail on both and pass for the data's.
     ' <base> asks for other packages than this checkout has: installing its own…',
@@ -365,7 +423,7 @@ echo "installed: $(cat "$tmp/installed" 2>/dev/null)"
   ]);
 });
 
-test('a set of checks that stops short is a failure --base can see', { timeout: WAIT + 20_000 }, async () => {
+test('a set of checks that stops short is a failure --base can see, and keeps what it had found', { timeout: WAIT + 20_000 }, async () => {
   const lines = await said(
     `${CHECKS}
 says
@@ -375,6 +433,12 @@ scripts/checks.sh --jobs=2 --base=HEAD >"$tmp/out" 2>&1
 echo "$?: $(count)"
 echo "$(grep -c 'a set of checks stopped short (beta gamma' "$tmp/out") said so; beta went $(goes 'beta sessions') and $(goes 'beta sessions-dark'), gamma $(goes 'gamma sessions') and $(goes 'gamma sessions-dark')."
 grep -e 'no result here' -e 'failed: ' "$tmp/out" | sed "s/$(git rev-parse --short HEAD)/<base>/g" | tr -s ' '
+
+# The set stops at beta's second run, having found its first failing: a failure that would pass
+# on another go.
+says "beta sessions: FAIL saves: nothing saved | PASS" "beta sessions-dark: DIE | PASS"
+scripts/checks.sh --jobs=2 >"$tmp/out" 2>&1
+echo "$?: $(count) Beta's light run went $(goes 'beta sessions'), its dark $(goes 'beta sessions-dark'), gamma's $(goes 'gamma sessions') and $(goes 'gamma sessions-dark')."
 `,
     checks,
   );
@@ -386,5 +450,9 @@ grep -e 'no result here' -e 'failed: ' "$tmp/out" | sed "s/$(git rev-parse --sho
     '1 said so; beta went 2 and 1, gamma 1 and 1.',
     'FAIL, no result here beta sessions',
     '1 failed: 0 on <base> too, 1 not.',
+    // A set says each result as it has it, so what it found before it stopped stands: only the
+    // runs it never got to go again. Its results were once written as it ended, a set that
+    // stopped left none, and the failure went again with the rest, and passed.
+    "1: 7 passed, 1 failed. Beta's light run went 1, its dark 2, gamma's 1 and 1.",
   ]);
 });
