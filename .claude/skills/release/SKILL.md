@@ -31,8 +31,9 @@ git describe --tags --abbrev=0 origin/main          # the last version tag
 gh release list -R codealong/codealong --limit 5     # drafts waiting, the latest published
 git rev-parse origin/main                            # the commit the release will tag
 gh run list -R codealong/codealong --workflow ci.yml --commit "$(git rev-parse origin/main)" --json event,status,conclusion,url   # CI's runs on that commit
-gh run list -R codealong/codealong --workflow checks.yml --branch main --limit 3 --json databaseId,event,status,conclusion,url   # the browser checks' last runs on main
+gh run list -R codealong/codealong --workflow checks.yml --branch main --event push --limit 3 --json databaseId,status,conclusion,url   # the browser checks' last runs on main
 gh api repos/codealong/codealong/actions/runs/<a run's id>/artifacts --jq '.artifacts[].name'   # tested-<commit>: the commit that run checked
+gh run view <a run's id> -R codealong/codealong --json jobs --jq '.jobs[] | .name + ": " + .conclusion'   # whether its browser checks ran, or were skipped
 ```
 
 Say what's there: the last release and whether it's published, any draft still waiting (a draft
@@ -51,7 +52,10 @@ under, which is only the push that started it.
 
 A release needs both to have passed on the commit it's made from: a run of CI that ran the
 checks (a `merge_group`, `workflow_dispatch` or `schedule` one), and a run of the browser
-checks that checked that commit. Start the one that's missing (`gh workflow run ci.yml
+checks, of the repository's own (not a fork's pull request from a branch it calls main), that
+checked that commit and whose four `browser checks` jobs succeeded: a run that found nothing
+to check since the last one passes with them skipped, which says nothing of the commit by
+itself. When in doubt start one, which always runs them. Start the one that's missing (`gh workflow run ci.yml
 -R codealong/codealong --ref main`, the same for `checks.yml`; each prints its link, which
 ends in its id), and wait for it, or for one still going, in the background (`gh run watch <id>
 -R codealong/codealong --exit-status`) while you write the notes. One that fails is fixed and
