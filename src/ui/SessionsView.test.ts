@@ -23,8 +23,12 @@ describe('sortSessions by status', () => {
   it('orders idle sessions by last prompt, falling back to last activity', () => {
     const now = new Date(2026, 8, 24, 15, 0).getTime();
     const at = (d: number, h: number) => new Date(2026, 8, d, h, 0).getTime();
-    const rows = [item('yday', at(23, 20), 'idle', at(23, 20)), item('older-prompt', at(24, 9), 'idle', at(20, 9))];
-    expect(keys(sortSessions(rows, 'status', now))).toEqual(['yday', 'older-prompt']);
+    const rows = [
+      item('older-prompt', at(24, 9), 'idle', at(20, 9)),
+      item('same-prompt-older-act', at(23, 20), 'idle', at(23, 20)),
+      item('same-prompt-newer-act', at(24, 10), 'idle', at(23, 20)),
+    ];
+    expect(keys(sortSessions(rows, 'status', now))).toEqual(['same-prompt-newer-act', 'same-prompt-older-act', 'older-prompt']);
   });
 
   it("puts what needs you, your turns and working agents first, in the bar's order", () => {

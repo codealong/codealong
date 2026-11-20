@@ -117,8 +117,8 @@ export function groupedRows(g: GroupedSessions): (SessionItem | LaneItem)[] {
   return groupsOf(g).flatMap(groupHeadRows);
 }
 
-/** A heading in the list and the sessions under it. The ones for what wants you or is running
- *  head as bays do; the rest as sections. */
+/** A heading in the list and the sessions under it. The ones for what wants you, is running or is
+ *  idle head as bays do; Snoozed and day dividers head as sections. */
 export interface SessionSection {
   id: string;
   label: string;
