@@ -2300,9 +2300,9 @@ rest (move onto it to select its text, click its PR chip to select the PR's card
 PRs when the canvas has no card of it, and double-click the chip to open it on GitHub, click a
 session in it to go to that session, right-click one for its menu), select one for its panel on the
 right (a session's shows its whole conversation and takes messages; the rest are the ones their own
-views show), filter (⌥⌘F) or pick a status in the sidebar to fade what doesn't match (a status, or
-Return in the find, also zooms to what does), double-click to open it where it lives, right-click
-for its usual menu.
+views show), filter (⌥⌘F) or pick a status or label in the sidebar to fade what doesn't match (a
+status, a label, or Return in the find also zooms to what does), double-click to open it where it
+lives, right-click for its usual menu.
 
 ##### What's on it
 
@@ -2367,9 +2367,9 @@ Picks the view (Sessions, PRs, Todo, Board) and the board it shows, and narrows 
 pick, to what was active in the last 24h, 3d or 7d, and to the statuses you pick (Needs you, Your
 turn, Working, In review, PR needs work; any of them). Some views have more to narrow by, each pick
 with its count: Sessions its agents (the accounts sessions run on) and the [labels](#labels) you put
-on them, PRs their repos, their labels on GitHub and who opened them (you first), Todo and Kanban
-the todos' labels (a double-click on a label's chip on a session or a todo shows only that label,
-as a repo's does in PRs). A long list shows its first eight and the rest under "more".
+on them, PRs their repos, their labels on GitHub and who opened them (you first), Todo and the
+Board view (Kanban and Canvas) their labels (a double-click on a label's chip on a session or a todo
+shows only that label, as a repo's does in PRs). A long list shows its first eight and the rest under "more".
 Each view keeps its picks while another shows, and showing a row from elsewhere (a link, the quick
 panel) clears what would hide it. Devices, statuses and these toggle; within one section any of the
 picks shows, none picked shows all, and Clear unpicks them. Save the view as it is under a name to
@@ -2745,7 +2745,7 @@ Review requested of their own), then the sessions whose turn ended (the working 
 them the first three todos ready to start, in your order, then the rest of the sessions started in
 the last day. A snoozed session doesn't wait on you there until its time: it's listed with the rest,
 and a search finds it as it finds any other, with a chip saying how long until it's back. Typed words find sessions by title,
-account, worktree, branch, repo, project or PR, then by what was said in them (your prompts and the
+account, worktree, branch, repo, project, label or PR, then by what was said in them (your prompts and the
 agents' replies, for sessions active in the last `[search] days`, with the matching line shown; the
 words as you typed them rank higher), six at first and the rest a row away, and under them todos by
 title, description, label, project, or the worktrees and sessions linked to them, then PRs by

@@ -6,6 +6,7 @@ import {
   ageListingPr,
   ageListingSession,
   archivedIn,
+  canvasLabelOptions,
   cardMatches,
   chainOf,
   currentProject,
@@ -1526,22 +1527,25 @@ describe('a card on the canvas, under the find and the status filter', () => {
     expect([matches('pr', failing.key, '', ['work']), matches('pr', fine.key, '', ['work'])]).toEqual([true, false]);
   });
 
-  it('goes by labels picked: todos with one, sessions and worktrees wearing one or linked to a todo with one', () => {
+  it('goes by labels picked through board subjects, with a fallback for a card outside them, and counts them honestly', () => {
     const bug: Label = { id: 'l-bug', name: 'Bug', color: 'red' };
     const ui: Label = { id: 'l-ui', name: 'UI', color: 'blue' };
     const labels = [bug, ui];
-    const own = session('claude:northwind:own', { title: 'Own label', labels: [{ id: 'l-other-mac', name: 'bug', color: 'teal' }] });
-    const onTodo = session('claude:northwind:linked', { title: 'Linked to todo' });
-    const plain = session('claude:northwind:plain', { title: 'Plain' });
+    const own = session('claude:northwind:own', { title: 'Own label', status: 'working', labels: [{ id: 'l-other-mac', name: 'bug', color: 'teal' }] });
+    const onTodo = session('claude:northwind:linked', { title: 'Linked to todo', status: 'idle' });
+    const plain = session('claude:northwind:plain', { title: 'Plain', status: 'idle' });
     const lOwn = lane('/r/northwind/own', [own], { project: 'Northwind' });
     const lLinked = lane('/r/northwind/linked', [onTodo], { project: 'Northwind' });
     const lPlain = lane('/r/northwind/plain', [plain], { project: 'Northwind' });
     const tUi = fx.todo({ id: 't-ui', title: 'Polish UI', project: 'Northwind', labels: ['l-ui'], sessions: [onTodo.key] });
     const tPlain = fx.todo({ id: 't-plain', title: 'Other', project: 'Northwind' });
     const lanes = [lOwn, lLinked, lPlain];
-    const ents = entitiesOf(fx.board({ prs: [failing] }), lanes, [tUi, tPlain], () => true);
-    const items = [tUi, tPlain].map((t) => todoItem(t, new Map(lanes.map((l) => [l.id, l])), sessionHomes(lanes), new Map(labels.map((l) => [l.id, l]))));
-    const match = (ref: 'worktree' | 'session' | 'todo' | 'pr', key: string, picks: string[]) => cardMatches({ ref, key }, ents, items, rowOf, '', new Map(), [], '', picks, labels);
+    const todos = [tUi, tPlain];
+    const ents = entitiesOf(fx.board({ prs: [failing] }), lanes, todos, () => true);
+    const items = todos.map((t) => todoItem(t, new Map(lanes.map((l) => [l.id, l])), sessionHomes(lanes), new Map(labels.map((l) => [l.id, l]))));
+    const subs = subjectsOf({ todoItems: items, todos, sessionItems: sessionItemsOf(lanes), lanes, prs: [failing], labels });
+    const match = (ref: 'worktree' | 'session' | 'todo' | 'pr', key: string, picks: string[], withSubs = subs) =>
+      cardMatches({ ref, key }, ents, items, rowOf, '', new Map(), [], '', picks, withSubs, labels);
 
     // Session wearing the label directly (matched across devices by name) and its worktree.
     expect([match('session', own.key, ['l-bug']), match('worktree', lOwn.id, ['l-bug']), match('session', plain.key, ['l-bug']), match('worktree', lPlain.id, ['l-bug'])]).toEqual([true, true, false, false]);
@@ -1549,5 +1553,31 @@ describe('a card on the canvas, under the find and the status filter', () => {
     expect([match('todo', 't-ui', ['l-ui']), match('session', onTodo.key, ['l-ui']), match('worktree', lLinked.id, ['l-ui']), match('todo', 't-plain', ['l-ui'])]).toEqual([true, true, true, false]);
     // PRs carry no todo labels, so they fade when a label is picked.
     expect([match('pr', failing.key, ['l-bug']), match('pr', failing.key, [])]).toEqual([false, true]);
+    // A card outside subjects falls back to its own labels.
+    expect([match('todo', 't-ui', ['l-ui'], new Map()), match('session', own.key, ['l-bug'], new Map())]).toEqual([true, true]);
+
+    // Canvas label counts equal the number of cards that light up, respecting find and status filter.
+    const cards: { ref: 'worktree' | 'session' | 'todo' | 'pr'; key: string }[] = [
+      { ref: 'worktree', key: lOwn.id },
+      { ref: 'session', key: own.key },
+      { ref: 'worktree', key: lLinked.id },
+      { ref: 'session', key: onTodo.key },
+      { ref: 'todo', key: 't-ui' },
+      { ref: 'todo', key: 't-plain' },
+      { ref: 'pr', key: failing.key },
+    ];
+    const allBase = (it: { ref: 'worktree' | 'session' | 'todo' | 'pr'; key: string }) => cardMatches(it, ents, items, rowOf, '', new Map(), [], '');
+    const workingBase = (it: { ref: 'worktree' | 'session' | 'todo' | 'pr'; key: string }) => cardMatches(it, ents, items, rowOf, '', new Map(), ['working'], '');
+    expect(canvasLabelOptions(cards, labels, {}, subs, allBase).map((o) => [o.id, o.count])).toEqual([
+      ['l-bug', 2],
+      ['l-ui', 3],
+    ]);
+    // Under Working, only the working session and its worktree match, so UI has 0 and drops out.
+    expect(canvasLabelOptions(cards, labels, {}, subs, workingBase).map((o) => [o.id, o.count])).toEqual([['l-bug', 2]]);
+    // A picked label that's since been deleted is still offered with count 0 so it can be unpicked.
+    expect(canvasLabelOptions(cards, labels, { labels: ['l-gone'] }, subs, workingBase).map((o) => [o.id, o.label, o.count])).toEqual([
+      ['l-bug', 'Bug', 2],
+      ['l-gone', 'Deleted label', 0],
+    ]);
   });
 });

@@ -124,7 +124,7 @@ import { NewSessionPanel } from './ui/NewSession';
 import { ListenHost } from './ui/Listening';
 import { MeetingOffered } from './ui/Meeting';
 import { MeetingsDialog } from './ui/Meetings';
-import { ageListingChain, ageListingPr, cardMatches, chainOf, columnShown, currentProject, facetsIn, facetsOn, labelPick, onlyPick, prInDone, revealing, unarchived, scheduleSessions, sessionItemOf, sessionItemsOf, togglePick, toggleShown, useBoardLists, projectsOf, type FacetId, type Facets, type KanbanColumn } from './boardLists';
+import { ageListingChain, ageListingPr, canvasLabelOptions, cardMatches, chainOf, columnShown, currentProject, facetsIn, facetsOn, labelPick, onlyPick, prInDone, revealing, unarchived, scheduleSessions, sessionItemOf, sessionItemsOf, togglePick, toggleShown, useBoardLists, projectsOf, type FacetId, type Facets, type KanbanColumn } from './boardLists';
 import { inProject } from './quick';
 import { CODEALONG_REPO } from './improve';
 import { bare, keysIn } from './platform';
@@ -504,7 +504,6 @@ export function App() {
     labelById,
     facetOptions,
     kanbanFacetOptions,
-    canvasFacetOptions,
     projectTodos,
     todoItems,
     todoSecs,
@@ -1543,10 +1542,18 @@ export function App() {
   const { openCard, cardMenu } = cardActsOf({ canvasEntities, todoItems, open, openRow, setToast, laneMenuSpec, sessionMenuSpec, todoMenuSpec, prMenuSpec, prRowOf, showTodo });
 
   /** Whether a card matches the list's find, the status filter and any labels picked, as its row would in its own view. */
-  const canvasMatches = useCallback(
-    (it: RefItem) => cardMatches(it, canvasEntities, todoItems, prRowOf, query, textSearch.said, bayFilter, since, facets.labels ?? NO_PICKS, todoStore.labels),
-    [canvasEntities, todoItems, query, textSearch.said, bayFilter, since, prRowOf, facets.labels, todoStore.labels],
+  const canvasMatchesBase = useCallback(
+    (it: Pick<RefItem, 'ref' | 'key'>) => cardMatches(it, canvasEntities, todoItems, prRowOf, query, textSearch.said, bayFilter, since),
+    [canvasEntities, todoItems, query, textSearch.said, bayFilter, since, prRowOf],
   );
+  const canvasMatches = useCallback(
+    (it: RefItem) => cardMatches(it, canvasEntities, todoItems, prRowOf, query, textSearch.said, bayFilter, since, facets.labels ?? NO_PICKS, subjects, todoStore.labels),
+    [canvasEntities, todoItems, query, textSearch.said, bayFilter, since, prRowOf, facets.labels, subjects, todoStore.labels],
+  );
+  const canvasFacetOptions = useMemo(() => {
+    const cards = (canvas.doc?.items ?? []).filter((it): it is RefItem => it.kind === 'ref');
+    return { ...facetOptions, labels: canvasLabelOptions(cards, todoStore.labels, facets, subjects, canvasMatchesBase) };
+  }, [canvas.doc?.items, facetOptions, todoStore.labels, facets, subjects, canvasMatchesBase]);
 
   // In the canvas's panel, a worktree or todo it links to is shown on the canvas when it's there.
   const showLaneFromPanel = (lane: Lane) => {
