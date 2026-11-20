@@ -1124,6 +1124,24 @@ mod tests {
         }
     }
 
+    /// `scripts/preview.sh` takes an engine for one that has a made-up Mac only when `--snapshot
+    /// --fixture name` answers with the name the script knows it by, so the answer here is the
+    /// mode's own, asked as `cli` asks a mode. An engine without the word answers otherwise, as
+    /// one from before the mode did (`--fixture` was nothing to it, and it printed this Mac's
+    /// board), and the script refuses it.
+    #[cfg(debug_assertions)]
+    #[test]
+    fn the_made_up_mac_answers_to_the_name_preview_sh_asks_for() {
+        let _mac = crate::os::AsIf::new(crate::os::Os::MacOs);
+        let l = line(&["--snapshot", "--fixture", "name"]);
+        let args = Args(&l);
+        let mode = mode_of(&args).ok().flatten().expect("--fixture is a mode");
+        let name = (mode.run)(&args, args.after(mode.flag)).ok().expect("the made-up Mac has a name");
+        assert_eq!(name, crate::fixture::NAME);
+        let script = std::fs::read_to_string(std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../scripts/preview.sh")).expect("scripts/preview.sh");
+        assert!(script.contains(&format!("of=\"{name}\"")), "scripts/preview.sh doesn't ask for {name:?}");
+    }
+
     #[test]
     fn every_mode_has_its_line_in_the_notes() {
         // .claude/rules/snapshot.md lists the modes for whoever checks behaviour without a window,

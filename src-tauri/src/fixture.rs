@@ -1072,18 +1072,25 @@ mod tests {
         }
     }
 
-    /// `scripts/preview.sh` believes an engine has a made-up Mac when `--snapshot --fixture
-    /// name` answers with its name, so the two have one name for it.
-    #[test]
-    fn preview_sh_knows_the_made_up_mac_by_its_name() {
-        let script = std::fs::read_to_string(std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../scripts/preview.sh")).expect("scripts/preview.sh");
-        assert!(script.contains(&format!("of=\"{NAME}\"")), "scripts/preview.sh doesn't ask for {NAME:?}");
-    }
-
     /// The made-up Mac is the same wherever and whenever it's made: nothing in it comes from
     /// the home folder, the temporary folder or the clock of the machine it's made on.
     #[test]
     fn nothing_of_the_machine_its_made_on_is_in_it() {
+        // Once more on a machine whose temporary folder is above the made-up worktrees, where a
+        // rule that asks the machine (`repos::origin` reads `TMPDIR`) has every one of them made
+        // in a temporary folder; under the usual one it says what's said here, and would pass.
+        // The environment is the whole process's, so that's a copy of this test binary, as
+        // engine.rs's first-scan test runs itself in a home of its own.
+        const ABOVE: &str = "/Users/me/projects";
+        if std::env::var("TMPDIR").ok().as_deref() != Some(ABOVE) {
+            let again = std::process::Command::new(std::env::current_exe().unwrap())
+                .args(["fixture::tests::nothing_of_the_machine_its_made_on_is_in_it", "--exact", "--nocapture"])
+                .env("TMPDIR", ABOVE)
+                .output()
+                .unwrap();
+            let said = format!("{}{}", String::from_utf8_lossy(&again.stdout), String::from_utf8_lossy(&again.stderr));
+            assert!(again.status.success() && said.contains("1 passed"), "with TMPDIR={ABOVE}: {said}");
+        }
         let _mac = crate::os::AsIf::new(crate::os::Os::MacOs);
         let b = board(NOW);
         // Who made each worktree is said, not worked out with this machine's `TMPDIR`.
