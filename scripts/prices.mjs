@@ -1,7 +1,7 @@
 // Writes src-tauri/src/prices.json, the API prices Codealong works out what sessions would have
-// cost from (src-tauri/src/prices.rs), from LiteLLM's list of model prices: the Anthropic and
-// OpenAI chat models under their own names, in dollars per million tokens. Run it when a new
-// model comes out or prices change; `[prices]` in config.toml covers a model in the meantime.
+// cost from (src-tauri/src/prices.rs), from LiteLLM's list of model prices: the Anthropic, OpenAI
+// and Google Gemini chat models under their own names, in dollars per million tokens. Run it when
+// a new model comes out or prices change; `[prices]` in config.toml covers a model in the meantime.
 //
 //   node scripts/prices.mjs [litellm.json]
 //
@@ -14,7 +14,7 @@ import { resolve } from 'node:path';
 
 const root = resolve(import.meta.dirname, '..');
 const SOURCE = 'https://raw.githubusercontent.com/BerriAI/litellm/main/model_prices_and_context_window.json';
-const PROVIDERS = new Set(['anthropic', 'openai']);
+const PROVIDERS = new Set(['anthropic', 'openai', 'gemini']);
 const FAST = { 'claude-opus-4-6': 6 };
 const FIXES = { 'claude-sonnet-5-5': { cache_read: 0.2 } };
 // Models a harness records under a name of its own: Codex's automatic approval reviews name the
@@ -39,7 +39,7 @@ function price(m, suffix = '') {
 /** One model's entry: its prices, the prompt size above which they change, priority and fast. */
 export function entry(name, m) {
   const out = price(m);
-  if (out.input === undefined || out.output === undefined) return null;
+  if (out.input === undefined || out.output === undefined || (out.input === 0 && out.output === 0)) return null;
   const search = m.search_context_cost_per_query?.search_context_size_medium;
   if (typeof search === 'number') out.search = search;
   const tiers = Object.keys(m)
@@ -63,14 +63,19 @@ export function entry(name, m) {
 
 export function prices(list, asOf) {
   const models = {};
-  for (const [name, m] of Object.entries(list).sort(([a], [b]) => a.localeCompare(b))) {
-    if (name.includes('/') || name.startsWith('ft:') || !PROVIDERS.has(m.litellm_provider)) continue;
+  for (const [raw, m] of Object.entries(list).sort(([a], [b]) => a.localeCompare(b))) {
+    if (!PROVIDERS.has(m.litellm_provider)) continue;
+    // LiteLLM keys Google Gemini's API models as `gemini/<model>` (and a few bare aliases); keep
+    // them under their bare names, preferring a bare entry over a prefixed one when both exist.
+    const name = m.litellm_provider === 'gemini' ? raw.replace(/^gemini\//, '') : raw;
+    if (name.includes('/') || name.startsWith('ft:')) continue;
     if (m.mode !== 'chat' && m.mode !== 'responses') continue;
     const e = entry(name, m);
-    if (e) models[name] = e;
+    if (e && !(name in models)) models[name] = e;
   }
-  for (const [alias, name] of Object.entries(ALIASES)) if (models[name]) models[alias] = models[name];
-  return { source: SOURCE, as_of: asOf, per: 'dollars per million tokens; search is dollars per web search', models };
+  const sorted = Object.fromEntries(Object.entries(models).sort(([a], [b]) => a.localeCompare(b)));
+  for (const [alias, name] of Object.entries(ALIASES)) if (sorted[name]) sorted[alias] = sorted[name];
+  return { source: SOURCE, as_of: asOf, per: 'dollars per million tokens; search is dollars per web search', models: sorted };
 }
 
 if (import.meta.url === `file://${process.argv[1]}`) {

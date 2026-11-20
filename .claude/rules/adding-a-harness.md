@@ -74,8 +74,9 @@ a change to what's sent shows there. What each harness records and accepts is in
      `before_start`, `app_projects`;
    - search (search.rs): `search_files` and `prose` for records that are files of lines, `said`
      for messages kept in a database;
-   - the token ledger (ledger.rs): `records_tokens`, then `token_files` and `token_use` for
-     records that are files of lines, `token_uses_since` for calls kept in a database, each call
+   - the token ledger (ledger.rs): `records_tokens`, then `token_files`, `token_use` and (when
+     older records omit the model per line) `token_model` for records that are files of lines,
+     `token_uses_since` for calls kept in a database, each call
      named the same in every record that copies it;
    - analytics (turns.rs, `[experimental] analytics`): `turn_files` and `turn_step` (what came in
      to each session and who from; by default the files search reads, through `prose`), and

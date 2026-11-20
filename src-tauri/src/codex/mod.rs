@@ -575,8 +575,11 @@ impl crate::harness::Adapter for Codex {
         true
     }
 
-    fn token_files(&self, account: &AccountCfg) -> Vec<(PathBuf, String)> {
-        rollout::all_rollouts(&account.home_path()).into_iter().filter_map(|p| thread_id_of(&p).map(|id| (p, Session::key_for(Harness::Codex, &account.name, &id)))).collect()
+    fn token_files(&self, account: &AccountCfg) -> Vec<crate::ledger::TokenFile> {
+        rollout::all_rollouts(&account.home_path())
+            .into_iter()
+            .filter_map(|p| thread_id_of(&p).map(|id| crate::ledger::TokenFile::new(p, Session::key_for(Harness::Codex, &account.name, &id))))
+            .collect()
     }
 
     fn token_use(&self, line: &[u8], state: &mut crate::ledger::TokenState) -> Option<crate::ledger::TokenUse> {

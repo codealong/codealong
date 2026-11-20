@@ -842,13 +842,13 @@ impl crate::harness::Adapter for ClaudeCode {
 
     /// Every transcript, and its subagents' logs under its session's key: their calls are the
     /// session's.
-    fn token_files(&self, account: &AccountCfg) -> Vec<(PathBuf, String)> {
+    fn token_files(&self, account: &AccountCfg) -> Vec<crate::ledger::TokenFile> {
         let mut out = Vec::new();
         for (p, _) in transcript_files(&account.home_path(), 0, &HashSet::new()) {
             let id = file_name(&p).trim_end_matches(".jsonl").to_string();
             let key = Session::key_for(Harness::Claude, &account.name, &id);
-            out.extend(subagent_logs(&p, &id).into_iter().map(|log| (log, key.clone())));
-            out.push((p, key));
+            out.extend(subagent_logs(&p, &id).into_iter().map(|log| crate::ledger::TokenFile::new(log, key.clone())));
+            out.push(crate::ledger::TokenFile::new(p, key));
         }
         out
     }

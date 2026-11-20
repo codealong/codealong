@@ -2,8 +2,8 @@
 //! subscription's work would have cost, and what an account that pays by the token did cost.
 //!
 //! The prices are `prices.json`, which scripts/prices.mjs writes from LiteLLM's list (the
-//! Anthropic and OpenAI chat models, in dollars per million tokens), with `[prices]` in
-//! config.toml over them for a model the list doesn't have yet or has wrong. A model neither
+//! Anthropic, OpenAI and Google Gemini chat models, in dollars per million tokens), with `[prices]`
+//! in config.toml over them for a model the list doesn't have yet or has wrong. A model neither
 //! has is unpriced: the ledger keeps its tokens and says so, never counting them as free.
 //!
 //! How a call is priced (Anthropic's pricing and LiteLLM's fields): cache writes kept for an
@@ -92,8 +92,9 @@ pub struct Used {
 }
 
 /// The names a model is looked up by, in order: as written, without a context size in
-/// brackets (`fable[1m]`), a provider before a slash (`anthropic/…`), a version after an `@`
-/// (Vertex's) or a date at the end (`-20251001`).
+/// brackets (`fable[1m]`), a provider before a slash (`anthropic/…`, `gemini/…`), a version
+/// after an `@` (Vertex's), a date at the end (`-20251001`), or a reasoning effort level at the
+/// end (`gemini-4-neon-high`, as Antigravity names them).
 fn names(model: &str) -> Vec<String> {
     let mut out = vec![model.to_string()];
     let mut m = model.split('[').next().unwrap_or(model).trim().to_string();
@@ -106,7 +107,16 @@ fn names(model: &str) -> Vec<String> {
     out.push(m.clone());
     if let Some((base, date)) = m.rsplit_once('-') {
         if date.len() == 8 && date.chars().all(|c| c.is_ascii_digit()) {
-            out.push(base.to_string());
+            m = base.to_string();
+            out.push(m.clone());
+        }
+    }
+    for effort in ["-minimal", "-low", "-medium", "-high", "-xhigh"] {
+        if let Some(base) = m.strip_suffix(effort) {
+            if !base.is_empty() {
+                out.push(base.to_string());
+            }
+            break;
         }
     }
     out.dedup();
@@ -232,9 +242,34 @@ mod tests {
 
     #[test]
     fn the_bundled_list_reads_and_has_the_models_sessions_use() {
-        for m in ["claude-opus-5-5", "claude-fable-5-1", "claude-sonnet-5-5", "claude-haiku-5-5", "gpt-6-astra"] {
+        for m in ["claude-opus-5-5", "claude-fable-5-1", "claude-sonnet-5-5", "claude-haiku-5-5", "gpt-6-astra", "gemini-4-neon", "gemini-4-carbon", "gemini-4-argon", "gemini-3.8-flash"] {
             assert!(bundled().contains_key(m), "{m} isn't in prices.json");
         }
+    }
+
+    #[test]
+    fn gemini_models_and_effort_suffixes_are_priced() {
+        let none = BTreeMap::new();
+        // Gemini 4 Neon: $3 in, $15 out, $0.15 cache reads, 1M context.
+        let p = price_of("gemini-4-neon-high", &none).unwrap();
+        assert_eq!(p, price_of("gemini-4-neon", &none).unwrap());
+        assert_eq!(price_of("gemini/gemini-4-neon", &none).unwrap(), p);
+        let c = cost(&p, &used(1_000_000, 1_000_000, 0, 0, 1_000_000)).unwrap();
+        assert!(near(c, 3.0 + 0.15 + 15.0), "{c}");
+        assert_eq!(context_window("gemini-4-neon-high"), Some(1_048_576));
+        for (with_effort, base) in [
+            ("gemini-4-neon-xhigh", "gemini-4-neon"),
+            ("gemini-4-carbon-medium", "gemini-4-carbon"),
+            ("gemini-3.8-flash-low", "gemini-3.8-flash"),
+            ("claude-opus-5-5-high", "claude-opus-5-5"),
+        ] {
+            assert_eq!(price_of(with_effort, &none), price_of(base, &none), "{with_effort}");
+        }
+        // A config override for one effort level still wins over the base model's bundled price.
+        let mut mine = BTreeMap::new();
+        mine.insert("gemini-4-neon-high".to_string(), Price { rates: Rates { input: Some(9.0), ..Default::default() }, ..Default::default() });
+        let custom = price_of("gemini-4-neon-high", &mine).unwrap();
+        assert_eq!((custom.rates.input, custom.rates.output), (Some(9.0), Some(15.0)));
     }
 
     #[test]

@@ -94,6 +94,23 @@ impl TokenUse {
     }
 }
 
+/// One record file of model calls (`Adapter::token_files`). `folder` and `parent` seed
+/// `TokenState` for harnesses whose lines don't carry them (Antigravity keeps both in
+/// `conversation_summaries.db`).
+#[derive(Debug, Clone, Default, PartialEq)]
+pub struct TokenFile {
+    pub path: PathBuf,
+    pub session: String,
+    pub folder: String,
+    pub parent: String,
+}
+
+impl TokenFile {
+    pub fn new(path: PathBuf, session: String) -> Self {
+        Self { path, session, folder: String::new(), parent: String::new() }
+    }
+}
+
 /// What earlier lines of a record said, carried from line to line and from one read to the
 /// next: the folder and model lines name once for many calls, Codex's running total.
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
@@ -474,24 +491,24 @@ pub fn catch_up_since(db: &Connection, accounts: &[AccountCfg], since: i64) -> C
     let mut files = Vec::new();
     for account in accounts {
         let Some(adapter) = crate::harness::of(account) else { continue };
-        for (path, session) in adapter.token_files(account) {
-            let Ok(meta) = std::fs::metadata(&path) else { continue };
-            if since > 0 && crate::util::mtime_ms(&path).unwrap_or(0) < since {
+        for file in adapter.token_files(account) {
+            let Ok(meta) = std::fs::metadata(&file.path) else { continue };
+            if since > 0 && crate::util::mtime_ms(&file.path).unwrap_or(0) < since {
                 continue;
             }
-            files.push((meta.created().ok(), account, adapter, path, session));
+            files.push((meta.created().ok(), account, adapter, file));
         }
     }
     // Oldest first, every account's together: a call a later file copies (a fork, a session
     // moved to another account) stays with the session it came from.
     files.sort_by_key(|f| f.0);
     let mut caught = Caught::default();
-    for (_, account, adapter, path, session) in files {
-        match read_file(db, account, adapter.harness().config(), &path, &session, &|line, st| adapter.token_use(line, st)) {
+    for (_, account, adapter, file) in files {
+        match read_file(db, account, adapter.harness().config(), &file, &|line, st| adapter.token_use(line, st), &|p| adapter.token_model(p)) {
             Ok(n) => caught.read += n,
             // Deleted since it was listed, as Claude Code deletes old transcripts: nothing to read.
             Err(e) if e.downcast_ref::<std::io::Error>().is_some_and(|e| e.kind() == std::io::ErrorKind::NotFound) => {}
-            Err(e) => caught.failed.push(format!("{}: {e:#}", crate::util::tilde(&path))),
+            Err(e) => caught.failed.push(format!("{}: {e:#}", crate::util::tilde(&file.path))),
         }
     }
     for account in accounts {
@@ -505,7 +522,15 @@ pub fn catch_up_since(db: &Connection, accounts: &[AccountCfg], since: i64) -> C
 
 /// Reads one file from where the last read stopped, a line at a time, up to its last whole
 /// line. A file that got shorter was written anew and is read from the start.
-fn read_file(db: &Connection, account: &AccountCfg, tag: &str, path: &Path, session: &str, parse: &dyn Fn(&[u8], &mut TokenState) -> Option<TokenUse>) -> Result<u64> {
+fn read_file(
+    db: &Connection,
+    account: &AccountCfg,
+    tag: &str,
+    token_file: &TokenFile,
+    parse: &dyn Fn(&[u8], &mut TokenState) -> Option<TokenUse>,
+    fallback_model: &dyn Fn(&Path) -> Option<String>,
+) -> Result<u64> {
+    let path = &token_file.path;
     let meta = std::fs::metadata(path)?;
     let size = meta.len();
     let mtime = crate::util::mtime_ms(path).unwrap_or(0);
@@ -518,7 +543,13 @@ fn read_file(db: &Connection, account: &AccountCfg, tag: &str, path: &Path, sess
         Some(f) if f.offset <= size => (f.offset, f.state),
         _ => (0, TokenState::default()),
     };
-    state.session = session.to_string();
+    state.session = token_file.session.clone();
+    if !token_file.folder.is_empty() {
+        state.folder = token_file.folder.clone();
+    }
+    if !token_file.parent.is_empty() {
+        state.parent = token_file.parent.clone();
+    }
     let mut file = File::open(path)?;
     file.seek(SeekFrom::Start(offset))?;
     let mut reader = BufReader::with_capacity(256 * 1024, file);
@@ -536,12 +567,28 @@ fn read_file(db: &Connection, account: &AccountCfg, tag: &str, path: &Path, sess
             uses.push(u);
         }
     }
+    if uses.iter().any(|u| u.model.is_empty()) {
+        let found = fallback_model(path).filter(|m| !m.is_empty()).or_else(|| (!state.model.is_empty()).then(|| state.model.clone()));
+        if state.model.is_empty() {
+            if let Some(m) = &found {
+                state.model = m.clone();
+            }
+        }
+        // Only save a real model in `state.model`: a transient lookup miss uses the harness tag
+        // for this batch without locking out a retry on the next read.
+        let model = found.unwrap_or_else(|| tag.to_string());
+        for u in &mut uses {
+            if u.model.is_empty() {
+                u.model = model.clone();
+            }
+        }
+    }
     let tx = db.unchecked_transaction()?;
     // A subagent's record names its parent, which may be a subagent too: the chain leads its calls
     // to the session at its root (`put_uses`). Records are read oldest first, so a parent's own
     // parent is known before its subagents' calls come.
     if !state.parent.is_empty() {
-        tx.execute("INSERT OR REPLACE INTO parents (key, parent) VALUES (?1, ?2)", params![session, state.owner()])?;
+        tx.execute("INSERT OR REPLACE INTO parents (key, parent) VALUES (?1, ?2)", params![&token_file.session, state.owner()])?;
     }
     put_uses(&tx, account, tag, &uses)?;
     tx.execute(
@@ -1429,14 +1476,16 @@ mod tests {
             let n: u64 = std::str::from_utf8(line).ok()?.trim().parse().ok()?;
             Some(TokenUse { id: n.to_string(), at: now_ms(), session: st.session.clone(), model: "m".into(), input: n, ..Default::default() })
         };
-        read_file(&db, &a, "t", &file, "k", &parse).unwrap();
+        let tf = TokenFile::new(file.clone(), "k".into());
+        let no_model = |_: &Path| None;
+        read_file(&db, &a, "t", &tf, &parse, &no_model).unwrap();
         // A line still being written isn't read until it ends.
         std::fs::write(&file, "1\n2\n3\n4").unwrap();
-        read_file(&db, &a, "t", &file, "k", &parse).unwrap();
+        read_file(&db, &a, "t", &tf, &parse, &no_model).unwrap();
         let n: i64 = db.query_row("SELECT count(*) FROM calls", [], |r| r.get(0)).unwrap();
         assert_eq!(n, 3);
         std::fs::write(&file, "9\n").unwrap();
-        read_file(&db, &a, "t", &file, "k", &parse).unwrap();
+        read_file(&db, &a, "t", &tf, &parse, &no_model).unwrap();
         let n: i64 = db.query_row("SELECT count(*) FROM calls", [], |r| r.get(0)).unwrap();
         assert_eq!(n, 4);
         let _ = std::fs::remove_dir_all(&dir);
@@ -1457,13 +1506,64 @@ mod tests {
             }
             Some(TokenUse { id: text, at: now_ms(), session: st.owner(), model: "m".into(), input: 1, ..Default::default() })
         };
+        let no_model = |_: &Path| None;
         for (name, body) in [("child", "parent root\nc1\n"), ("grandchild", "parent child\ng1\ng2\n")] {
             let file = dir.join(name);
             std::fs::write(&file, body).unwrap();
-            read_file(&db, &a, "codex", &file, &format!("codex:codex:{name}"), &parse).unwrap();
+            let tf = TokenFile::new(file, format!("codex:codex:{name}"));
+            read_file(&db, &a, "codex", &tf, &parse, &no_model).unwrap();
         }
         let owners: Vec<String> = db.prepare("SELECT DISTINCT s.key FROM calls c JOIN sessions s ON s.id = c.session").unwrap().query_map([], |r| r.get(0)).unwrap().flatten().collect();
         assert_eq!(owners, ["codex:codex:root"]);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn seeded_folder_and_parent_and_lazy_fallback_model_fill_a_files_calls() {
+        let dir = std::env::temp_dir().join(format!("codealong-ledger-seed-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let file = dir.join("c.jsonl");
+        std::fs::write(&file, "1\n2\n").unwrap();
+        let db = db();
+        let a = AccountCfg { harness: "antigravity".into(), ..account("antigravity") };
+        let tf = TokenFile { path: file.clone(), session: "antigravity:antigravity:sub".into(), folder: "/work/repo".into(), parent: "root".into() };
+        let parse = |line: &[u8], st: &mut TokenState| {
+            let n: u64 = std::str::from_utf8(line).ok()?.trim().parse().ok()?;
+            Some(TokenUse { id: format!("s:{n}"), at: now_ms(), session: st.owner(), folder: st.folder.clone(), model: st.model.clone(), input: n, sub: !st.parent.is_empty(), ..Default::default() })
+        };
+        let calls = std::cell::Cell::new(0usize);
+        let fallback = |_: &Path| {
+            calls.set(calls.get() + 1);
+            Some("gemini-4-neon-high".into())
+        };
+        read_file(&db, &a, "antigravity", &tf, &parse, &fallback).unwrap();
+        assert_eq!(calls.get(), 1);
+        // Appending a new line reuses the saved model without asking the companion DB again.
+        std::fs::write(&file, "1\n2\n3\n").unwrap();
+        read_file(&db, &a, "antigravity", &tf, &parse, &fallback).unwrap();
+        assert_eq!(calls.get(), 1);
+        let row: (String, String, String, i64) = db
+            .query_row("SELECT s.key, s.folder, c.model, sum(c.sub) FROM calls c JOIN sessions s ON s.id = c.session", [], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?)))
+            .unwrap();
+        assert_eq!(row, ("antigravity:antigravity:root".into(), "/work/repo".into(), "gemini-4-neon-high".into(), 3));
+
+        // A failed lookup falls back to the harness tag without saving it into state.model, so a
+        // later read retries and resolves the real model.
+        let file2 = dir.join("c2.jsonl");
+        std::fs::write(&file2, "10\n").unwrap();
+        let tf2 = TokenFile::new(file2.clone(), "antigravity:antigravity:c2".into());
+        read_file(&db, &a, "antigravity", &tf2, &parse, &|_| None).unwrap();
+        assert_eq!(file_row(&db, &file2.to_string_lossy()).unwrap().unwrap().state.model, "");
+        std::fs::write(&file2, "10\n20\n").unwrap();
+        read_file(&db, &a, "antigravity", &tf2, &parse, &|_| Some("gemini-4-neon-high".into())).unwrap();
+        let models: Vec<String> = db
+            .prepare("SELECT c.model FROM calls c JOIN sessions s ON s.id = c.session WHERE s.key = 'antigravity:antigravity:c2' ORDER BY c.input")
+            .unwrap()
+            .query_map([], |r| r.get(0))
+            .unwrap()
+            .flatten()
+            .collect();
+        assert_eq!(models, ["antigravity", "gemini-4-neon-high"]);
         let _ = std::fs::remove_dir_all(&dir);
     }
 

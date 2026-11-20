@@ -226,6 +226,18 @@ runs on this Mac (2026-10-01). Paths are under `src-tauri/src/`.
   conversation's `executor_metadata`, the command line's and the app's alike: `antigravity.rs`
   (`turn_model`, `TURN_MODEL`). Not in the steps. A conversation that went from
   `gemini-3.8-flash-high` to `-low` between turns had a row for each (2026-10-15).
+- What each call used, for the token ledger: `antigravity.rs` (`token_files_for`, `token_use`,
+  `token_model_for`). Since 2026-10-08 `agy` writes `input_tokens` (uncached: each step's
+  `cache_read_tokens` equals the previous step's `input_tokens + cache_read_tokens`),
+  `cache_read_tokens` and `output_tokens` (thinking included) on every `PLANNER_RESPONSE` and
+  compaction `CHECKPOINT` line of `transcript_full.jsonl`, and since 2026-11-17 also `model` on
+  `PLANNER_RESPONSE` lines (`gemini-4-neon-high`, `gemini-4-carbon-medium`…). Older transcripts and
+  checkpoints omit `model` and fall back to `executor_metadata`'s latest `turn_model` (so an older
+  conversation that switched models mid-way is priced at its last model). Subagent
+  conversations have their own transcripts under `brain/<id>` and name their parent in
+  `conversation_summaries.parent_conversation_id`, which rolls their calls up to the parent
+  session with `sub: true`. Hub app conversations (`~/.gemini/antigravity`) had no token fields in
+  their transcripts (2026-11-19).
 - It has no Agent Client Protocol mode, so Codealong can't run it itself. Google says running
   the binary as a child process on the user's sign-in is supported and counts against the same
   limits.

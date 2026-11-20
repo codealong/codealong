@@ -4852,14 +4852,15 @@ recorded a call cost, which is what your provider charged; and an account that p
 Paid.
 
 The numbers come from the records each harness keeps of every model call: Claude Code's
-transcripts and its subagents' logs, Codex's rollouts, OpenCode's database. Codealong reads them
+transcripts and its subagents' logs, Codex's rollouts, OpenCode's database and Antigravity's
+command-line (`agy`) transcripts (the Antigravity hub app's transcripts don't record tokens). Codealong reads them
 into a ledger of its own (`ledger.sqlite`), each file once and then what's new, every minute, so the
 history outlives the transcripts Claude Code deletes after about 30 days; the first read after
 installing goes back as far as those records do. A call that's written more than once (a reply
 as it streams, a fork's or a moved session's copy) counts once, for the session that made it.
-Cursor and Antigravity keep no record Codealong can read, and are named as such.
+Cursor keeps no record Codealong can read, and is named as such.
 
-API prices are the list prices of Anthropic and OpenAI per token, by kind: input, cache reads,
+API prices are the list prices of Anthropic, OpenAI and Google per token, by kind: input, cache reads,
 cache writes kept five minutes or an hour, output with its thinking, web searches, fast mode and
 long prompts, as their pricing has them. They come with Codealong; a model it has no price for is
 counted in tokens and said to be unpriced, never as free, until a price for it goes in config.toml:
@@ -4962,7 +4963,7 @@ only until it's been read, and never past 30 days. While analytics are off none 
 or kept: no turns, prompts, beginnings or how a session stood. The ledger only notes, as it reads
 each call for the Analytics window, whether a subagent made it.
 `codealong analytics [--days N] [--account <name>]` prints the same, and `codealong tokens --by
-began` and `--by turn` what it cost. Cursor and Antigravity record no tokens, so their sessions
+began` and `--by turn` what it cost. Cursor records no tokens, so its sessions
 have turns and no cost. Other machines' sessions aren't in it: each machine keeps its own.
 
 Codealong's own questions to TypeSafe's Jev aren't a session's work, so they're in Settings › Jev,

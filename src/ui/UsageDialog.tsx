@@ -490,8 +490,14 @@ function Notes({ report: r }: { report: TokenReport }) {
           No price for {r.unpriced.join(', ')}: their tokens are counted and not priced. A price for one goes in config.toml as <code>[prices."{r.unpriced[0]}"]</code>, dollars per million tokens.
         </p>
       )}
-      {r.untracked.length > 0 && <p>{r.untracked.join(', ')} keep no record of tokens Codealong can read, so they aren’t here.</p>}
-      <p>API prices are Anthropic’s and OpenAI’s list prices per token. What a plan costs is counted a day’s share at a time.</p>
+      {r.untracked.length > 0 && (
+        <p>
+          {r.untracked.length === 1
+            ? `${r.untracked[0]} keeps no record of tokens Codealong can read, so it isn’t here.`
+            : `${r.untracked.join(', ')} keep no record of tokens Codealong can read, so they aren’t here.`}
+        </p>
+      )}
+      <p>API prices are Anthropic’s, OpenAI’s and Google’s list prices per token. What a plan costs is counted a day’s share at a time.</p>
     </div>
   );
 }

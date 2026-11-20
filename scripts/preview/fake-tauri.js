@@ -337,7 +337,7 @@ function sampleReport(board, days, account) {
     sessions: sessions,
     paying: accounts.map(function (a, i) { return { account: a, monthly: i === 0 ? 200 : null, perToken: false, plan: i === 0 ? paid : 0, extra: 0, extraNow: i === 0 ? [0, 100] : undefined, tokens: 0 }; }),
     unpriced: ['mimo-v2.6-flash-free'],
-    untracked: accounts.filter(function (a) { return a.indexOf('cursor') === 0 || a.indexOf('antigravity') === 0; }),
+    untracked: accounts.filter(function (a) { return a.indexOf('cursor') === 0; }),
     asOf: Date.now() - 90e3,
     filling: false,
     // With analytics on (PREVIEW_ANALYTICS): what the same calls cost by how their session began

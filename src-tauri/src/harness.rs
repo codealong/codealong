@@ -749,9 +749,10 @@ pub trait Adapter: Sync {
     }
 
     /// Its records of what model calls used, as files of lines that only grow, every one there
-    /// is, each with the key of the session it's for. The ledger reads each whole once, then on
-    /// from where it stopped.
-    fn token_files(&self, _account: &AccountCfg) -> Vec<(PathBuf, String)> {
+    /// is, each with the key of the session it's for (and its folder and parent session when the
+    /// lines themselves don't carry them). The ledger reads each whole once, then on from where it
+    /// stopped.
+    fn token_files(&self, _account: &AccountCfg) -> Vec<crate::ledger::TokenFile> {
         Vec::new()
     }
 
@@ -760,6 +761,13 @@ pub trait Adapter: Sync {
     /// from one read to the next; a line that can say nothing of the kind is passed over before
     /// it's parsed.
     fn token_use(&self, _line: &[u8], _state: &mut crate::ledger::TokenState) -> Option<crate::ledger::TokenUse> {
+        None
+    }
+
+    /// The model a record's calls ran on, read from a companion file only when a line that
+    /// reported tokens named no model and none was carried over yet (Antigravity's older
+    /// transcripts, whose model is in `conversations/<id>.db`).
+    fn token_model(&self, _path: &Path) -> Option<String> {
         None
     }
 

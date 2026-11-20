@@ -229,6 +229,8 @@ pub struct Conversation {
     pub failed: Option<Failed>,
     /// The model its latest turn ran on, as `--model` takes it (`turn_model`).
     pub model: Option<String>,
+    /// The parent conversation's ID for a nested subagent conversation.
+    pub parent: Option<String>,
     /// What the log of the terminal UI that has it open says (`Said`).
     pub said: Said,
 }
@@ -269,8 +271,12 @@ pub fn idled_by_another(before: Option<&Conversation>, now: &Conversation) -> bo
 /// first, without what the end of each one's record says (`with_tails`). Nested ones (subagents,
 /// side questions) are left out.
 pub fn read_conversations(folder: &Folder, since_ms: i64, keep: &HashSet<String>) -> Vec<Conversation> {
+    read_conversations_in(folder, since_ms, keep, false)
+}
+
+fn read_conversations_in(folder: &Folder, since_ms: i64, keep: &HashSet<String>, nested: bool) -> Vec<Conversation> {
     let Some(db) = crate::harness::open_database(&folder.path.join(SUMMARIES)) else { return Vec::new() };
-    let mut rows = read_from(&db, &file_name(&folder.path), since_ms, keep).unwrap_or_default();
+    let mut rows = read_from_in(&db, &file_name(&folder.path), since_ms, keep, nested).unwrap_or_default();
     for c in &mut rows {
         c.dir = folder.path.clone();
         c.cli = folder.cli;
@@ -284,7 +290,12 @@ pub fn read_conversations(folder: &Folder, since_ms: i64, keep: &HashSet<String>
 
 /// The summary table's rows for the folder named `dir`. Each folder's table also lists the
 /// other folders' conversations (`app_data_dir` says whose each is), without their status.
+#[cfg(test)]
 fn read_from(db: &Connection, dir: &str, since_ms: i64, keep: &HashSet<String>) -> rusqlite::Result<Vec<Conversation>> {
+    read_from_in(db, dir, since_ms, keep, false)
+}
+
+fn read_from_in(db: &Connection, dir: &str, since_ms: i64, keep: &HashSet<String>, nested: bool) -> rusqlite::Result<Vec<Conversation>> {
     const COLUMNS: &str = "conversation_id, title, preview, step_count, last_modified_time, workspace_uris, status, source, \
          parent_conversation_id, nesting_depth, not_fully_idle, killed, last_user_input_time";
     // Older tables have no `app_data_dir`: every row is the folder's own.
@@ -311,7 +322,8 @@ fn read_from(db: &Connection, dir: &str, since_ms: i64, keep: &HashSet<String>) 
     })?;
     let mut out = Vec::new();
     for (id, title, preview, step_count, modified, uris, status, source, parent, depth, busy, killed, input, owner) in rows.flatten() {
-        if depth > 0 || parent.map(|p| !p.is_empty()).unwrap_or(false) {
+        let parent = parent.map(|p| p.trim().to_string()).filter(|p| !p.is_empty());
+        if !nested && (depth > 0 || parent.is_some()) {
             continue;
         }
         if !owner.is_empty() && owner != dir {
@@ -335,6 +347,7 @@ fn read_from(db: &Connection, dir: &str, since_ms: i64, keep: &HashSet<String>) 
             killed: truthy(&killed),
             last_modified,
             last_input: timestamp(&input),
+            parent,
             ..Default::default()
         });
     }
@@ -678,6 +691,86 @@ fn proto_ints(b: &[u8], path: &[u64]) -> Vec<u64> {
 pub fn transcript_file(dir: &Path, id: &str) -> Option<PathBuf> {
     let logs = dir.join("brain").join(id).join(".system_generated/logs");
     ["transcript_full.jsonl", "transcript.jsonl"].iter().map(|f| logs.join(f)).find(|p| p.is_file())
+}
+
+/// The inverse of `transcript_file`: `<dir>/brain/<id>/.system_generated/logs/<file>` → `(dir, id)`.
+fn transcript_owner(path: &Path) -> Option<(&Path, String)> {
+    let id_dir = path.ancestors().nth(3)?;
+    let brain = id_dir.parent().filter(|p| file_name(p) == "brain")?;
+    Some((brain.parent()?, file_name(id_dir)))
+}
+
+/// Every conversation's transcript in `account`'s folders, nested subagents included, with each
+/// one's workspace folder and parent conversation ID from `conversation_summaries.db`.
+/// Transcripts without a summary row yet (such as an in-flight print run) are skipped so their
+/// calls aren't locked to the wrong session or scratch folder before their row lands.
+fn token_files_for(account: &AccountCfg) -> Vec<crate::ledger::TokenFile> {
+    let mut out = Vec::new();
+    let mut seen = HashSet::new();
+    for folder in folders(&account.home_path()) {
+        for c in read_conversations_in(&folder, 0, &HashSet::new(), true) {
+            let Some(path) = transcript_file(&c.dir, &c.id) else { continue };
+            if !seen.insert(path.clone()) {
+                continue;
+            }
+            out.push(crate::ledger::TokenFile {
+                path,
+                session: Session::key_for(Harness::Antigravity, &account.name, &c.id),
+                folder: c.cwd.unwrap_or_default(),
+                parent: c.parent.unwrap_or_default(),
+            });
+        }
+    }
+    out
+}
+
+/// The model a transcript's conversation ran on, from `conversations/<id>.db`'s
+/// `executor_metadata` (`turn_model`): asked only when a call's transcript line omits `model`.
+fn token_model_for(path: &Path) -> Option<String> {
+    let (dir, id) = transcript_owner(path)?;
+    turn_model(dir, &id)
+}
+
+/// What a model call in an Antigravity transcript used, for the token ledger: `PLANNER_RESPONSE`
+/// and `CHECKPOINT` (compaction) lines carry `input_tokens` (uncached), `cache_read_tokens` and
+/// `output_tokens` (thinking included), and recent `agy` also writes `model` on each response.
+/// Older transcripts and checkpoints omit `model`, inheriting `st.model` or `token_model_for`.
+pub fn token_use(line: &[u8], st: &mut crate::ledger::TokenState) -> Option<crate::ledger::TokenUse> {
+    if memchr::memmem::find(line, br#""input_tokens""#).is_none() && memchr::memmem::find(line, br#""output_tokens""#).is_none() {
+        return None;
+    }
+    let v: Value = serde_json::from_slice(line).ok()?;
+    if v.get("input_tokens").is_none() && v.get("output_tokens").is_none() {
+        return None;
+    }
+    let n = |k: &str| v.get(k).and_then(Value::as_u64).unwrap_or(0);
+    let (input, cache_read, output) = (n("input_tokens"), n("cache_read_tokens"), n("output_tokens"));
+    if input == 0 && cache_read == 0 && output == 0 {
+        return None;
+    }
+    if let Some(m) = v.get("model").and_then(Value::as_str).filter(|m| !m.is_empty()) {
+        st.model = m.to_string();
+    }
+    let step_index = v.get("step_index").and_then(Value::as_i64)?;
+    let at = v.get("created_at").and_then(Value::as_str).and_then(parse_rfc3339_ms).unwrap_or(0);
+    let conv_id = st.session.rsplit(':').next().unwrap_or(&st.session);
+    Some(crate::ledger::TokenUse {
+        id: format!("{conv_id}:{step_index}"),
+        at,
+        session: st.owner(),
+        folder: st.folder.clone(),
+        model: st.model.clone(),
+        input,
+        cache_read,
+        cache_write: 0,
+        cache_write_1h: 0,
+        output,
+        reasoning: 0,
+        fast: false,
+        searches: 0,
+        cost: None,
+        sub: !st.parent.is_empty(),
+    })
 }
 
 /// A tool call in a planner's step.
@@ -2047,6 +2140,22 @@ impl crate::harness::Adapter for Antigravity {
     fn search_files(&self, account: &AccountCfg, since: i64) -> Vec<(PathBuf, String, i64)> {
         let rows = folders(&account.home_path()).into_iter().flat_map(|f| read_conversations(&f, since, &HashSet::new()));
         rows.filter_map(|c| Some((transcript_file(&c.dir, &c.id)?, Session::key_for(Harness::Antigravity, &account.name, &c.id), c.last_modified))).collect()
+    }
+
+    fn records_tokens(&self) -> bool {
+        true
+    }
+
+    fn token_files(&self, account: &AccountCfg) -> Vec<crate::ledger::TokenFile> {
+        token_files_for(account)
+    }
+
+    fn token_use(&self, line: &[u8], state: &mut crate::ledger::TokenState) -> Option<crate::ledger::TokenUse> {
+        token_use(line, state)
+    }
+
+    fn token_model(&self, path: &Path) -> Option<String> {
+        token_model_for(path)
     }
 
     /// What you asked, and what the agent replied.
@@ -3521,5 +3630,101 @@ mod tests {
         assert!(Antigravity.answer_questions(&ctx, &in_app, "6", &picks).unwrap_err().to_string().contains("answer it there"));
         steps.execute("UPDATE steps SET status = 3 WHERE idx = 6", []).unwrap();
         assert_eq!(Antigravity.answer_questions(&ctx, &session, "6", &picks).unwrap_err().to_string(), "It isn't waiting on you any more.");
+    }
+
+    #[test]
+    fn reads_tokens_from_transcripts_checkpoints_subagents_and_older_db_models() {
+        let mut st = crate::ledger::TokenState { session: "antigravity:antigravity:c1".into(), folder: "/work/app".into(), ..Default::default() };
+        // Prompts (even mentioning "input_tokens" in text) and zero-token lines produce no call.
+        assert_eq!(token_use(br#"{"step_index":0,"type":"USER_INPUT","created_at":"2026-11-19T22:09:00Z","content":"check input_tokens"}"#, &mut st), None);
+        assert_eq!(token_use(br#"{"step_index":1,"type":"PLANNER_RESPONSE","created_at":"2026-11-19T22:09:01Z","input_tokens":0,"cache_read_tokens":0,"output_tokens":0}"#, &mut st), None);
+        // A response with model records uncached input, cache reads, output and carries model forward.
+        let r1 = token_use(
+            br#"{"step_index":1,"type":"PLANNER_RESPONSE","created_at":"2026-11-19T22:09:30Z","model":"gemini-4-neon-high","input_tokens":16570,"cache_read_tokens":24044,"output_tokens":348}"#,
+            &mut st,
+        )
+        .unwrap();
+        assert_eq!((r1.id.as_str(), r1.session.as_str(), r1.folder.as_str(), r1.model.as_str()), ("c1:1", "antigravity:antigravity:c1", "/work/app", "gemini-4-neon-high"));
+        assert_eq!((r1.input, r1.cache_read, r1.output, r1.sub), (16570, 24044, 348, false));
+        // A compaction checkpoint omits model and inherits the conversation's model.
+        let cp = token_use(
+            br#"{"step_index":36,"type":"CHECKPOINT","created_at":"2026-11-19T22:10:00Z","input_tokens":30405,"cache_read_tokens":241355,"output_tokens":3428}"#,
+            &mut st,
+        )
+        .unwrap();
+        assert_eq!((cp.id.as_str(), cp.model.as_str(), cp.input, cp.cache_read, cp.output), ("c1:36", "gemini-4-neon-high", 30405, 241355, 3428));
+
+        // End to end through the ledger: a parent conversation whose older transcript omits `model`
+        // (resolved from executor_metadata) and its subagent whose lines name `gemini-4-neon-high`.
+        let root = crate::fixtures::scratch("antigravity-tokens");
+        let dir = root.join("antigravity-cli");
+        std::fs::create_dir_all(dir.join("conversations")).unwrap();
+        let summaries = Connection::open(dir.join(SUMMARIES)).unwrap();
+        summaries
+            .execute_batch(
+                "CREATE TABLE conversation_summaries (
+                    conversation_id TEXT PRIMARY KEY, title TEXT, preview TEXT, step_count INTEGER,
+                    last_modified_time INTEGER, workspace_uris TEXT, status TEXT, source TEXT,
+                    parent_conversation_id TEXT, nesting_depth INTEGER, not_fully_idle INTEGER,
+                    killed INTEGER, last_user_input_time INTEGER, app_data_dir TEXT
+                 );
+                 INSERT INTO conversation_summaries VALUES ('p1', '', '', 2, 1000, '[\"file:///work/app\"]', 'IDLE', '', '', 0, 0, 0, 0, 'antigravity-cli');
+                 INSERT INTO conversation_summaries VALUES ('s1', '', '', 2, 1000, '[\"file:///work/app\"]', 'IDLE', '', 'p1', 1, 0, 0, 0, 'antigravity-cli');
+                 INSERT INTO conversation_summaries VALUES ('other', '', '', 2, 1000, '[\"file:///work/app\"]', 'IDLE', '', '', 0, 0, 0, 0, 'antigravity');
+                 INSERT INTO conversation_summaries VALUES ('scratch1', '', '', 2, 1000, '[]', 'IDLE', '', '', 0, 0, 0, 0, 'antigravity-cli');",
+            )
+            .unwrap();
+        let ledger = crate::ledger::in_memory();
+        let now = crate::util::now_ms();
+        let ts: String = ledger.query_row("SELECT strftime('%Y-%m-%dT%H:%M:%SZ', 'now')", [], |r| r.get(0)).unwrap();
+        let write_tr = |id: &str, body: &str| {
+            let logs = dir.join("brain").join(id).join(".system_generated/logs");
+            std::fs::create_dir_all(&logs).unwrap();
+            std::fs::write(logs.join("transcript_full.jsonl"), body).unwrap();
+        };
+        write_tr("p1", &format!("{{\"step_index\":1,\"type\":\"PLANNER_RESPONSE\",\"created_at\":\"{ts}\",\"input_tokens\":1000000,\"cache_read_tokens\":0,\"output_tokens\":0}}\n"));
+        write_tr("s1", &format!("{{\"step_index\":1,\"type\":\"PLANNER_RESPONSE\",\"created_at\":\"{ts}\",\"model\":\"gemini-4-neon-high\",\"input_tokens\":0,\"cache_read_tokens\":0,\"output_tokens\":1000000}}\n"));
+        write_tr("other", &format!("{{\"step_index\":1,\"type\":\"PLANNER_RESPONSE\",\"created_at\":\"{ts}\",\"model\":\"gemini-4-neon-high\",\"input_tokens\":1000000,\"cache_read_tokens\":0,\"output_tokens\":0}}\n"));
+        write_tr("unlisted", &format!("{{\"step_index\":1,\"type\":\"PLANNER_RESPONSE\",\"created_at\":\"{ts}\",\"model\":\"gemini-4-neon-high\",\"input_tokens\":1000000,\"cache_read_tokens\":0,\"output_tokens\":0}}\n"));
+        write_tr("scratch1", &format!("{{\"step_index\":1,\"type\":\"PLANNER_RESPONSE\",\"created_at\":\"{ts}\",\"model\":\"gemini-4-neon-high\",\"input_tokens\":0,\"cache_read_tokens\":0,\"output_tokens\":0}}\n"));
+        // `transcript_owner` inverts `transcript_file`.
+        let p1_path = transcript_file(&dir, "p1").unwrap();
+        assert_eq!(transcript_owner(&p1_path), Some((dir.as_path(), "p1".into())));
+        // Encode `TURN_MODEL` ([10, 1, 28]) = "gemini-4-argon-high" into p1's executor_metadata.
+        let varint = |mut n: u64| {
+            let mut b = Vec::new();
+            loop {
+                let mut byte = (n & 0x7f) as u8;
+                n >>= 7;
+                if n != 0 {
+                    byte |= 0x80;
+                }
+                b.push(byte);
+                if n == 0 {
+                    return b;
+                }
+            }
+        };
+        let field = |n: u64, bytes: &[u8]| [varint((n << 3) | 2), varint(bytes.len() as u64), bytes.to_vec()].concat();
+        let blob = field(10, &field(1, &field(28, b"gemini-4-argon-high")));
+        let conv_db = Connection::open(dir.join("conversations/p1.db")).unwrap();
+        conv_db.execute_batch("CREATE TABLE executor_metadata (idx INTEGER PRIMARY KEY, data BLOB);").unwrap();
+        conv_db.execute("INSERT INTO executor_metadata VALUES (0, ?1)", [blob]).unwrap();
+
+        let account = AccountCfg { name: "antigravity".into(), harness: "antigravity".into(), home: root.join("antigravity").to_string_lossy().into_owned(), command: None, start: None, usage_cap: None, acp: None, monthly: None, per_token: false, disabled: false, chrome_profile: None };
+        let listed = token_files_for(&account);
+        // `other` belongs to another folder and `unlisted` has no summary row yet; `scratch1` gets the CLI scratch folder.
+        assert_eq!(listed.len(), 3);
+        assert_eq!(listed.iter().find(|f| f.session.ends_with(":scratch1")).unwrap().folder, dir.join(SCRATCH).to_string_lossy());
+        let caught = crate::ledger::catch_up(&ledger, &[account.clone()]);
+        assert!(caught.failed.is_empty(), "{:?}", caught.failed);
+        let report = crate::ledger::report_in(&ledger, &crate::config::Config { accounts: vec![account], ..Default::default() }, 7, None, now).unwrap();
+        // p1: 1M input of gemini-4-argon ($2) + s1 (subagent of p1): 1M output of gemini-4-neon ($15) = $17.
+        assert!(report.untracked.is_empty(), "{:?}", report.untracked);
+        assert!(report.unpriced.is_empty(), "{:?}", report.unpriced);
+        assert!((report.total.api - 17.0).abs() < 1e-9, "{}", report.total.api);
+        assert_eq!(report.sessions.len(), 1, "subagent calls roll up to parent session");
+        assert_eq!(report.sessions[0].key, "antigravity:antigravity:p1");
+        assert_eq!(report.folders[0].key, "/work/app");
     }
 }
