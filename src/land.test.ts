@@ -576,7 +576,9 @@ step git -C "$tmp/main" push -q origin main
 scripts/land.sh >"$tmp/out" 2>&1
 echo "adding and taking away what main has since: $? $(grep -c '^Nothing to land' "$tmp/out") $([ "$(git rev-parse HEAD)" = "$(git rev-parse origin/main)" ] && [ -f docs/u.md ] && echo at main, with its file)"
 # Another session commits in this checkout just as the branch is caught up: slipped in here
-# before git's rebase starts, by a git that does that and then what it was asked. Its commit
+# before git's rebase starts, by a git that does that (the file and what to put in it are in
+# the test's "meanwhile", after the word of git's to do it before) and then what it was asked.
+# Its commit
 # is one git would take for one of main's by its patch (the same file, a space apart) and skip.
 # It's carried onto main instead, where it stops on main's file, and that's said; nothing is
 # skipped, put back or given up, and the commit is still there.
@@ -594,18 +596,20 @@ step mkdir "$tmp/shim"
 real="$(command -v git)"
 cat >"$tmp/shim/git" <<GIT
 #!/bin/bash
+on="" file="" text=""
+[ ! -f "$tmp/meanwhile" ] || read -r on file text <"$tmp/meanwhile"
 for word in "\\$@"; do
-  if [ "\\$word" = "\\$(cat "$tmp/meanwhile" 2>/dev/null)" ]; then
+  if [ -n "\\$on" ] && [ "\\$word" = "\\$on" ]; then
     rm "$tmp/meanwhile"
-    echo 'say("a b")' >docs/late.md
-    "$real" add docs/late.md
+    echo "\\$text" >"\\$file"
+    "$real" add "\\$file"
     "$real" commit -q -m "another session's, meanwhile"
   fi
 done
 exec "$real" "\\$@"
 GIT
 step chmod +x "$tmp/shim/git"
-echo rebase >"$tmp/meanwhile"
+echo 'rebase docs/late.md say("a b")' >"$tmp/meanwhile"
 PATH="$tmp/shim:$PATH" scripts/land.sh >"$tmp/out" 2>&1
 echo "a commit made here as it's caught up: $? $(grep -c '^Landed' "$tmp/out") $(grep -c 'A rebase is under way' "$tmp/out")"
 git rebase --abort 2>/dev/null
@@ -634,9 +638,52 @@ echo "asked again: $(scripts/land.sh 2>&1 | landed)"
 # Asked once more, with nothing to land, and another session commits here just before the
 # branch is moved up to main: the move has nothing to do and says it went, but the checkout
 # isn't at origin/main, and isn't said to be.
-echo merge >"$tmp/meanwhile"
+echo 'merge docs/late.md say("a b")' >"$tmp/meanwhile"
 PATH="$tmp/shim:$PATH" scripts/land.sh >"$tmp/out" 2>&1
 echo "a commit made here with nothing to land: $(grep -c '^Nothing to land' "$tmp/out") $(grep -c "isn't at origin/main" "$tmp/out"), $(git log --format=%s -1)"
+# Names git finds two of: a tag called what the branch is, and a local branch called
+# origin/main, at this very commit. The pull request is the branch's by its own name, and what
+# main has is asked of origin's, where this isn't yet.
+step git worktree add -q "$tmp/twin" -b twin origin/main
+step cd "$tmp/twin"
+here
+echo t >docs/twin.md
+step git add -A
+step git commit -q -m "twin: one"
+step git branch origin/main
+step git tag twin
+echo "with names git finds two of: $(scripts/land.sh 2>&1 | landed), as $(cat "$tmp/head")"
+step git branch -q -D origin/main
+step git tag -d twin >/dev/null
+# Another session's commit, slipped in as before, that comes to nothing on main (main has the
+# same file from elsewhere): carried along all the same, as a commit with nothing in it, and
+# said, rather than dropped without a word.
+echo two >>docs/twin.md
+step git commit -q -am "twin: two"
+echo same >"$tmp/main/docs/both.md"
+step git -C "$tmp/main" add -A
+step git -C "$tmp/main" commit -q -m "main: both"
+step git -C "$tmp/main" push -q origin main
+echo 'rebase docs/both.md same' >"$tmp/meanwhile"
+PATH="$tmp/shim:$PATH" scripts/land.sh >"$tmp/out" 2>&1
+echo "a commit made here that comes to nothing on main: $(grep -c '^Landed' "$tmp/out") $(grep -c "isn't at origin/main" "$tmp/out"), $(git log --format=%s -1)"
+# A file of the author's that git ignores, which main begins to track while the branch lands:
+# git would write main's over it, with nothing left of the author's anywhere. The branch stays
+# where it was, and says why.
+echo docs/local.txt >>"$tmp/main/.git/info/exclude"
+step git worktree add -q "$tmp/ignoring" -b ignoring origin/main
+step cd "$tmp/ignoring"
+here
+echo mine >docs/local.txt
+echo n >docs/n.md
+step git add -A
+step git commit -q -m "ignoring: one"
+echo theirs >"$tmp/main/docs/local.txt"
+step git -C "$tmp/main" add -f docs/local.txt
+step git -C "$tmp/main" commit -q -m "main: tracks a file"
+step git -C "$tmp/main" push -q origin main
+scripts/land.sh >"$tmp/out" 2>&1
+echo "a file git ignores here, which main now tracks: $? $(grep -c '^Landed' "$tmp/out") $(grep -c 'docs/local.txt, which is a file of yours' "$tmp/out"), still $(cat docs/local.txt)"
 step cd "$tmp/main"
 scripts/land.sh >"$tmp/out" 2>&1
 echo "from main: $(grep -c 'is on main' "$tmp/out")"
@@ -694,8 +741,11 @@ test('a landing queues its pull request as the commit that was asked for, on a m
     "merged, by GitHub's word, before main here has it: 3 1 untouched",
     'asked again: Landed: <commit> is in origin/main. Fast-forwarded the main checkout to origin/main (<commit>).',
     "a commit made here with nothing to land: 1 1, another session's, meanwhile",
+    'with names git finds two of: Landed: <commit> is in origin/main. Fast-forwarded the main checkout to origin/main (<commit>)., as twin',
+    "a commit made here that comes to nothing on main: 1 1, another session's, meanwhile",
+    'a file git ignores here, which main now tracks: 0 1 1, still mine',
     'from main: 1',
-    'main, at the end: early: one,main: meanwhile,shared: one,main: late,main: the same file,main: ab,half: one,main, on the same lines,docs: four,docs: three,a script, fixed,a script,main moved again,docs: two,main moved,first,',
+    'main, at the end: ignoring: one,main: tracks a file,twin: two,main: both,twin: one,early: one,main: meanwhile,shared: one,main: late,main: the same file,main: ab,half: one,main, on the same lines,docs: four,docs: three,a script, fixed,a script,main moved again,docs: two,main moved,first,',
     'tags on origin: 0',
   ]);
 });

@@ -59,6 +59,10 @@
 # `cargo test` are still yours to run while you work.
 set -uo pipefail
 
+# Main as origin has it, by its whole name: `origin/main` alone is also what git calls a local
+# branch someone named that, which it would take first.
+MAIN=refs/remotes/origin/main
+
 # Everything is in functions, read whole before any of it runs: catching up at the end can
 # rewrite this file, and bash reads a script as it goes.
 
@@ -169,7 +173,7 @@ plan_of() {
 # each as it is with a NUL after it. Against main as `$2` has it, or origin/main. Fails when
 # git can't say, so that no answer isn't taken for no changes.
 changed() {
-  git diff --no-renames --name-only -z "${2:-origin/main}...${1:-HEAD}" >"$list"
+  git diff --no-renames --name-only -z "${2:-$MAIN}...${1:-HEAD}" >"$list"
 }
 
 fetch() { GIT_TERMINAL_PROMPT=0 git fetch -q origin main; }
@@ -197,7 +201,7 @@ refuse_old_history() {
   local ref base
   for ref in $(git for-each-ref --format='%(refname)' 'refs/pre-rewrite*/main'); do
     base="$(git merge-base HEAD "$ref" 2>/dev/null)" || continue
-    if [ -n "$base" ] && ! git merge-base --is-ancestor "$base" origin/main; then
+    if [ -n "$base" ] && ! git merge-base --is-ancestor "$base" "$MAIN"; then
       echo "This branch stands on commits from before the history was rewritten ($ref)." >&2
       echo "Move your own commits onto origin/main first, as CLAUDE.md says:" >&2
       die "  git rebase --onto origin/main \$(git merge-base HEAD $ref)"
@@ -211,10 +215,13 @@ short() { git rev-parse --short "$1" 2>/dev/null || echo "${1:0:8}"; }
 pause() { sleep "${CODEALONG_LAND_POLL:-20}"; }
 
 # Whether the checkout is still what this landing is of: on its branch, at `$1`, with nothing
-# uncommitted. Another session can share a checkout, and the waits here are long.
+# uncommitted. Another session can share a checkout, and the waits here are long. A status git
+# couldn't give isn't a clean one.
 still_here() {
-  [ "$(git symbolic-ref -q --short HEAD)" = "$branch" ] && [ "$(git rev-parse HEAD)" = "$1" ] &&
-    [ -z "$(git status --porcelain --untracked-files=normal)" ]
+  local dirty
+  [ "$(git symbolic-ref -q HEAD)" = "refs/heads/$branch" ] && [ "$(git rev-parse HEAD)" = "$1" ] || return 1
+  dirty="$(git status --porcelain --untracked-files=normal)" || return 1
+  [ -z "$dirty" ]
 }
 
 # One landing of a branch at a time in a repository: two would push and queue under each
@@ -696,6 +703,20 @@ EOF
   exit "$went"
 }
 
+# The first file that `$2` has and `$1` didn't which is here already. With the checkout clean
+# at `$1`, that's a file git ignores (anything else it would have listed), and moving to `$2`
+# would write over it with nothing kept of it anywhere.
+in_the_way() {
+  local path
+  git diff --no-renames --name-only -z --diff-filter=A "$1" "$2" 2>/dev/null | while IFS= read -r -d '' path; do
+    if [ -e "$path" ] || [ -L "$path" ]; then
+      printf '%s\n' "$path"
+      break
+    fi
+  done
+  return 0
+}
+
 # Brings this checkout and the main checkout up to main once the change is in it, and says
 # where each stands. `$1` is the commit the branch was at, all of which is in `$2`, main's
 # commit as it was fetched: landed there by the queue, or merging into it as nothing new. So
@@ -708,16 +729,20 @@ EOF
 # it makes on the branch is after `$1`, so it's carried onto main, every one and a merge as a
 # merge, and said; its uncommitted changes, or a rebase of its own, stop git from starting;
 # and nothing here aborts, resets or stashes. Other branches stay where they are, whatever
-# `rebase.updateRefs` says. Where this checkout stands is read last, after main has been
-# fetched for the last time (by catch-up-main.sh): on its branch, at origin/main as that is by
-# then, with nothing uncommitted, or it isn't said to be at origin/main.
+# `rebase.updateRefs` says. A file here that git ignores isn't git's to write over, though a
+# clean status says nothing of it: where main has begun to track one, the branch stays where
+# it was. Where this checkout stands is read last, after main has been fetched for the last
+# time (by catch-up-main.sh): on its branch, at origin/main as that is by then, with nothing
+# uncommitted, or it isn't said to be at origin/main.
 caught_up() {
-  local here="" said now
+  local here="" said now mine
   if ! still_here "$1"; then
     here="This checkout moved or changed while the landing waited, so it's left as it is: it isn't at origin/main."
+  elif mine="$(in_the_way "$1" "$2")" && [ -n "$mine" ]; then
+    here="origin/main now has $mine, which is a file of yours here that git was ignoring and would write over. This branch is left as it was, so it isn't at origin/main: move the file aside, then git rebase --onto origin/main $(short "$1")."
   elif git merge-base --is-ancestor "$1" "$2"; then
-    git merge -q --ff-only "$2" >"$log" 2>&1 || here="This branch couldn't be moved up to origin/main, so it's left as it was: it isn't at origin/main."
-  elif ! git -c rebase.updateRefs=false rebase -q --no-autostash --rebase-merges --reapply-cherry-picks --onto "$2" "$1" >"$log" 2>&1; then
+    git merge -q --ff-only --no-overwrite-ignore --no-autostash "$2" >"$log" 2>&1 || here="This branch couldn't be moved up to origin/main, so it's left as it was: it isn't at origin/main."
+  elif ! git -c rebase.updateRefs=false rebase -q --no-autostash --rebase-merges --reapply-cherry-picks --empty=keep --onto "$2" "$1" >"$log" 2>&1; then
     if [ -d "$(git rev-parse --git-path rebase-merge)" ] || [ -d "$(git rev-parse --git-path rebase-apply)" ]; then
       here="A rebase is under way in this checkout, so it isn't at origin/main: finish it (git rebase --continue) or give it up (git rebase --abort), and look at what's here before landing from it."
     else
@@ -726,9 +751,12 @@ caught_up() {
   fi
   said="$(scripts/catch-up-main.sh)"
   if [ -z "$here" ]; then
-    now="$(git rev-parse -q --verify origin/main)"
-    # Main moved on while this ran: a fast-forward more, which is all it can take.
-    [ "$(git rev-parse HEAD)" = "$now" ] || git merge -q --ff-only "$now" >/dev/null 2>&1
+    now="$(git rev-parse -q --verify "$MAIN")"
+    # Main moved on while this ran: a fast-forward more, which is all it can take, of this
+    # branch where the move above left it and of nothing else.
+    if [ "$now" != "$2" ] && still_here "$2" && [ -z "$(in_the_way "$2" "$now")" ]; then
+      git merge -q --ff-only --no-overwrite-ignore --no-autostash "$now" >/dev/null 2>&1
+    fi
     if ! still_here "$now"; then
       here="This checkout isn't at origin/main ($(short "$now")): it has commits main doesn't, made here while this landed, or it changed meanwhile (git status; git log origin/main..HEAD)."
     fi
@@ -746,7 +774,7 @@ see_through() {
   # Main as it's fetched now has to have what landed before anything here is moved onto it: a
   # main from before it would have the branch written again, as other commits than the ones
   # noted.
-  fetch && main_at="$(git rev-parse -q --verify origin/main)"
+  fetch && main_at="$(git rev-parse -q --verify "$MAIN")"
   if [ -z "$main_at" ] || ! git merge-base --is-ancestor "$landed" "$main_at" 2>/dev/null; then
     echo "GitHub says pull request #$number ($pr_url) merged as $(short "$landed"), which origin/main here doesn't have:" >&2
     die "it couldn't be fetched, or isn't there. Nothing here was touched, and it's still noted as with GitHub: run scripts/land.sh again to see, or look (git fetch origin main; git log origin/main)." 3
@@ -829,19 +857,22 @@ main() {
     exit
   fi
 
+  # What's landed is what was here when this was asked, read before anything else is: the
+  # waits are long, and in a checkout that isn't ours alone another session can commit or
+  # change branch meanwhile, which would go out under this one's review.
+  local asked_for
+  asked_for="$(git rev-parse HEAD)" || die "Couldn't read this checkout's HEAD."
   clean_or_die
   if [ -d "$(git rev-parse --git-path rebase-merge)" ] || [ -d "$(git rev-parse --git-path rebase-apply)" ]; then
     die "A rebase is under way here: finish it (git rebase --continue) and run this again."
   fi
   command -v gh >/dev/null || die "gh isn't here, which is how this reaches GitHub: https://cli.github.com."
-  # A pull request is of a branch, and main isn't one to land from.
-  branch="$(git symbolic-ref -q --short HEAD)" || die "This checkout is on no branch, and a landing is a branch's: git switch -c <topic>, then run this again."
+  # A pull request is of a branch, and main isn't one to land from. The branch by its whole
+  # name: the short one git gives for a branch that shares its name with a tag is another
+  # (heads/<name>), and would be pushed as that.
+  branch="$(git symbolic-ref -q HEAD)" || die "This checkout is on no branch, and a landing is a branch's: git switch -c <topic>, then run this again."
+  branch="${branch#refs/heads/}"
   [ "$branch" != main ] || die "This checkout is on main, and a landing is a branch's of its own (CLAUDE.md, *Landing work*): git switch -c <topic>, then run this again."
-  # What's landed is what was here when this was asked: the waits are long, and in a checkout
-  # that isn't ours alone another session can commit or change branch meanwhile, which would
-  # go out under this one's review.
-  local asked_for
-  asked_for="$(git rev-parse HEAD)" || die "Couldn't read this checkout's HEAD."
   # What this keeps of a branch's landings, in the repository's .git: the turn, and the note of
   # a landing that's with GitHub.
   notes="$(git rev-parse --path-format=absolute --git-common-dir)/codealong-landing" || die "Not in a git checkout." 2
@@ -901,7 +932,7 @@ main() {
   refuse_old_history
   # Main as fetched, read once: another worktree's fetch moves origin/main, and what's found of
   # one main mustn't be acted on against another.
-  main_at="$(git rev-parse -q --verify origin/main)" || die "Couldn't read origin/main."
+  main_at="$(git rev-parse -q --verify "$MAIN")" || die "Couldn't read origin/main."
 
   # What merging it into main as main is now would make, asked without touching the checkout:
   # the queue writes the commits on top of main itself. Nothing new, and it's in main already:
