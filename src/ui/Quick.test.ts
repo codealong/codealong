@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { act, engine, press, settle, type } from '../testing/dom';
 import { createElement } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
@@ -24,8 +24,19 @@ import { Quick } from './Quick';
 
 const PLATFORMS: Platform[] = ['mac', 'linux'];
 
+// The day is the tests' own, whatever the day they're run on: the panel lists the sessions begun
+// in the last day, and says how long ago things were, by the clock. Only the date is made up;
+// what waits on a timer (typing that pauses, an answer coming) waits as it does in the app.
+beforeEach(() => {
+  vi.useFakeTimers({ toFake: ['Date'], now: fx.NOW });
+});
+afterEach(() => {
+  vi.useRealTimers();
+});
+
 // Northwind's app has Kestrel, which needs you, and Wren, whose turn ended; Atlas's site has
-// Cedar, at work. A todo is ready to start in the app, and a PR there waits on your review.
+// Cedar, at work on what it began three days ago, so it's none of the last day's sessions. A todo
+// is ready to start in the app, and a PR there waits on your review.
 const APP = '/r/northwind/app';
 const SITE = '/r/atlas/site';
 const KESTREL = 'claude:northwind:kestrel';
@@ -34,6 +45,7 @@ const CEDAR = 'claude:atlas:cedar';
 const REVIEW = 'northwind/app#12';
 const TODO = 'todo:t1';
 const COMPOSE = 'compose';
+const DAY = 24 * 60 * 60 * 1000;
 /** The rows of the panel with nothing typed, in order, the new session's last. */
 const LISTED = [KESTREL, REVIEW, WREN, TODO, COMPOSE];
 /** A prompt, which Send to can send, and a word, which only finds. */
@@ -54,7 +66,7 @@ function board(over: Partial<Board> = {}): Board {
         origin: 'main',
         sessions: [fx.session({ key: KESTREL, title: 'Kestrel', status: 'needs', live: true, pid: 4242 }), fx.session({ key: WREN, title: 'Wren', status: 'unread' })],
       }),
-      fx.lane({ id: SITE, project: 'Atlas', repo: 'site', repoSlug: 'atlas/site', origin: 'main', sessions: [fx.session({ key: CEDAR, title: 'Cedar', status: 'working', live: true, pid: 4243 })] }),
+      fx.lane({ id: SITE, project: 'Atlas', repo: 'site', repoSlug: 'atlas/site', origin: 'main', sessions: [fx.session({ key: CEDAR, title: 'Cedar', status: 'working', live: true, pid: 4243, startedAt: fx.NOW - 3 * DAY })] }),
     ],
     todos: [fx.todo({ id: 't1', title: 'Ship the login', project: 'Northwind', worktrees: [APP] })],
     prs: [fx.prItem({ repoSlug: 'northwind/app', number: 12, title: 'Kestrel login', project: 'Northwind', reviewRequested: true })],
@@ -206,6 +218,18 @@ describe.each(PLATFORMS)('the quick panel’s keys wherever the keyboard is in i
     expect([rows(), selected(), document.activeElement === box(), project()]).toEqual([LISTED, KESTREL, true, 'All projects']);
   });
 
+  it('lists a session begun in the last day after what waits, by the tests’ clock, and none begun before', async () => {
+    setPlatform(platform);
+    // Rowan and Alder are idle in Atlas's site: Rowan began an hour ago, Alder a day and an hour.
+    const ROWAN = 'claude:atlas:rowan';
+    const on = board();
+    const begun = (key: string, title: string, ago: number) => fx.session({ key, title, startedAt: fx.NOW - ago, lastActivity: fx.NOW - ago });
+    const site = { ...on.lanes[1], sessions: [...on.lanes[1].sessions, begun(ROWAN, 'Rowan', DAY / 24), begun('claude:atlas:alder', 'Alder', DAY + DAY / 24)] };
+    await panel({ board: { ...on, lanes: [on.lanes[0], site] } });
+    expect(rows()).toEqual([KESTREL, REVIEW, WREN, TODO, ROWAN, COMPOSE]);
+    expect(Array.from(document.querySelectorAll('.ca-quick-group'), (g) => g.getAttribute('aria-label'))).toEqual(['Needs you', 'Review or merge', 'Your turn', 'Ready todos', 'Last 24 hours']);
+  });
+
   it('is put away by Escape, and by ⌘Q and ⌘H, which mean the app in front, with ⇧ held or not', async () => {
     setPlatform(platform);
     for (const chord of ['Esc', 'Cmd+Q', 'Cmd+H', 'Shift+Cmd+Q', 'Shift+Cmd+H']) {
@@ -241,6 +265,22 @@ describe.each(PLATFORMS)('the quick panel’s keys wherever the keyboard is in i
     await key('Cmd+P');
     expect([await key('Cmd+T'), menu()]).toEqual([[true, []], MENUS.repo]);
     expect([await key('Cmd+L'), menu()]).toEqual([[true, []], MENUS.agent]);
+  });
+
+  it('leaves ⏎ and ⌘⏎ in a menu’s filter to the menu: they pick what its arrows selected, and start nothing', async () => {
+    setPlatform(platform);
+    /** The line of the menu its arrows are on. */
+    const on = () => document.querySelector('.ca-picker-opt.is-on .ca-picker-title')?.textContent ?? null;
+    for (const chord of ['Enter', 'Cmd+Enter', 'Shift+Cmd+Enter']) {
+      await panel();
+      await write(PROMPT);
+      await key('Cmd+P');
+      expect([document.activeElement === document.querySelector('.ca-picker-filter'), on()], chord).toEqual([true, 'All projects']);
+      await key('Up');
+      expect(on(), chord).toBe('Atlas');
+      // The project is picked and the menu put away; the prompt is where it was, and no session started.
+      expect([await key(chord), project(), menu(), box().value], chord).toEqual([[true, []], 'Atlas', null, PROMPT]);
+    }
   });
 
   it('opens the agent menu for where it runs with ⌘O, and with it up ⌘O and ⌘L say which of the two its arrows step', async () => {

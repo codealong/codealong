@@ -1,6 +1,7 @@
 // @vitest-environment jsdom
 import { describe, expect, it } from 'vitest';
 import { mountHook } from '../testing/dom';
+import { useLayoutEffect } from 'react';
 import { useTallest } from './useTallest';
 
 // An element that only grows while it's on the page (`useTallest`), as the quick panel's
@@ -20,6 +21,17 @@ function element(tall: { px: number }) {
   return { el, measuredWith };
 }
 
+/** The element held, with a layout effect declared after it that notes in `found` the least
+ *  height the element has by then: what the panel's own layout effect, which reads where its
+ *  rows sit, finds the Suggested group held to. */
+function useTallestThenRead(found: string[]) {
+  const held = useTallest<HTMLDivElement>();
+  useLayoutEffect(() => {
+    if (held.current) found.push(held.current.style.minHeight);
+  });
+  return held;
+}
+
 describe('an element that keeps the tallest it has been', () => {
   it('has its height as its least height, and keeps it when it has less to show', () => {
     const tall = { px: 96 };
@@ -34,6 +46,22 @@ describe('an element that keeps the tallest it has been', () => {
     tall.px = 128;
     held.rerender();
     expect(el.style.minHeight).toBe('128px');
+  });
+
+  it('is held to its height before the layout effects after it run, in the render that measures it', () => {
+    const tall = { px: 96 };
+    const { el } = element(tall);
+    const found: string[] = [];
+    const held = mountHook(() => useTallestThenRead(found));
+    held.current.current = el;
+    held.rerender();
+    tall.px = 128;
+    held.rerender();
+    tall.px = 32;
+    held.rerender();
+    // Not a render late: an effect that waited for the page to draw would leave the first of
+    // these with no height held, and each after it with the one before.
+    expect(found).toEqual(['96px', '128px', '128px']);
   });
 
   it('is measured as it would be by itself, without the height it’s held to', () => {

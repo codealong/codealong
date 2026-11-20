@@ -80,6 +80,22 @@ describe('a folder’s path typed in the quick panel’s repo menu', () => {
     expect(m.now.looked).toBeNull();
   });
 
+  it('keeps what it found for what’s typed when the look before it answers last', async () => {
+    const answers: Record<string, (l: FolderLook) => void> = {};
+    engine.answer('look_folder', (args: Record<string, unknown>) => new Promise<FolderLook>((resolve) => (answers[String(args.typed)] = resolve)));
+    const m = await menu();
+    await m.type('~/atl');
+    await m.type('~/atlas');
+    answers['~/atlas'](found('~/atlas'));
+    await settle();
+    expect(m.now.looked).toEqual(found('~/atlas'));
+    // The look it replaced comes in after it, with the menu still open: it's for nothing typed
+    // now, and takes nothing away.
+    answers['~/atl'](found('~/atl', { exists: false }));
+    await settle();
+    expect([m.now.folderTyped, m.now.looked]).toEqual(['~/atlas', found('~/atlas')]);
+  });
+
   it('says why, as a folder that can’t be added, when the look fails', async () => {
     engine.answer('look_folder', () => {
       throw new Error('No such disk');
