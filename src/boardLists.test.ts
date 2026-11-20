@@ -6,6 +6,7 @@ import {
   ageListingPr,
   ageListingSession,
   archivedIn,
+  cardMatches,
   chainOf,
   currentProject,
   deviceCountsOf,
@@ -67,6 +68,7 @@ import {
   harnessSchedulesIn,
   columnShown,
 } from './boardLists';
+import { entitiesOf } from './canvas/model';
 import { needsOn } from './devices';
 import { bayOf, runsShownKey, selfShownKey, sessionHomes, unattended } from './lanes';
 import { ALL_PROJECTS } from './quick';
@@ -1480,5 +1482,39 @@ describe('facetChips', () => {
 
   it('keeps a pick no option lists any more by its id', () => {
     expect(facetChips(repos(['kestrel/app']))[0]).toMatchObject({ label: 'kestrel/app', name: 'Repos: kestrel/app', title: 'Repos: kestrel/app' });
+  });
+});
+
+describe('a card on the canvas, under the find and the status filter', () => {
+  const working = session('claude:northwind:kestrel', { title: 'Tidy the importer', status: 'working' });
+  const idle = session('claude:northwind:atlas', { title: 'Write the docs', status: 'idle' });
+  const app = lane('/r/northwind/app', [working], { project: 'Northwind' });
+  const docs = lane('/r/northwind/docs', [idle], { project: 'Northwind' });
+  const failing = fx.prItem({ number: 7, title: 'Importer fix', project: 'Northwind', mine: true, checks: fx.checks({ failed: 1 }) });
+  const fine = fx.prItem({ number: 8, title: 'Docs', project: 'Northwind' });
+  const open = fx.todo({ id: 't1', title: 'Ship the importer', project: 'Northwind', sessions: [working.key] });
+  const quiet = fx.todo({ id: 't2', title: 'Plan the docs', project: 'Northwind' });
+  const e = entitiesOf(fx.board({ prs: [failing, fine] }), [app, docs], [open, quiet], () => true);
+  const todoItems = [open, quiet].map((t) => todoItem(t, new Map([[app.id, app]]), sessionHomes([app, docs]), new Map()));
+  const rowOf = (pr: PrItem) => prRowOf(pr, new Map(), sessionIndexOf([]));
+  const matches = (ref: 'worktree' | 'session' | 'todo' | 'pr', key: string, query = '', filter: Parameters<typeof cardMatches>[6] = []) => cardMatches({ ref, key }, e, todoItems, rowOf, query, new Map(), filter, '');
+
+  it('matches every card the board has while nothing narrows it, and none it doesn’t have', () => {
+    expect([matches('worktree', app.id), matches('session', working.key), matches('todo', 't1'), matches('pr', failing.key)]).toEqual([true, true, true, true]);
+    expect([matches('worktree', '/r/gone'), matches('session', 'claude:northwind:gone'), matches('todo', 'gone'), matches('pr', 'acme/app#99')]).toEqual([false, false, false, false]);
+  });
+
+  it('goes by the find as each one’s row does in its own view', () => {
+    expect([matches('session', working.key, 'importer'), matches('session', idle.key, 'importer')]).toEqual([true, false]);
+    expect([matches('todo', 't1', 'importer'), matches('todo', 't2', 'importer')]).toEqual([true, false]);
+    expect([matches('pr', failing.key, 'importer'), matches('pr', fine.key, 'importer')]).toEqual([true, false]);
+    expect([matches('worktree', app.id, 'importer'), matches('worktree', docs.id, 'importer')]).toEqual([true, false]);
+  });
+
+  it('goes by the status filter the same way', () => {
+    expect([matches('session', working.key, '', ['working']), matches('session', idle.key, '', ['working'])]).toEqual([true, false]);
+    expect([matches('worktree', app.id, '', ['working']), matches('worktree', docs.id, '', ['working'])]).toEqual([true, false]);
+    expect([matches('todo', 't1', '', ['working']), matches('todo', 't2', '', ['working'])]).toEqual([true, false]);
+    expect([matches('pr', failing.key, '', ['work']), matches('pr', fine.key, '', ['work'])]).toEqual([true, false]);
   });
 });

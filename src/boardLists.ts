@@ -8,9 +8,9 @@
 import { useCallback, useMemo } from 'react';
 import type { DeviceFilter } from './devices';
 import { needsOn, withDevices, workingOn } from './devices';
-import { AGENT_BAY, bySession, byStatusTime, filterByAge, homeOf, type HelperGlance, inboxCounts, keptCopy, listedStatus, listedUnder, prNeedsWork, runsShownKey, selfShownKey, sessionHomes, sideTitle, snoozedApart, unattended, workingFor, worktreeName, type BoardRow, type Filter, type LaneCopies, type Placed } from './lanes';
+import { AGENT_BAY, bySession, byStatusTime, filterByAge, homeOf, type HelperGlance, inboxCounts, keptCopy, listedStatus, listedUnder, narrowed, prNeedsWork, runsShownKey, selfShownKey, sessionHomes, sideTitle, snoozedApart, unattended, workingFor, worktreeName, type BoardRow, type Filter, type LaneCopies, type Placed } from './lanes';
 import type { Pins } from './pins';
-import type { RefKind } from './canvas/model';
+import type { Entities, RefItem, RefKind } from './canvas/model';
 import { columnsOf, inPrLoop, stageOfColumn, type BoardColumn, type BoardDoc, type Stage } from './boards/model';
 import { columnOf, memberTest, ownLabels, sessionStage, subjectsOf, todoStage, type Subject } from './boards/rules';
 import { ALL_PROJECTS, hasWords, inProject, queryWords, saidLine, type SaidLine } from './quick';
@@ -1013,6 +1013,31 @@ export function canvasCards({ todoItems, todos, sessions, prs, board, member }: 
     ...open.map((p) => `pr:${p.key}`),
     ...board.added.filter((c) => c.startsWith('worktree:') && member(c)),
   ]);
+}
+
+/** Whether a card on the canvas matches the list's find and the status filter, as its row would
+ *  in its own view. */
+export function cardMatches(it: Pick<RefItem, 'ref' | 'key'>, e: Entities, todoItems: TodoItem[], prRowOf: (pr: PrItem) => PrRowItem, query: string, said: Said, filter: readonly Filter[], since: string): boolean {
+  switch (it.ref) {
+    case 'worktree': {
+      const lane = e.lanes.get(it.key);
+      return !!lane && laneInQuery(lane, query, said) && !!narrowed(lane, filter, since);
+    }
+    case 'session': {
+      const p = e.sessions.get(it.key);
+      const row: SessionItem | null = p ? { kind: 'agent', key: it.key, lane: p.lane, session: p.session } : null;
+      return !!row && sessionInQuery(row, query, said) && sessionInFilter(row, filter);
+    }
+    case 'todo': {
+      const r = todoItems.find((x) => x.todo.id === it.key);
+      return !!r && todoInQuery(r, query, said) && todoInFilter(r, filter);
+    }
+    case 'pr': {
+      const pr = e.prs.get(it.key);
+      const row = pr && prRowOf(pr);
+      return !!row && prInQuery(row, query, said) && prInFilter(row, filter);
+    }
+  }
 }
 
 /** A board's Kanban as `codealong board show` and `move` see it (boards/useBoardAsks.ts): from

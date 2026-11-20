@@ -1,5 +1,6 @@
-import { describe, expect, it } from 'vitest';
-import { parseSaved, sameView, suggestName, type SavedView } from './savedViews';
+import { beforeEach, describe, expect, it } from 'vitest';
+import type { MenuAction, MenuSpec } from './contextMenu';
+import { parseSaved, sameView, savedViewMenu, suggestName, type SavedView, type ViewState } from './savedViews';
 
 const saved: SavedView = { id: 'a', name: 'Needs me', view: 'sessions', project: 'All projects', device: [], age: 'all', filter: ['needs'] };
 
@@ -39,5 +40,38 @@ describe('saved views', () => {
 
   it('names a view by what narrows it', () => {
     expect(suggestName(['Sessions', 'Codealong', null, 'Mac mini', undefined, 'Needs you'])).toBe('Sessions · Codealong · Mac mini · Needs you');
+  });
+});
+
+/** A menu as its labels, a line as -; and one of its items. */
+const labels = (spec: MenuSpec): string[] => spec.map((i) => (i === 'separator' ? '-' : i.label));
+const item = (spec: MenuSpec, label: string): MenuAction => {
+  const found = spec.find((i): i is MenuAction => i !== 'separator' && !('items' in i) && i.label === label);
+  if (!found) throw new Error(`No ${label} in ${labels(spec).join(', ')}`);
+  return found;
+};
+
+describe('a saved view’s menu', () => {
+  const now: ViewState = { view: 'prs', project: 'Northwind', device: [], age: '3d', filter: ['needs'] };
+  const views: SavedView[] = [
+    { id: 'a', name: 'Needs me', view: 'sessions', project: 'All projects', device: [], age: 'all', filter: ['needs'] },
+    { id: 'b', name: 'Reviews', view: 'prs', project: 'Atlas', device: [], age: 'all', filter: [] },
+  ];
+  let kept: SavedView[][] = [];
+  beforeEach(() => {
+    kept = [];
+  });
+  const menu = (saved: boolean) => savedViewMenu(views[1], { views, now, saved, keep: (next) => void kept.push(next) });
+
+  it('updates the view to what the window shows, keeping its name and its place, and deletes it', () => {
+    expect(labels(menu(false))).toEqual(['Update to this view', '-', 'Delete']);
+    item(menu(false), 'Update to this view').run();
+    item(menu(false), 'Delete').run();
+    expect(kept).toEqual([[views[0], { ...views[1], ...now }], [views[0]]]);
+    expect(kept[0][1]).toMatchObject({ id: 'b', name: 'Reviews', project: 'Northwind', age: '3d' });
+  });
+
+  it('can’t update to a view that’s saved already', () => {
+    expect([item(menu(false), 'Update to this view').enabled, item(menu(true), 'Update to this view').enabled]).toEqual([true, false]);
   });
 });

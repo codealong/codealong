@@ -2,6 +2,7 @@
 // are a convenience of this Mac's windows, so they live in the page's storage, not config.toml.
 
 import type { Facets, FacetId } from './boardLists';
+import type { MenuSpec } from './contextMenu';
 import type { DeviceFilter } from './devices';
 import type { Filter } from './lanes';
 
@@ -96,4 +97,15 @@ export function suggestName(parts: (string | null | undefined)[]): string {
 
 export function newSavedId(): string {
   return `${Date.now().toString(36)}${Math.random().toString(36).slice(2, 8)}`;
+}
+
+/** A saved view's menu, in the sidebar: updating it to what the window shows now (`now`), unless
+ *  that is a saved view already (`saved`), and deleting it. `keep` takes the views as a pick
+ *  leaves them. */
+export function savedViewMenu(v: SavedView, can: { views: SavedView[]; now: ViewState; saved: boolean; keep: (views: SavedView[]) => void }): MenuSpec {
+  return [
+    { label: 'Update to this view', enabled: !can.saved, run: () => can.keep(can.views.map((x) => (x.id === v.id ? { ...x, ...can.now } : x))) },
+    'separator',
+    { label: 'Delete', run: () => can.keep(can.views.filter((x) => x.id !== v.id)) },
+  ];
 }

@@ -15,7 +15,7 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type Dispatch, type SetStateAction } from 'react';
 import { below, showContextMenu, type MenuAction, type MenuSpec } from './contextMenu';
 import { useEditorIcons } from './editors';
-import { homeOf, narrowed, runsShownKey, sidesShownKey, type BoardRow, type Filter } from './lanes';
+import { homeOf, runsShownKey, sidesShownKey, type BoardRow, type Filter } from './lanes';
 import { answerLink, barMode, harnessSchedules, onBarMode, onCloseIdle, onCloseStale, onUsageMenu, onWebsiteMenu, onWindowToast, onNewWindow, onReveal, takeOpenedLink, onSettings, onSetupMenu, onCheckUpdates, openConfig, openHarnessLink, openProjectWindow, openUrl, orderAccounts, refresh, refreshUsage, scheduleOp, setBarMode, startOptions, setPinned, setPinnedPrs, setPinnedRepos, setPinnedWorktrees, setTheme, setupNeeded, showQuick, startFromQuick, stopTraining, spendReset, terminalWindow, windowLabel, zoomWindows, onZoomMenu, onReloadMenu, WEBSITE, type BarMode, type Reveal } from './api';
 import { count, middleTruncate } from './format';
 import * as menus from './menus';
@@ -24,11 +24,11 @@ import { archiveAhead, reviewAhead, seenAhead } from './ahead';
 import { usePins } from './pins';
 import { reviewItems as reviewItemsFor, tryAgain } from './review';
 import { START_OPTIONS_NOTICE, startOptionsFailed } from './start';
-import { itemPrimaryHolds, statusSection, todoAgent, todoInFilter, todoProjects, todoPrompt, useTodoStore, type TodoItem, type TodoSort } from './todos';
+import { itemPrimaryHolds, statusSection, todoAgent, todoProjects, todoPrompt, useTodoStore, type TodoItem, type TodoSort } from './todos';
 import { repoReviews } from './repoSettings';
 import type { HarnessSchedule, Lane, Pr, PrItem, Schedule, ScheduleItem, Session, SideGlance, Started, StartOptions, TeamFile, Theme, Todo } from './types';
 import { showSide } from './side';
-import { allTerminals, ownTerminalFor, placeOf, setDrawer, setSessionView, TERMINAL_WAIT_MS, usePoppedTerminals } from './terminals';
+import { allTerminals, placeOf, setDrawer, setSessionView, TERMINAL_WAIT_MS, usePoppedTerminals } from './terminals';
 import { useKeptSessions } from './kept';
 import { shortOf, type DeviceFilter } from './devices';
 import { NEW_PROJECT, SettingsDialog, type SettingsSection } from './ui/SettingsDialog';
@@ -43,7 +43,7 @@ import { SnoozeDialog } from './ui/SnoozeDialog';
 import { useMergeDone } from './ui/MergeDone';
 import { useDoneHelpers } from './ui/DoneHelpers';
 import type { HelperActions } from './ui/HelpersCard';
-import { Button, cx, Icon, Kbd, Seg, Tabs } from './ui/primitives';
+import { Button, cx, Icon, Tabs } from './ui/primitives';
 import { ALL_PROJECTS, ProjectSwitcher } from './ui/ProjectSwitcher';
 import { ProjectShown } from './ui/ProjectSaid';
 import { useLogo } from './logo';
@@ -57,9 +57,8 @@ import { Resizer, usePanelWidth } from './ui/Resizer';
 import { compassTitle, freeScopes, orchestratorOn, startOrchestrator } from './orchestrators';
 import { StartOrchestratorDialog } from './ui/StartOrchestrator';
 import { groupKeyOf, headItem, OrchestratorButton, SESSION_GROUPS, SESSION_ROWS, SESSION_SORTS, SessionsBar, SessionsView, STARTED_PLACES, type SessionItem, type SessionSort, type StartedPlace } from './ui/SessionsView';
-import type { GroupActs } from './ui/Groups';
 import { groupsOf, type ListGroupBy, type RepoName } from './groups';
-import { byWords, FilterChips, ListBar, ListFind, ListTools, rowsSetting, ViewMenu, viewSetting, type ListFilter, type RowLines } from './ui/ListBar';
+import { byWords, FilterChips, ListBar, ListFind, ListTools, rowsSetting, ViewMenu, viewSetting, type RowLines } from './ui/ListBar';
 import { TODO_GROUPS, TODO_ROWS, TODO_SORTS, TodoComposer, TodoView } from './ui/TodoView';
 import { ScheduleDialog } from './ui/ScheduleDialog';
 import { HarnessSchedulePanel, SchedulePanel } from './ui/SchedulePanel';
@@ -70,8 +69,9 @@ import { applyKanbanDrop, boardOrderWith, columnWith, kanbanCardId, kanbanStep, 
 import { CanvasView } from './ui/CanvasView';
 import { entitiesOf, homeLane, refId, type OnBoard, type RefItem, type RefKind } from './canvas/model';
 import { useCanvas } from './canvas/useCanvas';
-import { boardChoices, boardName, columnsOf, followsMove, type BoardPlace, holdsOf, newBoardId, newColumnId, ONE_WORD, ruleWords, takesAll, type BoardColumn, type BoardDoc } from './boards/model';
+import { columnsOf, followsMove, type BoardPlace, holdsOf, newBoardId, newColumnId, takesAll, type BoardColumn, type BoardDoc } from './boards/model';
 import { columnOf, memberTest, repoOf } from './boards/rules';
+import * as boardMenus from './boards/menus';
 import { useBoardAsks } from './boards/useBoardAsks';
 import { useBoards } from './boards/useBoards';
 import { BoardBar, type BoardLayout } from './ui/BoardBar';
@@ -82,17 +82,16 @@ import { Reading } from './ui/Tip';
 import { UsageBar } from './ui/UsageBar';
 import { Notices } from './ui/Notices';
 import { clearNotice, keptDismissals, noticeId, reportNotice, shownNotices, useReportedNotices } from './notices';
-import { analyticsTitle, Sidebar, type SideBoard, type SideStatus } from './ui/Sidebar';
+import { analyticsTitle, Sidebar } from './ui/Sidebar';
 import { checkedSays, untilChecked } from './ui/Updates';
-import { loadSaved, newSavedId, onSavedChange, sameView, storeSaved, suggestName, type SavedView, type ViewState } from './savedViews';
+import { loadSaved, newSavedId, onSavedChange, sameView, savedViewMenu, storeSaved, type SavedView, type ViewState } from './savedViews';
 import { useNow } from './ui/useNow';
 import { reloadWindow } from './reload';
 import { errorText } from './report';
-import { runFolder } from './ui/RunButton';
 import { afterStop } from './training';
 import { askWords, reviewSnoozeMenu, type SnoozeAsk } from './snooze';
 import { useSessionHistory } from './history';
-import { inOrder, QUEUE_CHORDS, queueKinds } from './queue';
+import { inOrder, queueKinds } from './queue';
 import { SESSION_READS, shownSession as queueShown, useWaitingQueue } from './useWaitingQueue';
 import { useViewQueues } from './useViewQueues';
 import { openWhere, where } from './open';
@@ -102,24 +101,27 @@ import { useDeviceLanes, useDevices, useObserve } from './useDevices';
 import { useTextSearch } from './useTextSearch';
 import { useLatest } from './latest';
 import { forOpen, listedIn, NEW_SESSION_WAIT_MS, newSessionAfter, type NewSessionShown } from './newSession';
-import { reorderKey, useMainKeys, VIEW_CHORDS } from './mainKeys';
+import { reorderKey, useMainKeys } from './mainKeys';
+import { laneCanOf, sessionCanOf, type MainHas } from './mainCan';
+import { groupActsOf, type GroupsHas } from './mainGroups';
+import { AGES, FIND_IN, READING, VIEWS, VIEWS_SANS_BOARDS, type Age, type View } from './mainViews';
+import { ageAppliesIn, listFiltersOf, pickNamesOf, sideBoardsOf, sideFacetsOf, sideFiltersOf, sideStatusesOf, sideViewsOf, viewSuggestionOf, type FiltersOn } from './sideLists';
 import { useListPicks } from './useListPicks';
 import type { SelectHow } from './picks';
 import { useTodoView } from './useTodoView';
+import { MainBar } from './ui/MainBar';
 import { canvasPicked, MainPanel, type Drill } from './ui/MainPanel';
 import { showPrTab } from './ui/PrInspector';
 import type { FindAsk } from './ui/ThreadFind';
 import { Toasts, useToasts } from './ui/Toasts';
 import { NewSessionPanel } from './ui/NewSession';
-import { ListenHost, ListeningNow } from './ui/Listening';
-import { MeetingCountdown, MeetingOffered } from './ui/Meeting';
-import { meetingWhen } from './meetings';
+import { ListenHost } from './ui/Listening';
+import { MeetingOffered } from './ui/Meeting';
 import { MeetingsDialog } from './ui/Meetings';
-import { hearingNow } from './listening';
-import { ageListingChain, ageListingPr, chainOf, columnShown, currentProject, FACET_WORD, facetChips, facetsIn, facetsOn, harnessSchedulesIn, labelPick, laneInQuery, onlyPick, prInDone, prInFilter, prInQuery, projectOfCard, revealing, unarchived, scheduleAtWork, scheduleSessions, schedulesIn, sessionInFacets, sessionInFilter, sessionInQuery, sessionItemOf, sessionItemsOf, showingHelper, todoInQuery, togglePick, toggleShown, useBoardLists, projectsOf, type Facets, type KanbanColumn } from './boardLists';
-import { inProject, QUICK_PLACEHOLDER, queryWords, shortcutKeys, shortcutLabel } from './quick';
+import { ageListingChain, ageListingPr, cardMatches, chainOf, columnShown, currentProject, facetsIn, facetsOn, harnessSchedulesIn, labelPick, onlyPick, prInDone, projectOfCard, revealing, unarchived, scheduleAtWork, scheduleSessions, schedulesIn, sessionInFacets, sessionItemOf, sessionItemsOf, showingHelper, togglePick, toggleShown, useBoardLists, projectsOf, type Facets, type KanbanColumn } from './boardLists';
+import { inProject, queryWords } from './quick';
 import { findFor } from './threadFind';
-import { CODEALONG_REPO, improveTitle } from './improve';
+import { CODEALONG_REPO } from './improve';
 import { setPageZoom, type ZoomStep } from './zoom';
 import { bare, keysIn } from './platform';
 import { useKeysShown } from './keysShown';
@@ -170,51 +172,10 @@ const PR_PANEL_MAX_KEY = 'codealong.prPanelMax';
 const HELPERS_SHOWN_KEY = 'codealong.helpersShown';
 // Each window has its own way back.
 const HISTORY_KEY = WINDOW_PROJECT ? `codealong.sessionHistory:${WINDOW_PROJECT}` : 'codealong.sessionHistory';
-const DAY = 24 * 60 * 60 * 1000;
 const NO_PICKS: readonly string[] = [];
 /** How long Sessions waits for a moved session's copy to be listed before letting it go: the
  *  minute its card on the desktop waits too (lib.rs `move_session`). */
 const COPY_WAIT_MS = 60_000;
-
-/** The views. Kanban and Canvas are the Board view's two layouts (BoardBar.tsx), each with a
- *  chord of its own; the sidebar lists the Board view once. */
-type View = 'sessions' | 'prs' | 'todo' | 'schedules' | 'kanban' | 'canvas';
-const VIEWS: { id: View; label: string; icon: string }[] = [
-  { id: 'sessions', label: 'Sessions', icon: 'terminal' },
-  { id: 'prs', label: 'PRs', icon: 'pr' },
-  { id: 'todo', label: 'Todo', icon: 'list-check' },
-  { id: 'schedules', label: 'Schedules', icon: 'calendar' },
-  { id: 'kanban', label: 'Kanban', icon: 'layout-kanban' },
-  { id: 'canvas', label: 'Canvas', icon: 'layout-grid' },
-];
-/** The views while boards are off (`[experimental] boards`): none of the Board view's. */
-const VIEWS_SANS_BOARDS = VIEWS.filter((v) => v.id !== 'kanban' && v.id !== 'canvas');
-/** What each view says until the engine has read this Mac's board once. */
-const READING: Record<View, string> = {
-  sessions: 'Reading sessions…',
-  prs: 'Reading repos…',
-  todo: 'Reading todos…',
-  schedules: 'Reading schedules…',
-  kanban: 'Reading todos…',
-  canvas: 'Reading sessions…',
-};
-/** What the list's find says it finds in, in each view (ui/ListBar.tsx). */
-const FIND_IN: Record<View, string> = {
-  sessions: 'Find in sessions',
-  prs: 'Find in PRs',
-  todo: 'Find in todos',
-  schedules: 'Find in schedules',
-  kanban: 'Find in todos and sessions',
-  canvas: 'Find on the canvas',
-};
-/** How recently a worktree or session must have been active to show. */
-type Age = '1d' | '3d' | '7d' | 'all';
-const AGES: { id: Age; label: string; title: string; ms: number }[] = [
-  { id: '1d', label: '24h', title: 'Active in the last 24 hours', ms: DAY },
-  { id: '3d', label: '3d', title: 'Active in the last 3 days', ms: 3 * DAY },
-  { id: '7d', label: '7d', title: 'Active in the last 7 days', ms: 7 * DAY },
-  { id: 'all', label: 'All', title: 'Everything from the last 14 days', ms: 0 },
-];
 
 /** How long a link macOS opened waits for your other devices to be read, and to have read their
  *  own sessions, before its session is said to be missing (useDevices.ts): they come a moment
@@ -732,23 +693,14 @@ export function App() {
     if (!boardsOn || keys.length === 0) return [];
     const has = { lanes: rawLanes, todos: todoStore.todos, prs: board?.prs ?? [] };
     const cards = keys.map((key) => ({ card: refId(ref, key), project: projectOfCard(ref, key, has) }));
-    const many = (n: number) => (keys.length > 1 ? ` ${count(n, ONE_WORD[ref])}` : '');
-    const holds = (b: BoardDoc) => (b.id === shownBoard?.id ? member : memberTest(b, allSubjects, now));
-    const put = (b: BoardDoc, yes: boolean, list: string[]) => void applyBoard({ op: yes ? 'add' : 'remove', id: b.id, cards: list });
-    const choices = boardChoices(boards.boards, cards, holds).map(({ board: b, cards: list, fresh, on }) => ({
-      label: list.length < cards.length ? `${boardName(b, current)} (${list.length} of ${cards.length})` : boardName(b, current),
-      checked: on,
-      run: () => put(b, !on, on ? list : fresh),
-    }));
-    const held = view === 'kanban' ? cards.map((c) => c.card).filter(member) : [];
-    const remove: MenuSpec = shownBoard && held.length > 0 ? [{ label: `Remove${many(held.length)} from board`, run: () => put(shownBoard, false, held) }] : [];
-    return [
-      {
-        label: `Add${many(cards.length)} to board`,
-        items: [...choices, 'separator', { label: keys.length > 1 ? 'New board with them…' : 'New board with it…', run: () => setBoardEdit({ board: null, with: cards.map((c) => c.card) }) }],
-      },
-      ...remove,
-    ];
+    return boardMenus.addToBoard(ref, cards, {
+      boards: boards.boards,
+      current,
+      holds: (b) => (b.id === shownBoard?.id ? member : memberTest(b, allSubjects, now)),
+      kanban: view === 'kanban' && shownBoard ? { board: shownBoard, member } : null,
+      put: (b, yes, list) => void applyBoard({ op: yes ? 'add' : 'remove', id: b.id, cards: list }),
+      create: (list) => setBoardEdit({ board: null, with: list }),
+    });
   };
   // Making or changing a board, or a column of its Kanban (BoardDialog.tsx).
   const [boardEdit, setBoardEdit] = useState<{ board: BoardDoc | null; with?: string[] } | null>(null);
@@ -789,45 +741,32 @@ export function App() {
    *  the board's settings, moving it to another project as a todo moves (every project but
    *  Elsewhere, and All projects), deleting it. */
   const boardMenu = (b: BoardDoc | null = shownBoard) =>
-    void showContextMenu([
-      ...boards.boards.map((x) => ({ label: boardName(x, current), checked: x.id === shownBoard?.id && (view === 'kanban' || view === 'canvas'), run: () => showBoard(x.id) })),
-      ...(boards.boards.length > 0 ? ['separator' as const] : []),
-      { label: 'New board…', run: () => setBoardEdit({ board: null }) },
-      ...(b
-        ? [
-            { label: `Settings of ${b.name}…`, run: () => setBoardEdit({ board: b }) },
-            { label: 'Move to project', items: [...todoProjects(projects), ALL_PROJECTS].map((p) => ({ label: p, checked: b.project === p, run: () => moveBoard(b, p) })) },
-            ...(b.columns ? [{ label: 'Kanban columns back to the stages', run: () => void applyBoard({ op: 'columns', id: b.id, columns: null }) }] : []),
-            'separator' as const,
-            {
-              label: `Delete ${b.name}`,
-              run: () => {
-                void applyBoard({ op: 'delete', id: b.id });
-                setToast(`Deleted the board ${b.name}. What was on it stays as it was.`);
-              },
-            },
-          ]
-        : []),
-    ]).catch((e: unknown) => setToast(String(e)));
+    void showContextMenu(
+      boardMenus.boardMenu(b, {
+        boards: boards.boards,
+        showing: view === 'kanban' || view === 'canvas' ? (shownBoard?.id ?? null) : null,
+        current,
+        projects: [...todoProjects(projects), ALL_PROJECTS],
+        show: showBoard,
+        create: () => setBoardEdit({ board: null }),
+        settings: (x) => setBoardEdit({ board: x }),
+        move: moveBoard,
+        stages: (x) => void applyBoard({ op: 'columns', id: x.id, columns: null }),
+        remove: (x) => {
+          void applyBoard({ op: 'delete', id: x.id });
+          setToast(`Deleted the board ${x.name}. What was on it stays as it was.`);
+        },
+      }),
+    ).catch((e: unknown) => setToast(String(e)));
   // A column's menu (KanbanView.tsx): its settings, folding it, moving it, taking it away.
   const columnMenu = (c: { id: string; column: BoardColumn | null }) => {
     if (!shownBoard) return;
-    const cols = columnsOf(shownBoard);
-    const at = cols.findIndex((x) => x.id === c.id);
-    if (at < 0 || !c.column) return;
-    const col = c.column;
-    const set = (next: BoardColumn[]) => void applyBoard({ op: 'columns', id: shownBoard.id, columns: next });
-    const swap = (i: number, j: number) => set(cols.map((x, k) => (k === i ? cols[j] : k === j ? cols[i] : x)));
-    void showContextMenu([
-      { label: 'Column settings…', run: () => setColumnEdit({ column: col }) },
-      { label: col.folded ? 'Open at first' : 'Fold at first', run: () => set(cols.map((x) => (x.id === col.id ? { ...x, folded: !col.folded } : x))) },
-      'separator',
-      { label: 'Move left', enabled: at > 0, run: () => swap(at, at - 1) },
-      { label: 'Move right', enabled: at < cols.length - 1, run: () => swap(at, at + 1) },
-      'separator',
-      { label: 'Add column…', run: () => setColumnEdit({ column: null }) },
-      { label: `Delete ${col.name}`, enabled: cols.length > 1, run: () => set(cols.filter((x) => x.id !== col.id)) },
-    ]).catch((e: unknown) => setToast(String(e)));
+    const spec = boardMenus.columnMenu(columnsOf(shownBoard), c, {
+      settings: (column) => setColumnEdit({ column }),
+      add: () => setColumnEdit({ column: null }),
+      set: (next) => void applyBoard({ op: 'columns', id: shownBoard.id, columns: next }),
+    });
+    if (spec) void showContextMenu(spec).catch((e: unknown) => setToast(String(e)));
   };
   const saveColumn = (fields: Omit<BoardColumn, 'id'>) => {
     if (!shownBoard) return;
@@ -1729,51 +1668,10 @@ export function App() {
   const todoItemsRef = useLatest(todoMenuItems);
   const editorIcons = useEditorIcons(board?.apps);
   const editors = board ? { apps: board.apps, icons: editorIcons } : undefined;
-  /** What this window can do to a session, for its menu and its keys, which run the same
-   *  actions (menus.ts). */
-  const sessionCan = (lane: Lane, s: Session, pin: 'session' | 'worktree'): menus.SessionCan => ({
-      report,
-      keys: view === 'sessions' ? 'chords' : true,
-      open,
-      terminal: board?.apps.terminal ?? 'Terminal',
-      editors,
-      newSession: () => newSession({ laneId: lane.id }),
-      ownTerminal: ownTerminalFor(s.key, runFolder(lane, s), board?.apps.runIn, board?.terminals?.[s.key], (e: unknown) => report.error(errorText(e))),
-      todos: todoItemsRef.current(lane.project, { session: s.key }, { session: s.key, worktree: lane.id, label: `${s.account} in ${lane.callsign}` }, s.title),
-      pin:
-        pin === 'session'
-          ? { label: sessionPins.set.has(s.key) ? 'Unpin session' : 'Pin session', run: () => sessionPins.toggle(s.key) }
-          : { label: lanePins.set.has(lane.id) ? 'Unpin worktree' : 'Pin worktree', run: () => toggleLanePin(lane) },
-      desktop: onDesktop,
-      windows: keptSessions,
-      rename: () => setRenaming(s.key),
-      worktrees: board?.lanes,
-      archive: (archived) => {
-        if (archived) leftAndOn(s, 'archived');
-        setArchived([s.key], archived, s.title);
-      },
-      // Undo takes it out of the archive; a terminal it closed stays closed, and it resumes as any other.
-      undoDone: (message) => setArchivedUndo({ keys: [s.key], title: s.title, message }),
-      left: (done) => leftAndOn(s, done),
-      // Its merge refused: round again in Sessions' queue, with a toast where the dialog didn't
-      // come back (another was up).
-      failed: (why) => {
-        queue.again(s.key);
-        if (why) report.error(why);
-      },
-      mergeDone: board ? { prs: board.prs, ask: mergingDone.ask } : undefined,
-      doneHelpers,
-      // Moved from its panel in Sessions, it stays there until its copy takes its place, rather
-      // than the panel going on to the next that waits.
-      moving: (copy) => {
-        if (view !== 'sessions' || selected?.kind !== 'agent' || selected.session.key !== s.key) return;
-        const from = selected;
-        setMoving({ from, to: null });
-        void copy.then((to) => setMoving((m) => (m?.from !== from ? m : to ? { from, to } : null)));
-      },
-      boards: boardItems('session', [s.key]),
-      labels: todoStore.labels,
-  }) satisfies menus.CanIn<'main'>;
+  /** What this window can do to a session and to a worktree, for their menus and its keys, which
+   *  run the same actions (mainCan.ts), from what this render has. */
+  const mainHas: MainHas = { report, view, open, board, editors, newSession, todoItems: todoItemsRef, sessionPins, lanePins, toggleLanePin, onDesktop, keptSessions, setRenaming, leftAndOn, setArchived, setArchivedUndo, queue, mergingDone, doneHelpers, selected, setMoving, boardItems, todoStore, setPreviewFor, openSettings, setCleaning };
+  const sessionCan = (lane: Lane, s: Session, pin: 'session' | 'worktree') => sessionCanOf(mainHas, lane, s, pin);
   const sessionMenuSpec = (lane: Lane, s: Session, pin: 'session' | 'worktree'): MenuSpec => menus.sessionMenu(lane, s, sessionCan(lane, s, pin));
   const sessionMenu = (lane: Lane, s: Session, pin: 'session' | 'worktree') => void showContextMenu(sessionMenuSpec(lane, s, pin)).catch((e: unknown) => setToast(String(e)));
   // A helpers chip's card (HelpersCard.tsx): a helper shown in Sessions, under its session, which
@@ -1822,20 +1720,7 @@ export function App() {
   };
 
   /** A worktree's right-click menu, as every window has it (menus.ts), with this window's own. */
-  const laneCan = (lane: Lane): menus.LaneCan => ({
-      report,
-      keys: view === 'sessions' ? 'chords' : true,
-      open,
-      editors,
-      newSession: () => newSession({ laneId: lane.id }),
-      setPreview: () => setPreviewFor(lane.id),
-      automation: (repo) => openSettings('automation', repo),
-      todos: todoItemsRef.current(lane.project, { worktree: lane.id }, { worktree: lane.id, label: lane.callsign }),
-      pin: { label: lanePins.set.has(lane.id) ? 'Unpin worktree' : 'Pin worktree', run: () => toggleLanePin(lane) },
-      desktop: onDesktop,
-      boards: boardItems('worktree', [lane.id]),
-      cleanUp: setCleaning,
-  });
+  const laneCan = (lane: Lane) => laneCanOf(mainHas, lane);
   const laneMenuSpec = (lane: Lane): MenuSpec => menus.laneMenu(lane, laneCan(lane));
   // The keys run the same actions, as this render has them.
   const actionsRef = useLatest({ session: (lane: Lane, s: Session, pin: 'session' | 'worktree') => menus.sessionActions(lane, s, sessionCan(lane, s, pin)), lane: (lane: Lane) => menus.laneActions(lane, laneCan(lane)) });
@@ -2105,29 +1990,7 @@ export function App() {
 
   /** Whether a card matches the list's find and the status filter, as its row would in its own view. */
   const canvasMatches = useCallback(
-    (it: RefItem) => {
-      const e = canvasEntities;
-      switch (it.ref) {
-        case 'worktree': {
-          const lane = e.lanes.get(it.key);
-          return !!lane && laneInQuery(lane, query, textSearch.said) && !!narrowed(lane, bayFilter, since);
-        }
-        case 'session': {
-          const p = e.sessions.get(it.key);
-          const row: SessionItem | null = p ? { kind: 'agent', key: it.key, lane: p.lane, session: p.session } : null;
-          return !!row && sessionInQuery(row, query, textSearch.said) && sessionInFilter(row, bayFilter);
-        }
-        case 'todo': {
-          const r = todoItems.find((x) => x.todo.id === it.key);
-          return !!r && todoInQuery(r, query, textSearch.said) && todoInFilter(r, bayFilter);
-        }
-        case 'pr': {
-          const pr = e.prs.get(it.key);
-          const row = pr && prRowOf(pr);
-          return !!row && prInQuery(row, query, textSearch.said) && prInFilter(row, bayFilter);
-        }
-      }
-    },
+    (it: RefItem) => cardMatches(it, canvasEntities, todoItems, prRowOf, query, textSearch.said, bayFilter, since),
     [canvasEntities, todoItems, query, textSearch.said, bayFilter, since, prRowOf],
   );
 
@@ -2178,68 +2041,17 @@ export function App() {
       if (!next.delete(key)) next.add(key);
       return next;
     });
-  /** What a group's heading does (Groups.tsx). In Sessions (`rows`) a worktree's is a row: selected
-   *  for its panel, picked with others, and dragged among the pinned groups. In PRs and Todo a
-   *  press on one shows the worktree as its chip does (`focusLane`). A repo's has its menu. */
-  const groupActsFor = (rows: boolean, toggle: (key: string) => void): GroupActs => ({
-    onSelect: (g, how) => {
-      const lane = g.lane;
-      if (!lane) return;
-      if (!rows) {
-        if (how === 'one') focusLane(lane);
-        return;
-      }
-      if (how !== 'one') {
-        picks.sessions.clear();
-        picks.worktrees.select(headItem(lane), how);
-        return;
-      }
-      picks.worktrees.clear();
-      picks.sessions.clear();
-      pressRow(lane.id, how);
-      setSelectedKey(lane.id);
-    },
-    onOpen: (g) => {
-      if (g.lane) open(g.lane, g.lane.defaultTarget);
-    },
-    onOpenTarget: open,
-    // On a worktree picked with others, the menu is for all of them.
-    onMenu: (g) => {
-      if (g.repo) repoMenu(g.key, g.repo);
-      else if (g.lane) (rows && picks.worktrees.keys.has(g.lane.id) ? picks.worktrees.menu() : laneMenu(g.lane));
-    },
-    onPrMenu: (g) => {
-      if (g.lane) lanePrMenu(g.lane);
-    },
-    onPrShow: (g) => {
-      const lane = g.lane;
-      if (!lane?.pr) return;
-      // In Sessions, its PR in its own panel's place, not in that of the worktrees picked with it.
-      const select = () => {
-        picks.worktrees.clear();
-        setSelectedKey(lane.id);
-      };
-      showPrOf(lane.pr, rows ? { key: lane.id, select } : undefined);
-    },
-    onPrOpen: (g) => {
-      if (g.lane) openLanePr(g.lane);
-    },
-    onToggle: (g) => toggle(g.fold),
-    ...(rows && {
-      onPlace: (key: string, index: number) => sessionGroupPins.place(pinnedGroups, key, index),
-      onUnpin: sessionGroupPins.remove,
-      // What's on another device has no card here; a repo has none.
-      desktop: (g: { lane: Lane | null }) => (g.lane && !g.lane.device ? { ref: 'worktree' as const, key: g.lane.id } : null),
-      picked: picks.worktrees.keys,
-    }),
-  });
-  const groupActs = groupActsFor(true, toggleIn(setOpenGroups));
-  const prGroupActs = groupActsFor(false, toggleIn(setOpenPrGroups));
-  const todoGroupActs = groupActsFor(false, toggleIn(setOpenTodoGroups));
-  const scheduleGroupActs = groupActsFor(false, toggleIn(setOpenScheduleGroups));
   /** A repo's menu, on its heading: its page on GitHub, its pin, its name. */
   const repoMenu = (key: string, repo: RepoName) =>
     void showContextMenu(menus.repoMenu(repo, { report, pin: { label: repoPins.set.has(key) ? 'Unpin repo' : 'Pin repo', run: () => repoPins.toggle(key) } })).catch((e: unknown) => setToast(String(e)));
+  /** What a group's heading does (Groups.tsx, mainGroups.ts). In Sessions a worktree's is a row:
+   *  selected for its panel, picked with others, and dragged among the pinned groups. In PRs and
+   *  Todo a press on one shows the worktree as its chip does (`focusLane`). A repo's has its menu. */
+  const groupsHas: GroupsHas = { focusLane, picks, pressRow, setSelectedKey, open, repoMenu, laneMenu, lanePrMenu, showPrOf, openLanePr, sessionGroupPins, pinnedGroups };
+  const groupActs = groupActsOf(groupsHas, true, toggleIn(setOpenGroups));
+  const prGroupActs = groupActsOf(groupsHas, false, toggleIn(setOpenPrGroups));
+  const todoGroupActs = groupActsOf(groupsHas, false, toggleIn(setOpenTodoGroups));
+  const scheduleGroupActs = groupActsOf(groupsHas, false, toggleIn(setOpenScheduleGroups));
 
   // The Schedules view: the project's schedules, as the find narrows them, the one selected (the
   // first, until one is picked), and what's done to them from its rows, panel and menus.
@@ -2302,78 +2114,27 @@ export function App() {
   const boardCount = layoutShown === 'canvas' ? (canvas.doc?.items.filter((it) => it.kind === 'ref').length ?? '') : openCardCount;
   // The project's schedules that aren't paused or finished, for the sidebar's count.
   const activeSchedules = projectSchedules.filter((x) => !x.paused && x.finished == null).length;
-  const sideViews = views.filter((v) => v.id !== 'canvas').map((v) => {
-    const board = v.id === 'kanban';
-    return {
-      id: board ? 'board' : v.id,
-      label: board ? 'Board' : v.label,
-      icon: v.icon,
-      // The Board's keys are those of the layout a click on it shows: the one showing, else the last.
-      kbd: menus.chordKeys(VIEW_CHORDS[board ? layoutShown : v.id]),
-      count:
-        v.id === 'sessions'
-          ? shownSessionCount
-          : v.id === 'todo'
-            ? openTodoCount
-            : v.id === 'schedules'
-              ? activeSchedules
-            : board
-              ? ''
-              : githubPrs === 'coming' && openPrCount === 0
-                ? ''
-                : openPrCount,
-      badge: v.id === 'prs' && requestedCount > 0 ? requestedCount : undefined,
-      badgeTitle: v.id === 'prs' ? `${requestedCount} want your review` : undefined,
-    };
-  });
+  const sideViews = sideViewsOf(views, layoutShown, { sessions: shownSessionCount, todos: openTodoCount, schedules: activeSchedules, prs: openPrCount, prsComing: githubPrs === 'coming', requested: requestedCount });
   // The project's boards go under the Board view (under All projects, every project's, each
   // saying its project). The one it shows has the view's keys beside it, which go back to it, and
   // its count while it shows.
-  const sideBoards: SideBoard[] = boards.boards.map((b) => ({
-    id: b.id,
-    name: b.name,
-    project: b.project !== current ? b.project : undefined,
-    title: `${b.project !== current ? `In ${b.project}: ` : ''}${ruleWords(b.rule, todoStore.labels)}`,
-    count: boardShowing && b.id === shownBoard?.id ? boardCount : undefined,
-    kbd: b.id === shownBoard?.id ? menus.chordKeys(VIEW_CHORDS[layoutShown]) : undefined,
-  }));
-  const sideStatuses: SideStatus[] = [
-    { id: 'needs', label: 'Needs you', glyph: 'needs', count: counts.needs, tone: 'attn' },
-    { id: 'unread', label: 'Your turn', glyph: 'unread', count: counts.unread },
-    { id: 'working', label: 'Working', glyph: 'working', count: counts.working },
-    { id: 'review', label: 'In review', icon: 'pr', count: counts.review },
-    { id: 'work', label: 'PR needs work', glyph: 'error', count: counts.work, tone: 'alert', title: 'Open PRs with failing checks or changes requested' },
-  ];
-  const ageApplies = view !== 'todo' && view !== 'canvas' && view !== 'schedules';
+  const sideBoards = sideBoardsOf(boards.boards, { current, labels: todoStore.labels, shown: shownBoard?.id, showing: boardShowing, count: boardCount, layoutShown });
+  const sideStatuses = sideStatusesOf(counts);
+  const ageApplies = ageAppliesIn(view);
   // The facets the view offers, and the picks among them that narrow it now, by their names.
   // The Kanban's labels count its sessions too (boardLists.ts `todoLabelOptions`).
-  const sideFacets = facetsIn(view).map((id) => ({ id, label: FACET_WORD[id], options: (view === 'kanban' ? kanbanFacetOptions : facetOptions)[id], picked: facets[id] ?? NO_PICKS }));
+  const sideFacets = sideFacetsOf(view, view === 'kanban' ? kanbanFacetOptions : facetOptions, facets);
   const facetsNow = Object.fromEntries(facetsOn(facets, view).map((id) => [id, facets[id]])) as Facets;
-  const pickNames = sideFacets.flatMap((f) => f.picked.map((p) => f.options.find((o) => o.id === p)?.label ?? p));
-  const sideFilters = [
-    ageApplies && age !== 'all' ? (AGES.find((a) => a.id === age)?.title.replace(/^Active in the /, '') ?? age) : null,
-    ...bayFilter.map((f) => sideStatuses.find((x) => x.id === f)?.label ?? f),
-    ...pickNames,
-  ].filter((x): x is string => !!x);
+  const pickNames = pickNamesOf(sideFacets);
   const viewNow: ViewState = { view, project: current, device: deviceFilter, age, filter: bayFilter, facets: facetsNow };
   const savedOn = savedViews.find((v) => sameView(v, viewNow))?.id ?? null;
   const deviceName = (id: string) => (id === 'here' ? devices?.me.name || 'This device' : (devices?.devices.find((d) => d.short === id)?.name ?? null));
-  // The same filters as chips on the list's strip (ListBar.tsx `FilterChips`), each with the way
-  // to take it off, so what narrows the list shows with the sidebar folded away.
-  const listFilters: ListFilter[] = [
-    ...deviceFilter.map((id) => {
-      const name = deviceName(id) ?? id;
-      return { key: `device:${id}`, label: name, name: `what runs on ${name}`, clear: () => toggleDevice(id) };
-    }),
-    ...(ageApplies && age !== 'all'
-      ? [{ key: 'age', label: (AGES.find((a) => a.id === age)?.title ?? age).replace(/^Active in the l/, 'L'), name: (AGES.find((a) => a.id === age)?.title ?? age).toLowerCase(), clear: () => setAge('all') }]
-      : []),
-    ...bayFilter.map((f) => {
-      const label = sideStatuses.find((x) => x.id === f)?.label ?? f;
-      return { key: `status:${f}`, label, name: label.toLowerCase(), clear: () => toggleBay(f) };
-    }),
-    ...facetChips(sideFacets).map((c) => ({ key: `${c.facet}:${c.pick}`, label: c.label, name: c.name, title: c.title, clear: () => setFacets((f) => togglePick(f, c.facet, c.pick)) })),
-  ];
+  // What narrows the view now (sideLists.ts): in words for the collapsed rail's badge, and as chips
+  // on the list's strip (ListBar.tsx `FilterChips`), each with the way to take it off, so what
+  // narrows the list shows with the sidebar folded away.
+  const filtersOn: FiltersOn = { devices: deviceFilter, deviceName, ageApplies, age, statuses: bayFilter, sideStatuses, facets: sideFacets };
+  const sideFilters = sideFiltersOf(filtersOn, pickNames);
+  const listFilters = listFiltersOf(filtersOn, { device: toggleDevice, age: () => setAge('all'), status: toggleBay, facet: (facet, pick) => setFacets((f) => togglePick(f, facet, pick)) });
   const clearListFilters = () => {
     setDeviceFilter([]);
     if (ageApplies) setAge('all');
@@ -2381,15 +2142,7 @@ export function App() {
     setFacets((f) => ({ ...f, ...Object.fromEntries(facetsIn(view).map((id) => [id, []])) }));
   };
   const filterChips = <FilterChips filters={listFilters} onClearAll={clearListFilters} />;
-  const either = (words: (string | null | undefined)[]) => words.filter(Boolean).join(' + ') || null;
-  const viewSuggestion = suggestName([
-    VIEWS.find((v) => v.id === view)?.label,
-    current === ALL_PROJECTS ? null : current,
-    either(deviceFilter.map(deviceName)),
-    either(bayFilter.map((f) => sideStatuses.find((x) => x.id === f)?.label)),
-    either(pickNames),
-    ageApplies && age !== 'all' ? AGES.find((a) => a.id === age)?.label : null,
-  ]);
+  const viewSuggestion = viewSuggestionOf(view, current, filtersOn, pickNames);
   const applySaved = (v: SavedView) => {
     // Every field is checked against what exists now: a project or device can be gone since.
     if (v.project !== current && (v.project === ALL_PROJECTS || projects.some((p) => p.name === v.project))) pickProject(v.project);
@@ -2405,12 +2158,7 @@ export function App() {
     setBayFilter(v.filter);
     setFacets({ ...v.facets, labels: v.facets?.labels?.filter((id) => labelById.has(id)) });
   };
-  const savedMenu = (v: SavedView) =>
-    void showContextMenu([
-      { label: 'Update to this view', enabled: savedOn === null, run: () => keepSaved(savedViews.map((x) => (x.id === v.id ? { ...x, ...viewNow } : x))) },
-      'separator',
-      { label: 'Delete', run: () => keepSaved(savedViews.filter((x) => x.id !== v.id)) },
-    ]).catch((e: unknown) => setToast(String(e)));
+  const savedMenu = (v: SavedView) => void showContextMenu(savedViewMenu(v, { views: savedViews, now: viewNow, saved: savedOn !== null, keep: keepSaved })).catch((e: unknown) => setToast(String(e)));
 
   // PR links in conversations and descriptions (PrLink.tsx): a click shows the PR as its chip
   // does, and their cards show the PR and its sessions here. A link to a session or a todo
@@ -2433,108 +2181,30 @@ export function App() {
     },
   }, board, deviceLanes);
 
-  // The quick panel's shortcut from any app, which the box in the title bar shows; ⌘K without one.
-  const quickKeys = shortcutKeys(board?.quickShortcut);
-
   // Everything in it says a worktree's or a PR's project where it isn't the one shown
   // (ProjectSaid.tsx): under All projects, everywhere.
   const page = (
     <div className="ca-win ca-win--app">
-      <div className="ca-win-bar" data-tauri-drag-region>
-        <div className="ca-win-bar-start" data-tauri-drag-region>
-          <button
-            type="button"
-            className={sideCollapsed ? 'ca-sidetoggle' : 'ca-sidetoggle is-on'}
-            aria-label={sideCollapsed ? 'Show sidebar' : 'Hide sidebar'}
-            aria-pressed={!sideCollapsed}
-            title={keysIn(`${sideCollapsed ? 'Show' : 'Hide'} the sidebar (⌃⌘S)`)}
-            onClick={toggleSidebar}
-          >
-            <Icon name="layout-sidebar" size={16} />
-          </button>
-          <div className="ca-histnav" role="group" aria-label="Sessions you looked at">
-            <button
-              type="button"
-              aria-label="Back"
-              aria-disabled={!sessionHistory.back}
-              title={historyTitle(sessionHistory.back, 'Back', 'Back to the session you looked at before', menus.chordSigns(QUEUE_CHORDS.historyBack[0]))}
-              onClick={() => travel.current('back', false)}
-            >
-              <Icon name="chevron-left" size={16} />
-            </button>
-            <button
-              type="button"
-              aria-label="Forward"
-              aria-disabled={!sessionHistory.forward}
-              title={historyTitle(sessionHistory.forward, 'Forward', 'Forward again, after going back', menus.chordSigns(QUEUE_CHORDS.historyForward[0]))}
-              onClick={() => travel.current('forward', false)}
-            >
-              <Icon name="chevron-right" size={16} />
-            </button>
-          </div>
-          <ProjectSwitcher logoStatus={logoStatus} projects={projects} current={current} total={totalLanes} actions={actions} onPick={pickProject} onOpenWindow={switcherWindow} onAddProject={() => openSettings('projects', NEW_PROJECT)} onEditProjects={() => openSettings('projects')} />
-        </div>
-        {/* The way into the app: the quick panel (ui/Quick.tsx), as ⌘K and its own shortcut open it,
-            to find a session, a todo or a PR anywhere or to start new work where ⌘N would. It says
-            what the panel's box says, and the panel's shortcut. Finding in the window is ⌘F's
-            (ui/WindowFind.tsx), and filtering the list ⌥⌘F's (ui/ListBar.tsx). */}
-        <button
-          type="button"
-          className="ca-search"
-          title={keysIn(`Find a session, a todo or a PR, or describe new work (⌘K${quickKeys ? `, or ${shortcutLabel(board?.quickShortcut)} from any app` : ''})`)}
-          onClick={() => newSession({ laneId: startLaneId })}
-        >
-          <Icon name="search" size={14} />
-          <span>{QUICK_PLACEHOLDER}</span>
-          <Kbd keys={quickKeys ?? ['⌘', 'K']} />
-        </button>
-        <div className="ca-win-bar-end" data-tauri-drag-region>
-          {/* The sessions hearing now (listen.rs), whatever the window shows: a click shows one.
-              While none hears, and voice is on, Listen now is in their place (meetings.rs `now`):
-              the button that starts a listening is where the light that says one is going shows. */}
-          <ListeningNow
-            listenings={hearingNow(board?.lanes ?? [], board?.listenings)}
-            onShow={(l) => reveal.current({ kind: 'session', laneId: l.laneId, key: l.key })}
-            onListen={board?.experimental?.voice ? () => void showQuick({ listen: true, project: projectNow.current, opener: windowLabel() }) : undefined}
-            shortcut={shortcutLabel(board?.listenShortcut)}
-          />
-          {/* With a meeting counted down to (meetings.rs `counting_down`), the minutes to go are
-              on it, and its dialog opens on that meeting (meetings.rs `Ahead::takeable`). */}
-          {board?.experimental?.voice && (
-            <Button
-              icon="calendar"
-              aria-label="Meetings"
-              title={board.meetingSoon ? `${board.meetingSoon.title.trim() || 'A meeting'}, ${meetingWhen(board.meetingSoon, now)}: take its notes from Meetings` : 'Meetings: the notes and transcripts of the ones Codealong took'}
-              onClick={() => setMeetingsOpen(true)}
-            >
-              {board.meetingSoon ? <MeetingCountdown meeting={board.meetingSoon} /> : undefined}
-            </Button>
-          )}
-          <Seg
-            className="ca-barplace"
-            label="Agents bar"
-            toggles
-            look="icon"
-            iconSize={15}
-            options={[
-              { id: 'floating', label: 'Floating bar', icon: 'capsule-horizontal', title: barPlace === 'floating' ? 'Hide the floating bar' : 'Floating bar: the agents that need you, on top of every window, where you put it' },
-              { id: 'notch', label: 'Bar in the notch', icon: 'notch', title: barPlace === 'notch' ? 'Hide the bar in the notch' : 'In the notch: the agents that need you, around the notch at the top of the screen, opening when you point at it' },
-              { id: 'menubar', label: 'Menu bar icon', icon: 'menu-bar', title: barPlace === 'menubar' ? 'Take Codealong out of the menu bar' : 'In the menu bar: an icon with the agents that need you in its menu, the server, and quitting with it or without it' },
-            ]}
-            value={barPlace === 'off' ? null : barPlace}
-            onPick={pickBarPlace}
-          />
-          <Button
-            icon="plus"
-            aria-label="New session"
-            title={keysIn(pickedRows.length > 0 ? `Start one session for the ${pickedRows.length} selected todos (⌘N)` : selected?.kind === 'todo' ? 'Start a session for the selected todo (⌘N)' : 'Start a session in the selected worktree (⌘N)')}
-            onClick={() => (pickedRows.length > 0 ? startForTodos(pickedRows) : selected?.kind === 'todo' ? startForTodo(selected) : newSession({ laneId: startLaneId }))}
-          />
-          {/* Improve Codealong (improve.ts): the quick panel on Codealong's own project, with pictures
-              of its windows as they are, for a session that changes Codealong itself. */}
-          <Button icon="bulb" className="ca-improve" aria-label="Improve Codealong" title={improveTitle(shortcutLabel(board?.improveShortcut))} onClick={() => void showQuick({ improve: true, project: projectNow.current, opener: windowLabel() })} />
-        </div>
-      </div>
+      <MainBar
+        board={board}
+        now={now}
+        sideCollapsed={sideCollapsed}
+        onToggleSidebar={toggleSidebar}
+        history={sessionHistory}
+        historyTitle={historyTitle}
+        onTravel={(dir) => travel.current(dir, false)}
+        switcher={<ProjectSwitcher logoStatus={logoStatus} projects={projects} current={current} total={totalLanes} actions={actions} onPick={pickProject} onOpenWindow={switcherWindow} onAddProject={() => openSettings('projects', NEW_PROJECT)} onEditProjects={() => openSettings('projects')} />}
+        onQuick={() => newSession({ laneId: startLaneId })}
+        onShowListening={(l) => reveal.current({ kind: 'session', laneId: l.laneId, key: l.key })}
+        onListen={() => void showQuick({ listen: true, project: projectNow.current, opener: windowLabel() })}
+        onMeetings={() => setMeetingsOpen(true)}
+        barPlace={barPlace}
+        onBarPlace={pickBarPlace}
+        pickedTodos={pickedRows.length}
+        todoSelected={selected?.kind === 'todo'}
+        onNew={() => (pickedRows.length > 0 ? startForTodos(pickedRows) : selected?.kind === 'todo' ? startForTodo(selected) : newSession({ laneId: startLaneId }))}
+        onImprove={() => void showQuick({ improve: true, project: projectNow.current, opener: windowLabel() })}
+      />
       <div
         className={cx('ca-win-body', sideCollapsed && 'is-railed', panelKind === 'pr' && 'is-prs', panelKind === 'todo' && 'is-todo', panelKind === 'schedule' && 'is-schedule', panelKind === 'session' && 'is-session', maxed && 'is-panel-max', view === 'canvas' && 'is-canvas', view === 'canvas' && canvasPick && 'has-panel', boardless && 'is-boardless', reading && 'is-loading')}
         style={{ '--sidebar-w': widthVar(sidebarWidth), '--panel-w': widthVar(panelKind ? panelWidth[panelKind] : null) } as CSSProperties}
