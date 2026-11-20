@@ -181,12 +181,14 @@ step git commit -q -m first
 step git push -q origin main
 
 # GitHub, as the script asks it. What gh would have cut out of its answer with --jq is what
-# this prints: where a pull request stands as "state queue merged id standing head", and a
-# run of CI as "status conclusion id address". The files the test leaves say how it goes:
-# "slow" holds how many looks the pull request's own run of CI is still going for and "red"
-# has it fail; "standing" has someone's request to merge the pull request by itself on it;
-# "lost" loses GitHub's yes to queueing it; "fail" puts it out of the queue once it has been
-# seen there, "gone" before anyone sees it there, and "moved" has its branch pushed to.
+# this prints: where a pull request stands as "state queue merged id standing applies head",
+# and a run of CI as "status conclusion id address". The files the test leaves say how it
+# goes: "slow" holds how many looks the pull request's own run of CI is still going for and
+# "red" has it fail; "standing" has someone's request to merge the pull request by itself on
+# it, and "conflicting" has main moved under it; "lost" loses GitHub's yes to queueing it, and
+# with "swapped" it has merged by then as another commit; "fail" puts it out of the queue once
+# it has been seen there, "gone" before anyone sees it there, and "mute" has GitHub not say
+# whether it was; "moved" has its branch pushed to.
 cat >"$tmp/bin/gh" <<'GH'
 #!/bin/bash
 f="$FAKE"
@@ -235,10 +237,9 @@ case "$1 $2" in
   "api graphql")
     case "$all" in
       *"mergeQueue(branch"*) [ -f "$f/no-queue" ] || echo Q_1 ;;
-      *REMOVED_FROM_MERGE_QUEUE_EVENT*) [ ! -f "$f/evicted" ] || echo FAILED_CHECKS ;;
-      *dequeuePullRequest*)
-        rm -f "$f/queued"
-        touch "$f/dequeued"
+      *REMOVED_FROM_MERGE_QUEUE_EVENT*)
+        [ ! -f "$f/mute" ] || exit 1
+        [ ! -f "$f/evicted" ] || echo FAILED_CHECKS
         ;;
       *enqueuePullRequest*)
         # A place in the queue, for the commit named.
@@ -246,6 +247,11 @@ case "$1 $2" in
         touch "$f/queued"
         rm -f "$f/evicted"
         echo 0 >"$f/looks"
+        if [ -f "$f/swapped" ]; then
+          number="$(cat "$f/pr")"
+          rm -f "$f/pr" "$f/queued"
+          echo "MERGED - $(git --git-dir="$f/origin.git" rev-parse main) PR_$number - MERGEABLE 0000000000000000000000000000000000000000" >"$f/merged.$number"
+        fi
         # Taken, with the answer lost on its way back.
         [ ! -f "$f/lost" ] || exit 1
         ;;
@@ -262,19 +268,21 @@ case "$1 $2" in
         if [ ! -f "$f/queued" ]; then
           standing=-
           [ ! -f "$f/standing" ] || standing=set
-          echo "OPEN - - PR_$number $standing $at"
+          applies=MERGEABLE
+          [ ! -f "$f/conflicting" ] || applies=CONFLICTING
+          echo "OPEN - - PR_$number $standing $applies $at"
           exit 0
         fi
         looks=$(($(cat "$f/looks") + 1))
         echo "$looks" >"$f/looks"
         if [ -f "$f/moved" ]; then
-          echo "OPEN QUEUED - PR_$number - 0000000000000000000000000000000000000000"
+          echo "OPEN QUEUED - PR_$number - MERGEABLE 0000000000000000000000000000000000000000"
         elif [ -f "$f/gone" ] || { [ -f "$f/fail" ] && [ "$looks" -gt 1 ]; }; then
           rm -f "$f/queued"
           touch "$f/evicted"
-          echo "OPEN - - PR_$number - $at"
+          echo "OPEN - - PR_$number - MERGEABLE $at"
         elif [ "$looks" = 1 ]; then
-          echo "OPEN AWAITING_CHECKS - PR_$number - $at"
+          echo "OPEN AWAITING_CHECKS - PR_$number - MERGEABLE $at"
         else
           # The queue: the branch's commits written again on top of main, by another hand,
           # and the branch removed, as the repository is set to.
@@ -284,7 +292,7 @@ case "$1 $2" in
             GIT_COMMITTER_NAME=queue git cherry-pick "main..origin/$branch" >/dev/null &&
             git push -q origin main ":$branch" || exit 1
           rm -f "$f/pr" "$f/queued"
-          echo "MERGED - $(git rev-parse HEAD) PR_$number - $at" | tee "$f/merged.$number"
+          echo "MERGED - $(git rev-parse HEAD) PR_$number - MERGEABLE $at" | tee "$f/merged.$number"
         fi
         ;;
     esac
@@ -307,6 +315,10 @@ here
 echo two >>docs/a.md
 step git commit -q -am "docs: two"
 was="$(git rev-parse HEAD)"
+# A tag on the commit, in a checkout set to push tags with their commits: a landing pushes the
+# branch alone.
+step git tag -a -m "a version" v9.9.9
+step git config push.followTags true
 # Main has moved, and the branch lands as it is: the queue writes it on top. Its own run of CI
 # takes a moment, which is waited for before it's queued.
 echo 2 >"$tmp/slow"
@@ -392,6 +404,12 @@ echo 99 >"$tmp/slow"
 CODEALONG_LAND_WAIT=-1 scripts/land.sh >"$tmp/out" 2>&1
 echo "stopped before it was queued: $? ($(ls "$tmp" | grep -c '^queued$') queued)"
 rm "$tmp/slow"
+# Asked again while GitHub won't say whether it was put out of the queue meanwhile: no answer
+# isn't "it wasn't", and nothing is asked of it.
+touch "$tmp/mute"
+scripts/land.sh >"$tmp/out" 2>&1
+echo "with no word on whether it was put out: $? ($(ls "$tmp" | grep -c '^queued$') queued)"
+rm "$tmp/mute"
 echo "asked again: $(scripts/land.sh 2>&1 | landed)"
 # Put out before anyone saw it in the queue: still said, not waited on for ever.
 echo five >>docs/a.md
@@ -400,17 +418,29 @@ touch "$tmp/gone"
 scripts/land.sh >"$tmp/out" 2>&1
 echo "put out unseen: $? $(grep -c 'put pull request #11 out: FAILED_CHECKS' "$tmp/out")"
 rm "$tmp/gone"
-# Its branch pushed to by someone else while it's in the queue: no longer this landing's, and
-# taken out, since what's there isn't what was queued.
+# Its branch pushed to by someone else while it's in the queue: no longer this landing's. Said,
+# and left in the queue, which whoever pushed may have asked for. (Here they take it out.)
 touch "$tmp/moved"
 scripts/land.sh >"$tmp/out" 2>&1
-echo "its branch moved under it: $? $(grep -c "no longer this landing's" "$tmp/out") $(grep -c 'has been taken out' "$tmp/out") $(ls "$tmp" | grep -c '^dequeued$')"
-rm "$tmp/moved"
+echo "its branch moved under it: $? $(grep -c "no longer this landing's" "$tmp/out") $(grep -c 'take it out on its page' "$tmp/out")"
+rm "$tmp/moved" "$tmp/queued"
 # Its own run of CI fails: it's said with that run, and nothing is queued.
 touch "$tmp/red"
 scripts/land.sh >"$tmp/out" 2>&1
 echo "its own run of CI failing: $? $(grep -c "can't join the queue" "$tmp/out") $(grep -c 'gh run view 77 --log-failed' "$tmp/out") ($(ls "$tmp" | grep -c '^queued$') queued)"
 rm "$tmp/red"
+# Main moved under its pull request, which no longer applies: said at once, where its own run
+# of CI would never come.
+touch "$tmp/conflicting"
+scripts/land.sh >"$tmp/out" 2>&1
+echo "main moved under its pull request: $? $(grep -c 'no longer applies on main' "$tmp/out")"
+rm "$tmp/conflicting"
+# GitHub's yes lost, and the pull request merged by then as another commit than this one: not
+# said to be queued, though it isn't waited for.
+touch "$tmp/lost" "$tmp/swapped"
+scripts/land.sh --no-wait >"$tmp/out" 2>&1
+echo "merged as another commit: $? $(grep -c '^Queued' "$tmp/out") $(grep -c 'not the commit this landing pushed' "$tmp/out")"
+rm "$tmp/lost" "$tmp/swapped"
 # Another landing of this branch under way here: its turn is held, as the script holds it.
 python3 -c 'import fcntl, os, sys, time
 held = os.open(sys.argv[1], os.O_RDWR | os.O_CREAT, 0o644)
@@ -463,10 +493,26 @@ step git add -A
 step git commit -q -m "half: two"
 scripts/land.sh >"$tmp/out" 2>&1
 echo "half of it landed already: $? $(grep -c 'which drops those' "$tmp/out")"
+# A change that differs from one main has only by its whitespace is still a change: git takes
+# the two patches for one, and a landing that went by that would call it landed and drop it.
+step git worktree add -q "$tmp/spaced" -b spaced origin/main
+step cd "$tmp/spaced"
+here
+echo 'say("a b")' >docs/s.md
+step git add -A
+step git commit -q -m "spaced: a b"
+echo 'say("ab")' >"$tmp/main/docs/s.md"
+step git -C "$tmp/main" add -A
+step git -C "$tmp/main" commit -q -m "main: ab"
+step git -C "$tmp/main" push -q origin main
+was="$(git rev-parse HEAD)"
+scripts/land.sh >"$tmp/out" 2>&1
+echo "differing from main's only by a space: $? $(grep -c 'Nothing to land' "$tmp/out") $(grep -c "doesn't apply on origin/main" "$tmp/out") $([ "$(git rev-parse HEAD)" = "$was" ] && echo kept)"
 step cd "$tmp/main"
 scripts/land.sh >"$tmp/out" 2>&1
 echo "from main: $(grep -c 'is on main' "$tmp/out")"
 echo "main, at the end: $(onmain)"
+echo "tags on origin: $(git -C "$tmp/origin.git" tag | wc -l | tr -d ' ')"
 `;
 
 test('a landing queues its pull request as the commit that was asked for, on a main that moved, and brings this branch and the main checkout up', { timeout: LANDING_WAIT + 20_000 }, async () => {
@@ -496,18 +542,23 @@ test('a landing queues its pull request as the commit that was asked for, on a m
     'asked again: Landed: <commit> is in origin/main. Fast-forwarded the main checkout to origin/main (<commit>).',
     'and this branch is where main is',
     'stopped before it was queued: 3 (0 queued)',
+    'with no word on whether it was put out: 3 (0 queued)',
     'asked again: Landed: <commit> is in origin/main. Fast-forwarded the main checkout to origin/main (<commit>).',
     'put out unseen: 1 1',
-    'its branch moved under it: 1 1 1 1',
+    'its branch moved under it: 1 1 1',
     'its own run of CI failing: 1 1 1 (0 queued)',
+    'main moved under its pull request: 1 1',
+    'merged as another commit: 1 0 1',
     'while another landing of it runs: 1 1',
     'with no merge queue: 1 1',
     'and the turn of the script before this one is let go',
     'not applying on main: 1 1 1',
     "and it's left as it was, here and on origin",
     'half of it landed already: 1 1',
+    "differing from main's only by a space: 1 0 1 kept",
     'from main: 1',
-    'main, at the end: half: one,main, on the same lines,docs: four,docs: three,a script, fixed,a script,main moved again,docs: two,main moved,first,',
+    'main, at the end: main: ab,half: one,main, on the same lines,docs: four,docs: three,a script, fixed,a script,main moved again,docs: two,main moved,first,',
+    'tags on origin: 0',
   ]);
 });
 
