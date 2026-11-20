@@ -245,6 +245,170 @@ test('a page is opened only from this run’s own server', { timeout: WAIT + 20_
   ]);
 });
 
+// preview.sh as far as Chrome, which here is a stand-in that does what Chrome does to a busy Mac:
+// it starts two helpers that are still there when the browser has gone, one of which doesn't go
+// when asked. The process table is a stand-in too: it lists the helpers as Chrome's are, started
+// from where Chrome is with the run's profile in their arguments, and bystanders that name the
+// profile otherwise (a longer path, another command naming the folder, the profile inside
+// another argument, someone looking for the very argument), which have to be left alone. It
+// lists only what's still there, as the real one does. curl stands in for this run's server and
+// for Chrome's debugging endpoint, which says the check passed once Chrome is up. No socket is
+// opened and the real process table isn't asked. Each of these processes holds a lock for as
+// long as it lives, which is how one that's there is told from one that's gone (a process that
+// has ended holds none, reaped or not), and ends by itself once the test's folder is gone.
+const LEFT = `${FOLDER}
+step cp "$1" scripts/preview.sh
+REAL_PYTHON="$(command -v python3)" || exit 9
+export REAL_PYTHON FAKE="$tmp"
+cat >"$tmp/bin/python3" <<'EOF'
+#!/usr/bin/env bash
+case "$*" in
+  *socket*) echo 45678 ;;
+  *http.server*) exec sleep 120 ;;
+  *) exec "$REAL_PYTHON" "$@" ;;
+esac
+EOF
+cat >"$tmp/bin/curl" <<'EOF'
+#!/usr/bin/env bash
+for last; do :; done
+case "$last" in
+  */json/list)
+    title=loading
+    [ ! -s "$FAKE/ready" ] || title="\${SAYS:-done: PASS 1/1}"
+    echo "[{\\"type\\": \\"page\\", \\"title\\": \\"$title\\"}]"
+    ;;
+  *) cat ".preview/fixture/\${last##*/}" 2>/dev/null ;;
+esac
+EOF
+# Whether the lock $1 (a name in the test's folder) is still held: by a process that's there.
+cat >"$tmp/bin/held" <<'EOF'
+#!/usr/bin/env bash
+! "$REAL_PYTHON" -c 'import fcntl, sys; fcntl.flock(open(sys.argv[1], "a"), fcntl.LOCK_EX | fcntl.LOCK_NB)' "$FAKE/$1" 2>/dev/null
+EOF
+# The process table: "pid lock command…" for each process started here, of which it lists
+# the ones still there, as "pid command…".
+cat >"$tmp/bin/ps" <<'EOF'
+#!/usr/bin/env bash
+while read -r pid lock command; do
+  ! held "$lock" || echo "$pid $command"
+done <"$FAKE/ps" 2>/dev/null
+EOF
+# A process that holds the lock $1 for its life, and says so once it has it. Asked to go, one
+# that "goes" notes that it was and does; one that "stays" doesn't.
+cat >"$tmp/bin/holds" <<'EOF'
+#!/usr/bin/env bash
+exec "$REAL_PYTHON" -c '
+import fcntl, os, signal, sys, time
+lock = os.path.join(os.environ["FAKE"], sys.argv[1])
+def asked(*_):
+    open(lock + ".asked", "w").close()
+    os._exit(0)
+signal.signal(signal.SIGTERM, signal.SIG_IGN if sys.argv[2] == "stays" else asked)
+held = open(lock, "w")
+fcntl.flock(held, fcntl.LOCK_EX)
+open(lock + ".held", "w").close()
+while os.path.isdir(os.environ["FAKE"]):
+    time.sleep(1)
+' "$@" >/dev/null 2>&1
+EOF
+cat >"$tmp/bin/chrome" <<'EOF'
+#!/usr/bin/env bash
+profile=""
+for arg; do
+  case "$arg" in --user-data-dir=*) profile="\${arg#--user-data-dir=}" ;; esac
+done
+holds lock.goes goes &
+echo "$! lock.goes" >>"$FAKE/helpers"
+echo "$! lock.goes $0 --type=renderer --user-data-dir=$profile --lang=en" >>"$FAKE/ps"
+holds lock.stays stays &
+echo "$! lock.stays" >>"$FAKE/helpers"
+echo "$! lock.stays $0 --type=gpu-process --user-data-dir=$profile" >>"$FAKE/ps"
+while read -r pid lock what; do
+  case "$what" in
+    longer) echo "$pid $lock $0 --type=renderer --user-data-dir=$profile-kept --lang=en" ;;
+    folder) echo "$pid $lock tail -f \${profile%/profile}/dom.html" ;;
+    within) echo "$pid $lock logger info=--user-data-dir=$profile" ;;
+    looking) echo "$pid $lock grep -F -- --user-data-dir=$profile" ;;
+  esac
+done <"$FAKE/bystanders" >>"$FAKE/ps"
+until [ -e "$FAKE/lock.goes.held" ] && [ -e "$FAKE/lock.stays.held" ]; do sleep 0.1; done
+echo up >"$FAKE/ready"
+case "$*" in
+  *--dump-dom*) echo '<html><head><title>done: PASS 1/1</title></head></html>' ;;
+  *--screenshot=*) exit 7 ;;
+  *) exec sleep 120 ;;
+esac
+EOF
+cat >"$tmp/bin/engine" <<'EOF'
+#!/usr/bin/env bash
+case "\${3:-board}" in
+  name) echo "the made-up Mac" ;;
+  *) echo '{"lanes": []}' ;;
+esac
+EOF
+step chmod +x "$tmp/bin/python3" "$tmp/bin/curl" "$tmp/bin/held" "$tmp/bin/ps" "$tmp/bin/holds" "$tmp/bin/chrome" "$tmp/bin/engine"
+for file in fake-tauri.js prelude.js some-check.js; do
+  echo "// $file" >"scripts/preview/$file"
+done
+step env PREVIEW_FIXTURE=1 PREVIEW_PREPARE=only PREVIEW_BIN="$tmp/bin/engine" scripts/preview.sh >/dev/null 2>&1
+export PREVIEW_FIXTURE=1 PREVIEW_PREPARE=skip PREVIEW_CHROME="$tmp/bin/chrome"
+for what in longer folder within looking; do
+  holds "by.$what" goes &
+  echo "$! by.$what $what" >>"$tmp/bystanders"
+done
+until [ -e "$tmp/by.longer.held" ] && [ -e "$tmp/by.folder.held" ] && [ -e "$tmp/by.within.held" ] && [ -e "$tmp/by.looking.held" ]; do sleep 0.1; done
+# How many of the helpers started since the last count are still there (and none, after), and
+# how many of them went when asked. One made to go lets go of its lock in a moment, so it's
+# looked at a few times before it's taken for there.
+left() {
+  local pid lock n=0 all=0 tries
+  while read -r pid lock; do
+    all=$((all + 1))
+    tries=0
+    while held "$lock" && [ $tries -lt 30 ]; do
+      sleep 0.1
+      tries=$((tries + 1))
+    done
+    if held "$lock"; then
+      n=$((n + 1))
+      kill -9 "$pid" 2>/dev/null
+    fi
+  done <"$tmp/helpers"
+  echo "$n of $all left, $(ls "$tmp" | grep -c '^lock\\..*\\.asked$') asked first"
+  rm -f "$tmp"/lock.* "$tmp/helpers" "$tmp/ready"
+  grep ' by\\.' "$tmp/ps" >"$tmp/ps.kept" || true
+  mv "$tmp/ps.kept" "$tmp/ps"
+}
+echo "a check: $(scripts/preview.sh sessions '' scripts/preview/some-check.js 2>/dev/null), with $(left)"
+echo "a check on the real clock: $(PREVIEW_WAIT=100000 scripts/preview.sh sessions '' scripts/preview/some-check.js 2>/dev/null), with $(left)"
+# A screenshot Chrome fails at fails as Chrome did.
+scripts/preview.sh sessions >/dev/null 2>&1
+echo "a screenshot: $?, with $(left)"
+# One stopped part way, as checks.sh stops a run that takes too long: its page never says done.
+SAYS=loading PREVIEW_WAIT=100000 scripts/preview.sh sessions '' scripts/preview/some-check.js >/dev/null 2>&1 &
+run=$!
+until [ -s "$tmp/ready" ]; do sleep 0.2; done
+kill "$run"
+wait "$run"
+echo "a check stopped part way: $?, with $(left)"
+there=0
+while read -r pid lock what; do
+  if held "$lock"; then there=$((there + 1)); fi
+  kill -9 "$pid" 2>/dev/null
+done <"$tmp/bystanders"
+echo "what else names the run's profile is left alone: $there of 4"
+`;
+
+test('Chrome’s helpers go once a run is over, however it ends, and nothing else does', { timeout: WAIT + 20_000 }, async () => {
+  expect(await said(LEFT, preview)).toEqual([
+    'a check: PASS 1/1, with 0 of 2 left, 1 asked first',
+    'a check on the real clock: PASS 1/1, with 0 of 2 left, 1 asked first',
+    'a screenshot: 7, with 0 of 2 left, 1 asked first',
+    'a check stopped part way: 130, with 0 of 2 left, 1 asked first',
+    "what else names the run's profile is left alone: 4 of 4",
+  ]);
+});
+
 // checks.sh itself, over a preview.sh that says of each run what scripts/preview/outcomes has
 // for it: "<check> <view>[-<scheme>]: <its first go> | <its second> | …", the last for every go
 // after, and a pass for a run it doesn't name. A go is PASS, FAIL <what failed> (one of two

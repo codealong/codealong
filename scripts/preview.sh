@@ -184,7 +184,8 @@ project="${2:-}"
 check="${3:-}"
 # The made-up Mac's build and snapshots are kept apart from this Mac's.
 dir="${PREVIEW_DIR:-.preview${PREVIEW_FIXTURE:+/fixture}}"
-chrome="/Applications/Google Chrome.app/Contents/MacOS/Google Chrome"
+# PREVIEW_CHROME names another Chrome: a test's stand-in for one (src/checks.test.ts).
+chrome="${PREVIEW_CHROME:-/Applications/Google Chrome.app/Contents/MacOS/Google Chrome}"
 # As it starts, Chrome links its own program into a folder of its own, so an update can't change
 # it under the running browser. macOS counts that as changing an app, and refuses it for a
 # program it can't ask about, such as the bare Claude Code binary that hosts a background
@@ -472,17 +473,56 @@ browser=""
 work=""
 # What only this run's server has to give: a file by a name of this run's own.
 token="served-$$-$RANDOM$RANDOM"
+# Chrome is more than the process started here: each run has ten or so helpers beside it
+# (renderers, the GPU's, utilities). Ended alone, the browser leaves them to end by themselves,
+# which on a Mac busy enough they aren't given the time to do: on 2026-11-20 over a thousand
+# stood about from checks long over, with a load average near a thousand to match. Every one
+# of them is a program of Chrome's own and carries the run's profile in its arguments, as the
+# browser does, and the profile's folder is this run's own (mktemp), so no other run's Chrome
+# has it, nor yours. `ours` prints the pids of the processes that are both: started from where
+# Chrome is (its app, or the program itself when it isn't one), with that argument whole (not a
+# longer path, not part of another argument). Something else that names the profile, to look
+# for it say, isn't one. None, where the process table can't be asked (an agent's sandbox):
+# there they're left as they were.
+ours() {
+  [ -n "$work" ] || return 0
+  ps -Awwo pid=,command= 2>/dev/null | CHROME="${chrome%%/Contents/*}" PROFILE=" --user-data-dir=$work/profile" awk '
+    {
+      command = $0
+      sub(/^[ \t]*[0-9]+[ \t]+/, "", command)
+      at = index(command, ENVIRON["PROFILE"])
+      after = substr(command, at + length(ENVIRON["PROFILE"]), 1)
+    }
+    index(command, ENVIRON["CHROME"]) == 1 && at && (after == "" || after == " ") { print $1 }' || true
+}
 # A Chrome that hung may not go when asked: it gets a few seconds, since its profile can't be
-# removed from under it, and then it's made to.
+# removed from under it, and then it's made to. So do its helpers, after it.
 cleanup() {
+  # To the end, whatever comes: a second stop (gtimeout signals this script and its group
+  # each) would leave the helpers and the profile behind.
+  trap '' INT TERM HUP
   kill $server $browser 2>/dev/null || true
+  local n=0 left
   if [ -n "$browser" ]; then
-    local n=0
     while kill -0 "$browser" 2>/dev/null && [ $n -lt 20 ]; do
       sleep 0.2
       n=$((n + 1))
     done
     kill -9 "$browser" 2>/dev/null || true
+  fi
+  left="$(ours)"
+  if [ -n "$left" ]; then
+    # shellcheck disable=SC2086
+    kill $left 2>/dev/null || true
+    n=0
+    while [ -n "$(ours)" ] && [ $n -lt 10 ]; do
+      sleep 0.2
+      n=$((n + 1))
+    done
+    # Listed again: only what's still there, and still Chrome with this profile.
+    left="$(ours)"
+    # shellcheck disable=SC2086
+    [ -z "$left" ] || kill -9 $left 2>/dev/null || true
   fi
   rm -f "$dir/$token"
   [ -z "$work" ] || rm -rf "$work" 2>/dev/null || true
@@ -559,10 +599,13 @@ report() {
 
 if [ -n "$check" ]; then
   # Chrome runs beside this script, not under it, so a run that's stopped (checks.sh gives each
-  # one so long) takes its browser and its server with it.
+  # one so long) takes its browser, its helpers and its server with it. Not for a screenshot,
+  # whose Chrome runs in front: bash would hold a stop until that Chrome returned.
   trap 'exit 130' INT TERM HUP
-  work="$(mktemp -d)"
 fi
+# Chrome's profile is a folder of this run's, for a screenshot too: what its helpers are known
+# by afterwards.
+work="$(mktemp -d)"
 # A check's window is a browser window, whose size takes in its frame: as an app window (the
 # real clock) a title bar, 32 points on Chrome 154, and on virtual time, where --dump-dom wants
 # a browser window, its tabs and toolbar, 87. The page gets that much more, so it's the size
@@ -609,9 +652,11 @@ elif [ -n "$check" ]; then
     sleep 0.2
   done
   wait "$browser" 2>/dev/null || true
+  # Waited for, so its number is no longer its own: nothing here signals it again.
+  browser=""
   title="$(python3 -c 'import html, re, sys; m = re.search(r"<title>(.*?)</title>", sys.stdin.read(), re.S); print(" ".join(html.unescape(m.group(1)).split()) if m else "")' <"$work/dom.html")"
   report "$title" || exit $?
 else
-  "$chrome" --headless=new --disable-features=MacAppCodeSignClone --disable-gpu --enable-unsafe-swiftshader ${scheme:+"$scheme"} --hide-scrollbars --force-device-scale-factor=1 --window-size="$size" --virtual-time-budget=6000 --screenshot="$shot" "$url" 2>/dev/null
+  "$chrome" --headless=new --disable-features=MacAppCodeSignClone --disable-gpu --enable-unsafe-swiftshader ${scheme:+"$scheme"} --hide-scrollbars --force-device-scale-factor=1 --window-size="$size" --virtual-time-budget=6000 --user-data-dir="$work/profile" --screenshot="$shot" "$url" 2>/dev/null
   echo "$shot"
 fi
