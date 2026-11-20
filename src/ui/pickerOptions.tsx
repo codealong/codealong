@@ -5,14 +5,18 @@
 // dialog lists worktrees in laneGroups' order, the seldom picked folded away; the quick panel
 // lists repos (quick.ts `repoChoices`), then the worktrees of the one picked (`repoWorktrees`).
 // Its repo menu also takes a folder's path, new or not on the board, as folderChoices offers it.
+// The panel's project and machine menus are here too (`projectMenu`, `machineMenu`).
 
 import { ago } from '../format';
 import { laneWaits } from '../lanes';
-import { GENERAL_CHAT, laneBranch, worktreeName, type FolderChoice, type LaneGroup, type RepoChoice } from '../quick';
+import { shortOf } from '../devices';
+import { ALL_PROJECTS, CHATS, GENERAL_CHAT, inProject, laneBranch, macUnavailable, projectLabel, shortcutLabel, worktreeCount, worktreeName, type FolderChoice, type LaneGroup, type RepoChoice, type RepoWorktrees } from '../quick';
 import { REUSE_STATE } from '../reusable';
-import type { Lane, Session } from '../types';
+import type { DevicesView, DeviceView, Lane, Load, ProjectSummary, Session } from '../types';
+import { LoadTag } from './LoadTag';
 import type { PickerOption, PickerSection } from './Picker';
 import { Icon, SessionGlyph, StatusGlyph } from './primitives';
+import { projectKey } from './ProjectSwitcher';
 import { scopeWords } from '../orchestrators';
 
 /** A worktree, picked by `id` (its lane id in the quick panel, its folder in a schedule). */
@@ -55,6 +59,21 @@ export function namedWorktreeOption(l: Lane): PickerOption {
 
 /** The worktree menu's New worktree: one its harness makes for the session (start.ts
  *  `newWorktreeDetail` says who, or why it can't). */
+/** The quick panel's worktree menu, of the repo a session starts in (quick.ts `repoWorktrees`): its
+ *  main checkout first, then the line that makes a new worktree where one can be asked for
+ *  (`newWorktree`), then the ones ready for new work and the pinned; the ones that hold other
+ *  work are folded away. */
+export function worktreeMenu(inRepo: RepoWorktrees, newWorktree: PickerOption | null): PickerSection[] {
+  return [
+    {
+      key: 'new-work',
+      options: [...(inRepo.main ? [worktreeOption(inRepo.main)] : []), ...(newWorktree ? [newWorktree] : []), ...[...inRepo.ready, ...inRepo.pinned].map(worktreeOption)],
+    },
+    { key: 'under-way', head: 'Work under way', folded: true, options: inRepo.underWay.map(worktreeOption) },
+    { key: 'others', head: 'Other worktrees', folded: true, options: inRepo.others.map(worktreeOption) },
+  ];
+}
+
 export const NEW_WORKTREE = 'worktree:new';
 export function newWorktreeOption(detail: string, title: string, disabled: boolean): PickerOption {
   return { id: NEW_WORKTREE, text: 'new worktree', label: 'New worktree', detail, title, disabled, lead: <Icon name="plus" size={12} /> };
@@ -129,4 +148,82 @@ export function sessionOption(lane: Lane, s: Session, now: number): PickerOption
       </span>
     ),
   };
+}
+
+/** What waits on you in a project, on its line of the project menu. */
+function ProjectCounts({ needs, unread }: { needs: number; unread: number }) {
+  return (
+    <span className="ca-quick-counts">
+      {needs > 0 && (
+        <span className="ca-projswitch-action is-needs" title={`${needs} need you`}>
+          <StatusGlyph status="needs" size={10} title="" />
+          {needs}
+        </span>
+      )}
+      {unread > 0 && (
+        <span className="ca-projswitch-action is-unread" title={`${unread} finished`}>
+          <StatusGlyph status="unread" size={10} title="" />
+          {unread}
+        </span>
+      )}
+    </span>
+  );
+}
+
+/** The quick panel's project menu, as in the main window's switcher: the projects, then All
+ *  projects set apart, with General chat, for a question that belongs to none of them. Each says
+ *  what waits on you there (`counts`) and the key that goes to it, General chat's being its
+ *  shortcut. */
+export function projectMenu(projects: ProjectSummary[], counts: Record<string, { needs: number; unread: number }>, chatShortcut: string | null | undefined): PickerSection[] {
+  const projectOption = (name: string): PickerOption => ({
+    id: name,
+    text: name === CHATS ? `${GENERAL_CHAT} question no project no repo` : name,
+    label: projectLabel(name),
+    detail: name === CHATS ? 'A question for none of your repos' : undefined,
+    lead: <Icon name={name === ALL_PROJECTS ? 'stack' : name === CHATS ? 'message-circle' : 'folder'} size={14} />,
+    trail: (
+      <>
+        <ProjectCounts needs={counts[name]?.needs ?? 0} unread={counts[name]?.unread ?? 0} />
+        <span className="ca-projswitch-key">{name === CHATS ? shortcutLabel(chatShortcut) : projectKey(name, projects)}</span>
+      </>
+    ),
+  });
+  return [
+    { key: 'projects', options: projects.map((p) => projectOption(p.name)) },
+    { key: 'all', head: <span className="ca-picker-sep" />, options: [projectOption(ALL_PROJECTS), projectOption(CHATS)] },
+  ];
+}
+
+/** The machine menu's id for this machine; the others go by their short ids, which are hex. */
+export const HERE = 'here';
+
+/** The quick panel's machine menu: this machine (its worktrees `lanes`, how busy it is `load`),
+ *  then your other machines, each with how many worktrees it has in the project picked, or why
+ *  a session can't start there now. */
+export function machineMenu(devices: DevicesView, macs: DeviceView[], lanes: Lane[], load: Load | null | undefined, current: string, now: number): PickerSection[] {
+  // On General chat, each machine's worktrees: its chats are in none.
+  const scope = current === CHATS ? ALL_PROJECTS : current;
+  const count = (short: string | null) => worktreeCount((short ? devices.lanes.filter((l) => shortOf(l.id) === short) : lanes).filter((l) => !l.startsChats && inProject(l, scope)).length, scope);
+  const here = devices.me.name || 'This machine';
+  return [
+    {
+      key: 'macs',
+      options: [
+        { id: HERE, text: `${here} this machine this mac`, label: here, detail: `This machine · ${count(null)}`, lead: <Icon name="device-desktop" size={14} />, trail: load ? <LoadTag load={load} name={here} plain /> : undefined },
+        ...macs.map((d) => {
+          const { away, off, title } = macUnavailable(d, now);
+          return {
+            id: d.short,
+            text: d.name,
+            label: d.name,
+            detail: away ?? off ?? count(d.short),
+            lead: <i className={`ca-labeldot is-${d.color}`} aria-hidden="true" />,
+            trail: d.load && !away ? <LoadTag load={d.load} name={d.name} plain /> : undefined,
+            disabled: !!(away || off),
+            title,
+          };
+        }),
+      ],
+    },
+  ];
 }

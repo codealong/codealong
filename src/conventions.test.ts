@@ -498,7 +498,7 @@ describe('no source file outgrows what one reading can hold', { timeout: 300_000
       'src/boardLists.ts': 1500,
       'src/menus.ts': 2000,
       'src/ui/Bar.tsx': 1300,
-      'src/ui/Quick.tsx': 3300,
+      'src/ui/Quick.tsx': 2700,
       'src/ui/SessionReply.tsx': 2000,
       'src/ui/SessionThread.tsx': 1600,
       'src/ui/SettingsDialog.tsx': 2900,

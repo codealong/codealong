@@ -55,6 +55,9 @@ export function projectShownIn(project: string): string {
 
 export type RowGroup = 'suggested' | 'skills' | 'top' | 'firstReviews' | 'needs' | 'reviews' | 'unread' | 'working' | 'found' | 'sendto' | 'todos' | 'prs' | 'ready' | 'recent';
 
+/** What the panel's list calls each group of rows, over them. */
+export const GROUP_WORD: Record<RowGroup, string> = { suggested: 'Suggested', skills: 'Skills', top: 'Moved to top', firstReviews: 'Review requested', needs: 'Needs you', reviews: 'Review or merge', unread: 'Your turn', working: 'Working', found: 'Sessions', sendto: 'Send to', todos: 'Todos', prs: 'PRs', ready: 'Ready todos', recent: 'Last 24 hours' };
+
 /** Where a session goes in the empty panel's list by its status, as on the floating bar: errors
  *  wait on you like questions do. A helper or a headless run waits there only while it needs
  *  you, and one you snoozed not until its time, though it shows with Working while it runs

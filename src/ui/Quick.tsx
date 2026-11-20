@@ -81,24 +81,22 @@ import {
 import { CODEALONG_PROJECT, IMPROVE_PLACEHOLDER, improvePrompt, improveWords, remoteImproveLane, withCodealongProject } from '../improve';
 import { devSetupTask, type AgentTask } from '../agentTasks';
 import { askProblem, LISTEN_KEPT, listenKept, macSays, nowAsk, nowMeeting, nowPlaceholder, nowRow } from '../listening';
-import { meetingTime, meetingWith } from '../meetings';
 import { saidAfter } from '../drafts';
 import { place } from '../talk';
 import { boardAhead, sendAhead, useAhead } from '../ahead';
 import { filesToAttach, keepFiles, useFileDrop } from '../attachInput';
 import { deviceLabel, floatingLanes, shortOf } from '../devices';
-import { CALMER_CHORD, calmerMachine, loadSentence, type Calmer } from '../machineLoad';
+import { CALMER_CHORD, calmerMachine, type Calmer } from '../machineLoad';
 import { useDeviceLanes, useObserve } from '../useDevices';
 import { usePerf } from '../perf';
 import { showContextMenu, type MenuSpec } from '../contextMenu';
 import { useEditorIcons } from '../editors';
 import * as menus from '../menus';
 import { prRefOf } from '../prLinks';
-import { ago, tildePath } from '../format';
+import { tildePath } from '../format';
 import { useLogo } from '../logo';
 import { useRowDrag } from './useRowDrag';
-import { prPills } from '../prStatus';
-import { ALL_PROJECTS, CHATS, GENERAL_CHAT, attachmentsNote, attentionRows, draftCodec, findPrs, foldedWords, holdsPrompt as holdsAPrompt, findSessions, findTodos, folderChoices, folderStart, FOUND_SESSIONS, inProject, isFolderPath, macUnavailable, MAX_ROWS, nextDraft, primaryRunningWords, projectCounts, projectLabel, projectShownIn, QUICK_PLACEHOLDER, queryWords, readyTodos, recallList, pickInProject, recentRows, repoChoices, repoKey, repoWorktrees, SEND_TO_PLACEHOLDER, sendTargets, shortcutLabel, startLaneIn, startTitle, todosStayNote, worktreeCount, worktreeName, type Machines, type PrRow, type QuickDraft, type ReviewRow, type RowGroup, type SessionRow, type TodoRow, withPrompt as historyWith } from '../quick';
+import { ALL_PROJECTS, CHATS, GENERAL_CHAT, attachmentsNote, attentionRows, draftCodec, findPrs, foldedWords, GROUP_WORD, holdsPrompt as holdsAPrompt, findSessions, findTodos, folderChoices, folderStart, FOUND_SESSIONS, inProject, isFolderPath, MAX_ROWS, nextDraft, primaryRunningWords, projectCounts, projectLabel, projectShownIn, QUICK_PLACEHOLDER, queryWords, readyTodos, recallList, pickInProject, recentRows, repoChoices, repoKey, repoWorktrees, SEND_TO_PLACEHOLDER, sendTargets, shortcutLabel, startLaneIn, startTitle, todosStayNote, worktreeName, type Machines, type QuickDraft, type RowGroup, type TodoRow, withPrompt as historyWith } from '../quick';
 import {
   agentChipWords,
   autoGroupIn,
@@ -125,35 +123,28 @@ import {
   withChosen,
 } from '../start';
 import { clearNotice, failedNotice, reportNotice } from '../notices';
-import { completed, mentionAt, mentionsIn, namedBy, repoLanes, skillLeftOutWords, skillOffers, skillRows, skillStart, skillWhere, writtenFor, type Mention, type SkillRow } from '../skills';
+import { completed, mentionAt, mentionsIn, namedBy, repoLanes, skillLeftOutWords, skillOffers, skillRows, skillStart, writtenFor, type Mention, type SkillRow } from '../skills';
 import { useSkills } from '../useSkills';
-import { alreadyOnWords, duplicateOf, rankedBy, routeChoice, routeDone, sameStart, startAgentOf, suggestedChoice, suggestions, suggestionWords, sureness, todoLaneFor, todoTitle, toSessionSuggestion, worthRouting, type StartFacts, type Suggestion } from '../route';
-import { dueWords } from '../due';
-import { liveOrLatest, sessionHomes, sessionWhy } from '../lanes';
-import { blockedBy, mergeAttachments, newTodo, primaryHolds, snippet, splitAttachments, todoAgent, todoItem, todoProjects, todoPrompt, todosPrompt, withAttachments } from '../todos';
-import type { Attachment, Board, DesktopPinned, DevicesView, FolderLook, HearingStatus, Lane, ListenAsk, MeetingAhead, PrItem, Route, RouteChoice, RouteNote, Session, StartOptions, StartPlace, StartSpec, Talk } from '../types';
+import { alreadyOnWords, duplicateOf, rankedBy, routeChoice, routeDone, sameStart, startAgentOf, suggestedChoice, suggestionWords, todoLaneFor, todoTitle, toSessionSuggestion, worthRouting, type StartFacts, type Suggestion } from '../route';
+import { liveOrLatest, sessionHomes } from '../lanes';
+import { blockedBy, mergeAttachments, newTodo, primaryHolds, splitAttachments, todoAgent, todoItem, todoProjects, todoPrompt, todosPrompt, withAttachments } from '../todos';
+import type { Attachment, Board, DevicesView, FolderLook, HearingStatus, Lane, ListenAsk, MeetingAhead, PrItem, Route, RouteChoice, RouteNote, Session, StartOptions, StartPlace, StartSpec, Talk } from '../types';
 import { AttachmentStrip } from './DescriptionEditor';
 import { DevSetupDialog } from './DevSetupDialog';
 import { useDoneHelpers } from './DoneHelpers';
 import { dialogUp } from './focusTrap';
-import { ListenChoices } from './Listening';
 import { Level } from './Said';
-import { filterWords, matches, Picker, type PickerOption, type PickerSection } from './Picker';
-import { addsTo, anotherFolderOption, chatOption, folderOptions, namedWorktreeOption, NEW_WORKTREE, newWorktreeOption, REPO, repoOption, repoSections, worktreeOption } from './pickerOptions';
+import { filterWords, matches, Picker, type PickerSection } from './Picker';
+import { addsTo, anotherFolderOption, chatOption, folderOptions, HERE, machineMenu, namedWorktreeOption, NEW_WORKTREE, newWorktreeOption, projectMenu, REPO, repoOption, repoSections, worktreeMenu } from './pickerOptions';
 import { AgentFoot } from './AgentMenu';
 import { agentMenuSections, placeIcon } from './StartControls';
-import { Button, CheckBox, Chip, cx, Icon, Kbd, Mark, Marked, SaidText, STATUS_WORD, SessionEmblem, SessionGlyph, StatusGlyph } from './primitives';
-import { SnoozeChip } from './LaneRow';
-import { DeviceBadge } from './DeviceBadge';
-import { LoadTag } from './LoadTag';
-import { ProjectPrefix, ProjectShown } from './ProjectSaid';
-import { projectForDigit, projectKey } from './ProjectSwitcher';
+import { Button, cx, Icon, Kbd, Mark } from './primitives';
+import { ProjectShown } from './ProjectSaid';
+import { projectForDigit } from './ProjectSwitcher';
 import { usePrLinks } from './PrLink';
-import { PrGlyph } from './PrsView';
 import { useTheme } from './ThemeSwitch';
 import { useGlass } from '../glass';
 import { Tip } from './Tip';
-import { TodoGlyph } from './TodoBits';
 import { useNow } from './useNow';
 import { errorText, type Report } from '../report';
 import { openWhere, where } from '../open';
@@ -164,9 +155,11 @@ import { useStartChoice, useStartPicks } from '../useStartChoice';
 import { findFor } from '../threadFind';
 import { useTextSearch } from '../useTextSearch';
 import { cardHeight, HEIGHT, LISTEN_HEIGHT, MARGIN, useQuickSize } from './useQuickSize';
-import { bare, chordKeys, chordPressed, cmd, emacsCtrl, held as modsHeld, keysIn } from '../platform';
+import { bare, chordPressed, cmd, emacsCtrl, held as modsHeld, keysIn } from '../platform';
 import { useKeysShown } from '../keysShown';
-import { scopeWords } from '../orchestrators';
+import { ListenAsked, ListenRow, QuickNotes, StartRow, TodoStrip } from './QuickBits';
+import { GroupLabel, GroupNotes, QuickRow, SuggestedStandIn, type RowsShown } from './QuickRows';
+import { COMPOSE, deskPin, deskTitle, rowSections, suggestRows, type MoreRow, type Row, type SendToRow } from '../quickRows';
 
 declare global {
   interface Window {
@@ -194,13 +187,10 @@ const LISTEN_KEY = 'codealong.quick.listen';
 const NO_DEV_KEY = 'codealong.quick.no-dev-setup';
 /** The input grows to this many lines, then scrolls. */
 const INPUT_LINES = 8;
-const COMPOSE = 'compose';
 /** How long a read of where accounts can start is used without waiting for a new one. */
 const OPTIONS_FOR_MS = 60_000;
 /** How long after another Mac didn't say where its accounts can start it's asked again. */
 const RETRY_MS = 5_000;
-/** The device menu's id for this Mac; the others go by their short ids, which are hex. */
-const HERE = 'here';
 
 type PickerKind = 'project' | 'device' | 'repo' | 'worktree' | 'agent';
 
@@ -213,95 +203,11 @@ interface Heard {
   end: number;
 }
 
-const GROUP_WORD: Record<RowGroup, string> = { suggested: 'Suggested', skills: 'Skills', top: 'Moved to top', firstReviews: 'Review requested', needs: 'Needs you', reviews: 'Review or merge', unread: 'Your turn', working: 'Working', found: 'Sessions', sendto: 'Send to', todos: 'Todos', prs: 'PRs', ready: 'Ready todos', recent: 'Last 24 hours' };
-
-/** A suggestion from Jev, as a row. */
-interface SuggestRow {
-  kind: 'suggest';
-  key: string;
-  group: 'suggested';
-  s: Suggestion;
-}
-
-/** Under a search's first few sessions, the rest of them, a click away. */
-interface MoreRow {
-  kind: 'more';
-  key: string;
-  group: 'found';
-  count: number;
-}
-
-/** Under Jev's suggestions for a prompt (under the sessions found for a search, and with routing off), the way to
- *  send it to any session, not only one Jev suggests: the box then finds the session while the
- *  prompt waits under it (`sendTo`). */
-interface SendToRow {
-  kind: 'sendto';
-  key: string;
-  group: 'suggested' | 'found';
-  /** How many sessions it could go to. */
-  count: number;
-}
-
-type Row = SessionRow | ReviewRow | TodoRow | PrRow | SuggestRow | MoreRow | SendToRow | SkillRow;
-
-/** Jev's suggestions as rows. Jev knows this Mac's worktrees, so it suggests starting only while a
- *  session would start here, not on another Mac. `isolated` is the place's `isolatesIn`, a line
- *  each, so new work starts in a repo where the start row would. */
-function suggestRows(route: Route | null, board: Board | null, elsewhere: boolean, isolated: string): SuggestRow[] {
-  if (!board || !route) return [];
-  return suggestions(route, board, isolated ? isolated.split('\n') : [])
-    .filter((sg) => !elsewhere || sg.kind !== 'start')
-    .map((sg) => ({ kind: 'suggest', key: sg.key, group: 'suggested', s: sg }));
-}
-
 /** The most sessions a search lists once you ask for all of them. */
 const FOUND_ALL = 40;
 
 /** How long typing has to pause before what's typed goes to Jev. */
 const ROUTE_AFTER_MS = 350;
-
-/** What a found todo's row says under its title: when it's due, then what it waits for, else the
- *  start of its description, else how many sessions it has. */
-function todoWhy(r: TodoRow, now: number): string {
-  const t = r.item.todo;
-  const due = t.due && t.status !== 'done' ? dueWords(t.due, now)?.text : undefined;
-  return [due, todoState(r)].filter(Boolean).join(' · ');
-}
-
-function todoState(r: TodoRow): string {
-  const t = r.item.todo;
-  if (t.waiting) return t.waiting.note ? `Waiting for ${t.waiting.note}` : 'Waiting';
-  const live = r.item.sessions.find((x) => x.session.live);
-  if (live) return `${live.session.account} · ${STATUS_WORD[live.session.status]}`;
-  const n = r.item.sessions.length;
-  return snippet(t.description, 120) || (n > 0 ? `${n} session${n === 1 ? '' : 's'}` : 'No session yet');
-}
-
-/** What a found PR's row says under its title: its number, who opened it, and where it stands.
- *  Checks read as words ("10 checks passed"): the row has no icons to carry them. */
-function prWhy(pr: PrItem): string {
-  return [`#${pr.number}`, pr.mine ? 'yours' : pr.author, ...prPills(pr).map((p) => (p.key === 'checks' ? p.title : p.text))].filter(Boolean).join(' · ');
-}
-
-/** A title with the typed words underlined. */
-/** What a result pins to the desktop when it's dragged out of the panel: its session, todo or
- *  PR. Null for what has no card: a session on another device or archived, a start, more results. */
-function deskPin(r: Row | undefined): DesktopPinned | null {
-  const session = r?.kind === 'session' ? r : r?.kind === 'suggest' && (r.s.kind === 'send' || r.s.kind === 'open') ? r.s : null;
-  if (session) return session.lane.device || session.session.archived ? null : { ref: 'session', key: session.session.key };
-  if (r?.kind === 'todo') return { ref: 'todo', key: r.item.todo.id };
-  if (r?.kind === 'pr' || r?.kind === 'review') return { ref: 'pr', key: r.pr.key };
-  return null;
-}
-
-/** What the pointer holds while it drags a result. */
-function deskTitle(r: Row | undefined): string {
-  if (r?.kind === 'session') return r.session.title;
-  if (r?.kind === 'suggest' && (r.s.kind === 'send' || r.s.kind === 'open')) return r.s.session.title;
-  if (r?.kind === 'todo') return r.item.todo.title || 'Untitled';
-  if (r?.kind === 'pr' || r?.kind === 'review') return `#${r.pr.number} ${r.pr.title}`;
-  return '';
-}
 
 /** What Auto does when it starts a session, on its line in the agent menu. */
 const AUTO_STARTS =
@@ -2219,25 +2125,7 @@ export function Quick() {
 
   /* ---- Menus ---- */
 
-  const projectOption = (name: string): PickerOption => ({
-    id: name,
-    text: name === CHATS ? `${GENERAL_CHAT} question no project no repo` : name,
-    label: projectLabel(name),
-    detail: name === CHATS ? 'A question for none of your repos' : undefined,
-    lead: <Icon name={name === ALL_PROJECTS ? 'stack' : name === CHATS ? 'message-circle' : 'folder'} size={14} />,
-    trail: (
-      <>
-        <ProjectCounts needs={counts[name]?.needs ?? 0} unread={counts[name]?.unread ?? 0} />
-        <span className="ca-projswitch-key">{name === CHATS ? shortcutLabel(board?.chatShortcut) : projectKey(name, projects)}</span>
-      </>
-    ),
-  });
-  // As in the main window's switcher: the projects, then All projects set apart, with General
-  // chat, for a question that belongs to none of them.
-  const projectSections: PickerSection[] = [
-    { key: 'projects', options: projects.map((p) => projectOption(p.name)) },
-    { key: 'all', head: <span className="ca-picker-sep" />, options: [projectOption(ALL_PROJECTS), projectOption(CHATS)] },
-  ];
+  const projectSections: PickerSection[] = projectMenu(projects, counts, board?.chatShortcut);
 
   // A folder's path typed in the repo menu is looked up as it's typed; an answer goes only
   // with what was typed for it. Another Mac's folders aren't this one's to look in.
@@ -2289,18 +2177,7 @@ export function Quick() {
   // that hold other work folded away (quick.ts `repoWorktrees`). Listening makes no worktree.
   const inRepo = repoNow ? repoWorktrees(repoNow.lanes, pinnedWorktrees ?? []) : null;
   const worktreeSections: PickerSection[] = inRepo
-    ? [
-        {
-          key: 'new-work',
-          options: [
-            ...(inRepo.main ? [worktreeOption(inRepo.main)] : []),
-            ...(inRepo.from && !listen ? [newWorktreeOption(newWorktreeDetail(harnessMakesWorktree, placeNow, harness, worktreeName(inRepo.from)), newWorktreeTitle(harnessMakesWorktree, placeNow, harness), !harnessMakesWorktree)] : []),
-            ...[...inRepo.ready, ...inRepo.pinned].map(worktreeOption),
-          ],
-        },
-        { key: 'under-way', head: 'Work under way', folded: true, options: inRepo.underWay.map(worktreeOption) },
-        { key: 'others', head: 'Other worktrees', folded: true, options: inRepo.others.map(worktreeOption) },
-      ]
+    ? worktreeMenu(inRepo, inRepo.from && !listen ? newWorktreeOption(newWorktreeDetail(harnessMakesWorktree, placeNow, harness, worktreeName(inRepo.from)), newWorktreeTitle(harnessMakesWorktree, placeNow, harness), !harnessMakesWorktree) : null)
     : [];
 
   /** A repo picked in its menu: where new work starts in it, as the place picked has it now or
@@ -2395,34 +2272,7 @@ export function Quick() {
     />
   );
 
-  const deviceSections: PickerSection[] = useMemo(() => {
-    if (!devices) return [];
-    // On General chat, each machine's worktrees: its chats are in none.
-    const scope = current === CHATS ? ALL_PROJECTS : current;
-    const count = (short: string | null) => worktreeCount((short ? devices.lanes.filter((l) => shortOf(l.id) === short) : (board?.lanes ?? [])).filter((l) => !l.startsChats && inProject(l, scope)).length, scope);
-    const here = devices.me.name || 'This machine';
-    return [
-      {
-        key: 'macs',
-        options: [
-          { id: HERE, text: `${here} this machine this mac`, label: here, detail: `This machine · ${count(null)}`, lead: <Icon name="device-desktop" size={14} />, trail: board?.load ? <LoadTag load={board.load} name={here} plain /> : undefined },
-          ...macs.map((d) => {
-            const { away, off, title } = macUnavailable(d, now);
-            return {
-              id: d.short,
-              text: d.name,
-              label: d.name,
-              detail: away ?? off ?? count(d.short),
-              lead: <i className={`ca-labeldot is-${d.color}`} aria-hidden="true" />,
-              trail: d.load && !away ? <LoadTag load={d.load} name={d.name} plain /> : undefined,
-              disabled: !!(away || off),
-              title,
-            };
-          }),
-        ],
-      },
-    ];
-  }, [devices, macs, board?.lanes, board?.load, current, now]);
+  const deviceSections: PickerSection[] = useMemo(() => (devices ? machineMenu(devices, macs, board?.lanes ?? [], board?.load, current, now) : []), [devices, macs, board?.lanes, board?.load, current, now]);
 
   /** Starts on machine `d` (null for this one), in worktree or repo `laneTo` there when given. */
   const toDevice = (d: string | null, laneTo: string | null = null) => {
@@ -2458,71 +2308,15 @@ export function Quick() {
     return suggestionWords(sg, { now, text, account: sgAccount, onModel: sgOnModel, place: sgPlace, makesWorktree: sgMakesWorktree, terminal: terminalName, behind: sgBehind, duplicate });
   };
 
-  /** What a suggestion's row shows, but its keys. */
-  const suggestionFace = (sg: Suggestion) => {
-    const said = describe(sg);
-    return (
-      <>
-        <span className="ca-quick-plus is-suggest">
-          <Icon name={said.icon} size={13} stroke={2} />
-        </span>
-        <span className="ca-quick-row-main">
-          <span className="ca-quick-row-title">
-            {/* A suggestion to send to a session or open one names it, so it shows its emblem too. */}
-            {(sg.kind === 'send' || sg.kind === 'open') && <SessionEmblem emblem={sg.session.emblem} of={sg.session.key} />}
-            {said.title}
-          </span>
-          <span className="ca-quick-row-why">{said.why}</span>
-        </span>
-        <span className="ca-quick-row-where">{said.where}</span>
-        <span className={`ca-quick-sure is-${sureness(sg.p)}`}>{Math.round(sg.p * 100)}%</span>
-      </>
-    );
-  };
-
-  /** What Suggested shows while it has no suggestion for what's typed: the last answer's, dimmed
-   *  and doing nothing, while Jev works out the next; else a line in a suggestion's shape, so the
-   *  rows under it don't move when suggestions come. */
-  const suggestedStandIn =
-    lastSuggested.length > 0 ? (
-      lastSuggested.map((r) => (
-        <div key={r.key} role="option" aria-selected={false} aria-disabled="true" data-row={r.key} className="ca-quick-row is-suggest is-stale" onMouseDown={(e) => e.preventDefault()}>
-          {suggestionFace(r.s)}
-          {/* No key while it does nothing; the column stays, so nothing beside it moves. */}
-          <span className="ca-kbds" aria-hidden="true" />
-        </div>
-      ))
-    ) : (
-      <div className={cx('ca-quick-row', 'is-suggest', 'is-note', routing && 'is-routing')}>
-        <span className="ca-quick-plus is-suggest">
-          <Icon name={routeProblem ? 'alert' : 'sparkles'} size={13} stroke={2} />
-        </span>
-        <span className="ca-quick-row-main">
-          <span className="ca-quick-row-title">{routing ? 'Working out where this goes…' : routeProblem ? 'Couldn’t suggest where this goes' : startRowSuggested ? 'Jev suggests the start below' : asSearch ? 'This looks like a search' : 'No suggestion for this'}</span>
-          <span className="ca-quick-row-why">{routing ? 'Jev is reading what you’ve typed.' : (routeProblem ?? (startRowSuggested ? keysIn(`It’s just what the new session’s row starts.${startLeads ? ' ⏎ starts it.' : ''}`) : asSearch ? 'None of the sessions Jev read fits it. What the search finds is below.' : 'Start it below, or keep typing.'))}</span>
-        </span>
-      </div>
-    );
-
   /* ---- Render ---- */
 
-  const sections: { group: RowGroup; rows: Row[] }[] = [];
-  for (const r of rows) {
-    const last = sections[sections.length - 1];
-    if (last && last.group === r.group) last.rows.push(r);
-    else sections.push({ group: r.group, rows: [r] });
-  }
-  // While what's typed goes to Jev, Suggested is there before Jev answers and when it has nothing
-  // to suggest, so the rows under it don't move as answers come (suggestedStandIn, below).
-  if (routeFor && !inSendTo && sections[0]?.group !== 'suggested') sections.unshift({ group: 'suggested', rows: [] });
-  // While there's a search, Sessions' heading is there even with no session found: it has the box
-  // that lists archived sessions too. So has Send to's, with no session found in it.
-  if (searching && !sections.some((x) => x.group === 'found')) sections.splice(sections[0]?.group === 'suggested' ? 1 : 0, 0, { group: 'found', rows: [] });
-  if (inSendTo && sections.length === 0) sections.push({ group: 'sendto', rows: [] });
+  const sections = rowSections(rows, { routed: !!routeFor, searching, inSendTo });
   // Whether a search found nothing, Jev's suggestions and Send to aside.
   const foundNothing = searching && rows.every((r) => r.kind === 'suggest' || r.kind === 'sendto');
   // Send to's rows keep a column for how likely Jev thinks each is, when it weighed any.
   const sendLikely = !!sendList?.rows.some((r) => r.p != null);
+  // What every row of the list is drawn from and does (QuickRows.tsx).
+  const rowsShown: RowsShown = { active, numbered, now, route, lastRoute, suggested, sendLikely, describe, inWaiting, held: (key) => drag.rowProps(key, null, 0), click: clickRow, menu: rowMenu };
   const nothingWaits = listing && !!attention && attention.counts.top + attention.counts.firstReviews + attention.counts.needs + attention.counts.reviews + attention.counts.unread === 0;
   /** A group's heading count: all there are of it, when the list shows only some. */
   const groupCount = (g: RowGroup, shown: number): number => {
@@ -2686,17 +2480,7 @@ export function Quick() {
             }}
           >
             {listen ? (
-              // A press here leaves the keyboard in the box, as a press on a row does.
-              <div className="ca-quick-listen" onMouseDown={(e) => e.preventDefault()}>
-                {calendarMeeting && (
-                  <label className="ca-listendlg-check">
-                    <CheckBox checked={!!itsMeeting} onChange={(on) => setNotMeeting(on ? null : calendarMeeting.id)} />
-                    <span>It’s {calendarMeeting.title.trim() ? `“${calendarMeeting.title.trim()}”` : 'the meeting in your calendar'}</span>
-                    <small>{[meetingTime(calendarMeeting, now), meetingWith(calendarMeeting)].filter(Boolean).join(', ')}. Its notes are kept under its name, with who’s in it.</small>
-                  </label>
-                )}
-                <ListenChoices ask={listenAsk} set={setListenAsk} playing={[]} />
-              </div>
+              <ListenAsked meeting={calendarMeeting} its={!!itsMeeting} setNotMeeting={setNotMeeting} now={now} ask={listenAsk} set={setListenAsk} />
             ) : !board || board.loading ? (
               <>
                 <p className="ca-quick-note">{error ? '' : 'Reading sessions…'}</p>
@@ -2712,395 +2496,38 @@ export function Quick() {
                 {typing && rows.length === 0 && <p className="ca-quick-note">{listedSkills ? (repos.length === 0 ? 'No skill of your accounts starts like that, and no repo here to read others from.' : `No skill of ${current === ALL_PROJECTS || chatting ? 'these repos' : `${current}’s repos`} or your accounts starts like that.`) : 'Reading skills…'}</p>}
                 {sections.map((s) => (
                   <div key={s.group} ref={s.group === 'suggested' ? suggestedGroup : undefined} className="ca-quick-group" role="group" aria-label={GROUP_WORD[s.group]}>
-                    <div className={`ca-quick-glabel is-${s.group}`}>
-                      {GROUP_WORD[s.group]}
-                      {s.group !== 'suggested' ? (
-                        <span>{groupCount(s.group, s.rows.length)}</span>
-                      ) : s.rows.some((r) => r.kind === 'suggest') ? (
-                        <span>{s.rows.filter((r) => r.kind === 'suggest').length}</span>
-                      ) : (
-                        routing &&
-                        lastSuggested.length > 0 && (
-                          <span className="ca-quick-glabel-routing" title="Working out where this goes…">
-                            <Icon name="sparkles" size={11} />
-                          </span>
-                        )
-                      )}
-                      {(s.group === 'found' || s.group === 'sendto') && (
-                        <label
-                          className="ca-check ca-quick-archived"
-                          title={keysIn(withArchived ? 'Searches list archived sessions too, after the others that match as closely. ⇧⌘A leaves them out' : `Searches leave archived sessions out${archivedFound > 0 ? `; ${archivedFound} ${archivedFound === 1 ? 'matches' : 'match'} this one` : ''}. ⇧⌘A lists them`)}
-                          // The keyboard stays in the box.
-                          onMouseDown={(e) => e.preventDefault()}
-                        >
-                          <CheckBox
-                            checked={withArchived}
-                            onChange={() => {
-                              toggleArchived();
-                              refocus();
-                            }}
-                          />
-                          Archived
-                          {archivedFound > 0 && <span className="ca-quick-archived-count">{archivedFound}</span>}
-                        </label>
-                      )}
-                    </div>
+                    <GroupLabel s={s} count={groupCount(s.group, s.rows.length)} working={routing && lastSuggested.length > 0} withArchived={withArchived} archivedFound={archivedFound} onArchived={() => {
+                      toggleArchived();
+                      refocus();
+                    }} />
                     {/* Jev's suggestions, or what stands in for them, come before Send to's row. */}
-                    {s.group === 'suggested' && !s.rows.some((r) => r.kind === 'suggest') && suggestedStandIn}
-                    {s.rows.map((r) => {
-                      const n = numbered.indexOf(r) + 1;
-                      // What every row does with the pointer: hovering selects (the list's
-                      // pointerAt, by the row's data-row), a click does it, a right-click has the
-                      // rest, and dragging it out of the panel pins it to the desktop.
-                      const held = drag.rowProps(r.key, null, 0);
-                      const handlers = {
-                        'data-row': r.key,
-                        onPointerDown: held.onPointerDown,
-                        onMouseDown: (e: React.MouseEvent) => e.preventDefault(),
-                        onClick: (e: React.MouseEvent) => clickRow(r.key, e),
-                        onContextMenu: (e: React.MouseEvent) => {
-                          e.preventDefault();
-                          rowMenu(r);
-                        },
-                      };
-                      if (r.kind === 'suggest') {
-                        const said = describe(r.s);
-                        return (
-                          <div
-                            key={r.key}
-                            role="option"
-                            aria-selected={active === r.key}
-                            className={cx('ca-quick-row', 'is-suggest', active === r.key && 'is-active', held.extraClass)}
-                            title={keysIn(`${said.title}\n${said.why}\n${Math.round(r.s.p * 100)}% likely, from ${route?.model ?? 'Jev'} in ${route?.ms ?? 0} ms · ⏎ does it${r.s.kind === 'send' ? ' · ⌥⏎ shows the session in Codealong' : r.s.kind === 'open' ? ' · ⌥⏎ opens the session where it lives' : ''}`)}
-                            {...handlers}
-                          >
-                            {suggestionFace(r.s)}
-                            {n <= 9 && <Kbd keys={['⌘', String(n)]} />}
-                          </div>
-                        );
-                      }
-                      if (r.kind === 'skill') {
-                        return (
-                          <div
-                            key={r.key}
-                            role="option"
-                            aria-selected={active === r.key}
-                            className={cx('ca-quick-row', 'is-skill', active === r.key && 'is-active')}
-                            title={keysIn(`/${r.skill.name}${r.skill.hint ? ` ${r.skill.hint}` : ''}\n${r.skill.description}\n${r.lane ? `In ${r.lane.repo}` : `${r.accounts.join(', ')}’s own`}${r.skill.uses > 0 ? ` · run ${r.skill.uses} ${r.skill.uses === 1 ? 'time' : 'times'}` : ''}\n⏎ or ⇥ finishes the name; ${r.lane ? `a session on it starts in ${r.lane.repo}` : 'a session on it starts where it’s set to below'}`)}
-                            data-row={r.key}
-                            onMouseDown={handlers.onMouseDown}
-                            onClick={handlers.onClick}
-                          >
-                            <span className="ca-quick-plus is-suggest">
-                              <Icon name="slash" size={13} stroke={2} />
-                            </span>
-                            <span className="ca-quick-row-main">
-                              <span className="ca-quick-row-title">
-                                <Marked text={`/${r.skill.name}`} marks={r.marks} />
-                                {r.skill.hint && <span className="ca-quick-row-hint"> {r.skill.hint}</span>}
-                              </span>
-                              <span className="ca-quick-row-why">{r.skill.description}</span>
-                            </span>
-                            <span className="ca-quick-row-where">{skillWhere(r)}</span>
-                            {n <= 9 && <Kbd keys={['⌘', String(n)]} />}
-                          </div>
-                        );
-                      }
-                      if (r.kind === 'todo') {
-                        const t = r.item.todo;
-                        const opens = todoSession(r) ? 'shows its session in Codealong' : 'gets a session ready to start for it';
-                        return (
-                          <div
-                            key={r.key}
-                            role="option"
-                            aria-selected={active === r.key}
-                            className={cx('ca-quick-row', 'is-todo', active === r.key && 'is-active', held.extraClass)}
-                            title={keysIn(`${t.title || 'Untitled'}\n⏎ ${opens} · ⌥⏎ shows the todo in Codealong`)}
-                            {...handlers}
-                          >
-                            <TodoGlyph status={t.status} waiting={r.waiting} />
-                            <span className="ca-quick-row-main">
-                              <span className="ca-quick-row-title">
-                                <Marked text={t.title || 'Untitled'} marks={r.marks} />
-                              </span>
-                              <span className="ca-quick-row-why">{todoWhy(r, now)}</span>
-                            </span>
-                            {r.item.lane ? <RowPlace project={r.item.lane.project} place={r.item.lane.callsign} /> : <span className="ca-quick-row-where">{t.project || 'No worktree'}</span>}
-                            <span className="ca-quick-row-age">{ago(r.item.lastActivity, now)}</span>
-                            {n <= 9 && <Kbd keys={['⌘', String(n)]} />}
-                          </div>
-                        );
-                      }
-                      if (r.kind === 'more') {
-                        return (
-                          <div
-                            key={r.key}
-                            role="option"
-                            aria-selected={active === r.key}
-                            className={cx('ca-quick-row', 'is-more', active === r.key && 'is-active', held.extraClass)}
-                            {...handlers}
-                          >
-                            <span className="ca-quick-plus">
-                              <Icon name="chevron-down" size={13} stroke={2} />
-                            </span>
-                            <span className="ca-quick-row-main">
-                              <span className="ca-quick-row-title">
-                                {r.count} more {r.count === 1 ? 'session' : 'sessions'}
-                              </span>
-                            </span>
-                            {n <= 9 && <Kbd keys={['⌘', String(n)]} />}
-                          </div>
-                        );
-                      }
-                      if (r.kind === 'sendto') {
-                        const another = suggested.some((x) => x.s.kind === 'send' || x.s.kind === 'open');
-                        return (
-                          <div
-                            key={r.key}
-                            role="option"
-                            aria-selected={active === r.key}
-                            className={cx('ca-quick-row', 'is-more', active === r.key && 'is-active', held.extraClass)}
-                            title={keysIn('Lists every session this prompt could go to, Jev’s picks first, and finds one by its title, its worktree or what was said in it (⌘F)')}
-                            {...handlers}
-                          >
-                            <span className="ca-quick-plus">
-                              <Icon name="send" size={13} stroke={2} />
-                            </span>
-                            <span className="ca-quick-row-main">
-                              <span className="ca-quick-row-title">Send to {another ? 'another' : 'a'} session…</span>
-                              <span className="ca-quick-row-why">Find it by its title, its worktree or what was said in it.</span>
-                            </span>
-                            <span className="ca-quick-row-where">
-                              {r.count} {r.count === 1 ? 'session' : 'sessions'}
-                            </span>
-                            <Kbd keys={['⌘', 'F']} />
-                          </div>
-                        );
-                      }
-                      if (r.kind === 'pr' || r.kind === 'review') {
-                        const pr = r.pr;
-                        return (
-                          <div
-                            key={r.key}
-                            role="option"
-                            aria-selected={active === r.key}
-                            className={cx('ca-quick-row', 'is-pr', active === r.key && 'is-active', held.extraClass)}
-                            title={keysIn(`${pr.title}\n${pr.repoSlug}#${pr.number} · ${pr.head}\n${r.kind === 'review' ? '⏎ reviews it here · ⌥⏎ shows it in Codealong' : '⏎ shows it in Codealong · ⌥⏎ opens it on GitHub'}`)}
-                            {...handlers}
-                          >
-                            <PrGlyph pr={pr} />
-                            <span className="ca-quick-row-main">
-                              <span className="ca-quick-row-title">
-                                <Marked text={pr.title} marks={r.marks} />
-                              </span>
-                              <span className="ca-quick-row-why">{prWhy(pr)}</span>
-                            </span>
-                            <RowPlace project={pr.project} place={pr.repo} />
-                            <span className="ca-quick-row-age">{ago(pr.updatedAt, now)}</span>
-                            {n <= 9 && <Kbd keys={['⌘', String(n)]} />}
-                          </div>
-                        );
-                      }
-                      const s2 = r.session;
-                      // In Send to, ⏎ does what a suggestion of it would (route.ts): it sends
-                      // what's typed, or shows a session that waits on you to answer.
-                      const sendsTo = r.group === 'sendto' ? toSessionSuggestion(r.lane, s2, r.p ?? 0) : null;
-                      const sendWords = sendsTo && describe(sendsTo);
-                      // One on another machine opens there, not from here, and is answered in
-                      // Waiting on you only while that lists it (`answerSession`).
-                      const there = r.lane.device;
-                      const answers = inWaiting(r.lane);
-                      const tab = sendsTo ? (sendsTo.kind === 'send' ? '⏎ Send' : '⏎ Answer') : answers ? '⇥ Reply' : null;
-                      return (
-                        <div
-                          key={r.key}
-                          role="option"
-                          aria-selected={active === r.key}
-                          className={cx('ca-quick-row', active === r.key && 'is-active', held.extraClass, `is-${s2.status}`)}
-                          title={keysIn(
-                            sendsTo && sendWords
-                              ? `${sendWords.title}\n${sendWords.why}\n${sendWords.where}${r.p != null ? ` · ${Math.round(r.p * 100)}% likely, from ${(route ?? lastRoute)?.model ?? 'Jev'}` : ''}\n${sendsTo.kind === 'send' ? '⏎ sends it · ⌥⏎ shows the session in Codealong' : '⏎ shows it in Codealong · ⌥⏎ opens it where it lives'} · ⇥ answers it in Waiting on you`
-                              : there
-                                ? `${s2.title}\n${s2.account} · ${r.lane.callsign} · on ${there.name}\n⏎ shows it in Codealong${answers ? ' · ⇥ answers it in Waiting on you' : ''}`
-                                : `${s2.title}\n${s2.account} · ${r.lane.callsign}\n⏎ shows it in Codealong · ⇥ answers it in Waiting on you · ⌥⏎ opens it where it lives`,
-                          )}
-                          {...handlers}
-                        >
-                          <SessionGlyph s={s2} />
-                          <span className="ca-quick-row-main">
-                            <span className="ca-quick-row-title">
-                              <SessionEmblem emblem={s2.emblem} of={s2.key} />
-                              <Marked text={s2.title} marks={r.marks} />
-                            </span>
-                            {r.said ? (
-                              <SaidText said={r.said} className="ca-quick-row-why is-said" />
-                            ) : (
-                              <span className="ca-quick-row-why">{sessionWhy(s2.detail, s2.headline, now)}</span>
-                            )}
-                          </span>
-                          {s2.archived && (
-                            <Chip title="Archived: listed because searches list archived sessions too">
-                              <Icon name="archive" size={11} />
-                              Archived
-                            </Chip>
-                          )}
-                          <SnoozeChip until={s2.snoozedUntil} now={now} away="out of what waits on you" />
-                          {there && <DeviceBadge device={there} now={now} />}
-                          {/* Every orchestrator is called Orchestrator: what it keeps watch over tells them apart. */}
-                          {s2.orchestrator ? <RowPlace lead={s2.account} project="" place={scopeWords(s2.orchestrator.project)} /> : <RowPlace lead={s2.account} project={r.lane.project} place={r.lane.callsign} />}
-                          {sendLikely && sendsTo && <span className={cx('ca-quick-sure', r.p != null && `is-${sureness(r.p)}`)}>{r.p != null ? `${Math.round(r.p * 100)}%` : ''}</span>}
-                          <span className="ca-quick-row-age">{ago(s2.statusSince ?? s2.lastActivity, now)}</span>
-                          {active === r.key && tab && <span className="ca-quick-row-tab ca-keyhint">{keysIn(tab)}</span>}
-                          {n <= 9 && <Kbd keys={['⌘', String(n)]} />}
-                        </div>
-                      );
-                    })}
-                    {/* Under Sessions' heading rather than over the list, so they don't move
-                        Suggested as they come and go. */}
-                    {s.group === 'found' && foundNothing && (sendToIn !== 'found' || (archivedFound > 0 && !withArchived)) && (
-                      <p className="ca-quick-note">
-                        {archivedFound > 0 && !withArchived
-                          ? keysIn(`No sessions, todos or PRs match, but ${archivedFound} archived ${archivedFound === 1 ? 'session does' : 'sessions do'}: ⇧⌘A lists ${archivedFound === 1 ? 'it' : 'them'}. Or start a session with this prompt below.`)
-                          : 'No sessions, todos or PRs match. Start a session with this prompt below.'}
-                      </p>
-                    )}
-                    {s.group === 'sendto' && s.rows.length === 0 && (
-                      <p className="ca-quick-note">
-                        {archivedFound > 0 && !withArchived
-                          ? keysIn(`No session matches, but ${archivedFound} archived ${archivedFound === 1 ? 'one does' : 'ones do'}: ⇧⌘A lists ${archivedFound === 1 ? 'it' : 'them'}. Esc goes back to your prompt.`)
-                          : 'No session matches. Esc goes back to your prompt.'}
-                      </p>
-                    )}
-                    {s.group === 'sendto' && sendList && sendList.count > sendList.rows.length && (
-                      <p className="ca-quick-note">{sendList.count - sendList.rows.length} more: type more of what you’re looking for to find them.</p>
-                    )}
-                    {(s.group === 'found' || s.group === 'sendto') && textFound?.building && <p className="ca-quick-note">Still reading what recent sessions said, so more may match in a moment.</p>}
+                    {s.group === 'suggested' && !s.rows.some((r) => r.kind === 'suggest') && <SuggestedStandIn last={lastSuggested} describe={describe} routing={routing} routeProblem={routeProblem} startRowSuggested={!!startRowSuggested} asSearch={asSearch} startLeads={startLeads} />}
+                    {s.rows.map((r) => (
+                      <QuickRow key={r.key} r={r} list={rowsShown} />
+                    ))}
+                    <GroupNotes s={s} foundNothing={foundNothing} sendToIn={sendToIn} archivedFound={archivedFound} withArchived={withArchived} sendList={sendList} building={!!textFound?.building} />
                   </div>
                 ))}
               </>
             )}
           </div>
-          {listen && (
-            <div role="option" aria-selected className={cx('ca-quick-row', 'ca-quick-compose', 'is-active', listenProblem && 'is-disabled')} onMouseDown={(e) => e.preventDefault()} onClick={listenToIt}>
-              <span className="ca-quick-plus">
-                <Icon name="microphone" size={14} stroke={2} />
-              </span>
-              <span className="ca-quick-row-main">
-                <span className="ca-quick-row-title">{listenRow.title}</span>
-                <span className="ca-quick-row-why">{listenProblem ?? [macSays(hearing?.status, listenAsk), listenRow.why, attached.length > 0 && 'Files attached aren’t passed on.'].filter(Boolean).join(' ')}</span>
-              </span>
-              <Kbd keys={['⏎']} />
-            </div>
-          )}
+          {listen && <ListenRow problem={listenProblem} title={listenRow.title} why={listenProblem ?? [macSays(hearing?.status, listenAsk), listenRow.why, attached.length > 0 && 'Files attached aren’t passed on.'].filter(Boolean).join(' ')} onClick={listenToIt} />}
           {!inSendTo && !listen && (
-            <div
-              role="option"
-              aria-selected={active === COMPOSE}
-              className={cx('ca-quick-row', 'ca-quick-compose', active === COMPOSE && 'is-active', !ready && 'is-disabled')}
-              data-row={COMPOSE}
-              onMouseDown={(e) => e.preventDefault()}
-              onClick={(e) => clickRow(COMPOSE, e)}
-            >
-              <span className="ca-quick-plus">
-                <Icon name="plus" size={14} stroke={2} />
-              </span>
-              <span className="ca-quick-row-main">
-                <span className="ca-quick-row-title">{startTitle(forTodos.length, lane ? startTitleWords(lane, inNewWorktree) : null)}</span>
-                <span className="ca-quick-row-why">
-                  {/* The warning leads: the row's line is cut short when it's long. */}
-                  {primaryRunningWords(held, forTodos.length)}
-                  {skillNow && (skillNow.lane ? `Runs /${skillNow.skill.name} from ${skillNow.lane.repo}. ` : `Runs /${skillNow.skill.name}. `)}
-                  {happens}
-                  {skillLeftOut && ` ${skillLeftOut}`}
-                  {alreadyOn}
-                  {attached.length + shots.length > 0 && attachmentsNote(attached.length + shots.length)}
-                  {newToCodex && ' Codex adds this folder as a project if it isn’t one yet.'}
-                  {deviceNow && forTodos.length > 0 && todosStayNote(forTodos.length)}
-                </span>
-              </span>
-              {lane && <span className="ca-quick-row-where">{startWhereWords(lane)}</span>}
-              {/* Where a suggestion says how likely it is, so the columns line up with theirs:
-                  Jev's, when it suggested just this start. */}
-              {startRowSuggested ? (
-                <span className={`ca-quick-sure is-${sureness(startRowSuggested.p)}`} title={`Jev suggests this start: ${Math.round(startRowSuggested.p * 100)}% likely, from ${route?.model ?? 'Jev'}`}>
-                  {Math.round(startRowSuggested.p * 100)}%
-                </span>
-              ) : (
-                <span className="ca-quick-sure" aria-hidden="true" />
-              )}
-              <Kbd keys={['⌘', '⏎']} />
-            </div>
+            <StartRow active={active === COMPOSE} ready={ready} title={startTitle(forTodos.length, lane ? startTitleWords(lane, inNewWorktree) : null)} where={lane ? startWhereWords(lane) : null} suggested={startRowSuggested} from={route?.model ?? 'Jev'} onClick={(e) => clickRow(COMPOSE, e)}>
+              {/* The warning leads: the row's line is cut short when it's long. */}
+              {primaryRunningWords(held, forTodos.length)}
+              {skillNow && (skillNow.lane ? `Runs /${skillNow.skill.name} from ${skillNow.lane.repo}. ` : `Runs /${skillNow.skill.name}. `)}
+              {happens}
+              {skillLeftOut && ` ${skillLeftOut}`}
+              {alreadyOn}
+              {attached.length + shots.length > 0 && attachmentsNote(attached.length + shots.length)}
+              {newToCodex && ' Codex adds this folder as a project if it isn’t one yet.'}
+              {deviceNow && forTodos.length > 0 && todosStayNote(forTodos.length)}
+            </StartRow>
           )}
         </div>
-        {todo && (
-          <div className="ca-quick-todo">
-            {forTodos.length > 1 ? <Icon name="list-check" size={14} /> : <TodoGlyph status={todo.status} />}
-            <span className="ca-quick-todo-title" title={forTodos.length > 1 ? forTodos.map((t, i) => `${i + 1}. ${t.title || 'Untitled'}`).join('\n') : undefined}>
-              {forTodos.length > 1 ? `For ${forTodos.length} todos: ${forTodos.map((t) => `“${t.title || 'Untitled'}”`).join(', ')}` : `For “${todo.title || 'Untitled'}”`}
-            </span>
-            {waitsOn.length > 0 && (
-              <span className="ca-quick-todo-wait" title={blocked.flatMap((b) => b.on.map((w) => `${forTodos.length > 1 ? `“${b.t.title || 'Untitled'}” waits` : 'Waits'} on “${w.title || 'Untitled'}”`)).join('\n')}>
-                <Icon name="lock" size={12} />
-                {forTodos.length > 1 && (blocked.length === 1 ? 'one ' : `${blocked.length} `)}
-                {forTodos.length > 1 && blocked.length > 1 ? 'wait' : 'waits'} on {waitsOn.length === 1 ? 'a todo that isn’t done' : `${waitsOn.length} todos that aren’t done`}
-              </span>
-            )}
-            {held.length > 0 && (
-              <button
-                type="button"
-                className="ca-quick-todo-wait ca-quick-todo-primary"
-                title={held.map(({ todo: t, at }) => `“${at.session.title}” (${at.session.account} · ${at.lane.callsign}) is ${forTodos.length > 1 ? `“${t.title || 'Untitled'}”’s` : 'its'} primary session. Click to show it.`).join('\n')}
-                onClick={() => showSession(held[0].at.lane, held[0].at.session)}
-              >
-                <Icon name="user" size={12} />
-                <span className="ca-quick-todo-primary-text">{held.length === 1 ? `“${held[0].at.session.title}” is on it` : `${held.length} already have a session`}</span>
-              </button>
-            )}
-            {marked.length > 0 && (
-              <span className="ca-quick-todo-wait" title={`Starting a session on ${forTodos.length > 1 ? 'them' : 'it'} ends the wait.`}>
-                <Icon name="hourglass" size={12} />
-                {forTodos.length > 1 ? `${marked.length === 1 ? 'one' : marked.length} marked as waiting` : todo.waiting?.note ? `waiting for ${todo.waiting.note}` : 'marked as waiting'}
-              </span>
-            )}
-            <button type="button" className="ca-linkbtn" title={forTodos.length > 1 ? "Start a session that isn't linked to these todos" : "Start a session that isn't linked to this todo"} onClick={() => setTodoIds([])}>
-              Don’t link
-            </button>
-          </div>
-        )}
-        {error && (
-          <p className="ca-quick-error" role="alert">
-            <Icon name="alert" size={14} />
-            <span>{error}</span>
-          </p>
-        )}
-        {info && !error && (
-          <p className="ca-quick-error is-info" role="status">
-            <Icon name="check" size={14} />
-            <span>{info}</span>
-          </p>
-        )}
-        {improveNote && !error && !info && (
-          <p className="ca-quick-error is-info ca-quick-improve" role="status">
-            <Icon name="bulb" size={14} />
-            <span>{improveNote.text}</span>
-            {improveNote.add && (
-              <Button size="sm" onMouseDown={(e) => e.preventDefault()} onClick={addCodealongProject}>
-                Add a {CODEALONG_PROJECT} project
-              </Button>
-            )}
-          </p>
-        )}
-        {calmer && startsOnLoad && !error && !info && !improveNote && (
-          <p className="ca-quick-error is-info ca-quick-calmer" role="status">
-            <Icon name="gauge" size={14} />
-            <span>
-              {loadSentence(startsOnLoad, startsOnName)} {calmer.name} is calm{calmer.lane.startsChats ? '' : ` and has ${calmer.lane.repo}`}.
-            </span>
-            <Button size="sm" title={loadSentence(calmer.load, calmer.name)} onMouseDown={(e) => e.preventDefault()} onClick={() => takeCalmer(calmer)}>
-              Use {deviceLabel(calmer.name)} <Kbd keys={chordKeys(CALMER_CHORD)} />
-            </Button>
-          </p>
-        )}
+        {todo && <TodoStrip todo={todo} forTodos={forTodos} blocked={blocked} waitsOn={waitsOn} held={held} marked={marked} showSession={showSession} unlink={() => setTodoIds([])} />}
+        <QuickNotes error={error} info={info} improveNote={improveNote} addCodealongProject={addCodealongProject} calmer={calmer} startsOnLoad={startsOnLoad} startsOnName={startsOnName} takeCalmer={takeCalmer} />
         {!inSendTo && (
           <div className="ca-quick-bar">
             {macs.length > 0 && !listen && (
@@ -3181,18 +2608,6 @@ export function Quick() {
   return <ProjectShown.Provider value={projectShownIn(current)}>{page}</ProjectShown.Provider>;
 }
 
-/** Where a row's session, todo or PR is: its worktree or repo, after its project where the panel
- *  lists every project, the project shortening first; `lead` before them (a session's account). */
-function RowPlace({ lead, project, place }: { lead?: string; project: string; place: string }) {
-  return (
-    <span className="ca-quick-row-where is-place">
-      {lead && <span>{lead} ·</span>}
-      <ProjectPrefix project={project} beside={[place]} />
-      <span className="ca-quick-row-place">{place}</span>
-    </span>
-  );
-}
-
 /** The panel folded while it holds a prompt you haven't sent and another window has the keyboard
  *  (quick.rs `put_aside`): the prompt's first line, where the card's top was, over every app. A
  *  click opens the panel again as you left it, as its shortcut does; × puts it away, and ↑ in the
@@ -3207,24 +2622,5 @@ function QuickFold({ chip, words, shortcut }: { chip: RefObject<HTMLDivElement |
       </button>
       <Button variant="ghost" size="sm" icon="x" aria-label="Put away" title="Put away: ↑ in the panel brings it back (esc)" onClick={() => void hideQuick()} />
     </div>
-  );
-}
-
-function ProjectCounts({ needs, unread }: { needs: number; unread: number }) {
-  return (
-    <span className="ca-quick-counts">
-      {needs > 0 && (
-        <span className="ca-projswitch-action is-needs" title={`${needs} need you`}>
-          <StatusGlyph status="needs" size={10} title="" />
-          {needs}
-        </span>
-      )}
-      {unread > 0 && (
-        <span className="ca-projswitch-action is-unread" title={`${unread} finished`}>
-          <StatusGlyph status="unread" size={10} title="" />
-          {unread}
-        </span>
-      )}
-    </span>
   );
 }
