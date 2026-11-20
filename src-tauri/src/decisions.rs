@@ -274,6 +274,16 @@ pub fn session_projects(cfg: &Config, lanes: &[Lane], key: &str) -> Option<Vec<O
     Some(projects_of(cfg, lanes, lane, s).into_iter().map(|p| p.map(String::from)).collect())
 }
 
+/// The model that may read a todo: its project's, and every project's its worktrees are in,
+/// when they agree, as a project renamed since the todo was written still has its worktrees.
+pub fn for_todo(cfg: &Config, lanes: &[Lane], t: &crate::todos::Todo) -> Option<Decider> {
+    let mut projects = vec![Some(t.project.as_str()).filter(|p| !p.trim().is_empty())];
+    projects.extend(lanes.iter().filter(|l| t.worktrees.contains(&l.id)).map(|l| Some(l.project.as_str())));
+    let mut each = projects.iter().map(|p| for_project(cfg, *p));
+    let first = each.next()?;
+    each.all(|d| d == first).then_some(first).flatten()
+}
+
 /// The model a start on `account_or_group` (an account, a routing group, or Auto: empty or
 /// `auto`) in `projects` may have its words read by: what every account it may land on and every
 /// one of the projects agree on. Auto, whose group depends on where the start resolves it, and a
@@ -368,12 +378,12 @@ pub fn ask(feature: Feature, decider: &Decider, body: &Value) -> Result<Value> {
 
 /// `ask`, going on to a fallback only while `ok` says the settings it was asked under stand.
 pub fn ask_while(feature: Feature, decider: &Decider, body: &Value, ok: impl Fn() -> bool) -> Result<Value> {
-    first_answer(decider, ok, |m| ask_one(feature, m, body))
+    first_answer(decider, &ok, |m| ask_one(feature, m, body, &ok))
 }
 
 /// The first answer `ask` gets of the decider's models in order, going on only past one that
 /// failed for now, and only while `ok`; the last such failure when every one did.
-fn first_answer(decider: &Decider, ok: impl Fn() -> bool, ask: impl Fn(&DecisionModelCfg) -> Result<Value>) -> Result<Value> {
+fn first_answer(decider: &Decider, ok: &dyn Fn() -> bool, ask: impl Fn(&DecisionModelCfg) -> Result<Value>) -> Result<Value> {
     let mut busy = None;
     for (i, m) in decider.models.iter().enumerate() {
         if i > 0 && !ok() {
@@ -387,14 +397,14 @@ fn first_answer(decider: &Decider, ok: impl Fn() -> bool, ask: impl Fn(&Decision
     Err(busy.unwrap_or_else(|| anyhow!("There's no decision model to ask.")))
 }
 
-fn ask_one(feature: Feature, m: &DecisionModelCfg, body: &Value) -> Result<Value> {
+fn ask_one(feature: Feature, m: &DecisionModelCfg, body: &Value, ok: &dyn Fn() -> bool) -> Result<Value> {
     let a = adapter(&m.provider).ok_or_else(|| anyhow!("Decision model {} names a provider Codealong doesn't know, {:?}.", m.name, m.provider))?;
     let key = api_key(a).ok_or_else(|| anyhow!("There's no {} API key yet. Add it in Settings › Decisions.", a.word()))?;
     let images = crate::jev::has_images(body);
     let (mut status, mut reply) = post(a, &key, &a.request(&m.model, body), images)?;
     // Images fail a whole request a provider won't take them in (400, or 413 for size): asked
     // again without them, the question is answered from the words.
-    if images && matches!(status.as_str(), "400" | "413") {
+    if images && matches!(status.as_str(), "400" | "413") && ok() {
         let plain = crate::jev::without_images(body);
         (status, reply) = post(a, &key, &a.request(&m.model, &plain), false)?;
     }
@@ -574,6 +584,9 @@ fn reply_of(a: &dyn Adapter, model: &str, status: &str, reply: &str) -> Result<V
         }
         "401" | "403" => {
             forget_key(a);
+            if let Ok(mut r) = REJECTED.lock() {
+                r.insert(a.id());
+            }
             bail!("{who} didn't accept the API key. Check it in Settings › Decisions.")
         }
         "400" | "404" | "422" => bail!("{who} couldn't take the request: {}", detail()),
@@ -654,6 +667,14 @@ fn mime(format: &str) -> &'static str {
 /* ---- The keys ---- */
 
 static KEYS: Mutex<Vec<(&'static str, Instant, String)>> = Mutex::new(Vec::new());
+/// Providers that turned down the key they were asked with, until another is saved: what reads
+/// in the background passes over their prompts (`usable_key`) rather than asking again and again.
+static REJECTED: Mutex<std::collections::BTreeSet<&'static str>> = Mutex::new(std::collections::BTreeSet::new());
+
+/// Whether there's a key for a provider that it hasn't turned down.
+pub fn usable_key(provider: &str) -> bool {
+    has_key(provider) && !REJECTED.lock().is_ok_and(|r| r.contains(provider.trim()))
+}
 
 fn forget_key(a: &dyn Adapter) {
     if let Ok(mut k) = KEYS.lock() {
@@ -698,6 +719,9 @@ pub fn save_key(provider: &str, key: &str) -> Result<()> {
     }
     let saved = crate::os::secrets::save(a.keychain_service(), key);
     forget_key(a);
+    if let Ok(mut r) = REJECTED.lock() {
+        r.remove(a.id());
+    }
     if saved.is_err() || !has_key(provider) {
         bail!("The keychain didn't take the key.");
     }
@@ -795,7 +819,7 @@ mod tests {
         let asked = std::cell::RefCell::new(Vec::new());
         let answer = |busy: &'static [&'static str]| {
             asked.borrow_mut().clear();
-            first_answer(&default, || true, |m| {
+            first_answer(&default, &|| true, |m| {
                 asked.borrow_mut().push(m.name.clone());
                 if busy.contains(&m.name.as_str()) {
                     return Err(Busy(format!("{} is rate limiting", m.name)).into());
@@ -809,13 +833,13 @@ mod tests {
         let e = answer(&["jev", "sol"]).unwrap_err();
         assert!(is_busy(&e) && e.to_string().contains("sol"), "{e}");
         // A request the model turned down isn't sent elsewhere.
-        let refused = first_answer(&default, || true, |m| if m.name == "jev" { anyhow::bail!("TypeSafe couldn't take the request") } else { Ok(json!({})) });
+        let refused = first_answer(&default, &|| true, |m| if m.name == "jev" { anyhow::bail!("TypeSafe couldn't take the request") } else { Ok(json!({})) });
         assert!(refused.is_err());
         // A project's choice never falls back.
         let luna = for_project(&cfg, Some("atlas")).unwrap();
-        assert!(is_busy(&first_answer(&luna, || true, |m| Err(Busy(m.name.clone()).into())).unwrap_err()));
+        assert!(is_busy(&first_answer(&luna, &|| true, |m| Err(Busy(m.name.clone()).into())).unwrap_err()));
         // Nor once the settings it was asked under changed.
-        assert!(is_busy(&first_answer(&default, || false, |m| if m.name == "jev" { Err(Busy("jev".into()).into()) } else { Ok(json!({})) }).unwrap_err()));
+        assert!(is_busy(&first_answer(&default, &|| false, |m| if m.name == "jev" { Err(Busy("jev".into()).into()) } else { Ok(json!({})) }).unwrap_err()));
     }
 
     #[test]
@@ -875,6 +899,17 @@ mod tests {
         // A visitor's row says nothing of where a session's words belong.
         let visiting = vec![lane_of("/w/harbor", "harbor", vec![Session { visitor: Some("/w/atlas".into()), ..session_in("c:v", "claude", "/w/atlas") }])];
         assert!(own_row(&visiting, "c:v").is_none() && session_projects(&cfg, &visiting, "c:v").is_none());
+    }
+
+    #[test]
+    fn a_todo_goes_where_its_project_and_its_worktrees_agree() {
+        let cfg = cfg();
+        let lanes = vec![lane_of("/w/kestrel", "kestrel", vec![]), lane_of("/w/northwind", "northwind", vec![])];
+        let todo = |project: &str, worktrees: &[&str]| -> crate::todos::Todo { serde_json::from_value(json!({ "id": "t1", "title": "Export", "project": project, "worktrees": worktrees })).unwrap() };
+        assert_eq!(names(for_todo(&cfg, &lanes, &todo("northwind", &["/w/northwind"]))), Some(vec!["jev".into(), "sol".into()]));
+        // Written under a project since renamed: its worktree is still the opted-out project's.
+        assert_eq!(names(for_todo(&cfg, &lanes, &todo("Old name", &["/w/kestrel"]))), None);
+        assert_eq!(names(for_todo(&cfg, &lanes, &todo("", &[]))), Some(vec!["jev".into(), "sol".into()]), "in no project: the default");
     }
 
     #[test]
@@ -959,6 +994,14 @@ mod tests {
         let e = reply_of(openai, "m", "400", r#"{"error":{"message":"Unknown question type.","type":"invalid_request_error"}}"#).unwrap_err();
         assert_eq!(e.to_string(), "OpenAI couldn't take the request: Unknown question type.");
         assert!(!is_busy(&reply_of(openai, "m", "401", "").unwrap_err()));
+    }
+
+    #[test]
+    fn a_key_turned_down_is_passed_over_until_another_is_saved() {
+        assert!(reply_of(adapter("gemini").unwrap(), "m", "401", "").is_err());
+        assert!(REJECTED.lock().unwrap().contains("gemini"));
+        assert!(!usable_key("gemini"));
+        REJECTED.lock().unwrap().remove("gemini");
     }
 
     #[test]

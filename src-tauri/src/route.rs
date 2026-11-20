@@ -691,10 +691,12 @@ pub fn route_on(board: &Board, cfg: &crate::config::Config, decider: &crate::dec
     if crate::perf::enabled() {
         crate::perf::log(&format!("route: {} sessions share words, in {} ms", related.len(), searched.elapsed().as_millis()));
     }
+    // A fallback, or a retry without images, only while the settings stand as they were asked under.
+    let then = crate::config::current().map(|c| crate::decisions::fingerprint(&c)).ok();
     let mut req = request_with_routing(board, Some(cfg), Some(decider), project, text, &related, decider.model(), crate::util::now_ms())?;
     let started = Instant::now();
     req.images.attach(&mut req.body);
-    let response = crate::decisions::ask(crate::jev::Feature::QuickPanel, decider, &req.body)?;
+    let response = crate::decisions::ask_while(crate::jev::Feature::QuickPanel, decider, &req.body, || then.is_some_and(crate::decisions::still))?;
     let route = read(&req, &response, started.elapsed().as_millis() as u64)?;
     crate::routelog::asked(project, text, crate::routelog::Asked { model: route.model.clone(), ms: route.ms, related: req.related.clone() });
     let habit = route.repos.first().map(|r| crate::starts::habit(&r.id)).unwrap_or_default();

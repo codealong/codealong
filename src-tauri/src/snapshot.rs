@@ -342,15 +342,20 @@ fn stance(args: &Args, rest: &[String]) -> Done {
         None => 10,
     };
     let file = args.option("--into").ok_or(Stop::Usage)?;
-    let (cfg, trial) = deciding(args)?;
+    let (_, trial) = deciding(args)?;
     let board = board_now().board();
-    let project_of = |key: &str| crate::decisions::session_projects(&cfg, &board.lanes, key);
     let db = crate::ledger::open(std::path::Path::new(file)).map_err(failed)?;
     let mut out = Vec::new();
     for u in crate::stance::unread(&db, n).map_err(failed)? {
-        // A trial asks the model it names or nothing: a prompt whose project or boundary group
-        // chose another goes to none here.
-        let decider = crate::stance::decider(&cfg, &u, &project_of).filter(|d| trial.as_ref().is_none_or(|t| d.is(&t.models[0])));
+        // The settings as they are now, for each: a project switched off meanwhile is. A trial
+        // asks the model it names or nothing: a prompt whose project or boundary group chose
+        // another goes to none here.
+        let now = match &trial {
+            Some(t) => crate::decisions::trying(&config::current().map_err(failed)?, t),
+            None => config::current().map_err(failed)?,
+        };
+        let project_of = |key: &str| crate::decisions::session_projects(&now, &board.lanes, key);
+        let decider = crate::stance::decider(&now, &u, &project_of).filter(|d| trial.as_ref().is_none_or(|t| d.is(&t.models[0])));
         let Some(decider) = decider else {
             out.push(serde_json::json!({ "prompt": u, "stance": null, "kept": "Its project or boundary group keeps its words from this model." }));
             continue;
@@ -387,18 +392,20 @@ fn routes(args: &Args, rest: &[String]) -> Done {
     let (cfg, trial) = deciding(args)?;
     let trial = trial.ok_or(Stop::Usage)?;
     let board = route_board(&cfg);
-    Ok(pretty(&crate::routelog::replay(spec, since, most, |k| route_trial(&board, &cfg, &trial, &k.project, &k.text)).map_err(failed)?))
+    Ok(pretty(&crate::routelog::replay(spec, since, most, |k| route_trial(&board, &trial, &k.project, &k.text)).map_err(failed)?))
 }
 
 /// What a trial model makes of what was typed in a project's panel, asked only when that
-/// project's words may go to it (`decisions::trying`): All projects' go by the default, which it
+/// project's words may go to it under config.toml as it is now (`decisions::trying`, read again
+/// for each, so a project switched off meanwhile is): All projects' go by the default, which it
 /// stands in for.
-fn route_trial(board: &model::Board, cfg: &config::Config, trial: &crate::decisions::Decider, project: &str, text: &str) -> anyhow::Result<route::Route> {
+fn route_trial(board: &model::Board, trial: &crate::decisions::Decider, project: &str, text: &str) -> anyhow::Result<route::Route> {
+    let cfg = crate::decisions::trying(&config::current()?, trial);
     let in_project = Some(project).filter(|p| *p != route::ALL_PROJECTS);
-    if !crate::decisions::for_project(cfg, in_project).is_some_and(|d| d.is(&trial.models[0])) {
+    if !crate::decisions::for_project(&cfg, in_project).is_some_and(|d| d.is(&trial.models[0])) {
         anyhow::bail!("{project} chose another decision model, so what's typed there doesn't go to this one.");
     }
-    route::route_on(board, cfg, trial, project, text)
+    route::route_on(board, &cfg, trial, project, text)
 }
 
 /// The board a route is asked on here: read now, with the accounts' MCP servers, which the app
@@ -925,7 +932,7 @@ fn route_text(args: &Args, rest: &[String]) -> Done {
     // sessions' words where it may read them; the panel's own way is the app's request, as
     // another device asks it.
     if let Some(trial) = trial {
-        return Ok(pretty(&route_trial(&board, &cfg, &trial, project, text).map_err(failed)?));
+        return Ok(pretty(&route_trial(&board, &trial, project, text).map_err(failed)?));
     }
     let params = params::Route { project: project.to_string(), text: text.clone() };
     Ok(pretty(&actions::local(&engine::Handle::over(board), &From::Device, api::ROUTE, "", params).map_err(Stop::Failed)?))

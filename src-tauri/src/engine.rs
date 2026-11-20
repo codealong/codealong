@@ -1861,8 +1861,15 @@ impl Engine {
             .todos
             .iter()
             .filter_map(|t| {
-                let decider = crate::decisions::for_project(cfg, Some(t.project.as_str()).filter(|p| !p.is_empty()))?;
-                let kept = t.sessions.iter().any(|k| crate::decisions::rows(&board.lanes, k).any(|(l, s)| !decider.carries(crate::decisions::of_session(cfg, &board.lanes, l, s).as_ref())));
+                let decider = crate::decisions::for_todo(cfg, &board.lanes, t)?;
+                let kept = t.sessions.iter().any(|k| {
+                    let mut rows = crate::decisions::rows(&board.lanes, k).peekable();
+                    match rows.peek() {
+                        Some(_) => rows.any(|(l, s)| !decider.carries(crate::decisions::of_session(cfg, &board.lanes, l, s).as_ref())),
+                        // Off the board: by its account (the key's second part), in the todo's project.
+                        None => crate::boundary::account_of_key(k).is_some_and(|a| !decider.carries(crate::decisions::for_session(cfg, a, Some(t.project.as_str()).filter(|p| !p.is_empty())).as_ref())),
+                    }
+                });
                 if kept {
                     return None;
                 }

@@ -186,8 +186,8 @@ pub fn set(db: &Connection, id: i64, stance: &str, sure: Option<f64>, by: &str) 
 /// `[decisions] prompts` is on and there's a key: a few requests at a time, written as they come
 /// back. A request a provider turns away for now (rate limited, overloaded, no connection) ends
 /// the pass, and the next takes it up; one it can't take at all leaves its prompt unread for good,
-/// saying so. A prompt whose model has no key yet is passed over, left for when it has one, so it
-/// never holds up the others.
+/// saying so. A prompt whose model has no key yet, or one it turned down, is passed over, left for
+/// when it has one, so it never holds up the others.
 pub fn pass(db: &Connection, project_of: &dyn Fn(&str) -> Option<Vec<Option<String>>>) {
     let Ok(cfg) = crate::config::current() else { return };
     if !cfg.experimental.analytics || !cfg.decisions.prompts || !crate::decisions::any_key(&cfg) {
@@ -202,7 +202,7 @@ pub fn pass(db: &Connection, project_of: &dyn Fn(&str) -> Option<Vec<Option<Stri
             Err(e) => return eprintln!("Couldn't list the prompts waiting on a read: {e:#}"),
         };
         let last = got.len() < LOOKED_AT;
-        waiting.extend(got.into_iter().map(|u| (decider(&cfg, &u, project_of), u)).filter(|(d, _)| d.as_ref().is_none_or(|d| crate::decisions::has_key(&d.models[0].provider))).map(|(d, u)| (u, d)));
+        waiting.extend(got.into_iter().map(|u| (decider(&cfg, &u, project_of), u)).filter(|(d, _)| d.as_ref().is_none_or(|d| crate::decisions::usable_key(&d.models[0].provider))).map(|(d, u)| (u, d)));
         if last || waiting.len() >= PER_PASS {
             break;
         }
@@ -222,7 +222,7 @@ pub fn pass(db: &Connection, project_of: &dyn Fn(&str) -> Option<Vec<Option<Stri
                 .zip(deciders.iter().copied())
                 .map(|(u, d)| {
                     scope.spawn(move || match d {
-                        Some(d) => crate::decisions::ask(jev::Feature::Prompts, d, &request(d.model(), u)),
+                        Some(d) => crate::decisions::ask_while(jev::Feature::Prompts, d, &request(d.model(), u), || crate::decisions::still(then)),
                         None => Ok(Value::Null),
                     })
                 })
