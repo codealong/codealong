@@ -321,10 +321,9 @@ export function prPills(pr: PrFacts): PrPill[] {
     const why = [pr.state === 'approved' ? 'Approved' : null, c.passed > 0 ? `${plural(c.passed, 'check')} passed` : null, 'no conflicts'].filter(Boolean).join(', ');
     const ready: PrPill = { key: 'ready', tone: 'ready', icon: 'merge', text: 'Ready to merge', short: null, title: `${why[0].toUpperCase()}${why.slice(1)}: GitHub can merge it` };
     // Where the agent stands goes beside it, else whose move it is, else, asked for your review
-    // again, Re-review: it's likely your approval of an earlier commit that has it ready, and a
-    // review it waits on isn't to be taken for one done.
+    // again, Re-review: a review it waits on isn't to be taken for one done.
     const first = agentPill(pr) ?? turnPill(pr) ?? reReviewPill(pr);
-    return [first, ready, stalePill(pr)].filter((p): p is PrPill => p !== null);
+    return [first, ready].filter((p): p is PrPill => p !== null);
   }
   const base = pr.base ?? 'its base';
   const pills = [reviewPill(pr), stalePill(pr), checksPill(c)].filter((p): p is PrPill => p !== null);

@@ -137,7 +137,7 @@ pub fn headline(bay: Bay, sessions: &[Session], pr: Option<&Pr>, git: Option<&Gi
                 _ if c.failed > 0 => format!("#{n} · checks failing"),
                 _ if c.pending > 0 && pr.state == PrState::Approved => format!("#{n} approved · checks running"),
                 _ if c.pending > 0 => format!("#{n} · checks running"),
-                PrState::Approved if pr.merge == Merge::Clean => format!("#{n} approved · ready to merge"),
+                PrState::Approved if pr.merge == Merge::Clean && pr.stale_approval.is_none() => format!("#{n} approved · ready to merge"),
                 PrState::Approved => format!("#{n} approved"),
                 _ if pr.merge == Merge::Clean => format!("#{n} ready to merge"),
                 _ => format!("#{n} waiting for review"),
@@ -394,6 +394,12 @@ mod tests {
             headline(Bay::Review, &[], pr.as_ref(), None)
         };
         assert_eq!(review(PrState::Approved, Merge::Clean), ("#1037 approved · ready to merge".to_string(), Some("11 checks passed".to_string())));
+        let stale = find_pr(
+            &seed("/r", "portal"),
+            &HashMap::from([("sprucehq/spark".to_string(), vec![PrRaw { merge: Merge::Clean, stale_approval: Some(StaleApproval { by: vec!["ana".into()], commit: "a11ce55".into() }), ..pr(PrState::Approved, 0) }])]),
+            NOW,
+        );
+        assert_eq!(headline(Bay::Review, &[], stale.as_ref(), None).0, "#1037 approved");
         // Only GitHub can say it's ready: approved and passing can still conflict with the base.
         assert_eq!(review(PrState::Approved, Merge::Unknown).0, "#1037 approved");
         assert_eq!(review(PrState::Approved, Merge::Conflicts).0, "#1037 has conflicts");
