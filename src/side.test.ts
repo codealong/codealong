@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { beingRead, broughtCodec, endSide, keptLine, noteSide, showAnswer, showSides, STARTING_MS, takesBox, turnState, viewCodec } from './side';
+import { beingRead, broughtCodec, endSide, keptLine, noteSide, showAnswer, showSides, sideForMessage, STARTING_MS, takesBox, turnState, viewCodec } from './side';
 import type { Side, SideKept, SideTurn } from './types';
 
 const turn = (t: Partial<SideTurn>): SideTurn => ({ question: 'why?', answer: '', done: false, ...t });
@@ -162,5 +162,36 @@ describe('noteSide', () => {
     // Asked again as it was read, it's open with a question more (side.rs `Reading`).
     noteSide(side(2));
     expect(holdsOpen()).toBe(true);
+  });
+});
+
+describe('sideForMessage', () => {
+  const openSide: Side = { id: 's2', key: 'claude:c:1', turns: [turn({ question: 'Why is the load high?\nMore detail', at: 2000, done: false })], running: true, ended: false };
+  const kept1: SideKept = { id: 's1', key: 'claude:c:1', title: '', startedAt: 1000, lastAt: 1500, turns: [turn({ question: 'First question', done: true })] };
+  const kept2: SideKept = { id: 's2', key: 'claude:c:1', title: '', startedAt: 2000, lastAt: 2500, turns: [turn({ question: 'Why is the load high?', done: true })] };
+
+  it('matches by explicit fromSide id across open and kept, and returns null when forgotten', () => {
+    expect(sideForMessage(openSide, [kept1], 's2', 2100)).toEqual({ kind: 'side', id: 's2', open: true, question: 'Why is the load high?' });
+    expect(sideForMessage(openSide, [kept1], 's1', 2100)).toEqual({ kind: 'side', id: 's1', open: false, question: 'First question' });
+    expect(sideForMessage(openSide, [kept1], 'gone', 2100)).toBeNull();
+  });
+
+  it('matches older messages without fromSide to the side conversation started at or before the message', () => {
+    expect(sideForMessage(null, [kept2, kept1], undefined, 1400)).toEqual({ kind: 'side', id: 's1', open: false, question: 'First question' });
+    expect(sideForMessage(openSide, [kept2, kept1], undefined, 2600)).toEqual({ kind: 'side', id: 's2', open: true, question: 'Why is the load high?' });
+    // An open side whose first turn hasn't finished yet isn't in kept.
+    expect(sideForMessage(openSide, [kept1], undefined, 2100)).toEqual({ kind: 'side', id: 's2', open: true, question: 'Why is the load high?' });
+  });
+
+  it('does not link an older message to a side conversation started after it or without a start time', () => {
+    expect(sideForMessage(null, [kept2], undefined, 1500)).toBeNull();
+    const undated: Side = { id: 's3', key: 'claude:c:1', turns: [turn({ question: 'No timestamp' })], running: true, ended: false };
+    expect(sideForMessage(undated, [], undefined, 1500)).toBeNull();
+  });
+
+  it('falls back to the only side, the list when ambiguous, or null when none exist', () => {
+    expect(sideForMessage(null, [kept1], undefined, 0)).toEqual({ kind: 'side', id: 's1', open: false, question: 'First question' });
+    expect(sideForMessage(null, [kept2, kept1], undefined, 0)).toEqual({ kind: 'list' });
+    expect(sideForMessage(null, [], undefined, 1500)).toBeNull();
   });
 });

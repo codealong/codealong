@@ -314,12 +314,15 @@ pub fn runs(pid: u32) -> bool {
     st.open.values().chain(&st.closing).any(|o| o.proc.as_ref().is_some_and(|p| p.pid == pid))
 }
 
-/// Whether `secret` is that of a copy of session `key` that runs (`SIDE_VAR`): its open side
-/// conversation's, or a closed one's still answering. A copy that has ended sends nothing, though
-/// what it left running still has the variable.
-pub fn sent_by_copy(key: &str, secret: &str) -> bool {
+/// The id of the copy of session `key` that runs with `secret` (`SIDE_VAR`): its open side
+/// conversation's, or a closed one's still answering. None where `secret` is none of theirs:
+/// a copy that has ended sends nothing, though what it left running still has the variable.
+pub fn sent_by_copy(key: &str, secret: &str) -> Option<String> {
+    if secret.is_empty() {
+        return None;
+    }
     let st = state();
-    !secret.is_empty() && st.open.get(key).into_iter().chain(&st.closing).any(|o| o.side.key == key && o.proc.as_ref().is_some_and(|p| p.secret == secret))
+    st.open.get(key).into_iter().chain(&st.closing).find(|o| o.side.key == key && o.proc.as_ref().is_some_and(|p| p.secret == secret)).map(|o| o.side.id.clone())
 }
 
 /// Asks the session's copy `text`, making the copy when there's none, and returns the side
@@ -1174,9 +1177,10 @@ mod tests {
         // While it runs, what it says to its session with its secret is the side conversation's;
         // without it, or to another session, it's anyone's.
         assert_eq!(secret.len(), 32);
-        assert!(sent_by_copy(key, &secret) && !sent_by_copy(key, "") && !sent_by_copy(key, "0123") && !sent_by_copy("test:side:another", &secret));
+        assert_eq!(sent_by_copy(key, &secret).as_deref(), Some(side.id.as_str()));
+        assert!(sent_by_copy(key, "").is_none() && sent_by_copy(key, "0123").is_none() && sent_by_copy("test:side:another", &secret).is_none());
         close(key);
-        assert!(get(key).is_none() && !runs(pid) && !sent_by_copy(key, &secret));
+        assert!(get(key).is_none() && !runs(pid) && sent_by_copy(key, &secret).is_none());
     }
 
     /// Each copy has its secret in its environment, for what it runs to hand on (`SIDE_VAR`):

@@ -104,6 +104,9 @@ export interface TranscriptItem {
   /** That session's key, where the message said it: its heading names the sender as a link to
    *  its session (SessionLink.tsx). */
   fromKey?: string;
+  /** The id of this session's side conversation that sent a `peer` message (`Side.id`), where
+   *  the message said it: its heading links to that side conversation (MessageCard.tsx). */
+  fromSide?: string;
   /** What a `codealong` message comes to in a line, for its card (MessageCard.tsx), which a
    *  click opens to the whole of it (glance.rs). Missing from an older engine's. */
   glance?: Glance;

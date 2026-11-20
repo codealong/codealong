@@ -68,7 +68,8 @@ pub struct Held {
     #[serde(default, skip_serializing_if = "String::is_empty")]
     pub title: String,
     pub by: By,
-    /// The session that sent it, where the command found one: an agent's.
+    /// Who sent it: for `By::Agent`, the sending session's key where the command found one; for
+    /// `By::Side`, the side conversation's record id (`Side::id`).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub from: Option<String>,
     pub text: String,
@@ -94,7 +95,7 @@ impl Held {
     fn sender(&self) -> Sender {
         match self.by {
             By::Agent => Sender::Agent(self.from.clone()),
-            By::Side => Sender::Side,
+            By::Side => Sender::Side(self.from.clone()),
             By::Codealong => Sender::Codealong,
         }
     }
@@ -324,14 +325,14 @@ fn report(engine: &Handle, out: &mut Outbox, sent: bool) {
 pub fn send_or_hold(engine: &Handle, key: &str, text: &str, sender: Sender, now: bool) -> Result<Sent> {
     let (by, from) = match &sender {
         Sender::Agent(from) => (Some(By::Agent), from.clone()),
-        Sender::Side => (Some(By::Side), None),
+        Sender::Side(from) => (Some(By::Side), from.clone()),
         _ => (None, None),
     };
     let sent = send::send_here(engine, key, text, sender, now);
     let (Some(by), true, Err(e)) = (by, RUNS.load(Ordering::SeqCst), &sent) else { return sent };
     let Some(title) = e.downcast_ref::<WaitsOnItsUser>().map(|w| w.title.clone()) else { return sent };
     let at = crate::util::now_ms();
-    let told = from.is_some();
+    let told = sender_told(&by, &from);
     let h = Held { id: next_id(at), to: key.to_string(), title: title.clone(), by, from, text: text.to_string(), now, at, failures: 0, next_at: 0 };
     let mut out = outbox().lock().unwrap_or_else(|e| e.into_inner());
     let holding = out.hold(h);
@@ -344,6 +345,12 @@ pub fn send_or_hold(engine: &Handle, key: &str, text: &str, sender: Sender, now:
         eprintln!("Holding a message for {key} until its user answers the prompt it waits on.");
     }
     Ok(send::sent(held_words(&title, holding, told)?))
+}
+
+/// Whether the sender is a session that Codealong can tell if a held message is dropped (`By::Agent`
+/// with a session key; a side conversation's `from` is its record id, not a session to message).
+fn sender_told(by: &By, from: &Option<String>) -> bool {
+    *by == By::Agent && from.is_some()
 }
 
 /// What the sender is told of a message held, or not held, for the session `title`; `told` says
@@ -594,7 +601,11 @@ mod tests {
     fn a_held_message_goes_as_it_was_sent_and_says_it_was_held() {
         let h = held("Ship it", NOW);
         assert_eq!(h.sender(), Sender::Agent(Some(FROM.into())));
-        assert_eq!(Held { by: By::Side, from: None, ..h.clone() }.sender(), Sender::Side);
+        assert_eq!(Held { by: By::Side, from: Some("1790-1".into()), ..h.clone() }.sender(), Sender::Side(Some("1790-1".into())));
+        assert_eq!(Held { by: By::Side, from: None, ..h.clone() }.sender(), Sender::Side(None));
+        assert!(sender_told(&By::Agent, &Some("claude:c:a".into())));
+        assert!(!sender_told(&By::Agent, &None));
+        assert!(!sender_told(&By::Side, &Some("1790-1".into())));
         assert_eq!(h.text_at(NOW + 2 * 60 * 60 * 1000), "Sent 2 hours ago; Codealong held it while you waited on your user to answer a prompt.\n\nShip it");
     }
 

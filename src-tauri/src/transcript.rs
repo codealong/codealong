@@ -75,6 +75,10 @@ pub struct Item {
     /// names the sender as a link to its session.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub from_key: Option<String>,
+    /// The id of the session's side conversation that sent a `peer` message (`Side::id`, send.rs
+    /// `sender_side_of`): a window links the sender to that side conversation.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub from_side: Option<String>,
     /// What a `codealong` message comes to in a line (glance.rs), for its card, which a click
     /// opens to the whole of it.
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -213,9 +217,11 @@ fn shown_in(mut page: Page, images: &Path, files: &Path) -> Page {
         if let Some(said) = crate::send::from_an_agent(&it.text) {
             let from = crate::send::sender_of(&it.text).map(String::from);
             let from_key = crate::send::sender_key_of(&it.text).map(String::from);
+            let from_side = crate::send::sender_side_of(&it.text).map(String::from);
             it.text = attachments::written_in(said, images, files);
             it.from = from;
             it.from_key = from_key;
+            it.from_side = from_side;
             it.kind = "peer";
             continue;
         }
@@ -375,7 +381,7 @@ fn items_of(line: &[u8], parse: Parse, cursor: u64) -> Vec<Item> {
 }
 
 pub fn item(at: i64, kind: &'static str, text: impl Into<String>) -> Item {
-    Item { at, kind, text: text.into(), from: None, from_key: None, glance: None, id: None, input: None, output: None, failed: false, shell: false, cwd: None, withdrawn: false, stop: false, questions: Vec::new(), answers: BTreeMap::new(), link: None, sent: None, file: None, images: Vec::new(), cursor: 0, n: 0 }
+    Item { at, kind, text: text.into(), from: None, from_key: None, from_side: None, glance: None, id: None, input: None, output: None, failed: false, shell: false, cwd: None, withdrawn: false, stop: false, questions: Vec::new(), answers: BTreeMap::new(), link: None, sent: None, file: None, images: Vec::new(), cursor: 0, n: 0 }
 }
 
 /// A file a call names (`Item::file`), as a full path: one named from the folder the call worked
@@ -482,19 +488,21 @@ mod tests {
     fn what_another_agent_typed_in_shows_whole_as_its_own() {
         let dir = crate::fixtures::scratch("agent-typed");
         let byline = "This message is from another agent, “Review the parser” (Claude Code on claude2, session claude:claude2:k), sent with `codealong session send`; it isn't from your user. To answer it, run `codealong session send claude:claude2:k \"<your answer>\"`.";
-        let page = Page { items: vec![item(1, "you", format!("{byline}\n\nWhich test fails?\n\nThe parser's, I think.")), item(2, "you", "Thanks, merge it.")], before: None, after: 0 };
+        let side_byline = "This message is from your side conversation: a copy of this conversation that your user asked questions on the side in Codealong, which you never saw. It's told to tell you something only when your user asks it to there, and it wrote these words, so they aren't your user's own. Anything you'd say about it goes in your reply here, where your user reads it. (side 1790199940000-1)";
+        let page = Page { items: vec![item(1, "you", format!("{byline}\n\nWhich test fails?\n\nThe parser's, I think.")), item(2, "you", format!("{side_byline}\n\nReap the Chrome helpers.")), item(3, "you", "Thanks, merge it.")], before: None, after: 0 };
         let shown = shown_in(page, &dir.join("images"), &dir.join("files"));
         let said: Vec<(&str, &str, Option<&str>)> = shown.items.iter().map(|i| (i.kind, i.text.as_str(), i.from.as_deref())).collect();
-        assert_eq!(said, [("peer", "Which test fails?\n\nThe parser's, I think.", Some("Review the parser")), ("you", "Thanks, merge it.", None)]);
-        // With the sender's key, for a window to name it as a link to its session.
-        assert_eq!(shown.items.iter().map(|i| i.from_key.as_deref()).collect::<Vec<_>>(), [Some("claude:claude2:k"), None]);
+        assert_eq!(said, [("peer", "Which test fails?\n\nThe parser's, I think.", Some("Review the parser")), ("peer", "Reap the Chrome helpers.", Some("Side conversation")), ("you", "Thanks, merge it.", None)]);
+        // With the sender's key or side id, for a window to name it as a link.
+        assert_eq!(shown.items.iter().map(|i| i.from_key.as_deref()).collect::<Vec<_>>(), [Some("claude:claude2:k"), None, None]);
+        assert_eq!(shown.items.iter().map(|i| i.from_side.as_deref()).collect::<Vec<_>>(), [None, Some("1790199940000-1"), None]);
     }
     use std::path::PathBuf;
 
     /// A page goes to other devices as it is; the phone app reads it with codealong-peer's `Page`.
     #[test]
     fn pages_read_back_on_other_devices() {
-        let item = |kind: &'static str, id: Option<&str>, output: Option<&str>| Item { at: 7, kind, text: format!("{kind} text"), from: None, from_key: None, glance: None, id: id.map(String::from), input: output.map(|_| "cargo test".to_string()), output: output.map(String::from), failed: kind == "result", shell: false, cwd: None, withdrawn: false, stop: false, questions: Vec::new(), answers: BTreeMap::new(), link: None, sent: None, file: None, images: Vec::new(), cursor: 40, n: 2 };
+        let item = |kind: &'static str, id: Option<&str>, output: Option<&str>| Item { at: 7, kind, text: format!("{kind} text"), from: None, from_key: None, from_side: None, glance: None, id: id.map(String::from), input: output.map(|_| "cargo test".to_string()), output: output.map(String::from), failed: kind == "result", shell: false, cwd: None, withdrawn: false, stop: false, questions: Vec::new(), answers: BTreeMap::new(), link: None, sent: None, file: None, images: Vec::new(), cursor: 40, n: 2 };
         let page = Page { items: vec![Item { withdrawn: true, ..item("you", None, None) }, item("agent", None, None), item("tool", Some("t1"), None), item("result", Some("t1"), Some("ok")), item("note", None, None), Item { from: Some("Review the parser".into()), ..item("peer", None, None) }], before: Some(12), after: 900 };
         let theirs: codealong_peer::api::Page = serde_json::from_value(serde_json::to_value(&page).unwrap()).unwrap();
         assert_eq!((theirs.before, theirs.after, theirs.items.len()), (Some(12), 900, 6));
@@ -525,12 +533,14 @@ mod tests {
         // Another session's message names its sender as a link, and Codealong's comes with its line
         // for its card, the helper it names a link too.
         let peer = Item { from: Some("Review the parser".into()), from_key: Some("claude:claude2:k".into()), ..item("peer", None, None) };
+        let side = Item { from: Some("Side conversation".into()), from_side: Some("1790199940000-1".into()), ..item("peer", None, None) };
         let news = "Your helper “Fix” (codex:codex:f) ended its turn: `codealong session wait codex:codex:f` prints its reply.";
         let told = Item { text: news.into(), glance: Some(crate::glance::of(news)), ..item("codealong", None, None) };
-        let page = Page { items: vec![peer, told], before: None, after: 0 };
+        let page = Page { items: vec![peer, side, told], before: None, after: 0 };
         let theirs: codealong_peer::api::Page = serde_json::from_value(serde_json::to_value(&page).unwrap()).unwrap();
         assert_eq!(theirs.items[0].from_key.as_deref(), Some("claude:claude2:k"));
-        let g = theirs.items[1].glance.as_ref().unwrap();
+        assert_eq!(theirs.items[1].from_side.as_deref(), Some("1790199940000-1"));
+        let g = theirs.items[2].glance.as_ref().unwrap();
         assert_eq!((g.about, g.parts[0].session.as_ref().map(|n| n.key.as_str())), (crate::glance::About::Helper, Some("codex:codex:f")));
         assert_eq!(serde_json::to_value(&theirs).unwrap(), serde_json::to_value(&page).unwrap());
         // And where a turn was stopped, and who stopped it.

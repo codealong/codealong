@@ -3,8 +3,9 @@
 // session answered by a throwaway copy of its conversation, while the session carries on,
 // unaware; it has one at a time, and it lasts until it's closed. Codealong keeps what was asked
 // and answered, so the closed ones can be read again: a session's box shows them (`showSides`),
-// from the one list kept here (`useKept`), and its header and its row in Sessions name each, as
-// the board lists them (`Board.sides`), a click showing one (`showSide`). One closed while its
+// from the one list kept here (`useKept`), and its header, its row in Sessions and its
+// `From “Side conversation”` cards name each, as the board lists them (`Board.sides`), a click
+// showing one (`showSide`). One closed while its
 // copy answers is among them, the copy answering what it was asked before it ends, and reads as
 // it answers (`useClosing`). A question asked while one is read goes on in it (`beingRead`): it's
 // the open one again, the copy told what was said in it, and the one open before is closed.
@@ -483,6 +484,56 @@ export function useSide(key: string): Side | null {
     readSide(key);
   }, [key]);
   return useSyncExternalStore(subscribe, () => sides.get(key) ?? null);
+}
+
+/** The open side conversation and the ones kept for `key`, as this window knows them, reading them
+ *  once when nothing has read them for `key` yet. For links to a session's side conversations
+ *  inside its thread (MessageCard.tsx), avoiding duplicate reads alongside `SideStrip`. */
+export function useKnownSides(key: string): { open: Side | null; kept: readonly SideKept[] } {
+  useEffect(() => {
+    listen();
+    if (!sides.has(key) && !toldOf.has(key)) readSide(key);
+    if (!kept.has(key) && !reads.has(key)) readKept(key);
+  }, [key]);
+  const open = useSyncExternalStore(subscribe, () => sides.get(key) ?? null);
+  const past = useSyncExternalStore(subscribe, () => kept.get(key) ?? NONE);
+  return { open, kept: past };
+}
+
+export type SideTarget = { kind: 'side'; id: string; open: boolean; question: string } | { kind: 'list' };
+
+/** Which side conversation a `From “Side conversation”` message came from, to link to: by its
+ *  id (`fromSide`) where the message gave one (none if it was forgotten), else for older messages
+ *  without one, the side conversation started most recently at or before the message's time `at`
+ *  (none if every known one started after `at`), or when `at` is unknown (0), the only one or the
+ *  list when more than one exists. */
+export function sideForMessage(open: Side | null, kept: readonly SideKept[], fromSide: string | undefined, at: number): SideTarget | null {
+  const firstLine = (q: string | undefined) => q?.split('\n')[0].trim() ?? '';
+  if (fromSide) {
+    if (open?.id === fromSide) return { kind: 'side', id: open.id, open: true, question: firstLine(open.turns[0]?.question) };
+    const hit = kept.find((k) => k.id === fromSide);
+    return hit ? { kind: 'side', id: hit.id, open: false, question: keptLine(hit) } : null;
+  }
+  // Combine kept and open (an open one whose first turn hasn't finished yet isn't in `kept`).
+  const all: { id: string; open: boolean; startedAt: number; question: string }[] = kept.map((k) => ({
+    id: k.id,
+    open: open?.id === k.id,
+    startedAt: k.startedAt,
+    question: keptLine(k),
+  }));
+  if (open && !all.some((s) => s.id === open.id)) {
+    all.push({ id: open.id, open: true, startedAt: open.turns[0]?.at ?? 0, question: firstLine(open.turns[0]?.question) });
+  }
+  if (all.length === 0) return null;
+  if (at > 0) {
+    let best: (typeof all)[number] | null = null;
+    for (const s of all) {
+      if (s.startedAt > 0 && s.startedAt <= at && (!best || s.startedAt > best.startedAt)) best = s;
+    }
+    return best ? { kind: 'side', id: best.id, open: best.open, question: best.question } : null;
+  }
+  if (all.length === 1) return { kind: 'side', id: all[0].id, open: all[0].open, question: all[0].question };
+  return { kind: 'list' };
 }
 
 /** Where a turn that hasn't its answer yet stands. `current` is the turn the copy is on, which

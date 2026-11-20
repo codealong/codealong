@@ -14,6 +14,7 @@
 import { Fragment, useContext, useLayoutEffect, useRef, useState, type MouseEvent, type ReactNode } from 'react';
 import { absolute, ago } from '../format';
 import { prRefOf } from '../prLinks';
+import { showSide, showSides, sideForMessage, useKnownSides } from '../side';
 import { shownText } from '../threadFind';
 import type { Glance, GlanceAbout, TranscriptItem } from '../types';
 import { says } from '../windowFind';
@@ -143,9 +144,9 @@ function GlanceLine({ glance: g }: { glance: Glance }) {
 
 /** Another session's message (its side conversation's among them): who it's from, then its
  *  first lines, a long one cut until it's opened. */
-export function PeerCard({ item, at, now, children }: { item: TranscriptItem; at: number; now: number; children: ReactNode }) {
+export function PeerCard({ item, at, now, sessionKey, children }: { item: TranscriptItem; at: number; now: number; sessionKey?: string; children: ReactNode }) {
   return (
-    <MessageCard item={item} at={at} now={now} icon="message-circle" says="Another session sent this" title={<PeerLabel item={item} />} closed="start">
+    <MessageCard item={item} at={at} now={now} icon="message-circle" says="Another session sent this" title={<PeerLabel item={item} sessionKey={sessionKey} at={at} />} closed="start">
       {children}
     </MessageCard>
   );
@@ -157,16 +158,54 @@ export function peerLabel(it: TranscriptItem): string {
 }
 
 /** Who another session's message is from, the sender a link to its session where the message said
- *  which one sent it (SessionLink.tsx). One this window doesn't list is its name, as before. */
-function PeerLabel({ item }: { item: TranscriptItem }) {
-  if (!item.fromKey) return <>{peerLabel(item)}</>;
-  const name = item.from ? `“${item.from}”` : 'another session';
+ *  which one sent it (SessionLink.tsx), or to the session's side conversation where it came from
+ *  one (side.ts). One this window doesn't list is its name, as before. */
+function PeerLabel({ item, sessionKey, at }: { item: TranscriptItem; sessionKey?: string; at: number }) {
+  if (item.fromKey) {
+    const name = item.from ? `“${item.from}”` : 'another session';
+    return (
+      <>
+        From{' '}
+        <SessionLink name={item.fromKey} unknown={name}>
+          {name}
+        </SessionLink>
+      </>
+    );
+  }
+  if (sessionKey && (item.fromSide || item.from === 'Side conversation')) {
+    return <SidePeerLabel sessionKey={sessionKey} item={item} at={at} />;
+  }
+  return <>{peerLabel(item)}</>;
+}
+
+/** Links `From “Side conversation”` to the side conversation it came from (or the session's side
+ *  conversations list for older messages without an id when more than one could match). */
+function SidePeerLabel({ sessionKey, item, at }: { sessionKey: string; item: TranscriptItem; at: number }) {
+  const { open, kept } = useKnownSides(sessionKey);
+  const target = sideForMessage(open, kept, item.fromSide, at);
+  if (!target) return <>{peerLabel(item)}</>;
+  const name = item.from ? `“${item.from}”` : 'Side conversation';
+  const title =
+    target.kind === 'side'
+      ? target.question
+        ? `On the side: ${target.question}\nClick to show it above the box.`
+        : 'Click to show this side conversation above the box.'
+      : 'Click to show this session’s side conversations above the box.';
   return (
     <>
       From{' '}
-      <SessionLink name={item.fromKey} unknown={name}>
+      <button
+        type="button"
+        className="ca-sidelink"
+        title={title}
+        onClick={(e) => {
+          e.stopPropagation();
+          if (target.kind === 'side') showSide(sessionKey, target);
+          else showSides(sessionKey, { kind: 'list' });
+        }}
+      >
         {name}
-      </SessionLink>
+      </button>
     </>
   );
 }

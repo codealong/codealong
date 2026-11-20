@@ -263,7 +263,8 @@ fn peer_item(at: i64, peer: &Peer) -> Item {
     }
     let from = (!peer.name.is_empty()).then(|| peer.name.clone());
     let from_key = crate::send::sender_key_of(&peer.body).map(String::from);
-    Item { from, from_key, ..item(at, "peer", crate::attachments::shorten(crate::send::without_byline(&peer.body))) }
+    let from_side = crate::send::sender_side_of(&peer.body).map(String::from);
+    Item { from, from_key, from_side, ..item(at, "peer", crate::attachments::shorten(crate::send::without_byline(&peer.body))) }
 }
 
 /* ---- Prompts Claude Code took back ---- */

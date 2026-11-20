@@ -998,9 +998,12 @@ fn sender_of(from: &From) -> send::Sender {
 /// none of the board's) and handed on that copy's secret (`params::Send::side`, side.rs
 /// `sent_by_copy`). Then it's the side conversation's, told there to send it. A window is you
 /// whatever it says, and a session the command found is that session's agent.
-fn sender_for(from: &From, by_its_copy: impl FnOnce() -> bool) -> send::Sender {
+fn sender_for(from: &From, by_its_copy: impl FnOnce() -> Option<String>) -> send::Sender {
     match from {
-        From::Command(None) if by_its_copy() => send::Sender::Side,
+        From::Command(None) => match by_its_copy() {
+            Some(id) => send::Sender::Side(Some(id)),
+            None => sender_of(from),
+        },
         _ => sender_of(from),
     }
 }
@@ -2863,8 +2866,8 @@ mod tests {
     #[test]
     fn a_side_conversations_message_is_its_copys_alone() {
         let copy = From::Command(None);
-        assert_eq!(sender_for(&copy, || true), send::Sender::Side);
-        assert_eq!(sender_for(&copy, || false), send::Sender::Agent(None));
+        assert_eq!(sender_for(&copy, || Some("1790-1".into())), send::Sender::Side(Some("1790-1".into())));
+        assert_eq!(sender_for(&copy, || None), send::Sender::Agent(None));
         let other = From::Command(Some("claude:c:other".into()));
         assert_eq!(sender_for(&other, || panic!("another session's agent is never the copy")), send::Sender::Agent(Some("claude:c:other".into())));
         assert_eq!(sender_for(&From::Here, || panic!("a window is you")), send::Sender::You);

@@ -594,7 +594,8 @@ To have the session itself act on what was said on the side, ask the side conver
 ("tell the main session to go with option 2"): the copy sends the session a message with `codealong
 session send`, written for it to act on, since the session never saw the side conversation, and says
 that it did. The copy is told the session's key, and to send only when it's asked to. The message
-comes as another agent's does, but saying it's from the session's side conversation, and it's taken in
+comes as another agent's does, but saying it's from the session's side conversation, with “Side
+conversation” linked to that side conversation above the box, and it's taken in
 as what you send is: a Claude Code session that skips permission prompts doesn't hold it for you.
 Codealong believes it's the side conversation's only from that copy: each copy is given a secret of
 its own, which the command hands on, and a message without it is any agent's. A Claude Code copy
@@ -691,7 +692,8 @@ fence names its language (```` ```ts ````, ```` ```rust ````, ```` ```bash ````)
 colors, as a PR's files are, once the agent has finished writing it; one with no language, or
 longer than 10,000 characters, stays plain.
 Another session's message (an agent's, sent with `codealong session send`) is a card, as
-Codealong's own messages are: a line saying who it's from, the sender a link to its session, and
+Codealong's own messages are: a line saying who it's from, the sender a link to its session (or to
+the side conversation it came from), and
 when, with the message whole under it, in any harness: one Claude Code took on its cross-session
 socket, and one typed into a session of another harness, without the line saying whose it is. A
 file or an image sent with it shows as in a prompt of yours, a chip or the image in place. A long

@@ -85,18 +85,19 @@ pub enum Sender {
     /// news, carrying on after a lost connection (`tell`).
     Codealong,
     /// The session's own side conversation (side.rs): its copy ran `codealong session send`, told
-    /// there by you to tell the session something, with its secret (actions.rs `sender_for`). The
-    /// copy wrote the words, so it goes as an agent's message does, but it runs in the session's
-    /// own permission mode and sends only when asked to (`side::rules`), so its message claims the
-    /// session's class, as yours does, rather than being held for you.
-    Side,
+    /// there by you to tell the session something, with its secret (actions.rs `sender_for`),
+    /// carrying the side conversation's record id (`Side::id`) where known so the thread can link
+    /// back to it. The copy wrote the words, so it goes as an agent's message does, but it runs in
+    /// the session's own permission mode and sends only when asked to (`side::rules`), so its
+    /// message claims the session's class, as yours does, rather than being held for you.
+    Side(Option<String>),
 }
 
 impl Sender {
     /// An agent wrote it: another session's, or the copy in a side conversation. It never runs as
     /// a command in the session's shell, never resumes a session, and never answers a prompt.
     fn agent(&self) -> bool {
-        matches!(self, Sender::Agent(_) | Sender::Side)
+        matches!(self, Sender::Agent(_) | Sender::Side(_))
     }
 }
 
@@ -323,11 +324,20 @@ pub fn sender_of(text: &str) -> Option<&str> {
 /// The key of the session an agent's message is from, as its byline says where an answer goes;
 /// None where the byline gives none (a command line's, a side conversation's).
 pub fn sender_key_of(text: &str) -> Option<&str> {
-    let intro = past_resumed(text).strip_prefix(AGENT_BYLINES[0])?.split("
-
-").next()?;
+    let intro = past_resumed(text).strip_prefix(AGENT_BYLINES[0])?.split("\n\n").next()?;
     let (_, answer) = intro.rsplit_once("`codealong session send ")?;
     answer.split(' ').next().filter(|key| !key.is_empty())
+}
+
+/// The id of the side conversation a message is from, where its byline gave it; None for messages
+/// sent before it did, or any other message.
+pub fn sender_side_of(text: &str) -> Option<&str> {
+    let intro = past_resumed(text).split("\n\n").next()?;
+    if !intro.starts_with(AGENT_BYLINES[2]) {
+        return None;
+    }
+    let id = intro.strip_suffix(')')?.rsplit_once(" (side ")?.1;
+    (!id.is_empty() && !id.chars().any(char::is_whitespace)).then_some(id)
 }
 
 /// What goes to the session: the text as it gets it, before its attachments are written out for
@@ -354,8 +364,12 @@ impl<'a> Message<'a> {
                 Message { text: Cow::Owned(format!("{}\n\n{}", b.intro, text.trim())), sender, now, byline: Some(b), bypasses }
             }
             // Asked for there, by a copy in the session's own mode: it claims the session's class.
-            Sender::Side => {
-                let b = Byline { intro: FROM_ITS_SIDE.into(), name: SIDE_NAME.into() };
+            Sender::Side(side) => {
+                let intro = match side.as_deref().filter(|id| !id.is_empty()) {
+                    Some(id) => format!("{FROM_ITS_SIDE} (side {id})"),
+                    None => FROM_ITS_SIDE.into(),
+                };
+                let b = Byline { intro, name: SIDE_NAME.into() };
                 Message { text: Cow::Owned(format!("{}\n\n{}", b.intro, text.trim())), sender, now, byline: Some(b), bypasses: true }
             }
             // Your setting sends it, so it claims the session's class as what you send does.
@@ -1704,20 +1718,26 @@ mod tests {
         let account: AccountCfg = serde_json::from_value(json!({ "name": "claude", "harness": "claude", "home": "/h" })).unwrap();
         let (cfg, board) = (Config::default(), Board::default());
         let s = session(Harness::Claude, Surface::Cli, Status::Unread, true, Some(42));
-        static SIDE: Sender = Sender::Side;
-        let msg = Message::new(&board, &cfg, " ! Go with option 2. ", &SIDE, false);
-        assert_eq!(msg.text, format!("{FROM_ITS_SIDE}\n\n! Go with option 2."));
+        let side = Sender::Side(Some("1790199940000-1".into()));
+        let msg = Message::new(&board, &cfg, " ! Go with option 2. ", &side, false);
+        assert_eq!(msg.text, format!("{FROM_ITS_SIDE} (side 1790199940000-1)\n\n! Go with option 2."));
         let d = msg.delivery(&s, &account, None);
         assert_eq!((d.agent, d.bypasses, d.from_agent()), (Some(SIDE_NAME), true, true));
-        assert_eq!((from_an_agent(&msg.text), without_byline(&msg.text), sender_of(&msg.text)), (Some("! Go with option 2."), "! Go with option 2.", Some(SIDE_NAME)));
+        assert_eq!((from_an_agent(&msg.text), without_byline(&msg.text), sender_of(&msg.text), sender_side_of(&msg.text)), (Some("! Go with option 2."), "! Go with option 2.", Some(SIDE_NAME), Some("1790199940000-1")));
+        assert_eq!(sender_key_of(&msg.text), None);
         assert_eq!(past_sender_lines(&msg.text), "! Go with option 2.");
+        // Without a side id (messages from before, or held without one), the byline has none.
+        let bare = Sender::Side(None);
+        let plain = Message::new(&board, &cfg, "Go with option 2.", &bare, false);
+        assert_eq!(plain.text, format!("{FROM_ITS_SIDE}\n\nGo with option 2."));
+        assert_eq!((sender_of(&plain.text), sender_side_of(&plain.text)), (Some(SIDE_NAME), None));
         // A message led by `!` that an agent wrote is words, never a command in its shell.
         assert!(msg.from_agent());
         let asking = Session { status: Status::Needs, ..s.clone() };
-        assert_eq!(ensure_not_waiting(&asking, &SIDE).unwrap_err().to_string(), format!("{} is waiting on its user to answer a prompt, so nothing was sent. Try again once they have.", quoted(&s.title)));
-        assert!(ensure_may_resume(&SIDE, &s.title).unwrap_err().to_string().contains(NOT_STARTED_AGAIN));
+        assert_eq!(ensure_not_waiting(&asking, &side).unwrap_err().to_string(), format!("{} is waiting on its user to answer a prompt, so nothing was sent. Try again once they have.", quoted(&s.title)));
+        assert!(ensure_may_resume(&side, &s.title).unwrap_err().to_string().contains(NOT_STARTED_AGAIN));
         let flagged = Session { flagged: true, ..s };
-        assert!(ensure_not_flagged(&cfg, &flagged, &SIDE).is_err());
+        assert!(ensure_not_flagged(&cfg, &flagged, &side).is_err());
     }
 
     /// What Codealong sends by itself says so first, goes under its name, claims what you would,

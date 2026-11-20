@@ -1387,7 +1387,7 @@ export function SessionThread({ session: s, now, onOpen, fallback, machine, onLo
                   );
                 if (it.kind === 'peer' && !it.withdrawn)
                   return (
-                    <PeerCard key={keyOf(it)} item={it} at={at} now={now}>
+                    <PeerCard key={keyOf(it)} item={it} at={at} now={now} sessionKey={s.key}>
                       <Said item={shown} result={r.result} now={0} who={peerLabel(it)} onMenu={onMenu} />
                     </PeerCard>
                   );
