@@ -10,11 +10,12 @@
 //!   arm's worth of logic in `run`. This file is far past the length one reading holds
 //!   (src/conventions.test.ts keeps it from growing), so new work goes in a module of its own.
 //! - Work the engine waits on from another thread goes through `throttle::background`, which
-//!   takes the mark off however the work ends. A mark that only the work's own last line clears
-//!   stays for good after a panic, and what waits on it never runs again.
-//! - The model's rules (a session's status, a worktree's bay, the headlines) are board.rs's, pure
-//!   functions with tests: the engine gathers what they need and calls them, and doesn't set a
-//!   status after them.
+//!   tells whoever started it that it's over however it ends (with nothing when it fell over or
+//!   never started): the mark set for it is taken off there. A mark that only the work's own
+//!   last line clears stays for good after a panic, and what waits on it never runs again.
+//! - The model's rules (a session's status, a worktree's bay, the headlines) are board's, pure
+//!   functions with tests: the engine gathers what they need and calls them. A status set
+//!   after them here is counted by src/conventions.test.ts, and there should be no more.
 //! - What goes wrong in the background is a `Trouble`, said as a notice until it goes right
 //!   again. What Codealong does to a session is a request in actions.rs.
 

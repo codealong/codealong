@@ -107,8 +107,12 @@ things keep a break from staying there:
 
   ```bash
   codealong schedule add "main is red" --watch scripts/watch-main.sh --every 15m \
-    --thread --fresh-after 1d --prompt-file <the words below, in a file>
+    --thread --fresh-after 1d --worktree <the main checkout> --prompt-file <the words below, in a file>
   ```
+
+  Its worktree is the main checkout, which stays (a session's own is removed once its work has
+  landed, and the script's path with it). A watch's first look only notes what's there: a run
+  already red when the schedule is made isn't told.
 
   ```text
   The Linux run on main failed; the run is named below. It's the only run of the checks that

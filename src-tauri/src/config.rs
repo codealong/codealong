@@ -3,9 +3,11 @@
 //! in place, leaving the rest of the file, comments included, as you wrote it; its config.toml
 //! tab saves the text as typed, once it parses.
 //!
-//! Everything else reads the settings with `current()`: nothing reads config.toml again for
-//! itself. Codealong writes the file only from here, under its lock (`update`), so a change
-//! from Settings and one the engine makes don't lose each other.
+//! Everything outside this file reads the settings with `current()`, and nothing there reads
+//! config.toml for itself. Codealong writes the file only from here: a setting changed in
+//! place goes through `update`, under the file's lock, which reads the text as it is then;
+//! Settings' config.toml tab saves the text as it was typed (`save_text`), whatever the file
+//! has become meanwhile.
 
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};

@@ -1,6 +1,6 @@
 //! Carrying on after a fall: a loop that everything waits on is run again when it panics,
 //! rather than left dead with the process up around it. The engine's thread runs under it
-//! (engine.rs `run_guarded`, which says what the engine does about a fall); what's here knows
+//! (engine/guard.rs `run_guarded`, which says what the engine does about a fall); what's here knows
 //! nothing of the engine, so it's tested with work that falls over on purpose and a made-up
 //! clock.
 //!

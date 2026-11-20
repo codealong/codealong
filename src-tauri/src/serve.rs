@@ -81,7 +81,7 @@ pub fn run() -> i32 {
     perf::arm();
     os::system::no_app_nap();
     eprintln!("Codealong's server {} starting: pid {}, engine {ENGINE}, files in {}", env!("CARGO_PKG_VERSION"), std::process::id(), util::tilde(&config::support_dir()));
-    // An engine that can't get going (engine.rs `run_guarded`) ends this server, which answers
+    // An engine that can't get going (engine/guard.rs `run_guarded`) ends this server, which answers
     // nobody without one. What the listenings were in the middle of hearing is written first,
     // as a quit writes it, but not waited on for long, and the end is reached whether or not
     // there was a thread to write it on: no room for another is one of the ways an engine

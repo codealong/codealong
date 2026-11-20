@@ -35,11 +35,12 @@ of them. So, before the rest:
   (*Conventions* names them). A second way of doing a thing is how the first one rots.
 - **New code goes in a file of its own** when the one it would go in is long. An agent reads a
   few screens around what it searched for and misses the rule further off;
-  `src/conventions.test.ts` holds each file to a length.
-- **A test holds on any machine.** None waits on the clock against a limit in milliseconds
-  (this Mac is often too busy), needs a harness's command line installed (CI has none), or goes
-  by this Mac's settings: an OS's own behaviour is asked for as if on it (`os::as_if`), and a
-  config is made up in the test.
+  `src/conventions.test.ts` holds the windows' and the engine's source files to a length.
+- **A test holds on any machine.** None holds one run of anything to a limit in milliseconds
+  (this Mac is often too busy; docs/development.md, *Tests on a busy Mac*, has what does
+  work), needs a harness's command line installed (CI has none), or goes by this Mac's
+  settings: an OS's own behaviour is asked for as if on it (`os::as_if`), and a config is made
+  up in the test.
 - **A check that fails isn't yours until you know it is, nor noise until you know that.**
   `scripts/land.sh` runs a failing cargo test again by itself and says which it was. Never
   loosen or skip a test to get past it: say what failed, and what you found, in your last
@@ -274,9 +275,9 @@ into a terminal.
 ## Conventions
 
 Each rule names the file whose header has the rest. The ones a search can check are counted
-by `src/conventions.test.ts` (keys and chords, `localStorage`, a harness named outside its
-module, a status set outside the rules, threads, curl's `-q`, a file's length): its lists only
-go down.
+by `src/conventions.test.ts` (keys and chords, `localStorage`, a branch on a harness outside
+its module, a status set outside the rules, curl's `-q`, a file's length), in their plain form:
+its lists only go down.
 
 - The frontend never shells out: every side effect is a command, invoked from `src/api.ts`.
   - One that reads or changes what the engine, your devices or Codealong's files hold is the
@@ -290,12 +291,13 @@ go down.
   - goes in `peer/src/model.rs`, with its neutral value in `Session::new` or `Lane::new`, which
     everything that builds one starts from (tests through `peer/src/fixtures.rs`);
   - bumps `feed::READS` when another device shows it, so a kept copy without it is sent again;
-  - goes in the windows' type too (`src/types/`, a file a subject, re-exported by
-    `src/types.ts`): `wiretypes.rs` writes the model's names down, and the typecheck holds the
-    types to them.
+  - goes in the windows' type too.
 
-  A new message goes only to peers that say they know it: the iPhone app builds on the crate at
-  a pinned commit and talks to Macs of other builds.
+  The windows' types (`src/types/`, a file a subject, re-exported by `src/types.ts`) name every
+  field of the model, not a session's and a lane's alone: `wiretypes.rs` writes the names down,
+  and the typecheck holds the types to them. A new message goes only to peers that say they
+  know it: the iPhone app builds on the crate at a pinned commit and talks to Macs of other
+  builds.
 - Other Macs' worktrees never go into the board, which is what the engine acts on and sends
   them: what the engine cuts for a window from both goes through `shown.rs` (`Shown`), and a
   window that shows both follows them through `src/useDevices.ts`, never on its own.

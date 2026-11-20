@@ -5,9 +5,11 @@
 //! the engine, your devices or Codealong's files hold is the server's, in calls.rs, and the
 //! invoke handler hands it over by name (`forward`); a command here reads the board the server
 //! publishes through `view::Mirror`. A command without `async` runs on the main thread, so one
-//! that can wait on a script, the server, `gh` or curl goes through `blocking`. The tests at the
-//! foot of the file hold the two lists of commands apart, and keep one here from asking for an
-//! engine it hasn't got.
+//! that can wait on a script, the server, `gh` or curl goes through `blocking`. A command is
+//! the app's or the server's; the few in both lists are ones the app does more with (it brings
+//! forward what they started), where the app's own runs first and calls the server's. The
+//! tests at the foot of the file hold the two lists to that, and keep a command here from
+//! asking for an engine it hasn't got.
 
 mod accountpoll;
 mod acp;
