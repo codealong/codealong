@@ -46,9 +46,10 @@ usage() {
 }
 
 # Which checks a changed file calls for, one word to a line: `ui` (build, lint, unit tests),
-# `engine` (cargo test, on macOS and on Linux), `checks` (the browser checks on the made-up Mac),
-# `code` (it needs a review) and `install` (what's installed changed). CI asks this table
-# (.github/workflows/ci.yml, through --plan), so it's the one place that says. The lists err
+# `engine` (cargo test, on macOS and on Linux), `checks` (the browser checks on the made-up
+# Mac, which run on main after a landing), `code` (it needs a review) and `install` (what's
+# installed changed). CI asks this table (.github/workflows/ci.yml and checks.yml, through
+# --plan), so it's the one place that says. The lists err
 # towards running a check: each side's tests read some of the other's files, named here with
 # what reads them.
 calls_for() {

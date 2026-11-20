@@ -24,8 +24,12 @@ how a check's own header names its runs, `prelude.js`'s what a check gets (`say`
   src-tauri has changed and copies it to `.preview/engine/codealong`. `PREVIEW_BIN` runs another.
 - `scripts/checks.sh --fixture` is the gate: it runs the runs `scripts/preview/fixture-passes.txt`
   lists against the engine's made-up Mac (`src-tauri/src/fixture.rs`, `codealong --snapshot
-  --fixture`), which is the same everywhere, so a failure there is the code's. Run it before a
-  change to the UI lands (`--jobs=6` runs its sets side by side, in minutes). A new check is
+  --fixture`), which is the same everywhere, so a failure there is the code's. GitHub runs it
+  on `main` after what lands (`.github/workflows/checks.yml`), where a failure is a red `main`;
+  before a change to the UI lands, run the checks that cover it (`scripts/checks.sh --fixture
+  <names>`) rather than the whole list, which loads a busy Mac for half an hour (`--jobs=6`
+  runs its sets side by side; `gh workflow run checks.yml --ref <branch>` runs it on a pushed
+  branch instead). A new check is
   written to pass there (`scripts/checks.sh --fixture <name>`) and its run lines added to the
   list; what it needs that the made-up Mac lacks (a session in some state, a PR, a todo) is
   added to fixture.rs, whose own test says what the board must have, rather than left to chance

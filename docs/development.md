@@ -101,25 +101,36 @@ minutes on a quiet Mac, forty with twenty agents building. Now they run on GitHu
   whose checks fail is put out of the queue and stays its pull request: `land.sh` names the
   run, `gh run view <id> --log-failed` says why, and landing the fix takes the same pull
   request. Nothing is built or tested on the Mac, so landings don't wait on each other there.
-- **CI is `.github/workflows/ci.yml`:** the UI's build, linter and unit tests; `cargo test`
-  with warnings as errors on macOS and on Linux, which catches what a Mac can't see (code only
-  macOS uses, a test that needed a harness's command line installed, a default that's
-  macOS's); and the browser checks on the made-up Mac (`scripts/checks.sh --fixture`). Which
-  of them a change calls for is one table, `land.sh`'s `calls_for` by the files it changes
-  (`scripts/land.sh --plan <path…>` says which; `src/land.test.ts` pins it), and `gate` is the
-  one check `main` requires: it passes when everything called for passed. `scripts/land.sh
-  --check` runs all of it on your branch without landing. The repository is public, so the
-  runners' minutes cost nothing, macOS's too.
+- **CI is `.github/workflows/ci.yml`:** the UI's build, linter and unit tests, and `cargo
+  test` with warnings as errors on macOS and on Linux, which catches what a Mac can't see
+  (code only macOS uses, a test that needed a harness's command line installed, a default
+  that's macOS's). Which of them a change calls for is one table, `land.sh`'s `calls_for` by
+  the files it changes (`scripts/land.sh --plan <path…>` says which; `src/land.test.ts` pins
+  it), and `gate` is the one check `main` requires: it passes when everything called for
+  passed. `scripts/land.sh --check` runs all of it on your branch without landing. The
+  repository is public, so the runners' minutes cost nothing, macOS's too.
+- **The browser checks run on `main`, after what lands** (`.github/workflows/checks.yml`:
+  `scripts/checks.sh --fixture`, the list dealt into four sets, a runner each). They aren't in
+  the queue's run because of what they take: about ninety minutes of a GitHub macOS runner
+  for the list (three cores; measured 2026-11-20), and the plan runs five macOS runners at
+  once for the whole repository, so in every landing's run they'd hold each one up for longer
+  than the busy Mac did. One run goes at a time, and while it does only the latest one waiting
+  stays, so each covers everything landed since the last that passed, and a failure names that
+  stretch. So a landing can still turn `main` red there, which is the next point's to catch.
+  Before landing, run the checks that cover what you changed (`scripts/checks.sh --fixture
+  <names>`), not the whole list, which loads this Mac for half an hour; `gh workflow run
+  checks.yml --ref <branch>` runs all of it on a pushed branch.
 - **What that takes on GitHub**, set once in the repository's settings: pull requests may be
   merged automatically, a merged branch is deleted, and a ruleset on `main` requires the merge
   queue (rebase as its method) and the `gate` check. The organization's admins may bypass the
   ruleset, which is how a release's version commit (`scripts/version.sh --push`) still goes
   straight to `main`; CI runs on that push too. `land.sh` refuses to land where `main` has no
   merge queue, since asking GitHub to merge would then merge at once.
-- **A red `main` is somebody's.** It can still happen: a commit pushed past the queue, or the
-  daily run of everything failing for a toolchain or a runner's image that moved. A Codealong
-  schedule watches CI's runs on `main` with `scripts/watch-main.sh`, which prints each failed
-  one once, and starts (or tells) a session to fix it:
+- **A red `main` is somebody's.** It can still happen: the browser checks failing on what
+  landed, a commit pushed past the queue, or the daily run of everything failing for a
+  toolchain or a runner's image that moved. A Codealong schedule watches both workflows' runs
+  on `main` with `scripts/watch-main.sh`, which prints each failed one once, and starts (or
+  tells) a session to fix it:
 
   ```bash
   codealong schedule add "main is red" --watch scripts/watch-main.sh --every 15m \
@@ -131,18 +142,19 @@ minutes on a quiet Mac, forty with twenty agents building. Now they run on GitHu
   already red when the schedule is made isn't told.
 
   ```text
-  CI failed on main; the run is named below. Every session builds on main, so until it passes
-  again they're all building on something broken.
+  A run on main failed (CI, or the browser checks); it's named below. Every session builds on
+  main, so until it passes again they're all building on something broken.
 
-  1. Read why: gh run view <its id> --log-failed. If a later run on main has passed since
-     (gh run list --workflow ci.yml --branch main --limit 3), say so in a line and stop.
+  1. Read why: gh run view <its id> --log-failed. If a later run of the same workflow on main
+     has passed since (gh run list --workflow <ci.yml or checks.yml> --branch main --limit 3),
+     say so in a line and stop.
   2. Find the commit that broke it, between the last run that passed and this one, and fix it
      in a worktree of your own as CLAUDE.md's Landing work says: the smallest fix, and a test
      that would have caught it on a Mac where one can be written (a test that needed a
      harness's command line or macOS's defaults is made to hold on any machine).
-  3. Land it with scripts/land.sh, which checks it on the way in, and wait for main's own run
-     of it (gh run list --workflow ci.yml --branch main --limit 1): your last message says
-     whether it passed.
+  3. Land it with scripts/land.sh, which checks it on the way in. For the browser checks, wait
+     for their next run on main (gh run list --workflow checks.yml --branch main --limit 1):
+     your last message says whether it passed.
 
   If it failed for something no commit did (GitHub's runner, a download), say so and stop. If
   you've landed a fix for this already and it failed the same way again, stop and say what you
