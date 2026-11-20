@@ -4008,6 +4008,8 @@ sounds here as well as there, wherever you are. To stay out of the way:
 
 - nothing sounds for what already waits when Codealong opens, nor for the reviews already asked of
   you that GitHub's first read brings, nor for what another Mac brings as it connects again;
+- nothing sounds while a session on this Mac is listening, nor retroactively for what came during
+  it once it stops;
 - a session that comes back to you within 15 seconds of going back to work makes none: you just
   sent it something or answered it, and are likely still looking at it;
 - a few at once make one sound, the most urgent's (a session that needs you, then a review, then a

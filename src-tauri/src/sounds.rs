@@ -15,6 +15,8 @@
 //!
 //! - nothing sounds for what's there already at launch, nor for the reviews GitHub's first poll
 //!   brings, nor for what another device brings as it connects again;
+//! - nothing sounds while a session on this Mac is listening (you're in a meeting, and the Mac's
+//!   audio may be open), nor retroactively for what came during it once it stops;
 //! - a session that comes to wait on you within `WATCHED_MS` of going back to work makes none:
 //!   you just sent it something or answered it, so you're likely still looking at it;
 //! - one sound at most every `REST_MS`: a burst, as when the Mac wakes, is one sound, the most
@@ -116,7 +118,7 @@ impl Chimer {
         self.remember_work(feed, now);
         self.was = Some(now_waiting);
         let kind = came.into_iter().filter(|k| !k.sound(cfg).is_empty()).min()?;
-        if cfg.volume == 0 || self.last_at.is_some_and(|at| now - at < REST_MS) {
+        if cfg.volume == 0 || !board.listenings.is_empty() || self.last_at.is_some_and(|at| now - at < REST_MS) {
             return None;
         }
         self.last_at = Some(now);
@@ -354,6 +356,32 @@ mod tests {
         let mut c = after(vec![session("a", Status::Working, NOW - 3_600_000)]);
         let silent = SoundsCfg { meeting: String::new(), ..cfg() };
         assert_eq!(due(&mut c, &at(0, offer("m", false), vec![session("a", Status::Needs, NOW)]), &silent), Some(Kind::NeedsYou));
+    }
+
+    #[test]
+    fn nothing_sounds_while_a_session_is_listening() {
+        let mut listenings = std::collections::BTreeMap::new();
+        listenings.insert("l".into(), crate::listen::Glance { id: "1".into(), ..Default::default() });
+        let hearing = |at: i64, sessions: Vec<Session>| Board { listenings: listenings.clone(), ..board_at(at, sessions) };
+        let mut c = after(vec![session("a", Status::Working, NOW - 3_600_000), session("b", Status::Working, NOW - 3_600_000), session("c", Status::Working, NOW - 3_600_000)]);
+        // A finished turn, a session that needs you, a review and a meeting offer are all quiet while listening.
+        let mut during = hearing(NOW, vec![session("a", Status::Unread, NOW), session("b", Status::Needs, NOW), session("c", Status::Working, NOW - 3_600_000)]);
+        during.prs.push(review(1));
+        during.meeting = Some(crate::meetings::Offer { meeting: crate::ear::Meeting { id: "m".into(), title: "Standup".into(), start: NOW, end: NOW + 1_800_000, ..Default::default() }, taking: false });
+        assert_eq!(due(&mut c, &during, &cfg()), None);
+        // A listening started ahead of its session (empty key) is quiet too.
+        let mut ahead = std::collections::BTreeMap::new();
+        ahead.insert(String::new(), crate::listen::Glance { id: "2".into(), starting: Some("Standup".into()), ..Default::default() });
+        let mut during_ahead = Board { listenings: ahead, ..board_at(NOW + 1_000, vec![session("a", Status::Unread, NOW), session("b", Status::Needs, NOW), session("c", Status::Working, NOW - 3_600_000)]) };
+        during_ahead.prs.push(review(2));
+        assert_eq!(due(&mut c, &during_ahead, &cfg()), None);
+        // Once listening ends, what already waited during it still makes no sound.
+        let mut after_end = board_at(NOW + 2_000, vec![session("a", Status::Unread, NOW), session("b", Status::Needs, NOW), session("c", Status::Working, NOW - 3_600_000)]);
+        after_end.prs = during_ahead.prs;
+        assert_eq!(due(&mut c, &after_end, &cfg()), None);
+        // What finishes after listening ends sounds right away, not held back by REST_MS.
+        let next = board_at(NOW + 3_000, vec![session("a", Status::Unread, NOW), session("b", Status::Needs, NOW), session("c", Status::Unread, NOW + 3_000)]);
+        assert_eq!(due(&mut c, &next, &cfg()), Some(Kind::YourTurn));
     }
 
     #[test]
