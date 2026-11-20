@@ -1,0 +1,409 @@
+# The runs that pass against the made-up Mac, which `scripts/checks.sh --fixture` runs, exactly
+# these, and fails for any that doesn't pass: the checks a change to the UI has to keep passing.
+# Each line is a check's run line as its header has it. The Mac is src-tauri/src/fixture.rs.
+#
+# A run goes here once it passes there every time (`scripts/checks.sh --fixture <name>`, twice),
+# and comes off only when its check is changed to need what a real board has. To make the list
+# again: `scripts/checks.sh --fixture --all --jobs=6 --results=<file>` twice, and keep the run
+# lines (the third column) that say PASS in both, sorted.
+PREVIEW_ANALYTICS=1 scripts/preview.sh sessions '' scripts/preview/usage-analytics-check.js
+PREVIEW_BOARDS=scripts/preview/boards-everything.json scripts/preview.sh canvas '' scripts/preview/boards-empty-check.js
+PREVIEW_BOARDS=scripts/preview/boards-everything.json scripts/preview.sh canvas '' scripts/preview/canvas-tools-check.js
+PREVIEW_BOARDS=scripts/preview/boards-everything.json scripts/preview.sh sessions '' scripts/preview/boards-off-check.js
+PREVIEW_BOARDS_OFF=1 PREVIEW_BOARDS=scripts/preview/boards-everything.json scripts/preview.sh kanban '' scripts/preview/boards-off-check.js
+PREVIEW_DEVICES=scripts/preview/devices-sample.json PREVIEW_SIZE=1512,980 PREVIEW_WAIT=60000 scripts/preview.sh notch '' scripts/preview/notch-devices-check.js
+PREVIEW_DEVICES=scripts/preview/devices-sample.json PREVIEW_WAIT=60000 PREVIEW_PIN=session:@ scripts/preview.sh desktop '' scripts/preview/desktop-devices-check.js
+PREVIEW_DEVICES=scripts/preview/devices-sample.json PREVIEW_WAIT=60000 PREVIEW_PIN=session:@4a3b2c1d0e scripts/preview.sh desktop '' scripts/preview/desktop-devices-check.js
+PREVIEW_DEVICES=scripts/preview/devices-sample.json PREVIEW_WAIT=60000 scripts/preview.sh kept '' scripts/preview/kept-devices-check.js
+PREVIEW_DEVICES=scripts/preview/devices-sample.json PREVIEW_WAIT=60000 scripts/preview.sh quick '' scripts/preview/start-effort-check.js
+PREVIEW_DEVICES=scripts/preview/devices-sample.json scripts/preview.sh prs '' scripts/preview/pr-other-machines-check.js
+PREVIEW_DEVICES=scripts/preview/devices-sample.json scripts/preview.sh sessions '' scripts/preview/sidebar-check.js
+PREVIEW_EMBLEMS=drawn PREVIEW_ROUTE=scripts/preview/route-sample.json PREVIEW_WAIT=60000 scripts/preview.sh quick '' scripts/preview/quick-emblems-check.js
+PREVIEW_EMBLEMS=drawn scripts/preview.sh sessions '' scripts/preview/emblems-check.js
+PREVIEW_GLASS=1 PREVIEW_PLATFORM=linux scripts/preview.sh sessions '' scripts/preview/glass-check.js
+PREVIEW_GLASS=1 PREVIEW_SCHEME=dark scripts/preview.sh sessions '' scripts/preview/glass-check.js
+PREVIEW_GLASS=1 scripts/preview.sh sessions '' scripts/preview/glass-check.js
+PREVIEW_GLASS=1 scripts/preview.sh sessions '' scripts/preview/window-chrome-check.js
+PREVIEW_GROUP=worktree PREVIEW_DEVICES=scripts/preview/devices-sample.json scripts/preview.sh sessions '' scripts/preview/grouphead-baseline-check.js
+PREVIEW_GROUP=worktree scripts/preview.sh prs '' scripts/preview/grouphead-baseline-check.js
+PREVIEW_GROUP=worktree scripts/preview.sh sessions '' scripts/preview/grouphead-baseline-check.js
+PREVIEW_INIT=scripts/preview/runs-init.js PREVIEW_WAIT=60000 scripts/preview.sh sessions '' scripts/preview/runs-check.js
+PREVIEW_INIT=scripts/preview/settings-review-start-init.js PREVIEW_WAIT=30000 scripts/preview.sh sessions '' scripts/preview/review-start-check.js
+PREVIEW_INIT=scripts/preview/team-init.js PREVIEW_WAIT=60000 PREVIEW_GROUP=worktree scripts/preview.sh sessions '' scripts/preview/team-settings-check.js
+PREVIEW_INIT=scripts/preview/team-init.js PREVIEW_WAIT=60000 scripts/preview.sh prs '' scripts/preview/team-settings-check.js
+PREVIEW_KEYS=held scripts/preview.sh sessions '' scripts/preview/keys-shown-check.js
+PREVIEW_LOADING=1 PREVIEW_DEVICES=scripts/preview/devices-sample.json PREVIEW_WAIT=60000 scripts/preview.sh sessions '' scripts/preview/loading-check.js
+PREVIEW_LOADING=1 PREVIEW_WAIT=60000 scripts/preview.sh quick '' scripts/preview/tips-check.js
+PREVIEW_LOADING=1 PREVIEW_WAIT=60000 scripts/preview.sh sessions '' scripts/preview/tips-check.js
+PREVIEW_LOADING=1 PREVIEW_WAIT=60000 scripts/preview.sh waiting '' scripts/preview/tips-check.js
+PREVIEW_LOADING=1 scripts/preview.sh sessions '' scripts/preview/window-chrome-check.js
+PREVIEW_NOTICES=scripts/preview/notices-sample.json PREVIEW_WAIT=60000 scripts/preview.sh sessions '' scripts/preview/notices-check.js
+PREVIEW_PIN=session scripts/preview.sh desktop '' scripts/preview/flagged-sessions-check.js
+PREVIEW_PIN=session scripts/preview.sh desktop '' scripts/preview/rename-check.js
+PREVIEW_PLATFORM=linux PREVIEW_TODOS=scripts/preview/todos-sample.json PREVIEW_SCHEDULES=scripts/preview/schedules-sample.json PREVIEW_SIZE=1920,1100 PREVIEW_WAIT=90000 scripts/preview.sh todo '' scripts/preview/task-strip-check.js
+PREVIEW_PLATFORM=linux PREVIEW_TODOS=scripts/preview/todos-sample.json PREVIEW_SIZE=1512,980 PREVIEW_WAIT=90000 scripts/preview.sh notch '' scripts/preview/notch-todo-check.js
+PREVIEW_PLATFORM=linux PREVIEW_TODOS=scripts/preview/todos-sample.json PREVIEW_WAIT=60000 scripts/preview.sh waiting '' scripts/preview/waiting-todo-check.js
+PREVIEW_PLATFORM=linux PREVIEW_WAIT=60000 PREVIEW_DEVICES=scripts/preview/devices-sample.json scripts/preview.sh sessions '' scripts/preview/iphone-install-check.js
+PREVIEW_PLATFORM=linux scripts/preview.sh sessions '' scripts/preview/settings-awake-check.js
+PREVIEW_PLATFORM=linux scripts/preview.sh sessions '' scripts/preview/settings-find-check.js
+PREVIEW_PLATFORM=linux scripts/preview.sh sessions '' scripts/preview/settings-queue-check.js
+PREVIEW_PLATFORM=linux scripts/preview.sh sessions '' scripts/preview/settings-tmux-check.js
+PREVIEW_RESETS=scripts/preview/resets-sample.json PREVIEW_WAIT=60000 scripts/preview.sh sessions '' scripts/preview/resets-check.js
+PREVIEW_ROUTE=scripts/preview/route-find-sample.json PREVIEW_WAIT=60000 scripts/preview.sh quick '' scripts/preview/quick-words-check.js
+PREVIEW_ROUTE=scripts/preview/route-late-sample.json PREVIEW_WAIT=60000 scripts/preview.sh quick '' scripts/preview/quick-steady-check.js
+PREVIEW_ROUTE=scripts/preview/route-sample.json PREVIEW_WAIT=60000 scripts/preview.sh quick '' scripts/preview/quick-words-check.js
+PREVIEW_ROUTE=scripts/preview/route-search-sample.json PREVIEW_WAIT=60000 scripts/preview.sh quick '' scripts/preview/quick-search-check.js
+PREVIEW_ROUTE=scripts/preview/route-start-sample.json PREVIEW_WAIT=60000 scripts/preview.sh quick '' scripts/preview/quick-words-check.js
+PREVIEW_SCHEDULES=scripts/preview/schedules-sample.json PREVIEW_PLATFORM=linux scripts/preview.sh schedules '' scripts/preview/window-find-check.js
+PREVIEW_SCHEDULES=scripts/preview/schedules-sample.json scripts/preview.sh schedules '' scripts/preview/schedule-emblems-check.js
+PREVIEW_SCHEDULES=scripts/preview/schedules-sample.json scripts/preview.sh schedules '' scripts/preview/schedules-once-check.js
+PREVIEW_SCHEDULES=scripts/preview/schedules-sample.json scripts/preview.sh schedules '' scripts/preview/window-find-check.js
+PREVIEW_SCHEME=dark PREVIEW_WAIT=40000 scripts/preview.sh sessions '' scripts/preview/queued-send-check.js
+PREVIEW_SCHEME=dark scripts/preview.sh prs '' scripts/preview/pr-reviews-check.js
+PREVIEW_SCHEME=dark scripts/preview.sh prs '' scripts/preview/pr-turn-check.js
+PREVIEW_SCHEME=dark scripts/preview.sh sessions '' scripts/preview/list-find-check.js
+PREVIEW_SCHEME=dark scripts/preview.sh sessions '' scripts/preview/view-keys-check.js
+PREVIEW_SCHEME=dark scripts/preview.sh sessions '' scripts/preview/window-chrome-check.js
+PREVIEW_SIZE=1200,900 PREVIEW_WAIT=120000 PREVIEW_USAGE=scripts/preview/usage-sample.json scripts/preview.sh sessions '' scripts/preview/toast-place-check.js
+PREVIEW_SIZE=1512,720 PREVIEW_WAIT=60000 scripts/preview.sh notch '' scripts/preview/voice-meeting-check.js
+PREVIEW_SIZE=1512,720 PREVIEW_WAIT=60000 scripts/preview.sh notch '' scripts/preview/voice-notch-check.js
+PREVIEW_SIZE=1512,720 scripts/preview.sh notch '' scripts/preview/card-main-window-check.js
+PREVIEW_SIZE=1512,980 PREVIEW_WAIT=150000 scripts/preview.sh notch '' scripts/preview/notch-pr-check.js
+PREVIEW_SIZE=1512,980 PREVIEW_WAIT=150000 scripts/preview.sh notch '' scripts/preview/notch-review-check.js
+PREVIEW_SIZE=1512,980 PREVIEW_WAIT=150000 scripts/preview.sh notch '' scripts/preview/notch-session-check.js
+PREVIEW_SIZE=1512,980 PREVIEW_WAIT=60000 scripts/preview.sh notch '' scripts/preview/card-terminal-check.js
+PREVIEW_SIZE=1512,980 PREVIEW_WAIT=60000 scripts/preview.sh notch '' scripts/preview/notch-end-check.js
+PREVIEW_SIZE=1512,980 PREVIEW_WAIT=60000 scripts/preview.sh notch '' scripts/preview/notch-model-check.js
+PREVIEW_SIZE=1512,980 PREVIEW_WAIT=60000 scripts/preview.sh notch '' scripts/preview/notch-popout-check.js
+PREVIEW_SIZE=1512,980 PREVIEW_WAIT=60000 scripts/preview.sh notch '' scripts/preview/notch-unsent-check.js
+PREVIEW_SIZE=1512,980 PREVIEW_WAIT=60000 scripts/preview.sh notch '' scripts/preview/notch-waiting-check.js
+PREVIEW_SIZE=1512,980 PREVIEW_WAIT=60000 scripts/preview.sh notch '' scripts/preview/view-keys-elsewhere-check.js
+PREVIEW_SIZE=1512,980 PREVIEW_WAIT=90000 scripts/preview.sh notch '' scripts/preview/card-zoom-check.js
+PREVIEW_SIZE=2600,900 PREVIEW_USAGE=scripts/preview/usage-sample.json PREVIEW_TRAINING=scripts/preview/training-sample.json scripts/preview.sh sessions '' scripts/preview/window-chrome-check.js
+PREVIEW_SIZE=400,280 scripts/preview.sh kept '' scripts/preview/questions-fit-check.js
+PREVIEW_SIZE=520,340 scripts/preview.sh kept '' scripts/preview/questions-fit-check.js
+PREVIEW_SIZE=980,700 PREVIEW_NOTICES=scripts/preview/notices-sample.json PREVIEW_INIT=scripts/preview/window-chrome-crowded-init.js scripts/preview.sh sessions '' scripts/preview/window-chrome-check.js
+PREVIEW_TODOS=scripts/preview/todos-sample.json PREVIEW_SCHEDULES=scripts/preview/schedules-sample.json PREVIEW_SIZE=1920,1100 PREVIEW_WAIT=90000 scripts/preview.sh todo '' scripts/preview/task-strip-check.js
+PREVIEW_TODOS=scripts/preview/todos-sample.json PREVIEW_SIZE=1512,980 PREVIEW_WAIT=90000 scripts/preview.sh notch '' scripts/preview/notch-todo-check.js
+PREVIEW_TODOS=scripts/preview/todos-sample.json PREVIEW_WAIT=60000 scripts/preview.sh prs '' scripts/preview/list-facets-check.js
+PREVIEW_TODOS=scripts/preview/todos-sample.json PREVIEW_WAIT=60000 scripts/preview.sh sessions '' scripts/preview/chip-clicks-check.js
+PREVIEW_TODOS=scripts/preview/todos-sample.json PREVIEW_WAIT=60000 scripts/preview.sh todo '' scripts/preview/dismiss-check.js
+PREVIEW_TODOS=scripts/preview/todos-sample.json PREVIEW_WAIT=60000 scripts/preview.sh waiting '' scripts/preview/waiting-todo-check.js
+PREVIEW_TODOS=scripts/preview/todos-sample.json scripts/preview.sh quick '' scripts/preview/quick-todo-primary-check.js
+PREVIEW_TODOS=scripts/preview/todos-sample.json scripts/preview.sh sessions '' scripts/preview/chip-baseline-check.js
+PREVIEW_TODOS=scripts/preview/todos-sample.json scripts/preview.sh sessions '' scripts/preview/panel-menus-check.js
+PREVIEW_TODOS=scripts/preview/todos-sample.json scripts/preview.sh todo '' scripts/preview/panel-peek-check.js
+PREVIEW_TODOS=scripts/preview/todos-sample.json scripts/preview.sh todo '' scripts/preview/panel-places-check.js
+PREVIEW_TODOS=scripts/preview/todos-sample.json scripts/preview.sh todo '' scripts/preview/todo-primary-menu-check.js
+PREVIEW_TRAINING=scripts/preview/training-sample.json PREVIEW_WAIT=60000 scripts/preview.sh sessions '' scripts/preview/training-check.js
+PREVIEW_USAGE=scripts/preview/usage-rate-limited.json scripts/preview.sh sessions '' scripts/preview/usage-rate-limited-check.js
+PREVIEW_USAGE=scripts/preview/usage-sample.json scripts/preview.sh sessions '' scripts/preview/window-chrome-check.js
+PREVIEW_VOICE=1 PREVIEW_WAIT=60000 scripts/preview.sh peek '' scripts/preview/box-talk-check.js
+PREVIEW_VOICE=1 PREVIEW_WAIT=60000 scripts/preview.sh quick '' scripts/preview/quick-listen-check.js
+PREVIEW_VOICE=1 PREVIEW_WAIT=60000 scripts/preview.sh quick '' scripts/preview/quick-talk-check.js
+PREVIEW_WAIT=120000 PREVIEW_GROUP=worktree scripts/preview.sh sessions '' scripts/preview/rows-check.js
+PREVIEW_WAIT=120000 scripts/preview.sh sessions '' scripts/preview/rows-check.js
+PREVIEW_WAIT=20000 scripts/preview.sh desktop '' scripts/preview/menus-check.js
+PREVIEW_WAIT=20000 scripts/preview.sh peek '' scripts/preview/menus-check.js
+PREVIEW_WAIT=20000 scripts/preview.sh quick '' scripts/preview/menus-check.js
+PREVIEW_WAIT=20000 scripts/preview.sh sessions '' scripts/preview/menus-check.js
+PREVIEW_WAIT=20000 scripts/preview.sh waiting '' scripts/preview/menus-check.js
+PREVIEW_WAIT=30000 PREVIEW_DEVICES=scripts/preview/devices-sample.json scripts/preview.sh sessions '' scripts/preview/opened-link-devices-check.js
+PREVIEW_WAIT=30000 PREVIEW_PLATFORM=linux scripts/preview.sh waiting '' scripts/preview/questions-minimize-check.js
+PREVIEW_WAIT=30000 PREVIEW_SETUP=scripts/preview/setup-sample.json scripts/preview.sh sessions '' scripts/preview/setup-check.js
+PREVIEW_WAIT=30000 PREVIEW_TODOS=scripts/preview/todos-sample.json scripts/preview.sh todo '' scripts/preview/todo-title-fit-check.js
+PREVIEW_WAIT=30000 scripts/preview.sh bar '' scripts/preview/bar-clicks-check.js
+PREVIEW_WAIT=30000 scripts/preview.sh bar '' scripts/preview/voice-bar-check.js
+PREVIEW_WAIT=30000 scripts/preview.sh sessions '' scripts/preview/accounts-chrome-check.js
+PREVIEW_WAIT=30000 scripts/preview.sh sessions '' scripts/preview/accounts-cli-check.js
+PREVIEW_WAIT=30000 scripts/preview.sh sessions '' scripts/preview/accounts-copy-check.js
+PREVIEW_WAIT=30000 scripts/preview.sh sessions '' scripts/preview/accounts-mcp-check.js
+PREVIEW_WAIT=30000 scripts/preview.sh sessions '' scripts/preview/accounts-off-check.js
+PREVIEW_WAIT=30000 scripts/preview.sh sessions '' scripts/preview/always-check.js
+PREVIEW_WAIT=30000 scripts/preview.sh sessions '' scripts/preview/approval-card-check.js
+PREVIEW_WAIT=30000 scripts/preview.sh sessions '' scripts/preview/caret-check.js
+PREVIEW_WAIT=30000 scripts/preview.sh sessions '' scripts/preview/chrome-check.js
+PREVIEW_WAIT=30000 scripts/preview.sh sessions '' scripts/preview/held-message-check.js
+PREVIEW_WAIT=30000 scripts/preview.sh sessions '' scripts/preview/link-menu-check.js
+PREVIEW_WAIT=30000 scripts/preview.sh sessions '' scripts/preview/once-check.js
+PREVIEW_WAIT=30000 scripts/preview.sh sessions '' scripts/preview/opened-link-check.js
+PREVIEW_WAIT=30000 scripts/preview.sh sessions '' scripts/preview/path-links-check.js
+PREVIEW_WAIT=30000 scripts/preview.sh sessions '' scripts/preview/plan-check.js
+PREVIEW_WAIT=30000 scripts/preview.sh sessions '' scripts/preview/project-add-check.js
+PREVIEW_WAIT=30000 scripts/preview.sh sessions '' scripts/preview/questions-elsewhere-check.js
+PREVIEW_WAIT=30000 scripts/preview.sh sessions '' scripts/preview/questions-kept-check.js
+PREVIEW_WAIT=30000 scripts/preview.sh sessions '' scripts/preview/questions-minimize-check.js
+PREVIEW_WAIT=30000 scripts/preview.sh sessions '' scripts/preview/terminal-asks-check.js
+PREVIEW_WAIT=30000 scripts/preview.sh sessions '' scripts/preview/terminal-run-check.js
+PREVIEW_WAIT=30000 scripts/preview.sh sessions '' scripts/preview/thread-links-check.js
+PREVIEW_WAIT=30000 scripts/preview.sh sessions '' scripts/preview/thread-table-check.js
+PREVIEW_WAIT=30000 scripts/preview.sh terminal '' scripts/preview/terminal-box-check.js
+PREVIEW_WAIT=30000 scripts/preview.sh terminal '' scripts/preview/terminal-window-check.js
+PREVIEW_WAIT=30000 scripts/preview.sh waiting '' scripts/preview/questions-minimize-check.js
+PREVIEW_WAIT=40000 scripts/preview.sh notch '' scripts/preview/notch-check.js
+PREVIEW_WAIT=40000 scripts/preview.sh notch '' scripts/preview/notch-pin-check.js
+PREVIEW_WAIT=40000 scripts/preview.sh sessions '' scripts/preview/queued-send-check.js
+PREVIEW_WAIT=40000 scripts/preview.sh sessions '' scripts/preview/reload-thread-check.js
+PREVIEW_WAIT=40000 scripts/preview.sh sessions '' scripts/preview/says-apart-check.js
+PREVIEW_WAIT=40000 scripts/preview.sh sessions '' scripts/preview/session-links-check.js
+PREVIEW_WAIT=40000 scripts/preview.sh sessions '' scripts/preview/shell-bang-check.js
+PREVIEW_WAIT=40000 scripts/preview.sh sessions '' scripts/preview/thread-follow-check.js
+PREVIEW_WAIT=40000 scripts/preview.sh waiting '' scripts/preview/waiting-strip-check.js
+PREVIEW_WAIT=40000 scripts/preview.sh waiting '' scripts/preview/waiting-unsent-check.js
+PREVIEW_WAIT=60000 PREVIEW_BOARDS=scripts/preview/boards-everything.json scripts/preview.sh canvas '' scripts/preview/zoom-check.js
+PREVIEW_WAIT=60000 PREVIEW_DEVICES=scripts/preview/devices-sample.json scripts/preview.sh quick '' scripts/preview/quick-calmer-check.js
+PREVIEW_WAIT=60000 PREVIEW_DEVICES=scripts/preview/devices-sample.json scripts/preview.sh quick '' scripts/preview/quick-devices-check.js
+PREVIEW_WAIT=60000 PREVIEW_DEVICES=scripts/preview/devices-sample.json scripts/preview.sh sessions '' scripts/preview/device-color-check.js
+PREVIEW_WAIT=60000 PREVIEW_DEVICES=scripts/preview/devices-sample.json scripts/preview.sh sessions '' scripts/preview/devices-automations-check.js
+PREVIEW_WAIT=60000 PREVIEW_DEVICES=scripts/preview/devices-sample.json scripts/preview.sh sessions '' scripts/preview/devices-sync-check.js
+PREVIEW_WAIT=60000 PREVIEW_DEVICES=scripts/preview/devices-sample.json scripts/preview.sh sessions '' scripts/preview/iphone-install-check.js
+PREVIEW_WAIT=60000 PREVIEW_DEVICES=scripts/preview/devices-sample.json scripts/preview.sh sessions '' scripts/preview/load-card-check.js
+PREVIEW_WAIT=60000 PREVIEW_DEVICES=scripts/preview/devices-sample.json scripts/preview.sh sessions '' scripts/preview/remote-done-check.js
+PREVIEW_WAIT=60000 PREVIEW_DEVICES=scripts/preview/devices-sample.json scripts/preview.sh sessions '' scripts/preview/remote-snooze-check.js
+PREVIEW_WAIT=60000 PREVIEW_DEVICES=scripts/preview/devices-sample.json scripts/preview.sh sessions '' scripts/preview/remote-thread-check.js
+PREVIEW_WAIT=60000 PREVIEW_DEVICES=scripts/preview/devices-sample.json scripts/preview.sh sessions '' scripts/preview/reveal-filters-check.js
+PREVIEW_WAIT=60000 PREVIEW_GLASS=1 scripts/preview.sh quick '' scripts/preview/glass-check.js
+PREVIEW_WAIT=60000 PREVIEW_GROUP=worktree scripts/preview.sh prs '' scripts/preview/session-reveal-check.js
+PREVIEW_WAIT=60000 PREVIEW_GROUP=worktree scripts/preview.sh sessions '' scripts/preview/chip-clicks-check.js
+PREVIEW_WAIT=60000 PREVIEW_GROUP=worktree scripts/preview.sh sessions '' scripts/preview/chip-lanes-check.js
+PREVIEW_WAIT=60000 PREVIEW_GROUP=worktree scripts/preview.sh sessions '' scripts/preview/pr-chip-check.js
+PREVIEW_WAIT=60000 PREVIEW_INIT=scripts/preview/thread-look-init.js scripts/preview.sh sessions '' scripts/preview/thread-look-check.js
+PREVIEW_WAIT=60000 PREVIEW_INIT=scripts/preview/waiting-review-init.js scripts/preview.sh waiting '' scripts/preview/strip-fold-check.js
+PREVIEW_WAIT=60000 PREVIEW_INIT=scripts/preview/waiting-review-init.js scripts/preview.sh waiting '' scripts/preview/waiting-titlebar-check.js
+PREVIEW_WAIT=60000 PREVIEW_PIN=session scripts/preview.sh desktop '' scripts/preview/desktop-check.js
+PREVIEW_WAIT=60000 PREVIEW_PIN=session scripts/preview.sh desktop '' scripts/preview/pr-chip-check.js
+PREVIEW_WAIT=60000 PREVIEW_PIN=worktree scripts/preview.sh desktop '' scripts/preview/desktop-check.js
+PREVIEW_WAIT=60000 PREVIEW_PIN=worktree scripts/preview.sh desktop '' scripts/preview/pr-chip-check.js
+PREVIEW_WAIT=60000 PREVIEW_PLATFORM=linux PREVIEW_DEVICES=scripts/preview/devices-sample.json scripts/preview.sh quick '' scripts/preview/quick-calmer-check.js
+PREVIEW_WAIT=60000 PREVIEW_PLATFORM=linux PREVIEW_DEVICES=scripts/preview/devices-sample.json scripts/preview.sh sessions '' scripts/preview/load-card-check.js
+PREVIEW_WAIT=60000 PREVIEW_PLATFORM=linux scripts/preview.sh sessions '' scripts/preview/strip-fold-check.js
+PREVIEW_WAIT=60000 PREVIEW_SCHEDULES=scripts/preview/schedules-sample.json scripts/preview.sh schedules '' scripts/preview/schedules-check.js
+PREVIEW_WAIT=60000 PREVIEW_SCHEME=dark scripts/preview.sh sessions '' scripts/preview/done-helpers-check.js
+PREVIEW_WAIT=60000 PREVIEW_SIZE=1512,720 scripts/preview.sh notch '' scripts/preview/merge-done-check.js
+PREVIEW_WAIT=60000 PREVIEW_SIZE=860,640 scripts/preview.sh sessions '' scripts/preview/list-filters-check.js
+PREVIEW_WAIT=60000 PREVIEW_SKILLS=scripts/preview/skills-sample.json scripts/preview.sh peek '' scripts/preview/skills-reply-check.js
+PREVIEW_WAIT=60000 PREVIEW_SKILLS=scripts/preview/skills-sample.json scripts/preview.sh quick '' scripts/preview/quick-project-repo-check.js
+PREVIEW_WAIT=60000 PREVIEW_SKILLS=scripts/preview/skills-sample.json scripts/preview.sh quick '' scripts/preview/skills-quick-check.js
+PREVIEW_WAIT=60000 PREVIEW_TODOS=scripts/preview/todos-sample.json PREVIEW_BOARDS=scripts/preview/boards-everything.json scripts/preview.sh kanban '' scripts/preview/kanban-check.js
+PREVIEW_WAIT=60000 PREVIEW_TODOS=scripts/preview/todos-sample.json PREVIEW_PIN=todo scripts/preview.sh desktop '' scripts/preview/todo-menus-check.js
+PREVIEW_WAIT=60000 PREVIEW_TODOS=scripts/preview/todos-sample.json scripts/preview.sh quick '' scripts/preview/todo-menus-check.js
+PREVIEW_WAIT=60000 PREVIEW_TODOS=scripts/preview/todos-sample.json scripts/preview.sh sessions '' scripts/preview/terminal-key-check.js
+PREVIEW_WAIT=60000 PREVIEW_TODOS=scripts/preview/todos-sample.json scripts/preview.sh todo '' scripts/preview/background-notices-check.js
+PREVIEW_WAIT=60000 PREVIEW_TODOS=scripts/preview/todos-sample.json scripts/preview.sh todo '' scripts/preview/drag-check.js
+PREVIEW_WAIT=60000 PREVIEW_TODOS=scripts/preview/todos-sample.json scripts/preview.sh todo '' scripts/preview/due-check.js
+PREVIEW_WAIT=60000 PREVIEW_TODOS=scripts/preview/todos-sample.json scripts/preview.sh todo '' scripts/preview/group-lists-check.js
+PREVIEW_WAIT=60000 PREVIEW_TODOS=scripts/preview/todos-sample.json scripts/preview.sh todo '' scripts/preview/todo-archive-check.js
+PREVIEW_WAIT=60000 PREVIEW_TODOS=scripts/preview/todos-sample.json scripts/preview.sh todo '' scripts/preview/todo-menus-check.js
+PREVIEW_WAIT=60000 scripts/preview.sh bar '' scripts/preview/bar-slide-check.js
+PREVIEW_WAIT=60000 scripts/preview.sh bar '' scripts/preview/voice-meeting-check.js
+PREVIEW_WAIT=60000 scripts/preview.sh bar '' scripts/preview/voice-meeting-soon-check.js
+PREVIEW_WAIT=60000 scripts/preview.sh kept '' scripts/preview/keep-check.js
+PREVIEW_WAIT=60000 scripts/preview.sh peek '' scripts/preview/card-check.js
+PREVIEW_WAIT=60000 scripts/preview.sh peek '' scripts/preview/card-terminal-check.js
+PREVIEW_WAIT=60000 scripts/preview.sh peek '' scripts/preview/card-zoom-check.js
+PREVIEW_WAIT=60000 scripts/preview.sh peek '' scripts/preview/cut-off-check.js
+PREVIEW_WAIT=60000 scripts/preview.sh peek '' scripts/preview/drafts-check.js
+PREVIEW_WAIT=60000 scripts/preview.sh peek '' scripts/preview/fork-check.js
+PREVIEW_WAIT=60000 scripts/preview.sh peek '' scripts/preview/hosted-open-check.js
+PREVIEW_WAIT=60000 scripts/preview.sh peek '' scripts/preview/keep-check.js
+PREVIEW_WAIT=60000 scripts/preview.sh peek '' scripts/preview/limit-check.js
+PREVIEW_WAIT=60000 scripts/preview.sh peek '' scripts/preview/merge-done-check.js
+PREVIEW_WAIT=60000 scripts/preview.sh peek '' scripts/preview/move-account-check.js
+PREVIEW_WAIT=60000 scripts/preview.sh peek '' scripts/preview/move-check.js
+PREVIEW_WAIT=60000 scripts/preview.sh peek '' scripts/preview/peek-drag-check.js
+PREVIEW_WAIT=60000 scripts/preview.sh peek '' scripts/preview/peek-send-check.js
+PREVIEW_WAIT=60000 scripts/preview.sh peek '' scripts/preview/reply-account-check.js
+PREVIEW_WAIT=60000 scripts/preview.sh peek '' scripts/preview/send-now-check.js
+PREVIEW_WAIT=60000 scripts/preview.sh peek '' scripts/preview/side-fork-check.js
+PREVIEW_WAIT=60000 scripts/preview.sh peek '' scripts/preview/starting-check.js
+PREVIEW_WAIT=60000 scripts/preview.sh peek '' scripts/preview/stop-check.js
+PREVIEW_WAIT=60000 scripts/preview.sh peek '' scripts/preview/stuck-send-check.js
+PREVIEW_WAIT=60000 scripts/preview.sh peek '' scripts/preview/terminal-key-check.js
+PREVIEW_WAIT=60000 scripts/preview.sh prs '' scripts/preview/auto-review-check.js
+PREVIEW_WAIT=60000 scripts/preview.sh prs '' scripts/preview/chip-lanes-check.js
+PREVIEW_WAIT=60000 scripts/preview.sh prs '' scripts/preview/drag-check.js
+PREVIEW_WAIT=60000 scripts/preview.sh prs '' scripts/preview/group-lists-check.js
+PREVIEW_WAIT=60000 scripts/preview.sh prs '' scripts/preview/merge-box-check.js
+PREVIEW_WAIT=60000 scripts/preview.sh prs '' scripts/preview/pr-body-width-check.js
+PREVIEW_WAIT=60000 scripts/preview.sh prs '' scripts/preview/pr-files-check.js
+PREVIEW_WAIT=60000 scripts/preview.sh prs '' scripts/preview/pr-snooze-check.js
+PREVIEW_WAIT=60000 scripts/preview.sh prs '' scripts/preview/prs-reading-check.js
+PREVIEW_WAIT=60000 scripts/preview.sh prs '' scripts/preview/reload-check.js
+PREVIEW_WAIT=60000 scripts/preview.sh prs '' scripts/preview/session-reveal-check.js
+PREVIEW_WAIT=60000 scripts/preview.sh quick '' scripts/preview/background-notices-check.js
+PREVIEW_WAIT=60000 scripts/preview.sh quick '' scripts/preview/codex-effort-check.js
+PREVIEW_WAIT=60000 scripts/preview.sh quick '' scripts/preview/dev-setup-check.js
+PREVIEW_WAIT=60000 scripts/preview.sh quick '' scripts/preview/improve-check.js
+PREVIEW_WAIT=60000 scripts/preview.sh quick '' scripts/preview/quick-archived-check.js
+PREVIEW_WAIT=60000 scripts/preview.sh quick '' scripts/preview/quick-chat-check.js
+PREVIEW_WAIT=60000 scripts/preview.sh quick '' scripts/preview/quick-drag-check.js
+PREVIEW_WAIT=60000 scripts/preview.sh quick '' scripts/preview/quick-isolated-check.js
+PREVIEW_WAIT=60000 scripts/preview.sh quick '' scripts/preview/quick-menus-check.js
+PREVIEW_WAIT=60000 scripts/preview.sh quick '' scripts/preview/quick-new-folder-check.js
+PREVIEW_WAIT=60000 scripts/preview.sh quick '' scripts/preview/quick-other-project-check.js
+PREVIEW_WAIT=60000 scripts/preview.sh quick '' scripts/preview/quick-pick-check.js
+PREVIEW_WAIT=60000 scripts/preview.sh quick '' scripts/preview/quick-pr-pick-check.js
+PREVIEW_WAIT=60000 scripts/preview.sh quick '' scripts/preview/quick-repo-check.js
+PREVIEW_WAIT=60000 scripts/preview.sh quick '' scripts/preview/quick-review-check.js
+PREVIEW_WAIT=60000 scripts/preview.sh quick '' scripts/preview/quick-route-log-check.js
+PREVIEW_WAIT=60000 scripts/preview.sh quick '' scripts/preview/quick-sendto-check.js
+PREVIEW_WAIT=60000 scripts/preview.sh quick '' scripts/preview/quick-suggest-more-check.js
+PREVIEW_WAIT=60000 scripts/preview.sh quick '' scripts/preview/quick-suggested-place-check.js
+PREVIEW_WAIT=60000 scripts/preview.sh quick '' scripts/preview/said-search-check.js
+PREVIEW_WAIT=60000 scripts/preview.sh quick '' scripts/preview/start-background-check.js
+PREVIEW_WAIT=60000 scripts/preview.sh quick '' scripts/preview/start-models-check.js
+PREVIEW_WAIT=60000 scripts/preview.sh sessions '' scripts/preview/agent-done-check.js
+PREVIEW_WAIT=60000 scripts/preview.sh sessions '' scripts/preview/answer-ahead-check.js
+PREVIEW_WAIT=60000 scripts/preview.sh sessions '' scripts/preview/answer-next-check.js
+PREVIEW_WAIT=60000 scripts/preview.sh sessions '' scripts/preview/artifacts-check.js
+PREVIEW_WAIT=60000 scripts/preview.sh sessions '' scripts/preview/call-keys-check.js
+PREVIEW_WAIT=60000 scripts/preview.sh sessions '' scripts/preview/chip-lanes-check.js
+PREVIEW_WAIT=60000 scripts/preview.sh sessions '' scripts/preview/close-idle-check.js
+PREVIEW_WAIT=60000 scripts/preview.sh sessions '' scripts/preview/close-stale-check.js
+PREVIEW_WAIT=60000 scripts/preview.sh sessions '' scripts/preview/desktop-check.js
+PREVIEW_WAIT=60000 scripts/preview.sh sessions '' scripts/preview/dev-update-check.js
+PREVIEW_WAIT=60000 scripts/preview.sh sessions '' scripts/preview/dialog-focus-check.js
+PREVIEW_WAIT=60000 scripts/preview.sh sessions '' scripts/preview/done-check.js
+PREVIEW_WAIT=60000 scripts/preview.sh sessions '' scripts/preview/done-helpers-check.js
+PREVIEW_WAIT=60000 scripts/preview.sh sessions '' scripts/preview/drag-check.js
+PREVIEW_WAIT=60000 scripts/preview.sh sessions '' scripts/preview/flagged-sessions-check.js
+PREVIEW_WAIT=60000 scripts/preview.sh sessions '' scripts/preview/group-by-check.js
+PREVIEW_WAIT=60000 scripts/preview.sh sessions '' scripts/preview/header-menu-check.js
+PREVIEW_WAIT=60000 scripts/preview.sh sessions '' scripts/preview/history-check.js
+PREVIEW_WAIT=60000 scripts/preview.sh sessions '' scripts/preview/hold-check.js
+PREVIEW_WAIT=60000 scripts/preview.sh sessions '' scripts/preview/leave-next-check.js
+PREVIEW_WAIT=60000 scripts/preview.sh sessions '' scripts/preview/merge-done-check.js
+PREVIEW_WAIT=60000 scripts/preview.sh sessions '' scripts/preview/network-error-check.js
+PREVIEW_WAIT=60000 scripts/preview.sh sessions '' scripts/preview/new-session-check.js
+PREVIEW_WAIT=60000 scripts/preview.sh sessions '' scripts/preview/panel-queue-check.js
+PREVIEW_WAIT=60000 scripts/preview.sh sessions '' scripts/preview/pr-card-merge-check.js
+PREVIEW_WAIT=60000 scripts/preview.sh sessions '' scripts/preview/pr-chip-check.js
+PREVIEW_WAIT=60000 scripts/preview.sh sessions '' scripts/preview/pr-link-check.js
+PREVIEW_WAIT=60000 scripts/preview.sh sessions '' scripts/preview/pr-nudge-check.js
+PREVIEW_WAIT=60000 scripts/preview.sh sessions '' scripts/preview/pr-panel-keys-check.js
+PREVIEW_WAIT=60000 scripts/preview.sh sessions '' scripts/preview/prompt-jump-check.js
+PREVIEW_WAIT=60000 scripts/preview.sh sessions '' scripts/preview/quiet-check.js
+PREVIEW_WAIT=60000 scripts/preview.sh sessions '' scripts/preview/raise-check.js
+PREVIEW_WAIT=60000 scripts/preview.sh sessions '' scripts/preview/session-labels-check.js
+PREVIEW_WAIT=60000 scripts/preview.sh sessions '' scripts/preview/session-terminal-check.js
+PREVIEW_WAIT=60000 scripts/preview.sh sessions '' scripts/preview/side-answer-check.js
+PREVIEW_WAIT=60000 scripts/preview.sh sessions '' scripts/preview/side-aside-check.js
+PREVIEW_WAIT=60000 scripts/preview.sh sessions '' scripts/preview/starting-check.js
+PREVIEW_WAIT=60000 scripts/preview.sh sessions '' scripts/preview/strip-fold-check.js
+PREVIEW_WAIT=60000 scripts/preview.sh sessions '' scripts/preview/suggest-check.js
+PREVIEW_WAIT=60000 scripts/preview.sh sessions '' scripts/preview/terminal-box-check.js
+PREVIEW_WAIT=60000 scripts/preview.sh sessions '' scripts/preview/terminal-check.js
+PREVIEW_WAIT=60000 scripts/preview.sh sessions '' scripts/preview/thread-find-check.js
+PREVIEW_WAIT=60000 scripts/preview.sh sessions '' scripts/preview/unarchive-send-check.js
+PREVIEW_WAIT=60000 scripts/preview.sh sessions '' scripts/preview/updates-check.js
+PREVIEW_WAIT=60000 scripts/preview.sh sessions '' scripts/preview/voice-meeting-check.js
+PREVIEW_WAIT=60000 scripts/preview.sh sessions '' scripts/preview/voice-meeting-settings-check.js
+PREVIEW_WAIT=60000 scripts/preview.sh sessions '' scripts/preview/voice-meeting-soon-check.js
+PREVIEW_WAIT=60000 scripts/preview.sh todo '' scripts/preview/chip-lanes-check.js
+PREVIEW_WAIT=60000 scripts/preview.sh todo '' scripts/preview/pr-chip-check.js
+PREVIEW_WAIT=60000 scripts/preview.sh waiting '' scripts/preview/card-check.js
+PREVIEW_WAIT=60000 scripts/preview.sh waiting '' scripts/preview/card-zoom-check.js
+PREVIEW_WAIT=60000 scripts/preview.sh waiting '' scripts/preview/merge-done-waiting-check.js
+PREVIEW_WAIT=60000 scripts/preview.sh waiting '' scripts/preview/merge-goes-on-check.js
+PREVIEW_WAIT=60000 scripts/preview.sh waiting '' scripts/preview/move-keys-check.js
+PREVIEW_WAIT=60000 scripts/preview.sh waiting '' scripts/preview/pr-ask-check.js
+PREVIEW_WAIT=60000 scripts/preview.sh waiting '' scripts/preview/pr-body-width-check.js
+PREVIEW_WAIT=60000 scripts/preview.sh waiting '' scripts/preview/pr-files-check.js
+PREVIEW_WAIT=60000 scripts/preview.sh waiting '' scripts/preview/queue-check.js
+PREVIEW_WAIT=60000 scripts/preview.sh waiting '' scripts/preview/reload-check.js
+PREVIEW_WAIT=60000 scripts/preview.sh waiting '' scripts/preview/reply-account-check.js
+PREVIEW_WAIT=60000 scripts/preview.sh waiting '' scripts/preview/side-answer-waiting-check.js
+PREVIEW_WAIT=60000 scripts/preview.sh waiting '' scripts/preview/waiting-open-check.js
+PREVIEW_WAIT=60000 scripts/preview.sh waiting '' scripts/preview/waiting-pr-check.js
+PREVIEW_WAIT=60000 scripts/preview.sh waiting '' scripts/preview/waiting-review-check.js
+PREVIEW_WAIT=60000 scripts/preview.sh waiting '' scripts/preview/waiting-titlebar-check.js
+PREVIEW_WAIT=90000 PREVIEW_BOARDS=scripts/preview/boards-everything.json scripts/preview.sh canvas '' scripts/preview/canvas-arrange-check.js
+PREVIEW_WAIT=90000 scripts/preview.sh sessions '' scripts/preview/panel-kin-check.js
+scripts/preview.sh kanban '' scripts/preview/boards-empty-check.js
+scripts/preview.sh kept '' scripts/preview/session-window-check.js
+scripts/preview.sh peek '' scripts/preview/box-caret-check.js
+scripts/preview.sh peek '' scripts/preview/card-main-window-check.js
+scripts/preview.sh peek '' scripts/preview/cursor-model-check.js
+scripts/preview.sh peek '' scripts/preview/panel-peek-check.js
+scripts/preview.sh peek '' scripts/preview/remote-model-check.js
+scripts/preview.sh peek '' scripts/preview/rename-check.js
+scripts/preview.sh peek '' scripts/preview/resume-check.js
+scripts/preview.sh peek '' scripts/preview/session-model-check.js
+scripts/preview.sh peek '' scripts/preview/shows-session-check.js
+scripts/preview.sh peek '' scripts/preview/side-image-check.js
+scripts/preview.sh peek '' scripts/preview/side-window-check.js
+scripts/preview.sh peek '' scripts/preview/view-keys-elsewhere-check.js
+scripts/preview.sh prs '' scripts/preview/agent-submit-check.js
+scripts/preview.sh prs '' scripts/preview/panel-peek-check.js
+scripts/preview.sh prs '' scripts/preview/panel-places-check.js
+scripts/preview.sh prs '' scripts/preview/pr-archived-check.js
+scripts/preview.sh prs '' scripts/preview/pr-reviews-check.js
+scripts/preview.sh prs '' scripts/preview/pr-tabs-check.js
+scripts/preview.sh prs '' scripts/preview/pr-turn-check.js
+scripts/preview.sh prs '' scripts/preview/your-review-check.js
+scripts/preview.sh quick '' scripts/preview/quick-draft-check.js
+scripts/preview.sh quick '' scripts/preview/quick-drop-check.js
+scripts/preview.sh quick '' scripts/preview/quick-fold-check.js
+scripts/preview.sh quick '' scripts/preview/quick-size-check.js
+scripts/preview.sh quick '' scripts/preview/quick-snoozed-check.js
+scripts/preview.sh quick '' scripts/preview/rename-check.js
+scripts/preview.sh quick '' scripts/preview/view-keys-elsewhere-check.js
+scripts/preview.sh sessions '' scripts/preview/agent-seen-check.js
+scripts/preview.sh sessions '' scripts/preview/all-projects-elsewhere-check.js
+scripts/preview.sh sessions '' scripts/preview/api-error-check.js
+scripts/preview.sh sessions '' scripts/preview/app-ask-check.js
+scripts/preview.sh sessions '' scripts/preview/background-tasks-check.js
+scripts/preview.sh sessions '' scripts/preview/claude-app-open-check.js
+scripts/preview.sh sessions '' scripts/preview/codex-directives-check.js
+scripts/preview.sh sessions '' scripts/preview/context-check.js
+scripts/preview.sh sessions '' scripts/preview/copy-message-check.js
+scripts/preview.sh sessions '' scripts/preview/finished-check.js
+scripts/preview.sh sessions '' scripts/preview/hosted-open-check.js
+scripts/preview.sh sessions '' scripts/preview/jev-usage-check.js
+scripts/preview.sh sessions '' scripts/preview/keys-shown-check.js
+scripts/preview.sh sessions '' scripts/preview/limit-lifted-check.js
+scripts/preview.sh sessions '' scripts/preview/list-find-check.js
+scripts/preview.sh sessions '' scripts/preview/message-card-check.js
+scripts/preview.sh sessions '' scripts/preview/open-in-check.js
+scripts/preview.sh sessions '' scripts/preview/orchestrator-check.js
+scripts/preview.sh sessions '' scripts/preview/orchestrator-pick-check.js
+scripts/preview.sh sessions '' scripts/preview/orchestrator-scope-check.js
+scripts/preview.sh sessions '' scripts/preview/orchestrator-start-check.js
+scripts/preview.sh sessions '' scripts/preview/peer-message-check.js
+scripts/preview.sh sessions '' scripts/preview/project-default-check.js
+scripts/preview.sh sessions '' scripts/preview/questions-dialog-check.js
+scripts/preview.sh sessions '' scripts/preview/questions-exiting-check.js
+scripts/preview.sh sessions '' scripts/preview/rename-check.js
+scripts/preview.sh sessions '' scripts/preview/reply-account-check.js
+scripts/preview.sh sessions '' scripts/preview/rewind-question-check.js
+scripts/preview.sh sessions '' scripts/preview/run-untagged-check.js
+scripts/preview.sh sessions '' scripts/preview/seen-ahead-check.js
+scripts/preview.sh sessions '' scripts/preview/session-carry-on-check.js
+scripts/preview.sh sessions '' scripts/preview/session-sort-check.js
+scripts/preview.sh sessions '' scripts/preview/session-window-check.js
+scripts/preview.sh sessions '' scripts/preview/settings-awake-check.js
+scripts/preview.sh sessions '' scripts/preview/settings-emblems-check.js
+scripts/preview.sh sessions '' scripts/preview/settings-find-check.js
+scripts/preview.sh sessions '' scripts/preview/settings-login-check.js
+scripts/preview.sh sessions '' scripts/preview/settings-queue-check.js
+scripts/preview.sh sessions '' scripts/preview/settings-routing-check.js
+scripts/preview.sh sessions '' scripts/preview/settings-shortcut-check.js
+scripts/preview.sh sessions '' scripts/preview/settings-tmux-check.js
+scripts/preview.sh sessions '' scripts/preview/shows-session-check.js
+scripts/preview.sh sessions '' scripts/preview/signed-out-check.js
+scripts/preview.sh sessions '' scripts/preview/snooze-pick-check.js
+scripts/preview.sh sessions '' scripts/preview/snooze-suggested-check.js
+scripts/preview.sh sessions '' scripts/preview/stop-note-check.js
+scripts/preview.sh sessions '' scripts/preview/usage-analytics-check.js
+scripts/preview.sh sessions '' scripts/preview/usage-check.js
+scripts/preview.sh sessions '' scripts/preview/usage-sort-check.js
+scripts/preview.sh sessions '' scripts/preview/view-keys-check.js
+scripts/preview.sh sessions '' scripts/preview/view-keys-elsewhere-check.js
+scripts/preview.sh sessions '' scripts/preview/waiting-glyph-check.js
+scripts/preview.sh sessions '' scripts/preview/window-chrome-check.js
+scripts/preview.sh sessions '' scripts/preview/worktree-picks-check.js
+scripts/preview.sh side '' scripts/preview/side-image-check.js
+scripts/preview.sh side '' scripts/preview/side-window-check.js
+scripts/preview.sh waiting '' scripts/preview/copy-message-check.js
+scripts/preview.sh waiting '' scripts/preview/rename-check.js
+scripts/preview.sh waiting '' scripts/preview/view-keys-elsewhere-check.js

@@ -1015,4 +1015,22 @@ mod tests {
         assert_eq!(editor_icons().len(), editors().len());
         assert!(setup().accounts.iter().any(|a| !a.listed));
     }
+
+    /// `scripts/checks.sh --fixture` runs the runs scripts/preview/fixture-passes.txt lists, each
+    /// named by a line of its check's own header. One whose check was renamed, or whose line
+    /// was changed there, would only fail the next time the gate ran: this says so sooner.
+    #[test]
+    fn every_run_the_gate_lists_is_a_line_of_its_checks_header() {
+        let repo = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("..");
+        let list = std::fs::read_to_string(repo.join("scripts/preview/fixture-passes.txt")).expect("the gate's list");
+        let runs: Vec<&str> = list.lines().filter(|l| !l.is_empty() && !l.starts_with('#')).collect();
+        assert!(!runs.is_empty(), "the gate lists no run");
+        for (n, run) in runs.iter().enumerate() {
+            assert!(!runs[..n].contains(run), "listed twice: {run}");
+            let script = run.rsplit(' ').next().unwrap_or_default();
+            let check = std::fs::read_to_string(repo.join(script)).unwrap_or_default();
+            let said = check.lines().take_while(|l| l.starts_with("//")).any(|l| l.strip_prefix("//   ") == Some(*run));
+            assert!(said, "scripts/preview/fixture-passes.txt lists a run that isn't a line of {script}'s header: {run}");
+        }
+    }
 }

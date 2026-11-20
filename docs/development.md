@@ -141,7 +141,8 @@ npm test                                 # vitest
 (cd src-tauri && cargo test)             # the engine and codealong-peer
 scripts/engine.sh                        # build this checkout's engine when it changed; print its path
 scripts/preview.sh [view] [project]      # render the UI in headless Chrome against your real data
-scripts/checks.sh                        # every browser check in scripts/preview/
+scripts/checks.sh --fixture              # the browser checks that pass on a made-up board: the gate
+scripts/checks.sh [--base] [names…]      # every browser check in scripts/preview/, or some, on your real data
 ```
 
 `cargo test` covers the model's rules, the harnesses' parsers, git and GitHub parsing, usage,
@@ -161,6 +162,16 @@ machine, in any order: what a module keeps for as long as its page lives (side.t
 conversations, api.ts's board) is the next test's too, so a test gives it keys of its own.
 `useWaitingQueue.test.ts` and `mainKeys.dom.test.ts` are the ones to copy from, and
 `ui/Quick.test.ts` for a window's whole page, mounted and opened as the engine opens it.
+
+The browser checks (`scripts/preview/*-check.js`) click through the windows and say what the app
+would have done. `scripts/checks.sh --fixture` runs the ones listed in
+`scripts/preview/fixture-passes.txt` against a made-up Mac the engine prints (`codealong
+--snapshot --fixture`, `src-tauri/src/fixture.rs`: three projects under `/Users/me`, sessions in
+every state, PRs, todos), which is the same on every machine, so a failure there is the change's:
+run it before a UI change lands. `PREVIEW_FIXTURE=1 scripts/preview.sh …` takes screenshots of
+the same board, with nothing of yours in them. The other checks still need a real board, and
+fail on one for want of data: `scripts/checks.sh --base <names>` runs each failure again on the
+base commit's UI over the same snapshot and counts only the ones your change made.
 
 ## Linux
 
@@ -512,6 +523,7 @@ as the engine always was.
 | `src-tauri/src/changes.rs`, `hygiene.rs` | For an orchestrator's loop: what changed on the board since an earlier look, told by difference from what that look saw (`codealong changes`, `changes.json`); and what's left running of old sessions, with the Mac's load, memory and swap, and ending it (`codealong hygiene`) |
 | `src-tauri/src/actions.rs` | What Codealong does to a session or a worktree, or asks of a device, one table of requests: done here, or asked of the device it's on, for a window, another device and the `codealong` command alike, with what each may ask for and what each carries |
 | `src-tauri/src/snapshot.rs` | `codealong --snapshot`: the engine without a window, its modes in one table, for checking what it shows and does |
+| `src-tauri/src/fixture.rs` | A made-up Mac for the browser checks (`--snapshot --fixture`, debug builds only): its board composed from made-up sessions, worktrees, PRs and todos as the engine composes a real one, with the accounts, settings, start options, skills and a conversation to go with it; its test says what the board must have |
 | `src-tauri/src/todos.rs`, `src/todos.ts`, `src/ui/LabelPicker.tsx` | Todos: the store and its changes, linking sessions started from a todo; the list's sections, filters and prompt; the labels todos and sessions wear, and their picker |
 | `src-tauri/src/schedules/`, `src/schedules.ts`, `src/ui/SchedulesView.tsx`, `src/ui/SchedulePanel.tsx`, `src/ui/ScheduleDialog.tsx` | Schedules: what each is and what happened to it (`schedules.json`, `schedule-runs.json`, `mod.rs`), the times a schedule's words name (`rule.rs`, tested on made-up clocks with summer time), and the scheduler, which works out what's due every few seconds and starts or sends for a run (`runner.rs`); the schedules your machines share, each keeping a copy from the others' feeds, and which of them runs one (`machines.rs`, with codealong-peer's `schedules`); the view, its panel and the dialog that makes one |
 | `src-tauri/src/boards.rs`, `src/boards/`, `src/ui/BoardBar.tsx`, `src/ui/BoardDialog.tsx`, `src/ui/RuleFields.tsx` | Boards: named sets of work in a project, each shown as Kanban or Canvas. `boards.json` and every change to it (`BoardOp`, which the engine makes for the window and for `codealong board`), what a rule takes in, who's on a board and which column a card goes in (`rules.ts`), the window's boards with its changes shown at once (`useBoards.ts`), and the main window's answers to `codealong board show\|move\|arrange`, which the engine hands it (`useBoardAsks.ts`); the strip's toggle, and the board, column and rule dialogs |
@@ -551,7 +563,8 @@ as the engine always was.
 | `src/mark.ts`, `src/ui/MarkLive.tsx` | The mark's motion on the bar: what happened between two feeds (a new session working, a turn ended, something needs you, a message sent), which moment plays for it, and the mark in parts that move |
 | `src/ui/useRowDrag.tsx` | Dragging rows in the lists and the quick panel: among the pinned ones (pin, reorder), down to the list (unpin), out of the window (the desktop) |
 | `src/` | The React UI, built from the design system's components and tokens; `lanes.ts` groups the board and mirrors the engine's status rules for the age filter; `pins.ts` keeps the pinned lists; `history.ts` the sessions you looked at, for going back and forward; `ahead.ts` shows sessions marked seen, archived, renamed or sent a message at once, in every window, until a board shows it; `prStatus.ts` and `ui/PrPills.tsx` say where a PR stands and which PRs are your move; `bar.ts`, `ui/Bar.tsx` and `ui/Notch.tsx` lay out the bar, floating or in the notch; `ui/Picker.tsx` is the quick panel's filterable menus, `ui/FieldPicker.tsx` one opened from a form's field, and `ui/pickerOptions.tsx` worktrees and sessions as their options; `ui/SettingsDialog.tsx` and `ui/AccountsSection.tsx` are Settings |
-| `scripts/preview.sh` | Headless preview against real data, for screenshots and scripted checks |
+| `scripts/preview.sh` | Headless preview against real data, or the made-up Mac's (`PREVIEW_FIXTURE=1`), for screenshots and scripted checks |
+| `scripts/checks.sh`, `scripts/preview/fixture-passes.txt` | Runs the browser checks: the listed ones against the made-up Mac as a gate (`--fixture`), any on real data, and a real-data failure again on the base commit's UI to tell data from a change (`--base`) |
 | `src/styles/` | The stylesheets: `app.css` is the index, only `@import`s in cascade order with `tokens.css` first; the files several components share sit beside it (base elements, glyphs, cards, controls, chips, rows, nav, menus, trees, the dialog and panel shells), and each component's own styles next to it (`src/ui/Sidebar.css`). `styles.test.ts` keeps each class in one file, every styled class one the UI renders, and every file in the index once |
 | `scripts/preview/style-diff.mjs` | Records every scene's computed styles before and after a change to the stylesheets and compares them |
 | `design/tokens.json` | Design tokens; `npm run tokens` regenerates `src/styles/tokens.css` |
