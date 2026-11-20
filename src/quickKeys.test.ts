@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import { afterEach, describe, expect, it } from 'vitest';
-import { act, engine, mountHook, press, type, type Mounted } from './testing/dom';
-import { createElement, type KeyboardEvent as ReactKeyboardEvent } from 'react';
+import { act, engine, keyOf, mountHook, press, type, type Mounted } from './testing/dom';
+import { createElement, useLayoutEffect, type KeyboardEvent as ReactKeyboardEvent } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { setPlatform, type Platform } from './platform';
 import { ALL_PROJECTS, type ReviewRow, type SessionRow, type TodoRow } from './quick';
@@ -50,11 +50,10 @@ afterEach(() => {
   root = null;
 });
 
-/** The panel with `over` in place of what it has as it opens: two rows, a repo to start in, two
- *  places to run in, no other machine. */
-function panel(over: Partial<QuickKeys> = {}): string[] {
-  const did: string[] = [];
-  const keys: QuickKeys = {
+/** What the panel has, with `over` in place of what it has as it opens (two rows, a repo to start
+ *  in, two places to run in, no other machine), writing what it's asked to do down in `did`. */
+function having(did: string[], over: Partial<QuickKeys> = {}): QuickKeys {
+  return {
     askingDev: false,
     folded: false,
     picker: null,
@@ -88,6 +87,12 @@ function panel(over: Partial<QuickKeys> = {}): string[] {
     start: () => void did.push('start'),
     ...over,
   };
+}
+
+/** The panel with `over` in place of what it has as it opens. */
+function panel(over: Partial<QuickKeys> = {}): string[] {
+  const did: string[] = [];
+  const keys = having(did, over);
   mounted?.unmount();
   mounted = mountHook(() => useQuickKeys(keys));
   return did;
@@ -220,6 +225,26 @@ describe.each(PLATFORMS)('the quick panel’s keys wherever the keyboard is in i
   it('leaves a menu’s key alone where it has nothing to pick: no repo, no other machine, one place to run in', () => {
     setPlatform(platform);
     expect([does('Cmd+B', { repoNow: null }), does('Cmd+D'), does('Cmd+O', { places: ['terminal'] }), does('Cmd+O', { places: [] })]).toEqual([LEFT, LEFT, LEFT, LEFT]);
+  });
+
+  it('goes by what’s on screen for a key that comes between a render and its effects', () => {
+    setPlatform(platform);
+    // Another machine is heard of, and ⌘D comes as the render that draws its chip is put on the
+    // page, before that render's effects have run: a layout effect is as early as a key can come.
+    const did: string[] = [];
+    const taken: boolean[] = [];
+    function useKeysPressedAsDrawn(macs: QuickKeys['macs']): void {
+      useQuickKeys(having(did, { macs }));
+      useLayoutEffect(() => {
+        if (macs.length === 0 || taken.length > 0) return;
+        const event = new KeyboardEvent('keydown', { bubbles: true, cancelable: true, ...keyOf('Cmd+D') });
+        document.body.dispatchEvent(event);
+        taken.push(event.defaultPrevented);
+      });
+    }
+    const drawn = mountHook<void, QuickKeys['macs']>(useKeysPressedAsDrawn, []);
+    drawn.rerender([mini]);
+    expect([did, taken]).toEqual([['arrows step the effort', 'toggle device menu'], [true]]);
   });
 
   it('has only the project menu’s key in Send to, and only the project’s, repo’s and worktree’s set to listen', () => {

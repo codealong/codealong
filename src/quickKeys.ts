@@ -12,6 +12,7 @@
 
 import { useEffect, type KeyboardEvent as ReactKeyboardEvent } from 'react';
 import { hideQuick, talkTo } from './api';
+import { useLatest } from './latest';
 import { CALMER_CHORD, type Calmer } from './machineLoad';
 import { bare, chordPressed, cmd, emacsCtrl, held as modsHeld } from './platform';
 import type { Row } from './quickRows';
@@ -290,11 +291,14 @@ export function onQuickKey(e: KeyboardEvent, panel: QuickKeys): void {
 }
 
 /** Listens for the panel's keys, wherever the focus is in it. A menu's filter handles its own
- *  first. The listener is added again after every render, as it always was, with what that
- *  render had. */
+ *  first. The listener is added again after every render, as it always was, so its place among
+ *  the window's listeners is as it was; it reads the panel as the latest render has it, not as
+ *  the render that added it did. Between a render and its effect that was the render before's:
+ *  ⌘D pressed as the machine chip was first drawn found no other machine yet, and did nothing. */
 export function useQuickKeys(panel: QuickKeys): void {
+  const now = useLatest(panel);
   useEffect(() => {
-    const onKey = (e: KeyboardEvent) => onQuickKey(e, panel);
+    const onKey = (e: KeyboardEvent) => onQuickKey(e, now.current);
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
   });
