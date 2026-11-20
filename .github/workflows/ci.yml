@@ -29,6 +29,12 @@
 # The public repository's minutes on GitHub's own runners are free, macOS's too.
 name: CI
 
+# A pull request's run is named for it. Nothing else GitHub says of a run tells which pull
+# request it was for (two of one branch, into different branches, have the same commit and
+# branch), and scripts/land.sh finds the one it waits on by this. Any other run keeps the name
+# GitHub gives it.
+run-name: "${{ github.event_name == 'pull_request' && format('#{0} {1}', github.event.pull_request.number, github.event.pull_request.title) || '' }}"
+
 on:
   pull_request:
   merge_group:

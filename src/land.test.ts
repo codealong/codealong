@@ -185,8 +185,10 @@ step git push -q origin main
 # and a run of CI as "status conclusion id address". The files the test leaves say how it
 # goes: "slow" holds how many looks the pull request's own run of CI is still going for and
 # "red" has it fail; "standing" has someone's request to merge the pull request by itself on
-# it, and "conflicting" has main moved under it; "lost" loses GitHub's yes to queueing it, and
-# with "swapped" it has merged by then as another commit; "fail" puts it out of the queue once
+# it, and "conflicting" has main moved under it; "lost" loses GitHub's yes to queueing it
+# ("late" holds how many looks it then takes to show as queued), and with "swapped" it has
+# merged by then as another commit; "refused" has GitHub say no to queueing it, and "dropped"
+# has the asking never reach it; "fail" puts it out of the queue once
 # it has been seen there, "gone" before anyone sees it there, and "mute" has GitHub not say
 # whether it was; "moved" has its branch pushed to.
 cat >"$tmp/bin/gh" <<'GH'
@@ -242,6 +244,11 @@ case "$1 $2" in
         [ ! -f "$f/evicted" ] || echo FAILED_CHECKS
         ;;
       *enqueuePullRequest*)
+        if [ -f "$f/refused" ]; then
+          echo '{"data":{"enqueuePullRequest":null},"errors":[{"type":"UNPROCESSABLE","message":"Failed to add the pull request"}]}'
+          exit 1
+        fi
+        [ ! -f "$f/dropped" ] || exit 1
         # A place in the queue, for the commit named.
         echo "$all" >"$f/asked"
         touch "$f/queued"
@@ -271,6 +278,11 @@ case "$1 $2" in
           applies=MERGEABLE
           [ ! -f "$f/conflicting" ] || applies=CONFLICTING
           echo "OPEN - - PR_$number $standing $applies $at"
+          exit 0
+        fi
+        if [ -f "$f/late" ] && [ "$(cat "$f/late")" -gt 0 ]; then
+          echo $(($(cat "$f/late") - 1)) >"$f/late"
+          echo "OPEN - - PR_$number - MERGEABLE $at"
           exit 0
         fi
         looks=$(($(cat "$f/looks") + 1))
@@ -364,10 +376,12 @@ scripts/land.sh --reviewed-by "an account, a model" >"$tmp/out" 2>&1
 echo "set to merge by itself: $? $(grep -c 'disable-auto' "$tmp/out"), origin's still $(git -C "$tmp/origin.git" log --format=%s -1 topic)"
 rm "$tmp/standing"
 # Landed again: the same pull request, and the branch pushed over this script's own earlier
-# push of it. GitHub's yes to queueing it is lost on its way back, and it's seen to be queued.
+# push of it. GitHub's yes to queueing it is lost on its way back, and it takes GitHub a look
+# or two to show it queued: waited for, not taken for a no.
 touch "$tmp/lost"
+echo 2 >"$tmp/late"
 echo "landing again: $(scripts/land.sh --reviewed-by "an account, a model" 2>&1 | landed)"
-rm "$tmp/lost"
+rm "$tmp/lost" "$tmp/late"
 echo "main: $(onmain) ($(cat "$tmp/last") pull requests)"
 # A branch of this name that someone else pushed, with work of theirs on it, isn't pushed over.
 step git -C "$tmp/main" pull -q origin main
@@ -387,8 +401,11 @@ scripts/land.sh >"$tmp/out" 2>&1
 echo "over someone else's branch: $? $(grep -c "isn't what this" "$tmp/out"), theirs still $(git -C "$tmp/origin.git" log --format=%s -1 theirs)"
 # The checks alone, on a branch of their own that's gone after.
 step git branch -q -m mine
+# With a version's tag on the commit: neither the push that makes the branch nor the one that
+# removes it takes the tag along.
+step git tag -a -m "another version" v9.9.8
 echo "checked: $(scripts/land.sh --check 2>&1 | tail -1 | commits)"
-echo "origin's branches after: $(onorigin)"
+echo "origin's branches after: $(onorigin), with $(git -C "$tmp/origin.git" tag | wc -l | tr -d ' ') tags"
 # Queued and left: GitHub lands it with nobody waiting, and asking again says so and catches up.
 echo "queued and left: $(scripts/land.sh --no-wait 2>&1 | head -1 | commits)"
 echo "asked again, still queued: $(scripts/land.sh --no-wait 2>&1 | head -1 | commits)"
@@ -435,6 +452,18 @@ touch "$tmp/conflicting"
 scripts/land.sh >"$tmp/out" 2>&1
 echo "main moved under its pull request: $? $(grep -c 'no longer applies on main' "$tmp/out")"
 rm "$tmp/conflicting"
+noted() { ls "$tmp/main/.git/codealong-landing" | grep -c 'sent$'; }
+# GitHub says no to queueing it, with why: said, and that landing is over.
+touch "$tmp/refused"
+scripts/land.sh >"$tmp/out" 2>&1
+echo "refused a place in the queue: $? $(grep -c "wouldn't queue" "$tmp/out") ($(noted) noted)"
+rm "$tmp/refused"
+# No answer at all to the asking, and no sign of it in the queue after a few looks: not called
+# a refusal, and still noted, to be taken up again (as the next step does).
+touch "$tmp/dropped"
+scripts/land.sh >"$tmp/out" 2>&1
+echo "no answer to the asking: $? $(grep -c "wouldn't queue" "$tmp/out") ($(noted) noted)"
+rm "$tmp/dropped"
 # GitHub's yes lost, and the pull request merged by then as another commit than this one: not
 # said to be queued, though it isn't waited for.
 touch "$tmp/lost" "$tmp/swapped"
@@ -508,6 +537,25 @@ step git -C "$tmp/main" push -q origin main
 was="$(git rev-parse HEAD)"
 scripts/land.sh >"$tmp/out" 2>&1
 echo "differing from main's only by a space: $? $(grep -c 'Nothing to land' "$tmp/out") $(grep -c "doesn't apply on origin/main" "$tmp/out") $([ "$(git rev-parse HEAD)" = "$was" ] && echo kept)"
+# A branch that adds a file and takes it away again, where main has since been given the same
+# file from elsewhere: merging it would change nothing, but a rebase skips the adding for
+# main's and writes the taking away on top of main. Left as it was, not one commit from
+# landing that.
+step git worktree add -q "$tmp/undone" -b undone origin/main
+step cd "$tmp/undone"
+here
+echo u >docs/u.md
+step git add -A
+step git commit -q -m "undone: add"
+step git rm -q docs/u.md
+step git commit -q -m "undone: take away"
+echo u >"$tmp/main/docs/u.md"
+step git -C "$tmp/main" add -A
+step git -C "$tmp/main" commit -q -m "main: the same file"
+step git -C "$tmp/main" push -q origin main
+was="$(git rev-parse HEAD)"
+scripts/land.sh >"$tmp/out" 2>&1
+echo "adding and taking away what main has since: $? $(grep -c '^Nothing to land' "$tmp/out") $(grep -c "it's left as it was" "$tmp/out") $([ "$(git rev-parse HEAD)" = "$was" ] && echo kept)"
 step cd "$tmp/main"
 scripts/land.sh >"$tmp/out" 2>&1
 echo "from main: $(grep -c 'is on main' "$tmp/out")"
@@ -536,7 +584,7 @@ test('a landing queues its pull request as the commit that was asked for, on a m
     'main: a script, fixed,a script,main moved again,docs: two,main moved,first, (8 pull requests)',
     "over someone else's branch: 1 1, theirs still theirs",
     'checked: Checked, not landed: <commit> passed CI (https://github.com/acme/northwind/actions/runs/55).',
-    "origin's branches after: main theirs ",
+    "origin's branches after: main theirs , with 0 tags",
     "queued and left: Queued: pull request #9 (https://github.com/acme/northwind/pull/9) lands <commit> when main's merge queue has checked it.",
     "asked again, still queued: Queued still: pull request #9 (https://github.com/acme/northwind/pull/9) lands <commit> when main's merge queue has checked it.",
     'asked again: Landed: <commit> is in origin/main. Fast-forwarded the main checkout to origin/main (<commit>).',
@@ -548,6 +596,8 @@ test('a landing queues its pull request as the commit that was asked for, on a m
     'its branch moved under it: 1 1 1',
     'its own run of CI failing: 1 1 1 (0 queued)',
     'main moved under its pull request: 1 1',
+    'refused a place in the queue: 1 1 (0 noted)',
+    'no answer to the asking: 3 0 (1 noted)',
     'merged as another commit: 1 0 1',
     'while another landing of it runs: 1 1',
     'with no merge queue: 1 1',
@@ -556,8 +606,9 @@ test('a landing queues its pull request as the commit that was asked for, on a m
     "and it's left as it was, here and on origin",
     'half of it landed already: 1 1',
     "differing from main's only by a space: 1 0 1 kept",
+    'adding and taking away what main has since: 0 1 1 kept',
     'from main: 1',
-    'main, at the end: main: ab,half: one,main, on the same lines,docs: four,docs: three,a script, fixed,a script,main moved again,docs: two,main moved,first,',
+    'main, at the end: main: the same file,main: ab,half: one,main, on the same lines,docs: four,docs: three,a script, fixed,a script,main moved again,docs: two,main moved,first,',
     'tags on origin: 0',
   ]);
 });
