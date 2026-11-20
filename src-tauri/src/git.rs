@@ -293,7 +293,24 @@ pub fn locked(path: &Path) -> Option<String> {
 pub fn new_work(path: &Path, base: Option<&str>) -> Vec<i64> {
     let Some(log) = git_dir(path).and_then(|d| std::fs::read(d.join("logs/HEAD")).ok()) else { return Vec::new() };
     let tail = &log[log.len().saturating_sub(REFLOG_TAIL)..];
-    String::from_utf8_lossy(tail).lines().filter_map(|l| new_work_at(l, base)).collect()
+    new_work_from_log(&String::from_utf8_lossy(tail), base)
+}
+
+/// `new_work` over the contents of a `HEAD` reflog: tracks the `(branch, oid)` last left for a
+/// detached HEAD so inspecting commits (`checkout <sha>`, `checkout HEAD~1`, `checkout v1`,
+/// `checkout --detach main`) and returning to that same branch at the same commit doesn't count
+/// as taking new work, while resetting or recreating that branch (`switch -C`, `checkout -B`,
+/// `branch -D` + `switch -c`) onto a different commit still does.
+fn new_work_from_log(log: &str, base: Option<&str>) -> Vec<i64> {
+    let lines: Vec<&str> = log.lines().collect();
+    let mut detached_from = None;
+    let mut out = Vec::new();
+    for (i, line) in lines.iter().enumerate() {
+        if let Some(ts) = new_work_step(line, &lines[i + 1..], base, &mut detached_from) {
+            out.push(ts);
+        }
+    }
+    out
 }
 
 /// What git has under way in the worktree at `path`, keeping its state in the worktree's own git
@@ -329,20 +346,78 @@ fn git_dir(path: &Path) -> Option<PathBuf> {
 
 /// A reflog line's time, in ms, when it starts new work. A line is `<old> <new> <who> <seconds>
 /// <zone>`, a tab, then what happened. Going to the branch you're on (`switch -C` writes that
-/// after its reset) and resets anywhere but the default branch (undoing a commit) don't count.
-pub fn new_work_at(line: &str, base: Option<&str>) -> Option<i64> {
-    let (head, message) = line.split_once('\t')?;
-    let mut parts = head.rsplitn(3, ' ');
-    let _zone = parts.next()?;
-    let seconds: i64 = parts.next()?.parse().ok()?;
+/// after its reset), detaching HEAD to inspect commits and returning to the same branch at the
+/// same commit, and resets anywhere but the default branch (undoing a commit) don't count.
+/// `detached_from` carries `(branch, oid)` across lines while HEAD is detached.
+fn new_work_step<'a>(line: &'a str, rest_lines: &[&'a str], base: Option<&str>, detached_from: &mut Option<(&'a str, &'a str)>) -> Option<i64> {
+    let (old_oid, new_oid, seconds, message) = parse_reflog_line(line)?;
     let new_work = if let Some(rest) = message.strip_prefix("checkout: moving from ") {
-        rest.split_once(" to ").is_some_and(|(from, to)| from != to)
+        rest.split_once(" to ").is_some_and(|(from, to)| {
+            let from_detached = is_oid(from, old_oid);
+            let to_detached = is_detached_target(to, new_oid) || next_checkout_leaves_detached(rest_lines);
+            if to_detached {
+                if !from_detached {
+                    *detached_from = Some((from, old_oid));
+                }
+                return false;
+            }
+            let left = detached_from.take();
+            if from_detached {
+                left != Some((to, new_oid))
+            } else {
+                from != to
+            }
+        })
     } else if let Some(to) = message.strip_prefix("reset: moving to ") {
         base.is_some_and(|b| to == b || b.split_once('/').is_some_and(|(_, name)| to == name))
     } else {
         message.starts_with("branch: Reset to ") || message.starts_with("branch: Created from ")
     };
     new_work.then_some(seconds * 1000)
+}
+
+fn parse_reflog_line(line: &str) -> Option<(&str, &str, i64, &str)> {
+    let (head, message) = line.split_once('\t')?;
+    let mut head_front = head.splitn(3, ' ');
+    let old_oid = head_front.next()?;
+    let new_oid = head_front.next()?;
+    let mut parts = head.rsplitn(3, ' ');
+    let _zone = parts.next()?;
+    let seconds: i64 = parts.next()?.parse().ok()?;
+    Some((old_oid, new_oid, seconds, message))
+}
+
+/// Whether the next `checkout: moving from …` in `rest_lines` starts from a detached HEAD (its
+/// `from` is the full `old_oid`), without a rebase or branch operation intervening. Catches
+/// detached checkouts whose target looked like a name (`checkout v1`, `checkout --detach main`,
+/// `checkout origin/main`).
+fn next_checkout_leaves_detached(rest_lines: &[&str]) -> bool {
+    for line in rest_lines {
+        let Some((old_oid, _, _, message)) = parse_reflog_line(line) else { continue };
+        if let Some(rest) = message.strip_prefix("checkout: moving from ") {
+            return rest.split_once(" to ").is_some_and(|(from, _)| is_oid(from, old_oid));
+        }
+        if message.starts_with("rebase") || message.starts_with("branch:") {
+            return false;
+        }
+    }
+    false
+}
+
+/// Whether `s` is a commit hash in a `checkout: moving from … to …` reflog message: a full
+/// SHA-1/SHA-256 hash, or an abbreviated hex prefix (4+ chars, git's minimum) of the line's
+/// commit `oid`.
+fn is_oid(s: &str, oid: &str) -> bool {
+    let hex = |t: &str| t.bytes().all(|b| b.is_ascii_hexdigit());
+    ((s.len() == 40 || s.len() == 64) && hex(s))
+        || (s.len() >= 4 && hex(s) && (oid.len() == 40 || oid.len() == 64) && oid.get(..s.len()).is_some_and(|p| p.eq_ignore_ascii_case(s)))
+}
+
+/// Whether `to` in `checkout: moving from … to <to>` detaches HEAD onto a commit rather than
+/// moving to a branch: a commit hash, `HEAD`, or a revspec (`~`, `^`, `@{`) git forbids in branch
+/// names.
+fn is_detached_target(to: &str, new_oid: &str) -> bool {
+    is_oid(to, new_oid) || to == "HEAD" || to.contains(['~', '^']) || to.contains("@{")
 }
 
 #[derive(Debug, Default, PartialEq)]
@@ -520,19 +595,61 @@ mod tests {
 
     #[test]
     fn a_reflog_line_starts_new_work_when_the_branch_changes_or_goes_back_to_the_base() {
-        let at = |m: &str| new_work_at(&format!("aaa bbb Some One <one@x.y> 1790785361 -0700\t{m}"), Some("origin/main"));
+        let at = |m: &str| new_work_from_log(&format!("aaa bbb Some One <one@x.y> 1790785361 -0700\t{m}"), Some("origin/main")).into_iter().next();
         assert_eq!(at("checkout: moving from app3 to feature"), Some(1_790_785_361_000));
         assert_eq!(at("branch: Reset to origin/main"), Some(1_790_785_361_000));
         assert_eq!(at("branch: Created from origin/main"), Some(1_790_785_361_000));
         assert_eq!(at("reset: moving to origin/main"), Some(1_790_785_361_000));
         assert_eq!(at("reset: moving to main"), Some(1_790_785_361_000));
-        // Going to the branch it's on, undoing a commit, committing and pulling don't.
+        // Going to the branch it's on, detaching onto a commit or revspec, undoing a commit,
+        // committing and pulling don't.
         assert_eq!(at("checkout: moving from app3 to app3"), None);
+        let oid = "48a1673b11512e868fc1d6a4c0e664b444a018d7";
+        let at_oid = |m: &str| new_work_from_log(&format!("{oid} {oid} Some One <one@x.y> 1790785361 -0700\t{m}"), Some("origin/main")).into_iter().next();
+        assert_eq!(at_oid(&format!("checkout: moving from app3 to {oid}")), None);
+        assert_eq!(at_oid("checkout: moving from app3 to 48a1673b"), None);
+        assert_eq!(at_oid("checkout: moving from app3 to 48a16"), None);
+        assert_eq!(at_oid("checkout: moving from app3 to HEAD~1"), None);
+        assert_eq!(at_oid("checkout: moving from app3 to HEAD^"), None);
         assert_eq!(at("reset: moving to HEAD~1"), None);
         assert_eq!(at("reset: moving to HEAD"), None);
         assert_eq!(at("commit: Fix the thing"), None);
         assert_eq!(at("pull: Fast-forward"), None);
-        assert_eq!(new_work_at("no tab here", None), None);
+        assert_eq!(new_work_from_log("no tab here", None), Vec::<i64>::new());
+    }
+
+    #[test]
+    fn detaching_to_inspect_commits_and_returning_to_the_same_branch_is_not_new_work() {
+        let a = "48a1673b11512e868fc1d6a4c0e664b444a018d7";
+        let b = "833f210a81eb69faf4abf815deff0063e20c11b9";
+        let c = "711e0613bcfd52ca05b6be5876994827949f0f77";
+        let d = "e9ef7e329a0ee71f0a453f6131540cfada4d1ed5";
+        let line = |old: &str, new: &str, t: i64, m: &str| format!("{old} {new} A <a@b.c> {t} +0000\t{m}\n");
+        let log = [
+            line(c, a, 100, &format!("checkout: moving from worktree-agent to {a}")),
+            line(a, b, 110, &format!("checkout: moving from {a} to {b}")),
+            line(b, c, 120, &format!("checkout: moving from {b} to {c}")),
+            line(c, c, 130, &format!("checkout: moving from {c} to worktree-agent")),
+            // Short SHA (down to 4 chars), revspec, and tag/remote-branch detachments returning
+            // to the same branch at the same commit don't count either.
+            line(c, a, 140, "checkout: moving from worktree-agent to 48a16"),
+            line(a, c, 150, &format!("checkout: moving from {a} to worktree-agent")),
+            line(c, b, 160, "checkout: moving from worktree-agent to HEAD~1"),
+            line(b, c, 170, &format!("checkout: moving from {b} to worktree-agent")),
+            line(c, a, 172, "checkout: moving from worktree-agent to origin/main"),
+            line(a, c, 174, &format!("checkout: moving from {a} to worktree-agent")),
+            line(c, b, 176, "checkout: moving from worktree-agent to v1.0"),
+            line(b, c, 178, &format!("checkout: moving from {b} to worktree-agent")),
+            // Resetting or recreating the same branch onto a different commit while detached
+            // (`git switch -C worktree-agent origin/main`, `branch -D` + `switch -c`) does count.
+            line(c, a, 180, &format!("checkout: moving from worktree-agent to {a}")),
+            line(a, d, 185, &format!("checkout: moving from {a} to worktree-agent")),
+            // Switching from a detached HEAD onto a different branch does count.
+            line(d, a, 190, &format!("checkout: moving from worktree-agent to {a}")),
+            line(a, a, 195, &format!("checkout: moving from {a} to next-feature")),
+        ]
+        .concat();
+        assert_eq!(new_work_from_log(&log, Some("origin/main")), vec![185_000, 195_000]);
     }
 
     #[test]
