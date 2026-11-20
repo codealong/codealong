@@ -94,7 +94,7 @@ Agents land dozens of changes a day, and every other session builds on what land
 minutes on a quiet Mac, forty with twenty agents building. Now they run on GitHub:
 
 - **Nothing reaches `main` unchecked.** `scripts/land.sh` rebases the branch onto `origin/main`,
-  pushes it, opens its pull request (labelled `land`) and asks GitHub to merge it. `main`'s
+  pushes it, opens its pull request and asks GitHub to merge it. `main`'s
   merge queue runs CI on the change as it would land, on top of `main` and of whatever is
   queued before it, and merges it when `gate` passes. The queue rebases: `main` stays a
   straight line, and its commits are copies of the branch's with ids of their own. A change
@@ -124,8 +124,11 @@ minutes on a quiet Mac, forty with twenty agents building. Now they run on GitHu
   merged automatically, a merged branch is deleted, and a ruleset on `main` requires the merge
   queue (rebase as its method) and the `gate` check. The organization's admins may bypass the
   ruleset, which is how a release's version commit (`scripts/version.sh --push`) still goes
-  straight to `main`; CI runs on that push too. `land.sh` refuses to land where `main` has no
-  merge queue, since asking GitHub to merge would then merge at once.
+  straight to `main`; CI runs on that push too. A pull request into `main` from one of the
+  repository's own branches has a `gate` that passes with nothing run, since the queue's run is
+  the one that checks it: so the queue is what makes that safe, CI asks for it each time and
+  checks everything on the pull request when there's none, and `land.sh` refuses to land
+  where `main` has no merge queue, since asking GitHub to merge would then merge at once.
 - **A red `main` is somebody's.** It can still happen: the browser checks failing on what
   landed, a commit pushed past the queue, or the daily run of everything failing for a
   toolchain or a runner's image that moved. A Codealong schedule watches both workflows' runs
@@ -146,8 +149,9 @@ minutes on a quiet Mac, forty with twenty agents building. Now they run on GitHu
   main, so until it passes again they're all building on something broken.
 
   1. Read why: gh run view <its id> --log-failed. If a later run of the same workflow on main
-     has passed since (gh run list --workflow <ci.yml or checks.yml> --branch main --limit 3),
-     say so in a line and stop.
+     has passed since with the job that failed among those it ran (gh run list --workflow
+     <ci.yml or checks.yml> --branch main --limit 5; a run that skipped that job says nothing
+     of it), say so in a line and stop.
   2. Find the commit that broke it, between the last run that passed and this one, and fix it
      in a worktree of your own as CLAUDE.md's Landing work says: the smallest fix, and a test
      that would have caught it on a Mac where one can be written (a test that needed a
@@ -196,8 +200,10 @@ The browser checks (`scripts/preview/*-check.js`) click through the windows and 
 would have done. `scripts/checks.sh --fixture` runs the ones listed in
 `scripts/preview/fixture-passes.txt` against a made-up Mac the engine prints (`codealong
 --snapshot --fixture`, `src-tauri/src/fixture.rs`: three projects under `/Users/me`, sessions in
-every state, PRs, todos), which is the same on every machine, so a failure there is the change's:
-run it before a UI change lands. `PREVIEW_FIXTURE=1 scripts/preview.sh …` takes screenshots of
+every state, PRs, todos), which is the same on every machine, so a failure there is the change's.
+GitHub runs the list on `main` after what lands (*Keeping main working*); before a UI change
+lands, run the checks that cover it (`scripts/checks.sh --fixture <names>`), not all of it.
+`PREVIEW_FIXTURE=1 scripts/preview.sh …` takes screenshots of
 the same board, with nothing of yours in them (they're written to `.preview/fixture`, where the
 made-up Mac's build and snapshots are kept apart from yours). The other checks still need a real
 board, and fail on one for want of data: `scripts/checks.sh --base <names>` runs each failure

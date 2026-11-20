@@ -144,10 +144,10 @@ test('an option is never taken for who reviewed it', { timeout: SEVERAL }, async
 // A repository with a remote, a main checkout and a worktree, as the script is run in: nothing
 // of this Mac's git settings or hooks, and nothing left behind. GitHub is a stand-in for `gh`,
 // written below: it keeps the one pull request the script opens, and its merge queue writes
-// the branch's commits again on top of main in the test's own remote, as GitHub's rebase does,
-// or puts the pull request out when the test says its checks fail. So what's tried is the
-// landing itself: the rebase, the push of the branch, the pull request, the wait, and this
-// branch and the main checkout caught up.
+// the branch's commits again on top of main in the test's own remote and removes the branch,
+// as GitHub's rebase does, or puts the pull request out when the test says its checks fail. So
+// what's tried is the landing itself: the rebase, the push of the branch, the pull request, the
+// wait, and this branch and the main checkout caught up.
 //
 // It commits and pushes, so it must never do either anywhere but in its own folder: git's own
 // variables are cleared first (under a hook or a rebase's `exec` they name the repository the
@@ -181,14 +181,22 @@ step git commit -q -m first
 step git push -q origin main
 
 # GitHub, as the script asks it. What gh would have cut out of its answer with --jq is what
-# this prints.
+# this prints: where a pull request stands as "state queue merged gate asked head". The files
+# the test leaves say how its queue goes: "fail" puts the pull request out once it has been
+# seen in the queue, "gone" before anyone sees it there, and "moved" has its branch pushed to.
 cat >"$tmp/bin/gh" <<'GH'
 #!/bin/bash
 f="$FAKE"
 all="$*"
 case "$1 $2" in
   "repo view") echo acme/northwind ;;
-  "pr list") [ ! -f "$f/pr" ] || cat "$f/pr" ;;
+  "pr list")
+    while [ $# -gt 1 ]; do
+      [ "$1" != --head ] || asked_for="$2"
+      shift
+    done
+    [ ! -f "$f/pr" ] || [ "$(cat "$f/head")" != "$asked_for" ] || cat "$f/pr"
+    ;;
   "pr create")
     n=$(($(cat "$f/last" 2>/dev/null || echo 6) + 1))
     echo "$n" >"$f/last"
@@ -197,17 +205,20 @@ case "$1 $2" in
       case "$1" in
         --title) echo "$2" >"$f/title" ;;
         --body-file) cp "$2" "$f/body" ;;
-        --label) echo "$2" >"$f/label" ;;
         --head) echo "$2" >"$f/head" ;;
       esac
       shift
     done
     echo "https://github.com/acme/northwind/pull/$n"
     ;;
-  "pr edit") echo "$all" >>"$f/edits" ;;
   "pr merge")
-    echo "$all" >"$f/asked"
-    echo 0 >"$f/looks"
+    case "$all" in
+      *--disable-auto*) rm -f "$f/asked" ;;
+      *)
+        echo "$all" >"$f/asked"
+        echo 0 >"$f/looks"
+        ;;
+    esac
     ;;
   "run list")
     case "$all" in
@@ -220,20 +231,31 @@ case "$1 $2" in
       *"mergeQueue(branch"*) [ -f "$f/no-queue" ] || echo Q_1 ;;
       *REMOVED_FROM_MERGE_QUEUE_EVENT*) echo FAILED_CHECKS ;;
       *mergeQueueEntry*)
+        at="$(git --git-dir="$f/origin.git" rev-parse -q --verify "refs/heads/$(cat "$f/head")" || cat "$f/at")"
+        echo "$at" >"$f/at"
+        if [ ! -f "$f/asked" ]; then
+          echo "OPEN - - - - $at"
+          exit 0
+        fi
         looks=$(($(cat "$f/looks") + 1))
         echo "$looks" >"$f/looks"
-        if [ "$looks" = 1 ]; then
-          echo "OPEN AWAITING_CHECKS - SUCCESS"
-        elif [ -f "$f/fail" ]; then
-          echo "OPEN - - SUCCESS"
+        if [ -f "$f/moved" ]; then
+          echo "OPEN QUEUED - SUCCESS asked 0000000000000000000000000000000000000000"
+        elif [ -f "$f/gone" ] || { [ -f "$f/fail" ] && [ "$looks" -gt 1 ]; }; then
+          rm -f "$f/asked"
+          echo "OPEN - - SUCCESS - $at"
+        elif [ "$looks" = 1 ]; then
+          echo "OPEN AWAITING_CHECKS - SUCCESS asked $at"
         else
-          # The queue: the branch's commits written again on top of main, by another hand.
+          # The queue: the branch's commits written again on top of main, by another hand,
+          # and the branch removed, as the repository is set to.
+          branch="$(cat "$f/head")"
           rm -rf "$f/queue"
           git clone -q "$f/origin.git" "$f/queue" 2>/dev/null && cd "$f/queue" && git checkout -q main &&
-            git rev-parse "origin/$(cat "$f/head")" >"$f/pushed" &&
-            GIT_COMMITTER_NAME=queue git cherry-pick "main..origin/$(cat "$f/head")" >/dev/null && git push -q origin main || exit 1
-          rm -f "$f/pr"
-          echo "MERGED - $(git rev-parse HEAD) SUCCESS"
+            GIT_COMMITTER_NAME=queue git cherry-pick "main..origin/$branch" >/dev/null &&
+            git push -q origin main ":$branch" || exit 1
+          rm -f "$f/pr" "$f/asked"
+          echo "MERGED - $(git rev-parse HEAD) SUCCESS - $at"
         fi
         ;;
     esac
@@ -243,6 +265,8 @@ GH
 step chmod +x "$tmp/bin/gh"
 export FAKE="$tmp" PATH="$tmp/bin:$PATH" CODEALONG_LAND_POLL=0
 onmain() { git -C "$tmp/origin.git" log --format=%s main | tr '\\n' ','; }
+onorigin() { git -C "$tmp/origin.git" for-each-ref --format='%(refname:short)' refs/heads | tr '\\n' ' '; }
+landed() { grep -E '^(Landed|Nothing to land|Reviewed)' | commits | paste -sd' ' -; }
 
 step git worktree add -q "$tmp/topic" -b topic origin/main
 echo x >docs/b.md
@@ -254,13 +278,12 @@ here
 echo two >>docs/a.md
 step git commit -q -am "docs: two"
 was="$(git rev-parse HEAD)"
-echo "landing: $(scripts/land.sh 2>&1 | grep '^Landed' | commits)"
+echo "landing: $(scripts/land.sh 2>&1 | landed)"
 echo "main: $(onmain)"
 echo "the main checkout: $(git -C "$tmp/main" log --format=%s -1)"
 [ "$(git rev-parse HEAD)" = "$(git rev-parse origin/main)" ] && [ "$(git rev-parse HEAD)" != "$was" ] && echo "this branch is where main is, as the queue wrote it"
-echo "its pull request: $(cat "$tmp/title"), labelled $(cat "$tmp/label"), $(grep -c 'no review' "$tmp/body") word on its review"
-[ "$(sed 's/.*--match-head-commit //' "$tmp/asked")" = "$(cat "$tmp/pushed")" ] && echo "asked to merge only the commit it pushed"
-echo "its branch on origin after: $(git -C "$tmp/origin.git" branch --list topic | wc -l | tr -d ' ')"
+echo "its pull request: $(cat "$tmp/title"), $(grep -c 'no review' "$tmp/body") word on its review"
+echo "origin's branches after: $(onorigin)"
 here
 echo 'echo hi' >scripts/new.sh
 step git add -A
@@ -276,27 +299,64 @@ touch "$tmp/fail"
 scripts/land.sh --reviewed-by "an account, a model" >"$tmp/out" 2>&1
 echo "put out of the queue: $? $(grep -c 'put pull request #8 out: FAILED_CHECKS' "$tmp/out") $(grep -c 'gh run view 99 --log-failed' "$tmp/out")"
 echo "main, after: $(onmain)"
+# Fixed and landed again, main having moved meanwhile: the same pull request, and the branch,
+# which the rebase rewrote, pushed over this script's own earlier push of it.
+step git -C "$tmp/main" pull -q origin main
+echo y >"$tmp/main/docs/c.md"
+step git -C "$tmp/main" add -A
+step git -C "$tmp/main" commit -q -m "main moved again"
+step git -C "$tmp/main" push -q origin main
 rm "$tmp/fail"
-# Fixed and landed again: the same pull request, labelled before the push, and the branch
-# pushed over this checkout's own earlier push of it.
 echo 'echo hello' >scripts/new.sh
 step git commit -q -am "a script, fixed"
-echo "landing again: $(scripts/land.sh --reviewed-by "an account, a model" 2>&1 | grep -E '^(Landed|Reviewed)' | commits | paste -sd' ' -)"
-echo "main: $(onmain) ($(cat "$tmp/last") pull requests, $(grep -c -- '--add-label land' "$tmp/edits") labelled again)"
-# A branch of this name that someone else pushed isn't pushed over.
+echo "landing again: $(scripts/land.sh --reviewed-by "an account, a model" 2>&1 | landed)"
+echo "main: $(onmain) ($(cat "$tmp/last") pull requests)"
+# A branch of this name that someone else pushed, with work of theirs on it, isn't pushed over.
 step git -C "$tmp/main" pull -q origin main
-step git -C "$tmp/main" push -q origin HEAD~1:refs/heads/theirs
+step git -C "$tmp/main" checkout -q -b theirs
+echo t >"$tmp/main/docs/t.md"
+step git -C "$tmp/main" add -A
+step git -C "$tmp/main" commit -q -m "theirs"
+step git -C "$tmp/main" push -q origin theirs
+step git -C "$tmp/main" checkout -q main
+step git -C "$tmp/main" branch -q -D theirs
 step git worktree add -q "$tmp/theirs" -b theirs origin/main
 step cd "$tmp/theirs"
 here
 echo three >>docs/a.md
 step git commit -q -am "docs: three"
 scripts/land.sh >"$tmp/out" 2>&1
-echo "over someone else's branch: $? $(grep -c 'someone else pushed it' "$tmp/out")"
-# The checks alone, on the branch as pushed (its own name this time).
+echo "over someone else's branch: $? $(grep -c "isn't what this" "$tmp/out"), theirs still $(git -C "$tmp/origin.git" log --format=%s -1 theirs)"
+# The checks alone, on a branch of their own that's gone after.
 step git branch -q -m mine
 echo "checked: $(scripts/land.sh --check 2>&1 | tail -1 | commits)"
+echo "origin's branches after: $(onorigin)"
+# Queued and left: GitHub lands it with nobody waiting, and asking again says so and catches up.
 echo "queued and left: $(scripts/land.sh --no-wait 2>&1 | head -1 | commits)"
+gh api graphql mergeQueueEntry >/dev/null
+gh api graphql mergeQueueEntry >/dev/null
+echo "asked again: $(scripts/land.sh 2>&1 | landed)"
+[ "$(git rev-parse HEAD)" = "$(git rev-parse origin/main)" ] && echo "and this branch is where main is"
+# Put out before anyone saw it in the queue: still said, not waited on for ever.
+echo four >>docs/a.md
+step git commit -q -am "docs: four"
+touch "$tmp/gone"
+scripts/land.sh >"$tmp/out" 2>&1
+echo "put out unseen: $? $(grep -c 'put pull request #10 out: FAILED_CHECKS' "$tmp/out")"
+rm "$tmp/gone"
+# Its branch pushed to by someone else while this waits: no longer this landing's.
+touch "$tmp/moved"
+scripts/land.sh >"$tmp/out" 2>&1
+echo "its branch moved under it: $? $(grep -c "no longer this landing's" "$tmp/out")"
+rm "$tmp/moved"
+# Another landing of this branch under way here.
+sleep 300 &
+other=$!
+mkdir -p "$tmp/main/.git/codealong-landing"
+echo "$other" >"$tmp/main/.git/codealong-landing/mine"
+scripts/land.sh >"$tmp/out" 2>&1
+echo "while another landing of it runs: $? $(grep -c 'Another landing of mine is under way' "$tmp/out")"
+kill "$other"
 # Without main's merge queue, asking GitHub to merge would merge unchecked.
 touch "$tmp/no-queue"
 scripts/land.sh >"$tmp/out" 2>&1
@@ -315,22 +375,27 @@ test('a landing rebases onto a main that moved, queues its pull request, and bri
     'main: docs: two,main moved,first,',
     'the main checkout: docs: two',
     'this branch is where main is, as the queue wrote it',
-    'its pull request: docs: two, labelled land, 1 word on its review',
-    'asked to merge only the commit it pushed',
-    'its branch on origin after: 0',
+    'its pull request: docs: two, 1 word on its review',
+    "origin's branches after: main ",
     // Neither of these gets as far as a push or a pull request.
     'code, with no word on its review: 2 (7 pull requests so far)',
     "with a file git doesn't know of: 1",
     'put out of the queue: 1 1 1',
     'main, after: docs: two,main moved,first,',
     'landing again: Landed: <commit> is in origin/main. Fast-forwarded the main checkout to origin/main (<commit>). Reviewed by: an account, a model.',
-    'main: a script, fixed,a script,docs: two,main moved,first, (8 pull requests, 1 labelled again)',
-    "over someone else's branch: 1 1",
+    'main: a script, fixed,a script,main moved again,docs: two,main moved,first, (8 pull requests)',
+    "over someone else's branch: 1 1, theirs still theirs",
     'checked: Checked, not landed: <commit> passed CI (https://github.com/acme/northwind/actions/runs/55).',
+    "origin's branches after: main theirs ",
     "queued and left: Queued: pull request #9 (https://github.com/acme/northwind/pull/9) lands <commit> when main's merge queue has checked it.",
+    "asked again: Nothing to land: origin/main (<commit>) already has this branch's commits. Fast-forwarded the main checkout to origin/main (<commit>).",
+    'and this branch is where main is',
+    'put out unseen: 1 1',
+    'its branch moved under it: 1 1',
+    'while another landing of it runs: 1 1',
     'with no merge queue: 1 1',
     'from main: 1',
-    'main, at the end: a script, fixed,a script,docs: two,main moved,first,',
+    'main, at the end: docs: three,a script, fixed,a script,main moved again,docs: two,main moved,first,',
   ]);
 });
 

@@ -21,7 +21,15 @@
 # can turn red. One that was cancelled only made way for a later one. Before there was a watch,
 # a failed run emailed whoever last changed the workflow, and main stayed red until they read
 # it: eight hours on 2026-11-18, with 83 commits landed on top.
+#
+# Asked workflow by workflow and way of failing by way of failing, the last few of each: a
+# list of every run on main is mostly the queue's own pushes, and a browser run that took an
+# hour to fail would be past its end by the time it did.
 set -euo pipefail
-gh run list --branch main --status completed --limit 40 \
-  --json databaseId,headSha,url,createdAt,conclusion,event,workflowName \
-  --jq '.[] | select(.workflowName == "CI" or .workflowName == "Browser checks") | select(.event == "push" or .event == "schedule") | select(.conclusion == "failure" or .conclusion == "timed_out" or .conclusion == "startup_failure") | {id: (.databaseId | tostring), title: (.workflowName + " failed on main at " + .headSha[0:8]), url: .url, text: ("Run " + (.databaseId | tostring) + " of " + .workflowName + " (" + .conclusion + ", " + .event + "), started " + .createdAt + ", at commit " + .headSha)}'
+for workflow in ci.yml checks.yml; do
+  for how in failure timed_out startup_failure; do
+    gh run list --workflow "$workflow" --branch main --status "$how" --limit 5 \
+      --json databaseId,headSha,url,createdAt,conclusion,event,workflowName \
+      --jq '.[] | select(.event == "push" or .event == "schedule") | {id: (.databaseId | tostring), title: (.workflowName + " failed on main at " + .headSha[0:8]), url: .url, text: ("Run " + (.databaseId | tostring) + " of " + .workflowName + " (" + .conclusion + ", " + .event + "), started " + .createdAt + ", at commit " + .headSha)}'
+  done
+done
