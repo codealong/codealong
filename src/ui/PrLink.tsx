@@ -6,7 +6,7 @@
 // the board lists it, as a click on its chip does, on the tab that has what the link goes to
 // (`followPrLink`); one the board doesn't list has no panel here and opens in the browser, as
 // ⌘-click always does. A right-click has the PR's menu (menus.ts). A PR's chip in a session's
-// panel (`PrChipCard`) has the same card, less Show in Codealong, which a click on the chip does.
+// panel (`PrChipCard`) has the same card, less Show in main window, which a click on the chip does.
 // For an open PR the board lists, the card has the switch that has its primary session, listed
 // first, told of what happens on it (nudges.rs), with a box to watch it, which has that be everything,
 // waking it if it has stopped. An open PR's card ends in GitHub's merge box
@@ -368,7 +368,7 @@ function PrCard({ card, prRef: ref, url, onBrowse, clickShows }: CardProps) {
     <>
       {listed && host.actions?.showPr && !clickShows && (
         <Button size={size} icon="layout-sidebar" onClick={() => act((a) => a.showPr?.(listed, prTabOf(ref)))}>
-          Show in Codealong
+          Show in main window
         </Button>
       )}
       <Button size={size} icon="external" title={url} onClick={onBrowse}>

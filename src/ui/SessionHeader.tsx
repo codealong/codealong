@@ -24,7 +24,7 @@
 //
 // A session Codealong runs lives in the main window's panel, so there its Open button doesn't
 // offer to show what's already showing: it leads with its folder in your editor. Elsewhere it
-// says Show in Codealong, which brings the panel up. Any other session shown as a card (the
+// says Show in main window, which brings the panel up. Any other session shown as a card (the
 // notch, the peek, a kept session, the waiting window) has Main window beside its Open button,
 // which brings that panel up on it as Open in main window in its ⋯ menu does: the menu alone hid
 // it. It's the icon alone where the card is narrow (the peek). In a kept session's window it puts

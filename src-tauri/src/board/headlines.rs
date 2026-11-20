@@ -288,7 +288,7 @@ pub fn targets(seed: &LaneSeed, sessions: &[Session], pr: Option<&Pr>, preview: 
         if s.hosted {
             // Codealong runs it: its panel is where it's read, sent to and answered.
             let verb = if respond { "Respond in" } else { "Show in" };
-            t.push(target(format!("s|{}|hosted", s.key), "app", format!("{verb} Codealong"), Some(who), enter, false, "session"));
+            t.push(target(format!("s|{}|hosted", s.key), "app", format!("{verb} main window"), Some(who), enter, false, "session"));
             continue;
         }
         // Each harness says where its sessions open (`Adapter::targets`).
@@ -587,5 +587,19 @@ mod tests {
         assert_eq!(default.as_deref(), Some(needs.open_target.as_str()));
         let (_, default) = targets(&lane, &[guest.clone()], None, None, &apps);
         assert_eq!(default.as_deref(), Some(guest.open_target.as_str()));
+    }
+
+    #[test]
+    fn hosted_session_targets_main_window() {
+        let apps = AppNames::default();
+        let lane = seed("/r/x", "x");
+        let a = acct("claude2");
+        let mut s = claude_session(&a, Some(&reg("idle", NOW)), Some(&tr()), 0, NOW, &Quiet::default()).unwrap();
+        s.hosted = true;
+        let (t, _) = targets(&lane, &[s.clone()], None, None, &apps);
+        assert_eq!(t[0].label, "Show in main window");
+        s.status = Status::Needs;
+        let (t, _) = targets(&lane, &[s], None, None, &apps);
+        assert_eq!(t[0].label, "Respond in main window");
     }
 }

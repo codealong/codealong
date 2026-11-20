@@ -116,7 +116,7 @@
       var num = Number(links()[1].getAttribute('href').split('/').pop());
       check('an unlisted PR is asked of GitHub once', asked.length === 1 && asked[0][1].number === num, JSON.stringify(asked.map(function (a) { return a[1]; })));
       check('and its card shows the answer', card().querySelector('.ca-prhover-title').textContent === 'An older PR, as GitHub has it');
-      check('with no Show in Codealong', !Array.prototype.some.call(card().querySelectorAll('button'), function (b) { return /Show in Codealong/.test(b.textContent); }));
+      check('with no Show in main window', !Array.prototype.some.call(card().querySelectorAll('button'), function (b) { return /Show in main window/.test(b.textContent); }));
       check('its link now has an icon', !!links()[1].querySelector('.ca-prlink-icon.ca-pr--merged'));
       leave(links()[1]);
       return until(function () { return !card(); }, 2000);
@@ -192,8 +192,8 @@
       return until(card, 3000);
     })
     .then(function () {
-      var show = Array.prototype.filter.call(card().querySelectorAll('button'), function (b) { return /Show in Codealong/.test(b.textContent); })[0];
-      check('a listed PR has Show in Codealong', !!show);
+      var show = Array.prototype.filter.call(card().querySelectorAll('button'), function (b) { return /Show in main window/.test(b.textContent); })[0];
+      check('a listed PR has Show in main window', !!show);
       show.click();
       return until(function () { return document.querySelector('.ca-prinsp'); }, 3000);
     })

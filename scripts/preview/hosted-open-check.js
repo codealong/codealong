@@ -1,8 +1,8 @@
 // Checks the Open button in the header of a session Codealong runs (SessionHeader.tsx `shownHere`).
 // In the main window's panel, which is where it lives, the button doesn't offer to show it there:
 // it leads with Open folder in your editor and opens the folder in it, and its menu has no Show in
-// Codealong. A session that runs elsewhere still leads with its own place. In the peek, the button
-// says Show in Codealong, which brings the panel up, so the header has no Main window beside it.
+// main window. A session that runs elsewhere still leads with its own place. In the peek, the button
+// says Show in main window, which brings the panel up, so the header has no Main window beside it.
 //   scripts/preview.sh sessions '' scripts/preview/hosted-open-check.js
 //   PREVIEW_WAIT=60000 scripts/preview.sh peek '' scripts/preview/hosted-open-check.js
 (function () {
@@ -36,14 +36,14 @@
     if (s.key !== hosted) return out;
     return Object.assign(out, { hosted: true, live: true, pid: null, openTarget: 's|' + s.key + '|hosted' });
   };
-  // Its worktree lists Show in Codealong for it in place of its own ways to open it, as board.rs
+  // Its worktree lists Show in main window for it in place of its own ways to open it, as board.rs
   // `targets` does.
   var targetsOf = function (l) {
     var own = 's|' + hosted + '|';
     var at = l.targets.findIndex(function (t) { return t.id.indexOf(own) === 0; });
     if (at < 0) return l.targets;
     var rest = l.targets.filter(function (t) { return t.id.indexOf(own) !== 0 || /\|chrome$/.test(t.id); });
-    var show = { id: own + 'hosted', icon: 'app', label: 'Show in Codealong', detail: null, kbd: ['⏎'], disabled: false, group: 'session' };
+    var show = { id: own + 'hosted', icon: 'app', label: 'Show in main window', detail: null, kbd: ['⏎'], disabled: false, group: 'session' };
     return rest.slice(0, at).concat([show], rest.slice(at));
   };
   var shaped = function (b) {
@@ -74,7 +74,7 @@
     say('hosted open check: waiting for the peek');
     until(main, 20000)
       .then(function () {
-        check('the peek says Show in Codealong', main() === 'Show in Codealong', main());
+        check('the peek says Show in main window', main() === 'Show in main window', main());
         check('with no Main window beside it', !document.querySelector('.ca-sessinsp-head .ca-sessinsp-tomain'));
         document.querySelector('.ca-sessinsp-head .ca-split-main').click();
         return wait(100);
@@ -96,7 +96,7 @@
     })
     .then(function () {
       var l = items();
-      check('its menu has no Show in Codealong', l.length > 0 && !l.some(function (x) { return /in Codealong$/.test(x); }), l.join(' | '));
+      check('its menu has no Show in main window', l.length > 0 && !l.some(function (x) { return /in main window$/.test(x); }), l.join(' | '));
       check('and still the terminal and the editors', l.indexOf('Open folder in ' + apps.terminal) >= 0 && l.indexOf('Open folder in ' + apps.editor) >= 0, l.join(' | '));
       document.querySelector('.ca-sessinsp-head .ca-split-caret').click();
       document.querySelector('.ca-sessinsp-head .ca-split-main').click();

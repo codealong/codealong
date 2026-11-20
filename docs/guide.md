@@ -741,7 +741,7 @@ state as its icon (in a tool's output it keeps its words as written); hovering i
 where the PR stands (review, checks, branches, size, and whose reviews it still waits on, you
 first), the worktrees that hold it and the sessions that worked on it, each a click from its panel,
 and its right-click menu is the PR's. An open PR's card ends in its merge box, as its panel has it
-(see *Merging*); a chip's card has no Show in Codealong, which a click on the chip does. A click
+(see *Merging*); a chip's card has no Show in main window, which a click on the chip does. A click
 shows the PR in Codealong, as a click on its chip does: its panel in place of the session's, with
 the way back (in the floating windows, in PRs), on its Changes tab for a link to its files and on
 Reviews for one to a review or a comment. ⌘-click, or Open on GitHub in its card, opens it on
@@ -4355,7 +4355,7 @@ of the editors, Open folder in your terminal: a new terminal in the session's ow
 was started in when that's inside its worktree, else the worktree's), placed as any new terminal is.
 Picking another editor there makes it yours, as Codex's Open button remembers its last. A session
 Codealong runs lives in its panel in the main window: from the bar, the notch, the waiting window or
-a card, its Open button says Show in Codealong and brings that up (so it has no Main window beside
+a card, its Open button says Show in main window and brings that up (so it has no Main window beside
 it), and in the panel itself the Open button leads with Open folder in your editor. A session's tab that comes forward on another screen than the pointer's is outlined for a moment, and
 `move_pointer` moves the pointer to it.
 

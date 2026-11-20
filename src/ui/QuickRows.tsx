@@ -206,7 +206,7 @@ export function QuickRow({ r, list }: { r: Row; list: RowsShown }) {
         role="option"
         aria-selected={active === r.key}
         className={cx('ca-quick-row', 'is-suggest', active === r.key && 'is-active', held.extraClass)}
-        title={keysIn(`${said.title}\n${said.why}\n${Math.round(r.s.p * 100)}% likely, from ${route?.model ?? 'Jev'} in ${route?.ms ?? 0} ms · ⏎ does it${r.s.kind === 'send' ? ' · ⌥⏎ shows the session in Codealong' : r.s.kind === 'open' ? ' · ⌥⏎ opens the session where it lives' : ''}`)}
+        title={keysIn(`${said.title}\n${said.why}\n${Math.round(r.s.p * 100)}% likely, from ${route?.model ?? 'Jev'} in ${route?.ms ?? 0} ms · ⏎ does it${r.s.kind === 'send' ? ' · ⌥⏎ shows the session in the main window' : r.s.kind === 'open' ? ' · ⌥⏎ opens the session where it lives' : ''}`)}
         {...handlers}
       >
         <SuggestionFace sg={r.s} describe={describe} />
@@ -242,13 +242,13 @@ export function QuickRow({ r, list }: { r: Row; list: RowsShown }) {
   }
   if (r.kind === 'todo') {
     const t = r.item.todo;
-    const opens = todoAgent(r.item) ? 'shows its session in Codealong' : 'gets a session ready to start for it';
+    const opens = todoAgent(r.item) ? 'shows its session in the main window' : 'gets a session ready to start for it';
     return (
       <div
         role="option"
         aria-selected={active === r.key}
         className={cx('ca-quick-row', 'is-todo', active === r.key && 'is-active', held.extraClass)}
-        title={keysIn(`${t.title || 'Untitled'}\n⏎ ${opens} · ⌥⏎ shows the todo in Codealong`)}
+        title={keysIn(`${t.title || 'Untitled'}\n⏎ ${opens} · ⌥⏎ shows the todo in the main window`)}
         {...handlers}
       >
         <TodoGlyph status={t.status} waiting={r.waiting} />
@@ -315,7 +315,7 @@ export function QuickRow({ r, list }: { r: Row; list: RowsShown }) {
         role="option"
         aria-selected={active === r.key}
         className={cx('ca-quick-row', 'is-pr', active === r.key && 'is-active', held.extraClass)}
-        title={keysIn(`${pr.title}\n${pr.repoSlug}#${pr.number} · ${pr.head}\n${r.kind === 'review' ? '⏎ reviews it here · ⌥⏎ shows it in Codealong' : '⏎ shows it in Codealong · ⌥⏎ opens it on GitHub'}`)}
+        title={keysIn(`${pr.title}\n${pr.repoSlug}#${pr.number} · ${pr.head}\n${r.kind === 'review' ? '⏎ reviews it here · ⌥⏎ shows it in the main window' : '⏎ shows it in the main window · ⌥⏎ opens it on GitHub'}`)}
         {...handlers}
       >
         <PrGlyph pr={pr} />
@@ -348,10 +348,10 @@ export function QuickRow({ r, list }: { r: Row; list: RowsShown }) {
       className={cx('ca-quick-row', active === r.key && 'is-active', held.extraClass, `is-${s2.status}`)}
       title={keysIn(
         sendsTo && sendWords
-          ? `${sendWords.title}\n${sendWords.why}\n${sendWords.where}${r.p != null ? ` · ${Math.round(r.p * 100)}% likely, from ${(route ?? lastRoute)?.model ?? 'Jev'}` : ''}\n${sendsTo.kind === 'send' ? '⏎ sends it · ⌥⏎ shows the session in Codealong' : '⏎ shows it in Codealong · ⌥⏎ opens it where it lives'} · ⇥ answers it in Waiting on you`
+          ? `${sendWords.title}\n${sendWords.why}\n${sendWords.where}${r.p != null ? ` · ${Math.round(r.p * 100)}% likely, from ${(route ?? lastRoute)?.model ?? 'Jev'}` : ''}\n${sendsTo.kind === 'send' ? '⏎ sends it · ⌥⏎ shows the session in the main window' : '⏎ shows it in the main window · ⌥⏎ opens it where it lives'} · ⇥ answers it in Waiting on you`
           : there
-            ? `${s2.title}\n${s2.account} · ${r.lane.callsign} · on ${there.name}\n⏎ shows it in Codealong${answers ? ' · ⇥ answers it in Waiting on you' : ''}`
-            : `${s2.title}\n${s2.account} · ${r.lane.callsign}\n⏎ shows it in Codealong · ⇥ answers it in Waiting on you · ⌥⏎ opens it where it lives`,
+            ? `${s2.title}\n${s2.account} · ${r.lane.callsign} · on ${there.name}\n⏎ shows it in the main window${answers ? ' · ⇥ answers it in Waiting on you' : ''}`
+            : `${s2.title}\n${s2.account} · ${r.lane.callsign}\n⏎ shows it in the main window · ⇥ answers it in Waiting on you · ⌥⏎ opens it where it lives`,
       )}
       {...handlers}
     >

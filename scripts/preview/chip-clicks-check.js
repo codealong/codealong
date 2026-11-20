@@ -60,7 +60,7 @@
       var row = rowOf(chip);
       var view = list().getAttribute('aria-label');
       var n = window.__calls.length;
-      check('PR chip: its tooltip says what a click and a double-click do', /Click to show it in Codealong, double-click to open it on GitHub\./.test(chip.title), chip.title);
+      check('PR chip: its tooltip says what a click and a double-click do', /Click to show it in the main window, double-click to open it on GitHub\./.test(chip.title), chip.title);
       dbl(chip);
       return wait(400).then(function () {
         var o = opens(n);

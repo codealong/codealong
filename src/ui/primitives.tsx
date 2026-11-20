@@ -993,7 +993,7 @@ export function PrChip({ pr, compact = false, titled = true, onMenu, onShow, onO
   const found = reviewMark(pr);
   const mark = found && (compact || found.key === 'asked' || found.key === 'agent' || found.key === 'stale') ? found : null;
   return (
-    <Chip kind="pr" className={`ca-pr--${pr.state}`} title={titled ? title : undefined} does={onShow ? 'show it in Codealong' : 'open it on GitHub'} act={onShow ?? onOpen} twice={twice} inRow={inRow} onMenu={onMenu}>
+    <Chip kind="pr" className={`ca-pr--${pr.state}`} title={titled ? title : undefined} does={onShow ? 'show it in the main window' : 'open it on GitHub'} act={onShow ?? onOpen} twice={twice} inRow={inRow} onMenu={onMenu}>
       <Icon name={PR_ICON[pr.state]} size={12} stroke={1.75} />
       {/* One run of text, so the word sits on the number's baseline: as two pieces of the chip,
           each centered on its own, a zoomed page put the sans word a pixel below the mono. */}

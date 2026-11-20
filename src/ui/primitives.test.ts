@@ -219,7 +219,7 @@ describe('the named chips', () => {
     expect(prChip({ onOpen: () => {} })).toMatch(/^<button type="button" class="ca-pr ca-pr--button ca-pr--open" title="#12 Open: Add it\. Click to open it on GitHub\.">/);
     expect(prChip({ onOpen: () => {}, inRow: true, titled: false })).toMatch(/^<span class="ca-pr ca-pr--open">/);
     // Where Codealong can show it, a click does, on a list's row too, and two open it on GitHub.
-    const shows = /^<button type="button" class="ca-pr ca-pr--button ca-pr--open" title="#12 Open: Add it\. Click to show it in Codealong, double-click to open it on GitHub\.">/;
+    const shows = /^<button type="button" class="ca-pr ca-pr--button ca-pr--open" title="#12 Open: Add it\. Click to show it in the main window, double-click to open it on GitHub\.">/;
     expect(prChip({ onShow: () => {}, onOpen: () => {} })).toMatch(shows);
     expect(prChip({ onShow: () => {}, onOpen: () => {}, inRow: true })).toMatch(shows);
   });

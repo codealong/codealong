@@ -38,7 +38,7 @@ export function openWords(target: string, terminal: string): string {
     codex: 'Open in Codex',
     antigravity: 'Open Antigravity',
     cursor: 'Open in Cursor',
-    hosted: 'Show in Codealong',
+    hosted: 'Show in main window',
     chrome: 'Show in Chrome',
   };
   return how[target.split('|')[2]] ?? 'Open';

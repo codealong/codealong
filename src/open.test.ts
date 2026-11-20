@@ -17,7 +17,7 @@ describe('open', () => {
     expect(openLabel(lane, { openTarget: 's|claude:c:9|focus', terminal: 'Rex' }, 'Ghostty')).toBe('Show in Rex');
     expect(openLabel(lane, { openTarget: 's|claude:c:9|focus' }, 'Ghostty')).toBe('Show in Ghostty');
     expect(openWords('s|claude:c:2|resume', 'Ghostty')).toBe('Resume in Ghostty');
-    expect(openWords('s|claude:c:2|hosted', 'Ghostty')).toBe('Show in Codealong');
+    expect(openWords('s|claude:c:2|hosted', 'Ghostty')).toBe('Show in main window');
     expect(openWords('s|x|unknown', 'Ghostty')).toBe('Open');
   });
 

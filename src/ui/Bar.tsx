@@ -906,7 +906,7 @@ export function Bar() {
       [
         ...list.map((t) => ({ label: todoLabel(t, placeOf), checked: todoRowKey(t.id) === shownKey || undefined, run: () => toTodo(t) })),
         'separator',
-        { label: 'Show todos in Codealong', run: () => void showMain({ kind: 'todo', id: list[0].id }) },
+        { label: 'Show todos in main window', run: () => void showMain({ kind: 'todo', id: list[0].id }) },
       ],
       below(e),
     );

@@ -36,7 +36,7 @@
   };
   // The chip's number, before its checks' count.
   var number = function (chip) { return (chip.querySelector(':scope > span').textContent.match(/#(\d+)/) || [])[1]; };
-  var SAYS = /Click to show it in Codealong, double-click to open it on GitHub\./;
+  var SAYS = /Click to show it in the main window, double-click to open it on GitHub\./;
 
   if (window.__CODEALONG_DESKTOP__) {
     var pr = { number: 4242, title: 'A PR for the check', url: 'https://github.com/example/app/pull/4242', state: 'open', checks: { passed: 3, failed: 0, pending: 0, failing: [] }, merge: null, updatedAt: Date.now(), mergedAt: null, closedAt: null };

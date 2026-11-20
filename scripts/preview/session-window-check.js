@@ -95,17 +95,17 @@
     var labels = await menuOf(q('.ca-sessinsp-top', card));
     check('its menu says Put back in main window too', labels.indexOf('Put back in main window') >= 0 && labels.indexOf('Open in main window') < 0, labels.join(' | '));
 
-    // Codealong runs it: where it lives is the main window, whose Show in Codealong puts it back.
+    // Codealong runs it: where it lives is the main window, whose Show in main window puts it back.
     window.__hostedKey = key;
     await window.__pushSides();
     await until(function () { return !q('.ca-sessinsp-tomain', card); }, 5000, 'the session as one Codealong runs');
     labels = await menuOf(q('.ca-sessinsp-top', card));
     var before = calls('session_put_back').length;
-    var show = menuItem('Show in Codealong');
-    if (!show) throw new Error('no Show in Codealong in ' + labels.join(' | '));
+    var show = menuItem('Show in main window');
+    if (!show) throw new Error('no Show in main window in ' + labels.join(' | '));
     show();
-    await until(function () { return calls('session_put_back').length > before; }, 3000, 'put back from Show in Codealong');
-    check('Show in Codealong puts it back too, rather than opening it there beside this window', last('session_put_back').reveal.key === key && !calls('open_from_bar').length);
+    await until(function () { return calls('session_put_back').length > before; }, 3000, 'put back from Show in main window');
+    check('Show in main window puts it back too, rather than opening it there beside this window', last('session_put_back').reveal.key === key && !calls('open_from_bar').length);
   }
 
   function button(root, words) {

@@ -54,7 +54,7 @@
     .then(function () { return wait(300); })
     .then(find)
     .then(function () {
-      check('the row says what the keys do', /⏎ shows it in Codealong/.test(row().title) && /⌥⏎ opens it where it lives/.test(row().title), row().title);
+      check('the row says what the keys do', /⏎ shows it in the main window/.test(row().title) && /⌥⏎ opens it where it lives/.test(row().title), row().title);
       before = counts();
       key(input(), { key: 'Enter' });
       return wait(300);

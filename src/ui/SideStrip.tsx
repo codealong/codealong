@@ -276,7 +276,7 @@ export function SideStrip({ sideKey: key, words, inWindow }: { sideKey: string; 
       <Act icon="x" label="Close" onClick={() => showSides(key, null)} />
     </>
   );
-  const about = (said: string, note?: string) => (inWindow ? { about: inWindow.about, aboutTitle: `Show “${inWindow.about}” in Codealong. ${said}`, onAbout: inWindow.show } : { about: said, note });
+  const about = (said: string, note?: string) => (inWindow ? { about: inWindow.about, aboutTitle: `Show “${inWindow.about}” in the main window. ${said}`, onAbout: inWindow.show } : { about: said, note });
   const section = (label: string, head: ReactNode, body: ReactNode, scrolls?: boolean) => (
     <section className={cx('ca-sidestrip', inWindow && 'is-window')} aria-label={label}>
       {head}

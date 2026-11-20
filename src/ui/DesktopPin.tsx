@@ -49,7 +49,7 @@ function tooltip(d: CardData | null, now: number, terminal: string, lines: numbe
     case 'todo':
       return [d.todo.title || 'Untitled', d.sessions.length ? 'Click to read and answer its session, double-click to open it' : 'Double-click to start a session for it'].join('\n');
     case 'pr':
-      return [`#${d.pr.number} ${d.pr.title}`, `${d.pr.repo} · ${d.pr.head}`, 'Click to show it in Codealong, double-click to open it on GitHub'].join('\n');
+      return [`#${d.pr.number} ${d.pr.title}`, `${d.pr.repo} · ${d.pr.head}`, 'Click to show it in the main window, double-click to open it on GitHub'].join('\n');
     default:
       return '';
   }
