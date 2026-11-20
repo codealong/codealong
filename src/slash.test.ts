@@ -26,6 +26,8 @@ describe('slashCommand', () => {
     expect(slashCommand('/btw why a queue?', claude)).toMatchObject({ command: { name: 'side' }, rest: 'why a queue?' });
     // Alone, it shows the ones kept from before (SessionReply.tsx).
     expect(slashCommand('/side', session('codex'))?.rest).toBe('');
+    expect(slashCommand('/side what is this?', session('antigravity'))).toMatchObject({ command: { name: 'side' }, rest: 'what is this?' });
+    expect(slashCommand('/btw what is this?', session('antigravity'))).toMatchObject({ command: { name: 'side' }, rest: 'what is this?' });
     expect(slashCommand('/sidebar', claude)).toBeNull();
     // OpenCode has no throwaway copy. One on another machine is asked there.
     expect(slashCommand('/side why?', session('opencode'))).toBeNull();

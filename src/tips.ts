@@ -98,7 +98,7 @@ export const TIPS: readonly Tip[] = [
   { id: 'desktop', places: BOARD, says: says`Drag a row out of the window to pin its card to the desktop, where it floats over every app.` },
   { id: 'pop-out', places: ['board', 'working'], says: says`The picture-in-picture button in a session's header pops it out into a window of its own, which floats over your other apps.` },
   { id: 'pr-chip', places: BOARD, says: says`A click on a PR's chip shows the PR beside the list, with a way back to the row. A double-click opens it on GitHub.` },
-  { id: 'side', places: ['session', 'waiting', 'working'], says: says`${code('/side')} and a question asks a throwaway copy of a Claude Code or Codex session. The session carries on, unaware unless you ask the copy to tell it.` },
+  { id: 'side', places: ['session', 'waiting', 'working'], says: says`${code('/side')} and a question asks a throwaway copy of a Claude, Codex or Antigravity session. It carries on, unaware unless you ask the copy to tell it.` },
   { id: 'bang', places: ['session', 'waiting'], says: says`A message that starts with ${code('!')} runs in a terminal under the session, which is told what it printed. ${key('Alt+Enter')} runs it in the session's own shell instead.` },
   { id: 'slash', places: CONVERSATION, says: says`Type ${code('/')} in a session's box for Codealong's commands and the skills its agent can run.` },
   { id: 'find', places: CONVERSATION, says: says`${key('Cmd+F')} finds words anywhere in the window, a session's whole conversation among it, from its first prompt on.` },

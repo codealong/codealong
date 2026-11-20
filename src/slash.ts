@@ -47,7 +47,7 @@ export const COMMANDS: SlashCommand[] = [
     about: 'a throwaway copy answers here; the session carries on, unaware. Alone, it shows the earlier ones',
     icon: 'help',
     // The copy runs beside the session, on its machine (side.rs), wherever it's asked from.
-    takes: (s) => s.harness === 'claude' || s.harness === 'codex',
+    takes: (s) => s.harness === 'claude' || s.harness === 'codex' || s.harness === 'antigravity',
   },
   {
     name: 'login',

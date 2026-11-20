@@ -222,6 +222,11 @@ static CHANGED: OnceLock<Box<dyn Fn() + Send + Sync>> = OnceLock::new();
 /// the command line or a test.
 static KEEPS: AtomicBool = AtomicBool::new(false);
 
+/// Whether the server is keeping side conversations on disk (`KEEPS`).
+pub fn keeps() -> bool {
+    KEEPS.load(Ordering::Relaxed)
+}
+
 /// Tells `notify` whenever a side conversation changes, and `changed` whenever what `glances`
 /// lists may have (one asked, answered, ended, closed or forgotten), keeps them to read later,
 /// and ends copies left idle.

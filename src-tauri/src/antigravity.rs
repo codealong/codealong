@@ -177,7 +177,7 @@ fn has_cli(account: &AccountCfg, home: &Path) -> bool {
 }
 
 /// `agy`, when the account runs it and it isn't on this Mac (`Adapter::missing_cli`).
-fn missing_cli(account: &AccountCfg, home: &Path) -> Option<&'static str> {
+pub(crate) fn missing_cli(account: &AccountCfg, home: &Path) -> Option<&'static str> {
     crate::harness::missing_program(cli_command(account), CLI, home, || cli_installed(home))
 }
 
@@ -1217,6 +1217,9 @@ pub fn processes(listed: &[procs::PsLine]) -> (Vec<Process>, bool) {
     let mut found = Vec::new();
     for p in listed {
         app |= is_app_agent(&p.command);
+        if crate::side::runs(p.pid) {
+            continue;
+        }
         if let Some(interactive) = cli_args(&p.command) {
             // One gone since the list was made, or not yours, has nothing open that's known.
             let files = procs::open_files(p.pid).unwrap_or_default();
@@ -1719,6 +1722,7 @@ impl Reader {
         keep.extend(self.processes.iter().filter_map(|p| p.conversation.clone()));
         let before: HashMap<String, Conversation> = self.conversations.remove(&a.name).unwrap_or_default().into_iter().map(|c| (c.id.clone(), c)).collect();
         let mut rows = once_each(dirs.iter().flat_map(|f| read_conversations(f, look.since, &keep)).collect(), |c| keeps_record(&c.dir, &c.id));
+        rows.retain(|c| !crate::antigravity_side::is_hidden(&c.id));
         let listed: HashSet<String> = rows.iter().map(|c| c.id.clone()).collect();
         rows.extend(self.processes.iter().filter(|p| p.conversation.as_ref().is_some_and(|id| !listed.contains(id))).filter_map(|p| started(&dirs, p)));
         rows.sort_by(|x, y| y.last_modified.cmp(&x.last_modified));
@@ -2138,7 +2142,7 @@ impl crate::harness::Adapter for Antigravity {
 
     /// Each conversation's transcript, in both folders.
     fn search_files(&self, account: &AccountCfg, since: i64) -> Vec<(PathBuf, String, i64)> {
-        let rows = folders(&account.home_path()).into_iter().flat_map(|f| read_conversations(&f, since, &HashSet::new()));
+        let rows = folders(&account.home_path()).into_iter().flat_map(|f| read_conversations(&f, since, &HashSet::new())).filter(|c| !crate::antigravity_side::is_hidden(&c.id));
         rows.filter_map(|c| Some((transcript_file(&c.dir, &c.id)?, Session::key_for(Harness::Antigravity, &account.name, &c.id), c.last_modified))).collect()
     }
 
@@ -2211,7 +2215,16 @@ impl crate::harness::Adapter for Antigravity {
     }
 
     fn session_cwds(&self, home: &Path, since: i64) -> Vec<String> {
-        folders(home).iter().flat_map(|f| read_conversations(f, since, &HashSet::new())).filter_map(|c| c.cwd).collect()
+        folders(home).iter().flat_map(|f| read_conversations(f, since, &HashSet::new())).filter(|c| !crate::antigravity_side::is_hidden(&c.id)).filter_map(|c| c.cwd).collect()
+    }
+
+    /// A headless `agy -p` stream-json run seeded with the session's transcript
+    /// (`antigravity_side.rs`), since `agy` has no native ephemeral fork flag.
+    fn side(&self, ctx: &Ctx, s: &Session, _cwd: &Path) -> anyhow::Result<crate::side::Recipe> {
+        let dir = folder_of(ctx.account, s);
+        let model = s.model.clone().or_else(|| turn_model(&dir, &s.id));
+        let mode = s.mode.clone().or_else(|| turn_mode(&dir, &s.id));
+        crate::antigravity_side::side_recipe(ctx.account, s, &dir, model, mode)
     }
 
     /// `CLOUD_CODE`'s host, where `agy` sends the model's requests (its error notes name it).
