@@ -12,6 +12,11 @@
 //!   `open_link`), over a board read once.
 //! - `engine/trouble.rs`: what goes wrong in the background (`Trouble`), and the board's
 //!   notices.
+//! - `engine/reposcan.rs`: the repo scan: checkouts and their worktrees as seeds for lanes,
+//!   and the reads macOS may hold.
+//! - `engine/gitruns.rs`: git in the worktrees: the workers, the queue, what comes back.
+//! - `engine/watch.rs`: the file watcher, and what a batch of changed paths calls for
+//!   (`apply_fs`).
 //! - `engine/records.rs`: what sessions' records show besides the sessions: who worked in a
 //!   worktree nobody runs in, and the PRs, pushes, pages and Chrome tabs.
 //! - `engine/jevasks.rs`: what's asked of the decision models, and what's done with their
@@ -94,7 +99,6 @@ use crate::util::{expand, file_name, home, mtime_ms, now_ms, parallel_map, tilde
 
 /// How far back sessions are read.
 const WINDOW_MS: i64 = 14 * DAY_MS;
-const GIT_WORKERS: usize = 4;
 const PUBLISH_EVERY: Duration = Duration::from_millis(300);
 /// Claude usage is read this often; Codex usage updates with every Codex turn.
 const USAGE_EVERY: Duration = Duration::from_secs(2 * 60);
@@ -104,9 +108,6 @@ const USAGE_BACKOFF: Duration = Duration::from_secs(10 * 60);
 /// which macOS may be holding for a privacy prompt (held.rs). At a load of 600, this Mac's 66
 /// session folders and 123 worktrees were all read within 170 ms.
 pub(crate) const HELD_WAIT: Duration = Duration::from_secs(1);
-/// How long it waits for a scan root's walk, which reads many folders (330 ms at that load): one
-/// that came in late would leave the board without the root's repos for a moment.
-const ROOT_WAIT: Duration = Duration::from_secs(10);
 /// Reads out this long are said on the board: a slow disk is back by then.
 const HELD_WARN_AFTER: Duration = Duration::from_secs(10);
 /// Reads that land within this of each other are used by one scan.
@@ -460,136 +461,6 @@ fn keep_last_good(prev: Option<&Usage>, mut fresh: Usage) -> Usage {
     fresh
 }
 
-/// What one batch from the file watcher has found out so far (`Engine::apply_fs`). A build or an
-/// install writes thousands of files in a few folders, and each was compared with every lane and
-/// matched against every folder above it in its worktree's gitignore: up to 20 s for 30,000
-/// paths, with the engine hearing nothing else meanwhile (2026-10-12). Within a batch each
-/// folder's lane and gitignore are looked at once, and each lane's folder.
-struct FsBatch {
-    seeds: board::SeedIndex,
-    /// What's known of each folder paths were in.
-    dirs: HashMap<PathBuf, Folder>,
-    /// Whether each lane's folder is there, by seed.
-    lanes_there: HashMap<usize, bool>,
-    /// Whether each other folder looked for is there.
-    present: HashMap<PathBuf, bool>,
-    /// The lanes git will run in for this batch.
-    changed: HashSet<usize>,
-}
-
-#[derive(Clone, Copy)]
-struct Folder {
-    /// The lane of what's in it (`SeedIndex::holding`).
-    lane: Option<usize>,
-    /// Whether the lane's gitignore ignores it or a folder above it, once asked.
-    ignored: Option<bool>,
-}
-
-impl FsBatch {
-    fn new(seeds: &[LaneSeed]) -> FsBatch {
-        FsBatch { seeds: board::SeedIndex::new(seeds), dirs: HashMap::new(), lanes_there: HashMap::new(), present: HashMap::new(), changed: HashSet::new() }
-    }
-
-    /// The seed `p` is in (`board::SeedIndex::best`).
-    fn lane_of(&mut self, p: &Path) -> Option<usize> {
-        if let Some(i) = self.seeds.own(p) {
-            return Some(i);
-        }
-        match p.parent() {
-            Some(dir) => self.folder(dir).lane,
-            None => self.seeds.best(p),
-        }
-    }
-
-    fn folder(&mut self, dir: &Path) -> &mut Folder {
-        if !self.dirs.contains_key(dir) {
-            let lane = self.seeds.holding(dir);
-            self.dirs.insert(dir.to_path_buf(), Folder { lane, ignored: None });
-        }
-        self.dirs.get_mut(dir).expect("just put there")
-    }
-
-    fn lane_there(&mut self, lane: usize, folder: &Path) -> bool {
-        *self.lanes_there.entry(lane).or_insert_with(|| folder.exists())
-    }
-
-    fn exists(&mut self, p: &Path) -> bool {
-        if let Some(&there) = self.present.get(p) {
-            return there;
-        }
-        let there = p.exists();
-        self.present.insert(p.to_path_buf(), there);
-        there
-    }
-
-    /// `gi.matched_path_or_any_parents(p, p.is_dir()).is_ignore()` for `p` in the lane whose
-    /// folder is `root` and whose gitignore is `gi`: the path's own rule, else its folder's, kept
-    /// for the next path there.
-    fn ignored(&mut self, gi: &Gitignore, root: &Path, p: &Path) -> bool {
-        let Some(dir) = p.parent().filter(|_| p != root) else {
-            return gi.matched_path_or_any_parents(p, p.is_dir()).is_ignore();
-        };
-        // Whether it's a folder is asked of the disk only when a rule tells files and folders
-        // apart (`build/`), and one says something different of each.
-        let said = |m: ignore::Match<&ignore::gitignore::Glob>| (!m.is_none()).then(|| m.is_ignore());
-        let (as_file, as_folder) = (said(gi.matched(p, false)), said(gi.matched(p, true)));
-        let own = if as_file == as_folder || !p.is_dir() { as_file } else { as_folder };
-        if let Some(ignored) = own {
-            return ignored;
-        }
-        let folder = self.folder(dir);
-        *folder.ignored.get_or_insert_with(|| gi.matched_path_or_any_parents(dir, true).is_ignore())
-    }
-}
-
-enum RepoEvent {
-    Lane(PathBuf),
-    Checkout(PathBuf),
-    Worktrees,
-    Ignore,
-}
-
-/// Everything the repo scan reads in folders it doesn't own, one kind of read each. macOS can
-/// hold any of these reads for a privacy prompt, so each holds up only its own folder (held.rs).
-struct RepoReads {
-    /// The checkouts under each scan root.
-    roots: Held<Vec<Checkout>>,
-    /// The worktree and main checkout each session's folder is in.
-    folders: Held<Option<(PathBuf, PathBuf)>>,
-    /// Checkouts outside the scan roots that sessions worked in.
-    checkouts: Held<Option<Checkout>>,
-    /// Each worktree's `.git` file and `.gitignore`.
-    worktrees: Held<WorktreeFiles>,
-}
-
-impl RepoReads {
-    fn new(tx: &Sender<Msg>) -> RepoReads {
-        let landed = || {
-            let tx = tx.clone();
-            move || {
-                let _ = tx.send(Msg::Landed);
-            }
-        };
-        RepoReads {
-            roots: Held::new("scan root", |root| repos::discover(&[root.to_path_buf()], 3), landed()),
-            folders: Held::new("session folder", repos::locate, landed()),
-            checkouts: Held::new("checkout", repos::load_checkout, landed()),
-            worktrees: Held::new("worktree", read_worktree, landed()),
-        }
-    }
-
-    /// The folders whose reads have been out at least `wait`, in order.
-    fn out_for(&self, wait: Duration) -> Vec<PathBuf> {
-        let mut out = self.roots.out_for(wait);
-        out.extend(self.folders.out_for(wait));
-        out.extend(self.checkouts.out_for(wait));
-        out.extend(self.worktrees.out_for(wait));
-        out.sort();
-        out.dedup();
-        out
-    }
-}
-
 /// What's done about a fall of the engine's thread: its first scan and its loop run under
 /// `guard::run_guarded`, and a host says what an engine that can't get going comes to with
 /// `when_spent`.
@@ -600,16 +471,24 @@ pub use guard::when_spent;
 // so the imports above serve them all; what a part makes `pub` is named from here, and what
 // this file or another part calls of one is `pub(super)`.
 mod emblems;
+mod gitruns;
 mod handle;
 mod jevasks;
 mod open;
 mod records;
+mod reposcan;
 mod sessions;
 mod trouble;
+mod watch;
+use gitruns::*;
 pub use handle::*;
 pub use open::*;
 use records::*;
+pub(crate) use reposcan::*;
 pub use trouble::*;
+// What only tests outside its part name.
+#[cfg(test)]
+use watch::is_noise;
 
 struct Engine {
     emit: Box<dyn Fn(&Board) + Send>,
@@ -1134,24 +1013,6 @@ impl Engine {
         }
         if self.take(all) {
             self.place_sessions();
-        }
-    }
-
-    /// A new session may have started somewhere no lane covers yet: a chat, or a folder or repo
-    /// outside your projects. Its folder is only looked up here, as reading it could wait on a
-    /// privacy prompt; one whose read is held is looked at again once it lands. The repos are
-    /// read again when one has.
-    fn place_sessions(&mut self) {
-        let unplaced = || {
-            let chats = chat_roots();
-            let index = board::SeedIndex::new(&self.seeds);
-            self.session_cwds().into_iter().any(|cwd| {
-                let p = Path::new(&cwd);
-                index.best(p).is_none() && (chat_root(&chats, p).is_some() || (!self.reads.folders.is_out(p) && p.is_dir()))
-            })
-        };
-        if unplaced() {
-            self.rescan_repos();
         }
     }
 
@@ -1939,141 +1800,6 @@ impl Engine {
         self.readers.iter().flat_map(|r| r.logs()).collect()
     }
 
-    /// The checkouts and their worktrees, as seeds for lanes. Files in folders the scan doesn't
-    /// own are read through `self.reads`: one macOS holds for a privacy prompt leaves out only
-    /// its own repo or session folder, or shows its worktree as `git worktree list` gives it, and
-    /// is filled in once the read lands.
-    fn load_repos(&mut self) {
-        let h = home();
-        let roots: Vec<PathBuf> = self.cfg.scan.iter().map(|s| expand(s)).collect();
-        let mut walked = self.reads.roots.read(roots.clone(), ROOT_WAIT);
-        let mut found: Vec<Checkout> = roots.iter().filter_map(|r| walked.remove(r)).flatten().collect();
-        found.sort_by(|a, b| a.root.cmp(&b.root));
-        found.dedup_by(|a, b| a.root == b.root);
-        // Codealong's own source among them, in a project or not (improve.rs): one small file
-        // looked for per checkout, each scan, so a clone whose files land after its `.git` is
-        // found on the next.
-        self.codealong_sources = found.iter().filter(|c| crate::improve::is_source(&c.root)).map(|c| (c.root.clone(), c.identity.clone())).collect();
-        let known: HashSet<PathBuf> = found.iter().map(|c| c.root.clone()).collect();
-        let cwds = self.session_cwds();
-        let chats = chat_roots();
-        // A chat's folder is never one of your repos, and the Codex app keeps its chats in
-        // Documents, where a read can wait on a privacy prompt: they aren't looked up.
-        let located = self.reads.folders.read(cwds.iter().map(PathBuf::from).filter(|p| chat_root(&chats, p).is_none()), HELD_WAIT);
-        let extra: BTreeSet<PathBuf> = located.values().flatten().map(|(_, main)| main.clone()).filter(|main| !known.contains(main)).collect();
-        let mut loaded = self.reads.checkouts.read(extra.iter().cloned(), HELD_WAIT);
-        found.extend(extra.iter().filter_map(|r| loaded.remove(r).flatten()));
-
-        self.checkouts.clear();
-        for c in found {
-            let Some(identity) = c.identity.clone() else { continue };
-            // A project that lists the repo's folder has it, before one its remote matches: a
-            // folder added for a new project stays there once its repo has a remote.
-            let listed = config::project_with_folder(&self.cfg.projects, &c.root);
-            if let Some(p) = listed.or_else(|| self.cfg.projects.iter().find(|p| p.repos.iter().any(|pat| repos::matches(&identity, pat)))) {
-                self.checkouts.push((p.name.clone(), c));
-            }
-        }
-
-        let mut seeds = Vec::new();
-        self.gitdir_to_lane.clear();
-        self.lane_base.clear();
-        self.lane_checkout.clear();
-        // `git worktree list` and the default branch for every checkout, in parallel.
-        let known_bases = self.default_branch.clone();
-        let listed: HashMap<PathBuf, (Vec<repos::Worktree>, Option<String>)> = parallel_map(
-            self.checkouts.iter().map(|(_, c)| c.clone()).collect(),
-            |c| {
-                let base = known_bases.get(&c.root).cloned().unwrap_or_else(|| repos::default_branch(&c));
-                Some((c.root.clone(), (repos::list_worktrees(&c), base)))
-            },
-        )
-        .into_iter()
-        .collect();
-        // Each worktree's `.git` file and `.gitignore`. One whose files are held shows as `git
-        // worktree list` gives it (git only looks its path up) and gets git once they land.
-        let paths: Vec<PathBuf> = listed.values().flat_map(|(wts, _)| wts.iter().map(|w| w.path.clone())).collect();
-        let mut files = self.reads.worktrees.read(paths.iter().cloned(), HELD_WAIT);
-        self.held_worktrees = paths.into_iter().filter(|p| !files.contains_key(p)).collect();
-        self.ignores.clear();
-        for (project, c) in &self.checkouts {
-            let Some((worktrees, base)) = listed.get(&c.root).cloned() else { continue };
-            self.default_branch.insert(c.root.clone(), base.clone());
-            let default_name = base.as_ref().map(|b| b.split_once('/').map(|(_, n)| n.to_string()).unwrap_or_else(|| b.clone()));
-            let repo_name = c.github.as_ref().map(|(_, n)| n.clone()).unwrap_or_else(|| c.name.clone());
-            for wt in worktrees {
-                if let Some(f) = files.remove(&wt.path) {
-                    if let Some(gitdir) = f.gitdir {
-                        self.gitdir_to_lane.insert(gitdir, wt.path.clone());
-                    }
-                    if let Some(gi) = f.ignore {
-                        self.ignores.insert(wt.path.clone(), gi);
-                    }
-                }
-                self.lane_base.insert(wt.path.clone(), base.clone());
-                self.lane_checkout.insert(wt.path.clone(), c.root.clone());
-                seeds.push(LaneSeed {
-                    callsign: repos::callsign(c, &wt.path, wt.branch.as_deref(), &h),
-                    origin: repos::origin(c, &wt.path, &h),
-                    path: wt.path,
-                    project: project.clone(),
-                    repo: repo_name.clone(),
-                    repo_slug: c.slug(),
-                    head_owners: c.github_owners.clone(),
-                    branch: wt.branch,
-                    head: wt.head,
-                    default_branch: default_name.clone(),
-                    elsewhere: false,
-                    chats: false,
-                    starts_chats: false,
-                    exact: false,
-                });
-            }
-        }
-        for p in &self.cfg.projects {
-            for f in &p.folders {
-                let path = expand(f);
-                if path.is_dir() && !seeds.iter().any(|s| s.path == path) {
-                    let name = file_name(&path);
-                    seeds.push(folder_seed(path, &p.name, &name, false));
-                }
-            }
-        }
-        // Elsewhere: every folder a session ran in outside your projects.
-        let found = |p: &Path| {
-            if !p.is_dir() {
-                return Found::Gone;
-            }
-            match located.get(p) {
-                Some(Some((wt, _))) => Found::Repo(wt.clone()),
-                Some(None) => Found::Plain,
-                // Held: looked at again once it lands.
-                None => Found::Held,
-            }
-        };
-        let strays = stray_seeds(&seeds, &cwds, &chats, &config::chats_dir(), &h, found);
-        seeds.extend(strays);
-
-        let live: HashSet<&PathBuf> = seeds.iter().map(|s| &s.path).collect();
-        self.git.retain(|p, _| live.contains(p));
-        self.drops.retain(|p| live.contains(p));
-        self.seeds = seeds;
-        if let Some(w) = &self.servers {
-            w.set_roots(self.server_roots());
-        }
-        // An engine that makes one pass is gone before GitHub would answer.
-        if !self.passing {
-            self.github.ask_names(&self.seeds, Instant::now());
-        }
-    }
-
-    /// The worktrees whose servers are looked for: those in projects. A folder outside them can
-    /// be your home folder, where every app's own server would be taken for the worktree's.
-    fn server_roots(&self) -> Vec<PathBuf> {
-        let h = home();
-        self.seeds.iter().filter(|s| !s.elsewhere && s.path != h).map(|s| s.path.clone()).collect()
-    }
-
     fn load_previews(&mut self) {
         if let Some(store) = self.read_or_warn(Trouble::Previews, previews::load()) {
             self.previews.set = store.previews;
@@ -2084,81 +1810,6 @@ impl Engine {
         if let Some(store) = self.read_or_warn(Trouble::Reusable, reusable::load()) {
             self.reusable = store.by_path();
         }
-    }
-
-    fn git_targets(&self) -> Vec<PathBuf> {
-        self.seeds.iter().filter(|s| !s.elsewhere && s.origin != Origin::Folder && !self.held_worktrees.contains(&s.path)).map(|s| s.path.clone()).collect()
-    }
-
-    fn base_for(&self, path: &Path) -> Option<String> {
-        self.lane_base.get(path).cloned().flatten()
-    }
-
-    /// Asks for git in a worktree. Runs at once when it's been quiet, otherwise once the
-    /// current run ends or the spacing allows, whichever is later.
-    fn queue_git(&mut self, path: PathBuf) {
-        if self.held_worktrees.contains(&path) {
-            return;
-        }
-        if let Verdict::Run = self.git_queue.request(path.clone(), Instant::now()) {
-            self.send_git(path);
-        }
-    }
-
-    fn send_git(&mut self, path: PathBuf) {
-        let base = self.base_for(&path);
-        // With no worker left to take it, nothing is running there.
-        if let Err(unsent) = self.git_jobs.send((path, base)) {
-            self.git_queue.done(&unsent.0 .0, Instant::now());
-        }
-    }
-
-    /// Every worktree, the ones with the latest activity first: with many worktrees and a busy
-    /// Mac the first results take a while, and those are the ones on screen.
-    fn queue_git_all(&mut self) {
-        let activity: HashMap<String, (bool, i64)> = self
-            .board
-            .read()
-            .map(|b| b.lanes.iter().map(|l| (l.id.clone(), (l.sessions.iter().any(|s| s.live), l.sessions.iter().map(|s| s.last_activity).max().unwrap_or(0)))).collect())
-            .unwrap_or_default();
-        let mut targets = self.git_targets();
-        targets.sort_by_key(|p| std::cmp::Reverse(activity.get(&p.to_string_lossy().to_string()).copied().unwrap_or((false, 0))));
-        for p in targets {
-            self.queue_git(p);
-        }
-    }
-
-    /// The watcher dropped events under `roots`, the folders it watches, so what changed there
-    /// isn't known; FSEvents says so for every folder of the stream at once. Git runs as often as
-    /// `Drops` allows in the worktrees each holds and those of the checkout it is, whose index
-    /// and HEAD are in its `.git`. What isn't a repo's folder (a harness's records, the support
-    /// folder) is handed back, to be taken as a change as it always was, and so is a worktree
-    /// that's gone, deleted while its own events were dropped: a path of its in the batch reads
-    /// the repos again (`classify_repo_path`).
-    fn on_dropped(&mut self, roots: Vec<PathBuf>) -> Vec<PathBuf> {
-        if roots.is_empty() {
-            return roots;
-        }
-        let roots: BTreeSet<PathBuf> = roots.into_iter().collect();
-        let targets = self.git_targets();
-        let mut lanes = BTreeSet::new();
-        let mut rest = Vec::new();
-        for root in &roots {
-            lanes.extend(targets.iter().filter(|p| p.starts_with(root) || self.lane_checkout.get(*p) == Some(root)).cloned());
-            if !targets.contains(root) && !self.checkouts.iter().any(|(_, c)| &c.root == root) {
-                rest.push(root.clone());
-            }
-        }
-        let (lanes, gone): (BTreeSet<PathBuf>, BTreeSet<PathBuf>) = lanes.into_iter().partition(|p| p.exists());
-        rest.extend(gone);
-        let run = self.drops.on_dropped(lanes.iter().cloned(), Instant::now());
-        if perf::enabled() {
-            perf::log(&format!("watcher dropped events in {} folders: git now in {} of their {} worktrees", roots.len(), run.len(), lanes.len()));
-        }
-        for p in run {
-            self.queue_git(p);
-        }
-        rest
     }
 
     /// Notes what asked for a publish, for the perf log's word on one that changed nothing.
@@ -2187,28 +1838,6 @@ impl Engine {
     fn publish_for(&mut self, why: &'static str) {
         self.asked(|| why.into());
         self.publish();
-    }
-
-    /// Each worktree's HEAD as git last read it (`git::last_head`), else as the worktree listing
-    /// had it: a commit moves HEAD long before the listing is read again.
-    fn heads_now(&self) -> HashMap<PathBuf, String> {
-        self.seeds.iter().filter_map(|s| Some((s.path.clone(), crate::git::last_head(&s.path).or_else(|| s.head.clone())?))).collect()
-    }
-
-    fn on_git(&mut self, path: PathBuf, info: Option<GitInfo>) {
-        self.perf.git_jobs += 1;
-        // A run that fell over leaves what was known of the worktree as it is, and one that found
-        // it as it was changes nothing to publish: most runs, after a fetch or a build.
-        if let Some(info) = info.filter(|_| self.seeds.iter().any(|s| s.path == path)) {
-            if self.git.get(&path) != Some(&info) {
-                self.git.insert(path.clone(), info);
-                self.dirty_git = true;
-                self.asked(|| "git".into());
-            }
-        }
-        if self.git_queue.done(&path, Instant::now()) {
-            self.queue_git(path);
-        }
     }
 
     /// Takes in what GitHub was asked in the background (ghpoll.rs).
@@ -2339,199 +1968,6 @@ impl Engine {
         }
     }
 
-    fn classify_repo_path(&self, p: &Path, batch: &mut FsBatch) -> RepoEvent {
-        for (_, c) in &self.checkouts {
-            if let Ok(rel) = p.strip_prefix(&c.git_dir) {
-                let mut comps = rel.components().map(|c| c.as_os_str().to_string_lossy().into_owned());
-                return match comps.next().as_deref() {
-                    Some("worktrees") => match comps.next() {
-                        Some(name) => {
-                            let admin = c.git_dir.join("worktrees").join(&name);
-                            match self.gitdir_to_lane.get(&admin) {
-                                // `git worktree remove` deletes the worktree's folder, then its
-                                // folder here: a lane with either gone is gone, and only a rescan
-                                // takes it off the board.
-                                Some(lane) if batch.exists(&admin) && batch.exists(lane) => RepoEvent::Lane(lane.clone()),
-                                _ => RepoEvent::Worktrees,
-                            }
-                        }
-                        None => RepoEvent::Worktrees,
-                    },
-                    Some("refs") | Some("packed-refs") | Some("FETCH_HEAD") => RepoEvent::Checkout(c.root.clone()),
-                    Some("HEAD") | Some("index") | Some("ORIG_HEAD") | Some("MERGE_HEAD") => RepoEvent::Lane(c.root.clone()),
-                    _ => RepoEvent::Ignore,
-                };
-            }
-        }
-        let Some(i) = batch.lane_of(p) else { return RepoEvent::Ignore };
-        let seed = &self.seeds[i];
-        if seed.elsewhere || seed.origin == Origin::Folder {
-            return RepoEvent::Ignore;
-        }
-        // A worktree deleted without git (`rm -rf`) leaves its folder in `.git/worktrees`, where
-        // nothing changes: its own files going are the only sign.
-        if !batch.lane_there(i, &seed.path) {
-            return RepoEvent::Worktrees;
-        }
-        // Git runs there already, whatever else changed in it.
-        if batch.changed.contains(&i) {
-            return RepoEvent::Lane(seed.path.clone());
-        }
-        if p.components().any(|c| c.as_os_str() == "node_modules" || c.as_os_str() == ".git") {
-            return RepoEvent::Ignore;
-        }
-        if let Some(gi) = self.ignores.get(&seed.path) {
-            if batch.ignored(gi, &seed.path, p) {
-                return RepoEvent::Ignore;
-            }
-        }
-        batch.changed.insert(i);
-        RepoEvent::Lane(seed.path.clone())
-    }
-
-    fn apply_fs(&mut self, mut paths: Vec<PathBuf>) {
-        paths.sort();
-        paths.dedup();
-        let config_path = config::config_path();
-        let todos_path = todos::path();
-        let state_path = crate::state::path();
-        // Each harness's own files, by reader and account, in the order they're read.
-        let accounts: Vec<Vec<AccountCfg>> = self.readers.iter().map(|r| harness::accounts_of(&self.cfg, r.harness())).collect();
-        let mut owned: BTreeMap<(usize, usize), Vec<PathBuf>> = BTreeMap::new();
-        let mut lanes = BTreeSet::new();
-        let mut reload_repos = false;
-        let mut reload_config = false;
-        let (pr_links_path, reviews_path, previews_path, reusable_path) = (prlinks::path(), autoreview::path(), previews::path(), reusable::path());
-        let mut batch = FsBatch::new(&self.seeds);
-        let mut moved = HashSet::new();
-        'paths: for p in paths {
-            if p == config_path {
-                reload_config = true;
-                continue;
-            }
-            if p == todos_path {
-                self.reload_todos();
-                continue;
-            }
-            if p == state_path {
-                // The engine's own writes come back here; only a file that didn't read is read
-                // again, now that it's been fixed or deleted.
-                if self.state_unreadable {
-                    if state_path.exists() {
-                        self.load_state();
-                    } else {
-                        // Deleted: what's in memory is the state from here on.
-                        self.state_unreadable = false;
-                        self.set_trouble(Trouble::State, None);
-                    }
-                    if !self.state_unreadable {
-                        self.remember_accounts();
-                        self.save_state();
-                        // What's archived and pinned decides what the harnesses' readers keep.
-                        self.scan_sessions();
-                        self.scan_pr_marks(false);
-                    }
-                    self.mark_dirty("state.json");
-                }
-                continue;
-            }
-            if p == pr_links_path {
-                self.load_pr_links();
-                self.mark_dirty("PR links file");
-                continue;
-            }
-            if p == reviews_path {
-                self.load_reviews();
-                self.mark_dirty("reviews file");
-                continue;
-            }
-            if p == crate::schedules::path() || p == crate::schedules::runs_path() {
-                self.load_schedules();
-                self.mark_dirty("schedules file");
-                continue;
-            }
-            if p == previews_path {
-                self.load_previews();
-                self.mark_dirty("previews file");
-                continue;
-            }
-            if p == reusable_path {
-                self.load_reusable();
-                self.mark_dirty("reusable file");
-                continue;
-            }
-            for (i, r) in self.readers.iter().enumerate() {
-                if let Some(j) = accounts[i].iter().position(|a| r.owns(a, &p)) {
-                    owned.entry((i, j)).or_default().push(p);
-                    continue 'paths;
-                }
-            }
-            match self.classify_repo_path(&p, &mut batch) {
-                RepoEvent::Lane(l) => {
-                    self.drops.on_change(l.clone(), Instant::now());
-                    lanes.insert(l);
-                }
-                // A fetch writes a file for each ref it moves: the checkout is looked at once.
-                RepoEvent::Checkout(root) if !moved.insert(root.clone()) => {}
-                RepoEvent::Checkout(root) => {
-                    lanes.extend(self.seeds.iter().filter(|s| self.lane_checkout.get(&s.path) == Some(&root)).map(|s| s.path.clone()));
-                    // A fetch may have moved the branch a team file is read from.
-                    if let Some((owner, name)) = self.checkouts.iter().find(|(_, c)| c.root == root).and_then(|(_, c)| c.github.clone()) {
-                        self.team_files.on_refs_moved(&format!("{owner}/{name}"));
-                    }
-                }
-                RepoEvent::Worktrees => reload_repos = true,
-                RepoEvent::Ignore => {}
-            }
-        }
-
-        if reload_config {
-            self.reload();
-            return;
-        }
-        let look = Self::look(&self.seen, &self.processes);
-        let mut all = harness::Applied::default();
-        let mut asked = Vec::new();
-        for ((i, j), paths) in owned {
-            let applied = self.readers[i].apply(&accounts[i][j], &paths, &look);
-            if applied.dirty && perf::enabled() {
-                asked.push(format!("files {}", accounts[i][j].name));
-            }
-            all.and(applied);
-        }
-        for a in asked {
-            self.asked(|| a);
-        }
-        let added = self.take(all);
-        if reload_repos {
-            self.rescan_repos();
-        } else if added {
-            self.place_sessions();
-        }
-        for l in lanes {
-            self.queue_git(l);
-        }
-    }
-
-    /// Reads the repos again: worktrees came or went, a session started where no lane covers,
-    /// or reads macOS held landed. Git runs in the worktrees that are new or readable now.
-    fn rescan_repos(&mut self) {
-        let t = Instant::now();
-        let before: HashSet<PathBuf> = self.git_targets().into_iter().collect();
-        self.load_repos();
-        let loaded = t.elapsed();
-        let added: Vec<PathBuf> = self.git_targets().into_iter().filter(|p| !before.contains(p)).collect();
-        for p in added {
-            self.queue_git(p);
-        }
-        let w = Instant::now();
-        self.watch();
-        let watched = w.elapsed();
-        self.refresh_visitors(false);
-        self.mark_dirty("rescan repos");
-        perf::took(|| format!("rescan repos ({} worktrees, loading {} ms, watching {} ms), in all", self.seeds.len(), loaded.as_millis(), watched.as_millis()), t.elapsed());
-    }
-
     /// A PR the board doesn't list, matched to these lanes' worktrees and sessions.
     fn pr_card(&self, lanes: &[Lane], slug: &str, raw: &PrRaw, login: Option<&str>) -> PrItem {
         let links = self.pr_links();
@@ -2589,63 +2025,6 @@ impl Engine {
         if let Some(store) = self.read_or_warn(Trouble::PrLinks, prlinks::load()) {
             self.pr_store = store;
         }
-    }
-
-    fn watch(&mut self) {
-        let tx = self.tx.clone();
-        let handler = move |res: notify::Result<notify::Event>| {
-            if let Ok(ev) = res {
-                if matches!(ev.kind, EventKind::Access(_)) {
-                    return;
-                }
-                // notify says why FSEvents asks for a look again in the event's info: events
-                // dropped (`rescan: user dropped`, `rescan: kernel dropped`), which it says for
-                // every folder watched, or events folded into their folder, which say where.
-                let dropped = ev.need_rescan() && ev.info().is_some_and(|i| i.ends_with("dropped"));
-                let paths: Vec<PathBuf> = ev.paths.into_iter().filter(|p| !is_noise(p)).collect();
-                if !paths.is_empty() {
-                    let _ = tx.send(if dropped { Msg::Dropped(paths) } else { Msg::Fs(paths) });
-                }
-            }
-        };
-        let mut watcher = match notify::recommended_watcher(handler) {
-            Ok(w) => w,
-            Err(e) => {
-                self.set_trouble(Trouble::Watch, Some(format!("Live updates are off: {e}")));
-                return;
-            }
-        };
-        let mut paths: Vec<(PathBuf, RecursiveMode)> = Vec::new();
-        self.missing_homes = self.cfg.accounts.iter().map(|a| a.home_path()).filter(|h| !h.exists()).collect();
-        let _ = std::fs::create_dir_all(config::support_dir());
-        paths.push((config::support_dir(), RecursiveMode::NonRecursive));
-        for r in &self.readers {
-            for a in harness::accounts_of(&self.cfg, r.harness()) {
-                paths.extend(r.watch(&a).into_iter().map(|(p, deep)| (p, if deep { RecursiveMode::Recursive } else { RecursiveMode::NonRecursive })));
-            }
-        }
-        let roots: Vec<PathBuf> = self.checkouts.iter().map(|(_, c)| c.root.clone()).collect();
-        for r in &roots {
-            paths.push((r.clone(), RecursiveMode::Recursive));
-        }
-        for s in &self.seeds {
-            if !s.elsewhere && s.origin != Origin::Folder && !roots.iter().any(|r| s.path.starts_with(r)) {
-                paths.push((s.path.clone(), RecursiveMode::Recursive));
-            }
-        }
-        // Added together and started once: on macOS each `watch` stops the watcher's stream and
-        // starts it again with every path so far, a thread and a stream for each path.
-        let mut failed = 0;
-        let mut adding = watcher.paths_mut();
-        for (p, mode) in paths {
-            if p.exists() && adding.add(&p, mode).is_err() {
-                failed += 1;
-            }
-        }
-        // What a path's watch came to, `add` has said.
-        let _ = adding.commit();
-        self.set_trouble(Trouble::Watch, (failed > 0).then(|| format!("Couldn't watch {failed} folders; their lanes update every 10 seconds.")));
-        self.watcher = Some(watcher);
     }
 
     /// state.json, read again. One that doesn't read is left alone: the engine goes on with what
@@ -3099,177 +2478,6 @@ const DATABASES_EVERY: Duration = Duration::from_millis(1500);
 /// readers' look at the processes; seen at 3 to 7 s at a load of 400 to 700.
 const PS_WAIT: Duration = Duration::from_secs(20);
 
-/// Paths that never matter, dropped before they reach the engine: databases and logs that
-/// apps write constantly, dependency folders, git's object store.
-fn is_noise(p: &Path) -> bool {
-    let name = p.file_name().and_then(|n| n.to_str()).unwrap_or_default();
-    // A harness's database runs in WAL mode, so while a session runs only its `-wal` file
-    // changes: that change is how Codealong hears of it (`Adapter::databases`).
-    if harness::all().flat_map(|a| a.databases()).any(|db| name.strip_suffix("-wal") == Some(*db)) {
-        return false;
-    }
-    if name.ends_with("-wal") || name.ends_with("-shm") || name.ends_with("-journal") || name.ends_with(".sqlite") || name.ends_with(".log") || name.ends_with(".lock") || name == ".DS_Store" {
-        return true;
-    }
-    p.components().any(|c| {
-        let c = c.as_os_str();
-        c == "node_modules" || c == "objects" || c == "target" || c == ".nx" || c == ".turbo" || c == ".next"
-    })
-}
-
-/// A folder that's no repo's worktree, called by its name, with nothing said of a branch or a
-/// remote. The made-up Mac's seeds start from it too (fixture.rs).
-pub(crate) fn folder_seed(path: PathBuf, project: &str, name: &str, elsewhere: bool) -> LaneSeed {
-    LaneSeed {
-        path,
-        project: project.to_string(),
-        repo: name.to_string(),
-        repo_slug: None,
-        head_owners: Vec::new(),
-        callsign: name.to_string(),
-        origin: if elsewhere { Origin::Other } else { Origin::Folder },
-        branch: None,
-        head: None,
-        default_branch: None,
-        elsewhere,
-        chats: false,
-        starts_chats: false,
-        exact: false,
-    }
-}
-
-/// The folders apps keep their chats in, a folder for each, and the name of the lane that holds
-/// them: the Claude app's Code sessions started without a folder, the Codex app's threads that
-/// belong to no project, and the sessions Codealong starts in no project (`config::chats_dir`).
-fn chat_roots() -> Vec<(PathBuf, &'static str)> {
-    let mut roots = harness::chat_roots();
-    roots.push((config::chats_dir(), CHATS));
-    roots
-}
-
-/// The lane of the sessions Codealong starts in no project.
-const CHATS: &str = "Chats";
-
-/// Which of `roots` holds `path`.
-fn chat_root(roots: &[(PathBuf, &'static str)], path: &Path) -> Option<usize> {
-    roots.iter().position(|(root, _)| path.starts_with(root))
-}
-
-/// What a folder a session ran in turned out to be, for `stray_seeds`.
-enum Found {
-    /// In a repo: the root of its worktree.
-    Repo(PathBuf),
-    Plain,
-    /// Its read is waiting on macOS.
-    Held,
-    Gone,
-}
-
-/// Lanes for the folders sessions ran in that no lane covers, so no session goes unlisted: one
-/// for all of an app's chats (a chat whose folder the app has removed too), one for each repo
-/// outside your projects, and one for each other folder, which takes in only the sessions
-/// started there. A folder that's gone, or whose read is held, has none. Codealong's own chats
-/// (`own`, among `chats`) have a lane with no sessions too, to start in.
-fn stray_seeds(seeds: &[LaneSeed], cwds: &BTreeSet<String>, chats: &[(PathBuf, &'static str)], own: &Path, home: &Path, found: impl Fn(&Path) -> Found) -> Vec<LaneSeed> {
-    let mut roots: BTreeSet<usize> = chats.iter().position(|(root, _)| root == own && !seeds.iter().any(|s| s.path == *root)).into_iter().collect();
-    let mut repos = BTreeSet::new();
-    let mut folders = BTreeSet::new();
-    let index = board::SeedIndex::new(seeds);
-    for cwd in cwds {
-        let p = Path::new(cwd);
-        if index.best(p).is_some() {
-            continue;
-        }
-        if let Some(i) = chat_root(chats, p) {
-            roots.insert(i);
-            continue;
-        }
-        match found(p) {
-            Found::Repo(wt) => {
-                repos.insert(wt);
-            }
-            Found::Plain => {
-                folders.insert(p.to_path_buf());
-            }
-            Found::Held | Found::Gone => {}
-        }
-    }
-    let name = |p: &Path| if p == home { "home".to_string() } else { file_name(p) };
-    let mut out = Vec::new();
-    for i in roots {
-        let (root, lane) = &chats[i];
-        out.push(LaneSeed { origin: Origin::Folder, chats: true, starts_chats: root == own, ..folder_seed(root.clone(), ELSEWHERE, lane, true) });
-    }
-    for root in repos {
-        out.push(folder_seed(root.clone(), ELSEWHERE, &name(&root), true));
-    }
-    for folder in folders {
-        out.push(LaneSeed { origin: Origin::Folder, exact: true, ..folder_seed(folder.clone(), ELSEWHERE, &name(&folder), true) });
-    }
-    out
-}
-
-/// What the repo scan reads inside a worktree.
-struct WorktreeFiles {
-    /// Its git folder in the main checkout, for telling which worktree a change there is for.
-    /// None for a main checkout.
-    gitdir: Option<PathBuf>,
-    ignore: Option<Gitignore>,
-}
-
-fn read_worktree(path: &Path) -> WorktreeFiles {
-    // A linked worktree's `.git` is a file that names its git folder; a main checkout's is that folder.
-    // Made canonical, as the watcher's paths are, so a change under it is matched to its lane.
-    let gitdir = if path.join(".git").is_file() { crate::repos::linked_gitdir(path).map(|d| dunce::canonicalize(&d).unwrap_or(d)) } else { None };
-    let mut b = GitignoreBuilder::new(path);
-    b.add(path.join(".gitignore"));
-    WorktreeFiles { gitdir, ignore: b.build().ok() }
-}
-
-/// A worktree to run git in, and the branch its changes are counted from.
-type GitJob = (PathBuf, Option<String>);
-
-fn spawn_git_workers(back: Sender<Msg>) -> Sender<GitJob> {
-    let (jobs, rx) = channel::<GitJob>();
-    let rx = Arc::new(Mutex::new(rx));
-    for i in 0..GIT_WORKERS {
-        let rx = rx.clone();
-        let back = back.clone();
-        let _ = std::thread::Builder::new().name(format!("codealong-git-{i}")).spawn(move || {
-            crate::os::system::utility_thread();
-            let status = |path: &Path, base: Option<&str>| {
-                let t = Instant::now();
-                let info = git::status(path, base);
-                if perf::enabled() {
-                    perf::log(&format!("git status {} ms: {}", t.elapsed().as_millis(), path.display()));
-                }
-                info
-            };
-            git_worker(&rx, status, |path, info| back.send(Msg::GitDone(path, info)).is_ok());
-        });
-    }
-    jobs
-}
-
-/// One git worker: runs the jobs as they come, until there are no more to come or nobody to
-/// answer. Every job is answered, with none when its run panicked, and the worker goes on to
-/// the next: the engine counts a worktree as running until it hears (throttle.rs), so one it
-/// never heard of would get no git again, and a worker that died would take a quarter of the
-/// git with it.
-fn git_worker(jobs: &Mutex<Receiver<GitJob>>, run: impl Fn(&Path, Option<&str>) -> GitInfo, answer: impl Fn(PathBuf, Option<GitInfo>) -> bool) {
-    loop {
-        let job = match jobs.lock() {
-            Ok(r) => r.recv(),
-            Err(_) => return,
-        };
-        let Ok((path, base)) = job else { return };
-        let info = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| run(&path, base.as_deref()))).ok();
-        if !answer(path, info) {
-            return;
-        }
-    }
-}
-
 /// First run: the accounts in use or signed in, a project per GitHub owner your agents worked
 /// in, the folders their repos are in to search, and an editor that's installed. The setup
 /// wizard then has you confirm them (setup.rs).
@@ -3317,175 +2525,6 @@ fn adopt_terminals(lanes: &[crate::model::Lane], tty_of: impl Fn(u32) -> Option<
 
 #[cfg(test)]
 mod tests {
-    #[test]
-    fn a_harness_database_log_is_heard_and_other_logs_are_not() {
-        use super::*;
-        assert!(!is_noise(Path::new("/Users/me/.local/share/opencode/opencode.db-wal")));
-        assert!(!is_noise(Path::new("/Users/me/.gemini/antigravity-cli/conversation_summaries.db-wal")));
-        assert!(is_noise(Path::new("/Users/me/.local/share/opencode/opencode.db-shm")));
-        assert!(is_noise(Path::new("/Users/me/projects/app/data/cache.db-wal")));
-    }
-
-    #[test]
-    fn every_session_folder_that_can_be_shown_gets_a_lane() {
-        use super::*;
-        let home = PathBuf::from("/Users/me");
-        let scratch = "/Users/me/Library/Application Support/Claude/scratch-workspaces";
-        let own = PathBuf::from("/Users/me/Library/Application Support/Codealong/chats");
-        let chats = vec![(PathBuf::from(scratch), "Claude app chats"), (PathBuf::from("/Users/me/Documents/Codex"), "Codex chats"), (own.clone(), CHATS)];
-        let seeds = vec![folder_seed(PathBuf::from("/Users/me/projects/app"), "App", "app", false)];
-        let cwds: BTreeSet<String> = [
-            "/Users/me/projects/app/src".to_string(),
-            format!("{scratch}/a/b/scratch-2026-09-28-045217"),
-            format!("{scratch}/a/b/scratch-2026-09-26-c8bd6b"),
-            "/Users/me/Documents/Codex/2026-09-27/can-you".to_string(),
-            "/Users/me/projects/other/web".to_string(),
-            "/Users/me".to_string(),
-            "/Users/me/Downloads".to_string(),
-            "/Users/me/Documents/held".to_string(),
-            "/tmp/gone".to_string(),
-        ]
-        .into_iter()
-        .collect();
-        // Chats aren't looked up, so one whose folder the app removed still has its lane.
-        let found = |p: &Path| match p.to_str().unwrap() {
-            "/Users/me/projects/other/web" => Found::Repo(PathBuf::from("/Users/me/projects/other")),
-            "/Users/me" | "/Users/me/Downloads" => Found::Plain,
-            "/Users/me/Documents/held" => Found::Held,
-            "/tmp/gone" => Found::Gone,
-            p => panic!("{p} was looked up"),
-        };
-        let mut all = seeds.clone();
-        all.extend(stray_seeds(&seeds, &cwds, &chats, &own, &home, found));
-        let lane = |cwd: &str| board::best_seed(&all, Path::new(cwd)).map(|i| (all[i].callsign.as_str(), all[i].chats, all[i].exact));
-        // Codealong's own chats have a lane before any session has started there, to start in.
-        let mine: Vec<&LaneSeed> = all.iter().filter(|s| s.starts_chats).collect();
-        assert_eq!(mine.len(), 1);
-        assert_eq!((mine[0].path.as_path(), mine[0].callsign.as_str(), mine[0].chats, mine[0].elsewhere), (own.as_path(), CHATS, true, true));
-        assert_eq!(lane(&format!("{}/2026-10-05-a1b2c3", own.display())), Some((CHATS, true, false)));
-        assert_eq!(lane("/Users/me/projects/app/src"), Some(("app", false, false)));
-        assert_eq!(lane(&format!("{scratch}/a/b/scratch-2026-09-28-045217")), Some(("Claude app chats", true, false)));
-        assert_eq!(lane(&format!("{scratch}/a/b/scratch-2026-09-26-c8bd6b")), Some(("Claude app chats", true, false)));
-        assert_eq!(lane("/Users/me/Documents/Codex/2026-09-27/can-you"), Some(("Codex chats", true, false)));
-        assert_eq!(lane("/Users/me/projects/other/web"), Some(("other", false, false)));
-        assert_eq!(lane("/Users/me"), Some(("home", false, true)));
-        assert_eq!(lane("/Users/me/Downloads"), Some(("Downloads", false, true)));
-        assert_eq!(lane("/Users/me/Desktop"), None, "your home folder's lane doesn't take in the folders in it");
-        assert_eq!((lane("/Users/me/Documents/held"), lane("/tmp/gone")), (None, None));
-        assert_eq!(all.len(), 7, "one lane for each app's chats, and Codealong's");
-        assert!(all[1..].iter().all(|s| s.elsewhere && s.project == ELSEWHERE));
-    }
-
-    /// A batch keeps what it learned of each folder, and still says what the gitignore says of
-    /// each path in it, whichever paths came first: rules for files, for folders only, and ones
-    /// that take a path back.
-    #[test]
-    fn a_batch_ignores_what_the_gitignore_ignores() {
-        use super::*;
-        let dir = crate::fixtures::scratch("batch-ignores");
-        let root = dir.join("repo");
-        for dir in ["dist/assets", "build", "src/build", "logs/keep", "src/deep/er"] {
-            std::fs::create_dir_all(root.join(dir)).unwrap();
-        }
-        let mut gi = GitignoreBuilder::new(&root);
-        for rule in ["dist", "build/", "*.log", "!keep.log", "logs/*", "!logs/keep", "/src/deep/er/*.tmp"] {
-            gi.add_line(None, rule).unwrap();
-        }
-        let gi = gi.build().unwrap();
-        let paths: Vec<PathBuf> = [
-            "dist/app.js",
-            "dist/assets/a.css",
-            "dist",
-            "build",
-            "build/out.o",
-            "src/build",
-            "src/build/x",
-            "src/main.rs",
-            "src/app.log",
-            "src/keep.log",
-            "logs/today",
-            "logs/keep",
-            "logs/keep/a.log",
-            "logs/keep/keep.log",
-            "logs/keep/notes.txt",
-            "src/deep/er/x.tmp",
-            "src/deep/er/x.rs",
-            "src/deep/x.tmp",
-        ]
-        .iter()
-        .map(|p| root.join(p))
-        .chain([root.clone()])
-        .collect();
-        let want: Vec<bool> = paths.iter().map(|p| gi.matched_path_or_any_parents(p, p.is_dir()).is_ignore()).collect();
-        for order in [paths.clone(), paths.iter().rev().cloned().collect()] {
-            let mut batch = FsBatch::new(&[]);
-            let got: HashMap<&PathBuf, bool> = order.iter().map(|p| (p, batch.ignored(&gi, &root, p))).collect();
-            for (p, want) in paths.iter().zip(&want) {
-                assert_eq!(got[p], *want, "{}", p.display());
-            }
-        }
-        assert!(want.iter().any(|&w| w) && want.iter().any(|&w| !w));
-    }
-
-    /// A batch finds each path's lane once per folder, and the lane is the one `best_seed` finds,
-    /// worktrees inside worktrees and the worktrees' own folders included.
-    #[test]
-    fn a_batch_finds_the_lane_best_seed_finds() {
-        use super::*;
-        let seed = |path: &str, exact: bool| LaneSeed { exact, ..folder_seed(PathBuf::from(path), "P", "repo", false) };
-        let seeds = vec![seed("/r/app", false), seed("/r/app/.claude/worktrees/fix", false), seed("/Users/me", true), seed("/r/app/.claude/worktrees/fix", false)];
-        let paths = [
-            "/r/app/src/a.rs",
-            "/r/app/.claude/worktrees/fix",
-            "/r/app/.claude/worktrees/fix/src/a.rs",
-            "/r/app/.claude/worktrees/fixed/src/a.rs",
-            "/r/app/.claude/worktrees",
-            "/r/app/src/b.rs",
-            "/Users/me",
-            "/Users/me/notes.md",
-            "/r/apple/x",
-            "/",
-        ];
-        let mut batch = FsBatch::new(&seeds);
-        for p in paths.iter().chain(paths.iter().rev()) {
-            assert_eq!(batch.lane_of(Path::new(p)), board::best_seed(&seeds, Path::new(p)), "{p}");
-        }
-    }
-
-    #[test]
-    fn a_removed_worktree_rescans_the_repos() {
-        use super::*;
-
-        let dir = crate::fixtures::scratch("gone-worktree");
-        let root = dir.join("repo");
-        let git_dir = root.join(".git");
-        let admin = git_dir.join("worktrees/topic");
-        let wt = dir.join("repo-topic");
-        std::fs::create_dir_all(&admin).unwrap();
-        std::fs::create_dir_all(&wt).unwrap();
-        let (tx, _rx) = channel();
-        let mut engine = Engine::new(Box::new(|_| {}), tx, Arc::new(RwLock::new(Board::default())));
-        let checkout = repos::Checkout { root: root.clone(), git_dir: git_dir.clone(), name: "repo".into(), identity: None, github: None, github_owners: Vec::new() };
-        engine.checkouts = vec![("P".into(), checkout)];
-        engine.gitdir_to_lane.insert(admin.clone(), wt.clone());
-        let seed = |path: &Path, origin: Origin| LaneSeed { origin, ..folder_seed(path.to_path_buf(), "P", "repo", false) };
-        engine.seeds = vec![seed(&root, Origin::Main), seed(&wt, Origin::Other)];
-        let is_lane = |e: RepoEvent, lane: &Path| matches!(e, RepoEvent::Lane(l) if l == lane);
-
-        // While it's there, a change in it or its folder in `.git/worktrees` runs git in it.
-        assert!(is_lane(engine.classify_repo_path(&wt.join("src/main.rs"), &mut FsBatch::new(&engine.seeds)), &wt));
-        assert!(is_lane(engine.classify_repo_path(&admin.join("HEAD"), &mut FsBatch::new(&engine.seeds)), &wt));
-        // `git worktree remove` deletes both.
-        std::fs::remove_dir_all(&wt).unwrap();
-        assert!(matches!(engine.classify_repo_path(&wt.join("src/main.rs"), &mut FsBatch::new(&engine.seeds)), RepoEvent::Worktrees), "its own files going");
-        assert!(matches!(engine.classify_repo_path(&admin.join("HEAD"), &mut FsBatch::new(&engine.seeds)), RepoEvent::Worktrees), "its worktree gone");
-        std::fs::create_dir_all(&wt).unwrap();
-        std::fs::remove_dir_all(&admin).unwrap();
-        assert!(matches!(engine.classify_repo_path(&admin, &mut FsBatch::new(&engine.seeds)), RepoEvent::Worktrees), "its folder in .git gone");
-        // The main checkout's own changes are still its own.
-        assert!(is_lane(engine.classify_repo_path(&root.join("src/lib.rs"), &mut FsBatch::new(&engine.seeds)), &root));
-    }
-
     #[test]
     fn worktrees_carry_what_github_calls_a_renamed_repo_now() {
         use super::*;
@@ -3782,115 +2821,6 @@ mod tests {
         std::fs::write(home().join("ran"), "").unwrap();
     }
 
-    /// macOS holds `open()` in a folder it protects until someone answers its privacy prompt,
-    /// which on a Mac nobody sits at can be hours. A worktree whose files never read doesn't hold
-    /// up the first scan: the board goes out with it as `git worktree list` gives it, git runs
-    /// everywhere else, and a worktree whose read lands later is filled in. Runs in a copy of
-    /// this test binary with a home of its own, as the scan reads and writes there.
-    #[test]
-    fn the_first_scan_publishes_while_a_worktree_read_is_held() {
-        use super::*;
-
-        let Some(own) = std::env::var_os("CODEALONG_TEST_HOME") else {
-            let home = std::env::temp_dir().join(format!("codealong-held-scan-{}", std::process::id()));
-            let _ = std::fs::remove_dir_all(&home);
-            std::fs::create_dir_all(&home).unwrap();
-            // As git reports paths: /private/var, not /var.
-            let home = dunce::canonicalize(&home).unwrap();
-            let run = std::process::Command::new(std::env::current_exe().unwrap())
-                .args(["engine::tests::the_first_scan_publishes_while_a_worktree_read_is_held", "--exact", "--nocapture"])
-                .env("HOME", &home)
-                .env("CODEALONG_TEST_HOME", &home)
-                .output()
-                .unwrap();
-            let ran = home.join("ran").exists();
-            std::fs::remove_dir_all(&home).unwrap();
-            assert!(run.status.success() && ran, "{}{}", String::from_utf8_lossy(&run.stdout), String::from_utf8_lossy(&run.stderr));
-            return;
-        };
-        assert_eq!(home(), PathBuf::from(own), "never the real home folder");
-        // Fails rather than hangs when the scan waits on the read that never returns.
-        std::thread::spawn(|| {
-            std::thread::sleep(Duration::from_secs(60));
-            eprintln!("The scan waited on a read that never returns.");
-            std::process::exit(1);
-        });
-
-        let git = |dir: &Path, args: &[&str]| {
-            let out = std::process::Command::new("git").arg("-C").arg(dir).args(["-c", "user.name=t", "-c", "user.email=t@t"]).args(args).output().unwrap();
-            assert!(out.status.success(), "git {args:?}: {}", String::from_utf8_lossy(&out.stderr));
-        };
-        let projects = home().join("projects");
-        let main = projects.join("repo");
-        std::fs::create_dir_all(&main).unwrap();
-        git(&main, &["init", "-q", "-b", "main"]);
-        git(&main, &["remote", "add", "origin", "git@example.com:team/repo.git"]);
-        std::fs::write(main.join(".gitignore"), "build/\n").unwrap();
-        git(&main, &["add", "."]);
-        git(&main, &["commit", "-qm", "init"]);
-        let path = |name: &str| projects.join(format!("repo-{name}"));
-        for name in ["stuck", "late", "plain"] {
-            git(&main, &["worktree", "add", "-q", &path(name).to_string_lossy(), "-b", name]);
-        }
-        let project = crate::config::ProjectCfg { name: "Team".into(), repos: vec!["example.com/team/*".into()], folders: vec![], chrome_profile: None, default: None, decisions: None };
-        config::write(&Config { scan: vec!["~/projects".into()], projects: vec![project], ..Config::default() }).unwrap();
-
-        let boards: Arc<Mutex<Vec<Board>>> = Arc::default();
-        let emitted = boards.clone();
-        let (tx, rx) = channel();
-        let mut engine = Engine::new(Box::new(move |b: &Board| emitted.lock().unwrap().push(b.clone())), tx.clone(), Arc::new(RwLock::new(Board::default())));
-        // The stuck worktree's files never read; the late one's read once it's let go.
-        let (release, gate) = channel::<()>();
-        let gate = Mutex::new(gate);
-        engine.reads.worktrees = Held::new(
-            "worktree",
-            move |p: &Path| {
-                if p.ends_with("repo-stuck") {
-                    loop {
-                        std::thread::park();
-                    }
-                }
-                if p.ends_with("repo-late") {
-                    let _ = gate.lock().unwrap().recv();
-                }
-                read_worktree(p)
-            },
-            move || {
-                let _ = tx.send(Msg::Landed);
-            },
-        );
-        let started = Instant::now();
-        engine.full_scan();
-        assert!(started.elapsed() < Duration::from_secs(30), "the scan waited on the held reads");
-
-        let first = boards.lock().unwrap().first().cloned().expect("the first scan published a board");
-        assert!(!first.loading);
-        let branch = |b: &Board, p: &Path| b.lanes.iter().find(|l| Path::new(&l.path) == p).map(|l| l.branch.clone());
-        assert_eq!(branch(&first, &main), Some(Some("main".to_string())));
-        for name in ["stuck", "late", "plain"] {
-            assert_eq!(branch(&first, &path(name)), Some(Some(name.to_string())), "{name} is on the board as git worktree list gives it");
-        }
-        let targets = engine.git_targets();
-        assert!(targets.contains(&main) && targets.contains(&path("plain")));
-        assert!(!targets.contains(&path("stuck")) && !targets.contains(&path("late")), "no git where the files are held");
-        assert!(engine.ignores.contains_key(&path("plain")) && !engine.ignores.contains_key(&path("late")));
-
-        // The late read lands while the engine runs as the app's does: the next board has git there.
-        std::thread::spawn(move || engine.run(&rx));
-        release.send(()).unwrap();
-        let has_git = |b: &Board, p: &Path| b.lanes.iter().any(|l| Path::new(&l.path) == p && l.git.is_some());
-        let until = Instant::now() + Duration::from_secs(20);
-        let filled = loop {
-            if let Some(b) = boards.lock().unwrap().iter().find(|b| has_git(b, &path("late"))) {
-                break b.clone();
-            }
-            assert!(Instant::now() < until, "the late worktree never got git");
-            std::thread::sleep(Duration::from_millis(50));
-        };
-        assert!(has_git(&filled, &path("plain")) && !has_git(&filled, &path("stuck")));
-        std::fs::write(home().join("ran"), "").unwrap();
-    }
-
     #[test]
     fn boards_that_differ_only_in_their_time_hash_alike() {
         use super::*;
@@ -3903,79 +2833,6 @@ mod tests {
         // The board goes out with the time it was made, and hashes the same each time.
         assert_eq!((first.generated_at, later.generated_at), (1_000, 2_000));
         assert_eq!(board_hash(&mut first), board_hash(&mut first.clone()));
-    }
-
-    /// A git run that finds a worktree as it was changes nothing to publish.
-    #[test]
-    fn git_that_finds_nothing_new_asks_for_no_publish() {
-        use super::*;
-        let (tx, _rx) = channel();
-        let mut engine = Engine::new(Box::new(|_| {}), tx, Arc::new(RwLock::new(Board::default())));
-        let wt = PathBuf::from("/work/app");
-        engine.seeds = vec![folder_seed(wt.clone(), "p", "app", false)];
-        let info = GitInfo { ahead: 1, dirty: 2, ..GitInfo::default() };
-        engine.on_git(wt.clone(), Some(info.clone()));
-        assert!(engine.dirty_git, "the first word on it");
-        engine.dirty_git = false;
-        engine.on_git(wt.clone(), Some(info.clone()));
-        assert!(!engine.dirty_git, "the same again");
-        engine.on_git(wt.clone(), Some(GitInfo { dirty: 3, ..info }));
-        assert!(engine.dirty_git, "a file changed");
-        engine.dirty_git = false;
-        engine.on_git(wt, None);
-        assert!(!engine.dirty_git, "a run that fell over leaves it as it was");
-    }
-
-    /// Events the watcher dropped run git where the folder's worktrees are, the checkout's own
-    /// outside it too, and no more often than `Drops` allows; a folder that's no repo's is taken
-    /// as it always was, and so is a worktree that's gone, which has the repos read again.
-    #[test]
-    fn dropped_events_run_git_in_the_folders_worktrees_now_and_then() {
-        use super::*;
-        let (tx, _rx) = channel();
-        let mut engine = Engine::new(Box::new(|_| {}), tx, Arc::new(RwLock::new(Board::default())));
-        // No worker takes the jobs: each run stays running, to be counted.
-        let (jobs, _held) = channel::<GitJob>();
-        engine.git_jobs = jobs;
-        let work = std::env::temp_dir().join(format!("codealong-dropped-{}", std::process::id()));
-        let at = |p: &str| work.join(p);
-        let (root, nested, linked, other, gone) = (at("app"), at("app/.claude/worktrees/a"), at("app-fix"), at("other"), at("app/.claude/worktrees/b"));
-        for p in [&nested, &linked, &other] {
-            std::fs::create_dir_all(p).unwrap();
-        }
-        let repo = |p: &PathBuf, origin: Origin| LaneSeed { origin, ..folder_seed(p.clone(), "P", "repo", false) };
-        engine.seeds = vec![repo(&root, Origin::Main), repo(&nested, Origin::ClaudeApp), repo(&gone, Origin::ClaudeApp), repo(&linked, Origin::Main), repo(&other, Origin::Main)];
-        for p in [&root, &nested, &gone, &linked] {
-            engine.lane_checkout.insert(p.clone(), root.clone());
-        }
-        engine.lane_checkout.insert(other.clone(), other.clone());
-
-        let rest = engine.on_dropped(vec![root.clone(), PathBuf::from("/records"), root.clone()]);
-        assert_eq!(rest, vec![PathBuf::from("/records"), gone.clone()], "a harness's folder and a worktree that's gone are handed back");
-        let running: BTreeSet<&PathBuf> = [&root, &nested, &gone, &linked, &other].into_iter().filter(|p| engine.git_queue.request((*p).clone(), Instant::now()) == Verdict::Running).collect();
-        assert_eq!(running, [&root, &nested, &linked].into(), "not the other repo, nor where nothing is");
-
-        // A build overflows the watcher again: nothing more yet.
-        engine.git_queue = GitQueue::default();
-        assert_eq!(engine.on_dropped(vec![root.clone()]), vec![gone]);
-        assert_eq!(engine.git_queue.running(), 0);
-        assert!(engine.drops.next_due().is_some(), "a run is owed");
-        let _ = std::fs::remove_dir_all(&work);
-    }
-
-    /// A worktree deleted while the watcher dropped its events leaves the board: the drop hands it
-    /// to the batch, which reads the repos again for it.
-    #[test]
-    fn a_worktree_gone_while_events_were_dropped_has_the_repos_read_again() {
-        use super::*;
-        let (tx, _rx) = channel();
-        let mut engine = Engine::new(Box::new(|_| {}), tx, Arc::new(RwLock::new(Board::default())));
-        let gone = PathBuf::from("/nowhere/codealong-gone-worktree");
-        engine.seeds = vec![LaneSeed { origin: Origin::Main, ..folder_seed(gone.clone(), "P", "repo", false) }];
-        let rest = engine.on_dropped(vec![gone.clone()]);
-        assert_eq!(rest, vec![gone.clone()]);
-        let mut batch = FsBatch::new(&engine.seeds);
-        assert!(matches!(engine.classify_repo_path(&gone, &mut batch), RepoEvent::Worktrees));
     }
 
     /// A repo's team file read without a file changes nothing the windows get, but a review that
@@ -4099,48 +2956,6 @@ mod tests {
         assert_eq!(*noted.lock().unwrap(), [vec![7]], "the readers hear of the one that worked, as it lands");
         let look = Engine::look(&engine.seen, &engine.processes);
         assert_eq!((look.ps.at(), look.ps.all()), (Some(listed.at), &listed.lines[..]));
-    }
-
-    /// Git isn't run in a worktree while a run there is out, so every run has to answer.
-    #[test]
-    fn a_git_run_that_falls_over_still_answers() {
-        use super::*;
-        let (jobs, rx) = channel::<GitJob>();
-        let (answers, answered) = channel();
-        for name in ["first", "bad", "next"] {
-            jobs.send((PathBuf::from(name), None)).unwrap();
-        }
-        drop(jobs);
-        let run = |path: &Path, _: Option<&str>| {
-            if path == Path::new("bad") {
-                // A panic, without the hook's lines on stderr.
-                std::panic::resume_unwind(Box::new("git fell over"));
-            }
-            GitInfo::default()
-        };
-        // The worker returns once the jobs run out: it went on past the one that fell over.
-        git_worker(&Mutex::new(rx), run, |path, info| answers.send((path, info.is_some())).is_ok());
-        let all: Vec<(PathBuf, bool)> = answered.try_iter().collect();
-        assert_eq!(all, [("first".into(), true), ("bad".into(), false), ("next".into(), true)]);
-
-        // The engine has the worktree's run as over either way, and keeps what it knew of it.
-        let (tx, _rx) = channel();
-        let mut engine = Engine::new(Box::new(|_| {}), tx, Arc::new(RwLock::new(Board::default())));
-        let wt = PathBuf::from("/x/wt");
-        engine.seeds = vec![folder_seed(wt.clone(), "P", "repo", false)];
-        assert_eq!(engine.git_queue.request(wt.clone(), Instant::now()), Verdict::Run);
-        engine.on_git(wt.clone(), None);
-        assert_eq!(engine.git_queue.running(), 0);
-        assert!(!engine.git.contains_key(&wt) && !engine.dirty_git);
-        engine.on_git(wt.clone(), Some(GitInfo::default()));
-        assert!(engine.git.contains_key(&wt) && engine.dirty_git);
-
-        // With no worker to take a job, nothing is left running either.
-        let (gone, _) = channel::<GitJob>();
-        engine.git_jobs = gone;
-        engine.git_queue = GitQueue::default();
-        engine.queue_git(wt.clone());
-        assert_eq!(engine.git_queue.running(), 0);
     }
 
     #[test]
