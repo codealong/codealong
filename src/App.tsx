@@ -654,8 +654,8 @@ export function App() {
     const lane = view === 'sessions' && selectedKey && !selectedKey.includes('::') ? laneById.get(selectedKey) : undefined;
     return lane ? headItem(lane) : undefined;
   }, [view, selectedKey, laneById]);
-  const foldedSessions = useMemo(() => activeSessionRows(sessionParts), [sessionParts]);
-  const selected = selectedRow(view, selectedKey, visible, { todoItems, prRows, held, foldedSessions, chosenLane });
+  const activeSessions = useMemo(() => activeSessionRows(sessionParts), [sessionParts]);
+  const selected = selectedRow(view, selectedKey, visible, { todoItems, prRows, held, activeSessions, chosenLane });
   // With nothing picked yet (the window just opened, or you changed projects) the panel shows
   // the top session (grouped, not its worktree's heading), and it holds there: a session that
   // comes to the top later doesn't take it.
@@ -973,6 +973,8 @@ export function App() {
       if (wider) setAge(wider);
       setHelpersShownList((prev) => revealing(prev, items, item));
       const key = `${lane.id}::${session.key}`;
+      const sec = sectionOfRow(key, sessionParts);
+      if (sec) unfoldSection(sec);
       setPendingUnfold(key);
       setSelectedKey(key);
     } else if (pr) {
@@ -1186,8 +1188,10 @@ export function App() {
     const key = dir === 'back' ? sessionHistory.goBack() : sessionHistory.goForward();
     const home = key ? (homes.get(key) ?? allHomes.get(key)) : undefined;
     if (!key || !home) return;
-    const row = sessionRows.find((r) => r.kind === 'agent' && r.session.key === key);
+    const row = activeSessions.find((r) => r.session.key === key) ?? (showArchived ? archivedItems.find((r) => r.session.key === key) : undefined);
     if (row) {
+      const sec = sectionOfRow(row.key, sessionParts);
+      if (sec) unfoldSection(sec);
       setView('sessions');
       setSelectedKey(row.key);
     } else {
@@ -1262,12 +1266,17 @@ export function App() {
     const copy = moving.to ? homes.get(moving.to) : undefined;
     if (!copy) return;
     setMoving(null);
-    const row = sessionRows.find((r) => r.kind === 'agent' && r.session.key === copy.session.key);
-    if (row) setSelectedKey(row.key);
-    else reveal.current({ kind: 'session', laneId: copy.lane.id, key: copy.session.key });
+    const row = activeSessions.find((r) => r.session.key === copy.session.key);
+    if (row) {
+      const sec = sectionOfRow(row.key, sessionParts);
+      if (sec) unfoldSection(sec);
+      setSelectedKey(row.key);
+    } else {
+      reveal.current({ kind: 'session', laneId: copy.lane.id, key: copy.session.key });
+    }
     // After the reveal, which puts away whatever the panel was showing in the session's place.
     if (drill?.from === moving.from.key) setDrill({ ...drill, from: row?.key ?? sessionItemOf(copy).key });
-  }, [moving, selected?.key, picking, homes, sessionRows, reveal, drill]);
+  }, [moving, selected?.key, picking, homes, activeSessions, sessionParts, unfoldSection, reveal, drill]);
   useEffect(() => {
     if (!moving?.to) return;
     const t = window.setTimeout(() => setMoving(null), COPY_WAIT_MS);
@@ -1342,7 +1351,7 @@ export function App() {
   // here; its menu. And a side conversation's row under its session, or a row of its chip's card:
   // the session selected, and the side conversation above its box, which takes what's typed.
   const movedByKey = useMemo(() => movedTargets(allHomes), [allHomes]);
-  const { showSideOf, helperActions } = helperActsOf({ homes, archivedItems, picks, focusBox, facets, setFacets, setHelpersShownList, sessionRows, lanes, openRow, sessionMenu });
+  const { showSideOf, helperActions } = helperActsOf({ homes, archivedItems, picks, focusBox, facets, setFacets, setHelpersShownList, sessionRows: activeSessions, lanes, openRow, sessionMenu });
 
   /** A worktree's right-click menu, as every window has it (menus.ts), with this window's own. */
   const laneCan = (lane: Lane) => laneCanOf(mainHas, lane);
@@ -2155,8 +2164,7 @@ export function App() {
                 desktop={(r) => (r.lane.device || r.session.archived ? null : { ref: 'session', key: r.session.key })}
                 archived={archivedItems}
                 sectionFolded={sectionFolds.isFolded}
-                onToggleSection={sectionFolds.toggle}
-                searching={!!query}
+                sectionToggle={sectionFolds.toggleFor}
                 todosFor={todosFor}
                 helpersOf={helpersOf}
                 helpersShown={helpersShown}

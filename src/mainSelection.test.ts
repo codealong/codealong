@@ -51,7 +51,7 @@ describe('the row selected', () => {
   });
 
   it('stays on a session whose section is folded rather than jumping to another', () => {
-    expect(selected('sessions', row.kestrel.key, [row.atlas], { foldedSessions: [row.kestrel, row.atlas] })).toBe(row.kestrel.key);
+    expect(selected('sessions', row.kestrel.key, [row.atlas], { activeSessions: [row.kestrel, row.atlas] })).toBe(row.kestrel.key);
   });
 
   it('holds a session you’re moving in Sessions until its copy takes its place', () => {

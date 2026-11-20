@@ -110,6 +110,9 @@ export interface SectionFolds {
   setShowArchived: (show: boolean) => void;
   isFolded: (id: string) => boolean;
   toggle: (id: string) => void;
+  /** Click handler for section `id`'s header, or undefined when the section can't toggle right
+   *  now (active sections while searching; Archived still toggles). */
+  toggleFor: (id: string) => (() => void) | undefined;
   unfold: (id: string) => void;
 }
 
@@ -165,5 +168,7 @@ export function useSectionFolds(searching: boolean): SectionFolds {
     [setPersisted],
   );
 
-  return { showArchived, setShowArchived, isFolded, toggle, unfold };
+  const toggleFor = useCallback((id: string) => (!searching || id === 'archived' ? () => toggle(id) : undefined), [searching, toggle]);
+
+  return { showArchived, setShowArchived, isFolded, toggle, toggleFor, unfold };
 }
