@@ -93,24 +93,33 @@
       var fits = function () { return sent('fit_bar').map(function (a) { return a.width + 'x' + a.height; }); };
       var windowBefore = fits().pop();
       var classes = [];
-      var watch = new MutationObserver(function () { classes.push(document.querySelector('.ca-notch').className); });
-      watch.observe(document.querySelector('.ca-notch'), { attributes: true, attributeFilter: ['class'] });
-      // How the shape eases before the step, which is what has to come back after it. Not held
-      // to easing at all: a machine set to reduce motion gives the shape none (Notch.css), and
-      // the step has none to take away there, nor to give back.
+      // How the shape eases: before the step, at each change of the notch's classes while it
+      // zooms (read then, with the class on it), and once the step is over. A machine set to
+      // reduce motion gives the shape no easing at all (Notch.css), and it has to stay off
+      // there throughout; any other has easing before, none while it zooms, and the same again
+      // after.
       var shape = function () { return document.querySelector('.ca-notch-shape'); };
-      var easedBefore = getComputedStyle(shape()).transitionProperty;
+      var eases = function () { return getComputedStyle(shape()).transitionProperty; };
+      var zooming = function () { return /is-zooming/.test(document.querySelector('.ca-notch').className); };
+      var easedBefore = eases();
+      var easedDuring = [];
       var still = matchMedia('(prefers-reduced-motion: reduce)').matches;
+      var watch = new MutationObserver(function () {
+        classes.push(document.querySelector('.ca-notch').className);
+        if (zooming()) easedDuring.push(eases());
+      });
+      watch.observe(document.querySelector('.ca-notch'), { attributes: true, attributeFilter: ['class'] });
       var zoomed = function () { return classes.some(function (c) { return /is-zooming/.test(c); }); };
-      var over = function () { return !/is-zooming/.test(document.querySelector('.ca-notch').className); };
       window.__emit('bar-feed', Object.assign({}, feed, { zoom: 150 }));
       return until(function () { return getComputedStyle(card()).zoom === '1.5'; }, 5000, 'the card at 150%')
         // The step is over two frames after it's drawn, however long this machine's frames are.
-        .then(function () { return until(function () { return zoomed() && over(); }, 10000).catch(function () {}); })
+        .then(function () { return until(function () { return zoomed() && !zooming(); }, 10000).catch(function () {}); })
         .then(function () {
           watch.disconnect();
-          var eased = getComputedStyle(shape()).transitionProperty;
-          check('a zoom step resizes the shape with no easing, and the easing comes back', zoomed() && over() && eased === easedBefore && (still || eased !== 'none'), classes.join(' → ') + '; eased by ' + easedBefore + ', then ' + eased + (still ? ', on a machine set to reduce motion' : ''));
+          var eased = eases();
+          var said = classes.join(' → ') + '; eased by ' + easedBefore + ', while it zoomed by ' + (easedDuring.join(', ') || 'nothing read') + ', then by ' + eased + (still ? ', on a machine set to reduce motion' : '');
+          check('a zoom step resizes the shape with no easing', zoomed() && easedDuring.length > 0 && easedDuring.every(function (t) { return t === 'none'; }), said);
+          check('and the easing it had comes back once the step is over', zoomed() && !zooming() && eased === easedBefore && (still ? easedBefore === 'none' : easedBefore !== 'none'), said);
           check('in the window it had', fits().pop() === windowBefore, windowBefore + ' → ' + fits().pop());
         });
     })
