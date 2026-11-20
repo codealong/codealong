@@ -18,7 +18,8 @@ session made. What a harness's own sockets and windows are written is pinned byt
 tests beside the code that writes it (`the_daemon_is_written_these_lines`,
 `a_sessions_socket_is_written_these_lines`, `the_codex_apps_windows_are_written_these_frames`):
 a change to what's sent shows there. What each harness records and accepts is in
-`.claude/rules/<harness>.md`. Adding one:
+`.claude/rules/<harness>.md` (Claude Code's is `claude-code.md` and the `claude-*.md` files it
+lists, a subject each). Adding one:
 
 1. A variant of `model::Harness` with its name in `Harness::word` and its config string in
    `Harness::config` and `from_config` (codealong-peer's `model.rs`), in `config::HARNESSES`, and

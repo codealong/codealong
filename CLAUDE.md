@@ -412,13 +412,14 @@ in `.claude/rules/`. In Claude Code each file there loads when a session reads o
 its `paths` name; no other harness loads them, so read the one for the area you're changing
 yourself, a harness's before changing its adapter, and add what you find to it, not here.
 
-- `claude-code.md`: Claude Code and the Claude app. `codex.md`, `opencode.md`,
+- `claude-code.md`, `claude-transcript.md`, `claude-conversation.md`, `claude-start.md`,
+  `claude-send.md`, `claude-asks.md`, `claude-side.md`: Claude Code and the Claude app. `codex.md`, `opencode.md`,
   `antigravity.md`, `cursor.md`, `acp.md` (the Agent Client Protocol adapters). `skills.md`: skills and the
   plugin, in every harness. `adding-a-harness.md`.
-- `terminals.md`: Ghostty, iTerm2, Terminal, Rex, and starting a session in them.
+- `terminals.md`, `rex.md`: Ghostty, iTerm2, Terminal, Rex, and starting a session in them.
   `libghostty.md`: Ghostty's terminal library, under Codealong's own terminals. `chrome.md`:
   Chrome's profiles and tabs, Claude in Chrome.
-- `windows.md`: Tauri, AppKit and WebKit (panels and their levels, the notch, the keyboard,
+- `windows.md`, `tauri.md`: Tauri, AppKit and WebKit (panels and their levels, the notch, the keyboard,
   events). `macos-privacy.md`: macOS's privacy prompts and Gatekeeper's. `linux.md`, `microsoft-windows.md`: Linux and Windows,
   their desktops, the harnesses there, and their VMs.
 - `github.md`: `gh`, GraphQL points and polling. `jev.md`: TypeSafe, and the other decision models. `devices.md`: Tailscale,

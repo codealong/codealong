@@ -9,13 +9,7 @@ paths:
   - "src-tauri/src/waiting.rs"
   - "src-tauri/src/desktop.rs"
   - "src-tauri/src/lineage.rs"
-  - "src-tauri/src/front.rs"
-  - "src-tauri/src/geometry.rs"
-  - "src-tauri/src/procs.rs"
   - "src-tauri/src/zoom.rs"
-  - "src-tauri/src/lib.rs"
-  - "src-tauri/capabilities/**"
-  - "src-tauri/tauri*.json"
   - "src/ui/Bar.tsx"
   - "src/ui/Notch*.tsx"
   - "src/ui/Peek.tsx"
@@ -26,11 +20,15 @@ paths:
   - "src/bar.ts"
 ---
 
-# Tauri and macOS
+# The app's windows
 
 What Codealong's windows rely on in Tauri, AppKit and WebKit, moved from CLAUDE.md's "Tauri and
 macOS" (from the Tauri 2.11 and tao 0.35 sources, and checks on this Mac). A bare file name is
 under `src-tauri/src/`.
+
+What the app relies on apart from its windows (commands and the main thread, events and which
+windows hear them, menus, the menu bar item, global shortcuts, quitting, the process table, the
+links macOS opens with it) is in `tauri.md`.
 
 - Tauri doesn't say whether a window can be seen; AppKit's `NSWindow.occlusionState` (through
   objc2) does: visible means some part is on screen, so not minimized, hidden, on another Space
@@ -64,8 +62,6 @@ under `src-tauri/src/`.
   it's a narrow race. A page ordered out draws no frames from then (rAF counted in the harness), and
   WebKit drops its display refreshes at the first with nothing to draw, so a panel is hidden a
   moment before it's destroyed: `panel.rs` (`dispose`, `SETTLE`).
-- A click in a non-activating panel leaves the app inactive, so the bar asks macOS to bring the
-  app it opened forward: `front.rs` (`bring_forward`).
 - WebKit treats a page as active only while its window says it's key (re-read when the window is
   ordered on screen), and an inactive page gets mouse moves only for its scrollbars (WebKit's
   WebFrame.cpp, checked in an offscreen WKWebView on 2026-09-26): what each panel answers and
@@ -77,37 +73,12 @@ under `src-tauri/src/`.
   from its own tracking area, active always with classic scroll bars and in the key window with
   overlay ones, and has no `mouseMoved:` to call: a test would send them with
   `_simulateMouseMove:`.
-- `proc_pidinfo` answers only for your own processes, `sysctl` KERN_PROC_PID for any, and a
-  killed process stuck in the kernel is reaped on a thread of its own: `procs.rs` (`listed`,
-  `run`). KERN_PROCARGS2 gives your own processes' environments, but not those of Apple's own
-  programs, which only root sees: `procs.rs` (`environment`).
-- Only a plain Quit reaches `RunEvent::Exit`: a copy taking over ends the process itself (the
-  server tells it to quit, view.rs `take_over`), relaunch.sh sends SIGTERM, and `AppHandle::restart` on the main
-  thread skips the exit events (tauri 2.12.5), so what must survive a relaunch is written as it
-  changes: `frames.rs` (module header). tao marks a window full screen in
-  `windowWillEnterFullScreen`, before its animation, and clears that before the last resize on
-  the way out, so `is_fullscreen` keeps the animation's frames from being noted.
-- A plain JS `listen()` hears events sent to any window, and a window's own `emit` goes to every
-  window: `src/api.ts` (`onWindowEvent`), and `lib.rs` beside the Settings menu's `emit_to`.
-- A window's label must be listed in `src-tauri/capabilities/default.json` (a `*` at the end
-  matches the rest), or its page's `listen` is refused and it never hears an event (2026-09-30):
-  `lib.rs` (`every_window_may_listen_for_events`, whose list a new window's label goes in too).
-  The preview's stub allows everything, so it can't show this.
 - A window ordered front is scaled in by AppKit over a fifth of a second unless its
   `animationBehavior` is none (`panel::no_animation`; `CGWindowListCopyWindowInfo` reports its
   bounds smaller meanwhile). What another process draws can be seen without the screen:
   `screencapture -x -o -l <window id>` captures one window, its clear parts clear, and its id
   comes from the window list (the app's windows by owner name, the panels at layers 24 to 27,
   `panel::Level`).
-- A menu item's icon as raw RGBA, `{rgba, width, height}`, which needs none of Tauri's image
-  features though its JS types don't list it, and muda's 18-point item images: `src/contextMenu.ts`
-  (`MenuImage`, `options`), `editors.rs` (`ICON_PX`, `menus_take_the_icons_as_pages_send_them`).
-- `show()` orders a window front without activating the app; `set_focus()` activates it.
-  Commands without `async` run on the main thread; one marked `async` that can wait on something
-  slow goes through `lib.rs` (`blocking`, which says why; tauri-macros 2.6), and errors go to a
-  window as `util::words`.
-- Transparent windows need `macOSPrivateApi` in tauri.conf.json and the `macos-private-api`
-  feature. `data-tauri-drag-region="deep"` drags from anywhere inside except controls.
 - WebKit holds back ResizeObserver and animation frames while a window is hidden.
 - WebKit runs a hidden page's web process at background priority except while a script the app
   sends runs in it (`evaluateJavaScript`: Tauri's `eval`, and so every event it emits): what that
@@ -143,14 +114,6 @@ under `src-tauri/src/`.
   disagree.
 - The bar listens for `bar-feed`, never `board`, so Tauri doesn't send it the board:
   `barfeed.rs` (module header).
-- The menu bar item is Tauri's tray (tauri 2.12.5, tray-icon 0.25.1): `menubar.rs` (module
-  header). Its calls wait for the main thread when made from another. tray-icon draws the image
-  18 points tall whatever its size, and its `set_icon` turns the template off, so a template
-  goes on with `set_icon_with_as_template`. Its menu's events reach every `on_menu_event`
-  handler, the app's menus' too, so ids carry a prefix. On Linux the first item made loads
-  libayatana-appindicator3, and a missing library panics there (`make`); with the library but
-  nothing on the session bus to show items, it's made and never seen
-  (`os::windows::tray_shown`).
 - The quick panel takes the keyboard without activating Codealong: `orderFrontRegardless`,
   `makeKeyWindow`, then the WKWebView made first responder, which a window made with
   `focused(false)` doesn't do by itself. It follows the board only while it's up, and an open
@@ -177,24 +140,6 @@ under `src-tauri/src/`.
 - A session kept on the desktop is a panel of the peek's kind: `kept.rs` (module header, `close`,
   which gives its class back, and `on_window_event`, which orders one that lost the keyboard in
   again saying it's key), `panel.rs` (`ENGAGED`).
-- tauri-plugin-global-shortcut's `register` and `unregister` wait on the main thread, so they're
-  called off it: `quick.rs` (`apply_shortcut`), `lib.rs`. Carbon's `RegisterEventHotKey`
-  succeeds for keys another app already holds, so clashes can't be found by registering. Apps
-  keep theirs in their preferences: the KeyboardShortcuts library as `KeyboardShortcuts_<name>`
-  = `{carbonKeyCode, carbonModifiers}` (ChatGPT in `com.openai.chat`), macOS in
-  `com.apple.symbolichotkeys`, which lists only the ones changed from their defaults.
-- Tauri's `plugin:menu|popup` (2.11.6, the same in 2.12.0) keeps the page's resource table
-  locked while a menu is up, which hung the app: `lib.rs` (`popup_menu`).
-- A right-click's native menu (muda's `popUpMenuPositioningItem`) runs its loop while the button
-  is still down, and the loop takes its release: WebKit then takes that button as held, so the
-  next press of the left comes to the page as a `pointermove` naming button 0 (the Pointer Events'
-  chorded press), not a `pointerdown`, every move of its drag names button 0 too (WebKit's last
-  button stays the right's), and only its release comes as a `pointerup`. ⌃-click comes as a
-  `pointerdown` of button 0 with `ctrlKey`, then `contextmenu`. Both seen in a WKWebView harness
-  (Swift, events sent straight to the web view, the right button's release left out) on
-  2026-11-14; that the real menu's loop takes the release is read from muda's code and AppKit's
-  menu tracking, not seen. The terminal goes by both (`ui/terminal/controller.ts` `pointer`);
-  anything else that reads presses from pointer events misses the first press after a menu.
 - A key equivalent (⌘ and a key) goes to the page before the menu bar, and to the menu only when
   the page doesn't prevent it; WKWebView's `pageZoom` shrinks the page's CSS pixels and is in
   its `devicePixelRatio` (2.5 on a Retina screen at 125%). Both checked in a WKWebView whose
@@ -207,30 +152,8 @@ under `src-tauri/src/`.
 - The background computer-use tools click through raw input: the app comes forward for a moment
   and the one before is put back, which takes the keyboard from the quick panel and hides it.
   `screencapture -l <window id>` captures a window of Codealong's alone, even ordered out.
-- The links macOS opens with an app (LaunchServices, checked with two stub apps claiming a
-  made-up scheme in `CFBundleURLTypes`, macOS 26.6, 2026-11-10). Left to itself it opens a
-  scheme's links with the app it registered last. `NSWorkspace`'s
-  `setDefaultApplication(at:toOpenURLsWithScheme:)` makes one app the scheme's from then on: it
-  answered at once and asked nobody, for a scheme that's an app's own, from a program that
-  wasn't either app. The choice is kept by bundle ID (`LSHandlers` in
-  `com.apple.LaunchServices/com.apple.launchservices.secure`): it held when the other app
-  registered again, went to the other while the chosen app was unregistered, and came back with
-  it. A click that launches the app is delivered (`application:openURLs:`) before
-  `applicationDidFinishLaunching`. An app under a temporary folder (`/private/tmp`) is
-  registered `launch-disabled in-temp-dir` and opens no links, whatever it claims;
-  `lsregister -dump` shows each app's flags and claimed schemes.
-  `os/apps/macos.rs` (`opened_links`, `claim_links`), `front.rs` (`open_links`).
 
 ## Unchecked
-
-- Not yet checked by hand (2026-11-10): a link to a session that launches Codealong, the app
-  closed when it's clicked (`front.rs` `open_links`): that the main window takes the link once
-  it's up and shows the session. With Codealong Dev running, `open codealong://session/<key>`
-  and one with only the start of an id each showed its session (a capture of the window,
-  2026-11-10), and the preview shows the page taking a link that came before it
-  (`opened-link-check.js`). Nor a click on a link's words in a real terminal; nor a Codealong
-  in Applications that claims the scheme beside Codealong Dev (the one installed then didn't
-  yet), where the stub apps say Codealong Dev's claim holds.
 
 - Not yet checked by hand (2026-10-06): zooming in the real app. View's Actual size, Zoom in and
   Zoom out and their keys; every board window following a step, and a project window opening at
