@@ -210,20 +210,35 @@ export function SideStrip({ sideKey: key, words, inWindow }: { sideKey: string; 
   const closing = useClosing();
   const live = view?.kind === 'past' ? closing.get(view.id) : undefined;
   const answering = !!live || !!reading?.answering;
+  const readable = live ?? reading;
+  // The conversation whose turns show now (open, or kept to read). Null while popped out into its
+  // own window so putting it back resets `lastId` and scrolls the remounted strip to the bottom.
+  const showing = popped && !inWindow ? null : (readable ?? (!view ? side : null));
+  const shownId = showing?.id ?? null;
+  const shownTurns = showing?.turns ?? null;
   const scroller = useRef<HTMLDivElement>(null);
   // The end stays in view as the answer grows, unless you've scrolled back to read, however
-  // little (SessionThread.tsx `scrolledUp`), told from where the open one's view was last heard:
-  // from nowhere once another has shown, in the element they share.
+  // little (SessionThread.tsx `scrolledUp`), told from where this conversation's view was last
+  // heard. Opening a conversation (open or kept) puts its end in view, as a normal conversation
+  // does; switching back to the list resets the shared scroller to the top where the newest sit.
   const atEnd = useRef(true);
   const heard = useRef<Heard | null>(null);
+  const lastId = useRef<string | null>(null);
   useLayoutEffect(() => {
     const el = scroller.current;
-    if (!el || view) {
+    if (!el || !shownId) {
+      if (el) el.scrollTop = 0;
+      lastId.current = null;
       heard.current = null;
       return;
     }
+    if (lastId.current !== shownId) {
+      lastId.current = shownId;
+      atEnd.current = true;
+      heard.current = null;
+    }
     keepEnd(el, atEnd, heard);
-  }, [side, view]);
+  }, [shownId, shownTurns]);
   if (popped && !inWindow) return null;
 
   const now = Date.now();
@@ -268,7 +283,7 @@ export function SideStrip({ sideKey: key, words, inWindow }: { sideKey: string; 
       {failed && <div className="ca-sidestrip-error">{failed}</div>}
       <div
         className="ca-sidestrip-turns"
-        ref={scrolls ? scroller : undefined}
+        ref={scroller}
         onScroll={
           scrolls
             ? (e) => {
@@ -290,7 +305,6 @@ export function SideStrip({ sideKey: key, words, inWindow }: { sideKey: string; 
     </section>
   );
 
-  const readable = live ?? reading;
   const read = readable && {
     id: readable.id,
     turns: readable.turns,
@@ -316,6 +330,7 @@ export function SideStrip({ sideKey: key, words, inWindow }: { sideKey: string; 
         {hide}
       </Head>,
       <Turns turns={read.turns} current={read.current} />,
+      true,
     );
   }
 
