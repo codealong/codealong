@@ -8,8 +8,9 @@
 
 use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
-use std::time::{Duration, Instant};
+use std::time::{Duration, Instant, SystemTime};
 
+mod cache;
 mod side;
 
 use rusqlite::types::Value as Sql;
@@ -418,19 +419,6 @@ pub fn uri_path(uri: &str) -> Option<String> {
 /// transcript; every step on this Mac, 1.3.5).
 const STEP_BEGAN: [u64; 2] = [5, 1];
 
-/// Whether a step of the conversation is under way, whether one waits on you, whether its
-/// latest step ends a turn, and when that step began, from its own database.
-fn steps_now(dir: &Path, id: &str) -> (bool, bool, bool, Option<i64>) {
-    let Some(db) = crate::harness::open_database(&dir.join("conversations").join(format!("{id}.db"))) else { return (false, false, false, None) };
-    let under_way = STEP_UNDER_WAY.map(|s| s.to_string()).join(", ");
-    let Ok(mut query) = db.prepare(&format!("SELECT DISTINCT status FROM steps WHERE status IN ({under_way})")) else { return (false, false, false, None) };
-    let statuses: Vec<i64> = query.query_map([], |r| r.get(0)).map(|rows| rows.flatten().collect()).unwrap_or_default();
-    let latest: Option<(i64, i64, i64)> = db.query_row("SELECT idx, step_type, status FROM steps ORDER BY idx DESC LIMIT 1", [], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?))).ok();
-    let payload = latest.and_then(|(idx, ..)| db.query_row("SELECT step_payload FROM steps WHERE idx = ?1", [idx], |r| r.get::<_, Option<Vec<u8>>>(0)).ok().flatten());
-    let ended = latest.is_some_and(|(_, kind, status)| status == STEP_CANCELED || (status == STEP_DONE && STEP_ENDS_TURN.contains(&kind) && (kind != STEP_ERROR || ends_turn(payload.as_deref()))));
-    (!statuses.is_empty(), statuses.contains(&STEP_WAITING), ended, payload.as_deref().and_then(step_began))
-}
-
 /// When a step began, from its payload (`STEP_BEGAN`), as epoch milliseconds.
 fn step_began(payload: &[u8]) -> Option<i64> {
     let ints = |field: u64| proto_ints(payload, &[STEP_BEGAN[0], STEP_BEGAN[1], field]).first().copied();
@@ -537,15 +525,6 @@ fn request_cause(error: &str) -> Option<&str> {
     Some(rest.rsplit_once("\": ").map_or(rest, |(_, cause)| cause))
 }
 
-/// When the conversation's latest step began, and how its latest turn failed when that step is
-/// the error note it ended with (`turn_failed`), from its own database. None when no step reads.
-fn latest_step(dir: &Path, id: &str, written: i64) -> Option<(Option<i64>, Option<Failed>)> {
-    let db = crate::harness::open_database(&dir.join("conversations").join(format!("{id}.db")))?;
-    let (kind, status, payload): (i64, i64, Option<Vec<u8>>) = db.query_row("SELECT step_type, status, step_payload FROM steps ORDER BY idx DESC LIMIT 1", [], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?))).ok()?;
-    let failed = payload.as_deref().filter(|_| kind == STEP_ERROR && status == STEP_DONE).and_then(|p| turn_failed(p, written));
-    Some((payload.as_deref().and_then(step_began), failed))
-}
-
 /// How a turn failed, by the payload of the error note it ended with; `written` is when the note
 /// was written when it doesn't say.
 fn turn_failed(payload: &[u8], written: i64) -> Option<Failed> {
@@ -608,7 +587,11 @@ const TURN_MODEL: [u64; 3] = [10, 1, 28];
 fn turn_model(dir: &Path, id: &str) -> Option<String> {
     let db = crate::harness::open_database(&dir.join("conversations").join(format!("{id}.db")))?;
     let row: Vec<u8> = db.query_row("SELECT data FROM executor_metadata ORDER BY idx DESC LIMIT 1", [], |r| r.get(0)).ok()?;
-    let model = proto_at(&row, &TURN_MODEL).into_iter().next()?;
+    model_of(&row)
+}
+
+fn model_of(row: &[u8]) -> Option<String> {
+    let model = proto_at(row, &TURN_MODEL).into_iter().next()?;
     std::str::from_utf8(model).ok().map(str::trim).filter(|m| crate::start::valid_model(m)).map(str::to_string)
 }
 
@@ -1740,6 +1723,7 @@ fn stop_telemetry(account: &AccountCfg) -> anyhow::Result<()> {
 pub struct Reader {
     conversations: HashMap<String, Vec<Conversation>>,
     marks: crate::harness::DatabaseMarks,
+    cache: cache::ConvCache,
     processes: Vec<Process>,
     /// The log of each process that has a conversation open, by its pid, as far as it's read.
     logs: HashMap<u32, LogRead>,
@@ -1747,23 +1731,34 @@ pub struct Reader {
     looked_at: Option<Instant>,
 }
 
+struct Reread {
+    added: bool,
+    changed: bool,
+}
+
 impl Reader {
     /// Reads an account's summary tables again, and for the conversations that changed or that
-    /// a process has open, the end of their records. True when a conversation is there that
-    /// wasn't.
-    fn reread(&mut self, a: &AccountCfg, look: &Look) -> bool {
+    /// a process has open, the end of their records. Reports whether a new conversation appeared
+    /// and whether the account's conversations or processes changed at all.
+    fn reread(&mut self, a: &AccountCfg, look: &Look) -> Reread {
+        self.reread_at(a, look, SystemTime::now())
+    }
+
+    fn reread_at(&mut self, a: &AccountCfg, look: &Look, now_sys: SystemTime) -> Reread {
         let dirs = folders(&a.home_path());
         // A change in the command line's folder is often a process that came or went, which the
         // processes the engine last listed may show (`Look::ps`: as of its last tick).
+        let mut procs_changed = false;
         if dirs.iter().any(|f| f.cli) && self.looked_at.map_or(true, |t| t.elapsed() >= Duration::from_secs(2)) {
-            self.look_at_processes(look);
+            procs_changed = self.look_at_processes(look);
         }
         // A conversation a process has open is read whatever its row's time: one opened and
         // never prompted has none (gorm's zero), and one resumed can be older than `since`.
         // Left out, it would read as one just started (`started`).
         let mut keep = look.seen.pinned_ids("antigravity", &a.name);
         keep.extend(self.processes.iter().filter_map(|p| p.conversation.clone()));
-        let before: HashMap<String, Conversation> = self.conversations.remove(&a.name).unwrap_or_default().into_iter().map(|c| (c.id.clone(), c)).collect();
+        let prev = self.conversations.remove(&a.name).unwrap_or_default();
+        let before: HashMap<&str, &Conversation> = prev.iter().map(|c| (c.id.as_str(), c)).collect();
         let mut rows = once_each(dirs.iter().flat_map(|f| read_conversations(f, look.since, &keep)).collect(), |c| keeps_record(&c.dir, &c.id));
         rows.retain(|c| !side::is_hidden(&c.id));
         let listed: HashSet<String> = rows.iter().map(|c| c.id.clone()).collect();
@@ -1773,12 +1768,14 @@ impl Reader {
         for c in &mut rows {
             let process = self.processes.iter().find(|p| p.conversation.as_deref() == Some(c.id.as_str()));
             let held = process.is_some();
+            let want_steps_now = c.running() || held;
             c.read_again = held;
             if let Some(log) = process.and_then(|p| self.logs.get_mut(&p.pid)) {
                 log.read_on();
                 c.said = log.said.clone();
             }
-            match before.get(&c.id) {
+            let old = before.get(c.id.as_str()).copied();
+            match old {
                 // Not the first read after a process let go of it, which may have written its
                 // last steps (a prompt's among them) since the read before, under a row another
                 // `agy` wrote back as it was then; nor after a read of its database that was
@@ -1792,40 +1789,15 @@ impl Reader {
                     c.mode = old.mode.clone();
                     c.failed = old.failed.clone();
                     c.model = old.model.clone();
+                    if want_steps_now {
+                        let now = cache::steps_now(&c.dir, &c.id);
+                        (c.step_under_way, c.waiting, c.turn_ended) = (now.0, now.1, now.2);
+                        c.latest_step_at = c.latest_step_at.max(now.3);
+                    }
                 }
                 old => {
                     added |= old.is_none();
-                    let record = transcript_file(&c.dir, &c.id);
-                    c.tail = record.as_deref().map(|p| tail(p, c.cwd.as_deref())).unwrap_or_default();
-                    // What it was first asked, and when, don't change once written.
-                    if c.asked.is_none() {
-                        if let Some(o) = old.filter(|o| o.asked.is_some()) {
-                            c.asked = o.asked.clone();
-                            c.started_at = o.started_at;
-                        } else if let Some((asked, at)) = record.as_deref().and_then(first_request) {
-                            c.asked = Some(asked);
-                            c.started_at = at;
-                        }
-                    }
-                    let prompt = latest_prompt(&c.dir, &c.id);
-                    c.mode = prompt.as_deref().and_then(mode_of);
-                    // Steps stay once written, so a read that finds none, or an older copy of the
-                    // database (`open_database`'s fallback leaves out what its WAL holds), doesn't
-                    // take a time back. The latest step's says when it was last written, which a
-                    // row another `agy` wrote back doesn't.
-                    c.prompted_at = prompt.as_deref().and_then(step_began).max(old.and_then(|o| o.prompted_at));
-                    // The note a failed turn ends with never reaches the transcript. Where a step
-                    // was read before, a read that finds none, or a latest step older than that
-                    // one, is none at all or an older copy: how the latest turn ended stays as it
-                    // was read. One with no step yet, or no database of its own, isn't behind.
-                    let kept = old.and_then(|o| o.latest_step_at);
-                    let read = latest_step(&c.dir, &c.id, c.last_modified);
-                    let at = read.as_ref().and_then(|(at, _)| *at);
-                    let behind = kept.is_some_and(|kept| read.is_none() || at.is_some_and(|at| at < kept));
-                    c.failed = if behind { old.and_then(|o| o.failed.clone()) } else { read.and_then(|(_, failed)| failed) };
-                    c.latest_step_at = at.max(kept);
-                    c.read_again |= behind;
-                    c.model = turn_model(&c.dir, &c.id);
+                    self.cache.refresh(c, old, held, want_steps_now, now_sys);
                 }
             }
             // When you last prompted it, by the prompt's own step: the summary's copy of that time
@@ -1846,16 +1818,14 @@ impl Reader {
                     log.said.default_turn = c.mode.clone();
                 }
             }
-            if c.running() || held {
-                let now = steps_now(&c.dir, &c.id);
-                (c.step_under_way, c.waiting, c.turn_ended) = (now.0, now.1, now.2);
-                c.latest_step_at = c.latest_step_at.max(now.3);
-            }
             // An idle row after Escape is the UI's own, whatever its time and count.
-            c.idled_by_another = held && idled_by_another(before.get(&c.id), c) && !c.said.stopped_last();
+            c.idled_by_another = held && idled_by_another(before.get(c.id.as_str()).copied(), c) && !c.said.stopped_last();
         }
+        let changed = procs_changed || prev != rows;
         self.conversations.insert(a.name.clone(), rows);
-        added
+        let live_keys: HashSet<(PathBuf, String)> = self.conversations.values().flatten().map(|c| (c.dir.clone(), c.id.clone())).collect();
+        self.cache.retain_keys(&live_keys);
+        Reread { added, changed }
     }
 
     /// Looks at the processes again, and finds the log of each that has a conversation open.
@@ -1892,6 +1862,7 @@ impl crate::harness::Reader for Reader {
 
     fn scan(&mut self, accounts: &[AccountCfg], look: &Look) {
         self.conversations.clear();
+        self.cache.clear();
         if !accounts.is_empty() {
             self.look_at_processes(look);
         }
@@ -1914,7 +1885,8 @@ impl crate::harness::Reader for Reader {
         if !paths.iter().any(|p| file_name(p).contains(".db") && dirs.iter().any(|f| p.parent() == Some(f.path.as_path()))) {
             return Applied::default();
         }
-        Applied { dirty: true, added: self.reread(account, look), ..Applied::default() }
+        let r = self.reread(account, look);
+        Applied { dirty: r.changed, added: r.added, ..Applied::default() }
     }
 
     /// Keeps the list of models a start can ask for at hand (`models`).
@@ -1932,7 +1904,7 @@ impl crate::harness::Reader for Reader {
         if !accounts.is_empty() && self.look_at_processes(look) {
             out.dirty = true;
             for a in accounts {
-                out.added |= self.reread(a, look);
+                out.added |= self.reread(a, look).added;
             }
         }
         out
@@ -1957,8 +1929,9 @@ impl crate::harness::Reader for Reader {
                 changed |= self.marks.changed(&db.to_string_lossy(), &db);
             }
             if changed {
-                out.added |= self.reread(a, look);
-                out.dirty = true;
+                let r = self.reread(a, look);
+                out.added |= r.added;
+                out.dirty |= r.changed;
             }
         }
         out
@@ -2820,8 +2793,8 @@ mod tests {
         let seen = crate::state::SeenState::default();
         let look = Look { seen: &seen, since: 0, now: parse_rfc3339_ms("2026-10-01T16:56:00Z").unwrap(), ps: Default::default() };
         let mut reader = Reader::default();
-        assert!(reader.reread(&account, &look), "a conversation that's new may need a lane");
-        assert!(!reader.reread(&account, &look));
+        assert!(reader.reread(&account, &look).added, "a conversation that's new may need a lane");
+        assert!(!reader.reread(&account, &look).added);
         let c = &reader.conversations["antigravity"][0];
         assert!(c.cli && c.waiting && c.dir == dir);
         assert_eq!(c.tail.open[0].input, "ls /definitely-not-here");
@@ -2879,7 +2852,7 @@ mod tests {
         assert_eq!(crate::board::antigravity_session(&account, c, reader.processes.first(), false, 0, look.now).status, crate::model::Status::Unread);
         // Unchanged and unheld: the cached start time stays on the conversation.
         reader.processes.clear();
-        assert!(!reader.reread(&account, &look));
+        assert!(!reader.reread(&account, &look).added);
         assert_eq!(reader.conversations["antigravity"][0].started_at, began);
     }
 
@@ -4084,5 +4057,88 @@ mod tests {
         ];
         let (found, _) = processes_excluding(&listed, |pid| pid == 202);
         assert_eq!(found.iter().map(|p| p.pid).collect::<Vec<_>>(), vec![101]);
+    }
+
+    #[test]
+    fn reread_reuses_settled_held_conversation_and_reports_unchanged() {
+        let root = crate::fixtures::scratch("agy-reread-cache");
+        let dir = root.join(CLI_DIR);
+        std::fs::create_dir_all(dir.join("conversations")).unwrap();
+        let logs = dir.join("brain/c1/.system_generated/logs");
+        std::fs::create_dir_all(&logs).unwrap();
+        let now = crate::util::now_ms();
+        let summaries = Connection::open(dir.join(SUMMARIES)).unwrap();
+        summaries
+            .execute_batch(
+                "CREATE TABLE conversation_summaries (conversation_id TEXT, title TEXT, preview TEXT, step_count INTEGER, last_modified_time INTEGER, workspace_uris TEXT, status TEXT, source TEXT, parent_conversation_id TEXT, nesting_depth INTEGER, not_fully_idle INTEGER, killed INTEGER, last_user_input_time INTEGER, app_data_dir TEXT);",
+            )
+            .unwrap();
+        summaries
+            .execute(
+                "INSERT INTO conversation_summaries VALUES ('c1','T','P',2,?1,'[\"file:///work/app\"]','CASCADE_RUN_STATUS_IDLE','',NULL,0,0,0,?1,'antigravity-cli')",
+                [now],
+            )
+            .unwrap();
+        let tr = logs.join("transcript_full.jsonl");
+        std::fs::write(&tr, "{\"step_index\":0,\"source\":\"USER_EXPLICIT\",\"type\":\"USER_INPUT\",\"status\":\"DONE\",\"created_at\":\"2026-11-20T00:00:00Z\",\"content\":\"hi\"}\n{\"step_index\":1,\"source\":\"MODEL\",\"type\":\"PLANNER_RESPONSE\",\"status\":\"DONE\",\"created_at\":\"2026-11-20T00:00:01Z\",\"content\":\"hello\"}\n").unwrap();
+        let conv_db_path = dir.join("conversations/c1.db");
+        let conv_db = Connection::open(&conv_db_path).unwrap();
+        conv_db
+            .execute_batch(
+                "CREATE TABLE steps (idx INTEGER PRIMARY KEY, step_type INTEGER NOT NULL DEFAULT 0, status INTEGER NOT NULL DEFAULT 0, step_payload BLOB);
+                 CREATE TABLE executor_metadata (idx INTEGER PRIMARY KEY, data BLOB);",
+            )
+            .unwrap();
+        let ts = |secs: u64| proto_message(&[(5, proto_message(&[(1, [proto_number(1, secs), proto_number(2, 0)].concat())]))]);
+        conv_db.execute("INSERT INTO steps VALUES (0, ?1, ?2, ?3)", rusqlite::params![STEP_USER_INPUT, STEP_DONE, ts(1_700_000_001)]).unwrap();
+        conv_db.execute("INSERT INTO steps VALUES (1, 15, ?1, ?2)", rusqlite::params![STEP_DONE, ts(1_700_000_005)]).unwrap();
+        let model_row = proto_message(&[(10, proto_message(&[(1, proto_message(&[(28, b"gemini-4-argon-high".to_vec())]))]))]);
+        conv_db.execute("INSERT INTO executor_metadata VALUES (0, ?1)", [model_row]).unwrap();
+        drop(conv_db);
+
+        let account = AccountCfg { name: "antigravity".into(), harness: "antigravity".into(), home: root.join(APP_DIR).to_string_lossy().into_owned(), command: None, start: None, usage_cap: None, acp: None, monthly: None, per_token: false, disabled: false, chrome_profile: None };
+        let seen = crate::state::SeenState::default();
+        let look = Look { since: 0, now, seen: &seen, ps: Default::default() };
+
+        let mut reader = Reader::default();
+        reader.looked_at = Some(Instant::now());
+        reader.processes.push(Process { pid: 999, conversation: Some("c1".into()), terminal: true, logs: Vec::new(), started: Some(now) });
+
+        // First read after files have settled populates the cache.
+        let settled = SystemTime::now() + cache::SETTLE_AGE + Duration::from_secs(5);
+        let r1 = reader.reread_at(&account, &look, settled);
+        assert!(r1.added && r1.changed);
+        assert_eq!((reader.cache.transcript_hits, reader.cache.db_hits), (0, 0));
+        let c = &reader.conversations.get(&account.name).unwrap()[0];
+        assert_eq!(c.tail.last_text.as_deref(), Some("hello"));
+        assert_eq!(c.model.as_deref(), Some("gemini-4-argon-high"));
+        assert!(c.turn_ended && !c.waiting);
+
+        // Second reread with nothing changed hits both caches and reports unchanged (`dirty = false`).
+        let r2 = reader.reread_at(&account, &look, settled);
+        assert!(!r2.added && !r2.changed);
+        assert_eq!((reader.cache.transcript_hits, reader.cache.db_hits), (1, 1));
+
+        // Writing a new waiting step invalidates the DB cache and reports changed (`dirty = true`).
+        let conv_db = Connection::open(&conv_db_path).unwrap();
+        conv_db.execute("INSERT INTO steps VALUES (2, 20, ?1, ?2)", rusqlite::params![STEP_WAITING, ts(1_700_000_009)]).unwrap();
+        drop(conv_db);
+        let r3 = reader.reread_at(&account, &look, SystemTime::now());
+        assert!(!r3.added && r3.changed);
+        let c = &reader.conversations.get(&account.name).unwrap()[0];
+        assert!(c.waiting && c.step_under_way && !c.turn_ended);
+        assert_eq!(reader.cache.db_hits, 1, "modified DB was re-read rather than served from cache");
+
+        // A behind read (DB temporarily missing while `latest_step_at` was kept) is never cached.
+        let backup = dir.join("conversations/c1.db.bak");
+        std::fs::rename(&conv_db_path, &backup).unwrap();
+        let r4 = reader.reread_at(&account, &look, settled);
+        assert!(r4.changed);
+        assert!(reader.conversations.get(&account.name).unwrap()[0].read_again);
+        std::fs::rename(&backup, &conv_db_path).unwrap();
+        let r5 = reader.reread_at(&account, &look, settled);
+        assert!(r5.changed);
+        assert!(reader.conversations.get(&account.name).unwrap()[0].waiting);
+        assert_eq!(reader.cache.db_hits, 1, "behind read was not cached");
     }
 }
