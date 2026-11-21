@@ -51,11 +51,13 @@ the question to answer. A yes to something else isn't a yes to starting sessions
 
 1. Its place. A part that changes code gets a worktree of its own, never one another child or your
    own session works in: two agents in one worktree overwrite each other's files, branch and
-   builds. `--new-worktree` has Claude Code make one; otherwise make it as the repo's rules say
-   and give `--worktree <path>` once `codealong worktrees` lists it (a few seconds on; until then
-   `start` turns it down rather than start in the checkout around it). A part that only reads
-   (research, a review) can share a checkout.
-2. Its account. `codealong accounts` says which have room; another provider than yours for a
+   builds. `--new-worktree` makes one for any harness (Claude Code and `cursor-agent` make their
+   own; Codealong creates one under `.codealong/worktrees/` or runs the repo's trusted
+   `WorktreeCreate` hook for Codex, OpenCode, Antigravity and hosted sessions). Otherwise make one
+   as the repo's rules say and give `--worktree <path>` once `codealong worktrees` lists it (a few
+   seconds on; until then `start` turns it down rather than start in the checkout around it). A
+   part that only reads (research, a review) can share a checkout.
+2. Its account. `codealong accounts --usage` says which have room; another provider than yours for a
    review or a second opinion; `--model` when a part needs a stronger or a cheaper one.
 3. Its prompt. It can't see your conversation, so its prompt stands alone: the goal and why, what
    it needs to know (paths, the decisions made so far, what other parts are doing that touches
@@ -119,5 +121,5 @@ them about the ones still at work or waiting on them, which they can make their 
   outside the work goes to your user, not into a child's next prompt.
 - Don't read a child's whole transcript as a habit, and don't message one that's working unless
   what you say changes its work now.
-- A child is a session of its own on your user's Mac: what it does there is as real as what you
+- A child is a session of its own on your user's machine: what it does there is as real as what you
   do.

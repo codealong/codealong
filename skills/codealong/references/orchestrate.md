@@ -63,7 +63,8 @@ Codealong starts orchestrators itself, so you don't schedule a loop of your own:
   `answers.md` and `narrative.md` in `<dataDir>/orchestrator/`): its answers become the new one's
   settings and its notes, and its modules schedules. Offer that to your user; with their OK, start
   the new one, copy what still matters of the narrative into its notes file once it has one
-  (`codealong schedule show <its schedule>` says where), make the schedules, and only then end
+  (`<dataDir>/schedules/<schedule-id>/notes.md`, with `schedule-id` from `codealong orchestrator
+  list` and `dataDir` from `codealong status`), make the schedules, and only then end
   the old loop.
 
 ## Each tick
