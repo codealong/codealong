@@ -29,8 +29,9 @@ asks for these, and a pull request without them waits until it has them:
 - **Screenshots of every UI change.** Before and after, in light and dark, and on Linux too
   when the change shows keys. `scripts/preview.sh` takes them in headless Chrome without running
   the app: `PREVIEW_SCHEME=dark` for dark, `PREVIEW_PLATFORM=linux` for Linux, and its header
-  lists every view and the sample data it can show. The preview renders your own sessions and
-  repos, so crop each screenshot to what changed and blur anything you don't want public. What
+  lists every view and the sample data it can show. `PREVIEW_FIXTURE=1` renders a made-up board
+  with none of your data; without it, the preview renders your own sessions and repos, so crop each
+  screenshot to what changed and blur anything you don't want public. What
   the preview can't show (a native menu, a window opening, the notch) gets a screenshot or a
   short recording of the real app, or a sentence saying it wasn't checked.
 - **Whether you used AI tools, and which** (the agent and model), in a sentence. They're welcome;
@@ -41,8 +42,8 @@ asks for these, and a pull request without them waits until it has them:
 A pull request is merged once a maintainer has reviewed it and its checks pass. A maintainer
 may push to your branch first (a rebase onto `main`, a fix a review found, in commits of their
 own after yours), so leave *Allow edits by maintainers* on. Maintainers'
-own agents land work on `main` directly, as [CLAUDE.md](CLAUDE.md) describes; that path is
-theirs alone.
+own agents land work through `main`'s merge queue (`scripts/land.sh`), as [CLAUDE.md](CLAUDE.md)
+describes; that path is theirs alone.
 
 ## How the code is written
 
