@@ -5798,12 +5798,10 @@ mod tests {
         let owning = machines(Rank::First, vec![card(Rank::Backup, true, None, None)]);
         assert_eq!(own::harness(&p, &owning), Some(Harness::Codex));
         assert_eq!(own::harness(&p, &machines(Rank::First, vec![card(Rank::Backup, false, None, None)])), None);
-        // Read here by its number where this machine has a checkout of its repo, as it would list
-        // no PR of a repo checked out on its default branch alone.
-        let lanes = |slug: Option<&str>| vec![Lane { repo_slug: slug.map(String::from), ..fixtures::lane("/r", vec![]) }];
-        assert_eq!(crate::board::owned_elsewhere(&owning, &lanes(Some("O/R"))), ["o/r#7"]);
-        assert!(crate::board::owned_elsewhere(&owning, &lanes(None)).is_empty());
-        assert!(crate::board::owned_elsewhere(&machines(Rank::First, vec![card(Rank::Backup, false, None, None)]), &lanes(Some("o/r"))).is_empty());
+        // Read here by its number where this machine has a checkout of its repo (board/prs.rs
+        // `owned_elsewhere`, whose tests are beside it).
+        let lanes = vec![Lane { repo_slug: Some("o/r".into()), ..fixtures::lane("/r", vec![]) }];
+        assert_eq!(crate::board::owned_elsewhere(&owning, &lanes), ["o/r#7"]);
     }
 
     #[test]
