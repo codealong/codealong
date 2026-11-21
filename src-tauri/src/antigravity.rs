@@ -536,14 +536,21 @@ fn request_cause(error: &str) -> Option<&str> {
     Some(rest.rsplit_once("\": ").map_or(rest, |(_, cause)| cause))
 }
 
-/// How the conversation's latest turn failed, when its latest step is the error note it ended
-/// with, from its own database; `written` is when the note was written when it doesn't say.
-fn turn_failed(dir: &Path, id: &str, written: i64) -> Option<Failed> {
-    let db = crate::harness::open_database(&dir.join("conversations").join(format!("{id}.db")))?;
-    let (kind, status, payload): (i64, i64, Option<Vec<u8>>) = db.query_row("SELECT step_type, status, step_payload FROM steps ORDER BY idx DESC LIMIT 1", [], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?))).ok()?;
-    let payload = payload.filter(|_| kind == STEP_ERROR && status == STEP_DONE)?;
-    let (on, said) = failed_of(&payload)?;
-    Some(Failed { on, at: step_began(&payload).unwrap_or(written), said })
+/// When the conversation's latest step began, and how its latest turn failed when that step is
+/// the error note it ended with (`turn_failed`), from its own database.
+fn latest_step(dir: &Path, id: &str, written: i64) -> (Option<i64>, Option<Failed>) {
+    let Some(db) = crate::harness::open_database(&dir.join("conversations").join(format!("{id}.db"))) else { return (None, None) };
+    let latest = db.query_row("SELECT step_type, status, step_payload FROM steps ORDER BY idx DESC LIMIT 1", [], |r| Ok((r.get::<_, i64>(0)?, r.get::<_, i64>(1)?, r.get::<_, Option<Vec<u8>>>(2)?)));
+    let Ok((kind, status, Some(payload))) = latest else { return (None, None) };
+    let failed = (kind == STEP_ERROR && status == STEP_DONE).then(|| turn_failed(&payload, written)).flatten();
+    (step_began(&payload), failed)
+}
+
+/// How a turn failed, by the payload of the error note it ended with; `written` is when the note
+/// was written when it doesn't say.
+fn turn_failed(payload: &[u8], written: i64) -> Option<Failed> {
+    let (on, said) = failed_of(payload)?;
+    Some(Failed { on, at: step_began(payload).unwrap_or(written), said })
 }
 
 /// The steps of a conversation whose permission prompt is up (`STEP_WAITING`), by their index:
@@ -1780,6 +1787,7 @@ impl Reader {
                     c.asked = old.asked.clone();
                     c.started_at = old.started_at;
                     c.prompted_at = old.prompted_at;
+                    c.latest_step_at = old.latest_step_at;
                     c.mode = old.mode.clone();
                     c.failed = old.failed.clone();
                     c.model = old.model.clone();
@@ -1800,11 +1808,15 @@ impl Reader {
                     }
                     let prompt = latest_prompt(&c.dir, &c.id);
                     c.mode = prompt.as_deref().and_then(mode_of);
-                    // A prompt's step stays once written, so one that doesn't read this time
-                    // went in when it did the time before.
-                    c.prompted_at = prompt.as_deref().and_then(step_began).or(old.and_then(|o| o.prompted_at));
+                    // Steps stay once written, so a read that finds none, or an older copy of the
+                    // database (`open_database`'s fallback leaves out what its WAL holds), doesn't
+                    // take a time back. The latest step's says when it was last written, which a
+                    // row another `agy` wrote back doesn't.
+                    c.prompted_at = prompt.as_deref().and_then(step_began).max(old.and_then(|o| o.prompted_at));
                     // The note a failed turn ends with never reaches the transcript.
-                    c.failed = turn_failed(&c.dir, &c.id, c.last_modified);
+                    let (latest, failed) = latest_step(&c.dir, &c.id, c.last_modified);
+                    c.latest_step_at = latest.max(old.and_then(|o| o.latest_step_at));
+                    c.failed = failed;
                     c.model = turn_model(&c.dir, &c.id);
                 }
             }
@@ -1827,12 +1839,9 @@ impl Reader {
                 }
             }
             if c.running() || held {
-                (c.step_under_way, c.waiting, c.turn_ended, c.latest_step_at) = steps_now(&c.dir, &c.id);
-            } else if c.prompted_at > Some(c.last_modified) {
-                // A row older than your latest prompt is a copy another `agy` wrote back, which
-                // says nothing of the reply since: the latest step says when it was last written,
-                // and steps stay, so one that doesn't read this time was as the time before.
-                c.latest_step_at = steps_now(&c.dir, &c.id).3.or(before.get(&c.id).and_then(|o| o.latest_step_at));
+                let now = steps_now(&c.dir, &c.id);
+                (c.step_under_way, c.waiting, c.turn_ended) = (now.0, now.1, now.2);
+                c.latest_step_at = c.latest_step_at.max(now.3);
             }
             // An idle row after Escape is the UI's own, whatever its time and count.
             c.idled_by_another = held && idled_by_another(before.get(&c.id), c) && !c.said.stopped_last();
@@ -3407,6 +3416,8 @@ mod tests {
         reader.processes = vec![Process { pid: 7, conversation: Some("c1".into()), terminal: true, logs: vec![log.clone()], started: None }];
         reader.track_logs();
         assert_eq!(prompted(&mut reader), third);
+        let (database, older) = (dir.join("conversations/c1.db"), dir.join("conversations/older.db"));
+        std::fs::copy(&database, &older).unwrap();
         let fourth = on_14th("17:58:00.212");
         forwarded("17:58:00.205000");
         step(6, STEP_USER_INPUT, fourth);
@@ -3414,10 +3425,21 @@ mod tests {
         drop(steps);
         reader.processes.clear();
         reader.track_logs();
-        assert_eq!(read(&mut reader), (fourth, crate::model::Status::Unread, fourth + 30_000));
-        // Its database doesn't read once: what it said before holds.
-        std::fs::rename(dir.join("conversations/c1.db"), dir.join("conversations/away.db")).unwrap();
-        assert_eq!(read(&mut reader), (fourth, crate::model::Status::Unread, fourth + 30_000));
+        let replied = (fourth, crate::model::Status::Unread, fourth + 30_000);
+        assert_eq!(read(&mut reader), replied);
+        // Another `agy` writes back a copy of the row from as the prompt went in: the reply after
+        // it is still yours to read.
+        row(fourth, 6, fourth);
+        assert_eq!(read(&mut reader), replied);
+        // Its database reads as an older copy (`open_database`'s fallback leaves out what its WAL
+        // holds), then not at all, as the row is written back again: what it said before holds.
+        std::fs::rename(&database, dir.join("conversations/away.db")).unwrap();
+        std::fs::rename(&older, &database).unwrap();
+        row(first + 9_000, 2, first);
+        assert_eq!(read(&mut reader), replied);
+        std::fs::remove_file(&database).unwrap();
+        row(fourth, 6, fourth);
+        assert_eq!(read(&mut reader), replied);
     }
 
     /// A conversation the table doesn't list yet (`started`) has its transcript's time for its

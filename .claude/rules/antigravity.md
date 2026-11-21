@@ -65,7 +65,7 @@ runs on this Mac (2026-10-01). Paths are under `src-tauri/src/`.
   this Mac; `ERROR_FOR_YOU`, `ends_turn`). In the transcript a note the agent goes on after is
   `ERROR_MESSAGE`, with `error` and `content` ("Error: …"); the note that ends a turn never gets
   there (its step's index is skipped), so how a turn failed is read from the database
-  (`turn_failed`). A reply that makes calls turns done in
+  (`latest_step`, `turn_failed`). A reply that makes calls turns done in
   the same write that adds its first call's step (watched every 4 ms), so a done reply or a
   turn's error note as the latest step is a turn's end (`STEP_ENDS_TURN`, `steps_now`). A call that fails
   (7) hands its error to the model, which goes on (19 of 19 here); a canceled one (6) ended its
