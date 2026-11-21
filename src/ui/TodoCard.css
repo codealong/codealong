@@ -13,12 +13,14 @@
   flex: 1 1 auto;
   flex-direction: column;
   min-height: 0;
-  overflow: auto;
+  overflow: clip;
 }
-/* The panel fills the card's body rather than a column of the main window. */
+/* The panel fills the card's body rather than a column of the main window, its `.ca-insp-body`
+   scrolling between the card's strip and box. */
 .ca-todocard-body > .ca-insp {
   flex: 1 1 auto;
   min-width: 0;
+  min-height: 0;
   border: 0;
   background: transparent;
 }

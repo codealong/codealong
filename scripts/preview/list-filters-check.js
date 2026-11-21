@@ -1,10 +1,8 @@
 // Checks the filters on as chips over the list (ListBar.tsx `FilterChips`) on a narrow window, the
 // sidebar folded: a chip for the age and for each status and agent picked, each with its × and,
 // with several, Clear, all of them in sight on the strip however many there are (a name gives way,
-// then they wrap), and a row the keyboard goes to scrolled to just under the strip however tall
-// they make it (ListBar.tsx `ListBar`, on the real clock: its height comes from a ResizeObserver,
-// which a page drawing no frames never calls); a × takes its own filter off, and Clear takes them
-// all off.
+// then they wrap), with the scrolling list starting right under the strip however tall they make
+// it; a × takes its own filter off, and Clear takes them all off.
 //   PREVIEW_WAIT=60000 PREVIEW_SIZE=860,640 scripts/preview.sh sessions '' scripts/preview/list-filters-check.js
 (function () {
   localStorage.setItem('codealong.age', '7d');
@@ -60,9 +58,9 @@
       var clear = q('.ca-listfilters-clear');
       check('Clear is in sight', !!clear && inSight(clear));
       var strip = q('.ca-listbar');
-      var pad = parseFloat(getComputedStyle(q('.ca-board')).scrollPaddingTop);
+      var body = q('.ca-board > .ca-board-body');
       check('the chips wrap, the strip taller than its one line', strip.offsetHeight > oneLine + 10, strip.offsetHeight + ' from ' + oneLine);
-      check('a row the keyboard goes to scrolls to just under the strip, as tall as they make it', Math.abs(pad - strip.offsetHeight) < 1, 'padding ' + pad + ', strip ' + strip.offsetHeight);
+      check('the scrolling list starts right under the taller strip', !!body && Math.abs(body.getBoundingClientRect().top - strip.getBoundingClientRect().bottom) < 1, 'body ' + (body && Math.round(body.getBoundingClientRect().top)) + ', strip ends ' + Math.round(strip.getBoundingClientRect().bottom));
       check('each × says what it takes off', xs.every(function (x) { return /^Stop filtering to ./.test(x.getAttribute('aria-label') || ''); }), xs.map(function (x) { return x.getAttribute('aria-label'); }).join(' | '));
       var last = chips()[n - 1].textContent;
       q('button', chips()[n - 1]).click();

@@ -1,4 +1,4 @@
-// The strip over the main window's list, stuck to the top of the board as it scrolls: the view's
+// The strip over the main window's list, sitting above the scrolling body: the view's
 // tools (`ListTools`: its View menu, `ViewMenu`, with how it's sorted and grouped and how much a
 // row says, and the filters narrowing it as chips, `FilterChips`), in any view the list's find
 // while it's open, and at its end what the strip does (Sessions' Orchestrator). ⌥⌘F or / from anywhere in the
@@ -11,32 +11,12 @@
 // cleared. Finding sessions, todos and PRs anywhere, and starting work, is the quick panel's, the
 // box in the title bar.
 
-import { useLayoutEffect, useRef, useState, type ReactNode, type RefObject } from 'react';
+import { useRef, useState, type ReactNode, type RefObject } from 'react';
 import { Button, Chip, cx, Icon, Seg } from './primitives';
 import { useDismiss } from './useDismiss';
 
 export function ListBar({ children }: { children: ReactNode }) {
-  const ref = useRef<HTMLDivElement>(null);
-  // The board scrolls a row the keyboard goes to just under the strip (ListBar.css), which is
-  // taller than its one line once its chips wrap: its height goes to the board as it changes.
-  useLayoutEffect(() => {
-    const el = ref.current;
-    const board = el?.parentElement;
-    if (!el || !board) return;
-    const keep = () => board.style.setProperty('--listbar-h', `${el.offsetHeight}px`);
-    keep();
-    const watch = new ResizeObserver(keep);
-    watch.observe(el);
-    return () => {
-      watch.disconnect();
-      board.style.removeProperty('--listbar-h');
-    };
-  }, []);
-  return (
-    <div ref={ref} className="ca-listbar">
-      {children}
-    </div>
-  );
+  return <div className="ca-listbar">{children}</div>;
 }
 
 /** A view's tools at the strip's start, outside the list's listbox: groups of icon buttons, each

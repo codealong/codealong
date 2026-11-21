@@ -1,7 +1,12 @@
 /* The panel at the right of the main window (.ca-insp): its title, path, actions and sections,
    shared by the worktree inspector, the PR panel, the todo panel and the session panel. */
 
-.ca-insp { display: flex; flex-direction: column; gap: var(--space-4); min-width: 0; padding: var(--space-4); overflow: auto; background: var(--surface); border-left: 1px solid var(--line); }
+.ca-insp { display: flex; flex-direction: column; gap: var(--space-4); min-width: 0; min-height: 0; padding: var(--space-4); overflow: auto; background: var(--surface); border-left: 1px solid var(--line); }
+/* A panel whose strip stays at its top while its body scrolls below it (Inspector.tsx,
+   TodoPanel.tsx, SchedulePanel.tsx): the panel itself doesn't scroll, so its scrollbar stays below
+   the strip, as SessionPanel.css and PrInspector.css already lay theirs out. */
+.ca-insp:has(> .ca-insp-body) { gap: 0; padding: 0; overflow: clip; }
+.ca-insp-body { display: flex; flex: 1 1 auto; flex-direction: column; gap: var(--space-4); min-width: 0; min-height: 0; padding: var(--space-4); overflow: auto; }
 .ca-insp-title { display: flex; align-items: center; gap: var(--space-2); min-width: 0; }
 .ca-insp-call { font: var(--type-title); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .ca-insp-title .ca-tag { margin-left: auto; }

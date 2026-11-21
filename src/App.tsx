@@ -1877,6 +1877,7 @@ export function App() {
               {view === 'sessions' && freeOrchestrators.length > 0 && <OrchestratorButton title={compassTitle(freeOrchestrators)} run={() => setOrchestratorAsk({ scopes: freeOrchestrators })} />}
             </ListBar>
           )}
+          <div className="ca-board-body">
           {devices?.asks.map((a) => (
             <div key={a.key} className="ca-device-banner" role="alert">
               <Icon name="device-desktop" size={14} />
@@ -2185,6 +2186,7 @@ export function App() {
             )}
           </div>
           )}
+          </div>
         </main>
         {/* Until the board is read, or the PRs view's PRs, the panel has nothing to show either: the board takes its room. */}
         {panelKind && !reading && <Resizer panel="after" cssVar="--panel-w" onResize={setPanelWidth[panelKind]} />}

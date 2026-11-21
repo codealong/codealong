@@ -434,6 +434,7 @@ export function TodoPanel({ item, todos, onShowTodo, labels, lanes, now, onRun, 
   return (
     <aside className="ca-insp ca-todoinsp" aria-label="Todo details">
       {strip}
+      <div className="ca-insp-body">
       <header className="ca-todoinsp-head" onContextMenu={headerMenu(onMenu)}>
         <div className="ca-todoinsp-top">
           <TodoGlyph status={todo.status} waiting={section === 'waiting'} review={section === 'review'} size={14} />
@@ -602,6 +603,7 @@ export function TodoPanel({ item, todos, onShowTodo, labels, lanes, now, onRun, 
         <h4 className="ca-label">Description</h4>
         <DescriptionEditor key={todo.id} value={todo.description} onSave={(description) => update({ description })} onError={onError} />
       </section>
+      </div>
     </aside>
   );
 }

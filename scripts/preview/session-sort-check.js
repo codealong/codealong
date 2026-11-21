@@ -55,23 +55,25 @@
       check('the bar is over the list, outside it', !!bar && !!bar.querySelector('.ca-listtools') && !bar.closest('[role="listbox"]') && bar.getBoundingClientRect().bottom <= rows()[0].getBoundingClientRect().top + 1);
       var sideLabels = Array.prototype.map.call(document.querySelectorAll('.ca-side .ca-side-label'), function (l) { return l.textContent; });
       check('the sidebar has no Sort by or Rows', sideLabels.indexOf('Sort by') < 0 && sideLabels.indexOf('Rows') < 0, sideLabels.join(' | '));
-      // Stuck to the top of the board as the list scrolls: layout places it, so no frame is needed.
+      // The bar sits above the scrolling body, so the list's scrollbar never runs over it.
       var board = document.querySelector('.ca-board');
+      var body = document.querySelector('.ca-board > .ca-board-body');
       board.scrollTop = 400;
+      check('the board itself does not scroll over its bar', board.scrollTop === 0 && !/(auto|scroll)/.test(getComputedStyle(board).overflowY), 'overflow ' + getComputedStyle(board).overflowY + ', scrolled ' + board.scrollTop);
+      check('the list scrolls below the bar, so its scrollbar never goes over it', !!body && body.getBoundingClientRect().top >= bar.getBoundingClientRect().bottom - 0.5 && /(auto|scroll)/.test(getComputedStyle(body).overflowY) && getComputedStyle(body).isolation === 'isolate', body ? 'body at ' + Math.round(body.getBoundingClientRect().top) + ', bar ends ' + Math.round(bar.getBoundingClientRect().bottom) + ', overflow ' + getComputedStyle(body).overflowY + ', isolation ' + getComputedStyle(body).isolation : 'no .ca-board-body');
+      if (body) body.scrollTop = 400;
       // At the top of its padding box, inside the card's hairline (App.css).
       var inner = board.getBoundingClientRect().top + board.clientTop;
-      var stuck = board.scrollTop === 0 || Math.abs(bar.getBoundingClientRect().top - inner) < 1;
-      check('the bar stays at the top as the list scrolls', stuck, 'scrolled ' + board.scrollTop + ', bar ' + Math.round(bar.getBoundingClientRect().top) + ', board ' + Math.round(board.getBoundingClientRect().top));
-      // Stuck, WebKit draws it on a layer of its own, which at 110% its overflow let reach a device
-      // pixel over the line above the board; clip-path holds it to the board's edge (App.css).
-      check('the board clips what’s stuck in it to its own box', /^inset\(0(px)?( round [^)]*)?\)$/.test(getComputedStyle(board).clipPath), getComputedStyle(board).clipPath);
+      var stuck = !body || body.scrollTop === 0 || Math.abs(bar.getBoundingClientRect().top - inner) < 1;
+      check('the bar stays at the top as the list scrolls', stuck, 'scrolled ' + (body ? body.scrollTop : 0) + ', bar ' + Math.round(bar.getBoundingClientRect().top) + ', board ' + Math.round(board.getBoundingClientRect().top));
+      check('the board clips its card corners cleanly', /^inset\(0(px)?( round [^)]*)?\)$/.test(getComputedStyle(board).clipPath), getComputedStyle(board).clipPath);
       // A row scrolled to from below, as the keyboard's ↑ scrolls to it (App.tsx), shows whole under the bar.
       var second = rows()[1];
-      if (board.scrollTop > 0 && second) {
+      if (body && body.scrollTop > 0 && second) {
         second.scrollIntoView({ block: 'nearest' });
         check('a row scrolled to shows under the bar, not behind it', second.getBoundingClientRect().top >= bar.getBoundingClientRect().bottom - 1, 'row ' + Math.round(second.getBoundingClientRect().top) + ', bar ends ' + Math.round(bar.getBoundingClientRect().bottom));
       }
-      board.scrollTop = 0;
+      if (body) body.scrollTop = 0;
       var view = document.querySelector('.ca-listtools .ca-viewmenu-btn');
       check('the bar starts with View, saying nothing more while all is as it starts', !!view && view.textContent.trim() === 'View' && !!view.title, view ? view.textContent : 'no View');
       check('headings by status, Pinned first, as the other views head them', headings()[0] === 'Pinned' && inOrderOf(headings(), STATUS_HEADS), headings().join(' | '));
