@@ -92,7 +92,7 @@ the menu for all of them, the keys act on all of them, and Esc goes back to one.
 and size in every list, and none is cut off: on a row short of room a long name shortens inside its
 chip, and the last chips drop out whole.
 
-Sessions, PRs and Todo list their rows alike: each row's status at the left, what it is, and its
+Sessions, PRs, Todo and Schedules list their rows alike: each row's status at the left, what it is, and its
 age at the right, with no lines between them. The bar over each of those lists starts with View,
 which opens the list's settings, each a row of choices, and stays open while you change several:
 Sort orders the list by status, as it starts, or newest first under the day each started, was
@@ -126,7 +126,7 @@ View). On one line, as it starts, a row is its title, then its status, worktree 
 the line's end, and its status says its account when you point at it. A snoozed session's row says how long until it's
 back, and a quiet one's says Quiet. Here letters alone do nothing, so a word typed on the list by
 mistake doesn't pin, archive or rename: the keys are the chords, and they work from the panel's box
-too. Sessions are pinned here, with ⌃⌘P or the right-click menu, and their pins show only here. Clicking any section heading (Orchestrators, Listening, Pinned, Needs you, Your turn, Working, Snoozed, Idle, or Archived) folds or opens its rows; ambient sections (Orchestrators, Pinned, Pinned worktrees/repos, Working, Snoozed, Idle) stay folded across launches, while urgent sections start open and Archived starts folded. Day headings in Started sort are plain dividers and don't fold. Searching temporarily opens folded active sections so matches aren't hidden, and jumping to a session or worktree opens its section.
+too. Sessions are pinned here, with ⌃⌘P or the right-click menu, and their pins show only here. Clicking any section heading (Orchestrator/Orchestrators, Listening, Pinned, Pinned worktrees/repos, Needs you, Your turn, Working, Snoozed, Idle, or Archived) folds or opens its rows; ambient sections (Orchestrator/Orchestrators, Pinned, Pinned worktrees/repos, Working, Snoozed, Idle) stay folded across launches, while urgent sections start open and Archived starts folded. Day headings in Started sort are plain dividers and don't fold. Searching temporarily opens folded active sections so matches aren't hidden, and jumping to a session or worktree opens its section.
 
 #### Grouped by worktree or repo
 
@@ -200,10 +200,12 @@ background job, as Close does, and marks it seen and archives it, so it leaves e
 Archived. It stays listed on the PRs it worked on (see *PRs*), and wherever an archived session
 shows, its status glyph is an archive box, unless it's still at work, waiting on you or failed. It closes nothing that would take more than the session with it: a terminal that shows
 other sessions too stays open, and a session in the Claude or Codex app is only archived, since the
-app has no way for another program to close it. A background job that holds the worktree Claude
-Code made for it is stopped, and the worktree is removed after it, as Clean up worktree… does (see
-[Clean up worktrees](#clean-up-worktrees)), unless something in it would be lost: then it stays, and
-the toast says why ("1 commit on no remote"). A session in a terminal that holds such a worktree is
+app has no way for another program to close it. A session that holds a worktree made for it (a
+Claude Code background job, or any harness whose worktree Codealong created under
+`.codealong/worktrees/` — see *New worktrees*) has its job stopped or terminal closed and the
+worktree removed after it, as Clean up worktree… does (see [Clean up worktrees](#clean-up-worktrees)),
+unless something in it would be lost: then it stays, and the toast says why ("1 commit on no
+remote"). A Claude Code session in a terminal that holds a worktree Claude Code made is
 exited with Claude Code's own `/exit`, which removes a worktree that's unchanged and otherwise asks
 whether to keep it. What it asks about doesn't say whether anything would be lost: commits since
 the worktree was made, pushed and landed ones too (a branch rebased onto a `main` that moved on
@@ -257,11 +259,12 @@ its title, so the sessions beside each other read apart at a glance and you can 
 "the dinosaur". They're off until you pick a kind, there or in the setup wizard's Your sessions
 step (see *Set up Codealong*), which offers the same choices. Each is one of two kinds:
 
-- **Emoji**: Jev picks an emoji for what the session works on, from its title and first prompt
+- **Emoji**: the project's or default decision model (Jev unless you chose OpenAI or Google in
+  Settings › Decisions) picks an emoji for what the session works on, from its title and first prompt
   (the latest, for OpenCode, which keeps only that), out of some 250 that each stand for
   something sessions work on, a pun where one is handy (a spool for threads, a dinosaur for Rex).
-  Where another session of the project shows the emoji Jev likes best, the session gets the next
-  that fits nearly as well. It needs Jev's key (Settings › Decisions), and a question costs a fraction of
+  Where another session of the project shows the emoji it likes best, the session gets the next
+  that fits nearly as well. It needs that provider's key (Settings › Decisions), and a question costs a fraction of
   a cent; picked while there's no key, Emoji shows a box to paste one into, which saves it to the
   keychain as Settings › Decisions does.
 - **Drawn**: an account that can draw (Codex, with its image tool: the one you pick, else the first
@@ -582,8 +585,9 @@ back closes the window and shows the conversation above the box again, and its �
 as Close does, and the window. It comes back at launch where it was left, empty until you ask it something. Other
 `/…` commands go to the session as typed.
 
-To have what you worked out on the side done, type `/fork` and what to do in the side
-conversation's box (the one command it lists as you type a `/`): the session is forked in the
+To have what you worked out on the side done on a Claude Code or Codex session, type `/fork` and what to do in the side
+conversation's box (the one command it lists as you type a `/`; Antigravity's side conversations
+don't fork): the session is forked in the
 background, as `/fork` in its own box does ([Fork](#fork)), and the copy's first prompt is the
 questions and answers of the side conversation that shows (the open one, or one from before you're
 reading) and then what you typed. The copy is told which session it was forked from, so what you
@@ -805,7 +809,7 @@ goes for a Claude Code session whose turn ended with agents or a workflow it sta
 in the background: Waiting on a background agent and what it's for, or Waiting on and how many,
 each one's errand on hover, timed from the turn's end, with no Stop (there's no turn to stop) and a
 box that starts a new turn rather than sending into one. Unless its last reply asks you something
-(see *Jev*), in which case it's *Needs you* until you've seen it, while the agents carry on.
+(see *Decision models*), in which case it's *Needs you* until you've seen it, while the agents carry on.
 
 Now and then, in the main window, a tip on using Codealong sits quietly on the line's right
 (*Tips*): beside the time when all of it fits there on one line, else under it on the right: only
@@ -889,7 +893,7 @@ the Codex app: it goes into the turn that's running and out of the queue, and sh
 the turn takes it in at its next step; one Codex didn't take stays queued, with why under it.
 Claude Code holds a message sent while its turn runs until the step it's on ends (a long command
 included), and lists it the same way, from Codealong, its own terminal or another device, saying
-Queued until its current step ends. Send now there is Claude Code's own send-now key, the one its
+Queued until its current step ends (images attached to it show in place while it's held). Send now there is Claude Code's own send-now key, the one its
 terminal offers under what it holds (Ctrl+X Ctrl+S), pressed in its Ghostty, iTerm2, Rex, Codealong or tmux tab or
 through the background service for a background job: Claude Code stops the step it's on, as
 Escape would, cutting a running command short, and goes on with everything it holds. To keep a
@@ -1185,7 +1189,7 @@ Every panel beside a list has the same strip over it, with what's commonly done 
 each with its key where it has one, and Next (⌘]) at its end:
 
 - a session's: Seen, Done, Snooze, Close and Archive (above);
-- a PR's: Approve, Comment, Snooze, Review with and GitHub (*Reviewing a PR*);
+- a PR's: Approve, Comment, Snooze, Review with and GitHub (*Your review*);
 - a todo's: Start (⌘N), Done (⇧⌘E), Snooze (⌃⌘1 to ⌃⌘7, out of what waits on you until then, its
   due date as it is) and Due…;
 - a worktree's: New session (⌘N), Terminal (⌘1), Editor (⌘2) and GitHub (⌘O, for its PR), the
@@ -1195,7 +1199,8 @@ each with its key where it has one, and Next (⌘]) at its end:
   is coming).
 
 Next stays in the view you're in, so the selection moves down its list: in Sessions it goes through
-the sessions that wait on you, in PRs through the PRs listed that wait on your review, and in Todo
+the sessions that wait on you, in PRs through the PRs listed that wait on your review or on you to
+merge them (in `[queue] order`), and in Todo
 and Kanban through the todos listed that wait on you, the due ones (the most overdue first) and then
 those ready to start, in your order (*What waits on you, and in what order*). ⌘] and ⌘[ (⌥⇧↓ ⌥⇧↑)
 work there as in Sessions, a skipped one coming round again after the rest, and Done or Snooze on a
@@ -1305,7 +1310,7 @@ failing checks, a conflict, a branch behind its base); and Working, the drafts, 
 review yet. They leave Ready to merge and Needs work while the agent works, since what those ask
 of you waits on it; a review asked of you stays under Review requested. Codealong's own review of
 a PR isn't an agent at work on it. The rest go under headings of the tab's own: in All, Yours,
-Others and Snoozed; in Yours, Waiting on others (on a review, or checks still running) and Drafts;
+Others and Snoozed; in Yours, Waiting on others (on a review, or checks still running), Drafts and Snoozed;
 in Others, Snoozed and Not asking you. Grouped by worktree or repo, a group goes under the heading
 of its first PR, and a PR that needs you is never folded away in it (see [Grouped by worktree or
 repo](#grouped-by-worktree-or-repo)). Sorted by when they were opened, the tab's open PRs are under the
@@ -1732,12 +1737,13 @@ top; drag a pinned one down to unpin it, or ⌃⌘↑ ⌃⌘↓ to reorder), wha
 reviews asked of you; they're listed for every repo a project has here, one checked out only on its
 default branch too, whose other PRs aren't read. Approve is on the strip over a PR's panel and in
 its menu, not on its row, for any open PR but your own (GitHub doesn't let you approve that), your
-review asked for or not. Snooze review (in the menu, or Snooze on the panel's strip, ⌃⌘1 to ⌃⌘7)
-puts one off for one of the times a session's Snooze offers, or until a day and time you pick: it leaves Review requested,
-the bar's reviews pill, the mark and the sidebar's count, and waits under Snoozed with when it's
+review asked for or not. Snooze review / Snooze (in the menu, or Snooze on the panel's strip, ⌃⌘1 to ⌃⌘7)
+puts a PR waiting on your review or on you to merge off for one of the times a session's Snooze
+offers, or until a day and time you pick: it leaves Review requested or Ready to merge,
+the bar's pill, the mark and the sidebar's count, and waits under Snoozed with when it's
 back, the soonest first, until its time or Wake now. PRs picked together open on GitHub one after
 another (⌘O), pin (`p`) and copy their links and branch names; the open ones that aren't yours are
-approved one after another with one toast, and the ones that ask for your review snoozed together.
+approved one after another with one toast, and the ones waiting on your review or merge are snoozed together.
 
 #### Merging
 
@@ -1840,7 +1846,7 @@ link's card. The search finds a PR by a label's name. A label added on GitHub sh
 when the repo's PRs are next read in full. Selecting a PR shows, along the panel's top, the strip
 its card has in the notch and the waiting window: Approve (⌘⏎), Comment (⌥⌘⏎), Snooze (⌃⌘1 to
 ⌃⌘7), Review with (⌃⌘R) and GitHub (⌃⌘G), each a button that says its key, dimmed where it doesn't
-apply to the PR (Approve on your own, Snooze with no review asked of you). Approve and Comment go
+apply to the PR (Approve on your own, Snooze when neither your review nor your merge waits on it). Approve and Comment go
 with what's written in the box at the panel's foot, and their keys work from the box, since ⌘⏎
 elsewhere is the list's; the others work from anywhere in the window while the panel shows the PR,
 one shown in place of a session's too, rather than acting on the row selected. Under it, a short
@@ -1959,9 +1965,11 @@ archived. `codealong todo archive <id>` and `unarchive <id>` do the same, and `c
 due, its labels, what it waits on, the sessions on it, its worktrees and its PR: on one line they
 follow at the line's end as they fit, its PR always; on two lines they're under it.
 
-A due date keeps your order as it is, and on its day an unassigned todo comes to wait on you: from
-the start of the day it's due until a session is assigned or it's done, it's among what waits on you
-in the notch, the most overdue first (*In the notch*), its count beside the camera with the rest.
+A due date keeps your order as it is, and when it comes due (`[queue] due_within` days before, 0
+on the day by default; Settings › Queue) an unassigned todo comes to wait on you: from
+then until a session is assigned or it's done, it's among what waits on you
+in the notch, Waiting on you, the floating bar (`due` pill) and Todo/Kanban's Next, the most overdue
+first (*In the notch*), its count beside the camera with the rest.
 Only todos with no session assigned wait in the queue (whether due or ready to start): once a
 session is started on or linked to one, the todo leaves the queue; unlinking its sessions brings an
 open due one back (and resetting its status to To do brings a ready one back). Snoozed from there,
@@ -2369,7 +2377,7 @@ about the one the project has, and say so when it has none or several. `codealon
 
 ### Sidebar
 
-Picks the view (Sessions, PRs, Todo, Board) and the board it shows, and narrows it: to the devices you
+Picks the view (Sessions, PRs, Todo, Schedules, Board) and the board it shows, and narrows it: to the devices you
 pick, to what was active in the last 24h, 3d or 7d, and to the statuses you pick (Needs you, Your
 turn, Working, In review, PR needs work; any of them). Some views have more to narrow by, each pick
 with its count: Sessions its agents (the accounts sessions run on) and the [labels](#labels) you put
@@ -2431,7 +2439,7 @@ recent sessions said, a find in Sessions that finds nothing says so.
 ### Notices
 
 What stops working in the background (config.toml that doesn't read, GitHub signed out or out of
-requests, a folder macOS is asking about) is a chip at the end of the accounts bar, in a few words.
+requests, a folder macOS is asking about) is a chip at the end of the usage bar, in a few words.
 A click shows the whole of it, when it ends where that's known (GitHub's rate limit says until
 when), and what to open to fix it; its button dismisses it until it happens again. Several are one
 chip that says how many. An automatic review that couldn't start, or whose review couldn't be
@@ -2574,12 +2582,12 @@ a wizard over the main window has you confirm it, and offers session emblems, in
   setting up later, all off until you turn them on: pull request reviews first (an agent reviewing
   each pull request that asks for your review before you read it, and another agent, of another
   harness where one can start, the ones your sessions open, handing what it finds back to them;
-  Set up reviews opens Settings › Automation on them), then Jev, your other
+  Set up reviews opens Settings › Automation on them), then Decision models (*Set up decisions*), your other
   devices, and the rest of automation, its nudges to a pull request's session and its moves to an
   account with room (carrying on after a lost connection, a sign-in, a restart or a lifted usage
   limit is on already). Each one's button finishes as Done does and opens it in Settings.
 
-Nothing goes into config.toml until **Done** (a key saved for Jev goes to the keychain as you save
+Nothing goes into config.toml until **Done** (a decision model's key goes to the keychain as you save
 it). **Skip setup**, Escape or the ✕ keep what the first run wrote.
 Either way it doesn't show by itself again (state.json's `setupDone`), and Settings changes all of
 it later.
@@ -2593,8 +2601,8 @@ that work in any app, the terminal and editor, Keep \<terminal> awake (on macOS:
 nap your terminal while other apps' windows cover it; see *How a prompt gets to a session*), and
 Open at login (off until you turn it
 on; the system keeps it rather than config.toml: on macOS System Settings › General › Login Items
-lists Codealong, and on Linux it's an entry in `~/.config/autostart`, and turning it off there
-shows here); Appearance has the theme, glass (see *Glass*), whether keyboard shortcuts always show (see
+lists Codealong, on Linux it's an entry in `~/.config/autostart`, and on Windows Task Manager's
+Startup apps, and turning it off there shows here); Appearance has the theme, glass (see *Glass*), whether keyboard shortcuts always show (see
 *Keyboard shortcuts beside what they do*) and session emblems (see *Emblems*),
 and says the keys that zoom (see *Zoom*); Queue has what waits on you and in what order (see *What
 waits on you, and in what order*); Sounds has the sound for each thing that starts to
@@ -2612,7 +2620,9 @@ runs on, picked in the agent menu at the foot of a box like a session's that hol
 and where its review goes), nudging a pull request's
 primary session, moving a session that hits its usage limit, and telling one a lost connection or
 a sign-in stopped to carry on, everywhere or for one repo with its team's settings (see *Settings for one
-repo, and its team's*); Projects groups repos by pattern; Advanced turns
+repo, and its team's*); Agents installs the `codealong` command on your PATH, the plugin for Claude
+Code and the skill for other agents; Devices links your other machines and turns remote control on
+or off; Projects groups repos by pattern; Advanced turns
 the performance log on and shows where the files are; Experimental turns on features still being
 tried out, each off until you do and each in a part of its own: boards (see *Boards*); voice,
 with its language and then its settings under Talk (the shortcuts held to talk, and sending to
@@ -2628,7 +2638,7 @@ name, with your words marked: the fields themselves, to change right there. A se
 its label, what it says under it, the choices it offers and its section's name ("sounds" shows all
 of Sounds), every word somewhere in those, in any order; "PR" finds pull requests. An account's,
 device's or routing group's card is found by what it says too, and a list of them (the routing
-groups, Jev's features) shows only the ones that match. The sections down the left count what each
+groups, decision model features) shows only the ones that match. The sections down the left count what each
 has that matches and fade where nothing does; a click on one, or on a section's name over its
 settings, clears the search and opens it. Escape clears what you typed, and with nothing typed
 closes Settings.
@@ -2744,12 +2754,13 @@ of the title bar (which says the panel's shortcut) or its +, the inspector, or a
 session's right-click menu in Codealong*
 
 One input, and below it what you can do next: it finds and starts, and answering is the waiting
-window's (below). With nothing typed it lists the sessions that need you, the longest wait first as
-on the floating bar, then the PRs waiting on your review under Review requested, the longest wait
-first (those of a repo with `reviews_first` on come ahead of the sessions that need you, under a
-Review requested of their own), then the sessions whose turn ended (the working ones when nothing waits on you), and under
-them the first three todos ready to start, in your order, then the rest of the sessions started in
-the last day. A snoozed session doesn't wait on you there until its time: it's listed with the rest,
+window's (below). With nothing typed it lists what waits on you in `[queue] order` (Settings ›
+Queue): any session moved to the top first, then by default the sessions that need you, the PRs
+waiting on your review under Review requested, your own PRs ready to merge under Ready to merge
+(those of a repo with `reviews_first` on come ahead of the sessions that need you, under a Review
+requested of their own), the sessions whose turn ended (the working ones when nothing waits on you),
+and under them the first three unassigned todos ready to start, in your order, then the rest of the
+sessions started in the last day. A snoozed session doesn't wait on you there until its time: it's listed with the rest,
 and a search finds it as it finds any other, with a chip saying how long until it's back. Typed words find sessions by title,
 account, worktree, branch, repo, project, label or PR, then by what was said in them (your prompts and the
 agents' replies, for sessions active in the last `[search] days`, with the matching line shown; the
@@ -2770,10 +2781,11 @@ bar on the words), in its project, and with the sidebar's devices cleared when t
 machine it's on; ⌥⏎ opens it where it lives. ⏎ on a todo
 shows its session the same way, or, when it has none, gets a session ready to start for it (its
 prompt, its worktree, linked to it); on a PR it shows the PR in Codealong, and ⌥⏎ opens it on
-GitHub; the PR's right-click menu copies its link. ⏎ or ⇥ on a PR under Review requested reviews it
-in the waiting window, and ⇥ on a session answers it there; the panel puts itself away. The last row
-starts a new session with what you typed as its prompt. ⏎ does the selected row, ⌘⏎ always starts,
-⌥⏎ shows a todo or a PR under Review requested in Codealong, ⌘1 to ⌘9 do a row, Escape closes. Each
+GitHub; the PR's right-click menu copies its link. ⏎ or ⇥ on a PR under Review requested or Ready to
+merge opens it in the waiting window, and ⇥ on a session answers it there; the panel puts itself
+away. The last row starts a new session with what you typed as its prompt. ⏎ does the selected row,
+⌘⏎ always starts, ⌥⏎ shows a todo or a PR under Review requested or Ready to merge in Codealong,
+⌘1 to ⌘9 do a row, Escape closes. Each
 open starts empty, so ⏎ goes to what needs you; ↑ brings back what you'd typed before closing, with
 the images attached to it and Improve Codealong's pictures of the windows when you wrote it there
 (kept as you type, so a relaunch doesn't lose them), then earlier prompts you sent, started or
@@ -3434,8 +3446,9 @@ panel; the pop-out button beside the notch's pin*
 
 A window of its own, sized and placed as you like and kept up until you close it, that works through
 what waits on you one at a time: every session that needs you, then the PRs waiting on your review,
-then your own PRs ready to merge, then the sessions whose turn ended, each the longest wait first, snoozed ones left out, or in the
-order Settings › Queue puts them in (*What waits on you, and in what order*). With
+then your own PRs ready to merge, then unassigned todos that are due, then the sessions whose turn
+ended, each the longest wait first, snoozed ones left out, or in the order Settings › Queue puts
+them in (*What waits on you, and in what order*). With
 Settings › Automation › Put reviews before sessions that need you (`[pull_requests]
 reviews_first`, everywhere or for one repo, which a repo's team file can turn on for everyone), the
 PRs waiting on your review come first instead, ahead of everything else; the notch goes
@@ -3495,7 +3508,7 @@ A kind config.toml names that isn't one, one named twice, the sessions' two left
 todos put before another are said as an error in config.toml, and the rest is gone by as written:
 a session's kind left out goes where it comes by default, and the ready todos last. With the bar
 docked in the notch, ⌥⌘. opens the notch instead, on what waits on you, or with nothing waiting on
-the end of what waits (below, under *The bar in the notch*), and the button beside its pin opens
+the end of what waits (below, under *In the notch*), and the button beside its pin opens
 this window, on what the notch shows. Pressed while the
 window is the one you're in, ⌥⌘. puts it away and gives the keyboard back to the app you were in;
 with the bar docked it opens the notch even then, so close the window as you would any other. A
@@ -3681,9 +3694,9 @@ yours, and stays.
 ### Floating bar
 
 A small bar on top of every window, on every Space and over full-screen apps, with a pill for each
-agent that needs you, whose turn just ended, or that's running, one for PRs waiting on your review
-(its menu lists each with its repo and who asked; a click opens the waiting window on the PR's card,
-to review it there), and one for todos ready to start. The project button beside the mark shows one
+agent that needs you, whose turn just ended, or that's running, pills for PRs waiting on your review
+and your own PRs ready to merge (each menu lists its PRs with repo and status; a click opens the
+waiting window on the PR's card), and pills for unassigned todos that are due or ready to start. The project button beside the mark shows one
 project or all of them; a badge on it counts what needs you in the others. Rest the pointer on a
 session's pill and its peek opens under the bar: the session's conversation, as its panel shows it,
 and a box to answer it. (A click on a session in a card on the desktop opens it too, by the
@@ -3799,7 +3812,7 @@ session's turn, and the orchestrator does it on its quiet ticks.
 Sessions, which keep the order they're listed in) puts a session first in every queue: the notch
 and the waiting window go to it first and ⌘] there and in Sessions' panel, ahead of what needs you;
 it leads its own group on the bar, its heading in Sessions and the quick panel's list, and its
-worktree in Worktrees. Its wait isn't changed, so the times beside it still say how long it waited.
+worktree in Sessions grouped by worktree. Its wait isn't changed, so the times beside it still say how long it waited.
 It's first until you take it up: send it something, or mark its finished turn seen. One that's
 running is first once its turn ends, and one whose turn you'd already seen waits on you again as
 Your turn. Several moved go the latest first. **Back in line**, where Move to top was, puts it back
@@ -3862,9 +3875,10 @@ you (*Sounds*).
 
 **In the notch**, where the bar starts on a Mac, it docks at the top of the screen: one black
 shape with the notch, dark whatever the theme, showing the mark on the camera's left and, on its
-right, how many things wait on you: what needs you, the PRs that wait on your review and Your
-turn added up, which is what ⌥⌘. goes through, with the glyph of the most urgent of them (Needs
-you, then a review, then Your turn; a new one that needs you pulses). With nothing waiting, it
+right, how many things wait on you: every active kind in `[queue] order` except ready todos added up
+(by default Needs you, PRs waiting on your review, your PRs ready to merge, due todos and Your
+turn), which is what ⌥⌘. goes through, with the glyph of the first of those kinds that has any (a
+new one that needs you pulses). With nothing waiting, it
 counts what's working. Your other Macs' sessions are among them while those Macs are
 connected, each pill with its Mac's color (*Your other devices*). Rest the pointer on it for a moment, or click it, and it opens down
 into the bar's pills, with the project and every count beside the camera; it closes a moment after
@@ -3872,8 +3886,8 @@ the pointer leaves, and stays open while one of its menus is up. Open, it's one 
 shows, a session's (its usual width, or the one you dragged it to): the pills fold into a count to
 fit it, a note such as how a review went included, rather than widening it as they come and go. The pin at the end of its right
 side, or Keep the notch open in its right-click menu, keeps it open until you unpin it, across
-launches. The button beside the pin pops out into the *Waiting on you* window, on the session or PR
-the notch shows (which it puts away); with nothing shown, the window opens where it was, or on the
+launches. The button beside the pin pops out into the *Waiting on you* window, on the session, PR or
+todo the notch shows (which it puts away); with nothing shown, the window opens where it was, or on the
 first that waits, to work through what waits there instead. There's no peek beside a docked bar: click a session's pill and the notch opens further,
 into that session under the pills, its header, its conversation and the box that answers it, dark as
 the notch is; ⌥⌘. from any app opens it on the session that waits on you, and with nothing waiting,
@@ -3892,9 +3906,9 @@ through the ones you looked at there. A strip over the header says how the last 
 message that didn't go after ⌘⏎ went on says why there, or on its session's pill once the notch has
 closed), and has what's commonly done to the session as buttons that say their keys, as its
 panel in Sessions has: Merge and done (⇧⌘M) where it applies, Seen (⌘E), Done (⇧⌘E), Snooze (⌃⌘1
-to ⌃⌘7), Close (⌃⌘W), Archive (⌃⌘A), Back (⌃-), Next (⌘]) and × (esc). The PRs waiting on your review are in that same list, after the
-sessions that need you and before the turns that ended, so the keys go from a session to a review
-and on. On a review the strip has Approve (⌘⏎, with what's in the box as the review's text), Comment
+to ⌃⌘7), Close (⌃⌘W), Archive (⌃⌘A), Back (⌃-), Next (⌘]) and × (esc). The PRs waiting on your review,
+your PRs ready to merge and due todos are in that same list, in `[queue] order` (Settings › Queue),
+so the keys go from one to the next. On a review the strip has Approve (⌘⏎, with what's in the box as the review's text), Comment
 (⌥⌘⏎, which needs text), Snooze (⌃⌘1 to ⌃⌘7), Review with (⌃⌘R starts one on the reviewer Settings names, else Auto's; the
 button picks) and GitHub (⌃⌘G); Request changes is a button in the box, with no key, and needs text
 too. Any of those settles GitHub's request to you, so the PR leaves what waits on you and the next
@@ -3906,12 +3920,13 @@ A click on a session's PR chip, or on a link to a PR in its conversation, shows 
 the notch too, in the session's place, whether it waits on your review or not, with a link back to
 the session over its title (⌃- goes back as well). Merged, reviewed or snoozed there, the PR goes
 back to the session rather than on, and the session's strip says how the PR went, as a PR shown
-from a session's panel in the main window leads back to it. Snooze is dimmed on the strip while
-your review isn't asked for, and Open in main window in the PR's menu still opens it in the main
+from a session's panel in the main window leads back to it. Snooze is dimmed on the strip when
+neither your review nor your merge waits on the PR, and Open in main window in the PR's menu still opens it in the main
 window. One the queue goes on to later, as a review, leads back nowhere, however you come back to it.
 
-Todos wait on you there too, while no session is assigned to them. An unassigned one due today or
-before, and not done, comes after the PRs waiting on your review and before the turns that ended,
+Todos wait on you there too, while no session is assigned to them. An unassigned one due within
+`[queue] due_within` days (today or before by default), and not done, comes after your PRs ready to
+merge and before the turns that ended by default,
 the most overdue first, and counts beside the camera with a calendar; once nothing else waits, the
 queue goes on to the unassigned todos ready to start, in your order, which don't count, since there
 are nearly always some. Settings › Queue changes that order
@@ -3958,10 +3973,10 @@ menu bar in the floating bar's right-click menu*
 
 The bar can be an icon in the menu bar instead of a window: Codealong's mark, with the number of
 sessions that need you beside it. The mark is dimmed while the app isn't connected to Codealong's
-server (it's starting, or being started again). Its menu lists what the bar shows, under Needs
-you, Review requested, Your turn and Working, five of each with the rest a click away in the main
-window; picking a session or a PR opens the waiting window on it, to read and answer it there.
-Below them are Open Codealong, Waiting on you…, and the server: whether it's running and how many
+server (it's starting, or being started again). Its menu lists what the bar shows, under Listening,
+Needs you, Review requested, Ready to merge, Your turn and Working, five of each with the rest a
+click away in the main window; picking a session or a PR opens the waiting window on it, to read and
+answer it there. Below them are Open Codealong, Waiting on you… (and Listen now… with voice on), and the server: whether it's running and how many
 sessions it runs, and Restart server, which cuts off the turns of the sessions Codealong runs and
 lets them carry on once it's back (*Cut off*), as an update does. Last come Settings… and the two
 ways to quit: Quit Codealong leaves the server running, with every session Codealong runs, your
@@ -4638,7 +4653,7 @@ its card's popover on the canvas lists them too. On the canvas, hovering or sele
 draws a line from the session it came from and to the ones that came of it, and a session's card on
 the desktop does the same to the cards of those sessions pinned on the same screen.
 
-In Sessions, Started sessions (in the bar over the list) picks where a session another session's
+In Sessions, Started sessions (in the View menu over the list) picks where a session another session's
 agent started goes (one started with `codealong start`, from a task the Claude app offered, or a
 thread the Codex app made for an agent). On their own, as it starts, lists it as any other session.
 Under their session lists it under the session that started it, set in as a helper is, with its own
@@ -5328,7 +5343,7 @@ terminal stops to ask; one Codex won't trust is taken out again), and keeps them
 current; `codealong install` does the same from a terminal. Settings › Agents is where each
 account's plugin or skill shows. `codealong` alone opens the app as the Dock does: macOS opens a
 new copy, which takes over from the one running, with the environment it gives an app rather than
-the terminal's, so nothing the app starts carries an agent's session with it. See *For agents* below.
+the terminal's, so nothing the app starts carries an agent's session with it.
 
 ### An orchestrator
 
@@ -5471,7 +5486,8 @@ show without git status or PRs, and what needs the server says so.
 
 Everything lives in `~/Library/Application Support/Codealong/`, beside `config.toml`; on Linux
 in `~/.config/codealong/` (`$XDG_CONFIG_HOME`), with the logs in `~/.local/state/codealong/` and
-caches in `~/.cache/codealong/`.
+caches in `~/.cache/codealong/`; on Windows in `%APPDATA%\Codealong\`, with logs in
+`%LOCALAPPDATA%\Codealong\Logs\` and caches in `%LOCALAPPDATA%\Codealong\Cache\`.
 
 What you've seen (for Your turn), what you've pinned, snoozed, labelled and archived in Codealong are
 kept in `state.json` next to it; whether the bar is on, floating or in the notch, where you left it
@@ -5483,12 +5499,14 @@ project's canvas came from `canvas.json`, which is left as it was); which sessio
 started ones are its helpers), where the harness doesn't say, in `origins.json`; whether your
 latest quick-panel starts in each repo went into a new worktree, in `starts.json`; sessions linked to PRs or unlinked from them by hand, the
 PRs nudged or not and the sessions picked as their primary, in `pr-links.json`; worktrees marked
-reusable or not in `worktrees.json`; where each PR's automatic reviews stand in `reviews.json`;
+reusable or not in `worktrees.json`, and worktrees Codealong created for sessions in
+`made-worktrees.json`; where each PR's automatic reviews stand in `reviews.json`;
 replies suggested for sessions, until the sessions move on, in `suggestions.json`; each session's
-emblem, the emoji Jev picked or the picture drawn for it, in `emblems.json`; each command you
+emblem, the emoji a decision model picked or the picture drawn for it, in `emblems.json`; throwaway
+Antigravity side conversation IDs kept off the board in `antigravity-sides.json`; each command you
 allowed an agent to run in your terminal, with what it printed, for a week in `terminal-runs/`;
 what `codealong changes` saw at each of its last dozen looks, for a week, in `changes.json`; an
-orchestrator's answers, cursor and narrative in `orchestrator/`; an agent's messages held for a
+agent's messages held for a
 session that waits on you, until they go, in `held-messages.json`; what every
 model call used, and Claude's extra usage as it was read, in `ledger.sqlite` (the Analytics window's,
 which with `[experimental] analytics` on also keeps who began each turn and how the sessions you
@@ -5500,14 +5518,16 @@ instead (or where `[voice] meetings_folder` says), and the meetings you took or 
 noted in `meetings.json`, so one isn't offered twice.
 The schedules are in `schedules.json`, watched the same way, and what happened to each (its runs,
 the session it keeps going, what its watch saw, the runs asked for) in `schedule-runs.json`; each
-schedule's watch and notes have a folder of their own in `schedules/`.
+schedule's watch and notes (including each orchestrator's notes and cursor) have a folder of their own in `schedules/`.
+Cached GitHub PR data and merged worktree heads live under `github/` (`merged-heads.json`), and
+cached GitHub organization avatars under `org-avatars/`, in the cache folder.
 Attachments are kept by their content: images in `images/`, other files in `files/<hash>/<name>`;
 ones no todo uses are cleared after 30 days. The devices this one is linked with are in
 `devices.json`, and what each last said in `device-feeds.json`; this device's key is in the login
-keychain (on Linux, the desktop's Secret Service).
+keychain (on Linux, the desktop's Secret Service; on Windows, Credential Manager).
 The server answers on `codealong.sock`; its launchd job is described by `server.plist`, and what
 it prints goes to `server.log` in the logs folder (*Codealong's server*).
 
-## What's next
-
-The menu bar icon and popover, and notifications (the design system's *Build plan*).
+On macOS and Linux AppImage builds, updates install in the background and take effect at *Restart
+to update*; on Linux `.deb`/`.rpm` packages and Windows setups, the update is downloaded and checked
+in the background and installs when you choose *Restart to update*.
