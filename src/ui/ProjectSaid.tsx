@@ -29,9 +29,9 @@ export function projectIconMap(projects: readonly { name: string; icon?: string 
   return map.size > 0 ? map : EMPTY_ICONS;
 }
 
-/** A project's GitHub org avatar, falling back to the folder icon (when `fallback` is set) or
- *  nothing when absent or broken. */
-export function ProjectIcon({ src, size, fallback = false }: { src?: string | null; size: number; fallback?: boolean }) {
+/** A project's GitHub org avatar, falling back to the folder icon (`fallback={true}`), a custom
+ *  element (such as Codealong's `Mark`), or nothing when absent or broken. */
+export function ProjectIcon({ src, size, fallback = false }: { src?: string | null; size: number; fallback?: boolean | ReactNode }) {
   const [failed, setFailed] = useState<string | null>(null);
   if (src && failed !== src) {
     return (
@@ -46,7 +46,8 @@ export function ProjectIcon({ src, size, fallback = false }: { src?: string | nu
       />
     );
   }
-  return fallback ? <Icon name="folder" size={size} /> : null;
+  if (fallback === true) return <Icon name="folder" size={size} />;
+  return fallback || null;
 }
 
 /** What's inside a row that said `project` already (a todo's own, a PR's repo chip) says it no

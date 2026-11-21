@@ -28,7 +28,7 @@ function render(node: ReactNode) {
 }
 
 describe('ProjectSwitcher org icons', () => {
-  it('keeps Mark in the top-left button and shows org avatars in the dropdown with folder fallback', () => {
+  it('shows the selected org avatar in the button (falling back to Mark) and org avatars in the dropdown', () => {
     const view = render(
       <ProjectSwitcher
         logoStatus="idle"
@@ -44,9 +44,17 @@ describe('ProjectSwitcher org icons', () => {
     );
     try {
       const btn = view.el.querySelector<HTMLButtonElement>('.ca-projswitch-btn')!;
-      // Top-left button keeps Mark, not the project avatar.
-      expect(btn.querySelector('.ca-mark')).not.toBeNull();
+      // Selected org project shows its avatar in the button instead of Mark.
+      const btnImg = btn.querySelector<HTMLImageElement>('img.ca-projicon');
+      expect(btnImg?.getAttribute('src')).toBe(ICON);
+      expect(btn.querySelector('.ca-mark')).toBeNull();
+
+      // If the button's org avatar fails to load, it falls back to Codealong's Mark.
+      act(() => {
+        btnImg!.dispatchEvent(new Event('error', { bubbles: false }));
+      });
       expect(btn.querySelector('img.ca-projicon')).toBeNull();
+      expect(btn.querySelector('.ca-mark')).not.toBeNull();
 
       act(() => btn.click());
       const items = [...view.el.querySelectorAll('.ca-projswitch-menu .ca-projswitch-row')];
@@ -56,7 +64,7 @@ describe('ProjectSwitcher org icons', () => {
       expect(items[1].querySelector('img.ca-projicon')).toBeNull();
       expect(items[1].querySelector('svg.ca-icon')).not.toBeNull();
 
-      // If the image fails to load, it falls back cleanly to the folder icon.
+      // If the menu image fails to load, it falls back cleanly to the folder icon.
       act(() => {
         northwindImg!.dispatchEvent(new Event('error', { bubbles: false }));
       });
@@ -64,6 +72,31 @@ describe('ProjectSwitcher org icons', () => {
       expect(items[0].querySelector('svg.ca-icon')).not.toBeNull();
     } finally {
       view.unmount();
+    }
+  });
+
+  it('shows Codealong Mark in the button for All projects and projects without an org avatar', () => {
+    for (const current of [ALL_PROJECTS, 'Personal']) {
+      const view = render(
+        <ProjectSwitcher
+          logoStatus="idle"
+          projects={PROJECTS}
+          current={current}
+          total={6}
+          actions={{}}
+          onPick={() => {}}
+          onOpenWindow={() => {}}
+          onAddProject={() => {}}
+          onEditProjects={() => {}}
+        />,
+      );
+      try {
+        const btn = view.el.querySelector<HTMLButtonElement>('.ca-projswitch-btn')!;
+        expect(btn.querySelector('.ca-mark')).not.toBeNull();
+        expect(btn.querySelector('img.ca-projicon')).toBeNull();
+      } finally {
+        view.unmount();
+      }
     }
   });
 });

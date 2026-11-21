@@ -136,7 +136,7 @@ import { addsTo, anotherFolderOption, chatOption, folderOptions, HERE, machineMe
 import { AgentFoot } from './AgentMenu';
 import { agentMenuSections, placeIcon } from './StartControls';
 import { Button, cx, Icon, Kbd, Mark } from './primitives';
-import { ProjectIcons, projectIconMap, ProjectShown } from './ProjectSaid';
+import { ProjectIcon, ProjectIcons, projectIconMap, ProjectShown } from './ProjectSaid';
 import { usePrLinks } from './PrLink';
 import { useTheme } from './ThemeSwitch';
 import { useGlass } from '../glass';
@@ -626,6 +626,7 @@ export function Quick() {
   /* ---- Where ---- */
 
   const projects = useMemo(() => board?.projects ?? [], [board?.projects]);
+  const projectIcons = useMemo(() => projectIconMap(projects), [projects]);
   // The board lists no projects until it's read, so the one picked holds until then. General
   // chat is no project of the board's: it lists the chats, and starts the next one there.
   const current = project === ALL_PROJECTS || project === CHATS || projects.some((p) => p.name === project) || !board || board.loading ? project : ALL_PROJECTS;
@@ -2156,7 +2157,7 @@ export function Quick() {
         <div className="ca-quick-input">
           <div className="ca-quick-pick">
             <button type="button" data-picker-trigger className="ca-quick-project" title={keysIn('Project (⌘P)')} aria-haspopup="dialog" aria-expanded={picker === 'project'} onClick={() => togglePicker('project')}>
-              <Mark size={16} status={logoStatus} />
+              <ProjectIcon src={projectIcons.get(current)} size={16} fallback={<Mark size={16} status={logoStatus} />} />
               <span>{projectLabel(current)}</span>
               <Icon name="chevron-down" size={12} />
             </button>
@@ -2386,7 +2387,6 @@ export function Quick() {
       </div>
     </div>
   );
-  const projectIcons = useMemo(() => projectIconMap(projects), [projects]);
   return (
     <ProjectShown.Provider value={projectShownIn(current)}>
       <ProjectIcons.Provider value={projectIcons}>{page}</ProjectIcons.Provider>

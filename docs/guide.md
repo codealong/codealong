@@ -31,10 +31,11 @@ had before. On Linux the window manager places it.
 boards, each shown as Kanban or as Canvas (an experiment, off until Settings › Experimental turns
 it on: see *Boards*). The project switcher (⌘P) shows each project's key: ⌥⌘1 to ⌥⌘9 switch
 projects, ⌥⌘0 shows them all. A project whose repos belong to one GitHub organization shows that
-organization's avatar in the switcher dropdown, the quick panel's project menu, and the All
-projects badges (fetched through `gh api users/<owner>` and cached locally for a week under
-`org-avatars/` in Codealong's cache folder; personal accounts, multi-org projects and Elsewhere
-keep the folder icon, and the top-left switcher button keeps Codealong's status mark). Under All projects, wherever a worktree or a PR's repo is named
+organization's avatar in the switcher button and dropdown, the quick panel's project button and
+menu, and the All projects badges (fetched through `gh api users/<owner>` and cached locally for a
+week under `org-avatars/` in Codealong's cache folder; personal accounts, multi-org projects and
+Elsewhere keep the folder icon in menus and Codealong's logo in the switcher button, as All
+projects does). Under All projects, wherever a worktree or a PR's repo is named
 (a row's chip, a group's heading, a session's header and a PR's, the quick panel's rows, the
 floating bar's tooltips and menus), its project is said quietly before it, `Northwind /
 fix-login`, unless the name already is the project's; a todo's row says its own on a tag. The
