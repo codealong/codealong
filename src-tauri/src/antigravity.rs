@@ -241,6 +241,8 @@ pub struct Conversation {
     pub parent: Option<String>,
     /// What the log of the terminal UI that has it open says (`Said`).
     pub said: Said,
+    /// A command line process had it open as it was read (`Reader::reread`).
+    pub held: bool,
 }
 
 impl Conversation {
@@ -1764,14 +1766,16 @@ impl Reader {
         for c in &mut rows {
             let process = self.processes.iter().find(|p| p.conversation.as_deref() == Some(c.id.as_str()));
             let held = process.is_some();
+            c.held = held;
             if let Some(log) = process.and_then(|p| self.logs.get_mut(&p.pid)) {
                 log.read_on();
                 c.said = log.said.clone();
             }
             match before.get(&c.id) {
-                // Not when the last read waited on a prompt's step, which its process may have
-                // written as it went.
-                Some(old) if !held && old.unwritten_prompt().is_none() && old.last_modified == c.last_modified && old.step_count == c.step_count => {
+                // Not the first read after a process let go of it, which may have written its
+                // last steps (a prompt's among them) since the read before, under a row another
+                // `agy` wrote back as it was then.
+                Some(old) if !held && !old.held && old.last_modified == c.last_modified && old.step_count == c.step_count => {
                     c.tail = old.tail.clone();
                     c.asked = old.asked.clone();
                     c.started_at = old.started_at;
@@ -1826,8 +1830,9 @@ impl Reader {
                 (c.step_under_way, c.waiting, c.turn_ended, c.latest_step_at) = steps_now(&c.dir, &c.id);
             } else if c.prompted_at > Some(c.last_modified) {
                 // A row older than your latest prompt is a copy another `agy` wrote back, which
-                // says nothing of the reply since: the latest step says when it was last written.
-                c.latest_step_at = steps_now(&c.dir, &c.id).3;
+                // says nothing of the reply since: the latest step says when it was last written,
+                // and steps stay, so one that doesn't read this time was as the time before.
+                c.latest_step_at = steps_now(&c.dir, &c.id).3.or(before.get(&c.id).and_then(|o| o.latest_step_at));
             }
             // An idle row after Escape is the UI's own, whatever its time and count.
             c.idled_by_another = held && idled_by_another(before.get(&c.id), c) && !c.said.stopped_last();
@@ -3376,8 +3381,11 @@ mod tests {
         row(first + 9_000, 2, first);
         assert_eq!(prompted(&mut reader), second);
         // A third prompt goes in: until its step is written, the log says when.
-        use std::io::Write as _;
-        std::fs::OpenOptions::new().append(true).open(&log).unwrap().write_all(format!("{}\n", glog("17:55:00.097000", "Forwarding user message to conversation c1 (items=1, media=0)")).as_bytes()).unwrap();
+        let forwarded = |at: &str| {
+            use std::io::Write as _;
+            std::fs::OpenOptions::new().append(true).open(&log).unwrap().write_all(format!("{}\n", glog(at, "Forwarding user message to conversation c1 (items=1, media=0)")).as_bytes()).unwrap();
+        };
+        forwarded("17:55:00.097000");
         assert_eq!(prompted(&mut reader), on_14th("17:55:00.097"));
         // Its step is written, then the reply, and its terminal UI quits before the next read,
         // the row an older copy still: the time is the step's, and the reply is yours to read
@@ -3387,10 +3395,29 @@ mod tests {
         step(5, 15, third + 30_000);
         reader.processes.clear();
         reader.track_logs();
+        let read = |reader: &mut Reader| {
+            let s = session(reader);
+            (s.last_prompt_at, s.status, s.last_activity)
+        };
         for _ in 0..2 {
-            let s = session(&mut reader);
-            assert_eq!((s.last_prompt_at, s.status, s.last_activity), (third, crate::model::Status::Unread, third + 30_000));
+            assert_eq!(read(&mut reader), (third, crate::model::Status::Unread, third + 30_000));
         }
+        // It's opened again, and between two reads a fourth prompt goes in, its step and reply
+        // are written and it quits, under the row as it was: the step's time all the same.
+        reader.processes = vec![Process { pid: 7, conversation: Some("c1".into()), terminal: true, logs: vec![log.clone()], started: None }];
+        reader.track_logs();
+        assert_eq!(prompted(&mut reader), third);
+        let fourth = on_14th("17:58:00.212");
+        forwarded("17:58:00.205000");
+        step(6, STEP_USER_INPUT, fourth);
+        step(7, 15, fourth + 30_000);
+        drop(steps);
+        reader.processes.clear();
+        reader.track_logs();
+        assert_eq!(read(&mut reader), (fourth, crate::model::Status::Unread, fourth + 30_000));
+        // Its database doesn't read once: what it said before holds.
+        std::fs::rename(dir.join("conversations/c1.db"), dir.join("conversations/away.db")).unwrap();
+        assert_eq!(read(&mut reader), (fourth, crate::model::Status::Unread, fourth + 30_000));
     }
 
     /// A conversation the table doesn't list yet (`started`) has its transcript's time for its
