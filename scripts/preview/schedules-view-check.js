@@ -32,7 +32,7 @@
       var add = q('.ca-schednew');
       var gap = Math.abs(add.getBoundingClientRect().top - bar.getBoundingClientRect().bottom);
       check('New schedule sits flush under the strip with no gap or second top line', gap <= 1 && getComputedStyle(add).borderTopWidth === '0px', 'gap=' + gap + ', borderTop=' + getComputedStyle(add).borderTopWidth);
-      check('View has Sort, Group and Rows', viewChoices('Sort').join('|') === 'Next run|Last run|Added|Name' && viewChoices('Group').join('|') === 'No groups|Worktree|Repo' && viewChoices('Rows').join('|') === 'Two lines|One line', [viewChoices('Sort'), viewChoices('Group'), viewChoices('Rows')].join(' / '));
+      check('View has Sort, Group and Rows', viewChoices('Sort').join('|') === 'Next run|Last run|Added|Name' && viewChoices('Group').join('|') === 'No groups|Project|Repo|Worktree' && viewChoices('Rows').join('|') === 'Two lines|One line', [viewChoices('Sort'), viewChoices('Group'), viewChoices('Rows')].join(' / '));
       check('each row is on one line until two are picked', on('One line', 'Rows') && rows().every(function (r) { return r.classList.contains('is-slim') && !q('.ca-lane-line2', r); }), rows().filter(function (r) { return !r.classList.contains('is-slim'); }).map(name).join(', '));
       var nexts = going().map(function (r) { var n = q('.ca-schedrow-next', r); return n ? n.textContent : ''; });
       var timed = nexts.map(function (n) { return /^(Next |Due now)/.test(n); });
@@ -61,7 +61,7 @@
       check('the harnesses’ own aren’t grouped', theirs.every(function (r) { return !r.closest('.ca-group'); }), theirs.length + ' of theirs');
       var none = heads().filter(function (h) { return h.classList.contains('is-none-head'); });
       if (none.length === 0) note('every schedule runs in a worktree here, so the heading over the rest went unchecked');
-      else check('the ones in no worktree are under “No worktree”, last in their section', none.every(function (h) { var g = h.closest('.ca-group'); return h.textContent.trim() === 'No worktree' && !(g.nextElementSibling && g.nextElementSibling.classList.contains('ca-group')); }), none.map(function (h) { return h.textContent; }).join(', '));
+      else check('the ones in no worktree are under “No worktree”, last in their section', none.every(function (h) { var g = h.closest('.ca-group'); var n = q('.ca-grouphead-none', h); return n && n.textContent.trim() === 'No worktree' && !(g.nextElementSibling && g.nextElementSibling.classList.contains('ca-group')); }), none.map(function (h) { return h.textContent; }).join(', '));
       // The arrows go through the rows in the order they're drawn, each press read back on its own
       // render.
       var drawn = all('[role="option"]', list()).filter(function (el) { return !el.classList.contains('ca-grouphead'); }).map(function (el) { return el.id; });

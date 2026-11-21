@@ -65,7 +65,7 @@ afterEach(() => {
  *  the sessions picked together. */
 interface Lists {
   pinnedSessions?: string[];
-  pinnedLanes?: string[];
+  orderedLanes?: string[];
   picked?: Session[];
 }
 
@@ -121,10 +121,9 @@ function mainWindow(over: Partial<MainKeys<View>> = {}, lists: Lists = {}): Wind
     terminalAt: null,
     projects: [],
     pinnedRows: [],
-    pinnedLanes: lists.pinnedLanes ?? [],
+    orderedLanes: lists.orderedLanes ?? [],
     pinnedPrRows: [],
     sessionPins: pins('session pins', lists.pinnedSessions),
-    lanePins: pins('worktree pins', lists.pinnedLanes),
     prPins: pins('PR pins'),
     searchRef: { current: null },
     listRef: { current: null },
@@ -158,7 +157,7 @@ function mainWindow(over: Partial<MainKeys<View>> = {}, lists: Lists = {}): Wind
     togglePanelMax: () => void did.push('session panel takes the window'),
     togglePrPanelMax: () => void did.push('PR panel takes the window'),
     movePinnedSession: (key, index) => void did.push(`move pinned session ${key} to ${index}`),
-    movePinnedLane: (id, index) => void did.push(`move pinned worktree ${id} to ${index}`),
+    moveGroupLane: (id, index) => void did.push(`move worktree group ${id} to ${index}`),
     move: (delta) => void did.push(`move ${delta}`),
     focusBox: () => void did.push('cursor into the box'),
     open: (lane, target) => void did.push(`open ${target ?? 'nothing'} of ${lane?.callsign ?? 'no worktree'}`),
@@ -536,6 +535,11 @@ describe.each(PLATFORMS)('the main window’s keys for getting about, as %s pres
     const loose = onSession(lane.sessions[1], { selectedLane: lane });
     expect(press('Ctrl+Cmd+Up').defaultPrevented).toBe(true);
     expect(loose.did).toEqual([]);
+    // Any worktree heading in Sessions grouped by worktree moves with ⌃⌘↑ / ⌃⌘↓ without pinning.
+    const wt = onLane(lane, {}, { orderedLanes: ['/r/alpha', lane.id, '/r/zeta'] });
+    press('Ctrl+Cmd+Up');
+    press('Ctrl+Cmd+Down');
+    expect(wt.did).toEqual([`move worktree group ${lane.id} to 0`, `move worktree group ${lane.id} to 3`]);
   });
 
   it('zoom, reload and open Settings from anywhere, under a sheet too; the sidebar and the quick panel from the window', () => {

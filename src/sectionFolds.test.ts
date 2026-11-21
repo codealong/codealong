@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { activeSessionRows, hasSessionSections, isSectionFolded, PERSISTED_SECTION_FOLDS, sectionOfRow, toggleFoldList, unfoldList, visibleSessionRows, type SessionSectionParts } from './sectionFolds';
+import { activeSessionRows, groupOfRow, hasSessionSections, isSectionFolded, PERSISTED_SECTION_FOLDS, sectionOfRow, toggleFoldList, unfoldList, visibleSessionRows, type SessionSectionParts } from './sectionFolds';
 import { lane as makeLane, NOW, session as makeSession } from './testing/fixtures';
 import { groupSessions, sessionSections, type SessionItem } from './ui/SessionsView';
 
@@ -25,7 +25,7 @@ describe('sectionFolds', () => {
   });
 
   it('persists only ambient sections, never urgent bays or day dividers', () => {
-    for (const id of ['orchestrators', 'pinned', 'pinnedGroups', 'working', 'snoozed', 'idle']) {
+    for (const id of ['orchestrators', 'pinned', 'working', 'snoozed', 'idle']) {
       expect(PERSISTED_SECTION_FOLDS.has(id)).toBe(true);
     }
     for (const id of ['needs', 'unread', 'listening', 'today', 'yesterday', 'week', 'older', 'archived']) {
@@ -80,17 +80,11 @@ describe('sectionFolds', () => {
     expect(withArchived.map((r) => r.key)).toEqual([needs.key, arch.key]);
   });
 
-  it('skips folded pinnedGroups and sections in grouped visibleSessionRows, with worktree headings as rows', () => {
-    const needs = item('needs', { status: 'needs' }, 'lane-a');
-    const work = item('work', { status: 'working' }, 'lane-b');
+  it('skips children of collapsed groups in visibleSessionRows while keeping worktree headings selectable', () => {
+    const work = item('work', { status: 'working' }, 'lane-a');
+    const needs = item('needs', { status: 'needs' }, 'lane-b');
     const sections = sessionSections([needs, work], 'status', NOW);
-    const groups = groupSessions(sections, 'worktree', {
-      pinned: ['lane-a'],
-      lanes: [needs.lane, work.lane],
-      empty: false,
-      opened: new Set(),
-      whole: false,
-    });
+    const groups = groupSessions(sections, 'worktree', { opened: new Set(), whole: false });
     const parts: SessionSectionParts = {
       orchestrators: [],
       listening: [],
@@ -101,13 +95,15 @@ describe('sectionFolds', () => {
       archived: [],
     };
 
-    expect(visibleSessionRows(parts, () => false).map((r) => r.key)).toEqual(['lane-a', needs.key, 'lane-b', work.key]);
-    expect(visibleSessionRows(parts, (id) => id === 'pinnedGroups').map((r) => r.key)).toEqual(['lane-b', work.key]);
-    expect(visibleSessionRows(parts, (id) => id === 'working').map((r) => r.key)).toEqual(['lane-a', needs.key]);
-    expect(activeSessionRows(parts).map((r) => r.key)).toEqual([needs.key, work.key]);
+    // Alphabetical default: lane-a before lane-b regardless of status.
+    expect(visibleSessionRows(parts, () => false).map((r) => r.key)).toEqual(['lane-a', work.key, 'lane-b', needs.key]);
+    // Collapsing lane-a keeps its worktree heading selectable and skips its child session.
+    expect(visibleSessionRows(parts, () => false, (g) => g.key === 'lane-a').map((r) => r.key)).toEqual(['lane-a', 'lane-b', needs.key]);
+    // activeSessionRows still keeps all active sessions regardless of collapsed groups.
+    expect(activeSessionRows(parts).map((r) => r.key)).toEqual([work.key, needs.key]);
   });
 
-  it('finds the section of any row, both flat and grouped', () => {
+  it('finds the section or group of any row, both flat and grouped', () => {
     const orch = item('orch', { orchestrator: { schedule: 's1' }, status: 'idle' });
     const pin = item('pin', { status: 'idle' });
     const needs = item('needs', { status: 'needs' }, 'lane-a');
@@ -131,17 +127,13 @@ describe('sectionFolds', () => {
     expect(sectionOfRow(arch.key, flat)).toBe('archived');
     expect(sectionOfRow('missing', flat)).toBeNull();
 
-    const groups = groupSessions(sections, 'worktree', {
-      pinned: ['lane-a'],
-      lanes: [needs.lane, work.lane],
-      empty: false,
-      opened: new Set(),
-      whole: false,
-    });
+    const groups = groupSessions(sections, 'worktree', { opened: new Set(), whole: false });
     const grouped: SessionSectionParts = { ...flat, groups };
-    expect(sectionOfRow(needs.key, grouped)).toBe('pinnedGroups');
-    expect(sectionOfRow('lane-a', grouped)).toBe('pinnedGroups');
-    expect(sectionOfRow(work.key, grouped)).toBe('working');
-    expect(sectionOfRow('lane-b', grouped)).toBe('working');
+    expect(sectionOfRow(needs.key, grouped)).toBeNull();
+    expect(sectionOfRow('lane-a', grouped)).toBeNull();
+    expect(groupOfRow(needs.key, groups)?.key).toBe('lane-a');
+    expect(groupOfRow('lane-a', groups)?.key).toBe('lane-a');
+    expect(groupOfRow(work.key, groups)?.key).toBe('lane-b');
+    expect(groupOfRow('missing', groups)).toBeNull();
   });
 });

@@ -256,8 +256,57 @@
     });
   };
 
+  var groups = function () {
+    localStorage.removeItem('codealong.groupOrder');
+    var rows = function () { return all('.ca-sessionlist .ca-grouphead.is-worktree-head'); };
+    var ids = function () { return rows().map(function (r) { return r.id.slice(4); }); };
+    var initial, moved;
+    return until(function () { return rows().length >= 3; }, 20000)
+      .then(function () {
+        check('every worktree heading can be dragged in order', rows().every(function (r) { return !!r.querySelector(':scope > .ca-grip') && r.hasAttribute('data-pin-index'); }));
+        // A press that barely moves is a click.
+        var row = rows()[1];
+        var m = mid(row);
+        pointer(row, 'pointerdown', m.x, m.y);
+        pointer(window, 'pointermove', m.x + 1, m.y + 1);
+        pointer(window, 'pointerup', m.x + 1, m.y + 1);
+        check('a press that barely moves drags nothing', calls('drag_to_desktop').length === 0 && !ghost());
+
+        // Drag the second worktree heading to the top of the list.
+        initial = ids();
+        moved = initial[1];
+        var top = rows()[0].getBoundingClientRect();
+        drag(row, [{ y: m.y - 20 }, { y: top.top + 4 }], true);
+        return wait(50).then(function () {
+          var d = last('drag_to_desktop');
+          check('a drag tells the engine what its card would be', calls('drag_to_desktop').length === 1 && d && d.pin.ref === 'worktree' && d.pin.key === moved, JSON.stringify(d));
+          check('the pointer holds the worktree name, with no Pin badge', !!ghost() && !/Pin/.test(ghost().textContent) && ghost().textContent.length > 0, ghost() && ghost().textContent);
+          check('a line shows where it lands', rows()[0].classList.contains('is-drop-before'));
+          check('the heading dims', row.classList.contains('is-drag-source'));
+          pointer(window, 'pointerup', m.x, top.top + 4);
+          return wait(80);
+        });
+      })
+      .then(function () {
+        check('dropped at the top, the heading moves first and order is saved', ids()[0] === moved && JSON.parse(localStorage.getItem('codealong.groupOrder') || '{}').worktree[0] === moved, ids().slice(0, 3).join(', '));
+        check('and the drag is over', !ghost() && !document.documentElement.classList.contains('ca-dragging'));
+        // Dragging outside the window hides the ghost and lets the engine take over.
+        var row = rows()[0];
+        mark();
+        drag(row, [{ y: mid(row).y + 10 }, { x: -40, y: mid(row).y }], true);
+        return wait(50).then(function () {
+          check('outside the window the pointer holds nothing here', !!ghost() && getComputedStyle(ghost()).display === 'none');
+          pointer(window, 'pointerup', -40, mid(row).y);
+          window.__emit('desktop-drag-end', { kept: true });
+          return wait(50);
+        }).then(function () {
+          check('the heading stays in the group list after pinning to the desktop', ids()[0] === moved);
+        });
+      });
+  };
+
   say('drag check: waiting for the ' + (view === 'worktrees' ? 'worktrees’ headings' : view + ' view'));
-  (view === 'todo' ? todos() : pins().then(prMenu))
+  (view === 'todo' ? todos() : view === 'worktrees' ? groups() : pins().then(prMenu))
     .then(done)
     .catch(stopped);
 })();

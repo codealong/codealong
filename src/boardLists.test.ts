@@ -819,68 +819,69 @@ describe('the Sessions view’s lists', () => {
 describe('Sessions grouped', () => {
   const at = (key: string, status: Session['status'], ago: number) => session(key, { status, lastActivity: NOW - ago, lastPromptAt: NOW - ago });
   const rowsOf = (lanes: Lane[]) => sessionItemsOf(lanes);
-  const opts = (over: Partial<GroupOptions<SessionItem>> = {}): GroupOptions<SessionItem> => ({ pinned: [], lanes: [], empty: true, opened: new Set(), whole: false, ...over });
-  const a = lane('/r/a', [at('claude:claude:a1', 'needs', 60_000), at('claude:claude:a2', 'idle', 120_000)]);
-  const b = lane('/r/b', [at('claude:claude:b1', 'working', 30_000), at('claude:claude:b2', 'idle', 180_000)]);
-  const c = lane('/r/c', [at('claude:claude:c1', 'idle', 240_000)]);
+  const opts = (over: Partial<GroupOptions<SessionItem>> = {}): GroupOptions<SessionItem> => ({ opened: new Set(), whole: false, ...over });
+  const a = lane('/r/a', [at('claude:claude:a1', 'idle', 60_000), at('claude:claude:a2', 'needs', 120_000)], { callsign: 'a' });
+  const b = lane('/r/b', [at('claude:claude:b1', 'working', 30_000), at('claude:claude:b2', 'idle', 180_000)], { callsign: 'b' });
+  const c = lane('/r/c', [at('claude:claude:c1', 'needs', 240_000)], { callsign: 'c' });
   const sections = sessionSections(rowsOf([a, b, c]), 'status', NOW);
 
-  it('lists each worktree once, under its first session’s heading, with all of its sessions', () => {
+  it('lists each worktree alphabetically with status ordering underneath each group', () => {
     const g = groupSessions(sections, 'worktree', opts());
-    expect(g.sections.map((s) => [s.id, s.groups.map((x) => [x.key, x.rows.map((r) => r.session.key)])])).toEqual([
-      ['needs', [['/r/a', ['claude:claude:a1', 'claude:claude:a2']]]],
-      ['working', [['/r/b', ['claude:claude:b1', 'claude:claude:b2']]]],
-      [sections[2].id, [['/r/c', ['claude:claude:c1']]]],
+    expect(g.groups.map((x) => [x.key, x.rows.map((r) => r.session.key)])).toEqual([
+      ['/r/a', ['claude:claude:a2', 'claude:claude:a1']],
+      ['/r/b', ['claude:claude:b1', 'claude:claude:b2']],
+      ['/r/c', ['claude:claude:c1']],
     ]);
-    // A heading counts its own sessions, not the ones its groups bring along.
-    expect(g.sections.map((s) => s.count)).toEqual([1, 1, 1]);
     // Each worktree's heading is a row, before its sessions, as the keyboard goes.
-    expect(groupsOf(g).flatMap(groupHeadRows).map((r) => r.key)).toEqual(['/r/a', '/r/a::claude:claude:a1', '/r/a::claude:claude:a2', '/r/b', '/r/b::claude:claude:b1', '/r/b::claude:claude:b2', '/r/c', '/r/c::claude:claude:c1']);
+    expect(groupsOf(g).flatMap(groupHeadRows).map((r) => r.key)).toEqual(['/r/a', '/r/a::claude:claude:a2', '/r/a::claude:claude:a1', '/r/b', '/r/b::claude:claude:b1', '/r/b::claude:claude:b2', '/r/c', '/r/c::claude:claude:c1']);
   });
 
-  it('puts pinned groups first in your order, and a pinned one with nothing listed only while nothing narrows the list', () => {
-    const z = lane('/r/z');
-    const g = groupSessions(sections, 'worktree', opts({ pinned: ['/r/c', '/r/z', '/r/gone'], lanes: [a, b, c, z] }));
-    expect(g.pinned.map((x) => [x.key, x.rows.length])).toEqual([
-      ['/r/c', 1],
-      ['/r/z', 0],
-    ]);
-    expect(g.sections.flatMap((s) => s.groups.map((x) => x.key))).toEqual(['/r/a', '/r/b']);
-    const narrowed = groupSessions(sections, 'worktree', opts({ pinned: ['/r/c', '/r/z'], lanes: [a, b, c, z], empty: false }));
-    expect(narrowed.pinned.map((x) => x.key)).toEqual(['/r/c']);
+  it('orders groups by custom order first, then alphabetically for remaining groups', () => {
+    const g = groupSessions(sections, 'worktree', opts({ order: ['/r/c', '/r/gone'] }));
+    expect(g.groups.map((x) => x.key)).toEqual(['/r/c', '/r/a', '/r/b']);
   });
 
   it('folds a group’s sessions after the first few, but never the ones that wait on you or work', () => {
     const many = lane('/r/many', Array.from({ length: GROUP_SHOWN + 2 }, (_, i) => at(`claude:claude:m${i}`, 'idle', (i + 1) * 60_000)));
     const secs = sessionSections(rowsOf([many]), 'status', NOW);
-    const [folded] = groupSessions(secs, 'worktree', opts()).sections.flatMap((s) => s.groups);
+    const [folded] = groupSessions(secs, 'worktree', opts()).groups;
     expect([folded.rows.length, folded.folded, folded.opened]).toEqual([GROUP_SHOWN, 2, false]);
-    const [opened] = groupSessions(secs, 'worktree', opts({ opened: new Set(['/r/many']) })).sections.flatMap((s) => s.groups);
+    const [opened] = groupSessions(secs, 'worktree', opts({ opened: new Set(['worktree//r/many']) })).groups;
     expect([opened.rows.length, opened.folded, opened.opened]).toEqual([GROUP_SHOWN + 2, 0, true]);
     // A search lists them all, with nothing to fold again.
-    const [found] = groupSessions(secs, 'worktree', opts({ whole: true })).sections.flatMap((s) => s.groups);
+    const [found] = groupSessions(secs, 'worktree', opts({ whole: true })).groups;
     expect([found.rows.length, found.folded, found.opened]).toEqual([GROUP_SHOWN + 2, 0, false]);
     const busy = lane('/r/busy', Array.from({ length: GROUP_SHOWN + 1 }, (_, i) => at(`claude:claude:w${i}`, 'working', (i + 1) * 60_000)).concat(at('claude:claude:idle', 'idle', DAY / 2)));
-    const [kept] = groupSessions(sessionSections(rowsOf([busy]), 'status', NOW), 'worktree', opts()).sections.flatMap((s) => s.groups);
+    const [kept] = groupSessions(sessionSections(rowsOf([busy]), 'status', NOW), 'worktree', opts()).groups;
     expect([kept.rows.length, kept.folded]).toEqual([GROUP_SHOWN + 1, 1]);
     // By start, one that needs you can come after five idle ones: it stays, where it falls.
     const started = (key: string, status: Session['status'], ago: number) => ({ ...at(key, status, 60_000), startedAt: NOW - ago });
     const late = lane('/r/late', [...Array.from({ length: GROUP_SHOWN + 1 }, (_, i) => started(`claude:claude:n${i}`, 'idle', (i + 1) * 60_000)), started('claude:claude:asks', 'needs', DAY / 2)]);
-    const [byStart] = groupSessions(sessionSections(rowsOf([late]), 'started', NOW), 'worktree', opts()).sections.flatMap((s) => s.groups);
+    const [byStart] = groupSessions(sessionSections(rowsOf([late]), 'started', NOW), 'worktree', opts()).groups;
     expect(byStart.rows.map((r) => r.session.key).slice(GROUP_SHOWN)).toEqual(['claude:claude:asks']);
     expect(byStart.folded).toBe(1);
   });
 
-  it('groups by repo, by its slug or else its project and name, with no heading among the rows', () => {
+  it('groups by repo alphabetically, with no heading among the rows', () => {
     const web = lane('/r/web', [at('claude:claude:w', 'idle', 60_000)], { repo: 'web', repoSlug: 'acme/web' });
     const web2 = lane('/r/web-2', [at('claude:claude:w2', 'needs', 120_000)], { repo: 'web', repoSlug: 'acme/web' });
     const local = lane('/r/local', [at('claude:claude:l', 'idle', 180_000)], { repo: 'scratch', repoSlug: null });
     const g = groupSessions(sessionSections(rowsOf([web, web2, local]), 'status', NOW), 'repo', opts());
-    expect(g.sections.flatMap((s) => s.groups.map((x) => [x.key, x.rows.map((r) => r.session.key)]))).toEqual([
-      ['acme/web', ['claude:claude:w2', 'claude:claude:w']],
+    expect(g.groups.map((x) => [x.key, x.rows.map((r) => r.session.key)])).toEqual([
       ['Acme/scratch', ['claude:claude:l']],
+      ['acme/web', ['claude:claude:w2', 'claude:claude:w']],
     ]);
     expect(groupsOf(g).flatMap(groupHeadRows).every((r) => r.kind === 'agent')).toBe(true);
+  });
+
+  it('groups by project alphabetically, keeping status order underneath each project', () => {
+    const north = lane('/r/north', [at('claude:claude:n1', 'idle', 60_000), at('claude:claude:n2', 'needs', 120_000)], { project: 'Northwind' });
+    const atlas = lane('/r/atlas', [at('claude:claude:a1', 'working', 30_000)], { project: 'Atlas' });
+    const g = groupSessions(sessionSections(rowsOf([north, atlas]), 'status', NOW), 'project', opts());
+    expect(g.groups.map((x) => [x.key, x.project, x.rows.map((r) => r.session.key)])).toEqual([
+      ['Atlas', 'Atlas', ['claude:claude:a1']],
+      ['Northwind', 'Northwind', ['claude:claude:n2', 'claude:claude:n1']],
+    ]);
   });
 
   it('keeps a helper under its session, in the session’s group, whatever worktree it works in', () => {
@@ -890,7 +891,7 @@ describe('Sessions grouped', () => {
     const away = lane('/r/away', [help]);
     const secs = sessionSections(placeHelpers(rowsOf([home, away]), false), 'status', NOW);
     const g = groupSessions(secs, 'worktree', opts());
-    expect(g.sections.flatMap((s) => s.groups.map((x) => [x.key, x.rows.map((r) => [r.session.key, !!r.nested])]))).toEqual([
+    expect(g.groups.map((x) => [x.key, x.rows.map((r) => [r.session.key, !!r.nested])])).toEqual([
       ['/r/home', [['claude:claude:boss', false], ['claude:claude:help', true]]],
     ]);
   });

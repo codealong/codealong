@@ -57,6 +57,21 @@
 .ca-bay-hint .ca-kbd {
   height: 16px;
 }
+/* Reorder hints on section headers stay out of sight at rest and fade in when the header is
+   hovered or focused (primitives.tsx `ReorderHint`). */
+.ca-bay-hint:has(.is-hover-hint) {
+  opacity: 0;
+  transition: opacity var(--dur-fast) ease-out;
+}
+.ca-bay:hover .ca-bay-hint:has(.is-hover-hint),
+.ca-bay:focus-within .ca-bay-hint:has(.is-hover-hint) {
+  opacity: 1;
+}
+@media (prefers-reduced-motion: reduce) {
+  .ca-bay-hint:has(.is-hover-hint) {
+    transition: none;
+  }
+}
 
 /* A row's second line: its lane (the lead), then what always shows at the right (a session's PR
    and diff, a todo's worktrees and PR, a PR's diff). Short of room, the lead's pieces give way

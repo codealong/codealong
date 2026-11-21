@@ -47,8 +47,6 @@ function has(over: Partial<SchedulesViewInput> = {}): SchedulesViewInput {
     selectedLane: null,
     scheduleSort: 'next',
     scheduleGroup: 'none',
-    repoPins: { keys: [] },
-    lanePins: { keys: [] },
     openScheduleGroups: new Set(),
     report: { error: (m) => void did.push(`error: ${m}`), info: (m) => void did.push(`info: ${m}`) },
     setToast: (m) => void did.push(`say “${m}”`),
@@ -85,13 +83,13 @@ describe('what the Schedules view lists and selects', () => {
   it('lists them as the View menu says, sorted and grouped, and selects the first as it lists them', async () => {
     const listed = (w: View) => {
       const { sections, grouped } = w.current.scheduleListed;
-      return grouped ? [...grouped.pinned, ...grouped.sections.flatMap((s) => s.groups)].map((g) => `${g.lane?.callsign ?? 'none'}: ${g.rows.map((x) => x.id).join(', ')}`) : sections.flatMap((s) => s.rows.map((x) => x.id));
+      return grouped ? [...grouped.groups, ...grouped.apart.flatMap((s) => s.groups)].map((g) => `${g.lane?.callsign ?? 'none'}: ${g.rows.map((x) => x.id).join(', ')}`) : sections.flatMap((s) => s.rows.map((x) => x.id));
     };
     const w = await mount({ current: 'All projects', scheduleSort: 'name' });
     expect(listed(w)).toEqual(['Deploys', 'Digest', 'Triage']);
     expect(w.current.selectedSchedule?.id).toBe('Deploys');
-    // Grouped by worktree, a pinned worktree's first: the first it lists is that group's.
-    w.rerender(has({ current: 'All projects', scheduleSort: 'name', scheduleGroup: 'worktree', lanePins: { keys: [app.id] } }));
+    // Grouped by worktree with custom order: the first listed is that group's.
+    w.rerender(has({ current: 'All projects', scheduleSort: 'name', scheduleGroup: 'worktree', groupOrder: [app.id] }));
     expect(listed(w)).toEqual(['app: Digest, Triage', 'site: Deploys']);
     expect(w.current.selectedSchedule?.id).toBe('Digest');
     // One picked stays the one selected, wherever the list has it.

@@ -11,7 +11,7 @@ function item(over: Partial<ScheduleItem>): ScheduleItem {
   return { ...blankSchedule('/Users/me/projects/northwind-app'), id: 's-1', name: 'Triage', whenWords: 'Weekdays at 9:00', runs: [], asked: 0, ...over };
 }
 
-const UNGROUPED: ScheduleGrouping = { by: 'none', lanes: [], pinned: [], opened: new Set(), whole: false };
+const UNGROUPED: ScheduleGrouping = { by: 'none', lanes: [], opened: new Set(), whole: false };
 /** The view's first schedule, listed in that order with no groups. */
 const firstOf = (items: ScheduleItem[], sort: ScheduleSort = 'next') => firstSchedule(scheduleListing(items, sort, UNGROUPED))?.id;
 
@@ -179,7 +179,7 @@ describe('schedules', () => {
     expect(scheduleLane(blankSchedule('/w/gone'), lanes)).toBeNull();
   });
 
-  it('groups them under the worktree or repo each runs in, the pinned ones first', () => {
+  it('groups them under project, repo or worktree, alphabetically by default or in custom order', () => {
     const at = (id: string, folder: string, over: Partial<ScheduleItem> = {}) => item({ ...blankSchedule(folder), id, name: id, whenWords: '', runs: [], asked: 0, ...over });
     const xs = [
       at('s-atlas', '/w/atlas', { nextAt: NOW + HOUR }),
@@ -189,23 +189,28 @@ describe('schedules', () => {
       at('s-once', '/w/atlas', { once: true, nextAt: NOW + 5 * HOUR }),
       at('s-done', '/w/atlas', { finished: 100 }),
     ];
-    const grouping = (by: ScheduleGrouping['by'], pinned: string[] = []): ScheduleGrouping => ({ by, lanes, pinned, opened: new Set(), whole: false });
-    const heads = (l: ReturnType<typeof scheduleListing>) => l.grouped?.sections.map((s) => `${s.id}: ${s.groups.map((g) => `${g.key || 'none'} ${g.rows.map((x) => x.id).join(' ')}`).join(', ')}`);
+    const grouping = (by: ScheduleGrouping['by'], order?: string[]): ScheduleGrouping => ({ by, lanes, order, opened: new Set(), whole: false });
+    const fmt = (gs: { key: string; rows: ScheduleItem[] }[]) => gs.map((g) => `${g.key || 'none'} ${g.rows.map((x) => x.id).join(' ')}`).join(', ');
     expect(scheduleListing(xs, 'next', UNGROUPED).grouped).toBeNull();
-    // Each worktree once, in the order of its first; the one in none last; the one-offs and the
-    // finished grouped among themselves.
-    expect(heads(scheduleListing(xs, 'next', grouping('worktree')))).toEqual(['active: /w/atlas s-atlas, /w/brave-otter s-otter, /w/app s-app, none s-chat', 'oneOff: /w/atlas s-once', 'finished: /w/atlas s-done']);
+    // Each worktree alphabetically: otter ('app') before atlas ('main', Atlas) before main ('main', Northwind),
+    // none last; one-offs and finished apart.
+    const byWt = scheduleListing(xs, 'next', grouping('worktree')).grouped!;
+    expect(fmt(byWt.groups)).toBe('/w/brave-otter s-otter, /w/atlas s-atlas, /w/app s-app, none s-chat');
+    expect(byWt.apart.map((s) => `${s.id}: ${fmt(s.groups)}`)).toEqual(['oneOff: /w/atlas s-once', 'finished: /w/atlas s-done']);
+    // By project: Atlas before Northwind, chat last under none.
+    const byProject = scheduleListing(xs, 'next', grouping('project')).grouped!;
+    expect(fmt(byProject.groups)).toBe('Atlas s-atlas, Northwind s-otter s-app, none s-chat');
     // By repo, the worktrees of one repo are one group (the fixtures' are all acme/app's).
     const byRepo = scheduleListing(xs, 'next', grouping('repo'));
-    expect(byRepo.grouped?.sections[0].groups.map((g) => g.rows.map((x) => x.id).join(' '))).toEqual(['s-atlas s-otter s-app', 's-chat']);
-    // A pinned worktree leads, and the view's first schedule is its first.
-    const pinned = scheduleListing(xs, 'next', grouping('worktree', ['/w/app']));
-    expect(pinned.grouped?.pinned.map((g) => g.rows.map((x) => x.id).join(' '))).toEqual(['s-app']);
-    expect(firstSchedule(pinned)?.id).toBe('s-app');
+    expect(byRepo.grouped?.groups.map((g) => g.rows.map((x) => x.id).join(' '))).toEqual(['s-atlas s-otter s-app', 's-chat']);
+    // Custom order leads, and the view's first schedule is its first.
+    const ordered = scheduleListing(xs, 'next', grouping('worktree', ['/w/app']));
+    expect(ordered.grouped?.groups.map((g) => g.key)).toEqual(['/w/app', '/w/brave-otter', '/w/atlas', '']);
+    expect(firstSchedule(ordered)?.id).toBe('s-app');
     // A group lists five and folds the rest, but never one with a session at work under it.
     const many = Array.from({ length: 7 }, (_, i) => at(`s-${i}`, '/w/atlas', { nextAt: NOW + i * HOUR }));
     const folded = scheduleListing(many, 'next', { ...grouping('worktree'), awake: (x) => x.id === 's-6' });
-    const g = folded.grouped?.sections[0].groups[0];
+    const g = folded.grouped?.groups[0];
     expect(g?.rows.map((x) => x.id)).toEqual(['s-0', 's-1', 's-2', 's-3', 's-4', 's-6']);
     expect(g?.folded).toBe(1);
   });

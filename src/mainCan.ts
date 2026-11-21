@@ -5,13 +5,14 @@
 // a todo, pin it, add it to a board, undo an archive, follow a session it moves to its copy).
 
 import type { Dispatch, SetStateAction } from 'react';
-import type { ListRow } from './boardLists';
+import type { HelperCount, ListRow, RunCount, SideCount } from './boardLists';
 import type { RefKind } from './canvas/model';
 import type { MenuSpec } from './contextMenu';
 import type { View } from './mainViews';
 import * as menus from './menus';
 import type { Pins } from './pins';
 import { errorText, type Report } from './report';
+import { relatedMenuItems } from './rowSignal';
 import { ownTerminalFor } from './terminals';
 import type { Board, Label, Lane, Session } from './types';
 import { runFolder } from './ui/RunButton';
@@ -54,6 +55,12 @@ export interface MainHas {
   setMoving: Dispatch<SetStateAction<{ from: SessionItem; to: string | null } | null>>;
   /** Add to board › for one thing. */
   boardItems: (ref: RefKind, keys: string[]) => MenuSpec;
+  /** Counts and toggle state for finished helpers, headless runs and side conversations in Sessions. */
+  helpersOf?: (sessionKey: string) => HelperCount | undefined;
+  runsOf?: (sessionKey: string) => RunCount | undefined;
+  sidesOf?: (sessionKey: string) => SideCount | undefined;
+  helpersShown?: ReadonlySet<string>;
+  toggleHelpers?: (shownKey: string) => void;
   todoStore: { labels: Label[] };
   /** The worktree whose preview URL is being set, Settings at a section, and Clean up worktree…. */
   setPreviewFor: (id: string) => void;
@@ -109,6 +116,15 @@ export function sessionCanOf(has: MainHas, lane: Lane, s: Session, pin: 'session
       void copy.then((to) => has.setMoving((m) => (m?.from !== from ? m : to ? { from, to } : null)));
     },
     boards: has.boardItems('session', [s.key]),
+    related:
+      view === 'sessions' && has.toggleHelpers && has.helpersShown
+        ? relatedMenuItems(
+            s.key,
+            { helpers: has.helpersOf?.(s.key), runs: has.runsOf?.(s.key), sides: has.sidesOf?.(s.key) },
+            has.helpersShown,
+            has.toggleHelpers,
+          )
+        : [],
     labels: has.todoStore.labels,
   } satisfies menus.CanIn<'main'>;
 }

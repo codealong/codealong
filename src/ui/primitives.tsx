@@ -28,7 +28,8 @@ import { MARK_PATHS, MARK_VIEW_BOX } from './brand';
 import type { DragProps } from './useRowDrag';
 import { useFocusTrap } from './focusTrap';
 import { useEscape } from './useDismiss';
-import { ProjectPrefix, useProjectSaid } from './ProjectSaid';
+import { ProjectIcon, ProjectPrefix, ProjectShown, useProjectAvatar } from './ProjectSaid';
+import { repoChipParts, worktreeChipParts } from '../rowSignal';
 import { capsSaid, contextPress, typed } from '../platform';
 
 export const cx = (...parts: (string | false | null | undefined)[]) => parts.filter(Boolean).join(' ');
@@ -822,21 +823,16 @@ export function AccountLabel({ session, small = false }: { session: Session; sma
   );
 }
 
-/** A worktree as a chip, wherever a row names one: its name, after its repo when it has a name of
- *  its own (the main worktree is its repo, then `main`), after its project where the window lists
- *  another or all of them (ProjectSaid.tsx), and after its device, in that device's color, when
- *  it's on another of yours. `short` leaves it at the one name that tells it apart, and its
- *  project, and a lane short of room does the same (see .ca-wtchip-more). A panel that lists it
- *  (PanelSession.tsx `PanelPlaces`) shows it on a click and gives its menu on a right-click, and
- *  adds what it says of it on hover (`note`: how it stands against the PR, say). */
-export function WorktreeChip({ lane, short = false, note, onShow, onMenu }: { lane: Lane; short?: boolean; note?: string | null; onShow?: () => void; onMenu?: () => void }) {
+/** A worktree as a chip, wherever a row names one: its project/repo for disposable worktrees, or
+ *  its own name for reusable slots and panels that inspect a specific worktree (`alwaysName`),
+ *  with `/ main` on two lines for main checkouts. When a project's org icon is shown, it replaces
+ *  the generic folder icon. */
+export function WorktreeChip({ lane, short = false, note, alwaysName = false, onShow, onMenu }: { lane: Lane; short?: boolean; note?: string | null; alwaysName?: boolean; onShow?: () => void; onMenu?: () => void }) {
   const branch = branchLabel(lane);
-  const main = lane.origin === 'main';
-  const own = !main && lane.callsign !== lane.repo;
-  // A repo with its project's name is said once, as the project, which stays where a narrow
-  // board drops the repo.
-  const project = useProjectSaid(lane.project, [own ? lane.callsign : lane.repo]);
-  const repoIsProject = project?.toLowerCase() === lane.repo.toLowerCase();
+  const shown = useContext(ProjectShown);
+  const avatar = useProjectAvatar(lane.project);
+  const p = worktreeChipParts(lane, shown, { short, alwaysName });
+  const icon = <Icon name={p.fallbackIcon} size={12} />;
   return (
     <Chip
       className="ca-wtchip"
@@ -845,30 +841,35 @@ export function WorktreeChip({ lane, short = false, note, onShow, onMenu }: { la
       act={onShow}
       onMenu={onMenu}
     >
-      <Icon name="folder" size={12} />
+      {!avatar && icon}
       {lane.device && (
         <span className="ca-wtchip-device">
           <i className={`ca-labeldot is-${lane.device.color}`} aria-hidden="true" />
           {deviceLabel(lane.device.name)}
         </span>
       )}
-      <ProjectPrefix project={lane.project} beside={[own ? lane.callsign : lane.repo]} />
-      {own && !short && !repoIsProject && <span className="ca-wtchip-more">{lane.repo} /</span>}
-      <span className="ca-wtchip-name">{main ? lane.repo : lane.callsign}</span>
-      {main && !short && <span className="ca-wtchip-more">/ main</span>}
+      {avatar && <ProjectIcon src={avatar} size={12} fallback={icon} />}
+      <ProjectPrefix project={lane.project} beside={p.beside} withIcon={false} />
+      {p.repoPrefix && <span className="ca-wtchip-more">{p.repoPrefix} /</span>}
+      <span className="ca-wtchip-name">{p.name}</span>
+      {p.mainSuffix && <span className="ca-wtchip-more">/ main</span>}
     </Chip>
   );
 }
 
 /** A PR's repo on its row, an outline chip as a place's is, named as GitHub names it, after its
- *  project where the window lists another or all of them. On a list's row a double-click shows
- *  only that repo's PRs (`onShowOnly`), as a label's chip does its todos. */
+ *  project where the window lists another or all of them. When a project's org icon is shown, it
+ *  replaces the book icon. */
 export function RepoChip({ repo, slug, project, onShowOnly }: { repo: string; slug: string; project?: string; onShowOnly?: () => void }) {
+  const shown = useContext(ProjectShown);
+  const avatar = useProjectAvatar(project);
+  const p = repoChipParts(repo, project, shown);
+  const icon = <Icon name="book" size={12} />;
   return (
     <Chip className="ca-repochip" title={slug} does={`show only ${repo}’s PRs`} act={onShowOnly} inRow>
-      <Icon name="book" size={12} />
-      <ProjectPrefix project={project} beside={[repo]} />
-      <span className="ca-repochip-name">{repo}</span>
+      {avatar ? <ProjectIcon src={avatar} size={12} fallback={icon} /> : icon}
+      <ProjectPrefix project={project} beside={[repo]} withIcon={false} />
+      <span className="ca-repochip-name">{p.name}</span>
     </Chip>
   );
 }
@@ -920,6 +921,8 @@ interface RowProps {
   drag?: DragProps;
   /** A press with the main button selects it; the event says which keys were held. */
   onSelect?: (e: ReactMouseEvent) => void;
+  /** A click on the row (e.g. collapsing a non-selectable group header). */
+  onClick?: (e: ReactMouseEvent) => void;
   /** A double-click opens it. */
   onOpen?: (e: ReactMouseEvent) => void;
   /** A right-click (or ⌃-click) opens its menu and doesn't select it: the menu is for the row
@@ -930,7 +933,7 @@ interface RowProps {
 
 /** A list's row: every list's rows are this, so a press, a double-click, a right-click and a
  *  drag mean the same in each. What's in the row, and its classes, are the list's own. */
-export function Row({ id, role = 'option', level, label, selected = false, className, drag, onSelect, onOpen, onMenu, children }: RowProps) {
+export function Row({ id, role = 'option', level, label, selected = false, className, drag, onSelect, onClick, onOpen, onMenu, children }: RowProps) {
   return (
     <div
       id={id}
@@ -943,6 +946,7 @@ export function Row({ id, role = 'option', level, label, selected = false, class
       data-pin-index={drag?.pinIndex}
       onPointerDown={drag?.onPointerDown}
       onMouseDown={onSelect && ((e) => selects(e) && onSelect(e))}
+      onClick={onClick}
       onDoubleClick={onOpen}
       onContextMenu={rowMenu(onMenu)}
     >
@@ -1124,11 +1128,11 @@ export function SectionHeader({ icon, label, count, hint, folded, onToggle }: { 
 }
 
 /** A section header's hint for rows in your order (Pinned, a todo section): each chord on one
- *  cap, as the hotkey strip says its keys. It shows where keys do (keysShown.ts): dragging is
- *  what anyone tries. */
-export function ReorderHint() {
+ *  cap, as the hotkey strip says its keys. With `hover`, it stays hidden until the section's
+ *  header is hovered or focused (rows.css). */
+export function ReorderHint({ hover = false }: { hover?: boolean }) {
   return (
-    <span className="ca-keyhint">
+    <span className={cx('ca-keyhint', hover && 'is-hover-hint')}>
       Drag or <Kbd keys={['⌃⌘↑']} /> <Kbd keys={['⌃⌘↓']} /> to reorder
     </span>
   );

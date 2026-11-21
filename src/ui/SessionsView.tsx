@@ -25,14 +25,14 @@
 
 import { Fragment, type ReactNode } from 'react';
 import { byDay, newestFirst } from '../days';
-import { groupOptions, groupRows, groupsOf, placeIn, type Grouped, type GroupOptions, type ListGroup, type ListGroupBy, type PlaceBy } from '../groups';
+import { groupOptions, groupRows, groupsOf, noneLabel, placeIn, type Grouped, type GroupOptions, type ListGroup, type ListGroupBy, type PlaceBy } from '../groups';
 import { bySession, byStatusTime, foldsOf, heldBack, listedStatus, listedUnder, runsShownKey, sidesListed, sidesShownKey, snoozedApart, startedOf, waitingSince, waitsFinished, workingFor, type Fold, type LaneItem, type Placed } from '../lanes';
 import type { SelectHow } from '../picks';
 import type { HelperCount, RunCount, SideCount } from '../boardLists';
 import type { SaidLine } from '../quick';
 import type { Bay, DesktopPinned, Label, Lane, Session, SideGlance, Status, Todo } from '../types';
 import type { HelperActions } from './HelpersCard';
-import { GroupBlock, PinnedGroups, useGroupDrag, type GroupActs } from './Groups';
+import { GroupBlock, useGroupDrag, type GroupActs } from './Groups';
 import { AgentRow, FoldRow, SideRow } from './LaneRow';
 import { PinnedSection } from './PinnedSection';
 import { byWords, ListTools, rowsOptions, rowsSetting, ViewMenu, viewSetting, type RowLines } from './ListBar';
@@ -428,7 +428,7 @@ export function SessionsView(props: SessionsViewProps) {
 
   /** A session's row: `index` is its place among the pinned ones; the archived aren't dragged.
    *  In a worktree's group it leaves out what the heading says: the worktree, its PR and diff. */
-  const row = (r: SessionItem, index: number | null, held?: DragProps, inWorktree = false) => (
+  const row = (r: SessionItem, index: number | null, held?: DragProps, inWorktree = false, inRepo = false) => (
     <AgentRow
       key={r.key}
       lane={r.lane}
@@ -460,6 +460,7 @@ export function SessionsView(props: SessionsViewProps) {
       nested={r.nested}
       elsewhere={r.elsewhere}
       inWorktree={inWorktree}
+      inRepo={inRepo}
       onShowTodo={onShowTodo}
       onFilterLabel={onFilterLabel}
       said={saidOf?.(r.session.key)}
@@ -483,15 +484,15 @@ export function SessionsView(props: SessionsViewProps) {
   const fold = (f: Fold) => (f.kind === 'helpers' ? onToggleHelpers : f.kind === 'runs' ? onToggleRuns : onToggleSides)?.(f.key);
   /** A session's row, its side conversations, the rows nested under it each with theirs, and the
    *  way back from what's listed in full under any of them. `held` is how each row is dragged. */
-  const family = (head: SessionItem, kids: SessionItem[], index: number | null, held: (r: SessionItem, index: number | null) => DragProps | undefined, inWorktree = false) => {
+  const family = (head: SessionItem, kids: SessionItem[], index: number | null, held: (r: SessionItem, index: number | null) => DragProps | undefined, inWorktree = false, inRepo = false) => {
     const folds = foldsOf([head, ...kids].map((r) => r.session), shown, { helpers: (k) => helpersOf?.(k), runs: (k) => runsOf?.(k), sides: (k) => sidesOf?.(k) });
     return (
       <Fragment key={head.key}>
-        {row(head, index, held(head, index), inWorktree)}
+        {row(head, index, held(head, index), inWorktree, inRepo)}
         {sideRows(head)}
         {kids.map((k) => (
           <Fragment key={k.key}>
-            {row(k, null, held(k, null), inWorktree)}
+            {row(k, null, held(k, null), inWorktree, inRepo)}
             {sideRows(k)}
           </Fragment>
         ))}
@@ -514,14 +515,25 @@ export function SessionsView(props: SessionsViewProps) {
     );
   };
 
-  /** A group: its heading, a row of its own for a worktree, its sessions, and the way to the ones
-   *  folded away. `index` is its place among the pinned groups. */
+  /** A group: its collapsible heading, a row of its own for a worktree, its sessions, and the
+   *  way to the ones folded away. `index` is its place among the reorderable groups. */
   const group = (g: SessionGroup, index: number | null, acts: GroupActs, count: number) => (
-    <GroupBlock key={`group:${g.key}`} g={g} acts={acts} now={now} rows domId={g.lane ? domId({ key: g.lane.id }) : undefined} selected={!!g.lane && selectedKey === g.lane.id} pinned={index != null} drag={groupDrag.rowProps(g.key, index, count)} none="">
-      {familiesOf(g.rows).map(({ head, kids }) => family(head, kids, null, listedRow, !!g.lane))}
+    <GroupBlock
+      key={`group:${g.key}`}
+      g={g}
+      acts={acts}
+      now={now}
+      rows
+      domId={g.lane ? domId({ key: g.lane.id }) : undefined}
+      selected={!!g.lane && selectedKey === g.lane.id}
+      drag={g.key ? groupDrag.rowProps(g.key, index, count) : undefined}
+      none={noneLabel(g.by, 'No worktree')}
+    >
+      {familiesOf(g.rows).map(({ head, kids }) => family(head, kids, null, listedRow, !!g.lane, !g.lane && !!g.repo))}
     </GroupBlock>
   );
-  const listedCount = pinned.length + (groups ? groups.pinned.length + groups.sections.length : sections.length);
+  const reorderCount = groups ? groups.groups.filter((g) => g.key !== '').length : 0;
+  const listedCount = pinned.length + (groups ? groups.groups.length : sections.length);
   return (
     <>
       {orchestrators.length > 0 && (
@@ -557,24 +569,7 @@ export function SessionsView(props: SessionsViewProps) {
             />
           )}
           {groups && groupActs ? (
-            <>
-              {/* The first pinned group lands after the pinned sessions. */}
-              {groups.pinned.length === 0 && groupDrag.dropIndex === 0 && <div className="ca-dropline" />}
-              {groups.pinned.length > 0 && (
-                <PinnedGroups by={groups.by} count={groups.pinned.length} reorder folded={isFolded('pinnedGroups')} onToggle={toggleSection('pinnedGroups')}>
-                  {groups.pinned.map((g, i) => group(g, i, groupActs, groups.pinned.length))}
-                </PinnedGroups>
-              )}
-              {groups.sections.map((s) => {
-                const f = isFolded(s.id);
-                return (
-                  <section key={s.id} className="ca-bayblock">
-                    {s.bay ? <BayHeader bay={s.bay} count={s.count} action={f ? undefined : pickFinished(s.bay, s.groups.flatMap((g) => g.rows))} folded={f} onToggle={toggleSection(s.id)} /> : <SectionHeader icon={s.icon} label={s.label} count={s.count} folded={f} onToggle={toggleSection(s.id)} />}
-                    {!f && <div className="ca-bay-lanes">{s.groups.map((g) => group(g, null, groupActs, groups.pinned.length))}</div>}
-                  </section>
-                );
-              })}
-            </>
+            groups.groups.map((g, i) => group(g, g.key ? i : null, groupActs, reorderCount))
           ) : (
             sections.map((s) => {
               const f = isFolded(s.id);

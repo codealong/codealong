@@ -1,30 +1,35 @@
-// A list grouped by worktree or by repo: Group by, over Sessions, PRs, Todo and Schedules. Each
-// group heads its rows once, under the heading of its first row, with all of its rows after it in
-// the list's order, so a heading counts only the rows under it for themselves. The sections a list
-// folds away (Done, Merged & closed) group among themselves, and rows with no worktree or repo go
-// under a heading of their own at the end of each section, rather than pulling every such row into
-// one group under the first one's heading. Pinned groups (the worktrees and repos pinned, the same
-// in every list) come first. A group lists `GROUP_SHOWN` rows and folds the rest until it's opened,
-// but never one that waits on you. Pure, with tests (groups.test.ts); each list says how its rows
-// group (`units`), where each goes (`placeOf`) and which never fold (`awake`).
+// A list grouped by project, repo or worktree: Group by, over Sessions, PRs, Todo and Schedules.
+// Non-apart sections merge into one unified list of groups so sorting orders rows underneath each
+// group without reordering the groups themselves. Groups default to alphabetical order, remember
+// user-dragged custom order per grouping kind (`order`), and put rows with no group last. Folded
+// bottom sections (Done, Merged & closed, One-off, Finished) group among themselves in the same
+// order. A group lists `GROUP_SHOWN` rows and folds the rest until it's opened, never hiding one
+// that waits on you. Pure, with tests (groups.test.ts).
 
 import { repoOf } from './boards/rules';
+import { worktreeName } from './lanes';
 import type { Lane } from './types';
 
 /** Whether a list is grouped, and by what. */
-export type ListGroupBy = 'none' | 'worktree' | 'repo';
-/** A group of a worktree's rows or of a repo's. */
+export type ListGroupBy = 'none' | 'project' | 'repo' | 'worktree';
+/** A group of a project's, a repo's or a worktree's rows. */
 export type PlaceBy = Exclude<ListGroupBy, 'none'>;
-/** What a grouped list's groups are: worktrees or repos. */
+/** What a grouped list's groups are: projects, repos or worktrees. */
 export type GroupBy = PlaceBy;
 
 /** Group by's buttons, each tooltip saying what the list puts under a heading (`sessions`). */
 export function groupOptions(what: string): { id: ListGroupBy; label: string; icon: string; title: string }[] {
   return [
     { id: 'none', label: 'No groups', icon: 'layout-rows', title: `No groups: one list of ${what}` },
-    { id: 'worktree', label: 'Worktree', icon: 'folder', title: `Group by worktree: each worktree once, saying its branch and PR, its app, whether new work can start there and where it stands against the default branch, with its ${what} under it` },
+    { id: 'project', label: 'Project', icon: 'stack', title: `Group by project: each project once, with its ${what} under it` },
     { id: 'repo', label: 'Repo', icon: 'book', title: `Group by repo: each repo once, with its ${what} under it` },
+    { id: 'worktree', label: 'Worktree', icon: 'folder', title: `Group by worktree: each worktree once, saying its branch and PR, its app, whether new work can start there and where it stands against the default branch, with its ${what} under it` },
   ];
+}
+
+/** What the heading over rows in no group says for `by`. */
+export function noneLabel(by: GroupBy, worktreeNone: string): string {
+  return by === 'project' ? 'No project' : by === 'repo' ? 'No repo' : worktreeNone;
 }
 
 /** How many rows a group lists (a session with what's nested under it counting as one) before it
@@ -39,39 +44,42 @@ export interface RepoName {
   project: string;
 }
 
-/** A worktree or a repo heading its rows. */
+/** A project, repo or worktree heading its rows. */
 export interface ListGroup<R> {
-  /** The worktree's id, or the repo's key (boards/rules.ts `repoOf`, or a PR's slug): what pins
-   *  it. Empty for the rows with no worktree or repo. */
+  /** The project's name, the repo's key (boards/rules.ts `repoOf`, or a PR's slug), or the
+   *  worktree's id: what orders it. Empty for rows in none. */
   key: string;
   by: GroupBy;
   /** The worktree heading a worktree's group. */
   lane: Lane | null;
   /** The repo heading a repo's group. */
   repo: RepoName | null;
+  /** The project heading a project's group. */
+  project: string | null;
   rows: R[];
   /** Every row of it, the ones folded away too: where a row selected out of sight is. */
   all: R[];
   /** How many of its rows are folded away (`GROUP_SHOWN`). */
   folded: number;
-  /** What opens it past `GROUP_SHOWN` (`GroupOptions.opened`): its key, or for one of a section's
-   *  own groups (one apart, or the rows in none) the section's id and the grouping with it, so that
-   *  opening it doesn't open its namesake in another section, nor the rows in none grouped
-   *  otherwise. */
+  /** What identifies this group for expanding past `GROUP_SHOWN` and collapsing: includes the
+   *  grouping kind (and section id when apart), so groups of different kinds or sections never
+   *  collide. */
   fold: string;
   /** Opened past `GROUP_SHOWN`, so it can be folded again. */
   opened: boolean;
 }
 
-/** A section of the list with its groups in place of its rows. Its count is of its own rows: the
- *  ones in its groups that are under it for themselves, not for their group's first row. */
+/** A folded bottom section (Done, Merged & closed, One-off, Finished) with its own groups. */
 export type GroupedSection<S, R> = Omit<S, 'rows'> & { count: number; groups: ListGroup<R>[] };
 
 export interface Grouped<S, R> {
   by: GroupBy;
-  /** The groups pinned, in your order, after the list's pinned rows. */
-  pinned: ListGroup<R>[];
-  sections: GroupedSection<S, R>[];
+  /** Every group of the main (non-apart) sections, in one unified list: custom order where
+   *  reordered, alphabetical by default, with rows in no group last. Rows within each group keep
+   *  the input sections' sorted order. */
+  groups: ListGroup<R>[];
+  /** Sections kept apart at the bottom (`apart`), each grouped among itself in the same order. */
+  apart: GroupedSection<S, R>[];
 }
 
 /** The rows a section lists. */
@@ -82,25 +90,49 @@ export interface Place {
   key: string;
   lane: Lane | null;
   repo: RepoName | null;
+  project: string | null;
 }
 
 export function repoNameOf(lane: Lane): RepoName {
   return { name: lane.repo, slug: lane.repoSlugNow ?? lane.repoSlug, project: lane.project };
 }
 
-/** The group of a row in `lane`: the worktree's, or its repo's; none for a row in no worktree. */
+/** The group of a row in `lane`: its worktree, its repo, or its project; none for a row in no
+ *  worktree (or a chat with no project). */
 export function placeIn(lane: Lane | null, by: PlaceBy): Place {
-  if (!lane) return { key: '', lane: null, repo: null };
-  return by === 'worktree' ? { key: lane.id, lane, repo: null } : { key: repoOf(lane), lane: null, repo: repoNameOf(lane) };
+  if (!lane) return { key: '', lane: null, repo: null, project: null };
+  if (by === 'worktree') return { key: lane.id, lane, repo: null, project: null };
+  if (by === 'repo') return { key: repoOf(lane), lane: null, repo: repoNameOf(lane), project: null };
+  const project = lane.project && !lane.startsChats ? lane.project : null;
+  return project ? { key: project, lane: null, repo: null, project } : { key: '', lane: null, repo: null, project: null };
+}
+
+/** A group's display name for alphabetical ordering and drag labels. */
+export function groupLabel(place: Pick<Place, 'lane' | 'repo' | 'project'>): string {
+  if (place.lane) return worktreeName(place.lane);
+  if (place.repo) return place.repo.name;
+  return place.project ?? '';
+}
+
+/** Moves `key` to insertion point `index` among `shown`, the reorderable group keys currently
+ *  displayed (excluding the empty-key `none` group), preserving any hidden keys already in `saved`. */
+export function reorderGroup(shown: readonly string[], saved: readonly string[], key: string, index: number): string[] {
+  const from = shown.indexOf(key);
+  if (from < 0) return [...saved];
+  const next = shown.filter((k) => k !== key);
+  const to = Math.max(0, Math.min(next.length, index > from ? index - 1 : index));
+  next.splice(to, 0, key);
+  if (next.every((k, i) => k === shown[i])) return [...saved];
+  const base = [...saved, ...shown.filter((k) => !saved.includes(k))];
+  const slots = new Set(shown);
+  let i = 0;
+  return base.map((k) => (slots.has(k) ? next[i++] : k));
 }
 
 export interface GroupOptions<R> {
-  /** The groups pinned, in your order. */
-  pinned: readonly string[];
-  /** The project's worktrees, for the pinned groups with no row listed. */
-  lanes: readonly Lane[];
-  /** Whether a pinned group with no row listed shows. */
-  empty: boolean;
+  /** Saved user order of group keys for this grouping kind; groups not named here sort
+   *  alphabetically after them, so an empty list sorts all groups alphabetically. */
+  order?: readonly string[];
   /** The groups opened past `GROUP_SHOWN`, by `ListGroup.fold`. */
   opened: ReadonlySet<string>;
   /** Every group lists all its rows: a search found them. */
@@ -115,66 +147,65 @@ export interface GroupOptions<R> {
 }
 
 /**
- * `sections`' rows grouped by worktree or by repo: each group once among the sections that group
- * together, under the heading of its first row, with all of its rows in their order; the groups
- * under a heading in the order of their first rows. Pinned groups leave those sections for
- * `pinned`, in your order, and show with no row listed while `empty`. A section `apart` groups its
- * own rows, and in every section the rows with no group (`placeOf` key empty) are a group of their
- * own, last. A group folds its rows after `GROUP_SHOWN` until it's opened, unless a search found
- * them (`whole`), but never an `awake` one, wherever it falls.
+ * `sections`' rows grouped by project, repo or worktree. Non-apart sections merge into one unified
+ * `groups` list ordered by `order` then alphabetically (with rows in no group last), keeping each
+ * group's rows in the input sections' active sort order so sorting never reorders the groups.
+ * Sections matching `apart` group among themselves in the same group order. Each group folds rows
+ * past `GROUP_SHOWN` unless `opened`, `whole`, or `awake`.
  */
 export function groupRows<S extends { id: string; rows: unknown[] }>(sections: S[], by: GroupBy, placeOf: (r: RowOf<S>) => Place, o: GroupOptions<RowOf<S>>): Grouped<S, RowOf<S>> {
   type R = RowOf<S>;
-  type Unit = { rows: R[]; from: string };
-  type Found = { place: Place; units: Unit[]; at: number };
+  type Found = { place: Place; units: R[][] };
   const unitsOf = o.units ?? ((rows: R[]) => rows.map((r) => [r]));
   const awake = o.awake ?? (() => false);
-  // The sections that group together, and each section's own: an apart one's, and the rows with
-  // no group in any.
-  const found = new Map<string, Found>();
-  const own = sections.map(() => new Map<string, Found>());
-  sections.forEach((s, at) => {
+  const main = new Map<string, Found>();
+  const apartMaps = new Map<string, Map<string, Found>>();
+  for (const s of sections) {
+    const isApart = !!o.apart?.(s.id);
+    const into = isApart ? (apartMaps.get(s.id) ?? apartMaps.set(s.id, new Map()).get(s.id)!) : main;
     for (const rows of unitsOf(s.rows as R[])) {
       const place = placeOf(rows[0]);
-      const into = place.key === '' || o.apart?.(s.id) ? own[at] : found;
-      const g = into.get(place.key) ?? { place, units: [], at };
-      g.units.push({ rows, from: s.id });
+      const g = into.get(place.key) ?? { place, units: [] };
+      g.units.push(rows);
       into.set(place.key, g);
     }
-  });
-  const build = (key: string, place: Place, units: Unit[], fold = key): ListGroup<R> => {
-    const away = o.whole ? [] : units.filter((u, i) => i >= GROUP_SHOWN && !awake(u.rows));
+  }
+  const rank = new Map((o.order ?? []).map((k, i) => [k, i]));
+  const cmp = (x: string, y: string) => x.localeCompare(y, undefined, { sensitivity: 'base', numeric: true });
+  const compare = ([ka, a]: [string, Found], [kb, b]: [string, Found]): number => {
+    if (ka === '' || kb === '') return (ka === '' ? 1 : 0) - (kb === '' ? 1 : 0);
+    const ra = rank.get(ka);
+    const rb = rank.get(kb);
+    if (ra !== undefined && rb !== undefined) return ra - rb;
+    if (ra !== undefined) return -1;
+    if (rb !== undefined) return 1;
+    const pa = a.place.lane?.project ?? a.place.repo?.project ?? a.place.project ?? '';
+    const pb = b.place.lane?.project ?? b.place.repo?.project ?? b.place.project ?? '';
+    const repoA = a.place.lane?.repo ?? a.place.repo?.name ?? '';
+    const repoB = b.place.lane?.repo ?? b.place.repo?.name ?? '';
+    return cmp(groupLabel(a.place), groupLabel(b.place)) || cmp(pa, pb) || cmp(repoA, repoB) || ka.localeCompare(kb);
+  };
+  const build = (key: string, place: Place, units: R[][], fold: string): ListGroup<R> => {
+    const away = o.whole ? [] : units.filter((u, i) => i >= GROUP_SHOWN && !awake(u));
     const opened = away.length > 0 && o.opened.has(fold);
     const shown = opened ? units : units.filter((u) => !away.includes(u));
-    const folded = opened ? 0 : away.reduce((n, u) => n + u.rows.length, 0);
-    return { key, by, lane: place.lane, repo: place.repo, rows: shown.flatMap((u) => u.rows), all: units.flatMap((u) => u.rows), folded, fold, opened };
+    const folded = opened ? 0 : away.reduce((n, u) => n + u.length, 0);
+    return { key, by, lane: place.lane, repo: place.repo, project: place.project, rows: shown.flat(), all: units.flat(), folded, fold, opened };
   };
-  // A repo with no row listed is named by its main worktree, else by any of its worktrees.
-  const emptyPlace = (key: string): Place | undefined => {
-    const of = o.lanes.filter((l) => placeIn(l, by).key === key);
-    const lane = of.find((l) => l.origin === 'main') ?? of[0];
-    return lane ? placeIn(lane, by) : undefined;
-  };
-  const pinnedKeys = new Set(o.pinned);
-  const pinned = o.pinned.flatMap((key) => {
-    const g = found.get(key);
-    if (g) return [build(key, g.place, g.units)];
-    const place = o.empty ? emptyPlace(key) : undefined;
-    return place ? [build(key, place, [])] : [];
-  });
-  const grouped = sections.map((s, at): GroupedSection<S, R> => {
-    const mine = [...found].filter(([key, g]) => g.at === at && !pinnedKeys.has(key));
-    // The rows with no group last, after the section's worktrees or repos.
-    const apart = [...own[at]].sort(([a], [b]) => (a === '' ? 1 : 0) - (b === '' ? 1 : 0));
-    const ownRows = (g: Found) => g.units.filter((u) => u.from === s.id).reduce((n, u) => n + u.rows.length, 0);
-    const count = [...mine, ...apart].reduce((n, [, g]) => n + ownRows(g), 0);
+  const groups = [...main].sort(compare).map(([key, g]) => build(key, g.place, g.units, key ? `${by}/${key}` : `main/${by}/`));
+  const apart: GroupedSection<S, R>[] = [];
+  for (const s of sections) {
+    const map = apartMaps.get(s.id);
+    if (!map || map.size === 0) continue;
+    const secGroups = [...map].sort(compare).map(([key, g]) => build(key, g.place, g.units, `${s.id}/${by}/${key}`));
+    const count = secGroups.reduce((n, g) => n + g.all.length, 0);
     const { rows: _rows, ...rest } = s;
-    return { ...rest, count, groups: [...mine.map(([key, g]) => build(key, g.place, g.units)), ...apart.map(([key, g]) => build(key, g.place, g.units, `${s.id}/${by}/${key}`))] };
-  });
-  return { by, pinned, sections: grouped.filter((s) => s.groups.length > 0) };
+    apart.push({ ...rest, count, groups: secGroups });
+  }
+  return { by, groups, apart };
 }
 
-/** Every group of a grouped list, the pinned ones first, as the list draws them. */
+/** Every group of a grouped list, main groups then apart sections' groups, as the list draws them. */
 export function groupsOf<S, R>(g: Grouped<S, R>): ListGroup<R>[] {
-  return [...g.pinned, ...g.sections.flatMap((s) => s.groups)];
+  return [...g.groups, ...g.apart.flatMap((s) => s.groups)];
 }

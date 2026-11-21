@@ -111,6 +111,7 @@
   var on = function (label) { var b = button(label); return !!b && b.classList.contains('is-on') && b.getAttribute('aria-checked') === 'true'; };
   var heads = function () { return all('.ca-sessionlist .ca-grouphead.is-worktree-head'); };
   var repoHeads = function () { return all('.ca-sessionlist .ca-grouphead.is-repo-head'); };
+  var projectHeads = function () { return all('.ca-sessionlist .ca-grouphead.is-project-head'); };
   var laneOf = function (id) { return board && board.lanes.find(function (l) { return l.id === id; }); };
   var groupOf = function (laneId) { var h = document.getElementById('row-' + laneId); return h && h.closest('.ca-group'); };
   // A group's sessions: its rows but its folds, and the ones listed at its top level.
@@ -141,9 +142,9 @@
     .then(function () { return wait(300); })
     .then(function () {
       var labels = viewChoices('Group');
-      check('Group has its three choices', labels.join('|') === 'No groups|Worktree|Repo', labels.join('|'));
-      check('each says what it does', ['No groups', 'Worktree', 'Repo'].every(function (l) { return button(l) && button(l).title.length > 10; }));
-      check('the list starts with no groups', on('No groups') && heads().length === 0 && repoHeads().length === 0);
+      check('Group has its four choices', labels.join('|') === 'No groups|Project|Repo|Worktree', labels.join('|'));
+      check('each says what it does', ['No groups', 'Project', 'Repo', 'Worktree'].every(function (l) { return button(l) && button(l).title.length > 10; }));
+      check('the list starts with no groups', on('No groups') && heads().length === 0 && repoHeads().length === 0 && projectHeads().length === 0);
       return choose('Worktree').then(function () { return until(function () { return heads().length > 0; }, 3000, 'the worktrees’ headings'); });
     })
     .then(function () {
@@ -271,13 +272,33 @@
       return wait(200).then(function () {
         check('and a click on it selects nothing', selectedId() === before, selectedId() + ' was ' + before);
         var rows = sessionsIn(r.closest('.ca-group')).filter(function (x) { return !x.classList.contains('is-nested'); });
-        check('its sessions say their worktrees', rows.length > 0 && rows.every(function (x) { return !!x.querySelector('.ca-wtchip'); }), rows.length + ' rows');
+        var wrongRepoChip = rows.filter(function (x) {
+          var lane = laneOf(x.id.slice(4, x.id.indexOf('::')));
+          var wants = !!lane && ((!!lane.reuse && lane.origin !== 'main') || !!lane.device);
+          return !!x.querySelector('.ca-wtchip') !== wants;
+        });
+        check('its sessions show a worktree chip only for reusable or remote worktrees', rows.length > 0 && wrongRepoChip.length === 0, wrongRepoChip.length + ' of ' + rows.length + ' rows');
         return menuOf(r);
       });
     })
     .then(function (labels) {
       check('its menu pins it', labels.indexOf('Pin repo') >= 0 || labels.indexOf('Unpin repo') >= 0, labels.join(' | '));
-      return choose('No groups').then(function () { return until(function () { return heads().length === 0 && repoHeads().length === 0; }, 3000, 'the list without groups'); });
+      return choose('Project').then(function () { return until(function () { return projectHeads().length > 0; }, 3000, 'the projects’ headings'); });
+    })
+    .then(function () {
+      check('Project groups the list by project, and is remembered', on('Project') && heads().length === 0 && repoHeads().length === 0 && localStorage.getItem('codealong.sessionGroup') === 'project', localStorage.getItem('codealong.sessionGroup'));
+      var p = projectHeads()[0];
+      var grp = p.closest('.ca-group');
+      check('a project group starts expanded with indented children', !!q('.ca-group-body', grp) && sessionsIn(grp).length > 0);
+      p.click();
+      return wait(150).then(function () {
+        check('clicking a project heading collapses its children', !q('.ca-group-body', grp) && p.classList.contains('is-collapsed'));
+        p.click();
+        return wait(150);
+      }).then(function () {
+        check('clicking it again expands its children', !!q('.ca-group-body', grp) && !p.classList.contains('is-collapsed'));
+        return choose('No groups').then(function () { return until(function () { return heads().length === 0 && repoHeads().length === 0 && projectHeads().length === 0; }, 3000, 'the list without groups'); });
+      });
     })
     .then(function () {
       check('No groups lists the sessions alone again, and is remembered', on('No groups') && localStorage.getItem('codealong.sessionGroup') === 'none', localStorage.getItem('codealong.sessionGroup'));

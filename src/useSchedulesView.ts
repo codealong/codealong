@@ -13,7 +13,6 @@ import { showContextMenu } from './contextMenu';
 import type { Placed } from './lanes';
 import type { ListGroupBy } from './groups';
 import * as menus from './menus';
-import type { Pins } from './pins';
 import { ALL_PROJECTS } from './quick';
 import { errorText, type Report } from './report';
 import { blankSchedule, firstSchedule, newScheduleFolder, scheduleListing, scheduleOf, type ScheduleSort } from './schedules';
@@ -31,12 +30,11 @@ export interface SchedulesViewInput {
   allHomes: ReadonlyMap<string, Placed>;
   /** The worktree of the row selected, which a new schedule starts in. */
   selectedLane: Lane | null;
-  /** How the view lists them (its View menu): sorted, and grouped by worktree or repo, the pinned
-   *  ones first, with the groups opened past their fold. */
+  /** How the view lists them (its View menu): sorted, and grouped by project, repo or worktree,
+   *  in custom or alphabetical order, with the groups opened past their fold. */
   scheduleSort: ScheduleSort;
   scheduleGroup: ListGroupBy;
-  repoPins: Pick<Pins, 'keys'>;
-  lanePins: Pick<Pins, 'keys'>;
+  groupOrder?: readonly string[];
   openScheduleGroups: ReadonlySet<string>;
   report: Report;
   setToast: (message: string) => void;
@@ -45,7 +43,7 @@ export interface SchedulesViewInput {
 }
 
 export function useSchedulesView(input: SchedulesViewInput) {
-  const { view, board, current, query, homes, allHomes, selectedLane, scheduleSort, scheduleGroup, repoPins, lanePins, openScheduleGroups, report, setToast, open } = input;
+  const { view, board, current, query, homes, allHomes, selectedLane, scheduleSort, scheduleGroup, groupOrder, openScheduleGroups, report, setToast, open } = input;
   // The Schedules view's selected schedule, and the one its dialog makes or changes; a session
   // selected under it, whose panel shows meanwhile; and the schedules listing every session of
   // theirs, not only the latest run's and those at work.
@@ -73,7 +71,7 @@ export function useSchedulesView(input: SchedulesViewInput) {
       scheduleListing(shownSchedules, scheduleSort, {
         by: scheduleGroup,
         lanes: board?.lanes ?? [],
-        pinned: scheduleGroup === 'repo' ? repoPins.keys : lanePins.keys,
+        order: groupOrder,
         opened: openScheduleGroups,
         whole: !!query,
         // The one picked never folds away, wherever it goes as it's shown from a card, paused, or
@@ -81,7 +79,7 @@ export function useSchedulesView(input: SchedulesViewInput) {
         // through every session, so only while Schedules shows.
         awake: (x) => x.id === scheduleId || (!!scheduleHomes && scheduleAtWork(x, scheduleHomes)),
       }),
-    [shownSchedules, scheduleSort, scheduleGroup, board?.lanes, repoPins.keys, lanePins.keys, openScheduleGroups, query, scheduleId, scheduleHomes],
+    [shownSchedules, scheduleSort, scheduleGroup, board?.lanes, groupOrder, openScheduleGroups, query, scheduleId, scheduleHomes],
   );
   const selectedSchedule: ScheduleItem | null = selectedHarness ? null : (shownSchedules.find((x) => x.id === scheduleId) ?? firstSchedule(scheduleListed));
   const scheduleSessionShown = !scheduleSession

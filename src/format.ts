@@ -31,6 +31,16 @@ export function duration(from: number, now: number): string {
   return `${Math.floor(d / DAY)}d ${h % 24}h`;
 }
 
+/** Compact single-unit elapsed time for a narrow row age column: `<1m`, `14m`, `2h`, `3d`, `2w`. */
+export function elapsedShort(from: number, now: number): string {
+  const d = Math.max(0, now - from);
+  if (d < MIN) return '<1m';
+  if (d < HOUR) return `${Math.floor(d / MIN)}m`;
+  if (d < DAY) return `${Math.floor(d / HOUR)}h`;
+  if (d < 100 * DAY) return `${Math.floor(d / DAY)}d`;
+  return `${Math.floor(d / (7 * DAY))}w`;
+}
+
 /** Time until a reset, as short as it gets: `<1m`, `42m`, `5h`, `2d`, each to the nearest unit. */
 export function untilShort(at: number, now: number): string {
   const d = at - now;

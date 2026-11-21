@@ -1,6 +1,6 @@
 // Collapsible sections in the Sessions view (ui/SessionsView.tsx): Orchestrators, Listening,
-// Pinned, Pinned groups, Needs you, Your turn, Working, Snoozed, Idle, and Archived. Day dividers
-// in Started sort (`NON_FOLDABLE_SECTIONS`) are plain headers and don't fold. Ambient sections
+// Pinned, Needs you, Your turn, Working, Snoozed, Idle, and Archived. Day dividers in Started sort
+// (`NON_FOLDABLE_SECTIONS`) are plain headers and don't fold. Ambient sections
 // (`PERSISTED_SECTION_FOLDS`) remember their state across launches via stored.ts; urgent sections
 // (Needs you, Your turn, Listening) start open each launch; Archived starts folded each launch
 // (`showArchived`). While a search query is active, folded active sections open temporarily and
@@ -8,15 +8,16 @@
 
 import { useCallback, useMemo, useState } from 'react';
 import { DAYS } from './days';
+import { groupsOf } from './groups';
 import { strings, useStored } from './stored';
 import type { ListRow } from './boardLists';
-import { groupHeadRows, type GroupedSessions, type SessionItem, type SessionSection } from './ui/SessionsView';
+import { groupHeadRows, headItem, type GroupedSessions, type SessionGroup, type SessionItem, type SessionSection } from './ui/SessionsView';
 
 export const SESSION_FOLDS_KEY = 'codealong.sessionFolds';
 
 /** The fixed ambient sections whose collapsed state is remembered across launches. Urgent bays
  *  (`needs`, `unread`, `listening`) start open each launch. */
-export const PERSISTED_SECTION_FOLDS: ReadonlySet<string> = new Set(['orchestrators', 'pinned', 'pinnedGroups', 'working', 'snoozed', 'idle']);
+export const PERSISTED_SECTION_FOLDS: ReadonlySet<string> = new Set(['orchestrators', 'pinned', 'working', 'snoozed', 'idle']);
 
 /** Chronological day headings (Started sort) act as dividers rather than collapsible groups. */
 const NON_FOLDABLE_SECTIONS: ReadonlySet<string> = new Set(DAYS.map((d) => d.id));
@@ -54,14 +55,12 @@ export function unfoldList(list: string[], id: string): string[] {
 const withTopHelpers = (rows: readonly SessionItem[], topHelpers: ReadonlyMap<string, readonly SessionItem[]>): SessionItem[] =>
   rows.flatMap((r) => [r, ...(topHelpers.get(r.session.key) ?? [])]);
 
-/** The Sessions list's visible rows top to bottom, skipping any section that's folded. */
-export function visibleSessionRows(parts: SessionSectionParts, folded: (id: string) => boolean): ListRow[] {
+/** The Sessions list's visible rows top to bottom, skipping any folded section or collapsed group's
+ *  children (a collapsed worktree group still keeps its worktree heading selectable). */
+export function visibleSessionRows(parts: SessionSectionParts, folded: (id: string) => boolean, groupCollapsed?: (g: SessionGroup) => boolean): ListRow[] {
   const { orchestrators, listening, pinned, topHelpers, sections, groups, archived } = parts;
   const body: ListRow[] = groups
-    ? [
-        ...(folded('pinnedGroups') ? [] : groups.pinned.flatMap(groupHeadRows)),
-        ...groups.sections.flatMap((s) => (folded(s.id) ? [] : s.groups.flatMap(groupHeadRows))),
-      ]
+    ? groups.groups.flatMap((g) => (groupCollapsed?.(g) ? (g.lane ? [headItem(g.lane)] : []) : groupHeadRows(g)))
     : sections.flatMap((s) => (folded(s.id) ? [] : s.rows));
   return [
     ...(folded('orchestrators') ? [] : orchestrators),
@@ -73,41 +72,43 @@ export function visibleSessionRows(parts: SessionSectionParts, folded: (id: stri
 }
 
 /** Every active (non-archived) session in `parts`, folded or not: keeps a selected session in the
- *  panel when the user folds its section (mainSelection.ts `selectedRow`). */
+ *  panel when the user folds its section or group (mainSelection.ts `selectedRow`). */
 export function activeSessionRows(parts: SessionSectionParts): SessionItem[] {
   const { orchestrators, listening, pinned, topHelpers, sections, groups } = parts;
-  const body = groups ? [...groups.pinned.flatMap((g) => g.all), ...groups.sections.flatMap((s) => s.groups.flatMap((g) => g.all))] : sections.flatMap((s) => s.rows);
+  const body = groups ? groupsOf(groups).flatMap((g) => g.all) : sections.flatMap((s) => s.rows);
   return [...orchestrators, ...withTopHelpers(listening, topHelpers), ...withTopHelpers(pinned, topHelpers), ...body];
 }
 
-/** Whether the Sessions view has any section to show (even if every section is folded), so the
+/** Whether the Sessions view has any section or group to show (even if every one is folded), so the
  *  empty-list message only shows when there is genuinely nothing listed. */
 export function hasSessionSections(parts: SessionSectionParts, showArchived: boolean): boolean {
   const { orchestrators, listening, pinned, sections, groups, archived } = parts;
   if (orchestrators.length > 0 || listening.length > 0 || pinned.length > 0) return true;
-  if (groups ? groups.pinned.length > 0 || groups.sections.length > 0 : sections.length > 0) return true;
+  if (groups ? groups.groups.length > 0 || groups.apart.length > 0 : sections.length > 0) return true;
   return showArchived && archived.length > 0;
 }
 
-/** Which section holds row `key` (a session's `lane::key` or a worktree heading's `lane`), or
- *  null when it isn't in `parts`. */
+/** Which section holds row `key`, or null when it isn't in a foldable section (e.g. a row inside
+ *  the unified grouped list, whose own group handles collapsing). */
 export function sectionOfRow(key: string, parts: SessionSectionParts): string | null {
   const { orchestrators, listening, pinned, topHelpers, sections, groups, archived } = parts;
   if (orchestrators.some((r) => r.key === key)) return 'orchestrators';
   if (withTopHelpers(listening, topHelpers).some((r) => r.key === key)) return 'listening';
   if (withTopHelpers(pinned, topHelpers).some((r) => r.key === key)) return 'pinned';
-  if (groups) {
-    if (groups.pinned.some((g) => g.lane?.id === key || g.all.some((r) => r.key === key))) return 'pinnedGroups';
-    for (const s of groups.sections) {
-      if (s.groups.some((g) => g.lane?.id === key || g.all.some((r) => r.key === key))) return s.id;
-    }
-  } else {
+  if (!groups) {
     for (const s of sections) {
       if (s.rows.some((r) => r.key === key)) return s.id;
     }
   }
   if (archived.some((r) => r.key === key)) return 'archived';
   return null;
+}
+
+/** Which group in a grouped Sessions list holds row `key` (a session's `lane::key` or a worktree
+ *  heading's `lane`), or null when absent. */
+export function groupOfRow(key: string, groups: GroupedSessions | null): SessionGroup | null {
+  if (!groups) return null;
+  return groupsOf(groups).find((g) => g.lane?.id === key || g.all.some((r) => r.key === key)) ?? null;
 }
 
 export interface SectionFolds {

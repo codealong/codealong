@@ -88,18 +88,11 @@
 .ca-prrow-agents > .ca-sesschip .ca-sesschip-title {
   max-width: 156px;
 }
-/* On one line, its repo, standing and size at the line's end, after its labels (rows.css
+/* On one line, its repo and standing at the line's end, after its labels (rows.css
    .ca-lane-tags, PrLabels.css), which give way first, then its title. */
 .ca-prrow-end {
   display: flex;
   flex: none;
   align-items: center;
   gap: var(--chip-gap);
-}
-/* A narrow board gives a one-line PR's title the room its size took: the panel and Two lines
-   still say it. Narrower, its pills say less (PrPills.css). */
-@container board (max-width: 640px) {
-  .ca-prrow.is-slim .ca-prrow-end > .ca-diff {
-    display: none;
-  }
 }

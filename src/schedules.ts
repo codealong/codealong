@@ -4,7 +4,7 @@
 // engine's (src-tauri/src/schedules/); these only say it.
 
 import { resetsPhrase } from './format';
-import { groupRows, groupsOf, placeIn, type Grouped, type ListGroupBy } from './groups';
+import { groupRows, groupsOf, placeIn, type GroupBy, type Grouped, type ListGroupBy, type Place } from './groups';
 import { homeOf, sessionHomes, type Placed } from './lanes';
 import { ALL_PROJECTS, laneGroups } from './quick';
 import type { DevicesView, Lane, Schedule, ScheduleItem, ScheduleOutcome, ScheduleRunsOn, ScheduleWhen } from './types';
@@ -154,12 +154,21 @@ export interface ScheduleListing {
   grouped: Grouped<ScheduleSection, ScheduleItem> | null;
 }
 
+/** Where a schedule goes when grouped by project, repo or worktree. */
+export function schedulePlace(s: Pick<ScheduleItem, 'run' | 'runsIn' | 'worktree' | 'orchestrates'>, lanes: Lane[], by: GroupBy): Place {
+  if (by === 'project') {
+    const project = scheduleProject(s, lanes);
+    return project ? { key: project, lane: null, repo: null, project } : { key: '', lane: null, repo: null, project: null };
+  }
+  return placeIn(scheduleLane(s, lanes), by);
+}
+
 export interface ScheduleGrouping {
   by: ListGroupBy;
   /** Every worktree on the board, for where each schedule runs (`scheduleLane`). */
   lanes: Lane[];
-  /** The groups pinned, in your order: the same worktrees, or repos, lead every list. */
-  pinned: readonly string[];
+  /** Custom user group order for `by`; alphabetical by default. */
+  order?: readonly string[];
   /** The groups opened past `GROUP_SHOWN`. */
   opened: ReadonlySet<string>;
   /** A search found them: every group lists all of its own. */
@@ -180,10 +189,8 @@ export function scheduleListing(items: ScheduleItem[], sort: ScheduleSort, group
   const grouped =
     by === 'none'
       ? null
-      : groupRows(sections, by, (x) => placeIn(scheduleLane(x, group.lanes), by), {
-          pinned: group.pinned,
-          lanes: group.lanes,
-          empty: false,
+      : groupRows(sections, by, (x) => schedulePlace(x, group.lanes, by), {
+          order: group.order,
           opened: group.opened,
           whole: group.whole,
           awake: ([x]) => !!group.awake?.(x),

@@ -50,8 +50,9 @@ import { inPrTab, PR_GROUPS, PR_ROWS, PR_SORTS, PR_TABS, PrsView, type PrGroupBy
 import { Resizer, usePanelWidth } from './ui/Resizer';
 import { compassTitle, freeScopes, orchestratorOn, startOrchestrator } from './orchestrators';
 import { StartOrchestratorDialog } from './ui/StartOrchestrator';
-import { groupKeyOf, headItem, OrchestratorButton, SESSION_GROUPS, SESSION_ROWS, SESSION_SORTS, SessionsBar, SessionsView, STARTED_PLACES, type SessionItem, type SessionSort, type StartedPlace } from './ui/SessionsView';
+import { headItem, OrchestratorButton, SESSION_GROUPS, SESSION_ROWS, SESSION_SORTS, SessionsBar, SessionsView, STARTED_PLACES, type SessionItem, type SessionSort, type StartedPlace } from './ui/SessionsView';
 import { groupsOf, type ListGroupBy, type RepoName } from './groups';
+import { groupFoldsHolding, orderedGroupKeys, sessionGroupFoldsHolding, useGroupPrefs } from './groupPrefs';
 import { byWords, FilterChips, ListBar, ListFind, ListTools, rowsSetting, ViewMenu, viewSetting, type RowLines } from './ui/ListBar';
 import { TODO_GROUPS, TODO_ROWS, TODO_SORTS, TodoComposer, TodoView } from './ui/TodoView';
 import { ScheduleDialog } from './ui/ScheduleDialog';
@@ -98,7 +99,7 @@ import { cardActsOf } from './canvas/cardActs';
 import { laneCanOf, sessionCanOf, type MainHas } from './mainCan';
 import { helperActsOf } from './mainHelpers';
 import { panelKindOf, selectedRow, shownSessionOf } from './mainSelection';
-import { groupActsOf, type GroupsHas } from './mainGroups';
+import { viewGroupActs, type GroupsHas } from './mainGroups';
 import { AGES, FIND_IN, READING, VIEWS, VIEWS_SANS_BOARDS, type Age, type View } from './mainViews';
 import { ageAppliesIn, listFiltersOf, pickNamesOf, sideBoardsOf, sideFacetsOf, sideFiltersOf, sideStatusesOf, sideViewsOf, viewSuggestionOf, type FiltersOn } from './sideLists';
 import { useBarPlace } from './useBarPlace';
@@ -125,7 +126,7 @@ import { ListenHost } from './ui/Listening';
 import { MeetingOffered } from './ui/Meeting';
 import { MeetingsDialog } from './ui/Meetings';
 import { ageListingChain, ageListingPr, canvasLabelOptions, cardMatches, chainOf, columnShown, currentProject, facetsIn, facetsOn, labelPick, onlyPick, prInDone, revealing, unarchived, scheduleSessions, sessionItemOf, sessionItemsOf, togglePick, toggleShown, useBoardLists, projectsOf, type FacetId, type Facets, type KanbanColumn } from './boardLists';
-import { activeSessionRows, sectionOfRow, useSectionFolds } from './sectionFolds';
+import { activeSessionRows, groupOfRow, sectionOfRow, useSectionFolds } from './sectionFolds';
 import { inProject } from './quick';
 import { CODEALONG_REPO } from './improve';
 import { bare, keysIn } from './platform';
@@ -278,6 +279,7 @@ export function App() {
   const [sessionPanelWidth, setSessionPanelWidth] = usePanelWidth(SESSION_PANEL_WIDTH_KEY);
   const [schedulePanelWidth, setSchedulePanelWidth] = usePanelWidth(SCHEDULE_PANEL_WIDTH_KEY);
   const sectionFolds = useSectionFolds(!!query);
+  const groupPrefs = useGroupPrefs(!!query);
   const { showArchived, setShowArchived, unfold: unfoldSection } = sectionFolds;
   const [pendingUnfold, setPendingUnfold] = useState<string | null>(null);
   // The sessions whose finished helpers Sessions lists under them too, as their chip's
@@ -426,8 +428,6 @@ export function App() {
   const [openTodoGroups, setOpenTodoGroups] = useState<ReadonlySet<string>>(() => new Set());
   const [scheduleGroup, setScheduleGroup] = useStored<ListGroupBy>(SCHEDULE_GROUP_KEY, GROUP_STORED, 'none');
   const [openScheduleGroups, setOpenScheduleGroups] = useState<ReadonlySet<string>>(() => new Set());
-  // The pins of Sessions' groups: the worktrees' or the repos'.
-  const sessionGroupPins = sessionGroup === 'repo' ? repoPins : lanePins;
   // How PRs and Todo order what isn't pinned or done: by status, or the newest opened or added first.
   const [prSort, setPrSort] = useStored<PrSort>(PR_SORT_KEY, PR_SORT_STORED, 'status');
   const [prTab, setPrTab] = useStored<PrTab>(PR_TAB_KEY, PR_TAB_STORED, 'all');
@@ -553,7 +553,8 @@ export function App() {
     sessionSort,
     sessionStarted,
     sessionGroup,
-    repoPins,
+    groupOrders: groupPrefs.orders,
+    groupCollapsed: groupPrefs.isCollapsed,
     openGroups,
     prGroup,
     openPrGroups,
@@ -573,6 +574,16 @@ export function App() {
     shownBoard,
     columnOpen,
   });
+  const unfoldSessionRow = useCallback(
+    (key: string) => {
+      const sec = sectionOfRow(key, sessionParts);
+      if (sec) unfoldSection(sec);
+      const grp = groupOfRow(key, groupedSecs);
+      if (grp) groupPrefs.uncollapse('sessions', grp.fold);
+      return !!(sec || grp);
+    },
+    [sessionParts, groupedSecs, unfoldSection, groupPrefs],
+  );
   // What an orchestrator can be started for from this view, which Sessions' compass offers.
   const freeOrchestrators = useMemo(() => freeScopes(current, board?.projects, board?.schedules), [current, board?.projects, board?.schedules]);
   // New session opens the quick panel (ui/Quick.tsx) at a worktree, maybe for a todo, in the
@@ -810,8 +821,7 @@ export function App() {
     selectedLane,
     scheduleSort,
     scheduleGroup,
-    repoPins,
-    lanePins,
+    groupOrder: scheduleGroup === 'none' ? undefined : groupPrefs.orders[scheduleGroup],
     openScheduleGroups,
     report,
     setToast,
@@ -915,6 +925,10 @@ export function App() {
       if (current !== ALL_PROJECTS && current !== home) pickProject(home);
       setQuery('');
       setView('schedules');
+      if (scheduleListed.grouped) {
+        const g = groupsOf(scheduleListed.grouped).find((x) => x.all.some((s) => s.id === r.id));
+        if (g) groupPrefs.uncollapse('schedules', g.fold);
+      }
       setScheduleId(r.id);
       setScheduleSession(null);
       // Its own panel, not what a heading showed in its place.
@@ -973,8 +987,7 @@ export function App() {
       if (wider) setAge(wider);
       setHelpersShownList((prev) => revealing(prev, items, item));
       const key = `${lane.id}::${session.key}`;
-      const sec = sectionOfRow(key, sessionParts);
-      if (sec) unfoldSection(sec);
+      unfoldSessionRow(key);
       setPendingUnfold(key);
       setSelectedKey(key);
     } else if (pr) {
@@ -1095,8 +1108,7 @@ export function App() {
     reads: inOrder(SESSION_READS, queueKinds(board?.queue?.order)),
     shown: view === 'sessions' && selected?.kind === 'agent' ? queueShown(selected.session) : null,
     show: (row, box = true) => {
-      const sec = sectionOfRow(row.key, sessionParts);
-      if (sec) sectionFolds.unfold(sec);
+      unfoldSessionRow(row.key);
       if (box) setBoxFocus(row.key);
       setSelectedKey(row.key);
     },
@@ -1121,8 +1133,7 @@ export function App() {
       queue,
       show: (row) => {
         unpick.current();
-        const sec = sectionOfRow(row.key, sessionParts);
-        if (sec) sectionFolds.unfold(sec);
+        unfoldSessionRow(row.key);
         setBoxFocus(row.key);
         setSelectedKey(row.key);
       },
@@ -1190,8 +1201,7 @@ export function App() {
     if (!key || !home) return;
     const row = activeSessions.find((r) => r.session.key === key) ?? (showArchived ? archivedItems.find((r) => r.session.key === key) : undefined);
     if (row) {
-      const sec = sectionOfRow(row.key, sessionParts);
-      if (sec) unfoldSection(sec);
+      unfoldSessionRow(row.key);
       setView('sessions');
       setSelectedKey(row.key);
     } else {
@@ -1268,15 +1278,14 @@ export function App() {
     setMoving(null);
     const row = activeSessions.find((r) => r.session.key === copy.session.key);
     if (row) {
-      const sec = sectionOfRow(row.key, sessionParts);
-      if (sec) unfoldSection(sec);
+      unfoldSessionRow(row.key);
       setSelectedKey(row.key);
     } else {
       reveal.current({ kind: 'session', laneId: copy.lane.id, key: copy.session.key });
     }
     // After the reveal, which puts away whatever the panel was showing in the session's place.
     if (drill?.from === moving.from.key) setDrill({ ...drill, from: row?.key ?? sessionItemOf(copy).key });
-  }, [moving, selected?.key, picking, homes, activeSessions, sessionParts, unfoldSection, reveal, drill]);
+  }, [moving, selected?.key, picking, homes, activeSessions, unfoldSessionRow, reveal, drill]);
   useEffect(() => {
     if (!moving?.to) return;
     const t = window.setTimeout(() => setMoving(null), COPY_WAIT_MS);
@@ -1341,7 +1350,7 @@ export function App() {
   const editors = board ? { apps: board.apps, icons: editorIcons } : undefined;
   /** What this window can do to a session and to a worktree, for their menus and its keys, which
    *  run the same actions (mainCan.ts), from what this render has. */
-  const mainHas: MainHas = { report, view, open, board, editors, newSession, todoItems: todoItemsRef, sessionPins, lanePins, toggleLanePin, onDesktop, keptSessions, setRenaming, leftAndOn, setArchived, setArchivedUndo, queue, mergingDone, doneHelpers, selected, setMoving, boardItems, todoStore, setPreviewFor, openSettings, setCleaning };
+  const mainHas: MainHas = { report, view, open, board, editors, newSession, todoItems: todoItemsRef, sessionPins, lanePins, toggleLanePin, onDesktop, keptSessions, setRenaming, leftAndOn, setArchived, setArchivedUndo, queue, mergingDone, doneHelpers, selected, setMoving, boardItems, helpersOf, runsOf, sidesOf, helpersShown, toggleHelpers, todoStore, setPreviewFor, openSettings, setCleaning };
   const sessionCan = (lane: Lane, s: Session, pin: 'session' | 'worktree') => sessionCanOf(mainHas, lane, s, pin);
   const sessionMenuSpec = (lane: Lane, s: Session, pin: 'session' | 'worktree'): MenuSpec => menus.sessionMenu(lane, s, sessionCan(lane, s, pin));
   const sessionMenu = (lane: Lane, s: Session, pin: 'session' | 'worktree') => void showContextMenu(sessionMenuSpec(lane, s, pin)).catch((e: unknown) => setToast(String(e)));
@@ -1390,18 +1399,11 @@ export function App() {
     [sessionPins, pinnedRows],
   );
 
-  // The pinned groups showing, in your order: what a pinned group's heading moves among.
-  const pinnedGroups = useMemo(() => groupedSecs?.pinned.map((g) => g.key) ?? [], [groupedSecs]);
-  const pinnedLanes = sessionGroup === 'worktree' ? pinnedGroups : NO_PICKS;
-  /** Moves a pinned worktree to insertion point `index` among the pinned ones showing. */
-  const movePinnedLane = useCallback((id: string, index: number) => lanePins.move([...pinnedLanes], id, index), [lanePins, pinnedLanes]);
+  // The worktree headings showing in Sessions grouped by worktree, for ⌃⌘↑ / ⌃⌘↓ reordering.
+  const orderedLanes = useMemo(() => (sessionGroup === 'worktree' ? orderedGroupKeys(groupedSecs) : NO_PICKS), [sessionGroup, groupedSecs]);
+  const moveGroupLane = useCallback((id: string, index: number) => groupPrefs.placeGroup('worktree', orderedLanes, id, index), [groupPrefs, orderedLanes]);
 
-  // A row selected where its group folds it away (shown from elsewhere, from a chip or the
-  // history, or just made) opens its group, once as it's selected: folding the group again
-  // later leaves it folded. A session's group is the one of the session it's listed under.
-  // So is one shown again (`revealed`), or selected as its list comes to be grouped. Once opened,
-  // the list goes to it as it shows (`scrollTo`): its key, which the scroll above goes by, may not
-  // have changed.
+  // A row selected where its group folds or collapses it away opens its group, once as selected.
   const unfoldedFor = useRef<string | null>(null);
   const [scrollTo, setScrollTo] = useState<string | null>(null);
   useEffect(() => {
@@ -1409,34 +1411,26 @@ export function App() {
     if (loading || !selectedKey || unfoldedFor.current === ask) return;
     unfoldedFor.current = ask;
     if (visible.some((r) => r.key === selectedKey)) return;
-    const opening = (set: Dispatch<SetStateAction<ReadonlySet<string>>>, keys: string[]) => {
-      set((o) => (keys.every((k) => o.has(k)) ? o : new Set([...o, ...keys])));
+    const openFolds = (v: string, set: Dispatch<SetStateAction<ReadonlySet<string>>>, folds: string[]) => {
+      if (folds.length === 0) return;
+      for (const f of folds) groupPrefs.uncollapse(v, f);
+      set((o) => (folds.every((k) => o.has(k)) ? o : new Set([...o, ...folds])));
       setScrollTo(selectedKey);
     };
-    if (view === 'sessions' && sessionGroup !== 'none') {
-      const by = sessionGroup;
-      const home = homes.get(selectedKey.split('::')[1] ?? '');
-      if (home) opening(setOpenGroups, chainOf(sessionItemOf(home), sessionItemsOf(lanes), sessionStarted === 'under').map((r) => groupKeyOf(r.lane, by)));
-    } else if (view === 'prs' && groupedPrs) {
-      const g = groupsOf(groupedPrs).find((x) => x.all.some((r) => r.key === selectedKey));
-      if (g) opening(setOpenPrGroups, [g.fold]);
-    } else if (view === 'todo' && groupedTodos) {
-      const g = groupsOf(groupedTodos).find((x) => x.all.some((r) => r.key === selectedKey));
-      if (g) opening(setOpenTodoGroups, [g.fold]);
-    }
-  }, [loading, selectedKey, revealed, visible, view, sessionGroup, sessionStarted, prGroup, todoGroup, homes, lanes, groupedPrs, groupedTodos]);
-  // A revealed session's section opens after filters and age widen to list it (`pendingUnfold`).
+    if (view === 'sessions') {
+      const chainKeys = () => {
+        const home = homes.get(selectedKey.split('::')[1] ?? '');
+        return home ? chainOf(sessionItemOf(home), sessionItemsOf(lanes), sessionStarted === 'under').map((r) => r.key) : [];
+      };
+      openFolds('sessions', setOpenGroups, sessionGroupFoldsHolding(groupedSecs, selectedKey, chainKeys));
+    } else if (view === 'prs') openFolds('prs', setOpenPrGroups, groupFoldsHolding(groupedPrs, selectedKey));
+    else if (view === 'todo') openFolds('todo', setOpenTodoGroups, groupFoldsHolding(groupedTodos, selectedKey));
+  }, [loading, selectedKey, revealed, visible, view, sessionGroup, sessionStarted, prGroup, todoGroup, homes, lanes, groupedSecs, groupedPrs, groupedTodos, groupPrefs]);
+  // A revealed session's section or group opens after filters and age widen to list it (`pendingUnfold`).
   useEffect(() => {
     if (!pendingUnfold) return;
-    if (pendingUnfold !== selectedKey) {
-      setPendingUnfold(null);
-      return;
-    }
-    const sec = sectionOfRow(pendingUnfold, sessionParts);
-    if (!sec) return;
-    unfoldSection(sec);
-    setPendingUnfold(null);
-  }, [pendingUnfold, selectedKey, sessionParts, unfoldSection]);
+    if (pendingUnfold !== selectedKey || unfoldSessionRow(pendingUnfold)) setPendingUnfold(null);
+  }, [pendingUnfold, selectedKey, unfoldSessionRow]);
   useEffect(() => {
     if (!scrollTo) return;
     // Only while it's still the row selected: another selected meanwhile is scrolled to as it's
@@ -1460,14 +1454,10 @@ export function App() {
       showOnCanvas('worktree', lane.id);
       return;
     }
-    if (!moved && view === 'sessions') {
-      const sec = sectionOfRow(lane.id, sessionParts);
-      if (sec) {
-        unfoldSection(sec);
-        setDrill(null);
-        setSelectedKey(lane.id);
-        return;
-      }
+    if (!moved && view === 'sessions' && unfoldSessionRow(lane.id)) {
+      setDrill(null);
+      setSelectedKey(lane.id);
+      return;
     }
     const from = moved ? null : (row?.key ?? panelFrom);
     if (view !== 'canvas' && from) {
@@ -1511,10 +1501,9 @@ export function App() {
     terminalAt,
     projects,
     pinnedRows,
-    pinnedLanes,
+    orderedLanes,
     pinnedPrRows,
     sessionPins,
-    lanePins,
     prPins,
     searchRef,
     listRef,
@@ -1540,7 +1529,7 @@ export function App() {
     togglePanelMax,
     togglePrPanelMax,
     movePinnedSession,
-    movePinnedLane,
+    moveGroupLane,
     move,
     focusBox,
     open,
@@ -1624,14 +1613,12 @@ export function App() {
   /** A repo's menu, on its heading: its page on GitHub, its pin, its name. */
   const repoMenu = (key: string, repo: RepoName) =>
     void showContextMenu(menus.repoMenu(repo, { report, pin: { label: repoPins.set.has(key) ? 'Unpin repo' : 'Pin repo', run: () => repoPins.toggle(key) } })).catch((e: unknown) => setToast(String(e)));
-  /** What a group's heading does (Groups.tsx, mainGroups.ts). In Sessions a worktree's is a row:
-   *  selected for its panel, picked with others, and dragged among the pinned groups. In PRs and
-   *  Todo a press on one shows the worktree as its chip does (`focusLane`). A repo's has its menu. */
-  const groupsHas: GroupsHas = { focusLane, picks, pressRow, setSelectedKey, open, repoMenu, laneMenu, lanePrMenu, showPrOf, openLanePr, sessionGroupPins, pinnedGroups };
-  const groupActs = groupActsOf(groupsHas, true, toggleIn(setOpenGroups));
-  const prGroupActs = groupActsOf(groupsHas, false, toggleIn(setOpenPrGroups));
-  const todoGroupActs = groupActsOf(groupsHas, false, toggleIn(setOpenTodoGroups));
-  const scheduleGroupActs = groupActsOf(groupsHas, false, toggleIn(setOpenScheduleGroups));
+  /** What a group's heading does (Groups.tsx, mainGroups.ts). */
+  const groupsHas: GroupsHas = { focusLane, picks, pressRow, setSelectedKey, open, repoMenu, laneMenu, lanePrMenu, showPrOf, openLanePr };
+  const groupActs = viewGroupActs(groupsHas, 'sessions', true, sessionGroup, groupedSecs, groupPrefs, toggleIn(setOpenGroups));
+  const prGroupActs = viewGroupActs(groupsHas, 'prs', false, prGroup, groupedPrs, groupPrefs, toggleIn(setOpenPrGroups));
+  const todoGroupActs = viewGroupActs(groupsHas, 'todo', false, todoGroup, groupedTodos, groupPrefs, toggleIn(setOpenTodoGroups));
+  const scheduleGroupActs = viewGroupActs(groupsHas, 'schedules', false, scheduleGroup, scheduleListed.grouped, groupPrefs, toggleIn(setOpenScheduleGroups));
 
   // The Board view with no board to show: nothing can be selected, so it has no panel.
   const boardless = (view === 'kanban' || view === 'canvas') && !shownBoard;

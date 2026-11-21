@@ -195,6 +195,9 @@ export interface SessionCan {
   moving?: (copy: Promise<string | null>) => void;
   /** Add to board, and Remove from board on the board it's on, where the window has boards. */
   boards?: MenuSpec;
+  /** Toggle items in Sessions to show or hide finished helpers, headless runs and answered side
+   *  conversations under a session's row (rowSignal.ts `relatedMenuItems`). */
+  related?: MenuSpec;
   /** The labels todos wear, for Labels, where the window has them. Without them it offers only
    *  the ones the session wears, to take off. */
   labels?: readonly Label[];
@@ -225,7 +228,7 @@ export interface SessionCan {
  *  conversation there links, is its part and `waitingNamed`. */
 export const SESSION_CAN = {
   /** The main window's lists and panels (mainCan.ts). */
-  main: ['report', 'keys', 'open', 'terminal', 'editors', 'newSession', 'ownTerminal', 'todos', 'pin', 'desktop', 'windows', 'rename', 'worktrees', 'archive', 'undoDone', 'left', 'failed', 'mergeDone', 'doneHelpers', 'moving', 'boards', 'labels'],
+  main: ['report', 'keys', 'open', 'terminal', 'editors', 'newSession', 'ownTerminal', 'todos', 'pin', 'desktop', 'windows', 'rename', 'worktrees', 'archive', 'undoDone', 'left', 'failed', 'mergeDone', 'doneHelpers', 'moving', 'boards', 'related', 'labels'],
   /** A row of the quick panel (ui/Quick.tsx). */
   quick: ['doneHelpers', 'report', 'open', 'terminal', 'reveal', 'reply', 'rename', 'labels', 'worktrees', 'editors', 'desktop'],
   /** A pill on the floating bar (ui/Bar.tsx). */
@@ -844,7 +847,7 @@ const SESSION_MENU = [
   // Turn off is in Mark as done's place, with its key.
   ['look', 'fresh'],
   ['open', 'resume', 'folder', 'ownTerminal', 'pr', 'chrome', 'reveal', 'window', 'reply', 'newSession', 'fork', 'move', 'moveFolder'],
-  ['todos', 'boards', 'labels'],
+  ['todos', 'boards', 'labels', 'related'],
   ['stop', 'listen', 'rename', 'seen', 'unread', 'pin', 'desktop', 'raise', 'snooze', 'quiet', 'own', 'close', 'done', 'mergeDone', 'archive'],
   ['copyId', 'copyResume'],
 ] as const;
@@ -865,6 +868,7 @@ export function sessionMenu(lane: Lane, s: Session, can: SessionCan): MenuSpec {
     heading: can.heading ? [{ label: `${s.title} · ${lane.callsign}`, enabled: false, run: () => {} }] : [],
     todos: can.todos ?? [],
     boards: s.visitor ? [] : (can.boards ?? []),
+    related: s.visitor ? [] : (can.related ?? []),
   };
   return laidOut(SESSION_MENU, sessionActions(lane, s, can), extras, can.keys);
 }

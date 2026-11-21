@@ -38,7 +38,7 @@
       before = glyphs();
       countBefore = foldCount();
       var labels = viewChoices('Group');
-      check('Group has its choices', labels.join('|') === 'No groups|Worktree|Repo', labels.join('|'));
+      check('Group has its choices', labels.join('|') === 'No groups|Project|Repo|Worktree', labels.join('|'));
       check('the list starts with no groups', on('No groups') && heads().length === 0);
       button('Worktree').click();
       return until(function () { return heads().length > 0; }, 3000, 'the worktrees’ headings');
@@ -65,7 +65,7 @@
       var none = heads().filter(function (h) { return h.classList.contains('is-none-head'); });
       var last = none.every(function (h) { var g = h.closest('.ca-group'); return !g.nextElementSibling || !g.nextElementSibling.classList.contains('ca-group'); });
       if (none.length === 0) note('every row is in a worktree, so the heading over the rest went unchecked');
-      else check('the rows in no worktree are under “' + NONE + '”, last in their section', none.every(function (h) { return h.textContent.trim() === NONE; }) && last);
+      else check('the rows in no worktree are under “' + NONE + '”, last in their section', none.every(function (h) { var n = q('.ca-grouphead-none', h); return n && n.textContent.trim() === NONE; }) && last);
       // The arrows go from row to row, past the headings.
       press(rows()[0]);
       return wait(200).then(function () {
@@ -98,10 +98,10 @@
       button('Repo').click();
       return until(function () { return heads().some(function (h) { return h.classList.contains('is-repo-head'); }); }, 3000, 'the repos’ headings').then(function () {
         check('Repo groups the PRs by repo, and is remembered', on('Repo') && localStorage.getItem(KEY) === 'repo');
-        var open = all('.ca-bayblock', list()).filter(function (b) { return !b.classList.contains('ca-pinned') && !/Merged/.test(b.textContent.slice(0, 40)); });
-        var names = open.flatMap(function (b) { return all('.ca-grouphead.is-repo-head .ca-grouphead-name', b).map(function (n) { return n.textContent; }); });
+        var openHeads = all('.ca-board-list > .ca-group .ca-grouphead.is-repo-head .ca-grouphead-name');
+        var names = openHeads.map(function (n) { return n.textContent; });
         var once = names.filter(function (n, i) { return names.indexOf(n) === i; });
-        check('each repo heads its PRs once among the open sections', once.length === names.length && names.length > 0, names.join(', '));
+        check('each repo heads its PRs once among the open groups', once.length === names.length && names.length > 0, names.join(', '));
         var chipped = rows().filter(function (r) { return r.closest('.ca-group') && q('.ca-grouphead.is-repo-head', r.closest('.ca-group')) && q('.ca-repochip', r); });
         check('a PR under its repo leaves out its repo’s chip', chipped.length === 0, chipped.length + ' with a repo chip');
       });

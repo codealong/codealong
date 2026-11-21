@@ -521,6 +521,7 @@ describe('what each window can do to a session', () => {
     undoDone: ['main'],
     moving: ['main'],
     boards: ['main'],
+    related: ['main'],
   };
 
   // A session of these tests' own (one another test moved offers no other move meanwhile), with
@@ -554,6 +555,7 @@ describe('what each window can do to a session', () => {
     failed: noop,
     moving: noop,
     boards: [{ label: 'Add to board', items: [] }],
+    related: [{ label: 'Show finished helper', run: noop }],
     labels: [{ id: 'l1', name: 'urgent', color: 'red' }],
     mergeDone: { prs: [fx.prItem({ repoSlug: 'acme/api', number: 7, mine: true, merge: 'clean', primary: mine.key })], ask: () => true },
     doneHelpers: { lanes, ask: noop },
@@ -588,7 +590,7 @@ describe('what each window can do to a session', () => {
     const plain = labels(sessionMenu(lane(), mine, base));
     const more = (menu: Menu) => labels(sessionMenu(lane(), mine, canOf(menu))).filter((l) => l !== '-' && !plain.includes(l));
     expect(Object.fromEntries(Object.entries(MENUS).map(([name, menu]) => [name, more(menu)]))).toEqual({
-      'the main window': ['New terminal', 'Open in its own window', 'Move to worktree ›', 'Add to todo ›', 'Add to board ›', 'Labels ›', 'Rename…', 'Pin session', 'Pin to desktop', 'Merge #7 and done…'],
+      'the main window': ['New terminal', 'Open in its own window', 'Move to worktree ›', 'Add to todo ›', 'Add to board ›', 'Labels ›', 'Show finished helper', 'Rename…', 'Pin session', 'Pin to desktop', 'Merge #7 and done…'],
       'the quick panel': ['Open in main window', 'Reply here', 'Move to worktree ›', 'Labels ›', 'Rename…', 'Pin to desktop'],
       'a pill on the bar': ['Fix login · api', 'Open in main window', 'Reply here', 'Rename…', 'Pin to desktop'],
       'a card on the desktop': ['Open in main window', 'Reply here', 'Rename…', 'Pin to desktop'],

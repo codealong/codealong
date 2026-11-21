@@ -1,16 +1,16 @@
 // A list's groups, wherever Group by groups one (Sessions, PRs, Todo, Schedules; groups.ts): each
-// group's heading (a worktree's, a repo's, or the one over rows in neither), its rows as its list
-// draws them, the way to the ones folded away, and the pinned groups' section. In Sessions a
-// worktree's heading is a row, selected for its panel and picked with others, and the pinned groups
-// are dragged among themselves (`useGroupDrag`); in PRs, Todo and Schedules a press on one shows
-// the worktree's panel in place of the one beside the list. A repo's has its menu everywhere.
+// group's collapsible heading (a project's, a repo's, a worktree's, or the one over rows in
+// none), its indented rows as its list draws them, and the way to the ones folded away past
+// `GROUP_SHOWN`. In Sessions a worktree's heading is a selectable row; in PRs, Todo and Schedules
+// a press on one shows the worktree's panel in place of the one beside the list. All non-empty
+// groups reorder directly by dragging (`useGroupDrag`).
 
 import type { ReactNode } from 'react';
-import type { GroupBy, ListGroup } from '../groups';
+import { groupLabel, type ListGroup } from '../groups';
 import type { SelectHow } from '../picks';
 import type { DesktopPinned, Lane } from '../types';
-import { GroupFoldRow, NoneHead, RepoHead, WorktreeHead } from './LaneRow';
-import { ReorderHint, SectionHeader } from './primitives';
+import { GroupFoldRow, NoneHead, ProjectHead, RepoHead, WorktreeHead } from './LaneRow';
+import { ProjectSaidHere } from './ProjectSaid';
 import { useRowDrag, type DragProps } from './useRowDrag';
 
 /** A group of any list's rows, as its heading needs it. */
@@ -28,13 +28,15 @@ export interface GroupActs {
   onPrMenu: (g: AnyGroup) => void;
   onPrShow: (g: AnyGroup) => void;
   onPrOpen: (g: AnyGroup) => void;
-  /** Opens a folded group, or folds it again. */
+  /** Opens a folded group past `GROUP_SHOWN`, or folds it again. */
   onToggle: (g: AnyGroup) => void;
-  /** Where the headings are dragged (Sessions): a group put at insertion point `index` among the
-   *  pinned ones showing, pinned there if it isn't; one dragged down to the list or out of the
-   *  window unpinned; and what one pins to the desktop, if it can be. */
+  /** Whether a group's children are collapsed under its heading. */
+  collapsed?: (g: AnyGroup) => boolean;
+  /** Collapses or expands a group's children; omitted while searching. */
+  onCollapse?: (g: AnyGroup) => void;
+  /** Reorders a dragged group heading to insertion point `index` among the groups showing. */
   onPlace?: (key: string, index: number) => void;
-  onUnpin?: (key: string) => void;
+  /** What a worktree heading pins to the desktop when dragged out of the window. */
   desktop?: (g: AnyGroup) => DesktopPinned | null;
   /** The worktrees picked together, by id (Sessions). */
   picked?: ReadonlySet<string>;
@@ -48,25 +50,28 @@ interface HeadProps {
   rows: boolean;
   domId?: string;
   selected?: boolean;
-  /** One of the pinned groups. */
-  pinned: boolean;
   drag?: DragProps;
-  /** What the heading over rows in no worktree or repo says. */
+  /** What the heading over rows in no project, repo or worktree says. */
   none: string;
 }
 
-/** A group's heading: its worktree's, its repo's, or the one over rows in neither. */
-export function GroupHead({ g, acts, now, rows, domId, selected = false, pinned, drag, none }: HeadProps) {
+/** A group's heading: its worktree's, its repo's, its project's, or the one over rows in none. */
+export function GroupHead({ g, acts, now, rows, domId, selected = false, drag, none }: HeadProps) {
+  const collapsed = !!acts.collapsed?.(g);
+  const onCollapse = acts.onCollapse ? () => acts.onCollapse!(g) : undefined;
+  const count = g.all.length;
   if (g.lane) {
     return (
       <WorktreeHead
         lane={g.lane}
         now={now}
+        count={count}
+        collapsed={collapsed}
+        onCollapse={onCollapse}
         role={rows ? 'option' : 'heading'}
         domId={domId}
         selected={selected}
         picked={!!acts.picked?.has(g.lane.id)}
-        pinned={pinned}
         onSelect={(how) => acts.onSelect(g, how)}
         onOpen={() => acts.onOpen(g)}
         onOpenTarget={acts.onOpenTarget}
@@ -78,52 +83,44 @@ export function GroupHead({ g, acts, now, rows, domId, selected = false, pinned,
       />
     );
   }
-  if (g.repo) return <RepoHead repo={g.repo} pinned={pinned} onMenu={() => acts.onMenu(g)} drag={drag} />;
-  return <NoneHead label={none} />;
+  if (g.repo) return <RepoHead repo={g.repo} count={count} collapsed={collapsed} onCollapse={onCollapse} onMenu={() => acts.onMenu(g)} drag={drag} />;
+  if (g.project) return <ProjectHead project={g.project} count={count} collapsed={collapsed} onCollapse={onCollapse} drag={drag} />;
+  return <NoneHead label={none} count={count} collapsed={collapsed} onCollapse={onCollapse} />;
 }
 
-/** A group: its heading, its rows as its list draws them, and the way to the ones folded away. */
+/** A group: its collapsible heading, its indented rows (with the heading's project already said),
+ *  and the way to rows folded away past `GROUP_SHOWN`. */
 export function GroupBlock({ children, ...head }: HeadProps & { children: ReactNode }) {
   const { g, acts } = head;
+  const collapsed = !!acts.collapsed?.(g);
+  const project = g.project ?? g.repo?.project ?? g.lane?.project ?? null;
   return (
     <div className="ca-group">
       <GroupHead {...head} />
-      {children}
-      {(g.folded > 0 || g.opened) && <GroupFoldRow folded={g.folded} opened={g.opened} onToggle={() => acts.onToggle(g)} />}
+      {!collapsed && (
+        <div className="ca-group-body">
+          <ProjectSaidHere project={project}>{children}</ProjectSaidHere>
+          {(g.folded > 0 || g.opened) && <GroupFoldRow folded={g.folded} opened={g.opened} onToggle={() => acts.onToggle(g)} />}
+        </div>
+      )}
     </div>
   );
 }
 
-/** The pinned groups, after a list's pinned rows: reordered by dragging where `reorder`. */
-export function PinnedGroups({ by, count, reorder, folded, onToggle, children }: { by: GroupBy; count: number; reorder: boolean; folded?: boolean; onToggle?: () => void; children: ReactNode }) {
-  return (
-    <section className="ca-bayblock ca-pinned">
-      <SectionHeader icon="pinned" label={by === 'worktree' ? 'Pinned worktrees' : 'Pinned repos'} count={count} hint={reorder && !folded ? <ReorderHint /> : undefined} folded={folded} onToggle={onToggle} />
-      {!folded && <div className="ca-bay-lanes">{children}</div>}
-    </section>
-  );
-}
-
-/** What a dragged heading says it holds. */
-function groupName(g: AnyGroup): string {
-  return g.lane ? g.lane.callsign : (g.repo?.name ?? '');
-}
-
-/** The drag of a list's group headings: among the pinned groups, or out of the window. Its rows
- *  are the headings alone, apart from the list's own drag (useRowDrag.tsx `dragOf`). */
+/** The drag of a list's group headings: reorders the unified group list, and in Sessions lets a
+ *  worktree heading drag out to the desktop. */
 export function useGroupDrag(groups: AnyGroup[], acts: GroupActs | undefined) {
   const groupOf = (key: string) => groups.find((g) => g.key === key);
   return useRowDrag({
     onPlace: acts?.onPlace,
-    joins: true,
-    onLeave: acts?.onUnpin,
+    joins: false,
     desktop: (key) => {
       const g = groupOf(key);
       return g && acts?.desktop ? acts.desktop(g) : null;
     },
     label: (key) => {
       const g = groupOf(key);
-      return g ? groupName(g) : '';
+      return g ? groupLabel(g) : '';
     },
   });
 }

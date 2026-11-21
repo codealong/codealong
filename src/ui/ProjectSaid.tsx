@@ -100,11 +100,23 @@ export function ProjectTag({ project }: { project: string | null | undefined }) 
   );
 }
 
+/** The project's cached org avatar when the window lists another or all projects, even if the
+ *  place's own name matches the project's (so a chip's avatar replaces its generic folder/book
+ *  icon consistently across main checkouts and worktrees). */
+export function useProjectAvatar(project: string | null | undefined): string | null {
+  const shown = useContext(ProjectShown);
+  const icons = useContext(ProjectIcons);
+  if (!project || shown == null || project === shown) return null;
+  return icons.get(project) ?? null;
+}
+
 /** A place's project before its name, quieter than the name and followed by a slash, as a
- *  worktree's repo is said before it. `beside` are the names said after it. */
-export function ProjectPrefix({ project, beside }: { project: string | null | undefined; beside?: (string | null | undefined)[] }) {
+ *  worktree's repo is said before it. `beside` are the names said after it. `withIcon` leaves out
+ *  the org avatar where a chip already puts it in its leading icon slot. */
+export function ProjectPrefix({ project, beside, withIcon = true }: { project: string | null | undefined; beside?: (string | null | undefined)[]; withIcon?: boolean }) {
   const said = useProjectSaid(project, beside);
-  const icon = useContext(ProjectIcons).get(said ?? '');
+  const icons = useContext(ProjectIcons);
+  const icon = withIcon ? icons.get(said ?? '') : undefined;
   if (!said) return null;
   return (
     <span className="ca-projprefix" title={`In ${said}`}>

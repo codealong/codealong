@@ -192,25 +192,61 @@
 }
 
 
-/* A group's heading in Sessions (LaneRow.tsx `WorktreeHead`, `RepoHead`): a worktree or a repo,
-   on one line, shaded as the place its sessions under it share. Its name, in the type a session's
-   title has so the heading reads as one of the list's rows, then where it is, which gives way
-   first, then its chips, which give way from the end, and at the line's end where a worktree
-   stands against the default branch. A repo's isn't selected, so it doesn't light up under the
-   pointer. */
+/* A group's heading (LaneRow.tsx `WorktreeHead`, `RepoHead`, `ProjectHead`, `NoneHead`): a
+   project, repo or worktree on one line, with the normal row background color and a collapse
+   chevron on the left. Its children sit indented underneath inside `.ca-group-body` with a
+   vertical guide line aligned under the chevron. */
 .ca-lane.ca-grouphead {
   grid-template-columns: 32px minmax(0, 1fr);
   min-height: 32px;
-  background: var(--surface-sunken);
+  background: var(--surface);
 }
 .ca-lane.ca-grouphead.is-selected {
   background: var(--surface-selected);
 }
-.ca-lane.ca-grouphead.is-worktree-head:hover:not(.is-selected) {
+.ca-lane.ca-grouphead:hover:not(.is-selected) {
   background: var(--surface-hover);
+}
+.ca-lane.ca-grouphead.is-collapsible:not([data-pin-index]) {
+  cursor: pointer;
 }
 .ca-grouphead .ca-seg-glyph {
   color: var(--ink-3);
+}
+.ca-grouphead-toggle {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  border: 0;
+  border-radius: var(--radius-sm);
+  background: none;
+  color: var(--ink-3);
+  cursor: pointer;
+}
+.ca-grouphead-toggle:hover {
+  color: var(--ink-2);
+  background: var(--surface-hover);
+}
+.ca-grouphead-toggle:focus-visible {
+  outline: 2px solid var(--focus);
+  outline-offset: -2px;
+}
+.ca-grouphead-chevron {
+  opacity: 0.65;
+  transition: opacity var(--dur-fast) ease-out;
+}
+.ca-grouphead:hover .ca-grouphead-chevron,
+.ca-grouphead.is-collapsed .ca-grouphead-chevron,
+.ca-grouphead-toggle:hover .ca-grouphead-chevron {
+  opacity: 1;
+}
+@media (prefers-reduced-motion: reduce) {
+  .ca-grouphead-chevron {
+    transition: none;
+  }
 }
 .ca-grouphead .ca-seg-main {
   padding-left: 0;
@@ -218,12 +254,20 @@
 }
 /* Its text sits on one baseline, the mono beside the sans: centered each on its own, the mono
    sat a pixel above, as the two fonts put their text at different heights in a box of one
-   height (grouphead-baseline-check.js). The chips are boxes, centered on the line. */
+   height (grouphead-baseline-check.js). The chips and icon are boxes, centered on the line. */
 .ca-grouphead-line {
   display: flex;
   align-items: baseline;
   gap: var(--space-2);
   min-width: 0;
+}
+.ca-grouphead-icon {
+  display: inline-flex;
+  align-items: center;
+  align-self: center;
+  flex: none;
+  color: var(--ink-3);
+  margin-right: calc(var(--space-1) - var(--space-2));
 }
 .ca-grouphead-name {
   flex: 0 1 auto;
@@ -232,6 +276,12 @@
   text-overflow: ellipsis;
   white-space: nowrap;
   font: var(--type-body-strong);
+}
+.ca-grouphead-count {
+  flex: none;
+  font: var(--type-code-sm);
+  font-variant-numeric: tabular-nums;
+  color: var(--ink-3);
 }
 /* Its project before it, in its type, as close to it as a chip's is (ProjectSaid.tsx). */
 .ca-grouphead-line > .ca-projprefix {
@@ -261,6 +311,27 @@
 }
 .ca-grouphead-end > .ca-diff {
   min-width: 0;
+}
+
+/* Indented children under a group heading (Groups.tsx): each child row shifts right so its
+   glyph sits under the group heading's title, with a subtle vertical guide line running down
+   from the chevron column (15.5px). Nested helper threads (.is-nested) keep their own relative
+   alignment inside .ca-seg-glyph. */
+.ca-group-body {
+  position: relative;
+}
+.ca-group-body::after {
+  content: '';
+  position: absolute;
+  left: 15.5px;
+  top: 0;
+  bottom: 0;
+  width: 1px;
+  background: var(--line);
+  pointer-events: none;
+}
+.ca-group-body > .ca-lane.is-item {
+  padding-left: var(--space-4);
 }
 
 /* Whether a reusable worktree can take new work (LaneRow.tsx `ReuseChip`): green while it's free,
