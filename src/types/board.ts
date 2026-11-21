@@ -21,6 +21,8 @@ export interface ProjectSummary {
   name: string;
   lanes: number;
   repos: { name: string; lanes: number; folder: boolean }[];
+  /** Cached GitHub organization avatar as a `data:image/…` URL, when the project belongs to one org. */
+  icon?: string | null;
 }
 
 /** How busy a machine is, as it reads itself every half a minute (load.rs): what a session

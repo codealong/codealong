@@ -14,6 +14,8 @@
 //! worktrees are beside the board (shown.rs), and the feed is cut again whenever either changes
 //! (lib.rs `Floating`).
 
+use std::collections::BTreeMap;
+
 use serde::{Deserialize, Serialize};
 
 use crate::config::Theme;
@@ -67,6 +69,9 @@ pub struct BarFeed {
     pub terminal: String,
     /// The projects, in your order, for the bar's project menu.
     pub projects: Vec<String>,
+    /// Cached GitHub org avatars by project name, for All projects badges in the notch.
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub project_icons: BTreeMap<String, String>,
     /// In bar order: by group, then each the longest first. The notch, the quick panel and the
     /// waiting window work through what waits on you in this order (src/queue.ts `byPlace`).
     pub items: Vec<BarItem>,
@@ -383,6 +388,7 @@ pub fn feed(shown: Shown) -> BarFeed {
         perf_log: board.perf_log,
         terminal: board.apps.terminal.clone(),
         projects: board.projects.iter().map(|p| p.name.clone()).collect(),
+        project_icons: board.projects.iter().filter_map(|p| Some((p.name.clone(), p.icon.clone()?))).collect(),
         items: items.into_iter().map(|(_, item)| item).collect(),
         recent: recent.into_iter().map(|(_, item)| item).collect(),
         snoozed: snoozed.into_iter().map(|(_, item)| item).collect(),

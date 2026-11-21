@@ -39,6 +39,8 @@ export interface BarFeed {
   terminal: string;
   /** The projects, in your order, for the bar's project menu. */
   projects: string[];
+  /** Cached GitHub org avatars by project name, for All projects badges in the notch. */
+  projectIcons?: Record<string, string>;
   /** In bar order: by group, then each the longest first. */
   items: BarItem[];
   /** The other sessions started in the last day, the newest status first. */

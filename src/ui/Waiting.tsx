@@ -59,7 +59,7 @@ import { dialogUp } from './focusTrap';
 import { PrCard, type CameFrom, type PrWindowCan } from './PrCard';
 import { showPrTab } from './PrInspector';
 import { usePrLinks } from './PrLink';
-import { ProjectShown } from './ProjectSaid';
+import { ProjectIcons, projectIconMap, ProjectShown } from './ProjectSaid';
 import { QueueEnd } from './QueueEnd';
 import { SessionCard, type WindowCan } from './SessionCard';
 import { useTheme } from './ThemeSwitch';
@@ -520,6 +520,11 @@ export function Waiting() {
       {askingHelpers.dialog}
     </div>
   );
+  const projectIcons = useMemo(() => projectIconMap(board?.projects), [board?.projects]);
   // What waits comes from every project, so a session says its project before its worktree.
-  return <ProjectShown.Provider value={ALL_PROJECTS}>{page}</ProjectShown.Provider>;
+  return (
+    <ProjectShown.Provider value={ALL_PROJECTS}>
+      <ProjectIcons.Provider value={projectIcons}>{page}</ProjectIcons.Provider>
+    </ProjectShown.Provider>
+  );
 }

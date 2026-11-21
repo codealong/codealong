@@ -16,6 +16,7 @@ import type { DevicesView, DeviceView, Lane, Load, ProjectSummary, Session } fro
 import { LoadTag } from './LoadTag';
 import type { PickerOption, PickerSection } from './Picker';
 import { Icon, SessionGlyph, StatusGlyph } from './primitives';
+import { ProjectIcon } from './ProjectSaid';
 import { projectKey } from './ProjectSwitcher';
 import { scopeWords } from '../orchestrators';
 
@@ -175,12 +176,12 @@ function ProjectCounts({ needs, unread }: { needs: number; unread: number }) {
  *  what waits on you there (`counts`) and the key that goes to it, General chat's being its
  *  shortcut. */
 export function projectMenu(projects: ProjectSummary[], counts: Record<string, { needs: number; unread: number }>, chatShortcut: string | null | undefined): PickerSection[] {
-  const projectOption = (name: string): PickerOption => ({
+  const projectOption = (name: string, icon?: string | null): PickerOption => ({
     id: name,
     text: name === CHATS ? `${GENERAL_CHAT} question no project no repo` : name,
     label: projectLabel(name),
     detail: name === CHATS ? 'A question for none of your repos' : undefined,
-    lead: <Icon name={name === ALL_PROJECTS ? 'stack' : name === CHATS ? 'message-circle' : 'folder'} size={14} />,
+    lead: name === ALL_PROJECTS ? <Icon name="stack" size={14} /> : name === CHATS ? <Icon name="message-circle" size={14} /> : <ProjectIcon src={icon} size={14} fallback />,
     trail: (
       <>
         <ProjectCounts needs={counts[name]?.needs ?? 0} unread={counts[name]?.unread ?? 0} />
@@ -189,7 +190,7 @@ export function projectMenu(projects: ProjectSummary[], counts: Record<string, {
     ),
   });
   return [
-    { key: 'projects', options: projects.map((p) => projectOption(p.name)) },
+    { key: 'projects', options: projects.map((p) => projectOption(p.name, p.icon)) },
     { key: 'all', head: <span className="ca-picker-sep" />, options: [projectOption(ALL_PROJECTS), projectOption(CHATS)] },
   ];
 }

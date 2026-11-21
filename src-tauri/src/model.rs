@@ -33,6 +33,9 @@ pub struct ProjectSummary {
     pub name: String,
     pub lanes: usize,
     pub repos: Vec<RepoSummary>,
+    /// Cached GitHub organization avatar as a `data:image/…` URL, when the project belongs to one org.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub icon: Option<String>,
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, Default)]

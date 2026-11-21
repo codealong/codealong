@@ -41,7 +41,7 @@ import { useMergeDone } from './ui/MergeDone';
 import { useDoneHelpers } from './ui/DoneHelpers';
 import { Button, cx, Icon, Tabs } from './ui/primitives';
 import { ALL_PROJECTS, ProjectSwitcher } from './ui/ProjectSwitcher';
-import { ProjectShown } from './ui/ProjectSaid';
+import { ProjectIcons, projectIconMap, ProjectShown } from './ui/ProjectSaid';
 import { useLogo } from './logo';
 import { useGlass } from './glass';
 import { usePrLinks } from './ui/PrLink';
@@ -2383,5 +2383,10 @@ export function App() {
       <ListenHost here />
     </div>
   );
-  return <ProjectShown.Provider value={current}>{page}</ProjectShown.Provider>;
+  const projectIcons = useMemo(() => projectIconMap(projects), [projects]);
+  return (
+    <ProjectShown.Provider value={current}>
+      <ProjectIcons.Provider value={projectIcons}>{page}</ProjectIcons.Provider>
+    </ProjectShown.Provider>
+  );
 }

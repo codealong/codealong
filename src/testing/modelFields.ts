@@ -459,6 +459,7 @@ export type Load = Holds<Same<
 >>;
 
 export type ProjectSummary = Holds<Same<
+  | "icon"
   | "lanes"
   | "name"
   | "repos",

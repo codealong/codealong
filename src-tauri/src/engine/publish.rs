@@ -191,6 +191,10 @@ impl Engine {
         }
         board.devices = self.cfg.devices.clone();
         board.project_rules = self.cfg.projects.clone();
+        let project_owners = crate::orgavatars::project_owners(&self.cfg.projects, &self.seeds, |slug| self.github.renamed(slug).map(String::as_str));
+        for p in &mut board.projects {
+            p.icon = project_owners.get(&p.name).and_then(|owner| self.org_avatars.icon_for(owner)).map(str::to_string);
+        }
         for lane in &mut board.lanes {
             lane.repo_slug_now = lane.repo_slug.as_deref().and_then(|slug| self.github.renamed(slug).cloned());
         }
