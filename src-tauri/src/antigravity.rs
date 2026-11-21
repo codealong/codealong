@@ -1814,13 +1814,14 @@ impl Reader {
                     // take a time back. The latest step's says when it was last written, which a
                     // row another `agy` wrote back doesn't.
                     c.prompted_at = prompt.as_deref().and_then(step_began).max(old.and_then(|o| o.prompted_at));
-                    // The note a failed turn ends with never reaches the transcript. A read that
-                    // finds no step, or a latest step older than one read before, is none at all
-                    // or an older copy: how the latest turn ended stays as it was read.
+                    // The note a failed turn ends with never reaches the transcript. Where a step
+                    // was read before, a read that finds none, or a latest step older than that
+                    // one, is none at all or an older copy: how the latest turn ended stays as it
+                    // was read. One with no step yet, or no database of its own, isn't behind.
                     let kept = old.and_then(|o| o.latest_step_at);
                     let read = latest_step(&c.dir, &c.id, c.last_modified);
                     let at = read.as_ref().and_then(|(at, _)| *at);
-                    let behind = read.is_none() || at.zip(kept).is_some_and(|(at, kept)| at < kept);
+                    let behind = kept.is_some_and(|kept| read.is_none() || at.is_some_and(|at| at < kept));
                     c.failed = if behind { old.and_then(|o| o.failed.clone()) } else { read.and_then(|(_, failed)| failed) };
                     c.latest_step_at = at.max(kept);
                     c.read_again |= behind;
@@ -3293,6 +3294,33 @@ mod tests {
         assert_eq!(failed(&mut reader), lost(at + 10_000));
         std::fs::rename(&away, &database).unwrap();
         assert_eq!(failed(&mut reader), None);
+    }
+
+    /// A conversation with no step yet, its database empty or not there, has nothing a read of
+    /// it could be behind, so it isn't read again past the cache for that.
+    #[test]
+    fn a_conversation_with_no_steps_yet_goes_by_the_cache() {
+        let root = crate::fixtures::scratch("antigravity-no-steps");
+        let dir = root.join("antigravity-cli");
+        std::fs::create_dir_all(dir.join("conversations")).unwrap();
+        Connection::open(dir.join(SUMMARIES))
+            .unwrap()
+            .execute_batch(&format!(
+                "{SCHEMA}\
+                 INSERT INTO conversation_summaries (conversation_id, step_count, last_modified_time, workspace_uris, status, last_user_input_time, app_data_dir) VALUES \
+                 ('c1', 0, '2026-10-15 00:52:58+00:00', '[]', 'CASCADE_RUN_STATUS_IDLE', '0001-01-01 00:00:00+00:00', 'antigravity-cli'), \
+                 ('c2', 0, '2026-10-15 00:52:59+00:00', '[]', 'CASCADE_RUN_STATUS_IDLE', '0001-01-01 00:00:00+00:00', 'antigravity-cli');"
+            ))
+            .unwrap();
+        // c1 has no database of its own yet; c2's has no steps.
+        Connection::open(dir.join("conversations/c2.db")).unwrap().execute_batch("CREATE TABLE steps (idx INTEGER PRIMARY KEY, step_type INTEGER NOT NULL DEFAULT 0, status INTEGER NOT NULL DEFAULT 0, step_payload BLOB);").unwrap();
+        let account = AccountCfg { name: "antigravity".into(), harness: "antigravity".into(), home: dir.to_string_lossy().into_owned(), command: None, start: None, usage_cap: None, acp: None, monthly: None, per_token: false, disabled: false, chrome_profile: None };
+        let seen = crate::state::SeenState::default();
+        let look = Look { seen: &seen, since: 0, now: parse_rfc3339_ms("2026-10-15T01:00:00Z").unwrap(), ps: Default::default() };
+        let mut reader = Reader { looked_at: Some(Instant::now()), ..Reader::default() };
+        reader.reread(&account, &look);
+        let read_again: Vec<(&str, bool)> = reader.conversations["antigravity"].iter().map(|c| (c.id.as_str(), c.read_again)).collect();
+        assert_eq!(read_again, [("c2", false), ("c1", false)]);
     }
 
     /// The session that waited, read from its folder: a turn its UI started goes on, whatever the
