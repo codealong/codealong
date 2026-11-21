@@ -4652,8 +4652,9 @@ own model, with the message. The message starts with a line saying the session h
 resumed for another session's message, then with the sending agent's, so it's read as neither yours
 nor leave to do what you haven't allowed; the sender is told it wasn't running and was resumed.
 Never one you archived or marked done, one that goes on in the Claude app, or one that skips
-permission prompts when the sender doesn't, which would hold the message for you if it were running
-(plan mode, and a mode its transcript doesn't say, count as skipping them); the sender is told why.
+permission prompts when the message would be held for you if it were running (the sender doesn't
+skip prompts and isn't linked to it as a known helper or PR review; plan mode, and a mode its
+transcript doesn't say, count as skipping them); the sender is told why.
 Nor again within two minutes of resuming it for another message, while the board may still show it
 stopped: the sender is told to send it again once it runs. In the conversation, the message shows
 as the sending session's.
@@ -4766,7 +4767,7 @@ with and whose process began as the start did (or, its process gone, that began 
 one found only once the app is opened again): a terminal UI can stop on a screen of its own
 before it makes its session (Codex's question about its background server) until you answer it. A session whose process
 began before a start was asked for is never that start's. A helper you made your own is held as any
-agent is, and a start another Mac asks for makes no helper. The automatic review of a PR a session
+agent is, and a parent's message to a helper you're talking to yourself is held again; a start another Mac asks for makes no helper. The automatic review of a PR a session
 opened isn't held either, while `[reviews.own] send` hands reviews back (see *Reviews of your own
 pull requests*): it's listed under that session, which is sent its review anyway, and what it says
 there is about that review, often an answer to what the session asked it. Only a session a round of
