@@ -911,6 +911,7 @@ pub fn clock_text(ms: i64, zone: &dyn Zone) -> String {
 pub fn own_sessions(file: &File, runs: &Runs, board: &Board) -> BTreeMap<String, Vec<String>> {
     let here: std::collections::HashSet<&str> = board.lanes.iter().filter(|l| l.device.is_none()).flat_map(|l| &l.sessions).map(|s| s.key.as_str()).collect();
     let origins = crate::origins::current();
+    let moves = origins.move_index();
     let claimed = || runs.of.values().flat_map(|t| t.runs.iter().filter_map(|r| r.session.clone())).collect();
     let claimed: std::collections::HashSet<String> = if runs.of.values().any(|t| t.runs.iter().any(|r| r.pending.is_some())) { claimed() } else { Default::default() };
     file.schedules
@@ -920,7 +921,7 @@ pub fn own_sessions(file: &File, runs: &Runs, board: &Board) -> BTreeMap<String,
             let t = runs.of.get(&s.id)?;
             let noted = t.runs.iter().filter(|r| r.outcome == Outcome::Started).filter_map(|r| r.session.clone().or_else(|| runner::shown(board, r.pending.as_ref()?, &claimed)));
             let thread = t.thread.clone().filter(|_| s.run.to == To::Thread && t.follows.is_none());
-            let mut keys: Vec<String> = noted.chain(thread).chain(t.started.clone()).map(|k| origins.moved_to(&k, |m| here.contains(m)).unwrap_or(k)).filter(|k| here.contains(k.as_str())).collect();
+            let mut keys: Vec<String> = noted.chain(thread).chain(t.started.clone()).map(|k| moves.moved_to(&k, |m| here.contains(m)).unwrap_or(k)).filter(|k| here.contains(k.as_str())).collect();
             keys.sort();
             keys.dedup();
             Some((s.id.clone(), keys))
@@ -943,6 +944,8 @@ pub fn asks_emblem(item: &Item, own: &[String], board: &Board, cfg: &Config, now
 /// The schedules as the Schedules view shows them: one your machines share with where it runs,
 /// and with their runs of it among its own.
 pub fn items(file: &File, runs: &Runs, board: &Board, cfg: &Config, now: i64, zone: &dyn Zone) -> Vec<Item> {
+    let origins = crate::origins::current();
+    let moves = origins.move_index();
     file.schedules
         .iter()
         .map(|s| {
@@ -991,7 +994,7 @@ pub fn items(file: &File, runs: &Runs, board: &Board, cfg: &Config, now: i64, zo
                 problem,
                 next_at,
                 thread: match s.run.to {
-                    To::Thread => runner::target(board, s, track),
+                    To::Thread => runner::target_in_index(board, s, track, &moves),
                     _ => track.and_then(|t| t.thread.clone()),
                 },
                 queued: track.and_then(|t| t.queued.clone()),

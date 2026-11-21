@@ -21,9 +21,15 @@ impl Engine {
         // By the board before this one, as sends and schedules follow a session. With none yet,
         // every copy is taken to be there, or a watch would seem to begin with the next board.
         let picked = {
+            let move_index = origins.move_index();
             let board = self.board.read();
-            let exists = |k: &str| board.as_ref().map_or(true, |b| b.lanes.is_empty() || b.session(k).is_some());
-            prlinks::picks_after_moves(&self.pr_store, |k| origins.moved_to(k, exists), &mut worked)
+            let keys: Option<HashSet<&str>> = if move_index.is_empty() {
+                None
+            } else {
+                board.as_ref().ok().filter(|b| !b.lanes.is_empty()).map(|b| b.lanes.iter().flat_map(|l| l.sessions.iter().filter(|s| s.visitor.is_none()).map(|s| s.key.as_str())).collect())
+            };
+            let exists = |k: &str| keys.as_ref().map_or(true, |set| set.contains(k));
+            prlinks::picks_after_moves(&self.pr_store, |k| move_index.moved_to(k, exists), &mut worked)
         };
         board::PrLinks {
             worked,
