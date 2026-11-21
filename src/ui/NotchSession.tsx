@@ -72,6 +72,9 @@ export interface NotchStageState {
    *  `end`, the end of what waits. */
   key: string | null;
   kind: ShownKind;
+  /** Whether the PR shown waits on you to merge it (`BarReview.merge`), captured when shown so
+   *  notices still anchor to the merges pill after the feed drops it. */
+  prMerge: boolean;
   /** It shows; false as it's put away. */
   open: boolean;
   /** It has the keyboard. */
@@ -134,7 +137,7 @@ export interface NotchStageState {
  *  says whether the bar still has a key, in any of its pills; `docked` while the bar is in the
  *  notch; `order` what waits on you in your order (queue.ts `queueKinds`). */
 export function useNotchStage(items: BarItem[], reviews: BarReview[], todos: { due: BarTodo[]; ready: BarTodo[] }, known: (key: string) => boolean, docked: boolean, order: readonly Waits[] = WAITS): NotchStageState {
-  const [shown, setShown] = useState<{ key: string; kind: ShownKind; rename: boolean; from: CameFrom | null } | null>(null);
+  const [shown, setShown] = useState<{ key: string; kind: ShownKind; prMerge: boolean; rename: boolean; from: CameFrom | null } | null>(null);
   const [open, setOpen] = useState(false);
   const [keys, setKeys] = useState(false);
   const [endOpens, setEndOpens] = useState(0);
@@ -198,7 +201,8 @@ export function useNotchStage(items: BarItem[], reviews: BarReview[], todos: { d
       fromNow.current = from;
       if (from) fromChips.current.set(key, from);
       else fromChips.current.delete(key);
-      setShown({ key, kind: rowsNow.current.find((r) => r.key === key)?.kind ?? kindOf(key), rename, from });
+      const found = rowsNow.current.find((r) => r.key === key);
+      setShown({ key, kind: found?.kind ?? kindOf(key), prMerge: found?.kind === 'review' && !!found.review.merge, rename, from });
       setOpen(true);
       setKeys(true);
       void notchKeys(true);
@@ -217,7 +221,7 @@ export function useNotchStage(items: BarItem[], reviews: BarReview[], todos: { d
     }
     shownNow.current = END;
     fromNow.current = null;
-    setShown({ key: END, kind: 'end', rename: false, from: null });
+    setShown({ key: END, kind: 'end', prMerge: false, rename: false, from: null });
     setOpen(true);
     setKeys(true);
     void notchKeys(true);
@@ -374,7 +378,7 @@ export function useNotchStage(items: BarItem[], reviews: BarReview[], todos: { d
     goneKeys.current.add(key);
   }, []);
 
-  return { key: shown?.key ?? null, kind: shown?.kind ?? 'session', open, keys, rename: shown?.rename ?? false, queue: queue.queue, notice: queue.notice, ended: queue.ended, endOpens, back, from: shown?.from ?? null, show, showPr, returnFrom, toggle, press, workThrough, close, takeKeys, next, left, gone, failed, unsent };
+  return { key: shown?.key ?? null, kind: shown?.kind ?? 'session', prMerge: shown?.prMerge ?? false, open, keys, rename: shown?.rename ?? false, queue: queue.queue, notice: queue.notice, ended: queue.ended, endOpens, back, from: shown?.from ?? null, show, showPr, returnFrom, toggle, press, workThrough, close, takeKeys, next, left, gone, failed, unsent };
 }
 
 interface NotchSessionProps {

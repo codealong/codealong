@@ -30,6 +30,8 @@ import type { Notice, Queue } from './SessionPanel';
 interface NotchReviewProps {
   /** The PR to show, by its key. */
   prKey: string;
+  /** Which pill on the bar notices for this card anchor to (`reviews` or `merges`). */
+  anchor?: 'reviews' | 'merges';
   now: number;
   queue: Queue | undefined;
   notice: Notice | null;
@@ -55,7 +57,7 @@ interface NotchReviewProps {
   zoom?: number;
 }
 
-export function NotchReview({ prKey, now, queue, notice, onBack, keys, onKeys, onShow, from, onReturn, onClose, onLeft, onFailed, onGone, zoom }: NotchReviewProps) {
+export function NotchReview({ prKey, anchor = 'reviews', now, queue, notice, onBack, keys, onKeys, onShow, from, onReturn, onClose, onLeft, onFailed, onGone, zoom }: NotchReviewProps) {
   const live = useLivePr(prKey, true);
   const gone = useRef(onGone);
   gone.current = onGone;
@@ -65,7 +67,7 @@ export function NotchReview({ prKey, now, queue, notice, onBack, keys, onKeys, o
 
   const apps = live.apps ?? undefined;
   const terminal = apps?.terminal ?? 'Terminal';
-  const host = useCardHost({ sessionKey: null, anchor: live.pr?.mine && !live.pr.reviewRequested ? 'merges' : 'reviews', live, apps, terminal, away: onClose });
+  const host = useCardHost({ sessionKey: null, anchor, live, apps, terminal, away: onClose });
   const icons = useEditorIcons(apps);
   const onDesktop = menus.useDesktopPins();
   const { report } = host;

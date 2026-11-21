@@ -44,7 +44,7 @@ export interface Metrics {
   snoozed: number;
   recent: number;
   reviews: number;
-  merges?: number;
+  merges: number;
   due: number;
   todos: number;
   /** A note on the bar (a failed open, what a review did), 0 while there's none. It's counted in
@@ -61,7 +61,7 @@ export interface Metrics {
 export function barWidth(fits: GroupFit[], m: Metrics): number {
   const sections: number[][] = [[m.mark, m.project].filter((w) => w > 0), m.hearing];
   for (const f of fits) sections.push([...m.pills[f.group].slice(0, f.shown), ...(f.folded > 0 ? [m.fold[f.group]] : [])]);
-  sections.push([m.snoozed, m.recent, m.reviews, m.merges ?? 0, m.due, m.todos].filter((w) => w > 0), m.note > 0 ? [m.note] : []);
+  sections.push([m.snoozed, m.recent, m.reviews, m.merges, m.due, m.todos].filter((w) => w > 0), m.note > 0 ? [m.note] : []);
   const shown = sections.filter((s) => s.length > 0);
   if (!shown.length) return 2 * m.padding;
   const pieces = shown.flat();

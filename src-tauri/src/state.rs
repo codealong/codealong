@@ -97,6 +97,10 @@ pub struct SeenState {
     /// delete brings it back, and shows on none (`board::apply_labels`).
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub labels: Vec<SessionLabels>,
+    /// Existing `[queue] order` from before `"merges"` became its own kind has had `"merges"`
+    /// placed after `"reviews"`, so turning it off later isn't undone (`config::migrate_queue_merges`).
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub queue_merges_split: bool,
 }
 
 /// The labels on a session, in the order you put them.
@@ -765,5 +769,17 @@ mod tests {
         assert!(s.archived_ids("codex", "codex").contains("t1"));
         s.set_archived("codex:codex:t1", false, 60, false);
         assert_eq!(s.archived_at("codex:codex:t1"), None);
+    }
+
+    #[test]
+    fn queue_merges_split_defaults_false_on_older_state_and_round_trips() {
+        let old: SeenState = serde_json::from_str(r#"{"firstRun":5,"seen":{}}"#).unwrap();
+        assert!(!old.queue_merges_split);
+        assert!(!serde_json::to_string(&old).unwrap().contains("queueMergesSplit"));
+        let mut s = old;
+        s.queue_merges_split = true;
+        let json = serde_json::to_string(&s).unwrap();
+        assert!(json.contains(r#""queueMergesSplit":true"#), "{json}");
+        assert!(serde_json::from_str::<SeenState>(&json).unwrap().queue_merges_split);
     }
 }
