@@ -77,7 +77,11 @@
         var sub = l.filter(function (x) { return x.indexOf('Open folder in › ') === 0; });
         var all = [board.terminal, board.editor].concat(board.editors.filter(function (e) { return e.id !== board.editorId; }).map(function (e) { return e.name; }));
         check('a session opens its folder in your terminal and any editor, yours first', sub.join('|') === all.map(function (n) { return 'Open folder in › ' + n; }).join('|'), sub.join(' | '));
-        check('after the session’s own open', l.indexOf(sub[0]) === 1, l.slice(0, 3).join(' | '));
+        // Open folder in follows the session's own open (and Resume in / Carry on in when stopped).
+        var top = lastItems();
+        var at = top.findIndex(function (i) { return i.text === 'Open folder in'; });
+        var afterOpen = !!top[0] && !!top[0].text && !top[0].items && (at === 1 || (at === 2 && !!top[1].items && (top[1].text === 'Resume in' || top[1].text === 'Carry on in')));
+        check('after the session’s own open', afterOpen, top.slice(0, 4).map(function (i) { return i.text || '-'; }).join(' | '));
         pick(sub[sub.length - 1]);
         return wait(100).then(function () {
           var last = board.editors.filter(function (e) { return e.name === all[all.length - 1]; })[0];
