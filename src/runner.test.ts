@@ -41,7 +41,7 @@ describe('scripts/preview/runner.mjs', () => {
         PREVIEW_BOARDS_OFF: '1',
       },
     });
-    expect(page.width).toBe(1100);
+    expect(page.width).toBe(1200);
     expect(page.height).toBe(64);
     expect(page.html).toContain('window.__PREVIEW_DATE__="2026-12-28"');
     expect(page.html).toContain('<script src="./clock.js"></script>');
@@ -170,6 +170,22 @@ describe('scripts/preview/runner.mjs', () => {
     }
     const missing = [...previewVars].filter((v) => !runnerJs.includes(v)).sort();
     expect(missing, 'add new PREVIEW_* variables to scripts/preview/runner.mjs too').toEqual([]);
+
+    // Default viewport sizes per view must also match scripts/preview.sh.
+    const base = '<html><head></head><body></body></html>';
+    const viewSizes = new Map<string, string>();
+    let currentView = 'sessions';
+    for (const line of previewSh.split('\n')) {
+      const vm = /^\s*(?:el)?if \[ "\$view" = ([a-z]+) \]; then/.exec(line);
+      if (vm) currentView = vm[1];
+      const sm = /^\s*size="\$\{PREVIEW_SIZE:-(\d+,\d+)\}"/.exec(line);
+      if (sm) viewSizes.set(currentView, sm[1]);
+    }
+    expect(viewSizes.size).toBeGreaterThanOrEqual(8);
+    for (const [view, expected] of viewSizes) {
+      const page = buildPreviewPage(base, { view, project: '', check: '', vars: {} });
+      expect(`${page.width},${page.height}`, `default viewport for view=${view}`).toBe(expected);
+    }
   });
 
   test('checks.sh run_cdp pins listed filtering, NONE retry, static rows, PREVIEW_* forwarding, and fail-fast startup errors', () => {
