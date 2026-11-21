@@ -3,7 +3,7 @@
 // built-in http + WebSocket, zero npm dependencies). Instead of spawning a cold Chrome, a Python
 // HTTP server, curl polls, and a `ps` cleanup scan for each of the ~420 checks, this serves the
 // prepared UI and per-run fixture overlays from one in-memory HTTP server and runs each check in
-// an isolated incognito BrowserContext that closes the instant `done()` fires.
+// an isolated incognito BrowserContext on the real clock that closes the instant `done()` fires.
 //
 // Usage (called by scripts/checks.sh):
 //   node scripts/preview/runner.mjs --dir <dir> --plan <plan.json> [--jobs <n>] [--fixture] [--bin <engine>] [--chrome <path>]
@@ -17,6 +17,11 @@ import { createServer } from 'node:http';
 import { homedir, tmpdir } from 'node:os';
 import { extname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
+
+export const FIXTURE_NAME = 'the made-up Mac';
+export const FIXTURE_MARK = `${FIXTURE_NAME}, as its engine named it`;
+export const MAC_USER_AGENT =
+  'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36';
 
 const FIXTURE_FILES = {
   'todos-fixture.json': 'PREVIEW_TODOS',
@@ -61,6 +66,45 @@ const BACKDROP = 'linear-gradient(135deg,rgb(93,111,134),rgb(169,182,196))';
 const GLASS_STYLE =
   'html.is-glass{background:linear-gradient(135deg,color-mix(in srgb,var(--surface) 82%,rgb(120,150,60)),color-mix(in srgb,var(--surface) 82%,rgb(60,120,200)))!important}' +
   "html.is-glass.is-quick .ca-quick::before{content:'';position:absolute;inset:0;z-index:-1;border-radius:inherit;background:linear-gradient(135deg,color-mix(in srgb,var(--surface) 82%,rgb(120,150,60)),color-mix(in srgb,var(--surface) 82%,rgb(60,120,200)))}";
+
+/** Checks that `$dir` holds the expected Mac's snapshots, matching preview.sh's PREVIEW_PREPARE=skip guard. */
+export function assertSnapshotDir(dir, fixture) {
+  if (!existsSync(join(dir, 'board.json'))) {
+    throw new Error(`${dir} has no build and snapshots: run with PREVIEW_PREPARE=only first.`);
+  }
+  const want = fixture ? FIXTURE_MARK : 'this Mac';
+  const markPath = join(dir, 'snapshot-of');
+  const actual = existsSync(markPath) ? readFileSync(markPath, 'utf8').trim() : 'this Mac';
+  if (actual !== want) {
+    throw new Error(
+      `${dir} holds the snapshots of ${actual}, not of ${want}: run with PREVIEW_PREPARE=only first, with PREVIEW_FIXTURE=1 for the made-up Mac and without it for this one.`,
+    );
+  }
+}
+
+/** Verifies the engine supports `--snapshot --fixture name`, matching preview.sh's old-engine guard. */
+export function assertFixtureEngine(bin) {
+  if (!bin) return;
+  let answered = '';
+  try {
+    answered = execFileSync(bin, ['--snapshot', '--fixture', 'name'], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] }).trim();
+  } catch {
+    answered = '';
+  }
+  if (answered !== FIXTURE_NAME) {
+    throw new Error(
+      `The engine at ${bin} has no made-up Mac: it was built before it had one, or isn't a debug build. scripts/engine.sh builds this checkout's, which PREVIEW_BIN is used in place of.`,
+    );
+  }
+}
+
+/** Whether a check should emulate a macOS user-agent/navigator.platform (always for macOS runs on non-Mac runners). */
+export function wantsMacEmulation(vars = {}, { fixture = false, hostPlatform = process.platform } = {}) {
+  const explicit = vars.PREVIEW_PLATFORM || '';
+  if (explicit === 'mac') return true;
+  if (explicit) return false;
+  return fixture || hostPlatform !== 'darwin';
+}
 
 /** Builds the view's default size and injected preview HTML matching scripts/preview.sh. */
 export function buildPreviewPage(indexHtml, run) {
@@ -203,8 +247,13 @@ export function findChrome(explicit) {
   return '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome';
 }
 
-/** In-memory static + per-run virtual HTTP server so every check gets an isolated URL namespace. */
-export function startPreviewServer({ dir, repo, fixture, bin, runs }) {
+/** Pure in-memory static + per-run request resolver (testable without listening on any socket). */
+export function createPreviewHandler({ dir, repo, fixture, bin, runs }) {
+  const absDir = resolve(dir);
+  const absRepo = resolve(repo);
+  assertSnapshotDir(absDir, fixture);
+  if (fixture && bin) assertFixtureEngine(bin);
+
   const fileCache = new Map();
   const readCached = (absPath) => {
     if (fileCache.has(absPath)) return fileCache.get(absPath);
@@ -217,7 +266,7 @@ export function startPreviewServer({ dir, repo, fixture, bin, runs }) {
     return buf;
   };
 
-  const indexHtml = readFileSync(join(dir, 'index.html'), 'utf8');
+  const indexHtml = readFileSync(join(absDir, 'index.html'), 'utf8');
   const runsById = new Map();
   const transcriptCache = new Map();
 
@@ -260,23 +309,29 @@ export function startPreviewServer({ dir, repo, fixture, bin, runs }) {
 
   const defaultImages = fixture ? null : join(homedir(), 'Library/Application Support/Codealong/images');
 
-  const resolveRunPath = (runEntry, relPath) => {
+  const resolveRunPath = (runEntry, rawRelPath) => {
     const { run, page } = runEntry;
     const vars = run.vars || {};
+    let relPath;
+    try {
+      relPath = decodeURIComponent(rawRelPath);
+    } catch {
+      return null;
+    }
 
     if (relPath === 'preview.html') return { body: Buffer.from(page.html), type: MIME['.html'] };
-    if (relPath === 'fake-tauri.js') return { path: join(repo, 'scripts/preview/fake-tauri.js') };
-    if (relPath === 'prelude.js') return { path: join(repo, 'scripts/preview/prelude.js') };
-    if (relPath === 'clock.js' && vars.PREVIEW_DATE) return { path: join(repo, 'scripts/preview/clock.js') };
-    if (relPath === 'lineage-desk.js' && run.view === 'lineage') return { path: join(repo, 'scripts/preview/lineage-desk.js') };
-    if (relPath === 'check.js' && run.check) return { path: resolve(repo, run.check) };
-    if (relPath === 'init.js' && vars.PREVIEW_INIT) return { path: resolve(repo, vars.PREVIEW_INIT) };
-    if (relPath === 'found.json') return { path: vars.PREVIEW_FOUND ? resolve(repo, vars.PREVIEW_FOUND) : join(dir, 'found-here.json') };
-    if (relPath === 'setup.json') return { path: vars.PREVIEW_SETUP ? resolve(repo, vars.PREVIEW_SETUP) : join(dir, 'setup-here.json') };
+    if (relPath === 'fake-tauri.js') return { path: join(absRepo, 'scripts/preview/fake-tauri.js') };
+    if (relPath === 'prelude.js') return { path: join(absRepo, 'scripts/preview/prelude.js') };
+    if (relPath === 'clock.js' && vars.PREVIEW_DATE) return { path: join(absRepo, 'scripts/preview/clock.js') };
+    if (relPath === 'lineage-desk.js' && run.view === 'lineage') return { path: join(absRepo, 'scripts/preview/lineage-desk.js') };
+    if (relPath === 'check.js' && run.check) return { path: resolve(absRepo, run.check) };
+    if (relPath === 'init.js' && vars.PREVIEW_INIT) return { path: resolve(absRepo, vars.PREVIEW_INIT) };
+    if (relPath === 'found.json') return { path: vars.PREVIEW_FOUND ? resolve(absRepo, vars.PREVIEW_FOUND) : join(absDir, 'found-here.json') };
+    if (relPath === 'setup.json') return { path: vars.PREVIEW_SETUP ? resolve(absRepo, vars.PREVIEW_SETUP) : join(absDir, 'setup-here.json') };
 
     if (relPath in FIXTURE_FILES) {
       const val = vars[FIXTURE_FILES[relPath]];
-      return val ? { path: resolve(repo, val) } : null;
+      return val ? { path: resolve(absRepo, val) } : null;
     }
 
     if (relPath === 'transcript.json' || relPath === 'pending.json' || relPath === 'transcript-key.json') {
@@ -290,87 +345,89 @@ export function startPreviewServer({ dir, repo, fixture, bin, runs }) {
     if (relPath.startsWith('files/')) {
       const tr = getTranscript(vars);
       if (!tr) return null;
-      const decoded = decodeURIComponent(relPath.slice('files/'.length));
-      const candidate = decoded.startsWith('/') ? decoded : `/${decoded}`;
+      const tail = relPath.slice('files/'.length);
+      const candidate = tail.startsWith('/') ? tail : `/${tail}`;
       if (tr.sentFiles.has(candidate)) return { path: candidate };
-      if (tr.sentFiles.has(decoded)) return { path: decoded };
+      if (tr.sentFiles.has(tail)) return { path: tail };
       return null;
     }
 
     if (relPath.startsWith('images/')) {
-      const name = decodeURIComponent(relPath.slice('images/'.length));
-      if (name.includes('..')) return null;
+      const name = relPath.slice('images/'.length);
+      if (name.includes('..') || name.startsWith('/')) return null;
       if (vars.PREVIEW_EMBLEMS === 'drawn') {
-        const emblem = join(repo, 'scripts/preview/emblems', name);
+        const emblem = join(absRepo, 'scripts/preview/emblems', name);
         if (existsSync(emblem)) return { path: emblem };
       }
-      const imgDir = vars.PREVIEW_IMAGES ? resolve(repo, vars.PREVIEW_IMAGES) : defaultImages;
+      const imgDir = vars.PREVIEW_IMAGES ? resolve(absRepo, vars.PREVIEW_IMAGES) : defaultImages;
       if (imgDir) {
-        const img = join(imgDir, name);
-        if (existsSync(img)) return { path: img };
+        const img = resolve(imgDir, name);
+        if ((img.startsWith(imgDir + '/') || img === imgDir) && existsSync(img)) return { path: img };
       }
       return null;
     }
 
     // Shared prepared assets & snapshots from $dir (board.json, bar-feed.json, assets/*, etc.).
-    const safe = resolve(dir, relPath);
-    if (!safe.startsWith(resolve(dir) + '/') && safe !== resolve(dir)) return null;
+    const safe = resolve(absDir, relPath);
+    if (!safe.startsWith(absDir + '/') && safe !== absDir) return null;
     return { path: safe };
   };
 
-  const server = createServer((req, res) => {
-    const urlPath = (req.url || '/').split('?')[0];
-    const m = /^\/run\/([^/]+)\/(.*)$/.exec(urlPath);
-    if (!m) {
-      res.writeHead(404);
-      res.end();
-      return;
-    }
+  const servePath = (urlPath, method = 'GET') => {
+    const clean = (urlPath || '/').split('?')[0];
+    const m = /^\/run\/([^/]+)\/(.*)$/.exec(clean);
+    if (!m) return { status: 404 };
     const entry = runsById.get(m[1]);
-    if (!entry) {
-      res.writeHead(404);
-      res.end();
-      return;
-    }
+    if (!entry) return { status: 404 };
     const resolved = resolveRunPath(entry, m[2]);
-    if (!resolved) {
-      res.writeHead(404);
-      res.end();
-      return;
-    }
+    if (!resolved) return { status: 404 };
     let body = resolved.body;
     let type = resolved.type;
     if (!body && resolved.path) {
       body = readCached(resolved.path);
-      if (!body) {
-        res.writeHead(404);
-        res.end();
-        return;
-      }
+      if (!body) return { status: 404 };
       type = MIME[extname(resolved.path).toLowerCase()] || 'application/octet-stream';
     }
-    res.writeHead(200, { 'Content-Type': type || 'application/octet-stream', 'Content-Length': body.length, 'Cache-Control': 'no-store' });
-    if (req.method === 'HEAD') {
-      res.end();
-    } else {
-      res.end(body);
-    }
-  });
+    return {
+      status: 200,
+      type: type || 'application/octet-stream',
+      body: method === 'HEAD' ? Buffer.alloc(0) : body,
+      length: body.length,
+    };
+  };
 
+  const handle = (req, res) => {
+    const out = servePath(req.url, req.method);
+    if (out.status !== 200) {
+      res.writeHead(out.status);
+      res.end();
+      return;
+    }
+    res.writeHead(200, { 'Content-Type': out.type, 'Content-Length': out.length, 'Cache-Control': 'no-store' });
+    res.end(out.body);
+  };
+
+  return { runsById, resolveRunPath, servePath, handle };
+}
+
+/** Starts a localhost HTTP server over `createPreviewHandler`. */
+export function startPreviewServer(opts) {
+  const handler = createPreviewHandler(opts);
+  const server = createServer(handler.handle);
   return new Promise((res, rej) => {
     server.on('error', rej);
     server.listen(0, '127.0.0.1', () => {
       const addr = server.address();
       res({
         port: addr.port,
-        runsById,
+        runsById: handler.runsById,
         close: () => new Promise((done) => server.close(() => done())),
       });
     });
   });
 }
 
-/** Minimal Chrome DevTools Protocol client over Node 24's built-in WebSocket. */
+/** Minimal Chrome DevTools Protocol client over Node 24's built-in WebSocket, with per-call timeouts. */
 class CdpClient {
   constructor(ws) {
     this.ws = ws;
@@ -390,6 +447,7 @@ class CdpClient {
         const p = this.pending.get(msg.id);
         if (p) {
           this.pending.delete(msg.id);
+          clearTimeout(p.timer);
           if (msg.error) p.reject(new Error(`${msg.error.message} (${msg.error.code})`));
           else p.resolve(msg.result || {});
         }
@@ -404,23 +462,32 @@ class CdpClient {
 
     const failAll = (reason) => {
       this.closed = true;
-      for (const p of this.pending.values()) p.reject(new Error(reason));
+      for (const p of this.pending.values()) {
+        clearTimeout(p.timer);
+        p.reject(new Error(reason));
+      }
       this.pending.clear();
     };
     ws.addEventListener('close', () => failAll('CDP WebSocket closed'));
     ws.addEventListener('error', () => failAll('CDP WebSocket error'));
   }
 
-  send(method, params = {}, sessionId = undefined) {
+  send(method, params = {}, sessionId = undefined, timeoutMs = 15_000) {
     if (this.closed) return Promise.reject(new Error('CDP client is closed'));
     const id = this.nextId++;
     const payload = sessionId ? { id, method, params, sessionId } : { id, method, params };
     return new Promise((resolve, reject) => {
-      this.pending.set(id, { resolve, reject });
+      const timer = setTimeout(() => {
+        if (this.pending.delete(id)) {
+          reject(new Error(`CDP ${method} timed out after ${timeoutMs} ms`));
+        }
+      }, timeoutMs);
+      this.pending.set(id, { resolve, reject, timer });
       try {
         this.ws.send(JSON.stringify(payload));
       } catch (e) {
         this.pending.delete(id);
+        clearTimeout(timer);
         reject(e);
       }
     });
@@ -442,6 +509,11 @@ class CdpClient {
 
   close() {
     this.closed = true;
+    for (const p of this.pending.values()) {
+      clearTimeout(p.timer);
+      p.reject(new Error('CDP client closed'));
+    }
+    this.pending.clear();
     try {
       this.ws.close();
     } catch {
@@ -452,8 +524,9 @@ class CdpClient {
 
 /** One persistent headless Chrome process with isolated process-group cleanup. */
 class ChromeWorker {
-  constructor(chromePath) {
+  constructor(chromePath, { fixture = false } = {}) {
     this.chromePath = chromePath;
+    this.fixture = fixture;
     this.proc = null;
     this.profile = null;
     this.cdp = null;
@@ -476,29 +549,38 @@ class ChromeWorker {
       ...(process.platform === 'linux' ? ['--no-sandbox', '--disable-dev-shm-usage'] : []),
       'about:blank',
     ];
-    this.proc = spawn(this.chromePath, args, { detached: true, stdio: ['ignore', 'ignore', 'pipe'] });
+    const proc = spawn(this.chromePath, args, { detached: true, stdio: ['ignore', 'ignore', 'pipe'] });
+    this.proc = proc;
     const wsUrl = await new Promise((resolveUrl, rejectUrl) => {
       let buf = '';
-      const timer = setTimeout(() => rejectUrl(new Error('Chrome did not print DevTools WebSocket URL within 30s')), 30_000);
-      const onExit = (code) => {
+      let settled = false;
+      const cleanupListeners = () => {
         clearTimeout(timer);
-        rejectUrl(new Error(`Chrome exited early (${code}): ${buf.slice(-400)}`));
+        proc.off('exit', onExit);
+        proc.off('error', onError);
+        proc.stderr.off('data', onStderr);
       };
-      this.proc.once('exit', onExit);
-      this.proc.once('error', (err) => {
-        clearTimeout(timer);
-        rejectUrl(err);
-      });
-      this.proc.stderr.on('data', (chunk) => {
+      const done = (fn, arg) => {
+        if (settled) return;
+        settled = true;
+        cleanupListeners();
+        fn(arg);
+      };
+      const timer = setTimeout(() => done(rejectUrl, new Error('Chrome did not print DevTools WebSocket URL within 30s')), 30_000);
+      const onExit = (code) => done(rejectUrl, new Error(`Chrome exited early (${code}): ${buf.slice(-400)}`));
+      const onError = (err) => done(rejectUrl, err);
+      const onStderr = (chunk) => {
         buf += chunk.toString('utf8');
         const m = /DevTools listening on (ws:\/\/[^\s]+)/.exec(buf);
-        if (m) {
-          clearTimeout(timer);
-          this.proc.off('exit', onExit);
-          resolveUrl(m[1]);
-        }
-      });
+        if (m) done(resolveUrl, m[1]);
+      };
+      proc.once('exit', onExit);
+      proc.once('error', onError);
+      proc.stderr.on('data', onStderr);
     });
+
+    // Drain stderr after startup so Chrome never blocks on a full pipe buffer.
+    proc.stderr.resume();
 
     const ws = new WebSocket(wsUrl);
     await new Promise((res, rej) => {
@@ -535,6 +617,10 @@ class ChromeWorker {
           done = true;
           res();
         };
+        if (proc.exitCode !== null || proc.signalCode !== null) {
+          finish();
+          return;
+        }
         proc.once('exit', finish);
         setTimeout(() => {
           try {
@@ -571,9 +657,10 @@ class ChromeWorker {
 
     let browserContextId = null;
     let sessionId = null;
+    let needsRestart = false;
     const unsubs = [];
 
-    try {
+    const runBody = async () => {
       const ctx = await this.cdp.send('Target.createBrowserContext', { disposeOnDetach: true });
       browserContextId = ctx.browserContextId;
       const created = await this.cdp.send('Target.createTarget', {
@@ -592,6 +679,13 @@ class ChromeWorker {
         { width: page.width, height: page.height, deviceScaleFactor: 1, mobile: false },
         sessionId,
       );
+      if (wantsMacEmulation(vars, { fixture: this.fixture })) {
+        await this.cdp.send(
+          'Emulation.setUserAgentOverride',
+          { userAgent: MAC_USER_AGENT, platform: 'MacIntel' },
+          sessionId,
+        );
+      }
       if (vars.PREVIEW_SCHEME === 'dark' || vars.PREVIEW_SCHEME === 'light') {
         await this.cdp.send(
           'Emulation.setEmulatedMedia',
@@ -603,14 +697,14 @@ class ChromeWorker {
 
       const readTitle = async () => {
         try {
-          const r = await this.cdp.send('Runtime.evaluate', { expression: 'document.title', returnByValue: true }, sessionId);
+          const r = await this.cdp.send('Runtime.evaluate', { expression: 'document.title', returnByValue: true }, sessionId, 5_000);
           return typeof r?.result?.value === 'string' ? r.result.value : '';
         } catch {
           return '';
         }
       };
 
-      const outcome = await new Promise((resolveOutcome, rejectOutcome) => {
+      return new Promise((resolveOutcome, rejectOutcome) => {
         let settled = false;
         const timers = [];
         const finish = (val) => {
@@ -660,24 +754,28 @@ class ChromeWorker {
           }, waitMs),
         );
 
-        timers.push(
-          setTimeout(() => {
-            finish({ title: '', timedOut: true, hardLimit: true });
-          }, hardLimitMs),
-        );
-
         this.cdp.send('Page.navigate', { url }, sessionId).catch(fail);
       });
+    };
 
+    // Start the hard-limit timer before any CDP setup call so a hung Chrome can never hold a set.
+    let hardTimer;
+    const hardLimit = new Promise((res) => {
+      hardTimer = setTimeout(() => res({ title: '', timedOut: true, hardLimit: true }), hardLimitMs);
+    });
+
+    try {
+      const outcome = await Promise.race([runBody(), hardLimit]);
+      clearTimeout(hardTimer);
       if (outcome.hardLimit) {
+        needsRestart = true;
         const secs = Math.round(hardLimitMs / 1000);
         return { status: 124, result: `FAIL 0/0 stopped after ${secs} s`, extraLines: [] };
       }
       return formatReport(outcome.title, run.check);
     } catch (err) {
-      // Transport / Chrome crash: restart worker so subsequent runs stay clean, report status 3
-      // (retryable infrastructure failure, matching preview.sh).
-      await this.restart().catch(() => {});
+      clearTimeout(hardTimer);
+      needsRestart = true;
       return {
         status: 3,
         result: 'FAIL 0/0 no result: Chrome never showed the page',
@@ -685,9 +783,17 @@ class ChromeWorker {
         err: err instanceof Error ? err.message : String(err),
       };
     } finally {
+      clearTimeout(hardTimer);
       for (const u of unsubs) u();
-      if (browserContextId && this.cdp && !this.cdp.closed) {
-        await this.cdp.send('Target.disposeBrowserContext', { browserContextId }).catch(() => {});
+      if (!needsRestart && browserContextId && this.cdp && !this.cdp.closed) {
+        try {
+          await this.cdp.send('Target.disposeBrowserContext', { browserContextId }, undefined, 5_000);
+        } catch {
+          needsRestart = true;
+        }
+      }
+      if (needsRestart) {
+        await this.restart().catch(() => {});
       }
     }
   }
@@ -719,7 +825,7 @@ async function main() {
   const srv = await startPreviewServer({ dir: resolve(opts.dir), repo: resolve(opts.repo), fixture: opts.fixture, bin: opts.bin, runs });
 
   const workerCount = Math.min(opts.jobs, Math.max(1, runs.length));
-  const workers = Array.from({ length: workerCount }, () => new ChromeWorker(chromePath));
+  const workers = Array.from({ length: workerCount }, () => new ChromeWorker(chromePath, { fixture: opts.fixture }));
   let shuttingDown = false;
   const shutdown = async () => {
     if (shuttingDown) return;

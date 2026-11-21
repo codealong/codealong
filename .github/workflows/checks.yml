@@ -2,15 +2,16 @@
 # scripts/preview/fixture-passes.txt, in headless Chrome over the engine's debug build), run on
 # main after what lands there rather than before it.
 #
-# Not in the merge queue's run (ci.yml), though they're as much a check as the others: on
-# GitHub's macOS runners the list takes about ninety minutes of one machine, and the plan runs
-# five macOS machines at once for the whole repository. Run for every landing they would hold
-# each one up for longer than the busy Mac did, and the queue behind it. Here one run goes at
-# a time and, while it does, only one of the runs waiting stays (GitHub keeps the last to
-# arrive, which needn't be the latest push's). So a run on main checks main as it is when the
-# run starts, not the commit that started it (unless this file has changed between the two,
-# when it checks its own): however fast changes land, each run covers everything landed by
-# then, and a failure names the stretch since the last run that passed.
+# Not in the merge queue's run (ci.yml), though they're as much a check as the others: the full
+# list runs in parallel across four Ubuntu runners over persistent headless Chrome workers
+# (scripts/preview/runner.mjs) against the Linux debug engine (`--snapshot --fixture` runs as if
+# on macOS via os::AsIf). Keeping them post-merge lets one run cover everything landed since the
+# last green run without delaying every merge-queue entry. Here one run goes at a time and, while
+# it does, only one of the runs waiting stays (GitHub keeps the last to arrive, which needn't be
+# the latest push's). So a run on main checks main as it is when the run starts, not the commit
+# that started it (unless this file has changed between the two, when it checks its own): however
+# fast changes land, each run covers everything landed by then, and a failure names the stretch
+# since the last run that passed.
 # GitHub lists a run under the commit that started it, so each says which commit it checked
 # in an artifact's name (`tested-<commit>`), which is what the next run's plan and a release
 # go by. A red run is somebody's (scripts/watch-main.sh, docs/development.md, *Keeping main
@@ -218,6 +219,9 @@ jobs:
             exit 1
           fi
           echo "Run again by themselves: $(echo $again)"
+          # How the second run comes out is read from its results, run by run (a check has
+          # several: the notch, the peek…): the same run failing both times is a failure, and
+          # any other that failed once is unsteady, in whichever of the two.
           # shellcheck disable=SC2086
           scripts/checks.sh --fixture --prepared --listed --jobs=1 "--results=$RUNNER_TEMP/again.tsv" $again || true
           if [ ! -s "$RUNNER_TEMP/again.tsv" ]; then

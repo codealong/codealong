@@ -13,13 +13,18 @@ how a check's own header names its runs, `prelude.js`'s what a check gets (`say`
 `done`, `stopped`) and how its result is printed, and `fake-tauri.js`'s how commands are recorded
 (`window.__calls`) and which went unanswered (`window.__unknown`). What they don't say:
 
-- In check mode Chrome runs on virtual time, which stands still while scripts run, and draws no
-  frames, so scroll events never arrive; and it resizes the page just before a screenshot, which
-  closes whatever closes on resize. `PREVIEW_WAIT=<ms>` runs a check on the real clock with
-  frames instead.
-- A check's page is the size its view asks for (the bar's 1200 by 64, say), the window taller by
-  Chrome's own frame; the prelude notes one that isn't (on virtual time a page is 500 wide at
-  least).
+- In single-check mode (`scripts/preview.sh`) Chrome runs on virtual time, which stands still while
+  scripts run, and draws no frames, so scroll events never arrive; and it resizes the page just
+  before a screenshot, which closes whatever closes on resize. `PREVIEW_WAIT=<ms>` runs it on the
+  real clock with frames instead. Under `scripts/checks.sh` (the default persistent-Chrome CDP
+  runner, `scripts/preview/runner.mjs`), every check runs on the real clock in an isolated
+  `BrowserContext` sized to the exact viewport and completes as soon as `done()` calls
+  `__codealongDone` (with `CHECKS_LEGACY=1` falling back to per-check `preview.sh` spawns).
+- A check's page is the size its view asks for (the bar's 1200 by 64, say): `runner.mjs` sets the
+  exact viewport via `Emulation.setDeviceMetricsOverride`, while `preview.sh` sizes the window
+  taller by Chrome's own frame (on virtual time a browser window is 500 wide at least); the prelude
+  notes one that isn't. On Linux, `runner.mjs` and `preview.sh` emulate a macOS user agent whenever
+  `PREVIEW_PLATFORM` is unset so macOS key checks hold on Ubuntu CI runners.
 - The engine the preview runs is this checkout's own: `scripts/engine.sh` builds it (debug) when
   src-tauri has changed and copies it to `.preview/engine/codealong`. `PREVIEW_BIN` runs another.
 - `scripts/checks.sh --fixture` is the gate: it runs the runs `scripts/preview/fixture-passes.txt`

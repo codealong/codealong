@@ -42,7 +42,8 @@ changed argument is written here in the same change.
   sessions in every state, PRs, todos, usage), or with a mode's name what that mode prints for
   it. The same on every Mac, with its times counted back from now: what `scripts/checks.sh
   --fixture` and `PREVIEW_FIXTURE=1 scripts/preview.sh` render. Its sessions' keys read as
-  what they are (`claude:claude:checkout-approval`). A debug build's only, and macOS's.
+  what they are (`claude:claude:checkout-approval`). A debug build's only; runs as if on macOS
+  (`os::AsIf`) so Linux CI runners can build and snapshot it too.
   `name` prints `the made-up Mac` and nothing else: an engine from before it had one printed
   this Mac's board for `--fixture`, so `scripts/preview.sh` asks for the name first.
 
