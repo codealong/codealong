@@ -21,6 +21,7 @@ describe('fitGroups', () => {
     snoozed: 0,
     recent: 0,
     reviews,
+    merges: 0,
     due: 0,
     todos: 0,
     note: 0,

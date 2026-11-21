@@ -2204,6 +2204,9 @@ const OWN_REVIEWS_COMMENT: &str = "# [reviews.own] auto: an agent reviews each o
 # Nothing goes on GitHub.
 ";
 const QUEUE_COMMENT: &str = "# What waits on you, in the order the notch, the waiting window and the main window's panels go through it:\n# \"needs\", sessions that need you; \"reviews\", PRs waiting on your review; \"merges\", PRs of yours ready to\n# merge that nothing else brings to you; \"due\", unassigned todos due; \"unread\", sessions whose turn ended;\n# \"ready\", unassigned todos ready to start, which come last. One left out doesn't wait on you, but sessions\n# always do.\n# due_within: how many days before its due date an unassigned todo comes due: 0 on the day.\n";
+/// The comment `[queue]` got before `"merges"` was divided from `"reviews"`, replaced in place
+/// when `with_queue_merges` updates an older file.
+const OLD_QUEUE_COMMENT: &str = "# What waits on you, in the order the notch, the waiting window and the main window's panels go through it:\n# \"needs\", sessions that need you; \"reviews\", PRs waiting on your review, and yours ready to merge that nothing\n# else brings to you; \"due\", unassigned todos due; \"unread\", sessions whose turn ended; \"ready\", unassigned\n# todos ready to start, which come last. One left out doesn't wait on you, but sessions always do.\n# due_within: how many days before its due date an unassigned todo comes due: 0 on the day.\n";
 const EXPERIMENTAL_COMMENT: &str = "# Features still being tried out, each off until it's turned on. boards: the main window's Board view, as\n# Kanban and as Canvas, Add to board in the menus, and `codealong board`. voice: a key held to talk to the\n# session you're looking at or to your orchestrator, and sessions that listen to a meeting ([voice]).\n# analytics: who began each session and turn, what your prompts did with what the agent had said, and how\n# the sessions you marked done stood, in the Analytics window and `codealong analytics`.\n";
 const VOICE_COMMENT: &str = "# Voice, once [experimental] voice is on. locale: the language spoken, such as \"en-US\"; \"\" for this Mac's own.\n# send_on_release: what you say to your orchestrator is sent as you let go of the key, not put in its box\n# first. tell_every: how often, in seconds, a session that listens is told what's new, at most.\n# meetings: as a meeting in your calendar is about to start, offer to take its notes, in a folder of its own\n# under meetings_folder (\"\" for meetings beside this file), by a session on meeting_account (an account, a\n# routing group, or \"\" for Auto) and meeting_model, meeting_lead minutes before it starts, but for the\n# calendars in meeting_calendars_off (by id; Settings lists them). meeting_countdown: from how many minutes\n# before, the notch, the floating bar and the Meetings button count down to it (0 for none).\n";
 const REPOS_COMMENT: &str = "# Your settings for one repo's pull requests, over [reviews] and [pull_requests] and over what the repo's\n# .codealong/config.toml sets for its team. Settings › Automation sets them with the repo picked.\n";
@@ -2547,6 +2550,43 @@ pub fn check_sounds(sounds: &SoundsCfg) -> std::result::Result<(), String> {
 pub fn save(cfg: &Config) -> Result<()> {
     check(cfg).map_err(anyhow::Error::msg)?;
     update(|text| Ok((with_config(text, cfg)?, ())))
+}
+
+/// Adds `"merges"` after `"reviews"` in an existing `[queue] order` written before `"merges"`
+/// became its own kind, run once per install (`state.rs` `queue_merges_split`). Leaves files
+/// without `[queue]`, without `"reviews"`, or with `"merges"` already untouched.
+pub fn migrate_queue_merges() -> Result<bool> {
+    let Some(text) = read_text()? else { return Ok(false) };
+    if with_queue_merges(&text)?.is_none() {
+        return Ok(false);
+    }
+    update(|t| match with_queue_merges(t)? {
+        Some(next) => Ok((next, true)),
+        None => Ok((t.to_string(), false)),
+    })
+}
+
+/// `text` with `"merges"` inserted right after `"reviews"` in `[queue] order`, when the file has
+/// an explicit `[queue] order` that names `"reviews"` and not `"merges"`. None when nothing needs
+/// to change.
+pub fn with_queue_merges(text: &str) -> Result<Option<String>> {
+    use toml_edit::{Array, Item, Value};
+    let mut doc: toml_edit::DocumentMut = text.parse().context("config.toml has an error")?;
+    let Some(table) = doc.get_mut("queue").and_then(Item::as_table_mut) else { return Ok(None) };
+    let Some(order) = table.get("order").and_then(Item::as_array) else { return Ok(None) };
+    let mut items: Vec<String> = order.iter().filter_map(|v| v.as_str().map(|s| s.trim().to_string())).collect();
+    if items.len() != order.len() || items.iter().any(|k| k == "merges") {
+        return Ok(None);
+    }
+    let Some(at) = items.iter().position(|k| k == "reviews") else { return Ok(None) };
+    items.insert(at + 1, "merges".into());
+    set_value(&mut table["order"], Value::Array(Array::from_iter(items.iter().map(String::as_str))));
+    if let Some(prefix) = table.decor().prefix().and_then(|p| p.as_str()).map(str::to_string) {
+        if prefix.contains(OLD_QUEUE_COMMENT) {
+            table.decor_mut().set_prefix(prefix.replace(OLD_QUEUE_COMMENT, QUEUE_COMMENT));
+        }
+    }
+    Ok(Some(doc.to_string()))
 }
 
 /// Saves config.toml as typed, once it parses as settings: the whole of it, as you see it in
@@ -4042,6 +4082,29 @@ mod tests {
         // Back to the default, the table stays, saying so.
         let back = with_config(&out, &full()).unwrap();
         assert!(back.contains("[queue]\norder = [\"needs\", \"reviews\", \"merges\", \"due\", \"unread\", \"ready\"]\ndue_within = 0\n"), "{back}");
+    }
+
+    #[test]
+    fn migrating_an_old_queue_adds_merges_after_reviews_once() {
+        // An existing [queue] from before merges became its own kind: merges goes right after
+        // reviews, keeping the rest of the order, comments and due_within, and refreshing the old
+        // stock comment.
+        let old = format!("{OLD_QUEUE_COMMENT}[queue]\norder = [\"needs\", \"reviews\", \"due\", \"unread\"] # mine\ndue_within = 1\n");
+        let migrated = with_queue_merges(&old).unwrap().expect("migrates old queue");
+        assert!(migrated.contains(&format!("{QUEUE_COMMENT}[queue]\norder = [\"needs\", \"reviews\", \"merges\", \"due\", \"unread\"] # mine\ndue_within = 1\n")), "{migrated}");
+        assert_eq!(parse(&migrated).unwrap().queue, QueueCfg { order: vec!["needs".into(), "reviews".into(), "merges".into(), "due".into(), "unread".into()], due_within: 1 });
+        // Already migrated (or already naming merges): untouched.
+        assert_eq!(with_queue_merges(&migrated).unwrap(), None);
+        assert_eq!(with_queue_merges("[queue]\norder = [\"merges\", \"needs\", \"reviews\", \"unread\"]\n").unwrap(), None);
+        // Reviews put first: merges still goes right after reviews.
+        let first = with_queue_merges("[queue]\norder = [\"reviews\", \"needs\", \"unread\"]\n").unwrap().unwrap();
+        assert_eq!(parse(&first).unwrap().queue.kinds(), vec!["reviews", "merges", "needs", "unread"]);
+        // Reviews already turned off, no [queue] table, or no order key: untouched.
+        assert_eq!(with_queue_merges("[queue]\norder = [\"needs\", \"due\", \"unread\"]\n").unwrap(), None);
+        assert_eq!(with_queue_merges("scan = [\"~/projects\"]\n").unwrap(), None);
+        assert_eq!(with_queue_merges("[queue]\ndue_within = 2\n").unwrap(), None);
+        // Broken TOML errors rather than silently passing.
+        assert!(with_queue_merges("[queue\norder = [").is_err());
     }
 
     #[test]

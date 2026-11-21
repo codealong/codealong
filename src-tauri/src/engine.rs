@@ -712,6 +712,7 @@ impl Engine {
     fn full_scan(&mut self) {
         self.load_config();
         self.load_state();
+        self.migrate_queue_merges();
         // From the first board on, and for `keep_last_good` should the first read be turned away.
         self.usage = usage::kept(&self.cfg.accounts, now_ms());
         self.remember_accounts();
@@ -761,7 +762,8 @@ impl Engine {
     fn reload(&mut self) {
         let before = self.cfg.clone();
         self.load_config();
-        if self.remember_accounts() {
+        let migrated = self.migrate_queue_merges();
+        if self.remember_accounts() || migrated {
             self.save_state();
         }
         let mut rest = self.cfg.clone();
@@ -1357,6 +1359,28 @@ impl Engine {
     fn remember_accounts(&mut self) -> bool {
         let keys: Vec<String> = self.cfg.accounts.iter().map(|a| detect::folder_key(&a.home)).collect();
         self.seen.know_accounts(keys)
+    }
+
+    /// One-time migration for config files written before `"merges"` became its own kind in
+    /// `[queue] order`: inserts `"merges"` right after `"reviews"` so ready-to-merge PRs keep
+    /// waiting on you after updating, without undoing a later toggle off. True when `seen` changed.
+    fn migrate_queue_merges(&mut self) -> bool {
+        if self.passing || self.state_unreadable || cfg!(test) || self.seen.queue_merges_split || self.config_text.is_none() {
+            return false;
+        }
+        match config::migrate_queue_merges() {
+            Ok(changed) => {
+                self.seen.queue_merges_split = true;
+                if changed {
+                    self.load_config();
+                }
+                true
+            }
+            Err(e) => {
+                eprintln!("Couldn't migrate [queue] order for merges: {e:#}");
+                false
+            }
+        }
     }
 
     fn load_previews(&mut self) {

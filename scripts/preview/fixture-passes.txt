@@ -73,6 +73,7 @@ PREVIEW_SIZE=1200,900 PREVIEW_WAIT=120000 PREVIEW_USAGE=scripts/preview/usage-sa
 PREVIEW_SIZE=1512,720 PREVIEW_WAIT=60000 scripts/preview.sh notch '' scripts/preview/voice-meeting-check.js
 PREVIEW_SIZE=1512,720 PREVIEW_WAIT=60000 scripts/preview.sh notch '' scripts/preview/voice-notch-check.js
 PREVIEW_SIZE=1512,720 scripts/preview.sh notch '' scripts/preview/card-main-window-check.js
+PREVIEW_SIZE=1512,980 PREVIEW_WAIT=150000 scripts/preview.sh notch '' scripts/preview/notch-merge-check.js
 PREVIEW_SIZE=1512,980 PREVIEW_WAIT=150000 scripts/preview.sh notch '' scripts/preview/notch-pr-check.js
 PREVIEW_SIZE=1512,980 PREVIEW_WAIT=150000 scripts/preview.sh notch '' scripts/preview/notch-review-check.js
 PREVIEW_SIZE=1512,980 PREVIEW_WAIT=150000 scripts/preview.sh notch '' scripts/preview/notch-session-check.js

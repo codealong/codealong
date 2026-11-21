@@ -1080,6 +1080,7 @@ export function Bar() {
             stage.key && stage.kind === 'review' ? (
               <NotchReview
                 prKey={stage.key}
+                anchor={stage.prMerge ? 'merges' : 'reviews'}
                 now={now}
                 zoom={feed?.zoom}
                 queue={stage.queue}
@@ -1100,7 +1101,7 @@ export function Bar() {
                     return;
                   }
                   stage.close();
-                  setFailed({ anchor: merges.some((p) => p.key === key) ? 'merges' : 'reviews', message: `${key} no longer waits on you.` });
+                  setFailed({ anchor: stage.prMerge ? 'merges' : 'reviews', message: `${key} no longer waits on you.` });
                 }}
               />
             ) : stage.key && stage.kind === 'todo' ? (
