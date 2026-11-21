@@ -7,8 +7,8 @@
 //
 // Without a file it downloads the list. Claude's fast mode is a multiple LiteLLM gives as
 // `provider_specific_entry.fast`; FAST has the ones its list lacks, from Anthropic's pricing (6x
-// on Opus 4.6). FIXES are prices LiteLLM has wrong, checked against Anthropic's own (2026-10-12,
-// and Sonnet 5.5's still on 2026-11-18).
+// on Opus 4.6). FIXES is for prices LiteLLM has wrong against the provider's own pricing page
+// (empty as of 2026-11-21: Sonnet 5.5's $0.10 cache read matches Anthropic's 0.05x rate).
 import { readFileSync, writeFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 
@@ -16,7 +16,7 @@ const root = resolve(import.meta.dirname, '..');
 const SOURCE = 'https://raw.githubusercontent.com/BerriAI/litellm/main/model_prices_and_context_window.json';
 const PROVIDERS = new Set(['anthropic', 'openai', 'gemini']);
 const FAST = { 'claude-opus-4-6': 6 };
-const FIXES = { 'claude-sonnet-5-5': { cache_read: 0.2 } };
+const FIXES = {};
 // Models a harness records under a name of its own: Codex's automatic approval reviews name the
 // server's alias, which has run GPT-5.6 Luna since 2026-07-30 (as ccusage's Codex notes have it).
 const ALIASES = { 'codex-auto-review': 'gpt-5.6-luna' };

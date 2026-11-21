@@ -1,6 +1,6 @@
 {
  "source": "https://raw.githubusercontent.com/BerriAI/litellm/main/model_prices_and_context_window.json",
- "as_of": "2026-11-19",
+ "as_of": "2026-11-21",
  "per": "dollars per million tokens; search is dollars per web search",
  "models": {
   "chat-latest": {"input":5,"output":30,"cache_read":0.5,"context":400000},
@@ -27,7 +27,7 @@
   "claude-sonnet-4-5-20250929": {"input":3,"output":15,"cache_read":0.3,"cache_write":3.75,"cache_write_1h":6,"search":0.01,"context":200000},
   "claude-sonnet-4-6": {"input":3,"output":15,"cache_read":0.3,"cache_write":3.75,"cache_write_1h":6,"search":0.01,"context":1000000},
   "claude-sonnet-5": {"input":2,"output":10,"cache_read":0.2,"cache_write":2.5,"cache_write_1h":4,"search":0.01,"context":1000000},
-  "claude-sonnet-5-5": {"input":2,"output":10,"cache_read":0.2,"cache_write":2.5,"cache_write_1h":4,"search":0.01,"context":1000000},
+  "claude-sonnet-5-5": {"input":2,"output":10,"cache_read":0.1,"cache_write":2.5,"cache_write_1h":4,"search":0.01,"context":1000000},
   "computer-use-preview": {"input":3,"output":12,"context":8192},
   "computer-use-preview-2025-03-11": {"input":3,"output":12,"context":8192},
   "daybreak-blue-latest": {"input":4,"output":20,"cache_read":0.4,"cache_write":5,"above":{"tokens":272000,"input":8,"output":30,"cache_read":0.8,"cache_write":10},"context":922000},
@@ -144,7 +144,7 @@
   "gpt-6-astra-law": {"input":10,"output":50,"cache_read":1,"search":0.01,"above":{"tokens":272000,"input":20,"output":75,"cache_read":2},"context":922000},
   "gpt-6-cyber": {"input":20,"output":100,"cache_read":2,"cache_write":25,"above":{"tokens":272000,"input":40,"output":150,"cache_read":4},"context":922000},
   "gpt-6-luna": {"input":0.1,"output":0.5,"cache_read":0.01,"cache_write":0.125,"search":0.01,"above":{"tokens":272000,"input":0.2,"output":0.75,"cache_read":0.02,"cache_write":0.25,"priority":{"input":0.4,"output":1.5,"cache_read":0.04,"cache_write":0.5}},"priority":{"input":0.2,"output":1,"cache_read":0.02,"cache_write":0.25},"context":922000},
-  "gpt-6-rosalind": {"input":10,"output":50,"cache_read":1,"cache_write":18.75,"above":{"tokens":272000,"input":30,"output":112.5,"cache_read":3,"cache_write":37.5},"context":922000},
+  "gpt-6-rosalind": {"input":10,"output":50,"cache_read":1,"cache_write":12.5,"above":{"tokens":272000,"input":20,"output":75,"cache_read":2,"cache_write":25},"context":922000},
   "gpt-6-sol": {"input":2,"output":10,"cache_read":0.2,"cache_write":2.5,"search":0.01,"above":{"tokens":272000,"input":4,"output":15,"cache_read":0.4,"cache_write":5,"priority":{"input":8,"output":30,"cache_read":0.8,"cache_write":10}},"priority":{"input":4,"output":20,"cache_read":0.4,"cache_write":5},"context":922000},
   "gpt-6.1-sol": {"input":2,"output":10,"cache_read":0.1,"cache_write":2.5,"search":0.01,"above":{"tokens":272000,"input":4,"output":15,"cache_read":0.2,"cache_write":5,"priority":{"input":8,"output":30,"cache_read":0.4,"cache_write":10}},"priority":{"input":4,"output":20,"cache_read":0.2,"cache_write":5},"context":922000},
   "gpt-6.1-terra": {"input":1,"output":5,"cache_read":0.05,"cache_write":1.25,"search":0.01,"above":{"tokens":272000,"input":2,"output":7.5,"cache_read":0.1,"cache_write":2.5,"priority":{"input":4,"output":15,"cache_read":0.2,"cache_write":5}},"priority":{"input":2,"output":10,"cache_read":0.1,"cache_write":2.5},"context":922000},
