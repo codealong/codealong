@@ -842,7 +842,7 @@ port = 47471                   # the TCP port Codealong listens on there, on thi
 iroh = true                    # reach linked devices anywhere
 remote_control = false         # let linked devices act on sessions here
 in_bar = true                  # their sessions show in the bar, the notch and Waiting on you too, while they're connected
-automations = "first"          # what your machines share (a review of a PR that asks for yours, a schedule that runs on one of them) runs on one; "backup" runs it only when no first choice can
+automations = "first"          # what your machines share (a review of a PR, a schedule that runs on one of them) runs on one; "backup" runs it only when no first choice can
 
 [limits]
 when_hit = "suggest"           # a session stopped at its usage limit offers a move; "move" moves it (Settings › Automation)
