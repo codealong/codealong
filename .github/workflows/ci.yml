@@ -67,8 +67,8 @@ jobs:
     outputs:
       ui: ${{ steps.plan.outputs.ui }}
       engine: ${{ steps.plan.outputs.engine }}
-      warm_linux: ${{ steps.plan.outputs.warm_linux }}
-      warm_macos: ${{ steps.plan.outputs.warm_macos }}
+      linux: ${{ steps.plan.outputs.linux }}
+      macos: ${{ steps.plan.outputs.macos }}
       said: ${{ steps.plan.outputs.said }}
     steps:
       - uses: actions/checkout@v7
@@ -110,7 +110,7 @@ jobs:
             words=""
             deps_changed=false
             if [ -n "$BASE" ] && git fetch -q --no-tags --depth=1 origin "$BASE"; then
-              if git diff --name-only "$BASE" HEAD -- src-tauri/Cargo.lock src-tauri/Cargo.toml 'src-tauri/*/Cargo.toml' .cargo/config.toml .github/workflows/ci.yml | grep -q .; then
+              if git diff --name-only "$BASE" HEAD -- src-tauri/Cargo.lock src-tauri/Cargo.toml 'src-tauri/*/Cargo.toml' .cargo/config.toml | grep -q .; then
                 deps_changed=true
               fi
             fi
@@ -144,14 +144,26 @@ jobs:
           fi
           echo "${said:-Calls for: $words}"
           echo "said=$said" >> "$GITHUB_OUTPUT"
-          echo "warm_linux=$warm_linux" >> "$GITHUB_OUTPUT"
-          echo "warm_macos=$warm_macos" >> "$GITHUB_OUTPUT"
+          engine=false
           for word in $all; do
             case " $words " in
-              *" $word "*) echo "$word=true" >> "$GITHUB_OUTPUT" ;;
+              *" $word "*)
+                echo "$word=true" >> "$GITHUB_OUTPUT"
+                [ "$word" = engine ] && engine=true
+                ;;
               *) echo "$word=false" >> "$GITHUB_OUTPUT" ;;
             esac
           done
+          if [ "$engine" = true ] || [ "$warm_linux" = true ]; then
+            echo "linux=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "linux=false" >> "$GITHUB_OUTPUT"
+          fi
+          if [ "$engine" = true ] || [ "$warm_macos" = true ]; then
+            echo "macos=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "macos=false" >> "$GITHUB_OUTPUT"
+          fi
 
   # The windows: the typecheck and the bundle, the linter, the unit tests.
   ui:
@@ -176,7 +188,13 @@ jobs:
   linux:
     name: engine (Linux)
     needs: plan
-    if: needs.plan.outputs.engine == 'true' || needs.plan.outputs.warm_linux == 'true'
+    if: needs.plan.outputs.linux == 'true'
+    continue-on-error: ${{ needs.plan.outputs.engine != 'true' }}
+    concurrency:
+      # Warm-only pushes serialize one per platform (keeping only the latest waiting) so rapid
+      # landings never pile up redundant cold builds; real check runs never block each other.
+      group: ${{ needs.plan.outputs.engine != 'true' && 'ci-warm-linux' || format('ci-linux-{0}-{1}', github.event_name, github.run_id) }}
+      cancel-in-progress: false
     runs-on: ubuntu-24.04
     timeout-minutes: 60
     env:
@@ -206,31 +224,41 @@ jobs:
         run: mkdir -p dist && printf '<!doctype html>' > dist/index.html
       - uses: dtolnay/rust-toolchain@stable
       # Ghostty's terminal library (libghostty-vt) builds from Ghostty's source with Zig, the
-      # version the pinned Ghostty asks for (docs/development.md).
+      # version the pinned Ghostty asks for (docs/development.md). use-cache is off because
+      # setup-zig saves a new run-id-keyed cache on every run, blowing past GitHub's 10 GiB cap
+      # and evicting the Rust caches (which already hold libghostty-vt-sys's compiled output).
       - uses: mlugg/setup-zig@v2
         with:
           version: 0.17.0
+          use-cache: false
       - uses: Swatinem/rust-cache@v2
         with:
           workspaces: "src-tauri -> ../../target"
           # Main's runs write the cache; a change's run reads it.
           save-if: ${{ github.ref == 'refs/heads/main' }}
+      # --lib tests codealong_lib and codealong-peer without compiling src/main.rs's empty test
+      # binary (which would compile codealong_lib a second time without cfg(test)); neither crate
+      # has integration tests.
       - name: cargo test
         working-directory: src-tauri
         env:
           ONLY_WARM: ${{ needs.plan.outputs.engine != 'true' && '1' || '' }}
         run: |
           if [ -n "$ONLY_WARM" ]; then
-            cargo test --no-run --locked
+            cargo test --no-run --locked --lib
           else
-            cargo test --locked
+            cargo test --locked --lib
           fi
 
   # The engine on macOS, where most of what it does is: the same macOS as the app is built on.
   macos:
     name: engine (macOS)
     needs: plan
-    if: needs.plan.outputs.engine == 'true' || needs.plan.outputs.warm_macos == 'true'
+    if: needs.plan.outputs.macos == 'true'
+    continue-on-error: ${{ needs.plan.outputs.engine != 'true' }}
+    concurrency:
+      group: ${{ needs.plan.outputs.engine != 'true' && 'ci-warm-macos' || format('ci-macos-{0}-{1}', github.event_name, github.run_id) }}
+      cancel-in-progress: false
     runs-on: macos-26
     timeout-minutes: 90
     env:
@@ -260,6 +288,7 @@ jobs:
       - uses: mlugg/setup-zig@v2
         with:
           version: 0.17.0
+          use-cache: false
       - uses: Swatinem/rust-cache@v2
         with:
           workspaces: "src-tauri -> ../../target"
@@ -270,9 +299,9 @@ jobs:
           ONLY_WARM: ${{ needs.plan.outputs.engine != 'true' && '1' || '' }}
         run: |
           if [ -n "$ONLY_WARM" ]; then
-            cargo test --no-run --locked
+            cargo test --no-run --locked --lib
           else
-            cargo test --locked
+            cargo test --locked --lib
           fi
 
   # The one check main's rules name. It passes when the plan was made and every check it
@@ -289,8 +318,9 @@ jobs:
           PLAN: ${{ needs.plan.result }}
           SAID: ${{ needs.plan.outputs.said }}
           UI: ${{ needs.plan.outputs.ui }} ${{ needs.ui.result }}
-          ENGINE_LINUX: ${{ (needs.plan.outputs.engine == 'true' || needs.plan.outputs.warm_linux == 'true') && 'true' || 'false' }} ${{ needs.linux.result }}
-          ENGINE_MACOS: ${{ (needs.plan.outputs.engine == 'true' || needs.plan.outputs.warm_macos == 'true') && 'true' || 'false' }} ${{ needs.macos.result }}
+          ENGINE: ${{ needs.plan.outputs.engine }}
+          LINUX: ${{ needs.plan.outputs.linux }} ${{ needs.linux.result }}
+          MACOS: ${{ needs.plan.outputs.macos }} ${{ needs.macos.result }}
         run: |
           [ -z "$SAID" ] || echo "$SAID"
           went=0
@@ -302,7 +332,19 @@ jobs:
               *) echo "$1 wasn't called for, and yet: ${2#* }."; went=1 ;;
             esac
           }
+          held_warm() {
+            case "$2" in
+              "true success" | "false skipped") echo "$1 (cache warm): ${2#* }" ;;
+              true\ *) echo "::warning title=Rust cache warm::$1 cache warm did not finish (${2#* })." ;;
+              *) echo "$1 wasn't called for, and yet: ${2#* }."; went=1 ;;
+            esac
+          }
           held "ui" "$UI"
-          held "engine (Linux)" "$ENGINE_LINUX"
-          held "engine (macOS)" "$ENGINE_MACOS"
+          if [ "$ENGINE" = true ]; then
+            held "engine (Linux)" "$LINUX"
+            held "engine (macOS)" "$MACOS"
+          else
+            held_warm "engine (Linux)" "$LINUX"
+            held_warm "engine (macOS)" "$MACOS"
+          fi
           exit "$went"

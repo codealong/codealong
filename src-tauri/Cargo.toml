@@ -26,15 +26,6 @@ crate-type = ["rlib"]
 # cargo test.
 doctest = false
 
-# src/main.rs is a thin dispatch into codealong_lib with no tests of its own: leaving cargo's
-# default `test = true` on the binary compiled the entire library a second time (without cfg(test))
-# on every `cargo test` just to link an empty test binary.
-[[bin]]
-name = "codealong"
-path = "src/main.rs"
-test = false
-doctest = false
-
 [build-dependencies]
 tauri-build = { version = "2", features = [] }
 
@@ -112,67 +103,12 @@ tauri = { version = "2", features = ["test"] }
 # No debug information in development and test builds (the test profile inherits this one): a
 # panic still names its file and line. On macOS line tables stay in each build's object files,
 # which cargo leaves in the shared build directory: 300,000 of them, 72 GB, before this.
-# Only the CPU-hot crates that board snapshots, SQLite readers, hashing, PNG encoding and Ghostty's
-# terminal emulator spend time in are optimized in dev/test builds: optimizing all ~670 crates
-# (including tauri, iroh, objc2-app-kit, gtk, clap) doubled cold CI compile times for no gain.
+# Dependencies are optimized. They compile once for every worktree, and the debug engine the
+# browser checks snapshot with (scripts/engine.sh) spends its time in them reading a board.
 [profile.dev]
 debug = false
 
-[profile.dev.package.serde]
-opt-level = 2
-[profile.dev.package.serde_core]
-opt-level = 2
-[profile.dev.package.serde_json]
-opt-level = 2
-[profile.dev.package.memchr]
-opt-level = 2
-[profile.dev.package.aho-corasick]
-opt-level = 2
-[profile.dev.package.regex]
-opt-level = 2
-[profile.dev.package.regex-automata]
-opt-level = 2
-[profile.dev.package.regex-syntax]
-opt-level = 2
-[profile.dev.package.rusqlite]
-opt-level = 2
-[profile.dev.package.libsqlite3-sys]
-opt-level = 2
-[profile.dev.package.sha2]
-opt-level = 2
-[profile.dev.package.ring]
-opt-level = 2
-[profile.dev.package.blake3]
-opt-level = 2
-[profile.dev.package.toml]
-opt-level = 2
-[profile.dev.package.toml_edit]
-opt-level = 2
-[profile.dev.package.toml_parser]
-opt-level = 2
-[profile.dev.package.png]
-opt-level = 2
-[profile.dev.package.flate2]
-opt-level = 2
-[profile.dev.package.fdeflate]
-opt-level = 2
-[profile.dev.package.miniz_oxide]
-opt-level = 2
-[profile.dev.package.crc32fast]
-opt-level = 2
-[profile.dev.package.libghostty-vt]
-opt-level = 2
-[profile.dev.package.libghostty-vt-sys]
-opt-level = 2
-[profile.dev.package.itoa]
-opt-level = 2
-[profile.dev.package.zmij]
-opt-level = 2
-[profile.dev.package.ignore]
-opt-level = 2
-[profile.dev.package.walkdir]
-opt-level = 2
-[profile.dev.package.globset]
+[profile.dev.package."*"]
 opt-level = 2
 
 # Built for rebuild speed, not the last few percent of engine speed: no LTO (thin LTO relinks

@@ -1146,7 +1146,7 @@ mod tests {
     fn every_mode_has_its_line_in_the_notes() {
         // .claude/rules/snapshot.md lists the modes for whoever checks behaviour without a window,
         // each with its arguments as `MODES` has them, so the list can't fall behind the code.
-        // CLAUDE.md's size limit and its reference to snapshot.md are held in src/conventions.test.ts
+        // CLAUDE.md's size limit and its reference to snapshot.md are held in src/notes.test.ts
         // so editing CLAUDE.md doesn't recompile the engine.
         let notes = include_str!("../../.claude/rules/snapshot.md");
         for m in MODES {

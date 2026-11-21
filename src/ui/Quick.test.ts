@@ -199,12 +199,8 @@ async function write(text: string, caret = text.length): Promise<void> {
   await settle();
 }
 
-/** Sends a key event, or lets the debounce timer fire without waiting real wall-clock time. */
-async function advanceDebounce(ms: number): Promise<void> {
-  await act(async () => {
-    await vi.advanceTimersByTimeAsync(ms);
-  });
-}
+/** Lets `ms` go by, for what waits on typing to pause. */
+const pause = (ms: number) => act(() => new Promise<void>((resolve) => setTimeout(resolve, ms)));
 
 /** A key pressed: whether something took it, and what the page then asked of the engine. */
 async function key(chord: string): Promise<[boolean, string[]]> {
@@ -695,20 +691,9 @@ describe.each(PLATFORMS)('the quick panel’s keys in its box, as %s presses the
     const suggested = async () => {
       await panel({ board: board({ decisions: { default: 'jev', quick_panel: true, sessions: false, todos: false, pull_requests: false, prompts: false } }) });
       engine.answer('route_quick', { action: 'send', actions: [['send', 0.9]], sessions: [{ id: WREN, p: 0.9 }], noSession: 0.1, lanes: [], repos: [], ownWorktree: 0, ownWorktreeAsked: 0, habit: { new: 0, of: 0 }, duplicate: null, model: 'jev', ms: 5, inputTokens: 1 });
-      // Fake setTimeout just across the typing debounce so the 500 ms wait finishes immediately.
-      vi.useFakeTimers({ toFake: ['Date', 'setTimeout', 'clearTimeout'], now: fx.NOW });
-      try {
-        const el = box();
-        const set = Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value')?.set;
-        act(() => {
-          set?.call(el, PROMPT);
-          el.setSelectionRange(PROMPT.length, PROMPT.length);
-          el.dispatchEvent(new Event('input', { bubbles: true }));
-        });
-        await advanceDebounce(500);
-      } finally {
-        vi.useFakeTimers({ toFake: ['Date'], now: fx.NOW });
-      }
+      await write(PROMPT);
+      // Once typing has paused, what's typed goes to Jev.
+      await pause(500);
       await settle();
       told = engine.calls.length;
     };

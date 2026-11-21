@@ -171,6 +171,8 @@
 # by, over each list); without it, as the window was left: not grouped.
 # PREVIEW_LOADING=1 shows every window as it is at launch, before the engine's first scan has
 # finished: nothing read yet, and other devices' worktrees (PREVIEW_DEVICES) already in.
+# PREVIEW_CHROME, PREVIEW_POLL and PREVIEW_WAIT_POLL are test knobs (src/checks.test.ts): another
+# Chrome binary, and shorter sleep intervals for cleanup/title polls (defaults 0.2 s and 1 s).
 #
 # The snapshots come from this checkout's own engine, which scripts/engine.sh builds when
 # src-tauri has changed (a debug build), or from PREVIEW_BIN. The UI is built with vite alone:
