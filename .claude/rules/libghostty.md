@@ -1,7 +1,7 @@
 ---
 paths:
   - "src-tauri/src/terminals.rs"
-  - "src-tauri/src/terminals/**"
+  - "src-tauri/vt/**"
   - "src/ui/terminal/**"
   - "src/terminals.ts"
 ---
@@ -9,7 +9,7 @@ paths:
 # libghostty and Codealong's own terminals
 
 What Ghostty's terminal library does that `terminals.rs` and `src/ui/terminal/` rely on, from the
-`libghostty-vt` crate at the revision `src-tauri/Cargo.toml` pins (libghostty-vt 1.0.0, Ghostty's
+`libghostty-vt` crate at the revision `src-tauri/vt/Cargo.toml` pins (libghostty-vt 1.0.0, Ghostty's
 `vt-1.0.0` tag, 0fa3d577, which needs Zig 0.17.0; the crate needs Rust 1.96) and its example
 terminal (`example/ghostling_rs`, the best map of the API), checked by `cargo test terminals`
 (2026-11-08). How to take a newer revision: `docs/development.md` (*Ghostty's terminal library*).

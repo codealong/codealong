@@ -52,14 +52,18 @@ Applications, so the Dock doesn't show the app as a question mark.
 
 Builds go to `codealong-target` next to the main checkout, one directory shared by every
 checkout and worktree (`.cargo/config.toml`); `scripts/target-dir.sh` prints it and has
-worktrees inside the checkout build there too. The workspace's own crates (codealong,
-codealong-peer) build to the same files from every checkout, which cargo would take for fresh by
-their times alone and link another checkout's copy; so `.cargo/config.toml` names the checkout
-(`CODEALONG_CHECKOUT`) and both crates read it, and cargo rebuilds them whenever another checkout
-built them last (lib.rs `CHECKOUT`). Release builds take minutes and queue on one lock,
-so only `relaunch.sh` and `release.sh` make them; the engine the checks run is a debug build of
-your checkout, with its dependencies optimized (`scripts/engine.sh`). A landing builds nothing
-here: its checks run on GitHub (*Keeping main working*).
+worktrees inside the checkout build there too. The workspace's own crates (`codealong`,
+`codealong-peer`, `codealong-vt`) build to the same files from every checkout, which cargo would
+take for fresh by their times alone and link another checkout's copy; so `.cargo/config.toml`
+names the checkout (`CODEALONG_CHECKOUT`) and all three crates read it, and cargo rebuilds them
+whenever another checkout built them last (lib.rs `CHECKOUT`). Installing
+[`sccache`](https://github.com/mozilla/sccache) (`brew install sccache`) and setting
+`rustc-wrapper = "sccache"` in `~/.cargo/config.toml` (not the repo's) caches compiled crates on
+disk across `cargo clean`, `prune-target.sh`, and branch switches on the shared target folder.
+Release builds take minutes and queue on one lock, so only `relaunch.sh` and `release.sh` make
+them; the engine the checks run is a debug build of your checkout, with its dependencies optimized
+(`scripts/engine.sh`). A landing builds nothing here: its checks run on GitHub (*Keeping main
+working*).
 
 ### Tests on a busy Mac
 

@@ -1,5 +1,5 @@
 // Codealong's own terminals: one as the board lists it (terminals.rs), and its screen as a window
-// draws it with what a window sends it (src-tauri/src/terminals/screen.rs).
+// draws it with what a window sends it (src-tauri/vt/src/screen.rs).
 
 /** A terminal of Codealong's own as the board lists it (terminals.rs `Glance`). */
 export interface TerminalGlance {

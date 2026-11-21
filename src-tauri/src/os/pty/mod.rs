@@ -21,16 +21,7 @@ pub use windows::*;
 use std::path::Path;
 use std::process::Child;
 
-/// A terminal's size: in cells, and the cell's size in pixels, which programs that draw pictures
-/// ask for.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, serde::Deserialize, serde::Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct Size {
-    pub cols: u16,
-    pub rows: u16,
-    pub cell_width: u16,
-    pub cell_height: u16,
-}
+pub use codealong_vt::Size;
 
 /// What runs on the terminal, and where. Windows' side starts nothing yet, so reads none of it.
 #[cfg_attr(windows, allow(dead_code))]

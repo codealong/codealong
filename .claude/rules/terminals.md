@@ -156,7 +156,7 @@ its facts go in. Paths are under `src-tauri/src/`.
 ## Codealong's own terminals
 
 `[apps] terminal = "codealong"`: `launch/codealong.rs`, over the terminals the server holds
-(`terminals.rs`, `src-tauri/src/terminals/`; `.claude/rules/libghostty.md` for the emulator).
+(`terminals.rs`, `src-tauri/vt/`; `.claude/rules/libghostty.md` for the emulator).
 
 - A session's process is known to run in one by its terminal device (`Glance::tty`, `ttyname_r` of
   the terminal's other side as it opens), not by the processes above it, which are the server's

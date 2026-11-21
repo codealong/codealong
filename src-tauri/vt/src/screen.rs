@@ -23,8 +23,8 @@ use libghostty_vt::style::{Palette, RgbColor, StyleColor, Underline};
 use libghostty_vt::terminal::{ClipboardMime, ColorScheme, Mode, Point, PointCoordinate, ScrollViewport, SizeReportSize, Terminal};
 use serde::{Deserialize, Serialize};
 
-use super::keys;
-use super::pty::Size;
+use crate::keys;
+use crate::Size;
 
 /// The terminfo entry programs are told the terminal is, which every Mac and Linux has.
 pub const TERM: &str = "xterm-256color";
@@ -312,22 +312,25 @@ pub struct Screen {
     around: Option<Around>,
     /// Since when the program has held the screen still while it redraws (`held`).
     hold: Rc<Cell<Option<Instant>>>,
+    /// On macOS, Option-typed characters consume Alt (Ghostty's `macos-option-as-alt` off).
+    option_consumes_alt: bool,
 }
 
 impl Screen {
     /// A screen of `size`, which writes what the program is answered with (a cursor position
-    /// asked for, the colors) through `write`.
-    pub fn new(size: Size, write: impl Fn(&[u8]) + 'static) -> libghostty_vt::error::Result<Screen> {
-        Screen::around(Terminal::new(size.cols, size.rows)?, size, write)
+    /// asked for, the colors) through `write`. `option_consumes_alt` is true on macOS, where
+    /// Option+key text consumes Alt.
+    pub fn new(size: Size, option_consumes_alt: bool, write: impl Fn(&[u8]) + 'static) -> libghostty_vt::error::Result<Screen> {
+        Screen::around(Terminal::new(size.cols, size.rows)?, size, option_consumes_alt, write)
     }
 
     /// The screen a snapshot holds (`snapshot`), as another of Codealong's servers took it: what
     /// it showed and its scrollback, the modes the program set (its keyboard protocol, bracketed
     /// pastes, the mouse) and a sequence it was halfway through, so the program carries on as if
     /// nothing happened. At `size`, which may have changed since.
-    pub fn restore(snapshot: &[u8], size: Size, write: impl Fn(&[u8]) + 'static) -> libghostty_vt::error::Result<Screen> {
+    pub fn restore(snapshot: &[u8], size: Size, option_consumes_alt: bool, write: impl Fn(&[u8]) + 'static) -> libghostty_vt::error::Result<Screen> {
         let term = libghostty_vt::snapshot::Decoder::new_buf(snapshot)?.decode()?;
-        Screen::around(term, size, write)
+        Screen::around(term, size, option_consumes_alt, write)
     }
 
     /// Everything the terminal holds, to hand to another server (`restore`). None when it can't
@@ -337,7 +340,7 @@ impl Screen {
         self.term.encode_snapshot(&mut out).ok().map(|()| out)
     }
 
-    fn around(mut term: Terminal<'static, 'static>, size: Size, write: impl Fn(&[u8]) + 'static) -> libghostty_vt::error::Result<Screen> {
+    fn around(mut term: Terminal<'static, 'static>, size: Size, option_consumes_alt: bool, write: impl Fn(&[u8]) + 'static) -> libghostty_vt::error::Result<Screen> {
         let size_cell = Rc::new(Cell::new(size));
         let dark = Rc::new(Cell::new(false));
         let noted = Rc::new(RefCell::new(Noted::default()));
@@ -388,6 +391,7 @@ impl Screen {
             seq: 0,
             around: None,
             hold,
+            option_consumes_alt,
         })
     }
 
@@ -612,7 +616,7 @@ impl Screen {
             if mods.contains(Mods::SHIFT) {
                 consumed |= Mods::SHIFT;
             }
-            if mods.contains(Mods::ALT) && crate::os::current() == crate::os::Os::MacOs {
+            if mods.contains(Mods::ALT) && self.option_consumes_alt {
                 consumed |= Mods::ALT;
             }
         }
@@ -1062,7 +1066,7 @@ mod tests {
     fn screen() -> (Screen, Arc<Mutex<Vec<u8>>>) {
         let written = Arc::new(Mutex::new(Vec::new()));
         let w = written.clone();
-        (Screen::new(SIZE, move |b| w.lock().unwrap().extend_from_slice(b)).unwrap(), written)
+        (Screen::new(SIZE, true, move |b| w.lock().unwrap().extend_from_slice(b)).unwrap(), written)
     }
 
     /// A prompt leaves the cursor after its text; a line printed whole leaves it at the start of
@@ -1198,7 +1202,7 @@ mod tests {
         let snap = s.snapshot().expect("a snapshot partway through a sequence");
         let written = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
         let w = written.clone();
-        let mut back = Screen::restore(&snap, SIZE, move |b| w.lock().unwrap().extend_from_slice(b)).expect("restored");
+        let mut back = Screen::restore(&snap, SIZE, true, move |b| w.lock().unwrap().extend_from_slice(b)).expect("restored");
         back.feed(b"1mred\x1b[0m");
         let f = back.frame("t", true).unwrap();
         let row = f.lines.iter().find(|l| l.runs.iter().any(|r| r.cells.join("") == "red")).expect("the cut sequence finished");
@@ -1537,5 +1541,19 @@ mod tests {
         }
         let text = s.text();
         assert!(text.contains("line 0") && text.contains("line 9"), "{text:?}");
+    }
+
+    #[test]
+    fn alt_with_text_is_consumed_only_when_option_consumes_alt() {
+        let alt = Mods4 { alt: true, ..Default::default() };
+        let key = Input::Key { code: "KeyA".into(), text: Some("å".into()), unshifted: Some("a".into()), mods: alt, action: KeyAction::Press };
+        let mut mac = Screen::new(SIZE, true, |_| {}).unwrap();
+        mac.feed(b"\x1b[>1u");
+        mac.input(&key);
+        assert_eq!(mac.take_out(), "å".as_bytes(), "macOS Option-typed character consumes Alt");
+        let mut linux = Screen::new(SIZE, false, |_| {}).unwrap();
+        linux.feed(b"\x1b[>1u");
+        linux.input(&key);
+        assert_eq!(linux.take_out(), b"\x1b[97;3u", "non-macOS keeps Alt modifier instead of consuming it");
     }
 }

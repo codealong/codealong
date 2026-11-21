@@ -613,6 +613,7 @@ dependencies = [
  "block2",
  "clap",
  "codealong-peer",
+ "codealong-vt",
  "data-encoding",
  "dirs",
  "dunce",
@@ -620,7 +621,6 @@ dependencies = [
  "ignore",
  "iroh",
  "libc",
- "libghostty-vt",
  "memchr",
  "notify",
  "objc2",
@@ -658,6 +658,14 @@ dependencies = [
  "serde_json",
  "sha2 0.11.1",
  "tokio",
+]
+
+[[package]]
+name = "codealong-vt"
+version = "0.1.0"
+dependencies = [
+ "libghostty-vt",
+ "serde",
 ]
 
 [[package]]
