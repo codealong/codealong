@@ -889,8 +889,8 @@ fn sessions_in(board: &crate::model::Board, lane: &str, account: &str) -> HashSe
 }
 
 /// The session a meeting's start made when its harness names its own (Codex, OpenCode,
-/// Antigravity): a new local session of `account` in `lane`, not in `before`, started since `at` (with `origins::PENDING_SLACK_MS` leeway, falling back to `last_activity` where
-/// the harness keeps no start time, as Antigravity does), whose first prompt (else latest, for
+/// Antigravity): a new local session of `account` in `lane`, not in `before`, started since `at` (with `origins::PENDING_SLACK_MS` leeway, falling back to `last_activity` when
+/// `started_at` isn't written yet), whose first prompt (else latest, for
 /// OpenCode) opens with `prompt` (`origins::opening`).
 ///
 /// Only a prompt match is taken: another session of the same account started in `lane` for
@@ -1400,7 +1400,7 @@ mod tests {
         let before = sessions_in(&board_of(vec![fixtures::lane(lane_id, vec![earlier.clone()])]), lane_id, "antigravity");
         assert_eq!(before, HashSet::from(["antigravity:antigravity:old".to_string()]));
 
-        // Antigravity leaves started_at as None and uses last_activity; another session of the
+        // When started_at isn't populated yet, matching falls back to last_activity; another session of the
         // same account with a different prompt (or no prompt yet) is ignored rather than attached.
         let other = make("antigravity", "antigravity:antigravity:other", None, NOW + 500, Some("Fix the build"), None);
         let unwritten = make("antigravity", "antigravity:antigravity:booting", None, NOW + 500, None, None);

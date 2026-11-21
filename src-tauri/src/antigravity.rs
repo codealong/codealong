@@ -190,9 +190,11 @@ pub struct Conversation {
     /// The summary's preview text: the conversation's opening as the app lists it, or, from
     /// `agy` 1.4, the title it gives the conversation once it's written one.
     pub preview: Option<String>,
-    /// What it was first asked, and when, from the start of its record (`first_request`), which the
+    /// What it was first asked, from the start of its record (`first_request`), which the
     /// preview no longer says.
     pub asked: Option<String>,
+    /// When it was first asked (`created_at` of its first `USER_INPUT` step, to the second):
+    /// none for a terminal UI opened with no prompt until it's first prompted.
     pub started_at: Option<i64>,
     pub step_count: i64,
     /// The workspace folder it works in, as a path (`work_folder`).
@@ -1112,11 +1114,11 @@ impl crate::send::Own for OnClipboard {
 }
 
 /// What a conversation was first asked, and when, from the start of its record.
-fn first_request(path: &Path) -> Option<(String, i64)> {
+fn first_request(path: &Path) -> Option<(String, Option<i64>)> {
     let text = crate::util::read_head(path, TAIL as usize)?;
     text.lines().filter_map(|l| serde_json::from_str::<Value>(l).ok()).find_map(|v| {
         let s = step(&v).filter(|s| s.kind == "USER_INPUT")?;
-        Some((one_line(request_of(s.content), 140), s.at)).filter(|(asked, _)| !asked.is_empty())
+        Some((one_line(request_of(s.content), 140), (s.at > 0).then_some(s.at))).filter(|(asked, _)| !asked.is_empty())
     })
 }
 
@@ -1131,7 +1133,7 @@ fn started(dirs: &[Folder], p: &Process) -> Option<Conversation> {
     let dir = dirs.iter().find(|f| f.cli && f.path.join("presence").join(format!("{id}.lock")).exists())?;
     let record = transcript_file(&dir.path, id);
     let (asked, at) = record.as_deref().and_then(first_request).unzip();
-    let at = at.filter(|&ms| ms > 0);
+    let at = at.flatten();
     let cwd = procs::cwd_of(p.pid).map(|c| c.to_string_lossy().into_owned());
     let tail = record.as_deref().map(|p| tail(p, cwd.as_deref())).unwrap_or_default();
     Some(Conversation {
@@ -1767,10 +1769,10 @@ impl Reader {
                     if c.asked.is_none() {
                         if let Some(o) = old.filter(|o| o.asked.is_some()) {
                             c.asked = o.asked.clone();
-                            c.started_at = c.started_at.or(o.started_at);
+                            c.started_at = o.started_at;
                         } else if let Some((asked, at)) = record.as_deref().and_then(first_request) {
                             c.asked = Some(asked);
-                            c.started_at = (at > 0).then_some(at);
+                            c.started_at = at;
                         }
                     }
                     c.mode = turn_mode(&c.dir, &c.id);
@@ -2821,6 +2823,31 @@ mod tests {
         reader.processes.clear();
         assert!(!reader.reread(&account, &look));
         assert_eq!(reader.conversations["antigravity"][0].started_at, began);
+    }
+
+    /// A conversation a process holds before its folder's table lists it (`started`) takes its
+    /// first prompt and start time from its transcript, leaving both `started_at` and `last_input`
+    /// unset when the step carries no parseable timestamp.
+    #[test]
+    fn started_conversation_reads_started_at_from_its_transcript() {
+        let root = crate::fixtures::scratch("antigravity-started");
+        let dir = root.join("antigravity-cli");
+        std::fs::create_dir_all(dir.join("presence")).unwrap();
+        let write_tr = |id: &str, line: &str| {
+            std::fs::write(dir.join("presence").join(format!("{id}.lock")), "").unwrap();
+            let logs = dir.join(format!("brain/{id}/.system_generated/logs"));
+            std::fs::create_dir_all(&logs).unwrap();
+            std::fs::write(logs.join("transcript.jsonl"), format!("{line}\n")).unwrap();
+        };
+        write_tr("c1", LINES[0]);
+        write_tr("c2", r#"{"step_index":0,"source":"USER_EXPLICIT","type":"USER_INPUT","status":"DONE","content":"Hello"}"#);
+        let dirs = vec![Folder { path: dir, cli: true }];
+        let proc = |id: &str| Process { pid: 999_999, conversation: Some(id.into()), terminal: true, logs: Vec::new(), started: None };
+        let c1 = started(&dirs, &proc("c1")).unwrap();
+        let began = parse_rfc3339_ms("2026-10-01T16:55:10Z");
+        assert_eq!((c1.asked.as_deref(), c1.started_at, c1.last_input), (Some("Count the lines, then fix notes.txt"), began, began));
+        let c2 = started(&dirs, &proc("c2")).unwrap();
+        assert_eq!((c2.asked.as_deref(), c2.started_at, c2.last_input), (Some("Hello"), None, None));
     }
 
     /// Read first after another `agy` marked it idle: a step that runs says the turn is under way,
