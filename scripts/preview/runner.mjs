@@ -146,7 +146,7 @@ export function buildPreviewPage(indexHtml, run) {
 
   let extraHeadScripts = '';
   if (view === 'bar') {
-    size = vars.PREVIEW_SIZE || '1100,64';
+    size = vars.PREVIEW_SIZE || '1200,64';
     const w = Number(size.split(',')[0]);
     parts.push(`window.__CODEALONG_BAR__=true;Object.defineProperty(screen,'availWidth',{value:${w}});`);
     onDesktop('is-bar');
