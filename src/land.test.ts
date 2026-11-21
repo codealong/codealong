@@ -505,7 +505,7 @@ rm "$tmp/no-run"
 # close and reopen the PR on the strength of no answer), prints gh's stderr, and keeps it noted.
 touch "$tmp/run-err"
 scripts/land.sh >"$tmp/out" 2>&1
-echo "gh fails reading its own run of CI: $? $(grep -c "Couldn't read CI's own run" "$tmp/out") $(grep -c 'rate limit exceeded' "$tmp/out") $(grep -c 'gh pr close' "$tmp/out") ($(ls "$tmp" | grep -c '^queued$') queued, $(noted) noted)"
+echo "gh fails reading its own run of CI: $? $(grep -c "Couldn't read CI's own run" "$tmp/out") $(grep -c 'waiting for its own run of CI' "$tmp/out") $(grep -c 'rate limit exceeded' "$tmp/out") $(grep -c 'gh pr close' "$tmp/out") ($(ls "$tmp" | grep -c '^queued$') queued, $(noted) noted)"
 rm "$tmp/run-err"
 # Resuming once GitHub answers again: a few empty looks before the run appears (the usual
 # post-create delay) and then a live in_progress run taking more than 15 looks are both waited
@@ -756,7 +756,7 @@ test('a landing queues its pull request as the commit that was asked for, on a m
     'its own run of CI failing: 1 1 1 (0 queued)',
     'main moved under its pull request: 1 1',
     'its own run of CI never shows up: 3 1 1 (0 queued, 1 noted)',
-    'gh fails reading its own run of CI: 3 1 1 0 (0 queued, 1 noted)',
+    'gh fails reading its own run of CI: 3 1 1 1 0 (0 queued, 1 noted)',
     'refused a place in the queue: 1 1 (0 noted, no-run=0, slow=0)',
     'no answer to the asking: 3 0 (1 noted)',
     'merged as another commit: 1 0 1',
