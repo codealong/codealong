@@ -67,25 +67,56 @@ pub(crate) fn listed(pid: u32) -> Option<Listed> {
 /// The terminal a process runs in (`/dev/ttys006`), from the kernel; None for one with no
 /// terminal, such as a background job, or once it's gone.
 pub fn tty(pid: u32) -> Option<std::path::PathBuf> {
-    extern "C" {
-        fn devname_r(dev: libc::dev_t, kind: libc::mode_t, buf: *mut libc::c_char, len: libc::c_int) -> *mut libc::c_char;
-    }
     // A process without a terminal has NODEV, all ones.
     let dev = listed(pid)?.tdev;
     if dev == u32::MAX {
         return None;
     }
+    static CACHE: std::sync::OnceLock<std::sync::Mutex<HashMap<u32, std::path::PathBuf>>> = std::sync::OnceLock::new();
+    tty_cached(CACHE.get_or_init(Default::default), dev, dev_tty)
+}
+
+/// Resolves a character device number to its name under `/dev` via `devname_r`.
+fn dev_tty(dev: u32) -> Option<String> {
+    extern "C" {
+        fn devname_r(dev: libc::dev_t, kind: libc::mode_t, buf: *mut libc::c_char, len: libc::c_int) -> *mut libc::c_char;
+    }
     let mut buf = [0 as libc::c_char; 64];
     // SAFETY: devname_r writes at most `len` bytes, ending in a NUL, into `buf`, and returns it
     // (or null when it can't name the device).
-    let name = unsafe {
+    unsafe {
         let p = devname_r(dev as libc::dev_t, libc::S_IFCHR, buf.as_mut_ptr(), buf.len() as libc::c_int);
         if p.is_null() {
             return None;
         }
-        std::ffi::CStr::from_ptr(p).to_string_lossy().into_owned()
-    };
-    name.starts_with("tty").then(|| std::path::Path::new("/dev").join(name))
+        Some(std::ffi::CStr::from_ptr(p).to_string_lossy().into_owned())
+    }
+}
+
+/// Whether `path` is still a character device with device number `dev`.
+fn same_char_dev(path: &std::path::Path, dev: u32) -> bool {
+    use std::os::unix::fs::{FileTypeExt, MetadataExt};
+    std::fs::metadata(path).is_ok_and(|m| m.file_type().is_char_device() && m.rdev() == u64::from(dev))
+}
+
+/// Resolves `dev` through `cache`, validating a cached `/dev/tty*` path with one `stat` instead
+/// of calling `devname_r` every time (on macOS `devname_r` scans `/dev` for dynamic PTY devices,
+/// costing ~0.5–1 ms per call, and `compose` asks for every live session while Codealong holds
+/// any terminal).
+fn tty_cached(cache: &std::sync::Mutex<HashMap<u32, std::path::PathBuf>>, dev: u32, lookup: impl FnOnce(u32) -> Option<String>) -> Option<std::path::PathBuf> {
+    let hit = cache.lock().unwrap_or_else(|e| e.into_inner()).get(&dev).cloned();
+    if let Some(path) = hit {
+        if same_char_dev(&path, dev) {
+            return Some(path);
+        }
+        cache.lock().unwrap_or_else(|e| e.into_inner()).remove(&dev);
+    }
+    let name = lookup(dev)?;
+    let path = name.starts_with("tty").then(|| std::path::Path::new("/dev").join(name))?;
+    if same_char_dev(&path, dev) {
+        cache.lock().unwrap_or_else(|e| e.into_inner()).insert(dev, path.clone());
+    }
+    Some(path)
 }
 
 /// Every TCP port your processes listen on, from the kernel: one pass over the process table
@@ -386,6 +417,47 @@ mod tests {
         // environment's end is in it.
         assert_eq!(env, HashMap::from([("HOME".to_string(), "/Users/me".to_string()), ("SESSION".to_string(), "a=b".to_string())]));
         assert_eq!(procargs_environment(&3i32.to_ne_bytes()), None);
+    }
+
+    #[test]
+    fn tty_device_cache_reuses_valid_entry_and_revalidates_stale_one() {
+        use std::os::unix::fs::MetadataExt;
+        use std::path::PathBuf;
+        use std::sync::Mutex;
+
+        let dev = std::fs::metadata("/dev/tty").unwrap().rdev() as u32;
+        assert_eq!(dev_tty(dev).as_deref(), Some("tty"));
+
+        let cache = Mutex::new(HashMap::new());
+        let mut calls = 0usize;
+        let first = tty_cached(&cache, dev, |d| {
+            calls += 1;
+            dev_tty(d)
+        });
+        assert_eq!(first, Some(PathBuf::from("/dev/tty")));
+        assert_eq!(calls, 1);
+
+        // Cache hit: validated by stat without calling lookup again.
+        let second = tty_cached(&cache, dev, |_| {
+            calls += 1;
+            Some("tty".into())
+        });
+        assert_eq!(second, Some(PathBuf::from("/dev/tty")));
+        assert_eq!(calls, 1);
+
+        // A stale/wrong path in the cache fails rdev validation and falls back to lookup.
+        cache.lock().unwrap().insert(dev, PathBuf::from("/dev/null"));
+        let refreshed = tty_cached(&cache, dev, |d| {
+            calls += 1;
+            dev_tty(d)
+        });
+        assert_eq!(refreshed, Some(PathBuf::from("/dev/tty")));
+        assert_eq!(calls, 2);
+
+        // Non-tty names aren't returned or cached.
+        let null_dev = std::fs::metadata("/dev/null").unwrap().rdev() as u32;
+        assert_eq!(tty_cached(&cache, null_dev, |_| Some("null".into())), None);
+        assert!(!cache.lock().unwrap().contains_key(&null_dev));
     }
 }
 
