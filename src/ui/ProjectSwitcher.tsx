@@ -100,6 +100,7 @@ export function ProjectSwitcher({ logoStatus, projects, current, total, actions,
       </div>
     );
   };
+  const currentIcon = current === ALL_PROJECTS ? null : projects.find((p) => p.name === current)?.icon;
   return (
     <div className="ca-projswitch" ref={ref}>
       <button
@@ -111,7 +112,7 @@ export function ProjectSwitcher({ logoStatus, projects, current, total, actions,
         title={keysIn(`Switch project (⌘P)${badgeTitle ? `. ${badgeTitle}.` : ''} · Codealong: ${LOGO_LABEL[logoStatus]}`)}
         onClick={() => setOpen(!open)}
       >
-        <Mark size={16} status={logoStatus} />
+        <ProjectIcon src={currentIcon} size={16} fallback={<Mark size={16} status={logoStatus} />} />
         <span className="ca-projswitch-name">{current}</span>
         {otherNeeds > 0 ? <span className="ca-projswitch-badge">{otherNeeds}</span> : otherUnread > 0 ? <span className="ca-projswitch-dot" /> : null}
         <Icon name="chevron-down" size={12} />
