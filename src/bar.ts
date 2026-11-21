@@ -17,6 +17,17 @@ export const CLICK_WAIT_MS = 250;
 /** Where the project picked in the bar's menu is kept: the peek reads it too, to say a session's
  *  project as the bar would (ui/ProjectSaid.tsx). */
 export const BAR_PROJECT_KEY = 'codealong.bar.project';
+/** The widest the floating bar gets before its pills fold, and the room it leaves at the screen's
+ *  sides. Wide enough for at least one Needs you pill beside the project button and every summary
+ *  pill (snoozed, recent, reviews, merges, due, ready). */
+export const FLOATING_MAX_WIDTH = 1100;
+export const FLOATING_SCREEN_ROOM = 48;
+
+/** The room the floating bar fits its pills into on a screen `availWidth` points wide. */
+export function floatingRoom(availWidth: number): number {
+  return Math.min(FLOATING_MAX_WIDTH, availWidth - FLOATING_SCREEN_ROOM);
+}
+
 /** The order groups fold in when the bar runs out of room. */
 const FOLD_ORDER: Group[] = ['working', 'unread', 'needs'];
 

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { barWidth, currentRow, elsewhereWaits, fitGroups, NOTCH, notchClip, notchCount, notchDragged, notchOrder, notchPillsRoom, notchRows, notchSizes, plain, projectWaits, ROW_READS, waitingRow, waitingRows, type Metrics, type NotchRow } from './bar';
+import { barWidth, currentRow, elsewhereWaits, fitGroups, FLOATING_MAX_WIDTH, FLOATING_SCREEN_ROOM, floatingRoom, NOTCH, notchClip, notchCount, notchDragged, notchOrder, notchPillsRoom, notchRows, notchSizes, plain, projectWaits, ROW_READS, waitingRow, waitingRows, type Metrics, type NotchRow } from './bar';
 import { inQueueOrder, leftAfter, placeOf, queueKinds, stepTo } from './queue';
 import { ALL_PROJECTS, QUEUE_READS, queueRows } from './quick';
 import * as fx from './testing/fixtures';
@@ -108,6 +108,25 @@ describe('fitGroups', () => {
     const two = metrics([100], [80], [], 0, { mark: 0, padding: 0 });
     expect(barWidth(fitGroups(two, 10_000), two)).toBe(100 + 1 + 80 + 2 * 4);
     expect(barWidth([], metrics([], [], [], 0, { mark: 0, padding: 0 }))).toBe(0);
+  });
+
+  it('leaves room in the floating bar for at least one Needs you pill beside every summary pill', () => {
+    // Widths of a busy board with every trailing pill (All projects, snoozed, recent, reviews,
+    // merges, due, ready todos), three fold pills (+88), and a max-width Needs you pill (180px).
+    const full = metrics([180, 160], [160, 160], [160, 160], 95, {
+      fold: { needs: 55, unread: 55, working: 55 },
+      project: 95,
+      snoozed: 90,
+      recent: 85,
+      merges: 95,
+      due: 65,
+      todos: 75,
+    });
+    const fits = fitGroups(full, floatingRoom(1440));
+    expect(fits.find((f) => f.group === 'needs')?.shown).toBeGreaterThanOrEqual(1);
+    expect(barWidth(fits, full)).toBeLessThanOrEqual(FLOATING_MAX_WIDTH);
+    expect(floatingRoom(1200)).toBe(FLOATING_MAX_WIDTH);
+    expect(floatingRoom(800)).toBe(800 - FLOATING_SCREEN_ROOM);
   });
 });
 
