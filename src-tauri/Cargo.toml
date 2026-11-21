@@ -10,8 +10,8 @@ rust-version = "1.96"
 publish = false
 
 # The engine, codealong-peer (peer/: what other devices' apps build on), and codealong-vt (vt/:
-# Ghostty's terminal emulator wrapper, kept separate so edits to the engine don't wait on or
-# recompile libghostty-vt).
+# the ~2,000-line libghostty-vt wrapper and its unit tests, kept in its own crate so edits to
+# codealong_lib don't recompile or re-run it).
 [workspace]
 members = [".", "peer", "vt"]
 default-members = [".", "peer", "vt"]
@@ -68,8 +68,8 @@ png = "0.18"
 dunce = "1"
 # Link codes as QR codes, for the phone app to scan (Settings › Devices).
 qrcode = { version = "0.14", default-features = false, features = ["svg"] }
-# Codealong's own terminals (terminals.rs): wrapped in codealong-vt (vt/), which owns
-# libghostty-vt and its Zig build so edits to the rest of the engine stay decoupled from it.
+# Codealong's own terminals (terminals.rs): wrapped in codealong-vt (vt/) so the ~2,000-line
+# emulator wrapper and its tests compile and run independently of codealong_lib.
 codealong-vt = { path = "vt" }
 
 # The floating bar, the quick panel and the focus outline (flash.rs): panels, window occlusion, placement and Spaces, which

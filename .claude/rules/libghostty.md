@@ -11,8 +11,8 @@ paths:
 What Ghostty's terminal library does that `terminals.rs` and `src/ui/terminal/` rely on, from the
 `libghostty-vt` crate at the revision `src-tauri/vt/Cargo.toml` pins (libghostty-vt 1.0.0, Ghostty's
 `vt-1.0.0` tag, 0fa3d577, which needs Zig 0.17.0; the crate needs Rust 1.96) and its example
-terminal (`example/ghostling_rs`, the best map of the API), checked by `cargo test terminals`
-(2026-11-08). How to take a newer revision: `docs/development.md` (*Ghostty's terminal library*).
+terminal (`example/ghostling_rs`, the best map of the API), checked by `cargo test -p codealong-vt`
+and `cargo test terminals` (2026-11-08). How to take a newer revision: `docs/development.md` (*Ghostty's terminal library*).
 
 - 1.0's C API is opaque handles read and written through getters and setters, and the crate
   follows it: a formatter is made from its terminal and set up with `set_*` calls, each a
@@ -38,7 +38,7 @@ terminal (`example/ghostling_rs`, the best map of the API), checked by `cargo te
   colors and palette, which a window's theme sets (`Screen::theme`); CSI ? 996 n asks
   `on_color_scheme`. Device attributes, size reports and XTVERSION each need their callback, or
   the query goes unanswered.
-- The key encoder takes the W3C key names `KeyboardEvent.code` uses (`terminals/keys.rs`) with
+- The key encoder takes the W3C key names `KeyboardEvent.code` uses (`vt/src/keys.rs`) with
   the text the key typed and the modifiers the text already took in (`consumed_mods`); with
   `set_options_from_terminal` it encodes for the modes the program set (application cursor keys,
   the Kitty keyboard protocol, modifyOtherKeys). A release encodes to nothing unless the program
