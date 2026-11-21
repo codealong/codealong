@@ -9,10 +9,12 @@ repository = "https://github.com/codealong/codealong"
 rust-version = "1.96"
 publish = false
 
-# The engine, and codealong-peer (peer/): the part of it other devices' apps build on.
+# The engine, codealong-peer (peer/: what other devices' apps build on), and codealong-vt (vt/:
+# Ghostty's terminal emulator wrapper, kept separate so edits to the engine don't wait on or
+# recompile libghostty-vt).
 [workspace]
-members = [".", "peer"]
-default-members = [".", "peer"]
+members = [".", "peer", "vt"]
+default-members = [".", "peer", "vt"]
 
 [lib]
 name = "codealong_lib"
@@ -66,11 +68,9 @@ png = "0.18"
 dunce = "1"
 # Link codes as QR codes, for the phone app to scan (Settings › Devices).
 qrcode = { version = "0.14", default-features = false, features = ["svg"] }
-# Codealong's own terminals (terminals.rs): Ghostty's terminal emulator, libghostty-vt 1.0, which
-# its build compiles from Ghostty's source with Zig (docs/development.md says which). Pinned to a
-# revision of the Rust bindings, which have no release on 1.0 yet; a newer one is taken on
-# purpose, with terminals.rs's tests run against it. They need Rust 1.96, hence rust-version.
-libghostty-vt = { git = "https://github.com/Uzaaft/libghostty-rs", rev = "9b598d6528c08c013407052767bb2e885ba869ba" }
+# Codealong's own terminals (terminals.rs): wrapped in codealong-vt (vt/), which owns
+# libghostty-vt and its Zig build so edits to the rest of the engine stay decoupled from it.
+codealong-vt = { path = "vt" }
 
 # The floating bar, the quick panel and the focus outline (flash.rs): panels, window occlusion, placement and Spaces, which
 # Tauri doesn't expose; and the sounds for what comes to wait on you (sounds.rs).

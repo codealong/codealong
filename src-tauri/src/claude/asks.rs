@@ -313,7 +313,11 @@ fn no_longer_asked(w: &Watch, asked: &Asked) -> Option<String> {
 /// or it quit first. Then it's asked again every `pause` while the session still waits on it,
 /// with the same grace `hold` gives. Claude Code shows its own prompt meanwhile and leaves the
 /// hook running when it's answered there, so the hook has to see that for itself.
-pub fn ask_until_replied(asked: &Asked, watch: &Watch, pause: Duration, mut ask: impl FnMut() -> Option<Value>) -> Value {
+pub fn ask_until_replied(asked: &Asked, watch: &Watch, pause: Duration, ask: impl FnMut() -> Option<Value>) -> Value {
+    ask_until_replied_with_grace(asked, watch, pause, GRACE, ask)
+}
+
+fn ask_until_replied_with_grace(asked: &Asked, watch: &Watch, pause: Duration, grace: Duration, mut ask: impl FnMut() -> Option<Value>) -> Value {
     let start = Instant::now();
     note(Side::Hook, asked, &format!("asked, for process {}", watch.pid));
     // Whether no server answered the last time, said once until one does.
@@ -329,7 +333,7 @@ pub fn ask_until_replied(asked: &Asked, watch: &Watch, pause: Duration, mut ask:
             unanswered = true;
         }
         std::thread::sleep(pause);
-        if let Some(why) = (start.elapsed() >= GRACE).then(|| no_longer_asked(watch, asked)).flatten() {
+        if let Some(why) = (start.elapsed() >= grace).then(|| no_longer_asked(watch, asked)).flatten() {
             note(Side::Hook, asked, &format!("gone without an answer, after {} s: {why}", start.elapsed().as_secs()));
             return Value::Null;
         }
@@ -809,9 +813,10 @@ mod tests {
         let result = json!({ "type": "user", "message": { "content": [{ "type": "tool_result", "tool_use_id": "t1" }] } });
         let call = json!({ "type": "assistant", "message": { "content": [{ "type": "tool_use", "id": "t1", "name": "Bash", "input": { "command": "rm -rf build" } }] } });
         std::fs::write(&record, format!("{call}\n{result}\n")).unwrap();
+        let grace = Duration::from_millis(80);
         let start = Instant::now();
-        assert_eq!(ask_until_replied(&a, &w, Duration::from_millis(50), || None), Value::Null);
-        assert!(start.elapsed() >= GRACE && start.elapsed() < GRACE + Duration::from_secs(2));
+        assert_eq!(ask_until_replied_with_grace(&a, &w, Duration::from_millis(10), grace, || None), Value::Null);
+        assert!(start.elapsed() >= grace && start.elapsed() < grace + Duration::from_secs(2));
     }
 
     #[test]

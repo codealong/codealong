@@ -1,0 +1,20 @@
+[package]
+name = "codealong-vt"
+version = "0.1.0"
+description = "Codealong's terminal emulator wrapper over libghostty-vt: screen frames, key encoding and query stripping."
+edition = "2021"
+license = "Apache-2.0"
+rust-version = "1.96"
+publish = false
+
+# No doc tests, matching the other workspace crates.
+[lib]
+doctest = false
+
+[dependencies]
+# Codealong's own terminals (terminals.rs): Ghostty's terminal emulator, libghostty-vt 1.0, which
+# its build compiles from Ghostty's source with Zig (docs/development.md says which). Pinned to a
+# revision of the Rust bindings, which have no release on 1.0 yet; a newer one is taken on
+# purpose, with terminals.rs's tests run against it. They need Rust 1.96, hence rust-version.
+libghostty-vt = { git = "https://github.com/Uzaaft/libghostty-rs", rev = "9b598d6528c08c013407052767bb2e885ba869ba" }
+serde = { version = "1", features = ["derive"] }

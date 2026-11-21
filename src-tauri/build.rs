@@ -23,9 +23,9 @@ fn common_controls() {
     );
 }
 
-/// `CODEALONG_ENGINE`: a hash of what the engine is built from, the Rust of this crate and
-/// codealong-peer and what they're built with, but not the windows' pages, which the binary
-/// carries too. An app keeps the server it finds when this is the same as its own (serve.rs), so
+/// `CODEALONG_ENGINE`: a hash of what the engine is built from, the Rust of this crate,
+/// codealong-peer and codealong-vt and what they're built with, but not the windows' pages, which
+/// the binary carries too. An app keeps the server it finds when this is the same as its own
 /// a build that changed only the windows leaves the agents the server runs going. The hasher's
 /// keys are fixed, so the same files hash the same in every build by the same compiler; a build by
 /// another is taken for another engine, which it may well be.
@@ -46,11 +46,11 @@ fn engine_id() {
     }
 
     let mut files = Vec::new();
-    for dir in ["src", "peer/src"] {
+    for dir in ["src", "peer/src", "vt/src"] {
         println!("cargo:rerun-if-changed={dir}");
         walk(Path::new(dir), &mut files);
     }
-    for file in ["Cargo.toml", "Cargo.lock", "peer/Cargo.toml", "build.rs"] {
+    for file in ["Cargo.toml", "Cargo.lock", "peer/Cargo.toml", "vt/Cargo.toml", "build.rs"] {
         println!("cargo:rerun-if-changed={file}");
         files.push(PathBuf::from(file));
     }

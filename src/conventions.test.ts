@@ -26,7 +26,7 @@ import { parseSync } from 'vite';
 import { describe, expect, it } from 'vitest';
 
 const windows = import.meta.glob<string>(['./**/*.{ts,tsx}', '!./**/*.test.{ts,tsx}', '!./testing/**'], { query: '?raw', import: 'default', eager: true });
-const rust = import.meta.glob<string>(['../src-tauri/src/**/*.rs', '../src-tauri/peer/src/**/*.rs'], { query: '?raw', import: 'default', eager: true });
+const rust = import.meta.glob<string>(['../src-tauri/src/**/*.rs', '../src-tauri/peer/src/**/*.rs', '../src-tauri/vt/src/**/*.rs'], { query: '?raw', import: 'default', eager: true });
 
 /** A file's name as the lists write it: from the repo's root. */
 const named = (path: string) => (path.startsWith('../') ? path.slice(3) : `src/${path.slice(2)}`);

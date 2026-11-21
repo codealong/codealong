@@ -24,9 +24,8 @@
 //! from the descriptor handed to it and a snapshot of its screen (`take_over`). A server that ends
 //! any other way (a crash, a quit) ends their shells.
 
-mod keys;
-mod queries;
-pub mod screen;
+use codealong_vt::queries;
+pub use codealong_vt::screen;
 
 use std::collections::{BTreeMap, HashMap};
 use std::io::{Read, Write};
@@ -836,8 +835,9 @@ fn run(id: &str, pid: u32, master: pty::Master, how: How, rx: Receiver<Msg>, out
     let answer = move |b: &[u8]| {
         let _ = answers.send(b.to_vec());
     };
+    let option_consumes_alt = crate::os::current() == crate::os::Os::MacOs;
     let handed = snapshot.is_some();
-    let restored = snapshot.and_then(|bytes| match screen::Screen::restore(&bytes, size, answer.clone()) {
+    let restored = snapshot.and_then(|bytes| match screen::Screen::restore(&bytes, size, option_consumes_alt, answer.clone()) {
         Ok(s) => Some(s),
         Err(e) => {
             eprintln!("Terminal {id}'s screen couldn't be restored ({e:?}): its program draws it again.");
@@ -852,7 +852,7 @@ fn run(id: &str, pid: u32, master: pty::Master, how: How, rx: Receiver<Msg>, out
             drop(answer);
             s
         }
-        None => screen::Screen::new(size, answer).map_err(|e| format!("{e:?}"))?,
+        None => screen::Screen::new(size, option_consumes_alt, answer).map_err(|e| format!("{e:?}"))?,
     };
     if handed && !restored_ok {
         master.redraw();
