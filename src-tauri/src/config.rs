@@ -2204,9 +2204,6 @@ const OWN_REVIEWS_COMMENT: &str = "# [reviews.own] auto: an agent reviews each o
 # Nothing goes on GitHub.
 ";
 const QUEUE_COMMENT: &str = "# What waits on you, in the order the notch, the waiting window and the main window's panels go through it:\n# \"needs\", sessions that need you; \"reviews\", PRs waiting on your review; \"merges\", PRs of yours ready to\n# merge that nothing else brings to you; \"due\", unassigned todos due; \"unread\", sessions whose turn ended;\n# \"ready\", unassigned todos ready to start, which come last. One left out doesn't wait on you, but sessions\n# always do.\n# due_within: how many days before its due date an unassigned todo comes due: 0 on the day.\n";
-/// The comment `[queue]` got before `"merges"` was divided from `"reviews"`, replaced in place
-/// when `with_queue_merges` updates an older file.
-const OLD_QUEUE_COMMENT: &str = "# What waits on you, in the order the notch, the waiting window and the main window's panels go through it:\n# \"needs\", sessions that need you; \"reviews\", PRs waiting on your review, and yours ready to merge that nothing\n# else brings to you; \"due\", unassigned todos due; \"unread\", sessions whose turn ended; \"ready\", unassigned\n# todos ready to start, which come last. One left out doesn't wait on you, but sessions always do.\n# due_within: how many days before its due date an unassigned todo comes due: 0 on the day.\n";
 const EXPERIMENTAL_COMMENT: &str = "# Features still being tried out, each off until it's turned on. boards: the main window's Board view, as\n# Kanban and as Canvas, Add to board in the menus, and `codealong board`. voice: a key held to talk to the\n# session you're looking at or to your orchestrator, and sessions that listen to a meeting ([voice]).\n# analytics: who began each session and turn, what your prompts did with what the agent had said, and how\n# the sessions you marked done stood, in the Analytics window and `codealong analytics`.\n";
 const VOICE_COMMENT: &str = "# Voice, once [experimental] voice is on. locale: the language spoken, such as \"en-US\"; \"\" for this Mac's own.\n# send_on_release: what you say to your orchestrator is sent as you let go of the key, not put in its box\n# first. tell_every: how often, in seconds, a session that listens is told what's new, at most.\n# meetings: as a meeting in your calendar is about to start, offer to take its notes, in a folder of its own\n# under meetings_folder (\"\" for meetings beside this file), by a session on meeting_account (an account, a\n# routing group, or \"\" for Auto) and meeting_model, meeting_lead minutes before it starts, but for the\n# calendars in meeting_calendars_off (by id; Settings lists them). meeting_countdown: from how many minutes\n# before, the notch, the floating bar and the Meetings button count down to it (0 for none).\n";
 const REPOS_COMMENT: &str = "# Your settings for one repo's pull requests, over [reviews] and [pull_requests] and over what the repo's\n# .codealong/config.toml sets for its team. Settings › Automation sets them with the repo picked.\n";
@@ -2553,17 +2550,28 @@ pub fn save(cfg: &Config) -> Result<()> {
 }
 
 /// Adds `"merges"` after `"reviews"` in an existing `[queue] order` written before `"merges"`
-/// became its own kind, run once per install (`state.rs` `queue_merges_split`). Leaves files
-/// without `[queue]`, without `"reviews"`, or with `"merges"` already untouched.
-pub fn migrate_queue_merges() -> Result<bool> {
-    let Some(text) = read_text()? else { return Ok(false) };
-    if with_queue_merges(&text)?.is_none() {
+/// became its own kind, once (`done`, kept in `state.rs` `queue_merges_split`). Leaves files
+/// without `[queue]`, without `"reviews"`, or with `"merges"` already untouched, and leaves `done`
+/// false on an error so a file with a syntax mistake migrates once fixed.
+pub fn migrate_queue_merges(done: &mut bool) -> Result<bool> {
+    migrate_queue_merges_at(&config_path(), done)
+}
+
+fn migrate_queue_merges_at(path: &Path, done: &mut bool) -> Result<bool> {
+    if *done {
         return Ok(false);
     }
-    update(|t| match with_queue_merges(t)? {
+    let Some(text) = crate::store::text(path)? else { return Ok(false) };
+    if with_queue_merges(&text)?.is_none() {
+        *done = true;
+        return Ok(false);
+    }
+    let changed = update_at(path, |t| match with_queue_merges(t)? {
         Some(next) => Ok((next, true)),
         None => Ok((t.to_string(), false)),
-    })
+    })?;
+    *done = true;
+    Ok(changed)
 }
 
 /// `text` with `"merges"` inserted right after `"reviews"` in `[queue] order`, when the file has
@@ -2582,8 +2590,15 @@ pub fn with_queue_merges(text: &str) -> Result<Option<String>> {
     items.insert(at + 1, "merges".into());
     set_value(&mut table["order"], Value::Array(Array::from_iter(items.iter().map(String::as_str))));
     if let Some(prefix) = table.decor().prefix().and_then(|p| p.as_str()).map(str::to_string) {
-        if prefix.contains(OLD_QUEUE_COMMENT) {
-            table.decor_mut().set_prefix(prefix.replace(OLD_QUEUE_COMMENT, QUEUE_COMMENT));
+        const TAIL: &str = "comes due: 0 on the day.\n";
+        if let Some(start) = prefix.find("# What waits on you, in the order ") {
+            if let Some(end) = prefix[start..].find(TAIL) {
+                let mut updated = String::with_capacity(prefix.len() + 64);
+                updated.push_str(&prefix[..start]);
+                updated.push_str(QUEUE_COMMENT);
+                updated.push_str(&prefix[start + end + TAIL.len()..]);
+                table.decor_mut().set_prefix(updated);
+            }
         }
     }
     Ok(Some(doc.to_string()))
@@ -4086,12 +4101,12 @@ mod tests {
 
     #[test]
     fn migrating_an_old_queue_adds_merges_after_reviews_once() {
-        // An existing [queue] from before merges became its own kind: merges goes right after
-        // reviews, keeping the rest of the order, comments and due_within, and refreshing the old
-        // stock comment.
-        let old = format!("{OLD_QUEUE_COMMENT}[queue]\norder = [\"needs\", \"reviews\", \"due\", \"unread\"] # mine\ndue_within = 1\n");
+        // Any earlier stock [queue] comment is refreshed, while keeping the rest of the order,
+        // user comments and due_within.
+        let earlier = "# What waits on you, in the order the notch, the waiting window and a session's panel go through it:\n# \"needs\", sessions that need you; \"reviews\", PRs waiting on your review; \"due\", todos due; \"unread\", sessions\n# whose turn ended; \"ready\", todos ready to start, which come last. One left out doesn't wait on you, but\n# sessions always do.\n# due_within: how many days before its due date a todo comes due: 0 on the day.\n";
+        let old = format!("# Keep my note.\n{earlier}[queue]\norder = [\"needs\", \"reviews\", \"due\", \"unread\"] # mine\ndue_within = 1\n");
         let migrated = with_queue_merges(&old).unwrap().expect("migrates old queue");
-        assert!(migrated.contains(&format!("{QUEUE_COMMENT}[queue]\norder = [\"needs\", \"reviews\", \"merges\", \"due\", \"unread\"] # mine\ndue_within = 1\n")), "{migrated}");
+        assert!(migrated.contains(&format!("# Keep my note.\n{QUEUE_COMMENT}[queue]\norder = [\"needs\", \"reviews\", \"merges\", \"due\", \"unread\"] # mine\ndue_within = 1\n")), "{migrated}");
         assert_eq!(parse(&migrated).unwrap().queue, QueueCfg { order: vec!["needs".into(), "reviews".into(), "merges".into(), "due".into(), "unread".into()], due_within: 1 });
         // Already migrated (or already naming merges): untouched.
         assert_eq!(with_queue_merges(&migrated).unwrap(), None);
@@ -4105,6 +4120,27 @@ mod tests {
         assert_eq!(with_queue_merges("[queue]\ndue_within = 2\n").unwrap(), None);
         // Broken TOML errors rather than silently passing.
         assert!(with_queue_merges("[queue\norder = [").is_err());
+
+        // End-to-end once-only behavior on disk: a missing or broken file doesn't flip `done`;
+        // once migrated, turning merges off later isn't undone on the next launch.
+        let dir = crate::fixtures::scratch("queue-merges-migrate");
+        let path = dir.join("config.toml");
+        let mut done = false;
+        assert!(!migrate_queue_merges_at(&path, &mut done).unwrap() && !done);
+        std::fs::write(&path, "[queue\norder = [").unwrap();
+        assert!(migrate_queue_merges_at(&path, &mut done).is_err() && !done);
+        std::fs::write(&path, &old).unwrap();
+        assert!(migrate_queue_merges_at(&path, &mut done).unwrap() && done);
+        assert_eq!(parse(&std::fs::read_to_string(&path).unwrap()).unwrap().queue.kinds(), vec!["needs", "reviews", "merges", "due", "unread"]);
+        // User turns merges back off in Settings: the next startup leaves it off.
+        let off = "[queue]\norder = [\"needs\", \"reviews\", \"due\", \"unread\"]\ndue_within = 1\n";
+        std::fs::write(&path, off).unwrap();
+        assert!(!migrate_queue_merges_at(&path, &mut done).unwrap() && done);
+        assert_eq!(std::fs::read_to_string(&path).unwrap(), off);
+        // A file with no [queue] (or reviews already off) marks `done` without rewriting it.
+        let mut fresh = false;
+        std::fs::write(&path, "scan = [\"~/projects\"]\n").unwrap();
+        assert!(!migrate_queue_merges_at(&path, &mut fresh).unwrap() && fresh);
     }
 
     #[test]

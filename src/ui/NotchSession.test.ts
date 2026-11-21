@@ -236,4 +236,19 @@ describe('the notch, while a session shows', () => {
     expect(n.shown).toBeNull();
     expect(engine.sent('notch_keys')).toEqual([{ on: true }, { on: false }]);
   });
+
+  it('remembers whether a shown PR waited to merge after the feed drops it', () => {
+    const merge: BarReview = fx.barReview({ key: 'northwind/app#14', number: 14, title: 'Ship login', repo: 'app', repoSlug: 'northwind/app', url: 'https://github.com/northwind/app/pull/14', project: 'Northwind', since: 25, merge: true });
+    const n = notch({ reviews: [REVIEW, merge] });
+    act(() => n.stage.current.show(merge.key));
+    expect([n.shown, n.stage.current.kind, n.stage.current.prMerge]).toEqual([merge.key, 'review', true]);
+    // The feed drops the PR before the board's `onGone` fires: `prMerge` still anchors to merges.
+    n.now({ reviews: [REVIEW] });
+    expect([n.shown, n.stage.current.prMerge]).toEqual([merge.key, true]);
+    // Switching to a review or a session clears it.
+    act(() => n.stage.current.show(REVIEW.key));
+    expect([n.shown, n.stage.current.prMerge]).toEqual([REVIEW.key, false]);
+    n.show('atlas');
+    expect(n.stage.current.prMerge).toBe(false);
+  });
 });
