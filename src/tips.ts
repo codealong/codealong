@@ -139,7 +139,7 @@ export const TIPS: readonly Tip[] = [
   { id: 'quick-recall', places: QUICK_PANEL, says: says`${key('Up')} brings back what you typed before closing, then the prompts you sent before that.` },
   { id: 'quick-rows', places: QUICK_PANEL, says: says`${key('Cmd+1')} to ${key('Cmd+9')} do a row without going to it, and ${key('Cmd+P')} narrows the panel to one project.` },
   { id: 'todos', places: ['board', 'quick', 'end'], says: says`A todo is work you mean to hand an agent. ${key('Enter')} on one in the quick panel gets a session ready for it.` },
-  { id: 'todo-due', places: ['board', 'waiting', 'end'], says: says`A todo waits on you from the day it's due, in the notch and the waiting window, and ${key('Cmd+Enter')} on its card starts a session on it.` },
+  { id: 'todo-due', places: ['board', 'waiting', 'end'], says: says`A todo waits on you in the notch and the waiting window from the day it's due until a session takes it on: ${key('Cmd+Enter')} on its card starts one.` },
   { id: 'projects', places: BOARD, says: says`${key('Cmd+P')} switches project, ${key('Alt+Cmd+1')} to ${key('Alt+Cmd+9')} go straight to one, and ${key('Alt+Cmd+0')} shows them all.` },
   { id: 'new-window', places: BOARD, says: says`${key('Shift+Cmd+N')} opens another window on the project, with a view of its own.` },
   { id: 'saved-views', places: BOARD, says: says`Narrow a view with the sidebar's filters, then save it under a name to come back to.` },
