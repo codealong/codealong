@@ -17,7 +17,7 @@ how a check's own header names its runs, `prelude.js`'s what a check gets (`say`
   frames, so scroll events never arrive; and it resizes the page just before a screenshot, which
   closes whatever closes on resize. `PREVIEW_WAIT=<ms>` runs a check on the real clock with
   frames instead.
-- A check's page is the size its view asks for (the bar's 1100 by 64, say), the window taller by
+- A check's page is the size its view asks for (the bar's 1200 by 64, say), the window taller by
   Chrome's own frame; the prelude notes one that isn't (on virtual time a page is 500 wide at
   least).
 - The engine the preview runs is this checkout's own: `scripts/engine.sh` builds it (debug) when

@@ -111,8 +111,9 @@ describe('fitGroups', () => {
   });
 
   it('leaves room in the floating bar for at least one Needs you pill beside every summary pill', () => {
-    // Widths of a busy board with every trailing pill (All projects, snoozed, recent, reviews,
-    // merges, due, ready todos), three fold pills (+88), and a max-width Needs you pill (180px).
+    // Generous widths for a busy board: the project button beside the mark, all six trailing
+    // summary pills (snoozed, recent, reviews, merges, due, ready todos), three fold pills (+88),
+    // and a max-width Needs you pill (180px).
     const full = metrics([180, 160], [160, 160], [160, 160], 95, {
       fold: { needs: 55, unread: 55, working: 55 },
       project: 95,
