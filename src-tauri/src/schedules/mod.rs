@@ -779,12 +779,16 @@ pub fn checked(s: &Schedule, cfg: &Config, at: Option<i64>, zone: &dyn Zone) -> 
 /// Why a schedule can't run on this board now, past what `check` says of it: its folder or its
 /// session isn't there.
 fn board_problem(s: &Schedule, board: &Board) -> Option<String> {
+    board_problem_at(s, board, || place(s, board))
+}
+
+fn board_problem_at<'a>(s: &Schedule, board: &'a Board, lane: impl FnOnce() -> Option<&'a crate::model::Lane>) -> Option<String> {
     let run = &s.run;
     match run.to {
         // One whose session has gone starts a new one in its place, in its folder (runner.rs `step`).
         To::Session if board.session(run.session.trim()).is_some() => None,
         _ if run.folder.trim().is_empty() => None,
-        _ if place(s, board).is_some() => None,
+        _ if lane().is_some() => None,
         _ => Some(match &s.checkout {
             Some(c) => format!("There's no checkout of {}{} here.", c.repo, c.branch.as_deref().map(|b| format!(" on {b}")).unwrap_or_default()),
             None => format!("{} isn't a worktree Codealong knows.", run.folder.trim()),
@@ -813,9 +817,13 @@ pub fn place<'a>(s: &Schedule, board: &'a Board) -> Option<&'a crate::model::Lan
 /// or a repo's checkout, and a run would start there instead.
 pub fn worktree<'a>(board: &'a Board, folder: &str) -> Option<&'a crate::model::Lane> {
     let dir = crate::util::expand(folder);
-    let real = |p: &std::path::Path| dunce::canonicalize(p).unwrap_or_else(|_| p.to_path_buf());
-    let want = real(&dir);
-    board.lanes.iter().find(|l| std::path::Path::new(&l.path) == dir || std::path::Path::new(&l.id) == dir || real(std::path::Path::new(&l.path)) == want)
+    // Exact path match first without touching the filesystem; only fall back to canonicalizing
+    // symlinks when the folder exists on disk and didn't match any lane verbatim.
+    if let Some(lane) = board.lanes.iter().find(|l| std::path::Path::new(&l.path) == dir || std::path::Path::new(&l.id) == dir) {
+        return Some(lane);
+    }
+    let Ok(want) = dunce::canonicalize(&dir) else { return None };
+    board.lanes.iter().find(|l| dunce::canonicalize(&l.path).is_ok_and(|p| p == want))
 }
 
 /// When a schedule's watch looks next: `every` after its last look, or now when it hasn't.
@@ -946,14 +954,14 @@ pub fn items(file: &File, runs: &Runs, board: &Board, cfg: &Config, now: i64, zo
             let finished = s.finished_at.or_else(|| spent(s, track, now, zone));
             let saved = checked(s, cfg, finished.is_none().then(|| timed_at(s)), zone).err();
             let (mut problem, mut here, runs_on_words) = match &s.runs_on {
-                RunsOn::This => (saved.or_else(|| board_problem(s, board)), None, None),
+                RunsOn::This => (saved.or_else(|| board_problem_at(s, board, || lane)), None, None),
                 // One this machine can't run, the others still do: it's said of this machine alone.
-                RunsOn::Every => match machines::able(s, board, cfg, zone).err() {
+                RunsOn::Every => match machines::able_at(s, board, cfg, zone, lane).err() {
                     Some(here) if saved.is_none() && !board.machines.others.is_empty() => (None, Some(here), Some("On every machine".to_string())),
                     here => (saved.or(here), None, Some("On every machine".to_string())),
                 },
                 RunsOn::One { .. } => {
-                    let here = machines::able(s, board, cfg, zone).err();
+                    let here = machines::able_at(s, board, cfg, zone, lane).err();
                     let line = machines::line(s, &board.machines, here.is_none(), now);
                     let words = machines::words(s, &line, &board.machines);
                     match line.is_empty() {
@@ -1776,6 +1784,33 @@ mod tests {
         assert!(worktree(&board, "~/projects/atlas").is_none());
         let s = Schedule { run: Run { folder: "~/projects/atlas".into(), prompt: "Look".into(), ..Run::default() }, ..Schedule::default() };
         assert!(board_problem(&s, &board).is_some_and(|p| p.contains("isn't a worktree")));
+    }
+
+    #[test]
+    fn worktree_matches_exact_paths_and_symlinks_without_matching_missing_folders() {
+        let lane = |id: &str, path: &str| crate::model::Lane { id: id.into(), path: path.into(), ..crate::fixtures::lane(path, Vec::new()) };
+        let board = Board { lanes: vec![lane("/virtual/id", "/virtual/real")], ..Board::default() };
+        assert!(worktree(&board, "/virtual/real").is_some());
+        assert!(worktree(&board, "/virtual/id").is_some());
+        assert!(worktree(&board, "/virtual/missing").is_none());
+
+        #[cfg(unix)]
+        {
+            let dir = crate::store::test_dir("schedules-worktree-symlink");
+            let real = dir.join("real");
+            let link = dir.join("link");
+            std::fs::create_dir_all(&real).unwrap();
+            std::os::unix::fs::symlink(&real, &link).unwrap();
+            let real_s = real.to_string_lossy().into_owned();
+            let link_s = link.to_string_lossy().into_owned();
+            // Symlinked schedule folder matches canonical lane, and vice versa.
+            let real_board = Board { lanes: vec![lane(&real_s, &real_s)], ..Board::default() };
+            assert_eq!(worktree(&real_board, &link_s).map(|l| l.path.as_str()), Some(real_s.as_str()));
+            let link_board = Board { lanes: vec![lane(&link_s, &link_s)], ..Board::default() };
+            assert_eq!(worktree(&link_board, &real_s).map(|l| l.path.as_str()), Some(link_s.as_str()));
+            assert!(worktree(&real_board, &dir.join("gone").to_string_lossy()).is_none());
+            let _ = std::fs::remove_dir_all(&dir);
+        }
     }
 
     /// The Schedules view groups a schedule under the worktree it runs in, which only the engine

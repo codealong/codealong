@@ -47,8 +47,12 @@ pub const MOST_NOTES: usize = 64 * 1024;
 /// Why this machine can't run a schedule now, past what `check` says of it: its folder or the
 /// session it sends to isn't here, or its account is turned off here.
 pub fn able(s: &Schedule, board: &Board, cfg: &Config, zone: &dyn Zone) -> std::result::Result<(), String> {
+    able_at(s, board, cfg, zone, place(s, board))
+}
+
+pub(super) fn able_at(s: &Schedule, board: &Board, cfg: &Config, zone: &dyn Zone, lane: Option<&crate::model::Lane>) -> std::result::Result<(), String> {
     check(s, cfg, timed_at(s), zone)?;
-    if let Some(why) = board_problem(s, board) {
+    if let Some(why) = board_problem_at(s, board, || lane) {
         return Err(why);
     }
     if s.run.to != To::Session {
@@ -61,7 +65,7 @@ pub fn able(s: &Schedule, board: &Board, cfg: &Config, zone: &dyn Zone) -> std::
         // `[routing] auto` names one, as a start picks (start.rs `resolve_group`); with members,
         // one of them on here, and else (Auto, a group of every account) any account.
         let auto = account.is_empty() || account == "auto";
-        let named = if auto { crate::config::auto_group(cfg, place(s, board).map(|l| l.project.as_str())) } else { account };
+        let named = if auto { crate::config::auto_group(cfg, lane.map(|l| l.project.as_str())) } else { account };
         let group = (!named.is_empty()).then(|| cfg.routing.groups.iter().find(|g| g.name.trim() == named)).flatten();
         let none_on = match cfg.accounts.is_empty() {
             true => Some("No account is set up here."),
