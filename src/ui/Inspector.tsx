@@ -229,6 +229,7 @@ export function Inspector({ lane, focusKey, apps, now, onOpen, onNewSession, tod
   return (
     <aside className="ca-insp ca-laneinsp" aria-label={`${lane.callsign} details`}>
       <QueueStrip queue={queue} hotkeys={{ nowhere }} buttons={laneButtons(lane, apps, onOpen, onNewSession, keys)} of="this worktree" back={back} />
+      <div className="ca-insp-body">
       <header onContextMenu={headerMenu(onMenu)}>
         <div className="ca-insp-title">
           <LaneGlyph lane={lane} />
@@ -396,6 +397,7 @@ export function Inspector({ lane, focusKey, apps, now, onOpen, onNewSession, tod
           </dl>
         </section>
       )}
+      </div>
     </aside>
   );
 }

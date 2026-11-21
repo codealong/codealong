@@ -73,6 +73,7 @@ export function HarnessSchedulePanel({ item: h, now, sessionOf, onShowSession, o
         next={next}
         buttons={[{ label: h.link ? `Open in ${HARNESS_APP[h.harness]}` : 'Open its session', title: h.link ? `Open it in ${HARNESS_APP[h.harness]}` : session ? 'Open its session where it runs' : 'Its session isn’t on the board', run: h.link || session ? onOpen : undefined }]}
       />
+      <div className="ca-insp-body">
       <header>
         <div className="ca-insp-title">
           <Icon name="clock" size={14} />
@@ -110,6 +111,7 @@ export function HarnessSchedulePanel({ item: h, now, sessionOf, onShowSession, o
         )}
         {h.prompt && <div className="ca-schedinsp-prompt">{h.prompt}</div>}
       </section>
+      </div>
     </aside>
   );
 }
@@ -145,6 +147,7 @@ export function SchedulePanel({ item, now, sessionOf, onShowSession, onRun, onPa
           { label: 'Edit', title: 'Change when it runs and what it does', run: onEdit },
         ]}
       />
+      <div className="ca-insp-body">
       <header onContextMenu={headerMenu(() => onMenu())}>
         <div className="ca-insp-title">
           <Icon name={whenIcon(s.when)} size={14} />
@@ -265,6 +268,7 @@ export function SchedulePanel({ item, now, sessionOf, onShowSession, onRun, onPa
           })}
         </div>
       </section>
+      </div>
     </aside>
   );
 }

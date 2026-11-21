@@ -238,23 +238,13 @@
   width: calc(80px / var(--card-zoom, 1) - 20px);
   height: 22px;
 }
-/* In a session's panel (Sessions) and a PR's (PrStrip.tsx), lined up with the panel's header. */
+/* Over every main-window panel (Sessions, PRs, Todo, Worktrees, Schedules): lined up with the
+   panel's header, sitting above its scrolling body rather than inside it. */
 .ca-sessinsp .ca-reply-queue,
-.ca-prpanel > .ca-reply-queue {
-  padding: 4px 12px 4px var(--space-4);
-}
-/* Over a panel that scrolls as a whole, inside its padding (a todo's, TodoStrip.tsx; a worktree's,
-   Inspector.tsx; a schedule's, SchedulePanel.tsx): flush with its edges, lined up as the others
-   are, and kept at its top as it scrolls, as the list's strip is (ListBar.css). A sticky box
-   keeps clear of its scroller's padding, so `top: 0` would hold it a padding's height down,
-   over the header under it: its top is minus the padding, as its margin is. */
+.ca-prpanel > .ca-reply-queue,
 .ca-todoinsp > .ca-reply-queue,
 .ca-laneinsp > .ca-reply-queue,
 .ca-schedinsp > .ca-reply-queue {
-  position: sticky;
-  top: calc(-1 * var(--space-4));
-  z-index: var(--z-listbar);
-  margin: calc(-1 * var(--space-4)) calc(-1 * var(--space-4)) 0;
   padding: 4px 12px 4px var(--space-4);
 }
 /* With glass on (src/glass.ts), the strip over the list's own shade (ListBar.css), and its lines,

@@ -1,14 +1,11 @@
 /* The strip over the main window's list (ListBar.tsx): the view's tools and the list's find. */
 
-/* Drawn as the strip over a session's panel is, on sunken ground, and stays at the top of the
-   board while the list scrolls under it. As tall as that strip (31px with its line), so the two
-   lines meet across the window. Its ground reaches 2px above it: stuck, WebKit places it on its
-   own layer, and at a zoom like 110% the board's top edge falls between device pixels, so a row
-   could show through a pixel above it. The board's clip-path (App.css) cuts that off at the
-   board's edge, so it never covers the line over the board. */
+/* Drawn as the strip over a session's panel is, on sunken ground, at the top of the board above
+   the scrolling body (App.css `.ca-board-body`), so the list's scrollbar starts under it rather
+   than running over it. As tall as that strip (31px with its line), so the two lines meet across
+   the window, and stacked above the body so its View popover paints over the list. */
 .ca-listbar {
-  position: sticky;
-  top: 0;
+  position: relative;
   z-index: var(--z-listbar);
   flex: none;
   display: flex;
@@ -18,22 +15,14 @@
   padding: 3px var(--space-3);
   border-bottom: 1px solid var(--line);
   background: var(--surface-sunken);
-  box-shadow: 0 -2px 0 var(--surface-sunken);
 }
-/* With glass on (src/glass.ts), opaque, a shade under the board's frosted ground, so the rows that
-   scroll under it don't show: frosted all but through, a group header's words under it still read
-   faintly through it (2026-11-15). Not see-through and blurred, as under a toolbar of macOS's:
-   WebKit draws a page's backdrop-filter with a backdrop layer of its own, and stacked on the glass
-   behind the window the strip flickered as the window was dragged (2026-11-15). The strip
-   over a session's panel takes the same shade (SessionPanel.css), so the two read as one. */
+/* With glass on (src/glass.ts), opaque, a shade under the board's frosted ground, matching the
+   strip over a session's panel (SessionPanel.css) so the two read as one across the window. Not
+   see-through and blurred, as under a toolbar of macOS's: WebKit draws a page's backdrop-filter
+   with a backdrop layer of its own, and stacked on the glass behind the window the strip flickered
+   as the window was dragged (2026-11-15). */
 .is-glass .ca-listbar {
   background: var(--glass-cover);
-  box-shadow: 0 -2px 0 var(--glass-cover);
-}
-/* A row the keyboard goes to is scrolled to just under the bar, not under it: the bar's height,
-   one line's (31px with its line) or more where its chips wrap (`ListBar` keeps it). */
-.ca-board:has(> .ca-listbar) {
-  scroll-padding-top: var(--listbar-h, 31px);
 }
 
 /* A view's tools (`ListTools`): its View menu and the filters narrowing it. */

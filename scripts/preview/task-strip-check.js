@@ -70,25 +70,30 @@
   var other = null;
   var said = function (s) { var n = q('.ca-reply-queue-note', s); return n ? n.textContent : ''; };
   var title = function () { var t = q('.ca-todoinsp .ca-todoinsp-title'); return t ? t.value : ''; };
-  // Where a panel's strip sits: its top against the panel's own (inside its border), and what
-  // comes after it below it, not under it. Scrolled, a panel held short enough to scroll.
+  // Where a panel's strip sits: its top against the panel's own (inside its border), and its
+  // scrolling body starting below the strip so the scrollbar never goes over it. Scrolled, a panel
+  // held short enough to scroll.
   var placed = function (panel, scrolled) {
     var p = q(panel);
     var s = strip(panel);
-    if (scrolled) { p.style.maxHeight = '160px'; p.scrollTop = 60; }
+    var body = q(panel + ' > .ca-insp-body, ' + panel + ' > .ca-prpanel-body');
+    if (scrolled) { p.style.maxHeight = '160px'; p.scrollTop = 60; if (body) body.scrollTop = 60; }
     var edge = p.getBoundingClientRect().top + p.clientTop;
     var at = s.getBoundingClientRect();
-    var after = s.nextElementSibling.getBoundingClientRect();
-    var moved = p.scrollTop;
-    if (scrolled) { p.scrollTop = 0; p.style.maxHeight = ''; }
+    var after = (body || s.nextElementSibling).getBoundingClientRect();
+    var outerMoved = p.scrollTop;
+    var outerScrolls = /(auto|scroll)/.test(getComputedStyle(p).overflowY);
+    var moved = body ? body.scrollTop : 0;
+    if (scrolled) { if (body) body.scrollTop = 0; p.scrollTop = 0; p.style.maxHeight = ''; }
     var flush = Math.abs(at.top - edge) < 1;
-    return { ok: scrolled ? flush && moved > 0 : flush && after.top >= at.bottom - 0.5, says: 'strip at ' + at.top + '–' + at.bottom + ', panel at ' + edge + ', what follows at ' + after.top + (scrolled ? ', scrolled ' + moved : '') };
+    var below = !!body && after.top >= at.bottom - 0.5 && !outerScrolls && outerMoved === 0;
+    return { ok: scrolled ? flush && below && moved > 0 : flush && below, says: 'strip at ' + at.top + '–' + at.bottom + ', panel at ' + edge + ' (overflow ' + getComputedStyle(p).overflowY + '), body at ' + after.top + (scrolled ? ', scrolled ' + moved + ' (outer ' + outerMoved + ')' : '') };
   };
   var flush = function (panel, what) {
     var at = placed(panel, false);
     check(what + '’s strip is flush with its panel’s top, over none of the header', at.ok, at.says);
     var scrolled = placed(panel, true);
-    check(what + '’s strip stays at the top as its panel scrolls', scrolled.ok, scrolled.says);
+    check(what + '’s strip stays at the top while the body scrolls below it', scrolled.ok, scrolled.says);
   };
 
   say('task strip check: the Todo view');
