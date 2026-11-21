@@ -28,7 +28,7 @@ and `cargo test terminals` (2026-11-08). How to take a newer revision: `docs/dev
 - `RenderState::update` takes the screen as it is; `Snapshot::dirty` says Clean, Partial or Full,
   and `RowIteration::next_dirty` gives only the changed rows (every row when Full). `clean()`
   marks them drawn. `set_dirty(Full)` before iterating gives a whole frame, which a window that
-  just started showing a terminal needs (`screen.rs` `frame`). Rows not drawn while no window
+  just started showing a terminal needs (`vt/src/screen.rs` `frame`). Rows not drawn while no window
   watches stay dirty until the next update.
 - `CellIteration::fg_color`/`bg_color` resolve palette colors to RGB (None for the default);
   inverse and invisible are the caller's to apply, and bold isn't brightened. A wide character's
@@ -49,7 +49,7 @@ and `cargo test terminals` (2026-11-08). How to take a newer revision: `docs/dev
 - Selection lives in the terminal: the gesture API (`PressEvent`, `DragEvent`, `ReleaseEvent`)
   counts clicks for words and lines, `set_selection` sets it, the render state marks selected
   cells, and a formatter made with `Formatter::new_selection` (None while nothing's selected)
-  gives its text (`screen.rs` `selection_text`). The formatter's own `set_selection`, for a
+  gives its text (`vt/src/screen.rs` `selection_text`). The formatter's own `set_selection`, for a
   selection from elsewhere, is `unsafe`: nothing checks it came from that terminal's active screen.
 - A drag whose position is within a pixel of the top of the screen, or past it, or past the
   bottom (the `Geometry`'s `screen_height`), sets `Gesture::autoscroll` to Up or Down. The library
@@ -57,23 +57,23 @@ and `cargo test terminals` (2026-11-08). How to take a newer revision: `docs/dev
   drag at the viewport cell it's given, returning no selection when there's no direction, and
   resetting the gesture when the cell first pressed has left the active screen. Ghostty ticks
   every 15 ms (its termio thread's `selection_scroll_ms`) at the pointer's place; release ends it.
-  The terminal's thread ticks here (`screen.rs` `autoscroll`, `AUTOSCROLL_EVERY`).
+  The terminal's thread ticks here (`vt/src/screen.rs` `autoscroll`, `AUTOSCROLL_EVERY`).
 - A program that marks a redraw as one (synchronized output, DEC mode 2026, which Claude Code and
   Codex wrap every draw in) calls `on_render_hold` with true as it starts and false as it ends (or
   on a reset or a resize); a renderer keeps the last finished frame meanwhile and gives up after a
-  second. The server makes no frame while one's held (`screen.rs` `held`, `HOLD_MAX`).
+  second. The server makes no frame while one's held (`vt/src/screen.rs` `held`, `HOLD_MAX`).
 - `Terminal::encode_snapshot` writes everything a terminal holds (size, palette, modes and mouse
   settings, both screens with their cursors and Kitty keyboard stacks, the scrollback, newest
   first) and `snapshot::Decoder::decode` makes a terminal of it. The format is versioned apart
   from the library and outside 1.0's ABI promise: its version 1 has no binary-compatibility
   guarantee yet (Ghostty's snapshots guide, vt-1.0.0). Encoding partway through a sequence needs continuation tracking on
   (`set_continuation_max_bytes`) before the bytes that started it, so every screen has it
-  (`screen.rs` `CONTINUATION_BYTES`); the decoded terminal finishes the sequence from the next
+  (`vt/src/screen.rs` `CONTINUATION_BYTES`); the decoded terminal finishes the sequence from the next
   bytes. Callbacks aren't in a snapshot: they're set again on the decoded terminal (`Screen::around`).
 - The formatter's `Vt` format writes a screen and its scrollback as escape sequences another
   terminal draws, with what `set_extras` adds (`Extras`: the modes, keyboard modes, scrolling
   region, tab stops, working directory, the cursor's place, pen and hyperlink, …; the palette,
-  pen and hyperlink by default) (`screen.rs` `vt`, for `codealong terminal attach`). It
+  pen and hyperlink by default) (`vt/src/screen.rs` `vt`, for `codealong terminal attach`). It
   trims trailing spaces and blank rows by default; untrimmed VT output keeps the blank rows, so it
   fills the rows the screen does.
 - Claude Code turns the Kitty keyboard protocol on (`CSI > 5 u`) only once a terminal it doesn't
@@ -82,7 +82,7 @@ and `cargo test terminals` (2026-11-08). How to take a newer revision: `docs/dev
   Ghostty does.
 - `Terminal::cursor_x`/`cursor_y` place the cursor in the active area (whatever the view's
   scrolled to), and `grid_ref(Point::Active(…))` reads one cell, its text through `graphemes`
-  (0 for an empty cell, `OutOfSpace` for a buffer too small): `screen.rs` `before_cursor`.
+  (0 for an empty cell, `OutOfSpace` for a buffer too small): `vt/src/screen.rs` `before_cursor`.
 - Whether a program is reading its terminal can't be asked on macOS without root: `ps -o wchan`
   shows `-` for a process blocked in a tty read, as for any other (macOS 26, 2026-11-12), and
   `proc_pidinfo`'s thread info has no wait reason. So `terminals.rs` `Asking` reads a question from
@@ -100,7 +100,7 @@ and `cargo test terminals` (2026-11-08). How to take a newer revision: `docs/dev
   sends the canvas the moves outside it while the button's held, in the drawer and a popped-out
   window), and a popped-out terminal's window sized by its edges. The preview shows the move sent
   from past the edge, the sizes asked for and the menu's Add to the session's box
-  (`terminal-box-check.js`); the scrolling itself is tested in the engine (`screen.rs`).
+  (`terminal-box-check.js`); the scrolling itself is tested in `codealong-vt` (`vt/src/screen.rs`).
 
 - 2026-11-04, in the real app: a session started and resumed in Codealong's terminal
   (`[apps] terminal = "codealong"`) shown in its panel, Show in and the waiting window's answers

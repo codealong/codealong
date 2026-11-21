@@ -3,6 +3,7 @@ paths:
   - "src-tauri/src/skills.rs"
   - "src-tauri/src/install.rs"
   - "src-tauri/src/*/skills.rs"
+  - "src-tauri/src/claude/builtin.rs"
   - "src/skills.ts"
   - "src/ui/SlashList.tsx"
   - "plugin/**"
@@ -21,7 +22,7 @@ under `src-tauri/src/` unless they start with `plugin/`.
   `codex/mod.rs`, `opencode.rs`, `antigravity.rs`, `cursor.rs`). Why the skill is copied rather than linked:
   `install.rs` (header).
 - Where Claude Code finds the skills and commands a prompt can run by name (`/name args`, as a
-  first prompt too), and how often each ran: `claude/skills.rs` (header, `plugin_roots`,
+  first prompt too), and how often each ran: `claude/skills.rs` (header, `plugins`, `plugin_dirs`,
   `uses`), `claude/mod.rs` (`skill_mention`), and the frontmatter `skills.rs` reads (`Skill`:
   `argument-hint`, `user-invocable`, `disable-model-invocation`). Not there (2.1.289): it reads
   a `.claude` folder in the session's folder and those above it, not `.agents/skills`, and

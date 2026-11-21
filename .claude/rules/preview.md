@@ -23,11 +23,11 @@ how a check's own header names its runs, `prelude.js`'s what a check gets (`say`
 - A check's page is the size its view asks for (the bar's 1200 by 64, say): `runner.mjs` sets the
   exact viewport via `Emulation.setDeviceMetricsOverride`, while `preview.sh` sizes the window
   taller by Chrome's own frame (on virtual time a browser window is 500 wide at least); the prelude
-  notes one that isn't. On Linux, `runner.mjs` and `preview.sh` emulate a macOS user agent whenever
-  `PREVIEW_PLATFORM` is unset so macOS key checks hold on Ubuntu CI runners.
+  notes one that isn't. Off macOS, `runner.mjs` and `preview.sh` emulate a macOS user agent whenever
+  `PREVIEW_PLATFORM` is unset or `mac` so macOS key checks hold on Ubuntu CI runners.
 - The engine the preview runs is this checkout's own: `scripts/engine.sh` builds it (debug) when
   src-tauri has changed and copies it to `.preview/engine/codealong`. `PREVIEW_BIN` runs another.
-- `scripts/checks.sh --fixture` is the gate: it runs the runs `scripts/preview/fixture-passes.txt`
+- `scripts/checks.sh --fixture` is the gate: it runs the checks `scripts/preview/fixture-passes.txt`
   lists against the engine's made-up Mac (`src-tauri/src/fixture.rs`, `codealong --snapshot
   --fixture`), which is the same everywhere, so a failure there is the code's. GitHub runs it
   on `main` after what lands (`.github/workflows/checks.yml`), where a failure is a red `main`;

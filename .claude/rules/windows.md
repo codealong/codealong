@@ -1,6 +1,7 @@
 ---
 paths:
   - "src-tauri/src/panel.rs"
+  - "src-tauri/src/os/windows/**"
   - "src-tauri/src/bar.rs"
   - "src-tauri/src/barfeed.rs"
   - "src-tauri/src/peek.rs"
@@ -46,7 +47,7 @@ links macOS opens with it) is in `tauri.md`.
   unseen panel that takes it and is ordered out: a panel ordered out and in again, even in one
   turn of the run loop, has WebKit hide its page until it draws again, and the notch blinked
   out as it closed (2026-10-05). `bar.rs` (`set_keys`, `lost_keys`), `panel.rs`
-  (`Keys::WhenAsked`, `drop_keys`, `relay`).
+  (`Keys::WhenAsked`, `drop_keys`), `os/windows/macos.rs` (`relay`).
 - Only a non-activating NSPanel goes onto another app's full-screen Space, so each window's class
   is swapped before it's first shown: `panel.rs` (module header, `builder`, `make`).
 - A panel gets its old class back before its window is destroyed, or WebKit's key-value
@@ -139,7 +140,7 @@ links macOS opens with it) is in `tauri.md`.
   `peek.rs` (module header, `watch_pointer`, `NEAR`, `drag`), `panel.rs` (`Keys::OnClick`).
 - A session kept on the desktop is a panel of the peek's kind: `kept.rs` (module header, `close`,
   which gives its class back, and `on_window_event`, which orders one that lost the keyboard in
-  again saying it's key), `panel.rs` (`ENGAGED`).
+  again saying it's key), `os/windows/macos.rs` (`ENGAGED`).
 - A key equivalent (⌘ and a key) goes to the page before the menu bar, and to the menu only when
   the page doesn't prevent it; WKWebView's `pageZoom` shrinks the page's CSS pixels and is in
   its `devicePixelRatio` (2.5 on a Retina screen at 125%). Both checked in a WKWebView whose

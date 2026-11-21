@@ -130,7 +130,7 @@ under `src-tauri/src/`.
   it prints `(idle — send a prompt to start)`. `--worktree`, `--model` and `--add-dir` work
   with it. A stale `CODEALONG_SESSION` in the service's environment reaches the job
   (`cli/whoami.rs` `find_me`). `stop <job>` keeps the conversation and the worktree; `rm <job>`
-  (below) removes the job's state and, by its own rule, its worktree.
+  (`claude-asks.md`) removes the job's state and, by its own rule, its worktree.
 - `--bg` takes itself out of the arguments before it reads them (2.1.284 to 2.1.290), so a
   background start's prompt goes after `--`: `claude/start.rs` (`background_args`). The job gets
   what's left with `--session-id` added (the roster's `dispatch.launch.args`); after `--` the

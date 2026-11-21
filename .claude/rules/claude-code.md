@@ -23,7 +23,7 @@ Claude app's records. The rest is a file a subject, each loading for the code th
 
 The adapter, `claude/mod.rs`, loads this file alone, and what its functions rely on is spread
 over all seven. Before changing one of them, read the file that names it below; this file has
-`leftover`, `runs_its_commands` and `app_link`.
+`leftover`, `runs_its_commands`, `app_link` and `resets`.
 
 - `claude-transcript.md`: a transcript's lines: which are prompts, how a turn begins and ends,
   the errors and limits it stops at, usage, compaction, names and wakeups. In the adapter:
@@ -33,7 +33,7 @@ over all seven. Before changing one of them, read the file that names it below; 
 - `claude-start.md`: starting, resuming, copying and moving a session, the folders an account
   trusts, and what records where a session came from (a job's `state.json`, `Forks`,
   `/background`'s `parked_job`). In the adapter: `start_in_terminal`, `background_command`,
-  `before_start`, `start_trusts`, `offers_model`, `fork_from`, `move_folder`,
+  `before_start`, `isolates`, `start_trusts`, `offers_model`, `fork_from`, `move_folder`,
   `move_folder_background`, `move_to`, `move_to_background`, `resume_args`, `session_var`, and
   the reader's `moved_copy`, `closed_copies` and `parent_key`.
 - `claude-send.md`: the input box, the socket for other sessions' messages and what it holds,
@@ -45,7 +45,7 @@ over all seven. Before changing one of them, read the file that names it below; 
   `Records::modes`), the plugin's hooks, and the worktree a session made, as it ends. In the
   adapter: `answer`, `waiting_call`, `waiting_on`, `helper_logs`, `helper_waiting`,
   `keyed_questions`, `job_pending`, `answer_job_questions`, `press_in_job`,
-  `clears_context_first`.
+  `clears_context_first`, `setup_worktree`, `teardown`, `forget_worktree`.
 - `claude-side.md`: side conversations, and why `read_registry` skips a copy's entry. In the
   adapter: `side`, `fresh_side`.
 
@@ -150,7 +150,7 @@ over all seven. Before changing one of them, read the file that names it below; 
 
 - Sign-in in the login keychain (its services, the account, reading it without a prompt) and
   never refreshing, logging or passing the token in arguments: `claude/usage.rs` (module header,
-  `keychain_services`, `read_sign_in`, `fetch`).
+  `keychain_services`, `read_sign_in`, `claude`, `request`).
 - An account's MCP servers (2.1.306, 2026-10-20): the claude.ai connectors from `GET
   https://api.anthropic.com/v1/mcp_servers?limit=1000&include_additional_installs=true` with the
   sign-in's token, `anthropic-beta: mcp-servers-2025-12-04` and `anthropic-version: 2023-06-01`
@@ -169,7 +169,7 @@ over all seven. Before changing one of them, read the file that names it below; 
   (`apiKeyHelper`, `awsAuthRefresh`, `awsCredentialExport`, `gcpAuthRefresh`,
   `forceLoginMethod`, `forceLoginOrgUUID`, and in `env` the keys and tokens, the cloud
   providers' switches and credentials, which Bedrock's setup saves there, and
-  `ANTHROPIC_BASE_URL`: `SIGN_IN_ENV`) to the account. A new account whose `settings.json` turns
+  `ANTHROPIC_BASE_URL`: `SIGN_IN`, `signs_in`) to the account. A new account whose `settings.json` turns
   on plugins of marketplaces it lists (`enabledPlugins`, `extraKnownMarketplaces`) gets them
   added and installed by Claude Code itself once it runs (seen with a copied settings.json,
   2026-11-17), so the plugins themselves aren't copied.
@@ -186,7 +186,7 @@ over all seven. Before changing one of them, read the file that names it below; 
   2.1.327 asks it (`account.email`, `organization.uuid`, `organization.organization_type`, which it
   maps to max, pro, team and enterprise): `claude/signin.rs` (module header).
 - Plan usage, `GET https://api.anthropic.com/api/oauth/usage`: the request and its `limits`
-  list in `claude/usage.rs` (`fetch`, `claude_meters`), how often the app asks and how it backs
+  list in `claude/usage.rs` (`claude`, `request`, `claude_meters`), how often the app asks and how it backs
   off in `engine.rs` (`USAGE_EVERY`, `USAGE_BACKOFF`) and `engine/polls.rs` (`keep_last_good`).
   It returns 429 when called often, so don't loop `--usage` snapshots. The same answer has
   `extra_usage`, this billing period's extra-usage spend in minor units (`claude/usage.rs`
@@ -200,6 +200,8 @@ over all seven. Before changing one of them, read the file that names it below; 
   minutes later; what set it off isn't known. Claude Code 2.1.316's own read (`fetchUtilization`) asks with `/api/oauth/usage` alone, keeps a
   429 for its `Retry-After`, or 5 minutes without one, an hour at most, and sends
   `cedar_ember=1`, `at_wall=1` or `starry_waterfall=<surface>` only for its limit-reached offers.
+  Codealong's numbers outlast a relaunch in `usage.json` (`usage.rs` `keep`, `kept`), so a read
+  turned away at launch keeps them too.
 - Limit resets (2.1.327's code, 2026-11-18), which Codealong doesn't read or use (resets.rs): a
   hidden `/limit-reset` (`local-jsx`, so interactive only; with neither program on it isn't
   enabled) and `/rate-limit-options`' menu use one of two programs, each claimed with `POST
@@ -220,8 +222,6 @@ over all seven. Before changing one of them, read the file that names it below; 
   limit since 2026-10-31, the Team seat's answer had no `juniper_tide` block, and none of the
   three state files' 1,452 cached flags had `tengu_cedar_ember`; `tengu_nifty_lemur` was on only
   in `~/.claude.json`.
-  Codealong's numbers outlast a relaunch in `usage.json` (`usage.rs` `keep`, `kept`), so a read
-  turned away at launch keeps them too.
 
 ## Claude app
 
