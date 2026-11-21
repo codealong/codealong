@@ -1368,13 +1368,12 @@ impl Engine {
         if self.passing || self.state_unreadable || cfg!(test) || self.seen.queue_merges_split || self.config_text.is_none() {
             return false;
         }
-        match config::migrate_queue_merges() {
+        match config::migrate_queue_merges(&mut self.seen.queue_merges_split) {
             Ok(changed) => {
-                self.seen.queue_merges_split = true;
                 if changed {
                     self.load_config();
                 }
-                true
+                self.seen.queue_merges_split
             }
             Err(e) => {
                 eprintln!("Couldn't migrate [queue] order for merges: {e:#}");
