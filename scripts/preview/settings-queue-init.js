@@ -11,7 +11,7 @@
     var p = invoke(cmd, args, options);
     if (cmd !== 'get_config') return p;
     return p.then(function (view) {
-      if (!latest) latest = Object.assign({}, view.config, { queue: { order: ['due', 'needs', 'reviews', 'unread'], due_within: 1 } });
+      if (!latest) latest = Object.assign({}, view.config, { queue: { order: ['due', 'needs', 'reviews', 'merges', 'unread'], due_within: 1 } });
       return Object.assign({}, view, { config: latest });
     });
   };

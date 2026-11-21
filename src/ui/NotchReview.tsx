@@ -65,7 +65,7 @@ export function NotchReview({ prKey, now, queue, notice, onBack, keys, onKeys, o
 
   const apps = live.apps ?? undefined;
   const terminal = apps?.terminal ?? 'Terminal';
-  const host = useCardHost({ sessionKey: null, anchor: 'reviews', live, apps, terminal, away: onClose });
+  const host = useCardHost({ sessionKey: null, anchor: live.pr?.mine && !live.pr.reviewRequested ? 'merges' : 'reviews', live, apps, terminal, away: onClose });
   const icons = useEditorIcons(apps);
   const onDesktop = menus.useDesktopPins();
   const { report } = host;

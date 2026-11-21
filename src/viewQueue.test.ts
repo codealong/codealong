@@ -14,18 +14,23 @@ describe('prWaitingRows', () => {
   const asked = fx.prItem({ number: 1, reviewRequested: true });
   const also = fx.prItem({ number: 2, reviewRequested: true });
   const mine = fx.prItem({ number: 3 });
+  const ready = fx.prItem({ number: 4, mine: true, state: 'approved', merge: 'clean', waitsToMerge: true });
   const row = (pr: PrItem) => prRowOf(pr, new Map(), new Map());
 
-  it('goes through the PRs the list shows that wait on your review', () => {
-    const board = fx.board({ prs: [asked, also, mine] });
+  it('goes through the PRs the list shows that wait on your review or on you to merge them', () => {
+    const board = fx.board({ prs: [asked, also, mine, ready] });
     expect(prWaitingRows([row(also), row(mine)], board, 'All projects').map((r) => r.pr.number)).toEqual([2]);
-    expect(prWaitingRows([row(asked), row(also), row(mine)], board, 'All projects').map((r) => r.pr.number)).toEqual([1, 2]);
+    expect(prWaitingRows([row(asked), row(also), row(mine), row(ready)], board, 'All projects').map((r) => r.pr.number)).toEqual([1, 2, 4]);
   });
 
-  it('has none while [queue] leaves reviews out', () => {
-    const board = fx.board({ prs: [asked], queue: { order: ['needs', 'unread'], due_within: 0 } });
-    expect(prWaitingRows([row(asked)], board, 'All projects')).toEqual([]);
-    expect(prWaitingRows([row(asked)], null, 'All projects')).toEqual([]);
+  it('leaves reviews and merges out independently as [queue] does', () => {
+    const onlyMerges = fx.board({ prs: [asked, ready], queue: { order: ['needs', 'merges', 'unread'], due_within: 0 } });
+    expect(prWaitingRows([row(asked), row(ready)], onlyMerges, 'All projects').map((r) => r.pr.number)).toEqual([4]);
+    const onlyReviews = fx.board({ prs: [asked, ready], queue: { order: ['needs', 'reviews', 'unread'], due_within: 0 } });
+    expect(prWaitingRows([row(asked), row(ready)], onlyReviews, 'All projects').map((r) => r.pr.number)).toEqual([1]);
+    const neither = fx.board({ prs: [asked, ready], queue: { order: ['needs', 'unread'], due_within: 0 } });
+    expect(prWaitingRows([row(asked), row(ready)], neither, 'All projects')).toEqual([]);
+    expect(prWaitingRows([row(asked), row(ready)], null, 'All projects')).toEqual([]);
   });
 });
 
@@ -61,13 +66,13 @@ describe('todoWaitingRows', () => {
       { item: listedTodo(hidden), waiting: waiting('hidden', NOW - 10, 1), waits: 'ready' },
       { item: listedTodo(due), waiting: waiting('due', NOW - 5, 9), waits: 'due' },
     ];
-    const reads = inOrder(TODO_READS, ['needs', 'reviews', 'due', 'unread', 'ready']);
+    const reads = inOrder(TODO_READS, ['needs', 'reviews', 'merges', 'due', 'unread', 'ready']);
     expect([...rows].sort((a, b) => byPlace(placeOf(a, reads), placeOf(b, reads))).map((r) => r.item.todo.id)).toEqual(['due', 'hidden', 'ready']);
   });
 });
 
 describe('elsewhereOffer', () => {
-  const ORDER: readonly Waits[] = ['needs', 'reviews', 'due', 'unread', 'ready'];
+  const ORDER: readonly Waits[] = ['needs', 'reviews', 'merges', 'due', 'unread', 'ready'];
   type Row = { key: string; waits: Waits; since: number; raised?: Raised; first?: boolean };
   const READS: Reads<Row> = { keyOf: (r) => r.key, sinceOf: (r) => r.since, waitsOf: (r) => r.waits, raisedOf: (r) => r.raised, finishedOf: () => false, firstOf: (r) => !!r.first, titleOf: (r) => r.key };
   const row = (key: string, waits: Waits, extra: Partial<Row> = {}): Row => ({ key, waits, since: NOW - 1000, ...extra });
@@ -85,8 +90,11 @@ describe('elsewhereOffer', () => {
     expect(elsewhereOffer('sessions', w, 3)).toEqual({ view: 'todo', words: 'Nothing else waits in Sessions', title: '2 due todos in Todo' });
     expect(elsewhereOffer('prs', views({ todo: [row('r', 'ready')] }))?.title).toBe('1 ready todo in Todo');
     expect(elsewhereOffer('sessions', views({ prs: [row('p', 'reviews')], todo: [row('d', 'due')] }))?.title).toBe('1 review in PRs');
+    expect(elsewhereOffer('sessions', views({ prs: [row('m', 'merges')], todo: [row('d', 'due')] }))?.title).toBe('1 PR to merge in PRs');
+    expect(elsewhereOffer('sessions', views({ prs: [row('p', 'reviews'), row('m1', 'merges'), row('m2', 'merges')] }))?.title).toBe('1 review in PRs');
+    expect(elsewhereOffer('sessions', views({ prs: [row('p', 'reviews'), row('m1', 'merges'), row('m2', 'merges')] }, ['needs', 'merges', 'reviews', 'due', 'unread', 'ready']))?.title).toBe('2 PRs to merge in PRs');
     // Your order: finished turns ahead of reviews.
-    expect(elsewhereOffer('todo', views({ sessions: [row('u', 'unread')], prs: [row('p', 'reviews')] }, ['unread', 'needs', 'reviews', 'due', 'ready']))?.view).toBe('sessions');
+    expect(elsewhereOffer('todo', views({ sessions: [row('u', 'unread')], prs: [row('p', 'reviews')] }, ['unread', 'needs', 'reviews', 'merges', 'due', 'ready']))?.view).toBe('sessions');
   });
 
   it('goes by what hasn’t been dealt with: a finished turn after a review, once what needed you was', () => {

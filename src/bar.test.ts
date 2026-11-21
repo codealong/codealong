@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { barWidth, currentRow, elsewhereWaits, fitGroups, NOTCH, notchClip, notchCount, notchDragged, notchOrder, notchPillsRoom, notchRows, notchSizes, plain, projectWaits, reviewsWord, ROW_READS, waitingRow, waitingRows, type Metrics, type NotchRow } from './bar';
+import { barWidth, currentRow, elsewhereWaits, fitGroups, NOTCH, notchClip, notchCount, notchDragged, notchOrder, notchPillsRoom, notchRows, notchSizes, plain, projectWaits, ROW_READS, waitingRow, waitingRows, type Metrics, type NotchRow } from './bar';
 import { inQueueOrder, leftAfter, placeOf, queueKinds, stepTo } from './queue';
 import { ALL_PROJECTS, QUEUE_READS, queueRows } from './quick';
 import * as fx from './testing/fixtures';
@@ -71,11 +71,13 @@ describe('fitGroups', () => {
     ]);
   });
 
-  it('puts the project button beside the mark, and the todos pill beside the reviews', () => {
+  it('puts the project button beside the mark, and the merges and todos pills beside the reviews', () => {
     const m = metrics([100], [], [], 60, { project: 70, todos: 50 });
     // Mark and project button, a divider, the pill, a divider, reviews and todos: 5 pieces and 2
     // dividers make 7 children with 6 gaps.
     expect(barWidth(fitGroups(m, 10_000), m)).toBe(10 + 24 + 70 + 1 + 100 + 1 + 60 + 50 + 6 * 4);
+    const withMerges = metrics([100], [], [], 60, { merges: 55, project: 70, todos: 50 });
+    expect(barWidth(fitGroups(withMerges, 10_000), withMerges)).toBe(10 + 24 + 70 + 1 + 100 + 1 + 60 + 55 + 50 + 7 * 4);
     const todosOnly = metrics([], [], [], 0, { todos: 50 });
     expect(barWidth(fitGroups(todosOnly, 10_000), todosOnly)).toBe(10 + 24 + 1 + 50 + 2 * 4);
   });
@@ -275,20 +277,23 @@ describe('the bar docked in the notch', () => {
   });
 
   it('counts everything that waits beside the camera, as the most urgent kind among it', () => {
-    expect(notchCount({ needs: 2, reviews: 3, due: 0, unread: 1, working: 5 })).toEqual({ kind: 'needs', n: 6 });
-    expect(notchCount({ needs: 5, reviews: 0, due: 0, unread: 16, working: 4 })).toEqual({ kind: 'needs', n: 21 });
-    expect(notchCount({ needs: 0, reviews: 3, due: 0, unread: 1, working: 5 })).toEqual({ kind: 'reviews', n: 4 });
-    expect(notchCount({ needs: 0, reviews: 0, due: 0, unread: 1, working: 5 })).toEqual({ kind: 'unread', n: 1 });
-    expect(notchCount({ needs: 0, reviews: 0, due: 0, unread: 0, working: 5 })).toEqual({ kind: 'working', n: 5 });
-    expect(notchCount({ needs: 0, reviews: 0, due: 0, unread: 0, working: 0 })).toBeNull();
-    // Todos due count with the rest, after the reviews and ahead of the turns that ended.
-    expect(notchCount({ needs: 0, reviews: 0, due: 2, unread: 1, working: 5 })).toEqual({ kind: 'due', n: 3 });
-    expect(notchCount({ needs: 1, reviews: 0, due: 2, unread: 0, working: 0 })).toEqual({ kind: 'needs', n: 3 });
-    // In your order (`[queue] order`): the first kind there is that has any is drawn.
+    expect(notchCount({ needs: 2, reviews: 3, merges: 1, due: 0, unread: 1, working: 5 })).toEqual({ kind: 'needs', n: 7 });
+    expect(notchCount({ needs: 5, reviews: 0, merges: 0, due: 0, unread: 16, working: 4 })).toEqual({ kind: 'needs', n: 21 });
+    expect(notchCount({ needs: 0, reviews: 3, merges: 2, due: 0, unread: 1, working: 5 })).toEqual({ kind: 'reviews', n: 6 });
+    expect(notchCount({ needs: 0, reviews: 0, merges: 2, due: 0, unread: 1, working: 5 })).toEqual({ kind: 'merges', n: 3 });
+    expect(notchCount({ needs: 0, reviews: 0, merges: 0, due: 0, unread: 1, working: 5 })).toEqual({ kind: 'unread', n: 1 });
+    expect(notchCount({ needs: 0, reviews: 0, merges: 0, due: 0, unread: 0, working: 5 })).toEqual({ kind: 'working', n: 5 });
+    expect(notchCount({ needs: 0, reviews: 0, merges: 0, due: 0, unread: 0, working: 0 })).toBeNull();
+    // Todos due count with the rest, after reviews and merges and ahead of the turns that ended.
+    expect(notchCount({ needs: 0, reviews: 0, merges: 0, due: 2, unread: 1, working: 5 })).toEqual({ kind: 'due', n: 3 });
+    expect(notchCount({ needs: 1, reviews: 0, merges: 0, due: 2, unread: 0, working: 0 })).toEqual({ kind: 'needs', n: 3 });
+    // In your order (`[queue] order`): the first kind there is that has any is drawn, and kinds left out aren't counted.
     const dueFirst = queueKinds(['due', 'needs', 'unread', 'ready']);
     expect(notchOrder(dueFirst)).toEqual(['due', 'needs', 'unread', 'working']);
-    expect(notchCount({ needs: 1, reviews: 0, due: 2, unread: 4, working: 0 }, dueFirst)).toEqual({ kind: 'due', n: 7 });
-    expect(notchCount({ needs: 1, reviews: 0, due: 0, unread: 4, working: 3 }, queueKinds(['unread', 'needs']))).toEqual({ kind: 'unread', n: 5 });
+    expect(notchCount({ needs: 1, reviews: 0, merges: 0, due: 2, unread: 4, working: 0 }, dueFirst)).toEqual({ kind: 'due', n: 7 });
+    expect(notchCount({ needs: 1, reviews: 0, merges: 0, due: 0, unread: 4, working: 3 }, queueKinds(['unread', 'needs']))).toEqual({ kind: 'unread', n: 5 });
+    expect(notchCount({ needs: 0, reviews: 3, merges: 2, due: 0, unread: 0, working: 0 }, queueKinds(['needs', 'merges', 'reviews', 'unread']))).toEqual({ kind: 'merges', n: 5 });
+    expect(notchCount({ needs: 0, reviews: 0, merges: 2, due: 0, unread: 1, working: 0 }, queueKinds(['needs', 'reviews', 'unread']))).toEqual({ kind: 'unread', n: 1 });
   });
 });
 
@@ -363,12 +368,14 @@ describe('what the notch works through', () => {
   });
 
   it('goes through what waits in your order, and opens on the first of it', () => {
-    const order = queueKinds(['unread', 'reviews', 'needs']);
-    const all = notchRows([item('n1', 'needs', 10), item('u1', 'unread', 30)], [fx.barReview({ key: 'o/r#1', since: 20 })], { due: [], ready: [] }, order);
-    expect(keys(waitingRows(all))).toEqual(['u1', 'o/r#1', 'n1']);
+    const order = queueKinds(['unread', 'merges', 'reviews', 'needs']);
+    const prs = [fx.barReview({ key: 'o/r#1', since: 20 }), fx.barReview({ key: 'o/r#2', since: 5, merge: true })];
+    const all = notchRows([item('n1', 'needs', 10), item('u1', 'unread', 30)], prs, { due: [], ready: [] }, order);
+    expect(keys(waitingRows(all))).toEqual(['u1', 'o/r#2', 'o/r#1', 'n1']);
     expect(waitingRow(all, null, order)?.key).toBe('u1');
     expect(currentRow(all, null, order)?.key).toBe('u1');
-    // The default order needs you first.
+    // The default order needs you first, then reviews, then merges, then finished turns.
+    expect(keys(waitingRows(notchRows([item('n1', 'needs', 10), item('u1', 'unread', 30)], prs)))).toEqual(['n1', 'o/r#1', 'o/r#2', 'u1']);
     expect(waitingRow(all, null)?.key).toBe('n1');
   });
 
@@ -376,13 +383,13 @@ describe('what the notch works through', () => {
     const session = fx.session({ key: 'claude:claude:u', status: 'unread', statusSince: 30 });
     const row = queueRows(fx.board({ lanes: [fx.lane({ sessions: [session] })] }), ALL_PROJECTS)[0];
     const pill = notchRows([fx.barItem({ key: session.key, group: 'unread', status: 'unread', since: 30 })], [])[0];
-    expect(placeOf(pill, ROW_READS)).toMatchObject({ key: session.key, waits: 'unread', rank: 3, since: 30, first: false, finished: false });
+    expect(placeOf(pill, ROW_READS)).toMatchObject({ key: session.key, waits: 'unread', rank: 4, since: 30, first: false, finished: false });
     expect(placeOf(row, QUEUE_READS)).toEqual(placeOf(pill, ROW_READS));
     expect(placeOf({ session }, SESSION_READS)).toEqual(placeOf(pill, ROW_READS));
     // And a finished turn, which is only yours to read, as one that comes after the rest.
     const done = { ...session, finished: { sure: true, why: ['#12 merged'] } };
     const donePill = notchRows([fx.barItem({ key: done.key, group: 'unread', status: 'unread', since: 30, finished: true })], [])[0];
-    expect(placeOf(donePill, ROW_READS)).toMatchObject({ key: done.key, waits: 'unread', rank: 3, since: 30, first: false, finished: true });
+    expect(placeOf(donePill, ROW_READS)).toMatchObject({ key: done.key, waits: 'unread', rank: 4, since: 30, first: false, finished: true });
     expect(placeOf(queueRows(fx.board({ lanes: [fx.lane({ sessions: [done] })] }), ALL_PROJECTS)[0], QUEUE_READS)).toEqual(placeOf(donePill, ROW_READS));
     expect(placeOf({ session: done }, SESSION_READS)).toEqual(placeOf(donePill, ROW_READS));
     const pr = fx.prItem({ key: 'acme/app#7', reviewRequested: true, state: 'open', requestedAt: 15, project: 'Acme' });
@@ -393,6 +400,12 @@ describe('what the notch works through', () => {
     const firstPill = notchRows([], [fx.barReview({ key: pr.key, since: 15, first: true })])[0];
     expect(placeOf(firstPill, ROW_READS)).toMatchObject({ waits: 'reviews', first: true });
     expect(placeOf(firstRow, QUEUE_READS)).toEqual(placeOf(firstPill, ROW_READS));
+    // And a PR ready to merge, in its own kind and never promoted by `reviewFirst`.
+    const mergePr = fx.prItem({ key: 'acme/app#8', mine: true, state: 'approved', merge: 'clean', waitsToMerge: true, reviewFirst: true, updatedAt: 12, project: 'Acme' });
+    const mergeRow = queueRows(fx.board({ prs: [mergePr] }), ALL_PROJECTS)[0];
+    const mergePill = notchRows([], [fx.barReview({ key: mergePr.key, since: 12, merge: true, first: true })])[0];
+    expect(placeOf(mergePill, ROW_READS)).toMatchObject({ waits: 'merges', rank: 2, first: false });
+    expect(placeOf(mergeRow, QUEUE_READS)).toEqual(placeOf(mergePill, ROW_READS));
   });
 
   it('opens on the one shown last while it still waits, else the first that waits', () => {
@@ -421,13 +434,5 @@ describe('what the notch works through', () => {
     const running = notchRows([item('w1', 'working', 5), item('w2', 'working', 6)], []);
     expect(waitingRow(running, 'w2')).toBeNull();
     expect(waitingRow(running, null)).toBeNull();
-  });
-});
-
-describe('reviewsWord', () => {
-  it('says what the PRs on the reviews pill wait on you for', () => {
-    expect(reviewsWord([{}, {}])).toBe('2 to review');
-    expect(reviewsWord([{ merge: true }])).toBe('1 to merge');
-    expect(reviewsWord([{}, { merge: true }, {}])).toBe('3 PRs');
   });
 });

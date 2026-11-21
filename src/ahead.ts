@@ -38,7 +38,7 @@ import { archiveSession, asideSessions, emitAhead, labelSessions, markSeen, mark
 import { readDraft, restoreDraft } from './drafts';
 import { nameShown } from './harness';
 import { heldForAgent } from './prStatus';
-import { queueKinds } from './queue';
+import { queueKinds, WAITS, type Waits } from './queue';
 import { byRaise, needOf, relaned, sessionHeadline, stuckMidTurn, unreadable } from './lanes';
 import type { Answers, BarFeed, BarItem, BarRecent, BarSnoozed, Board, Label, Lane, LastReview, LogoStatus, MergeOp, PrItem, QueuedMessage, ResumeIn, Reviewed, Sent, Session, Status, TodoQueue, TranscriptItem, Verdict } from './types';
 
@@ -310,15 +310,18 @@ function logoColor(s: { status: Status; snoozedUntil?: number | null; aside?: nu
   return s.aside ? 'working' : s.status;
 }
 
-/** What the mark's colors say, as the engine works it out (board.rs, `logo_status`). */
-export function logoOf(lanes: Lane[], prs: PrItem[]): LogoStatus {
+/** What the mark's colors say, as the engine works it out (board.rs `logo_status_with`). */
+export function logoOf(lanes: Lane[], prs: PrItem[], kinds: readonly Waits[] = WAITS): LogoStatus {
   let best = LOGO_RANK.length - 1;
   const see = (st: LogoStatus) => (best = Math.min(best, LOGO_RANK.indexOf(st)));
   for (const l of lanes) {
     if (l.hidden) continue;
     for (const s of l.sessions) if (!s.archived && !s.visitor) see(logoColor(s));
   }
-  const waits = (p: PrItem) => (p.reviewRequested && !heldForAgent(p)) || !!p.waitsToMerge;
+  const reviewsOn = kinds.includes('reviews');
+  const mergesOn = kinds.includes('merges');
+  const isReview = (p: PrItem) => p.reviewRequested && !heldForAgent(p);
+  const waits = (p: PrItem) => (reviewsOn && isReview(p)) || (mergesOn && !isReview(p) && !!p.waitsToMerge);
   if (prs.some((p) => waits(p) && !p.snoozedUntil && p.state !== 'merged' && p.state !== 'closed')) see('needs');
   return LOGO_RANK[best];
 }
@@ -380,12 +383,12 @@ export function prsAhead(prs: PrItem[], changes: Ahead[]): PrItem[] {
 export function boardAhead(board: Board, changes: Ahead[]): Board {
   const lanes = lanesAhead(board.lanes, changes);
   const prs = prsAhead(board.prs, changes);
-  // While `[queue]` leaves reviews out, a PR waiting on your review is no cause for the mark's
+  // While `[queue]` leaves reviews or merges out, PRs of that kind are no cause for the mark's
   // color, as the engine has it (engine/publish.rs `compose`).
-  const reviews = queueKinds(board.queue?.order).includes('reviews');
+  const kinds = queueKinds(board.queue?.order);
   const todoQueue = todoQueueAhead(board.todoQueue, changes);
   if (lanes === board.lanes && prs === board.prs) return todoQueue === board.todoQueue ? board : { ...board, todoQueue };
-  return { ...board, lanes, prs, todoQueue, logoStatus: logoOf(lanes, reviews ? prs : []) };
+  return { ...board, lanes, prs, todoQueue, logoStatus: logoOf(lanes, prs, kinds) };
 }
 
 /** The board's todos that wait on you without the ones that left them here (`todoLeftAhead`), as

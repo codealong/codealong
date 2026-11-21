@@ -18,12 +18,12 @@ export type Handled = Map<string, number>;
 
 /** What a row waits on you as, in the order the queue goes to them unless you put them in
  *  another (`[queue] order`, `queueKinds`): a session that needs you, a PR waiting on your
- *  review or a PR of yours waiting on you to merge it (`PrItem.waitsToMerge`), a todo due
+ *  review, a PR of yours waiting on you to merge it (`PrItem.waitsToMerge`), a todo due
  *  (barfeed.rs `todo_lists`), a turn that ended, and last a todo ready to
  *  start, which the queue reaches once nothing else waits. The notch counts them in that order
  *  too (bar.ts `notchOrder`). A review whose repo puts reviews first goes ahead of them all
  *  (`Place.first`). config.rs `QUEUE_KINDS` has them too. */
-export const WAITS = ['needs', 'reviews', 'due', 'unread', 'ready'] as const;
+export const WAITS = ['needs', 'reviews', 'merges', 'due', 'unread', 'ready'] as const;
 export type Waits = (typeof WAITS)[number];
 
 /** The kinds that always wait on you, which `[queue] order` can move but not leave out: the

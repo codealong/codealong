@@ -710,9 +710,15 @@ pub fn compose(inp: Inputs) -> Board {
 pub use codealong_peer::model::ELSEWHERE;
 
 /// Match the floating bar's scope: all visible projects, without archived sessions, duplicate
-/// visitors, or helpers and headless runs that don't need you. An open review request you
-/// haven't snoozed also needs the user's attention.
+/// visitors, or helpers and headless runs that don't need you. An open review request or ready
+/// merge of yours you haven't snoozed also needs the user's attention.
 pub fn logo_status<'a>(lanes: impl IntoIterator<Item = &'a Lane>, prs: &[PrItem]) -> LogoStatus {
+    logo_status_with(lanes, prs, true, true)
+}
+
+/// `logo_status`, counting reviews and ready merges only when `[queue]` has each of them wait on
+/// you (engine/publish.rs `compose`).
+pub fn logo_status_with<'a>(lanes: impl IntoIterator<Item = &'a Lane>, prs: &[PrItem], reviews: bool, merges: bool) -> LogoStatus {
     let sessions = lanes.into_iter().filter(|l| !l.hidden).flat_map(|l| &l.sessions)
         .filter(|s| !s.archived && s.visitor.is_none() && !s.unattended())
         .map(|s| match s.status {
@@ -726,8 +732,8 @@ pub fn logo_status<'a>(lanes: impl IntoIterator<Item = &'a Lane>, prs: &[PrItem]
             Status::Unread => LogoStatus::Unread,
             Status::Idle | Status::Stopped => LogoStatus::Idle,
         });
-    let review = prs.iter().any(|p| p.waits_on_review() || p.waits_on_merge());
-    sessions.chain(review.then_some(LogoStatus::Needs)).min().unwrap_or_default()
+    let pr = prs.iter().any(|p| (reviews && p.waits_on_review()) || (merges && p.waits_on_merge() && !p.waits_on_review()));
+    sessions.chain(pr.then_some(LogoStatus::Needs)).min().unwrap_or_default()
 }
 
 /// The folder a session works in, for a new terminal there: its own when that's its worktree's
@@ -978,6 +984,25 @@ mod tests {
         b.prs[0].review_requested = false;
         apply_review_snoozes(&mut b.prs, &snooze(NOW + 60_000), NOW);
         assert_eq!(b.prs[0].snoozed_until, None);
+    }
+
+    #[test]
+    fn logo_counts_reviews_and_merges_only_when_each_is_in_the_queue() {
+        let mut b = logo_board();
+        b.lanes[0].sessions.clear();
+        let mut review = b.prs[0].clone();
+        review.review_requested = true;
+        review.waits_to_merge = false;
+        let mut merge = b.prs[0].clone();
+        merge.number = 2;
+        merge.key = "o/r#2".into();
+        merge.review_requested = false;
+        merge.waits_to_merge = true;
+        assert_eq!(logo_status_with(&b.lanes, &[review.clone()], true, false), LogoStatus::Needs);
+        assert_eq!(logo_status_with(&b.lanes, &[review.clone()], false, true), LogoStatus::Idle);
+        assert_eq!(logo_status_with(&b.lanes, &[merge.clone()], false, true), LogoStatus::Needs);
+        assert_eq!(logo_status_with(&b.lanes, &[merge.clone()], true, false), LogoStatus::Idle);
+        assert_eq!(logo_status_with(&b.lanes, &[review, merge], false, false), LogoStatus::Idle);
     }
 
     #[test]

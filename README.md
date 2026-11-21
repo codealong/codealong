@@ -904,7 +904,7 @@ rerequest_after_fixes = false  # ask a reviewer who asked for changes to look ag
 reviews_first = false          # PRs waiting on your review come before everything else in the notch, the waiting window and the quick panel
 
 [queue]                        # what waits on you, in the order the notch, the waiting window and the main window's panels go through it (Settings › Queue)
-order = ["needs", "reviews", "due", "unread", "ready"]  # sessions that need you, PRs waiting on your review or yours ready to merge, unassigned todos due, sessions whose turn ended, unassigned todos ready to start (always last); one left out doesn't wait on you, but the sessions' two always do
+order = ["needs", "reviews", "merges", "due", "unread", "ready"]  # sessions that need you, PRs waiting on your review, yours ready to merge, unassigned todos due, sessions whose turn ended, unassigned todos ready to start (always last); one left out doesn't wait on you, but the sessions' two always do
 due_within = 0                 # how many days before its due date an unassigned todo comes due: 0 on the day
 
 [sounds]                       # a short sound when something starts to wait on you (Settings › Sounds)

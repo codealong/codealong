@@ -66,15 +66,34 @@ describe('queueRows', () => {
     expect(queueRows(b2, ALL_PROJECTS).map((r) => r.kind)).toEqual(['session', 'session', 'session', 'review', 'review', 'review', 'session']);
   });
 
-  it('puts the PRs of yours that wait on you to merge them among the reviews, never first, snoozed ones left out', () => {
-    const pr = (number: number, over: Partial<PrItem> = {}) => fx.prItem({ number, key: `acme/app#${number}`, project: 'Acme', state: 'approved', mine: true, merge: 'clean', waitsToMerge: true, reviewFirst: true, updatedAt: NOW - number, ...over });
+  it('puts the PRs of yours that wait on you to merge them in their own kind, never first, snoozed ones left out', () => {
+    const pr = (number: number, over: Partial<PrItem> = {}) => fx.prItem({ number, key: `acme/app#${number}`, project: 'Acme', state: 'approved', mine: true, merge: 'clean', waitsToMerge: true, reviewFirst: true, updatedAt: NOW - 80 - number, ...over });
     const review = fx.prItem({ number: 50, key: 'acme/app#50', project: 'Acme', state: 'open', reviewRequested: true, requestedAt: NOW - 40, updatedAt: NOW });
     // #2 is snoozed; #3 is ready but the board says something else brings it to you; #4 merged ahead of the board.
     const prs = [pr(1), pr(2, { snoozedUntil: NOW + 1000 }), pr(3, { waitsToMerge: false }), pr(4, { state: 'merged' }), review];
     const b2 = fx.board({ lanes: b.lanes, prs });
     expect(keys(queueRows(b2, ALL_PROJECTS))).toEqual(['n1', 'e', 'n2', 'acme/app#50', 'acme/app#1', 'u1']);
-    // A repo that puts reviews first doesn't put a merge first.
-    expect(attentionRows(b2, ALL_PROJECTS, Infinity).rows.filter((r) => r.kind === 'review').map((r) => r.group)).toEqual(['reviews', 'reviews']);
+    // Reviews and merges are separate groups; a repo that puts reviews first doesn't put a merge first.
+    const attn = attentionRows(b2, ALL_PROJECTS, Infinity);
+    expect(attn.rows.filter((r) => r.kind === 'review').map((r) => [r.key, r.group])).toEqual([
+      ['acme/app#50', 'reviews'],
+      ['acme/app#1', 'merges'],
+    ]);
+    expect(attn.counts).toMatchObject({ reviews: 1, merges: 1 });
+    // Putting merges ahead of reviews in `[queue] order` moves them ahead; a `reviewFirst` review
+    // still goes ahead of them under `firstReviews`, even with no sessions needing you between them.
+    const mergesFirst = fx.board({ lanes: [lane('app2', [session('u1', 'unread', NOW - 10)])], prs: [pr(1), { ...review, reviewFirst: true }, fx.prItem({ number: 51, key: 'acme/app#51', project: 'Acme', state: 'open', reviewRequested: true, requestedAt: NOW - 20, updatedAt: NOW })], queue: { order: ['needs', 'merges', 'reviews', 'unread'], due_within: 0 } });
+    expect(attentionRows(mergesFirst, ALL_PROJECTS, Infinity).rows.map((r) => [r.key, r.group])).toEqual([
+      ['acme/app#50', 'firstReviews'],
+      ['acme/app#1', 'merges'],
+      ['acme/app#51', 'reviews'],
+      ['u1', 'unread'],
+    ]);
+    // Reviews and merges toggle independently.
+    const onlyMerges = fx.board({ lanes: b.lanes, prs, queue: { order: ['needs', 'merges', 'unread'], due_within: 0 } });
+    expect(keys(queueRows(onlyMerges, ALL_PROJECTS))).toEqual(['n1', 'e', 'n2', 'acme/app#1', 'u1']);
+    const onlyReviews = fx.board({ lanes: b.lanes, prs, queue: { order: ['needs', 'reviews', 'unread'], due_within: 0 } });
+    expect(keys(queueRows(onlyReviews, ALL_PROJECTS))).toEqual(['n1', 'e', 'n2', 'acme/app#50', 'u1']);
   });
 
   it('puts the PRs of a repo that puts reviews first ahead of what needs you, under a heading of their own', () => {
@@ -84,7 +103,7 @@ describe('queueRows', () => {
     const { rows, counts } = attentionRows(b2, ALL_PROJECTS, Infinity);
     expect(rows.map((r) => r.group)).toEqual(['firstReviews', 'firstReviews', 'needs', 'needs', 'needs', 'reviews', 'unread']);
     // Each heading counts what's under it.
-    expect(counts).toEqual({ top: 0, firstReviews: 2, needs: 3, reviews: 1, unread: 1, working: 1 });
+    expect(counts).toEqual({ top: 0, firstReviews: 2, needs: 3, reviews: 1, merges: 0, unread: 1, working: 1 });
     // With nothing that needs you between them, they're one Review requested, the first ones first.
     const quiet = fx.board({ lanes: [lane('app2', [session('u1', 'unread', NOW - 10)])], prs: b2.prs });
     const one = attentionRows(quiet, ALL_PROJECTS, Infinity);
@@ -133,7 +152,7 @@ describe('attentionRows', () => {
       ['u1', 'unread'],
       ['u2', 'unread'],
     ]);
-    expect(counts).toEqual({ top: 0, firstReviews: 0, needs: 2, reviews: 0, unread: 2, working: 1 });
+    expect(counts).toEqual({ top: 0, firstReviews: 0, needs: 2, reviews: 0, merges: 0, unread: 2, working: 1 });
   });
 
   it('lists the ones moved to the top first under a heading of their own, so no group comes twice', () => {
@@ -151,7 +170,7 @@ describe('attentionRows', () => {
       ['u', 'unread'],
     ]);
     // Each heading counts what's under it.
-    expect(counts).toEqual({ top: 2, firstReviews: 0, needs: 1, reviews: 0, unread: 1, working: 1 });
+    expect(counts).toEqual({ top: 2, firstReviews: 0, needs: 1, reviews: 0, merges: 0, unread: 1, working: 1 });
     // The waiting window works through them in the same order.
     expect(queueRows(b, ALL_PROJECTS).map((r) => r.key)).toEqual(['uUp', 'nUp', 'n', 'u']);
   });
@@ -170,7 +189,7 @@ describe('attentionRows', () => {
     const { rows, counts } = attentionRows(b, ALL_PROJECTS);
     expect(rows.map((r) => r.key)).toEqual(['n']);
     // One that runs still counts with Working.
-    expect(counts).toEqual({ top: 0, firstReviews: 0, needs: 1, reviews: 0, unread: 0, working: 1 });
+    expect(counts).toEqual({ top: 0, firstReviews: 0, needs: 1, reviews: 0, merges: 0, unread: 0, working: 1 });
     expect(queueRows(b, ALL_PROJECTS).map((r) => r.key)).toEqual(['n']);
     expect(recentRows(b, ALL_PROJECTS, new Set(rows.map((r) => r.key)), NOW).rows.map((r) => r.key)).toEqual(['zw', 'zu', 'zn']);
     expect(projectCounts(b, [ALL_PROJECTS])).toEqual({ [ALL_PROJECTS]: { needs: 1, unread: 0 } });

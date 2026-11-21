@@ -183,10 +183,11 @@ impl Engine {
         board.decisions = self.cfg.decisions.clone();
         board.experimental = self.cfg.experimental.clone();
         board.queue = self.cfg.queue.settled();
-        // While `[queue]` leaves reviews out, a PR waiting on your review is no cause for the
-        // mark's color, as it's none for the bar's pills or the notch's count.
-        if !board.queue.waits("reviews") {
-            board.logo_status = board::logo_status(&board.lanes, &[]);
+        // While `[queue]` leaves reviews or merges out, PRs of that kind are no cause for the
+        // mark's color, as they're none for the bar's pills or the notch's count.
+        let (reviews_on, merges_on) = (board.queue.waits("reviews"), board.queue.waits("merges"));
+        if !reviews_on || !merges_on {
+            board.logo_status = board::logo_status_with(&board.lanes, &board.prs, reviews_on, merges_on);
         }
         board.devices = self.cfg.devices.clone();
         board.project_rules = self.cfg.projects.clone();

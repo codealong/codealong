@@ -188,9 +188,10 @@ export function SessionEmblem({ emblem, of, size = 16 }: { emblem?: Emblem; of: 
 
 /** What a kind of wait on you is drawn as wherever it's counted (the notch's pills, the strip over
  *  a session): a session by its status's glyph, a PR waiting on your review by the PR icon in the
- *  amber of what needs you. */
+ *  amber of what needs you, and a PR ready to merge by the merge icon in green. */
 export function WaitsGlyph({ waits }: { waits: Waits }) {
   if (waits === 'reviews') return <Icon name="pr" size={12} stroke={1.75} className="ca-glyph-review" />;
+  if (waits === 'merges') return <Icon name="merge" size={12} stroke={1.75} className="ca-glyph-merge" />;
   // A todo: due by its day, or ready to start.
   if (waits === 'due') return <Icon name="calendar-due" size={12} stroke={1.75} className="ca-glyph-due" />;
   if (waits === 'ready') return <Icon name="list-check" size={12} stroke={1.75} className="ca-glyph-ready" />;

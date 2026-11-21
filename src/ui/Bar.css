@@ -120,6 +120,10 @@ html.is-bar body {
   background: var(--attn-tint);
   color: var(--attn);
 }
+.ca-hud-pill.is-merges {
+  background: var(--pr-open-tint);
+  color: var(--pr-open);
+}
 .ca-hud-pill.is-error {
   background: var(--alert-tint);
   color: var(--alert);

@@ -665,7 +665,7 @@ impl PrItem {
     }
 
     /// It waits on you to merge it (`waits_to_merge`), and you haven't snoozed it: the floating
-    /// bar lists it with the reviews, and the queue goes to it among them.
+    /// bar lists it in its own pill and the queue goes to it in its own kind (`merges`).
     pub fn waits_on_merge(&self) -> bool {
         self.waits_to_merge && self.state.is_open() && self.snoozed_until.is_none()
     }
