@@ -55,7 +55,7 @@ agents work in this repo at the same time, many of them in the main checkout (th
 `git worktree list`), and whatever sits uncommitted there goes into their commits and builds.
 
 How a change lands depends on who makes it. First-party, with write access to
-github.com/codealong/codealong: the steps below, straight to `main`. Third-party, working from a
+github.com/codealong/codealong: the steps below, through `main`'s merge queue. Third-party, working from a
 fork: the steps below aren't yours; a change lands as a pull request, with what CONTRIBUTING.md
 asks of one, the screenshots of every changed UI among them (`scripts/preview.sh`, light and
 dark, cropped to what changed), and the pull request template filled in.
@@ -159,7 +159,7 @@ It can come while the pull request is in the queue or after it has landed.
 npm run typecheck                       # tsc
 npm run lint                            # oxlint: only the rules of hooks and their dependency lists
 npm test                                # vitest
-(cd src-tauri && cargo test)            # engine rules, parsers, usage, config, launch scripts; codealong-peer's too
+(cd src-tauri && cargo test)            # engine rules, parsers, usage, config, launch scripts; codealong-peer's and codealong-vt's too
 scripts/engine.sh                       # builds this checkout's engine binary when src-tauri changed; prints its path
 scripts/checks.sh                       # every browser check (scripts/preview/*-check.js) on your real data; names run a few
 scripts/land.sh                         # lands your branch through main's merge queue; CI checks it (--check: only that)
@@ -232,7 +232,7 @@ ones that show keys on Linux too (`PREVIEW_PLATFORM=linux`).
 Native menus, window creation and real opens can't be seen this way: say so rather than claiming
 they were checked. `.claude/rules/preview.md` has what writing a check needs.
 
-`scripts/checks.sh --fixture` runs the runs `scripts/preview/fixture-passes.txt` lists against
+`scripts/checks.sh --fixture` runs the checks `scripts/preview/fixture-passes.txt` lists against
 a made-up Mac the engine prints (`fixture.rs`), the same on every machine, so a failure there is
 the change's. GitHub runs the list on `main` after what lands (`.github/workflows/checks.yml`):
 before landing, run the checks that cover your change (`--fixture <names>`), not all of it,
