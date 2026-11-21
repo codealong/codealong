@@ -194,8 +194,7 @@
 
 /* A group's heading (LaneRow.tsx `WorktreeHead`, `RepoHead`, `ProjectHead`, `NoneHead`): a
    project, repo or worktree on one line, with the normal row background color and a collapse
-   chevron on the left. Its children sit indented underneath inside `.ca-group-body` with a
-   vertical guide line aligned under the chevron. */
+   chevron on the left. Its children sit indented underneath inside `.ca-group-body`. */
 .ca-lane.ca-grouphead {
   grid-template-columns: 32px minmax(0, 1fr);
   min-height: 32px;
@@ -313,25 +312,28 @@
   min-width: 0;
 }
 
-/* Indented children under a group heading (Groups.tsx): each child row shifts right so its
-   glyph sits under the group heading's title, with a subtle vertical guide line running down
-   from the chevron column (15.5px). Nested helper threads (.is-nested) keep their own relative
-   alignment inside .ca-seg-glyph. */
-.ca-group-body {
-  position: relative;
-}
-.ca-group-body::after {
-  content: '';
-  position: absolute;
-  left: 15.5px;
-  top: 0;
-  bottom: 0;
-  width: 1px;
-  background: var(--line);
-  pointer-events: none;
-}
+/* Indented children under a group heading (Groups.tsx): each child row widens its glyph column
+   so its glyph sits under the group heading's title while its left-edge status bar (needs/PR flag)
+   stays flush against the list edge. Nested helper threads (.is-nested) shift another 16px so
+   their connector stays centered under the parent session's glyph. */
 .ca-group-body > .ca-lane.is-item {
+  grid-template-columns: 48px minmax(0, 1fr) 52px;
+}
+.ca-group-body > .ca-lane.is-item.is-slim {
+  grid-template-columns: 48px minmax(0, 1fr) 44px;
+}
+.ca-group-body > .ca-lane.is-item .ca-seg-glyph {
   padding-left: var(--space-4);
+}
+.ca-group-body > .ca-lane.is-agent.is-nested {
+  grid-template-columns: 64px minmax(0, 1fr) 44px;
+}
+.ca-group-body > .ca-lane.is-agent.is-nested .ca-seg-glyph {
+  padding-left: calc(var(--space-4) * 2);
+}
+.ca-group-body > .ca-lane.is-agent:has(+ .ca-lane.is-nested) .ca-seg-glyph::after,
+.ca-group-body > .ca-lane.is-agent.is-nested .ca-seg-glyph::before {
+  left: 31.25px;
 }
 
 /* Whether a reusable worktree can take new work (LaneRow.tsx `ReuseChip`): green while it's free,
@@ -344,12 +346,6 @@
 .ca-chip.ca-reusechip.is-ready,
 .ca-chip.ca-reusechip.is-ready .ca-icon {
   color: var(--pr-open);
-}
-
-/* The way to a group's sessions folded away (LaneRow.tsx `GroupFoldRow`), as a fold under a
-   session is, but not set in. */
-.ca-lane.is-agent.is-fold.ca-groupfold .ca-seg-glyph {
-  padding-left: 0;
 }
 
 /* The heading over a section's rows in no worktree or repo (LaneRow.tsx `NoneHead`): what they
