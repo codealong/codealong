@@ -11,6 +11,17 @@
 //! tests at the foot of the file hold the two lists to that, and keep a command here from
 //! asking for an engine it hasn't got.
 
+// CI runs `cargo test --locked --lib` so codealong_lib isn't compiled a second time for main.rs's
+// empty test target. Including main.rs here under cfg(test) still type- and warning-checks its
+// calls into codealong_lib's public entry points on every engine run at zero extra compile cost.
+#[cfg(test)]
+extern crate self as codealong_lib;
+#[cfg(test)]
+#[allow(dead_code)]
+mod bin_check {
+    include!("main.rs");
+}
+
 mod accountpoll;
 mod acp;
 mod actions;

@@ -186,7 +186,6 @@ project="${2:-}"
 check="${3:-}"
 # The made-up Mac's build and snapshots are kept apart from this Mac's.
 dir="${PREVIEW_DIR:-.preview${PREVIEW_FIXTURE:+/fixture}}"
-# PREVIEW_CHROME names another Chrome: a test's stand-in for one (src/checks.test.ts).
 chrome="${PREVIEW_CHROME:-/Applications/Google Chrome.app/Contents/MacOS/Google Chrome}"
 # As it starts, Chrome links its own program into a folder of its own, so an update can't change
 # it under the running browser. macOS counts that as changing an app, and refuses it for a
