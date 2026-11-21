@@ -1590,8 +1590,8 @@ out of what waits on you as they would for their own, and a PR that machine brou
 you, after submitting its agent's review for you, waits on you on all of them. Try again on one of
 them reviews it on that one. The box's own verdicts submit your draft review from any machine, but
 the agent's one-press verdict is on the machine that wrote it. Machines on builds from before
-2026-10-22 review on their own, as before, and a review of a PR of yours is always the machine's
-that has its primary session.
+2026-10-22 review on their own, as before. Your own PRs are shared among your machines the same way
+(see *Reviews of your own pull requests*).
 
 #### Reviews of your own pull requests
 
@@ -1618,6 +1618,19 @@ messages to that session (an answer to what it asked about the review, say) aren
 allow when it skips permission prompts, as a helper's aren't (see *Helpers*). New commits are
 reviewed again once the branch holds still, as above, so a session that fixes what was raised has
 its fixes looked at.
+
+When your machines are linked and share automations, a PR of yours is reviewed by one of them, by
+the same rules as a PR that asks for your review: the machine with its primary session owns it,
+and its settings say whether it's reviewed at all and whether the review goes back to the
+session; the machines that would review it for that one (their own reviews are on, and they have
+a checkout of its repo) and the owner itself go in line for its commits, so the first choice for
+automations your machines share reviews them all while it's around. A machine that reviews a
+commit for another keeps the review, says on the PR's card that it goes back to that machine, and
+hands it over in its feed; the owner keeps it as a review of its own, its agent named with the
+machine it ran on (Codex, gpt-5.5 on Mac mini), and sends it to the session as it would one
+written there. A review done while the owner was asleep reaches it once it's back. Until then the
+owner's card shows the review as the other machine's (Agent reviewing 1a2b3c4 on Mac mini).
+Machines on builds from before 2026-11-21 review their own PRs themselves, as before.
 
 #### Your review
 

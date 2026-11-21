@@ -125,6 +125,29 @@ pub struct SharedReview {
     /// PR's box, which was yours.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub submitted: Option<Submitted>,
+    /// A PR of yours whose primary session is on it, which it wants reviewed (`[reviews.own]`):
+    /// it keeps the review another machine of yours writes of it (`handed`) and hands it to that
+    /// session. False from machines before 2026-11-21, which review their own PRs themselves.
+    #[serde(skip_serializing_if = "std::ops::Not::not")]
+    pub owner: bool,
+    /// Its latest review of a PR of yours that another machine owns, for that machine to keep.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub handed: Option<HandedReview>,
+}
+
+/// A review a machine wrote of a PR of yours for the machine that owns it (`SharedReview::owner`),
+/// whole, as its agent wrote it.
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct HandedReview {
+    /// The commit it reviewed.
+    pub head: String,
+    /// Who wrote it: its harness, and its model where that's known.
+    pub agent: String,
+    /// Its agent's last message: the review, its comments on lines and its verdict.
+    pub review: String,
+    /// When it was done.
+    pub at: i64,
 }
 
 /// A machine's round of a commit, as your machines weigh it.

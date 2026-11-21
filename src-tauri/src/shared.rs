@@ -1,6 +1,6 @@
 //! The automations your machines share, so that one of them runs each rather than every one: the
-//! review of a PR that asks for yours (autoreview.rs `reviewer_of`), and a schedule that runs on one
-//! of your machines (schedules/machines.rs `line`). Each machine works out the same one by itself,
+//! review of a PR that asks for yours or of one of yours (autoreview.rs `reviewer_of`, `own`), and a
+//! schedule that runs on one of your machines (schedules/machines.rs `line`). Each machine works out the same one by itself,
 //! from what every machine says of itself in its feed (peerfeed.rs): where it stands (`[devices]
 //! automations`, a first choice or a backup), what it would run, and where what it ran stands.
 //! Nothing is voted on or locked: the machine that's around, would run the thing and comes first
