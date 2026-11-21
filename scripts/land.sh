@@ -486,7 +486,7 @@ say_failed() {
 # GitHub lets nobody push to its branch (.claude/rules/github.md), so what's queued is this
 # commit until it lands or is put out.
 queue_it() {
-  local number="$1" said=0 began=$SECONDS run status conclusion run_id run_url looks=0
+  local number="$1" said=0 began=$SECONDS run status conclusion run_id run_url looks=0 missing=0 seen_run=0
   while :; do
     look "$number"
     if [ "$state" != OPEN ]; then
@@ -517,6 +517,21 @@ EOF
       echo "CI's own run on pull request #$number didn't pass ($conclusion), so it can't join the queue." >&2
       say_failed "$number" "$run_id $run_url"
       exit 1
+    fi
+    if [ -n "$status" ]; then
+      seen_run=1
+      missing=0
+    else
+      missing=$((missing + 1))
+      # GitHub occasionally drops the pull_request event for a clean PR, so no run ever starts
+      # (.claude/rules/github.md). Stop after 15 looks (~5 minutes, as check_on_github does)
+      # rather than wait three hours; keep $sent so reopening the PR and rerunning picks it up.
+      if [ "$missing" -ge 15 ]; then
+        if [ "$seen_run" = 0 ]; then
+          die "CI's own run on pull request #$number ($pr_url) never showed up, so it isn't queued: look at the repository's Actions, or reopen the pull request (gh pr close $number && gh pr reopen $number) to start it, and run scripts/land.sh again." 3
+        fi
+        die "Couldn't read CI's own run on pull request #$number ($pr_url) for a while, so it isn't queued: look at the repository's Actions, and run scripts/land.sh again." 3
+      fi
     fi
     if [ "$said" = 0 ]; then
       echo "Pull request #$number ($pr_url): waiting for its own run of CI before it can join main's merge queue…"

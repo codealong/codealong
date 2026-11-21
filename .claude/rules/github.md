@@ -204,5 +204,9 @@ Harness facts (from GitHub's answers on this Mac, 2026-10-01). A bare file name 
     entry showing the new commit: not what happened here.
   - A pull request that conflicts with its base (`mergeable: CONFLICTING`) gets no
     `pull_request` run at all, so a wait for its checks never ends.
+  - GitHub can also drop the `pull_request` event on a clean, `MERGEABLE` pull request (seen on
+    #14, 2026-11-20: zero check runs for three hours until `gh pr close` + `gh pr reopen` fired
+    it). `land.sh`'s `queue_it` stops after 15 empty polls (~5 min, matching `check_on_github`)
+    and keeps `$sent`, rather than wait three hours.
   - A workflow run's `pull_requests` lists every open pull request whose branch or commit
     matches, not the one that started it: nothing says which pull request a run was for.
