@@ -103,7 +103,7 @@ minutes on a quiet Mac, forty with twenty agents building. Now they run on GitHu
   would land, on top of `main` and of whatever is queued before it, and merges it when `gate`
   passes. The queue rebases: `main` stays a straight line, and its commits are copies of the
   branch's with ids of their own. The script rewrites nothing itself, so what lands is the
-  commit that was reviewed, and a branch that doesn't apply on `main` is its author's to
+  commit it was asked to land, and a branch that doesn't apply on `main` is its author's to
   rebase and test again. A change
   whose checks fail is put out of the queue and stays its pull request: `land.sh` names the
   run, `gh run view <id> --log-failed` says why, and landing the fix takes the same pull
@@ -142,7 +142,10 @@ minutes on a quiet Mac, forty with twenty agents building. Now they run on GitHu
   where `main` has no merge queue. It asks for a place in the queue for the commit it pushed
   and no other, rather than leave GitHub asked to merge the pull request when it can, which
   would hold for whatever was pushed to it after; it won't push to a pull request someone
-  has set to merge that way, nor to one that's in the queue. Any other pull request is
+  has set to merge that way. One that's in the queue as a commit its branch adds to (a
+  review's fixes on top) it takes out of the queue first, since GitHub takes no push to a
+  queued pull request's branch, and queues again as the new commit; one queued as any other
+  commit it leaves alone. Any other pull request is
   checked as it's opened and pushed to, for whoever reviews it.
 - **A red `main` is somebody's.** It can still happen: the browser checks failing on what
   landed, a commit pushed past the queue, or the daily run of everything failing for a

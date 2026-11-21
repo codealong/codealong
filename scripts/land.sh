@@ -8,9 +8,11 @@
 # queued before it) and merges it when they pass. So main never holds a commit they didn't see,
 # and nothing waits here but this script.
 #
-#   scripts/land.sh --reviewed-by "<account>, <model>"   a change to code, after its review
-#   scripts/land.sh --no-review "<why>"                   one no review could be had for
-#   scripts/land.sh                                       docs and notes only
+#   scripts/land.sh                                       lands this branch; its pull request is
+#                                                         reviewed once it's open (CLAUDE.md,
+#                                                         *Review of the pull request*)
+#   scripts/land.sh --reviewed-by "<who>"                 says in the pull request who reviewed
+#                                                         it (--no-review "<why>": why none did)
 #   scripts/land.sh --no-wait …                           queue it and come back: GitHub lands
 #                                                         it, and running this again says how
 #                                                         it went and catches up
@@ -29,9 +31,13 @@
 #      you've rebased it, replacing what this script itself pushed there before and nothing
 #      else.
 #   3. It opens the branch's pull request, or takes the one that's open for it (of this
-#      repository's own branch; not one someone has set to merge by itself, nor one in the
-#      queue as another commit), and, once that has passed its own run of CI, puts it in the
-#      queue as the commit pushed here and no other. CI leaves a pull request this opened to
+#      repository's own branch; not one someone has set to merge by itself), and, once that
+#      has passed its own run of CI, puts it in the queue as the commit pushed here and no
+#      other. One that's in the queue already, as a commit this branch adds to (a review's
+#      fixes, committed on top), is taken out of it first: GitHub takes no push to a queued
+#      pull request's branch, and the queue would land what it has without them. It's queued
+#      again as the new commit, its checks run again. One queued as a commit this branch
+#      doesn't have isn't touched. CI leaves a pull request this opened to
 #      the queue's run (it knows it by a line of its description), so nothing runs twice and
 #      its own run is moments. The queue writes the commits on top of main (a rebase, no merge
 #      commit): what lands is copies of yours.
@@ -78,7 +84,7 @@ usage() {
 
 # Which checks a changed file calls for, one word to a line: `ui` (build, lint, unit tests),
 # `engine` (cargo test, on macOS and on Linux), `checks` (the browser checks on the made-up
-# Mac, which run on main after a landing), `code` (it needs a review) and `install` (what's
+# Mac, which run on main after a landing), `code` (not docs and notes alone) and `install` (what's
 # installed changed). CI asks this table (.github/workflows/ci.yml and checks.yml, through
 # --plan), so it's the one place that says. The lists err
 # towards running a check: each side's tests read some of the other's files, named here with
@@ -88,20 +94,20 @@ calls_for() {
     # Docs nothing tests or builds. CLAUDE.md, the rules and the skills aren't among them.
     docs/* | design/*.md | README.md | CONTRIBUTING.md | SECURITY.md | .github/*.md | .github/CODEOWNERS | .claude/skills/*.md) ;;
     # .claude/rules/snapshot.md is checked on both sides: its frontmatter and CLAUDE.md reference
-    # in src/notes.test.ts (`ui`) and every mode line in snapshot.rs (`engine`). Words, so no review.
+    # in src/notes.test.ts (`ui`) and every mode line in snapshot.rs (`engine`). Words, not code.
     .claude/rules/snapshot.md)
       echo ui
       echo engine
       ;;
     # Words the engine's tests hold: the command's reference and the plugin's copies of the skills
-    # (cli.rs, skills.rs, install.rs). Words, so no review.
+    # (cli.rs, skills.rs, install.rs). Words, not code.
     skills/*.md | plugin/*.md)
       echo engine
       ;;
     # Words checked by src/notes.test.ts (CLAUDE.md's size and list of rules files, the rules'
     # frontmatter, the files tauri.conf.json copies under bundle.resources, and
     # THIRD_PARTY_NOTICES.md). Checked under `ui` in seconds instead of running the engine builds.
-    # Words, so no review.
+    # Words, not code.
     CLAUDE.md | AGENTS.md | LICENSE | NOTICE | THIRD_PARTY_NOTICES.md | .claude/rules/*)
       echo ui
       ;;
@@ -135,7 +141,7 @@ calls_for() {
       echo checks
       echo code
       ;;
-    # The rest of what GitHub reads (a template, an action's settings) wants a second reader.
+    # The rest of what GitHub reads (a template, an action's settings) isn't docs alone.
     .github/*) echo code ;;
     # What's installed: one changed without the other fails a clean install, as CI's is.
     package.json | package-lock.json)
@@ -359,18 +365,17 @@ pull_request() {
     { cat "$log" >&2; die "Couldn't ask GitHub for this branch's pull request (gh)."; }
 }
 
-# What the pull request says: the commits, and who reviewed them.
+# What the pull request says: the commits, and who reviewed them where that was said.
 describe() {
   git log --reverse --format='- %s' "$main_at..$head"
   echo
   if [ -n "$reviewed" ]; then
     echo "Reviewed by: $reviewed."
+    echo
   elif [ -n "$unreviewed" ]; then
     echo "No review: $unreviewed."
-  else
-    echo "Docs and notes alone: no review."
+    echo
   fi
-  echo
   # CI knows a landing's pull request by these words, and leaves its checks to the queue's run
   # (.github/workflows/ci.yml).
   echo "scripts/land.sh queues this for main's merge queue, whose run checks it."
@@ -427,7 +432,9 @@ own_run() {
 
 # A pull request that was there already is looked at before anything is pushed to it. One that
 # someone has set to merge by itself would land whatever is pushed, on their say and not this
-# landing's review; one that's in the queue as another commit is a landing under way.
+# landing's. One that's in the queue as a commit this branch adds to is an earlier landing of
+# it, which this one takes the place of: it's taken out of the queue so the rest can be pushed.
+# One queued as a commit this branch doesn't have isn't this landing's to touch.
 may_take() {
   local number="$1"
   look "$number"
@@ -438,8 +445,32 @@ may_take() {
     die "  gh pr merge $number --disable-auto"
   fi
   if [ "$entry" != - ] && [ "$at" != "$head" ]; then
-    die "Pull request #$number ($pr_url) is in main's merge queue as $(short "$at"), another commit than the one here. Nothing was pushed: wait for it to land, or take it out of the queue on its page, before landing this."
+    git merge-base --is-ancestor "$at" "$head" 2>/dev/null ||
+      die "Pull request #$number ($pr_url) is in main's merge queue as $(short "$at"), which this branch doesn't have. Nothing was pushed: wait for it to land, or take it out of the queue on its page, before landing this."
+    echo "Pull request #$number ($pr_url) is in main's merge queue as $(short "$at"), which this branch adds to: taking it out of the queue to push the rest, and queueing it again."
+    dequeue "$number"
   fi
+}
+
+# Takes the pull request out of main's merge queue, and waits for GitHub to say it's out: only
+# then does it take a push. One that landed meanwhile isn't pushed to.
+dequeue() {
+  local number="$1" tries=0
+  if ! gh api graphql -F id="$id" -f query='mutation($id: ID!) { dequeuePullRequest(input: {id: $id}) { clientMutationId } }' >/dev/null 2>"$log"; then
+    cat "$log" >&2
+    die "Couldn't take pull request #$number ($pr_url) out of main's merge queue, so nothing was pushed (it may have landed meanwhile): run scripts/land.sh again."
+  fi
+  while :; do
+    look "$number"
+    [ "$state" = OPEN ] || die "Pull request #$number ($pr_url) is $state now, so nothing was pushed: run scripts/land.sh again."
+    [ "$entry" != - ] || break
+    tries=$((tries + 1))
+    [ "$tries" -lt 15 ] || die "Pull request #$number ($pr_url) still shows in main's merge queue after it was taken out, so nothing was pushed: run scripts/land.sh again." 3
+    pause
+  done
+  # GitHub notes the taking out to the second, as this landing notes when it began (`since`):
+  # a second on, the note is never taken for the queue putting out the commit queued next.
+  sleep 1
 }
 
 # The same as `standing`, asked until GitHub answers (a few times): into `state`, `entry`,
@@ -887,7 +918,7 @@ main() {
 
   # What's landed is what was here when this was asked, read before anything else is: the
   # waits are long, and in a checkout that isn't ours alone another session can commit or
-  # change branch meanwhile, which would go out under this one's review.
+  # change branch meanwhile, which would go out as this landing.
   # A pull request is of a branch, and main isn't one to land from. The branch is read first
   # and the commit from the branch, so the two are one branch's: by its whole name, since the
   # short one git gives for a branch that shares its name with a tag is another
@@ -936,7 +967,7 @@ main() {
   # A landing of this very commit that's already with GitHub (sent with --no-wait, or by a run
   # of this that was stopped or gave up waiting) is taken up where it got to, and nothing is
   # pushed under it.
-  local number wants noted noted_branch why ahead nothing=0
+  local number noted noted_branch why ahead nothing=0
   if [ -f "$sent" ]; then
     read -r number noted since noted_branch <"$sent"
     if [ "$noted" = "$head" ] && [ -n "$number" ] && [ "$noted_branch" = "$branch" ]; then
@@ -999,18 +1030,6 @@ main() {
   ahead="$(git cherry "$main_at" "$head" 2>"$log")" || { cat "$log" >&2; die "Couldn't compare this branch with origin/main."; }
   case "$ahead" in
     *-*) die "Some of this branch's commits look to be in origin/main already, as the queue wrote them, under ones that aren't: $REBASE, where those come to nothing and drop out, and run scripts/land.sh again." ;;
-  esac
-
-  changed "$head" "$main_at" || die "Couldn't list what these commits change, so there's no telling whether they need a review."
-  wants="$(plan_of <"$list")" || die "Couldn't tell what these commits call for (scripts/land.sh --plan)."
-  case " $wants " in
-    *" code "*)
-      if [ -z "$reviewed$unreviewed" ]; then
-        echo "These commits change code, which another provider's agent reviews before it lands" >&2
-        echo "(CLAUDE.md, *Review before pushing*). Say who did: --reviewed-by \"<account>, <model>\"," >&2
-        die "or, when none could be had, --no-review \"<why>\"." 2
-      fi
-      ;;
   esac
 
   # Without the queue nothing would check it: CI leaves a landing's pull request to the queue's

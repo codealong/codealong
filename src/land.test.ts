@@ -260,6 +260,11 @@ case "$1 $2" in
         [ ! -f "$f/mute" ] || exit 1
         [ ! -f "$f/evicted" ] || echo FAILED_CHECKS
         ;;
+      *dequeuePullRequest*)
+        # Taken out of the queue, its branch left at the commit that was queued.
+        rm -f "$f/queued"
+        touch "$f/dequeued"
+        ;;
       *enqueuePullRequest*)
         if [ -f "$f/refused" ]; then
           echo '{"data":{"enqueuePullRequest":null},"errors":[{"type":"UNPROCESSABLE","message":"Failed to add the pull request"}]}'
@@ -369,15 +374,13 @@ echo "main: $(onmain)"
 echo "the main checkout: $(git -C "$tmp/main" log --format=%s -1)"
 [ "$(git rev-parse HEAD)" = "$(git rev-parse origin/main)" ] && [ "$(git rev-parse HEAD)" != "$was" ] && echo "this branch is where main is, as the queue wrote it"
 [ "$(git rev-parse keep)" = "$was" ] && echo "and a second branch at the commit it was at is still there"
-echo "its pull request: $(cat "$tmp/title"), $(grep -c 'no review' "$tmp/body") word on its review, $(grep -c 'scripts/land.sh queues this' "$tmp/body") line for CI"
+echo "its pull request: $(cat "$tmp/title"), $(grep -c 'scripts/land.sh queues this' "$tmp/body") line for CI"
 echo "queued as the commit it pushed, and no other: $(grep -c "head=$(cat "$tmp/at") " "$tmp/asked")"
 echo "origin's branches after: $(onorigin)"
 here
 echo 'echo hi' >scripts/new.sh
 step git add -A
 step git commit -q -m "a script"
-scripts/land.sh >/dev/null 2>&1
-echo "code, with no word on its review: $? ($(cat "$tmp/last") pull requests so far)"
 echo stray >left-here.txt
 scripts/land.sh --no-review "a test" >/dev/null 2>&1
 echo "with a file git doesn't know of: $?"
@@ -700,6 +703,34 @@ step git tag twin
 echo "with names git finds two of: $(scripts/land.sh 2>&1 | landed), as $(cat "$tmp/head")"
 step git branch -q -D origin/main
 step git tag -d twin >/dev/null
+# Queued and left, and a commit put on top before it lands (a review's fixes, say): GitHub takes
+# no push to a queued pull request's branch, so it's taken out of the queue, the commit pushed,
+# and the same pull request queued again as the new commit.
+step git worktree add -q "$tmp/again" -b again origin/main
+step cd "$tmp/again"
+here
+echo r >docs/r.md
+step git add -A
+step git commit -q -m "again: one"
+scripts/land.sh --no-wait >/dev/null 2>&1
+prs="$(cat "$tmp/last")"
+echo r2 >>docs/r.md
+step git commit -q -am "again: fixed"
+echo 0 >"$tmp/looks"
+scripts/land.sh >"$tmp/out" 2>&1
+echo "a commit on top of what's queued: $(landed <"$tmp/out"), $(grep -c 'taking it out of the queue' "$tmp/out") taken out, $(($(cat "$tmp/last") - prs)) more pull requests"
+rm -f "$tmp/dequeued"
+# Queued, then written again (a rebase, an amend): what's queued isn't in what's landed, and is
+# left in the queue as it is.
+echo s >docs/s3.md
+step git add -A
+step git commit -q -m "again: two"
+scripts/land.sh --no-wait >/dev/null 2>&1
+step git commit -q --amend -m "again: two, reworded"
+echo 0 >"$tmp/looks"
+scripts/land.sh >"$tmp/out" 2>&1
+echo "written again after it was queued: $? $(grep -c "which this branch doesn't have" "$tmp/out") ($(ls "$tmp" | grep -c '^dequeued$') taken out, $(ls "$tmp" | grep -c '^queued$') queued)"
+rm -f "$tmp/queued"
 # A file of the author's that git ignores, where main begins to keep a directory while the
 # branch lands: git would take the file away to make the directory, with nothing left of it
 # anywhere. Git is asked not to, the branch stays where it was, and what git said is said.
@@ -735,11 +766,10 @@ test('a landing queues its pull request as the commit that was asked for, on a m
     'the main checkout: docs: two',
     'this branch is where main is, as the queue wrote it',
     'and a second branch at the commit it was at is still there',
-    'its pull request: docs: two, 1 word on its review, 1 line for CI',
+    'its pull request: docs: two, 1 line for CI',
     'queued as the commit it pushed, and no other: 1',
     "origin's branches after: main ",
-    // Neither of these gets as far as a push or a pull request.
-    'code, with no word on its review: 2 (7 pull requests so far)',
+    // None of these gets as far as a push or a pull request.
     "with a file git doesn't know of: 1",
     'with a merge under way: 1 1',
     'with picks still to go: 1 1',
@@ -781,9 +811,11 @@ test('a landing queues its pull request as the commit that was asked for, on a m
     'asked again: Landed: <commit> is in origin/main. Fast-forwarded the main checkout to origin/main (<commit>).',
     "a commit made here with nothing to land: 1 1, another session's, meanwhile",
     'with names git finds two of: Landed: <commit> is in origin/main. Fast-forwarded the main checkout to origin/main (<commit>)., as twin',
+    "a commit on top of what's queued: Landed: <commit> is in origin/main. Fast-forwarded the main checkout to origin/main (<commit>)., 1 taken out, 0 more pull requests",
+    'written again after it was queued: 1 1 (0 taken out, 1 queued)',
     'a file git ignores here, where main now keeps a directory: 0 1 1, still mine and where it was',
     'from main: 1',
-    'main, at the end: ignoring: one,main: keeps a directory,twin: one,main: once more,early: one,main: meanwhile,shared: one,main: late,main: the same file,main: ab,half: one,main, on the same lines,docs: four,docs: three,a script, fixed,a script,main moved again,docs: two,main moved,first,',
+    'main, at the end: ignoring: one,main: keeps a directory,again: fixed,again: one,twin: one,main: once more,early: one,main: meanwhile,shared: one,main: late,main: the same file,main: ab,half: one,main, on the same lines,docs: four,docs: three,a script, fixed,a script,main moved again,docs: two,main moved,first,',
     'tags on origin: 0',
   ]);
 });
