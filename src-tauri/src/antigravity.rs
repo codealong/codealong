@@ -241,8 +241,9 @@ pub struct Conversation {
     pub parent: Option<String>,
     /// What the log of the terminal UI that has it open says (`Said`).
     pub said: Said,
-    /// A command line process had it open as it was read (`Reader::reread`).
-    pub held: bool,
+    /// Its next read can't go by this one (`Reader::reread`): a command line process had it open,
+    /// which may write its last steps before it lets go, or its database read behind.
+    pub read_again: bool,
 }
 
 impl Conversation {
@@ -1772,7 +1773,7 @@ impl Reader {
         for c in &mut rows {
             let process = self.processes.iter().find(|p| p.conversation.as_deref() == Some(c.id.as_str()));
             let held = process.is_some();
-            c.held = held;
+            c.read_again = held;
             if let Some(log) = process.and_then(|p| self.logs.get_mut(&p.pid)) {
                 log.read_on();
                 c.said = log.said.clone();
@@ -1780,8 +1781,9 @@ impl Reader {
             match before.get(&c.id) {
                 // Not the first read after a process let go of it, which may have written its
                 // last steps (a prompt's among them) since the read before, under a row another
-                // `agy` wrote back as it was then.
-                Some(old) if !held && !old.held && old.last_modified == c.last_modified && old.step_count == c.step_count => {
+                // `agy` wrote back as it was then; nor after a read of its database that was
+                // behind.
+                Some(old) if !held && !old.read_again && old.last_modified == c.last_modified && old.step_count == c.step_count => {
                     c.tail = old.tail.clone();
                     c.asked = old.asked.clone();
                     c.started_at = old.started_at;
@@ -1821,6 +1823,7 @@ impl Reader {
                     let behind = read.is_none() || at.zip(kept).is_some_and(|(at, kept)| at < kept);
                     c.failed = if behind { old.and_then(|o| o.failed.clone()) } else { read.and_then(|(_, failed)| failed) };
                     c.latest_step_at = at.max(kept);
+                    c.read_again |= behind;
                     c.model = turn_model(&c.dir, &c.id);
                 }
             }
@@ -3249,8 +3252,10 @@ mod tests {
         let steps = Connection::open(dir.join("conversations/c1.db")).unwrap();
         steps.execute_batch("CREATE TABLE steps (idx INTEGER PRIMARY KEY, step_type INTEGER NOT NULL DEFAULT 0, status INTEGER NOT NULL DEFAULT 0, step_payload BLOB); INSERT INTO steps (idx, step_type, status) VALUES (0, 14, 3), (1, 132, 3);").unwrap();
         let at = 1_792_025_577_777;
-        let note = [began(at), error_note("agent executor error: request failed: Post \"https://daily-cloudcode-pa.googleapis.com/\": write tcp [2001:db8::1]:60363->[2001:db8::2]:443: write: broken pipe", Some(TERMINATED))].concat();
-        steps.execute("INSERT INTO steps VALUES (2, 17, 3, ?1)", [note]).unwrap();
+        let note = |at: i64| [began(at), error_note("agent executor error: request failed: Post \"https://daily-cloudcode-pa.googleapis.com/\": write tcp [2001:db8::1]:60363->[2001:db8::2]:443: write: broken pipe", Some(TERMINATED))].concat();
+        steps.execute("INSERT INTO steps VALUES (2, 17, 3, ?1)", [note(at)]).unwrap();
+        // SQLite on Windows can't have a file it holds open renamed, as the test does below.
+        drop(steps);
 
         let account = AccountCfg { name: "antigravity".into(), harness: "antigravity".into(), home: dir.to_string_lossy().into_owned(), command: None, start: None, usage_cap: None, acp: None, monthly: None, per_token: false, disabled: false, chrome_profile: None };
         let seen = crate::state::SeenState::default();
@@ -3261,20 +3266,32 @@ mod tests {
             reader.reread(&account, &look);
             reader.conversations["antigravity"][0].failed.clone()
         };
-        let lost = Some(Failed { on: FailedOn::Connection, at, said: "Its request to the API failed: broken pipe".into() });
-        assert_eq!(failed(&mut reader), lost);
+        let lost = |at: i64| Some(Failed { on: FailedOn::Connection, at, said: "Its request to the API failed: broken pipe".into() });
+        assert_eq!(failed(&mut reader), lost(at));
         // Its database doesn't open once: how the turn ended stays as it was read.
         let (database, away, older) = (dir.join("conversations/c1.db"), dir.join("conversations/away.db"), dir.join("conversations/older.db"));
+        let write = |sql: &str, payload: Vec<u8>| Connection::open(&database).unwrap().execute(sql, [payload]).unwrap();
         std::fs::copy(&database, &older).unwrap();
         std::fs::rename(&database, &away).unwrap();
-        assert_eq!(failed(&mut reader), lost);
+        assert_eq!(failed(&mut reader), lost(at));
         std::fs::rename(&away, &database).unwrap();
         // Told to carry on, it goes on, and an older copy of its database (`open_database`'s
         // fallback leaves out what its WAL holds) doesn't bring the note back.
-        steps.execute("INSERT INTO steps VALUES (3, 14, 3, ?1)", [began(at + 5_000)]).unwrap();
+        write("INSERT INTO steps VALUES (3, 14, 3, ?1)", began(at + 5_000));
         assert_eq!(failed(&mut reader), None);
-        drop(steps);
-        std::fs::rename(&older, &database).unwrap();
+        std::fs::rename(&database, &away).unwrap();
+        std::fs::copy(&older, &database).unwrap();
+        assert_eq!(failed(&mut reader), None);
+        std::fs::rename(&away, &database).unwrap();
+        // It fails again, then goes on and quits between two reads, and the first read after
+        // doesn't open its database: once it does, the turn is read again, the row unchanged.
+        write("INSERT INTO steps VALUES (4, 17, 3, ?1)", note(at + 10_000));
+        assert_eq!(failed(&mut reader), lost(at + 10_000));
+        write("INSERT INTO steps VALUES (5, 14, 3, ?1)", began(at + 15_000));
+        reader.processes.clear();
+        std::fs::rename(&database, &away).unwrap();
+        assert_eq!(failed(&mut reader), lost(at + 10_000));
+        std::fs::rename(&away, &database).unwrap();
         assert_eq!(failed(&mut reader), None);
     }
 
