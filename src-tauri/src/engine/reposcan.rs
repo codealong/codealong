@@ -196,6 +196,7 @@ impl Engine {
         if !self.passing {
             self.github.ask_names(&self.seeds, Instant::now());
         }
+        self.refresh_org_avatars();
     }
 
     /// The worktrees whose servers are looked for: those in projects. A folder outside them can

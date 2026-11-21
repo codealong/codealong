@@ -633,6 +633,7 @@ pub fn compose(inp: Inputs) -> Board {
             name,
             lanes: mine.len(),
             repos: repos.into_iter().map(|(name, (lanes, folder))| RepoSummary { name, lanes, folder }).collect(),
+            icon: None,
         });
     }
     Board {

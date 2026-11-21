@@ -1,6 +1,7 @@
 /* A place's project before its name (ProjectSaid.tsx): in the quieter ink a worktree's repo is
    said in, then a slash, as a worktree chip's device and repo are. Short of room it shortens
-   before the place's own name does, down to its first letters and the slash. */
+   before the place's own name does, down to its first letters and the slash (leaving room for a
+   12px org avatar when one is shown). */
 .ca-projprefix {
   display: inline-flex;
   flex: 0 100 auto;
@@ -9,6 +10,9 @@
   min-width: 5ch;
   overflow: hidden;
   color: var(--ink-3);
+}
+.ca-projprefix:has(.ca-projicon) {
+  min-width: 7ch;
 }
 .ca-projprefix::after {
   content: '/';
@@ -21,4 +25,12 @@
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+.ca-projicon {
+  display: block;
+  flex: none;
+  border-radius: var(--radius-xs);
+  object-fit: cover;
+  outline: 1px solid color-mix(in srgb, var(--ink) 12%, transparent);
+  outline-offset: -1px;
 }

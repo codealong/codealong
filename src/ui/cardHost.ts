@@ -24,7 +24,7 @@ import { prRefOf } from '../prLinks';
 import { errorText, type Report } from '../report';
 import { reloadPressed, reloadWindow } from '../reload';
 import { reuse } from '../reuse';
-import type { Board, DeviceView, Lane, PrItem, Session, Theme, Todo, Usage } from '../types';
+import type { Board, DeviceView, Lane, PrItem, ProjectSummary, Session, Theme, Todo, Usage } from '../types';
 import { useTypingTrace } from '../typingTrace';
 import { useDevices, useObserve } from '../useDevices';
 import { zoomStep } from '../zoom';
@@ -65,6 +65,8 @@ export interface LiveSession {
   /** `[debug] perf_log`, as the board says while the card is up: a kept or side window, which no
    *  open tells it to, times its keys by it (Peek.tsx). */
   perfLog: boolean;
+  /** The board's projects (with cached org avatars), for ProjectIcons in peek and kept windows. */
+  projects?: ProjectSummary[];
 }
 
 /** The session `told` of, kept up with the board while it's `shown`: the windows that show one
@@ -140,7 +142,7 @@ export function useLiveSession(told: Told | null, shown: boolean): LiveSession {
     if (following.current) following.current.read(failed);
     else void getBoard().then(takeBoard, failed);
   }, [takeBoard]);
-  return { lane, session, theme: now?.theme ?? (elsewhere ? look?.theme : null) ?? null, zoom: now?.zoom ?? (elsewhere ? look?.zoom : null) ?? null, showKeys: engine?.showKeys ?? true, board, device: elsewhere && key ? deviceOf(devices, key) : null, needBoard, there: elsewhere ? devices?.lanes : undefined, perfLog };
+  return { lane, session, theme: now?.theme ?? (elsewhere ? look?.theme : null) ?? null, zoom: now?.zoom ?? (elsewhere ? look?.zoom : null) ?? null, showKeys: engine?.showKeys ?? true, board, device: elsewhere && key ? deviceOf(devices, key) : null, needBoard, there: elsewhere ? devices?.lanes : undefined, perfLog, projects: engine?.projects };
 }
 
 /** ⌘= ⌘- ⌘0 on a card in a window that floats: they zoom every window, as in the board's, and

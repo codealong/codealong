@@ -42,6 +42,7 @@ mod cycle;
 mod decisions;
 mod codex;
 mod opencode;
+mod orgavatars;
 mod origins;
 mod outbox;
 mod os;

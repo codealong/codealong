@@ -3,6 +3,7 @@
 import { useRef, useState } from 'react';
 import type { LogoStatus, ProjectSummary } from '../types';
 import { cx, Icon, Mark, StatusGlyph } from './primitives';
+import { ProjectIcon } from './ProjectSaid';
 import { useDismiss } from './useDismiss';
 import { LOGO_LABEL } from '../logo';
 import { keysIn, keysSaid } from '../platform';
@@ -55,13 +56,13 @@ export function ProjectSwitcher({ logoStatus, projects, current, total, actions,
   const otherNeeds = others.reduce((n, p) => n + (actions[p.name]?.needs ?? 0), 0);
   const otherUnread = others.reduce((n, p) => n + (actions[p.name]?.unread ?? 0), 0);
   const badgeTitle = otherNeeds > 0 ? `${otherNeeds} in other projects need you` : otherUnread > 0 ? `${otherUnread} finished in other projects` : '';
-  const item = (name: string, count: number) => {
+  const item = (name: string, count: number, icon?: string | null) => {
     const a = actions[name];
     const key = projectKey(name, projects);
     return (
       <div key={name} className="ca-projswitch-row" role="none">
         <button type="button" role="menuitemradio" aria-checked={name === current} className={cx('ca-menu-item', name === current && 'is-on')} onClick={() => pick(name)}>
-          <Icon name={name === ALL_PROJECTS ? 'stack' : 'folder'} size={16} />
+          {name === ALL_PROJECTS ? <Icon name="stack" size={16} /> : <ProjectIcon src={icon} size={16} fallback />}
           <span className="ca-menu-label">
             <span>{name}</span>
           </span>
@@ -117,7 +118,7 @@ export function ProjectSwitcher({ logoStatus, projects, current, total, actions,
       </button>
       {open && (
         <div className="ca-menu ca-projswitch-menu" role="menu">
-          {projects.map((p) => item(p.name, p.lanes))}
+          {projects.map((p) => item(p.name, p.lanes, p.icon))}
           <div className="ca-menu-sep" role="separator" />
           {item(ALL_PROJECTS, total)}
           <div className="ca-menu-sep" role="separator" />

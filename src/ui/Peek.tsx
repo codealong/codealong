@@ -44,7 +44,7 @@ import type { Board, Lane, PeekOpen, Session } from '../types';
 import { useKeyPerf } from '../perf';
 import { useDevices } from '../useDevices';
 import { useCardHost, useLiveSession } from './cardHost';
-import { ProjectShown } from './ProjectSaid';
+import { ProjectIcons, projectIconMap, ProjectShown } from './ProjectSaid';
 import { SessionCard, type WindowCan } from './SessionCard';
 import { SideReply } from './SessionReply';
 import { useTheme } from './ThemeSwitch';
@@ -194,6 +194,7 @@ export function Peek({ kept = false, side = false }: { kept?: boolean; side?: bo
   const key = open?.session.key ?? null;
   const told = useMemo(() => (open ? { lane: open.lane, session: open.session } : null), [open]);
   const live = useLiveSession(told, shown);
+  const projectIcons = useMemo(() => projectIconMap(live.projects), [live.projects]);
   const { lane, session } = live;
   const theme = live.theme ?? open?.theme ?? 'system';
   useTheme(theme);
@@ -484,5 +485,9 @@ export function Peek({ kept = false, side = false }: { kept?: boolean; side?: bo
   // The peek says a session's project as the bar it came from does, under the project the bar
   // shows; a session kept on the desktop is under none, and says it.
   const shownProject = kept ? ALL_PROJECTS : readStored(BAR_PROJECT_KEY, asText, ALL_PROJECTS);
-  return <ProjectShown.Provider value={shownProject}>{page}</ProjectShown.Provider>;
+  return (
+    <ProjectShown.Provider value={shownProject}>
+      <ProjectIcons.Provider value={projectIcons}>{page}</ProjectIcons.Provider>
+    </ProjectShown.Provider>
+  );
 }

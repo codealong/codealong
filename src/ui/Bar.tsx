@@ -39,7 +39,7 @@ import { NotchReview } from './NotchReview';
 import { NotchTodo } from './NotchTodo';
 import { NotchSession, useNotchStage } from './NotchSession';
 import { QueueEnd } from './QueueEnd';
-import { placeWords, ProjectShown, usePlaceWords, type PlaceWords } from './ProjectSaid';
+import { placeWords, ProjectIcons, ProjectShown, usePlaceWords, type PlaceWords } from './ProjectSaid';
 import { LOGO_LABEL, useLogo } from '../logo';
 import { useMarkMoment } from '../mark';
 import { useNow } from './useNow';
@@ -1062,9 +1062,12 @@ export function Bar() {
     </div>
   );
 
+  const projectIcons = useMemo(() => new Map(Object.entries(feed?.projectIcons ?? {})), [feed?.projectIcons]);
+
   if (notch) {
     return (
       <ProjectShown.Provider value={shownProject}>
+        <ProjectIcons.Provider value={projectIcons}>
         <NotchShell
           notch={notch}
           logoStatus={logoStatus}
@@ -1195,12 +1198,14 @@ export function Bar() {
           {sections.flatMap((section, i) => [...(i > 0 ? [<span key={`divider-${i}`} className="ca-hud-divider" aria-hidden="true" />] : []), ...section])}
         </NotchShell>
         {measured}
+        </ProjectIcons.Provider>
       </ProjectShown.Provider>
     );
   }
 
   return (
     <ProjectShown.Provider value={shownProject}>
+      <ProjectIcons.Provider value={projectIcons}>
       <div
         ref={hud}
         className="ca-hud"
@@ -1245,6 +1250,7 @@ export function Bar() {
         {said ? <SaidLine said={said} onShow={reveal} /> : sections.flatMap((section, i) => [<span key={`divider-${i}`} className="ca-hud-divider" aria-hidden="true" />, ...section])}
       </div>
       {measured}
+      </ProjectIcons.Provider>
     </ProjectShown.Provider>
   );
 }

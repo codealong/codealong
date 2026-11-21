@@ -10,9 +10,44 @@
 // what's inside it, so its worktrees don't repeat it. Where nothing says one (a card pinned to
 // the desktop), no project is said.
 
-import { createContext, useContext, type ReactNode } from 'react';
+import { createContext, useContext, useState, type ReactNode } from 'react';
+import { Icon } from './primitives';
 
 export const ProjectShown = createContext<string | null>(null);
+
+const EMPTY_ICONS: ReadonlyMap<string, string> = new Map();
+/** Project name → cached GitHub org avatar `data:image/…` URL, for All projects badges. */
+export const ProjectIcons = createContext<ReadonlyMap<string, string>>(EMPTY_ICONS);
+
+/** Builds the lookup map for `ProjectIcons.Provider` from the board's projects. */
+export function projectIconMap(projects: readonly { name: string; icon?: string | null }[] | undefined): ReadonlyMap<string, string> {
+  if (!projects || projects.length === 0) return EMPTY_ICONS;
+  const map = new Map<string, string>();
+  for (const p of projects) {
+    if (p.icon) map.set(p.name, p.icon);
+  }
+  return map.size > 0 ? map : EMPTY_ICONS;
+}
+
+/** A project's GitHub org avatar, falling back to the folder icon (when `fallback` is set) or
+ *  nothing when absent or broken. */
+export function ProjectIcon({ src, size, fallback = false }: { src?: string | null; size: number; fallback?: boolean }) {
+  const [failed, setFailed] = useState<string | null>(null);
+  if (src && failed !== src) {
+    return (
+      <img
+        className="ca-projicon"
+        src={src}
+        width={size}
+        height={size}
+        alt=""
+        draggable={false}
+        onError={() => setFailed(src)}
+      />
+    );
+  }
+  return fallback ? <Icon name="folder" size={size} /> : null;
+}
 
 /** What's inside a row that said `project` already (a todo's own, a PR's repo chip) says it no
  *  more; a place in another project still says its own. */
@@ -54,16 +89,25 @@ export function usePlaceWords(): PlaceWords {
  *  needn't be in any worktree, so it has no place's name to say it before. */
 export function ProjectTag({ project }: { project: string | null | undefined }) {
   const said = useProjectSaid(project);
-  return said ? <span className="ca-tag">{said}</span> : null;
+  const icon = useContext(ProjectIcons).get(said ?? '');
+  if (!said) return null;
+  return (
+    <span className="ca-tag">
+      {icon && <ProjectIcon src={icon} size={12} />}
+      {said}
+    </span>
+  );
 }
 
 /** A place's project before its name, quieter than the name and followed by a slash, as a
  *  worktree's repo is said before it. `beside` are the names said after it. */
 export function ProjectPrefix({ project, beside }: { project: string | null | undefined; beside?: (string | null | undefined)[] }) {
   const said = useProjectSaid(project, beside);
+  const icon = useContext(ProjectIcons).get(said ?? '');
   if (!said) return null;
   return (
     <span className="ca-projprefix" title={`In ${said}`}>
+      {icon && <ProjectIcon src={icon} size={12} />}
       <span className="ca-projprefix-name">{said}</span>
     </span>
   );

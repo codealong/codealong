@@ -132,6 +132,8 @@ pub enum Msg {
     GitDone(PathBuf, Option<GitInfo>),
     /// Something GitHub was asked in the background came back (ghpoll.rs).
     Github(ghpoll::Event),
+    /// GitHub organization avatars fetched in the background (orgavatars.rs).
+    OrgAvatars(Option<Vec<(String, crate::orgavatars::Outcome)>>),
     RefreshGithub,
     /// A PR changed on GitHub at your hand: PRs are read again in full now.
     PrChanged,
@@ -532,6 +534,8 @@ struct Engine {
     /// GitHub as the engine has it: the PRs read, when it's asked again, and what it calls each
     /// repo now (ghpoll.rs).
     github: GhPoll,
+    /// Cached GitHub organization avatars for projects (orgavatars.rs).
+    org_avatars: crate::orgavatars::OrgAvatars,
     /// An engine for one pass (`--snapshot`, the command without the app): it's gone before
     /// what it would ask in the background comes back.
     passing: bool,
@@ -674,6 +678,7 @@ impl Engine {
             lane_checkout: HashMap::new(),
             codealong_sources: Vec::new(),
             github,
+            org_avatars: crate::orgavatars::OrgAvatars::new(if cfg!(test) { PathBuf::new() } else { config::cache_dir().join("org-avatars") }),
             passing: false,
             watcher: None,
             missing_homes: Vec::new(),
@@ -898,6 +903,7 @@ impl Engine {
                 }
                 Ok(Msg::GitDone(path, info)) => self.on_git(path, info),
                 Ok(Msg::Github(event)) => self.on_github(event),
+                Ok(Msg::OrgAvatars(results)) => self.on_org_avatars(results),
                 Ok(Msg::RefreshGithub) => self.github.poll(&self.seeds, false, Now::real()),
                 Ok(Msg::PrChanged) => self.github.on_changed(&self.seeds, Now::real()),
                 Ok(Msg::Merged(slug, number, reply)) => {
@@ -1443,6 +1449,7 @@ impl Engine {
             self.github.poll(&self.seeds, false, Now::real());
         }
         self.github.tick(&self.seeds, Now::real());
+        self.refresh_org_avatars();
         // A worktree with commits on no remote can go once GitHub says a merged PR ends at its HEAD.
         self.github.ask_heads(&board::heads_on_no_remote(&self.seeds, &self.git, &self.heads_now()), Now::real());
         let every = if self.usage_backoff { USAGE_BACKOFF } else { USAGE_EVERY };

@@ -136,7 +136,7 @@ import { addsTo, anotherFolderOption, chatOption, folderOptions, HERE, machineMe
 import { AgentFoot } from './AgentMenu';
 import { agentMenuSections, placeIcon } from './StartControls';
 import { Button, cx, Icon, Kbd, Mark } from './primitives';
-import { ProjectShown } from './ProjectSaid';
+import { ProjectIcons, projectIconMap, ProjectShown } from './ProjectSaid';
 import { usePrLinks } from './PrLink';
 import { useTheme } from './ThemeSwitch';
 import { useGlass } from '../glass';
@@ -2386,7 +2386,12 @@ export function Quick() {
       </div>
     </div>
   );
-  return <ProjectShown.Provider value={projectShownIn(current)}>{page}</ProjectShown.Provider>;
+  const projectIcons = useMemo(() => projectIconMap(projects), [projects]);
+  return (
+    <ProjectShown.Provider value={projectShownIn(current)}>
+      <ProjectIcons.Provider value={projectIcons}>{page}</ProjectIcons.Provider>
+    </ProjectShown.Provider>
+  );
 }
 
 /** The panel folded while it holds a prompt you haven't sent and another window has the keyboard

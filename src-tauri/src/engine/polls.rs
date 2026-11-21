@@ -177,6 +177,42 @@ impl Engine {
         }
         self.mark_dirty("usage");
     }
+
+    /// Loads cached GitHub org avatars for the current projects and schedules background fetches
+    /// for any missing or stale ones (orgavatars.rs).
+    pub(super) fn refresh_org_avatars(&mut self) {
+        let owners = crate::orgavatars::project_owners(&self.cfg.projects, &self.seeds, |slug| self.github.renamed(slug).map(String::as_str));
+        if self.org_avatars.load_cached(&owners) {
+            self.mark_dirty("org avatars");
+        }
+        if self.passing {
+            return;
+        }
+        let Some(due) = self.org_avatars.to_fetch(&owners, Instant::now(), now_ms()) else { return };
+        let tx = self.tx.clone();
+        throttle::background(
+            "codealong-org-avatars",
+            move || {
+                crate::os::system::utility_thread();
+                due.into_iter()
+                    .map(|owner| {
+                        let outcome = crate::orgavatars::fetch(&owner);
+                        (owner, outcome)
+                    })
+                    .collect::<Vec<_>>()
+            },
+            move |results| {
+                let _ = tx.send(Msg::OrgAvatars(results));
+            },
+        );
+    }
+
+    /// The background fetch of GitHub org avatars finished.
+    pub(super) fn on_org_avatars(&mut self, results: Option<Vec<(String, crate::orgavatars::Outcome)>>) {
+        if self.org_avatars.on_fetched(results, now_ms()) {
+            self.mark_dirty("org avatars");
+        }
+    }
 }
 
 #[cfg(test)]
@@ -234,5 +270,42 @@ mod tests {
         // Signing out isn't papered over.
         let signed_out = keep_last_good(Some(&good), usage(Some("Sign-in expired"), true, 0.0));
         assert!(signed_out.meters.is_empty());
+    }
+
+    #[test]
+    fn fetched_org_avatars_mark_dirty_and_appear_on_the_board() {
+        use super::*;
+        let (tx, _rx) = channel();
+        let mut engine = Engine::new(Box::new(|_| {}), tx, Arc::new(RwLock::new(Board::default())));
+        engine.cfg.projects.push(crate::config::ProjectCfg {
+            name: "Northwind".into(),
+            repos: vec!["github.com/northwind/*".into()],
+            folders: Vec::new(),
+            chrome_profile: None,
+            default: None,
+            decisions: None,
+        });
+        engine.seeds.push(LaneSeed {
+            path: PathBuf::from("/work/northwind-app"),
+            project: "Northwind".into(),
+            repo: "app".into(),
+            repo_slug: Some("northwind/app".into()),
+            head_owners: Vec::new(),
+            callsign: "app".into(),
+            origin: Origin::Main,
+            branch: None,
+            head: None,
+            default_branch: None,
+            elsewhere: false,
+            chats: false,
+            starts_chats: false,
+            exact: false,
+        });
+        let url = "data:image/png;base64,iVBORw==".to_string();
+        engine.on_org_avatars(Some(vec![("northwind".into(), crate::orgavatars::Outcome::Avatar(url.clone()))]));
+        assert!(engine.dirty);
+        let board = engine.compose();
+        let proj = board.projects.iter().find(|p| p.name == "Northwind").unwrap();
+        assert_eq!(proj.icon.as_deref(), Some(url.as_str()));
     }
 }

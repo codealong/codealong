@@ -689,6 +689,9 @@ pub fn board(now: i64) -> Board {
     board.queue = cfg.queue.settled();
     board.devices = cfg.devices.clone();
     board.project_rules = cfg.projects.clone();
+    for p in &mut board.projects {
+        p.icon = project_icon(&p.name);
+    }
     board.todos = crate::todos::awake_at(todos(&c), now);
     board.today = crate::util::day_key(c.today);
     board.todo_clock = crate::todos::todo_clock(&board.todos, now);
@@ -827,6 +830,20 @@ pub fn editor_icons() -> Vec<crate::editors::Icon> {
     const SIZE: usize = crate::editors::ICON_PX;
     let colors = [[38_u8, 38, 38, 255], [0, 122, 204, 255], [8, 76, 207, 255]];
     editors().into_iter().zip(colors).map(|(e, color)| crate::editors::Icon { id: e.id, size: SIZE, rgba: color.repeat(SIZE * SIZE) }).collect()
+}
+
+/// Made-up GitHub organization avatars for the fixture's projects; Elsewhere keeps the folder icon.
+fn project_icon(name: &str) -> Option<String> {
+    let (bg, letter) = match name {
+        "Northwind" => ("#2563eb", "N"),
+        "Atlas" => ("#0f766e", "A"),
+        "Kestrel" => ("#9333ea", "K"),
+        _ => return None,
+    };
+    let svg = format!(
+        r##"<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32"><rect width="32" height="32" rx="6" fill="{bg}"/><text x="16" y="22" text-anchor="middle" fill="#fff" font-family="system-ui,sans-serif" font-size="18" font-weight="700">{letter}</text></svg>"##
+    );
+    Some(format!("data:image/svg+xml;base64,{}", data_encoding::BASE64.encode(svg.as_bytes())))
 }
 
 /// What a new terminal's shell takes as a command's first word.
