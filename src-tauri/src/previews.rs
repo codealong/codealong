@@ -289,6 +289,41 @@ pub struct Server {
     pub ancestors: Vec<u32>,
 }
 
+/// The server each worktree would show on the board (`board::lane_preview`): the port named in
+/// `set` (`Entry::port` or a local URL's port) when set, else the lowest-port page server.
+fn selected_servers<'a>(servers: &'a [Server], set: &[Entry]) -> HashMap<&'a Path, &'a Server> {
+    let ports: HashMap<&Path, u16> = set.iter().filter_map(|e| Some((Path::new(e.worktree.as_str()), e.port.or_else(|| local_port(&e.url))?))).collect();
+    let mut picked: HashMap<&'a Path, &'a Server> = HashMap::new();
+    for s in servers {
+        let lane = s.lane.as_path();
+        match ports.get(lane) {
+            Some(&p) if s.port == p => {
+                picked.entry(lane).or_insert(s);
+            }
+            Some(_) => {}
+            None if s.page => {
+                picked
+                    .entry(lane)
+                    .and_modify(|cur| {
+                        if s.port < cur.port {
+                            *cur = s;
+                        }
+                    })
+                    .or_insert(s);
+            }
+            None => {}
+        }
+    }
+    picked
+}
+
+/// Whether replacing `before` with `after` can change any worktree's preview on the board
+/// (`board::lane_preview`). Non-page listeners (API, debugger, metrics, test servers) that no
+/// worktree pins by port show nowhere on the board, so starting or stopping one needs no compose.
+pub fn visible_servers_changed(before: &[Server], after: &[Server], set: &[Entry]) -> bool {
+    selected_servers(before, set) != selected_servers(after, set)
+}
+
 /// How a server answered its first request.
 #[derive(Clone, Debug, PartialEq)]
 enum Answer {
@@ -649,6 +684,44 @@ mod tests {
         assert_eq!(lane_of(Path::new("/private/p/app-two"), &roots, &canon), Some(PathBuf::from("/p/app-two")));
         assert_eq!(lane_of(Path::new("/p/apple"), &roots, &canon), None);
         assert_eq!(lane_of(Path::new("/"), &roots, &canon), None);
+    }
+
+    #[test]
+    fn visible_servers_changed_ignores_unpinned_non_page_and_secondary_page_servers() {
+        let srv = |lane: &str, port: u16, page: bool| Server {
+            lane: PathBuf::from(lane),
+            pid: u32::from(port),
+            port,
+            name: "node".into(),
+            cwd: PathBuf::from(lane),
+            started_ms: 1,
+            page,
+            title: page.then(|| format!("App {port}")),
+            ancestors: vec![100],
+        };
+        let api = srv("/w/a", 4000, false);
+        let app = srv("/w/a", 5173, true);
+        let higher = srv("/w/a", 6006, true);
+        let lower = srv("/w/a", 3000, true);
+
+        // Non-page listener starting or stopping changes nothing visible.
+        assert!(!visible_servers_changed(&[], std::slice::from_ref(&api), &[]));
+        assert!(!visible_servers_changed(std::slice::from_ref(&app), &[app.clone(), api.clone()], &[]));
+        // A higher-port page server beside an already-selected lower-port one doesn't change the preview.
+        assert!(!visible_servers_changed(std::slice::from_ref(&app), &[app.clone(), higher.clone()], &[]));
+        // Starting, stopping, replacing with a lower port, or changing title/ancestors does.
+        assert!(visible_servers_changed(&[], std::slice::from_ref(&app), &[]));
+        assert!(visible_servers_changed(std::slice::from_ref(&app), &[], &[]));
+        assert!(visible_servers_changed(std::slice::from_ref(&app), &[app.clone(), lower], &[]));
+        let mut renamed = app.clone();
+        renamed.title = Some("New title".into());
+        assert!(visible_servers_changed(std::slice::from_ref(&app), &[renamed], &[]));
+        // A worktree that pins a non-page port (by `port` or local URL) notices that port alone.
+        let pinned_port = [Entry { worktree: "/w/a".into(), url: "https://a.test".into(), port: Some(4000), chrome_profile: None, at: 1 }];
+        assert!(visible_servers_changed(&[], std::slice::from_ref(&api), &pinned_port));
+        assert!(!visible_servers_changed(std::slice::from_ref(&api), &[api.clone(), app.clone()], &pinned_port));
+        let pinned_url = [Entry { worktree: "/w/a".into(), url: "http://localhost:4000".into(), port: None, chrome_profile: None, at: 1 }];
+        assert!(visible_servers_changed(&[], &[api], &pinned_url));
     }
 
     /// A page served in a worktree is found and read; a port that isn't HTTP is found and isn't
