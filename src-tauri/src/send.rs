@@ -350,8 +350,11 @@ struct Message<'a> {
     now: bool,
     /// An agent's: its text starts with the intro.
     byline: Option<Byline>,
-    /// Whether its sender skips permission prompts itself, so that the message may say so to a
-    /// session that skips them too: you, or an agent whose own session does.
+    /// Whether the message claims the session's own permission class, so a session that skips
+    /// permission prompts takes it without holding it for you (and can be resumed for it when
+    /// stopped): you, Codealong itself, a side conversation, an agent whose own session skips
+    /// prompts too, or a message along a known helper or PR-review link (`from_its_helper`,
+    /// `to_its_helper`).
     bypasses: bool,
 }
 
@@ -424,12 +427,14 @@ fn from_its_helper(board: &Board, cfg: &Config, origins: &crate::origins::Store,
 
 /// Whether an agent's message goes to a helper its session started (`codealong start --helper`),
 /// by a start that said which session it made (`is_known_helper`), while it's still that session's
-/// helper on the board. That session already wrote the helper's opening prompt, so follow-up
-/// messages to it are more of the work it started the helper for and claim the helper's own class,
-/// rather than being held for you.
+/// helper on the board and working for it rather than for you (`Session::helps_an_agent`). That
+/// session already wrote the helper's opening prompt, so follow-up messages to it are more of the
+/// work it started the helper for and claim the helper's own class, rather than being held for
+/// you. Once you've taken the helper over by talking to it yourself (`Helper::yours`), its
+/// parent's messages are held again.
 fn to_its_helper(board: &Board, origins: &crate::origins::Store, sender: &Sender, to: &str) -> bool {
     let Sender::Agent(Some(from)) = sender else { return false };
-    is_known_helper(board, origins, to, from)
+    board.session(to).is_some_and(|(_, s)| s.helps_an_agent()) && is_known_helper(board, origins, to, from)
 }
 
 /// Whether an agent's message would take what a boundary group's session says (boundary.rs) to
@@ -1003,9 +1008,10 @@ enum Link {
 /// setting (`wake`), out of sight (`start::resume_out_of_sight`, `out_of_sight`): the session is
 /// told it had stopped and whose message it is, and the agent that it was resumed. Never one you
 /// archived or marked done, one whose harness doesn't go on by a resume (a Claude app session goes
-/// on in its app), nor one that skips permission prompts where the sender doesn't, or may as far as
-/// Codealong can tell (`holds`, `Adapter::would_hold_messages`): running, it would hold the
-/// message for you (claude/peer.rs), and as a resume's prompt it would act on it unasked. None for
+/// on in its app), nor one that skips permission prompts where the message doesn't claim its
+/// permission class (`!msg.bypasses`), or may as far as Codealong can tell (`holds`,
+/// `Adapter::would_hold_messages`): running, it would hold the message for you (claude/peer.rs),
+/// and as a resume's prompt it would act on it unasked. None for
 /// a message from no session, which goes no further than an agent's does (`agent_routes`); an
 /// error says why one from a session isn't resumed.
 fn wakes(cfg: &Config, origins: &crate::origins::Store, msg: &Message, session: &Session, routes: &[Route], holds: impl FnOnce() -> bool, place: impl FnOnce() -> Option<Place>) -> Result<Option<(Place, Link)>> {
@@ -1732,6 +1738,11 @@ mod tests {
         // Made your own, it's a helper no more, whatever its start said.
         let owned = Board { lanes: vec![crate::fixtures::lane("/r", vec![of("antigravity:antigravity:boss", None), of("claude:claude2:rev", None)])], ..Board::default() };
         assert!(!to_its_helper(&owned, &origins, &from("antigravity:antigravity:boss"), "claude:claude2:rev"));
+        // Once you're talking to the helper yourself (`Helper::yours`), its parent's messages are held again.
+        let mut talking = of("claude:claude2:rev", Some("antigravity:antigravity:boss"));
+        talking.helper.as_mut().unwrap().yours = true;
+        let taken = Board { lanes: vec![crate::fixtures::lane("/r", vec![of("antigravity:antigravity:boss", None), talking])], ..Board::default() };
+        assert!(!to_its_helper(&taken, &origins, &from("antigravity:antigravity:boss"), "claude:claude2:rev"));
     }
 
     /// One of a harness's own ways in is sent by the harness, with whose the message is and
