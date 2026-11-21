@@ -184,8 +184,8 @@ step git push -q origin main
 # this prints: where a pull request stands as "state queue merged id standing applies head",
 # and a run of CI as "status conclusion id address". The files the test leaves say how it
 # goes: "slow" holds how many looks the pull request's own run of CI is still going for, "no-run"
-# makes it never appear (or disappear once "slow" runs out), and "red" has it fail; "standing" has
-# someone's request to merge the pull request by itself on
+# makes it not appear (forever when empty, or for N looks before it shows), "run-err" makes gh
+# run list fail, and "red" has it fail; "standing" has someone's request to merge the pull request by itself on
 # it, and "conflicting" has main moved under it; "lost" loses GitHub's yes to queueing it
 # ("late" holds how many looks it then takes to show as queued), and with "swapped" it has
 # merged by then as another commit; "refused" has GitHub say no to queueing it, and "dropped"
@@ -227,13 +227,18 @@ case "$1 $2" in
       *workflow_dispatch*) echo "55 completed success https://github.com/acme/northwind/actions/runs/55" ;;
       *pull_request*)
         # The pull request's own run.
-        if [ -f "$f/red" ]; then
+        if [ -f "$f/run-err" ]; then
+          echo "gh: rate limit exceeded" >&2
+          exit 1
+        elif [ -f "$f/no-run" ] && [ ! -s "$f/no-run" ]; then
+          :
+        elif [ -f "$f/no-run" ] && [ "$(cat "$f/no-run")" -gt 0 ]; then
+          echo $(($(cat "$f/no-run") - 1)) >"$f/no-run"
+        elif [ -f "$f/red" ]; then
           echo "completed failure 77 https://github.com/acme/northwind/actions/runs/77"
         elif [ -f "$f/slow" ] && [ "$(cat "$f/slow")" -gt 0 ]; then
           echo $(($(cat "$f/slow") - 1)) >"$f/slow"
           echo "in_progress - 77 https://github.com/acme/northwind/actions/runs/77"
-        elif [ -f "$f/no-run" ]; then
-          :
         else
           echo "completed success 77 https://github.com/acme/northwind/actions/runs/77"
         fi
@@ -490,25 +495,27 @@ scripts/land.sh >"$tmp/out" 2>&1
 echo "main moved under its pull request: $? $(grep -c 'no longer applies on main' "$tmp/out")"
 rm "$tmp/conflicting"
 noted() { ls "$tmp/main/.git/codealong-landing" | grep -c 'sent$'; }
-# GitHub drops the pull_request event so CI's own run never shows up: stops after 15 looks
-# rather than waiting three hours, keeps it noted, and tells how to reopen it.
+# GitHub drops the pull_request event so CI's own run never shows up: stops after 15 empty
+# answers rather than waiting three hours, keeps it noted, and tells how to reopen it.
 touch "$tmp/no-run"
 scripts/land.sh >"$tmp/out" 2>&1
 echo "its own run of CI never shows up: $? $(grep -c 'never showed up' "$tmp/out") $(grep -c 'gh pr close 11 && gh pr reopen 11' "$tmp/out") ($(ls "$tmp" | grep -c '^queued$') queued, $(noted) noted)"
-# Seen running once, then unreadable for 15 looks: says it couldn't read it rather than that it
-# never showed up, and keeps it noted.
-echo 1 >"$tmp/slow"
+rm "$tmp/no-run"
+# gh run list fails rather than answering empty: says it couldn't read it (never tells you to
+# close and reopen the PR on the strength of no answer), prints gh's stderr, and keeps it noted.
+touch "$tmp/run-err"
 scripts/land.sh >"$tmp/out" 2>&1
-echo "its own run of CI goes unreadable: $? $(grep -c "Couldn't read CI's own run" "$tmp/out") ($(ls "$tmp" | grep -c '^queued$') queued, $(noted) noted)"
-rm "$tmp/no-run" "$tmp/slow"
-# Resuming once the run appears: a live in_progress run taking more than 15 looks is waited
-# through (not cut off by the missing-run limit), then GitHub says no to queueing it, with why:
-# said, and that landing is over.
+echo "gh fails reading its own run of CI: $? $(grep -c "Couldn't read CI's own run" "$tmp/out") $(grep -c 'rate limit exceeded' "$tmp/out") $(grep -c 'gh pr close' "$tmp/out") ($(ls "$tmp" | grep -c '^queued$') queued, $(noted) noted)"
+rm "$tmp/run-err"
+# Resuming once GitHub answers again: a few empty looks before the run appears (the usual
+# post-create delay) and then a live in_progress run taking more than 15 looks are both waited
+# through, then GitHub says no to queueing it, with why: said, and that landing is over.
+echo 3 >"$tmp/no-run"
 echo 16 >"$tmp/slow"
 touch "$tmp/refused"
 scripts/land.sh >"$tmp/out" 2>&1
-echo "refused a place in the queue: $? $(grep -c "wouldn't queue" "$tmp/out") ($(noted) noted, slow=$(cat "$tmp/slow"))"
-rm "$tmp/refused" "$tmp/slow"
+echo "refused a place in the queue: $? $(grep -c "wouldn't queue" "$tmp/out") ($(noted) noted, no-run=$(cat "$tmp/no-run"), slow=$(cat "$tmp/slow"))"
+rm "$tmp/refused" "$tmp/no-run" "$tmp/slow"
 # No answer at all to the asking, and no sign of it in the queue after a few looks: not called
 # a refusal, and still noted, to be taken up again (as the next step does).
 touch "$tmp/dropped"
@@ -749,8 +756,8 @@ test('a landing queues its pull request as the commit that was asked for, on a m
     'its own run of CI failing: 1 1 1 (0 queued)',
     'main moved under its pull request: 1 1',
     'its own run of CI never shows up: 3 1 1 (0 queued, 1 noted)',
-    'its own run of CI goes unreadable: 3 1 (0 queued, 1 noted)',
-    'refused a place in the queue: 1 1 (0 noted, slow=0)',
+    'gh fails reading its own run of CI: 3 1 1 0 (0 queued, 1 noted)',
+    'refused a place in the queue: 1 1 (0 noted, no-run=0, slow=0)',
     'no answer to the asking: 3 0 (1 noted)',
     'merged as another commit: 1 0 1',
     'while another landing of it runs: 1 1',

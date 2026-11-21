@@ -206,7 +206,7 @@ Harness facts (from GitHub's answers on this Mac, 2026-10-01). A bare file name 
     `pull_request` run at all, so a wait for its checks never ends.
   - GitHub can also drop the `pull_request` event on a clean, `MERGEABLE` pull request (seen on
     #14, 2026-11-20: zero check runs for three hours until `gh pr close` + `gh pr reopen` fired
-    it). `land.sh`'s `queue_it` stops after 15 empty polls (~5 min, matching `check_on_github`)
-    and keeps `$sent`, rather than wait three hours.
+    it), so `land.sh`'s `queue_it` gives up once empty answers persist rather than wait three
+    hours, keeping `$sent` so reopening and rerunning picks up the same pull request.
   - A workflow run's `pull_requests` lists every open pull request whose branch or commit
     matches, not the one that started it: nothing says which pull request a run was for.
