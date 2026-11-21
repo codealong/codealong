@@ -67,7 +67,7 @@ png = "0.18"
 # std's out); tauri builds it already.
 dunce = "1"
 # Link codes as QR codes, for the phone app to scan (Settings › Devices).
-qrcode = { version = "0.14", default-features = false, features = ["svg"] }
+qrcode = { version = "0.15", default-features = false, features = ["svg"] }
 # Codealong's own terminals (terminals.rs): wrapped in codealong-vt (vt/) so the ~2,000-line
 # emulator wrapper and its tests compile and run independently of codealong_lib.
 codealong-vt = { path = "vt" }
