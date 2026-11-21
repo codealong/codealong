@@ -453,6 +453,32 @@ describe('sessionMenu', () => {
     expect(openLabel(lane({ targets: [] }), session({ openTarget: 's|claude:c:1|resume' }), 'Ghostty')).toBe('Resume in Ghostty');
     expect(openLabel(lane({ targets: [] }), session({ openTarget: 's|claude:c:1|claude-app' }), 'Ghostty')).toBe('Open in Claude app');
   });
+
+  it('places Open folder in after the session’s own open, and after Resume in / Carry on in when stopped', () => {
+    const here = lane({ targets: [...lane().targets, fx.target({ id: 'l|editor', label: 'Open in Cursor' })] });
+    const editors = { apps: { editor: 'Cursor', editorId: 'cursor', editors: [{ id: 'cursor', name: 'Cursor' }, { id: 'zed', name: 'Zed' }] }, icons: {} };
+    const can: SessionCan = { ...base, editors };
+    // Live: directly after its own open.
+    expect(labels(sessionMenu(here, session(), can)).slice(0, 2)).toEqual(['Respond in Ghostty', 'Open folder in ›']);
+    // Stopped with multiple resume places: after its own open and Resume in (or Carry on in when cut off).
+    vi.mocked(startAccountsNow).mockReturnValue([
+      fx.startAccount({
+        places: [
+          { place: 'terminal', label: 'Ghostty' },
+          { place: 'background', label: 'Background' },
+        ],
+        resumes: ['terminal', 'background'],
+      }),
+    ]);
+    try {
+      const stopped = session({ live: false, pid: null, status: 'idle', openTarget: 's|claude:c:1|resume' });
+      expect(labels(sessionMenu(here, stopped, can)).slice(0, 3)).toEqual(['Resume in Ghostty', 'Resume in ›', 'Open folder in ›']);
+      const cutOff = session({ ...stopped, status: 'error', cutOff: 1 });
+      expect(labels(sessionMenu(here, cutOff, can)).slice(0, 3)).toEqual(['Resume in Ghostty', 'Carry on in ›', 'Open folder in ›']);
+    } finally {
+      vi.mocked(startAccountsNow).mockReturnValue([]);
+    }
+  });
 });
 
 describe('what each window can do to a session', () => {
