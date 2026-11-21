@@ -58,9 +58,10 @@ pub const NATIVE: Os = if cfg!(target_os = "macos") {
     Os::Linux
 };
 
-/// The OS whose ways Codealong goes by: the one it runs on, or in a test the one it asks as if on.
+/// The OS whose ways Codealong goes by: the one it runs on, or in a test / debug fixture run the
+/// one it asks as if on.
 pub fn current() -> Os {
-    #[cfg(test)]
+    #[cfg(any(test, debug_assertions))]
     if let Some(os) = AS_IF.with(|a| a.get()) {
         return os;
     }
@@ -88,30 +89,31 @@ pub fn not_on_windows(what: &str) -> anyhow::Error {
     anyhow::anyhow!("{what} isn't on Windows yet.")
 }
 
-#[cfg(test)]
+#[cfg(any(test, debug_assertions))]
 thread_local! {
     static AS_IF: std::cell::Cell<Option<Os>> = const { std::cell::Cell::new(None) };
 }
 
-/// Runs `f` as if on `os`: what goes by `current()` goes by it, on this test's thread.
-#[cfg(test)]
+/// Runs `f` as if on `os`: what goes by `current()` goes by it, on this thread.
+#[cfg(any(test, debug_assertions))]
+#[allow(dead_code)]
 pub fn as_if<T>(os: Os, f: impl FnOnce() -> T) -> T {
     let _on = AsIf::new(os);
     f()
 }
 
-/// `as_if` for the rest of a scope, a whole test say: until it's dropped.
-#[cfg(test)]
+/// `as_if` for the rest of a scope, a whole test or fixture snapshot say: until it's dropped.
+#[cfg(any(test, debug_assertions))]
 pub struct AsIf(Option<Os>);
 
-#[cfg(test)]
+#[cfg(any(test, debug_assertions))]
 impl AsIf {
     pub fn new(os: Os) -> AsIf {
         AsIf(AS_IF.with(|a| a.replace(Some(os))))
     }
 }
 
-#[cfg(test)]
+#[cfg(any(test, debug_assertions))]
 impl Drop for AsIf {
     fn drop(&mut self) {
         AS_IF.with(|a| a.set(self.0));
