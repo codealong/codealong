@@ -7,7 +7,7 @@
 //!
 //! A session closes only when it's idle or unread, has been quiet for the whole wait, left
 //! nothing running in the background, and its last reply asks you nothing: by Jev's read when
-//! `[jev] sessions` has one, else by the reply not ending in a question. A terminal closes only
+//! `[decisions] sessions` has one, else by the reply not ending in a question. A terminal closes only
 //! when every session in it can.
 //!
 //! Asked to archive them too, it does to each what Mark as done does (`actions::done`): marks it

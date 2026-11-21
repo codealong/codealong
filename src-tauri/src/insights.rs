@@ -1,4 +1,4 @@
-//! Jev's read of each session (`[jev] sessions`): one request per session per turn, asking only
+//! A decision model's read of each session (`[decisions] sessions`): one request per session per turn, asking only
 //! what that moment can answer, all at once (docs.typesafe.ai, speculative fan-out).
 //!
 //! - A turn that ended: how the reply leaves things with you (`ENDINGS`: it asks you something or

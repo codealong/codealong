@@ -382,7 +382,7 @@ pub struct RoutingCfg {
     /// The group Auto starts from; empty uses the first account's harness by usage room.
     #[serde(default)]
     pub auto: String,
-    /// What Jev is told when `[jev] quick_panel` is on, so it can suggest an account and model
+    /// What the decision model is told when `[decisions] quick_panel` is on, so it can suggest an account and model
     /// for what you type alongside where it goes; empty asks for no model suggestion.
     #[serde(default)]
     pub prompt: String,

@@ -85,7 +85,7 @@ impl Waiting {
     }
 
     /// The sessions whose turn has ended since they asked, to end now, as `board` shows them at
-    /// `now`, `jev` saying whether Jev reads sessions (`[jev] sessions`). A turn ends when the
+    /// `now`, `jev` saying whether a decision model reads sessions (`[decisions] sessions`). A turn ends when the
     /// session stops working, and not at a call it waits on you to allow, which is still the turn.
     /// One whose turn ended asking you something, or with an error, is left as it is, unarchived,
     /// and so is one that's gone or waited too long, or isn't running and has nothing to archive.

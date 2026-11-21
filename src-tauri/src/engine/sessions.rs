@@ -41,7 +41,7 @@ impl Engine {
     }
 
     /// Sessions with the read of their moment applied (board::apply_insight): Jev's, and the
-    /// landing their reply's status line says, when `[jev] sessions` is on; an agent's tag of
+    /// landing their reply's status line says, when `[decisions] sessions` is on; an agent's tag of
     /// them over both, whether or not it is (tags.rs, `insights::merged`).
     /// Each session that asked for a start that's stuck in its terminal (`origins::Pending::stuck`)
     /// needs you for it once it isn't taking a turn (`starting::overlay`), as what its terminal

@@ -216,7 +216,7 @@ export interface Session {
    *  or while a command you ran for it goes (`RunningIn.yours`): where it runs and what, which
    *  the end of its conversation says (`Waiting`). Missing from a board an older app sent. */
   running?: RunningIn;
-  /** Jev's read of how its turn ended, when `[jev] sessions` is on (insights.rs). */
+  /** The decision model's read of how its turn ended, when `[decisions] sessions` is on (insights.rs). */
   insight?: SessionInsight;
   /** Its work is done and nothing is left for you, and why (board.rs `finished_of`). It stays
    *  Your turn until you've seen it, after the turns that want something of you. Missing while

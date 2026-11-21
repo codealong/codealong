@@ -156,8 +156,8 @@
   margin-left: auto;
 }
 
-/* The find takes the rest of the strip, after the view's tools. Its field is the conversation
-   find's (ThreadFind.css) on the strip's sunken ground: raised, with a line. */
+/* The find takes the rest of the strip, after the view's tools. Its field sits on the strip's
+   sunken ground: raised, with a line. */
 .ca-listfind {
   flex: 1 1 200px;
   min-width: 0;

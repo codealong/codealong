@@ -354,7 +354,7 @@ mod tests {
         let line = Work { said: Some("landed"), ..Default::default() };
         assert_eq!(said(&ended(|i| i.landing = Some("landed".into())), &line), Some((true, "it says its change landed".into())));
         assert_eq!(said(&ended(|i| i.landing = Some("pushed".into())), &line), None);
-        // The line is the session's own word with nothing reading sessions (`[jev] sessions` off,
+        // The line is the session's own word with nothing reading sessions (`[decisions] sessions` off,
         // no tag): one that says the change didn't land holds it, whatever merged; one that only
         // says it's pushed doesn't, its PR having merged since.
         assert_eq!(said(&unread, &line), Some((true, "it says its change landed".into())));
@@ -479,7 +479,7 @@ mod tests {
         settle_finished(&mut both, &[pr(8, PrState::Merged, &done)], &[]);
         assert_eq!(both[1].sessions[0].finished.as_ref().map(|f| f.why.join(", ")).as_deref(), Some("#8 merged, its reply reads as done"));
         assert_eq!(both[0].sessions.iter().map(|s| (name(s), s.finished.is_some())).collect::<Vec<_>>(), [("open".to_string(), false), ("done".to_string(), true)]);
-        // Its status line is read with nothing reading sessions (`[jev] sessions` off, no tag):
+        // Its status line is read with nothing reading sessions (`[decisions] sessions` off, no tag):
         // one that says the change isn't committed holds a session whose PR merged, in a main
         // checkout too, where git says nothing of whose the changes are; one that says it landed
         // is why it's finished.
