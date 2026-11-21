@@ -63,7 +63,7 @@ pub(super) struct SessionRow {
     /// Replies suggested for its user to send (`session suggest`), while it has them.
     #[serde(skip_serializing_if = "Option::is_none")]
     suggestions: Option<crate::model::Suggestions>,
-    /// Where it stands as read from its last reply and what it waits on: Jev's read (`[jev]
+    /// Where it stands as read from its last reply and what it waits on: the decision model's read (`[decisions]
     /// sessions`) and an agent's tag (`session tag`, `by`), where there is one. `asksYou` and
     /// `finished` are 0 to 1, `risk` 0 to 3, `landing` and `background` by name.
     #[serde(skip_serializing_if = "Option::is_none")]

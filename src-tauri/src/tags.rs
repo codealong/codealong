@@ -4,7 +4,7 @@
 //! what it waits on looks, what a command it left running does, when its reply says the work
 //! goes on. The board shows a tag as it
 //! shows Jev's read, the agent's fields over Jev's for the same moment and named by who tagged
-//! it (`insights::merged`, `board::apply_insight`), whether or not `[jev] sessions` is on.
+//! it (`insights::merged`, `board::apply_insight`), whether or not `[decisions] sessions` is on.
 //!
 //! Kept in `tags.json` next to the config, by session key, while the tag answers where the
 //! session stands: until something is sent to it or a turn of its starts (`holds`, as replies

@@ -5,7 +5,7 @@
 // description with its screenshots.
 // Everything saves as you go. Start session opens the new-session sheet with the todo as the
 // prompt, and the session it starts is linked to the todo.
-// With `[jev] todos` on, Jev's suggestions for its project, labels and what it waits on show as
+// With `[decisions] todos` on, the decision model's suggestions for its project, labels and what it waits on show as
 // chips to click, and a todo whose linked work looks done says so, with Mark done and Not yet.
 // With several todos picked in the list, `TodoPickPanel` shows them instead, to start in one
 // session, in the pick panel every list's picks share (PickPanel.tsx).
@@ -324,7 +324,7 @@ interface TodoPanelProps {
   /** Jev says its work looks done. */
   hint?: TodoHint | null;
   onDismissHint?: () => void;
-  /** `[jev] todos` is on: ask Jev for its project, labels and what it waits on. */
+  /** `[decisions] todos` is on: ask the decision model for its project, labels and what it waits on. */
   suggest?: boolean;
   /** The projects a todo can be in. */
   projects?: string[];

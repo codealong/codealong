@@ -338,7 +338,7 @@ pub struct Session {
     /// sent them, until they go in. Empty where it holds none or its harness doesn't say.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub queued: Vec<QueuedMessage>,
-    /// How its turn ended, as Jev read it (insights.rs, when `[jev] sessions` is on) or as an
+    /// How its turn ended, as Jev read it (insights.rs, when `[decisions] sessions` is on) or as an
     /// agent tagged it (`codealong session tag`, tags.rs): `by` names the agent's session.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub insight: Option<SessionInsight>,
@@ -1407,7 +1407,7 @@ pub struct Lane {
     pub pr: Option<Pr>,
     pub git: Option<GitInfo>,
     pub last_activity: i64,
-    /// Jev reads every session here as finished, and nothing is running (`[jev] sessions`): a
+    /// Jev reads every session here as finished, and nothing is running (`[decisions] sessions`): a
     /// worktree that may be ready to clean up.
     #[serde(default)]
     pub looks_finished: bool,
