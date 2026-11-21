@@ -189,6 +189,20 @@ pub fn owned_elsewhere(machines: &crate::shared::Machines, lanes: &[Lane]) -> Ve
     out
 }
 
+/// The PRs to read by their numbers where their repos' PRs aren't read (ghpoll.rs `made_to_read`,
+/// which reads only so many, the first it's given): the ones another machine owns first
+/// (`owned_elsewhere`), a few at most, and kept from this machine's reviews for that one by
+/// however many PRs its sessions worked on; then those (`worked_prs`).
+pub fn read_by_number(links: &PrLinks, lanes: &[Lane], machines: &crate::shared::Machines) -> Vec<String> {
+    let mut keys = owned_elsewhere(machines, lanes);
+    for key in worked_prs(links, lanes) {
+        if !keys.contains(&key) {
+            keys.push(key);
+        }
+    }
+    keys
+}
+
 /// Whether GitHub would merge the PR now: open and not a draft, with nothing between it and a
 /// merge (no conflict, no review or rule it waits on, every check passed), and not resting only on
 /// approvals of an earlier commit (`stale_approval`). src/prStatus.ts `prReady` says the same.
@@ -990,6 +1004,41 @@ mod tests {
         assert_eq!(listed(&none, &[], &links), vec![docs_item.clone()]);
         links.unlinked.insert(("upstream/orm#8580".into(), "maker".into()));
         assert_eq!(listed(&none, &lanes, &links), vec![docs_item]);
+    }
+
+    /// Another machine's card for open PR `key` of yours, saying whether it owns it.
+    fn card(key: &str, state: &str, owner: bool) -> codealong_peer::pr::PrCard {
+        serde_json::from_value(serde_json::json!({ "key": key, "repo": "r", "project": "P", "number": 7, "title": "Teams", "url": "", "state": state, "author": "gwen", "head": "teams", "mine": true, "sharedReview": { "owner": owner } })).expect("a card")
+    }
+
+    /// Your machines, the other one listing `cards`.
+    fn studio(cards: Vec<codealong_peer::pr::PrCard>) -> crate::shared::Machines {
+        let m = crate::shared::Machine { key: "aa11".into(), name: "Studio".into(), rank: codealong_peer::feed::Rank::First, online: true, last_seen: Some(NOW), fed_at: Some(NOW), prs: cards, schedules: Default::default() };
+        crate::shared::Machines { me: None, others: vec![m] }
+    }
+
+    #[test]
+    fn the_open_prs_another_machine_owns_are_read_where_this_one_has_a_checkout_of_their_repo() {
+        let tag = |short: &str| codealong_peer::model::DeviceTag { name: "Mini".into(), short: short.into(), color: "blue".into(), online: true, last_seen: None };
+        let lanes = |slug: Option<&str>, device: Option<&str>| vec![Lane { repo_slug: slug.map(String::from), device: device.map(tag), ..crate::fixtures::lane("/r", vec![]) }];
+        let owned = studio(vec![card("O/R#7", "open", true), card("o/r#8", "open", false), card("o/r#9", "merged", true), card("o/elsewhere#1", "open", true)]);
+        // Its repo's name in another case is the same repo; one it doesn't own, one that's merged
+        // and one in a repo with no checkout here aren't read.
+        assert_eq!(owned_elsewhere(&owned, &lanes(Some("o/R"), None)), ["o/r#7"]);
+        assert!(owned_elsewhere(&owned, &lanes(None, None)).is_empty(), "no checkout here");
+        assert!(owned_elsewhere(&owned, &lanes(Some("o/r"), Some("bb22"))).is_empty(), "another machine's checkout");
+    }
+
+    #[test]
+    fn the_prs_another_machine_owns_are_read_before_the_ones_worked_on_here() {
+        // More PRs worked on than are read by their numbers (ghpoll.rs `MADE_MAX`): the one
+        // another machine owns still is, being first.
+        let sessions = ["a"].map(crate::fixtures::session);
+        let lanes = vec![Lane { repo_slug: Some("o/r".into()), ..crate::fixtures::lane("/w", sessions.to_vec()) }];
+        let links = PrLinks { worked: (1..=80).map(|n| (format!("o/r#{n}"), vec!["a".to_string()])).collect(), ..PrLinks::default() };
+        let keys = read_by_number(&links, &lanes, &studio(vec![card("o/r#500", "open", true), card("o/r#3", "open", true)]));
+        assert_eq!(&keys[..2], ["o/r#3", "o/r#500"]);
+        assert_eq!(keys.len(), 81, "#3 once");
     }
 
     #[test]
