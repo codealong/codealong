@@ -5,8 +5,8 @@ description: Codealong todos, sessions and accounts on this Mac, through the `co
 
 # Codealong
 
-Codealong is the Mac app that tracks every coding agent running here (Claude Code on any
-account, Codex, OpenCode, Antigravity), grouped by project, repo and worktree, and keeps
+Codealong tracks every coding agent running on this machine (Claude Code on any
+account, Codex, OpenCode, Antigravity, Cursor), grouped by project, repo and worktree, and keeps
 the todo list of work meant for agents. The `codealong` command gives you the same data and
 the same todo operations. Every subcommand prints JSON when you run it (stdout isn't a
 terminal), and `codealong <subcommand> --help` is the full reference. `references/reference.md`
@@ -116,8 +116,8 @@ through the list for something to do. What follows is for when they've asked.
   `--project`, `--worktree .`, `--live`, `--since 24h|3d|all`; `--waiting` lists the ones that
   wait on the user (needs, error, unread, not snoozed), as Codealong's queue has them. A
   session's `raised` says it's first in that queue (`session raise`), and who moved it there.
-  This Mac's only, unless `--devices` adds the user's other Macs': their keys start with
-  `@<short>:`, and a `session` command given one asks that Mac.
+  This machine's only, unless `--devices` adds the user's other machines': their keys start with
+  `@<short>:`, and a `session` command given one asks that machine.
 - `codealong sessions find <words>` searches titles and names, excerpts, worktrees, branches
   and PRs, and what was said (prompts and replies) in sessions active in the last two weeks
   (`[search] days` in config.toml), leaving out your own session. Sessions the words name come
@@ -125,8 +125,8 @@ through the list for something to do. What follows is for when they've asked.
   this repo.
 - `codealong session show <key>` has one session in full: its folder, branch, PR, the
   command that resumes it, linked todos, and `records`: the paths of its own files. Claude
-  Code and Codex records are JSONL you can grep; OpenCode's and Antigravity's are SQLite
-  databases.
+  Code and Codex records are JSONL you can grep; OpenCode's, Antigravity's and Cursor's are SQLite
+  databases (Cursor CLI sessions also have JSONL files).
 - `codealong session transcript <key>` prints a session's conversation from its own record,
   whatever its harness: the newest part, or the part before `--before <cursor>`. Prompts are
   `you`, replies `agent`, tool calls `tool` (inputs and outputs cut short unless `--full`).
@@ -180,12 +180,13 @@ through the list for something to do. What follows is for when they've asked.
   else `git worktree remove` and `git branch -d`. `--dry-run` says whether it can go, or why
   not, and what would run; `codealong worktrees` has the same as `cleanup`. Remove one when the
   user asks, or one you made yourself once its work has landed. Mark as done on a session
-  removes the worktree Claude Code made for it the same way, so you needn't.
+  removes a worktree Claude Code or Codealong made for it the same way, so you needn't.
 
 ## Messaging other sessions
 
-Every session on this Mac is on the board whatever its account or harness, so you can reach
-ones your harness's own tools don't list: another Claude Code account, Codex, OpenCode.
+Every session on this machine is on the board whatever its account or harness, so you can reach
+ones your harness's own tools don't list: another Claude Code account, Codex, OpenCode, Antigravity
+or Cursor.
 
 - `codealong session send <key> "<message>"` sends one where it runs. The message starts by
   saying it's from another agent and not the user, which session, how to answer, and the link
@@ -511,7 +512,9 @@ worked in a worktree on the PR's branch while the PR was open. So there's usuall
 `codealong accounts` lists the configured accounts and whether each is signed in;
 `--usage` adds each plan limit's percent used and `room`, how much of the tightest limit is
 left. Read it once when advising which account to use; don't poll it, the usage endpoint
-rate-limits. `codealong mcp` lists the services each account reaches (*Services on other
+rate-limits. `codealong account check [--group <name>]` verifies an account's commercial sign-in
+against a boundary routing group (`boundary = true`, whose sessions' text stays inside the group
+and whose helpers default into it). `codealong mcp` lists the services each account reaches (*Services on other
 accounts*).
 
 ## Starting sessions
@@ -519,9 +522,9 @@ accounts*).
 `codealong start --todo <id>` starts a session on the todo (its title and description as the
 prompt, then a line naming the todo) in the current worktree, on the account Auto picks (an account with room, or from Auto's routing group, the one whose week resets soonest), in a new terminal
 (a tab or window, as config.toml's `new_terminal` says), and links the session to the todo. Give `--todo` more than once to
-start several todos in one session: the prompt numbers them, and the session is linked to each. `--account`, `--worktree`, `--new-worktree`,
-`--in background|claude-app|codex-app` (background: nothing comes forward; Claude Code's `--bg` with no terminal, any other agent in Codealong's tmux with no window), `--model` and `--effort` change that. `--device <name> --prompt "…"` starts it on
-another of your user's Macs (`codealong devices` lists them; it needs remote control on there),
+start several todos in one session: the prompt numbers them, and the session is linked to each. `--account`, `--worktree`, `--new-worktree`, `--chat`,
+`--in terminal|background|claude-app|codex-app|codealong` (background: nothing comes forward; Claude Code's `--bg` with no terminal, any other agent in Codealong's tmux with no window), `--model` and `--effort` change that. `--device <name> --prompt "…"` starts it on
+another of your user's machines (`codealong devices` lists them; it needs remote control on there),
 which picks the worktree (`--worktree` a folder there; by default its main checkout of this
 repo), the account and the place as `codealong start` run there would; it takes no `--todo` or
 `--helper`. Only do this when the user asks for a session to be started. A todo's primary session starts others on it to work alongside it; from
@@ -558,8 +561,8 @@ user's sessions with nothing tying them to yours.
   its terminal UI can stop on a screen of its own before it starts (an update offer, a repo's
   hooks to review) and your helper waits unseen. Left out, it runs in Codealong wherever
   Codealong can run its harness (it can run Codex), with no terminal to stop in.
-- Started in a terminal on a harness that names its own sessions (Codex, OpenCode, Antigravity),
-  it has no key until it starts (`key` is null), so there's nothing to wait on: use `--report`.
+- Started in a terminal on a harness that names its own sessions (Codex, OpenCode, Antigravity,
+  Cursor), it has no key until it starts (`key` is null), so there's nothing to wait on: use `--report`.
   It's listed under your session as starting until it makes one. You're told too if it hasn't
   started a few minutes on, with what its terminal shows where Codealong could read it. Your
   session then shows your user that it waits on them, and the helper's line under your session's
@@ -572,8 +575,10 @@ user's sessions with nothing tying them to yours.
   (`session send` takes `--message-file`): a guard on your commands, such as Claude Code's in
   an isolated worktree, turns down one whose words name git or that reads a value in with
   `$(…)`.
-- Once you have what you need from it, `codealong session done <key>` ends it. Your user
-  marking your session done ends its helpers too, and they can make one a session of their own.
+- Once you have what you need from it, `codealong session done <key>` ends it. When your user marks
+  your session done, helpers whose work is over end with it, while unfinished helpers (working or
+  waiting on them) prompt your user to adopt or end them (defaulting to making them their own; from
+  the command line or another device, unfinished helpers are made their own rather than ended).
   A PR your helper opened comes to you once it's done: you're its primary session (`codealong pr
   show <pr>`), so where its nudge is on you're told of reviews and failing checks on it, and it
   waits on your user to merge it once it's ready. To work on it again, send to the helper or
@@ -638,7 +643,7 @@ comments and order, and change only what you were asked to.
 scan = ["~/projects"]              # folders searched for repos, three levels deep
 
 [apps]
-terminal = "ghostty"               # "ghostty", "iterm2", "terminal" or "rex"; `codealong config show --json` lists those installed
+terminal = "ghostty"               # "ghostty", "iterm2", "terminal", "rex" or "codealong"; `codealong config show --json` lists those installed
 editor = "cursor"
 new_terminal = "project"           # project (a tab beside the same repo or project), tab or window
 
@@ -654,7 +659,7 @@ perf_log = false                   # true logs timings to ~/Library/Logs/Codealo
 [[accounts]]                       # one per harness config folder
 name = "claude2"                   # what the board shows; letters, digits, . _ -
 harness = "claude"                 # claude, codex, opencode, antigravity or cursor
-home = "~/.claude2"                # ~/.claude*, ~/.codex, ~/.local/share/opencode, ~/.gemini/antigravity
+home = "~/.claude2"                # ~/.claude*, ~/.codex, ~/.local/share/opencode, ~/.gemini/antigravity, ~/.cursor
 command = "claude2"                # what starts it, for `<command> --resume <id>`; the name when left out
 
 [[projects]]                       # repos grouped by pattern; unmatched ones show under Elsewhere
@@ -670,7 +675,7 @@ grows.
 
 - **Before editing:** `codealong config show` prints the file. With `--json` it also gives
   the settings as the app reads them, the parse error if there is one, the valid terminal
-  and editor profiles, and `discovered`: accounts found on this Mac that aren't configured.
+  and editor profiles, and `discovered`: accounts found on this machine that aren't configured.
 - **After editing:** run `codealong config check`. It applies the app's own checks, which
   catch what TOML alone won't: duplicate names, a shared `home`, an unknown harness, empty
   entries, a shortcut that isn't one (it needs Control, Option or Command). `codealong config check <file>` checks a draft before you put it in place.

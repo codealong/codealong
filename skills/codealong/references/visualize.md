@@ -40,9 +40,9 @@ an experiment, off until your user turns them on in Settings › Experimental. W
    worktree, branch, PR and title. Running ones (`working`, `needs`, `unread`) always go
    in. Leave out sessions whose work landed long ago, unless your user wants history.
    `codealong worktrees --project <name>` has each worktree's PR and state.
-   `codealong todo list --project <name>` has the work planned for them. If an
-   orchestrator runs (`codealong sessions find orchestrator --live`), its narrative's *Streams*
-   (`<dataDir>/orchestrator/narrative.md`, with `dataDir` from `codealong status`) are a
+   `codealong todo list --project <name>` has the work planned for them. If an orchestrator runs
+   (`codealong orchestrator list` gives its `schedule` id), its notes
+   (`<dataDir>/schedules/<schedule-id>/notes.md`, with `dataDir` from `codealong status`) are a
    good start.
 3. **Read what you can't tell from a title.** `codealong session transcript <key>`, its
    newest part, says what a session is doing and what it waits on. Read as few as the
