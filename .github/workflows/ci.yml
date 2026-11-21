@@ -21,7 +21,8 @@
 #   merge_group    the queue's run: everything the group's changes call for.
 #   push to main   a commit that reached main some other way (a release's version commit, an
 #                  admin's push): everything it calls for, each push by itself. The queue's
-#                  own pushes ran already, as its merge_group run.
+#                  own pushes ran already as their merge_group run, so they skip tests and only
+#                  run non-failing Rust cache warm builds when deps changed or a cache is absent.
 #   schedule       once a day on main, everything: a toolchain or a runner's image that moved.
 #   workflow_dispatch  everything, on any pushed branch: `gh workflow run ci.yml --ref <branch>`
 #                  (scripts/land.sh --check does it and waits).

@@ -14,9 +14,11 @@
 # there, and a session's own worktree is removed once its work has landed.
 #
 # A change reaches main through its merge queue, whose run of CI (.github/workflows/ci.yml) it
-# has to pass first, so CI's own runs on main are of what got there another way (a release's
-# version commit, an admin's push) and the daily run of everything, which a toolchain or a
-# runner's image that moved can fail with no commit to blame. The browser checks
+# has to pass first, so CI's own failing runs on main are of what got there another way (a
+# release's version commit, an admin's push) and the daily run of everything, which a toolchain or
+# a runner's image that moved can fail with no commit to blame. (Merge-queue pushes may run
+# non-failing Rust cache-warm builds on main, which `gate` lets through with a warning.) The
+# browser checks
 # (.github/workflows/checks.yml) run on main after what lands, so theirs is the run a landing
 # can turn red. One that was cancelled only made way for a later one. Before there was a watch,
 # a failed run emailed whoever last changed the workflow, and main stayed red until they read
