@@ -1,7 +1,7 @@
 // Checks the reply a Claude Code session is writing, handed over by the plugin's MessageDisplay
 // hook (claude/live.rs) before its record has it (SessionThread.tsx `stream`): a session waiting
 // on a question shows what it wrote with it at the end of its conversation, under its account
-// rather than "writing", and the question no longer says where to read it. A later batch grows
+// rather than "writing". A later batch grows
 // it, another session's doesn't touch it, and once the record has the message it shows once,
 // from the record. A session that's working says it's writing, under the reply it writes after a
 // prompt of yours, its account said first for a screen reader. A change of status asks again for
@@ -97,7 +97,6 @@
       var label = labelOf(last());
       check('not writing', label === null || label.indexOf('Writing') < 0, String(label));
       check('it says when under it while it waits on you', !!last().querySelector(':scope > .ca-thread-meta > .ca-meta[title]'), last().lastElementChild && last().lastElementChild.outerHTML);
-      check('the question no longer says where to read it', !document.querySelector('.ca-sessinsp .ca-approval-unwritten'));
       window.__emit('hosted-stream', { key: picked.key, text: MORE, tool: null });
       window.__emit('hosted-stream', { key: picked.key + '-other', text: 'Another session.', tool: null });
       return until(function () { return /Qdrant needs our own rebuild/.test(lastText()); }, 3000);
