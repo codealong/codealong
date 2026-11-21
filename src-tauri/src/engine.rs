@@ -1062,8 +1062,9 @@ impl Engine {
                 // A prompt answered lands many reads at once; they're used together.
                 Ok(Msg::Landed) => self.landed_at = Some(Instant::now()),
                 Ok(Msg::Servers(servers)) => {
+                    let changed = previews::visible_servers_changed(&self.previews.servers, &servers, &self.previews.set);
                     self.previews.servers = servers;
-                    self.mark_dirty("preview servers");
+                    self.dirty_if(changed, "preview servers");
                 }
                 Ok(Msg::Previews(reply)) => {
                     self.load_previews();
