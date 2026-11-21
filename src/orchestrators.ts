@@ -22,12 +22,6 @@ function sameProject(a: string | null | undefined, b: string | null | undefined)
   return (a ?? '').toLowerCase() === (b ?? '').toLowerCase();
 }
 
-/** The project an orchestrator started from a view keeps watch over: the view's, or none (All
- *  projects) under All projects. */
-export function scopeOfView(current: string): string | null {
-  return current === ALL_PROJECTS ? null : current;
-}
-
 /** The orchestrators' sessions a view's Sessions leads with: under a project, its orchestrator's;
  *  under All projects, every one, All projects' first and then by project. From every worktree,
  *  since an orchestrator's session lives among Codealong's chats, in no project. */

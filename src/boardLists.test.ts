@@ -79,8 +79,8 @@ import { todoItem, type TodoItem } from './todos';
 import * as fx from './testing/fixtures';
 import { prSections } from './ui/PrsView';
 import type { Board, HarnessSchedule, Label, Lane, Pr, PrItem, ProjectSummary, ScheduleItem, Session, SideGlance, TextHit, Todo } from './types';
-import { familiesOf, groupedRows, groupSessions, helpersUnder, sessionSections, type SessionItem } from './ui/SessionsView';
-import { GROUP_SHOWN, type GroupOptions } from './groups';
+import { familiesOf, groupHeadRows, groupSessions, helpersUnder, sessionSections, type SessionItem } from './ui/SessionsView';
+import { GROUP_SHOWN, groupsOf, type GroupOptions } from './groups';
 
 const NOW = fx.NOW;
 const DAY = 86_400_000;
@@ -835,7 +835,7 @@ describe('Sessions grouped', () => {
     // A heading counts its own sessions, not the ones its groups bring along.
     expect(g.sections.map((s) => s.count)).toEqual([1, 1, 1]);
     // Each worktree's heading is a row, before its sessions, as the keyboard goes.
-    expect(groupedRows(g).map((r) => r.key)).toEqual(['/r/a', '/r/a::claude:claude:a1', '/r/a::claude:claude:a2', '/r/b', '/r/b::claude:claude:b1', '/r/b::claude:claude:b2', '/r/c', '/r/c::claude:claude:c1']);
+    expect(groupsOf(g).flatMap(groupHeadRows).map((r) => r.key)).toEqual(['/r/a', '/r/a::claude:claude:a1', '/r/a::claude:claude:a2', '/r/b', '/r/b::claude:claude:b1', '/r/b::claude:claude:b2', '/r/c', '/r/c::claude:claude:c1']);
   });
 
   it('puts pinned groups first in your order, and a pinned one with nothing listed only while nothing narrows the list', () => {
@@ -880,7 +880,7 @@ describe('Sessions grouped', () => {
       ['acme/web', ['claude:claude:w2', 'claude:claude:w']],
       ['Acme/scratch', ['claude:claude:l']],
     ]);
-    expect(groupedRows(g).every((r) => r.kind === 'agent')).toBe(true);
+    expect(groupsOf(g).flatMap(groupHeadRows).every((r) => r.kind === 'agent')).toBe(true);
   });
 
   it('keeps a helper under its session, in the session’s group, whatever worktree it works in', () => {

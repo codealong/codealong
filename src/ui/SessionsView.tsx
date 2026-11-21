@@ -111,12 +111,6 @@ export function groupHeadRows(g: SessionGroup): (SessionItem | LaneItem)[] {
   return g.lane ? [headItem(g.lane), ...g.rows] : g.rows;
 }
 
-/** The grouped list's rows top to bottom, as the keyboard goes through them: each worktree's
- *  heading, then its sessions. A repo's heading isn't a row. */
-export function groupedRows(g: GroupedSessions): (SessionItem | LaneItem)[] {
-  return groupsOf(g).flatMap(groupHeadRows);
-}
-
 /** A heading in the list and the sessions under it. The ones for what wants you, is running or is
  *  idle head as bays do; Snoozed and day dividers head as sections. */
 export interface SessionSection {

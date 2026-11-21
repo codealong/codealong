@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { compassTitle, foldQuietRuns, freeScopes, orchestrates, orchestratorFor, orchestratorOn, orchestratorsIn, scopeOfView } from './orchestrators';
+import { compassTitle, foldQuietRuns, freeScopes, orchestrates, orchestratorFor, orchestratorOn, orchestratorsIn } from './orchestrators';
 import { ALL_PROJECTS } from './quick';
 import { lane, session } from './testing/fixtures';
 import type { ScheduleItem, TranscriptItem } from './types';
@@ -46,8 +46,8 @@ describe('orchestrators', () => {
   it('finds a scope’s orchestrator and whether it runs', () => {
     const item = (id: string, project?: string, paused = false) => ({ id, paused, orchestrates: { project } }) as unknown as ScheduleItem;
     const items = [item('web', 'Web', true), item('all')];
-    expect(orchestratorFor(items, scopeOfView('web'))?.id).toBe('web');
-    expect(orchestratorFor(items, scopeOfView(ALL_PROJECTS))?.id).toBe('all');
+    expect(orchestratorFor(items, 'web')?.id).toBe('web');
+    expect(orchestratorFor(items, null)?.id).toBe('all');
     expect(orchestratorFor(items, 'Docs')).toBeUndefined();
     expect(orchestratorOn(orchestratorFor(items, 'Web'))).toBe(false);
     expect(orchestratorOn(orchestratorFor(items, null))).toBe(true);
