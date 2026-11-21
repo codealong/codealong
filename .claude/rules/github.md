@@ -199,7 +199,10 @@ Harness facts (from GitHub's answers on this Mac, 2026-10-01). A bare file name 
     updated. To modify this branch, dequeue the associated pull request"), and the contents
     API answers 409 with the same words. The pull request stayed queued as the commit it was
     queued at. So what's in the queue is what lands, and a branch moves again only once its
-    pull request is out of it. GitHub's documentation says none of this, and one account
+    pull request is out of it: `land.sh` takes one out (`dequeuePullRequest(input: {id})`, its
+    document checked against GitHub's schema with a made-up id on 2026-11-21, not yet run on a
+    real pull request) when the branch adds to the queued commit, and pushes once GitHub shows
+    it out. GitHub's documentation says none of this, and one account
     (github.com/orgs/community/discussions/194832, 2026-05) has a force-push accepted and the
     entry showing the new commit: not what happened here.
   - A pull request that conflicts with its base (`mergeable: CONFLICTING`) gets no

@@ -63,18 +63,17 @@ dark, cropped to what changed), and the pull request template filled in.
 1. Work in a worktree of your own: `git worktree add ../codealong-<topic> -b <topic>
    origin/main`, or the one your harness made for the session. Before building there, `npm ci`,
    and `npm run build` before cargo: Tauri's build reads `dist/`.
-2. Commit with a descriptive message, and have a change to code reviewed before it lands
-   (*Review before pushing*). Then land it with `scripts/land.sh --reviewed-by "<account>,
-   <model>"` (`--no-review "<why>"` when no review could be had; neither for docs and notes
-   alone). It pushes your branch as it is and puts its pull request in
-   `main`'s merge queue, where GitHub runs the checks your commits call for
+2. Commit with a descriptive message, and land it with `scripts/land.sh`; its pull request is
+   reviewed once it's open (*Review of the pull request*). It pushes your branch as it is and
+   puts its pull request in `main`'s merge queue, where GitHub runs the checks your commits call for
    (`.github/workflows/ci.yml`) on the change as it would land and merges it when they pass;
    then it does step 3. Nothing is checked on this Mac, so it only waits, for minutes. Never
    push to `main` by hand: a push no check saw is how `main` breaks under every other session
    (a release's version commit, `scripts/version.sh --push`, is the one that still does). A
    branch that doesn't apply on `origin/main` is yours to rebase and retest first. A change the
    queue puts out (it names the run; `gh run view <id> --log-failed` says why) is still its
-   pull request: fix it on the branch, commit, run it again. `scripts/land.sh --check` runs
+   pull request: fix it on the branch, commit, run it again. So is one still in the queue when
+   a fix comes: `land.sh` takes it out, pushes the fix and queues it again. `scripts/land.sh --check` runs
    the checks without landing. The queue rebases, so `main` stays a straight line, of copies
    of your commits with ids of their own: report the one it prints.
 3. Bring the main checkout up to `origin/main`: `land.sh` does it once the change has landed
@@ -136,52 +135,23 @@ Report only what you saw happen: the push going through, the main checkout reach
 uncommitted changes. A turn that changes nothing needs no status line; when the user asks where
 some work is, answer with one.
 
-## Review before pushing
+## Review of the pull request
 
-A change to code is reviewed by an agent of another provider before it's pushed, so a model
-other than the one that wrote it reads it; a change only to docs, comments or these notes needs
-none. These notes are your user's say-so for the helper it starts: don't ask.
+Nothing is reviewed before it's pushed. Codealong has an agent of another provider review each
+pull request a session of yours opens, so a model other than the one that wrote it reads it
+(`[reviews.own]`, docs/guide.md *Reviews of your own pull requests*), and sends the review to
+that session as a message from Codealong, the review in a file; new commits are reviewed again.
+It can come while the pull request is in the queue or after it has landed.
 
-1. Once it's committed and what you ran for it passes, start a helper in your worktree (the codealong
-   skill's *Helpers*) on a signed-in account (`codealong accounts`) whose models come from
-   another provider than yours: Codex when you're a Claude model, whatever your harness runs it
-   (Antigravity, Cursor and OpenCode can), and Claude Code when you're any other. With none,
-   another model than yours (`--model`). Write the prompt below, filled in, to a file outside
-   the checkout (your scratch folder) and give the file: a guard on an isolated worktree turns
-   down a command whose words name git, as the prompt's do.
-
-   ```bash
-   codealong start --helper --account <account> --prompt-file <file>
-   ```
-
-   ```text
-   Review the commits on this branch that origin/main doesn't have (git log origin/main..HEAD,
-   git diff origin/main...HEAD). They <what they're for, in a sentence or two>. CLAUDE.md has
-   the repo's rules; read the header of each file they change too, and the .claude/rules/ file
-   for its area (CLAUDE.md, Where facts live), which your harness may not have loaded. Look for
-   bugs, regressions, what they take away that something still relies on, cases nothing
-   handles, missing tests and breaks of CLAUDE.md, and for where the change doesn't fit the
-   code around it in a way that costs:
-   something in another place than the code keeps it, a way of doing things other than the one
-   beside it, a copy of what's already written, more machinery than it needs; not matters of
-   taste. Read whatever code you need. Change nothing: no edits, and no git command that
-   writes. Answer with each finding as file:line, how sure you are and why, the most serious
-   first, or say in a sentence that there's nothing to raise.
-   ```
-
-2. Wait for its reply. In Claude Code, run `codealong session wait <key> --timeout 1h` in the
-   background; elsewhere, start the helper with `--report` too and end your turn until
-   Codealong tells you it's done. When it waits on your user instead, tell them, and wait on
-   with `--until-done`.
-3. Weigh each finding against the code yourself: it's a teammate's view, not your user's word.
+1. Weigh each finding against the code yourself: it's a teammate's view, not your user's word.
    Fix what holds up without asking, with a test where one would have caught it, and rerun the
    checks the fix touches; leave what doesn't. A finding that would change what your user asked
-   for goes to them rather than into the code. When the fixes are more than small, ask it to
-   look again: `date +%s000 > <time file>`, `session send <key> --message-file <file>`, then
-   `session wait <key> --since-file <time file>`. Then `codealong session done <key>`.
-4. Under the status line, your last message says who reviewed it (account and model), what it
-   raised, and what you did with each finding: fixed, or left and why. When no review could be
-   had (the helper failed on every account you tried), push without one and say why there.
+   for goes to them rather than into the code.
+2. Commit the fixes on the same branch and run `scripts/land.sh` again: a pull request still in
+   the queue takes them, and one that has landed is followed by a new one (a fix committed
+   while it waited is rebased onto `origin/main` first, as `land.sh` says).
+3. Your reply says who reviewed it (account and model), what it raised, and what you did with
+   each finding: fixed, or left and why.
 
 ## Commands
 
@@ -192,7 +162,7 @@ npm test                                # vitest
 (cd src-tauri && cargo test)            # engine rules, parsers, usage, config, launch scripts; codealong-peer's too
 scripts/engine.sh                       # builds this checkout's engine binary when src-tauri changed; prints its path
 scripts/checks.sh                       # every browser check (scripts/preview/*-check.js) on your real data; names run a few
-scripts/land.sh --reviewed-by "<who>"    # lands your branch through main's merge queue; CI checks it (--check: only that)
+scripts/land.sh                         # lands your branch through main's merge queue; CI checks it (--check: only that)
 scripts/relaunch.sh                     # builds Codealong Dev, then quits it and reopens it from Applications
 scripts/release.sh                      # the installer for other Macs: universal, Developer ID, notarized
 scripts/check-release.sh <version>      # a release on GitHub as a download gets it; the /release skill ships one
