@@ -3,7 +3,15 @@
 // diff, and a link to that line on GitHub at the commit it reviewed.
 
 import { yourVerdictStands } from './prStatus';
-import type { PrItem, Verdict } from './types';
+import type { AutoReview, PrItem, Verdict } from './types';
+
+/** What the review the agent wrote is read again by (ui/AgentReview.tsx `Written`): a round
+ *  ending or beginning, and a review of a PR of yours that another machine wrote being kept here,
+ *  which leaves its stage, time and count as that machine's round had them but is no longer that
+ *  machine's. */
+export function writtenKey(pr: PrItem, review: AutoReview): string {
+  return `${pr.key}@${review.stage}:${review.at}:${review.rounds}:${review.machine ?? ''}`;
+}
 
 /** A line of a diff around a comment's line, as `excerptAt` gives it. */
 export interface ExcerptLine {

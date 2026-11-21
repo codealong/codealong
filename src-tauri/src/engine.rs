@@ -1444,7 +1444,20 @@ impl Engine {
         // A PR a session just made in a repo whose PRs aren't read is asked about now, not at the
         // next poll, so it shows with its session at once.
         let links = self.pr_links();
-        let worked = self.board.read().map(|b| board::worked_prs(&links, &b.lanes)).unwrap_or_default();
+        let worked = self
+            .board
+            .read()
+            .map(|b| {
+                let mut worked = board::worked_prs(&links, &b.lanes);
+                // And the PRs of yours another machine owns, which this one may review for it.
+                for key in board::owned_elsewhere(&self.machines, &b.lanes) {
+                    if !worked.contains(&key) {
+                        worked.push(key);
+                    }
+                }
+                worked
+            })
+            .unwrap_or_default();
         if self.github.set_marked(worked) {
             self.github.poll(&self.seeds, false, Now::real());
         }
