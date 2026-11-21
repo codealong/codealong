@@ -50,8 +50,8 @@ Commands:
                 (`model`). A session reaches only its own account's: for a service yours
                 doesn't, start a helper on an account that does (`codealong start
                 --helper --account <account>`, with `--model <model>` when one is named)
-                and have it answer in a few lines. The app reads them at launch and
-                every hour; an account it hasn't read yet is read here
+                and have it answer in a few lines. Codealong's server reads them at
+                launch and every hour; an account it hasn't read yet is read here
   tokens        What sessions on this machine used and cost, from the app's token
                 ledger: tokens, what they'd cost at API prices, and what was paid (each
                 account's plan, its `monthly` in config.toml, a day's share at a time;
@@ -87,13 +87,13 @@ Commands:
                 over your sessions for you, one for a project and one for All projects
                 (every project without one of its own, and the sessions in none). Each
                 runs when something it keeps watch over needs a look (a session newly
-                waiting on you, a PR opened, approved, sent back, merged or failing its
-                checks, two agents in one worktree), reads it, tags it and suggests
-                replies, as the codealong skill's references/orchestrate.md says;
-                nothing runs while nothing changes. Its session is quiet unless it asks
-                you something, started afresh each day with its notes, and listed first
-                in its project's Sessions. Each is a schedule (`schedule list` shows
-                it), so `schedule show` has its runs
+                waiting on you, a PR approved, sent back or failing its checks where no
+                session of its own is told, two agents in one worktree), reads it, tags
+                it and suggests replies, as the codealong skill's
+                references/orchestrate.md says; nothing runs while nothing changes. Its
+                session is quiet unless it asks you something, started afresh each day
+                with its notes, and listed first in its project's Sessions. Each is a
+                schedule (`schedule list` shows it), so `schedule show` has its runs
   sessions      Sessions on the board: every agent, live or not, with its status and
                 where it works. Lists by default; `find` searches. This machine's, and
                 with --devices your other machines' too
@@ -209,8 +209,8 @@ Commands:
                 sweeps once more for dev processes that came back in the worktrees it
                 cleared, and logs each to --log. A session whose process ended keeps its
                 conversation and resumes as usual. It judges nothing, and kills nothing,
-                when the app doesn't answer or is still reading after a start: without
-                its board, every session would look old
+                when Codealong's server doesn't answer or is still reading after a
+                start: without its board, every session would look old
   board         Boards, the app's Kanban and Canvas: named sets of work in a project,
                 each shown as Kanban (todos and sessions in columns) or as Canvas (the
                 work laid out in space, in frames). A project has the boards made in it
@@ -250,7 +250,7 @@ Options:
           Tables, even when piped
 
       --verbose
-          Say on stderr whether the app or the files answered
+          Say on stderr whether Codealong's server or the files answered
 
   -h, --help
           Print help (see a summary with '-h')
@@ -274,7 +274,7 @@ Options:
           Tables, even when piped
 
       --verbose
-          Say on stderr whether the app or the files answered
+          Say on stderr whether Codealong's server or the files answered
 
   -h, --help
           Print help
@@ -305,7 +305,7 @@ Options:
           Tables, even when piped
 
       --verbose
-          Say on stderr whether the app or the files answered
+          Say on stderr whether Codealong's server or the files answered
 
   -h, --help
           Print help
@@ -326,7 +326,7 @@ Options:
           Tables, even when piped
 
       --verbose
-          Say on stderr whether the app or the files answered
+          Say on stderr whether Codealong's server or the files answered
 
   -h, --help
           Print help
@@ -348,7 +348,7 @@ Options:
           Tables, even when piped
 
       --verbose
-          Say on stderr whether the app or the files answered
+          Say on stderr whether Codealong's server or the files answered
 
   -h, --help
           Print help
@@ -367,14 +367,14 @@ Options:
           JSON output. The default when stdout isn't a terminal
 
       --usage
-          Read plan usage: from the app when it runs, else one call per Claude account.
-          Don't loop it; the usage endpoint rate-limits
+          Read plan usage: from Codealong's server when it runs, else one call per
+          Claude account. Don't loop it; the usage endpoint rate-limits
 
       --table
           Tables, even when piped
 
       --verbose
-          Say on stderr whether the app or the files answered
+          Say on stderr whether Codealong's server or the files answered
 
   -h, --help
           Print help
@@ -414,7 +414,7 @@ Options:
           Tables, even when piped
 
       --verbose
-          Say on stderr whether the app or the files answered
+          Say on stderr whether Codealong's server or the files answered
 
   -h, --help
           Print help
@@ -450,7 +450,7 @@ Options:
           Tables, even when piped
 
       --verbose
-          Say on stderr whether the app or the files answered
+          Say on stderr whether Codealong's server or the files answered
 
   -h, --help
           Print help
@@ -465,8 +465,8 @@ once, with the accounts a session can start on that reach it, the one Auto would
 first, and the model it would start it on when that isn't the account's default
 (`model`). A session reaches only its own account's: for a service yours doesn't, start
 a helper on an account that does (`codealong start --helper --account <account>`, with
-`--model <model>` when one is named) and have it answer in a few lines. The app reads
-them at launch and every hour; an account it hasn't read yet is read here
+`--model <model>` when one is named) and have it answer in a few lines. Codealong's
+server reads them at launch and every hour; an account it hasn't read yet is read here
 
 Usage: codealong mcp [OPTIONS] [SERVICE]
 
@@ -486,7 +486,7 @@ Options:
           Tables, even when piped
 
       --verbose
-          Say on stderr whether the app or the files answered
+          Say on stderr whether Codealong's server or the files answered
 
   -h, --help
           Print help
@@ -526,7 +526,7 @@ Options:
           [possible values: account, model, folder, session, day, began, turn]
 
       --verbose
-          Say on stderr whether the app or the files answered
+          Say on stderr whether Codealong's server or the files answered
 
   -h, --help
           Print help
@@ -572,7 +572,7 @@ Options:
           [default: 30]
 
       --verbose
-          Say on stderr whether the app or the files answered
+          Say on stderr whether Codealong's server or the files answered
 
       --account <ACCOUNT>
           One account's alone
@@ -603,7 +603,7 @@ Options:
           Tables, even when piped
 
       --verbose
-          Say on stderr whether the app or the files answered
+          Say on stderr whether Codealong's server or the files answered
 
   -h, --help
           Print help
@@ -636,7 +636,7 @@ Options:
           Tables, even when piped
 
       --verbose
-          Say on stderr whether the app or the files answered
+          Say on stderr whether Codealong's server or the files answered
 
   -h, --help
           Print help
@@ -665,7 +665,7 @@ Options:
           Tables, even when piped
 
       --verbose
-          Say on stderr whether the app or the files answered
+          Say on stderr whether Codealong's server or the files answered
 
   -h, --help
           Print help
@@ -726,7 +726,7 @@ Options:
           Tables, even when piped
 
       --verbose
-          Say on stderr whether the app or the files answered
+          Say on stderr whether Codealong's server or the files answered
 
   -h, --help
           Print help
@@ -758,7 +758,7 @@ Options:
           Only todos of this project
 
       --verbose
-          Say on stderr whether the app or the files answered
+          Say on stderr whether Codealong's server or the files answered
 
       --label <LABEL>
           Only todos with this label (by name)
@@ -808,7 +808,7 @@ Options:
           Tables, even when piped
 
       --verbose
-          Say on stderr whether the app or the files answered
+          Say on stderr whether Codealong's server or the files answered
 
   -h, --help
           Print help
@@ -842,7 +842,7 @@ Options:
           The project it belongs to. Set from the worktree when one is linked
 
       --verbose
-          Say on stderr whether the app or the files answered
+          Say on stderr whether Codealong's server or the files answered
 
   -l, --label <LABEL>
           A label by name, made if it doesn't exist. Repeatable
@@ -901,7 +901,7 @@ Options:
           Read the new description from a file, or stdin with `-`
 
       --verbose
-          Say on stderr whether the app or the files answered
+          Say on stderr whether Codealong's server or the files answered
 
       --status <STATUS>
           todo, in-progress or done. in-progress links the session running this command
@@ -964,7 +964,7 @@ Options:
           Tables, even when piped
 
       --verbose
-          Say on stderr whether the app or the files answered
+          Say on stderr whether Codealong's server or the files answered
 
   -h, --help
           Print help
@@ -994,7 +994,7 @@ Options:
           Tables, even when piped
 
       --verbose
-          Say on stderr whether the app or the files answered
+          Say on stderr whether Codealong's server or the files answered
 
   -h, --help
           Print help
@@ -1019,7 +1019,7 @@ Options:
           Tables, even when piped
 
       --verbose
-          Say on stderr whether the app or the files answered
+          Say on stderr whether Codealong's server or the files answered
 
   -h, --help
           Print help
@@ -1048,7 +1048,7 @@ Options:
           Tables, even when piped
 
       --verbose
-          Say on stderr whether the app or the files answered
+          Say on stderr whether Codealong's server or the files answered
 
   -h, --help
           Print help
@@ -1074,7 +1074,7 @@ Options:
           Tables, even when piped
 
       --verbose
-          Say on stderr whether the app or the files answered
+          Say on stderr whether Codealong's server or the files answered
 
   -h, --help
           Print help
@@ -1108,7 +1108,7 @@ Options:
           Tables, even when piped
 
       --verbose
-          Say on stderr whether the app or the files answered
+          Say on stderr whether Codealong's server or the files answered
 
   -h, --help
           Print help
@@ -1143,7 +1143,7 @@ Options:
           Just before this todo
 
       --verbose
-          Say on stderr whether the app or the files answered
+          Say on stderr whether Codealong's server or the files answered
 
       --after <ID>
           Just after this todo
@@ -1177,7 +1177,7 @@ Options:
           A worktree path, or `.`
 
       --verbose
-          Say on stderr whether the app or the files answered
+          Say on stderr whether Codealong's server or the files answered
 
   -h, --help
           Print help
@@ -1208,7 +1208,7 @@ Options:
           A worktree path, or `.`
 
       --verbose
-          Say on stderr whether the app or the files answered
+          Say on stderr whether Codealong's server or the files answered
 
   -h, --help
           Print help
@@ -1235,7 +1235,7 @@ Options:
           Tables, even when piped
 
       --verbose
-          Say on stderr whether the app or the files answered
+          Say on stderr whether Codealong's server or the files answered
 
   -h, --help
           Print help
@@ -1260,7 +1260,7 @@ Options:
           Tables, even when piped
 
       --verbose
-          Say on stderr whether the app or the files answered
+          Say on stderr whether Codealong's server or the files answered
 
   -h, --help
           Print help
@@ -1285,7 +1285,7 @@ Options:
           Tables, even when piped
 
       --verbose
-          Say on stderr whether the app or the files answered
+          Say on stderr whether Codealong's server or the files answered
 
   -h, --help
           Print help
@@ -1312,7 +1312,7 @@ Options:
           Tables, even when piped
 
       --verbose
-          Say on stderr whether the app or the files answered
+          Say on stderr whether Codealong's server or the files answered
 
   -h, --help
           Print help
@@ -1341,7 +1341,7 @@ Options:
           Tables, even when piped
 
       --verbose
-          Say on stderr whether the app or the files answered
+          Say on stderr whether Codealong's server or the files answered
 
   -h, --help
           Print help
@@ -1366,7 +1366,7 @@ Options:
           Tables, even when piped
 
       --verbose
-          Say on stderr whether the app or the files answered
+          Say on stderr whether Codealong's server or the files answered
 
   -h, --help
           Print help
@@ -1426,7 +1426,7 @@ Options:
           Tables, even when piped
 
       --verbose
-          Say on stderr whether the app or the files answered
+          Say on stderr whether Codealong's server or the files answered
 
   -h, --help
           Print help
@@ -1447,7 +1447,7 @@ Options:
           Tables, even when piped
 
       --verbose
-          Say on stderr whether the app or the files answered
+          Say on stderr whether Codealong's server or the files answered
 
   -h, --help
           Print help
@@ -1473,7 +1473,7 @@ Options:
           Tables, even when piped
 
       --verbose
-          Say on stderr whether the app or the files answered
+          Say on stderr whether Codealong's server or the files answered
 
   -h, --help
           Print help
@@ -1516,7 +1516,7 @@ Options:
           How often its watch looks: `5m` (a new watch's), `1h`; at most once a minute
 
       --verbose
-          Say on stderr whether the app or the files answered
+          Say on stderr whether Codealong's server or the files answered
 
       --value[=<YES|NO>]
           Its watch's whole output is one value (the latest deploy's id), run for
@@ -1619,8 +1619,8 @@ Options:
           user, rather than skip the run
 
       --skip-missed[=<YES|NO>]
-          Skip a time missed while the machine slept or the app was closed, rather than
-          run the latest one once it's back
+          Skip a time missed while the machine slept or Codealong's server wasn't
+          running, rather than run the latest one once it's back
 
       --per-day <N>
           The most runs a day
@@ -1689,7 +1689,7 @@ Options:
           Tables, even when piped
 
       --verbose
-          Say on stderr whether the app or the files answered
+          Say on stderr whether Codealong's server or the files answered
 
       --watch <WATCH>
           When this command, run every --every through your login shell in the
@@ -1803,8 +1803,8 @@ Options:
           user, rather than skip the run
 
       --skip-missed[=<YES|NO>]
-          Skip a time missed while the machine slept or the app was closed, rather than
-          run the latest one once it's back
+          Skip a time missed while the machine slept or Codealong's server wasn't
+          running, rather than run the latest one once it's back
 
       --per-day <N>
           The most runs a day
@@ -1860,7 +1860,7 @@ Options:
           Tables, even when piped
 
       --verbose
-          Say on stderr whether the app or the files answered
+          Say on stderr whether Codealong's server or the files answered
 
   -h, --help
           Print help
@@ -1886,7 +1886,7 @@ Options:
           Tables, even when piped
 
       --verbose
-          Say on stderr whether the app or the files answered
+          Say on stderr whether Codealong's server or the files answered
 
   -h, --help
           Print help
@@ -1911,7 +1911,7 @@ Options:
           Tables, even when piped
 
       --verbose
-          Say on stderr whether the app or the files answered
+          Say on stderr whether Codealong's server or the files answered
 
   -h, --help
           Print help
@@ -1937,7 +1937,7 @@ Options:
           Tables, even when piped
 
       --verbose
-          Say on stderr whether the app or the files answered
+          Say on stderr whether Codealong's server or the files answered
 
   -h, --help
           Print help
@@ -1975,7 +1975,7 @@ Options:
           More of what happened, for the session to read: the text, or `-` for stdin
 
       --verbose
-          Say on stderr whether the app or the files answered
+          Say on stderr whether Codealong's server or the files answered
 
   -h, --help
           Print help
@@ -2003,7 +2003,7 @@ Options:
           Tables, even when piped
 
       --verbose
-          Say on stderr whether the app or the files answered
+          Say on stderr whether Codealong's server or the files answered
 
   -h, --help
           Print help
@@ -2015,12 +2015,12 @@ Options:
 Orchestrators: an agent session Codealong keeps going that keeps watch over your
 sessions for you, one for a project and one for All projects (every project without one
 of its own, and the sessions in none). Each runs when something it keeps watch over
-needs a look (a session newly waiting on you, a PR opened, approved, sent back, merged
-or failing its checks, two agents in one worktree), reads it, tags it and suggests
-replies, as the codealong skill's references/orchestrate.md says; nothing runs while
-nothing changes. Its session is quiet unless it asks you something, started afresh each
-day with its notes, and listed first in its project's Sessions. Each is a schedule
-(`schedule list` shows it), so `schedule show` has its runs
+needs a look (a session newly waiting on you, a PR approved, sent back or failing its
+checks where no session of its own is told, two agents in one worktree), reads it, tags
+it and suggests replies, as the codealong skill's references/orchestrate.md says;
+nothing runs while nothing changes. Its session is quiet unless it asks you something,
+started afresh each day with its notes, and listed first in its project's Sessions. Each
+is a schedule (`schedule list` shows it), so `schedule show` has its runs
 
 Usage: codealong orchestrator [OPTIONS] <COMMAND>
 
@@ -2048,7 +2048,7 @@ Options:
           Tables, even when piped
 
       --verbose
-          Say on stderr whether the app or the files answered
+          Say on stderr whether Codealong's server or the files answered
 
   -h, --help
           Print help
@@ -2070,7 +2070,7 @@ Options:
           Tables, even when piped
 
       --verbose
-          Say on stderr whether the app or the files answered
+          Say on stderr whether Codealong's server or the files answered
 
   -h, --help
           Print help
@@ -2111,7 +2111,7 @@ Options:
           whatever it's let do
 
       --verbose
-          Say on stderr whether the app or the files answered
+          Say on stderr whether Codealong's server or the files answered
 
       --may-start[=<YES|NO>]
           Let it start sessions (`codealong start`, a helper) or not (`=no`)
@@ -2142,7 +2142,7 @@ Options:
           Tables, even when piped
 
       --verbose
-          Say on stderr whether the app or the files answered
+          Say on stderr whether Codealong's server or the files answered
 
   -h, --help
           Print help
@@ -2168,7 +2168,7 @@ Options:
           Tables, even when piped
 
       --verbose
-          Say on stderr whether the app or the files answered
+          Say on stderr whether Codealong's server or the files answered
 
   -h, --help
           Print help
@@ -2196,7 +2196,7 @@ Options:
           Tables, even when piped
 
       --verbose
-          Say on stderr whether the app or the files answered
+          Say on stderr whether Codealong's server or the files answered
 
   -h, --help
           Print help
@@ -2221,14 +2221,15 @@ Commands:
               them; within each, as `sessions` orders them
   close-idle  Close the sessions that sat idle and want nothing from you: idle or
               unread, quiet for --after, nothing left running in the background, and a
-              last reply that asks nothing (Jev's read with `[jev] sessions` on, else no
-              question mark at its end). A session in a Ghostty, iTerm2, Terminal or Rex
-              tab closes with its tab, which closes only when every session in it
-              qualifies; a Claude Code background job is stopped. Its agent's process
-              ends; the conversation stays and resumes as usual. With --archive each is
-              also marked seen and archived, as Mark as done does, and the ones
-              Codealong can't close (in the Claude or Codex app, run by Codealong, in
-              tmux) are archived only. Lists what it would do with --dry-run; run that
+              last reply that asks nothing (the decision model's read with `[decisions]
+              sessions` on, else no question mark at its end). A session in a Ghostty,
+              iTerm2, Terminal, Rex, tmux or Codealong terminal closes with its tab or
+              pane, which closes only when every session in it qualifies; a Claude Code
+              background job is stopped. Its agent's process ends; the conversation
+              stays and resumes as usual. With --archive each is also marked seen and
+              archived, as Mark as done does, and the ones Codealong can't close (in the
+              Claude, Codex, Antigravity or Cursor apps, or hosted by Codealong over
+              ACP) are archived only. Lists what it would do with --dry-run; run that
               first
   help        Print this message or the help of the given subcommand(s)
 
@@ -2240,10 +2241,10 @@ Options:
           Tables, even when piped
 
       --account <ACCOUNT>
-          Only this account (claude, claude2, codex, opencode, antigravity)
+          Only this account (claude, claude2, codex, opencode, antigravity, cursor)
 
       --verbose
-          Say on stderr whether the app or the files answered
+          Say on stderr whether Codealong's server or the files answered
 
       --status <STATUS>
           Only this status: needs (waiting on you), error, working, unread (its turn
@@ -2321,7 +2322,7 @@ Arguments:
 
 Options:
       --account <ACCOUNT>
-          Only this account (claude, claude2, codex, opencode, antigravity)
+          Only this account (claude, claude2, codex, opencode, antigravity, cursor)
 
       --json
           JSON output. The default when stdout isn't a terminal
@@ -2334,7 +2335,7 @@ Options:
           Tables, even when piped
 
       --verbose
-          Say on stderr whether the app or the files answered
+          Say on stderr whether Codealong's server or the files answered
 
       --waiting
           Only the sessions that wait on you, as Codealong's queue has them: needs,
@@ -2394,14 +2395,15 @@ Options:
 
 ```
 Close the sessions that sat idle and want nothing from you: idle or unread, quiet for
---after, nothing left running in the background, and a last reply that asks nothing
-(Jev's read with `[jev] sessions` on, else no question mark at its end). A session in a
-Ghostty, iTerm2, Terminal or Rex tab closes with its tab, which closes only when every
-session in it qualifies; a Claude Code background job is stopped. Its agent's process
-ends; the conversation stays and resumes as usual. With --archive each is also marked
-seen and archived, as Mark as done does, and the ones Codealong can't close (in the
-Claude or Codex app, run by Codealong, in tmux) are archived only. Lists what it would
-do with --dry-run; run that first
+--after, nothing left running in the background, and a last reply that asks nothing (the
+decision model's read with `[decisions] sessions` on, else no question mark at its end).
+A session in a Ghostty, iTerm2, Terminal, Rex, tmux or Codealong terminal closes with
+its tab or pane, which closes only when every session in it qualifies; a Claude Code
+background job is stopped. Its agent's process ends; the conversation stays and resumes
+as usual. With --archive each is also marked seen and archived, as Mark as done does,
+and the ones Codealong can't close (in the Claude, Codex, Antigravity or Cursor apps, or
+hosted by Codealong over ACP) are archived only. Lists what it would do with --dry-run;
+run that first
 
 Usage: codealong sessions close-idle [OPTIONS]
 
@@ -2424,7 +2426,7 @@ Options:
           Only say what would close and what stays open, and why
 
       --verbose
-          Say on stderr whether the app or the files answered
+          Say on stderr whether Codealong's server or the files answered
 
   -h, --help
           Print help
@@ -2458,42 +2460,45 @@ Commands:
               (`codealong session send <sender's key> "…"`) and the link that names that
               session to its user, so an answer arrives in your session as a new
               message. Claude Code sessions get it on their socket for messages between
-              sessions; one that skips permission prompts takes it at once only from a
-              session that skips them too, and otherwise asks its user first (a Claude
-              app session can't, so nothing is sent). Codex sessions get it as a prompt,
+              sessions; one that skips permission prompts takes it at once from a
+              session that skips them too, along a helper/parent link, or from a
+              Codealong PR review, and otherwise asks its user first (a Claude app
+              session can't, so nothing is sent). Codex sessions get it as a prompt,
               typed into their terminal or sent to the Codex app, and one taking a turn
               there reads it at its next step, as a Claude Code session does. OpenCode
               sessions get it posted to their service, and sessions Codealong runs get
               it from Codealong, queued while they work. Antigravity's command line
-              (`agy`) gets it typed into its terminal, and holds one that comes while it
-              works until its turn ends (its `Queued Messages` setting, Queue by
-              default). One waiting on its user to answer a prompt gets it once they
-              have: Codealong holds it until then, in the order sent, for up to a day,
-              the answer says it's held (don't send it again), and your session is told
-              if it can't be sent. Nothing is sent to a conversation in the Antigravity
-              app, which takes no prompts from outside. One that isn't running (`status`
-              stopped, `live` false) Codealong resumes out of sight with the message,
-              telling it it had stopped, and the answer says so: it takes a while to
-              start, and spends its account's usage. Its user can turn that off
-              (`[sessions] resume_for_any_session`), and with only
-              `resume_for_sessions_it_started` on it's done just for the session that
-              started yours and the ones yours started (`codealong start`); the error
-              says why when nothing was sent
+              (`agy`) and Cursor's command line (`cursor-agent`) get it typed into their
+              terminal (`agy` holds one that comes while it works until its turn ends
+              under its `Queued Messages` setting). One waiting on its user to answer a
+              prompt gets it once they have: Codealong holds it until then, in the order
+              sent, for up to a day, the answer says it's held (don't send it again),
+              and your session is told if it can't be sent. Nothing is sent to a
+              conversation in the Antigravity or Cursor apps, which take no prompts from
+              outside. One that isn't running (`status` stopped, `live` false) Codealong
+              resumes out of sight with the message, telling it it had stopped, and the
+              answer says so: it takes a while to start, and spends its account's usage.
+              Its user can turn that off (`[sessions] resume_for_any_session`), and with
+              only `resume_for_sessions_it_started` on it's done just for the session
+              that started yours and the ones yours started (`codealong start`); the
+              error says why when nothing was sent
   pending     What a session waits on its user for, when Codealong can see it
               (`pending`): the tool call it asks to run (`id`, which `session answer`
               names; `label`, the call in a line; `input`, all of it; `cannot`, why
               Codealong can't answer it, when it can't) or the questions it asks
-              (`questions`); null when it waits on nothing Codealong can see. Codex
-              records no approvals, so a Codex session never shows one
+              (`questions`); null when it waits on nothing Codealong can see (Codex CLI
+              approvals show when Codealong's permission hook is installed)
   answer      Deny the tool call a session waits on its user to allow, by the id
-              `session pending` shows, if it's still the one waiting: Claude Code ends
-              the turn, as No at its prompt does, and an OpenCode session is told no.
-              Only `deny`: letting a call through, or answering the questions a session
-              asks, is its user's to do, in Codealong or where the session runs
+              `session pending` shows, if it's still the one waiting: Claude Code, Codex
+              and Antigravity end the turn, an OpenCode session is told no, and Cursor
+              skips the call. Only `deny`: letting a call through, or answering the
+              questions a session asks, is its user's to do, in Codealong or where the
+              session runs
   stop        Stop the turn a session is taking, as its Stop in Codealong does: the
               conversation stays, and the session waits for its next message. A command
-              it had handed to the background may keep running. A Claude app or
-              Antigravity session can't be stopped from outside; the error says so
+              it had handed to the background may keep running. A Claude app,
+              Antigravity or Cursor session can't be stopped from outside; the error
+              says so
   done        Mark a session done, as Mark as done in Codealong does, from inside a
               session, which may mark only its own and the ones it started. `me`: this
               session ends once its current turn does (its terminal closes, or its
@@ -2570,19 +2575,20 @@ Commands:
               its last reply asks its user something, how far its code change got,
               whether what was asked for is done, how risky the call it waits on looks,
               what a command it left running in the background does, and when its reply
-              says the work goes on. Each shows on the session in Codealong as Jev's
-              read does (Asks you, Landed, Pushed, Destructive, Looks finished, a snooze
-              offered until the time it waits for…), over Jev's for the same moment,
-              with who tagged it and the note; an orchestrator going over its sessions
-              tags them so the user sees at a glance where each stands, with `[jev]
-              sessions` on or off. Say only what you read: a field left out stays Jev's,
-              except when the work goes on, which goes with how the reply ends
-              (--waits-until). Give --prompt-at the session's `lastPromptAt` as you read
-              it: the tag is turned down if the user replied since, or while it takes a
-              turn, and goes once anything is sent to it or a turn of its starts
-              (`changes` says which, as `untagged`); tagging again replaces it, and
-              --clear takes it away. The session's `insight` in `session show` and
-              `sessions` is the read it shows now, Jev's, yours (`by`) or both
+              says the work goes on. Each shows on the session in Codealong as the
+              decision model's read does (Asks you, Landed, Pushed, Destructive, Looks
+              finished, a snooze offered until the time it waits for…), over the model's
+              for the same moment, with who tagged it and the note; an orchestrator
+              going over its sessions tags them so the user sees at a glance where each
+              stands, with `[decisions] sessions` on or off. Say only what you read: a
+              field left out stays the model's, except when the work goes on, which goes
+              with how the reply ends (--waits-until). Give --prompt-at the session's
+              `lastPromptAt` as you read it: the tag is turned down if the user replied
+              since, or while it takes a turn, and goes once anything is sent to it or a
+              turn of its starts (`changes` says which, as `untagged`); tagging again
+              replaces it, and --clear takes it away. The session's `insight` in
+              `session show` and `sessions` is the read it shows now, the model's, yours
+              (`by`) or both
   label       Put labels on a session, or take them off, as Labels in its menu in
               Codealong does: the labels todos wear (`todo labels`), by name, any case,
               a new name made a label in the next color. They sort the work for your
@@ -2639,7 +2645,7 @@ Options:
           Tables, even when piped
 
       --verbose
-          Say on stderr whether the app or the files answered
+          Say on stderr whether Codealong's server or the files answered
 
   -h, --help
           Print help
@@ -2664,7 +2670,7 @@ Options:
           Tables, even when piped
 
       --verbose
-          Say on stderr whether the app or the files answered
+          Say on stderr whether Codealong's server or the files answered
 
   -h, --help
           Print help
@@ -2692,7 +2698,7 @@ Options:
           Tables, even when piped
 
       --verbose
-          Say on stderr whether the app or the files answered
+          Say on stderr whether Codealong's server or the files answered
 
   -h, --help
           Print help
@@ -2706,21 +2712,22 @@ your user's word: the message starts by saying it's from another agent and not t
 which session sent it, how to answer (`codealong session send <sender's key> "…"`) and
 the link that names that session to its user, so an answer arrives in your session as a
 new message. Claude Code sessions get it on their socket for messages between sessions;
-one that skips permission prompts takes it at once only from a session that skips them
-too, and otherwise asks its user first (a Claude app session can't, so nothing is sent).
-Codex sessions get it as a prompt, typed into their terminal or sent to the Codex app,
-and one taking a turn there reads it at its next step, as a Claude Code session does.
-OpenCode sessions get it posted to their service, and sessions Codealong runs get it
-from Codealong, queued while they work. Antigravity's command line (`agy`) gets it typed
-into its terminal, and holds one that comes while it works until its turn ends (its
-`Queued Messages` setting, Queue by default). One waiting on its user to answer a prompt
-gets it once they have: Codealong holds it until then, in the order sent, for up to a
-day, the answer says it's held (don't send it again), and your session is told if it
-can't be sent. Nothing is sent to a conversation in the Antigravity app, which takes no
-prompts from outside. One that isn't running (`status` stopped, `live` false) Codealong
-resumes out of sight with the message, telling it it had stopped, and the answer says
-so: it takes a while to start, and spends its account's usage. Its user can turn that
-off (`[sessions] resume_for_any_session`), and with only
+one that skips permission prompts takes it at once from a session that skips them too,
+along a helper/parent link, or from a Codealong PR review, and otherwise asks its user
+first (a Claude app session can't, so nothing is sent). Codex sessions get it as a
+prompt, typed into their terminal or sent to the Codex app, and one taking a turn there
+reads it at its next step, as a Claude Code session does. OpenCode sessions get it
+posted to their service, and sessions Codealong runs get it from Codealong, queued while
+they work. Antigravity's command line (`agy`) and Cursor's command line (`cursor-agent`)
+get it typed into their terminal (`agy` holds one that comes while it works until its
+turn ends under its `Queued Messages` setting). One waiting on its user to answer a
+prompt gets it once they have: Codealong holds it until then, in the order sent, for up
+to a day, the answer says it's held (don't send it again), and your session is told if
+it can't be sent. Nothing is sent to a conversation in the Antigravity or Cursor apps,
+which take no prompts from outside. One that isn't running (`status` stopped, `live`
+false) Codealong resumes out of sight with the message, telling it it had stopped, and
+the answer says so: it takes a while to start, and spends its account's usage. Its user
+can turn that off (`[sessions] resume_for_any_session`), and with only
 `resume_for_sessions_it_started` on it's done just for the session that started yours
 and the ones yours started (`codealong start`); the error says why when nothing was sent
 
@@ -2749,7 +2756,7 @@ Options:
           Tables, even when piped
 
       --verbose
-          Say on stderr whether the app or the files answered
+          Say on stderr whether Codealong's server or the files answered
 
   -h, --help
           Print help
@@ -2761,8 +2768,8 @@ Options:
 What a session waits on its user for, when Codealong can see it (`pending`): the tool
 call it asks to run (`id`, which `session answer` names; `label`, the call in a line;
 `input`, all of it; `cannot`, why Codealong can't answer it, when it can't) or the
-questions it asks (`questions`); null when it waits on nothing Codealong can see. Codex
-records no approvals, so a Codex session never shows one
+questions it asks (`questions`); null when it waits on nothing Codealong can see (Codex
+CLI approvals show when Codealong's permission hook is installed)
 
 Usage: codealong session pending [OPTIONS] <KEY>
 
@@ -2778,7 +2785,7 @@ Options:
           Tables, even when piped
 
       --verbose
-          Say on stderr whether the app or the files answered
+          Say on stderr whether Codealong's server or the files answered
 
   -h, --help
           Print help
@@ -2788,10 +2795,10 @@ Options:
 
 ```
 Deny the tool call a session waits on its user to allow, by the id `session pending`
-shows, if it's still the one waiting: Claude Code ends the turn, as No at its prompt
-does, and an OpenCode session is told no. Only `deny`: letting a call through, or
-answering the questions a session asks, is its user's to do, in Codealong or where the
-session runs
+shows, if it's still the one waiting: Claude Code, Codex and Antigravity end the turn,
+an OpenCode session is told no, and Cursor skips the call. Only `deny`: letting a call
+through, or answering the questions a session asks, is its user's to do, in Codealong or
+where the session runs
 
 Usage: codealong session answer [OPTIONS] <KEY> <ID> <ANSWER>
 
@@ -2815,7 +2822,7 @@ Options:
           Tables, even when piped
 
       --verbose
-          Say on stderr whether the app or the files answered
+          Say on stderr whether Codealong's server or the files answered
 
   -h, --help
           Print help
@@ -2826,8 +2833,8 @@ Options:
 ```
 Stop the turn a session is taking, as its Stop in Codealong does: the conversation
 stays, and the session waits for its next message. A command it had handed to the
-background may keep running. A Claude app or Antigravity session can't be stopped from
-outside; the error says so
+background may keep running. A Claude app, Antigravity or Cursor session can't be
+stopped from outside; the error says so
 
 Usage: codealong session stop [OPTIONS] <KEY>
 
@@ -2843,7 +2850,7 @@ Options:
           Tables, even when piped
 
       --verbose
-          Say on stderr whether the app or the files answered
+          Say on stderr whether Codealong's server or the files answered
 
   -h, --help
           Print help
@@ -2887,7 +2894,7 @@ Options:
           Tables, even when piped
 
       --verbose
-          Say on stderr whether the app or the files answered
+          Say on stderr whether Codealong's server or the files answered
 
   -h, --help
           Print help
@@ -2927,7 +2934,7 @@ Options:
           Tables, even when piped
 
       --verbose
-          Say on stderr whether the app or the files answered
+          Say on stderr whether Codealong's server or the files answered
 
   -h, --help
           Print help
@@ -2967,7 +2974,7 @@ Options:
           Tables, even when piped
 
       --verbose
-          Say on stderr whether the app or the files answered
+          Say on stderr whether Codealong's server or the files answered
 
   -h, --help
           Print help
@@ -3016,7 +3023,7 @@ Options:
           [default: 30m]
 
       --verbose
-          Say on stderr whether the app or the files answered
+          Say on stderr whether Codealong's server or the files answered
 
       --until-done
           Wait on while it waits on your user to allow a call or answer a question,
@@ -3078,7 +3085,7 @@ Options:
           Why, or what to weigh before picking, in a sentence or two; shown with them
 
       --verbose
-          Say on stderr whether the app or the files answered
+          Say on stderr whether Codealong's server or the files answered
 
       --prompt-at <MS>
           The session's `lastPromptAt` as you read it: `session transcript` prints it
@@ -3100,17 +3107,18 @@ Tag a session with your read of where it stands, in the words Codealong's rows u
 after reading its conversation (`session transcript`): whether its last reply asks its
 user something, how far its code change got, whether what was asked for is done, how
 risky the call it waits on looks, what a command it left running in the background does,
-and when its reply says the work goes on. Each shows on the session in Codealong as
-Jev's read does (Asks you, Landed, Pushed, Destructive, Looks finished, a snooze offered
-until the time it waits for…), over Jev's for the same moment, with who tagged it and
-the note; an orchestrator going over its sessions tags them so the user sees at a glance
-where each stands, with `[jev] sessions` on or off. Say only what you read: a field left
-out stays Jev's, except when the work goes on, which goes with how the reply ends
-(--waits-until). Give --prompt-at the session's `lastPromptAt` as you read it: the tag
-is turned down if the user replied since, or while it takes a turn, and goes once
-anything is sent to it or a turn of its starts (`changes` says which, as `untagged`);
-tagging again replaces it, and --clear takes it away. The session's `insight` in
-`session show` and `sessions` is the read it shows now, Jev's, yours (`by`) or both
+and when its reply says the work goes on. Each shows on the session in Codealong as the
+decision model's read does (Asks you, Landed, Pushed, Destructive, Looks finished, a
+snooze offered until the time it waits for…), over the model's for the same moment, with
+who tagged it and the note; an orchestrator going over its sessions tags them so the
+user sees at a glance where each stands, with `[decisions] sessions` on or off. Say only
+what you read: a field left out stays the model's, except when the work goes on, which
+goes with how the reply ends (--waits-until). Give --prompt-at the session's
+`lastPromptAt` as you read it: the tag is turned down if the user replied since, or
+while it takes a turn, and goes once anything is sent to it or a turn of its starts
+(`changes` says which, as `untagged`); tagging again replaces it, and --clear takes it
+away. The session's `insight` in `session show` and `sessions` is the read it shows now,
+the model's, yours (`by`) or both
 
 Usage: codealong session tag [OPTIONS] <KEY>
 
@@ -3156,7 +3164,7 @@ Options:
           [possible values: landed, pushed, committed, uncommitted, blocked, none]
 
       --verbose
-          Say on stderr whether the app or the files answered
+          Say on stderr whether Codealong's server or the files answered
 
       --finished <YES|NO>
           Whether the task its user asked for is complete, with nothing left for it to
@@ -3246,7 +3254,7 @@ Options:
           Tables, even when piped
 
       --verbose
-          Say on stderr whether the app or the files answered
+          Say on stderr whether Codealong's server or the files answered
 
   -h, --help
           Print help
@@ -3287,7 +3295,7 @@ Options:
           Tables, even when piped
 
       --verbose
-          Say on stderr whether the app or the files answered
+          Say on stderr whether Codealong's server or the files answered
 
   -h, --help
           Print help
@@ -3328,7 +3336,7 @@ Options:
           Tables, even when piped
 
       --verbose
-          Say on stderr whether the app or the files answered
+          Say on stderr whether Codealong's server or the files answered
 
   -h, --help
           Print help
@@ -3357,7 +3365,7 @@ Options:
           Tables, even when piped
 
       --verbose
-          Say on stderr whether the app or the files answered
+          Say on stderr whether Codealong's server or the files answered
 
   -h, --help
           Print help
@@ -3396,7 +3404,7 @@ Options:
           Tables, even when piped
 
       --verbose
-          Say on stderr whether the app or the files answered
+          Say on stderr whether Codealong's server or the files answered
 
   -h, --help
           Print help
@@ -3432,7 +3440,7 @@ Options:
           Hidden ones too (worktrees outside every project that need nothing)
 
       --verbose
-          Say on stderr whether the app or the files answered
+          Say on stderr whether Codealong's server or the files answered
 
       --reusable
           Only reusable ones (`codealong reuse`): where new work can start, or join the
@@ -3471,7 +3479,7 @@ Options:
           Tables, even when piped
 
       --verbose
-          Say on stderr whether the app or the files answered
+          Say on stderr whether Codealong's server or the files answered
 
   -h, --help
           Print help
@@ -3507,7 +3515,7 @@ Options:
           Tables, even when piped
 
       --verbose
-          Say on stderr whether the app or the files answered
+          Say on stderr whether Codealong's server or the files answered
 
   -h, --help
           Print help
@@ -3527,9 +3535,9 @@ Commands:
   show    One PR: its state, branches, the worktrees on its branch, the sessions that
           worked on it (each with how often its records show it pushed to the PR's
           branch, `pushes`), which is its primary one (`primary`) and why (`primaryBy`:
-          picked, pushed, opened or started), and whether that one is nudged (`nudge`)
-          and of what (`nudgeAbout`: everything where the PR is watched, else what
-          `[pull_requests] nudge_about` keeps it to)
+          picked, pushed, opened, started or helper), and whether that one is nudged
+          (`nudge`) and of what (`nudgeAbout`: everything where the PR is watched, else
+          what `[pull_requests] nudge_about` keeps it to)
   link    Link a session to a PR it worked on that Codealong can't see by itself: a PR
           opened another way (the website, an API tool), or one worked on from a
           worktree that isn't on its branch
@@ -3592,7 +3600,7 @@ Options:
           Tables, even when piped
 
       --verbose
-          Say on stderr whether the app or the files answered
+          Say on stderr whether Codealong's server or the files answered
 
   -h, --help
           Print help
@@ -3603,9 +3611,9 @@ Options:
 ```
 One PR: its state, branches, the worktrees on its branch, the sessions that worked on it
 (each with how often its records show it pushed to the PR's branch, `pushes`), which is
-its primary one (`primary`) and why (`primaryBy`: picked, pushed, opened or started),
-and whether that one is nudged (`nudge`) and of what (`nudgeAbout`: everything where the
-PR is watched, else what `[pull_requests] nudge_about` keeps it to)
+its primary one (`primary`) and why (`primaryBy`: picked, pushed, opened, started or
+helper), and whether that one is nudged (`nudge`) and of what (`nudgeAbout`: everything
+where the PR is watched, else what `[pull_requests] nudge_about` keeps it to)
 
 Usage: codealong pr show [OPTIONS] <PR>
 
@@ -3622,7 +3630,7 @@ Options:
           Tables, even when piped
 
       --verbose
-          Say on stderr whether the app or the files answered
+          Say on stderr whether Codealong's server or the files answered
 
   -h, --help
           Print help
@@ -3655,7 +3663,7 @@ Options:
           Tables, even when piped
 
       --verbose
-          Say on stderr whether the app or the files answered
+          Say on stderr whether Codealong's server or the files answered
 
   -h, --help
           Print help
@@ -3687,7 +3695,7 @@ Options:
           Tables, even when piped
 
       --verbose
-          Say on stderr whether the app or the files answered
+          Say on stderr whether Codealong's server or the files answered
 
   -h, --help
           Print help
@@ -3740,7 +3748,7 @@ Options:
           Turn it off again, for this PR
 
       --verbose
-          Say on stderr whether the app or the files answered
+          Say on stderr whether Codealong's server or the files answered
 
   -h, --help
           Print help
@@ -3787,7 +3795,7 @@ Options:
           Turn it off again, for this PR
 
       --verbose
-          Say on stderr whether the app or the files answered
+          Say on stderr whether Codealong's server or the files answered
 
   -h, --help
           Print help
@@ -3825,7 +3833,7 @@ Options:
           Tables, even when piped
 
       --verbose
-          Say on stderr whether the app or the files answered
+          Say on stderr whether Codealong's server or the files answered
 
   -h, --help
           Print help
@@ -3862,7 +3870,7 @@ Options:
           Tables, even when piped
 
       --verbose
-          Say on stderr whether the app or the files answered
+          Say on stderr whether Codealong's server or the files answered
 
   -h, --help
           Print help
@@ -3901,7 +3909,7 @@ Options:
           Tables, even when piped
 
       --verbose
-          Say on stderr whether the app or the files answered
+          Say on stderr whether Codealong's server or the files answered
 
   -h, --help
           Print help
@@ -3929,7 +3937,7 @@ Options:
           Tables, even when piped
 
       --verbose
-          Say on stderr whether the app or the files answered
+          Say on stderr whether Codealong's server or the files answered
 
   -h, --help
           Print help
@@ -3973,7 +3981,7 @@ Options:
           the project names none), not one of its own
 
       --verbose
-          Say on stderr whether the app or the files answered
+          Say on stderr whether Codealong's server or the files answered
 
       --worktree <WORKTREE>
           The worktree: its path, or `.` for the one the current folder is in
@@ -4005,7 +4013,7 @@ Options:
           Tables, even when piped
 
       --verbose
-          Say on stderr whether the app or the files answered
+          Say on stderr whether Codealong's server or the files answered
 
   -h, --help
           Print help
@@ -4040,7 +4048,7 @@ Options:
           Tables, even when piped
 
       --verbose
-          Say on stderr whether the app or the files answered
+          Say on stderr whether Codealong's server or the files answered
 
   -h, --help
           Print help
@@ -4069,7 +4077,7 @@ Options:
           Tables, even when piped
 
       --verbose
-          Say on stderr whether the app or the files answered
+          Say on stderr whether Codealong's server or the files answered
 
   -h, --help
           Print help
@@ -4096,7 +4104,7 @@ Options:
           Tables, even when piped
 
       --verbose
-          Say on stderr whether the app or the files answered
+          Say on stderr whether Codealong's server or the files answered
 
   -h, --help
           Print help
@@ -4122,7 +4130,7 @@ Options:
           Tables, even when piped
 
       --verbose
-          Say on stderr whether the app or the files answered
+          Say on stderr whether Codealong's server or the files answered
 
   -h, --help
           Print help
@@ -4157,7 +4165,7 @@ Options:
           worktree turns down a command that names git)
 
       --verbose
-          Say on stderr whether the app or the files answered
+          Say on stderr whether Codealong's server or the files answered
 
       --take
           Start it on a todo whose primary session is running, and make the new session
@@ -4212,8 +4220,8 @@ Options:
             adapter
 
       --model <MODEL>
-          A model for a terminal or background start: fable, opus, sonnet, haiku, or a
-          full name
+          A model for a terminal, background or Codealong start: fable, opus, sonnet,
+          haiku, or a full name
 
       --effort <EFFORT>
           How hard Claude Code thinks (`claude --effort`); without it, the account's own
@@ -4277,7 +4285,7 @@ Options:
           Tables, even when piped
 
       --verbose
-          Say on stderr whether the app or the files answered
+          Say on stderr whether Codealong's server or the files answered
 
   -h, --help
           Print help
@@ -4300,7 +4308,7 @@ Options:
           Tables, even when piped
 
       --verbose
-          Say on stderr whether the app or the files answered
+          Say on stderr whether Codealong's server or the files answered
 
   -h, --help
           Print help
@@ -4330,7 +4338,7 @@ Options:
           Tables, even when piped
 
       --verbose
-          Say on stderr whether the app or the files answered
+          Say on stderr whether Codealong's server or the files answered
 
   -h, --help
           Print help
@@ -4367,7 +4375,7 @@ Options:
           Codex sessions itself (npm packages, in Codealong's folder)
 
       --verbose
-          Say on stderr whether the app or the files answered
+          Say on stderr whether Codealong's server or the files answered
 
       --account <ACCOUNT>
           Only these accounts (by name). Every configured one by default
@@ -4408,7 +4416,7 @@ Options:
           Tables, even when piped
 
       --verbose
-          Say on stderr whether the app or the files answered
+          Say on stderr whether Codealong's server or the files answered
 
   -h, --help
           Print help
@@ -4435,7 +4443,7 @@ Options:
           Tables, even when piped
 
       --verbose
-          Say on stderr whether the app or the files answered
+          Say on stderr whether Codealong's server or the files answered
 
   -h, --help
           Print help
@@ -4464,7 +4472,7 @@ Options:
           Tables, even when piped
 
       --verbose
-          Say on stderr whether the app or the files answered
+          Say on stderr whether Codealong's server or the files answered
 
   -h, --help
           Print help
@@ -4489,7 +4497,7 @@ Options:
           Tables, even when piped
 
       --verbose
-          Say on stderr whether the app or the files answered
+          Say on stderr whether Codealong's server or the files answered
 
   -h, --help
           Print help
@@ -4511,7 +4519,7 @@ Options:
           Tables, even when piped
 
       --verbose
-          Say on stderr whether the app or the files answered
+          Say on stderr whether Codealong's server or the files answered
 
   -h, --help
           Print help
@@ -4536,7 +4544,7 @@ Options:
           Tables, even when piped
 
       --verbose
-          Say on stderr whether the app or the files answered
+          Say on stderr whether Codealong's server or the files answered
 
   -h, --help
           Print help
@@ -4604,7 +4612,7 @@ Options:
           Tables, even when piped
 
       --verbose
-          Say on stderr whether the app or the files answered
+          Say on stderr whether Codealong's server or the files answered
 
   -h, --help
           Print help
@@ -4653,7 +4661,7 @@ Options:
           [default: 30m]
 
       --verbose
-          Say on stderr whether the app or the files answered
+          Say on stderr whether Codealong's server or the files answered
 
       --lines <LINES>
           How many of the last lines it printed to show when it ends
@@ -4694,7 +4702,7 @@ Options:
           Tables, even when piped
 
       --verbose
-          Say on stderr whether the app or the files answered
+          Say on stderr whether Codealong's server or the files answered
 
   -h, --help
           Print help
@@ -4736,7 +4744,7 @@ Options:
           Only the lines with this text in them, case aside
 
       --verbose
-          Say on stderr whether the app or the files answered
+          Say on stderr whether Codealong's server or the files answered
 
       --wait <WAIT>
           Wait this long at most for new output first: 10s, 2m
@@ -4770,7 +4778,7 @@ Options:
           Tables, even when piped
 
       --verbose
-          Say on stderr whether the app or the files answered
+          Say on stderr whether Codealong's server or the files answered
 
   -h, --help
           Print help
@@ -4799,7 +4807,7 @@ Options:
           Tables, even when piped
 
       --verbose
-          Say on stderr whether the app or the files answered
+          Say on stderr whether Codealong's server or the files answered
 
   -h, --help
           Print help
@@ -4826,7 +4834,7 @@ Options:
           Tables, even when piped
 
       --verbose
-          Say on stderr whether the app or the files answered
+          Say on stderr whether Codealong's server or the files answered
 
   -h, --help
           Print help
@@ -4888,7 +4896,7 @@ Options:
           own
 
       --verbose
-          Say on stderr whether the app or the files answered
+          Say on stderr whether Codealong's server or the files answered
 
       --texts <TEXTS>
           How many changed sessions to read the latest prompt and reply of, waiting ones
@@ -4918,8 +4926,8 @@ background job through its harness as Close does and asks the rest to end (SIGTE
 kills what's left after a while (SIGKILL), sweeps once more for dev processes that came
 back in the worktrees it cleared, and logs each to --log. A session whose process ended
 keeps its conversation and resumes as usual. It judges nothing, and kills nothing, when
-the app doesn't answer or is still reading after a start: without its board, every
-session would look old
+Codealong's server doesn't answer or is still reading after a start: without its board,
+every session would look old
 
 Usage: codealong hygiene [OPTIONS]
 
@@ -4945,7 +4953,7 @@ Options:
           (~/Library/Logs/Codealong, or ~/.local/state/codealong on Linux) unless given
 
       --verbose
-          Say on stderr whether the app or the files answered
+          Say on stderr whether Codealong's server or the files answered
 
   -h, --help
           Print help
@@ -5048,7 +5056,7 @@ Options:
           Tables, even when piped
 
       --verbose
-          Say on stderr whether the app or the files answered
+          Say on stderr whether Codealong's server or the files answered
 
   -h, --help
           Print help
@@ -5075,7 +5083,7 @@ Options:
           Tables, even when piped
 
       --verbose
-          Say on stderr whether the app or the files answered
+          Say on stderr whether Codealong's server or the files answered
 
   -h, --help
           Print help
@@ -5117,7 +5125,7 @@ Options:
           [possible values: worktree, session, todo, pr]
 
       --verbose
-          Say on stderr whether the app or the files answered
+          Say on stderr whether Codealong's server or the files answered
 
       --stage <STAGES>
           Work at a stage: todo (not started), progress, validating (its PR's checks
@@ -5161,7 +5169,8 @@ Options:
           The Kanban columns it starts with
 
           Possible values:
-          - stages: To do, In progress, In review and Done, which follow the work
+          - stages: To do, In progress, Validating, In review, Ready to merge and Done,
+            which follow the work
           - labels: One column per label, and Other
           - blank:  One column, Inbox
           
@@ -5204,7 +5213,7 @@ Options:
           Tables, even when piped
 
       --verbose
-          Say on stderr whether the app or the files answered
+          Say on stderr whether Codealong's server or the files answered
 
   -h, --help
           Print help
@@ -5239,7 +5248,7 @@ Options:
           Tables, even when piped
 
       --verbose
-          Say on stderr whether the app or the files answered
+          Say on stderr whether Codealong's server or the files answered
 
       --worktree <WORKTREES>
           A worktree's folder, or `.` for the one the current folder is in
@@ -5280,7 +5289,7 @@ Options:
           Tables, even when piped
 
       --verbose
-          Say on stderr whether the app or the files answered
+          Say on stderr whether Codealong's server or the files answered
 
       --worktree <WORKTREES>
           A worktree's folder, or `.` for the one the current folder is in
@@ -5341,7 +5350,7 @@ Options:
           - done
 
       --verbose
-          Say on stderr whether the app or the files answered
+          Say on stderr whether Codealong's server or the files answered
 
       --status <STATUSES>
           Agents in a status: needs (needs you), unread (your turn), working; a todo or
@@ -5413,7 +5422,7 @@ Options:
           Tables, even when piped
 
       --verbose
-          Say on stderr whether the app or the files answered
+          Say on stderr whether Codealong's server or the files answered
 
   -h, --help
           Print help
@@ -5449,7 +5458,7 @@ Options:
           Tables, even when piped
 
       --verbose
-          Say on stderr whether the app or the files answered
+          Say on stderr whether Codealong's server or the files answered
 
       --worktree <WORKTREES>
           A worktree's folder, or `.` for the one the current folder is in
@@ -5529,7 +5538,7 @@ Options:
           [default: keep]
 
       --verbose
-          Say on stderr whether the app or the files answered
+          Say on stderr whether Codealong's server or the files answered
 
       --show
           Bring Codealong's main window forward on the canvas, with your frames in view
@@ -5568,7 +5577,7 @@ Options:
           Tables, even when piped
 
       --verbose
-          Say on stderr whether the app or the files answered
+          Say on stderr whether Codealong's server or the files answered
 
   -h, --help
           Print help
@@ -5600,7 +5609,7 @@ Options:
           Tables, even when piped
 
       --verbose
-          Say on stderr whether the app or the files answered
+          Say on stderr whether Codealong's server or the files answered
 
   -h, --help
           Print help
@@ -5634,7 +5643,7 @@ Options:
           Tables, even when piped
 
       --verbose
-          Say on stderr whether the app or the files answered
+          Say on stderr whether Codealong's server or the files answered
 
   -h, --help
           Print help
@@ -5663,7 +5672,7 @@ Options:
           Tables, even when piped
 
       --verbose
-          Say on stderr whether the app or the files answered
+          Say on stderr whether Codealong's server or the files answered
 
   -h, --help
           Print help
@@ -5720,7 +5729,7 @@ Options:
           Tables, even when piped
 
       --verbose
-          Say on stderr whether the app or the files answered
+          Say on stderr whether Codealong's server or the files answered
 
   -h, --help
           Print help
@@ -5745,7 +5754,7 @@ Options:
           Tables, even when piped
 
       --verbose
-          Say on stderr whether the app or the files answered
+          Say on stderr whether Codealong's server or the files answered
 
   -h, --help
           Print help
@@ -5796,7 +5805,7 @@ Options:
           [default: notes]
 
       --verbose
-          Say on stderr whether the app or the files answered
+          Say on stderr whether Codealong's server or the files answered
 
       --start-sessions
           With `--as requests`: a session is started on each todo as it's filed, in a
@@ -5829,7 +5838,7 @@ Options:
           Tables, even when piped
 
       --verbose
-          Say on stderr whether the app or the files answered
+          Say on stderr whether Codealong's server or the files answered
 
   -h, --help
           Print help
@@ -5858,7 +5867,7 @@ Options:
           Tables, even when piped
 
       --verbose
-          Say on stderr whether the app or the files answered
+          Say on stderr whether Codealong's server or the files answered
 
   -h, --help
           Print help
