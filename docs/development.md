@@ -125,8 +125,10 @@ minutes on a quiet Mac, forty with twenty agents building. Now they run on GitHu
   everything landed since the last that passed, and a failure names that stretch. A check that
   fails there is run again by itself (`--prepared`, reusing the build and snapshots): failing again
   it fails the run, as one a change broke does; passing, it's unsteady on that runner and is warned
-  of on the run with what it said, somebody's to find the cause of, and not a red `main`. So a
-  landing can still turn `main` red there, which is the next point's to catch.
+  of on the run with what it said, somebody's to find the cause of, and not a red `main`. CI
+  runners are slower than a local Mac, so a check that reads a state the moment it can, or assumes
+  instant layout/animation timing, is what flakes there (`.claude/rules/preview.md`). So a landing
+  can still turn `main` red there, which is the next point's to catch.
   Before landing, run the checks that cover what you changed (`scripts/checks.sh --fixture
   <names>`); `gh workflow run checks.yml --ref <branch>` runs the whole list on a pushed branch.
 - **What that takes on GitHub**, set once in the repository's settings: a merged branch is
