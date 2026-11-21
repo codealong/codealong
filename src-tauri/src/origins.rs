@@ -189,6 +189,18 @@ impl Store {
         moves.into_iter().map(|(_, from, to)| (from.clone(), to.clone())).collect()
     }
 
+    /// Indexes every move (`is_move`) by the session it moved from, so callers that follow many
+    /// keys against one store don't scan `sessions` on every lookup.
+    pub fn move_index(&self) -> MoveIndex<'_> {
+        let mut by_from: HashMap<&str, Vec<(&str, i64)>> = HashMap::new();
+        for (k, e) in &self.sessions {
+            if e.how == OriginHow::Fork && is_move(&e.from, k) {
+                by_from.entry(e.from.as_str()).or_default().push((k.as_str(), e.at));
+            }
+        }
+        MoveIndex { by_from }
+    }
+
     /// Notes where each headless run came from (`ended_runs`), unless something noted it
     /// already: a start that said which session it made knows better. Not `known`: the run's
     /// process said where it came from, not a start.
@@ -219,13 +231,45 @@ impl Store {
     }
 }
 
+/// Moves out of each session (`Store::moved_to`), indexed by source key.
+pub struct MoveIndex<'a> {
+    by_from: HashMap<&'a str, Vec<(&'a str, i64)>>,
+}
+
+impl<'a> MoveIndex<'a> {
+    pub fn is_empty(&self) -> bool {
+        self.by_from.is_empty()
+    }
+
+    /// Same result as `Store::moved_to`, without scanning every origin on each lookup.
+    pub fn moved_to(&self, key: &str, exists: impl Fn(&str) -> bool) -> Option<String> {
+        let first = self.by_from.get(key)?;
+        let mut at = key;
+        let mut seen: Option<HashSet<&str>> = None;
+        let mut step = first;
+        loop {
+            let next = step.iter().filter(|&&(k, _)| k != key && seen.as_ref().is_none_or(|s| !s.contains(k)) && exists(k)).max_by_key(|&&(_, t)| t);
+            let Some(&(next, _)) = next else { break };
+            if at != key {
+                seen.get_or_insert_with(|| HashSet::from([key, at])).insert(next);
+            }
+            at = next;
+            match self.by_from.get(at) {
+                Some(more) => step = more,
+                None => break,
+            }
+        }
+        (at != key).then(|| at.to_string())
+    }
+}
+
 /// Whether a fork from session `from` to `to` is a move: into another account of the same
 /// harness. The windows tell it the same way (lineage.ts `kinHow`).
 pub fn is_move(from: &str, to: &str) -> bool {
-    let whose = |key: &str| {
+    fn whose(key: &str) -> (&str, &str) {
         let mut parts = key.splitn(3, ':');
-        (parts.next().unwrap_or_default().to_string(), parts.next().unwrap_or_default().to_string())
-    };
+        (parts.next().unwrap_or_default(), parts.next().unwrap_or_default())
+    }
     let ((from_harness, from_account), (to_harness, to_account)) = (whose(from), whose(to));
     from_harness == to_harness && from_account != to_account
 }
@@ -918,5 +962,34 @@ mod tests {
         let store: Store = serde_json::from_str(r#"{"sessions":{"codex:codex:b":{"from":"claude:claude:a","how":"started","at":5}},"later":true}"#).unwrap();
         assert_eq!(store.origin_of("codex:codex:b"), Some(SessionOrigin { key: "claude:claude:a".into(), how: OriginHow::Started }));
         assert_eq!(serde_json::from_str::<Store>("{}").unwrap(), Store::default());
+    }
+
+    #[test]
+    fn move_index_matches_store_moved_to() {
+        let entry = |from: &str, how: OriginHow, at: i64| Entry { from: from.into(), how, at, helper: false, report: false, known: true };
+        let mut store = Store::default();
+        assert!(store.move_index().is_empty());
+        // Multi-hop move (a -> b -> c), cycle back (c -> a), tie at same timestamp, missing copy,
+        // same-account fork, and a non-fork start across accounts.
+        store.sessions.insert("claude:two:b".into(), entry("claude:one:a", OriginHow::Fork, 10));
+        store.sessions.insert("claude:three:c".into(), entry("claude:two:b", OriginHow::Fork, 20));
+        store.sessions.insert("claude:one:a".into(), entry("claude:three:c", OriginHow::Fork, 30));
+        store.sessions.insert("claude:two:older".into(), entry("claude:one:a", OriginHow::Fork, 5));
+        store.sessions.insert("claude:four:gone".into(), entry("claude:three:c", OriginHow::Fork, 40));
+        store.sessions.insert("claude:one:same".into(), entry("claude:one:a", OriginHow::Fork, 50));
+        store.sessions.insert("claude:two:started".into(), entry("claude:one:a", OriginHow::Started, 60));
+        store.sessions.insert("claude:two:tie1".into(), entry("claude:one:t", OriginHow::Fork, 10));
+        store.sessions.insert("claude:two:tie2".into(), entry("claude:one:t", OriginHow::Fork, 10));
+
+        let index = store.move_index();
+        assert!(!index.is_empty());
+        let exists = |k: &str| k != "claude:four:gone";
+        for key in ["claude:one:a", "claude:two:b", "claude:three:c", "claude:one:t", "claude:one:none"] {
+            assert_eq!(index.moved_to(key, exists), store.moved_to(key, exists), "mismatch for {key}");
+        }
+        assert_eq!(index.moved_to("claude:one:a", exists).as_deref(), Some("claude:three:c"));
+        assert_eq!(index.moved_to("claude:one:a", |k| k == "claude:two:b").as_deref(), Some("claude:two:b"));
+        assert_eq!(index.moved_to("claude:one:a", |_| false), None);
+        assert_eq!(index.moved_to("claude:one:t", exists).as_deref(), Some("claude:two:tie2"));
     }
 }

@@ -673,6 +673,11 @@ pub(super) fn target(board: &Board, s: &Schedule, track: Option<&Track>) -> Opti
 
 /// `target`, with the record of where sessions moved: a test's own.
 fn target_in(board: &Board, s: &Schedule, track: Option<&Track>, origins: &crate::origins::Store) -> Option<String> {
+    target_in_index(board, s, track, &origins.move_index())
+}
+
+/// `target`, reusing a prebuilt move index (`schedules::items`).
+pub(super) fn target_in_index(board: &Board, s: &Schedule, track: Option<&Track>, moves: &crate::origins::MoveIndex<'_>) -> Option<String> {
     let key = match s.run.to {
         To::New => return None,
         To::Thread => track.and_then(|t| t.thread.clone())?,
@@ -682,7 +687,7 @@ fn target_in(board: &Board, s: &Schedule, track: Option<&Track>, origins: &crate
             track.filter(|t| t.follows.as_deref() == Some(session)).and_then(|t| t.thread.clone()).filter(|k| board.session(k).is_some()).unwrap_or_else(|| session.to_string())
         }
     };
-    let key = origins.moved_to(&key, |k| board.session(k).is_some()).unwrap_or(key);
+    let key = moves.moved_to(&key, |k| board.session(k).is_some()).unwrap_or(key);
     let (_, session) = board.session(&key)?;
     (s.run.to != To::Thread || !session.archived).then_some(key)
 }

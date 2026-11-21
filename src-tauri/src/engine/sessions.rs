@@ -72,9 +72,14 @@ impl Engine {
         if by.is_empty() {
             return sessions;
         }
-        let keys: HashSet<String> = sessions.iter().map(|s| s.key.clone()).collect();
         let origins = crate::origins::current();
-        let by: HashMap<String, crate::model::Orchestrator> = by.into_iter().map(|(k, o)| (origins.moved_to(&k, |m| keys.contains(m)).unwrap_or(k), o)).collect();
+        let moves = origins.move_index();
+        let by: HashMap<String, crate::model::Orchestrator> = if moves.is_empty() {
+            by
+        } else {
+            let keys: HashSet<&str> = sessions.iter().map(|s| s.key.as_str()).collect();
+            by.into_iter().map(|(k, o)| (moves.moved_to(&k, |m| keys.contains(m)).unwrap_or(k), o)).collect()
+        };
         for s in &mut sessions {
             if let Some(o) = by.get(&s.key) {
                 // Called Orchestrator, not its schedule's name, which names its project.
