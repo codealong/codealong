@@ -256,6 +256,12 @@ impl Conversation {
     pub fn ui_turn_open(&self) -> bool {
         !self.said.queued.is_empty() || (self.said.started(&self.id) && !self.turn_ended)
     }
+
+    /// When the log of the terminal UI that has it open says a prompt went in whose step isn't
+    /// written yet: the line comes first, as `agy` works out the agent's settings (`Reader::reread`).
+    fn unwritten_prompt(&self) -> Option<i64> {
+        self.said.prompted.as_ref().filter(|(to, at)| *to == self.id && self.prompted_at.map_or(true, |step| step < *at)).map(|(_, at)| *at)
+    }
 }
 
 /// Whether a conversation's summary says idle only because another `agy` started, from its row
@@ -1763,7 +1769,9 @@ impl Reader {
                 c.said = log.said.clone();
             }
             match before.get(&c.id) {
-                Some(old) if !held && old.last_modified == c.last_modified && old.step_count == c.step_count => {
+                // Not when the last read waited on a prompt's step, which its process may have
+                // written as it went.
+                Some(old) if !held && old.unwritten_prompt().is_none() && old.last_modified == c.last_modified && old.step_count == c.step_count => {
                     c.tail = old.tail.clone();
                     c.asked = old.asked.clone();
                     c.started_at = old.started_at;
@@ -1804,10 +1812,7 @@ impl Reader {
             // own came back, with no prompt sent, taking the tags and replies given on it with it
             // (`board::moved_on`). The same goes for a conversation the table doesn't list yet,
             // timed to the second by its transcript (`started`).
-            c.last_input = c.last_input.max(c.prompted_at);
-            if let Some((_, at)) = c.said.prompted.as_ref().filter(|(to, at)| *to == c.id && c.prompted_at.map_or(true, |step| step < *at)) {
-                c.last_input = c.last_input.max(Some(*at));
-            }
+            c.last_input = c.last_input.max(c.prompted_at).max(c.unwritten_prompt());
             // A turn that went in the default agent mode ran with what the tool permission asks
             // now, which the process keeps for when it's back in the default after a turn in
             // another mode.
@@ -1819,6 +1824,10 @@ impl Reader {
             }
             if c.running() || held {
                 (c.step_under_way, c.waiting, c.turn_ended, c.latest_step_at) = steps_now(&c.dir, &c.id);
+            } else if c.prompted_at > Some(c.last_modified) {
+                // A row older than your latest prompt is a copy another `agy` wrote back, which
+                // says nothing of the reply since: the latest step says when it was last written.
+                c.latest_step_at = steps_now(&c.dir, &c.id).3;
             }
             // An idle row after Escape is the UI's own, whatever its time and count.
             c.idled_by_another = held && idled_by_another(before.get(&c.id), c) && !c.said.stopped_last();
@@ -3352,12 +3361,13 @@ mod tests {
         let look = Look { seen: &seen, since: 0, now: on_14th("18:00:00.000"), ps: Default::default() };
         let mut reader = Reader { processes: vec![Process { pid: 7, conversation: Some("c1".into()), terminal: true, logs: vec![log.clone()], started: None }], ..Reader::default() };
         reader.track_logs();
-        let prompted = |reader: &mut Reader| {
+        let session = |reader: &mut Reader| {
             // The processes are the test's, however long it takes.
             reader.looked_at = Some(Instant::now());
             reader.reread(&account, &look);
-            crate::board::antigravity_session(&account, &reader.conversations["antigravity"][0], reader.processes.first(), false, 0, look.now).last_prompt_at
+            crate::board::antigravity_session(&account, &reader.conversations["antigravity"][0], reader.processes.first(), false, 0, look.now)
         };
+        let prompted = |reader: &mut Reader| session(reader).last_prompt_at;
         // Neither the row's older copy nor the log's earlier time.
         assert_eq!(prompted(&mut reader), second);
         // The row catches up, and is written back old again: the time holds.
@@ -3369,15 +3379,18 @@ mod tests {
         use std::io::Write as _;
         std::fs::OpenOptions::new().append(true).open(&log).unwrap().write_all(format!("{}\n", glog("17:55:00.097000", "Forwarding user message to conversation c1 (items=1, media=0)")).as_bytes()).unwrap();
         assert_eq!(prompted(&mut reader), on_14th("17:55:00.097"));
+        // Its step is written, then the reply, and its terminal UI quits before the next read,
+        // the row an older copy still: the time is the step's, and the reply is yours to read
+        // though the row is from before your prompt. Read again unchanged, it keeps both.
         let third = on_14th("17:55:00.104");
         step(4, STEP_USER_INPUT, third);
-        assert_eq!(prompted(&mut reader), third);
-        // Its terminal UI quits with the row an older copy still: read again unchanged, it keeps
-        // the step's time.
+        step(5, 15, third + 30_000);
         reader.processes.clear();
         reader.track_logs();
-        assert_eq!(prompted(&mut reader), third);
-        assert_eq!(prompted(&mut reader), third);
+        for _ in 0..2 {
+            let s = session(&mut reader);
+            assert_eq!((s.last_prompt_at, s.status, s.last_activity), (third, crate::model::Status::Unread, third + 30_000));
+        }
     }
 
     /// A conversation the table doesn't list yet (`started`) has its transcript's time for its
