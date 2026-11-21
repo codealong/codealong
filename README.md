@@ -235,7 +235,10 @@ build it yourself? See [Building from source](#building-from-source).
 
 #### On Linux
 
-There's no installer yet: build it from source, under X11. You need Rust 1.96 or later, Node
+Download an `.AppImage`, `.deb` or `.rpm` (x86_64 or aarch64) from the
+[latest release](https://github.com/codealong/codealong/releases/latest); each is signed for
+automatic updates (`.deb` and `.rpm` install updates when you choose *Restart to update*). Or build
+it from source, under X11. You need Rust 1.96 or later, Node
 22.13 or later (not 23), and Zig 0.17.0; Zig builds the Ghostty terminal library Codealong uses.
 On Ubuntu 24.04 and Linux Mint 22.x, install the system packages Tauri needs:
 
@@ -280,8 +283,11 @@ the notch, the Claude and Codex apps, and Antigravity's and Cursor's usage among
 
 #### On Windows
 
-An early build, from source only: it builds, its tests pass and it runs on Windows 11 on Arm, but
-it hasn't had much use there. With Visual Studio's C++ build tools (and their clang, on Arm),
+An early build: download the x64 or Arm64 setup `.exe` from the
+[latest release](https://github.com/codealong/codealong/releases/latest) (it isn't signed with a
+Windows code-signing certificate yet, so SmartScreen warns; updates are signed and go in at
+*Restart to update*), or build from source. It builds, its tests pass and it runs on Windows 11 on
+Arm, but it hasn't had much use there. With Visual Studio's C++ build tools (and their clang, on Arm),
 Rust, Node, [Git for Windows](https://gitforwindows.org) and [Zig](https://ziglang.org) 0.17:
 
 ```powershell
@@ -298,7 +304,7 @@ goes without; [the development notes](docs/development.md#windows) say what else
 
 **You'll need:**
 
-- macOS 13 or later, Linux under X11, or Windows 10 (version 2004) or later, built from source,
+- macOS 13 or later, Linux under X11, or Windows 10 (version 2004) or later (early build),
   where sessions open in Windows Terminal
 - At least one coding agent: [Claude Code](https://code.claude.com/docs), the
   [Codex](https://openai.com/codex/) CLI or app, [OpenCode](https://opencode.ai),
@@ -318,7 +324,7 @@ goes without; [the development notes](docs/development.md#windows) say what else
    recent sessions worked in. Your sessions show up straight away, wherever you started them.
 2. **Go through Set up Codealong**, which opens over the window the first time: tick the
    accounts to show, the folders your code lives in, and your terminal and editor, and, if you
-   like, give each session an emblem beside its title, an emoji Jev picks or a small picture a
+   like, give each session an emblem beside its title, an emoji a decision model picks or a small picture a
    Codex account draws, so the ones side by side read apart. Its last step
    installs the agent tools: the `codealong` command on your PATH, Codealong's plugin in each
    Claude Code account (so you can answer its permission prompts and questions from Codealong),
@@ -347,8 +353,8 @@ Five views of your work, each in a window of its own if you like (⇧⌘N):
 
 | View | What it shows |
 | --- | --- |
-| **Sessions** | Every agent session in one list, the ones that need you first, or grouped under each worktree (its branch, its PR, how far it is from main) or each repo. Pin the ones you're watching. |
-| **PRs** | Every pull request in your repos, with its review, checks and the sessions that worked on it. Tabs for all of them, yours and others', what needs you first in each: Review requested, Ready to merge, Needs work. Group them by worktree or repo too. |
+| **Sessions** | Every agent session in one list, the ones that need you first, or grouped under each worktree (its branch, its PR, how far it is from main) or each repo, with collapsible sections. Pin the ones you're watching. |
+| **PRs** | Every pull request in your repos, with its review, checks and the sessions that worked on it. Tabs for all of them, yours and others', what needs you first in each: Review requested, Ready to merge, Needs work, plus Fixing and Working for PRs an agent is at work on. Group them by worktree or repo too. |
 | **Todo** | Work you mean to hand an agent, with notes, screenshots, labels and what each todo waits on, grouped by worktree or repo if you like. |
 | **Schedules** | Sessions started, or messages sent, at the times you set or when something happens, with every run and how it went. |
 | **Board** (experimental) | Your work on boards you make, for the whole project or for a release or a fix: as **Kanban**, todos and sessions as cards in To do, In progress, In review and Done (or columns of your own), what needs you first in each; as **Canvas**, laid out in space, a frame per repo, a column per worktree, cards you arrange. |
@@ -394,15 +400,15 @@ You can answer from wherever suits you:
   that waits on you, marked as the most urgent of it; click it and it opens on the agent that has
   waited longest.
 - **The floating bar.** Or float the bar, over every app, on every Space, even over full-screen
-  apps, with pills for the agents that need you, have just finished or are working, one for PRs
-  waiting on your review and one for todos ready to start. Hover a pill to read the conversation
-  and reply. It never takes your keyboard until you click.
+  apps, with pills for the agents that need you, have just finished or are working, PRs waiting on
+  your review, your PRs ready to merge, and todos due or ready to start. Hover a pill to read the
+  conversation and reply. It never takes your keyboard until you click.
 - **The menu bar.** Or keep the bar as an icon in the menu bar, with the count of agents that need
   you beside it and a menu that lists them, says whether Codealong's server is running, restarts
   it, and quits the app with the server or without it.
-- **Waiting on you** (⌥⌘. from any app) lists every agent that needs you, then the PRs waiting on
-  your review, then finished turns, oldest first. Answer one and the next slides in: inbox zero,
-  for agents.
+- **Waiting on you** (⌥⌘. from any app) lists every agent that needs you, the PRs waiting on your
+  review and yours ready to merge, unassigned todos that are due, and finished turns, oldest first,
+  in the order Settings › Queue sets. Answer one and the next slides in: inbox zero, for agents.
 - **Pinned to your desktop.** Keep a session floating over your other windows, or pin a session,
   worktree, todo or PR there as a small card.
 
@@ -507,7 +513,8 @@ else works without it.
 
 Select a session to read its whole conversation, straight from the agent's own records: your
 prompts, the replies as formatted text, and every tool call, which opens to show what went in and
-what came out. Images you sent show in place, links to pull requests show their status, and
+what came out (click a file a tool call read or changed to open it). Images you sent and files an
+agent sent you (images, videos, audio) show in place, links to pull requests show their status, and
 ⌘F finds words anywhere in the window, the whole conversation among it.
 
 The box at the bottom replies the way that agent takes a prompt: typed into its terminal tab, sent
@@ -519,7 +526,8 @@ OpenCode's service. Paste screenshots or files into it. From there you can also:
   Codex app thread, or any session run in Codealong);
 - **ask on the side**: `/side <question>` asks a throwaway copy of a Claude Code, Codex or Antigravity session,
   which never hears of it;
-- **fork** a session into a copy that carries on alongside (`/fork`);
+- **fork** a session into a copy that carries on alongside (`/fork`), or **rewind** to an earlier
+  question in a copy;
 - **copy** any code block, or **run** a shell block in a new terminal where the session works;
 - **rename, label, pin, snooze, quiet, archive** or **mark as done** (which closes its terminal and
   archives it), or **move** a Claude Code session to another account or worktree;
@@ -653,11 +661,12 @@ rest).
 and the app), OpenCode, Antigravity and Cursor (new). The table below says what Codealong can do with every
 one.
 
-**Systems:** macOS 13 or later, on Apple silicon or Intel. Linux too, under X11, [built from
-source](#on-linux) for now: sessions run in tmux, shown in your terminal emulator, and a few things are
-macOS's alone, the notch and the Claude and Codex apps among them ([what
-differs](docs/development.md#linux)). Windows is an early build, from source too: sessions open in
-Windows Terminal, and Codealong's own terminals aren't there yet ([on Windows](#on-windows)).
+**Systems:** macOS 13 or later, on Apple silicon or Intel. Linux too, under X11 (`.AppImage`,
+`.deb` and `.rpm` on the releases page, or [built from source](#on-linux)): sessions run in tmux,
+shown in your terminal emulator, and a few things are macOS's alone, the notch and the Claude and
+Codex apps among them ([what differs](docs/development.md#linux)). Windows is an early build
+(unsigned setup `.exe` on the releases page, or [built from source](#on-windows)): sessions open in
+Windows Terminal, and Codealong's own terminals aren't there yet.
 
 Codealong reads what every agent already writes, so it sees all of them. What it can do from
 there depends on what each one lets another program do. **Where it can't act, it opens the
@@ -861,7 +870,7 @@ hibernate_after = 0            # minutes a session in a terminal, or a Claude Co
 
 [routing]                      # Settings › Routing
 auto = ""                      # the routing group Auto uses for new sessions and reviews, where a project's `default` names none; "" picks among accounts of the first harness with room
-prompt = ""                    # instructions for Jev in the quick panel to suggest an agent, model or routing group for what you type
+prompt = ""                    # instructions for the decision model in the quick panel to suggest an agent, model or routing group for what you type
 buffer = 5                     # percent below each account's usage_cap left for the sessions already running there: Auto stops favoring its soonest reset, and a fallback group moves on, once it's this close (0 to 50)
 
 [[routing.groups]]
@@ -1024,11 +1033,14 @@ in the guide's [Files Codealong keeps](docs/guide.md#files-codealong-keeps).
   then your linked devices can send prompts, answer approvals, start sessions and end them there,
   and each request is written to `~/Library/Logs/Codealong/devices.log` (on Linux,
   `~/.local/state/codealong/devices.log`).
-- **Git is read-only, but for cleaning up.** Codealong never commits, checks out, fetches or
-  resets, and never creates a worktree: when you ask for a new worktree, the agent (Claude Code,
-  or `cursor-agent`) makes it. It removes one, and deletes its branch, only when you clean it up
-  (Clean up worktree…, or Mark as done on a session whose agent made its own) and nothing in it
-  would be lost: no uncommitted file, no commit that isn't on a remote, nothing running in it. A repo whose worktrees a hook makes has them taken down by its
+- **Git is read-only, except for worktrees you ask for or clean up.** Codealong never commits,
+  checks out, fetches or resets. When you ask for a new worktree, Claude Code and `cursor-agent`
+  make their own; for other agents and sessions run in Codealong, Codealong creates a git worktree
+  under `.codealong/worktrees/` (or runs the repo's trusted `WorktreeCreate` hook). It removes a
+  worktree, and deletes its branch, only when you clean it up (Clean up worktree…, or Mark as done
+  on a session whose worktree was made for it) and nothing in it
+  would be lost: no uncommitted file, no commit that isn't on a remote (or at a merged PR's commit),
+  nothing running in it. A repo whose worktrees a hook makes has them taken down by its
   own `WorktreeRemove` hook. Git runs with `GIT_OPTIONAL_LOCKS=0`, so it never holds a lock your
   agents need. A pull request is merged only when you press Merge.
 - **Only you allow what an agent does.** Agents can see what another agent is waiting on, and deny
@@ -1082,9 +1094,12 @@ guide's [Another account of the same agent](docs/guide.md#another-account-of-the
 the steps. Follow each provider's terms for how you use your accounts.
 
 **Does it change my git repos?**
-Only to remove a worktree you clean up, with its branch, and only when nothing in it would be lost:
-no uncommitted file and no commit that isn't on a remote. Otherwise it runs git read-only. When work
-needs a new worktree, the agent makes it, and a pull request is merged only when you press Merge.
+Only when you ask for a new worktree (Claude Code and `cursor-agent` make their own; for other
+agents and sessions run in Codealong, Codealong creates one under `.codealong/worktrees/` or runs
+the repo's trusted `WorktreeCreate` hook), or when you clean up a worktree (removing it and its
+branch only when nothing in it would be lost: no uncommitted file and no unmerged commit that
+isn't on a remote). Otherwise it runs git read-only, and a pull request is merged only when you
+press Merge.
 
 **Which systems, terminals and editors does it support?**
 macOS 13 or later, on Apple silicon or Intel, and Linux under X11. On macOS, Ghostty is the best
@@ -1094,14 +1109,15 @@ tmux, shown in your terminal emulator. It opens worktrees in VS Code, Cursor, Wi
 Nova, BBEdit, Xcode, the JetBrains IDEs and Android Studio, or any editor you name.
 
 **Does it run on Linux?**
-Yes, under X11, built from source for now ([On Linux](#on-linux) says how; there's no installer
-yet): sessions in tmux, shown in your terminal emulator's windows, and editors found by their
-commands. Some of what macOS gives it has no counterpart there, the notch among them;
-[the development notes](docs/development.md#linux) say what, and how to try it in a VM.
+Yes, under X11, with `.AppImage`, `.deb` and `.rpm` installers on the releases page or built from
+source ([On Linux](#on-linux)): sessions in tmux, shown in your terminal emulator's windows, and
+editors found by their commands. Some of what macOS gives it has no counterpart there, the notch
+among them; [the development notes](docs/development.md#linux) say what, and how to try it in a VM.
 
 **And Windows?**
-An early build, from source: [On Windows](#on-windows) says how, and what it hasn't yet. Help is
-welcome: [Contributing](#contributing) says where Windows support starts.
+An early build, with x64 and Arm64 installers (unsigned) on the releases page or built from source:
+[On Windows](#on-windows) says how, and what it hasn't yet. Help is welcome:
+[Contributing](#contributing) says where Windows support starts.
 
 **Can I answer my agents from my phone?**
 Soon: [Codealong for iPhone](https://github.com/codealong/codealong-ios) is early, and for now you
