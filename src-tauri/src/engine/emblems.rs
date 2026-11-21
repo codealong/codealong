@@ -51,7 +51,8 @@ impl Engine {
             .map(|i| {
                 let sessions = own.remove(&i.schedule.id).unwrap_or_default();
                 let asks = crate::schedules::asks_emblem(i, &sessions, board, &self.cfg, now, &crate::schedules::rule::Local);
-                crate::emblems::Scheduled { id: &i.schedule.id, project: crate::schedules::place(&i.schedule, board).map_or("", |l| l.project.as_str()), sessions, asks }
+                let project = i.worktree.as_deref().and_then(|id| board.lanes.iter().find(|l| l.id == id)).map_or("", |l| l.project.as_str());
+                crate::emblems::Scheduled { id: &i.schedule.id, project, sessions, asks }
             })
             .collect();
         let took = self.emblems.inherit(&scheduled, now);
