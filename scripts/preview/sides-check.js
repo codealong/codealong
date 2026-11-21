@@ -90,7 +90,7 @@
       window.__emit('side', answered);
       await window.__pushSides();
       await until(function () { return sideRows().length === 0; }, 5000, 'its row gone once answered');
-      check('once answered, its row leaves the list, and the chip has no working glyph', !q('.ca-glyph--working', chip()) && chip().textContent.trim() === '3', chip().textContent);
+      check('once answered, its row and chip leave the list', !chip(), chip() ? chip().textContent : '');
     } catch (e) {
       return stopped(e);
     }

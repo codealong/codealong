@@ -14,12 +14,12 @@
 
 import { Fragment, useRef, type KeyboardEvent, type ReactNode } from 'react';
 import { ago, absolute } from '../format';
-import { groupOptions, type ListGroup } from '../groups';
+import { groupOptions, groupsOf, noneLabel, type ListGroup } from '../groups';
 import { HARNESS_WORD } from '../harness';
 import type { Placed } from '../lanes';
 import { doesWords, nextWords, OUTCOME_WORD, scheduleName, whenIcon, type ScheduleListing, type ScheduleSection, type ScheduleSort } from '../schedules';
 import type { HarnessSchedule, ScheduleItem } from '../types';
-import { GroupBlock, PinnedGroups, type GroupActs } from './Groups';
+import { GroupBlock, useGroupDrag, type GroupActs } from './Groups';
 import { AgentRow } from './LaneRow';
 import { rowsOptions, type ListOption } from './ListBar';
 import { Chip, cx, Icon, Row, SectionHeader, SessionEmblem } from './primitives';
@@ -107,16 +107,18 @@ export function SchedulesView(props: SchedulesViewProps) {
     return got;
   };
   const { grouped } = listing;
+  const allGroups = grouped ? groupsOf(grouped) : [];
+  const groupDrag = useGroupDrag(allGroups, groupActs);
+  const reorderCount = grouped ? grouped.groups.filter((g) => g.key !== '').length : 0;
   const section = (id: ScheduleSection['id']) => listing.sections.find((x) => x.id === id)?.rows ?? [];
   // A section's groups, grouped; none for one with no row.
-  const groupsIn = (id: ScheduleSection['id']) => grouped?.sections.find((x) => x.id === id)?.groups ?? [];
-  // A section's rows as it draws them: in its groups' order, the ones folded away left out.
-  const drawn = (id: ScheduleSection['id']) => (grouped ? groupsIn(id).flatMap((g) => g.rows) : section(id));
+  const groupsIn = (id: ScheduleSection['id']) => (id === 'active' ? (grouped?.groups ?? []) : (grouped?.apart.find((x) => x.id === id)?.groups ?? []));
+  // A section's rows as it draws them: in its groups' order, collapsed and folded rows left out.
+  const drawn = (id: ScheduleSection['id']) => (grouped ? groupsIn(id).flatMap((g) => (groupActs.collapsed?.(g) ? [] : g.rows)) : section(id));
   const finished = section('finished');
   const harnessRows = harnessItems.map((h) => ({ h, p: h.session ? placed(h.session) : null }));
   const scheduleEntries = (xs: ScheduleItem[]): Entry[] => xs.flatMap((item) => [{ id: item.id, item, p: null }, ...sessionsFor(item).rows.map((p) => ({ id: item.id, item, p }))]);
   const entries: Entry[] = [
-    ...scheduleEntries(grouped ? grouped.pinned.flatMap((g) => g.rows) : []),
     ...scheduleEntries(drawn('active')),
     ...scheduleEntries(drawn('oneOff')),
     ...harnessRows.flatMap(({ h, p }) => [{ id: h.key, harness: h, p: null }, ...(p ? [{ id: h.key, harness: h, p }] : [])]),
@@ -164,11 +166,13 @@ export function SchedulesView(props: SchedulesViewProps) {
     const next = nextWords(s, now);
     const all = allShown.has(s.id);
     const done = s.finished != null;
+    const does = (
+      <span className="ca-schedrow-does" title={s.run.prompt}>
+        {doesWords(s, sessionTitle)}
+      </span>
+    );
     const chips = (
       <>
-        <Chip className="ca-schedrow-does" title={s.run.prompt}>
-          {doesWords(s, sessionTitle)}
-        </Chip>
         {!done && s.problem && (
           <Chip className="ca-schedrow-problem" title={s.problem}>
             Can’t run
@@ -209,6 +213,7 @@ export function SchedulesView(props: SchedulesViewProps) {
               <span className="ca-lane-detail">{s.whenWords}</span>
               {slim && (
                 <>
+                  {does}
                   <span className="ca-chips ca-lane-tags">{chips}</span>
                   {next && <span className="ca-schedrow-next">{next}</span>}
                 </>
@@ -216,6 +221,7 @@ export function SchedulesView(props: SchedulesViewProps) {
             </div>
             {!slim && (
               <div className="ca-lane-line2">
+                {does}
                 <span className="ca-chips ca-lane-lead">{chips}</span>
                 {next && <span className="ca-lane-right ca-schedrow-next">{next}</span>}
               </div>
@@ -243,11 +249,13 @@ export function SchedulesView(props: SchedulesViewProps) {
   };
   const harnessRow = ({ h, p }: (typeof harnessRows)[number]) => {
     const next = h.paused ? 'Paused' : nextWords({ paused: false, nextAt: h.nextAt, when: { kind: 'time', rule: '' } }, now);
+    const does = (
+      <span className="ca-schedrow-does" title={`${h.lasts}\n\n${h.prompt}`}>
+        {HARNESS_WORD[h.harness]} {h.kind.toLowerCase()}
+      </span>
+    );
     const chips = (
       <>
-        <Chip className="ca-schedrow-does" title={`${h.lasts}\n\n${h.prompt}`}>
-          {HARNESS_WORD[h.harness]} {h.kind.toLowerCase()}
-        </Chip>
         {h.problem && (
           <Chip className="ca-schedrow-problem" title={h.problem}>
             Can’t run
@@ -276,6 +284,7 @@ export function SchedulesView(props: SchedulesViewProps) {
               <span className="ca-lane-detail">{h.whenWords}</span>
               {slim && (
                 <>
+                  {does}
                   <span className="ca-chips ca-lane-tags">{chips}</span>
                   {next && <span className="ca-schedrow-next">{next}</span>}
                 </>
@@ -283,6 +292,7 @@ export function SchedulesView(props: SchedulesViewProps) {
             </div>
             {!slim && (
               <div className="ca-lane-line2">
+                {does}
                 <span className="ca-chips ca-lane-lead">{chips}</span>
                 {next && <span className="ca-lane-right ca-schedrow-next">{next}</span>}
               </div>
@@ -294,14 +304,15 @@ export function SchedulesView(props: SchedulesViewProps) {
       </Fragment>
     );
   };
-  // A group of schedules under its worktree's or repo's heading, which shows the worktree in place
-  // of the schedule's panel (mainGroups.ts `groupActsOf`).
-  const groupBlock = (g: ListGroup<ScheduleItem>, pinned: boolean) => (
-    <GroupBlock key={`group:${g.key}`} g={g} acts={groupActs} now={now} rows={false} pinned={pinned} none={SCHEDULE_NONE}>
+  // A group of schedules under its project's, repo's or worktree's heading, which shows the
+  // worktree in place of the schedule's panel (mainGroups.ts `groupActsOf`).
+  const groupBlock = (g: ListGroup<ScheduleItem>, index: number | null) => (
+    <GroupBlock key={`group:${g.key}`} g={g} acts={groupActs} now={now} rows={false} drag={index != null ? groupDrag.rowProps(g.key, index, reorderCount) : undefined} none={noneLabel(g.by, SCHEDULE_NONE)}>
       {g.rows.map(scheduleRow)}
     </GroupBlock>
   );
-  const rowsOf = (id: ScheduleSection['id']): ReactNode => (grouped ? groupsIn(id).map((g) => groupBlock(g, false)) : section(id).map(scheduleRow));
+  const rowsOf = (id: ScheduleSection['id']): ReactNode =>
+    grouped ? groupsIn(id).map((g, i) => groupBlock(g, id === 'active' && g.key ? i : null)) : section(id).map(scheduleRow);
   return (
     <>
       <button type="button" className="ca-schednew" onClick={onNew}>
@@ -325,14 +336,10 @@ export function SchedulesView(props: SchedulesViewProps) {
           tabIndex={0}
           ref={list}
           className="ca-board-list ca-schedlist"
+          data-drag-list
           aria-activedescendant={selectedEntry ? (selectedEntry.p ? sessionRowId(selectedEntry.id, selectedEntry.p.session.key) : scheduleRowId(selectedEntry.id)) : undefined}
           onKeyDown={keys}
         >
-          {grouped && grouped.pinned.length > 0 && (
-            <PinnedGroups by={grouped.by} count={grouped.pinned.reduce((n, g) => n + g.all.length, 0)} reorder={false}>
-              {grouped.pinned.map((g) => groupBlock(g, true))}
-            </PinnedGroups>
-          )}
           {rowsOf('active')}
           {section('oneOff').length > 0 && (
             <section className="ca-bayblock">
@@ -361,6 +368,7 @@ export function SchedulesView(props: SchedulesViewProps) {
               {showFinished && <div className="ca-bay-lanes">{rowsOf('finished')}</div>}
             </section>
           )}
+          {groupDrag.ghost}
         </div>
       )}
     </>

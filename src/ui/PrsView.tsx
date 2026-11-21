@@ -19,7 +19,7 @@
 
 import { byDay, newestFirst, type DayId } from '../days';
 import { absolute, ago, count } from '../format';
-import { groupOptions, groupsOf, placeIn, type GroupBy, type Grouped, type ListGroupBy, type Place } from '../groups';
+import { groupOptions, groupsOf, noneLabel, placeIn, type GroupBy, type Grouped, type ListGroup, type ListGroupBy, type Place } from '../groups';
 import { selectHow, type SelectHow } from '../picks';
 import { helpsAnAgent, listedStatus } from '../lanes';
 import { heldForAgent, prFlag, type PrPrimary } from '../prStatus';
@@ -30,7 +30,7 @@ import { PrLabels } from './PrLabels';
 import { PrPills } from './PrPills';
 import { ProjectSaidHere } from './ProjectSaid';
 import { cx, HarnessChip, Icon, MoreChip, PR_ICON, PR_WORD, RepoChip, Row, SectionHeader, WorktreeChip } from './primitives';
-import { GroupBlock, PinnedGroups, type GroupActs } from './Groups';
+import { GroupBlock, useGroupDrag, type GroupActs } from './Groups';
 import { SnoozeChip } from './LaneRow';
 import { useRowDrag, type DragProps } from './useRowDrag';
 import { cmd } from '../platform';
@@ -87,8 +87,8 @@ export function syncWords(g: GitInfo | null): string | null {
 }
 
 /** How much each PR's row says: its repo, branch, author, sessions and worktree on a second line,
- *  or one line with its standing and size at the end. */
-export const PR_ROWS = rowsOptions('under each PR, its standing, repo, branch, author, sessions, worktree and size', 'each PR with its standing and size at the end');
+ *  or one line with its repo and standing at the end. */
+export const PR_ROWS = rowsOptions('under each PR, its standing, repo, branch, author, sessions, worktree and size', 'each PR with its repo and standing at the end');
 
 /** How the PRs that aren't pinned are ordered. */
 export type PrSort = 'status' | 'opened';
@@ -156,12 +156,13 @@ export function prMove(r: Pick<PrRowItem, 'pr' | 'sessions'>): ReturnType<typeof
   return flag && (r.pr.reviewRequested || !prAgentWork(r)) ? flag : null;
 }
 
-/** Where a PR goes, grouped: the worktree that holds it, or none here; or its repo, by its slug on
- *  GitHub, whether or not a worktree here has it. */
+/** Where a PR goes, grouped: the worktree that holds it, or none here; its repo, by its slug on
+ *  GitHub; or its project. */
 export function prPlace(r: PrRowItem, by: GroupBy): Place {
   if (by === 'worktree') return placeIn(r.lane, by);
+  if (by === 'project') return r.pr.project ? { key: r.pr.project, lane: null, repo: null, project: r.pr.project } : { key: '', lane: null, repo: null, project: null };
   const slug = r.pr.repoSlug;
-  return { key: slug, lane: null, repo: { name: r.pr.repo, slug, project: r.pr.project } };
+  return { key: slug, lane: null, repo: { name: r.pr.repo, slug, project: r.pr.project }, project: null };
 }
 
 export interface PrSection {
@@ -335,7 +336,6 @@ function PrRow({ item, domId, now, slim, opened, onShowRepo, selected, onSelect,
               <span className="ca-prrow-end">
                 {repo}
                 <PrPills pr={pr} omit={omit} />
-                {diff}
               </span>
             </>
           ) : (
@@ -366,7 +366,7 @@ function PrRow({ item, domId, now, slim, opened, onShowRepo, selected, onSelect,
                   <MoreChip names={sessions.slice(shown.length).map(({ session }) => `${session.title} · ${session.account}`)} />
                 </span>
               )}
-              {item.lane && under !== 'worktree' && (
+              {item.lane && item.lane.reuse && item.lane.origin !== 'main' && under !== 'worktree' && (
                 <ProjectSaidHere project={repo ? pr.project : null}>
                   <WorktreeChip lane={item.lane} short />
                 </ProjectSaidHere>
@@ -469,9 +469,12 @@ export function PrsView(props: PrsViewProps) {
       }
     />
   );
-  /** A group: its heading and its PRs. A press on a worktree's heading shows the worktree. */
-  const group = (g: Grouped<PrSection, PrRowItem>['pinned'][number], acts: GroupActs, pin: boolean, section?: PrSection['id']) => (
-    <GroupBlock key={`group:${g.key}`} g={g} acts={acts} now={now} rows={false} pinned={pin} none={PR_NONE}>
+  const allGroups = groups ? groupsOf(groups) : [];
+  const groupDrag = useGroupDrag(allGroups, groupActs);
+  const reorderCount = groups ? groups.groups.filter((g) => g.key !== '').length : 0;
+  /** A group: its collapsible heading and its PRs. A press on a worktree's heading shows the worktree. */
+  const group = (g: ListGroup<PrRowItem>, acts: GroupActs, index: number | null, section?: PrSection['id']) => (
+    <GroupBlock key={`group:${g.key}`} g={g} acts={acts} now={now} rows={false} drag={index != null ? groupDrag.rowProps(g.key, index, reorderCount) : undefined} none={noneLabel(g.by, PR_NONE)}>
       {g.rows.map((r) => row(r, null, g.key ? g.by : undefined, section))}
     </GroupBlock>
   );
@@ -481,17 +484,14 @@ export function PrsView(props: PrsViewProps) {
       {pinned.length === 0 && drag.dropIndex === 0 && <div className="ca-dropline" />}
       {pinned.length > 0 && <PinnedSection items={pinned} row={row} />}
       {drag.ghost}
+      {groupDrag.ghost}
       {groups && groupActs ? (
         <>
-          {groups.pinned.length > 0 && (
-            <PinnedGroups by={groups.by} count={groups.pinned.length} reorder={false}>
-              {groups.pinned.map((g) => group(g, groupActs, true))}
-            </PinnedGroups>
-          )}
-          {groups.sections.map((s) => (
+          {groups.groups.map((g, i) => group(g, groupActs, g.key ? i : null))}
+          {groups.apart.map((s) => (
             <section key={s.id} className="ca-bayblock">
               {header(s, s.count)}
-              {(s.id !== 'done' || showDone) && <div className="ca-bay-lanes">{s.groups.map((g) => group(g, groupActs, false, s.id))}</div>}
+              {(s.id !== 'done' || showDone) && <div className="ca-bay-lanes">{s.groups.map((g) => group(g, groupActs, null, s.id))}</div>}
             </section>
           ))}
         </>

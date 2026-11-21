@@ -121,7 +121,7 @@ export function buildPreviewPage(indexHtml, run) {
   if (project) parts.push(`localStorage.setItem('codealong.project',${JSON.stringify(project)});`);
   if (vars.PREVIEW_GROUP) {
     const g = JSON.stringify(vars.PREVIEW_GROUP);
-    parts.push(`localStorage.setItem('codealong.sessionGroup',${g});localStorage.setItem('codealong.prGroup',${g});localStorage.setItem('codealong.todoGroup',${g});`);
+    parts.push(`localStorage.setItem('codealong.sessionGroup',${g});localStorage.setItem('codealong.prGroup',${g});localStorage.setItem('codealong.todoGroup',${g});localStorage.setItem('codealong.scheduleGroup',${g});`);
   }
   if (vars.PREVIEW_LOADING) parts.push('window.__PREVIEW_LOADING__=true;');
   if (vars.PREVIEW_EMBLEMS) parts.push(`window.__PREVIEW_EMBLEMS__=${JSON.stringify(vars.PREVIEW_EMBLEMS)};`);

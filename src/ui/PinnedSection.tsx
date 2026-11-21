@@ -16,7 +16,7 @@ interface PinnedSectionProps<T> {
 export function PinnedSection<T>({ items, row, folded, onToggle }: PinnedSectionProps<T>) {
   return (
     <section className="ca-bayblock ca-pinned">
-      <SectionHeader icon="pinned" label="Pinned" count={items.length} hint={folded ? undefined : <ReorderHint />} folded={folded} onToggle={onToggle} />
+      <SectionHeader icon="pinned" label="Pinned" count={items.length} hint={folded || items.length < 2 ? undefined : <ReorderHint hover />} folded={folded} onToggle={onToggle} />
       {!folded && <div className="ca-bay-lanes">{items.map((item, index) => row(item, index))}</div>}
     </section>
   );

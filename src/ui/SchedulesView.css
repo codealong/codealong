@@ -45,9 +45,21 @@
 .ca-schedrow.is-paused .ca-schedrow-name {
   color: var(--ink-3);
 }
-.ca-chip.ca-schedrow-does {
-  font: var(--type-caption-strong);
-  color: var(--ink-2);
+.ca-schedrow-does {
+  flex: 0 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font: var(--type-meta);
+  color: var(--ink-3);
+}
+.ca-schedrow.is-slim .ca-schedrow-does {
+  flex: 0 100000 auto;
+  max-width: 36ch;
+}
+.ca-schedrow .ca-lane-line2 > .ca-lane-lead:empty {
+  display: none;
 }
 .ca-chip.ca-schedrow-problem {
   font: var(--type-caption-strong);

@@ -180,6 +180,11 @@ export function useRowDrag<T extends DropTarget = DropTarget>(options: RowDragOp
     const ordered = [...d.list.querySelectorAll(`[data-drag-of="${name}"][data-pin-index]`)].map(spanOf);
     const first = d.list.querySelector(`[data-drag-of="${name}"]`);
     const at = zoneAt(d.y, ordered, first ? spanOf(first) : null, spanOf(d.row), d.inOrder, !!opts.current.joins);
+    // In a reorder-only list with no unpin zone (e.g. groups whose children extend below the last
+    // group's header), dropping anywhere below the last ordered header places the item at the end.
+    if (at === 'list' && d.inOrder && !opts.current.onLeave && ordered.length > 0 && d.y >= ordered[ordered.length - 1].bottom) {
+      return { at: 'order', index: ordered.length };
+    }
     return at === 'list' ? { at: 'list' } : { at: 'order', index: at };
   };
 

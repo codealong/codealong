@@ -22,7 +22,9 @@ import type { Board, DevicesView, HarnessSchedule, Label, Lane, PrItem, PrSessio
 import type { ActionCounts } from './ui/ProjectSwitcher';
 import { inPrTab, prIsOpen, prMove, prPlace, prPlaces, prSections, prSessionsNow, prTabCounts, waitsOnReview, type PrGroupBy, type PrRowItem, type PrSort, type PrTab } from './ui/PrsView';
 import { groupSessions, helpersUnder, sessionSections, waitingQueue, type SessionItem, type SessionSort, type StartedPlace } from './ui/SessionsView';
-import { groupRows, placeIn, type ListGroupBy } from './groups';
+import { todoPlace } from './ui/TodoView';
+import { groupRows, type ListGroup, type ListGroupBy } from './groups';
+import type { GroupOrders } from './groupPrefs';
 import { hasSessionSections, visibleSessionRows, type SessionSectionParts } from './sectionFolds';
 
 const ELSEWHERE = 'Elsewhere';
@@ -1141,12 +1143,11 @@ export interface ListsInput {
   sessionSort: SessionSort;
   /** Whether a session another one started is listed under that one (SessionsView.tsx). */
   sessionStarted: StartedPlace;
-  /** Whether Sessions is grouped, and by what; the groups pinned (worktrees' or repos', as it
-   *  is), and the groups opened past their fold. */
+  /** Whether Sessions is grouped, and by what; saved custom group order per grouping kind;
+   *  and the groups opened past their fold or collapsed. */
   sessionGroup: ListGroupBy;
-  /** The repos pinned, which lead a list grouped by repo as the pinned worktrees (`lanePins`)
-   *  lead one grouped by worktree. */
-  repoPins: Pins;
+  groupOrders: GroupOrders;
+  groupCollapsed?: (view: string, g: ListGroup<unknown>) => boolean;
   openGroups: ReadonlySet<string>;
   /** Whether PRs and Todo are grouped, and by what, and their groups opened past their fold. */
   prGroup: PrGroupBy;
@@ -1175,15 +1176,10 @@ export interface ListsInput {
 
 /** The lists, each kept while what it's made from stays the same. */
 export function useBoardLists(input: ListsInput) {
-  const { board, deviceLanes, devices, deviceFilter, project, loading, cutoff, since, now, query, said, filter, sessionPins, helpersShown, lanePins, prPins, sessionSort, sessionStarted, sessionGroup, repoPins, openGroups, prGroup, openPrGroups, todoGroup, openTodoGroups, prSort, prTab, todoSort, showArchived, sectionFolded, showDonePrs, todos, labels, facets, showDoneTodos, showArchivedTodos, shownBoard, columnOpen } = input;
+  const { board, deviceLanes, devices, deviceFilter, project, loading, cutoff, since, now, query, said, filter, sessionPins, helpersShown, lanePins, prPins, sessionSort, sessionStarted, sessionGroup, groupOrders, groupCollapsed, openGroups, prGroup, openPrGroups, todoGroup, openTodoGroups, prSort, prTab, todoSort, showArchived, sectionFolded, showDonePrs, todos, labels, facets, showDoneTodos, showArchivedTodos, shownBoard, columnOpen } = input;
 
   const projects = useMemo(() => projectsOf(board?.projects ?? [], deviceLanes), [board?.projects, deviceLanes]);
   const current = currentProject(project, projects, loading);
-  // The pins of a list's groups: the same worktrees, or repos, lead every list grouped by them.
-  const pinnedOf = (by: ListGroupBy) => (by === 'repo' ? repoPins.keys : lanePins.keys);
-  const sessionGroupPins = pinnedOf(sessionGroup);
-  const prGroupPins = pinnedOf(prGroup);
-  const todoGroupPins = pinnedOf(todoGroup);
 
   // Archived sessions leave every view but the Archived list.
   const rawLanes = useMemo(() => withDevices(board?.lanes ?? [], deviceLanes, deviceFilter), [board?.lanes, deviceLanes, deviceFilter]);
@@ -1226,19 +1222,17 @@ export function useBoardLists(input: ListsInput) {
   const tops = useMemo(() => sessionTops(shownSessions, sessionPins, sessionStarted), [shownSessions, sessionPins, sessionStarted]);
   const { listening: listeningRows, pinned: pinnedRows, under: topHelpers } = tops;
   const sessionSecs = useMemo(() => sessionSections(tops.rest, sessionSort, now, sessionStarted), [tops.rest, sessionSort, now, sessionStarted]);
-  // Grouped by worktree or repo (SessionsView.tsx `groupSessions`): the pinned groups after the
-  // pinned sessions, then each group under its first session's heading. A pinned group with no
-  // session listed still shows while only the age narrows the list.
-  const narrowing = sessionsNarrowed(query, filter, facets);
+  // Grouped by project, repo or worktree (SessionsView.tsx `groupSessions`): unified ordered list
+  // of groups (custom or alphabetical) with sorting applied underneath each group.
   const groupedSecs = useMemo(
-    () => (sessionGroup === 'none' ? null : groupSessions(sessionSecs, sessionGroup, { pinned: sessionGroupPins, lanes: projectLanes, empty: !narrowing, opened: openGroups, whole: !!query })),
-    [sessionGroup, sessionSecs, sessionGroupPins, projectLanes, narrowing, openGroups, query],
+    () => (sessionGroup === 'none' ? null : groupSessions(sessionSecs, sessionGroup, { order: groupOrders[sessionGroup], opened: openGroups, whole: !!query })),
+    [sessionGroup, sessionSecs, groupOrders, openGroups, query],
   );
   const sessionParts = useMemo<SessionSectionParts>(
     () => ({ orchestrators: orchestratorRows, listening: listeningRows, pinned: pinnedRows, topHelpers, sections: sessionSecs, groups: groupedSecs, archived: archivedItems }),
     [orchestratorRows, listeningRows, pinnedRows, topHelpers, sessionSecs, groupedSecs, archivedItems],
   );
-  const sessionRows = useMemo<ListRow[]>(() => visibleSessionRows(sessionParts, sectionFolded), [sessionParts, sectionFolded]);
+  const sessionRows = useMemo<ListRow[]>(() => visibleSessionRows(sessionParts, sectionFolded, groupCollapsed ? (g) => groupCollapsed('sessions', g) : undefined), [sessionParts, sectionFolded, groupCollapsed]);
   const hasSessions = useMemo(() => hasSessionSections(sessionParts, showArchived), [sessionParts, showArchived]);
   // What waits on you, for working through it from a session's panel (useWaitingQueue.ts).
   const waitingRows = useMemo(() => waitingQueue([...orchestratorRows, ...shownSessions]), [orchestratorRows, shownSessions]);
@@ -1258,20 +1252,23 @@ export function useBoardLists(input: ListsInput) {
   const pinnedPrRows = useMemo(() => inPinOrder(prRows, prPins.keys, (r) => r.pr.key), [prRows, prPins.keys]);
   const prSecs = useMemo(() => prSections(prRows.filter((r) => !prPins.set.has(r.pr.key)), prSort, now, prTab), [prRows, prPins.set, prSort, now, prTab]);
   const prCounts = useMemo(() => prTabCounts(prRows), [prRows]);
-  // Grouped by worktree or repo (groups.ts): the pinned groups after the pinned PRs, a PR that's
-  // needs you never folded away, Merged & closed grouped among themselves.
+  // Grouped by project, repo or worktree (groups.ts): a PR that needs you never folds away, and
+  // Merged & closed groups among itself at the bottom.
   const groupedPrs = useMemo(
-    () => (prGroup === 'none' ? null : groupRows(prSecs, prGroup, (r) => prPlace(r, prGroup), { pinned: prGroupPins, lanes: projectLanes, empty: false, opened: openPrGroups, whole: !!query, awake: ([r]) => prMove(r) !== null, apart: (id) => id === 'done' })),
-    [prGroup, prSecs, prGroupPins, projectLanes, openPrGroups, query],
+    () => (prGroup === 'none' ? null : groupRows(prSecs, prGroup, (r) => prPlace(r, prGroup), { order: groupOrders[prGroup], opened: openPrGroups, whole: !!query, awake: ([r]) => prMove(r) !== null, apart: (id) => id === 'done' })),
+    [prGroup, prSecs, groupOrders, openPrGroups, query],
   );
   const prVisible = useMemo<ListRow[]>(
     () => [
       ...pinnedPrRows,
       ...(groupedPrs
-        ? [...groupedPrs.pinned.flatMap((g) => g.rows), ...groupedPrs.sections.flatMap((s) => (s.id === 'done' && !showDonePrs ? [] : s.groups.flatMap((g) => g.rows)))]
+        ? [
+            ...groupedPrs.groups.flatMap((g) => (groupCollapsed?.('prs', g) ? [] : g.rows)),
+            ...groupedPrs.apart.flatMap((s) => (s.id === 'done' && !showDonePrs ? [] : s.groups.flatMap((g) => (groupCollapsed?.('prs', g) ? [] : g.rows)))),
+          ]
         : prSecs.flatMap((s) => (s.id === 'done' && !showDonePrs ? [] : s.rows))),
     ],
-    [pinnedPrRows, groupedPrs, prSecs, showDonePrs],
+    [pinnedPrRows, groupedPrs, prSecs, showDonePrs, groupCollapsed],
   );
   const openPrCount = useMemo(() => projectPrs.filter((p) => prIsOpen(p) && p.updatedAt >= cutoff).length, [projectPrs, cutoff]);
   const requestedCount = useMemo(() => projectPrs.filter(waitsOnReview).length, [projectPrs]);
@@ -1290,30 +1287,31 @@ export function useBoardLists(input: ListsInput) {
   const todoRows = useMemo(() => listedTodos.filter((r) => todoInFacets(r, facets)), [listedTodos, facets]);
   const todoLabels = useMemo(() => todoLabelOptions(listedTodos, labels, facets), [listedTodos, labels, facets]);
   const todoSecs = useMemo(() => todoSections(todoRows, todos, todoSort, now), [todoRows, todos, todoSort, now]);
-  // Grouped by worktree or repo (groups.ts): by the worktree a todo's actions use, the pinned groups
-  // first, one in progress or in review never folded away, Done grouped among itself. Archived
-  // todos aren't grouped: they're listed after the groups, the latest archived first.
+  // Grouped by project, repo or worktree (groups.ts): one in progress or in review never folds
+  // away, Done groups among itself, and Archived stays ungrouped at the end.
   const groupedTodos = useMemo(
     () =>
       todoGroup === 'none'
         ? null
-        : groupRows(todoSecs.filter((s) => s.id !== 'archived'), todoGroup, (r) => placeIn(r.lane, todoGroup), {
-            pinned: todoGroupPins,
-            lanes: projectLanes,
-            empty: false,
+        : groupRows(todoSecs.filter((s) => s.id !== 'archived'), todoGroup, (r) => todoPlace(r, todoGroup), {
+            order: groupOrders[todoGroup],
             opened: openTodoGroups,
             whole: !!query,
             awake: ([r]) => AT_WORK.has(itemSection(r, todos)),
             apart: (id) => id === 'done',
           }),
-    [todoGroup, todoSecs, todoGroupPins, projectLanes, openTodoGroups, query, todos],
+    [todoGroup, todoSecs, groupOrders, openTodoGroups, query, todos],
   );
   const todoVisible = useMemo<ListRow[]>(() => {
     const archived = showArchivedTodos ? (todoSecs.find((s) => s.id === 'archived')?.rows ?? []) : [];
     return groupedTodos
-      ? [...groupedTodos.pinned.flatMap((g) => g.rows), ...groupedTodos.sections.flatMap((s) => (s.id === 'done' && !showDoneTodos ? [] : s.groups.flatMap((g) => g.rows))), ...archived]
+      ? [
+          ...groupedTodos.groups.flatMap((g) => (groupCollapsed?.('todo', g) ? [] : g.rows)),
+          ...groupedTodos.apart.flatMap((s) => (s.id === 'done' && !showDoneTodos ? [] : s.groups.flatMap((g) => (groupCollapsed?.('todo', g) ? [] : g.rows)))),
+          ...archived,
+        ]
       : todoSecs.flatMap((s) => (s.id === 'archived' ? archived : s.id === 'done' && !showDoneTodos ? [] : s.rows));
-  }, [groupedTodos, todoSecs, showDoneTodos, showArchivedTodos]);
+  }, [groupedTodos, todoSecs, showDoneTodos, showArchivedTodos, groupCollapsed]);
   const openTodoCount = useMemo(() => projectTodos.filter(isOpen).length, [projectTodos]);
   // Which todos each session and worktree is on, for their chips.
   const todoLinks = useMemo(() => todoIndex(todos, homes), [todos, homes]);

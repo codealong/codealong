@@ -14,16 +14,17 @@
 // reordered, Done is grouped among itself, and the ones with no worktree go under a heading of
 // their own.
 
-import { forwardRef, type ReactNode } from 'react';
+import { forwardRef, useContext, type ReactNode } from 'react';
 import { absolute, ago, middleTruncate } from '../format';
-import { groupOptions, type Grouped, type ListGroup } from '../groups';
+import { groupOptions, groupsOf, noneLabel, placeIn, type GroupBy, type Grouped, type Place } from '../groups';
 import { selectHow, type SelectHow } from '../picks';
+import { todoRowLanes, todoRowSessions } from '../rowSignal';
 import { attachmentsIn, blockedBy, itemSection, SECTION_WORD, snippet, statusSection, todoPr, type TodoItem, type TodoSection, type TodoSectionId, type TodoSort } from '../todos';
 import type { Label, Lane, Pr, Session, Todo, TodoHint, TodoStatus } from '../types';
 import { Chip, cx, HarnessChip, Icon, Kbd, MoreChip, PrChip, ReorderHint, Row, SectionHeader, WorktreeChip } from './primitives';
 import { rowsOptions, type RowLines } from './ListBar';
-import { ProjectSaidHere, ProjectTag } from './ProjectSaid';
-import { GroupBlock, PinnedGroups, type GroupActs } from './Groups';
+import { ProjectSaidHere, ProjectShown, ProjectTag } from './ProjectSaid';
+import { GroupBlock, useGroupDrag, type GroupActs } from './Groups';
 import { DueChip, LabelChip, TodoGlyph } from './TodoBits';
 import { useRowDrag, type DragProps } from './useRowDrag';
 import { cmd } from '../platform';
@@ -35,6 +36,15 @@ export const TODO_GROUPS = groupOptions('todos');
 
 /** What the heading over todos in no worktree says. */
 export const TODO_NONE = 'No worktree';
+
+/** Where a todo goes, grouped: its project, its worktree's repo, or its worktree. */
+export function todoPlace(r: TodoItem, by: GroupBy): Place {
+  if (by === 'project') {
+    const project = r.todo.project || (r.lane && !r.lane.startsChats ? r.lane.project : null) || null;
+    return project ? { key: project, lane: null, repo: null, project } : { key: '', lane: null, repo: null, project: null };
+  }
+  return placeIn(r.lane, by);
+}
 
 export const TODO_ROWS = rowsOptions('under each todo, when it’s due, its labels, sessions, worktree and PR', 'each todo with its chips at the end, as many as fit, and its PR');
 
@@ -130,17 +140,16 @@ interface TodoRowProps {
   under?: string;
 }
 
-const CHIPS_SHOWN = 3;
-
 /** A todo in the list: its title and the start of its description, then when it's due, its labels,
  *  what it waits on, the sessions on it and the worktrees and PR it's in. On one line (`slim`)
  *  they follow its title at the line's end, the last giving way first, its PR always shown. */
 function TodoRow({ item, section, domId, now, slim, added, selected, onSelect, onOpen, onContextMenu, onOpenSession, onShowPr, onOpenPr, onFilterLabel, blocked, hint, drag, under }: TodoRowProps) {
   const { todo } = item;
+  const shownProject = useContext(ProjectShown);
   const pr = todoPr(item);
   const detail = snippet(todo.description);
-  const sessions = item.sessions.slice(0, CHIPS_SHOWN);
-  const lanes = item.places.map((p) => p.lane).filter((l) => l.id !== under);
+  const { shown: sessions, rest: moreSessions } = todoRowSessions(item.sessions, slim);
+  const lanes = todoRowLanes(item.places.map((p) => p.lane), todo.project, shownProject, under);
   const waiting = todo.pending.length > 0;
   const attached = attachmentsIn(todo.description);
   const chips = (
@@ -174,7 +183,7 @@ function TodoRow({ item, section, domId, now, slim, added, selected, onSelect, o
           Looks done
         </Chip>
       )}
-      {attached.length > 0 && (
+      {!slim && attached.length > 0 && (
         <Chip className="ca-todorow-attached" title={attached.map((a) => (a.kind === 'image' ? 'Image' : a.name)).join('\n')}>
           <Icon name="paperclip" size={12} />
           {attached.length}
@@ -183,7 +192,7 @@ function TodoRow({ item, section, domId, now, slim, added, selected, onSelect, o
       {sessions.map(({ lane, session }) => (
         <HarnessChip key={session.key} session={session} named onOpen={() => onOpenSession(lane, session)} />
       ))}
-      <MoreChip names={item.sessions.slice(CHIPS_SHOWN).map(({ session }) => `${session.title} · ${session.account}`)} />
+      <MoreChip names={moreSessions.map(({ session }) => `${session.title} · ${session.account}`)} />
       {waiting && (
         <Chip className="ca-todorow-waiting" title="Started in an app. The session is linked when it shows up.">
           <Icon name="clock" size={12} />
@@ -335,28 +344,20 @@ function todoRow(props: TodoViewProps, r: TodoItem, section: TodoSectionId, drag
 }
 
 /** A status's section, in your order, or a day's, sorted by when added, where each todo's box
- *  still says its status and nothing is reordered. Grouped (`groups`), its groups, each its
- *  heading and its todos in their order, none reordered. */
-function Section({ section, groups, count, props }: { section: Pick<TodoSection, 'id' | 'label'> & { rows?: TodoItem[] }; groups?: ListGroup<TodoItem>[]; count: number; props: TodoViewProps }) {
-  const { todos, selectedKey, picked, canReorder, onMove, groupActs, now } = props;
+ *  still says its status and nothing is reordered. */
+function Section({ section, count, props }: { section: Pick<TodoSection, 'id' | 'label'> & { rows: TodoItem[] }; count: number; props: TodoViewProps }) {
+  const { todos, canReorder, onMove } = props;
   const status = statusSection(section.id) ? section.id : null;
-  const rows = groups ? groups.flatMap((g) => g.rows) : (section.rows ?? []);
-  const drag = useTodoDrag(rows, status && !groups ? (id, index) => onMove(status, id, index) : undefined);
-  const draggable = !!status && !groups && canReorder && rows.length > 1;
-  const hint = draggable && selectedKey && picked.size === 0 && rows.some((r) => r.key === selectedKey) ? <ReorderHint /> : undefined;
-  // Grouped, a section's groups hold todos of other statuses too, which their boxes still say.
-  const sectionOf = (r: TodoItem) => (groups ? null : status) ?? itemSection(r, todos);
+  const rows = section.rows;
+  const drag = useTodoDrag(rows, status ? (id, index) => onMove(status, id, index) : undefined);
+  const draggable = !!status && canReorder && rows.length > 1;
+  const hint = draggable ? <ReorderHint hover /> : undefined;
+  const sectionOf = (r: TodoItem) => status ?? itemSection(r, todos);
   return (
     <section className="ca-bayblock">
       {status ? <SectionHead id={status} count={count} hint={hint} /> : <SectionHeader label={section.label} count={count} />}
       <div className="ca-bay-lanes" data-drag-list>
-        {groups && groupActs
-          ? groups.map((g) => (
-              <GroupBlock key={`group:${g.key}`} g={g} acts={groupActs} now={now} rows={false} pinned={false} none={TODO_NONE}>
-                {g.rows.map((r) => todoRow(props, r, sectionOf(r), drag.rowProps(r.todo.id, null, 0), g.lane?.id))}
-              </GroupBlock>
-            ))
-          : rows.map((r, i) => todoRow(props, r, sectionOf(r), drag.rowProps(r.todo.id, draggable ? i : null, rows.length)))}
+        {rows.map((r, i) => todoRow(props, r, sectionOf(r), drag.rowProps(r.todo.id, draggable ? i : null, rows.length)))}
       </div>
       {drag.ghost}
     </section>
@@ -374,13 +375,17 @@ function useTodoDrag(rows: TodoItem[], onMove?: (id: string, index: number) => v
 }
 
 export function TodoView(props: TodoViewProps) {
-  const { sections, groups, groupActs, now, showDone, onToggleDone, showArchived, onToggleArchived, composer, empty } = props;
+  const { sections, groups, groupActs, todos, now, showDone, onToggleDone, showArchived, onToggleArchived, composer, empty } = props;
   const open = sections.filter((s) => s.id !== 'done' && s.id !== 'archived');
   const done = sections.find((s) => s.id === 'done');
-  const groupedDone = groups?.sections.find((s) => s.id === 'done');
+  const groupedDone = groups?.apart.find((s) => s.id === 'done');
   const doneRows = groupedDone ? groupedDone.groups.flatMap((g) => g.rows) : (done?.rows ?? []);
   const archivedRows = sections.find((s) => s.id === 'archived')?.rows ?? [];
-  // Done and archived todos keep no order of yours; they can still go to the desktop.
+  const allGroups = groups ? groupsOf(groups) : [];
+  const groupDrag = useGroupDrag(allGroups, groupActs);
+  const reorderCount = groups ? groups.groups.filter((g) => g.key !== '').length : 0;
+  // Grouped, done and archived todos keep no order of yours; they can still go to the desktop.
+  const mainGroupDrag = useTodoDrag(groups ? groups.groups.flatMap((g) => g.rows) : []);
   const doneDrag = useTodoDrag(doneRows);
   const archivedDrag = useTodoDrag(archivedRows);
   return (
@@ -389,16 +394,21 @@ export function TodoView(props: TodoViewProps) {
       {sections.length === 0 && <div className="ca-board-empty">{empty}</div>}
       {groups && groupActs ? (
         <>
-          {groups.pinned.length > 0 && (
-            <PinnedGroups by={groups.by} count={groups.pinned.length} reorder={false}>
-              <PinnedTodos groups={groups.pinned} acts={groupActs} props={props} />
-            </PinnedGroups>
-          )}
-          {groups.sections
-            .filter((s) => s.id !== 'done')
-            .map((s) => (
-              <Section key={s.id} section={s} groups={s.groups} count={s.count} props={props} />
-            ))}
+          {groups.groups.map((g, i) => (
+            <GroupBlock
+              key={`group:${g.key}`}
+              g={g}
+              acts={groupActs}
+              now={now}
+              rows={false}
+              drag={g.key ? groupDrag.rowProps(g.key, i, reorderCount) : undefined}
+              none={noneLabel(g.by, TODO_NONE)}
+            >
+              {g.rows.map((r) => todoRow(props, r, itemSection(r, todos), mainGroupDrag.rowProps(r.todo.id, null, 0), g.lane?.id))}
+            </GroupBlock>
+          ))}
+          {groupDrag.ghost}
+          {mainGroupDrag.ghost}
         </>
       ) : (
         open.map((s) => <Section key={s.id} section={s} count={s.rows.length} props={props} />)
@@ -418,7 +428,7 @@ export function TodoView(props: TodoViewProps) {
             <div className="ca-bay-lanes">
               {groupedDone && groupActs
                 ? groupedDone.groups.map((g) => (
-                    <GroupBlock key={`group:${g.key}`} g={g} acts={groupActs} now={now} rows={false} pinned={false} none={TODO_NONE}>
+                    <GroupBlock key={`group:${g.key}`} g={g} acts={groupActs} now={now} rows={false} none={noneLabel(g.by, TODO_NONE)}>
                       {g.rows.map((r) => todoRow(props, r, 'done', doneDrag.rowProps(r.todo.id, null, 0), g.lane?.id))}
                     </GroupBlock>
                   ))
@@ -444,22 +454,6 @@ export function TodoView(props: TodoViewProps) {
           {archivedDrag.ghost}
         </section>
       )}
-    </>
-  );
-}
-
-/** The pinned worktrees' or repos' todos, each under its heading, each todo's box saying its
- *  status. */
-function PinnedTodos({ groups, acts, props }: { groups: ListGroup<TodoItem>[]; acts: GroupActs; props: TodoViewProps }) {
-  const drag = useTodoDrag(groups.flatMap((g) => g.rows));
-  return (
-    <>
-      {groups.map((g) => (
-        <GroupBlock key={`group:${g.key}`} g={g} acts={acts} now={props.now} rows={false} pinned none={TODO_NONE}>
-          {g.rows.map((r) => todoRow(props, r, itemSection(r, props.todos), drag.rowProps(r.todo.id, null, 0), g.lane?.id))}
-        </GroupBlock>
-      ))}
-      {drag.ghost}
     </>
   );
 }

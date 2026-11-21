@@ -173,6 +173,7 @@ PREVIEW_WAIT=60000 PREVIEW_GLASS=1 scripts/preview.sh quick '' scripts/preview/g
 PREVIEW_WAIT=60000 PREVIEW_GROUP=worktree scripts/preview.sh prs '' scripts/preview/session-reveal-check.js
 PREVIEW_WAIT=60000 PREVIEW_GROUP=worktree scripts/preview.sh sessions '' scripts/preview/chip-clicks-check.js
 PREVIEW_WAIT=60000 PREVIEW_GROUP=worktree scripts/preview.sh sessions '' scripts/preview/chip-lanes-check.js
+PREVIEW_WAIT=60000 PREVIEW_GROUP=worktree scripts/preview.sh sessions '' scripts/preview/drag-check.js
 PREVIEW_WAIT=60000 PREVIEW_GROUP=worktree scripts/preview.sh sessions '' scripts/preview/pr-chip-check.js
 PREVIEW_WAIT=60000 PREVIEW_INIT=scripts/preview/thread-look-init.js scripts/preview.sh sessions '' scripts/preview/thread-look-check.js
 PREVIEW_WAIT=60000 PREVIEW_INIT=scripts/preview/waiting-review-init.js scripts/preview.sh waiting '' scripts/preview/strip-fold-check.js

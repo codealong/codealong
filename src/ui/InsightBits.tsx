@@ -27,12 +27,15 @@ export function ProviderFlagChip({ session }: { session: Session }) {
 
 /** The session's risk while it waits on you; else that it's finished; else how its turn leaves
  *  things with you while it's Your turn, and how far its work got. Not after a lost connection
- *  ended its turn: Jev read Claude Code's error, which it takes for being blocked. */
-export function InsightChips({ session }: { session: Session }) {
+ *  ended its turn: Jev read Claude Code's error, which it takes for being blocked. In one-line
+ *  mode (`slim`), quiet turn endings (`Offers more`, `Waits on its own work`) stay out of the
+ *  row's way. */
+export function InsightChips({ session, slim = false }: { session: Session; slim?: boolean }) {
   const risk = riskLabel(session);
   const lost = !!session.connectionLost && session.status !== 'working';
   const finished = risk || lost ? null : finishedLabel(session);
-  const ending = risk || lost || finished ? null : endingLabel(session);
+  const rawEnding = risk || lost || finished ? null : endingLabel(session);
+  const ending = slim && rawEnding?.tone === 'quiet' ? null : rawEnding;
   const landing = risk || lost || finished ? null : landingLabel(session.insight);
   return (
     <>

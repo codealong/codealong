@@ -9,9 +9,10 @@
 import { REUSE_WORDS } from '../reusable';
 import { DeviceBadge } from './DeviceBadge';
 import { memoRow } from './memoRow';
-import type { ReactNode } from 'react';
-import { absolute, ago, agoPhrase, middleTruncate, untilShort } from '../format';
-import { branchLabel, foldWords, helperLine, raisedBy, sideTitle, startedOf, worktreeName, type Fold, type Placed } from '../lanes';
+import { useContext, type ReactNode } from 'react';
+import { absolute, ago, agoPhrase, duration, elapsedShort, middleTruncate, untilShort } from '../format';
+import { branchLabel, foldWords, helperLine, listedStatus, raisedBy, sideTitle, startedOf, workingSince, worktreeName, type Fold, type Placed } from '../lanes';
+import { hasActiveHelpers, hasActiveRuns, hasActiveSides, stripWorkingFor } from '../rowSignal';
 import { selectHow, type SelectHow } from '../picks';
 import { untilWords } from '../snooze';
 import type { HelperCount, RunCount, SideCount } from '../boardLists';
@@ -24,7 +25,7 @@ import { FlagChip, InsightChips, LooksFinished } from './InsightBits';
 import { HelpersCard, type HelperActions } from './HelpersCard';
 import { useHoverCard } from './HoverCard';
 import { PreviewChip } from './PreviewBits';
-import { ProjectPrefix } from './ProjectSaid';
+import { ProjectIcon, ProjectIcons, ProjectPrefix, useProjectAvatar } from './ProjectSaid';
 import { LabelChip, TodoChips } from './TodoBits';
 import { cmd } from '../platform';
 import { useListening } from '../listening';
@@ -68,9 +69,45 @@ export function ReuseChip({ lane }: { lane: Lane }) {
   );
 }
 
+/** Chevron button in a group heading's left column that collapses or expands its children without
+ *  triggering row selection or drag. Non-interactive while searching (`onCollapse` omitted). */
+function GroupToggle({ collapsed, label, onCollapse }: { collapsed: boolean; label: string; onCollapse?: () => void }) {
+  if (!onCollapse) {
+    return (
+      <div className="ca-seg ca-seg-glyph" aria-hidden="true">
+        <Icon name={collapsed ? 'chevron-right' : 'chevron-down'} size={12} className="ca-grouphead-chevron" />
+      </div>
+    );
+  }
+  return (
+    <div className="ca-seg ca-seg-glyph">
+      <button
+        type="button"
+        className="ca-grouphead-toggle"
+        aria-expanded={!collapsed}
+        aria-label={collapsed ? `Expand ${label}` : `Collapse ${label}`}
+        onPointerDown={(e) => e.stopPropagation()}
+        onMouseDown={(e) => e.stopPropagation()}
+        onClick={(e) => {
+          e.stopPropagation();
+          onCollapse();
+        }}
+      >
+        <Icon name={collapsed ? 'chevron-right' : 'chevron-down'} size={12} className="ca-grouphead-chevron" />
+      </button>
+    </div>
+  );
+}
+
 interface WorktreeHeadProps {
   lane: Lane;
   now: number;
+  /** How many rows belong to this group. */
+  count: number;
+  /** Whether the group's children are hidden. */
+  collapsed?: boolean;
+  /** Toggles collapsed state; undefined while searching. */
+  onCollapse?: () => void;
   /** A row of the list (Sessions), selected and picked as one, with its element id; else a heading
    *  a press on which shows the worktree (PRs, Todo). */
   role: 'option' | 'heading';
@@ -78,7 +115,6 @@ interface WorktreeHeadProps {
   selected: boolean;
   /** Picked together with other worktrees (picks.ts). */
   picked: boolean;
-  pinned: boolean;
   /** A press: alone, or with ⌘ or ⇧ held, picking it with other worktrees. */
   onSelect: (how: SelectHow) => void;
   /** Double-click: opens its most recent session. */
@@ -93,26 +129,28 @@ interface WorktreeHeadProps {
   onPrShow?: () => void;
   /** A double-click on its PR: opens it on GitHub. */
   onPrOpen?: () => void;
-  /** Dragging it among the pinned groups, or out of the window. */
+  /** Dragging it to reorder groups, or out of the window to pin to the desktop. */
   drag?: DragProps;
 }
 
 /**
- * A worktree heading its rows (sessions, PRs, todos), on one line: its name, then where it is (its device, its repo
- * and branch), whether new work can start there, Jev's read, its app and its PR; at the end where
- * it stands against the default branch, lines then commits. Short of room the repo and branch
- * give way first, then the chips from the end. Selected, its panel shows; a double-click opens its
- * most recent session, as its sessions' rows open theirs.
+ * A worktree heading its rows (sessions, PRs, todos), on one line: chevron toggle, its project
+ * avatar/prefix, its name, count, where it is (its device, its repo and branch), whether new work
+ * can start there, Jev's read, its app and its PR; at the end where it stands against the default
+ * branch, lines then commits. Short of room the repo and branch give way first, then the chips
+ * from the end. Selected, its panel shows; a double-click opens its most recent session.
  */
-function WorktreeHeadView({ lane, now, role, domId, selected, picked, pinned, onSelect, onOpen, onOpenTarget, onMenu, onPrMenu, onPrShow, onPrOpen, drag }: WorktreeHeadProps) {
+function WorktreeHeadView({ lane, now, count, collapsed = false, onCollapse, role, domId, selected, picked, onSelect, onOpen, onOpenTarget, onMenu, onPrMenu, onPrShow, onPrOpen, drag }: WorktreeHeadProps) {
   const { sub, branch } = laneSub(lane);
+  const avatar = useProjectAvatar(lane.project);
+  const name = worktreeName(lane);
   return (
     <Row
       id={domId}
       role={role}
       level={role === 'heading' ? 4 : undefined}
       selected={selected || picked}
-      className={cx('ca-lane', 'ca-grouphead', 'is-worktree-head', `is-${lane.bay}`, pinned && 'is-pinned', away(lane) && 'is-away')}
+      className={cx('ca-lane', 'ca-grouphead', 'is-worktree-head', `is-${lane.bay}`, collapsed && 'is-collapsed', away(lane) && 'is-away')}
       drag={drag}
       onSelect={(e) => onSelect(selectHow(e))}
       onOpen={(e) => {
@@ -120,13 +158,17 @@ function WorktreeHeadView({ lane, now, role, domId, selected, picked, pinned, on
       }}
       onMenu={onMenu}
     >
-      <div className="ca-seg ca-seg-glyph" aria-hidden="true">
-        <Icon name="folder" size={14} />
-      </div>
+      <GroupToggle collapsed={collapsed} label={name} onCollapse={onCollapse} />
       <div className="ca-seg ca-seg-main" title={`${lane.path}. Double-click to open its most recent session.`}>
         <div className="ca-grouphead-line">
-          <ProjectPrefix project={lane.project} beside={[lane.repo, worktreeName(lane)]} />
-          <span className="ca-grouphead-name">{worktreeName(lane)}</span>
+          {avatar && (
+            <span className="ca-grouphead-icon" aria-hidden="true">
+              <ProjectIcon src={avatar} size={14} />
+            </span>
+          )}
+          <ProjectPrefix project={lane.project} beside={[lane.repo, name]} withIcon={!avatar} />
+          <span className="ca-grouphead-name">{name}</span>
+          <span className="ca-grouphead-count">{count}</span>
           <span className="ca-lane-sub ca-grouphead-sub" title={branch ?? lane.path}>
             {lane.device && <DeviceBadge device={lane.device} now={now} />}
             {sub}
@@ -149,20 +191,23 @@ function WorktreeHeadView({ lane, now, role, domId, selected, picked, pinned, on
 
 export const WorktreeHead = memoRow(WorktreeHeadView);
 
-/** A repo heading its rows: its name, and its slug on GitHub where that says more. It isn't a
- *  row to select (there's no repo panel), but it has a menu and is pinned and dragged as a
- *  worktree's heading is. */
-function RepoHeadView({ repo, pinned, onMenu, drag }: { repo: RepoName; pinned: boolean; onMenu?: () => void; drag?: DragProps }) {
+/** A repo heading its rows: chevron toggle, org avatar (or book icon), its name, count, and its
+ *  slug on GitHub where that says more. Clicking toggles collapse; dragging reorders groups. */
+function RepoHeadView({ repo, count, collapsed = false, onCollapse, onMenu, drag }: { repo: RepoName; count: number; collapsed?: boolean; onCollapse?: () => void; onMenu?: () => void; drag?: DragProps }) {
   const { name, slug, project } = repo;
+  const avatar = useProjectAvatar(project);
+  const fallback = <Icon name="book" size={14} />;
   return (
-    <Row role="heading" level={4} className={cx('ca-lane', 'ca-grouphead', 'is-repo-head', pinned && 'is-pinned')} drag={drag} onMenu={onMenu}>
-      <div className="ca-seg ca-seg-glyph" aria-hidden="true">
-        <Icon name="book" size={14} />
-      </div>
+    <Row role="heading" level={4} className={cx('ca-lane', 'ca-grouphead', 'is-repo-head', collapsed && 'is-collapsed', !!onCollapse && 'is-collapsible')} drag={drag} onClick={onCollapse} onMenu={onMenu}>
+      <GroupToggle collapsed={collapsed} label={name} onCollapse={onCollapse} />
       <div className="ca-seg ca-seg-main" title={slug ?? name}>
         <div className="ca-grouphead-line">
-          <ProjectPrefix project={project} beside={[name]} />
+          <span className="ca-grouphead-icon" aria-hidden="true">
+            {avatar ? <ProjectIcon src={avatar} size={14} fallback={fallback} /> : fallback}
+          </span>
+          <ProjectPrefix project={project} beside={[name]} withIcon={false} />
           <span className="ca-grouphead-name">{name}</span>
+          <span className="ca-grouphead-count">{count}</span>
           {slug && slug !== name && <span className="ca-lane-sub ca-grouphead-sub">{slug}</span>}
         </div>
       </div>
@@ -172,17 +217,39 @@ function RepoHeadView({ repo, pinned, onMenu, drag }: { repo: RepoName; pinned: 
 
 export const RepoHead = memoRow(RepoHeadView);
 
-/** The heading of a section's rows in no worktree or repo (a PR no worktree here holds, a todo
- *  with none linked), last in the section: what they lack, and nothing to do. */
-export function NoneHead({ label }: { label: string }) {
+/** A project heading its rows: chevron toggle, org avatar (or stack icon), its name, and count.
+ *  Clicking toggles collapse; dragging reorders groups. */
+function ProjectHeadView({ project, count, collapsed = false, onCollapse, drag }: { project: string; count: number; collapsed?: boolean; onCollapse?: () => void; drag?: DragProps }) {
+  const icon = useContext(ProjectIcons).get(project);
+  const fallback = <Icon name="stack" size={14} />;
   return (
-    <Row role="heading" level={4} className="ca-lane ca-grouphead is-none-head">
-      <div className="ca-seg ca-seg-glyph" aria-hidden="true">
-        <Icon name="folder" size={14} />
+    <Row role="heading" level={4} className={cx('ca-lane', 'ca-grouphead', 'is-project-head', collapsed && 'is-collapsed', !!onCollapse && 'is-collapsible')} drag={drag} onClick={onCollapse}>
+      <GroupToggle collapsed={collapsed} label={project} onCollapse={onCollapse} />
+      <div className="ca-seg ca-seg-main" title={project}>
+        <div className="ca-grouphead-line">
+          <span className="ca-grouphead-icon" aria-hidden="true">
+            <ProjectIcon src={icon} size={14} fallback={fallback} />
+          </span>
+          <span className="ca-grouphead-name">{project}</span>
+          <span className="ca-grouphead-count">{count}</span>
+        </div>
       </div>
+    </Row>
+  );
+}
+
+export const ProjectHead = memoRow(ProjectHeadView);
+
+/** The heading of rows in no worktree, repo or project, last in the list: what they lack and their
+ *  count, collapsible like any other group. */
+export function NoneHead({ label, count, collapsed = false, onCollapse }: { label: string; count: number; collapsed?: boolean; onCollapse?: () => void }) {
+  return (
+    <Row role="heading" level={4} className={cx('ca-lane', 'ca-grouphead', 'is-none-head', collapsed && 'is-collapsed', !!onCollapse && 'is-collapsible')} onClick={onCollapse}>
+      <GroupToggle collapsed={collapsed} label={label} onCollapse={onCollapse} />
       <div className="ca-seg ca-seg-main">
         <div className="ca-grouphead-line">
           <span className="ca-grouphead-none">{label}</span>
+          <span className="ca-grouphead-count">{count}</span>
         </div>
       </div>
     </Row>
@@ -214,7 +281,8 @@ export function GroupFoldRow({ folded, opened, onToggle }: { folded: number; ope
  * which gives way first when the line is short. A session another worktree has, listed with this
  * one, says what it did here first: made it, or worked in it.
  */
-function SessionText({ s, now, flag = true }: { s: Session; now: number; flag?: boolean }) {
+function SessionText({ s, now, flag = true, stripFor = false }: { s: Session; now: number; flag?: boolean; stripFor?: boolean }) {
+  const detail = stripFor ? stripWorkingFor(s.detail) : s.detail;
   return (
     <span className="ca-agentline-text">
       <SessionEmblem emblem={s.emblem} of={s.key} />
@@ -222,10 +290,10 @@ function SessionText({ s, now, flag = true }: { s: Session; now: number; flag?: 
         <Rich text={s.title} now={now} />
       </span>
       {flag && <FlagChip session={s} />}
-      {(s.detail || s.visitor) && (
+      {(detail || s.visitor) && (
         <span className="ca-lane-detail ca-agentline-detail">
-          {s.visitor && (s.detail ? `${s.visitor} · ` : s.visitor)}
-          {s.detail && <Rich text={s.detail} now={now} />}
+          {s.visitor && (detail ? `${s.visitor} · ` : s.visitor)}
+          {detail && <Rich text={detail} now={now} />}
         </span>
       )}
     </span>
@@ -235,6 +303,8 @@ function SessionText({ s, now, flag = true }: { s: Session; now: number; flag?: 
 interface SessionLinesProps {
   s: Session;
   now: number;
+  /** Strip the leading `{for:...}` from detail when the row's age column shows turn duration. */
+  stripFor?: boolean;
   /** Where it is, first on the second line: its worktree, unless its group's heading says it. */
   where?: ReactNode;
   /** What shows at the second line's end: its worktree's PR and diff. */
@@ -275,11 +345,11 @@ interface SessionLinesProps {
  * the top, snooze, quiet, its agent's seen, todo, labels and Jev's read, then its account), with `end` at the second line's end. A search
  * that found it by what was said puts the line that has the words between them.
  */
-function SessionLines({ s, now, where, end, todos, onShowTodo, onFilterLabel, onOpen, helpers, helpersShown, onToggleHelpers, helperActions, runs, runsShown, onToggleRuns, sides, sidesShown, onToggleSides, sideActions, said, movedTo, onShowMoved }: SessionLinesProps) {
+function SessionLines({ s, now, stripFor = false, where, end, todos, onShowTodo, onFilterLabel, onOpen, helpers, helpersShown, onToggleHelpers, helperActions, runs, runsShown, onToggleRuns, sides, sidesShown, onToggleSides, sideActions, said, movedTo, onShowMoved }: SessionLinesProps) {
   return (
     <>
       <div className="ca-agentrow-line1">
-        <SessionText s={s} now={now} />
+        <SessionText s={s} now={now} stripFor={stripFor} />
       </div>
       {said && <SaidText said={said} className="ca-agentrow-said" />}
       <div className="ca-lane-line2">
@@ -289,11 +359,11 @@ function SessionLines({ s, now, where, end, todos, onShowTodo, onFilterLabel, on
           <HelperChip session={s} />
           <HelpersChip helpers={helpers} now={now} shown={helpersShown} onToggle={onToggleHelpers} actions={helperActions} />
           <RunsChip runs={runs} shown={runsShown} onToggle={onToggleRuns} actions={helperActions} now={now} />
-          <SidesChip sides={sides} shown={sidesShown} onToggle={onToggleSides} actions={sideActions} now={now} />
+          <SidesChip sides={sides} shown={sidesShown} unread={!!s.sideAnswer} onToggle={onToggleSides} actions={sideActions} now={now} />
           <RaisedChip raised={s.raised} />
           <SnoozeChip until={s.snoozedUntil} now={now} />
-          <QuietChip quiet={s.quiet} />
-<Listens sessionKey={s.key} />
+          {!s.orchestrator && <QuietChip quiet={s.quiet} />}
+          <Listens sessionKey={s.key} />
           <AgentSeenChip seen={s.agentSeen} />
           <SuggestedChip suggestions={s.suggestions} />
           <TodoChips todos={todos} onShow={onShowTodo} inRow />
@@ -363,6 +433,9 @@ interface AgentRowProps {
   /** Listed under its worktree's heading, which says the worktree, its PR and its diff, so the
    *  row doesn't. */
   inWorktree?: boolean;
+  /** Listed under its repo's heading, which says the project and repo already, so disposable
+   *  worktrees leave out their chip while reusable slots still name themselves. */
+  inRepo?: boolean;
   /** What a search found it by when that's what was said in it (boardLists.ts `saidLinesOf`). */
   said?: SaidLine;
   /** The copy this session moved to on another account (lineage.ts `movedTargets`), shown as a
@@ -472,7 +545,7 @@ export function HelperChip({ session: s, nested }: { session: Session; nested?: 
  *  under the row, or none again (`shown`). */
 export function RunsChip({ runs: r, shown = false, onToggle, actions, now }: { runs: RunCount | undefined; shown?: boolean; onToggle?: () => void; actions?: HelperActions; now: number }) {
   const card = useHoverCard();
-  if (!r || r.count === 0) return null;
+  if (!r || (!shown && !hasActiveRuns(r))) return null;
   const what = r.count === 1 ? 'A headless run' : `${r.count} headless runs`;
   const at = r.working > 0 ? `, ${r.working} at work` : '';
   const how = onToggle ? `\nDouble-click to list ${shown ? 'none of them' : 'them all'} under it.` : '';
@@ -492,14 +565,12 @@ export function RunsChip({ runs: r, shown = false, onToggle, actions, now }: { r
   );
 }
 
-/** The chip on a session's row for its side conversations (boardLists.ts `sideCounts`): how many,
- *  with the working glyph while one answers. Resting the pointer on it brings up the helpers' card
- *  for them (HelpersCard.tsx, `kind` sides), each to show above the session's box; where there's
- *  no card (`actions`), how many and whether one answers is in its tooltip. A double-click lists
- *  them all under the row, or only the one answering again (`shown`). */
-export function SidesChip({ sides: c, shown = false, onToggle, actions, now }: { sides: SideCount | undefined; shown?: boolean; onToggle?: () => void; actions?: HelperActions; now: number }) {
+/** The chip on a session's row for its side conversations (boardLists.ts `sideCounts`): shown
+ *  while one is answering, has an unread answer, or all of them are expanded (`shown`). Resting
+ *  the pointer on it brings up the helpers' card for them (HelpersCard.tsx, `kind` sides). */
+export function SidesChip({ sides: c, shown = false, unread = false, onToggle, actions, now }: { sides: SideCount | undefined; shown?: boolean; unread?: boolean; onToggle?: () => void; actions?: HelperActions; now: number }) {
   const card = useHoverCard();
-  if (!c || c.count === 0) return null;
+  if (!c || (!shown && !hasActiveSides(c, unread))) return null;
   const what = c.count === 1 ? 'A side conversation' : `${c.count} side conversations`;
   const at = c.working > 0 ? ', one answering' : '';
   const how = onToggle ? `\nDouble-click to list ${shown ? 'only the one answering' : 'them all'} under it.` : '';
@@ -523,14 +594,12 @@ export function SidesChip({ sides: c, shown = false, onToggle, actions, now }: {
 const HELPER_GLYPHS = 3;
 
 /** The chip on a session's row for its helpers (the ones its agent started, and the automatic
- *  reviews of a PR it opened): each one's status glyph, the most urgent first, in the attention
- *  color while one waits on you. Resting the pointer on it brings up its card (HelpersCard.tsx),
- *  every helper in full, to show or open; where there's no card (`actions`), each one's line is
- *  in its tooltip (lanes.ts `helperLine`). A double-click lists them all under the row, finished
- *  ones too, or only the ones at work again (`shown`). */
+ *  reviews of a PR it opened): shown while any helper is active or waiting on you, or while the
+ *  user expanded finished ones (`shown`). Finished helpers stay in SessionHeader and the row's
+ *  context menu. */
 export function HelpersChip({ helpers: h, now, shown = false, onToggle, actions }: { helpers: HelperCount | undefined; now: number; shown?: boolean; onToggle?: () => void; actions?: HelperActions }) {
   const card = useHoverCard();
-  if (!h || h.count === 0) return null;
+  if (!h || (!shown && !hasActiveHelpers(h))) return null;
   const more = h.count - HELPER_GLYPHS;
   const lines = h.each.map((g) => `· ${helperLine(g, now)}`).join('\n');
   const how = onToggle ? `\nDouble-click to list ${shown ? 'only the ones at work or waiting on you' : 'them all'} under it.` : '';
@@ -569,9 +638,9 @@ function SessionLabelChips({ labels, onFilter }: { labels: Label[] | undefined; 
 /** Where a session's row says it is: its worktree, or for an orchestrator, what it keeps watch over.
  *  Every orchestrator is called Orchestrator and lives among Codealong's chats, so under All
  *  projects, where each one leads Sessions, their rows read apart only by this. */
-function PlaceChip({ session: s, lane, short = false }: { session: Session; lane: Lane; short?: boolean }) {
+function PlaceChip({ session: s, lane, short = false, alwaysName = false }: { session: Session; lane: Lane; short?: boolean; alwaysName?: boolean }) {
   const o = s.orchestrator;
-  if (!o) return <WorktreeChip lane={lane} short={short} />;
+  if (!o) return <WorktreeChip lane={lane} short={short} alwaysName={alwaysName} />;
   const words = scopeWords(o.project);
   return (
     <Chip className="ca-wtchip" title={`The orchestrator for ${words}: it keeps watch over ${o.project ? `${o.project}’s` : 'your projects’'} sessions for you`}>
@@ -613,11 +682,14 @@ export function SuggestedChip({ suggestions: g }: { suggestions: Suggestions | u
  * Under its worktree's heading (`inWorktree`) it leaves those to the heading too. A search that
  * found it by what was said in it adds the line that has the words, under the first.
  */
-function AgentRowView({ lane, session: s, domId, now, age, slim = false, selected, onSelect, onOpen, pinned, onContextMenu, onPrMenu, onPrShow, onPrOpen, drag, todos, onShowTodo, onFilterLabel, helpers, helpersShown, onToggleHelpers, helperActions, runs, runsShown, onToggleRuns, sides, sidesShown, onToggleSides, sideActions, nested, elsewhere, inWorktree = false, said, movedTo, onShowMoved }: AgentRowProps) {
+function AgentRowView({ lane, session: s, domId, now, age, slim = false, selected, onSelect, onOpen, pinned, onContextMenu, onPrMenu, onPrShow, onPrOpen, drag, todos, onShowTodo, onFilterLabel, helpers, helpersShown, onToggleHelpers, helperActions, runs, runsShown, onToggleRuns, sides, sidesShown, onToggleSides, sideActions, nested, elsewhere, inWorktree = false, inRepo = false, said, movedTo, onShowMoved }: AgentRowProps) {
   const started = age === 'started';
   const oneLine = slim || nested;
-  // Where it works, said where neither its session's row nor its heading says it.
-  const where = nested ? !!elsewhere : !inWorktree;
+  // Where it works, said where neither its session's row nor its heading says it: under a repo's
+  // heading, main checkouts and disposable worktrees don't repeat the repo, while non-main
+  // reusable slots still name themselves.
+  const where = nested ? !!elsewhere : !inWorktree && (!inRepo || (!!lane.reuse && lane.origin !== 'main') || !!lane.device || !!s.orchestrator);
+  const runSince = !started && listedStatus(s) === 'working' ? workingSince(s) : null;
   const pr = !nested && !inWorktree && lane.pr && <PrChip pr={lane.pr} compact onMenu={onPrMenu} onShow={onPrShow} onOpen={onPrOpen} inRow />;
   return (
     <Row
@@ -639,23 +711,23 @@ function AgentRowView({ lane, session: s, domId, now, age, slim = false, selecte
       {oneLine ? (
         <div className="ca-seg ca-seg-main">
           <div className="ca-agentrow-line1">
-            <SessionText s={s} now={now} flag={false} />
+            <SessionText s={s} now={now} flag={false} stripFor={runSince != null} />
             <span className="ca-chips ca-lane-tags">
               <MovedChip to={movedTo} onShow={onShowMoved} inRow />
               <FlagChip session={s} />
               <HelperChip session={s} nested={nested} />
               <HelpersChip helpers={helpers} now={now} shown={helpersShown} onToggle={onToggleHelpers} actions={helperActions} />
               <RunsChip runs={runs} shown={runsShown} onToggle={onToggleRuns} actions={helperActions} now={now} />
-              <SidesChip sides={sides} shown={sidesShown} onToggle={onToggleSides} actions={sideActions} now={now} />
+              <SidesChip sides={sides} shown={sidesShown} unread={!!s.sideAnswer} onToggle={onToggleSides} actions={sideActions} now={now} />
               <RaisedChip raised={s.raised} />
               <SnoozeChip until={s.snoozedUntil} now={now} />
-              <QuietChip quiet={s.quiet} />
-<Listens sessionKey={s.key} />
+              {!s.orchestrator && <QuietChip quiet={s.quiet} />}
+              <Listens sessionKey={s.key} />
               <AgentSeenChip seen={s.agentSeen} />
               <SuggestedChip suggestions={s.suggestions} />
               <SessionLabelChips labels={s.labels} onFilter={onFilterLabel} />
-              <InsightChips session={s} />
-              {where && <PlaceChip session={s} lane={lane} short />}
+              <InsightChips session={s} slim />
+              {where && <PlaceChip session={s} lane={lane} short alwaysName={!!(nested && elsewhere)} />}
             </span>
             {pr}
           </div>
@@ -666,6 +738,7 @@ function AgentRowView({ lane, session: s, domId, now, age, slim = false, selecte
           <SessionLines
             s={s}
             now={now}
+            stripFor={runSince != null}
             where={where && <PlaceChip session={s} lane={lane} />}
             end={
               !inWorktree && (
@@ -701,10 +774,12 @@ function AgentRowView({ lane, session: s, domId, now, age, slim = false, selecte
         title={
           started
             ? `Started ${absolute(startedOf(s))}, which sets its place in the list. Last active ${agoPhrase(s.lastActivity, now)}.`
-            : `Last active ${absolute(s.lastActivity)}. You last sent it a prompt ${agoPhrase(s.lastPromptAt, now)}, which sets its place in the list.`
+            : runSince != null
+              ? `Working for ${duration(runSince, now)}. Last active ${agoPhrase(s.lastActivity, now)}.`
+              : `Last active ${absolute(s.lastActivity)}. You last sent it a prompt ${agoPhrase(s.lastPromptAt, now)}, which sets its place in the list.`
         }
       >
-        {ago(started ? startedOf(s) : s.lastActivity, now)}
+        {started ? ago(startedOf(s), now) : runSince != null ? elapsedShort(runSince, now) : ago(s.lastActivity, now)}
       </div>
     </Row>
   );

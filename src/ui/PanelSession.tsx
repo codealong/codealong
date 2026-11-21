@@ -240,7 +240,7 @@ export function PanelPlaces({ places: given, open, label, project, now, onShowLa
       {places.map(({ lane, sessions, note }) => (
         <span key={lane.id} className="ca-places-group" role="listitem">
           <ProjectSaidHere project={project}>
-            <WorktreeChip lane={lane} short note={note} onShow={() => onShowLane(lane)} onMenu={() => onLaneMenu(lane)} />
+            <WorktreeChip lane={lane} short alwaysName note={note} onShow={() => onShowLane(lane)} onMenu={() => onLaneMenu(lane)} />
           </ProjectSaidHere>
           {sessions.map((s) => {
             const main = s.key === primary?.key;
