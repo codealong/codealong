@@ -31,7 +31,7 @@
     .then(function () {
       var f = field();
       check('a first choice to begin with', picked() === 'First choice', picked());
-      check('says what it shares and what a first choice does', /reviewing a pull request that asks for your review/.test(f.textContent) && /runs them whenever it can/.test(f.textContent), f.textContent);
+      check('says what it shares and what a first choice does', /reviewing a pull request that asks for your review or one your sessions opened/.test(f.textContent) && /runs them whenever it can/.test(f.textContent), f.textContent);
       check('each linked machine says its own place', /First choice/.test(card('Mac mini').textContent) && /Backup/.test(card('Studio').textContent), card('Mac mini').textContent + ' | ' + card('Studio').textContent);
       choice('Backup').click();
       return until(function () { return calls('save_config').length; }, 5000, 'the pick saved');

@@ -169,6 +169,26 @@ pub fn worked_prs(links: &PrLinks, lanes: &[Lane]) -> Vec<String> {
     prs.into_iter().map(|(_, pr)| pr.clone()).collect()
 }
 
+/// The open PRs of yours that another machine of yours owns (its card says so:
+/// autoreview/own.rs), in repos this machine has a checkout of, as `owner/name#number`: read by
+/// their numbers here too (`made_to_read`), so this machine lists them (`made_item`) and can review
+/// them for that one. A checkout on its repo's default branch alone has its PRs read no other way
+/// (`polled_slugs`), and none of this machine's sessions worked on them (`worked_prs`).
+pub fn owned_elsewhere(machines: &crate::shared::Machines, lanes: &[Lane]) -> Vec<String> {
+    let here: HashSet<String> = lanes.iter().filter(|l| l.device.is_none()).flat_map(|l| [l.repo_slug.as_deref(), l.repo_slug_now.as_deref()]).flatten().map(str::to_ascii_lowercase).collect();
+    let mut out: Vec<String> = machines
+        .others
+        .iter()
+        .flat_map(|m| &m.prs)
+        .filter(|c| c.state.is_open() && c.shared_review.as_ref().is_some_and(|s| s.owner))
+        .filter(|c| c.key.rsplit_once('#').is_some_and(|(slug, _)| here.contains(&slug.to_ascii_lowercase())))
+        .map(|c| crate::prlinks::pr_key(&c.key))
+        .collect();
+    out.sort();
+    out.dedup();
+    out
+}
+
 /// Whether GitHub would merge the PR now: open and not a draft, with nothing between it and a
 /// merge (no conflict, no review or rule it waits on, every check passed), and not resting only on
 /// approvals of an earlier commit (`stale_approval`). src/prStatus.ts `prReady` says the same.

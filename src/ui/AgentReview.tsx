@@ -14,7 +14,7 @@
 // while that can take it (`send_agent_review`).
 
 import { useEffect, useRef, useState } from 'react';
-import { excerptAt, lineLink, type ExcerptLine } from '../agentReview';
+import { excerptAt, lineLink, writtenKey, type ExcerptLine } from '../agentReview';
 import { dropDraftComment, editDraft, editDraftComment, openUrl, prAgentReviews, sendAgentReview, takeTeamSettings } from '../api';
 import { absolute, ago, agoPhrase, middleTruncate } from '../format';
 import { changeDraft, commentsWord, draftShown, readAgain, submittedWord, type Held } from '../prDraft';
@@ -322,7 +322,7 @@ const ROUNDS_SHOWN = 3;
 function Written({ pr, review, detail, now, sessions, onShowSession }: { pr: PrItem; review: AutoReview; detail?: PrDetail; now: number; sessions: { lane: Lane; session: Session }[]; onShowSession: ShowSession }) {
   // Read again as a round ends or begins, and as the window reloads; what was read stays up
   // meanwhile.
-  const asked = `${pr.key}@${review.stage}:${review.at}:${review.rounds}`;
+  const asked = writtenKey(pr, review);
   const [read, setRead] = useState<{ key: string; reviews: WrittenReview[] }>({ key: '', reviews: [] });
   const reloads = useReloads();
   useEffect(() => {

@@ -19,9 +19,9 @@
 //! Machines on builds from before 2026-11-21 say nothing of owning a PR, and review their own PRs
 //! themselves, as before; so does a machine that shares no automations.
 
-use super::{claim_state, has_checkout, origin, Part, Round, Store, Tracked};
+use super::{claim_state, clean, has_checkout, origin, Part, Round, Store, Tracked, NOTHING_TO_RAISE};
 use crate::config::ReviewsCfg;
-use crate::model::{Board, Lane, PartState, PrItem, ReviewStage};
+use crate::model::{Harness, Lane, PartState, PrItem, ReviewStage};
 use crate::shared::{Machine, Machines};
 use codealong_peer::pr::{AutoReview, ClaimState, HandedReview, SharedReview};
 
@@ -35,8 +35,9 @@ enum Reviewer<'a> {
     Nobody,
 }
 
-/// The machine of yours that owns PR `pr` of yours, by its card, when another does.
-fn owner<'a>(pr: &PrItem, machines: &'a Machines) -> Option<&'a Machine> {
+/// The machine of yours that owns PR `pr` of yours, by its card, when another does: its card is
+/// kept while it's asleep, so it still owns it then.
+pub(super) fn owner<'a>(pr: &PrItem, machines: &'a Machines) -> Option<&'a Machine> {
     machines.others.iter().find(|m| m.pr(&pr.key).and_then(|c| c.shared_review.as_ref()).is_some_and(|s| s.owner))
 }
 
@@ -60,17 +61,25 @@ pub(super) fn would_for(cfg: &ReviewsCfg, lanes: &[Lane], pr: &PrItem) -> bool {
     pr.mine && cfg.own.auto && pr.state.is_open() && pr.head_oid.is_some() && origin(lanes, pr).is_none() && has_checkout(lanes, pr)
 }
 
-/// Whether this machine reviews PR `pr` of yours for the machine that owns it now, as `board`'s
-/// cards and its own (`PrItem::shared_review`) say.
-pub(super) fn reviews_here(pr: &PrItem, board: &Board, now: i64) -> bool {
-    pr.mine && origin(&board.lanes, pr).is_none() && reviewer(pr, &pr.shared_review, false, &board.machines, now) == Reviewer::Here
+/// Whether this machine reviews PR `pr` of yours for the machine that owns it now, as the other
+/// machines' cards and its own (`PrItem::shared_review`) say.
+pub(super) fn reviews_here(pr: &PrItem, lanes: &[Lane], machines: &Machines, now: i64) -> bool {
+    pr.mine && origin(lanes, pr).is_none() && reviewer(pr, &pr.shared_review, false, machines, now) == Reviewer::Here
+}
+
+/// The harness that wrote PR `pr` of yours, by the primary session the machine that owns it names
+/// on its card (`PrCard::primary`, a key that starts with its harness): what a review here keeps
+/// off, as it keeps off the harness of a primary session here (`pr_harness`).
+pub(super) fn harness(pr: &PrItem, machines: &Machines) -> Option<Harness> {
+    let key = owner(pr, machines)?.pr(&pr.key)?.primary.as_deref()?;
+    crate::harness::named(key.split(':').next()?).map(|a| a.harness())
 }
 
 /// Another machine of yours that reviews PR `pr` of yours, at commit `head`, with its latest round
-/// of the PR, for this machine's card to show: until a review of `head` that another machine wrote
-/// is kept here (`import`), which says more.
+/// of the PR, for this machine's card to show: until a review of `head` is here, written here or
+/// kept from another machine (`import`), which says more.
 pub(super) fn elsewhere<'a>(t: Option<&Tracked>, pr: &PrItem, head: &str, owned: bool, machines: &'a Machines, now: i64) -> Option<(&'a Machine, Option<&'a AutoReview>)> {
-    if t.is_some_and(|t| t.rounds.iter().any(|r| r.head == head && r.from.is_some())) {
+    if t.is_some_and(|t| t.rounds.iter().any(|r| r.head == head && (r.from.is_some() || claim_state(r.stage, false) == ClaimState::Done))) {
         return None;
     }
     match reviewer(pr, &pr.shared_review, owned, machines, now) {
@@ -88,10 +97,13 @@ pub(super) fn handed(t: Option<&Tracked>) -> Option<HandedReview> {
 }
 
 /// Keeps here the reviews other machines of yours wrote of PR `pr` of yours (`key`), which this
-/// machine owns, from their cards (`handed`): each as a round of its own, in its place among the
-/// PR's rounds by when it was done, once for each commit, and not over a review of that commit
-/// that got done here. Not while a round here is under way, which may give way to it first
-/// (`ELSEWHERE`). True when one was kept.
+/// machine owns, from their cards (`handed`): each as a round of its own, once for each commit,
+/// and not over a review of that commit that got done here. A review of the commit the PR is at
+/// is its latest round, whatever ended here meanwhile (a round of it that gave way: their clocks
+/// differ, and one done while the machines couldn't reach each other is seen late); an earlier
+/// commit's goes in its place among the rounds by when it was done, after any other of that
+/// commit's. Not while a round here is under way, which may give way to it first (`ELSEWHERE`).
+/// True when one was kept.
 pub(super) fn import(store: &mut Store, key: &str, pr: &PrItem, machines: &Machines) -> bool {
     let reviewing = |t: &Tracked| t.rounds.last().is_some_and(|r| r.stage == ReviewStage::Reviewing);
     if store.prs.get(key).is_some_and(reviewing) {
@@ -104,9 +116,14 @@ pub(super) fn import(store: &mut Store, key: &str, pr: &PrItem, machines: &Machi
             continue;
         }
         let part = Part { state: PartState::Done, review: Some(h.review.clone()), agent: Some(format!("{} on {}", h.agent, m.name)), ..Part::asked(&h.agent, None, None, h.at) };
-        let round = Round { parts: vec![part], from: Some(m.name.clone()), ..Round::new(&h.head, ReviewStage::Kept, h.at) };
+        // Said as a review written here that found nothing to raise says it (`post`).
+        let note = clean(&h.review).then(|| NOTHING_TO_RAISE.to_string());
+        let round = Round { parts: vec![part], from: Some(m.name.clone()), note, ..Round::new(&h.head, ReviewStage::Kept, h.at) };
         let t = store.prs.entry(key.to_string()).or_default();
-        let at = t.rounds.iter().position(|r| r.at > h.at).unwrap_or(t.rounds.len());
+        let at = match pr.head_oid.as_deref() == Some(h.head.as_str()) {
+            true => t.rounds.len(),
+            false => t.rounds.iter().position(|r| r.at > h.at && r.head != h.head).unwrap_or(t.rounds.len()),
+        };
         t.rounds.insert(at, round);
         kept = true;
     }

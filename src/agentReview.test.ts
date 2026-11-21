@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { agentsVerdict, agentsWords, excerptAt, lineLink, openingTab } from './agentReview';
+import { agentsVerdict, agentsWords, excerptAt, lineLink, openingTab, writtenKey } from './agentReview';
+import type { AutoReview, PrItem } from './types';
 
 /** Two hunks of one file's patch, as GitHub gives it. */
 const PATCH = ['@@ -1,4 +1,5 @@', ' fn a() {', '-    old();', '+    new();', '+    more();', ' }', ' ', '@@ -20,3 +21,3 @@ fn b() {', ' let x = 1;', '-let y = 2;', '+let y = 3;', ' x + y', '\\ No newline at end of file'].join('\n');
@@ -90,5 +91,15 @@ describe('agentsVerdict', () => {
     expect(agentsWords('drafted', 1)).toBe('with your draft review and its comment');
     expect(agentsWords('posted', null)).toBe('pointing to the agent’s review on the PR');
     expect(agentsWords('kept', null)).toBe('with the agent’s review as its text');
+  });
+});
+
+describe('writtenKey', () => {
+  it('reads again once a review of a PR of yours that another machine wrote is kept here, its stage, time and count as they were', () => {
+    const pr = { key: 'o/r#7' } as PrItem;
+    const theirs = { stage: 'kept', head: 'abc', at: 5, rounds: 1, machine: 'Studio' } as AutoReview;
+    expect(writtenKey(pr, { ...theirs, machine: null })).not.toBe(writtenKey(pr, theirs));
+    expect(writtenKey(pr, { ...theirs, machine: undefined })).toBe(writtenKey(pr, { ...theirs, machine: null }));
+    expect(writtenKey(pr, { ...theirs, rounds: 2 })).not.toBe(writtenKey(pr, theirs));
   });
 });
