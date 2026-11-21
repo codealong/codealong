@@ -496,7 +496,10 @@ ours() {
     index(command, ENVIRON["CHROME"]) == 1 && at && (after == "" || after == " ") { print $1 }' || true
 }
 # A Chrome that hung may not go when asked: it gets a few seconds, since its profile can't be
-# removed from under it, and then it's made to. So do its helpers, after it.
+# removed from under it, and then it's made to. So do its helpers, after it. Tests can shorten
+# the poll step (PREVIEW_POLL / PREVIEW_WAIT_POLL) without changing the retry counts.
+poll="${PREVIEW_POLL:-0.2}"
+wait_poll="${PREVIEW_WAIT_POLL:-1}"
 cleanup() {
   # To the end, whatever comes: a second stop (gtimeout signals this script and its group
   # each) would leave the helpers and the profile behind.
@@ -505,7 +508,7 @@ cleanup() {
   local n=0 left
   if [ -n "$browser" ]; then
     while kill -0 "$browser" 2>/dev/null && [ $n -lt 20 ]; do
-      sleep 0.2
+      sleep "$poll"
       n=$((n + 1))
     done
     kill -9 "$browser" 2>/dev/null || true
@@ -516,7 +519,7 @@ cleanup() {
     kill $left 2>/dev/null || true
     n=0
     while [ -n "$(ours)" ] && [ $n -lt 10 ]; do
-      sleep 0.2
+      sleep "$poll"
       n=$((n + 1))
     done
     # Listed again: only what's still there, and still Chrome with this profile.
@@ -626,7 +629,7 @@ if [ -n "$check" ] && [ -n "${PREVIEW_WAIT:-}" ]; then
   started=$SECONDS
   deadline=$((SECONDS + PREVIEW_WAIT / 1000))
   while [ $SECONDS -lt $deadline ]; do
-    sleep 1
+    sleep "$wait_poll"
     # Half a minute with no page to ask about is a Chrome that hung as it started.
     if [ -z "$title" ] && [ $((SECONDS - started)) -gt 30 ]; then
       break
@@ -649,7 +652,7 @@ elif [ -n "$check" ]; then
         break
       fi
     fi
-    sleep 0.2
+    sleep "$poll"
   done
   wait "$browser" 2>/dev/null || true
   # Waited for, so its number is no longer its own: nothing here signals it again.

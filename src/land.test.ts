@@ -68,12 +68,16 @@ test('the docs alone run no checks and need no review', { timeout: SEVERAL }, as
   expect(await plan('design/plans/ios.md')).toBe('');
 });
 
-test('the words the engine’s tests and build hold run them, without a review', { timeout: SEVERAL }, async () => {
-  // CLAUDE.md's size and its list of the rules files, the snapshot modes, the command's reference
-  // and the plugin's copies of the skills are each pinned by a cargo test, and the bundle copies
-  // LICENSE and NOTICE (tauri.conf.json `resources`), so a build without one fails.
-  for (const path of ['CLAUDE.md', '.claude/rules/snapshot.md', 'skills/codealong/SKILL.md', 'skills/codealong/references/reference.md', 'plugin/skills/orchestrate/SKILL.md', 'LICENSE', 'NOTICE']) {
+test('the words the engine’s tests hold run them, and the notes checked in vitest run ui, without a review', { timeout: SEVERAL }, async () => {
+  // The snapshot modes (snapshot.rs), the command's reference and the plugin's copies of the
+  // skills are pinned by cargo tests.
+  for (const path of ['.claude/rules/snapshot.md', 'skills/codealong/SKILL.md', 'skills/codealong/references/reference.md', 'plugin/skills/orchestrate/SKILL.md']) {
     expect(await plan(path), path).toBe('engine');
+  }
+  // CLAUDE.md's size and rules list, the other .claude/rules/ files' frontmatter, and the
+  // bundle's LICENSE/NOTICE resources are checked by src/conventions.test.ts under `ui`.
+  for (const path of ['CLAUDE.md', 'AGENTS.md', '.claude/rules/preview.md', 'LICENSE', 'NOTICE']) {
+    expect(await plan(path), path).toBe('ui');
   }
 });
 
@@ -118,7 +122,8 @@ test('what the engine’s tests read of the windows’ runs both', { timeout: SE
 });
 
 test('several files call for what any of them does', { timeout: SEVERAL }, async () => {
-  expect(await plan('docs/guide.md', 'src/menus.ts', 'CLAUDE.md')).toBe('ui engine checks code');
+  expect(await plan('docs/guide.md', 'src/menus.ts', '.claude/rules/snapshot.md')).toBe('ui engine checks code');
+  expect(await plan('docs/guide.md', 'src/menus.ts', 'CLAUDE.md')).toBe('ui checks code');
   // The checks themselves changed: all of them run, to see they still do.
   expect(await plan('.github/workflows/ci.yml')).toBe('ui engine checks code');
   expect(await plan('.github/dependabot.yml')).toBe('code');

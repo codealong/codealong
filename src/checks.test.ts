@@ -286,12 +286,33 @@ cat >"$tmp/bin/held" <<'EOF'
 ! "$REAL_PYTHON" -c 'import fcntl, sys; fcntl.flock(open(sys.argv[1], "a"), fcntl.LOCK_EX | fcntl.LOCK_NB)' "$FAKE/$1" 2>/dev/null
 EOF
 # The process table: "pid lock command…" for each process started here, of which it lists
-# the ones still there, as "pid command…".
+# the ones still there, as "pid command…". Checked in one Python process rather than spawning
+# Python per row on every poll of cleanup().
 cat >"$tmp/bin/ps" <<'EOF'
 #!/usr/bin/env bash
-while read -r pid lock command; do
-  ! held "$lock" || echo "$pid $command"
-done <"$FAKE/ps" 2>/dev/null
+exec "$REAL_PYTHON" -c '
+import fcntl, os, sys
+fake = os.environ["FAKE"]
+path = os.path.join(fake, "ps")
+if not os.path.exists(path):
+    sys.exit(0)
+with open(path) as f:
+    for line in f:
+        parts = line.strip().split(None, 2)
+        if len(parts) < 3:
+            continue
+        pid, lock, cmd = parts
+        try:
+            fh = open(os.path.join(fake, lock), "a")
+            try:
+                fcntl.flock(fh, fcntl.LOCK_EX | fcntl.LOCK_NB)
+            except BlockingIOError:
+                print(f"{pid} {cmd}")
+            finally:
+                fh.close()
+        except OSError:
+            pass
+'
 EOF
 # A process that holds the lock $1 for its life, and says so once it has it. Asked to go, one
 # that "goes" notes that it was and does; one that "stays" doesn't.
@@ -331,7 +352,7 @@ while read -r pid lock what; do
     looking) echo "$pid $lock grep -F -- --user-data-dir=$profile" ;;
   esac
 done <"$FAKE/bystanders" >>"$FAKE/ps"
-until [ -e "$FAKE/lock.goes.held" ] && [ -e "$FAKE/lock.stays.held" ]; do sleep 0.1; done
+until [ -e "$FAKE/lock.goes.held" ] && [ -e "$FAKE/lock.stays.held" ]; do sleep 0.02; done
 echo up >"$FAKE/ready"
 case "$*" in
   *--dump-dom*) echo '<html><head><title>done: PASS 1/1</title></head></html>' ;;
@@ -351,12 +372,12 @@ for file in fake-tauri.js prelude.js some-check.js; do
   echo "// $file" >"scripts/preview/$file"
 done
 step env PREVIEW_FIXTURE=1 PREVIEW_PREPARE=only PREVIEW_BIN="$tmp/bin/engine" scripts/preview.sh >/dev/null 2>&1
-export PREVIEW_FIXTURE=1 PREVIEW_PREPARE=skip PREVIEW_CHROME="$tmp/bin/chrome"
+export PREVIEW_FIXTURE=1 PREVIEW_PREPARE=skip PREVIEW_CHROME="$tmp/bin/chrome" PREVIEW_POLL=0.02 PREVIEW_WAIT_POLL=0.05
 for what in longer folder within looking; do
   holds "by.$what" goes &
   echo "$! by.$what $what" >>"$tmp/bystanders"
 done
-until [ -e "$tmp/by.longer.held" ] && [ -e "$tmp/by.folder.held" ] && [ -e "$tmp/by.within.held" ] && [ -e "$tmp/by.looking.held" ]; do sleep 0.1; done
+until [ -e "$tmp/by.longer.held" ] && [ -e "$tmp/by.folder.held" ] && [ -e "$tmp/by.within.held" ] && [ -e "$tmp/by.looking.held" ]; do sleep 0.02; done
 # How many of the helpers started since the last count are still there (and none, after), and
 # how many of them went when asked. One made to go lets go of its lock in a moment, so it's
 # looked at a few times before it's taken for there.
@@ -366,7 +387,7 @@ left() {
     all=$((all + 1))
     tries=0
     while held "$lock" && [ $tries -lt 30 ]; do
-      sleep 0.1
+      sleep 0.02
       tries=$((tries + 1))
     done
     if held "$lock"; then
@@ -387,7 +408,7 @@ echo "a screenshot: $?, with $(left)"
 # One stopped part way, as checks.sh stops a run that takes too long: its page never says done.
 SAYS=loading PREVIEW_WAIT=100000 scripts/preview.sh sessions '' scripts/preview/some-check.js >/dev/null 2>&1 &
 run=$!
-until [ -s "$tmp/ready" ]; do sleep 0.2; done
+until [ -s "$tmp/ready" ]; do sleep 0.02; done
 kill "$run"
 wait "$run"
 echo "a check stopped part way: $?, with $(left)"

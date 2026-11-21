@@ -87,12 +87,16 @@ calls_for() {
   case "$1" in
     # Docs nothing tests or builds. CLAUDE.md, the rules and the skills aren't among them.
     docs/* | design/*.md | README.md | CONTRIBUTING.md | SECURITY.md | .github/*.md | .github/CODEOWNERS | .claude/skills/*.md) ;;
-    # Words the engine's build or tests hold: CLAUDE.md's size and its list of the rules files
-    # (lib.rs), the snapshot modes (snapshot.rs), the command's reference and the plugin's copies
-    # of the skills (cli.rs, skills.rs, install.rs), and the files the bundle copies
-    # (tauri.conf.json `resources`). Words, so no review.
-    CLAUDE.md | AGENTS.md | LICENSE | NOTICE | THIRD_PARTY_NOTICES.md | .claude/rules/* | skills/*.md | plugin/*.md)
+    # Words the engine's tests hold: the snapshot modes (snapshot.rs) and the command's reference
+    # and the plugin's copies of the skills (cli.rs, skills.rs, install.rs). Words, so no review.
+    .claude/rules/snapshot.md | skills/*.md | plugin/*.md)
       echo engine
+      ;;
+    # Words checked by src/conventions.test.ts (CLAUDE.md's size and list of rules files, the
+    # rules' frontmatter, and the files tauri.conf.json copies under bundle.resources). Checked
+    # under `ui` in seconds instead of running the macOS+Linux engine builds. Words, so no review.
+    CLAUDE.md | AGENTS.md | LICENSE | NOTICE | THIRD_PARTY_NOTICES.md | .claude/rules/*)
+      echo ui
       ;;
     # The engine, and what the windows' tests read of it: the command tables (commands.test.ts)
     # and the fixtures it writes for them (src/testing/).
