@@ -20,9 +20,11 @@
 #                                     fewer, one whose report is cut short, here or there (it
 #                                     names only its first failures: look at it), and one that
 #                                     gave no result here or there (run it again)
-#   scripts/checks.sh --jobs=6 …      the checks in six sets side by side, each in a copy of the
-#                                     build and the snapshots, for a Mac with cores to spare:
-#                                     the gate in minutes
+#   scripts/checks.sh --jobs=4 …      the checks across four persistent headless Chrome workers
+#                                     (scripts/preview/runner.mjs, sharing one in-memory HTTP
+#                                     server), or with CHECKS_LEGACY=1 four sets of preview.sh
+#                                     spawns in copies of the build and snapshots: the gate in
+#                                     minutes
 #   scripts/checks.sh --fixture --listed queue   only the runs of queue-check.js the gate lists
 #   scripts/checks.sh --prepared …    against the UI and the snapshots an earlier run left in the
 #                                     folder, building and reading nothing again: its last line
@@ -63,12 +65,15 @@
 # are the same whoever starts them; its build and snapshots are in .preview/fixture, apart from
 # this Mac's in .preview.
 #
-# Each run gets as long as its PREVIEW_WAIT and a minute and a half more (two and a half minutes
-# on virtual time), then it's stopped and fails: headless Chrome can hang on a busy Mac.
-# gtimeout (coreutils) does the stopping when it's installed. A run whose page Chrome never
-# showed gets one more go at once, and a run that gave no result (that, a run stopped, a
-# preview.sh that failed, one a set of --jobs never got to before it stopped short) gets another
-# once the rest are through, by itself; every run that said how it went keeps what it said.
+# By default, checks run over persistent headless Chrome workers (scripts/preview/runner.mjs) on
+# the real clock with isolated BrowserContexts; set CHECKS_LEGACY=1 to fall back to per-check
+# preview.sh spawns. Each run gets as long as its PREVIEW_WAIT and a minute and a half more (two
+# and a half minutes when PREVIEW_WAIT is unset), then it's stopped and fails: headless Chrome can
+# hang on a busy machine (gtimeout stops legacy runs when installed; runner.mjs enforces per-call
+# CDP timeouts and a hard deadline before setup). A run whose page Chrome never showed gets one
+# more go at once, and a run that gave no result (that, a run stopped, a preview.sh or runner.mjs
+# that failed, one a set of --jobs never got to before it stopped short) gets another once the rest
+# are through, by itself; every run that said how it went keeps what it said.
 set -uo pipefail
 cd "$(dirname "$0")/.."
 
@@ -211,7 +216,7 @@ out="$(mktemp)"
 work=""
 # What's said last of all, whichever way the run ends: that the UI wasn't built (--prepared).
 unbuilt=""
-trap 'rm -f "$out" "$out.err" "$out.stopped" "$out.runs" "$out.again" "$out.kept"; [ -z "$work" ] || rm -rf "$work"; [ -z "$unbuilt" ] || echo "$unbuilt"' EXIT
+trap 'rm -f "$out" "$out.err" "$out.stopped" "$out.runs" "$out.again" "$out.kept" "$out.plan.json" "$out.static" "$out.cdp.ndjson" "$out.cdp.err"; [ -z "$work" ] || rm -rf "$work"; [ -z "$unbuilt" ] || echo "$unbuilt"' EXIT
 : >"$out.runs"
 : >"$out.again"
 # A set of a run side by side says each result as it has it (--results), so that one stopped
@@ -597,11 +602,32 @@ EOF
   count_plan="$(node -e 'console.log(JSON.parse(require("node:fs").readFileSync(process.argv[1], "utf8")).length)' "$plan")"
   [ "$count_plan" -gt 0 ] || return 0
 
+  # Guard against mixing this Mac's snapshots with the made-up Mac's (matching preview.sh).
+  local want_mark="this Mac"
+  [ $fixture -eq 0 ] || want_mark="the made-up Mac, as its engine named it"
+  if [ ! -f "$dir/board.json" ]; then
+    echo "FAIL  $dir has no build and snapshots: run without --prepared first."
+    failed=$((failed + 1))
+    record NONE "${wanted[0]}" "" "" "$dir has no build and snapshots"
+    rm -f "$plan" "$out.static" "$cdp_out" "$cdp_err"
+    return 0
+  fi
+  local got_mark
+  got_mark="$(cat "$dir/snapshot-of" 2>/dev/null || echo "this Mac")"
+  if [ "$got_mark" != "$want_mark" ]; then
+    echo "FAIL  $dir holds the snapshots of $got_mark, not of $want_mark."
+    failed=$((failed + 1))
+    record NONE "${wanted[0]}" "" "" "$dir holds snapshots of $got_mark, not of $want_mark"
+    rm -f "$plan" "$out.static" "$cdp_out" "$cdp_err"
+    return 0
+  fi
+
   if [ "$worker_jobs" -gt 1 ]; then
     echo "Running $count_plan runs across $worker_jobs persistent Chrome workers…"
   fi
   : >"$cdp_out"
-  node scripts/preview/runner.mjs --dir "$dir" --plan "$plan" --jobs "$worker_jobs" "${fix_arg[@]}" "${bin_arg[@]}" >"$cdp_out" 2>"$cdp_err" &
+  : >"$cdp_err"
+  node scripts/preview/runner.mjs --dir "$dir" --plan "$plan" --jobs "$worker_jobs" ${fix_arg[@]+"${fix_arg[@]}"} ${bin_arg[@]+"${bin_arg[@]}"} >"$cdp_out" 2>"$cdp_err" &
   local runner_pid=$!
   local next=$((SECONDS + 60))
   while kill -0 "$runner_pid" 2>/dev/null; do
@@ -613,11 +639,14 @@ EOF
   done
   wait "$runner_pid"
   local runner_status=$?
+  if [ "$runner_status" -ne 0 ]; then
+    [ ! -s "$cdp_err" ] || cat "$cdp_err" >&2
+  fi
   if [ "$runner_status" -ne 0 ] && [ ! -s "$cdp_out" ]; then
     echo "FAIL  runner.mjs exited $runner_status: $(sed -n '1p' "$cdp_err")"
-    cat "$cdp_err" >&2 2>/dev/null || true
     failed=$((failed + 1))
     record NONE "${wanted[0]}" "" "" "runner.mjs exited $runner_status"
+    rm -f "$plan" "$out.static" "$cdp_out" "$cdp_err"
     return 0
   fi
 

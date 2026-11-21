@@ -117,22 +117,18 @@ minutes on a quiet Mac, forty with twenty agents building. Now they run on GitHu
   passed. `scripts/land.sh --check` runs all of it on your branch without landing. The
   repository is public, so the runners' minutes cost nothing, macOS's too.
 - **The browser checks run on `main`, after what lands** (`.github/workflows/checks.yml`:
-  `scripts/checks.sh --fixture`, the list dealt into four sets, a runner each). They aren't in
-  the queue's run because of what they take: about ninety minutes of a GitHub macOS runner
-  for the list (three cores; measured 2026-11-20), and the plan runs five macOS runners at
-  once for the whole repository, so in every landing's run they'd hold each one up for longer
-  than the busy Mac did. One run goes at a time, and while it does only the latest one waiting
-  stays, so each covers everything landed since the last that passed, and a failure names that
-  stretch. A check that fails there is run again by itself: failing again it fails the run, as
-  one a change broke does; passing, it's unsteady on that machine (each run of the list has
-  had one, a different check each time) and is warned of on the run with what it said,
-  somebody's to find the cause of, and not a red `main`. GitHub's macOS runners are set to
-  reduce motion and are slower than a Mac, and a check that reads a state the moment it can,
-  or expects an animation, is what fails there (`.claude/rules/preview.md`). So a landing can
-  still turn `main` red there, which is the next point's to catch.
+  `scripts/checks.sh --fixture`, the list dealt into four sets across Ubuntu runners over
+  persistent headless Chrome workers in `scripts/preview/runner.mjs`, against a Linux debug engine
+  whose `--snapshot --fixture` runs as if on macOS via `os::AsIf`). They run post-merge so one run
+  covers everything landed since the last green run without delaying every merge-queue entry. One
+  run goes at a time, and while it does only the latest one waiting stays, so each covers
+  everything landed since the last that passed, and a failure names that stretch. A check that
+  fails there is run again by itself (`--prepared`, reusing the build and snapshots): failing again
+  it fails the run, as one a change broke does; passing, it's unsteady on that runner and is warned
+  of on the run with what it said, somebody's to find the cause of, and not a red `main`. So a
+  landing can still turn `main` red there, which is the next point's to catch.
   Before landing, run the checks that cover what you changed (`scripts/checks.sh --fixture
-  <names>`), not the whole list, which loads this Mac for half an hour; `gh workflow run
-  checks.yml --ref <branch>` runs all of it on a pushed branch.
+  <names>`); `gh workflow run checks.yml --ref <branch>` runs the whole list on a pushed branch.
 - **What that takes on GitHub**, set once in the repository's settings: a merged branch is
   deleted, and a ruleset on `main` requires the merge queue (rebase as its method) and the
   `gate` check. The organization's admins may bypass the

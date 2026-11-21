@@ -1140,14 +1140,16 @@ mod tests {
         assert_eq!(name, crate::fixture::NAME);
         let script = std::fs::read_to_string(std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../scripts/preview.sh")).expect("scripts/preview.sh");
         assert!(script.contains(&format!("of=\"{name}\"")), "scripts/preview.sh doesn't ask for {name:?}");
-        // Even on Linux or Windows, `--snapshot --fixture` produces the made-up Mac's snapshots
-        // via `os::AsIf::new(Os::MacOs)` so Linux CI runners can run the browser checks.
+        // Even when `os::current()` is Linux or Windows, `--snapshot --fixture` no longer refuses
+        // the run and instead overrides to `Os::MacOs` internally (restoring the caller's OS on
+        // return) so Linux CI runners can build and snapshot the made-up Mac.
         for os in [crate::os::Os::Linux, crate::os::Os::Windows] {
             let _on = crate::os::AsIf::new(os);
             let board = (mode.run)(&args, &[]).ok().expect("fixture board on non-macOS");
             assert!(board.contains("/Users/me/projects/northwind-app"), "{os:?}");
             let cfg = (mode.run)(&args, &["config".to_string()]).ok().expect("fixture config on non-macOS");
             assert!(cfg.contains("\"ghostty\""), "{os:?}");
+            assert_eq!(crate::os::current(), os, "fixture() restores caller OS");
         }
     }
 

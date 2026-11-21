@@ -20,9 +20,10 @@
 // read). A check that proved nothing fails: a script that can't find what it needs throws, or
 // calls stopped() itself, and says what was missing.
 //
-// It works on Chrome's virtual time and on the real clock (PREVIEW_WAIT) alike: waits go by
-// timers and Date.now(), never by frames or performance.now(), which stand still there. The app
-// rewrites the title as its counts change, so what a check says is put back whenever it does.
+// It works on Chrome's virtual time (single-check preview.sh) and on the real clock
+// (PREVIEW_WAIT or the persistent-Chrome CDP runner in runner.mjs) alike: waits go by
+// timers and Date.now(), never by frames or performance.now(), which stand still on virtual time.
+// The app rewrites the title as its counts change, so what a check says is put back whenever it does.
 (function () {
   var title = null;
   var keep = function () {
