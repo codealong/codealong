@@ -112,17 +112,19 @@ jobs:
           path: ${{ runner.temp }}/tested/commit
           retention-days: 30
 
-  # The engine the checks run: a debug build, made once for all their sets and kept for as long
-  # as src-tauri is what it was built from (scripts/engine.sh goes by the same) and how it's
-  # built hasn't changed, so a change to the windows alone builds nothing.
+  # The engine the checks run: a debug build, made once on Linux (where `--snapshot --fixture`
+  # runs as if on macOS via os::AsIf) and kept for as long as src-tauri is what it was built from
+  # (scripts/engine.sh goes by the same) and how it's built hasn't changed, so a change to the
+  # windows alone builds nothing.
   engine:
     name: the checks' engine
     needs: plan
     if: needs.plan.outputs.checks == 'true'
-    runs-on: macos-26
+    runs-on: ubuntu-24.04
     timeout-minutes: 60
     env:
       CARGO_TARGET_DIR: ${{ github.workspace }}/../target
+      RUSTFLAGS: -C link-arg=-fuse-ld=lld
     steps:
       - uses: actions/checkout@v7
         with:
@@ -134,6 +136,12 @@ jobs:
         with:
           path: .preview/engine
           key: checks-engine-${{ runner.os }}-${{ runner.arch }}-${{ steps.built-from.outputs.tree }}-${{ hashFiles('.cargo/**', 'scripts/engine.sh', 'scripts/target-dir.sh') }}
+      - if: steps.kept.outputs.cache-hit != 'true'
+        name: What Tauri builds on
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends libwebkit2gtk-4.1-dev libgtk-3-dev \
+            libayatana-appindicator3-dev librsvg2-dev libxdo-dev libssl-dev pkg-config lld
       - if: steps.kept.outputs.cache-hit != 'true'
         uses: dtolnay/rust-toolchain@stable
       - if: steps.kept.outputs.cache-hit != 'true'
@@ -148,6 +156,9 @@ jobs:
           # write.
           key: checks
           save-if: ${{ github.ref == 'refs/heads/main' }}
+      - if: steps.kept.outputs.cache-hit != 'true'
+        name: Placeholder dist for Tauri build
+        run: mkdir -p dist && printf '<!doctype html>' > dist/index.html
       - name: scripts/engine.sh
         run: scripts/engine.sh
       - uses: actions/upload-artifact@v7
@@ -156,13 +167,14 @@ jobs:
           path: .preview/engine/codealong
           retention-days: 1
 
-  # The list's checks dealt into four sets, a runner each.
+  # The list's checks dealt into four sets, a Linux runner each, over persistent headless Chrome
+  # workers (scripts/preview/runner.mjs).
   checks:
     name: browser checks
     needs: [plan, engine]
     if: needs.plan.outputs.checks == 'true'
-    runs-on: macos-26
-    timeout-minutes: 60
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
     strategy:
       fail-fast: false
       matrix:
@@ -171,6 +183,11 @@ jobs:
       - uses: actions/checkout@v7
         with:
           ref: ${{ needs.plan.outputs.commit }}
+      - name: Runtime libraries for the engine binary
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends libwebkit2gtk-4.1-0 \
+            libayatana-appindicator3-1 librsvg2-2 libxdo3
       - uses: actions/setup-node@v7
         with:
           node-version: 24
@@ -189,26 +206,20 @@ jobs:
           echo "This set: $(echo $names)"
           export PREVIEW_BIN="$PWD/.preview/engine/codealong"
           # shellcheck disable=SC2086
-          if scripts/checks.sh --fixture --listed --jobs=3 "--results=$RUNNER_TEMP/runs.tsv" $names; then
+          if scripts/checks.sh --fixture --listed --jobs=4 "--results=$RUNNER_TEMP/runs.tsv" $names; then
             exit 0
           fi
-          # A check that failed is run again, by itself. Failing again, it fails this job: that's
-          # what a change that broke it does. Passing, it's unsteady on this machine (three
-          # cores, slower than the Mac the checks are written on, and each run of the list has
-          # had one such, a different check each time): warned of on the run, with what it
-          # said, for somebody to find the cause of (docs/development.md, *Keeping main
-          # working*), and not a red main for every session to stop at.
+          # A check that failed is run again, by itself, reusing the already-prepared build and
+          # snapshots (--prepared). Failing again, it fails this job; passing, it's unsteady on
+          # this runner and warned of on the run.
           again="$(awk -F'\t' '$1 != "PASS" { print $2 }' "$RUNNER_TEMP/runs.tsv" | sort -u)"
           if [ -z "$again" ]; then
             echo "The checks failed without saying which."
             exit 1
           fi
           echo "Run again by themselves: $(echo $again)"
-          # How the second run comes out is read from its results, run by run (a check has
-          # several: the notch, the peek…): the same run failing both times is a failure, and
-          # any other that failed once is unsteady, in whichever of the two.
           # shellcheck disable=SC2086
-          scripts/checks.sh --fixture --listed --jobs=1 "--results=$RUNNER_TEMP/again.tsv" $again || true
+          scripts/checks.sh --fixture --prepared --listed --jobs=1 "--results=$RUNNER_TEMP/again.tsv" $again || true
           if [ ! -s "$RUNNER_TEMP/again.tsv" ]; then
             echo "The second run said nothing of how it went."
             exit 1

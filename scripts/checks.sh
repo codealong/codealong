@@ -465,7 +465,227 @@ run_side_by_side() {
   unanswered="$(sed -n 's/^Commands the stub had no answer for: //p' "$sets"/out.* | tr ' ' '\n')"$'\n'
   rm -rf "$sets"
 }
-if [ "$jobs" -gt 1 ] && [ ${#wanted[@]} -gt 1 ]; then
+# Persistent-Chrome CDP runner (scripts/preview/runner.mjs): runs all checks in one in-memory
+# HTTP server and `$jobs` long-lived headless Chrome instances (one isolated BrowserContext per
+# check) instead of spawning a cold Chrome, Python server and `ps` scan per check. Used whenever
+# runner.mjs and node are present unless CHECKS_LEGACY=1 asks for per-check preview.sh spawns.
+run_cdp() {
+  local worker_jobs="$1"
+  local plan="$out.plan.json"
+  local cdp_out="$out.cdp.ndjson"
+  local cdp_err="$out.cdp.err"
+  local bin_arg=()
+  local engine="${PREVIEW_BIN:-.preview/engine/codealong}"
+  [ ! -x "$engine" ] || bin_arg=(--bin "$engine")
+  local fix_arg=()
+  [ $fixture -eq 0 ] || fix_arg=(--fixture)
+
+  # Build the run plan JSON using the exact same header parsing and filtering rules as run_here,
+  # and collect any static SKIP/FAIL rows (missing header, malformed line, <key> hand-run).
+  node - "$plan" "$out.static" "$gate" "$passes" "$out.again" "$out.runs" "${wanted[@]}" <<'EOF'
+import { readFileSync, writeFileSync, existsSync } from 'node:fs';
+import { basename } from 'node:path';
+
+const [planPath, staticPath, gateStr, passesPath, againPath, runsPath, ...wanted] = process.argv.slice(2);
+const gate = gateStr === '1';
+const listedSet = new Set(
+  gate && existsSync(passesPath)
+    ? readFileSync(passesPath, 'utf8').split('\n').map((l) => l.replace(/\r$/, ''))
+    : [],
+);
+const againLines = existsSync(againPath) ? readFileSync(againPath, 'utf8').split('\n').filter(Boolean) : [];
+const hasAgain = againLines.length > 0;
+const againExact = new Set(againLines);
+const ranExact = new Set();
+if (existsSync(runsPath)) {
+  for (const line of readFileSync(runsPath, 'utf8').split('\n')) {
+    if (!line) continue;
+    const cols = line.split('\t');
+    ranExact.add(`${cols[1]}\t${cols[2]}`);
+  }
+}
+const goingAgain = (name, asked) => {
+  if (!hasAgain) return true;
+  if (againExact.has(`${name}\t${asked}`)) return true;
+  return againExact.has(`${name}\t`) && !ranExact.has(`${name}\t${asked}`);
+};
+
+// Inherit exported PREVIEW_* variables (e.g. PREVIEW_SCHEME=dark on real data) that checks.sh
+// intentionally kept; per-run header variables override these.
+const inherited = {};
+for (const [k, v] of Object.entries(process.env)) {
+  if (!k.startsWith('PREVIEW_') || v === undefined) continue;
+  if (['PREVIEW_DIR', 'PREVIEW_BIN', 'PREVIEW_FIXTURE', 'PREVIEW_PREPARE', 'PREVIEW_CHROME', 'PREVIEW_POLL', 'PREVIEW_WAIT_POLL'].includes(k)) continue;
+  inherited[k] = v;
+}
+
+const plan = [];
+const staticRows = [];
+for (const name of wanted) {
+  const file = `scripts/preview/${name}-check.js`;
+  const lines = readFileSync(file, 'utf8').split('\n');
+  let runs = 0;
+  for (const line of lines) {
+    if (!line.startsWith('//')) break;
+    if (!line.startsWith('//   ') || !line.includes('scripts/preview.sh ') || !line.endsWith(file)) continue;
+    runs++;
+    const asked = line.slice(5);
+    if (gate && !listedSet.has(asked)) continue;
+    if (!goingAgain(name, asked)) continue;
+    if (line.includes('<')) {
+      if (gate) {
+        staticRows.push({ kind: 'FAIL', name, asked, label: '', why: 'listed, but made by hand', print: `${passesPath} lists a run that's made by hand, on data picked for it: ${asked}` });
+      } else {
+        staticRows.push({ kind: 'SKIP', name, asked, label: '', why: '', print: `by hand, on data picked for it: ${asked}` });
+      }
+      continue;
+    }
+    const vars = { ...inherited };
+    let view = '';
+    let project = '';
+    let labelExtra = '';
+    let seen = 0;
+    for (const word of asked.split(/\s+/).filter(Boolean)) {
+      if (seen === 0) {
+        if (word === 'scripts/preview.sh') seen = 1;
+        else if (word.startsWith('PREVIEW_') && word.includes('=')) {
+          const eq = word.indexOf('=');
+          const k = word.slice(0, eq);
+          const v = word.slice(eq + 1);
+          vars[k] = v;
+          if (k !== 'PREVIEW_WAIT') labelExtra += ` ${word.slice('PREVIEW_'.length)}`;
+        } else {
+          seen = -1;
+        }
+      } else if (seen === 1) {
+        view = word;
+        seen = 2;
+      } else if (seen === 2) {
+        project = word === "''" ? '' : word;
+        seen = 3;
+      }
+    }
+    if (seen !== 3) {
+      staticRows.push({ kind: 'FAIL', name, asked, label: '', why: "its header's run line doesn't read as a preview.sh command", print: `its header's run line doesn't read as a preview.sh command: ${asked}` });
+      continue;
+    }
+    const label = `${view}${project ? ` ${project}` : ''}${labelExtra.replace(/scripts\/preview\//g, '').replace(/-sample\.json/g, '')}`;
+    plan.push({ id: plan.length, name, asked, view, project, check: file, label, vars });
+  }
+  if (runs === 0) {
+    staticRows.push({ kind: 'FAIL', name, asked: '', label: '', why: 'its header has no run line', print: `its header has no run line (//   … scripts/preview.sh <view> '' ${file})` });
+  }
+}
+writeFileSync(planPath, JSON.stringify(plan));
+writeFileSync(staticPath, JSON.stringify(staticRows));
+EOF
+
+  # Emit static rows first (matching run_here).
+  while IFS=$'\037' read -r kind name asked label why print_msg; do
+    [ -n "$kind" ] || continue
+    if [ "$kind" = SKIP ]; then
+      printf 'SKIP  %-22s %s\n' "$name" "$print_msg"
+      skipped=$((skipped + 1))
+    else
+      printf 'FAIL  %-22s %s\n' "$name" "$print_msg"
+      failed=$((failed + 1))
+      record FAIL "$name" "$asked" "$label" "$why"
+    fi
+  done < <(node -e '
+    const rows = JSON.parse(require("node:fs").readFileSync(process.argv[1], "utf8"));
+    for (const r of rows) console.log([r.kind, r.name, r.asked, r.label, r.why, r.print].join("\x1f"));
+  ' "$out.static")
+
+  local count_plan
+  count_plan="$(node -e 'console.log(JSON.parse(require("node:fs").readFileSync(process.argv[1], "utf8")).length)' "$plan")"
+  [ "$count_plan" -gt 0 ] || return 0
+
+  if [ "$worker_jobs" -gt 1 ]; then
+    echo "Running $count_plan runs across $worker_jobs persistent Chrome workers…"
+  fi
+  : >"$cdp_out"
+  node scripts/preview/runner.mjs --dir "$dir" --plan "$plan" --jobs "$worker_jobs" "${fix_arg[@]}" "${bin_arg[@]}" >"$cdp_out" 2>"$cdp_err" &
+  local runner_pid=$!
+  local next=$((SECONDS + 60))
+  while kill -0 "$runner_pid" 2>/dev/null; do
+    sleep 0.2
+    if [ "$SECONDS" -ge "$next" ]; then
+      echo "  $(wc -l <"$cdp_out" | tr -d ' ')/$count_plan runs through…" >&2
+      next=$((SECONDS + 60))
+    fi
+  done
+  wait "$runner_pid"
+  local runner_status=$?
+  if [ "$runner_status" -ne 0 ] && [ ! -s "$cdp_out" ]; then
+    echo "FAIL  runner.mjs exited $runner_status: $(sed -n '1p' "$cdp_err")"
+    cat "$cdp_err" >&2 2>/dev/null || true
+    failed=$((failed + 1))
+    record NONE "${wanted[0]}" "" "" "runner.mjs exited $runner_status"
+    return 0
+  fi
+
+  # Render results in the checks' original order and record every run.
+  while IFS=$'\037' read -r tag name asked label said count why extra_json; do
+    [ -n "$tag" ] || continue
+    printf '%s  %-22s %-28s %s%s\n' "$tag" "$name" "$label" "$count" "${why:+ $why}"
+    if [ "$tag" = PASS ]; then
+      passed=$((passed + 1))
+      record PASS "$name" "$asked" "$label" "" "$count"
+    else
+      failed=$((failed + 1))
+      record "$said" "$name" "$asked" "$label" "$why" "$count"
+    fi
+    while IFS= read -r more; do
+      [ -n "$more" ] || continue
+      case "$more" in
+        unanswered:*)
+          unanswered="$unanswered$(printf '%s' "${more#unanswered: }" | tr ',' '\n' | sed 's/^ *//')"$'\n'
+          [ "$tag" != PASS ] || [ $verbose -eq 1 ] || continue
+          ;;
+      esac
+      printf '      %s\n' "$more"
+    done < <(node -e 'for (const s of JSON.parse(process.argv[1])) console.log(s);' "$extra_json")
+  done < <(node - "$plan" "$cdp_out" <<'EOF'
+import { readFileSync } from 'node:fs';
+const plan = JSON.parse(readFileSync(process.argv[2], 'utf8'));
+const byId = new Map();
+for (const line of readFileSync(process.argv[3], 'utf8').split('\n')) {
+  if (!line.trim()) continue;
+  try {
+    const obj = JSON.parse(line);
+    byId.set(obj.id, obj);
+  } catch {}
+}
+for (const r of plan) {
+  const got = byId.get(r.id);
+  let status = got ? got.status : 1;
+  let result = got ? got.result : 'FAIL 0/0 no result: runner stopped before this check';
+  const extraLines = got?.extraLines || [];
+  let said = 'FAIL';
+  if (!got || status === 3 || status === 124 || status === 137) {
+    if (!result || status === 3 || result.startsWith('FAIL 0/0 stopped after ') || result.startsWith('FAIL 0/0 no result:')) said = 'NONE';
+  }
+  if (result.startsWith('FAIL 0/0 no result:')) said = 'NONE';
+  const sp = result.indexOf(' ');
+  const tag = sp > 0 ? result.slice(0, sp) : 'FAIL';
+  const rest = sp > 0 ? result.slice(sp + 1) : '';
+  const sp2 = rest.indexOf(' ');
+  const count = sp2 > 0 ? rest.slice(0, sp2) : rest;
+  const why = sp2 > 0 ? rest.slice(sp2 + 1) : '';
+  console.log([tag, r.name, r.asked, r.label, said, count, why, JSON.stringify(extraLines)].join('\x1f'));
+}
+EOF
+  )
+  rm -f "$plan" "$out.static" "$cdp_out" "$cdp_err"
+}
+
+use_cdp=0
+if [ -z "${CHECKS_LEGACY:-}" ] && [ -f scripts/preview/runner.mjs ] && command -v node >/dev/null 2>&1; then
+  use_cdp=1
+fi
+if [ "$use_cdp" -eq 1 ]; then
+  run_cdp "$jobs"
+elif [ "$jobs" -gt 1 ] && [ ${#wanted[@]} -gt 1 ]; then
   run_side_by_side
 else
   run_here
@@ -486,7 +706,11 @@ if [ -s "$out.again" ] && [ -z "${CHECKS_SET:-}" ]; then
   kept=$skipped
   # shellcheck disable=SC2206
   wanted=($again)
-  run_here
+  if [ "$use_cdp" -eq 1 ]; then
+    run_cdp 1
+  else
+    run_here
+  fi
   skipped=$kept
 fi
 # The gate's list names runs: one no check has any more (its check renamed, its run line
@@ -565,6 +789,7 @@ fi
 [ ! -f "$dir/snapshot-of" ] || cp "$dir/snapshot-of" "$work/.preview/"
 # This script runs them there, so whatever the base's own did, the two runs are read alike.
 cp scripts/checks.sh "$work/scripts/checks.sh"
+[ ! -f scripts/preview/runner.mjs ] || cp scripts/preview/runner.mjs "$work/scripts/preview/runner.mjs"
 there=(env -u PREVIEW_DIR -u PREVIEW_BIN)
 # The engine the snapshots came from, for a run that asks it for more (a conversation): the one
 # named, else this checkout's as the first run left it, not built again now. By its whole path,

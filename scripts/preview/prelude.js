@@ -30,15 +30,24 @@
     document.title = title;
     title = document.title;
   };
-  setInterval(keep, 50);
+  var keepTimer = setInterval(keep, 50);
   new MutationObserver(keep).observe(document.head, { subtree: true, childList: true, characterData: true });
 
   // Where the check has got to, for whoever reads the title before it's done. The page gives a
   // title back with its white space run together, so that's how it's kept: one that never read
-  // back the same would be put back for ever.
+  // back the same would be put back for ever. Once it's done, stop polling (MutationObserver still
+  // holds the title) so virtual-time runs don't grind through the rest of their budget, and notify
+  // the CDP runner immediately when present.
   window.say = function (text) {
     title = String(text).replace(/\s+/g, ' ').trim();
     keep();
+    if (title.indexOf('done:') === 0) {
+      if (keepTimer) {
+        clearInterval(keepTimer);
+        keepTimer = 0;
+      }
+      if (typeof window.__codealongDone === 'function') window.__codealongDone(title);
+    }
   };
 
   window.wait = function (ms) { return new Promise(function (r) { setTimeout(r, ms); }); };

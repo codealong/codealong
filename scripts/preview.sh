@@ -186,7 +186,16 @@ project="${2:-}"
 check="${3:-}"
 # The made-up Mac's build and snapshots are kept apart from this Mac's.
 dir="${PREVIEW_DIR:-.preview${PREVIEW_FIXTURE:+/fixture}}"
-chrome="${PREVIEW_CHROME:-/Applications/Google Chrome.app/Contents/MacOS/Google Chrome}"
+chrome="${PREVIEW_CHROME:-}"
+if [ -z "$chrome" ]; then
+  if [ -x "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome" ]; then
+    chrome="/Applications/Google Chrome.app/Contents/MacOS/Google Chrome"
+  else
+    chrome="$(command -v google-chrome || command -v google-chrome-stable || command -v chromium || command -v chromium-browser || echo "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome")"
+  fi
+fi
+extra_chrome=()
+[ "$(uname)" != Linux ] || extra_chrome+=(--no-sandbox --disable-dev-shm-usage)
 # As it starts, Chrome links its own program into a folder of its own, so an update can't change
 # it under the running browser. macOS counts that as changing an app, and refuses it for a
 # program it can't ask about, such as the bare Claude Code binary that hosts a background
@@ -624,7 +633,7 @@ if [ -n "$check" ] && [ -n "${PREVIEW_WAIT:-}" ]; then
   # wait runs out): --dump-dom would read the page as soon as it loads. The endpoint gives the
   # title as HTML.
   debug_port="$(python3 -c 'import socket; s = socket.socket(); s.bind(("127.0.0.1", 0)); print(s.getsockname()[1])')"
-  "$chrome" --headless=new --disable-features=MacAppCodeSignClone --disable-gpu --enable-unsafe-swiftshader ${scheme:+"$scheme"} --window-size="$width,$((height + 32))" --remote-debugging-port="$debug_port" --user-data-dir="$work/profile" --app="$url" >/dev/null 2>&1 &
+  "$chrome" --headless=new --disable-features=MacAppCodeSignClone --disable-gpu --enable-unsafe-swiftshader "${extra_chrome[@]}" ${scheme:+"$scheme"} --window-size="$width,$((height + 32))" --remote-debugging-port="$debug_port" --user-data-dir="$work/profile" --app="$url" >/dev/null 2>&1 &
   browser=$!
   title=""
   started=$SECONDS
@@ -640,7 +649,7 @@ if [ -n "$check" ] && [ -n "${PREVIEW_WAIT:-}" ]; then
   done
   report "$title" || exit $?
 elif [ -n "$check" ]; then
-  "$chrome" --headless=new --disable-features=MacAppCodeSignClone --disable-gpu --enable-unsafe-swiftshader ${scheme:+"$scheme"} --window-size="$width,$((height + 87))" --virtual-time-budget=8000 --user-data-dir="$work/profile" --dump-dom "$url" >"$work/dom.html" 2>/dev/null &
+  "$chrome" --headless=new --disable-features=MacAppCodeSignClone --disable-gpu --enable-unsafe-swiftshader "${extra_chrome[@]}" ${scheme:+"$scheme"} --window-size="$width,$((height + 87))" --virtual-time-budget=8000 --user-data-dir="$work/profile" --dump-dom "$url" >"$work/dom.html" 2>/dev/null &
   browser=$!
   # Under a heavy load Chrome can print the page and then never exit: once the page is out it
   # gets a few seconds more, then it's stopped.
@@ -661,6 +670,6 @@ elif [ -n "$check" ]; then
   title="$(python3 -c 'import html, re, sys; m = re.search(r"<title>(.*?)</title>", sys.stdin.read(), re.S); print(" ".join(html.unescape(m.group(1)).split()) if m else "")' <"$work/dom.html")"
   report "$title" || exit $?
 else
-  "$chrome" --headless=new --disable-features=MacAppCodeSignClone --disable-gpu --enable-unsafe-swiftshader ${scheme:+"$scheme"} --hide-scrollbars --force-device-scale-factor=1 --window-size="$size" --virtual-time-budget=6000 --user-data-dir="$work/profile" --screenshot="$shot" "$url" 2>/dev/null
+  "$chrome" --headless=new --disable-features=MacAppCodeSignClone --disable-gpu --enable-unsafe-swiftshader "${extra_chrome[@]}" ${scheme:+"$scheme"} --hide-scrollbars --force-device-scale-factor=1 --window-size="$size" --virtual-time-budget=6000 --user-data-dir="$work/profile" --screenshot="$shot" "$url" 2>/dev/null
   echo "$shot"
 fi

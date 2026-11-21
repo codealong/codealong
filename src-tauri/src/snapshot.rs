@@ -138,10 +138,10 @@ const MODES: &[Mode] = &[
 #[cfg(debug_assertions)]
 fn fixture(args: &Args, rest: &[String]) -> Done {
     use crate::fixture;
-    // It's a Mac, with a Mac's terminals in its settings, as the checks' browser is a Mac's.
-    if !crate::os::is_macos() {
-        return Err(failed(crate::os::only_on_macos("The made-up Mac the browser checks run against")));
-    }
+    // The made-up board is always a Mac's (with macOS terminals, paths and shortcuts), wherever
+    // the engine runs: running as if on macOS lets Linux CI runners generate the exact same
+    // fixture snapshots and run the browser checks there too.
+    let _mac = crate::os::AsIf::new(crate::os::Os::MacOs);
     let board = fixture::board(util::now_ms());
     let (what, more) = match rest {
         [] => ("board", rest),
@@ -1140,6 +1140,15 @@ mod tests {
         assert_eq!(name, crate::fixture::NAME);
         let script = std::fs::read_to_string(std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../scripts/preview.sh")).expect("scripts/preview.sh");
         assert!(script.contains(&format!("of=\"{name}\"")), "scripts/preview.sh doesn't ask for {name:?}");
+        // Even on Linux or Windows, `--snapshot --fixture` produces the made-up Mac's snapshots
+        // via `os::AsIf::new(Os::MacOs)` so Linux CI runners can run the browser checks.
+        for os in [crate::os::Os::Linux, crate::os::Os::Windows] {
+            let _on = crate::os::AsIf::new(os);
+            let board = (mode.run)(&args, &[]).ok().expect("fixture board on non-macOS");
+            assert!(board.contains("/Users/me/projects/northwind-app"), "{os:?}");
+            let cfg = (mode.run)(&args, &["config".to_string()]).ok().expect("fixture config on non-macOS");
+            assert!(cfg.contains("\"ghostty\""), "{os:?}");
+        }
     }
 
     #[test]
