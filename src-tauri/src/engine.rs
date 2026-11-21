@@ -969,6 +969,8 @@ impl Engine {
                     self.read_resets();
                     self.mcp.on_refresh();
                     self.read_mcp();
+                    self.org_avatars.on_refresh();
+                    self.refresh_org_avatars();
                 }
                 Ok(Msg::Went(what, why)) => {
                     self.set_trouble(what, why);

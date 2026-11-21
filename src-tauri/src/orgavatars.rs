@@ -3,8 +3,8 @@
 //! A project whose repos belong to one GitHub owner gets that owner's avatar when GitHub says the
 //! owner is an organization (personal accounts keep the folder icon, as `github::display_name`
 //! leaves personal names out of project names). Avatars are cached under
-//! `<cache_dir>/org-avatars/<owner>.json` for a week so restarts and snapshots show them without
-//! hitting the network, and failures back off for an hour.
+//! `<cache_dir>/org-avatars/<owner>.json` for a day (or until a manual refresh) so restarts and
+//! snapshots show them without hitting the network, and failures back off for an hour.
 
 use std::collections::{BTreeSet, HashMap, HashSet};
 use std::path::{Path, PathBuf};
@@ -17,7 +17,7 @@ use crate::config::ProjectCfg;
 use crate::{http, procs, repos, store};
 
 /// How long a cached org avatar (or a "not an org" answer) stays fresh before re-checking.
-const FRESH_FOR_MS: i64 = 7 * 24 * 60 * 60 * 1000;
+const FRESH_FOR_MS: i64 = 24 * 60 * 60 * 1000;
 /// How long to wait before retrying an owner whose lookup failed.
 const RETRY_AFTER: Duration = Duration::from_secs(60 * 60);
 /// Largest avatar image accepted into the cache (64px avatars are a few KiB).
@@ -188,11 +188,18 @@ pub struct OrgAvatars {
     disk_checked: HashSet<String>,
     asked: HashMap<String, Instant>,
     inflight: bool,
+    refresh_requested: bool,
 }
 
 impl OrgAvatars {
     pub fn new(dir: PathBuf) -> Self {
-        Self { dir, entries: HashMap::new(), disk_checked: HashSet::new(), asked: HashMap::new(), inflight: false }
+        Self { dir, entries: HashMap::new(), disk_checked: HashSet::new(), asked: HashMap::new(), inflight: false, refresh_requested: false }
+    }
+
+    /// Marks every current owner due for an immediate re-fetch (e.g. on ⌘R), keeping already
+    /// cached icons visible until the updated ones arrive.
+    pub fn on_refresh(&mut self) {
+        self.refresh_requested = true;
     }
 
     fn cache_path(&self, owner: &str) -> Option<PathBuf> {
@@ -224,15 +231,20 @@ impl OrgAvatars {
     }
 
     /// Returns the owners that need fetching now (missing or older than `FRESH_FOR_MS`, and not
-    /// asked within `RETRY_AFTER`), marking a fetch inflight.
+    /// asked within `RETRY_AFTER`, or all current owners after `on_refresh`), marking a fetch
+    /// inflight.
     pub fn to_fetch(&mut self, owners: &HashMap<String, String>, now: Instant, now_ms: i64) -> Option<Vec<String>> {
         if self.inflight {
             return None;
         }
+        let force = self.refresh_requested;
         let due: BTreeSet<String> = owners
             .values()
             .filter(|owner| valid_owner(owner))
             .filter(|owner| {
+                if force {
+                    return true;
+                }
                 let fresh = self.entries.get(*owner).is_some_and(|e| now_ms.saturating_sub(e.fetched_at) < FRESH_FOR_MS);
                 let recent = self.asked.get(*owner).is_some_and(|t| now.duration_since(*t) < RETRY_AFTER);
                 !fresh && !recent
@@ -240,8 +252,10 @@ impl OrgAvatars {
             .cloned()
             .collect();
         if due.is_empty() {
+            self.refresh_requested = false;
             return None;
         }
+        self.refresh_requested = false;
         for owner in &due {
             self.asked.insert(owner.clone(), now);
         }
@@ -403,5 +417,35 @@ mod tests {
         assert_eq!(restarted.icon_for("acme"), Some(url.as_str()));
         assert_eq!(restarted.icon_for("sam"), None);
         assert_eq!(restarted.to_fetch(&owners, t0, now_ms + 1_000), None);
+    }
+
+    #[test]
+    fn on_refresh_forces_refetch_while_keeping_cached_icon_until_updated() {
+        let dir = crate::fixtures::scratch("org-avatars-refresh");
+        let t0 = Instant::now();
+        let now_ms = 1_700_000_000_000i64;
+        let owners = HashMap::from([("Acme".into(), "acme".into())]);
+        let old_url = "data:image/png;base64,iVBORw==".to_string();
+        let new_url = "data:image/png;base64,R0lGOD==".to_string();
+
+        let mut store = OrgAvatars::new(dir.to_path_buf());
+        assert_eq!(store.to_fetch(&owners, t0, now_ms), Some(vec!["acme".to_string()]));
+        assert!(store.on_fetched(Some(vec![("acme".into(), Outcome::Avatar(old_url.clone()))]), now_ms));
+        // Fresh entry would normally be skipped.
+        assert_eq!(store.to_fetch(&owners, t0 + Duration::from_secs(5), now_ms + 5_000), None);
+
+        // Manual refresh keeps the old icon visible while scheduling a refetch immediately.
+        store.on_refresh();
+        assert_eq!(store.icon_for("acme"), Some(old_url.as_str()));
+        assert_eq!(store.to_fetch(&owners, t0 + Duration::from_secs(5), now_ms + 5_000), Some(vec!["acme".to_string()]));
+        // Another refresh requested while inflight runs once the current fetch finishes.
+        store.on_refresh();
+        assert_eq!(store.to_fetch(&owners, t0 + Duration::from_secs(6), now_ms + 6_000), None);
+        assert!(store.on_fetched(Some(vec![("acme".into(), Outcome::Avatar(new_url.clone()))]), now_ms + 6_000));
+        assert_eq!(store.icon_for("acme"), Some(new_url.as_str()));
+        assert_eq!(store.to_fetch(&owners, t0 + Duration::from_secs(7), now_ms + 7_000), Some(vec!["acme".to_string()]));
+        assert!(!store.on_fetched(Some(vec![("acme".into(), Outcome::Avatar(new_url.clone()))]), now_ms + 7_000));
+        // Once consumed, fresh entries are not refetched again.
+        assert_eq!(store.to_fetch(&owners, t0 + Duration::from_secs(8), now_ms + 8_000), None);
     }
 }

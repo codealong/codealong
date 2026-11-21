@@ -307,5 +307,17 @@ mod tests {
         let board = engine.compose();
         let proj = board.projects.iter().find(|p| p.name == "Northwind").unwrap();
         assert_eq!(proj.icon.as_deref(), Some(url.as_str()));
+
+        // A manual refresh schedules a re-fetch and updates the board when the avatar changes.
+        engine.dirty = false;
+        engine.org_avatars.on_refresh();
+        let owners = crate::orgavatars::project_owners(&engine.cfg.projects, &engine.seeds, |_| None);
+        assert_eq!(engine.org_avatars.to_fetch(&owners, Instant::now(), now_ms()), Some(vec!["northwind".to_string()]));
+        let updated = "data:image/png;base64,R0lGOD==".to_string();
+        engine.on_org_avatars(Some(vec![("northwind".into(), crate::orgavatars::Outcome::Avatar(updated.clone()))]));
+        assert!(engine.dirty);
+        let board = engine.compose();
+        let proj = board.projects.iter().find(|p| p.name == "Northwind").unwrap();
+        assert_eq!(proj.icon.as_deref(), Some(updated.as_str()));
     }
 }
