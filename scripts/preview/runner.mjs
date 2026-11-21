@@ -11,12 +11,15 @@
 // Outputs one JSON line per completed run:
 //   {"id":0,"status":0,"result":"PASS 7/7","extraLines":[]}
 
-import { execFileSync, spawn } from 'node:child_process';
+import { execFile, execFileSync, spawn } from 'node:child_process';
 import { existsSync, mkdtempSync, readFileSync, rmSync, statSync } from 'node:fs';
 import { createServer } from 'node:http';
 import { homedir, tmpdir } from 'node:os';
 import { extname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { promisify } from 'node:util';
+
+const execFileAsync = promisify(execFile);
 
 export const FIXTURE_NAME = 'the made-up Mac';
 export const FIXTURE_MARK = `${FIXTURE_NAME}, as its engine named it`;
@@ -98,12 +101,11 @@ export function assertFixtureEngine(bin) {
   }
 }
 
-/** Whether a check should emulate a macOS user-agent/navigator.platform (always for macOS runs on non-Mac runners). */
-export function wantsMacEmulation(vars = {}, { fixture = false, hostPlatform = process.platform } = {}) {
+/** Whether a check should emulate a macOS user-agent/navigator.platform (on non-Mac hosts unless another platform is asked for). */
+export function wantsMacEmulation(vars = {}, { hostPlatform = process.platform } = {}) {
+  if (hostPlatform === 'darwin') return false;
   const explicit = vars.PREVIEW_PLATFORM || '';
-  if (explicit === 'mac') return true;
-  if (explicit) return false;
-  return fixture || hostPlatform !== 'darwin';
+  return !explicit || explicit === 'mac';
 }
 
 /** Builds the view's default size and injected preview HTML matching scripts/preview.sh. */
@@ -277,7 +279,7 @@ export function createPreviewHandler({ dir, repo, fixture, bin, runs }) {
 
   const getTranscript = (vars) => {
     const key = vars.PREVIEW_TRANSCRIPT;
-    if (!key || !bin) return null;
+    if (!key || !bin) return Promise.resolve(null);
     const before = vars.PREVIEW_BEFORE || '';
     const cacheKey = `${key}\0${before}`;
     if (transcriptCache.has(cacheKey)) return transcriptCache.get(cacheKey);
@@ -285,31 +287,36 @@ export function createPreviewHandler({ dir, repo, fixture, bin, runs }) {
     const mode = fixture ? '' : '--';
     const tArgs = [...snap, `${mode}transcript`, key, ...(before ? ['--before', before] : [])];
     const pArgs = [...snap, `${mode}pending`, key];
-    let transcript = Buffer.alloc(0);
-    let pending = Buffer.alloc(0);
-    const sentFiles = new Set();
-    try {
-      transcript = execFileSync(bin, tArgs, { maxBuffer: 64 * 1024 * 1024 });
-      const parsed = JSON.parse(transcript.toString('utf8'));
-      for (const item of parsed.items || []) {
-        for (const f of item.sent?.files || []) sentFiles.add(f);
+    // Run asynchronously so slow real-data transcripts never block Node's event loop or trip other workers' CDP timeouts.
+    const promise = (async () => {
+      let transcript = Buffer.alloc(0);
+      let pending = Buffer.alloc(0);
+      const sentFiles = new Set();
+      try {
+        const res = await execFileAsync(bin, tArgs, { encoding: 'buffer', maxBuffer: 64 * 1024 * 1024 });
+        transcript = res.stdout;
+        const parsed = JSON.parse(transcript.toString('utf8'));
+        for (const item of parsed.items || []) {
+          for (const f of item.sent?.files || []) sentFiles.add(f);
+        }
+      } catch {
+        // Empty transcript, matching preview.sh.
       }
-    } catch {
-      // Empty transcript, matching preview.sh.
-    }
-    try {
-      pending = execFileSync(bin, pArgs, { maxBuffer: 16 * 1024 * 1024 });
-    } catch {
-      // Empty pending.
-    }
-    const entry = { transcript, pending, keyJson: Buffer.from(JSON.stringify({ key })), sentFiles };
-    transcriptCache.set(cacheKey, entry);
-    return entry;
+      try {
+        const res = await execFileAsync(bin, pArgs, { encoding: 'buffer', maxBuffer: 16 * 1024 * 1024 });
+        pending = res.stdout;
+      } catch {
+        // Empty pending.
+      }
+      return { transcript, pending, keyJson: Buffer.from(JSON.stringify({ key })), sentFiles };
+    })();
+    transcriptCache.set(cacheKey, promise);
+    return promise;
   };
 
   const defaultImages = fixture ? null : join(homedir(), 'Library/Application Support/Codealong/images');
 
-  const resolveRunPath = (runEntry, rawRelPath) => {
+  const resolveRunPath = async (runEntry, rawRelPath) => {
     const { run, page } = runEntry;
     const vars = run.vars || {};
     let relPath;
@@ -335,7 +342,7 @@ export function createPreviewHandler({ dir, repo, fixture, bin, runs }) {
     }
 
     if (relPath === 'transcript.json' || relPath === 'pending.json' || relPath === 'transcript-key.json') {
-      const tr = getTranscript(vars);
+      const tr = await getTranscript(vars);
       if (!tr) return null;
       if (relPath === 'transcript.json') return { body: tr.transcript, type: MIME['.json'] };
       if (relPath === 'pending.json') return { body: tr.pending, type: MIME['.json'] };
@@ -343,7 +350,7 @@ export function createPreviewHandler({ dir, repo, fixture, bin, runs }) {
     }
 
     if (relPath.startsWith('files/')) {
-      const tr = getTranscript(vars);
+      const tr = await getTranscript(vars);
       if (!tr) return null;
       const tail = relPath.slice('files/'.length);
       const candidate = tail.startsWith('/') ? tail : `/${tail}`;
@@ -373,13 +380,13 @@ export function createPreviewHandler({ dir, repo, fixture, bin, runs }) {
     return { path: safe };
   };
 
-  const servePath = (urlPath, method = 'GET') => {
+  const servePath = async (urlPath, method = 'GET') => {
     const clean = (urlPath || '/').split('?')[0];
     const m = /^\/run\/([^/]+)\/(.*)$/.exec(clean);
     if (!m) return { status: 404 };
     const entry = runsById.get(m[1]);
     if (!entry) return { status: 404 };
-    const resolved = resolveRunPath(entry, m[2]);
+    const resolved = await resolveRunPath(entry, m[2]);
     if (!resolved) return { status: 404 };
     let body = resolved.body;
     let type = resolved.type;
@@ -397,14 +404,20 @@ export function createPreviewHandler({ dir, repo, fixture, bin, runs }) {
   };
 
   const handle = (req, res) => {
-    const out = servePath(req.url, req.method);
-    if (out.status !== 200) {
-      res.writeHead(out.status);
-      res.end();
-      return;
-    }
-    res.writeHead(200, { 'Content-Type': out.type, 'Content-Length': out.length, 'Cache-Control': 'no-store' });
-    res.end(out.body);
+    servePath(req.url, req.method)
+      .then((out) => {
+        if (out.status !== 200) {
+          res.writeHead(out.status);
+          res.end();
+          return;
+        }
+        res.writeHead(200, { 'Content-Type': out.type, 'Content-Length': out.length, 'Cache-Control': 'no-store' });
+        res.end(out.body);
+      })
+      .catch(() => {
+        if (!res.headersSent) res.writeHead(500);
+        res.end();
+      });
   };
 
   return { runsById, resolveRunPath, servePath, handle };
@@ -679,7 +692,7 @@ class ChromeWorker {
         { width: page.width, height: page.height, deviceScaleFactor: 1, mobile: false },
         sessionId,
       );
-      if (wantsMacEmulation(vars, { fixture: this.fixture })) {
+      if (wantsMacEmulation(vars)) {
         await this.cdp.send(
           'Emulation.setUserAgentOverride',
           { userAgent: MAC_USER_AGENT, platform: 'MacIntel' },

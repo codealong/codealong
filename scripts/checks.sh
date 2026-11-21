@@ -605,26 +605,6 @@ EOF
   count_plan="$(node -e 'console.log(JSON.parse(require("node:fs").readFileSync(process.argv[1], "utf8")).length)' "$plan")"
   [ "$count_plan" -gt 0 ] || return 0
 
-  # Guard against mixing this Mac's snapshots with the made-up Mac's (matching preview.sh).
-  local want_mark="this Mac"
-  [ $fixture -eq 0 ] || want_mark="the made-up Mac, as its engine named it"
-  if [ ! -f "$dir/board.json" ]; then
-    echo "FAIL  $dir has no build and snapshots: run without --prepared first."
-    failed=$((failed + 1))
-    record NONE "${wanted[0]}" "" "" "$dir has no build and snapshots"
-    rm -f "$plan" "$out.static" "$cdp_out" "$cdp_err"
-    return 0
-  fi
-  local got_mark
-  got_mark="$(cat "$dir/snapshot-of" 2>/dev/null || echo "this Mac")"
-  if [ "$got_mark" != "$want_mark" ]; then
-    echo "FAIL  $dir holds the snapshots of $got_mark, not of $want_mark."
-    failed=$((failed + 1))
-    record NONE "${wanted[0]}" "" "" "$dir holds snapshots of $got_mark, not of $want_mark"
-    rm -f "$plan" "$out.static" "$cdp_out" "$cdp_err"
-    return 0
-  fi
-
   if [ "$worker_jobs" -gt 1 ]; then
     echo "Running $count_plan runs across $worker_jobs persistent Chrome workers…"
   fi
@@ -645,12 +625,11 @@ EOF
   if [ "$runner_status" -ne 0 ]; then
     [ ! -s "$cdp_err" ] || cat "$cdp_err" >&2
   fi
+  # A fatal startup refusal (missing/mismatched snapshot-of, old engine, missing Chrome) exits
+  # before producing any results: fail up front instead of retrying or printing bogus gate rows.
   if [ "$runner_status" -ne 0 ] && [ ! -s "$cdp_out" ]; then
-    echo "FAIL  runner.mjs exited $runner_status: $(sed -n '1p' "$cdp_err")"
-    failed=$((failed + 1))
-    record NONE "${wanted[0]}" "" "" "runner.mjs exited $runner_status"
-    rm -f "$plan" "$out.static" "$cdp_out" "$cdp_err"
-    return 0
+    echo "runner.mjs couldn't start (exit $runner_status): $(sed -n '1p' "$cdp_err")" >&2
+    exit 1
   fi
 
   # Render results in the checks' original order and record every run.

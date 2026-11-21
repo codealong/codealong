@@ -16,6 +16,17 @@ import { assertFixtureEngine, assertSnapshotDir, buildPreviewPage, createPreview
 
 const repo: string = fileURLToPath(new URL('..', import.meta.url));
 
+/** Scrubbed environment so caller PREVIEW_* or CHECKS_LEGACY vars never leak into checks.sh tests. */
+function cleanEnv(extra: Record<string, string> = {}): Record<string, string> {
+  // @ts-expect-error no @types/node
+  const base: Record<string, string | undefined> = process.env;
+  const out: Record<string, string> = {};
+  for (const k of ['PATH', 'HOME', 'TMPDIR', 'USER', 'LANG', 'LC_ALL']) {
+    if (base[k]) out[k] = base[k] as string;
+  }
+  return { ...out, ...extra };
+}
+
 describe('scripts/preview/runner.mjs', () => {
   test('buildPreviewPage injects view config, clock, platform, and scripts matching preview.sh', () => {
     const base = '<!doctype html><html><head><title>x</title></head><body><div id="root"></div></body></html>';
@@ -41,13 +52,13 @@ describe('scripts/preview/runner.mjs', () => {
     expect(page.html).toContain('<script src="./prelude.js"></script><script src="./check.js"></script></body>');
   });
 
-  test('wantsMacEmulation emulates macOS on Linux runners unless a non-mac platform is asked for', () => {
-    expect(wantsMacEmulation({}, { fixture: true, hostPlatform: 'linux' })).toBe(true);
-    expect(wantsMacEmulation({}, { fixture: false, hostPlatform: 'linux' })).toBe(true);
-    expect(wantsMacEmulation({}, { fixture: false, hostPlatform: 'darwin' })).toBe(false);
-    expect(wantsMacEmulation({ PREVIEW_PLATFORM: 'mac' }, { fixture: false, hostPlatform: 'linux' })).toBe(true);
-    expect(wantsMacEmulation({ PREVIEW_PLATFORM: 'linux' }, { fixture: true, hostPlatform: 'linux' })).toBe(false);
-    expect(wantsMacEmulation({ PREVIEW_PLATFORM: 'windows' }, { fixture: true, hostPlatform: 'linux' })).toBe(false);
+  test('wantsMacEmulation emulates macOS only on non-macOS hosts unless another platform is asked for', () => {
+    expect(wantsMacEmulation({}, { hostPlatform: 'linux' })).toBe(true);
+    expect(wantsMacEmulation({ PREVIEW_PLATFORM: 'mac' }, { hostPlatform: 'linux' })).toBe(true);
+    expect(wantsMacEmulation({ PREVIEW_PLATFORM: 'linux' }, { hostPlatform: 'linux' })).toBe(false);
+    expect(wantsMacEmulation({ PREVIEW_PLATFORM: 'windows' }, { hostPlatform: 'linux' })).toBe(false);
+    expect(wantsMacEmulation({}, { hostPlatform: 'darwin' })).toBe(false);
+    expect(wantsMacEmulation({ PREVIEW_PLATFORM: 'mac' }, { hostPlatform: 'darwin' })).toBe(false);
   });
 
   test('formatReport classifies pass, fail, empty title (status 3), non-done title, and bench', () => {
@@ -70,7 +81,7 @@ describe('scripts/preview/runner.mjs', () => {
     expect(formatReport('done: 42 ms', 'scripts/preview/scroll-bench.js')).toEqual({ status: 0, result: '42 ms', extraLines: [] });
   });
 
-  test('createPreviewHandler isolates per-run fixtures, blocks traversal, and enforces snapshot-of and engine guards without sockets', () => {
+  test('createPreviewHandler isolates per-run fixtures, blocks traversal, and enforces snapshot-of and engine guards without sockets', async () => {
     const tmp = mkdtempSync(join(tmpdir(), 'ca-runner-test-'));
     try {
       const dir = join(tmp, 'preview');
@@ -99,7 +110,7 @@ describe('scripts/preview/runner.mjs', () => {
       expect(() => assertFixtureEngine(oldEngine)).toThrow(/has no made-up Mac/);
 
       const goodEngine = join(tmp, 'good-engine');
-      writeFileSync(goodEngine, '#!/usr/bin/env bash\n[ "${3:-}" = name ] && echo "the made-up Mac" || echo "{}"\n');
+      writeFileSync(goodEngine, '#!/usr/bin/env bash\n[ "${3:-}" = name ] && echo "the made-up Mac" || echo \'{"items":[]}\'\n');
       chmodSync(goodEngine, 0o755);
 
       const handler = createPreviewHandler({
@@ -108,23 +119,26 @@ describe('scripts/preview/runner.mjs', () => {
         fixture: true,
         bin: goodEngine,
         runs: [
-          { id: 0, view: 'sessions', project: '', check: '', vars: { PREVIEW_TODOS: 'scripts/preview/todos-a.json' } },
+          { id: 0, view: 'sessions', project: '', check: '', vars: { PREVIEW_TODOS: 'scripts/preview/todos-a.json', PREVIEW_TRANSCRIPT: 'claude:a:1' } },
           { id: 1, view: 'sessions', project: '', check: '', vars: { PREVIEW_TODOS: 'scripts/preview/todos-b.json' } },
         ],
       });
 
-      const a = handler.servePath('/run/0/todos-fixture.json');
-      const b = handler.servePath('/run/1/todos-fixture.json');
+      const a = await handler.servePath('/run/0/todos-fixture.json');
+      const b = await handler.servePath('/run/1/todos-fixture.json');
+      const tr = await handler.servePath('/run/0/transcript.json');
       expect(a.status).toBe(200);
       expect(b.status).toBe(200);
+      expect(tr.status).toBe(200);
       expect(a.body.toString('utf8')).toBe('[{"id":"a"}]');
       expect(b.body.toString('utf8')).toBe('[{"id":"b"}]');
+      expect(tr.body.toString('utf8').trim()).toBe('{"items":[]}');
 
       // Both plain and percent-encoded path traversal must hit the guard and fail closed.
-      expect(handler.servePath('/run/0/../secret.txt').status).toBe(404);
-      expect(handler.servePath('/run/0/..%2Fsecret.txt').status).toBe(404);
-      expect(handler.servePath('/run/0/images/..%2F..%2Fsecret.txt').status).toBe(404);
-      expect(handler.servePath('/run/0/%E0%A4%A').status).toBe(404);
+      expect((await handler.servePath('/run/0/../secret.txt')).status).toBe(404);
+      expect((await handler.servePath('/run/0/..%2Fsecret.txt')).status).toBe(404);
+      expect((await handler.servePath('/run/0/images/..%2F..%2Fsecret.txt')).status).toBe(404);
+      expect((await handler.servePath('/run/0/%E0%A4%A')).status).toBe(404);
     } finally {
       rmSync(tmp, { recursive: true, force: true });
     }
@@ -147,7 +161,6 @@ describe('scripts/preview/runner.mjs', () => {
       'PREVIEW_POLL',
       'PREVIEW_WAIT_POLL',
     ]);
-    // Extract every PREVIEW_<WORD> referenced in executable lines (skipping header comments).
     const previewVars = new Set<string>();
     for (const line of previewSh.split('\n')) {
       if (line.trimStart().startsWith('#')) continue;
@@ -159,41 +172,59 @@ describe('scripts/preview/runner.mjs', () => {
     expect(missing, 'add new PREVIEW_* variables to scripts/preview/runner.mjs too').toEqual([]);
   });
 
-  test('checks.sh run_cdp filters listed runs, retries NONE once, forwards unanswered, and guards snapshot-of', () => {
+  test('checks.sh run_cdp pins listed filtering, NONE retry, static rows, PREVIEW_* forwarding, and fail-fast startup errors', () => {
     const tmp = mkdtempSync(join(tmpdir(), 'ca-cdp-checks-'));
     try {
       mkdirSync(join(tmp, 'scripts/preview'), { recursive: true });
       mkdirSync(join(tmp, '.preview/fixture'), { recursive: true });
       writeFileSync(join(tmp, 'scripts/checks.sh'), readFileSync(join(repo, 'scripts/checks.sh'), 'utf8'));
       chmodSync(join(tmp, 'scripts/checks.sh'), 0o755);
-      // Stub preview.sh (should never be called when --prepared is passed).
       writeFileSync(join(tmp, 'scripts/preview.sh'), '#!/usr/bin/env bash\necho "unexpected preview.sh call" >&2; exit 9\n');
       chmodSync(join(tmp, 'scripts/preview.sh'), 0o755);
       writeFileSync(join(tmp, '.preview/fixture/board.json'), '{"lanes":[]}');
       writeFileSync(join(tmp, '.preview/fixture/index.html'), '<html><head></head><body></body></html>');
       writeFileSync(join(tmp, '.preview/fixture/snapshot-of'), 'this Mac');
+      writeFileSync(join(tmp, '.preview/board.json'), '{"lanes":[]}');
+      writeFileSync(join(tmp, '.preview/index.html'), '<html><head></head><body></body></html>');
+      writeFileSync(join(tmp, '.preview/snapshot-of'), 'this Mac');
 
       writeFileSync(
         join(tmp, 'scripts/preview/alpha-check.js'),
-        '//   scripts/preview.sh sessions \'\' scripts/preview/alpha-check.js\n//   PREVIEW_SCHEME=dark scripts/preview.sh sessions \'\' scripts/preview/alpha-check.js\n',
+        "//   scripts/preview.sh sessions '' scripts/preview/alpha-check.js\n//   PREVIEW_SCHEME=dark scripts/preview.sh sessions '' scripts/preview/alpha-check.js\n",
       );
+      writeFileSync(
+        join(tmp, 'scripts/preview/hand-check.js'),
+        "//   PREVIEW_TRANSCRIPT=<key> scripts/preview.sh sessions '' scripts/preview/hand-check.js\n",
+      );
+      writeFileSync(join(tmp, 'scripts/preview/noheader-check.js'), '// no run command\n');
       writeFileSync(
         join(tmp, 'scripts/preview/fixture-passes.txt'),
         "scripts/preview.sh sessions '' scripts/preview/alpha-check.js\n",
       );
 
-      // Stub runner.mjs: first invocation returns status 3 (NONE), second invocation returns PASS with unanswered.
+      // Stub runner.mjs enforcing the real snapshot-of check and recording seen plans.
+      const seenPlans = join(tmp, 'plans.ndjson');
       writeFileSync(
         join(tmp, 'scripts/preview/runner.mjs'),
-        `import { existsSync, readFileSync, writeFileSync } from 'node:fs';
+        `import { appendFileSync, existsSync, readFileSync, writeFileSync } from 'node:fs';
+import { join } from 'node:path';
 const args = process.argv.slice(2);
+const dir = args[args.indexOf('--dir') + 1];
 const planPath = args[args.indexOf('--plan') + 1];
+const fixture = args.includes('--fixture');
+const want = fixture ? ${JSON.stringify(FIXTURE_MARK)} : 'this Mac';
+const got = existsSync(join(dir, 'snapshot-of')) ? readFileSync(join(dir, 'snapshot-of'), 'utf8').trim() : 'this Mac';
+if (got !== want) {
+  console.error(\`\${dir} holds the snapshots of \${got}, not of \${want}\`);
+  process.exit(1);
+}
 const plan = JSON.parse(readFileSync(planPath, 'utf8'));
+appendFileSync(${JSON.stringify(seenPlans)}, JSON.stringify({ fixture, plan }) + '\\n');
 const marker = ${JSON.stringify(join(tmp, 'seen.count'))};
 const n = existsSync(marker) ? Number(readFileSync(marker, 'utf8')) + 1 : 1;
 writeFileSync(marker, String(n));
 for (const r of plan) {
-  const out = n === 1
+  const out = fixture && n === 1
     ? { id: r.id, status: 3, result: 'FAIL 0/0 no result: Chrome never showed the page', extraLines: [] }
     : { id: r.id, status: 0, result: 'PASS 2/2', extraLines: ['unanswered: fake_cmd'] };
   console.log(JSON.stringify(out));
@@ -201,24 +232,52 @@ for (const r of plan) {
 `,
       );
 
-      // 1) Refuses --fixture --prepared when snapshot-of says "this Mac".
+      // 1) Startup refusal (mismatched snapshot-of) fails fast without retry or bogus gate rows.
       const wrongMark = spawnSync('bash', ['scripts/checks.sh', '--fixture', '--prepared', '--listed', 'alpha'], {
         cwd: tmp,
+        env: cleanEnv(),
         encoding: 'utf8',
+        timeout: 30_000,
       });
       expect(wrongMark.status).toBe(1);
-      expect(wrongMark.stdout).toContain('holds the snapshots of this Mac, not of the made-up Mac, as its engine named it');
+      expect(wrongMark.stderr).toContain('holds the snapshots of this Mac, not of the made-up Mac, as its engine named it');
+      expect(wrongMark.stdout).not.toContain('Trying again');
+      expect(wrongMark.stdout).not.toContain('lists a run no check has');
 
-      // 2) With the right mark: runs only the listed run, retries NONE once, passes, and reports unanswered.
+      // 2) Fixture gate: strips caller PREVIEW_SCHEME, filters listed run, retries NONE once, reports unanswered.
       writeFileSync(join(tmp, '.preview/fixture/snapshot-of'), FIXTURE_MARK);
       const ok = spawnSync('bash', ['scripts/checks.sh', '--fixture', '--prepared', '--listed', 'alpha'], {
         cwd: tmp,
+        env: cleanEnv({ PREVIEW_SCHEME: 'dark' }),
         encoding: 'utf8',
+        timeout: 30_000,
       });
       expect(ok.status, ok.stdout + ok.stderr).toBe(0);
       expect(ok.stdout).toContain('Trying again the runs that gave no result, of: alpha');
       expect(ok.stdout).toContain('1 passed, 0 failed.');
       expect(ok.stdout).toContain('Commands the stub had no answer for: fake_cmd');
+
+      // 3) Real data: forwards caller PREVIEW_SCHEME=dark, SKIPs <key> hand-run, FAILs headerless check.
+      const real = spawnSync('bash', ['scripts/checks.sh', '--prepared', 'alpha', 'hand', 'noheader'], {
+        cwd: tmp,
+        env: cleanEnv({ PREVIEW_SCHEME: 'dark' }),
+        encoding: 'utf8',
+        timeout: 30_000,
+      });
+      expect(real.status).toBe(1);
+      expect(real.stdout).toContain('SKIP  hand');
+      expect(real.stdout).toContain('FAIL  noheader');
+      expect(real.stdout).toContain('2 passed, 1 failed, 1 not run.');
+
+      const plans = readFileSync(seenPlans, 'utf8')
+        .trim()
+        .split('\n')
+        .map((l: string) => JSON.parse(l));
+      // Fixture runs stripped PREVIEW_SCHEME=dark; real-data run carried it into alpha's first run.
+      expect(plans[0].fixture).toBe(true);
+      expect(plans[0].plan[0].vars.PREVIEW_SCHEME).toBeUndefined();
+      const realPlan = plans.find((p: { fixture: boolean }) => !p.fixture);
+      expect(realPlan.plan[0].vars.PREVIEW_SCHEME).toBe('dark');
     } finally {
       rmSync(tmp, { recursive: true, force: true });
     }
