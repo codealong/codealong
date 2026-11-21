@@ -161,7 +161,11 @@ runs on this Mac (2026-10-01). Paths are under `src-tauri/src/`.
   2026-10-14): `HandleUserInput called with text: "<text>"` as Return sends what's typed,
   Codealong's typing too; `Forwarding user message to conversation <id>` as a prompt goes in,
   milliseconds after the input when no turn runs, and for `-i`'s prompt with no input line before
-  it; `Cancelling in-progress response for conversation <id>` at Escape while a reply is on its
+  it, ahead of the prompt's step, which is written once the agent's settings are worked out
+  (`SEND_USER_CASCADE_MESSAGE_LATENCY` on the next line: `resolve_agent_config_latency_ms:471`
+  of 548 on one prompt, 7 ms on others, 2026-11-20); the row's `last_user_input_time` copies that
+  step's time, so when you last prompted goes by the step and the line counts only until the
+  step is there (`latest_prompt`, `Reader::reread`); `Cancelling in-progress response for conversation <id>` at Escape while a reply is on its
   way. A message typed while a turn runs is held until the turn ends (`Queued Messages` in
   `/config`: Queue by default, or Send Immediately, `"queuedMessages": "send-immediately"` in
   `settings.json`), and then `Auto-flush: sending N queued input(s)` and one forwarding line send

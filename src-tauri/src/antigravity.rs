@@ -210,6 +210,9 @@ pub struct Conversation {
     pub last_modified: i64,
     /// When you last wrote to it.
     pub last_input: Option<i64>,
+    /// When its latest prompt went in, by that prompt's own step (`latest_prompt`): the time the
+    /// summary's `last_user_input_time` is copied from, in a file no other `agy` writes back.
+    pub prompted_at: Option<i64>,
     /// The folder it's kept in.
     pub dir: PathBuf,
     /// It's the command line's: an `agy` process runs it, in a terminal or on its own.
@@ -560,9 +563,20 @@ const TOOL_CONFIG: [u64; 4] = [19, 12, 1, 13];
 /// (`Said::agent_mode`) and what the default one asks: as the latest turn it went in ran with
 /// (`Said::default_turn`), else as the process started (`Said::tool_permission`, `session_mode`).
 fn turn_mode(dir: &Path, id: &str) -> Option<SessionMode> {
+    mode_of(&latest_prompt(dir, id)?)
+}
+
+/// The payload of a conversation's latest prompt's step, from its own database: the permissions
+/// its turn ran with (`mode_of`), and when it went in (`step_began`), which the summary's
+/// `last_user_input_time` copies to the microsecond (four conversations here, 2026-11-20).
+fn latest_prompt(dir: &Path, id: &str) -> Option<Vec<u8>> {
     let db = crate::harness::open_database(&dir.join("conversations").join(format!("{id}.db")))?;
-    let step: Vec<u8> = db.query_row("SELECT step_payload FROM steps WHERE step_type = ?1 ORDER BY idx DESC LIMIT 1", [STEP_USER_INPUT], |r| r.get(0)).ok()?;
-    let config = proto_at(&step, &TOOL_CONFIG).into_iter().next()?;
+    db.query_row("SELECT step_payload FROM steps WHERE step_type = ?1 ORDER BY idx DESC LIMIT 1", [STEP_USER_INPUT], |r| r.get(0)).ok()
+}
+
+/// The permissions a turn ran with, from its prompt's step (`turn_mode`).
+fn mode_of(step: &[u8]) -> Option<SessionMode> {
+    let config = proto_at(step, &TOOL_CONFIG).into_iter().next()?;
     let policy = proto_ints(config, &[8, 3, 6]).into_iter().next()?;
     let asks_to_read = proto_at(config, &[42, 3]).into_iter().flat_map(|grants| proto_at(grants, &[3])).any(|g| g == b"read_file(/)");
     policy_mode(policy, asks_to_read)
@@ -1747,16 +1761,13 @@ impl Reader {
             if let Some(log) = process.and_then(|p| self.logs.get_mut(&p.pid)) {
                 log.read_on();
                 c.said = log.said.clone();
-                // The summary's time of your last prompt can be an older copy of the row.
-                if let Some((_, at)) = c.said.prompted.as_ref().filter(|(to, _)| *to == c.id) {
-                    c.last_input = c.last_input.max(Some(*at));
-                }
             }
             match before.get(&c.id) {
                 Some(old) if !held && old.last_modified == c.last_modified && old.step_count == c.step_count => {
                     c.tail = old.tail.clone();
                     c.asked = old.asked.clone();
                     c.started_at = old.started_at;
+                    c.prompted_at = old.prompted_at;
                     c.mode = old.mode.clone();
                     c.failed = old.failed.clone();
                     c.model = old.model.clone();
@@ -1775,11 +1786,27 @@ impl Reader {
                             c.started_at = at;
                         }
                     }
-                    c.mode = turn_mode(&c.dir, &c.id);
+                    let prompt = latest_prompt(&c.dir, &c.id);
+                    c.mode = prompt.as_deref().and_then(mode_of);
+                    // A prompt's step stays once written, so one that doesn't read this time
+                    // went in when it did the time before.
+                    c.prompted_at = prompt.as_deref().and_then(step_began).or(old.and_then(|o| o.prompted_at));
                     // The note a failed turn ends with never reaches the transcript.
                     c.failed = turn_failed(&c.dir, &c.id, c.last_modified);
                     c.model = turn_model(&c.dir, &c.id);
                 }
+            }
+            // When you last prompted it, by the prompt's own step: the summary's copy of that time
+            // can be an older row another `agy` wrote back. The terminal UI's log says a prompt
+            // went in before its step is written, as `agy` works out the agent's settings between
+            // the two (7 to 525 ms later here, 2026-11-20), so the log counts only until the step
+            // is there. Counted after, the time would move on by those milliseconds as the step's
+            // own came back, with no prompt sent, taking the tags and replies given on it with it
+            // (`board::moved_on`). The same goes for a conversation the table doesn't list yet,
+            // timed to the second by its transcript (`started`).
+            c.last_input = c.last_input.max(c.prompted_at);
+            if let Some((_, at)) = c.said.prompted.as_ref().filter(|(to, at)| *to == c.id && c.prompted_at.map_or(true, |step| step < *at)) {
+                c.last_input = c.last_input.max(Some(*at));
             }
             // A turn that went in the default agent mode ran with what the tool permission asks
             // now, which the process keeps for when it's back in the default after a turn in
@@ -2524,7 +2551,7 @@ mod tests {
         let (secs, days) = (ms.div_euclid(1000), ms.div_euclid(86_400_000));
         let (y, m, d) = crate::util::civil_from_days(days);
         let t = secs.rem_euclid(86_400);
-        format!("{y:04}-{m:02}-{d:02} {:02}:{:02}:{:02}+00:00", t / 3600, t / 60 % 60, t % 60)
+        format!("{y:04}-{m:02}-{d:02} {:02}:{:02}:{:02}.{:03}+00:00", t / 3600, t / 60 % 60, t % 60, ms.rem_euclid(1000))
     }
 
     #[test]
@@ -3282,6 +3309,103 @@ mod tests {
         reader.processes.clear();
         reader.track_logs();
         assert!(reader.logs.is_empty());
+    }
+
+    /// When you last prompted it is said by the prompt's own step, which no other `agy` writes
+    /// back: not by the summary's copy of that time, which can be an older row, nor by the
+    /// terminal UI's log, which says a prompt went in a moment before its step is written and
+    /// counts only until it is. Taken from either, the time moved on by milliseconds with no
+    /// prompt sent, and the tags and replies given on it went (2026-11-20).
+    #[test]
+    fn your_last_prompt_is_timed_by_its_own_step() {
+        let root = crate::fixtures::scratch("antigravity-prompted");
+        let dir = root.join("antigravity-cli");
+        std::fs::create_dir_all(dir.join("conversations")).unwrap();
+        std::fs::create_dir_all(dir.join("log")).unwrap();
+        let (first, second) = (on_14th("17:23:30.316"), on_14th("17:40:12.115"));
+        // Another `agy` wrote the row back from its copy of the first prompt's turn.
+        let summaries = Connection::open(dir.join(SUMMARIES)).unwrap();
+        let row = |modified: i64, count: i64, input: i64| summaries.execute("UPDATE conversation_summaries SET last_modified_time = ?1, step_count = ?2, last_user_input_time = ?3", rusqlite::params![in_utc(modified), count, in_utc(input)]).unwrap();
+        summaries
+            .execute_batch(&format!(
+                "{SCHEMA}\
+                 INSERT INTO conversation_summaries (conversation_id, preview, step_count, last_modified_time, workspace_uris, status, not_fully_idle, last_user_input_time, app_data_dir) VALUES \
+                 ('c1', 'Add a bot', 2, '', '[]', 'CASCADE_RUN_STATUS_IDLE', 0, '', 'antigravity-cli');"
+            ))
+            .unwrap();
+        row(first + 9_000, 2, first);
+        let steps = Connection::open(dir.join("conversations/c1.db")).unwrap();
+        steps.execute_batch("CREATE TABLE steps (idx INTEGER PRIMARY KEY, step_type INTEGER NOT NULL DEFAULT 0, status INTEGER NOT NULL DEFAULT 0, step_payload BLOB);").unwrap();
+        let step = |idx: i64, kind: i64, at: i64| steps.execute("INSERT INTO steps VALUES (?1, ?2, 3, ?3)", rusqlite::params![idx, kind, began(at)]).unwrap();
+        step(0, STEP_USER_INPUT, first);
+        step(1, 15, first + 9_000);
+        // The log says the second prompt went in 525 ms before its step was written, as agy
+        // worked out the agent's settings.
+        let log = dir.join("log/cli-20261014_172324.log");
+        let lines = [glog("17:23:24.339615", "Starting language server process with pid 7"), glog("17:40:11.590112", "Forwarding user message to conversation c1 (items=1, media=0)")];
+        std::fs::write(&log, lines.map(|l| l + "\n").concat()).unwrap();
+        step(2, STEP_USER_INPUT, second);
+        step(3, 15, second + 20_000);
+
+        let account = AccountCfg { name: "antigravity".into(), harness: "antigravity".into(), home: dir.to_string_lossy().into_owned(), command: None, start: None, usage_cap: None, acp: None, monthly: None, per_token: false, disabled: false, chrome_profile: None };
+        let seen = crate::state::SeenState::default();
+        let look = Look { seen: &seen, since: 0, now: on_14th("18:00:00.000"), ps: Default::default() };
+        let mut reader = Reader { processes: vec![Process { pid: 7, conversation: Some("c1".into()), terminal: true, logs: vec![log.clone()], started: None }], ..Reader::default() };
+        reader.track_logs();
+        let prompted = |reader: &mut Reader| {
+            // The processes are the test's, however long it takes.
+            reader.looked_at = Some(Instant::now());
+            reader.reread(&account, &look);
+            crate::board::antigravity_session(&account, &reader.conversations["antigravity"][0], reader.processes.first(), false, 0, look.now).last_prompt_at
+        };
+        // Neither the row's older copy nor the log's earlier time.
+        assert_eq!(prompted(&mut reader), second);
+        // The row catches up, and is written back old again: the time holds.
+        row(second + 20_000, 4, second);
+        assert_eq!(prompted(&mut reader), second);
+        row(first + 9_000, 2, first);
+        assert_eq!(prompted(&mut reader), second);
+        // A third prompt goes in: until its step is written, the log says when.
+        use std::io::Write as _;
+        std::fs::OpenOptions::new().append(true).open(&log).unwrap().write_all(format!("{}\n", glog("17:55:00.097000", "Forwarding user message to conversation c1 (items=1, media=0)")).as_bytes()).unwrap();
+        assert_eq!(prompted(&mut reader), on_14th("17:55:00.097"));
+        let third = on_14th("17:55:00.104");
+        step(4, STEP_USER_INPUT, third);
+        assert_eq!(prompted(&mut reader), third);
+        // Its terminal UI quits with the row an older copy still: read again unchanged, it keeps
+        // the step's time.
+        reader.processes.clear();
+        reader.track_logs();
+        assert_eq!(prompted(&mut reader), third);
+        assert_eq!(prompted(&mut reader), third);
+    }
+
+    /// A conversation the table doesn't list yet (`started`) has its transcript's time for its
+    /// first prompt, to the second, and its latest prompt's step has the time to the millisecond,
+    /// which the row will copy: the step's is the one it goes by, so the row's coming doesn't move
+    /// it.
+    #[test]
+    fn a_conversation_not_listed_yet_is_timed_by_its_prompts_step() {
+        let root = crate::fixtures::scratch("antigravity-unlisted");
+        let dir = root.join("antigravity-cli");
+        let logs = dir.join("brain/c1/.system_generated/logs");
+        std::fs::create_dir_all(&logs).unwrap();
+        std::fs::create_dir_all(dir.join("presence")).unwrap();
+        std::fs::create_dir_all(dir.join("conversations")).unwrap();
+        std::fs::write(dir.join("presence/c1.lock"), "").unwrap();
+        std::fs::write(logs.join("transcript.jsonl"), format!("{}\n", LINES[0])).unwrap();
+        let prompt = parse_rfc3339_ms("2026-10-01T16:55:10.734Z").unwrap();
+        let steps = Connection::open(dir.join("conversations/c1.db")).unwrap();
+        steps.execute_batch("CREATE TABLE steps (idx INTEGER PRIMARY KEY, step_type INTEGER NOT NULL DEFAULT 0, status INTEGER NOT NULL DEFAULT 0, step_payload BLOB);").unwrap();
+        steps.execute("INSERT INTO steps VALUES (0, 14, 3, ?1)", [began(prompt)]).unwrap();
+
+        let account = AccountCfg { name: "antigravity".into(), harness: "antigravity".into(), home: dir.to_string_lossy().into_owned(), command: None, start: None, usage_cap: None, acp: None, monthly: None, per_token: false, disabled: false, chrome_profile: None };
+        let seen = crate::state::SeenState::default();
+        let look = Look { seen: &seen, since: 0, now: prompt + 60_000, ps: Default::default() };
+        let mut reader = Reader { processes: vec![Process { pid: 999_999, conversation: Some("c1".into()), terminal: true, logs: Vec::new(), started: None }], looked_at: Some(Instant::now()), ..Reader::default() };
+        reader.reread(&account, &look);
+        let c = &reader.conversations["antigravity"][0];
+        assert_eq!((c.started_at, c.last_input), (parse_rfc3339_ms("2026-10-01T16:55:10Z"), Some(prompt)));
     }
 
     #[test]
