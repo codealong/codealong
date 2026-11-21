@@ -512,30 +512,29 @@ queue_it() {
         cat "$log" >&2
         die "Couldn't read CI's own run on pull request #$number ($pr_url) for a while, so it isn't queued: look at the repository's Actions, and run scripts/land.sh again." 3
       fi
-      pause
-      continue
-    fi
-    quiet=0
-    status="" conclusion="" run_id="" run_url=""
-    read -r status conclusion run_id run_url <<EOF
+    else
+      quiet=0
+      status="" conclusion="" run_id="" run_url=""
+      read -r status conclusion run_id run_url <<EOF
 $run
 EOF
-    if [ "$status" = completed ]; then
-      [ "$conclusion" != success ] || break
-      rm -f "$sent"
-      echo "CI's own run on pull request #$number didn't pass ($conclusion), so it can't join the queue." >&2
-      say_failed "$number" "$run_id $run_url"
-      exit 1
-    fi
-    if [ -n "$status" ]; then
-      missing=0
-    else
-      missing=$((missing + 1))
-      # GitHub occasionally drops the pull_request event for a clean PR, so no run ever starts
-      # (.claude/rules/github.md). Stop after 15 empty answers (~5 minutes, as check_on_github
-      # does) rather than wait three hours; keep $sent so reopening and rerunning picks it up.
-      if [ "$missing" -ge 15 ]; then
-        die "CI's own run on pull request #$number ($pr_url) never showed up, so it isn't queued: look at the repository's Actions, or reopen the pull request (gh pr close $number && gh pr reopen $number) to start it, and run scripts/land.sh again." 3
+      if [ "$status" = completed ]; then
+        [ "$conclusion" != success ] || break
+        rm -f "$sent"
+        echo "CI's own run on pull request #$number didn't pass ($conclusion), so it can't join the queue." >&2
+        say_failed "$number" "$run_id $run_url"
+        exit 1
+      fi
+      if [ -n "$status" ]; then
+        missing=0
+      else
+        missing=$((missing + 1))
+        # GitHub occasionally drops the pull_request event for a clean PR, so no run ever starts
+        # (.claude/rules/github.md). Stop after 15 empty answers (~5 minutes, as check_on_github
+        # does) rather than wait three hours; keep $sent so reopening and rerunning picks it up.
+        if [ "$missing" -ge 15 ]; then
+          die "CI's own run on pull request #$number ($pr_url) never showed up, so it isn't queued: look at the repository's Actions, or reopen the pull request (gh pr close $number && gh pr reopen $number) to start it, and run scripts/land.sh again." 3
+        fi
       fi
     fi
     if [ "$said" = 0 ]; then
