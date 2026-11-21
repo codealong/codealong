@@ -348,18 +348,42 @@ impl Engine {
         }
         // Added together and started once: on macOS each `watch` stops the watcher's stream and
         // starts it again with every path so far, a thread and a stream for each path.
-        let mut failed = 0;
-        let mut adding = watcher.paths_mut();
-        for (p, mode) in paths {
-            if p.exists() && adding.add(&p, mode).is_err() {
-                failed += 1;
-            }
-        }
-        // What a path's watch came to, `add` has said.
-        let _ = adding.commit();
-        self.set_trouble(Trouble::Watch, (failed > 0).then(|| format!("Couldn't watch {failed} folders; their lanes update every 10 seconds.")));
+        let existing: Vec<(PathBuf, RecursiveMode)> = paths.into_iter().filter(|(p, _)| p.exists()).collect();
+        let (failed, start_err) = watch_paths(&mut watcher, existing);
+        let trouble = if let Some(e) = start_err {
+            Some(format!("Live updates are off: {e}"))
+        } else {
+            (failed > 0).then(|| format!("Couldn't watch {failed} folders; their lanes update every 10 seconds."))
+        };
+        self.set_trouble(Trouble::Watch, trouble);
         self.watcher = Some(watcher);
     }
+}
+
+/// Adds `paths` to `watcher` in one batch (`update_paths`, so macOS starts its FSEvents stream
+/// once). When one path fails, counts it and keeps adding `remaining` so one unreadable or
+/// vanished folder doesn't leave the rest unwatched; returns the backend error if starting the
+/// watcher itself fails (`origin: None`).
+fn watch_paths<W: Watcher>(watcher: &mut W, paths: Vec<(PathBuf, RecursiveMode)>) -> (usize, Option<notify::Error>) {
+    let mut ops: Vec<notify::PathOp> = paths
+        .into_iter()
+        .map(|(p, mode)| match mode {
+            RecursiveMode::Recursive => notify::PathOp::watch_recursive(p),
+            RecursiveMode::NonRecursive => notify::PathOp::watch_non_recursive(p),
+        })
+        .collect();
+    let mut failed = 0;
+    while !ops.is_empty() {
+        match watcher.update_paths(ops) {
+            Ok(()) => return (failed, None),
+            Err(e) if e.origin.is_some() => {
+                failed += 1;
+                ops = e.remaining;
+            }
+            Err(e) => return (failed + e.remaining.len(), Some(e.source)),
+        }
+    }
+    (failed, None)
 }
 
 /// Paths that never matter, dropped before they reach the engine: databases and logs that
@@ -551,5 +575,83 @@ mod tests {
         assert_eq!(rest, vec![gone.clone()]);
         let mut batch = FsBatch::new(&engine.seeds);
         assert!(matches!(engine.classify_repo_path(&gone, &mut batch), RepoEvent::Worktrees));
+    }
+
+    #[test]
+    fn batch_watch_adds_all_paths_at_once_and_skips_failing_ones() {
+        use super::*;
+        use notify::{Error, PathOp, UpdatePathsError, WatcherKind};
+
+        struct FakeWatcher {
+            calls: usize,
+            watched: Vec<(PathBuf, RecursiveMode)>,
+            fail_on: Option<PathBuf>,
+            fail_start: bool,
+        }
+
+        impl Watcher for FakeWatcher {
+            fn new<F: notify::EventHandler>(_event_handler: F, _config: notify::Config) -> notify::Result<Self> {
+                unreachable!()
+            }
+            fn watch(&mut self, _path: &Path, _mode: RecursiveMode) -> notify::Result<()> {
+                unreachable!()
+            }
+            fn unwatch(&mut self, _path: &Path) -> notify::Result<()> {
+                unreachable!()
+            }
+            fn update_paths(&mut self, ops: Vec<PathOp>) -> std::result::Result<(), UpdatePathsError> {
+                self.calls += 1;
+                let mut iter = ops.into_iter();
+                while let Some(op) = iter.next() {
+                    if let PathOp::Watch(path, cfg) = op {
+                        if self.fail_on.as_ref() == Some(&path) {
+                            return Err(UpdatePathsError::new(
+                                Error::path_not_found(),
+                                Some(PathOp::Watch(path, cfg)),
+                                iter.collect(),
+                            ));
+                        }
+                        self.watched.push((path, cfg.recursive_mode()));
+                    }
+                }
+                if self.fail_start {
+                    return Err(UpdatePathsError::new(Error::generic("stream failed"), None, Vec::new()));
+                }
+                Ok(())
+            }
+            fn kind() -> WatcherKind {
+                WatcherKind::NullWatcher
+            }
+        }
+
+        // All paths go in one batch call.
+        let mut w = FakeWatcher { calls: 0, watched: Vec::new(), fail_on: None, fail_start: false };
+        let paths = vec![
+            (PathBuf::from("/a"), RecursiveMode::NonRecursive),
+            (PathBuf::from("/b"), RecursiveMode::Recursive),
+        ];
+        assert_eq!(watch_paths(&mut w, paths).0, 0);
+        assert_eq!(w.calls, 1);
+        assert_eq!(w.watched, vec![(PathBuf::from("/a"), RecursiveMode::NonRecursive), (PathBuf::from("/b"), RecursiveMode::Recursive)]);
+
+        // A failing path is counted and the remaining paths are still watched.
+        let mut w = FakeWatcher { calls: 0, watched: Vec::new(), fail_on: Some(PathBuf::from("/bad")), fail_start: false };
+        let paths = vec![
+            (PathBuf::from("/a"), RecursiveMode::Recursive),
+            (PathBuf::from("/bad"), RecursiveMode::Recursive),
+            (PathBuf::from("/c"), RecursiveMode::NonRecursive),
+        ];
+        let (failed, start_err) = watch_paths(&mut w, paths);
+        assert_eq!(failed, 1);
+        assert!(start_err.is_none());
+        assert_eq!(w.calls, 2);
+        assert_eq!(w.watched, vec![(PathBuf::from("/a"), RecursiveMode::Recursive), (PathBuf::from("/c"), RecursiveMode::NonRecursive)]);
+
+        // A backend start failure (origin: None) reports the error instead of looping.
+        let mut w = FakeWatcher { calls: 0, watched: Vec::new(), fail_on: None, fail_start: true };
+        let (failed, start_err) = watch_paths(&mut w, vec![(PathBuf::from("/a"), RecursiveMode::Recursive)]);
+        assert_eq!(failed, 0);
+        assert!(start_err.is_some());
+        assert_eq!(w.calls, 1);
     }
 }
