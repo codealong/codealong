@@ -183,7 +183,8 @@ use util::words;
 /// the folder it's in. Every checkout builds into one shared directory, and the workspace's crates
 /// to the same files from each, which cargo would take for fresh by their times alone. Cargo also
 /// rebuilds a crate when an environment variable it read has changed, so reading this one here
-/// (and in codealong-peer) rebuilds both whenever another checkout built them last. It's `None`
+/// (and in codealong-peer and codealong-vt) rebuilds all three whenever another checkout built them
+/// last. It's `None`
 /// in a build that didn't go through that config. `--snapshot --checkout` prints it, which is how
 /// scripts/engine.sh knows whose binary it copied.
 pub const CHECKOUT: Option<&str> = option_env!("CODEALONG_CHECKOUT");

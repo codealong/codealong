@@ -56,10 +56,11 @@ worktrees inside the checkout build there too. The workspace's own crates (`code
 `codealong-peer`, `codealong-vt`) build to the same files from every checkout, which cargo would
 take for fresh by their times alone and link another checkout's copy; so `.cargo/config.toml`
 names the checkout (`CODEALONG_CHECKOUT`) and all three crates read it, and cargo rebuilds them
-whenever another checkout built them last (lib.rs `CHECKOUT`). Installing
-[`sccache`](https://github.com/mozilla/sccache) (`brew install sccache`) and setting
-`rustc-wrapper = "sccache"` in `~/.cargo/config.toml` (not the repo's) caches compiled crates on
-disk across `cargo clean`, `prune-target.sh`, and branch switches on the shared target folder.
+whenever another checkout built them last (lib.rs `CHECKOUT`). Installing [`sccache`](https://github.com/mozilla/sccache) (`brew install sccache`) and setting
+`rustc-wrapper = "sccache"` in `~/.cargo/config.toml` (not the repo's) caches compiled
+non-incremental dependency crates (registry/git rlibs, C/C++ and assembly; not incremental
+workspace crates, proc-macros, or build scripts such as `libghostty-vt-sys`'s Zig build) on disk
+across `cargo clean`, `prune-target.sh`, and branch switches on the shared target folder.
 Release builds take minutes and queue on one lock, so only `relaunch.sh` and `release.sh` make
 them; the engine the checks run is a debug build of your checkout, with its dependencies optimized
 (`scripts/engine.sh`). A landing builds nothing here: its checks run on GitHub (*Keeping main
@@ -346,12 +347,13 @@ compiles once into the shared build directory after that. `GHOSTTY_SOURCE_DIR` b
 checkout of Ghostty instead, for building offline.
 
 The library is at 1.0 (Ghostty's `vt-1.0.0` tag), whose C API keeps its promises across 1.x, but
-the Rust crate has no release on it yet, so it's pinned to a git revision in `src-tauri/Cargo.toml`.
+the Rust crate has no release on it yet, so it's pinned to a git revision in `src-tauri/vt/Cargo.toml`.
 That revision fixes the Ghostty commit and so the Zig it needs (its `build.zig.zon`'s
 `minimum_zig_version`): 0.17 today, which CI installs too (`.github/workflows/`,
 `scripts/linux/lima.yaml`). Taking a newer one is a change of its own: move the revision, match
-the Zig version everywhere it's named, and run `cargo test terminals`, whose tests feed the
-emulator escape sequences and check the screens, keys, mouse and pastes that come of them.
+the Zig version everywhere it's named, and run `cargo test -p codealong-vt` (whose tests feed the
+emulator escape sequences and check the screens, keys, mouse and pastes that come of them) and
+`cargo test terminals` (for PTY and hand-over tests).
 `.claude/rules/libghostty.md` has what the library does and doesn't do that the code relies on.
 
 The snapshot format isn't among 1.0's promises: it's versioned apart from the library, and its
@@ -360,9 +362,9 @@ version 1 has no binary-compatibility guarantee yet. So a newer revision may wri
 a server handing its terminals to a new build (`serve.rs` `hand_over`) writes them with the old
 library and the new build reads them with its own. One it can't read leaves its program to draw
 the screen again (`terminals.rs` `run`), its scrollback lost, so a revision that changes the
-format is worth a word in the release notes. `cargo test terminals` checks a snapshot round trip
-within one build; across two builds, a server in a home of its own handed over to the next is the
-check (`.claude/rules/terminals.md`, *Codealong's own terminals*).
+format is worth a word in the release notes. `cargo test -p codealong-vt` and `cargo test terminals`
+check a snapshot round trip within one build; across two builds, a server in a home of its own
+handed over to the next is the check (`.claude/rules/terminals.md`, *Codealong's own terminals*).
 
 ## Icons and the mark
 

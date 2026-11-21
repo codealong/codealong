@@ -2013,7 +2013,7 @@ fn session_hook(event: &str) {
     };
     let watch = crate::claude::asks::Watch::new(home.clone(), pid, record);
     let ask = || server::ask_permission(&hook, pid, &home, asked.at, watch.from);
-    let decision = crate::claude::asks::ask_until_replied(&asked, &watch, std::time::Duration::from_secs(1), ask);
+    let decision = crate::claude::asks::ask_until_replied(&asked, &watch, std::time::Duration::from_secs(1), crate::claude::asks::GRACE, ask);
     if let Some(out) = crate::claude::asks::hook_output(&decision) {
         println!("{out}");
     }

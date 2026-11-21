@@ -1,5 +1,6 @@
 //! Codealong's terminal emulator wrapper over `libghostty-vt`, kept in a workspace crate of its
-//! own so edits to the rest of the engine don't recompile or re-wait on Ghostty's Zig build.
+//! own so edits to `codealong_lib` don't recompile this ~2,000-line wrapper or re-run its tests,
+//! and `cargo test -p codealong-vt` iterates on terminal emulation in under a second.
 
 // The engine's checkout: reading it has cargo rebuild this crate whenever another checkout built
 // it into the shared build directory last (the engine's `CHECKOUT` says why).

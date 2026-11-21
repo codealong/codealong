@@ -244,12 +244,16 @@ impl Watch {
 
 /// How long a request is taken as asked before the session's registry must say so: Claude Code
 /// writes it as the prompt shows, while the hook starts.
-const GRACE: Duration = Duration::from_secs(4);
+pub const GRACE: Duration = Duration::from_secs(4);
 
 /// Holds the request on this connection until it's answered here or elsewhere, then writes the
 /// reply line the hook waits for: the decision, or null for none. `changed` tells the engine the
 /// board should show it, or stop.
 pub fn hold(stream: &mut UnixStream, asked: Asked, watch: Watch, changed: &dyn Fn()) {
+    hold_with(stream, asked, watch, GRACE, Duration::from_secs(1), Duration::from_millis(400), changed);
+}
+
+fn hold_with(stream: &mut UnixStream, asked: Asked, watch: Watch, grace: Duration, check_every: Duration, poll: Duration, changed: &dyn Fn()) {
     let (tx, rx) = channel();
     let asked = {
         let mut held = held();
@@ -264,7 +268,7 @@ pub fn hold(stream: &mut UnixStream, asked: Asked, watch: Watch, changed: &dyn F
     let mut checked = Instant::now();
     let mut answer = None;
     let why = loop {
-        match rx.recv_timeout(Duration::from_millis(400)) {
+        match rx.recv_timeout(poll) {
             Ok((d, ack)) => {
                 let ok = reply(stream, Some(decision_json(&d, &asked)));
                 let _ = ack.send(ok);
@@ -277,9 +281,9 @@ pub fn hold(stream: &mut UnixStream, asked: Asked, watch: Watch, changed: &dyn F
         if crate::server::hung_up(stream) {
             break "the hook hung up: its process ended".to_string();
         }
-        if checked.elapsed() >= Duration::from_secs(1) {
+        if checked.elapsed() >= check_every {
             checked = Instant::now();
-            if let Some(why) = (start.elapsed() >= GRACE).then(|| no_longer_asked(&watch, &asked)).flatten() {
+            if let Some(why) = (start.elapsed() >= grace).then(|| no_longer_asked(&watch, &asked)).flatten() {
                 break format!("let go: {why}");
             }
         }
@@ -313,11 +317,7 @@ fn no_longer_asked(w: &Watch, asked: &Asked) -> Option<String> {
 /// or it quit first. Then it's asked again every `pause` while the session still waits on it,
 /// with the same grace `hold` gives. Claude Code shows its own prompt meanwhile and leaves the
 /// hook running when it's answered there, so the hook has to see that for itself.
-pub fn ask_until_replied(asked: &Asked, watch: &Watch, pause: Duration, ask: impl FnMut() -> Option<Value>) -> Value {
-    ask_until_replied_with_grace(asked, watch, pause, GRACE, ask)
-}
-
-fn ask_until_replied_with_grace(asked: &Asked, watch: &Watch, pause: Duration, grace: Duration, mut ask: impl FnMut() -> Option<Value>) -> Value {
+pub fn ask_until_replied(asked: &Asked, watch: &Watch, pause: Duration, grace: Duration, mut ask: impl FnMut() -> Option<Value>) -> Value {
     let start = Instant::now();
     note(Side::Hook, asked, &format!("asked, for process {}", watch.pid));
     // Whether no server answered the last time, said once until one does.
@@ -749,9 +749,10 @@ mod tests {
         // back until the hook returns, or it was answered there): let go after the grace.
         let (mut ours, mut hooks) = UnixStream::pair().unwrap();
         let (a, _) = parse(&hook("Bash"), 3).unwrap();
+        let grace = Duration::from_millis(80);
         let start = Instant::now();
-        hold(&mut ours, a, watch(PathBuf::new()), &|| {});
-        assert!(start.elapsed() >= GRACE && start.elapsed() < GRACE + Duration::from_secs(3));
+        hold_with(&mut ours, a, watch(PathBuf::new()), grace, Duration::from_millis(20), Duration::from_millis(10), &|| {});
+        assert!(start.elapsed() >= grace && start.elapsed() < grace + Duration::from_secs(3));
         let mut line = String::new();
         std::io::BufRead::read_line(&mut std::io::BufReader::new(&mut hooks), &mut line).unwrap();
         assert_eq!(serde_json::from_str::<Value>(&line).unwrap()["result"], Value::Null);
@@ -799,14 +800,14 @@ mod tests {
         registry(json!({ "status": "waiting", "waitingFor": "permission prompt" }));
         // No app up, then one that quit before it replied, then one that allows it.
         let mut tries = 0;
-        let got = ask_until_replied(&a, &w, Duration::from_millis(10), || {
+        let got = ask_until_replied(&a, &w, Duration::from_millis(10), GRACE, || {
             tries += 1;
             (tries == 3).then(|| json!({ "behavior": "allow" }))
         });
         assert_eq!((tries, got["behavior"].as_str()), (3, Some("allow")));
         // The app's null is its last word: it let the request go.
         let mut tries = 0;
-        assert_eq!(ask_until_replied(&a, &w, Duration::from_millis(10), || { tries += 1; Some(Value::Null) }), Value::Null);
+        assert_eq!(ask_until_replied(&a, &w, Duration::from_millis(10), GRACE, || { tries += 1; Some(Value::Null) }), Value::Null);
         assert_eq!(tries, 1);
         // Answered where it runs while no app was up: its result is written, and the hook goes
         // after the grace without an answer, as the registry still says it waits (on another).
@@ -815,7 +816,7 @@ mod tests {
         std::fs::write(&record, format!("{call}\n{result}\n")).unwrap();
         let grace = Duration::from_millis(80);
         let start = Instant::now();
-        assert_eq!(ask_until_replied_with_grace(&a, &w, Duration::from_millis(10), grace, || None), Value::Null);
+        assert_eq!(ask_until_replied(&a, &w, Duration::from_millis(10), grace, || None), Value::Null);
         assert!(start.elapsed() >= grace && start.elapsed() < grace + Duration::from_secs(2));
     }
 
