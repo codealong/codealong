@@ -36,7 +36,7 @@ tauri = { version = "2", features = ["macos-private-api", "tray-icon"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = { version = "1", features = ["raw_value"] }
 toml = "1"
-notify = "8"
+notify = "9"
 ignore = "0.4"
 dirs = "7"
 anyhow = "1"
