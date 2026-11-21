@@ -537,13 +537,12 @@ fn request_cause(error: &str) -> Option<&str> {
 }
 
 /// When the conversation's latest step began, and how its latest turn failed when that step is
-/// the error note it ended with (`turn_failed`), from its own database.
-fn latest_step(dir: &Path, id: &str, written: i64) -> (Option<i64>, Option<Failed>) {
-    let Some(db) = crate::harness::open_database(&dir.join("conversations").join(format!("{id}.db"))) else { return (None, None) };
-    let latest = db.query_row("SELECT step_type, status, step_payload FROM steps ORDER BY idx DESC LIMIT 1", [], |r| Ok((r.get::<_, i64>(0)?, r.get::<_, i64>(1)?, r.get::<_, Option<Vec<u8>>>(2)?)));
-    let Ok((kind, status, Some(payload))) = latest else { return (None, None) };
-    let failed = (kind == STEP_ERROR && status == STEP_DONE).then(|| turn_failed(&payload, written)).flatten();
-    (step_began(&payload), failed)
+/// the error note it ended with (`turn_failed`), from its own database. None when no step reads.
+fn latest_step(dir: &Path, id: &str, written: i64) -> Option<(Option<i64>, Option<Failed>)> {
+    let db = crate::harness::open_database(&dir.join("conversations").join(format!("{id}.db")))?;
+    let (kind, status, payload): (i64, i64, Option<Vec<u8>>) = db.query_row("SELECT step_type, status, step_payload FROM steps ORDER BY idx DESC LIMIT 1", [], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?))).ok()?;
+    let failed = payload.as_deref().filter(|_| kind == STEP_ERROR && status == STEP_DONE).and_then(|p| turn_failed(p, written));
+    Some((payload.as_deref().and_then(step_began), failed))
 }
 
 /// How a turn failed, by the payload of the error note it ended with; `written` is when the note
@@ -1813,10 +1812,15 @@ impl Reader {
                     // take a time back. The latest step's says when it was last written, which a
                     // row another `agy` wrote back doesn't.
                     c.prompted_at = prompt.as_deref().and_then(step_began).max(old.and_then(|o| o.prompted_at));
-                    // The note a failed turn ends with never reaches the transcript.
-                    let (latest, failed) = latest_step(&c.dir, &c.id, c.last_modified);
-                    c.latest_step_at = latest.max(old.and_then(|o| o.latest_step_at));
-                    c.failed = failed;
+                    // The note a failed turn ends with never reaches the transcript. A read that
+                    // finds no step, or a latest step older than one read before, is none at all
+                    // or an older copy: how the latest turn ended stays as it was read.
+                    let kept = old.and_then(|o| o.latest_step_at);
+                    let read = latest_step(&c.dir, &c.id, c.last_modified);
+                    let at = read.as_ref().and_then(|(at, _)| *at);
+                    let behind = read.is_none() || at.zip(kept).is_some_and(|(at, kept)| at < kept);
+                    c.failed = if behind { old.and_then(|o| o.failed.clone()) } else { read.and_then(|(_, failed)| failed) };
+                    c.latest_step_at = at.max(kept);
                     c.model = turn_model(&c.dir, &c.id);
                 }
             }
@@ -3252,12 +3256,26 @@ mod tests {
         let seen = crate::state::SeenState::default();
         let look = Look { seen: &seen, since: 0, now: at + 60_000, ps: Default::default() };
         let mut reader = Reader { processes: vec![Process { pid: 7, conversation: Some("c1".into()), terminal: true, logs: Vec::new(), started: None }], looked_at: Some(Instant::now()), ..Reader::default() };
-        reader.reread(&account, &look);
-        assert_eq!(reader.conversations["antigravity"][0].failed, Some(Failed { on: FailedOn::Connection, at, said: "Its request to the API failed: broken pipe".into() }));
-        // Told to carry on, it goes on.
-        steps.execute("INSERT INTO steps (idx, step_type, status) VALUES (3, 14, 3)", []).unwrap();
-        reader.reread(&account, &look);
-        assert_eq!(reader.conversations["antigravity"][0].failed, None);
+        let failed = |reader: &mut Reader| {
+            reader.looked_at = Some(Instant::now());
+            reader.reread(&account, &look);
+            reader.conversations["antigravity"][0].failed.clone()
+        };
+        let lost = Some(Failed { on: FailedOn::Connection, at, said: "Its request to the API failed: broken pipe".into() });
+        assert_eq!(failed(&mut reader), lost);
+        // Its database doesn't open once: how the turn ended stays as it was read.
+        let (database, away, older) = (dir.join("conversations/c1.db"), dir.join("conversations/away.db"), dir.join("conversations/older.db"));
+        std::fs::copy(&database, &older).unwrap();
+        std::fs::rename(&database, &away).unwrap();
+        assert_eq!(failed(&mut reader), lost);
+        std::fs::rename(&away, &database).unwrap();
+        // Told to carry on, it goes on, and an older copy of its database (`open_database`'s
+        // fallback leaves out what its WAL holds) doesn't bring the note back.
+        steps.execute("INSERT INTO steps VALUES (3, 14, 3, ?1)", [began(at + 5_000)]).unwrap();
+        assert_eq!(failed(&mut reader), None);
+        drop(steps);
+        std::fs::rename(&older, &database).unwrap();
+        assert_eq!(failed(&mut reader), None);
     }
 
     /// The session that waited, read from its folder: a turn its UI started goes on, whatever the
