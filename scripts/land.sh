@@ -87,14 +87,21 @@ calls_for() {
   case "$1" in
     # Docs nothing tests or builds. CLAUDE.md, the rules and the skills aren't among them.
     docs/* | design/*.md | README.md | CONTRIBUTING.md | SECURITY.md | .github/*.md | .github/CODEOWNERS | .claude/skills/*.md) ;;
-    # Words the engine's tests hold: the snapshot modes (snapshot.rs) and the command's reference
-    # and the plugin's copies of the skills (cli.rs, skills.rs, install.rs). Words, so no review.
-    .claude/rules/snapshot.md | skills/*.md | plugin/*.md)
+    # .claude/rules/snapshot.md is checked on both sides: its frontmatter and CLAUDE.md reference
+    # in src/notes.test.ts (`ui`) and every mode line in snapshot.rs (`engine`). Words, so no review.
+    .claude/rules/snapshot.md)
+      echo ui
       echo engine
       ;;
-    # Words checked by src/conventions.test.ts (CLAUDE.md's size and list of rules files, the
-    # rules' frontmatter, and the files tauri.conf.json copies under bundle.resources). Checked
-    # under `ui` in seconds instead of running the macOS+Linux engine builds. Words, so no review.
+    # Words the engine's tests hold: the command's reference and the plugin's copies of the skills
+    # (cli.rs, skills.rs, install.rs). Words, so no review.
+    skills/*.md | plugin/*.md)
+      echo engine
+      ;;
+    # Words checked by src/notes.test.ts (CLAUDE.md's size and list of rules files, the rules'
+    # frontmatter, the files tauri.conf.json copies under bundle.resources, and
+    # THIRD_PARTY_NOTICES.md). Checked under `ui` in seconds instead of running the engine builds.
+    # Words, so no review.
     CLAUDE.md | AGENTS.md | LICENSE | NOTICE | THIRD_PARTY_NOTICES.md | .claude/rules/*)
       echo ui
       ;;
