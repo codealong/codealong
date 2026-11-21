@@ -13,7 +13,6 @@
   --surface: #ffffff;
   --surface-sunken: #e8eae6;
   --surface-raised: #ffffff;
-  --glass-chrome: rgba(255, 255, 255, 0.5);
   --glass-sunken: rgba(0, 0, 0, 0.03);
   --glass-ground: rgba(245, 245, 245, 0.82);
   --glass-cover: #eeeeef;
@@ -187,7 +186,6 @@
     --surface: #15181a;
     --surface-sunken: #0a0c0d;
     --surface-raised: #1c2022;
-    --glass-chrome: rgba(0, 0, 0, 0.3);
     --glass-sunken: rgba(0, 0, 0, 0.15);
     --glass-ground: rgba(14, 14, 15, 0.82);
     --glass-cover: #0c0c0d;
@@ -297,7 +295,6 @@
   --surface: #15181a;
   --surface-sunken: #0a0c0d;
   --surface-raised: #1c2022;
-  --glass-chrome: rgba(0, 0, 0, 0.3);
   --glass-sunken: rgba(0, 0, 0, 0.15);
   --glass-ground: rgba(14, 14, 15, 0.82);
   --glass-cover: #0c0c0d;
