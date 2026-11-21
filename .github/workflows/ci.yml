@@ -46,6 +46,7 @@ on:
 
 permissions:
   contents: read
+  actions: read
 
 concurrency:
   # A pull request pushed to again has no use for the run on what it was. Every other run is of
@@ -66,6 +67,8 @@ jobs:
     outputs:
       ui: ${{ steps.plan.outputs.ui }}
       engine: ${{ steps.plan.outputs.engine }}
+      warm_linux: ${{ steps.plan.outputs.warm_linux }}
+      warm_macos: ${{ steps.plan.outputs.warm_macos }}
       said: ${{ steps.plan.outputs.said }}
     steps:
       - uses: actions/checkout@v7
@@ -86,6 +89,8 @@ jobs:
         run: |
           all="ui engine"
           said=""
+          warm_linux=false
+          warm_macos=false
           # A pull request scripts/land.sh opened (its description says so), into main from
           # one of this repository's own branches, can only merge through main's merge queue,
           # whose run checks it: asked for, since without the queue nothing else would.
@@ -97,8 +102,30 @@ jobs:
             said="A landing's pull request: nothing is checked here, and main's merge queue checks it before it merges."
             words=""
           elif [ "$EVENT" = push ] && [ "$ACTOR" = "github-merge-queue[bot]" ]; then
+            # Merge-queue runs execute on temporary gh-readonly-queue refs, whose GitHub Actions
+            # caches aren't visible to future merge-queue runs or PRs. Warm the main-scoped Rust
+            # caches here (build only, no tests) whenever dependency/build inputs changed or a
+            # platform's cache is absent on main.
             said="The merge queue's own push: its run checked this commit before it merged."
             words=""
+            deps_changed=false
+            if [ -n "$BASE" ] && git fetch -q --no-tags --depth=1 origin "$BASE"; then
+              if git diff --name-only "$BASE" HEAD -- src-tauri/Cargo.lock src-tauri/Cargo.toml 'src-tauri/*/Cargo.toml' .cargo/config.toml .github/workflows/ci.yml | grep -q .; then
+                deps_changed=true
+              fi
+            fi
+            has_cache() {
+              [ "$(gh api "repos/$OWNER/$NAME/actions/caches?ref=refs/heads/main&key=$1&per_page=1" --jq '.total_count' 2>/dev/null || echo 0)" -gt 0 ]
+            }
+            if [ "$deps_changed" = true ] || ! has_cache 'v0-rust-linux-'; then
+              warm_linux=true
+            fi
+            if [ "$deps_changed" = true ] || ! has_cache 'v0-rust-macos-'; then
+              warm_macos=true
+            fi
+            if [ "$warm_linux" = true ] || [ "$warm_macos" = true ]; then
+              said="$said Warming main Rust caches (linux=$warm_linux, macos=$warm_macos)."
+            fi
           elif [ "$EVENT" = schedule ] || [ "$EVENT" = workflow_dispatch ]; then
             words="$all"
           elif [ -z "$BASE" ] || ! git fetch -q --no-tags --depth=1 origin "$BASE"; then
@@ -117,6 +144,8 @@ jobs:
           fi
           echo "${said:-Calls for: $words}"
           echo "said=$said" >> "$GITHUB_OUTPUT"
+          echo "warm_linux=$warm_linux" >> "$GITHUB_OUTPUT"
+          echo "warm_macos=$warm_macos" >> "$GITHUB_OUTPUT"
           for word in $all; do
             case " $words " in
               *" $word "*) echo "$word=true" >> "$GITHUB_OUTPUT" ;;
@@ -147,27 +176,34 @@ jobs:
   linux:
     name: engine (Linux)
     needs: plan
-    if: needs.plan.outputs.engine == 'true'
+    if: needs.plan.outputs.engine == 'true' || needs.plan.outputs.warm_linux == 'true'
     runs-on: ubuntu-24.04
     timeout-minutes: 60
     env:
       # Outside the checkout, as every checkout's builds are on a Mac (.cargo/config.toml).
       CARGO_TARGET_DIR: ${{ github.workspace }}/../target
-      RUSTFLAGS: -D warnings
+      # lld links the ~150 MB test binary in a couple of seconds instead of GNU ld's ~20 s.
+      RUSTFLAGS: -D warnings -C link-arg=-fuse-ld=lld
     steps:
       - uses: actions/checkout@v7
       - name: What Tauri builds on, and what the tests run
         run: |
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends libwebkit2gtk-4.1-dev libgtk-3-dev \
-            libayatana-appindicator3-dev librsvg2-dev libxdo-dev libssl-dev pkg-config tmux zsh
-      - uses: actions/setup-node@v7
+            libayatana-appindicator3-dev librsvg2-dev libxdo-dev libssl-dev pkg-config tmux zsh lld
+      - if: needs.plan.outputs.engine == 'true'
+        uses: actions/setup-node@v7
         with:
           node-version: 24
           cache: npm
-      - run: npm ci --no-audit --no-fund
+      - if: needs.plan.outputs.engine == 'true'
+        run: npm ci --no-audit --no-fund
       # Tauri's build embeds the bundle.
-      - run: npm run build
+      - if: needs.plan.outputs.engine == 'true'
+        run: npm run build
+      - if: needs.plan.outputs.engine != 'true'
+        name: Placeholder dist for cache warm
+        run: mkdir -p dist && printf '<!doctype html>' > dist/index.html
       - uses: dtolnay/rust-toolchain@stable
       # Ghostty's terminal library (libghostty-vt) builds from Ghostty's source with Zig, the
       # version the pinned Ghostty asks for (docs/development.md).
@@ -181,13 +217,20 @@ jobs:
           save-if: ${{ github.ref == 'refs/heads/main' }}
       - name: cargo test
         working-directory: src-tauri
-        run: cargo test --locked
+        env:
+          ONLY_WARM: ${{ needs.plan.outputs.engine != 'true' && '1' || '' }}
+        run: |
+          if [ -n "$ONLY_WARM" ]; then
+            cargo test --no-run --locked
+          else
+            cargo test --locked
+          fi
 
   # The engine on macOS, where most of what it does is: the same macOS as the app is built on.
   macos:
     name: engine (macOS)
     needs: plan
-    if: needs.plan.outputs.engine == 'true'
+    if: needs.plan.outputs.engine == 'true' || needs.plan.outputs.warm_macos == 'true'
     runs-on: macos-26
     timeout-minutes: 90
     env:
@@ -195,14 +238,24 @@ jobs:
       RUSTFLAGS: -D warnings
     steps:
       - uses: actions/checkout@v7
-      - name: What the tests run
+      - if: needs.plan.outputs.engine == 'true'
+        name: What the tests run
+        env:
+          HOMEBREW_NO_AUTO_UPDATE: 1
+          HOMEBREW_NO_INSTALL_CLEANUP: 1
         run: brew install tmux
-      - uses: actions/setup-node@v7
+      - if: needs.plan.outputs.engine == 'true'
+        uses: actions/setup-node@v7
         with:
           node-version: 24
           cache: npm
-      - run: npm ci --no-audit --no-fund
-      - run: npm run build
+      - if: needs.plan.outputs.engine == 'true'
+        run: npm ci --no-audit --no-fund
+      - if: needs.plan.outputs.engine == 'true'
+        run: npm run build
+      - if: needs.plan.outputs.engine != 'true'
+        name: Placeholder dist for cache warm
+        run: mkdir -p dist && printf '<!doctype html>' > dist/index.html
       - uses: dtolnay/rust-toolchain@stable
       - uses: mlugg/setup-zig@v2
         with:
@@ -213,7 +266,14 @@ jobs:
           save-if: ${{ github.ref == 'refs/heads/main' }}
       - name: cargo test
         working-directory: src-tauri
-        run: cargo test --locked
+        env:
+          ONLY_WARM: ${{ needs.plan.outputs.engine != 'true' && '1' || '' }}
+        run: |
+          if [ -n "$ONLY_WARM" ]; then
+            cargo test --no-run --locked
+          else
+            cargo test --locked
+          fi
 
   # The one check main's rules name. It passes when the plan was made and every check it
   # called for passed: one that was called for and didn't run is as much a failure as one that
@@ -229,8 +289,8 @@ jobs:
           PLAN: ${{ needs.plan.result }}
           SAID: ${{ needs.plan.outputs.said }}
           UI: ${{ needs.plan.outputs.ui }} ${{ needs.ui.result }}
-          ENGINE_LINUX: ${{ needs.plan.outputs.engine }} ${{ needs.linux.result }}
-          ENGINE_MACOS: ${{ needs.plan.outputs.engine }} ${{ needs.macos.result }}
+          ENGINE_LINUX: ${{ (needs.plan.outputs.engine == 'true' || needs.plan.outputs.warm_linux == 'true') && 'true' || 'false' }} ${{ needs.linux.result }}
+          ENGINE_MACOS: ${{ (needs.plan.outputs.engine == 'true' || needs.plan.outputs.warm_macos == 'true') && 'true' || 'false' }} ${{ needs.macos.result }}
         run: |
           [ -z "$SAID" ] || echo "$SAID"
           went=0

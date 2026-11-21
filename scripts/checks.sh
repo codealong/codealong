@@ -162,7 +162,7 @@ dir="${PREVIEW_DIR:-.preview}"
 unset PREVIEW_WAIT PREVIEW_DATE PREVIEW_TODOS PREVIEW_INSIGHTS PREVIEW_ROUTE PREVIEW_CANVAS PREVIEW_USAGE PREVIEW_DEVICES \
   PREVIEW_NOTICES PREVIEW_SKILLS PREVIEW_FOUND PREVIEW_TRANSCRIPT PREVIEW_LOADING PREVIEW_PIN PREVIEW_SIZE PREVIEW_NOTCH \
   PREVIEW_INIT PREVIEW_NAME PREVIEW_PORT PREVIEW_PREPARE PREVIEW_BOARDS PREVIEW_BOARDS_OFF PREVIEW_GROUP PREVIEW_VOICE PREVIEW_KEYS \
-  PREVIEW_FIXTURE
+  PREVIEW_FIXTURE PREVIEW_POLL PREVIEW_WAIT_POLL
 if [ $fixture -eq 1 ]; then
   # On the made-up Mac nothing else reaches one at all, so its runs are the same whoever runs
   # them: a PREVIEW_PLATFORM=linux left exported would have the gate's runs check Linux's keys,
@@ -429,15 +429,18 @@ run_side_by_side() {
     CHECKS_SET=1 PREVIEW_DIR="$sets/$k" scripts/checks.sh --prepared "${args[@]}" $(cat "$sets/names.$k") >"$sets/out.$k" 2>&1 &
     pids+=($!)
   done
-  # While they run, a word a minute on how far along they are.
-  n=0
+  # While they run, a word a minute on how far along they are. Poll every 200 ms rather than
+  # sleeping 5 s at a stretch so fast runs and tests don't sit idle after every set has ended.
+  next=$((SECONDS + 60))
   while :; do
     item=0
     for k in "${pids[@]}"; do ! kill -0 "$k" 2>/dev/null || item=1; done
     [ $item -eq 1 ] || break
-    sleep 5
-    n=$((n + 5))
-    [ $((n % 60)) -ne 0 ] || echo "  $(cat "$sets"/out.* 2>/dev/null | grep -c -E '^(PASS|FAIL)  ') runs through…" >&2
+    sleep 0.2
+    if [ "$SECONDS" -ge "$next" ]; then
+      echo "  $(cat "$sets"/out.* 2>/dev/null | grep -c -E '^(PASS|FAIL)  ') runs through…" >&2
+      next=$((SECONDS + 60))
+    fi
   done
   wait "${pids[@]}"
   for name in "${wanted[@]}"; do
