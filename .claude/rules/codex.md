@@ -457,7 +457,7 @@ checked on this Mac, most of them by reading the apps' own bundles and files. Pa
   `codex_error_info: "cyber_policy"` (checked local records, 2026-10-19). The protocol also has
   direct `error` events; 0.162.1 names `bio_policy` and `misalignment_policy_violation` too.
   Content filtering reaches a stream error's message as `content_filter`; newer upstream code
-  calls it `ContentFilter`. `rollout.rs` (`flagged`) reads both error shapes and typed assistant
+  calls it `ContentFilter`. `codex/rollout.rs` (`flagged`) reads both error shapes and typed assistant
   refusal content. A flag survives later turns and large append gaps, with earlier history read
   once on a cold read and cached by `providerflags.rs` for later launches. Opaque
   `turn_moderation_metadata` and `safety_buffering` alone aren't a refusal, and tool-approval denials aren't provider flags.

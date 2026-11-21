@@ -36,7 +36,7 @@ under `src-tauri/src/`.
   (`os::system::more_open_files`), a registry entry that doesn't read is read again
   (`registry::entry_of`), and the first time a server runs out it logs what it held, by kind
   (`server.rs` `out_of_files`), since what ran it out wasn't caught): `claude/registry.rs` (`job_questions`), `claude/mod.rs` (`job_pending`,
-  `answer_job_questions`). Several are answered with the dialog's keys (questions.rs) typed
+  `answer_job_questions`). Several are answered with the dialog's keys (`claude/questions.rs`) typed
   through `attach` once the transcript has the call: two Haiku 5.5 jobs on 2.1.317 took a pick,
   ticks and words of your own that way (2026-11-03). Still on 2.1.317, `block` says no more than
   above.
@@ -216,8 +216,8 @@ under `src-tauri/src/`.
   The lock comes off just before the files are deleted. A session sent no prompt yet has no
   `worktree-state` line, and the exit writes none: it writes a `relocated` line with the
   checkout's folder.
-- Removing a worktree from outside Claude Code (2.1.296, a scratch repo, 2026-10-12):
-  `cleanup.rs`, `claude/teardown.rs`. A `WorktreeCreate` hook's stdin is `{session_id,
+- Creating and removing a worktree from outside Claude Code (2.1.296, a scratch repo, 2026-10-12):
+  `worktree.rs`, `cleanup.rs`, `claude/teardown.rs` (`create_hooks` for `WorktreeCreate` too). A `WorktreeCreate` hook's stdin is `{session_id,
   transcript_path, cwd, scratchpad_dir, hook_event_name, name}`, with no base ref; a
   `WorktreeRemove` hook's has `worktree_path` too (and `session_id`, `transcript_path`, `cwd`).
   A worktree a hook made isn't locked; one Claude Code makes itself is (`claude session …`). `/exit`

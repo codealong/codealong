@@ -74,7 +74,7 @@ this Mac's transcripts; read it before changing how a transcript is read (`claud
   after it): of three scheduled runs named just after their first prompt on 2.1.319 (2026-11-09),
   the one whose next re-stamp was 14 KB on took the name up, and the two at 194 KB and 281 KB never
   did, so the line fell out of the board's tail and the title went back. That's why `schedules`
-  (`NAME_AFTER_MS`) names a run late, and `names.rs` (`kept_name`) reads the sidecar. `/resume` goes
+  (`NAME_AFTER_MS`) names a run late, and `claude/names.rs` (`kept_name`) reads the sidecar. `/resume` goes
   by a `custom-title` in the last 64 KB, then the sidecar, then the head (2.1.319's code), and an
   empty one deletes the sidecar. On 2.1.319 an `agent-name` line is also Claude Code's own title
   (`nameSource: "auto"` in the registry and `state.json`), re-stamped with its `ai-title`.
@@ -200,7 +200,7 @@ this Mac's transcripts; read it before changing how a transcript is read (`claud
 - Provider flags (2026-10-19): assistant lines with `message.stop_reason: "refusal"`,
   including the synthetic `error: "invalid_request"` reply whose text says the model's safeguards
   flagged the session. The refusal is also on the preceding empty assistant message. Read by
-  `transcript.rs` (`flagged`), ignoring inline sidechains; kept across later turns. A fresh read
+  `claude/transcript.rs` (`flagged`), ignoring inline sidechains; kept across later turns. A fresh read
   scans before the usual tail for it, so a restart doesn't forget an older refusal.
   `providerflags.rs` caches the checked prefix across restarts and settings reloads; changed or
   truncated files are checked again.

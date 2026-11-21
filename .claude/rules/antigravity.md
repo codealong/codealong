@@ -1,6 +1,7 @@
 ---
 paths:
   - "src-tauri/src/antigravity.rs"
+  - "src-tauri/src/antigravity/**"
 ---
 
 # Antigravity
@@ -29,7 +30,10 @@ runs on this Mac (2026-10-01). Paths are under `src-tauri/src/`.
   (`read_from`, `Conversation`, `timestamp`). `title` was empty in every row seen until `agy`
   1.4.2, which gives a conversation a title of its own ("Review Pull Request 56") and writes it as
   the `preview` too, where rows before had an empty preview (every row of 2026-10-18), so what a
-  conversation was first asked is read from its transcript (`first_request`, `Conversation::asked`).
+  conversation was first asked and when it started are read from its transcript (`first_request`
+  returns `Option<(String, Option<i64>)>`, populating `Conversation::asked` and
+  `Conversation::started_at` -> `Session::started_at` from the first `USER_INPUT` step's
+  `created_at`).
   How soon the title lands isn't known: one review's session was found by the full prompt in its
   row and another's, started two minutes before in the same folder, never was. `raw_summary` is a
   protobuf. No status says error or waiting. `workspace_uris` doesn't keep
@@ -44,7 +48,11 @@ runs on this Mac (2026-10-01). Paths are under `src-tauri/src/`.
   every few seconds, the steps being in `antigravity-cli`, and the sidebar shows "No conversations
   yet". A conversation both tables claim is read from the folder that keeps its record
   (`once_each`).
-- Opening a WAL database whose harness has quit: `harness.rs` (`open_database`).
+- Opening a WAL database whose harness has quit: `harness.rs` (`open_database`). Its immutable
+  fallback can read a stale `conversations/<id>.db` without its WAL (`latest_step` returns `None` or
+  an older timestamp than `latest_step_at`), so `Reader::reread` counts a read as behind only where
+  a step was read before, keeps prior `failed` and `.max()` timestamps (`prompted_at`,
+  `latest_step_at`), and sets `read_again` to bypass the cache on the next reread.
 - `conversations/<id>.db` holds a conversation's steps (`steps`: `idx`, `step_type`, `status`,
   and protobuf blobs). The numbers are in the binary's own definitions: status 1 pending,
   2 running, 3 done, 4 invalid, 5 cleared, 6 canceled, 7 error, 8 generating, 9 waiting,
@@ -250,9 +258,9 @@ runs on this Mac (2026-10-01). Paths are under `src-tauri/src/`.
   `conversation_summaries.parent_conversation_id`, which rolls their calls up to the parent
   session with `sub: true`. Hub app conversations (`~/.gemini/antigravity`) had no token fields in
   their transcripts (2026-11-19).
-- It has no Agent Client Protocol mode, so Codealong can't run it itself. Google says running
-  the binary as a child process on the user's sign-in is supported and counts against the same
-  limits.
+- Codealong doesn't implement `acp_command` for Antigravity yet (though newer `agy` has `agy acp`).
+  Google says running the binary as a child process on the user's sign-in is supported and counts
+  against the same limits.
 - Every `agy`, print runs too, runs its agent as a language server inside its own process, on
   two random ports on localhost: HTTPS for gRPC and plain HTTP, both ConnectRPC, named in its
   log (`log/cli-<time>.log`, "Language server listening on random port"). It serves the hub's

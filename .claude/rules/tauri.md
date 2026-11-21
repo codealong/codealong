@@ -36,7 +36,7 @@ read it before changing a command, an event or a menu in `lib.rs`. A bare file n
   The preview's stub allows everything, so it can't show this.
 - A menu item's icon as raw RGBA, `{rgba, width, height}`, which needs none of Tauri's image
   features though its JS types don't list it, and muda's 18-point item images: `src/contextMenu.ts`
-  (`MenuImage`, `options`), `editors.rs` (`ICON_PX`, `menus_take_the_icons_as_pages_send_them`).
+  (`MenuImage`, `menuItems`), `editors.rs` (`ICON_PX`, `menus_take_the_icons_as_pages_send_them`).
 - `show()` orders a window front without activating the app; `set_focus()` activates it.
   Commands without `async` run on the main thread; one marked `async` that can wait on something
   slow goes through `lib.rs` (`blocking`, which says why; tauri-macros 2.6), and errors go to a

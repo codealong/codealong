@@ -92,7 +92,7 @@ paths:
 - A new line in a session's record reaches the board only when the engine's thread gets to
   it, so nothing on that thread may wait on another program: at a load of 200 to 700, `ps`
   took 3 to 7 s and an `lsof` half a second (2026-10-16). The tick's process table is listed on
-  a thread of its own (`Engine::list_processes`), the readers look at it as it lands
+  a thread of its own (`engine/readers.rs` `Engine::list_processes`), the readers look at it as it lands
   (`Reader::processes`) and every look after has it, and open files come from the kernel
   (`procs::open_files`). The log's `engine lag` lines say the thread was held; the lines just
   before them say by what (`glance <harness>`, `tick <harness>`, `processes <harness>`, `engine

@@ -7,8 +7,8 @@ paths:
 
 A harness is a module that knows its files, sockets and commands: a folder split by subject
 for the big ones (`claude/`, `codex/`, the adapter and the reader in `mod.rs` and each file's
-first lines saying what it holds), a file for the others (`opencode.rs`, `antigravity.rs`,
-`cursor.rs`). Two
+first lines saying what it holds), a file (or small folder, `antigravity/side.rs`) for the others
+(`opencode.rs`, `antigravity.rs`, `cursor.rs`). Two
 things in it are what the rest of the app goes through (`harness.rs`): an `Adapter`, which
 answers for a session and for an account, and a `Reader`, which reads its sessions for the
 board. Nothing outside a harness's module branches on which harness it is: it asks
@@ -71,8 +71,8 @@ lists, a subject each). Adding one:
      run that keeps no record, and `src/harness.ts` `DRAWS`;
    - starting (start.rs): `places`, `start_in_terminal`, `runs_in_background` with
      `background_command` and `start_in_background`, `app_link` and `start_in_app`, `models`,
-     `takes_model`, `offers_model`, `efforts`, `default_model`, `makes_worktrees`,
-     `before_start`, `app_projects`;
+     `takes_model`, `offers_model`, `efforts`, `default_model`, `makes_worktrees`, `isolates`,
+     `setup_worktree`, `teardown`, `forget_worktree`, `before_start`, `app_projects`;
    - search (search.rs): `search_files` and `prose` for records that are files of lines, `said`
      for messages kept in a database;
    - the token ledger (ledger.rs): `records_tokens`, then `token_files`, `token_use` and (when
@@ -85,7 +85,8 @@ lists, a subject each). Adding one:
    - skills (skills.rs): `worktree_skills` and `account_skills` (the folders it reads them
      from), `builtin_skills` (the ones its program holds), `skill_mention` (how a prompt runs one
      by name) and `skill_uses`;
-   - its accounts: `installed`, `signed_in`, `sign_in_command`, `folder_use`, `skills_dir`,
+   - its accounts: `installed`, `signed_in`, `local_sign_in`, `verify_sign_in` (signin.rs),
+     `sign_in_command`, `folder_use`, `skills_dir`,
      `copies_settings` with `copy_settings` (what a new account takes from another's folder),
      `installs_plugin` (Codealong goes in as a plugin, not a skill copy), `acp_command`,
      `session_cwds` (first run's projects), `chats` (the folder of sessions it starts without a

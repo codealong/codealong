@@ -3,6 +3,8 @@ paths:
   - "src-tauri/ear/**"
   - "src-tauri/src/ear.rs"
   - "src-tauri/src/listen.rs"
+  - "src-tauri/src/echo.rs"
+  - "src-tauri/src/meetings.rs"
   - "src-tauri/src/dictation.rs"
   - "scripts/ear.sh"
 ---
