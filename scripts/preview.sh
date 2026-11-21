@@ -75,7 +75,7 @@
 # window (scripts/preview/notch-session-init.js, with PREVIEW_SIZE=1512,720).
 # PREVIEW_NOTCH=drawn gives it an external display's drawn notch instead.
 # PREVIEW_SIZE sets the window size (default 1440,900). The bar renders on a stand-in desktop
-# of that size (default 1100,64, which is also the screen width it fits itself to), and so does
+# of that size (default 1200,64, which is also the screen width it fits itself to), and so does
 # the quick panel (default 760,640: its window's width). The panel opens as the shortcut opens
 # it, with nothing typed; PREVIEW_INIT can type or click from there. The peek (default 520,640),
 # a side conversation's window (520,640) and the waiting window (default 820,760, an ordinary window, so on no desktop) open on
@@ -383,7 +383,7 @@ on_desktop() {
 }
 [ -n "${PREVIEW_GLASS:-}" ] && setup="$setup</script><style>html.is-glass{background:linear-gradient(135deg,color-mix(in srgb,var(--surface) 82%,rgb(120,150,60)),color-mix(in srgb,var(--surface) 82%,rgb(60,120,200)))!important}html.is-glass.is-quick .ca-quick::before{content:'';position:absolute;inset:0;z-index:-1;border-radius:inherit;background:linear-gradient(135deg,color-mix(in srgb,var(--surface) 82%,rgb(120,150,60)),color-mix(in srgb,var(--surface) 82%,rgb(60,120,200)))}</style><script>"
 if [ "$view" = bar ]; then
-  size="${PREVIEW_SIZE:-1100,64}"
+  size="${PREVIEW_SIZE:-1200,64}"
   # Headless Chrome's screen is 800 wide whatever the window; the bar fits itself to the screen.
   setup="$setup window.__CODEALONG_BAR__=true;Object.defineProperty(screen,'availWidth',{value:${size%%,*}});"
   on_desktop is-bar

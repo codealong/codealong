@@ -18,7 +18,7 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type MouseEvent, type PointerEvent, type ReactNode } from 'react';
 import { getCurrentWindow } from '@tauri-apps/api/window';
 import { barMode, dragToDesktop, fitBar, getBarFeed, onBarFeed, onDesktopDragEnd, onBarMode, onBarNote, onPeekShown, onWaitingShortcut, PEEK_AFTER_MS, peekHide, peekOpen, sessionAt, setBarMode, setNotchOpen, showMain, showQuick, showWaiting, type BarModeView, type PillRect } from '../api';
-import { BAR_PROJECT_KEY, CLICK_WAIT_MS, elsewhereWaits, fitGroups, GROUPS, plain, projectWaits, todoRowKey, type Group, type GroupFit, type WaitCounts } from '../bar';
+import { BAR_PROJECT_KEY, CLICK_WAIT_MS, elsewhereWaits, fitGroups, floatingRoom, GROUPS, plain, projectWaits, todoRowKey, type Group, type GroupFit, type WaitCounts } from '../bar';
 import { showContextMenu, type MenuAction, type MenuSpec } from '../contextMenu';
 import { useEditorIcons, type Apps } from '../editors';
 import { ago } from '../format';
@@ -54,9 +54,6 @@ import { useKeysShown } from '../keysShown';
 
 /** Room around the bar for its shadow: the window is this much bigger on every side. */
 const MARGIN = 12;
-/** The widest the bar gets, and the room it leaves at the screen's sides. */
-const MAX_WIDTH = 900;
-const SCREEN_ROOM = 48;
 /** Sizes from app.css (.ca-hud) that decide what fits. */
 const GAP = 4;
 const DIVIDER = 1;
@@ -587,7 +584,7 @@ export function Bar() {
   // pills, which have no padding of their own there.
   const fit = useLatest(() => {
     const el = measure.current;
-    const room = notch ? notchRoom.current : Math.min(MAX_WIDTH, window.screen.availWidth - SCREEN_ROOM);
+    const room = notch ? notchRoom.current : floatingRoom(window.screen.availWidth);
     if (!el || room === null) return;
     const width = (sel: string) => el.querySelector<HTMLElement>(sel)?.getBoundingClientRect().width ?? 0;
     const pills: Record<Group, number[]> = { needs: [], unread: [], working: [] };
