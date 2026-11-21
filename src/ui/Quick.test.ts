@@ -227,7 +227,17 @@ describe.each(PLATFORMS)('the quick panel’s keys wherever the keyboard is in i
     const site = { ...on.lanes[1], sessions: [...on.lanes[1].sessions, begun(ROWAN, 'Rowan', DAY / 24), begun('claude:atlas:alder', 'Alder', DAY + DAY / 24)] };
     await panel({ board: { ...on, lanes: [on.lanes[0], site] } });
     expect(rows()).toEqual([KESTREL, REVIEW, WREN, TODO, ROWAN, COMPOSE]);
-    expect(Array.from(document.querySelectorAll('.ca-quick-group'), (g) => g.getAttribute('aria-label'))).toEqual(['Needs you', 'Review or merge', 'Your turn', 'Ready todos', 'Last 24 hours']);
+    expect(Array.from(document.querySelectorAll('.ca-quick-group'), (g) => g.getAttribute('aria-label'))).toEqual(['Needs you', 'Review requested', 'Your turn', 'Ready todos', 'Last 24 hours']);
+  });
+
+  it('lists PRs ready to merge under Ready to merge, apart from Review requested', async () => {
+    setPlatform(platform);
+    const MERGE = 'northwind/app#14';
+    const on = board();
+    const readyPr = fx.prItem({ repoSlug: 'northwind/app', number: 14, title: 'Ship Kestrel', project: 'Northwind', mine: true, state: 'approved', merge: 'clean', waitsToMerge: true });
+    await panel({ board: { ...on, prs: [...on.prs, readyPr] } });
+    expect(rows()).toEqual([KESTREL, REVIEW, MERGE, WREN, TODO, COMPOSE]);
+    expect(Array.from(document.querySelectorAll('.ca-quick-group'), (g) => g.getAttribute('aria-label'))).toEqual(['Needs you', 'Review requested', 'Ready to merge', 'Your turn', 'Ready todos']);
   });
 
   it('is put away by Escape, and by ⌘Q and ⌘H, which mean the app in front, with ⇧ held or not', async () => {

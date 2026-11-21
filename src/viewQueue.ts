@@ -114,6 +114,19 @@ export function elsewhereOffer(from: QueueView, waiting: readonly (ViewWaits | n
   const best = waiting.filter((w): w is ViewWaits => !!w && !ours(w.view)).sort((a, b) => byPlace(a.first, b.first))[0];
   if (!best) return null;
   const n = best.count;
-  const what = best.view === 'sessions' ? (n === 1 ? 'session' : 'sessions') : best.view === 'prs' ? (n === 1 ? 'review' : 'reviews') : `${best.first.waits} ${n === 1 ? 'todo' : 'todos'}`;
+  const what =
+    best.view === 'sessions'
+      ? n === 1
+        ? 'session'
+        : 'sessions'
+      : best.view === 'prs'
+        ? best.first.waits === 'merges'
+          ? n === 1
+            ? 'PR to merge'
+            : 'PRs to merge'
+          : n === 1
+            ? 'review'
+            : 'reviews'
+        : `${best.first.waits} ${n === 1 ? 'todo' : 'todos'}`;
   return { view: best.view, words: `Nothing ${own > 0 ? 'else ' : ''}waits in ${VIEW_WORD[from]}`, title: `${n} ${what} in ${VIEW_WORD[best.view]}` };
 }

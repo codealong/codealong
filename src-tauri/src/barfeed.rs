@@ -337,13 +337,19 @@ pub fn feed(shown: Shown) -> BarFeed {
     snoozed.sort_by(|(a_at, a), (b_at, b)| a_at.cmp(b_at).then_with(|| a.key.cmp(&b.key)));
 
     // The ones whose repo puts reviews first lead, as the queue goes to them (src/queue.ts
-    // `byPlace`): the notch's count and the bar's reviews open the first of them. PRs of yours
-    // that wait on you to merge them are among them (`PrItem::waits_on_merge`), never first.
-    // None while `[queue]` leaves reviews out.
-    let mut prs: Vec<_> = if board.queue.waits("reviews") { board.prs.iter().filter(|p| p.waits_on_review() || p.waits_on_merge()).collect() } else { Vec::new() };
+    // `byPlace`): the notch's count and the bar's pills open the first of each kind. PRs of yours
+    // that wait on you to merge them are their own kind (`merges`, `PrItem::waits_on_merge`),
+    // never first. Either kind is left out when `[queue]` leaves it out.
+    let order = board.queue.kinds();
+    let (reviews_on, merges_on) = (order.iter().any(|k| k == "reviews"), order.iter().any(|k| k == "merges"));
+    let mut prs: Vec<_> = board.prs.iter().filter(|p| (reviews_on && p.waits_on_review()) || (merges_on && p.waits_on_merge() && !p.waits_on_review())).collect();
     let since = |p: &PrItem| p.requested_at.unwrap_or(p.updated_at);
     let first = |p: &PrItem| p.review_first && p.waits_on_review();
-    prs.sort_by(|a, b| first(b).cmp(&first(a)).then(since(a).cmp(&since(b))).then_with(|| a.key.cmp(&b.key)));
+    let kind_rank = |p: &PrItem| {
+        let kind = if p.waits_on_review() { "reviews" } else { "merges" };
+        order.iter().position(|k| k == kind).unwrap_or(order.len())
+    };
+    prs.sort_by(|a, b| first(b).cmp(&first(a)).then(kind_rank(a).cmp(&kind_rank(b))).then(since(a).cmp(&since(b))).then_with(|| a.key.cmp(&b.key)));
     let reviews = prs
         .into_iter()
         .map(|p| BarReview {
@@ -844,12 +850,25 @@ mod tests {
         let b = board(vec![], vec![pr(1, true, PrState::Open, 1), pr(2, true, PrState::Merged, 3), pr(3, false, PrState::Open, 4), pr(4, true, PrState::Draft, 2), snoozed]);
         let got: Vec<(u64, String, Option<String>)> = feed(Shown::here(&b)).reviews.into_iter().map(|r| (r.number, r.project, r.requested_by)).collect();
         assert_eq!(got, vec![(1, "P".to_string(), Some("ana".to_string())), (4, "P".to_string(), None)]);
-        // A PR of yours that waits on you to merge it is among them, by its last update, never
-        // first though its repo puts reviews first; snoozed, it's off the bar too.
+        // A PR of yours that waits on you to merge it is its own kind, after reviews by default
+        // and never first though its repo puts reviews first; snoozed, it's off the bar too.
         let merge = |n: u64, updated: i64| PrItem { mine: true, waits_to_merge: true, review_first: true, ..pr(n, false, PrState::Approved, updated) };
         let b = board(vec![], vec![pr(1, true, PrState::Open, 1), merge(6, 0), PrItem { snoozed_until: Some(NOW + 1_000), ..merge(7, 0) }]);
         let got: Vec<(u64, bool, bool)> = feed(Shown::here(&b)).reviews.into_iter().map(|r| (r.number, r.merge, r.first)).collect();
-        assert_eq!(got, vec![(6, true, false), (1, false, false)]);
+        assert_eq!(got, vec![(1, false, false), (6, true, false)]);
+        // Put before reviews in `[queue]`, merges lead; either kind left out leaves only the other.
+        let mut merges_first = b.clone();
+        merges_first.queue.order = vec!["needs".into(), "merges".into(), "reviews".into(), "unread".into()];
+        let got: Vec<(u64, bool)> = feed(Shown::here(&merges_first)).reviews.into_iter().map(|r| (r.number, r.merge)).collect();
+        assert_eq!(got, vec![(6, true), (1, false)]);
+        let mut only_merges = b.clone();
+        only_merges.queue.order = vec!["needs".into(), "merges".into(), "unread".into()];
+        let got: Vec<(u64, bool)> = feed(Shown::here(&only_merges)).reviews.into_iter().map(|r| (r.number, r.merge)).collect();
+        assert_eq!(got, vec![(6, true)]);
+        let mut only_reviews = b;
+        only_reviews.queue.order = vec!["needs".into(), "reviews".into(), "unread".into()];
+        let got: Vec<(u64, bool)> = feed(Shown::here(&only_reviews)).reviews.into_iter().map(|r| (r.number, r.merge)).collect();
+        assert_eq!(got, vec![(1, false)]);
     }
 
     #[test]

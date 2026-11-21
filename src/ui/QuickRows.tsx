@@ -315,7 +315,7 @@ export function QuickRow({ r, list }: { r: Row; list: RowsShown }) {
         role="option"
         aria-selected={active === r.key}
         className={cx('ca-quick-row', 'is-pr', active === r.key && 'is-active', held.extraClass)}
-        title={keysIn(`${pr.title}\n${pr.repoSlug}#${pr.number} · ${pr.head}\n${r.kind === 'review' ? '⏎ reviews it here · ⌥⏎ shows it in the main window' : '⏎ shows it in the main window · ⌥⏎ opens it on GitHub'}`)}
+        title={keysIn(`${pr.title}\n${pr.repoSlug}#${pr.number} · ${pr.head}\n${r.kind === 'review' ? (r.group === 'merges' ? '⏎ opens it here to merge · ⌥⏎ shows it in the main window' : '⏎ reviews it here · ⌥⏎ shows it in the main window') : '⏎ shows it in the main window · ⌥⏎ opens it on GitHub'}`)}
         {...handlers}
       >
         <PrGlyph pr={pr} />

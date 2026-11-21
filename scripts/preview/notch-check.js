@@ -27,7 +27,7 @@
   var closedW = 185 + 2 * 44;
   // Each count beside the camera: its kind and its number.
   var counts = function () {
-    return all('.ca-notch-count').map(function (c) { return { kind: /is-(needs|reviews|due|unread|working)/.exec(c.className)[1], n: Number(c.textContent) }; });
+    return all('.ca-notch-count').map(function (c) { return { kind: /is-(needs|reviews|merges|due|unread|working)/.exec(c.className)[1], n: Number(c.textContent) }; });
   };
   var shut;
 

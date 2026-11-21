@@ -301,6 +301,7 @@
         "order": [
           "needs",
           "reviews",
+          "merges",
           "due",
           "unread",
           "ready"
@@ -665,6 +666,7 @@
           "order": [
             "needs",
             "reviews",
+            "merges",
             "due",
             "unread",
             "ready"
@@ -1032,6 +1034,7 @@
         "order": [
           "needs",
           "reviews",
+          "merges",
           "due",
           "unread",
           "ready"
@@ -1437,6 +1440,7 @@
         "order": [
           "needs",
           "reviews",
+          "merges",
           "due",
           "unread",
           "ready"
@@ -1841,6 +1845,7 @@
         "order": [
           "needs",
           "reviews",
+          "merges",
           "due",
           "unread",
           "ready"
@@ -2311,6 +2316,7 @@
         "order": [
           "needs",
           "reviews",
+          "merges",
           "due",
           "unread",
           "ready"
@@ -2756,6 +2762,7 @@
         "order": [
           "needs",
           "reviews",
+          "merges",
           "due",
           "unread",
           "ready"

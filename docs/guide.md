@@ -3429,7 +3429,7 @@ panel; the pop-out button beside the notch's pin*
 
 A window of its own, sized and placed as you like and kept up until you close it, that works through
 what waits on you one at a time: every session that needs you, then the PRs waiting on your review,
-then the sessions whose turn ended, each the longest wait first, snoozed ones left out, or in the
+then your own PRs ready to merge, then the sessions whose turn ended, each the longest wait first, snoozed ones left out, or in the
 order Settings › Queue puts them in (*What waits on you, and in what order*). With
 Settings › Automation › Put reviews before sessions that need you (`[pull_requests]
 reviews_first`, everywhere or for one repo, which a repo's team file can turn on for everyone), the
@@ -3443,14 +3443,14 @@ through them in the same order. A session moved to the top still comes before th
 The notch, the waiting window and the main window's panels go through what waits on you in
 one order, Next (⌘]) going on to what comes after the one you're on (in the main window, within the
 view: *The strip over every panel*): by default the sessions that
-need you, the PRs waiting on your review, the unassigned todos that are due, the sessions whose turn
+need you, the PRs waiting on your review, your own PRs ready to merge, the unassigned todos that are due, the sessions whose turn
 ended, and last the unassigned todos ready to start, each kind the longest wait first but the ready
 todos, which go in your todo list's order. The waiting window has the due todos but not the ready
 ones, which always wait and would keep it from ever saying nothing does. Settings › Queue lists them
 in that order: drag one by its row or its grip, or press ⌃⌘↑ ⌃⌘↓ on its grip, to put the kinds in
 yours (`order`). A box takes a kind out of what waits on you: PRs waiting on your review taken out
-(and yours ready to merge with them) aren't on the bar or in the notch, nor counted beside the
-camera or in the mark's color, nor in the waiting window; todos that are due taken out are among the
+aren't on the bar or in the notch, nor counted beside the camera or in the mark's color, nor in the
+waiting window, and your own PRs ready to merge work the same way independently; todos that are due taken out are among the
 ready ones when they're ready to start; and the todos ready to start taken out leave the notch's
 ready pill and the end of the queue. The sessions that need you and those whose turn ended are
 always in it, since they're what the bar is for, though they can be moved; and the todos ready to
@@ -3460,20 +3460,20 @@ picks how long before its due date an unassigned todo joins what waits on you, f
 week before (`due_within`, in days, up to 30); an overdue one waits until a session is assigned, or
 it's done or snoozed. Beside the camera, the closed notch draws the first kind in your order that
 has any.
-A repo that puts its reviews first (Automation) still has its PRs go ahead of all of these, and a
+A repo that puts its reviews first (Automation) still has its PRs waiting on your review go ahead of all of these, and a
 session moved to the top comes before everything. config.toml writes it as:
 
 ```toml
 [queue]
-order = ["needs", "reviews", "due", "unread", "ready"]
+order = ["needs", "reviews", "merges", "due", "unread", "ready"]
 due_within = 0
 ```
 
 PRs of yours that GitHub would merge now (open and not a draft, no conflict, nothing they still
 wait on, every check passed, and not resting only on stale approvals), in a repo GitHub says you
 may write to, and that GitHub isn't about to merge by itself (in the merge queue, or with
-auto-merge on), wait on you with the PRs waiting on your review, their kind in the order
-(`reviews`), by when they last changed, when nothing else brings them to you: none of their
+auto-merge on), wait on you as their own kind in the order (`merges`, after the PRs waiting on your
+review by default), by when they last changed, when nothing else brings them to you: none of their
 sessions on this Mac or another online Mac is at work on them (as Fixing in PRs has it), and their
 primary session (see [PRs](#prs)) isn't in what waits on you with Merge and done for them on its
 strip (which has it for the first of its PRs that's ready, so the next waits by itself), so a PR
@@ -3484,10 +3484,7 @@ merge box under its title: merged from there, it leaves and the window goes on (
 comment on it leaves it waiting. Snooze (⌃⌘1 to ⌃⌘7, the PR's menu, a few picked together, or
 `codealong pr snooze`) puts one aside until its time, as it does a review, under Snoozed in PRs;
 it's back then if it still waits. They're never first for a repo that puts its reviews first. The
-mark counts them as it does reviews. On the floating bar the reviews pill says how many wait on
-your review (*2 to review*), on you to merge them (*1 to merge*), or of both (*3 PRs*), each one's
-line in its tooltip saying *ready to merge* for one of yours; the menu bar item's menu lists them
-under Ready to merge, and the quick panel under Review or merge.
+mark counts them while `merges` is in the queue, as it does reviews while `reviews` is. On the floating bar and in the notch they have a pill of their own beside the reviews pill (*1 to merge*, *2 to merge*, with the reviews pill saying *2 to review*), and a count of their own beside the camera; the menu bar item's menu and the quick panel list them under Ready to merge, apart from Review requested.
 
 A kind config.toml names that isn't one, one named twice, the sessions' two left out or the ready
 todos put before another are said as an error in config.toml, and the rest is gone by as written:

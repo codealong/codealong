@@ -117,7 +117,9 @@ describe('the queue’s order', () => {
   it('puts the reviews of a repo that puts them first ahead of the sessions that need you, and the rest after', () => {
     const first: Row = { key: 'F', since: 50, waits: 'reviews', first: true };
     const other: Row = { key: 'R', since: 5, waits: 'reviews' };
-    expect(keys(inQueueOrder([D, other, C, first, B, A], READS))).toEqual(['F', 'A', 'B', 'R', 'C', 'D']);
+    // Only reviews are promoted by `first`: a merge stays in its own kind.
+    const merge: Row = { key: 'M', since: 1, waits: 'merges', first: true };
+    expect(keys(inQueueOrder([D, other, merge, C, first, B, A], READS))).toEqual(['F', 'A', 'B', 'R', 'M', 'C', 'D']);
     // One moved to the top still goes ahead of it.
     expect(keys(inQueueOrder([first, { ...C, raised: { at: 100 } }, A], READS))).toEqual(['C', 'F', 'A']);
     // Answered, it's on to the sessions that need you, and it comes round after the rest.
@@ -175,16 +177,17 @@ describe('the queue’s order', () => {
 
   it('goes by kind in your order, a review whose repo puts reviews first still ahead of them all', () => {
     const review: Row = { key: 'R', since: 5, waits: 'reviews' };
+    const merge: Row = { key: 'M', since: 2, waits: 'merges' };
     const due: Row = { key: 'T', since: 1, waits: 'due' };
-    const yours = inOrder(READS, queueKinds(['unread', 'due', 'reviews', 'needs']));
-    expect(keys(inQueueOrder([A, B, C, D, review, due], yours))).toEqual(['C', 'D', 'T', 'R', 'A', 'B']);
+    const yours = inOrder(READS, queueKinds(['unread', 'merges', 'due', 'reviews', 'needs']));
+    expect(keys(inQueueOrder([A, B, C, D, review, merge, due], yours))).toEqual(['C', 'D', 'M', 'T', 'R', 'A', 'B']);
     expect(keys(inQueueOrder([A, C, { key: 'F', since: 50, waits: 'reviews', first: true }], yours))).toEqual(['F', 'C', 'A']);
     expect(keys(leftAfter([A, B, C, D], 'D', none, yours))).toEqual(['A', 'B', 'C']);
     // One no longer listed, placed before the order changed, goes on from where its kind stands
     // now: A needed you, and B, which still does, comes before the turns ended that now lead.
     expect(keys(leftAfter([B, C, D], 'A', none, yours, placeOf(A, READS)))).toEqual(['B', 'C', 'D']);
     // The same reads for the same order, so a window's hooks see them change only when it does.
-    expect(inOrder(READS, queueKinds(['unread', 'due', 'reviews', 'needs']))).toBe(yours);
+    expect(inOrder(READS, queueKinds(['unread', 'merges', 'due', 'reviews', 'needs']))).toBe(yours);
     expect(inOrder(READS, queueKinds())).not.toBe(yours);
   });
 
@@ -208,6 +211,8 @@ describe('the queue’s order', () => {
     expect(queueKinds(['needs', 'reviews', 'unread'])).toEqual(['needs', 'reviews', 'unread']);
     // Turned on in Settings, a kind goes where the default has it.
     expect(withKind(['reviews', 'needs', 'unread'], 'due')).toEqual(['reviews', 'needs', 'due', 'unread']);
+    expect(withKind(['reviews', 'needs', 'unread'], 'merges')).toEqual(['reviews', 'needs', 'merges', 'unread']);
+    expect(withKind(['needs', 'due', 'unread'], 'merges')).toEqual(['needs', 'merges', 'due', 'unread']);
     expect(withKind(['due', 'needs', 'unread'], 'ready')).toEqual(['due', 'needs', 'unread', 'ready']);
     expect(withKind(['unread', 'needs'], 'reviews')).toEqual(['reviews', 'unread', 'needs']);
   });

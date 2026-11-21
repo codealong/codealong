@@ -267,13 +267,22 @@ describe('boardAhead', () => {
     expect(out.logoStatus).toBe('idle');
   });
 
-  it('leaves reviews out of the mark while the queue does', () => {
+  it('leaves reviews and merges out of the mark independently while the queue does', () => {
     const asked = fx.prItem({ number: 1, reviewRequested: true });
     const also = fx.prItem({ number: 2, reviewRequested: true });
-    const board = fx.board({ lanes: [lane([session('a', 'idle')])], prs: [asked, also], logoStatus: 'idle', queue: { order: ['needs', 'due', 'unread', 'ready'], due_within: 0 } });
+    const ready = fx.prItem({ number: 3, mine: true, state: 'approved', merge: 'clean', waitsToMerge: true });
+    const idle = [lane([session('a', 'idle')])];
+    expect(logoOf(idle, [asked], ['needs', 'merges', 'unread'])).toBe('idle');
+    expect(logoOf(idle, [ready], ['needs', 'merges', 'unread'])).toBe('needs');
+    expect(logoOf(idle, [ready], ['needs', 'reviews', 'unread'])).toBe('idle');
+    expect(logoOf(idle, [asked], ['needs', 'reviews', 'unread'])).toBe('needs');
+    const board = fx.board({ lanes: idle, prs: [asked, also], logoStatus: 'idle', queue: { order: ['needs', 'due', 'unread', 'ready'], due_within: 0 } });
     // Snoozing one leaves the other asked of you, which the mark doesn't count.
     const out = boardAhead(board, [change({ kind: 'review-snooze', keys: [asked.key], until: NOW + 900_000 })]);
     expect(out.logoStatus).toBe('idle');
+    // With only merges in the queue, snoozing the merge drops the mark even while a review waits.
+    const mergesOnly = fx.board({ lanes: idle, prs: [asked, ready], logoStatus: 'needs', queue: { order: ['needs', 'merges', 'unread'], due_within: 0 } });
+    expect(boardAhead(mergesOnly, [change({ kind: 'review-snooze', keys: [ready.key], until: NOW + 900_000 })]).logoStatus).toBe('idle');
   });
 
   it('takes a todo done, snoozed or started out of the todos that wait on you', () => {

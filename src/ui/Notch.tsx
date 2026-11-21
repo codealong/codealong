@@ -72,7 +72,19 @@ const SIZE_STORED: Codec<Size | null> = {
 const WORD: Record<Group, string> = { needs: 'need you', unread: 'your turn', working: 'working' };
 /** How many of a kind there are, in words. */
 const countWords = (kind: NotchKind, n: number) =>
-  kind === 'reviews' ? (n === 1 ? '1 PR waits on your review or merge' : `${n} PRs wait on your review or merge`) : kind === 'due' ? (n === 1 ? '1 todo is due' : `${n} todos are due`) : `${n} ${WORD[kind]}`;
+  kind === 'reviews'
+    ? n === 1
+      ? '1 PR waits on your review'
+      : `${n} PRs wait on your review`
+    : kind === 'merges'
+      ? n === 1
+        ? '1 PR is ready to merge'
+        : `${n} PRs are ready to merge`
+      : kind === 'due'
+        ? n === 1
+          ? '1 todo is due'
+          : `${n} todos are due`
+        : `${n} ${WORD[kind]}`;
 
 export interface NotchShellProps {
   notch: Notch;

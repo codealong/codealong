@@ -1067,11 +1067,11 @@ pub fn check_repos(cfg: &Config) -> std::result::Result<(), String> {
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct QueueCfg {
     /// The kinds that wait on you, the first first. One left out doesn't wait on you: a PR
-    /// waiting on your review isn't on the bar or in the notch, nor is a todo, due or ready to
-    /// start. The sessions' two always wait (`ALWAYS_WAITS`): one left out goes where the default
-    /// order has it (`kinds`). Todos ready to start come last wherever they're put: they're there
-    /// to pick up once nothing else waits. A repo whose `reviews_first` is on has its reviews go
-    /// ahead of all of them.
+    /// waiting on your review or ready to merge isn't on the bar or in the notch, nor is a todo,
+    /// due or ready to start. The sessions' two always wait (`ALWAYS_WAITS`): one left out goes
+    /// where the default order has it (`kinds`). Todos ready to start come last wherever they're
+    /// put: they're there to pick up once nothing else waits. A repo whose `reviews_first` is on
+    /// has its reviews go ahead of all of them.
     #[serde(default = "default_queue_order")]
     pub order: Vec<String>,
     /// How many days before its due date an unassigned todo joins what waits on you as due: 0 on
@@ -1081,10 +1081,11 @@ pub struct QueueCfg {
     pub due_within: u32,
 }
 
-/// What can wait on you, in the order the queue goes to them by default (asked 2026-11-18):
-/// sessions that need you, PRs waiting on your review (and yours ready to merge), todos due,
-/// sessions whose turn ended, and todos ready to start. src/queue.ts `WAITS` has them too.
-pub const QUEUE_KINDS: [&str; 5] = ["needs", "reviews", "due", "unread", "ready"];
+/// What can wait on you, in the order the queue goes to them by default (asked 2026-11-18, merges
+/// divided from reviews 2026-11-20): sessions that need you, PRs waiting on your review, PRs of
+/// yours ready to merge, todos due, sessions whose turn ended, and todos ready to start.
+/// src/queue.ts `WAITS` has them too.
+pub const QUEUE_KINDS: [&str; 6] = ["needs", "reviews", "merges", "due", "unread", "ready"];
 
 /// The kinds that always wait on you: a session needing you or whose turn ended is what the bar
 /// and the notch are for, and leaving one out would take sessions off them.
@@ -2202,7 +2203,7 @@ const OWN_REVIEWS_COMMENT: &str = "# [reviews.own] auto: an agent reviews each o
 # review to the PR's primary session, once it runs and doesn't wait on you. drafts: review your draft PRs too.
 # Nothing goes on GitHub.
 ";
-const QUEUE_COMMENT: &str = "# What waits on you, in the order the notch, the waiting window and the main window's panels go through it:\n# \"needs\", sessions that need you; \"reviews\", PRs waiting on your review, and yours ready to merge that nothing\n# else brings to you; \"due\", unassigned todos due; \"unread\", sessions whose turn ended; \"ready\", unassigned\n# todos ready to start, which come last. One left out doesn't wait on you, but sessions always do.\n# due_within: how many days before its due date an unassigned todo comes due: 0 on the day.\n";
+const QUEUE_COMMENT: &str = "# What waits on you, in the order the notch, the waiting window and the main window's panels go through it:\n# \"needs\", sessions that need you; \"reviews\", PRs waiting on your review; \"merges\", PRs of yours ready to\n# merge that nothing else brings to you; \"due\", unassigned todos due; \"unread\", sessions whose turn ended;\n# \"ready\", unassigned todos ready to start, which come last. One left out doesn't wait on you, but sessions\n# always do.\n# due_within: how many days before its due date an unassigned todo comes due: 0 on the day.\n";
 const EXPERIMENTAL_COMMENT: &str = "# Features still being tried out, each off until it's turned on. boards: the main window's Board view, as\n# Kanban and as Canvas, Add to board in the menus, and `codealong board`. voice: a key held to talk to the\n# session you're looking at or to your orchestrator, and sessions that listen to a meeting ([voice]).\n# analytics: who began each session and turn, what your prompts did with what the agent had said, and how\n# the sessions you marked done stood, in the Analytics window and `codealong analytics`.\n";
 const VOICE_COMMENT: &str = "# Voice, once [experimental] voice is on. locale: the language spoken, such as \"en-US\"; \"\" for this Mac's own.\n# send_on_release: what you say to your orchestrator is sent as you let go of the key, not put in its box\n# first. tell_every: how often, in seconds, a session that listens is told what's new, at most.\n# meetings: as a meeting in your calendar is about to start, offer to take its notes, in a folder of its own\n# under meetings_folder (\"\" for meetings beside this file), by a session on meeting_account (an account, a\n# routing group, or \"\" for Auto) and meeting_model, meeting_lead minutes before it starts, but for the\n# calendars in meeting_calendars_off (by id; Settings lists them). meeting_countdown: from how many minutes\n# before, the notch, the floating bar and the Meetings button count down to it (0 for none).\n";
 const REPOS_COMMENT: &str = "# Your settings for one repo's pull requests, over [reviews] and [pull_requests] and over what the repo's\n# .codealong/config.toml sets for its team. Settings › Automation sets them with the repo picked.\n";
@@ -4040,16 +4041,21 @@ mod tests {
         assert_eq!(parse(&render(&mine)).unwrap(), mine);
         // Back to the default, the table stays, saying so.
         let back = with_config(&out, &full()).unwrap();
-        assert!(back.contains("[queue]\norder = [\"needs\", \"reviews\", \"due\", \"unread\", \"ready\"]\ndue_within = 0\n"), "{back}");
+        assert!(back.contains("[queue]\norder = [\"needs\", \"reviews\", \"merges\", \"due\", \"unread\", \"ready\"]\ndue_within = 0\n"), "{back}");
     }
 
     #[test]
     fn what_the_queue_leaves_out_doesnt_wait_but_sessions_always_do() {
         let queue = |order: &[&str], due_within: u32| QueueCfg { order: order.iter().map(|k| k.to_string()).collect(), due_within };
-        // Reviews and ready todos out: they don't wait; the rest in your order.
+        // Reviews, merges and ready todos out: they don't wait; the rest in your order.
         let q = queue(&["due", "unread", "needs"], 0);
         assert_eq!(q.kinds(), vec!["due", "unread", "needs"]);
-        assert!(!q.waits("reviews") && !q.waits("ready") && q.waits("due"));
+        assert!(!q.waits("reviews") && !q.waits("merges") && !q.waits("ready") && q.waits("due"));
+        assert_eq!(check_queue(&q), Ok(()));
+        // Reviews and merges move and turn off apart from each other.
+        let q = queue(&["merges", "needs", "unread"], 0);
+        assert_eq!(q.kinds(), vec!["merges", "needs", "unread"]);
+        assert!(!q.waits("reviews") && q.waits("merges"));
         assert_eq!(check_queue(&q), Ok(()));
         // A session's kind left out goes where the default has it among the rest, and is said.
         let q = queue(&["reviews", "ready"], 0);

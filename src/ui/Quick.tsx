@@ -2098,12 +2098,12 @@ export function Quick() {
   const sendLikely = !!sendList?.rows.some((r) => r.p != null);
   // What every row of the list is drawn from and does (QuickRows.tsx).
   const rowsShown: RowsShown = { active, numbered, now, route, lastRoute, suggested, sendLikely, describe, inWaiting, held: (key) => drag.rowProps(key, null, 0), click: clickRow, menu: rowMenu };
-  const nothingWaits = listing && !!attention && attention.counts.top + attention.counts.firstReviews + attention.counts.needs + attention.counts.reviews + attention.counts.unread === 0;
+  const nothingWaits = listing && !!attention && attention.counts.top + attention.counts.firstReviews + attention.counts.needs + attention.counts.reviews + attention.counts.merges + attention.counts.unread === 0;
   /** A group's heading count: all there are of it, when the list shows only some. */
   const groupCount = (g: RowGroup, shown: number): number => {
     if (g === 'ready') return readyList?.count ?? shown;
     if (g === 'recent') return recent?.count ?? shown;
-    if (g === 'top' || g === 'firstReviews' || g === 'needs' || g === 'reviews' || g === 'unread' || g === 'working') return attention?.counts[g] ?? shown;
+    if (g === 'top' || g === 'firstReviews' || g === 'needs' || g === 'reviews' || g === 'merges' || g === 'unread' || g === 'working') return attention?.counts[g] ?? shown;
     if (g === 'found') return foundSessions.length;
     if (g === 'sendto') return sendList?.count ?? shown;
     return shown;

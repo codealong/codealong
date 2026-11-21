@@ -705,7 +705,8 @@ function KeepAwakeField({ terminal, name, keepsTerminals }: { terminal: string; 
 /** Each kind of what waits on you (queue.ts `WAITS`), as Settings › Queue says it. */
 const QUEUE_KIND_WORDS: Record<Waits, { label: string; says: string }> = {
   needs: { label: 'Sessions that need you', says: 'A question, a call to allow, or an error. Always in the queue.' },
-  reviews: { label: 'Pull requests waiting on you', says: 'Open ones that ask for your review on GitHub, but those you snoozed and those Codealong’s agent is still reviewing; and yours that GitHub would merge now, while no session of theirs is at work or waits on you with Merge and done.' },
+  reviews: { label: 'Pull requests waiting on your review', says: 'Open ones that ask for your review on GitHub, but those you snoozed and those Codealong’s agent is still reviewing.' },
+  merges: { label: 'Pull requests ready to merge', says: 'Yours that GitHub would merge now, while no session of theirs is at work or waits on you with Merge and done, and you haven’t snoozed them.' },
   due: { label: 'Todos that are due', says: 'Unassigned open todos from the day below, and overdue ones until a session is assigned, or they’re done or snoozed.' },
   unread: { label: 'Sessions whose turn ended', says: 'Their replies are yours to read. Always in the queue.' },
   ready: { label: 'Todos ready to start', says: 'Unassigned, not started and waiting on nothing, in your todo list’s order. They come last, once nothing else waits, and the notch doesn’t count them.' },
@@ -814,7 +815,7 @@ function QueuePane({ cfg, disabled, onSave, moves }: PaneProps & { moves: boolea
           <ProfileSelect value={String(dueWithin)} profiles={DUE_WITHIN} onChange={(id) => save(kinds, Number(id))} />
           <small>How long before its due date an unassigned todo joins what waits on you{kinds.includes('due') ? '' : ', once todos that are due are in the queue'}. One that’s overdue waits until a session is assigned, or it’s done or snoozed.</small>
         </label>
-        <p className="ca-settings-lede">A repo that puts its reviews first (Automation) has its pull requests go ahead of all of these, and a session you moved to the top comes first whatever it waits as.</p>
+        <p className="ca-settings-lede">A repo that puts its reviews first (Automation) has the pull requests waiting on your review go ahead of all of these, and a session you moved to the top comes first whatever it waits as.</p>
       </fieldset>
     </>
   );

@@ -18,7 +18,7 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type MouseEvent, type PointerEvent, type ReactNode } from 'react';
 import { getCurrentWindow } from '@tauri-apps/api/window';
 import { barMode, dragToDesktop, fitBar, getBarFeed, onBarFeed, onDesktopDragEnd, onBarMode, onBarNote, onPeekShown, onWaitingShortcut, PEEK_AFTER_MS, peekHide, peekOpen, sessionAt, setBarMode, setNotchOpen, showMain, showQuick, showWaiting, type BarModeView, type PillRect } from '../api';
-import { BAR_PROJECT_KEY, CLICK_WAIT_MS, elsewhereWaits, fitGroups, GROUPS, plain, projectWaits, reviewsWord, todoRowKey, type Group, type GroupFit, type WaitCounts } from '../bar';
+import { BAR_PROJECT_KEY, CLICK_WAIT_MS, elsewhereWaits, fitGroups, GROUPS, plain, projectWaits, todoRowKey, type Group, type GroupFit, type WaitCounts } from '../bar';
 import { showContextMenu, type MenuAction, type MenuSpec } from '../contextMenu';
 import { useEditorIcons, type Apps } from '../editors';
 import { ago } from '../format';
@@ -169,14 +169,15 @@ function FoldPill({ group, label, title, onOpen, peeked, measure }: { group: Gro
   );
 }
 
-function ReviewsPill({ prs, peeked, onOpen, measure }: { prs: BarReview[]; peeked?: boolean; onOpen?: (e: MouseEvent<HTMLButtonElement>) => void; measure?: boolean }) {
+function PrsPill({ kind, prs, peeked, onOpen, measure }: { kind: 'reviews' | 'merges'; prs: BarReview[]; peeked?: boolean; onOpen?: (e: MouseEvent<HTMLButtonElement>) => void; measure?: boolean }) {
   const place = usePlaceWords();
   return (
     <button
       type="button"
-      className={cx('ca-hud-pill', 'is-reviews', peeked && 'is-peeked')}
+      className={cx('ca-hud-pill', kind === 'merges' ? 'is-merges' : 'is-reviews', peeked && 'is-peeked')}
       title={measure ? undefined : prs.map((p) => reviewLabel(p, place)).join('\n')}
-      data-reviews={measure ? '' : undefined}
+      data-reviews={measure && kind === 'reviews' ? '' : undefined}
+      data-merges={measure && kind === 'merges' ? '' : undefined}
       onClick={onOpen}
       onContextMenu={
         onOpen
@@ -188,17 +189,19 @@ function ReviewsPill({ prs, peeked, onOpen, measure }: { prs: BarReview[]; peeke
           : undefined
       }
     >
-      <Icon name="pr" size={12} stroke={1.75} />
-      <span>{reviewsWord(prs)}</span>
+      <Icon name={kind === 'merges' ? 'merge' : 'pr'} size={12} stroke={1.75} />
+      <span>
+        {prs.length} {kind === 'merges' ? 'to merge' : 'to review'}
+      </span>
     </button>
   );
 }
 
 /** A PR that waits on you as its menu item and tooltip line say it: its number and title, its
  *  repo (after its project, as `place` says it), who asked, and that it's a sign-off when
- *  Codealong's agent approves it; or that it's yours, ready to merge. */
+ *  Codealong's agent approves it. */
 function reviewLabel(p: BarReview, place: PlaceWords): string {
-  return [`#${p.number} ${p.title}`, place(p.project, p.repo), p.merge ? 'ready to merge' : '', p.requestedBy ? `asked by ${p.requestedBy}` : '', p.approves ? 'agent approves' : ''].filter(Boolean).join(' · ');
+  return [`#${p.number} ${p.title}`, place(p.project, p.repo), p.requestedBy ? `asked by ${p.requestedBy}` : '', p.approves ? 'agent approves' : ''].filter(Boolean).join(' · ');
 }
 
 /** A session that's hearing, first on the bar for as long as it does, whatever project the bar
@@ -511,7 +514,9 @@ export function Bar() {
   const items = useMemo(() => allItems.filter((i) => inProject(i, current)), [allItems, current]);
   const recent = useMemo(() => (feed?.recent ?? []).filter((i) => inProject(i, current)), [feed, current]);
   const snoozed = useMemo(() => (feed?.snoozed ?? []).filter((i) => inProject(i, current)), [feed, current]);
-  const reviews = useMemo(() => (feed?.reviews ?? []).filter((r) => current === ALL_PROJECTS || r.project === current), [feed, current]);
+  const prs = useMemo(() => (feed?.reviews ?? []).filter((r) => current === ALL_PROJECTS || r.project === current), [feed, current]);
+  const reviews = useMemo(() => prs.filter((r) => !r.merge), [prs]);
+  const merges = useMemo(() => prs.filter((r) => !!r.merge), [prs]);
   const todos = useMemo(() => (feed?.todos ?? []).filter((t) => current === ALL_PROJECTS || t.project === current), [feed, current]);
   const due = useMemo(() => (feed?.due ?? []).filter((t) => current === ALL_PROJECTS || t.project === current), [feed, current]);
   const todoLists = useMemo(() => ({ due, ready: todos }), [due, todos]);
@@ -529,7 +534,7 @@ export function Bar() {
   // peek: which one, what it works through, and its keys.
   const listenings = useMemo(() => feed?.listenings ?? [], [feed]);
   const onBar = useMemo(() => new Set([...allItems, ...(feed?.recent ?? []), ...(feed?.snoozed ?? []), ...listenings].map((i) => i.key)), [allItems, feed, listenings]);
-  const stage = useNotchStage(items, reviews, todoLists, (key) => onBar.has(key) || reviews.some((r) => r.key === key) || [...due, ...todos].some((t) => todoRowKey(t.id) === key), notch !== null, order);
+  const stage = useNotchStage(items, prs, todoLists, (key) => onBar.has(key) || prs.some((r) => r.key === key) || [...due, ...todos].some((t) => todoRowKey(t.id) === key), notch !== null, order);
   // A key held to talk, or a listening session's cue (said.ts): under the pills while nothing
   // else is there, without the keyboard, which stays with whatever you're in.
   const { said, dismiss: dismissSaid } = useSaid(feed?.listenings);
@@ -599,6 +604,7 @@ export function Bar() {
         snoozed: snoozed.length ? width('[data-snoozed]') : 0,
         recent: recent.length ? width('[data-recent]') : 0,
         reviews: reviews.length ? width('[data-reviews]') : 0,
+        merges: merges.length ? width('[data-merges]') : 0,
         due: due.length ? width('[data-due]') : 0,
         todos: todos.length ? width('[data-todos]') : 0,
         note: width('[data-note]'),
@@ -611,7 +617,7 @@ export function Bar() {
     // The same fit keeps the bar as it is: a session dragged wider asks again every frame.
     setFits((was) => (was && was.every((f, i) => f.shown === next[i]?.shown && f.folded === next[i]?.folded) ? was : next));
   });
-  useLayoutEffect(() => fit.current(), [fit, items, listenings, meeting, soon, notch, snoozed, recent, reviews, due, todos, picking, current, others, failed, fontsLoaded]);
+  useLayoutEffect(() => fit.current(), [fit, items, listenings, meeting, soon, notch, snoozed, recent, reviews, merges, due, todos, picking, current, others, failed, fontsLoaded]);
   const fitNotch = useCallback(
     (room: number) => {
       notchRoom.current = room;
@@ -878,18 +884,18 @@ export function Bar() {
     );
   };
 
-  /** The reviews pill: docked in the notch, the one PR opens under the pills, as a session's pill
-   *  opens its session, and several drop a menu to pick from; floating, it shows the PR in the
-   *  waiting window, with the box that reviews it. */
-  const reviewsMenu = (e: MouseEvent<HTMLButtonElement>) => {
+  /** A PR pill (reviews or merges): docked in the notch, the one PR opens under the pills, as a
+   *  session's pill opens its session, and several drop a menu to pick from; floating, it shows
+   *  the PR in the waiting window. */
+  const prsMenu = (list: BarReview[]) => (e: MouseEvent<HTMLButtonElement>) => {
     const to = (p: BarReview) => (notch ? stage.show(p.key) : void showWaiting({ key: p.key }));
-    if (reviews.length === 1) {
-      if (notch) stage.toggle(reviews[0].key);
-      else to(reviews[0]);
+    if (list.length === 1) {
+      if (notch) stage.toggle(list[0].key);
+      else to(list[0]);
       return;
     }
     void popup(
-      reviews.map((p) => ({ label: reviewLabel(p, placeOf), checked: p.key === shownKey || undefined, run: () => to(p) })),
+      list.map((p) => ({ label: reviewLabel(p, placeOf), checked: p.key === shownKey || undefined, run: () => to(p) })),
       below(e),
     );
   };
@@ -963,7 +969,7 @@ export function Bar() {
         Reading sessions…
       </span>,
     ]);
-  } else if (items.length === 0 && snoozed.length === 0 && recent.length === 0 && reviews.length === 0 && due.length === 0 && todos.length === 0 && listenings.length === 0) {
+  } else if (items.length === 0 && snoozed.length === 0 && recent.length === 0 && prs.length === 0 && due.length === 0 && todos.length === 0 && listenings.length === 0) {
     sections.push([
       <span key="note" className="ca-hud-note">
         {current === ALL_PROJECTS ? 'No agents running' : `No agents running in ${current}`}
@@ -1005,7 +1011,8 @@ export function Bar() {
     const last = [
       ...(snoozed.length ? [failed?.anchor === 'snoozed' ? failedPill() : <SnoozedPill key="snoozed" items={snoozed} now={now} onOpen={snoozedMenu} />] : []),
       ...(recent.length ? [failed?.anchor === 'recent' ? failedPill() : <RecentPill key="recent" items={recent} now={now} onOpen={recentMenu} />] : []),
-      ...(reviews.length ? [failed?.anchor === 'reviews' ? failedPill() : <ReviewsPill key="reviews" prs={reviews} peeked={reviews.some((p) => p.key === shownKey)} onOpen={reviewsMenu} />] : []),
+      ...(reviews.length ? [failed?.anchor === 'reviews' ? failedPill() : <PrsPill key="reviews" kind="reviews" prs={reviews} peeked={reviews.some((p) => p.key === shownKey)} onOpen={prsMenu(reviews)} />] : []),
+      ...(merges.length ? [failed?.anchor === 'merges' ? failedPill() : <PrsPill key="merges" kind="merges" prs={merges} peeked={merges.some((p) => p.key === shownKey)} onOpen={prsMenu(merges)} />] : []),
       ...(due.length ? [failed?.anchor === 'due' ? failedPill() : <TodosPill key="due" todos={due} waits="due" peeked={due.some((t) => todoRowKey(t.id) === shownKey)} onOpen={openTodos(due)} onMenu={todosMenu(due)} />] : []),
       ...(todos.length ? [<TodosPill key="todos" todos={todos} peeked={todos.some((t) => todoRowKey(t.id) === shownKey)} onOpen={openTodos(todos)} onMenu={todosMenu(todos)} />] : []),
     ];
@@ -1046,7 +1053,8 @@ export function Bar() {
       ))}
       {snoozed.length > 0 && <SnoozedPill items={snoozed} now={now} measure />}
       {recent.length > 0 && <RecentPill items={recent} now={now} measure />}
-      {reviews.length > 0 && <ReviewsPill prs={reviews} measure />}
+      {reviews.length > 0 && <PrsPill kind="reviews" prs={reviews} measure />}
+      {merges.length > 0 && <PrsPill kind="merges" prs={merges} measure />}
       {due.length > 0 && <TodosPill todos={due} waits="due" measure />}
       {todos.length > 0 && <TodosPill todos={todos} measure />}
       {picking && <ProjectButton name={current} others={others} measure />}
@@ -1061,7 +1069,7 @@ export function Bar() {
           notch={notch}
           logoStatus={logoStatus}
           moment={moment}
-          counts={{ needs: byGroup.needs.length, reviews: reviews.length, due: due.length, unread: byGroup.unread.length, working: byGroup.working.length }}
+          counts={{ needs: byGroup.needs.length, reviews: reviews.length, merges: merges.length, due: due.length, unread: byGroup.unread.length, working: byGroup.working.length }}
           order={order}
           screen={{ w: window.screen.availWidth, h: window.screen.height }}
           onPillsRoom={fitNotch}
@@ -1092,7 +1100,7 @@ export function Bar() {
                     return;
                   }
                   stage.close();
-                  setFailed({ anchor: 'reviews', message: `${key} no longer waits on your review.` });
+                  setFailed({ anchor: merges.some((p) => p.key === key) ? 'merges' : 'reviews', message: `${key} no longer waits on you.` });
                 }}
               />
             ) : stage.key && stage.kind === 'todo' ? (
@@ -1163,7 +1171,7 @@ export function Bar() {
           }}
           onMove={stage.close}
           onCount={(kind) => {
-            const first = kind === 'reviews' ? reviews[0]?.key : kind === 'due' ? due[0] && todoRowKey(due[0].id) : byGroup[kind][0]?.key;
+            const first = kind === 'reviews' ? reviews[0]?.key : kind === 'merges' ? merges[0]?.key : kind === 'due' ? due[0] && todoRowKey(due[0].id) : byGroup[kind][0]?.key;
             if (first) stage.show(first);
           }}
           keepOpen={keepOpen}
