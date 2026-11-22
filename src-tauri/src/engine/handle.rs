@@ -374,12 +374,18 @@ impl Handle {
     /// Archives several sessions as `archive` does each, shown on one board: each key's result,
     /// in order. One its harness refused isn't archived in Codealong either.
     pub fn archive_all(&self, keys: &[String]) -> Vec<Result<()>> {
-        let asked: Vec<Result<Option<String>>> = keys.iter().map(|k| archive_in_harness(k, true)).collect();
-        let only_here = keys.iter().zip(&asked).filter(|(_, r)| matches!(r, Ok(Some(_)))).map(|(k, _)| k.clone()).collect();
-        let mut results: Vec<Result<()>> = asked.into_iter().map(|r| r.map(|_| ())).collect();
+        self.archive_batch(keys, true).into_iter().map(|r| r.map(|_| ())).collect()
+    }
+
+    /// Archives or unarchives several sessions as `archive` does each, shown on one board: each
+    /// key's result (with why its harness kept it, if any), in order. One its harness refused
+    /// isn't changed in Codealong either.
+    pub fn archive_batch(&self, keys: &[String], archived: bool) -> Vec<Result<Option<String>>> {
+        let mut results: Vec<Result<Option<String>>> = keys.iter().map(|k| archive_in_harness(k, archived)).collect();
+        let only_here = keys.iter().zip(&results).filter(|(_, r)| matches!(r, Ok(Some(_)))).map(|(k, _)| k.clone()).collect();
         let done: Vec<String> = keys.iter().zip(&results).filter(|(_, r)| r.is_ok()).map(|(k, _)| k.clone()).collect();
         if !done.is_empty() {
-            if let Err(e) = self.set_archived(done, true, only_here) {
+            if let Err(e) = self.set_archived(done, archived, only_here) {
                 let e = crate::util::words(e);
                 for r in results.iter_mut().filter(|r| r.is_ok()) {
                     *r = Err(anyhow!("{e}"));

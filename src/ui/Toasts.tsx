@@ -112,9 +112,9 @@ export function useToasts(): ToastState {
     };
   }, []);
 
-  // A session an agent marked done from the command (agentdone.rs) leaves the lists with nothing
-  // of yours doing it: the toast says which session did, with the way back.
-  useEffect(() => onAgentDone((e) => setArchived({ keys: [e.key], title: e.title, message: e.message })), []);
+  // A session (or batch) an agent marked done or archived from the command (agentdone.rs) leaves
+  // the lists with nothing of yours doing it: the toast says which session did, with the way back.
+  useEffect(() => onAgentDone((e) => setArchived({ keys: e.keys?.length ? e.keys : [e.key], title: e.title, message: e.message })), []);
 
   return { toast, setToast, busy, track, report, archived, setArchived, todoUndo, setTodoUndo, shown, setHeld };
 }

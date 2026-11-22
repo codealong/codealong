@@ -14,12 +14,15 @@
 //! A session it started is marked done at once, as from the windows, and the main window says
 //! which session did it, with an Undo.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::sync::{Mutex, OnceLock};
 
+use serde::{Deserialize, Serialize};
+
+use crate::actions::From;
 use crate::engine::Handle;
 use crate::model::{Board, OriginHow, Session, Status};
-use crate::util::now_ms;
+use crate::util::{now_ms, words};
 
 /// What a session asking may mark done.
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -51,6 +54,209 @@ pub fn may(board: &Board, by: Option<&str>, s: &Session) -> Result<Whose, String
         return Err(format!("“{}” is waiting on its user, so it's theirs to mark done.", s.title));
     }
     Ok(Whose::Started)
+}
+
+/// Whether the `codealong` command (run by `by`, when inside a session) may archive `s` on
+/// `board`: reversible cleanup of idle or stopped sessions, never interrupting work under way,
+/// hiding something waiting on its user, closing a live terminal in Codealong, or orphaning
+/// unfinished helpers.
+pub fn may_archive_from_command(board: &Board, by: Option<&str>, s: &Session) -> Result<(), String> {
+    if by == Some(s.key.as_str()) {
+        return Err("Use `codealong session done me --archive` to archive this session once its turn ends.".into());
+    }
+    if s.status == Status::Working {
+        return Err(format!("“{}” is still working: archive it once its turn ends.", s.title));
+    }
+    if s.waits_on_its_user() {
+        return Err(format!("“{}” is waiting on its user, so it's theirs to archive.", s.title));
+    }
+    if s.status == Status::Unread {
+        return Err(format!("“{}” has an unread reply for its user, so it's theirs to read and archive.", s.title));
+    }
+    if s.background.is_some() {
+        return Err(format!("“{}” is running a command in the background, so it stays open.", s.title));
+    }
+    if s.running.is_some() {
+        return Err(format!("“{}” is waiting on a command in a terminal, so it stays open.", s.title));
+    }
+    if s.stalled_since.is_some() {
+        return Err(format!("“{}” looks stuck mid-turn, so it's its user's to archive.", s.title));
+    }
+    if s.listening {
+        return Err(format!("“{}” is listening to a meeting, so it stays open.", s.title));
+    }
+    if board.terminals.get(&s.key).is_some_and(|ts| ts.iter().any(|t| t.running)) {
+        return Err(format!("“{}” has a running terminal in Codealong, which archiving would close; archive it in Codealong.", s.title));
+    }
+    if has_unfinished_helper(board, &s.key) {
+        return Err(format!("“{}” has a helper still working or waiting on its user, so it stays open.", s.title));
+    }
+    Ok(())
+}
+
+/// Whether `key` has any unarchived descendant helper still working or waiting on its user.
+fn has_unfinished_helper(board: &Board, key: &str) -> bool {
+    let mut seen = HashSet::from([key.to_string()]);
+    let mut stack = vec![key.to_string()];
+    while let Some(parent) = stack.pop() {
+        for h in crate::board::helpers_of(&board.lanes, &parent) {
+            if !seen.insert(h.key.clone()) || h.archived {
+                continue;
+            }
+            if h.status == Status::Working || h.unfinished() || h.waits_on_its_user() {
+                return true;
+            }
+            stack.push(h.key.clone());
+        }
+    }
+    false
+}
+
+/// One session archived or unarchived by `codealong session archive`.
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct ArchivedSession {
+    pub key: String,
+    pub title: String,
+    /// Why its harness still lists it, where it's archived in Codealong only.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub kept_in_harness: Option<String>,
+}
+
+/// One session `codealong session archive` left as it was, and why.
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct KeptSession {
+    pub key: String,
+    pub title: String,
+    pub why: String,
+}
+
+/// What `codealong session archive` changed, left already in that state, or refused to touch.
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct ArchiveOutcome {
+    pub archived: bool,
+    pub changed: Vec<ArchivedSession>,
+    pub already: Vec<ArchivedSession>,
+    pub kept: Vec<KeptSession>,
+    pub message: String,
+}
+
+/// The line a toast shows when an agent archives (or unarchives) `titles`.
+pub fn archive_toast_message(by_title: Option<&str>, archived: bool, titles: &[String]) -> String {
+    let (verb, cap) = if archived { ("archived", "Archived") } else { ("unarchived", "Unarchived") };
+    let what = match titles {
+        [one] => format!("“{one}”"),
+        many => format!("{} sessions", many.len()),
+    };
+    match by_title.map(str::trim).filter(|t| !t.is_empty()) {
+        Some(by) => format!("“{by}” {verb} {what}."),
+        None => format!("{cap} {what}."),
+    }
+}
+
+/// Archives or unarchives `keys` from the `codealong` command: every qualifying session goes in
+/// one batch on the engine so the board publishes once and the main window shows one Undo toast.
+/// Refuses when nothing changed and nothing was already in the requested state.
+pub fn archive_batch(engine: &Handle, from: &From, keys: &[String], archived: bool) -> Result<ArchiveOutcome, String> {
+    if keys.is_empty() {
+        return Err("Give at least one session key.".into());
+    }
+    let mut unique = Vec::with_capacity(keys.len());
+    let mut seen = HashSet::new();
+    for k in keys {
+        if seen.insert(k.as_str()) {
+            unique.push(k.clone());
+        }
+    }
+    let board = engine.board();
+    let by = match from {
+        From::Command(by) => by.as_deref(),
+        _ => None,
+    };
+    let by_title = by.and_then(|k| board.session(k)).map(|(_, me)| me.title.clone()).filter(|t| !t.is_empty());
+    let mut ready: Vec<(String, String, Option<crate::dismissed::Leaving>)> = Vec::new();
+    let mut already = Vec::new();
+    let mut kept = Vec::new();
+    for key in unique {
+        let Some((_, s)) = board.session(&key) else {
+            kept.push(KeptSession { key, title: String::new(), why: "Codealong doesn't list that session.".into() });
+            continue;
+        };
+        if s.archived == archived {
+            already.push(ArchivedSession { key, title: s.title.clone(), kept_in_harness: None });
+            continue;
+        }
+        if archived {
+            if let Err(why) = may_archive_from_command(&board, by, s) {
+                kept.push(KeptSession { key, title: s.title.clone(), why });
+                continue;
+            }
+        }
+        let leaving = if archived { crate::dismissed::leaving(&board, s, crate::dismissed::What::Archive, from) } else { None };
+        ready.push((key, s.title.clone(), leaving));
+    }
+    if ready.is_empty() && already.is_empty() {
+        return Err(refusal_words(&kept));
+    }
+    let mut changed = Vec::new();
+    if !ready.is_empty() {
+        let batch_keys: Vec<String> = ready.iter().map(|(k, _, _)| k.clone()).collect();
+        let results = engine.archive_batch(&batch_keys, archived);
+        for ((key, title, leaving), res) in ready.into_iter().zip(results) {
+            match res {
+                Ok(kept_in_harness) => {
+                    if let Some(l) = leaving {
+                        l.note();
+                    } else if !archived {
+                        crate::dismissed::undone(&key);
+                    }
+                    changed.push(ArchivedSession { key, title, kept_in_harness });
+                }
+                Err(e) => kept.push(KeptSession { key, title, why: words(e) }),
+            }
+        }
+        if changed.is_empty() && already.is_empty() {
+            return Err(refusal_words(&kept));
+        }
+    }
+    let titles: Vec<String> = changed.iter().map(|s| s.title.clone()).collect();
+    let toast_message = (!changed.is_empty()).then(|| archive_toast_message(by_title.as_deref(), archived, &titles));
+    let message = outcome_message(toast_message.as_deref(), archived, &already, &kept);
+    Ok(ArchiveOutcome { archived, changed, already, kept, message })
+}
+
+fn refusal_words(kept: &[KeptSession]) -> String {
+    match kept {
+        [one] => one.why.clone(),
+        many => many.iter().map(|k| k.why.as_str()).collect::<Vec<_>>().join(" "),
+    }
+}
+
+fn outcome_message(toast: Option<&str>, archived: bool, already: &[ArchivedSession], kept: &[KeptSession]) -> String {
+    let mut notes = Vec::new();
+    if !already.is_empty() {
+        let state = if archived { "already archived" } else { "not archived" };
+        notes.push(format!("{} {state}", already.len()));
+    }
+    if !kept.is_empty() {
+        notes.push(format!("{} kept", kept.len()));
+    }
+    if let Some(base) = toast {
+        return if notes.is_empty() { base.to_string() } else { format!("{} ({}).", base.trim_end_matches('.'), notes.join(", ")) };
+    }
+    let already_said = match (archived, already) {
+        (true, [one]) => format!("“{}” is already archived", one.title),
+        (false, [one]) => format!("“{}” isn't archived", one.title),
+        (true, many) => format!("{} sessions are already archived", many.len()),
+        (false, many) => format!("{} sessions aren't archived", many.len()),
+    };
+    if kept.is_empty() {
+        format!("{already_said}.")
+    } else {
+        format!("{already_said} ({} kept).", kept.len())
+    }
 }
 
 /// How long a session's own Mark as done waits for its turn to end before it's dropped.
@@ -402,5 +608,172 @@ mod tests {
         w.ask("me", asked, true);
         assert!(w.due(&ended_with(Status::Unread, "Shall I remove it?", stopped), NOW, false).is_empty());
         assert!(w.due(&ended_with(Status::Unread, done, |_| {}), NOW, false).is_empty());
+    }
+
+    #[test]
+    fn command_archive_allows_idle_and_stopped_and_refuses_active_or_waiting() {
+        let mut me = session("me", Status::Working);
+        me.title = "Cleanup review".into();
+        let mut idle = session("idle", Status::Idle);
+        idle.title = "Old cleanup 1".into();
+        let mut stopped = session("stopped", Status::Stopped);
+        stopped.title = "Old cleanup 2".into();
+        let mut working = session("working", Status::Working);
+        working.title = "Still building".into();
+        let mut needs = session("needs", Status::Needs);
+        needs.title = "Waiting on approve".into();
+        let mut errored = session("errored", Status::Error);
+        errored.title = "Failed turn".into();
+        let mut unread = session("unread", Status::Unread);
+        unread.title = "Unread reply".into();
+        let mut signed_out = session("signed-out", Status::Idle);
+        signed_out.title = "Signed out".into();
+        signed_out.signed_out = Some(crate::model::SignedOut { at: 1, said: "Please run /login".into(), continues: true });
+        let mut bg = session("bg", Status::Idle);
+        bg.title = "Running bg".into();
+        bg.background = Some("npm run dev".into());
+        let mut running = session("running", Status::Idle);
+        running.title = "Waiting on terminal".into();
+        running.running = Some(crate::model::RunningIn { terminal: "Ghostty".into(), command: "make".into(), yours: false });
+        let mut stalled = session("stalled", Status::Idle);
+        stalled.title = "Stalled".into();
+        stalled.stalled_since = Some(NOW - 5_000);
+        let mut listening = session("listening", Status::Idle);
+        listening.title = "In meeting".into();
+        listening.listening = true;
+        let mut with_live_term = session("live-term", Status::Idle);
+        with_live_term.title = "Has live shell".into();
+        let mut with_exited_term = session("exited-term", Status::Idle);
+        with_exited_term.title = "Has exited shell".into();
+        let mut parent_busy = session("parent-busy", Status::Idle);
+        parent_busy.title = "Parent with busy helper".into();
+        let mut busy_helper = session("busy-helper", Status::Working);
+        busy_helper.live = true;
+        busy_helper.helper = Some(crate::model::Helper { parent: Some("parent-busy".into()), ..Default::default() });
+        let mut parent_done = session("parent-done", Status::Idle);
+        parent_done.title = "Parent with idle helper".into();
+        let mut idle_helper = session("idle-helper", Status::Idle);
+        idle_helper.helper = Some(crate::model::Helper { parent: Some("parent-done".into()), ..Default::default() });
+
+        let mut b = board(vec![
+            me.clone(),
+            idle.clone(),
+            stopped.clone(),
+            working.clone(),
+            needs.clone(),
+            errored.clone(),
+            unread.clone(),
+            signed_out.clone(),
+            bg.clone(),
+            running.clone(),
+            stalled.clone(),
+            listening.clone(),
+            with_live_term.clone(),
+            with_exited_term.clone(),
+            parent_busy.clone(),
+            busy_helper,
+            parent_done.clone(),
+            idle_helper,
+        ]);
+        let glance = |id: &str, key: &str, running: bool| crate::terminals::Glance {
+            id: id.into(),
+            session: key.into(),
+            title: String::new(),
+            shell: "zsh".into(),
+            command: None,
+            folder: "/work".into(),
+            started_at: 0,
+            running,
+            exit: (!running).then_some(0),
+            program: None,
+            bell_at: None,
+            tty: String::new(),
+            hosts: false,
+            asks: None,
+            asks_since: None,
+        };
+        b.terminals.insert("live-term".into(), vec![glance("t1", "live-term", true)]);
+        b.terminals.insert("exited-term".into(), vec![glance("t2", "exited-term", false)]);
+
+        assert_eq!(may_archive_from_command(&b, Some("me"), &idle), Ok(()));
+        assert_eq!(may_archive_from_command(&b, Some("me"), &stopped), Ok(()));
+        assert_eq!(may_archive_from_command(&b, None, &idle), Ok(()));
+        assert_eq!(may_archive_from_command(&b, Some("me"), &with_exited_term), Ok(()));
+        assert_eq!(may_archive_from_command(&b, Some("me"), &parent_done), Ok(()));
+
+        assert!(may_archive_from_command(&b, Some("me"), &me).unwrap_err().contains("session done me --archive"));
+        assert!(may_archive_from_command(&b, Some("me"), &working).unwrap_err().contains("still working"));
+        assert!(may_archive_from_command(&b, Some("me"), &needs).unwrap_err().contains("waiting on its user"));
+        assert!(may_archive_from_command(&b, Some("me"), &errored).unwrap_err().contains("waiting on its user"));
+        assert!(may_archive_from_command(&b, Some("me"), &signed_out).unwrap_err().contains("waiting on its user"));
+        assert!(may_archive_from_command(&b, Some("me"), &unread).unwrap_err().contains("unread reply"));
+        assert!(may_archive_from_command(&b, Some("me"), &bg).unwrap_err().contains("background"));
+        assert!(may_archive_from_command(&b, Some("me"), &running).unwrap_err().contains("command in a terminal"));
+        assert!(may_archive_from_command(&b, Some("me"), &stalled).unwrap_err().contains("stuck mid-turn"));
+        assert!(may_archive_from_command(&b, Some("me"), &listening).unwrap_err().contains("listening to a meeting"));
+        assert!(may_archive_from_command(&b, Some("me"), &with_live_term).unwrap_err().contains("running terminal in Codealong"));
+        assert!(may_archive_from_command(&b, Some("me"), &parent_busy).unwrap_err().contains("helper still working"));
+    }
+
+    #[test]
+    fn archive_batch_handles_mixed_batches_idempotency_and_unarchive() {
+        let mut me = session("claude:a:me", Status::Working);
+        me.title = "Cleanup review".into();
+        let mut idle1 = session("claude:a:one", Status::Idle);
+        idle1.title = "Old cleanup 1".into();
+        let mut idle2 = session("claude:a:two", Status::Stopped);
+        idle2.title = "Old cleanup 2".into();
+        let mut already = session("claude:a:done", Status::Idle);
+        already.title = "Already gone".into();
+        already.archived = true;
+        let mut busy = session("claude:a:busy", Status::Working);
+        busy.title = "Active work".into();
+
+        // Use an accountless harness key ("unknown:a:...") so Handle::over doesn't look up
+        // config.toml accounts when archiving in tests.
+        let u = |s: Session, key: &str| {
+            let mut s = s;
+            s.key = key.into();
+            s
+        };
+        let me = u(me, "test:a:me");
+        let idle1 = u(idle1, "test:a:one");
+        let idle2 = u(idle2, "test:a:two");
+        let already = u(already, "test:a:done");
+        let busy = u(busy, "test:a:busy");
+        let engine = Handle::over(board(vec![me, idle1, idle2, already, busy]));
+        let from = From::Command(Some("test:a:me".into()));
+
+        // Empty list is refused.
+        assert!(archive_batch(&engine, &from, &[], true).unwrap_err().contains("at least one"));
+        // All refused fails with the reason.
+        assert!(archive_batch(&engine, &from, &["test:a:busy".into()], true).unwrap_err().contains("still working"));
+        // Mixed batch archives qualifying ones, deduplicates keys, notes already-archived and kept.
+        let out = archive_batch(&engine, &from, &["test:a:one".into(), "test:a:one".into(), "test:a:two".into(), "test:a:done".into(), "test:a:busy".into()], true).unwrap();
+        assert!(out.archived);
+        assert_eq!(out.changed.iter().map(|s| s.key.as_str()).collect::<Vec<_>>(), ["test:a:one", "test:a:two"]);
+        assert_eq!(out.already.iter().map(|s| s.key.as_str()).collect::<Vec<_>>(), ["test:a:done"]);
+        assert_eq!(out.kept.len(), 1);
+        assert_eq!(out.kept[0].key, "test:a:busy");
+        assert_eq!(out.message, "“Cleanup review” archived 2 sessions (1 already archived, 1 kept).");
+
+        // Already-archived session alone succeeds cleanly without error.
+        let same = archive_batch(&engine, &from, &["test:a:done".into()], true).unwrap();
+        assert!(same.changed.is_empty());
+        assert_eq!(same.already.len(), 1);
+        assert_eq!(same.message, "“Already gone” is already archived.");
+
+        // Unarchive restores archived sessions and reports unarchived ones as already.
+        let back = archive_batch(&engine, &from, &["test:a:done".into(), "test:a:one".into()], false).unwrap();
+        assert!(!back.archived);
+        assert_eq!(back.changed.iter().map(|s| s.key.as_str()).collect::<Vec<_>>(), ["test:a:done"]);
+        assert_eq!(back.already.iter().map(|s| s.key.as_str()).collect::<Vec<_>>(), ["test:a:one"]);
+        assert_eq!(back.message, "“Cleanup review” unarchived “Already gone” (1 not archived).");
+
+        // Toast line formatting with and without a calling session.
+        assert_eq!(archive_toast_message(Some("Cleanup review"), true, &["Old cleanup 1".into()]), "“Cleanup review” archived “Old cleanup 1”.");
+        assert_eq!(archive_toast_message(Some("Cleanup review"), true, &["a".into(), "b".into()]), "“Cleanup review” archived 2 sessions.");
+        assert_eq!(archive_toast_message(None, true, &["Old cleanup 1".into()]), "Archived “Old cleanup 1”.");
+        assert_eq!(archive_toast_message(None, false, &["a".into(), "b".into()]), "Unarchived 2 sessions.");
     }
 }
