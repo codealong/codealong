@@ -533,6 +533,65 @@ mod tests {
         }
     }
 
+    /// Claude's plugin directory rejects symlinks inside `plugin/` and warns without a square PNG
+    /// icon. Keep every packaged skill file and the plugin icon as regular copies matching their
+    /// canonical sources; run `scripts/sync-plugin-skills.sh` after editing `skills/codealong/`.
+    #[test]
+    fn the_plugin_has_no_symlinks_and_stays_in_sync_with_skills_and_icon() {
+        fn collect(root: &Path, rel: &str, out: &mut Vec<(String, Vec<u8>)>) {
+            for entry in std::fs::read_dir(root).unwrap().flatten() {
+                let name = entry.file_name().to_string_lossy().into_owned();
+                if name == ".DS_Store" {
+                    continue;
+                }
+                let path = entry.path();
+                let meta = std::fs::symlink_metadata(&path).unwrap();
+                let key = if rel.is_empty() { name } else { format!("{rel}/{name}") };
+                assert!(
+                    !meta.file_type().is_symlink(),
+                    "{key} is a symlink (Claude's plugin directory rejects symlinks); run scripts/sync-plugin-skills.sh"
+                );
+                if meta.is_dir() {
+                    collect(&path, &key, out);
+                } else {
+                    out.push((key, std::fs::read(&path).unwrap()));
+                }
+            }
+        }
+
+        let repo = Path::new(env!("CARGO_MANIFEST_DIR")).join("..");
+        let plugin = repo.join("plugin");
+        let mut plugin_all = Vec::new();
+        collect(&plugin, "plugin", &mut plugin_all);
+        assert!(!plugin_all.is_empty());
+
+        let (mut canonical, mut packaged) = (Vec::new(), Vec::new());
+        collect(&repo.join("skills/codealong"), "", &mut canonical);
+        collect(&plugin.join("skills/codealong"), "", &mut packaged);
+        canonical.sort_by(|a, b| a.0.cmp(&b.0));
+        packaged.sort_by(|a, b| a.0.cmp(&b.0));
+        assert_eq!(
+            packaged, canonical,
+            "plugin/skills/codealong drifted from skills/codealong; run scripts/sync-plugin-skills.sh"
+        );
+
+        for name in ["orchestrate", "visualize", "meetings", "coordinate"] {
+            let src = std::fs::read(repo.join(format!("skills/codealong/references/{name}.md"))).unwrap();
+            let dst = std::fs::read(plugin.join(format!("skills/{name}/SKILL.md"))).unwrap();
+            assert_eq!(
+                dst, src,
+                "plugin/skills/{name}/SKILL.md drifted from skills/codealong/references/{name}.md; run scripts/sync-plugin-skills.sh"
+            );
+        }
+
+        let icon_src = std::fs::read(repo.join("src-tauri/icons/icon.png")).unwrap();
+        let icon_dst = std::fs::read(plugin.join(".claude-plugin/icon.png")).unwrap();
+        assert_eq!(
+            icon_dst, icon_src,
+            "plugin/.claude-plugin/icon.png drifted from src-tauri/icons/icon.png; run scripts/sync-plugin-skills.sh"
+        );
+    }
+
     #[test]
     fn reads_the_programs_a_skill_is_for() {
         let with = |metadata: &str| surfaces(&format!("---\nname: x\nmetadata:\n{metadata}\ndescription: y\n---\n"));

@@ -6,4 +6,5 @@ cd "$(dirname "$0")/.."
 engine="$(scripts/engine.sh)"
 mkdir -p skills/codealong/references
 "$engine" reference > skills/codealong/references/reference.md
+scripts/sync-plugin-skills.sh
 echo "Wrote skills/codealong/references/reference.md"
