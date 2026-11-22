@@ -2516,6 +2516,14 @@ Commands:
               user) are made its user's own sessions rather than ended. Never a session
               that's working, waiting on its user, or on another machine; any other
               session is its user's to mark done, in Codealong
+  archive     Archive one or more idle or stopped sessions on this machine (or bring
+              them back with --unarchive), as Archive in Codealong does. Reversible:
+              keeps conversations on disk, never closes live terminals or deletes
+              worktrees, and shows one Undo in Codealong's main window for the batch.
+              Refuses sessions that are working, waiting on their user, have an unread
+              reply, are running a background command or Codealong terminal, are
+              listening to a meeting, or have unfinished helpers; use `session done me
+              --archive` for your own session
   seen        Mark the turn this session is taking seen, from inside it, when its user
               needs to do nothing about it: a loop's tick or a check that found nothing
               new, a watch with nothing to report. Once the turn ends it's idle rather
@@ -2893,6 +2901,41 @@ Options:
 
       --json
           JSON output. The default when stdout isn't a terminal
+
+      --table
+          Tables, even when piped
+
+      --verbose
+          Say on stderr whether Codealong's server or the files answered
+
+  -h, --help
+          Print help
+```
+
+## codealong session archive
+
+```
+Archive one or more idle or stopped sessions on this machine (or bring them back with
+--unarchive), as Archive in Codealong does. Reversible: keeps conversations on disk,
+never closes live terminals or deletes worktrees, and shows one Undo in Codealong's main
+window for the batch. Refuses sessions that are working, waiting on their user, have an
+unread reply, are running a background command or Codealong terminal, are listening to a
+meeting, or have unfinished helpers; use `session done me --archive` for your own
+session
+
+Usage: codealong session archive [OPTIONS] <KEYS>...
+
+Arguments:
+  <KEYS>...
+          One or more sessions on this machine: each by key, id, unique start of its id,
+          or a `codealong://session/…` link
+
+Options:
+      --json
+          JSON output. The default when stdout isn't a terminal
+
+      --unarchive
+          Bring the sessions back out of the archive instead
 
       --table
           Tables, even when piped

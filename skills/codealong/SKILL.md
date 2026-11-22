@@ -237,6 +237,13 @@ or Cursor.
   its result and its work has landed (`session done <key>`); it closes and leaves your user's
   lists. Any other session, and one that's working or waiting on its user, is your user's to
   mark done, in Codealong.
+- When your user asks you to archive finished or old sessions, `codealong session archive <key>...`
+  archives one or more idle or stopped sessions on this machine in a single batch (`--unarchive`
+  brings them back). It's reversible: conversations stay on disk, live terminals and worktrees are
+  left untouched, and Codealong's main window shows one Undo for the whole batch. Sessions that
+  are working, waiting on their user, have an unread reply, are running a background command or a
+  Codealong terminal, are listening to a meeting, or have unfinished helpers are kept as they are;
+  for your own session, use `codealong session done me --archive`.
 - `codealong session seen me --note "<what it came to>"`, run as a turn's last step, says that
   turn needs nothing from your user: a loop's tick or a check that found nothing new, a watch
   with nothing to report. Once the turn ends it's idle rather than Your turn, shown with your

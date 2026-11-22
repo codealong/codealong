@@ -636,14 +636,31 @@ fn handle_request(ctx: &Ctx, req: serde_json::Result<Request>) -> Reply {
         Request::DeviceUseCode { code } => answered(peers.link_with_code(&code)),
         Request::DeviceAsk { device, request, params } => answered(crate::actions::command_may_ask(&request, &params).and_then(|_| peers.ask(&device, &request, params, Duration::from_secs(40)))),
         Request::Run { name, key, params, from } => {
-            let ran = crate::actions::run_as(engine, peers, &crate::actions::From::Command(from), &name, crate::actions::On::Key(&key), params);
-            // A session an agent marked done leaves your lists with no window of yours having done
-            // it: the main window says which session did, with its Undo (Toasts.tsx).
+            let was_archived = name == codealong_peer::api::SESSION_ARCHIVE && engine.read(|b| b.session(&key).is_some_and(|(_, s)| s.archived));
+            let ran = crate::actions::run_as(engine, peers, &crate::actions::From::Command(from.clone()), &name, crate::actions::On::Key(&key), params.clone());
+            // A session an agent marked done or archived leaves your lists with no window of yours
+            // having done it: the main window says which session did, with its Undo (Toasts.tsx).
             if let Ok(answer) = &ran {
                 if name == codealong_peer::api::SESSION_DONE && answer.get("done").and_then(Value::as_bool) == Some(true) {
                     let message = answer.get("message").and_then(Value::as_str).unwrap_or_default();
                     let title = engine.read(|b| b.session(&key).map(|(_, s)| s.title.clone())).unwrap_or_default();
                     crate::views::emit("agent-done", &serde_json::json!({ "key": key, "title": title, "message": message }));
+                } else if name == crate::actions::AGENT_ARCHIVE {
+                    if let Ok(out) = serde_json::from_value::<crate::agentdone::ArchiveOutcome>(answer.clone()) {
+                        if out.archived && !out.changed.is_empty() {
+                            let keys: Vec<&str> = out.changed.iter().map(|s| s.key.as_str()).collect();
+                            let titles: Vec<String> = out.changed.iter().map(|s| s.title.clone()).collect();
+                            let by = from.as_deref().and_then(|k| engine.read(|b| b.session(k).map(|(_, s)| s.title.clone())));
+                            let first = &out.changed[0];
+                            let message = crate::agentdone::archive_toast_message(by.as_deref(), true, &titles);
+                            crate::views::emit("agent-done", &serde_json::json!({ "key": first.key, "keys": keys, "title": first.title, "message": message }));
+                        }
+                    }
+                } else if name == codealong_peer::api::SESSION_ARCHIVE && !was_archived && params.get("archived").and_then(Value::as_bool) != Some(false) {
+                    let title = engine.read(|b| b.session(&key).map(|(_, s)| s.title.clone())).unwrap_or_default();
+                    let by = from.as_deref().and_then(|k| engine.read(|b| b.session(k).map(|(_, s)| s.title.clone())));
+                    let message = crate::agentdone::archive_toast_message(by.as_deref(), true, std::slice::from_ref(&title));
+                    crate::views::emit("agent-done", &serde_json::json!({ "key": key, "keys": [&key], "title": title, "message": message }));
                 }
             }
             answered(ran)

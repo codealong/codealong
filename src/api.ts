@@ -2184,10 +2184,12 @@ export function onQuickStart(cb: (event: QuickStart) => void): () => void {
   return onWindowEvent<QuickStart>('quick-start', cb);
 }
 
-/** A session an agent marked done from the command (server.rs, agentdone.rs): which, and what
- *  was done, saying which session did it. */
+/** A session (or batch of sessions) an agent marked done or archived from the command
+ *  (server.rs, agentdone.rs): which, and what was done, saying which session did it. */
 export interface AgentDone {
   key: string;
+  /** All archived keys when an agent archived several sessions at once; falls back to `[key]`. */
+  keys?: string[];
   title: string;
   message: string;
 }

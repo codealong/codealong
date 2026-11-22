@@ -649,6 +649,43 @@ pub(super) fn session_done(c: &mut Client, key: &str, archive: bool, json: bool)
     Ok(())
 }
 
+/// `session archive`: archives or unarchives one or more idle/stopped sessions on this machine
+/// through the app, which keeps the archive and shows one Undo for the batch (agentdone.rs).
+pub(super) fn session_archive(c: &mut Client, a: ArchiveArgs, json: bool) -> Result<()> {
+    if c.app.is_none() {
+        bail!("Archiving needs Codealong's server, which couldn't be started here (`codealong server start` says why): it keeps the archive, and its windows go by it.");
+    }
+    let mut keys = Vec::with_capacity(a.keys.len());
+    for raw in &a.keys {
+        let named = named_by(raw, "session");
+        if crate::peerfeed::split_remote(named).is_some() {
+            bail!("That session is on another device, where the command doesn't archive sessions. Archive it in Codealong.");
+        }
+        keys.push(resolve_session(c, raw)?);
+    }
+    let me = find_me(c)?.0;
+    let first = keys[0].clone();
+    let got = c.act(actions::AGENT_ARCHIVE, &first, params::AgentArchive { keys, archived: !a.unarchive }, me)?;
+    let out: crate::agentdone::ArchiveOutcome = serde_json::from_value(got).context("reading the app's reply")?;
+    if json {
+        return print_json(&out);
+    }
+    println!("{}", out.message);
+    for s in &out.changed {
+        if let Some(note) = &s.kept_in_harness {
+            println!("  “{}” — {note}", s.title);
+        }
+    }
+    for k in &out.kept {
+        if k.title.is_empty() {
+            println!("  Kept {}: {}", k.key, k.why);
+        } else {
+            println!("  Kept: {}", k.why);
+        }
+    }
+    Ok(())
+}
+
 /// `session seen`: asked as the session running the command, which may mark only its own turn
 /// (actions.rs `agent_seen`), through the app, which keeps the mark as it keeps a snooze.
 pub(super) fn session_seen(c: &mut Client, key: &str, note: Option<String>, json: bool) -> Result<()> {
@@ -1293,5 +1330,16 @@ mod tests {
         let found = |f: SessionFilter| all_sessions(&b).into_iter().filter(|(s, l)| wanted.lists(&f, s, l)).map(|(s, _)| s.key.clone()).collect::<Vec<_>>();
         assert_eq!(found(filter(&[])), ["me"]);
         assert_eq!(found(filter(&["--headless"])), ["me", "judge"]);
+    }
+
+    #[test]
+    fn session_archive_parses_one_or_more_keys_and_unarchive_flag() {
+        let Cmd::Session { cmd: SessionCmd::Archive(a) } = Cli::try_parse_from(["codealong", "session", "archive", "k1", "k2", "k3"]).unwrap().cmd else { panic!() };
+        assert_eq!(a.keys, ["k1", "k2", "k3"]);
+        assert!(!a.unarchive);
+        let Cmd::Session { cmd: SessionCmd::Archive(a) } = Cli::try_parse_from(["codealong", "session", "archive", "--unarchive", "k1"]).unwrap().cmd else { panic!() };
+        assert_eq!(a.keys, ["k1"]);
+        assert!(a.unarchive);
+        assert!(Cli::try_parse_from(["codealong", "session", "archive"]).is_err());
     }
 }

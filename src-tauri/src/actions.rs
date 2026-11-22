@@ -39,6 +39,9 @@ pub const CALENDAR: &str = "calendar";
 /// A session's own agent marking the turn it's taking seen (`codealong session seen me`), which
 /// no other device runs.
 pub const AGENT_SEEN: &str = "session-agent-seen";
+/// Archiving or unarchiving one or more idle sessions from the `codealong` command
+/// (`codealong session archive`), on this machine alone, with one Undo toast for the batch.
+pub const AGENT_ARCHIVE: &str = "session-agent-archive";
 
 /// What each request carries: those another device can make, as codealong-peer has them, and
 /// those that stay on their Mac, as a window writes them.
@@ -70,6 +73,20 @@ pub mod params {
     pub struct AgentSeen {
         #[serde(skip_serializing_if = "Option::is_none")]
         pub note: Option<String>,
+    }
+
+    /// `session-agent-archive`: archive (`archived: true`) or unarchive (`false`) sessions by key.
+    #[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
+    #[serde(default)]
+    pub struct AgentArchive {
+        pub keys: Vec<String>,
+        pub archived: bool,
+    }
+
+    impl Default for AgentArchive {
+        fn default() -> AgentArchive {
+            AgentArchive { keys: Vec::new(), archived: true }
+        }
     }
 
     /// `worktree-preview`: what changes in its preview, and what stays.
@@ -241,6 +258,8 @@ const REQUESTS: &[Request] = &[
     Request { name: api::MARK_UNREAD, here: mark_unread, ..ANY },
     // A session's agent says its own turn needs nothing from you, from the command on its Mac.
     Request { name: AGENT_SEEN, only_here: Some("A session marks its own turn seen, on the machine it runs on."), here: agent_seen, ..ANY },
+    // Archiving idle sessions from the command, on this Mac alone, with one Undo toast for a batch.
+    Request { name: AGENT_ARCHIVE, only_here: Some("Archive sessions on the machine they run on."), here: agent_archive, ..ANY },
     // A snooze is kept on the session's Mac, so it's snoozed there and everywhere it shows.
     Request { name: api::SESSION_SNOOZE, here: snooze, ..ANY },
     // So is setting one aside for its side conversation, which runs there too.
@@ -621,6 +640,11 @@ fn elsewhere(req: &Request, from: &From) -> Result<(), String> {
     // only its own session and those it started (agentdone.rs).
     if req.name == api::SESSION_DONE && matches!(from, From::Command(_)) {
         return Err("That session is on another device, where the command doesn't mark sessions done. Mark it done in Codealong.".into());
+    }
+    // The other device would take it as its user's, bypassing the command's idle/stopped guards
+    // and Undo attribution (agentdone.rs).
+    if req.name == api::SESSION_ARCHIVE && matches!(from, From::Command(_)) {
+        return Err("That session is on another device, where the command doesn't archive sessions. Archive it in Codealong.".into());
     }
     Ok(())
 }
@@ -1296,9 +1320,17 @@ fn shown_at(c: &Call, at: Option<i64>) -> Value {
 }
 
 /// Archives it, or unarchives it with `archived: false` (Codex threads in Codex itself).
+/// From the command, archiving holds to idle/stopped sessions without live work (agentdone.rs).
 fn archive(engine: &Handle, c: &Call) -> Result<Value, String> {
     let p: params::Archive = c.read()?;
     let key = c.session()?;
+    if let From::Command(by) = c.from {
+        let board = engine.board();
+        let (_, s) = board.session(key).ok_or("Codealong doesn't list that session.")?;
+        if p.archived && !s.archived {
+            crate::agentdone::may_archive_from_command(&board, by.as_deref(), s)?;
+        }
+    }
     // How it stands as it's archived (dismissed.rs), read before it is.
     let leaving = if p.archived { engine.read(|b| b.session(key).and_then(|(_, s)| crate::dismissed::leaving(b, s, crate::dismissed::What::Archive, c.from))) } else { None };
     let at = engine.archive(key, p.archived).map_err(words)?.at;
@@ -1308,6 +1340,12 @@ fn archive(engine: &Handle, c: &Call) -> Result<Value, String> {
         None => {}
     }
     Ok(shown_at(c, at))
+}
+
+/// Archives or unarchives one or more idle sessions from the command (agentdone.rs).
+fn agent_archive(engine: &Handle, c: &Call) -> Result<Value, String> {
+    let p: params::AgentArchive = c.read()?;
+    to_value(crate::agentdone::archive_batch(engine, c.from, &p.keys, p.archived)?)
 }
 
 /// Names it where its harness keeps its name, so the harness shows it too.
@@ -2815,8 +2853,10 @@ mod tests {
         let deny = json!({ "id": "t1", "answer": "deny" });
         assert!(command_may_ask(api::SESSION_ANSWER, &deny).is_ok() && command_may_ask(api::SESSION_PAGE, &json!({})).is_ok());
         assert!(command_may_ask(api::SESSION_ANSWER, &json!({ "id": "t1", "answer": "allow" })).unwrap_err().contains("can only deny"));
-        // There, Mark as done would be its user's, not an agent's that may mark only its own.
+        // There, Mark as done and Archive would be its user's, not an agent's.
         assert!(command_may_ask(api::SESSION_DONE, &json!({})).unwrap_err().contains("where the command doesn't mark sessions done"));
+        assert!(command_may_ask(api::SESSION_ARCHIVE, &json!({ "archived": true })).unwrap_err().contains("where the command doesn't archive sessions"));
+        assert!(elsewhere(find(AGENT_ARCHIVE).unwrap(), &command).unwrap_err().contains("on the machine they run on"));
         // A deny with words would hand the session an agent's words as its user's.
         let saying = json!({ "id": "t1", "answer": "deny", "message": "Do it this way" });
         assert!(command_may_ask(api::SESSION_ANSWER, &saying).unwrap_err().contains("not say what to do instead"));
@@ -2934,5 +2974,42 @@ mod tests {
         assert_eq!(run("# Dry run first\n/w/run_update.sh --dry-run   # changes nothing", true).unwrap(), "/w/run_update.sh --dry-run\n");
         assert_eq!(run("! false && echo expected", true).unwrap(), "! false && echo expected\n");
         assert_eq!(run("# only a note", true).unwrap_err(), "There's no command in it to run.");
+    }
+
+    #[test]
+    fn session_archive_from_command_enforces_idle_guards_while_windows_still_archive_any() {
+        use crate::model::{Board, Session, Status};
+        let make = |key: &str, title: &str, status: Status| Session { key: key.into(), title: title.into(), status, ..crate::fixtures::session(key) };
+        let board = Board {
+            lanes: vec![crate::fixtures::lane(
+                "/work",
+                vec![
+                    make("test:a:me", "Me", Status::Working),
+                    make("test:a:idle", "Idle one", Status::Idle),
+                    make("test:a:busy", "Busy one", Status::Working),
+                    make("test:a:unread", "Unread one", Status::Unread),
+                ],
+            )],
+            ..Board::default()
+        };
+        let engine = Handle::over(board);
+        let cmd = From::Command(Some("test:a:me".into()));
+
+        // Direct SESSION_ARCHIVE from command refuses active/unread/own and allows idle.
+        assert!(local(&engine, &cmd, api::SESSION_ARCHIVE, "test:a:busy", json!({ "archived": true })).unwrap_err().contains("still working"));
+        assert!(local(&engine, &cmd, api::SESSION_ARCHIVE, "test:a:unread", json!({ "archived": true })).unwrap_err().contains("unread reply"));
+        assert!(local(&engine, &cmd, api::SESSION_ARCHIVE, "test:a:me", json!({ "archived": true })).unwrap_err().contains("session done me --archive"));
+        assert!(local(&engine, &cmd, api::SESSION_ARCHIVE, "test:a:idle", json!({ "archived": true })).is_ok());
+
+        // Windows can still archive any session, including working ones.
+        assert!(local(&engine, &From::Here, api::SESSION_ARCHIVE, "test:a:busy", json!({ "archived": true })).is_ok());
+
+        // AGENT_ARCHIVE archives idle and reports kept working in one batch.
+        let got = local(&engine, &cmd, AGENT_ARCHIVE, "test:a:idle", json!({ "keys": ["test:a:idle", "test:a:busy"], "archived": true })).unwrap();
+        let out: crate::agentdone::ArchiveOutcome = serde_json::from_value(got).unwrap();
+        assert_eq!(out.changed.len(), 1);
+        assert_eq!(out.changed[0].key, "test:a:idle");
+        assert_eq!(out.kept.len(), 1);
+        assert_eq!(out.kept[0].key, "test:a:busy");
     }
 }

@@ -232,6 +232,7 @@ pub fn refused(request: &str, may: &Orchestrates) -> Option<String> {
         api::PR_MERGE => Some("An orchestrator never merges a PR: that's its user's to do.".into()),
         api::PR_REVIEW => Some("An orchestrator never reviews or approves a PR: that's its user's to do.".into()),
         api::WORKTREE_REMOVE => Some("An orchestrator never removes a worktree: a schedule of its user's can (`codealong schedule add`).".into()),
+        api::SESSION_ARCHIVE | crate::actions::AGENT_ARCHIVE => Some("An orchestrator never archives sessions: archiving is for its user, or a session they asked to clean up.".into()),
         api::SESSION_SEND | api::SESSION_STEER | api::SESSION_RESUME if !may.send => Some(let_it("message sessions", "--may-send")),
         api::START | api::SESSION_FORK | api::SESSION_EDIT if !may.start => Some(let_it("start sessions", "--may-start")),
         _ => None,
@@ -653,6 +654,8 @@ mod tests {
         assert!(refused(api::PR_MERGE, &may).is_some());
         assert!(refused(api::PR_REVIEW, &may).is_some());
         assert!(refused(api::WORKTREE_REMOVE, &may).is_some());
+        assert!(refused(api::SESSION_ARCHIVE, &may).is_some());
+        assert!(refused(crate::actions::AGENT_ARCHIVE, &may).is_some());
         assert!(refused(api::SESSION_SEND, &may).is_some_and(|w| w.contains("--may-send")));
         assert!(refused(api::START, &may).is_some_and(|w| w.contains("--may-start")));
         assert!(refused(api::SESSION_SUGGEST, &may).is_none());

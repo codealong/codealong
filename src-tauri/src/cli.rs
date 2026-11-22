@@ -697,6 +697,8 @@ enum SessionCmd {
         #[arg(long)]
         archive: bool,
     },
+    /// Archive one or more idle or stopped sessions on this machine (or bring them back with --unarchive), as Archive in Codealong does. Reversible: keeps conversations on disk, never closes live terminals or deletes worktrees, and shows one Undo in Codealong's main window for the batch. Refuses sessions that are working, waiting on their user, have an unread reply, are running a background command or Codealong terminal, are listening to a meeting, or have unfinished helpers; use `session done me --archive` for your own session.
+    Archive(ArchiveArgs),
     /// Mark the turn this session is taking seen, from inside it, when its user needs to do nothing about it: a loop's tick or a check that found nothing new, a watch with nothing to report. Once the turn ends it's idle rather than Your turn: in no queue, off the floating bar and the mark, and shown as its agent's call (Seen by agent, with --note). Run it as the turn's last step, just before the final reply. It holds only for the turn it's run in, and only if that turn ends as Your turn: one whose reply Jev reads as asking its user something, a call to allow, a question, an error or a turn cut short (a lost connection, a usage limit) still wait on them. A prompt sent after it, or a turn that starts after it (a scheduled wakeup, another session's message), makes it void, and its user's Mark as unread brings it back. Never for a turn that changed code, finished what its user asked for, or says anything they'd want to read. Only `me`: another session's turn is its user's to see.
     Seen {
         /// The session: `me`.
@@ -750,6 +752,16 @@ enum SessionCmd {
     /// notes Codex's approval request for the app, and prints nothing.
     #[command(hide = true)]
     Hook { event: String },
+}
+
+#[derive(Args, Debug)]
+struct ArchiveArgs {
+    /// One or more sessions on this machine: each by key, id, unique start of its id, or a `codealong://session/…` link.
+    #[arg(required = true)]
+    keys: Vec<String>,
+    /// Bring the sessions back out of the archive instead.
+    #[arg(long)]
+    unarchive: bool,
 }
 
 #[derive(Args, Debug)]
@@ -1895,6 +1907,7 @@ fn run(cmd: Cmd, c: &mut Client, json: bool) -> Result<()> {
         }
         Cmd::Session { cmd: SessionCmd::Stop { key } } => session_act(c, &key, api::SESSION_CANCEL, params::Session::default(), json),
         Cmd::Session { cmd: SessionCmd::Done { key, archive } } => session_done(c, &key, archive, json),
+        Cmd::Session { cmd: SessionCmd::Archive(a) } => session_archive(c, a, json),
         Cmd::Session { cmd: SessionCmd::Seen { key, note } } => session_seen(c, &key, note, json),
         Cmd::Session { cmd: SessionCmd::Transcript(a) } => session_transcript(c, &a, json),
         Cmd::Session { cmd: SessionCmd::Wait(a) } => session_wait(c, &a, json),
