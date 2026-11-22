@@ -505,7 +505,7 @@ closed or quit, Codealong or the Mac restarted, it was killed) says so (Cut off)
 seen it; a session that had finished its turn when that happened lost nothing, and is just stopped.
 Its panel has Carry on, and Move… where it can move to another account, as a session at its usage
 limit has. Carry on resumes it where its account's sessions last went on from here, else
-in a terminal, and tells it to carry on, checking first what its last step did, since a command it
+in Codealong (or a terminal where In Codealong isn't offered), and tells it to carry on, checking first what its last step did, since a command it
 ran may have been stopped partway. Resume in, in its menu, says Carry on in and does the same
 anywhere it can go on; sending it something resumes it with what you send. A Claude Code session is
 read so in a terminal or a background job (its transcript ends partway through a turn, with no
@@ -2975,8 +2975,8 @@ under them a *Runs in* row of the places its account starts sessions in that its
 in (each saying what it is on hover): a terminal, the background (Claude Code's background
 service, else tmux with no window), its app, or Codealong, which runs it from then on.
 Picking a model leaves only the places that take one, and a place whose app picks the model leaves
-none to pick. It goes on where the account's last one did, else in a
-terminal; Resume in, in its right-click menu, has the same places, to go on without a prompt. One
+none to pick. It goes on where the account's last one did, else in Codealong (or a
+terminal where In Codealong isn't offered); Resume in, in its right-click menu, has the same places, to go on without a prompt. One
 waiting on you is opened instead, so what you typed can't answer its question.
 
 #### Switching models and effort
@@ -3108,17 +3108,18 @@ servers): nothing is typed into it until it starts.
 
 #### In Codealong
 
-**In Codealong** runs the session in Codealong itself, for any Claude Code, Codex, OpenCode or
-Antigravity account, through the agent's Agent Client Protocol adapter (OpenCode's `opencode acp`
-and Antigravity's `agy acp` are built in; the ones for Claude Code and Codex are Node packages,
-which the app installs with npm as it starts, or brings up to date, and `codealong install` does
-too). Until an account's adapter is there, In Codealong
-isn't offered for it, so a start from your phone, which goes In Codealong first, goes to Background
-instead. Without Node (`brew install node`), it stays that way: its panel shows the reply as it's written, takes the
-next prompt (queued while a turn runs), answers what it asks to run with Allow and Deny, and Stop
-ends a turn, as it does for sessions running elsewhere. The agent keeps the session in its usual
-records, so it can be resumed in a terminal too, and after Codealong restarts, sending to it picks
-it up again.
+**In Codealong** is the default for Claude Code, Codex, OpenCode and Antigravity accounts (when
+no `start` is set in config.toml), running the session in Codealong itself through the agent's
+Agent Client Protocol adapter (OpenCode's `opencode acp` and Antigravity's `agy acp` are built in;
+the ones for Claude Code and Codex are Node packages, which the app installs with npm as it starts,
+or brings up to date, and `codealong install` does too). Until an account's adapter is there, In
+Codealong isn't offered for it, so it falls back to the next place (your terminal, or the Codex app
+for `~/.codex`), and a start from your phone, which goes In Codealong first, goes to Background
+instead. Without Node (`brew install node`), it stays that way: its panel shows the reply as it's
+written, takes the next prompt (queued while a turn runs), answers what it asks to run with Allow
+and Deny, and Stop ends a turn, as it does for sessions running elsewhere. The agent keeps the
+session in its usual records, so it can be resumed in a terminal too, and after Codealong restarts,
+sending to it picks it up again.
 
 #### With nothing typed
 

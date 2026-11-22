@@ -2169,10 +2169,10 @@ impl crate::harness::Adapter for Antigravity {
         Ok((format!("{} acp --log-file {}", cli_command(account), crate::util::sh_quote(&log.to_string_lossy())), Vec::new()))
     }
 
-    /// The command line starts a conversation in a terminal or in Codealong (`agy acp`); the app
-    /// only in its own window, so without the command line (`missing_cli`) there's nowhere.
+    /// The command line starts a conversation in Codealong (`agy acp`) by default, or in a
+    /// terminal; the app only in its own window, so without `agy` (`missing_cli`) there's nowhere.
     fn places(&self, _account: &AccountCfg, _home: &Path) -> std::result::Result<Vec<crate::start::Place>, String> {
-        Ok(vec![crate::start::Place::Terminal, crate::start::Place::Background, crate::start::Place::Codealong])
+        Ok(vec![crate::start::Place::Codealong, crate::start::Place::Terminal, crate::start::Place::Background])
     }
 
     /// The command line's conversation opens in its terminal, or a new one that resumes it
@@ -4184,7 +4184,7 @@ mod tests {
         let (cmd, _) = Antigravity.acp_command(&custom).unwrap();
         assert!(cmd.starts_with("FOO=1 /opt/agy acp --log-file "), "{cmd}");
 
-        assert_eq!(Antigravity.places(&a, Path::new("/Users/me")).unwrap(), vec![Place::Terminal, Place::Background, Place::Codealong]);
+        assert_eq!(Antigravity.places(&a, Path::new("/Users/me")).unwrap(), vec![Place::Codealong, Place::Terminal, Place::Background]);
         assert!(Antigravity.resumes_in(Place::Terminal) && Antigravity.resumes_in(Place::Background) && Antigravity.resumes_in(Place::Codealong));
         assert_eq!(Antigravity.session_var(), Some("ANTIGRAVITY_CONVERSATION_ID"));
         assert_eq!(Antigravity.mode("default").map(|m| (m.kind, m.label)), Some((ModeKind::Asks, "Default".into())));

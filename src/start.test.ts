@@ -672,18 +672,21 @@ describe('resuming a session that isn’t running', () => {
     expect(resumeAccount({ ...claude, resumes: undefined }).places).toEqual([]);
   });
 
-  it('goes on in a terminal on its own model, unless it went on elsewhere last', () => {
+  it('goes on in Codealong on its own model when offered, else a terminal, unless it went on elsewhere last', () => {
     const c = resumeChoice(claude, [], none, undefined);
-    expect([c.placeNow, c.modelNow, c.effortNow, c.modelShown]).toEqual(['terminal', null, null, 'Opus']);
+    expect([c.placeNow, c.modelNow, c.effortNow, c.modelShown]).toEqual(['codealong', null, null, 'Opus']);
     expect(c.places.map((p) => p.place)).toEqual(['claude-app', 'terminal', 'background', 'codealong']);
-    expect(resumeChoice(claude, [], none, 'codealong').placeNow).toBe('codealong');
+    expect(resumeChoice(claude, [], none, 'terminal').placeNow).toBe('terminal');
     expect(resumeIn(resumeChoice(claude, [], { ...none, place: 'background' }, 'codealong'))).toEqual({ place: 'background', model: null, effort: null });
+    // Without Codealong offered, it falls back to a terminal rather than the app.
+    const noAcp = fx.startAccount({ name: 'claude', places: [claudeApp, ghostty, background], resumes: ['claude-app', 'terminal', 'background'], defaultModel: 'opus', models, efforts });
+    expect(resumeChoice(noAcp, [], none, undefined).placeNow).toBe('terminal');
   });
 
   it('asks for a model and effort as a start does: only where they go, so the app drops out', () => {
     const c = resumeChoice(claude, [], { agent: agentId('claude', 'haiku'), effort: 'high', place: null }, undefined);
     expect(c.places.map((p) => p.place)).toEqual(['terminal', 'background', 'codealong']);
-    expect(resumeIn(c)).toEqual({ place: 'terminal', model: 'haiku', effort: null });
+    expect(resumeIn(c)).toEqual({ place: 'codealong', model: 'haiku', effort: null });
     // Haiku takes no effort; Opus does.
     expect(resumeIn(resumeChoice(claude, [], { agent: agentId('claude', 'opus'), effort: 'high', place: 'codealong' }, undefined))).toEqual({ place: 'codealong', model: 'opus', effort: 'high' });
     // The app picks its own.

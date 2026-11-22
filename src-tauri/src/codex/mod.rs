@@ -175,10 +175,10 @@ impl crate::harness::Adapter for Codex {
         Ok((program, vec![("CODEX_HOME".into(), account.home_path().to_string_lossy().into_owned())]))
     }
 
-    /// The Codex app runs the account in `~/.codex`, where its threads usually start.
+    /// In Codealong by default; the Codex app also runs the account in `~/.codex`.
     fn places(&self, account: &crate::config::AccountCfg, home: &Path) -> std::result::Result<Vec<crate::start::Place>, String> {
         use crate::start::Place;
-        Ok(if account.home_path() == home.join(".codex") { vec![Place::CodexApp, Place::Terminal, Place::Background, Place::Codealong] } else { vec![Place::Terminal, Place::Background, Place::Codealong] })
+        Ok(if account.home_path() == home.join(".codex") { vec![Place::Codealong, Place::CodexApp, Place::Terminal, Place::Background] } else { vec![Place::Codealong, Place::Terminal, Place::Background] })
     }
 
     fn session_cwds(&self, home: &Path, since: i64) -> Vec<String> {

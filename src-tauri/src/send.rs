@@ -1265,7 +1265,7 @@ fn attempt(route: &Route, board: &Board, session: &Session, account: &AccountCfg
                 Err(_) => Err(MayHaveArrived(format!("Codealong started typing this into {title}, and its terminal didn't confirm it went in: look there before sending it again.")).into()),
             }
         }
-        Route::Resume => Ok(Tried::Sent(crate::start::resume(board, cfg, &session.key, &crate::start::ResumeIn::default(), text, msg.sender)?.sent)),
+        Route::Resume => Ok(Tried::Sent(crate::start::resume(board, cfg, &session.key, &crate::start::ResumeIn { place: crate::start::default_resume_place(account, &crate::util::home()), ..Default::default() }, text, msg.sender)?.sent)),
         Route::Own(own) => own.deliver(&msg.delivery(session, account, untyped)).map(Tried::Sent),
     }
 }

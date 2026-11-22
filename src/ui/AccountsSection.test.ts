@@ -49,14 +49,14 @@ describe('foundNote', () => {
 });
 
 describe('startPlaces', () => {
-  it('offers each app only for the account in its default folder', () => {
-    expect(startPlaces('claude', '~/.claude')).toEqual(['terminal', 'background', 'claude-app', 'codealong']);
-    expect(startPlaces('claude', '/Users/me/.claude/')).toEqual(['terminal', 'background', 'claude-app', 'codealong']);
-    expect(startPlaces('claude', '~/.claude2')).toEqual(['terminal', 'background', 'codealong']);
-    expect(startPlaces('codex', '~/.codex')).toEqual(['codex-app', 'terminal', 'background', 'codealong']);
-    expect(startPlaces('codex', '~/.codex2')).toEqual(['terminal', 'background', 'codealong']);
-    expect(startPlaces('opencode', '~/.local/share/opencode')).toEqual(['terminal', 'background', 'codealong']);
-    expect(startPlaces('antigravity', '~/.gemini/antigravity')).toEqual(['terminal', 'background', 'codealong']);
+  it('defaults ACP harnesses to Codealong and offers each app only for its default folder', () => {
+    expect(startPlaces('claude', '~/.claude')).toEqual(['codealong', 'terminal', 'background', 'claude-app']);
+    expect(startPlaces('claude', '/Users/me/.claude/')).toEqual(['codealong', 'terminal', 'background', 'claude-app']);
+    expect(startPlaces('claude', '~/.claude2')).toEqual(['codealong', 'terminal', 'background']);
+    expect(startPlaces('codex', '~/.codex')).toEqual(['codealong', 'codex-app', 'terminal', 'background']);
+    expect(startPlaces('codex', '~/.codex2')).toEqual(['codealong', 'terminal', 'background']);
+    expect(startPlaces('opencode', '~/.local/share/opencode')).toEqual(['codealong', 'terminal', 'background']);
+    expect(startPlaces('antigravity', '~/.gemini/antigravity')).toEqual(['codealong', 'terminal', 'background']);
     expect(startPlaces('cursor', '~/.cursor')).toEqual(['terminal', 'background']);
   });
 });

@@ -39,12 +39,14 @@
   localStorage.removeItem('codealong.resumed');
   // Its account has as many levels as Codex's, the most any harness has, for the narrow box below.
   var codexLevels = ['low', 'medium', 'high', 'xhigh', 'max', 'ultra'].map(function (id) { return { id: id, label: id }; });
+  var optionsReady = false;
   var real = window.__TAURI_INTERNALS__.invoke;
   window.__TAURI_INTERNALS__.invoke = function (cmd) {
     var got = real.apply(this, arguments);
     if (cmd !== 'start_options') return got;
     return got.then(function (o) {
       o.accounts.forEach(function (a) { if (a.name === picked.account && a.harness === picked.harness) a.efforts = codexLevels; });
+      setTimeout(function () { optionsReady = true; }, 50);
       return o;
     });
   };
@@ -85,10 +87,12 @@
   var other = acct.models.filter(function (m) { return m.id !== acct.defaultModel; })[0];
 
   say('resume check: ' + picked.key + ' on ' + acct.name);
-  until(function () { return !!chip() && !!on(); }, 20000, 'no chip and place in the box')
+  until(function () { return optionsReady && !!chip() && !!on(); }, 20000, 'no resume chip and place in the box')
     .then(function () {
-      check('it goes on in a terminal unless picked otherwise, as the foot’s left says', on() === labelOf('terminal'), on());
-      check('the placeholder says it resumes in the terminal', box().getAttribute('aria-placeholder').indexOf('resumes it in ' + board.apps.terminal) >= 0, box().getAttribute('aria-placeholder'));
+      var defPlace = labelOf('codealong') ? 'codealong' : 'terminal';
+      check('it goes on in Codealong (else a terminal) unless picked otherwise, as the foot’s left says', on() === labelOf(defPlace), on());
+      var expected = defPlace === 'codealong' ? 'Codealong runs it from now on' : 'resumes it in ' + board.apps.terminal;
+      check('the placeholder says where it resumes', box().getAttribute('aria-placeholder').indexOf(expected) >= 0, box().getAttribute('aria-placeholder'));
       check('the chip says its account, then the model it goes on with', chip().textContent.indexOf(picked.account) === 0 && !!q('.ca-modelmenu-detail', chip()), chip().textContent);
       check('the chip sits beside Send', !!q('.ca-composer-send', chip().closest('.ca-composer-buttons')), 'apart');
       return openMenu();

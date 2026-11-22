@@ -217,13 +217,13 @@ impl crate::harness::Adapter for ClaudeCode {
         Ok(acp_launch(crate::acp::package_program("claude-agent-acp", self.harness())?, &account.home_path()))
     }
 
-    /// The Claude app runs the account in `~/.claude`.
+    /// In Codealong by default; the Claude app runs the account in `~/.claude`.
     fn places(&self, account: &crate::config::AccountCfg, home: &Path) -> std::result::Result<Vec<crate::start::Place>, String> {
         use crate::start::Place;
         Ok(if account.home_path() == home.join(".claude") {
-            vec![Place::Terminal, Place::Background, Place::ClaudeApp, Place::Codealong]
+            vec![Place::Codealong, Place::Terminal, Place::Background, Place::ClaudeApp]
         } else {
-            vec![Place::Terminal, Place::Background, Place::Codealong]
+            vec![Place::Codealong, Place::Terminal, Place::Background]
         })
     }
 
