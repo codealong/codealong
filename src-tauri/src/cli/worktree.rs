@@ -28,7 +28,7 @@ pub(super) const REMOVAL_WAIT: std::time::Duration = std::time::Duration::from_s
 #[serde(rename_all = "camelCase")]
 pub(super) struct LaneRow {
     pub(super) id: String,
-    project: String,
+    pub(super) project: String,
     repo: String,
     pub(super) callsign: String,
     pub(super) branch: Option<String>,

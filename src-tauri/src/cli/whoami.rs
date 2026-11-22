@@ -2,8 +2,8 @@
 //! answer to `account check` too): the live session among the processes above it, or the one
 //! Codealong runs whose id they were given (`by_process`); else the one session whose unanswered
 //! tool call is this command (`running_in`); else `CODEALONG_SESSION`, for a session the board
-//! doesn't show yet. And `whoami`: that session, its worktree, who else runs there and its
-//! todos, which `whoami --context` hands a session as it starts.
+//! doesn't show yet. And `whoami`: that session, its worktree, who else runs there, the rest of
+//! its project and its todos, which `whoami --context` hands a session as it starts.
 //!
 //! What each harness records of the commands it runs is its own to say (`Adapter::open_calls`,
 //! `Adapter::runs_its_commands`, `harness::started_under`), not this file's.
@@ -14,7 +14,7 @@ use anyhow::Result;
 use serde::Serialize;
 
 use crate::config::Config;
-use crate::model::{Board, Harness, Lane, Session, Status};
+use crate::model::{Board, Harness, Lane, Origin, Session, Status, ELSEWHERE};
 use crate::procs;
 use crate::start::{self, lane_for_path};
 use crate::todos::{self, Todo};
@@ -40,6 +40,27 @@ struct Whoami {
     /// Open todos linked to the session, then open ones linked to the worktree when no other
     /// agent is running there (`my_todos`).
     todos: Vec<TodoRow>,
+    /// The rest of the worktree's project: the main checkout of each of its other repos, and
+    /// its folders (`project_folders`).
+    project_folders: Vec<FolderRow>,
+}
+
+/// One of the places in the project `whoami`'s worktree is in, beside that worktree.
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct FolderRow {
+    path: String,
+    /// The repo's name, or the folder's.
+    repo: String,
+    /// `owner/name` on GitHub.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    slug: Option<String>,
+    /// A folder the project holds that isn't a repo.
+    folder: bool,
+}
+
+fn folder_row(l: &Lane) -> FolderRow {
+    FolderRow { path: l.path.clone(), repo: l.repo.clone(), slug: l.repo_slug.clone(), folder: l.origin == Origin::Folder }
 }
 
 /// The session running this command: the parent process that's a live session on the board, or
@@ -187,6 +208,7 @@ pub(super) fn whoami(c: &mut Client, context: bool, json: bool) -> Result<()> {
         worktree: lane.map(|l| lane_row(l, board)),
         others: lane.map(|l| others_in(l, key.as_deref()).map(|s| session_row(s, l, &board.todos)).collect()).unwrap_or_default(),
         todos: my_todos(board, key.as_deref(), lane).into_iter().map(|t| todo_row(t, &store_of(board), &board.lanes, false)).collect(),
+        project_folders: lane.map(|l| project_folders(board, l).into_iter().map(folder_row).collect()).unwrap_or_default(),
     };
     // Before JSON: a hook reads the command's output through a pipe.
     if context {
@@ -212,6 +234,9 @@ pub(super) fn whoami(c: &mut Client, context: bool, json: bool) -> Result<()> {
         // The chats that ended in an app's chats folder were never this one's neighbours.
         let ended = if lane.is_some_and(|l| l.chats) { 0 } else { w.sessions.saturating_sub(w.agents) };
         println!("{}", others_text(&out.others, ended));
+        if let Some(line) = folders_text(&w.project, &out.project_folders, usize::MAX) {
+            println!("{line}");
+        }
     }
     for t in &out.todos {
         let mine = key.as_deref().is_some_and(|k| t.sessions.iter().any(|s| s == k));
@@ -257,13 +282,62 @@ pub(super) fn my_todos<'a>(board: &'a Board, key: Option<&str>, lane: Option<&La
     out
 }
 
-/// What `whoami --context` adds to a session's context as it starts: which session it is, and
-/// its todos. `key` is the session's even when the board doesn't show it yet, as happens for
-/// a session the app just started.
+/// The rest of `lane`'s project, for a session working there to know where it is: the main
+/// checkout of each of the project's other repos, and each folder it holds that isn't a repo,
+/// the most recently active first. A session told only of its own worktree didn't know the
+/// project's other repos were on this Mac (2026-11-22). Their other worktrees aren't named
+/// (asked 2026-11-22: main checkouts only), and a worktree in none of your projects
+/// (Elsewhere) or an app's chats folder has no project to name.
+pub(super) fn project_folders<'a>(board: &'a Board, lane: &Lane) -> Vec<&'a Lane> {
+    if lane.project == ELSEWHERE || lane.chats {
+        return Vec::new();
+    }
+    // Two clones of a repo are the one repo; repos of one name under two owners are two.
+    let same_repo = |l: &Lane| match (&l.repo_slug, &lane.repo_slug) {
+        _ if l.id == lane.id => true,
+        (Some(a), Some(b)) => a.eq_ignore_ascii_case(b),
+        (None, None) => l.origin != Origin::Folder && lane.origin != Origin::Folder && l.repo == lane.repo,
+        _ => false,
+    };
+    let mut out: Vec<&Lane> = board.lanes.iter().filter(|l| l.project == lane.project && !l.chats && matches!(l.origin, Origin::Main | Origin::Folder) && !same_repo(l)).collect();
+    out.sort_by(|a, b| b.last_activity.cmp(&a.last_activity).then_with(|| a.path.cmp(&b.path)));
+    out
+}
+
+/// How many of the project's other places `whoami --context` names; the rest it counts.
+const FOLDERS_NAMED: usize = 8;
+
+/// The line naming the rest of `project` (`project_folders`), `limit` of them at most, or none
+/// when there's nothing else in it.
+fn folders_text(project: &str, folders: &[FolderRow], limit: usize) -> Option<String> {
+    let (repos, plain) = (folders.iter().any(|f| !f.folder), folders.iter().any(|f| f.folder));
+    let what = match (repos, plain) {
+        (true, true) => format!("The main checkouts of project {project}'s other repos, and its folders"),
+        (true, false) => format!("The main checkouts of project {project}'s other repos"),
+        (false, true) => format!("Project {project}'s folders"),
+        (false, false) => return None,
+    };
+    let named: Vec<String> = folders.iter().take(limit).map(|f| match (&f.slug, f.folder) {
+        (Some(slug), false) => format!("{} ({slug})", tilde(Path::new(&f.path))),
+        _ => tilde(Path::new(&f.path)),
+    }).collect();
+    let more = match folders.len().saturating_sub(limit) {
+        0 => String::new(),
+        n => format!(", and {n} more (`codealong whoami` lists them)"),
+    };
+    Some(format!("{what}: {}{more}.", named.join(", ")))
+}
+
+/// What `whoami --context` adds to a session's context as it starts: which session it is, where
+/// the rest of its project is, and its todos. `key` is the session's even when the board doesn't
+/// show it yet, as happens for a session the app just started.
 fn context_text(out: &Whoami, key: Option<&str>) -> String {
     let mut lines = Vec::new();
     if let Some(s) = &out.session {
         lines.push(format!("This is Codealong session {} ({} on {}), in worktree {}.", s.key, s.harness, s.account, tilde(Path::new(&s.worktree))));
+    }
+    if let Some(line) = out.worktree.as_ref().and_then(|w| folders_text(&w.project, &out.project_folders, FOLDERS_NAMED)) {
+        lines.push(format!("{line} Read them there when the work needs them, and before changing one, read the instructions at its root (CLAUDE.md, AGENTS.md)."));
     }
     for t in &out.todos {
         if key.is_some_and(|k| t.sessions.iter().any(|s| s == k)) {
@@ -410,7 +484,7 @@ mod tests {
         let (main, store) = (&b.lanes[0], store_of(&b));
         let rows = |ids: &[&str]| ids.iter().map(|id| todo_row(b.todos.iter().find(|t| t.id == *id).unwrap(), &store, &b.lanes, false)).collect::<Vec<_>>();
         let me = &main.sessions[0];
-        let out = Whoami { found: true, how: Some("process".into()), session: Some(session_row(me, main, &b.todos)), worktree: Some(lane_row(main, &b)), others: vec![], todos: rows(&["a", "c"]) };
+        let out = Whoami { found: true, how: Some("process".into()), session: Some(session_row(me, main, &b.todos)), worktree: Some(lane_row(main, &b)), others: vec![], todos: rows(&["a", "c"]), project_folders: vec![] };
         assert_eq!(
             context_text(&out, Some("me")),
             "This is Codealong session me (claude on claude), in worktree /r/main.\n\
@@ -418,10 +492,64 @@ mod tests {
              Todo c \"C\" is linked to this worktree (in-progress). If you take it on, `codealong todo start c` links this session to it.\n"
         );
         // A session the app just started isn't on the board yet, but its todo is its own.
-        let out = Whoami { found: false, how: None, session: None, worktree: Some(lane_row(main, &b)), others: vec![], todos: rows(&["a"]) };
+        let out = Whoami { found: false, how: None, session: None, worktree: Some(lane_row(main, &b)), others: vec![], todos: rows(&["a"]), project_folders: vec![] };
         assert!(context_text(&out, Some("me")).starts_with("Todo a \"A\" is linked to this session"));
-        let out = Whoami { found: false, how: None, session: None, worktree: None, others: vec![], todos: vec![] };
+        let out = Whoami { found: false, how: None, session: None, worktree: None, others: vec![], todos: vec![], project_folders: vec![] };
         assert_eq!(context_text(&out, None), "");
+    }
+
+    /// A project of two repos and a folder, cloned and worked on in several places, beside
+    /// another project and Elsewhere.
+    fn northwind() -> Board {
+        let at = |path: &str, project: &str, repo: &str, slug: Option<&str>, origin: Origin, active: i64| Lane { repo_slug: slug.map(String::from), origin, last_activity: active, ..Lane::new(path, project, repo) };
+        let lanes = vec![
+            at("/w/northwind-app", "Northwind", "app", Some("northwind/app"), Origin::Main, 5),
+            at("/w/northwind-app/.claude/worktrees/fix", "Northwind", "app", Some("northwind/app"), Origin::ClaudeApp, 9),
+            // A second clone of the app, its remote written in other capitals.
+            at("/w/clones/app", "Northwind", "app", Some("Northwind/App"), Origin::Main, 7),
+            at("/w/northwind-ios", "Northwind", "ios", Some("northwind/ios"), Origin::Main, 3),
+            at("/w/northwind-ios/.codealong/worktrees/sync", "Northwind", "ios", Some("northwind/ios"), Origin::Other, 8),
+            // A repo of the same name under another owner is another repo.
+            at("/w/forks/app", "Northwind", "app", Some("kestrel/app"), Origin::Main, 1),
+            at("/w/notes/northwind", "Northwind", "northwind", None, Origin::Folder, 4),
+            at("/w/atlas", "Atlas", "atlas", Some("atlas/atlas"), Origin::Main, 6),
+            at("/w/scratch", ELSEWHERE, "scratch", None, Origin::Folder, 2),
+            at("/w/scratch-two", ELSEWHERE, "scratch-two", None, Origin::Folder, 2),
+        ];
+        Board { lanes, ..Board::default() }
+    }
+
+    /// A session told only of its own worktree didn't know the project's other repos were on
+    /// this Mac, nor where (2026-11-22).
+    #[test]
+    fn a_session_is_told_where_the_rest_of_its_project_is() {
+        let b = northwind();
+        let paths = |i: usize| project_folders(&b, &b.lanes[i]).iter().map(|l| l.path.as_str()).collect::<Vec<_>>();
+        // From a worktree of the app: the other repos' main checkouts and the folder, the latest
+        // first; none of the app's own clones, and no repo's other worktrees.
+        assert_eq!(paths(1), ["/w/notes/northwind", "/w/northwind-ios", "/w/forks/app"]);
+        assert_eq!(paths(0), paths(2));
+        // From the folder: every repo's main checkout, both clones of the app among them.
+        assert_eq!(paths(6), ["/w/clones/app", "/w/northwind-app", "/w/northwind-ios", "/w/forks/app"]);
+        // A project of one repo has nothing more, and Elsewhere is no project.
+        assert!(paths(7).is_empty());
+        assert!(paths(8).is_empty());
+        let chats = Lane { chats: true, ..Lane::new("/w/chats", "Northwind", "chats") };
+        assert!(project_folders(&b, &chats).is_empty());
+
+        let wt = &b.lanes[1];
+        let folders = project_folders(&b, wt).into_iter().map(folder_row).collect::<Vec<_>>();
+        let out = Whoami { found: false, how: None, session: None, worktree: Some(lane_row(wt, &b)), others: vec![], todos: vec![], project_folders: folders };
+        assert_eq!(
+            context_text(&out, None),
+            "The main checkouts of project Northwind's other repos, and its folders: /w/notes/northwind, /w/northwind-ios (northwind/ios), /w/forks/app (kestrel/app). \
+             Read them there when the work needs them, and before changing one, read the instructions at its root (CLAUDE.md, AGENTS.md).\n"
+        );
+        // A long list names the latest and counts the rest; a project of repos alone, or of folders, says so.
+        assert_eq!(folders_text("Northwind", &out.project_folders, 1).unwrap(), "The main checkouts of project Northwind's other repos, and its folders: /w/notes/northwind, and 2 more (`codealong whoami` lists them).");
+        assert_eq!(folders_text("Northwind", &out.project_folders[1..], 8).unwrap(), "The main checkouts of project Northwind's other repos: /w/northwind-ios (northwind/ios), /w/forks/app (kestrel/app).");
+        assert_eq!(folders_text("Northwind", &out.project_folders[..1], 8).unwrap(), "Project Northwind's folders: /w/notes/northwind.");
+        assert_eq!(folders_text("Northwind", &[], 8), None);
     }
 
     #[test]
