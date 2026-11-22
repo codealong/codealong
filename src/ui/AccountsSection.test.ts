@@ -56,6 +56,8 @@ describe('startPlaces', () => {
     expect(startPlaces('codex', '~/.codex')).toEqual(['codex-app', 'terminal', 'background', 'codealong']);
     expect(startPlaces('codex', '~/.codex2')).toEqual(['terminal', 'background', 'codealong']);
     expect(startPlaces('opencode', '~/.local/share/opencode')).toEqual(['terminal', 'background', 'codealong']);
+    expect(startPlaces('antigravity', '~/.gemini/antigravity')).toEqual(['terminal', 'background', 'codealong']);
+    expect(startPlaces('cursor', '~/.cursor')).toEqual(['terminal', 'background']);
   });
 });
 

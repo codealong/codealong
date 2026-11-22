@@ -2414,6 +2414,11 @@ mod tests {
         assert_eq!(unavailable, "opencode, OpenCode's command line, isn't on this machine, so opencode can't start sessions from Codealong until it's installed (Settings › Accounts).");
         let own = AccountCfg { acp: Some("/opt/oc-acp/bin/oc-acp".into()), ..opencode };
         assert_eq!(without_cli(&own, offered(&own), "opencode").unwrap(), vec![Place::Codealong]);
+        // Antigravity's own sessions are `agy acp`, unless config.toml names an adapter of its own.
+        let ag = account("antigravity", "antigravity", "/Users/me/.gemini/antigravity", None);
+        assert!(without_cli(&ag, offered(&ag), "agy").unwrap_err().starts_with("agy, Antigravity's command line"));
+        let own_ag = AccountCfg { acp: Some("/opt/ag-acp/bin/ag-acp".into()), ..ag };
+        assert_eq!(without_cli(&own_ag, offered(&own_ag), "agy").unwrap(), vec![Place::Codealong]);
         // Cursor's app starts nothing from here.
         let cursor = account("cursor", "cursor", "/Users/me/.cursor", Some("cursor-agent"));
         assert!(without_cli(&cursor, offered(&cursor), "cursor-agent").unwrap_err().starts_with("cursor-agent, Cursor's command line"));
@@ -2564,7 +2569,9 @@ mod tests {
         let ag = account("ag", "antigravity", "/Users/me/.gemini/antigravity", None);
         assert!(places_of(&ag, home).is_err());
         assert!(check_start(&ag, "terminal", home).is_ok());
-        assert!(check_start(&ag, "codealong", home).unwrap_err().contains("\"terminal\", \"background\""));
+        assert!(check_start(&ag, "codealong", home).is_ok());
+        let cursor = account("cursor", "cursor", "/Users/me/.cursor", None);
+        assert!(check_start(&cursor, "codealong", home).unwrap_err().contains("\"terminal\", \"background\""));
         assert!(check_start(&accounts[1], "somewhere", home).is_err());
     }
 

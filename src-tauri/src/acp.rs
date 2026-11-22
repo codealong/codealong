@@ -1,8 +1,9 @@
 //! Sessions Codealong runs itself, over the Agent Client Protocol (agentclientprotocol.com):
 //! an adapter process per account speaks JSON-RPC on its stdin and stdout, one message a line,
 //! and runs any number of sessions. Codex (`codex-acp`) and Claude Code (`claude-agent-acp`)
-//! need an adapter, which `codealong install` puts in Codealong's folder; OpenCode has one
-//! built in (`opencode acp`). An account's `acp` setting in config.toml runs another command.
+//! need an adapter, which `codealong install` puts in Codealong's folder; OpenCode (`opencode acp`)
+//! and Antigravity (`agy acp`) have one built in. An account's `acp` setting in config.toml runs
+//! another command.
 //!
 //! The adapters keep sessions where their harness always does, under the harness's own id: a
 //! Claude Code transcript, a Codex rollout, a row in OpenCode's database. So a hosted session
@@ -716,7 +717,7 @@ fn on_permission(account: &str, link: &rpc::Link, rpc: Value, params: &Value) {
     let title = call.get("title").and_then(Value::as_str).unwrap_or("A tool call");
     let name = call.get("name").and_then(Value::as_str).or_else(|| call.pointer("/_meta/claudeCode/toolName").and_then(Value::as_str));
     let raw = call.get("rawInput").filter(|v| !v.is_null() && v.as_object().map_or(true, |o| !o.is_empty()));
-    let input = raw.map(|v| match v.get("command").and_then(Value::as_str) {
+    let input = raw.map(|v| match v.get("command").or_else(|| v.get("CommandLine")).and_then(Value::as_str) {
         Some(cmd) => cmd.to_string(),
         None => serde_json::to_string_pretty(v).unwrap_or_default(),
     });
@@ -902,15 +903,45 @@ pub fn adopt(a: &AccountCfg, id: &str, cwd: &Path, prompt: &str, model: Option<&
 
 /// Asks for `model` and `effort` of session `id`, where the agent's answer about the session
 /// (`answer`, which lists its `configOptions`) offers them: Claude Code's aliases (opus,
-/// sonnet…) are among its models. The effort levels are the model's, so they're looked up in the
-/// options the model's answer lists. Returns the options as the agent lists them after.
+/// sonnet…) are among its models, and a compound `<model>-<level>` name (Antigravity's
+/// `gemini-4-neon-xhigh`) splits across `model` and `thought_level` (`set_model`). The effort
+/// levels are the model's, so they're looked up in the options the model's answer lists. Returns
+/// the options as the agent lists them after.
 fn tune(ag: &Agent, id: &str, answer: &Value, model: Option<&str>, effort: Option<&str>) -> Result<Value> {
     let mut options = answer.get("configOptions").cloned().unwrap_or(Value::Null);
-    for (category, value) in [("model", model), ("thought_level", effort)] {
-        let Some((v, config_id)) = value.and_then(|v| Some((v, offered_option(&options, category, v)?))) else { continue };
+    if let Some(m) = model {
+        if let Some(next) = set_model(ag, id, options.clone(), m)? {
+            options = next;
+        }
+    }
+    if let Some((v, config_id)) = effort.and_then(|v| Some((v, offered_option(&options, "thought_level", v)?))) {
         options = set_config(ag, id, options, &config_id, v)?;
     }
     Ok(options)
+}
+
+/// Sets session `id`'s model to `model`, returning the updated options or None when the agent
+/// doesn't offer it. Where the agent splits a compound `<model>-<level>` name across `model` and
+/// `thought_level` (as `agy acp` does for `gemini-4-neon-xhigh`), both are set in turn; if the
+/// target model doesn't take that level, the previous model is restored before returning None.
+fn set_model(ag: &Agent, id: &str, options: Value, model: &str) -> Result<Option<Value>> {
+    if let Some(config_id) = offered_option(&options, "model", model) {
+        return Ok(Some(set_config(ag, id, options, &config_id, model)?));
+    }
+    let Some((base, level)) = model.rsplit_once('-') else { return Ok(None) };
+    let Some(config_id) = offered_option(&options, "model", base) else { return Ok(None) };
+    let prev = current_option(&options, "model");
+    let changed = prev.as_deref() != Some(base);
+    let next = if changed { set_config(ag, id, options, &config_id, base)? } else { options };
+    if let Some(level_id) = offered_option(&next, "thought_level", level) {
+        return Ok(Some(set_config(ag, id, next, &level_id, level)?));
+    }
+    if changed {
+        if let Some(was) = prev.as_deref() {
+            let _ = set_config(ag, id, next, &config_id, was);
+        }
+    }
+    Ok(None)
 }
 
 /// Sets session `id`'s config option `config_id` to `value`. Returns its options as the agent
@@ -923,11 +954,18 @@ fn set_config(ag: &Agent, id: &str, options: Value, config_id: &str, value: &str
 /// Switches a session Codealong runs to a model or an effort level (`send::switch_model`,
 /// `switch_effort`). The model or level must be one its agent offers: the levels are its model's.
 pub fn switch(a: &AccountCfg, key: &str, to: Switch) -> Result<()> {
-    let category = match to {
-        Switch::Model(_) => "model",
-        Switch::Effort(_) => "thought_level",
-    };
-    set_option(a, key, category, to.value())
+    match to {
+        Switch::Model(value) => {
+            let (ag, id, options) = ready_options(a, key)?;
+            let Some(options) = set_model(&ag, &id, options, value)? else {
+                bail!("{}'s agent doesn't offer {value}.", a.name);
+            };
+            set(key, |h| h.options = options);
+            notify(Change::Board);
+            Ok(())
+        }
+        Switch::Effort(value) => set_option(a, key, "thought_level", value),
+    }
 }
 
 /// Switches a session Codealong runs to another of the modes its agent offers
@@ -941,9 +979,9 @@ pub fn switch_mode(a: &AccountCfg, key: &str, mode: &str) -> Result<String> {
     Ok(current_option(&options, "mode").unwrap_or_else(|| mode.to_string()))
 }
 
-/// Sets a session's config option in `category` to `value`, one its agent offers, picking the
-/// session up in the account's process first when that's new since.
-fn set_option(a: &AccountCfg, key: &str, category: &str, value: &str) -> Result<()> {
+/// Picks session `key` up in the account's process when needed and returns its agent, id and
+/// current config options.
+fn ready_options(a: &AccountCfg, key: &str) -> Result<(Arc<Agent>, String, Value)> {
     in_app()?;
     let (id, cwd, loaded) = {
         let st = state();
@@ -958,6 +996,13 @@ fn set_option(a: &AccountCfg, key: &str, category: &str, value: &str) -> Result<
         load(&ag, key, &id, &cwd)?;
     }
     let options = state().sessions.get(key).map(|h| h.options.clone()).unwrap_or_default();
+    Ok((ag, id, options))
+}
+
+/// Sets a session's config option in `category` to `value`, one its agent offers, picking the
+/// session up in the account's process first when that's new since.
+fn set_option(a: &AccountCfg, key: &str, category: &str, value: &str) -> Result<()> {
+    let (ag, id, options) = ready_options(a, key)?;
     let Some(config_id) = offered_option(&options, category, value) else {
         bail!("{}'s agent doesn't offer {value}.", a.name);
     };
@@ -1429,16 +1474,27 @@ pub fn overlay(s: &mut Session, seen_at: i64) {
         s.pid = None;
     }
     s.open_target = format!("s|{}|hosted", s.key);
-    // Its agent says the model it's on as soon as it's switched; its record says so only once the
-    // next turn starts.
-    if let Some(m) = current_option(&h.options, "model") {
-        s.model = Some(m);
-    }
-    // Its effort the same way, but for `default`, the account's own, which only a reply names.
-    // (claude-agent-acp would give its recommended level instead to a client that asked for one,
-    // which Codealong doesn't.)
-    if let Some(e) = current_option(&h.options, "thought_level").filter(|e| e != "default") {
-        s.effort = Some(e);
+    // Its agent says the model and effort it's on as soon as they're switched; its record says so
+    // only once the next turn starts. A harness with no separate effort picker (`efforts` empty,
+    // like Antigravity) embeds the thinking level in its model id (`gemini-4-neon-high`), where
+    // its ACP server splits them across `model` and `thought_level`. For Claude/Codex, `default`
+    // is the account's own level, which only a reply names.
+    let model = current_option(&h.options, "model");
+    let effort = current_option(&h.options, "thought_level").filter(|e| e != "default");
+    if crate::harness::adapter(s.harness).efforts().is_empty() {
+        if let Some(m) = model {
+            s.model = Some(match effort {
+                Some(e) if !m.ends_with(&format!("-{e}")) => format!("{m}-{e}"),
+                _ => m,
+            });
+        }
+    } else {
+        if let Some(m) = model {
+            s.model = Some(m);
+        }
+        if let Some(e) = effort {
+            s.effort = Some(e);
+        }
     }
     // Its mode the same way, and the modes its agent offers, which it can be switched to here.
     s.modes = modes_offered(&h.options, s.harness);
@@ -2555,8 +2611,164 @@ mod tests {
         assert_eq!(adapter_command(&a).unwrap().0, "XDG_DATA_HOME=/x opencode acp");
         a.acp = Some("my-agent --acp".into());
         assert_eq!(adapter_command(&a).unwrap().0, "my-agent --acp");
-        let ag: AccountCfg = serde_json::from_value(json!({ "name": "ag", "harness": "antigravity", "home": "~/.gemini" })).unwrap();
-        assert!(adapter_command(&ag).is_err());
+        let ag: AccountCfg = serde_json::from_value(json!({ "name": "ag", "harness": "antigravity", "home": "~/.gemini/antigravity" })).unwrap();
+        assert!(adapter_command(&ag).unwrap().0.starts_with("agy acp --log-file "));
+        let cursor: AccountCfg = serde_json::from_value(json!({ "name": "cursor", "harness": "cursor", "home": "~/.cursor" })).unwrap();
+        assert!(adapter_command(&cursor).is_err());
+    }
+
+    #[test]
+    fn antigravity_overlay_combines_model_and_thought_level_and_names_modes() {
+        let key = key_of(Harness::Antigravity, "test-ag-overlay", "s1");
+        let ag_options = |model: &str, level: Option<&str>, mode: &str| {
+            let mut opts = vec![json!({
+                "id": "model", "category": "model", "currentValue": model,
+                "options": [{ "value": "gemini-4-neon" }, { "value": "gemini-pro-orchestrator-neon" }, { "value": "gpt-oss-120b-medium" }]
+            })];
+            if let Some(l) = level {
+                opts.push(json!({
+                    "id": "thought_level", "category": "thought_level", "currentValue": l,
+                    "options": [{ "value": "low" }, { "value": "medium" }, { "value": "high" }, { "value": "xhigh" }]
+                }));
+            }
+            opts.push(json!({
+                "id": "mode", "category": "mode", "currentValue": mode,
+                "options": [
+                    { "value": "default", "name": "Default" },
+                    { "value": "accept-edits", "name": "Accept edits" },
+                    { "value": "auto", "name": "Auto" },
+                    { "value": "plan", "name": "Plan" },
+                ]
+            }));
+            Value::Array(opts)
+        };
+        state().sessions.insert(key.clone(), Hosted { account: "test-ag-overlay".into(), id: "s1".into(), cwd: "/w".into(), options: ag_options("gemini-4-neon", Some("xhigh"), "auto"), ..Default::default() });
+        let mut s = Session { harness: Harness::Antigravity, ..crate::fixtures::session(&key) };
+        overlay(&mut s, 0);
+        assert_eq!(s.model.as_deref(), Some("gemini-4-neon-xhigh"));
+        assert_eq!(s.effort, None);
+        assert_eq!(s.mode.as_ref().map(|m| (m.id.as_str(), m.kind)), Some(("auto", ModeKind::Auto)));
+        assert_eq!(s.modes.iter().map(|m| (m.id.as_str(), m.kind)).collect::<Vec<_>>(), [("default", ModeKind::Asks), ("accept-edits", ModeKind::Edits), ("auto", ModeKind::Auto), ("plan", ModeKind::Plan)]);
+
+        // A model with no thought_level stays as-is.
+        state().sessions.get_mut(&key).unwrap().options = ag_options("gemini-pro-orchestrator-neon", None, "plan");
+        let mut s = Session { harness: Harness::Antigravity, ..crate::fixtures::session(&key) };
+        overlay(&mut s, 0);
+        assert_eq!(s.model.as_deref(), Some("gemini-pro-orchestrator-neon"));
+        assert_eq!(s.effort, None);
+        assert_eq!(s.mode.as_ref().map(|m| (m.id.as_str(), m.kind)), Some(("plan", ModeKind::Plan)));
+        state().sessions.remove(&key);
+    }
+
+    #[test]
+    fn switching_a_compound_model_sets_model_and_thought_level() {
+        init(|_| {});
+        let dir = store::test_dir("acp-compound-model");
+        let ag_opts = |model: &str, level: Option<&str>, levels: &[&str]| {
+            let mut opts = vec![json!({
+                "id": "model", "category": "model", "currentValue": model,
+                "options": [{ "value": "gemini-4-neon" }, { "value": "gemini-3.8-flash" }, { "value": "gemini-pro-orchestrator-neon" }]
+            })];
+            if let Some(l) = level {
+                opts.push(json!({
+                    "id": "thought_level", "category": "thought_level", "currentValue": l,
+                    "options": levels.iter().map(|v| json!({ "value": v })).collect::<Vec<_>>()
+                }));
+            }
+            Value::Array(opts)
+        };
+        let flash_high = serde_json::to_string(&ag_opts("gemini-3.8-flash", Some("high"), &["low", "medium", "high"])).unwrap();
+        let flash_low = serde_json::to_string(&ag_opts("gemini-3.8-flash", Some("low"), &["low", "medium", "high"])).unwrap();
+        let flash_med = serde_json::to_string(&ag_opts("gemini-3.8-flash", Some("medium"), &["low", "medium", "high"])).unwrap();
+        let neon_high = serde_json::to_string(&ag_opts("gemini-4-neon", Some("high"), &["low", "medium", "high", "xhigh"])).unwrap();
+        let orch = serde_json::to_string(&ag_opts("gemini-pro-orchestrator-neon", None, &[])).unwrap();
+        std::fs::write(dir.join("flash_high"), &flash_high).unwrap();
+        std::fs::write(dir.join("flash_low"), &flash_low).unwrap();
+        std::fs::write(dir.join("flash_med"), &flash_med).unwrap();
+        std::fs::write(dir.join("neon_high"), &neon_high).unwrap();
+        std::fs::write(dir.join("orch"), &orch).unwrap();
+        let script = format!(
+            r#"while IFS= read -r line; do printf '%s\n' "$line" >> "$1"; id=$(printf '%s' "$line" | sed -n 's/^{{"id":\([0-9]*\),.*/\1/p'); case "$line" in *'"configId":"model"'*'"value":"gemini-3.8-flash"'*) echo "{{\"jsonrpc\":\"2.0\",\"id\":$id,\"result\":{{\"configOptions\":$(cat '{}')}}}}";; *'"configId":"model"'*'"value":"gemini-4-neon"'*) echo "{{\"jsonrpc\":\"2.0\",\"id\":$id,\"result\":{{\"configOptions\":$(cat '{}')}}}}";; *'"configId":"model"'*'"value":"gemini-pro-orchestrator-neon"'*) echo "{{\"jsonrpc\":\"2.0\",\"id\":$id,\"result\":{{\"configOptions\":$(cat '{}')}}}}";; *'"configId":"thought_level"'*'"value":"low"'*) echo "{{\"jsonrpc\":\"2.0\",\"id\":$id,\"result\":{{\"configOptions\":$(cat '{}')}}}}";; *'"configId":"thought_level"'*'"value":"medium"'*) echo "{{\"jsonrpc\":\"2.0\",\"id\":$id,\"result\":{{\"configOptions\":$(cat '{}')}}}}";; esac; done"#,
+            dir.join("flash_high").display(),
+            dir.join("neon_high").display(),
+            dir.join("orch").display(),
+            dir.join("flash_low").display(),
+            dir.join("flash_med").display(),
+        );
+        let account = "test-adapter-compound";
+        let key = key_of(Harness::Antigravity, account, "s1");
+        state().sessions.insert(key.clone(), Hosted { account: account.into(), id: "s1".into(), cwd: "/w".into(), loaded: true, options: ag_opts("gemini-4-neon", Some("high"), &["low", "medium", "high", "xhigh"]), ..Default::default() });
+        let _ag = stand_in(account, &script, &dir);
+        let a: AccountCfg = serde_json::from_value(json!({ "name": account, "harness": "antigravity", "home": "/h" })).unwrap();
+
+        // Switching across model + level sends `model` then `thought_level`.
+        switch(&a, &key, Switch::Model("gemini-3.8-flash-low")).unwrap();
+        let mut s = Session { harness: Harness::Antigravity, ..crate::fixtures::session(&key) };
+        overlay(&mut s, 0);
+        assert_eq!(s.model.as_deref(), Some("gemini-3.8-flash-low"));
+        assert_eq!(heard(&dir).len(), 2);
+
+        // Switching only the level on the current model sends just `thought_level`.
+        switch(&a, &key, Switch::Model("gemini-3.8-flash-medium")).unwrap();
+        assert_eq!(heard(&dir).len(), 3);
+        assert!(heard(&dir)[2].contains(r#""configId":"thought_level""#));
+
+        // A model that doesn't take that level is refused without changing the model.
+        let err = switch(&a, &key, Switch::Model("gemini-3.8-flash-xhigh")).unwrap_err().to_string();
+        assert!(err.contains("doesn't offer gemini-3.8-flash-xhigh"), "{err}");
+        assert_eq!(heard(&dir).len(), 3, "no RPC when already on that model");
+
+        // A model offered directly (no thought_level) sets `model` alone.
+        switch(&a, &key, Switch::Model("gemini-pro-orchestrator-neon")).unwrap();
+        let mut s = Session { harness: Harness::Antigravity, ..crate::fixtures::session(&key) };
+        overlay(&mut s, 0);
+        assert_eq!(s.model.as_deref(), Some("gemini-pro-orchestrator-neon"));
+
+        // Switching from orchestrator to a model+level that target doesn't offer restores orchestrator.
+        let err = switch(&a, &key, Switch::Model("gemini-3.8-flash-xhigh")).unwrap_err().to_string();
+        assert!(err.contains("doesn't offer gemini-3.8-flash-xhigh"), "{err}");
+        assert!(heard(&dir).last().unwrap().contains(r#""value":"gemini-pro-orchestrator-neon""#), "{:?}", heard(&dir));
+
+        state().sessions.remove(&key);
+        state().agents.remove(account);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn on_permission_reads_antigravity_command_line_input() {
+        let dir = store::test_dir("acp-ag-perm");
+        let account = "test-adapter-ag-perm";
+        let key = key_of(Harness::Antigravity, account, "s1");
+        state().sessions.insert(key.clone(), Hosted { account: account.into(), id: "s1".into(), cwd: "/w".into(), loaded: true, running: true, ..Default::default() });
+        let ag = stand_in(account, "while IFS= read -r _; do :; done", &dir);
+        let link = ag.client.link();
+        hear(
+            account,
+            &link,
+            &json!({
+                "jsonrpc": "2.0",
+                "id": "1",
+                "method": "session/request_permission",
+                "params": {
+                    "sessionId": "s1",
+                    "toolCall": {
+                        "toolCallId": "call_1",
+                        "name": "run_command",
+                        "title": "cargo test",
+                        "kind": "execute",
+                        "rawInput": { "CommandLine": "cargo test", "WaitMsBeforeAsync": 5000 }
+                    },
+                    "options": [{ "optionId": "allow", "name": "Allow", "kind": "allow_once" }, { "optionId": "deny", "name": "Deny", "kind": "reject_once" }]
+                }
+            }),
+        );
+        let p = pending(&key).expect("pending permission");
+        assert_eq!(p.label, "run_command · `cargo test`");
+        assert_eq!(p.input.as_deref(), Some("cargo test"));
+        assert!(!p.always && !p.no_once);
+        state().sessions.remove(&key);
+        state().agents.remove(account);
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[test]

@@ -328,8 +328,9 @@ Stop turn, in the right-click menu of a session whose turn is running (here, on 
 in the quick panel), ends that turn and leaves the session waiting for you, as its own Stop or
 Escape would: Escape pressed in its Ghostty, iTerm2, Rex, Codealong or tmux tab for Claude Code and the Codex CLI
 (through its account's background service for a Claude Code background job), the Codex app's own
-Stop for its threads, and OpenCode's service for OpenCode. Claude app sessions, Terminal tabs and
-Antigravity can't be stopped from Codealong.
+Stop for its threads, OpenCode's service for OpenCode, and `session/cancel` for any session
+Codealong runs itself (including Antigravity In Codealong). Claude app sessions, Terminal tabs, and
+non-hosted Antigravity sessions can't be stopped from Codealong.
 
 The conversation marks where a turn was stopped, in amber under the call it cut short: "The turn
 was stopped", or, when Codealong stopped it, who asked: "Stopped from Codealong (a window on this
@@ -1437,10 +1438,10 @@ Mac, or from `Co-Authored-By:` and `Generated with` lines in the PR's head commi
 whenever another harness in the pool can review, and passes over any account that has reached its
 `usage_cap`. It runs where `[reviews] start` says (Settings › Automation, Where reviews run), which by
 default (`"no-terminal"`) never opens a terminal: under Claude Code's background service, else in
-Codealong through the account's Agent Client Protocol adapter (Codex, OpenCode), so an account that
-can do neither (Antigravity, Cursor) doesn't review. `"codealong"` runs every reviewer in Codealong,
-Claude Code too; `"background"` goes as the account's Background does, which for Antigravity and
-Cursor is tmux with no window (a terminal behind your windows without tmux, or with Run sessions
+Codealong through the account's Agent Client Protocol adapter (Codex, OpenCode, Antigravity), so an
+account that can do neither (Cursor) doesn't review. `"codealong"` runs every reviewer in Codealong,
+Claude Code too; `"background"` goes as the account's Background does, which for Cursor is tmux
+with no window (a terminal behind your windows without tmux, or with Run sessions
 in tmux set to Never); `"terminal"` opens each in your terminal, a tab
 or a window as `[apps] new_terminal` says, which comes forward. When the reviewer is a routing
 group, Settings names its accounts that can't review where reviews run, which the group passes
@@ -3107,10 +3108,11 @@ servers): nothing is typed into it until it starts.
 
 #### In Codealong
 
-**In Codealong** runs the session in Codealong itself, for any Claude Code, Codex or OpenCode
-account, through the agent's Agent Client Protocol adapter (OpenCode has its own; the ones for
-Claude Code and Codex are Node packages, which the app installs with npm as it starts, or brings
-up to date, and `codealong install` does too). Until an account's adapter is there, In Codealong
+**In Codealong** runs the session in Codealong itself, for any Claude Code, Codex, OpenCode or
+Antigravity account, through the agent's Agent Client Protocol adapter (OpenCode's `opencode acp`
+and Antigravity's `agy acp` are built in; the ones for Claude Code and Codex are Node packages,
+which the app installs with npm as it starts, or brings up to date, and `codealong install` does
+too). Until an account's adapter is there, In Codealong
 isn't offered for it, so a start from your phone, which goes In Codealong first, goes to Background
 instead. Without Node (`brew install node`), it stays that way: its panel shows the reply as it's written, takes the
 next prompt (queued while a turn runs), answers what it asks to run with Allow and Deny, and Stop

@@ -118,6 +118,16 @@ on 2026-09-27. Paths are under `src-tauri/src/`.
   turn starts a new turn rather than steering.
 - `opencode acp` (built in) is a client of OpenCode's service; its ids are the `ses_…` rows.
   Where it's installed and the PATH it gets: `acp.rs` (`adapter_path`).
+- `agy acp` (built in, checked on `agy` 1.5.14, 2026-11-22; `antigravity.rs` `acp_command`, with
+  `--log-file` in Codealong's logs folder) runs Antigravity sessions in-process without a presence
+  lock, writing the usual `antigravity-cli` records (`conversation_summaries.db`, `conversations/<id>.db`,
+  `transcript_full.jsonl`) and passing `ANTIGRAVITY_CONVERSATION_ID` to commands it runs. Its
+  `configOptions` split `agy models`'s compound names across `model` and `thought_level` (recombined
+  in `acp.rs` `overlay` and split in `set_model` for harnesses with no separate effort picker), and
+  offer `mode` (`default`, `accept-edits`, `auto`, `plan`). Its `session/request_permission` puts
+  shell commands in `rawInput.CommandLine`. It offers `session/resume`, `session/load`,
+  `session/close`, `additionalDirectories` and `promptCapabilities.image`, and no `session/fork`;
+  `session/resume` resets `configOptions` to the default model. See `.claude/rules/antigravity.md`.
 - The adapter processes, one per account and children of Codealong's server (serve.rs), their stderr logs and
   `hosted.json`: `acp.rs` (header, `agent`, `log_path`, `remembered_path`).
 - When the app quits, each adapter's input closes and codex-acp 1.13.1 interrupts the turns it

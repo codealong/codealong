@@ -676,7 +676,7 @@ impl ReviewPost {
 /// `no-terminal`: under the harness's background service (Claude Code's `--bg`), else in
 /// Codealong through the account's Agent Client Protocol adapter; an account that can do neither
 /// doesn't review. `codealong`: in Codealong, Claude Code too. `background`: as the account's
-/// Background goes, which for a harness with neither (Antigravity, Cursor) is a terminal opened
+/// Background goes, which for a harness with neither (Cursor) is a terminal opened
 /// behind your windows: what reviews did until 2026-10-12. `terminal`: in your terminal, a tab or
 /// a window as `[apps] new_terminal` says, which comes forward.
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Default)]

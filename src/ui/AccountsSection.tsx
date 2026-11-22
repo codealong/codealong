@@ -109,8 +109,8 @@ function defaultsFor(harness: Harness, name: string): { home: string; command: s
 
 /** Where an account can start a session from Codealong, as start.rs's `places_of` has it: the
  *  Claude and Codex apps each run only the account in the default folder, Codealong runs any
- *  Claude Code, Codex or OpenCode account over its ACP adapter, and Antigravity and Cursor start
- *  in the terminal once their command lines are installed (the engine says when not). Every account
+ *  Claude Code, Codex, OpenCode or Antigravity account over its ACP adapter, and Cursor starts
+ *  in the terminal once its command line is installed (the engine says when not). Every account
  *  that starts in the terminal can start in the background: Claude Code's own service, or tmux
  *  with no window (a terminal behind your windows without it). */
 export function startPlaces(harness: Harness, home: string): StartPlace[] {
@@ -121,8 +121,8 @@ export function startPlaces(harness: Harness, home: string): StartPlace[] {
     case 'codex':
       return main('codex') ? ['codex-app', 'terminal', 'background', 'codealong'] : ['terminal', 'background', 'codealong'];
     case 'opencode':
-      return ['terminal', 'background', 'codealong'];
     case 'antigravity':
+      return ['terminal', 'background', 'codealong'];
     case 'cursor':
       return ['terminal', 'background'];
   }
