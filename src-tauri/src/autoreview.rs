@@ -5566,12 +5566,12 @@ mod tests {
     #[test]
     fn reviews_open_no_terminal_unless_settings_say_so() {
         use Place::{Background as Bg, CodexApp, Codealong as Ca, Terminal as T};
-        // Claude Code (a background service of its own), Codex, and Antigravity (neither a service
-        // nor Codealong's adapter), each with the places it offers.
-        let (claude, codex, agy) = ((true, vec![T, Bg, Ca]), (false, vec![CodexApp, T, Bg, Ca]), (false, vec![T, Bg]));
-        let at = |start: ReviewStart| [&claude, &codex, &agy].map(|(service, can)| first_of(start, *service, can));
+        // Claude Code (a background service of its own), Codex, and Cursor (neither a service nor
+        // Codealong's adapter), each with the places it offers.
+        let (claude, codex, cursor) = ((true, vec![T, Bg, Ca]), (false, vec![CodexApp, T, Bg, Ca]), (false, vec![T, Bg]));
+        let at = |start: ReviewStart| [&claude, &codex, &cursor].map(|(service, can)| first_of(start, *service, can));
         assert_eq!(ReviewStart::default(), ReviewStart::NoTerminal);
-        // Background for Codex and Antigravity is a terminal behind your windows: kept out.
+        // Background for Codex and Cursor is a terminal behind your windows: kept out.
         assert_eq!(at(ReviewStart::NoTerminal), [Some(Bg), Some(Ca), None]);
         assert_eq!(at(ReviewStart::Codealong), [Some(Ca), Some(Ca), None]);
         assert_eq!(at(ReviewStart::Background), [Some(Bg), Some(Ca), Some(Bg)]);

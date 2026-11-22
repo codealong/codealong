@@ -2500,8 +2500,8 @@ Commands:
               session runs
   stop        Stop the turn a session is taking, as its Stop in Codealong does: the
               conversation stays, and the session waits for its next message. A command
-              it had handed to the background may keep running. A Claude app,
-              Antigravity or Cursor session can't be stopped from outside; the error
+              it had handed to the background may keep running. A Claude app, Cursor, or
+              non-hosted Antigravity session can't be stopped from outside; the error
               says so
   done        Mark a session done, as Mark as done in Codealong does, from inside a
               session, which may mark only its own and the ones it started. `me`: this
@@ -2837,8 +2837,8 @@ Options:
 ```
 Stop the turn a session is taking, as its Stop in Codealong does: the conversation
 stays, and the session waits for its next message. A command it had handed to the
-background may keep running. A Claude app, Antigravity or Cursor session can't be
-stopped from outside; the error says so
+background may keep running. A Claude app, Cursor, or non-hosted Antigravity session
+can't be stopped from outside; the error says so
 
 Usage: codealong session stop [OPTIONS] <KEY>
 

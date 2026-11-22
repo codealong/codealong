@@ -258,9 +258,27 @@ runs on this Mac (2026-10-01). Paths are under `src-tauri/src/`.
   `conversation_summaries.parent_conversation_id`, which rolls their calls up to the parent
   session with `sub: true`. Hub app conversations (`~/.gemini/antigravity`) had no token fields in
   their transcripts (2026-11-19).
-- Codealong doesn't implement `acp_command` for Antigravity yet (though newer `agy` has `agy acp`).
-  Google says running the binary as a child process on the user's sign-in is supported and counts
-  against the same limits.
+- `agy acp` (checked on 1.5.14, 2026-11-22) is built in and runs Antigravity sessions In Codealong
+  (`Antigravity::acp_command`, `agy acp --log-file <logs_dir>/agy-acp-<account>.log`): `initialize`
+  offers `loadSession`, `promptCapabilities.image`, `sessionCapabilities.{resume, close, load,
+  list, additionalDirectories}` (no `fork`). It writes the usual `antigravity-cli` records
+  (`conversation_summaries.db` once a prompt runs, `conversations/<id>.db`,
+  `brain/<id>/.system_generated/logs/transcript_full.jsonl`), holds no `presence/<id>.lock`, and
+  adds its own process cwd (`~`) to `workspace_uris` alongside the session's `cwd` and
+  `additionalDirectories` (`work_folder` skips `home` when another workspace is present). Its
+  `configOptions` split compound `agy models` names across `model` (`gemini-4-neon`,
+  `gemini-3.8-flash`…) and `thought_level` (`low`..`xhigh`, absent on models without levels such
+  as `gemini-pro-orchestrator-neon` and `gpt-oss-120b-medium`), plus `mode` (`default`,
+  `accept-edits`, `auto`, `plan`): `acp.rs` (`set_model`, `overlay`) splits and recombines them,
+  and `Antigravity::mode` names the four modes. Its `session/request_permission` sends `run_command`
+  with `rawInput.CommandLine` and `allow_once` / `reject_once` options (a denied call ends the turn
+  cleanly; `session/cancel` returns `cancelled`); `ask_question` completes without prompting when
+  no elicitation capability is declared. Shell commands it runs receive
+  `ANTIGRAVITY_CONVERSATION_ID=<id>` (`Antigravity::session_var`, `cli/whoami.rs` `hosted_above`).
+  `session/resume` reopens a CLI conversation without replaying history and resets `configOptions`
+  to the default model until tuned. `cli_args` ignores `acp` so `agy acp` isn't mistaken for an
+  interactive terminal UI process. Google says running the binary as a child process on the user's
+  sign-in is supported and counts against the same limits.
 - Every `agy`, print runs too, runs its agent as a language server inside its own process, on
   two random ports on localhost: HTTPS for gRPC and plain HTTP, both ConnectRPC, named in its
   log (`log/cli-<time>.log`, "Language server listening on random port"). It serves the hub's

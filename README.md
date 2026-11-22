@@ -680,9 +680,9 @@ session where it lives.**
 | **Codex CLI** | ✓ | Types into its tab | In Ghostty, iTerm2, Rex and tmux (with the skill's hook) | ✓ | ✓ | 5-hour, weekly |
 | **Codex app** | ✓ | Starts a new turn | In the app | ✓ | Its signed-in account | 5-hour, weekly |
 | **OpenCode** | ✓ | Its own service | ✓ | ✓ | ✓ | You bring the provider |
-| **Antigravity** | ✓ | Types into `agy`'s tab; the app opens with the prompt on the clipboard | `agy` in a terminal; the app in the app | `agy` in a terminal; the app in its own window | — | Weekly, per model group (with `agy`) |
+| **Antigravity** | ✓ | Types into `agy`'s tab, or In Codealong (`agy acp`); the app opens with the prompt on the clipboard | `agy` in a terminal or In Codealong; the app in the app | `agy` in a terminal or In Codealong; the app in its own window | — | Weekly, per model group (with `agy`) |
 | **Cursor** (new) | ✓ | `cursor-agent` in a terminal; app chats open with the prompt on the clipboard | `cursor-agent` in Rex, tmux and Codealong's terminal; app chats in Cursor | `cursor-agent` | — | Monthly, Cursor's models and the others |
-| **In Codealong** (Claude Code, Codex or OpenCode) | ✓ | ✓ | ✓ | ✓ | ✓ | Per account |
+| **In Codealong** (Claude Code, Codex, OpenCode or Antigravity) | ✓ | ✓ | ✓ | ✓ | ✓ | Per account |
 
 Terminals: Ghostty (the exact tab, keypresses, new tabs beside their worktree), Rex (the same, with
 a Rex session for each project), iTerm2 and tmux (typing and keypresses), and Terminal (typing).

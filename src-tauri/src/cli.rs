@@ -684,7 +684,7 @@ enum SessionCmd {
     },
     /// Deny the tool call a session waits on its user to allow, by the id `session pending` shows, if it's still the one waiting: Claude Code, Codex and Antigravity end the turn, an OpenCode session is told no, and Cursor skips the call. Only `deny`: letting a call through, or answering the questions a session asks, is its user's to do, in Codealong or where the session runs.
     Answer(AnswerArgs),
-    /// Stop the turn a session is taking, as its Stop in Codealong does: the conversation stays, and the session waits for its next message. A command it had handed to the background may keep running. A Claude app, Antigravity or Cursor session can't be stopped from outside; the error says so.
+    /// Stop the turn a session is taking, as its Stop in Codealong does: the conversation stays, and the session waits for its next message. A command it had handed to the background may keep running. A Claude app, Cursor, or non-hosted Antigravity session can't be stopped from outside; the error says so.
     Stop {
         /// The session: its key, its id, a unique start of its id, or `me`.
         key: String,

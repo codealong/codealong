@@ -353,7 +353,7 @@ fn read_from_in(db: &Connection, dir: &str, since_ms: i64, keep: &HashSet<String
         }
         let workspaces: Vec<String> = uris.as_deref().and_then(|u| serde_json::from_str::<Vec<String>>(u).ok()).unwrap_or_default().iter().filter_map(|u| uri_path(u)).collect();
         out.push(Conversation {
-            cwd: work_folder(&workspaces, &[crate::attachments::images_dir(), crate::attachments::files_dir()]),
+            cwd: work_folder(&workspaces, &[crate::attachments::images_dir(), crate::attachments::files_dir()], &crate::util::home()),
             workspaces,
             id,
             title: title.map(|t| t.trim().to_string()).filter(|t| !t.is_empty()),
@@ -376,10 +376,12 @@ fn read_from_in(db: &Connection, dir: &str, since_ms: i64, keep: &HashSet<String
 /// The folder a conversation works in, from its row's workspaces. The row doesn't keep the
 /// order `agy` took them in: one started in a repo with Codealong's images folder added
 /// (`--add-dir`, for a prompt's image) lists the images folder first, though its log names the
-/// repo first (`workspaceDirs=[…]`; 1.3.5, 2026-10-14). Codealong's attachments folders are
-/// never where the work is, so they're passed over unless there's nothing else.
-fn work_folder(workspaces: &[String], attachments: &[PathBuf]) -> Option<String> {
-    workspaces.iter().find(|w| !attachments.iter().any(|a| Path::new(w) == a)).or(workspaces.first()).cloned()
+/// repo first (`workspaceDirs=[…]`; 1.3.5, 2026-10-14), and `agy acp` (started in `home`) adds
+/// `home` beside the session's `cwd`. Attachments folders and `home` are passed over unless
+/// there's nothing else.
+fn work_folder(workspaces: &[String], attachments: &[PathBuf], home: &Path) -> Option<String> {
+    let ok = |w: &&String| !attachments.iter().any(|a| Path::new(w) == a);
+    workspaces.iter().find(|w| ok(w) && Path::new(w) != home).or_else(|| workspaces.iter().find(ok)).or(workspaces.first()).cloned()
 }
 
 /// A gorm `datetime` column: text like `2026-09-24 14:16:07.434615-07:00`, or seconds or
@@ -1201,7 +1203,7 @@ pub fn cli_args(command: &str) -> Option<bool> {
                 words.next();
             }
             _ if w.starts_with('-') => {}
-            "agent" | "agents" | "changelog" | "help" | "install" | "mcp" | "mic-serve" | "models" | "plugin" | "plugins" | "remote-control" | "update" => return None,
+            "acp" | "agent" | "agents" | "changelog" | "help" | "install" | "mcp" | "mic-serve" | "models" | "plugin" | "plugins" | "remote-control" | "update" => return None,
             // A prompt.
             _ => return Some(true),
         }
@@ -2161,10 +2163,16 @@ impl crate::harness::Adapter for Antigravity {
         Some(crate::util::home().join(".gemini/config/skills"))
     }
 
-    /// The command line starts a conversation in a terminal; the app only in its own window, so
-    /// without the command line (`missing_cli`) there's nowhere (start.rs `places_of`).
+    /// `agy acp` is built in; its log goes into Codealong's logs folder rather than `~/.gemini/antigravity-cli/log`.
+    fn acp_command(&self, account: &AccountCfg) -> std::result::Result<(String, Vec<(String, String)>), String> {
+        let log = crate::config::logs_dir().join(format!("agy-acp-{}.log", account.name));
+        Ok((format!("{} acp --log-file {}", cli_command(account), crate::util::sh_quote(&log.to_string_lossy())), Vec::new()))
+    }
+
+    /// The command line starts a conversation in a terminal or in Codealong (`agy acp`); the app
+    /// only in its own window, so without the command line (`missing_cli`) there's nowhere.
     fn places(&self, _account: &AccountCfg, _home: &Path) -> std::result::Result<Vec<crate::start::Place>, String> {
-        Ok(vec![crate::start::Place::Terminal, crate::start::Place::Background])
+        Ok(vec![crate::start::Place::Terminal, crate::start::Place::Background, crate::start::Place::Codealong])
     }
 
     /// The command line's conversation opens in its terminal, or a new one that resumes it
@@ -2374,10 +2382,22 @@ impl crate::harness::Adapter for Antigravity {
         Ok((input, env))
     }
 
-    /// A terminal, or one behind your windows.
+    /// A terminal, one behind your windows, or Codealong (`agy acp` `session/resume`).
     fn resumes_in(&self, place: crate::start::Place) -> bool {
         use crate::start::Place;
-        matches!(place, Place::Terminal | Place::Background)
+        matches!(place, Place::Terminal | Place::Background | Place::Codealong)
+    }
+
+    /// Commands `agy` runs carry the conversation's ID here (`cli/whoami.rs` `hosted_above`).
+    fn session_var(&self) -> Option<&'static str> {
+        Some("ANTIGRAVITY_CONVERSATION_ID")
+    }
+
+    fn mode(&self, id: &str) -> Option<SessionMode> {
+        match id {
+            "default" => Some(SessionMode::new(ModeKind::Asks, "Default", "Asks as its tool permission setting says.")),
+            other => session_mode(None, Some(other)),
+        }
     }
 
     /// Its terminal UI's own log, which writes each switch of its agent mode as it takes it
@@ -2591,19 +2611,24 @@ mod tests {
     fn a_conversation_works_in_its_repo_not_in_codealongs_attachments() {
         let images = PathBuf::from("/Users/me/Library/Application Support/Codealong/images");
         let files = PathBuf::from("/Users/me/Library/Application Support/Codealong/files");
+        let home = PathBuf::from("/Users/me");
         let ws = |w: &[&str]| w.iter().map(|w| w.to_string()).collect::<Vec<_>>();
         let attachments = [images.clone(), files.clone()];
         let both = ws(&["/Users/me/Library/Application Support/Codealong/images", "/Users/me/app"]);
-        assert_eq!(work_folder(&both, &attachments).as_deref(), Some("/Users/me/app"));
+        assert_eq!(work_folder(&both, &attachments, &home).as_deref(), Some("/Users/me/app"));
         let all = ws(&["/Users/me/Library/Application Support/Codealong/files", "/Users/me/Library/Application Support/Codealong/images", "/Users/me/app"]);
-        assert_eq!(work_folder(&all, &attachments).as_deref(), Some("/Users/me/app"));
+        assert_eq!(work_folder(&all, &attachments, &home).as_deref(), Some("/Users/me/app"));
+        // `agy acp` started in `home` adds `home` beside the session's workspace.
+        assert_eq!(work_folder(&ws(&["/Users/me", "/Users/me/app"]), &attachments, &home).as_deref(), Some("/Users/me/app"));
+        assert_eq!(work_folder(&ws(&["/Users/me", "/Users/me/Library/Application Support/Codealong/images"]), &attachments, &home).as_deref(), Some("/Users/me"));
+        assert_eq!(work_folder(&ws(&["/Users/me"]), &attachments, &home).as_deref(), Some("/Users/me"));
         // One started in the images folder itself works there.
-        assert_eq!(work_folder(&ws(&["/Users/me/Library/Application Support/Codealong/images"]), &attachments).as_deref(), Some(images.to_str().unwrap()));
-        assert_eq!(work_folder(&ws(&["/Users/me/app", "/Users/me/lib"]), &attachments).as_deref(), Some("/Users/me/app"));
-        assert_eq!(work_folder(&[], &attachments), None);
+        assert_eq!(work_folder(&ws(&["/Users/me/Library/Application Support/Codealong/images"]), &attachments, &home).as_deref(), Some(images.to_str().unwrap()));
+        assert_eq!(work_folder(&ws(&["/Users/me/app", "/Users/me/lib"]), &attachments, &home).as_deref(), Some("/Users/me/app"));
+        assert_eq!(work_folder(&[], &attachments, &home), None);
         // As the row has it, a URI with a space.
         let uri = "file:///Users/me/Library/Application%20Support/Codealong/images";
-        assert_eq!(work_folder(&[uri_path(uri).unwrap(), "/Users/me/app".into()], &attachments).as_deref(), Some("/Users/me/app"));
+        assert_eq!(work_folder(&[uri_path(uri).unwrap(), "/Users/me/app".into()], &attachments, &home).as_deref(), Some("/Users/me/app"));
     }
 
     /// Each folder's table lists the other folders' conversations too (the command line's has
@@ -4140,5 +4165,32 @@ mod tests {
         assert!(r5.changed);
         assert!(reader.conversations.get(&account.name).unwrap()[0].waiting);
         assert_eq!(reader.cache.db_hits, 1, "behind read was not cached");
+    }
+
+    #[test]
+    fn acp_adapter_wires_places_command_modes_and_session_var() {
+        use crate::harness::Adapter;
+        use crate::start::Place;
+        assert_eq!(cli_args("agy acp"), None);
+        assert_eq!(cli_args("/Users/me/.local/bin/agy acp --log-file /tmp/agy-acp.log"), None);
+
+        let a: AccountCfg = serde_json::from_value(serde_json::json!({ "name": "antigravity", "harness": "antigravity", "home": "~/.gemini/antigravity" })).unwrap();
+        let (cmd, env) = Antigravity.acp_command(&a).unwrap();
+        assert!(cmd.starts_with("agy acp --log-file ") && cmd.contains("agy-acp-antigravity.log"), "{cmd}");
+        assert!(env.is_empty());
+        assert_eq!(crate::detect::program_of(&cmd), Some("agy"));
+
+        let custom: AccountCfg = serde_json::from_value(serde_json::json!({ "name": "ag", "harness": "antigravity", "home": "~/.gemini/antigravity", "command": "FOO=1 /opt/agy" })).unwrap();
+        let (cmd, _) = Antigravity.acp_command(&custom).unwrap();
+        assert!(cmd.starts_with("FOO=1 /opt/agy acp --log-file "), "{cmd}");
+
+        assert_eq!(Antigravity.places(&a, Path::new("/Users/me")).unwrap(), vec![Place::Terminal, Place::Background, Place::Codealong]);
+        assert!(Antigravity.resumes_in(Place::Terminal) && Antigravity.resumes_in(Place::Background) && Antigravity.resumes_in(Place::Codealong));
+        assert_eq!(Antigravity.session_var(), Some("ANTIGRAVITY_CONVERSATION_ID"));
+        assert_eq!(Antigravity.mode("default").map(|m| (m.kind, m.label)), Some((ModeKind::Asks, "Default".into())));
+        assert_eq!(Antigravity.mode("accept-edits").map(|m| m.kind), Some(ModeKind::Edits));
+        assert_eq!(Antigravity.mode("auto").map(|m| m.kind), Some(ModeKind::Auto));
+        assert_eq!(Antigravity.mode("plan").map(|m| m.kind), Some(ModeKind::Plan));
+        assert_eq!(Antigravity.mode("unknown"), None);
     }
 }
