@@ -179,8 +179,8 @@ export function SessionAgent({ session: s, account, live, resume, moves, onMove,
         const { model: picked } = parseAgent(id);
         if (resume) {
           // A model is asked for on the command line or of Codealong's adapter, so a place that
-          // takes none gives way to a terminal.
-          const place = picked && resume.chosen.placeNow && !placeTakesModel(resume.chosen.placeNow, true) ? 'terminal' : resume.picks.place;
+          // takes none gives way to the default place that does.
+          const place = picked && resume.chosen.placeNow && !placeTakesModel(resume.chosen.placeNow, true) ? null : resume.picks.place;
           resume.onPicks({ ...resume.picks, agent: id, place });
         } else if (picked) live?.onSwitch(picked);
       }}

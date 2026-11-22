@@ -132,12 +132,14 @@
     if (q('.ca-quick-agent .ca-picker-filter')) key(q('.ca-quick-agent .ca-picker-filter'), { key: 'Escape' });
     return wait(200).then(placeOptions).then(function (opts) {
       var before = placeNow();
+      var atEnd = opts.length > 0 && opts[opts.length - 1].getAttribute('aria-checked') === 'true';
+      var arrow = atEnd ? 'ArrowLeft' : 'ArrowRight';
       var step = function (left) {
-        key(q('.ca-quick-agent .ca-picker-filter'), { key: 'ArrowRight' });
+        key(q('.ca-quick-agent .ca-picker-filter'), { key: arrow });
         return wait(150).then(function () { return makeDefault() || left <= 0 ? null : step(left - 1); });
       };
       return step(opts.length).then(function () {
-        check('⌘O then → steps where it runs', placeNow() !== before, before + ' → ' + placeNow());
+        check('⌘O then ←/→ steps where it runs', placeNow() !== before, before + ' → ' + placeNow());
         if (!makeDefault()) return note('every place is its default already: the failed save skipped');
         window.__failKeepPlace = true;
         makeDefault().click();

@@ -60,11 +60,13 @@ const lane = (over: Partial<Lane> = {}): Lane =>
 const base: SessionCan = { report, open: noop, terminal: 'Ghostty' };
 
 describe('carryOnIn', () => {
-  it('goes on where the account’s last session did, else in a terminal, as the box would', () => {
+  it('goes on where the account’s last session did, else in Codealong, else a terminal, as the box would', () => {
+    const codealong = { place: 'codealong' as const, label: 'Codealong' };
     const terminal = { place: 'terminal' as const, label: 'Terminal' };
     const background = { place: 'background' as const, label: 'Background' };
     const app = { place: 'codex-app' as const, label: 'Codex app' };
-    expect(carryOnIn([background, terminal], 'background')).toBe(background);
+    expect(carryOnIn([background, terminal, codealong], 'background')).toBe(background);
+    expect(carryOnIn([background, terminal, codealong], undefined)).toBe(codealong);
     expect(carryOnIn([background, terminal], undefined)).toBe(terminal);
     // Where it last went on, if it can't go there now, isn't the place.
     expect(carryOnIn([background, terminal], 'codealong')).toBe(terminal);

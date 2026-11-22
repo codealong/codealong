@@ -964,12 +964,13 @@ export function resumeAccount(a: StartAccount): StartAccount {
  * What a resume's picks come to (`startChoice` for the session's account alone): where it can go
  * on, only where a model goes once one is picked, and the model and effort where the place takes
  * them. Without a place picked it goes on where its account's sessions last went on from here
- * (`last`), else in a terminal, as one did before there was a choice.
+ * (`last`), else in Codealong when offered, else in a terminal.
  */
 export function resumeChoice(account: StartAccount, models: ModelOption[], picks: ResumePicks, last: StartPlace | undefined): ChosenStart {
   const a = resumeAccount(account);
   const listed = a.models ?? models;
-  return startChoice([a], listed, a.efforts ?? [], [], null, agentOptions([a], listed, null), a.name, { ...picks, newWorktree: false, resuming: true }, () => last ?? 'terminal');
+  const fallback: StartPlace = a.places.some((p) => p.place === 'codealong') ? 'codealong' : 'terminal';
+  return startChoice([a], listed, a.efforts ?? [], [], null, agentOptions([a], listed, null), a.name, { ...picks, newWorktree: false, resuming: true }, () => last ?? fallback);
 }
 
 /** What the engine is asked for, from what the picks came to. */

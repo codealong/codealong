@@ -149,6 +149,13 @@ pub fn resume_places(a: &AccountCfg, home: &Path) -> Vec<Place> {
     ordered_places(a, home).unwrap_or_default().into_iter().filter(|&p| adapter.resumes_in(p)).collect()
 }
 
+/// Where a stopped session goes on when no place was named (`send.rs` `Route::Resume`): in
+/// Codealong when the account offers it, else a terminal, else its first resume place.
+pub(crate) fn default_resume_place(a: &AccountCfg, home: &Path) -> Place {
+    let offered = resume_places(a, home);
+    [Place::Codealong, Place::Terminal].into_iter().find(|p| offered.contains(p)).or_else(|| offered.first().copied()).unwrap_or(Place::Terminal)
+}
+
 /// Where a start from the quick panel opened becomes `start` for `names`: the account it ran on,
 /// or for Auto the accounts Auto picks among. So the panel opens there next time, and
 /// `codealong start` without `--in` starts there too. An account that can't start there, or
@@ -2362,7 +2369,7 @@ mod tests {
         assert_eq!(picked(&board, &cfg, &auto, NOW, home).unwrap().account, "claude");
         cfg.routing.groups.push(config::RoutingGroupCfg { name: "second".into(), strategy: config::RoutingStrategy::Fallback, members: vec![config::GroupMemberCfg { account: "codex".into(), model: String::new(), effort: String::new() }], ..config::RoutingGroupCfg::default() });
         let group = picked(&board, &cfg, &StartPick { account: "second".into(), ..asked("~/northwind", "") }, NOW, home).unwrap();
-        assert_eq!((group.account.as_str(), group.place), ("codex", Place::CodexApp));
+        assert_eq!((group.account.as_str(), group.place), ("codex", Place::Codealong));
         let nobody = StartPick { account: "claude9".into(), ..asked("~/northwind", "") };
         assert_eq!(picked(&board, &cfg, &nobody, NOW, home).unwrap_err().to_string(), "There's no account named claude9.");
         let nobody_there = StartPick { place: Some(Place::Background), ..nobody };
@@ -2407,7 +2414,7 @@ mod tests {
         let offered = |a: &AccountCfg| adapter_of(a).places(a, home).unwrap();
         // Claude Code's app and Codealong's own sessions (claude-agent-acp) run without `claude`.
         let claude = account("claude", "claude", "/Users/me/.claude", Some("claude"));
-        assert_eq!(without_cli(&claude, offered(&claude), "claude").unwrap(), vec![Place::ClaudeApp, Place::Codealong]);
+        assert_eq!(without_cli(&claude, offered(&claude), "claude").unwrap(), vec![Place::Codealong, Place::ClaudeApp]);
         // OpenCode's own sessions are `opencode acp`, unless config.toml names an adapter of its own.
         let opencode = account("opencode", "opencode", "/Users/me/.local/share/opencode", Some("opencode"));
         let unavailable = without_cli(&opencode, offered(&opencode), "opencode").unwrap_err();
@@ -2435,11 +2442,11 @@ mod tests {
             account("antigravity", "antigravity", "/Users/me/.gemini/antigravity", None),
         ];
         let o = options(&accounts, "Ghostty", vec!["/r/spur".into()], Path::new("/Users/me"), |a| (a.name == "claude2").then(|| "claude-fable-5-1".to_string()));
-        assert_eq!(places(&o, "claude"), vec![Place::Terminal, Place::Background, Place::ClaudeApp, Place::Codealong]);
-        assert_eq!(places(&o, "claude2"), vec![Place::Terminal, Place::Background, Place::Codealong]);
-        assert_eq!(places(&o, "codex"), vec![Place::CodexApp, Place::Terminal, Place::Background, Place::Codealong]);
-        assert_eq!(places(&o, "codex2"), vec![Place::Terminal, Place::Background, Place::Codealong]);
-        assert_eq!(places(&o, "opencode"), vec![Place::Terminal, Place::Background, Place::Codealong]);
+        assert_eq!(places(&o, "claude"), vec![Place::Codealong, Place::Terminal, Place::Background, Place::ClaudeApp]);
+        assert_eq!(places(&o, "claude2"), vec![Place::Codealong, Place::Terminal, Place::Background]);
+        assert_eq!(places(&o, "codex"), vec![Place::Codealong, Place::CodexApp, Place::Terminal, Place::Background]);
+        assert_eq!(places(&o, "codex2"), vec![Place::Codealong, Place::Terminal, Place::Background]);
+        assert_eq!(places(&o, "opencode"), vec![Place::Codealong, Place::Terminal, Place::Background]);
         assert!(places(&o, "antigravity").is_empty());
         // Only Claude Code has a background service of its own; the others' Background is their
         // terminal, behind your windows.
@@ -2449,16 +2456,19 @@ mod tests {
         assert_eq!(behind("opencode"), Some(true));
         assert!(o.accounts[5].unavailable.as_deref().unwrap_or("").starts_with("agy, Antigravity's command line, isn't on this machine"));
         assert_eq!(o.accounts[4].default_model, None);
-        assert_eq!(o.accounts[0].places[0].label, "Ghostty");
+        assert_eq!(o.accounts[0].places[0].label, "Codealong");
+        assert_eq!(o.accounts[0].places.iter().find(|p| p.place == Place::Terminal).unwrap().label, "Ghostty");
         assert_eq!(o.codex_projects, vec!["/r/spur".to_string()]);
         // A session that isn't running goes on in the places its account starts sessions in
         // where its harness takes one up again: OpenCode's run in its service, never stopped.
         let resumes = |name: &str| o.accounts.iter().find(|a| a.name == name).unwrap().resumes.clone();
         assert_eq!(resumes("claude"), places(&o, "claude"));
-        assert_eq!(resumes("claude2"), vec![Place::Terminal, Place::Background, Place::Codealong]);
+        assert_eq!(resumes("claude2"), vec![Place::Codealong, Place::Terminal, Place::Background]);
         assert_eq!(resumes("codex"), places(&o, "codex"));
         assert!(resumes("opencode").is_empty() && resumes("antigravity").is_empty());
         assert_eq!(resume_places(&accounts[1], Path::new("/Users/me")), resumes("claude2"));
+        assert_eq!(default_resume_place(&accounts[0], Path::new("/Users/me")), Place::Codealong);
+        assert_eq!(default_resume_place(&accounts[2], Path::new("/Users/me")), Place::Codealong);
         // Claude Code's running sessions switch models by a command typed into them; Codex's take none.
         let switches = |name: &str| o.accounts.iter().find(|a| a.name == name).unwrap().switches_model;
         assert!(switches("claude") && switches("claude2") && !switches("codex") && !switches("opencode"));
@@ -2529,8 +2539,13 @@ mod tests {
         crate::acp::TEST_INSTALLED.with(|i| i.set(true));
         assert_eq!(got[0], vec![Place::Terminal, Place::Background]);
         assert_eq!(got[1], vec![Place::Terminal, Place::Background]);
-        assert_eq!(got[2], vec![Place::Terminal, Place::Background, Place::Codealong]);
-        assert_eq!(got[3], vec![Place::Terminal, Place::Background, Place::Codealong]);
+        assert_eq!(got[2], vec![Place::Codealong, Place::Terminal, Place::Background]);
+        assert_eq!(got[3], vec![Place::Codealong, Place::Terminal, Place::Background]);
+        // Without the adapter packages, default_resume_place falls back to Terminal.
+        crate::acp::TEST_INSTALLED.with(|i| i.set(false));
+        assert_eq!(default_resume_place(&accounts[0], home), Place::Terminal);
+        assert_eq!(default_resume_place(&accounts[1], home), Place::Terminal);
+        crate::acp::TEST_INSTALLED.with(|i| i.set(true));
         // A `start` there is still a setting config.toml may hold.
         assert!(check_start(&accounts[0], "codealong", home).is_ok());
     }
@@ -2542,14 +2557,15 @@ mod tests {
         let accounts = vec![with("claude", "claude", "/Users/me/.claude", "claude-app"), with("claude2", "claude", "/Users/me/.claude2", "background"), account("claude3", "claude", "/Users/me/.claude3", None)];
         // The command and a resume go by the order; the quick panel lists the places as they
         // come and goes by `chosen`, so they hold still as a start there changes `start`.
-        assert_eq!(ordered_places(&accounts[0], home).unwrap(), vec![Place::ClaudeApp, Place::Terminal, Place::Background, Place::Codealong]);
-        assert_eq!(ordered_places(&accounts[1], home).unwrap(), vec![Place::Background, Place::Terminal, Place::Codealong]);
+        assert_eq!(ordered_places(&accounts[0], home).unwrap(), vec![Place::ClaudeApp, Place::Codealong, Place::Terminal, Place::Background]);
+        assert_eq!(ordered_places(&accounts[1], home).unwrap(), vec![Place::Background, Place::Codealong, Place::Terminal]);
+        assert_eq!(ordered_places(&accounts[2], home).unwrap(), vec![Place::Codealong, Place::Terminal, Place::Background]);
         let o = options(&accounts, "Ghostty", vec![], home, |_| None);
-        assert_eq!(places(&o, "claude"), vec![Place::Terminal, Place::Background, Place::ClaudeApp, Place::Codealong]);
+        assert_eq!(places(&o, "claude"), vec![Place::Codealong, Place::Terminal, Place::Background, Place::ClaudeApp]);
         assert_eq!(o.accounts[0].chosen, Some(Place::ClaudeApp));
-        assert_eq!(places(&o, "claude2"), vec![Place::Terminal, Place::Background, Place::Codealong]);
+        assert_eq!(places(&o, "claude2"), vec![Place::Codealong, Place::Terminal, Place::Background]);
         assert_eq!(o.accounts[1].chosen, Some(Place::Background));
-        assert_eq!(places(&o, "claude3"), vec![Place::Terminal, Place::Background, Place::Codealong]);
+        assert_eq!(places(&o, "claude3"), vec![Place::Codealong, Place::Terminal, Place::Background]);
         assert_eq!(o.accounts[2].chosen, None);
 
         // A start from the quick panel keeps its place for the accounts named that can start
@@ -2561,7 +2577,7 @@ mod tests {
 
         assert!(check_start(&accounts[0], "claude-app", home).is_ok());
         let err = check_start(&accounts[1], "claude-app", home).unwrap_err();
-        assert!(err.contains("\"terminal\", \"background\", \"codealong\""), "{err}");
+        assert!(err.contains("\"codealong\", \"terminal\", \"background\""), "{err}");
         assert!(check_start(&account("codex", "codex", "/Users/me/.codex", None), "terminal", home).is_ok());
         assert!(check_start(&account("codex2", "codex", "/Users/me/.codex2", None), "background", home).is_ok());
         assert!(check_start(&account("codex2", "codex", "/Users/me/.codex2", None), "codex-app", home).is_err());

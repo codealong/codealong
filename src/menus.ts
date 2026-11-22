@@ -785,10 +785,10 @@ function held(key: string, now: number): boolean {
 }
 
 /** Where Carry on resumes a session, as its box would with no place picked (start.ts
- *  `resumeChoice`): where its account's sessions last went on from here, else a terminal, else
- *  the first place there is. */
+ *  `resumeChoice`): where its account's sessions last went on from here, else in Codealong when
+ *  offered, else a terminal, else the first place there is. */
 export function carryOnIn(places: StartAccount['places'], last: StartPlace | undefined): StartAccount['places'][number] {
-  return places.find((p) => p.place === last) ?? places.find((p) => p.place === 'terminal') ?? places[0];
+  return places.find((p) => p.place === last) ?? places.find((p) => p.place === 'codealong') ?? places.find((p) => p.place === 'terminal') ?? places[0];
 }
 
 /** Where Carry on resumes `s`, for one of this Mac's whose turn was cut off and that isn't
