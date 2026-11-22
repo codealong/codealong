@@ -4622,10 +4622,15 @@ browser, `tail -f`), the turn is over and the row says *Left running*. A command
 another for a lock (a cargo build waiting for one that has its build folder: the same program, with
 a lock file open that the other holds) does nothing while it waits, so it stays *Working* for as
 long as the one ahead of it works. Not on Windows, where Codealong can't see which files a process
-has open. Jev's read of the command
-can say so sooner, when it looks like a server or a watcher, but only of a session that has nothing
-else running in the background: one that left a dev server running and waits on a build, or left a
-Monitor watching a log, is still waiting.
+has open. When every running child shell came from a subagent that already finished (and none
+belongs to the main session's open tasks), Codealong also marks it *Left running* rather than
+*Working*. Jev's read of the command
+can say so sooner, when it looks like a server or a watcher (unless the session still waits on
+another command or a Monitor beside it), or when it's a polling loop whose session's last reply
+says the task is done or landed. A reply that asks you something while a background shell runs
+surfaces in *Needs you* until you've seen it. A polling loop that stays quiet with no session
+activity for two hours is marked stuck (*Stuck polling*), unless an agent explicitly tagged it as
+polling itself.
 
 Agents and workflows a Claude Code session started in the background keep it busy by Claude Code's
 own word, whether or not a turn runs. A session whose transcript says its turn ended with some of

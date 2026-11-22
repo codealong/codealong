@@ -90,6 +90,12 @@ fn turn_ended(s: &Session) -> bool {
     matches!(s.status, Status::Unread | Status::Idle | Status::Stopped) || s.asks || (s.status == Status::Working && !s.agents.is_empty())
 }
 
+/// Whether a session's last reply is meant for its user to read (not a helper's, headless run's
+/// or orchestrator's, and not a harness error line).
+fn reads_reply(s: &Session) -> bool {
+    s.reply_tail.as_deref().is_some_and(|t| !t.trim().is_empty()) && !s.helps_an_agent() && !s.headless && s.orchestrator.is_none() && !s.cut_short()
+}
+
 /// What to ask about a session now, and the signature that moment is kept under: `<kind>-<hash>`
 /// of what the answer depends on. None when there's nothing to ask.
 pub fn ask(s: &Session, now: i64) -> Option<(Kind, String)> {
@@ -114,7 +120,9 @@ fn moment(s: &Session, now: i64, recent: bool) -> Option<(Kind, String)> {
         if cmd.is_empty() {
             return None;
         }
-        (Kind::Background, vec![cmd, s.reply_tail.as_deref().unwrap_or("")])
+        let reply = if reads_reply(s) { s.reply_tail.as_deref().unwrap_or("") } else { "" };
+        let prompt = if reads_reply(s) { s.last_prompt.as_deref().unwrap_or("") } else { "" };
+        (Kind::Background, vec![cmd, reply, prompt, BACKGROUND_QUESTIONS])
     } else if s.stalled_since.is_some() {
         (Kind::Quiet, vec![command_in(s.excerpt.as_deref()?)?])
     } else if s.status == Status::Needs && !s.asks {
@@ -191,6 +199,8 @@ pub fn asking(ending: &str) -> bool {
 /// What a turn is asked, by name, in its signature: a change to the questions makes each recent
 /// turn a moment to ask about again, so what the board shows follows the new questions.
 const TURN_QUESTIONS: &str = "endings with waiting, the likeliest kept; the day it waits for";
+/// What a background command is asked, in its signature: a change makes live ones asked again.
+const BACKGROUND_QUESTIONS: &str = "background kind, reply ending and finished";
 
 /// How sure Jev must be of the day a reply says the work waits for, for a snooze until then to
 /// be offered: only offered, so a wrong day costs a glance. On 22 made-up replies (1.14,
@@ -295,7 +305,7 @@ const RISK: [&str; 4] = [
 /// `Committed:` or `Not committed:`, after any Markdown marks. Only once its turn is over: while
 /// it works, the line is the turn before's.
 pub fn landing_said(s: &Session) -> Option<&'static str> {
-    if !turn_ended(s) {
+    if !turn_ended(s) && s.background.is_none() {
         return None;
     }
     let head = s.reply_head.as_deref()?.trim_start_matches(|c: char| !c.is_alphanumeric());
@@ -368,13 +378,28 @@ fn request_in(s: &Session, kind: Kind, model: &str, waiting: Option<&str>, zone:
         }
         Kind::Background => {
             state.insert("background command".into(), json!(jev::clip(s.background.as_deref().unwrap_or(""), 600)));
-            json!({
+            let mut q = json!({
                 "background": {
                     "type": "choice",
                     "instructions": "What is `background command` doing?",
                     "criteria": Value::Object(BACKGROUND.iter().map(|(k, v)| (k.to_string(), json!(v))).collect()),
                 },
-            })
+            });
+            // The turn itself ended: read its reply beside the background command so a finished
+            // turn with a leftover poll, or one asking you a question, isn't hidden behind it.
+            if reads_reply(s) {
+                let asked_for = if latest.is_some() { "`latest prompt` asked for" } else { "the user asked for" };
+                q["asks_you"] = json!({
+                    "type": "choice",
+                    "instructions": "How does the end of the agent's last reply leave things with the user?",
+                    "criteria": Value::Object(ENDINGS.iter().map(|(k, v)| (k.to_string(), json!(v))).collect()),
+                });
+                q["finished"] = json!({
+                    "type": "noul",
+                    "instructions": format!("Is the task {asked_for} complete, with nothing left for the agent to do?"),
+                });
+            }
+            q
         }
         Kind::Approval => {
             let excerpt = s.excerpt.as_deref().unwrap_or("");
@@ -422,7 +447,13 @@ fn read_in(kind: Kind, response: &Value, zone: &dyn Zone) -> SessionInsight {
                 out.background = Some(k.clone());
                 out.background_p = Some(*p);
             }
-            &["background"]
+            let endings = jev::choice(response, "asks_you");
+            if !endings.is_empty() {
+                out.asks_you = Some(endings.iter().filter(|(k, _)| ASKING.contains(&k.as_str())).map(|(_, p)| p).sum());
+                out.ending = endings.first().map(|(k, _)| k.clone());
+            }
+            out.finished = jev::noul(response, "finished");
+            &["background", "asks_you", "finished"]
         }
         Kind::Approval => {
             out.risk = jev::score(response, "risk");
@@ -805,7 +836,42 @@ mod tests {
         assert_eq!((none.asks_you, none.ending), (None, None), "no answer, no read");
         let bg = read(Kind::Background, &json!({ "answers": { "background": { "probabilities": { "polling": 0.8, "job": 0.15, "stalled": 0.05 } } } }));
         assert_eq!((bg.background.as_deref(), bg.background_p, bg.confidence), (Some("polling"), Some(0.8), None));
+        let bg_done = read(
+            Kind::Background,
+            &json!({ "answers": {
+                "background": { "probabilities": { "polling": 1.0 }, "confidence": 1.0 },
+                "asks_you": { "probabilities": { "report": 0.95, "waiting": 0.05 }, "confidence": 0.9 },
+                "finished": { "noul": 0.96, "confidence": 0.92 },
+            }}),
+        );
+        assert_eq!((bg_done.background.as_deref(), bg_done.ending.as_deref(), bg_done.asks_you, bg_done.finished, bg_done.confidence), (Some("polling"), Some("report"), Some(0.0), Some(0.96), Some(0.9)));
         assert_eq!(read(Kind::Approval, &json!({ "answers": { "risk": { "score": 2.6 } } })).risk, Some(2.6));
+    }
+
+    /// A background-shell request also reads the ended turn's reply for user-facing sessions, so a
+    /// finished reply with a leftover poll or a question for you isn't hidden behind it; helpers,
+    /// headless runs and orchestrators only judge the command.
+    #[test]
+    fn background_request_reads_user_facing_replies_too() {
+        let mut s = session(Status::Working);
+        s.background = Some("until grep -q exit out; do sleep 5; done".into());
+        s.reply_head = Some("Landed: 1a2b3c4 is in origin/main.".into());
+        let req = request(&s, Kind::Background, "m", None);
+        assert!(req["questions"].get("background").is_some());
+        assert!(req["questions"].get("asks_you").is_some());
+        assert!(req["questions"].get("finished").is_some());
+        assert_eq!(landing_said(&s), Some("landed"));
+        // A helper's reply is for its parent agent, not the user.
+        let helper = Session { helper: Some(crate::model::Helper { parent: Some("claude:claude:boss".into()), pr: None, report: false, yours: false }), ..s.clone() };
+        let hreq = request(&helper, Kind::Background, "m", None);
+        assert!(hreq["questions"].get("background").is_some());
+        assert!(hreq["questions"].get("asks_you").is_none());
+        assert!(hreq["questions"].get("finished").is_none());
+        // No reply text yet: only ask about the command.
+        let bare = Session { reply_tail: None, ..s };
+        let breq = request(&bare, Kind::Background, "m", None);
+        assert!(breq["questions"].get("background").is_some());
+        assert!(breq["questions"].get("asks_you").is_none());
     }
 
     /// The day a reply waits for is asked by every way a reply names it, counted from the day

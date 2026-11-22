@@ -244,14 +244,30 @@ fn may_run(at: &Path) -> bool {
     crate::os::procs::may_run(at)
 }
 
-/// The first child of `pid` whose command line `pick` makes something of, asking for each child's
-/// command line in turn until one does.
-pub fn find_child<T>(pid: u32, mut pick: impl FnMut(&str) -> Option<T>) -> Option<T> {
+/// Every direct child of `pid`, with its start time (when known) and full command line.
+pub fn child_commands(pid: u32) -> Vec<(u32, Option<i64>, String)> {
     if let Some(rows) = crate::os::procs::table() {
-        return rows.iter().filter(|r| r.ppid == pid).find_map(|r| pick(&r.command));
+        return rows.into_iter().filter(|r| r.ppid == pid).map(|r| (r.pid, r.started_ms, r.command)).collect();
     }
-    let kids = run("pgrep", &["-P", &pid.to_string()], None, Duration::from_secs(2)).ok()?;
-    kids.split_whitespace().find_map(|kid| run("ps", &["-ww", "-o", "command=", "-p", kid], None, Duration::from_secs(2)).ok().and_then(|c| pick(&c)))
+    let Ok(kids) = run("pgrep", &["-P", &pid.to_string()], None, Duration::from_secs(2)) else { return Vec::new() };
+    let pids: Vec<&str> = kids.split_whitespace().filter(|k| k.parse::<u32>().is_ok()).collect();
+    if pids.is_empty() {
+        return Vec::new();
+    }
+    let Ok(out) = run_output("ps", &["-ww", "-o", "pid=,command=", "-p", &pids.join(",")], None, Duration::from_secs(2)) else { return Vec::new() };
+    parse_pid_commands(&out.out).into_iter().map(|(child, cmd)| (child, proc_start_ms(child), cmd)).collect()
+}
+
+/// `ps -ww -o pid=,command=` lines as `(pid, command)`.
+fn parse_pid_commands(out: &str) -> Vec<(u32, String)> {
+    out.lines()
+        .filter_map(|line| {
+            let trimmed = line.trim_start();
+            let (pid, cmd) = trimmed.split_once(char::is_whitespace)?;
+            let cmd = cmd.trim();
+            (!cmd.is_empty()).then(|| Some((pid.parse().ok()?, cmd.to_string()))).flatten()
+        })
+        .collect()
 }
 
 /// What the commands a session runs are made of right now: every process under the children of
@@ -1059,5 +1075,17 @@ mod tests {
         assert_eq!(run(&crate::procs::posix_tool("sh"), &["-c", "echo hi; sleep 10 &"], None, Duration::from_secs(8)).unwrap(), "hi\n");
         assert_eq!(run_stdin(&crate::procs::posix_tool("sh"), &["-c", "cat; sleep 10 &"], "typed", Duration::from_secs(8)).unwrap(), "typed");
         assert!(started.elapsed() < Duration::from_secs(3), "{:?}", started.elapsed());
+    }
+
+    #[test]
+    fn parses_child_pid_and_command_lines() {
+        let out = "  4571 /bin/zsh -c eval 'sleep 5'\n11102   /bin/zsh -c eval 'echo hi'\n\nbad line\n999 \n";
+        assert_eq!(
+            parse_pid_commands(out),
+            vec![
+                (4571, "/bin/zsh -c eval 'sleep 5'".to_string()),
+                (11102, "/bin/zsh -c eval 'echo hi'".to_string()),
+            ]
+        );
     }
 }

@@ -439,7 +439,6 @@ describe('the engine', { timeout: 300_000 }, () => {
     const allowed: Record<string, number> = {
       'src-tauri/src/acp.rs': 5,
       'src-tauri/src/claude/asks.rs': 1,
-      'src-tauri/src/engine/sessions.rs': 1,
       'src-tauri/src/starting.rs': 1,
       'src-tauri/src/terminal.rs': 4,
     };
