@@ -235,7 +235,7 @@ fn facts(path: &Path, base: Option<&str>) -> Result<Facts, String> {
     let head = run(&["rev-parse", "--verify", "HEAD"])?.trim().to_string();
     let unpushed = crate::git::unpushed_by(&run, base)?;
     let dirty = crate::git::parse_status(&status).dirty + hidden_changes(path)?;
-    Ok(Facts { dirty, unpushed, under_way: crate::git::under_way(path), head, locked: crate::git::locked(path), new_work: crate::git::new_work(path, base).len() as u32 })
+    Ok(Facts { dirty, unpushed, under_way: crate::git::under_way(path), head, locked: crate::git::locked(path), new_work: crate::git::new_work(path).len() as u32 })
 }
 
 /// Tracked files git is told not to look at (`update-index --assume-unchanged`, and
@@ -1018,10 +1018,14 @@ mod tests {
         crate::os::files::symlink("local.conf", wt.join("link")).unwrap();
         at(&wt, &["update-index", "--no-assume-unchanged", "link"]);
         at(&wt, &["reset", "-q", "--hard", "origin/main"]);
-        // One that has taken new work three times is reusable, though the board read no git: the
-        // resets above, onto the default branch, as a reused worktree is put back.
-        for _ in 0..1 {
-            at(&wt, &["reset", "-q", "--hard", "origin/main"]);
+        // Catch-up resets onto the default branch (such as scripts/land.sh's `git switch -C`)
+        // don't count as reusing the worktree; three branch switches do, though the board read no
+        // git.
+        at(&wt, &["reset", "-q", "--hard", "origin/main"]);
+        at(&wt, &["switch", "-q", "-C", "wt", "origin/main"]);
+        assert_eq!(kept(&board), None);
+        for name in ["second", "third", "fourth"] {
+            at(&wt, &["switch", "-q", "-c", name, "origin/main"]);
         }
         assert_eq!(kept(&board).as_deref(), Some("reusable: it has taken several pieces of work"));
         assert!(wt.exists());

@@ -3436,9 +3436,9 @@ started.
 
 A worktree that takes one piece of work after another (its right-click menu's Reuse for new work, or
 `codealong reuse on`), where others are kept for one piece of work each. A repo's main worktree
-(named `main` on its heading, as git calls it) and a worktree that has taken new work three times or
-more (another branch checked out, or its branch reset, as its HEAD's reflog says) are reusable
-unless turned off. Its heading in Sessions grouped by worktree says Free while it holds no work:
+(named `main` on its heading, as git calls it) and a worktree that has switched to another branch
+three times or more (as its HEAD's reflog says) are reusable unless turned off. Its heading in
+Sessions grouped by worktree says Free while it holds no work:
 nothing uncommitted or unlanded, and no agent at work; Landed once its PR merged, and Reusable
 while its work is under way or in review. New work in a repo starts in its reusable worktrees, from
 the quick panel's start row and Jev's suggestions alike: the main worktree when it holds no work,
