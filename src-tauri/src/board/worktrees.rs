@@ -20,12 +20,12 @@ pub fn can_reuse(seed: &LaneSeed) -> bool {
     !seed.elsewhere && !seed.chats && seed.origin != Origin::Folder
 }
 
-/// How many times a worktree must have taken new work to count as reused: once when it was
-/// made, maybe once more when its work was redone.
+/// How many times a worktree must have switched branches to count as reused: a couple of branch
+/// changes can happen in one piece of work, three says it's taking one piece of work after another.
 const REUSED_AT: u32 = 3;
 
-/// Whether a worktree has been reused: it took new work (another branch, or its branch reset)
-/// three times or more, as far back as its reflog goes (`git::new_work`).
+/// Whether a worktree has been reused: it switched to another branch three times or more, as far
+/// back as its reflog goes (`git::new_work`).
 pub fn reused(git: Option<&GitInfo>) -> bool {
     git.and_then(|g| g.new_work_count).is_some_and(|n| n >= REUSED_AT)
 }

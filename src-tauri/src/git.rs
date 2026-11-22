@@ -101,9 +101,9 @@ pub fn status(path: &Path, base: Option<&str>) -> GitInfo {
             info.removed = Some(removed);
         }
     }
-    let starts = memo.new_work(path, base);
-    info.reset_at = starts.last().copied();
-    info.new_work_count = Some(starts.len() as u32);
+    let reflog = memo.reflog_work(path, base);
+    info.reset_at = reflog.reset_at;
+    info.new_work_count = Some(reflog.branch_switches);
     info.unpushed = if info.base_ahead == Some(0) {
         Some(0)
     } else {
@@ -181,9 +181,9 @@ struct Memo {
     /// `stat` was read with nothing changed in the tree, so it's what the commits alone say.
     stat_clean: bool,
     unpushed: Option<u32>,
-    /// The new work read from HEAD's reflog, with the base it was read for and the stamp of the
+    /// What was read from HEAD's reflog, with the base it was read for and the stamp of the
     /// reflog it was read from.
-    reflog: Option<(u64, Option<String>, Vec<i64>)>,
+    reflog: Option<(u64, Option<String>, ReflogWork)>,
 }
 
 /// The longest the commit facts are taken from a memo before they're read again.
@@ -208,17 +208,17 @@ fn reusable(prior: &Memo, key: Option<&Key>, dirty: u32, now: Instant) -> Reuse 
 }
 
 impl Memo {
-    /// `new_work`, read again only when HEAD's reflog or the base changed.
-    fn new_work(&mut self, path: &Path, base: Option<&str>) -> Vec<i64> {
+    /// `reflog_work`, read again only when HEAD's reflog or the base changed.
+    fn reflog_work(&mut self, path: &Path, base: Option<&str>) -> ReflogWork {
         let stamp = git_dir(path).and_then(|d| stamp_of(&d.join("logs/HEAD")));
-        if let (Some(stamp), Some((was, was_base, starts))) = (stamp, &self.reflog) {
+        if let (Some(stamp), Some((was, was_base, work))) = (stamp, &self.reflog) {
             if stamp == *was && was_base.as_deref() == base {
-                return starts.clone();
+                return *work;
             }
         }
-        let starts = new_work(path, base);
-        self.reflog = stamp.map(|s| (s, base.map(str::to_string), starts.clone()));
-        starts
+        let work = reflog_work(path, base);
+        self.reflog = stamp.map(|s| (s, base.map(str::to_string), work));
+        work
     }
 }
 
@@ -286,28 +286,78 @@ pub fn locked(path: &Path) -> Option<String> {
     std::fs::read_to_string(dir.join("locked")).ok().map(|reason| reason.trim().to_string())
 }
 
-/// When the worktree at `path` took new work, oldest first, from its HEAD's reflog: each time
-/// HEAD went to another branch, or its branch was reset or made afresh (`git switch -C`,
-/// `checkout -B`, `reset --hard origin/main`). A file read, not a git run. Empty when the
-/// reflog has none, or can't be read.
-pub fn new_work(path: &Path, base: Option<&str>) -> Vec<i64> {
-    let Some(log) = git_dir(path).and_then(|d| std::fs::read(d.join("logs/HEAD")).ok()) else { return Vec::new() };
+/// What a worktree's `HEAD` reflog says about work started in it (`reflog_work`).
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+struct ReflogWork {
+    /// When the worktree last started new work (a branch switch, or resetting onto the default
+    /// branch or resetting its branch in place), so a reusable worktree sets aside earlier
+    /// sessions (`board::earlier`).
+    reset_at: Option<i64>,
+    /// How many times HEAD switched to another branch (`board::reused`): resets of the same
+    /// branch (such as `scripts/land.sh`'s catch-up `git switch -C` after a landing) don't count.
+    branch_switches: u32,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum WorkStep {
+    /// HEAD moved to another branch: counts toward `new_work_count` and advances `reset_at`.
+    BranchSwitch(i64),
+    /// The current branch was reset onto the default branch or reset/recreated in place:
+    /// advances `reset_at` for already-reusable worktrees (`board::earlier`), without counting
+    /// toward auto-reusable detection.
+    Reset(i64),
+}
+
+/// When the worktree at `path` switched to another branch, oldest first, from its HEAD's reflog.
+/// Resets of the same branch (such as `scripts/land.sh`'s catch-up `git switch -C` after a
+/// landing, or `git reset --hard origin/main`) don't count. A file read, not a git run. Empty
+/// when the reflog has none, or can't be read.
+pub fn new_work(path: &Path) -> Vec<i64> {
+    let Some(log) = read_reflog(path) else { return Vec::new() };
+    new_work_from_log(&log)
+}
+
+/// Both `reset_at` and `branch_switches` (`new_work`'s count) in one read of `logs/HEAD`.
+fn reflog_work(path: &Path, base: Option<&str>) -> ReflogWork {
+    let Some(log) = read_reflog(path) else { return ReflogWork::default() };
+    work_from_log(&log, base)
+}
+
+fn read_reflog(path: &Path) -> Option<String> {
+    let log = git_dir(path).and_then(|d| std::fs::read(d.join("logs/HEAD")).ok())?;
     let tail = &log[log.len().saturating_sub(REFLOG_TAIL)..];
-    new_work_from_log(&String::from_utf8_lossy(tail), base)
+    Some(String::from_utf8_lossy(tail).into_owned())
 }
 
 /// `new_work` over the contents of a `HEAD` reflog: tracks the `(branch, oid)` last left for a
 /// detached HEAD so inspecting commits (`checkout <sha>`, `checkout HEAD~1`, `checkout v1`,
-/// `checkout --detach main`) and returning to that same branch at the same commit doesn't count
-/// as taking new work, while resetting or recreating that branch (`switch -C`, `checkout -B`,
-/// `branch -D` + `switch -c`) onto a different commit still does.
-fn new_work_from_log(log: &str, base: Option<&str>) -> Vec<i64> {
+/// `checkout --detach main`) and returning to that same branch doesn't count as a branch switch.
+fn new_work_from_log(log: &str) -> Vec<i64> {
     let lines: Vec<&str> = log.lines().collect();
     let mut detached_from = None;
     let mut out = Vec::new();
     for (i, line) in lines.iter().enumerate() {
-        if let Some(ts) = new_work_step(line, &lines[i + 1..], base, &mut detached_from) {
+        if let Some(WorkStep::BranchSwitch(ts)) = work_step(line, &lines[i + 1..], None, &mut detached_from) {
             out.push(ts);
+        }
+    }
+    out
+}
+
+fn work_from_log(log: &str, base: Option<&str>) -> ReflogWork {
+    let lines: Vec<&str> = log.lines().collect();
+    let mut detached_from = None;
+    let mut out = ReflogWork::default();
+    for (i, line) in lines.iter().enumerate() {
+        match work_step(line, &lines[i + 1..], base, &mut detached_from) {
+            Some(WorkStep::BranchSwitch(ts)) => {
+                out.reset_at = Some(ts);
+                out.branch_switches += 1;
+            }
+            Some(WorkStep::Reset(ts)) => {
+                out.reset_at = Some(ts);
+            }
+            None => {}
         }
     }
     out
@@ -344,36 +394,45 @@ fn git_dir(path: &Path) -> Option<PathBuf> {
     crate::repos::linked_gitdir(path)
 }
 
-/// A reflog line's time, in ms, when it starts new work. A line is `<old> <new> <who> <seconds>
-/// <zone>`, a tab, then what happened. Going to the branch you're on (`switch -C` writes that
-/// after its reset), detaching HEAD to inspect commits and returning to the same branch at the
-/// same commit, and resets anywhere but the default branch (undoing a commit) don't count.
-/// `detached_from` carries `(branch, oid)` across lines while HEAD is detached.
-fn new_work_step<'a>(line: &'a str, rest_lines: &[&'a str], base: Option<&str>, detached_from: &mut Option<(&'a str, &'a str)>) -> Option<i64> {
+/// Classifies a reflog line as a branch switch (`WorkStep::BranchSwitch`) or an in-place reset
+/// (`WorkStep::Reset`), with its time in ms. A line is `<old> <new> <who> <seconds> <zone>`, a
+/// tab, then what happened. Going to the branch you're on (`switch -C` writes that after its
+/// reset), detaching HEAD to inspect commits and returning to the same branch at the same commit,
+/// and resets anywhere but the default branch (undoing a commit) are neither. `detached_from`
+/// carries `(branch, oid)` across lines while HEAD is detached.
+fn work_step<'a>(line: &'a str, rest_lines: &[&'a str], base: Option<&str>, detached_from: &mut Option<(&'a str, &'a str)>) -> Option<WorkStep> {
     let (old_oid, new_oid, seconds, message) = parse_reflog_line(line)?;
-    let new_work = if let Some(rest) = message.strip_prefix("checkout: moving from ") {
-        rest.split_once(" to ").is_some_and(|(from, to)| {
-            let from_detached = is_oid(from, old_oid);
-            let to_detached = is_detached_target(to, new_oid) || next_checkout_leaves_detached(rest_lines);
-            if to_detached {
-                if !from_detached {
-                    *detached_from = Some((from, old_oid));
-                }
-                return false;
+    let ts = seconds * 1000;
+    if let Some(rest) = message.strip_prefix("checkout: moving from ") {
+        let (from, to) = rest.split_once(" to ")?;
+        let from_detached = is_oid(from, old_oid);
+        let to_detached = is_detached_target(to, new_oid) || next_checkout_leaves_detached(rest_lines);
+        if to_detached {
+            if !from_detached {
+                *detached_from = Some((from, old_oid));
             }
-            let left = detached_from.take();
-            if from_detached {
-                left != Some((to, new_oid))
-            } else {
-                from != to
+            return None;
+        }
+        let left = detached_from.take();
+        if from_detached {
+            match left {
+                Some((branch, _)) if branch != to => Some(WorkStep::BranchSwitch(ts)),
+                Some((_, oid)) if oid != new_oid => Some(WorkStep::Reset(ts)),
+                Some(_) => None,
+                None => Some(WorkStep::BranchSwitch(ts)),
             }
-        })
+        } else if from != to {
+            Some(WorkStep::BranchSwitch(ts))
+        } else {
+            None
+        }
     } else if let Some(to) = message.strip_prefix("reset: moving to ") {
-        base.is_some_and(|b| to == b || b.split_once('/').is_some_and(|(_, name)| to == name))
+        base.is_some_and(|b| to == b || b.split_once('/').is_some_and(|(_, name)| to == name)).then_some(WorkStep::Reset(ts))
+    } else if message.starts_with("branch: Reset to ") || message.starts_with("branch: Created from ") {
+        Some(WorkStep::Reset(ts))
     } else {
-        message.starts_with("branch: Reset to ") || message.starts_with("branch: Created from ")
-    };
-    new_work.then_some(seconds * 1000)
+        None
+    }
 }
 
 fn parse_reflog_line(line: &str) -> Option<(&str, &str, i64, &str)> {
@@ -594,28 +653,59 @@ mod tests {
     }
 
     #[test]
-    fn a_reflog_line_starts_new_work_when_the_branch_changes_or_goes_back_to_the_base() {
-        let at = |m: &str| new_work_from_log(&format!("aaa bbb Some One <one@x.y> 1790785361 -0700\t{m}"), Some("origin/main")).into_iter().next();
-        assert_eq!(at("checkout: moving from app3 to feature"), Some(1_790_785_361_000));
-        assert_eq!(at("branch: Reset to origin/main"), Some(1_790_785_361_000));
-        assert_eq!(at("branch: Created from origin/main"), Some(1_790_785_361_000));
-        assert_eq!(at("reset: moving to origin/main"), Some(1_790_785_361_000));
-        assert_eq!(at("reset: moving to main"), Some(1_790_785_361_000));
+    fn only_branch_switches_count_as_new_work_while_resets_still_advance_reset_at() {
+        let log_line = |m: &str| format!("aaa bbb Some One <one@x.y> 1790785361 -0700\t{m}");
+        let count_at = |m: &str| new_work_from_log(&log_line(m)).into_iter().next();
+        let work_of = |m: &str| work_from_log(&log_line(m), Some("origin/main"));
+        let ts = 1_790_785_361_000;
+        // Switching to another branch counts as new work and advances reset_at.
+        assert_eq!(count_at("checkout: moving from app3 to feature"), Some(ts));
+        assert_eq!(work_of("checkout: moving from app3 to feature"), ReflogWork { reset_at: Some(ts), branch_switches: 1 });
+        // In-place branch resets (e.g. scripts/land.sh's catch-up `git switch -C`) and resets onto
+        // the default branch advance reset_at for already-reusable worktrees without counting as
+        // branch switches.
+        for reset in ["branch: Reset to origin/main", "branch: Reset to b1bc798e3b6e4b204297b7f87c48157a8f20aaf7", "branch: Created from origin/main", "reset: moving to origin/main", "reset: moving to main"] {
+            assert_eq!(count_at(reset), None, "{reset}");
+            assert_eq!(work_of(reset), ReflogWork { reset_at: Some(ts), branch_switches: 0 }, "{reset}");
+        }
         // Going to the branch it's on, detaching onto a commit or revspec, undoing a commit,
-        // committing and pulling don't.
-        assert_eq!(at("checkout: moving from app3 to app3"), None);
+        // committing and pulling are neither.
+        assert_eq!(work_of("checkout: moving from app3 to app3"), ReflogWork::default());
         let oid = "48a1673b11512e868fc1d6a4c0e664b444a018d7";
-        let at_oid = |m: &str| new_work_from_log(&format!("{oid} {oid} Some One <one@x.y> 1790785361 -0700\t{m}"), Some("origin/main")).into_iter().next();
-        assert_eq!(at_oid(&format!("checkout: moving from app3 to {oid}")), None);
-        assert_eq!(at_oid("checkout: moving from app3 to 48a1673b"), None);
-        assert_eq!(at_oid("checkout: moving from app3 to 48a16"), None);
-        assert_eq!(at_oid("checkout: moving from app3 to HEAD~1"), None);
-        assert_eq!(at_oid("checkout: moving from app3 to HEAD^"), None);
-        assert_eq!(at("reset: moving to HEAD~1"), None);
-        assert_eq!(at("reset: moving to HEAD"), None);
-        assert_eq!(at("commit: Fix the thing"), None);
-        assert_eq!(at("pull: Fast-forward"), None);
-        assert_eq!(new_work_from_log("no tab here", None), Vec::<i64>::new());
+        let work_oid = |m: &str| work_from_log(&format!("{oid} {oid} Some One <one@x.y> 1790785361 -0700\t{m}"), Some("origin/main"));
+        assert_eq!(work_oid(&format!("checkout: moving from app3 to {oid}")), ReflogWork::default());
+        assert_eq!(work_oid("checkout: moving from app3 to 48a1673b"), ReflogWork::default());
+        assert_eq!(work_oid("checkout: moving from app3 to 48a16"), ReflogWork::default());
+        assert_eq!(work_oid("checkout: moving from app3 to HEAD~1"), ReflogWork::default());
+        assert_eq!(work_oid("checkout: moving from app3 to HEAD^"), ReflogWork::default());
+        assert_eq!(work_of("reset: moving to HEAD~1"), ReflogWork::default());
+        assert_eq!(work_of("reset: moving to HEAD"), ReflogWork::default());
+        assert_eq!(work_of("commit: Fix the thing"), ReflogWork::default());
+        assert_eq!(work_of("pull: Fast-forward"), ReflogWork::default());
+        assert_eq!(new_work_from_log("no tab here"), Vec::<i64>::new());
+        assert_eq!(work_from_log("no tab here", None), ReflogWork::default());
+    }
+
+    #[test]
+    fn landing_catch_up_resets_do_not_inflate_branch_switch_count() {
+        let a = "48a1673b11512e868fc1d6a4c0e664b444a018d7";
+        let b = "833f210a81eb69faf4abf815deff0063e20c11b9";
+        let line = |t: i64, m: &str| format!("{a} {b} A <a@b.c> {t} +0000\t{m}\n");
+        // Two branch switches interleaved with three scripts/land.sh catch-up `git switch -C`
+        // resets: counts 2 branch switches (not 5), while reset_at still sees the latest catch-up.
+        let log = [
+            line(100, &format!("branch: Reset to {b}")),
+            line(100, "checkout: moving from topic-1 to topic-1"),
+            line(200, "checkout: moving from topic-1 to topic-2"),
+            line(300, &format!("branch: Reset to {b}")),
+            line(300, "checkout: moving from topic-2 to topic-2"),
+            line(400, "checkout: moving from topic-2 to topic-3"),
+            line(500, &format!("branch: Reset to {b}")),
+            line(500, "checkout: moving from topic-3 to topic-3"),
+        ]
+        .concat();
+        assert_eq!(new_work_from_log(&log), vec![200_000, 400_000]);
+        assert_eq!(work_from_log(&log, Some("origin/main")), ReflogWork { reset_at: Some(500_000), branch_switches: 2 });
     }
 
     #[test]
@@ -641,15 +731,20 @@ mod tests {
             line(c, b, 176, "checkout: moving from worktree-agent to v1.0"),
             line(b, c, 178, &format!("checkout: moving from {b} to worktree-agent")),
             // Resetting or recreating the same branch onto a different commit while detached
-            // (`git switch -C worktree-agent origin/main`, `branch -D` + `switch -c`) does count.
+            // (`git switch -C worktree-agent origin/main`, `branch -D` + `switch -c`) advances
+            // reset_at without counting as a branch switch.
             line(c, a, 180, &format!("checkout: moving from worktree-agent to {a}")),
             line(a, d, 185, &format!("checkout: moving from {a} to worktree-agent")),
-            // Switching from a detached HEAD onto a different branch does count.
+            // Switching from a detached HEAD onto a different branch counts as a branch switch.
             line(d, a, 190, &format!("checkout: moving from worktree-agent to {a}")),
             line(a, a, 195, &format!("checkout: moving from {a} to next-feature")),
         ]
         .concat();
-        assert_eq!(new_work_from_log(&log, Some("origin/main")), vec![185_000, 195_000]);
+        assert_eq!(new_work_from_log(&log), vec![195_000]);
+        assert_eq!(work_from_log(&log, Some("origin/main")), ReflogWork { reset_at: Some(195_000), branch_switches: 1 });
+        // Stopping right after the detached same-branch reset advances reset_at with 0 switches.
+        let before_switch: String = log.lines().take(14).map(|l| format!("{l}\n")).collect();
+        assert_eq!(work_from_log(&before_switch, Some("origin/main")), ReflogWork { reset_at: Some(185_000), branch_switches: 0 });
     }
 
     #[test]
@@ -660,10 +755,12 @@ mod tests {
         std::fs::create_dir_all(&wt).unwrap();
         std::fs::write(wt.join(".git"), format!("gitdir: {}\n", admin.display())).unwrap();
         let line = |t: i64, m: &str| format!("aaa bbb A <a@b.c> {t} +0000\t{m}\n");
-        let log = [line(100, "branch: Created from origin/main"), line(200, "commit: work"), line(300, "branch: Reset to origin/main"), line(301, "checkout: moving from app3 to app3"), line(400, "commit: more")].concat();
+        let log = [line(100, "branch: Created from origin/main"), line(200, "checkout: moving from app3 to feat"), line(300, "branch: Reset to origin/main"), line(301, "checkout: moving from feat to feat"), line(400, "commit: more")].concat();
         std::fs::write(admin.join("logs/HEAD"), log).unwrap();
-        assert_eq!(new_work(&wt, Some("origin/main")), vec![100_000, 300_000]);
-        assert_eq!(new_work(&root.join("nowhere"), None), Vec::<i64>::new());
+        assert_eq!(new_work(&wt), vec![200_000]);
+        assert_eq!(reflog_work(&wt, Some("origin/main")), ReflogWork { reset_at: Some(300_000), branch_switches: 1 });
+        assert_eq!(new_work(&root.join("nowhere")), Vec::<i64>::new());
+        assert_eq!(reflog_work(&root.join("nowhere"), None), ReflogWork::default());
     }
 
     #[test]

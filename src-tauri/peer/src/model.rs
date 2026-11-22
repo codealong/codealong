@@ -1341,8 +1341,8 @@ pub struct GitInfo {
     /// branch checked out, or its branch reset or made afresh.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub reset_at: Option<i64>,
-    /// How many times it took new work, as far back as its reflog goes (90 days by default):
-    /// one for a worktree made for one piece of work, many for one that's reused.
+    /// How many times it switched to another branch, as far back as its reflog goes (90 days by
+    /// default): zero for a worktree kept on one branch, three or more for one that's reused.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub new_work_count: Option<u32>,
     /// Commits HEAD has that no remote branch has (`git rev-list HEAD --not --remotes`, Claude
