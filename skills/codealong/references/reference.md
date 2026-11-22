@@ -71,7 +71,9 @@ Commands:
                 checkout, however many sessions worked there before), and its open
                 todos: the ones linked to the session, then the worktree's when no other
                 agent is running there (in a checkout several agents share, those are
-                the others' work). Run it first
+                the others' work), and the rest of the worktree's project
+                (`projectFolders`: the main checkout of each of its other repos, and its
+                folders), the most recently active first. Run it first
   todo          Todos: work meant for an agent. Each has a title, a description, labels,
                 a status (todo, in-progress, done) and the worktrees and sessions that
                 took it on. The app lists open ones under In progress, In review, Ready
@@ -649,14 +651,16 @@ Which session runs this command, its worktree, the other agents running in that 
 now (`others`: none means no other agent shares the checkout, however many sessions
 worked there before), and its open todos: the ones linked to the session, then the
 worktree's when no other agent is running there (in a checkout several agents share,
-those are the others' work). Run it first
+those are the others' work), and the rest of the worktree's project (`projectFolders`:
+the main checkout of each of its other repos, and its folders), the most recently active
+first. Run it first
 
 Usage: codealong whoami [OPTIONS]
 
 Options:
       --context
-          Plain text for a session-start hook, even when piped: a line or two when a
-          session or todo is found, nothing otherwise
+          Plain text for a session-start hook, even when piped: a few lines when a
+          session, a todo or the rest of its project is found, nothing otherwise
 
       --json
           JSON output. The default when stdout isn't a terminal

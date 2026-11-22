@@ -5310,8 +5310,10 @@ start a helper. Machines on builds before this don't say theirs.
 The `codealong` command and a skill that tells an agent when to use it. `codealong whoami` says
 which session runs it (found by its processes, for a session Codealong runs by the ID its harness
 gives the commands it runs, and for the Codex app and OpenCode by the session's own record of the
-command), the other agents running in its worktree, and its open todos (the
-worktree's too, when no other agent runs there); a worktree's agents are the sessions running in it,
+command), the other agents running in its worktree, its open todos (the worktree's too, when no
+other agent runs there), and where the rest of its project is: the main checkout of each of the
+project's other repos, and its folders (a session starting in Claude Code is told these as it
+starts, the eight last worked in by name); a worktree's agents are the sessions running in it,
 not every session that ever worked there, nor an app's unrelated chats in its chats folder or a
 headless run; `codealong todo
 add|start|done|update|move|wait|ready|link` work the todo list, dependencies, waits and order

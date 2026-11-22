@@ -153,9 +153,9 @@ enum Cmd {
     },
     /// Your part in the work, an experiment (`[experimental] analytics`, Settings › Experimental): what came in to your sessions and who from (you; Delegated, another session's agent; Automation, Codealong by itself; the session itself), what your prompts did with what the agent had said (set out new work, agreed, steered, redirected, asked), how sessions began, and how the ones you marked done stood (finished, or left asking you something, not landed…). The Analytics window's Your part and Sessions show the same; JSON has it all. `prompts` lists prompts of yours nothing has read yet, and `tag` says what one did.
     Analytics(AnalyticsArgs),
-    /// Which session runs this command, its worktree, the other agents running in that worktree now (`others`: none means no other agent shares the checkout, however many sessions worked there before), and its open todos: the ones linked to the session, then the worktree's when no other agent is running there (in a checkout several agents share, those are the others' work). Run it first.
+    /// Which session runs this command, its worktree, the other agents running in that worktree now (`others`: none means no other agent shares the checkout, however many sessions worked there before), and its open todos: the ones linked to the session, then the worktree's when no other agent is running there (in a checkout several agents share, those are the others' work), and the rest of the worktree's project (`projectFolders`: the main checkout of each of its other repos, and its folders), the most recently active first. Run it first.
     Whoami {
-        /// Plain text for a session-start hook, even when piped: a line or two when a session or todo is found, nothing otherwise.
+        /// Plain text for a session-start hook, even when piped: a few lines when a session, a todo or the rest of its project is found, nothing otherwise.
         #[arg(long)]
         context: bool,
     },

@@ -23,6 +23,9 @@ only to the worktree is another agent's. `me` and `.` in other commands mean tha
 that worktree. If it finds no session, todo commands still work, and `todo start` and `todo
 done` say on stderr that no session was linked; give a session key when you want one linked.
 A todo it lists is for your information, not a request to work on it (see *Todos*).
+`projectFolders` is the rest of your worktree's project on this machine: the main checkout of
+each of its other repos, and its folders. When the work reaches into one, read it there rather
+than looking for it or cloning it, and read the instructions at its root before changing it.
 
 ## Naming a session or a todo
 
