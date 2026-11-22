@@ -403,14 +403,17 @@ is left alone: Settings › Agents marks it Edited, and replaces it only when as
 
 The orchestrator is part of the same skill, `references/orchestrate.md`, which SKILL.md points
 an agent at when it's asked to run as one, so every harness has it from the one copy. That file
-has a skill's frontmatter too, and `plugin/skills/orchestrate/SKILL.md` links to it, so the plugin
-offers it in Claude Code as `/codealong:orchestrate` (tauri.conf.json bundles the link's file as
-the plugin's). `references/visualize.md`, laying the work in progress out on a board's canvas, is
-packaged the same way, as `/codealong:visualize`, and so are `references/meetings.md`, working from
-a meeting Codealong heard, as `/codealong:meetings`, and `references/coordinate.md`, splitting a
-piece of work across helpers that report back, as `/codealong:coordinate`. A new one is a file there with a skill's
-frontmatter, a link to it at `plugin/skills/<name>/SKILL.md`, that link's line in tauri.conf.json,
-and its name in skills.rs's test of the limits.
+has a skill's frontmatter too, and `plugin/skills/orchestrate/SKILL.md` holds a copy of it so the
+plugin offers it in Claude Code as `/codealong:orchestrate` (tauri.conf.json bundles it as the
+plugin's; Claude's plugin directory rejects symlinks, so `plugin/skills/` and
+`plugin/.claude-plugin/icon.png` keep real copies synced by `scripts/sync-plugin-skills.sh` and
+checked by a test in `skills.rs`). `references/visualize.md`, laying the work in progress out on a
+board's canvas, is packaged the same way, as `/codealong:visualize`, and so are
+`references/meetings.md`, working from a meeting Codealong heard, as `/codealong:meetings`, and
+`references/coordinate.md`, splitting a piece of work across helpers that report back, as
+`/codealong:coordinate`. A new one is a file there with a skill's frontmatter, its name in
+`scripts/sync-plugin-skills.sh` (then run the script to write `plugin/skills/<name>/SKILL.md`),
+its line in tauri.conf.json, and its name in skills.rs's tests.
 
 `plugin/` wraps the same skill as a Claude Code plugin (`.claude-plugin/plugin.json`, a
 `bin/codealong` shim that finds the app, a `SessionStart` hook that runs `codealong whoami
