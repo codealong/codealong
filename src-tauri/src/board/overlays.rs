@@ -25,6 +25,10 @@ pub const WAITS_FOR_INPUT: f64 = 0.3;
 pub const BACKGROUND_STALLED: f64 = 0.7;
 /// A background command is a server or watcher left running when Jev is this sure.
 pub const BACKGROUND_LEFT_RUNNING: f64 = 0.7;
+/// How long a background polling command stays Working with no session activity before it's marked
+/// stuck: real polls (CI, a review, a build) finish well within this, while longer waits belong in
+/// `codealong pr watch` or a schedule.
+pub const BACKGROUND_POLL_STALE_MS: i64 = 2 * 60 * 60 * 1000;
 /// A session counts as finished for its worktree from this sure.
 pub const FINISHED: f64 = 0.8;
 
@@ -552,6 +556,12 @@ pub fn apply_insight(s: &mut Session, i: &SessionInsight) {
         match kind {
             // Once its processes have sat still for a while, what the command looks like is moot.
             "polling" | "job" if s.status != Status::Working => {}
+            // Its last reply says the task is done (not waiting on this poll) and no Monitor
+            // runs beside it: the poll is a leftover, not active work.
+            "polling" if i.background_p.unwrap_or(0.0) >= BACKGROUND_LEFT_RUNNING && reply_done_with_background(i) && !has_active_monitor(s) => {
+                s.status = Status::Idle;
+                s.excerpt = Some(format!("Left running · {shown}"));
+            }
             "polling" => {
                 let waits = s.reply_tail.as_deref().map(last_sentence).filter(|q| !q.is_empty());
                 s.excerpt = Some(format!("Polling in the background · {}", waits.unwrap_or(shown)));
@@ -583,6 +593,18 @@ pub fn apply_insight(s: &mut Session, i: &SessionInsight) {
     }
 }
 
+/// Whether the read of a session's last reply says its turn finished rather than waiting on a
+/// background polling shell: what was asked is done (`FINISHED`) or landed, and its ending isn't
+/// `waiting`.
+fn reply_done_with_background(i: &SessionInsight) -> bool {
+    i.ending.as_deref() != Some("waiting") && (i.finished.is_some_and(|p| p >= FINISHED) || i.landing.as_deref() == Some("landed"))
+}
+
+/// Whether `s` has a running Monitor tool whose lines wake it.
+fn has_active_monitor(s: &Session) -> bool {
+    s.tasks.iter().any(|t| t.ended_at.is_none() && t.monitor)
+}
+
 /// What a session whose turn left `judged` running in the background (`Session::background`, the
 /// one command Jev reads) still waits on beside it, by its harness's list (`Session::tasks`): the
 /// newest other command it started there, or a Monitor, whose every line wakes it whatever its
@@ -608,13 +630,45 @@ fn needs_your_answer(s: &mut Session) {
     });
 }
 
-/// A session waiting on the agents its turn left running (`Session::agents`) whose reply asks you
-/// something you haven't seen (its turn ended after `seen_at`) Needs you, as an unread turn's
-/// does (`apply_insight`): it sits at its prompt, and its agents carry on whatever you answer.
-/// After `apply_insight`, which doesn't know when you looked.
-pub fn asks_while_agents_run(s: &mut Session, i: &SessionInsight, seen_at: i64) {
-    if s.status == Status::Working && !s.agents.is_empty() && s.status_since.unwrap_or(0) > seen_at && i.asks_you.unwrap_or(0.0) >= ASKS_YOU {
+/// Settles a session whose turn left work running in the background (`background` or `agents`)
+/// after `apply_insight`, using `seen_at` and `now`:
+/// - a turn that left a server or finished poll running (`Idle`, with `background`) is Your turn
+///   until you've seen it (`Unread`), and Needs you when its reply asks you something;
+/// - one still waiting on background agents or a background shell whose unseen reply asks you
+///   something Needs you until you've seen it;
+/// - a background polling shell quiet for `BACKGROUND_POLL_STALE_MS` (unless an agent tagged it
+///   as polling itself) is stuck, not working.
+pub fn settle_background_insight(s: &mut Session, i: &SessionInsight, seen_at: i64, now: i64) {
+    let unseen = s.status_since.unwrap_or(0) > seen_at;
+    if s.status == Status::Idle && s.background.is_some() && unseen {
+        s.status = Status::Unread;
+    }
+    if s.status == Status::Unread && s.background.is_some() && i.asks_you.unwrap_or(0.0) >= ASKS_YOU {
         needs_your_answer(s);
+    }
+    if s.status == Status::Working && s.left_running() && unseen && i.asks_you.unwrap_or(0.0) >= ASKS_YOU {
+        needs_your_answer(s);
+    }
+    stale_background_poll(s, i, now);
+}
+
+/// Marks a background polling shell stuck once the session has had no activity for
+/// `BACKGROUND_POLL_STALE_MS`, so an impossible `until ...; do sleep 5; done` loop doesn't hold a
+/// session in Working forever. Respects an explicit agent tag (`i.by.is_some()`).
+fn stale_background_poll(s: &mut Session, i: &SessionInsight, now: i64) {
+    if s.status != Status::Working || i.by.is_some() {
+        return;
+    }
+    let Some(cmd) = s.background.as_deref().map(str::trim).filter(|c| !c.is_empty()) else { return };
+    if i.background.as_deref() != Some("polling") || i.background_p.unwrap_or(0.0) < BACKGROUND_STALLED {
+        return;
+    }
+    let since = s.status_since.unwrap_or(s.last_activity).max(s.last_activity);
+    if since > 0 && now - since >= BACKGROUND_POLL_STALE_MS {
+        let shown = code(&truncate(&one_line(cmd, 200), 80));
+        s.status = Status::Needs;
+        s.stalled_since = Some(since);
+        s.excerpt = Some(format!("Stuck polling {shown}"));
     }
 }
 
@@ -1301,6 +1355,143 @@ mod tests {
         // Its processes already sat still long enough to be left running: so it stays.
         let still = Session { status: Status::Idle, excerpt: Some("Left running · `npm run dev`".into()), ..beside };
         assert_eq!(read(&still), (Status::Idle, Some("Left running · `npm run dev`".into())));
+    }
+
+    #[test]
+    fn a_finished_reply_takes_a_leftover_poll_out_of_working() {
+        let a = acct("claude2");
+        let poll = "until grep -q \"^exit\" /tmp/bu6c3bu2h.output; do sleep 5; done";
+        let quiet = Quiet { running: Some(poll), ..Default::default() };
+        let base = claude_session(&a, Some(&reg("shell", NOW - 60_000)), Some(&tr()), 0, NOW, &quiet).unwrap();
+        let done_poll = insight(|i| {
+            i.background = Some("polling".into());
+            i.background_p = Some(1.0);
+            i.ending = Some("report".into());
+            i.finished = Some(0.95);
+        });
+        // Finished reply + polling shell → left running (Idle when seen, Unread when unseen).
+        let mut seen = base.clone();
+        apply_insight(&mut seen, &done_poll);
+        settle_background_insight(&mut seen, &done_poll, NOW, NOW);
+        assert_eq!((seen.status, seen.excerpt.as_deref()), (Status::Idle, Some("Left running · `until grep -q \"^exit\" /tmp/bu6c3bu2h.output; do sleep 5; done`")));
+        let mut unseen = base.clone();
+        apply_insight(&mut unseen, &done_poll);
+        settle_background_insight(&mut unseen, &done_poll, 0, NOW);
+        assert_eq!(unseen.status, Status::Unread);
+        // A landed status line also marks a non-waiting poll as left running.
+        let landed_poll = insight(|i| {
+            i.background = Some("polling".into());
+            i.background_p = Some(1.0);
+            i.ending = Some("report".into());
+            i.landing = Some("landed".into());
+        });
+        let mut landed = base.clone();
+        apply_insight(&mut landed, &landed_poll);
+        assert_eq!(landed.status, Status::Idle);
+        // A reply whose ending is `waiting` stays Working even if `finished` is high.
+        let still_waiting = insight(|i| {
+            i.background = Some("polling".into());
+            i.background_p = Some(1.0);
+            i.ending = Some("waiting".into());
+            i.finished = Some(0.9);
+        });
+        let mut waiting = base.clone();
+        apply_insight(&mut waiting, &still_waiting);
+        assert_eq!(waiting.status, Status::Working);
+        // An uncertain polling guess stays Working rather than risking a running job.
+        let unsure_poll = insight(|i| {
+            i.background = Some("polling".into());
+            i.background_p = Some(0.5);
+            i.ending = Some("report".into());
+            i.finished = Some(0.95);
+        });
+        let mut unsure = base.clone();
+        apply_insight(&mut unsure, &unsure_poll);
+        assert_eq!(unsure.status, Status::Working);
+        // An active Monitor beside the poll still keeps it Working.
+        let mut monitored = Session { tasks: vec![BackgroundTask { id: "b1".into(), command: poll.into(), monitor: true, started_at: NOW - 60_000, ..Default::default() }], ..base };
+        apply_insight(&mut monitored, &done_poll);
+        assert_eq!(monitored.status, Status::Working);
+    }
+
+    #[test]
+    fn a_background_shell_whose_reply_asks_you_needs_you_until_seen() {
+        let a = acct("claude2");
+        let quiet = Quiet { running: Some("cargo test"), ..Default::default() };
+        let mut s = claude_session(&a, Some(&reg("shell", NOW - 60_000)), Some(&tr()), 0, NOW, &quiet).unwrap();
+        s.reply_tail = Some("Tests are running in the background. Should I also drop the old flag?".into());
+        let asks = insight(|i| {
+            i.background = Some("job".into());
+            i.background_p = Some(0.95);
+            i.asks_you = Some(0.92);
+            i.ending = Some("question".into());
+        });
+        let mut unseen = s.clone();
+        apply_insight(&mut unseen, &asks);
+        settle_background_insight(&mut unseen, &asks, NOW - 120_000, NOW);
+        assert_eq!((unseen.status, unseen.asks, unseen.excerpt.as_deref()), (Status::Needs, true, Some("Asks you · Should I also drop the old flag?")));
+        let mut seen = s.clone();
+        apply_insight(&mut seen, &asks);
+        settle_background_insight(&mut seen, &asks, NOW, NOW);
+        assert_eq!(seen.status, Status::Working);
+        // Same when the background command is a server left running.
+        let server_asks = insight(|i| {
+            i.background = Some("server".into());
+            i.background_p = Some(0.95);
+            i.asks_you = Some(0.9);
+            i.ending = Some("question".into());
+        });
+        let mut server = s;
+        apply_insight(&mut server, &server_asks);
+        settle_background_insight(&mut server, &server_asks, 0, NOW);
+        assert_eq!((server.status, server.asks), (Status::Needs, true));
+    }
+
+    #[test]
+    fn a_long_quiet_polling_shell_becomes_stuck() {
+        let a = acct("claude2");
+        let poll = "until [ \"$(grep -c '^== ' runner.log)\" -ge 5 ]; do sleep 5; done";
+        let quiet = Quiet { running: Some(poll), ..Default::default() };
+        let make = |age: i64| {
+            let at = NOW - age;
+            let t = TranscriptInfo { last_ts: at, ended_at: Some(at), ..tr() };
+            let r = RegistryEntry { started_at: Some(at - 60_000), ..reg("shell", at) };
+            claude_session(&a, Some(&r), Some(&t), 0, NOW, &quiet).unwrap()
+        };
+        let polling = insight(|i| {
+            i.background = Some("polling".into());
+            i.background_p = Some(0.98);
+            i.ending = Some("waiting".into());
+            i.finished = Some(0.05);
+        });
+        // Under the stale threshold: stays Working.
+        let mut fresh = make(BACKGROUND_POLL_STALE_MS - 60_000);
+        apply_insight(&mut fresh, &polling);
+        settle_background_insight(&mut fresh, &polling, NOW, NOW);
+        assert_eq!((fresh.status, fresh.stalled_since), (Status::Working, None));
+        // Past the threshold: marked stuck so it leaves Working and surfaces to you.
+        let mut stale = make(BACKGROUND_POLL_STALE_MS + 60_000);
+        apply_insight(&mut stale, &polling);
+        settle_background_insight(&mut stale, &polling, NOW, NOW);
+        assert_eq!(stale.status, Status::Needs);
+        assert_eq!(stale.stalled_since, Some(NOW - BACKGROUND_POLL_STALE_MS - 60_000));
+        assert!(stale.excerpt.as_deref().unwrap().starts_with("Stuck polling `until"), "{:?}", stale.excerpt);
+        // A long-running build/job is not timed out by the polling cap.
+        let job = insight(|i| (i.background, i.background_p) = (Some("job".into()), Some(0.98)));
+        let mut long_job = make(BACKGROUND_POLL_STALE_MS + 60_000);
+        apply_insight(&mut long_job, &job);
+        settle_background_insight(&mut long_job, &job, NOW, NOW);
+        assert_eq!(long_job.status, Status::Working);
+        // An explicit agent tag saying it's still legitimately polling is respected.
+        let tagged = insight(|i| {
+            i.background = Some("polling".into());
+            i.background_p = Some(1.0);
+            i.by = Some("claude:claude2:orch".into());
+        });
+        let mut kept = make(BACKGROUND_POLL_STALE_MS + 60_000);
+        apply_insight(&mut kept, &tagged);
+        settle_background_insight(&mut kept, &tagged, NOW, NOW);
+        assert_eq!(kept.status, Status::Working);
     }
 
     #[test]

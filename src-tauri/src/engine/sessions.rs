@@ -116,11 +116,7 @@ impl Engine {
             };
             if let Some(i) = crate::insights::merged(jev, said, tag) {
                 board::apply_insight(s, &i);
-                board::asks_while_agents_run(s, &i, self.seen.seen_at(&s.key));
-                // A turn that left a server running is over: Your turn until you've seen it.
-                if s.status == Status::Idle && s.background.is_some() && s.status_since.unwrap_or(0) > self.seen.seen_at(&s.key) {
-                    s.status = Status::Unread;
-                }
+                board::settle_background_insight(s, &i, self.seen.seen_at(&s.key), now);
             }
         }
         sessions

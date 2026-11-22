@@ -56,7 +56,16 @@ over all seven. Before changing one of them, read the file that names it below; 
   `board/sessions.rs` (`CLAUDE_STALL_MS`, `claude_busy_since`, `BACKGROUND_QUIET_MS`),
   `claude/shells.rs`. `statusUpdatedAt` isn't refreshed while busy. A `shell` session is never
   stuck by the 30-minute rule, but Jev can still call its background command stuck (`board/overlays.rs`
-  `BACKGROUND_STALLED`). While its command is active it's counted as working but drawn waiting,
+  `BACKGROUND_STALLED`), a polling loop with no session activity for `BACKGROUND_POLL_STALE_MS` (2h)
+  becomes stuck (`board/overlays.rs` `settle_background_insight`), and a `polling` shell whose last
+  reply says the task is done (or landed) is left running rather than working. When a subagent runs
+  a Bash command that moves to the background (past its timeout or with `run_in_background`) and
+  then finishes (`subagents/agent-*.meta.json` `finished: true`), Claude Code keeps that child shell
+  under the parent session's process and keeps writing `status: "shell"` after every later turn;
+  `claude/shells.rs` (`all_running`, `all_from_finished_subagents`) picks the newest shell child
+  and marks a `shell` session left running when every running child came from a finished subagent
+  and none matches an open main-session shell (seen on 2.1.329, 2026-11-22: 8 `until ...; sleep 5`
+  loops kept a finished session `Working` for 23h). While its command is active it's counted as working but drawn waiting,
   a clock and "Waiting on `<command>`" (`Session::waits_in_background`, `lanes.ts`
   `waitsInBackground`): a CI watch looked like a stuck turn behind the spinner (2026-10-07).
   Only the terminal UI writes `shell` (2.1.312's code: idle while any `local_bash` task runs, a

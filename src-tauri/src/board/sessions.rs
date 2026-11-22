@@ -59,6 +59,9 @@ pub struct Quiet<'a> {
     /// The last time the processes of a command left running in the background were seen doing
     /// something (starting processes, using CPU); None when nobody has looked.
     pub background_active_at: Option<i64>,
+    /// Every running background shell came from a subagent that already finished, and none belongs
+    /// to the main session's own open tasks (`claude/shells.rs` `all_from_finished_subagents`).
+    pub background_orphaned: bool,
 }
 
 /// A command left running in the background that has done nothing for this long is left
@@ -261,7 +264,7 @@ pub fn claude_session(
         .map(|t| t.max(quiet.subagent_at.unwrap_or(0)))
         .filter(|t| now - t > CLAUDE_STALL_MS && app_ask.is_none() && agents.is_empty());
     let background = reg.is_some_and(|r| r.status == "shell");
-    let left_running = background && quiet.background_active_at.is_some_and(|t| now - t >= BACKGROUND_QUIET_MS);
+    let left_running = background && (quiet.background_orphaned || quiet.background_active_at.is_some_and(|t| now - t >= BACKGROUND_QUIET_MS));
     let status = match reg {
         // Its process ended, closed or with the Mac restarting, but a turn you haven't seen is
         // still yours to read for a while.
@@ -1127,6 +1130,15 @@ mod tests {
         let mut poll = left.clone();
         apply_insight(&mut poll, &insight(|i| (i.background, i.background_p) = (Some("polling".into()), Some(0.9))));
         assert_eq!((poll.status, poll.excerpt), (Status::Unread, left.excerpt.clone()));
+        // A polling shell orphaned by a finished subagent looks active to `watch_background`
+        // (new `sleep` pid every few seconds), but is still left running, not working.
+        let orphan = Quiet { running: Some("until grep -q exit out; do sleep 5; done"), background_active_at: Some(NOW), background_orphaned: true, ..Quiet::default() };
+        let mut orphaned = claude_session(&a, Some(&r), Some(&tr()), 0, NOW, &orphan).unwrap();
+        assert_eq!((orphaned.status, orphaned.excerpt.as_deref()), (Status::Unread, Some("Left running · `until grep -q exit out; do sleep 5; done`")));
+        apply_insight(&mut orphaned, &insight(|i| (i.background, i.background_p) = (Some("polling".into()), Some(1.0))));
+        assert_eq!(orphaned.status, Status::Unread);
+        let seen_orphan = claude_session(&a, Some(&r), Some(&tr()), NOW, NOW, &orphan).unwrap();
+        assert_eq!(seen_orphan.status, Status::Idle);
     }
 
     #[test]
@@ -1239,13 +1251,13 @@ mod tests {
         let asks = insight(|i| i.asks_you = Some(0.9));
         let mut asked = s.clone();
         apply_insight(&mut asked, &asks);
-        asks_while_agents_run(&mut asked, &asks, NOW - 10 * MIN);
+        settle_background_insight(&mut asked, &asks, NOW - 10 * MIN, NOW);
         assert_eq!((asked.status, asked.asks, asked.excerpt.as_deref()), (Status::Needs, true, Some("Asks you · Shall I file it with these dates?")));
         let mut seen = s.clone();
-        asks_while_agents_run(&mut seen, &asks, NOW);
+        settle_background_insight(&mut seen, &asks, NOW, NOW);
         assert_eq!(seen.status, Status::Working);
         let mut waits = s.clone();
-        asks_while_agents_run(&mut waits, &insight(|i| i.asks_you = Some(0.05)), 0);
+        settle_background_insight(&mut waits, &insight(|i| i.asks_you = Some(0.05)), 0, NOW);
         assert_eq!((waits.status, waits.excerpt), (Status::Working, s.excerpt.clone()));
         // Mid-turn, busy is its turn's, whatever agents run beside it.
         let turn = TranscriptInfo { ended_at: None, ..t.clone() };

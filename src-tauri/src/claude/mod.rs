@@ -1304,6 +1304,14 @@ struct BackgroundWatch {
     active_at: i64,
 }
 
+/// What a quiet or background-shell session's child shells are running, read once per status change.
+#[derive(Clone, Default)]
+struct ShellCheck {
+    command: Option<String>,
+    /// Every running child shell came from a subagent that already finished.
+    orphaned: bool,
+}
+
 /// Claude Code's sessions for the board (`harness::Reader`): each account's live registry and
 /// transcripts as last read, and what a look at processes said about the sessions that have
 /// gone quiet.
@@ -1318,8 +1326,8 @@ pub struct Reader {
     /// The Claude app's session records, for what you archived there.
     app_records: app::Records,
     app_records_at: Option<Instant>,
-    /// (pid, status time) → the command a stuck session's shell is running.
-    stuck: Mutex<HashMap<(u32, i64), Option<String>>>,
+    /// (pid, status time) → what a stuck or background-shell session's shells are running.
+    stuck: Mutex<HashMap<(u32, i64), ShellCheck>>,
     /// Sessions whose turn left a command running in the background, by pid: when their
     /// processes last did something, from a look at them every minute.
     background: HashMap<u32, BackgroundWatch>,
@@ -1448,10 +1456,18 @@ impl Reader {
         }
     }
 
-    /// What a stuck session's shell is running, read once per stall.
-    fn stuck_command(&self, r: &RegistryEntry) -> Option<String> {
-        let mut cache = self.stuck.lock().ok()?;
-        cache.entry((r.pid, r.status_updated_at.unwrap_or(0))).or_insert_with(|| shells::running_command(r.pid)).clone()
+    /// What a stuck or background-shell session's shells are running, read once per status change.
+    fn stuck_check(&self, r: &RegistryEntry, tr: Option<(&Path, &TranscriptInfo)>) -> ShellCheck {
+        let Ok(mut cache) = self.stuck.lock() else { return ShellCheck::default() };
+        cache
+            .entry((r.pid, r.status_updated_at.unwrap_or(0)))
+            .or_insert_with(|| {
+                let running = shells::all_running(r.pid);
+                let command = running.first().map(|s| s.command.clone());
+                let orphaned = r.status == "shell" && tr.is_some_and(|(path, info)| shells::all_from_finished_subagents(path, &r.session_id, &running, &info.background.shells));
+                ShellCheck { command, orphaned }
+            })
+            .clone()
     }
 }
 
@@ -1619,19 +1635,22 @@ impl crate::harness::Reader for Reader {
             // then, as the others are.
             let background = reg.filter(|r| r.status == "shell" || info.is_some_and(|t| board::untold_shell(r, t)));
             let listed = |t: &TranscriptInfo| !look.ps.all().is_empty() && board::listed_after_shells(look.ps.at(), t);
-            let (subagent_at, running) = match board::claude_busy_since(reg, info) {
-                _ if background.is_some_and(|r| r.status != "shell") && info.is_some_and(listed) => (None, background.and_then(|r| shells::running_in(look.ps.all(), r.pid))),
-                _ if background.is_some() => (None, background.and_then(|r| self.stuck_command(r))),
+            let (subagent_at, running, background_orphaned) = match board::claude_busy_since(reg, info) {
+                _ if background.is_some_and(|r| r.status != "shell") && info.is_some_and(listed) => (None, background.and_then(|r| shells::running_in(look.ps.all(), r.pid)), false),
+                _ if background.is_some() => {
+                    let check = background.map(|r| self.stuck_check(r, tr)).unwrap_or_default();
+                    (None, check.command, check.orphaned)
+                }
                 Some(since) if now - since > board::CLAUDE_STALL_MS => {
                     let sub = tr.and_then(|(p, _)| subagent_activity(p, id));
                     let quiet = now - since.max(sub.unwrap_or(0)) > board::CLAUDE_STALL_MS;
-                    (sub, if quiet { reg.and_then(|r| self.stuck_command(r)) } else { None })
+                    (sub, if quiet { reg.and_then(|r| self.stuck_check(r, None).command) } else { None }, false)
                 }
-                _ => (None, None),
+                _ => (None, None, false),
             };
             let background_active_at = background.and_then(|r| self.background.get(&r.pid)).filter(|w| Some(w.since) == background.and_then(|r| r.status_updated_at)).map(|w| w.active_at);
             let app_ask = reg.and_then(applog::up_for);
-            let quiet = board::Quiet { app_ask: app_ask.as_ref(), subagent_at, running: running.as_deref(), background_active_at };
+            let quiet = board::Quiet { app_ask: app_ask.as_ref(), subagent_at, running: running.as_deref(), background_active_at, background_orphaned };
             if let Some(mut s) = board::claude_session(a, reg, info, seen_at, now, &quiet) {
                 // Archived here until it's active again, or archived in the Claude app.
                 s.archived = look.archived_here(&key, s.last_activity) || app_archived.contains(id);
