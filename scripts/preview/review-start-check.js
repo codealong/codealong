@@ -23,7 +23,7 @@
       check('a file without it reviews never in a terminal', select.value === 'no-terminal', select.value);
       var options = all('option', select).map(function (o) { return o.value; });
       check('it offers no terminal, Codealong, Background and your terminal', options.join() === 'no-terminal,codealong,background,terminal', options.join());
-      check('and says who can’t review so', /Antigravity and Cursor can do neither/.test(says(/^Where reviews run/)), says(/^Where reviews run/));
+      check('and says who can’t review so', /\. Cursor can do neither, so it doesn’t review\./.test(says(/^Where reviews run/)), says(/^Where reviews run/));
 
       var own = function () { return says(/^Reviewer of your pull requests/); };
       // The accounts come after the field; named but missing from this Mac's, the line says what
