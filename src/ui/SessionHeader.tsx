@@ -65,7 +65,7 @@ import { LabelPicker } from './LabelPicker';
 import { ModeLabel } from './ModeLabel';
 import { OpenInMenu } from './Inspector';
 import { PreviewChip } from './PreviewBits';
-import { ProjectPrefix } from './ProjectSaid';
+import { ProjectIcon, ProjectPrefix, useProjectAvatar } from './ProjectSaid';
 import { PrChipCard } from './PrLink';
 import { AccountLabel, BranchLabel, Button, cx, HarnessChip, headerMenu, Icon, PanelBack, STATUS_WORD, SessionEmblem, SessionGlyph, type PanelBackTo } from './primitives';
 import { runFolder } from './RunButton';
@@ -518,6 +518,10 @@ export function SessionHeader({ lane, session: s, apps, now, onOpen, onShowLane,
   const [allKin, setAllKin] = useState(false);
   const [allArtifacts, setAllArtifacts] = useState(false);
   const [allTasks, setAllTasks] = useState(false);
+  // Its place leads with its project's org avatar where the window says the project, in the
+  // folder's stead, as a worktree's chip does: the two side by side said the same thing twice.
+  const avatar = useProjectAvatar(lane.project);
+  const placeIcon = <ProjectIcon src={avatar} size={12} fallback />;
   const artifacts = s.artifacts ?? [];
   const tasksShown = allTasks && (s.tasks?.length ?? 0) > 0;
   // The latest started first: it's the one shown, and the rest open under it in the order they
@@ -659,14 +663,14 @@ export function SessionHeader({ lane, session: s, apps, now, onOpen, onShowLane,
             <span aria-hidden="true">·</span>
             {onShowLane ? (
               <button type="button" className="ca-sessinsp-lane" title={`Show ${lane.callsign}: ${tildePath(lane.path)}`} onClick={() => onShowLane(lane)}>
-                <Icon name="folder" size={12} />
-                <ProjectPrefix project={lane.project} beside={[lane.callsign]} />
+                {placeIcon}
+                <ProjectPrefix project={lane.project} beside={[lane.callsign]} withIcon={false} />
                 <span>{lane.callsign}</span>
               </button>
             ) : (
               <span className="ca-sessinsp-lane is-plain" title={tildePath(lane.path)}>
-                <Icon name="folder" size={12} />
-                <ProjectPrefix project={lane.project} beside={[lane.callsign]} />
+                {placeIcon}
+                <ProjectPrefix project={lane.project} beside={[lane.callsign]} withIcon={false} />
                 <span>{lane.callsign}</span>
               </span>
             )}
