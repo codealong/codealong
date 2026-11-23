@@ -127,6 +127,7 @@ PREVIEW_WAIT=30000 scripts/preview.sh sessions '' scripts/preview/accounts-copy-
 PREVIEW_WAIT=30000 scripts/preview.sh sessions '' scripts/preview/accounts-mcp-check.js
 PREVIEW_WAIT=30000 scripts/preview.sh sessions '' scripts/preview/accounts-off-check.js
 PREVIEW_WAIT=30000 scripts/preview.sh sessions '' scripts/preview/always-check.js
+PREVIEW_WAIT=30000 scripts/preview.sh sessions '' scripts/preview/antigravity-files-check.js
 PREVIEW_WAIT=30000 scripts/preview.sh sessions '' scripts/preview/approval-card-check.js
 PREVIEW_WAIT=30000 scripts/preview.sh sessions '' scripts/preview/caret-check.js
 PREVIEW_WAIT=30000 scripts/preview.sh sessions '' scripts/preview/chrome-check.js

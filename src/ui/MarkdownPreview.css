@@ -1,0 +1,50 @@
+/* In-app preview dialog for a local Markdown file (MarkdownPreview.tsx): wider than a form dialog
+   so embedded mock screenshots, carousels and tables read comfortably. */
+
+.ca-dialog.ca-mdpreview {
+  width: min(880px, 100%);
+  max-height: min(86vh, calc(100vh - 48px));
+}
+.ca-mdpreview-body {
+  display: block;
+  padding-top: var(--space-2);
+  font: var(--type-reading);
+  color: var(--ink);
+  -webkit-user-select: text;
+  user-select: text;
+}
+.ca-mdpreview-body .ca-desc-img img {
+  max-height: 520px;
+}
+.ca-mdpreview-tools {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-1);
+}
+.ca-mdpreview-note {
+  margin: var(--space-4) 0;
+  color: var(--ink-3);
+  font: var(--type-meta);
+}
+.ca-mdpreview-err {
+  margin: 0 0 var(--space-3);
+  color: var(--danger);
+  font: var(--type-meta);
+}
+.ca-mdpreview-ask {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-2);
+  padding: var(--space-6) var(--space-4);
+  border: 1px dashed var(--line-strong);
+  border-radius: var(--radius-md);
+  color: var(--ink-2);
+  text-align: center;
+}
+.ca-mdpreview-ask p {
+  margin: 0;
+  font: var(--type-meta);
+}

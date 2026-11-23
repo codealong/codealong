@@ -1356,6 +1356,8 @@ export interface FileCan {
   report: Report;
   /** Your editor (`[apps] editor`), which Open in names. */
   editor: Profile;
+  /** Opens a rendered preview inside Codealong, for Markdown files that offer one. */
+  preview?: () => void;
   /** In the app that opens its kind, as a double-click in the Finder (launch.rs `open_file`). */
   open: () => void;
   /** In your editor, at the path's line where it gave one. */
@@ -1366,9 +1368,10 @@ export interface FileCan {
 /** A file's menu, wherever a conversation names one (Markdown.tsx `PathCode`, `FileLink`). A
  *  folder has no Open: opening one shows it in the Finder, as Reveal does. */
 export function fileMenu(path: string, kind: PathKind, can: FileCan): MenuSpec {
+  const preview: MenuSpec = kind === 'file' && can.preview ? [{ label: 'Preview', run: can.preview }] : [];
   const open: MenuSpec = kind === 'file' ? [{ label: 'Open', run: can.open }] : [];
   const copy = copyItem('Copy path', path, 'path', can.report);
-  return sections([...open, { label: `Open in ${can.editor.name}`, run: can.edit }, { label: 'Reveal in Finder', run: can.reveal }], copy ? [copy] : []);
+  return sections([...preview, ...open, { label: `Open in ${can.editor.name}`, run: can.edit }, { label: 'Reveal in Finder', run: can.reveal }], copy ? [copy] : []);
 }
 
 /** A web link's menu, wherever a window shows one (Markdown.tsx `Link`, a session's pages in its

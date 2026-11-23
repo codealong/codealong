@@ -18,6 +18,7 @@
 
 import { createContext, useContext, useEffect, useLayoutEffect, useMemo, useRef, useState, type MouseEvent } from 'react';
 import { sentFiles, sentFileUrl } from '../api';
+import { isMarkdownFile } from '../filePaths';
 import { useLatest } from '../latest';
 import { mediaKind, type MediaKind } from '../sentFiles';
 import type { SentState, TranscriptItem } from '../types';
@@ -92,7 +93,7 @@ export function SentFiles({ sent, at }: { sent: NonNullable<TranscriptItem['sent
         <ul aria-label="Files it sent you">
           {listed.map((f) => (
             <li key={f}>
-              <FileLink path={f} />
+              <FileLink path={f} preview={isMarkdownFile(f)} />
             </li>
           ))}
         </ul>

@@ -3,6 +3,7 @@ import { createElement, Fragment, isValidElement, type ReactNode } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { blocks, inline, linked, Markdown } from './Markdown';
 import { FileChip, KeptImage } from './DescriptionEditor';
+import { LocalImage } from './LocalImage';
 import { prLabel, prRefOf } from '../prLinks';
 import * as fx from '../testing/fixtures';
 import { usePrLinks } from './PrLink';
@@ -351,5 +352,36 @@ describe('links to a session or a todo', () => {
   it('makes no link of one in a tool’s output or inside a link’s words', () => {
     expect(links(linked('{"link":"codealong://session/claude:claude:0e0b493b-aaaa"}'))).toEqual([]);
     expect(html('[see codealong://session/0e0b493b](https://x.dev)')).toBe('<div class="ca-md"><p><a class="ca-md-a" href="https://x.dev" title="https://x.dev">see codealong://session/0e0b493b</a></p></div>');
+  });
+});
+
+describe('local images and carousels', () => {
+  it('renders absolute and file:// local images as LocalImage elements', () => {
+    const nodes = inline('![Light](/Users/me/brain/light.png) and ![Dark](file:///Users/me/brain/dark%20mode.png)');
+    const imgs = nodes
+      .filter((n) => isValidElement(n) && n.type === LocalImage)
+      .map((n) => (isValidElement<{ path: string; alt: string }>(n) ? n.props : null));
+    expect(imgs).toEqual([
+      { path: '/Users/me/brain/light.png', alt: 'Light' },
+      { path: '/Users/me/brain/dark mode.png', alt: 'Dark' },
+    ]);
+  });
+
+  it('parses 4-backtick carousel blocks with nested 3-backtick code fences', () => {
+    const src = [
+      '````carousel',
+      '![Light](/Users/me/brain/light.png)',
+      '<!-- slide -->',
+      '```ts',
+      'const x = 1;',
+      '```',
+      '````',
+    ].join('\n');
+    expect(blocks(src)).toEqual([
+      {
+        kind: 'carousel',
+        slides: ['![Light](/Users/me/brain/light.png)', '```ts\nconst x = 1;\n```'],
+      },
+    ]);
   });
 });

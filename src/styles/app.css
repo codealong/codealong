@@ -92,6 +92,7 @@
 @import '../ui/card/CardPopover.css';
 @import '../ui/KanbanView.css';
 @import '../ui/Markdown.css';
+@import '../ui/MarkdownPreview.css';
 @import '../ui/HoverCard.css';
 @import '../ui/PrLink.css';
 @import '../ui/SessionLink.css';

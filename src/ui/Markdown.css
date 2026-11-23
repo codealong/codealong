@@ -277,3 +277,69 @@ button.ca-md-file:focus-visible {
   color: var(--ink-3);
   font: var(--type-meta);
 }
+
+/* A local image embedded in Markdown (`![alt](/abs/path.png)`, LocalImage.tsx): on a line of its
+   own with an optional quiet caption below, or a prompt when macOS asks before reading its folder. */
+.ca-md-img {
+  margin: 0 0 8px;
+}
+.ca-md-img:last-child {
+  margin-bottom: 0;
+}
+.ca-md-img-fig {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: var(--space-1);
+  margin: 0;
+  max-width: 100%;
+}
+.ca-md-img-fig .ca-desc-img {
+  margin-bottom: 0;
+}
+.ca-md-img-cap {
+  color: var(--ink-3);
+  font: var(--type-caption);
+}
+.ca-md-img-ask {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-2) var(--space-3);
+  border: 1px dashed var(--line-strong);
+  border-radius: var(--radius-sm);
+  background: var(--surface-sunken);
+}
+
+/* A slide carousel (`carousel` fence, Markdown.tsx Carousel): clean card with slide navigation. */
+.ca-md-carousel {
+  border: 1px solid var(--line);
+  border-radius: var(--radius-md);
+  background: var(--surface);
+  overflow: hidden;
+}
+.ca-md-carousel-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-2);
+  padding: 4px 8px 4px 12px;
+  border-bottom: 1px solid var(--line);
+  background: var(--surface-sunken);
+  color: var(--ink-3);
+  font: var(--type-meta);
+}
+.ca-md-carousel-nav {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+}
+.ca-md-carousel-body {
+  padding: var(--space-3);
+}
+.ca-md-carousel-body > * {
+  margin: 0 0 8px;
+}
+.ca-md-carousel-body > :last-child {
+  margin-bottom: 0;
+}

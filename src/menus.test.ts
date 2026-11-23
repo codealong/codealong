@@ -1136,6 +1136,7 @@ describe('fileMenu', () => {
 
   it('opens a file in its app or your editor, shows it and copies its path', () => {
     expect(labels(fileMenu('/Users/me/projects/atlas/plan.md', 'file', can))).toEqual(['Open', 'Open in Cursor', 'Reveal in Finder', '-', 'Copy path']);
+    expect(labels(fileMenu('/Users/me/projects/atlas/plan.md', 'file', { ...can, preview: noop }))).toEqual(['Preview', 'Open', 'Open in Cursor', 'Reveal in Finder', '-', 'Copy path']);
   });
 
   it('has no Open for a folder, which opening only shows in the Finder', () => {
