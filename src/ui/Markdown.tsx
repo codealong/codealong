@@ -21,13 +21,11 @@
 // (`FileLink`). Another `:::name` block
 // is a card of the same kind; other directives stay as they're written.
 
-import { createContext, Fragment, isValidElement, memo, useContext, useMemo, useState, type MouseEvent, type ReactNode } from 'react';
-import { editFile, openFile, openUrl, revealFile, yourEditor } from '../api';
+import { createContext, Fragment, isValidElement, memo, useContext, useMemo, useState, type ReactNode } from 'react';
+import { openUrl } from '../api';
 import { BARE_SOURCE, codealongLinkOf, codealongNameOf, type CodealongLink } from '../codealongLinks';
-import { showContextMenu } from '../contextMenu';
-import { pathIn, usePathKind, type PathAt } from '../filePaths';
-import { fileMenu, showLinkMenu } from '../menus';
-import type { PathKind } from '../types';
+import { fileUrlAt, isMarkdownFile, localImagePath, pathIn, usePathKind, type PathAt } from '../filePaths';
+import { showLinkMenu } from '../menus';
 import { ATTRS, attrsOf, cardAt, cardFields, cardKind, COMMENT, opensCard, tonesOf, toneLabel, type Card } from '../directives';
 import { BOLD, BOLD_UNDER, ITALIC } from '../emphasis';
 import { tildePath } from '../format';
@@ -35,11 +33,15 @@ import { prLabel, prRefOf } from '../prLinks';
 import { fenceNamesLanguage, useSyntax, type Run, type Syntax } from '../syntax';
 import { isKeptFile, keptImageOf } from '../todos';
 import { CodeBlock, CopyButton } from './CopyButton';
-import { errorText } from '../report';
 import { FileChip, ImagesFrom, KeptImage } from './DescriptionEditor';
+import { FileWhy, useFileActions } from './fileActions';
+import { LocalImage } from './LocalImage';
+import { MarkdownPreviewDialog } from './MarkdownPreview';
 import { PrLink } from './PrLink';
-import { cx, Icon, Seg } from './primitives';
+import { Button, cx, Icon, Seg } from './primitives';
 import { SessionLink, TodoLink } from './SessionLink';
+
+export { FileWhy, useFileActions } from './fileActions';
 
 const WEB = /^https?:\/\//i;
 /** A bare web link in text, without the punctuation that ends a sentence around it. */
@@ -149,7 +151,9 @@ type Block =
    *  written has no `:::` yet and holds the rest. */
   | ({ kind: 'card' } & Card)
   /** A comment Codex attached to lines of a file (`::code-comment{…}`). */
-  | { kind: 'comment'; attrs: Record<string, string> };
+  | { kind: 'comment'; attrs: Record<string, string> }
+  /** A slide carousel (````carousel … <!-- slide --> … ````), as Antigravity artifacts write one. */
+  | { kind: 'carousel'; slides: string[] };
 
 type Align = 'left' | 'center' | 'right' | null;
 
@@ -213,17 +217,30 @@ export function blocks(src: string, written = false): Block[] {
       i++;
       continue;
     }
-    if (/^\s*```/.test(line)) {
-      const lang = line.trim().slice(3).trim().split(/\s+/)[0].toLowerCase();
+    const fence = /^(\s*)(`{3,})(.*)$/.exec(line);
+    if (fence) {
       // A fence in a list is indented with the list, and so are the lines inside it.
-      const indent = line.length - line.trimStart().length;
+      const indent = fence[1].length;
+      const ticks = fence[2].length;
+      const lang = fence[3].trim().split(/\s+/)[0].toLowerCase();
+      const close = new RegExp(`^\\s*\`{${ticks},}\\s*$`);
       const body: string[] = [];
       i++;
-      while (i < lines.length && !/^\s*```/.test(lines[i])) body.push(lines[i++].replace(/^ +/, (sp) => sp.slice(indent)));
+      while (i < lines.length && !close.test(lines[i])) body.push(lines[i++].replace(/^ +/, (sp) => sp.slice(indent)));
       // A block still being written (a reply as it streams) has no closing fence yet.
       const closed = i < lines.length;
       i++;
       const text = body.join('\n');
+      if (closed && lang === 'carousel') {
+        const slides = text
+          .split(/^\s*<!--\s*slide\s*-->\s*$/m)
+          .map((s) => s.trim())
+          .filter(Boolean);
+        if (slides.length > 0) {
+          out.push({ kind: 'carousel', slides });
+          continue;
+        }
+      }
       const session = closed && (lang === '' || SHELLS.has(lang)) && text.trimStart().startsWith('!');
       out.push({ kind: 'code', text, lang, closed, shell: (closed && SHELLS.has(lang)) || session, session, bare: closed && lang === '' && !session });
       continue;
@@ -276,11 +293,15 @@ export function blocks(src: string, written = false): Block[] {
         // included: a wrapped line, a list nested in it, a paragraph or a code block under it.
         const body = [m[2]];
         i++;
-        let fenced = false;
+        let fenceTicks = 0;
         while (i < lines.length) {
           // Inside a code block every line is the block's, however far it's indented.
-          if (fenced || (lines[i].trim() && indentOf(lines[i]) > at)) {
-            if (/^\s*```/.test(lines[i])) fenced = !fenced;
+          if (fenceTicks > 0 || (lines[i].trim() && indentOf(lines[i]) > at)) {
+            const fm = /^\s*(`{3,})(.*)$/.exec(lines[i]);
+            if (fm) {
+              if (fenceTicks === 0) fenceTicks = fm[1].length;
+              else if (fm[1].length >= fenceTicks && !fm[2].trim()) fenceTicks = 0;
+            }
             body.push(lines[i++]);
             continue;
           }
@@ -319,7 +340,7 @@ export function blocks(src: string, written = false): Block[] {
 /** A line's inline marks, each its own group: code, bold, a link (words, then where), a bare link
  *  in angle brackets, a Codex follow-up (label, then attributes), a file Codex cites, italics, an
  *  image (words, then where). */
-const INLINE = String.raw`\`([^\`]+)\`|${BOLD}|${BOLD_UNDER}|\[([^\]]+)\]\(([^)\s]+)[^)]*\)|<(https?:\/\/[^\s>]+)>|(?<![\w:]):codex-followup\[([^\]]*)\]${ATTRS}|(?<![\w:]):codex-file-citation${ATTRS}|${ITALIC}|!\[([^\]\n]*)\]\(([^)\s]+)\)`;
+const INLINE = String.raw`\`([^\`]+)\`|${BOLD}|${BOLD_UNDER}|\[([^\]]+)\]\(([^)\s]+)[^)]*\)|<(https?:\/\/[^\s>]+)>|(?<![\w:]):codex-followup\[([^\]]*)\]${ATTRS}|(?<![\w:]):codex-file-citation${ATTRS}|${ITALIC}|!\[([^\]\n]*)\]\(([^)\n]+)\)`;
 
 /** A line's inline marks as elements: code first, so nothing inside backticks is read as a mark.
  *  Inside a link (`links` false) nothing more becomes a link, since links can't nest. Codex's
@@ -343,6 +364,7 @@ export function inline(text: string, links = true): ReactNode[] {
     else if (m[2] != null || m[3] != null) out.push(<strong key={n++}>{inline(m[2] ?? m[3], links)}</strong>);
     else if (m[4] != null) {
       const own = links ? codealongLinkOf(m[5]) : null;
+      const fileAt = links && !own ? fileUrlAt(m[5]) : null;
       out.push(
         links && WEB.test(m[5]) ? (
           <Link key={n++} url={m[5]}>
@@ -352,6 +374,10 @@ export function inline(text: string, links = true): ReactNode[] {
           <OwnLink key={n++} to={own} words={inline(m[4], false)} unknown={inline(m[4], links)} />
         ) : links && isKeptFile(m[5]) ? (
           <FileChip key={n++} name={m[4]} path={m[5]} />
+        ) : fileAt ? (
+          <FileHref key={n++} at={fileAt}>
+            {inline(m[4], false)}
+          </FileHref>
         ) : (
           <Fragment key={n++}>{inline(m[4], links)}</Fragment>
         ),
@@ -362,9 +388,19 @@ export function inline(text: string, links = true): ReactNode[] {
     else if (m[9] != null) out.push(<FileLink key={n++} path={attrsOf(m[9]).path ?? ''} opens={links} />);
     else if (m[10] != null) out.push(<em key={n++}>{inline(m[10], links)}</em>);
     else {
-      // Any other image reads as it did before images were drawn: its `!`, then its link.
+      // Kept images, local image paths (`![alt](/abs/path.png)` or `file:///…`), and anything else
+      // as before: its `!`, then its link.
       const kept = keptImageOf(m[12]);
-      out.push(kept ? <KeptImage key={n++} name={kept} alt={m[11]} /> : <Fragment key={n++}>!{inline(m[0].slice(1), links)}</Fragment>);
+      const local = kept ? null : localImagePath(m[12]);
+      out.push(
+        kept ? (
+          <KeptImage key={n++} name={kept} alt={m[11]} />
+        ) : local ? (
+          <LocalImage key={n++} path={local} alt={m[11]} />
+        ) : (
+          <Fragment key={n++}>!{inline(m[0].slice(1), links)}</Fragment>
+        ),
+      );
     }
     last = m.index + m[0].length;
   }
@@ -403,46 +439,53 @@ function FollowUp({ label, prompt }: { label: string; prompt: string }) {
   );
 }
 
-/** What a file a conversation names does, as `FileLink` and `PathCode` have it: a click opens it,
- *  in your editor at its line where the path gave one, else in the app that opens its kind
- *  (launch.rs `open_file`, which shows in the Finder what opening would run); a right-click
- *  offers each way, and its path (menus.ts `fileMenu`). What goes wrong is said in place (`why`):
- *  a file in a scratch folder is often gone by the time you look. */
-export function useFileActions({ path, line }: PathAt, kind: PathKind) {
-  const [why, setWhy] = useState<string | null>(null);
-  const tried = (work: Promise<void>) => {
-    setWhy(null);
-    work.catch((err: unknown) => setWhy(errorText(err)));
-  };
-  const open = () => tried(line != null && kind === 'file' ? editFile(path, line) : openFile(path));
-  const menu = (e: MouseEvent) => {
-    e.preventDefault();
-    e.stopPropagation();
-    // A copied path needs no word; one that couldn't be copied says so with the rest.
-    const report = { error: setWhy, info: () => {} };
-    tried(
-      yourEditor().then((editor) =>
-        showContextMenu(fileMenu(path, kind, { report, editor, open: () => tried(openFile(path)), edit: () => tried(editFile(path, line)), reveal: () => tried(revealFile(path)) })),
-      ),
-    );
-  };
-  return { why, open, menu };
-}
-
-/** Why a file didn't open, beside it. */
-export function FileWhy({ why }: { why: string | null }) {
-  return why ? (
-    <span className="ca-md-file-why" role="status">
-      {why}
-    </span>
-  ) : null;
-}
-
 /** Whether `el` holds some of what's selected: a drag across a path to select it ends in a click
  *  on it, which shouldn't open it. */
 function selectedIn(el: Element): boolean {
   const s = window.getSelection();
   return !!s && !s.isCollapsed && s.containsNode(el, true);
+}
+
+/** A local `file://` Markdown link (`[label](file:///…)`): underlined and clickable once the
+ *  engine confirms it's on this Mac (`usePathKind`). Markdown files without a `#L` line anchor
+ *  open in Codealong's in-app preview dialog; other files open in their app or your editor at
+ *  the linked line. */
+function FileHref({ at, children }: { at: PathAt; children: ReactNode }) {
+  const away = useContext(ImagesFrom);
+  const kind = usePathKind(away ? null : at.path);
+  const [previewing, setPreviewing] = useState(false);
+  const canPreview = kind === 'file' && at.line == null && isMarkdownFile(at.path);
+  const f = useFileActions(at, kind ?? 'file', canPreview ? () => setPreviewing(true) : undefined);
+  if (!kind) return <>{children}</>;
+  const title =
+    kind === 'folder'
+      ? `Reveal ${at.path} in Finder`
+      : at.line != null
+        ? `Open ${at.path} at line ${at.line} in your editor`
+        : canPreview
+          ? `Preview ${at.path}`
+          : `Open ${at.path}`;
+  return (
+    <>
+      <a
+        className="ca-md-a"
+        href={`file://${encodeURI(at.path)}`}
+        title={title}
+        onClick={(e) => {
+          e.preventDefault();
+          e.stopPropagation();
+          if (selectedIn(e.currentTarget)) return;
+          if (canPreview) setPreviewing(true);
+          else f.open();
+        }}
+        onContextMenu={f.menu}
+      >
+        {children}
+      </a>
+      <FileWhy why={f.why} />
+      {previewing && <MarkdownPreviewDialog path={at.path} onClose={() => setPreviewing(false)} render={(text) => <Markdown text={text} />} />}
+    </>
+  );
 }
 
 /** A path written as code (`/…` or `~/…`, filePaths.ts `pathIn`), as it's written, which opens
@@ -486,15 +529,17 @@ function PathCode({ code, at }: { code: string; at: PathAt }) {
  *  open and offer their menu as a path written as code does (`useFileActions`). A session on
  *  another device has its files there, so they don't open here, nor does a path that isn't a
  *  full one; inside a link's text (`opens` false) it's only the name. */
-export function FileLink({ path, opens = true }: { path: string; opens?: boolean }) {
+export function FileLink({ path, opens = true, preview = false }: { path: string; opens?: boolean; preview?: boolean }) {
   const away = useContext(ImagesFrom);
-  const f = useFileActions({ path, line: null }, 'file');
+  const [previewing, setPreviewing] = useState(false);
+  const canPreview = preview && opens && !away && path.startsWith('/') && isMarkdownFile(path);
+  const f = useFileActions({ path, line: null }, 'file', canPreview ? () => setPreviewing(true) : undefined);
   const cut = path.lastIndexOf('/');
   const name = path.slice(cut + 1) || path;
   const folder = cut > 0 ? tildePath(path.slice(0, cut)) : '';
   const shown = (
     <>
-      <Icon name="file" size={12} />
+      <Icon name={canPreview ? 'file-text' : 'file'} size={12} />
       <span className="ca-md-file-name">{name}</span>
       {folder && <span className="ca-md-file-dir">{folder}</span>}
     </>
@@ -511,16 +556,18 @@ export function FileLink({ path, opens = true }: { path: string; opens?: boolean
       <button
         type="button"
         className="ca-md-file is-open"
-        title={`Open ${path}`}
+        title={canPreview ? `Preview ${path}` : `Open ${path}`}
         onClick={(e) => {
           e.stopPropagation();
-          f.open();
+          if (canPreview) setPreviewing(true);
+          else f.open();
         }}
         onContextMenu={f.menu}
       >
         {shown}
       </button>
       <FileWhy why={f.why} />
+      {previewing && <MarkdownPreviewDialog path={path} onClose={() => setPreviewing(false)} render={(text) => <Markdown text={text} />} />}
     </>
   );
 }
@@ -582,6 +629,29 @@ function CodeComment({ attrs }: { attrs: Record<string, string> }) {
   );
 }
 
+/** A slide carousel (`carousel` fence with `<!-- slide -->` dividers), as Antigravity artifacts
+ *  embed light/dark pairs or walkthrough steps. */
+function Carousel({ slides }: { slides: string[] }) {
+  const [at, setAt] = useState(0);
+  const index = Math.min(at, slides.length - 1);
+  return (
+    <div className="ca-md-carousel">
+      {slides.length > 1 && (
+        <div className="ca-md-carousel-head">
+          <span>
+            Slide {index + 1} of {slides.length}
+          </span>
+          <span className="ca-md-carousel-nav">
+            <Button variant="ghost" size="sm" icon="chevron-left" aria-label="Previous slide" disabled={index === 0} onClick={() => setAt((n) => Math.max(0, n - 1))} />
+            <Button variant="ghost" size="sm" icon="chevron-right" aria-label="Next slide" disabled={index >= slides.length - 1} onClick={() => setAt((n) => Math.min(slides.length - 1, n + 1))} />
+          </span>
+        </div>
+      )}
+      <div className="ca-md-carousel-body">{blocks(slides[index]).map(drawBlock)}</div>
+    </div>
+  );
+}
+
 /** A list item: its first line's paragraph as a line of the item, then what's under it (a nested
  *  list, a paragraph, a code block) as blocks. */
 function drawItem(item: Block[], j: number): ReactNode {
@@ -595,12 +665,12 @@ function drawItem(item: Block[], j: number): ReactNode {
   );
 }
 
-/** A paragraph. One with images Codealong keeps in it (a prompt's, which go on the lines after its
- *  words) shows its words and images one under another, as a description does (DescriptionEditor.tsx
- *  `DescriptionView`), rather than an image pressed against the line above it. */
+/** A paragraph. One with images in it (kept or local) shows its words and images one under
+ *  another, as a description does (DescriptionEditor.tsx `DescriptionView`), rather than an image
+ *  pressed against the line above it. */
 function paragraph(text: string, key: number): ReactNode {
   const nodes = inline(text);
-  const image = (n: ReactNode) => isValidElement(n) && n.type === KeptImage;
+  const image = (n: ReactNode) => isValidElement(n) && (n.type === KeptImage || n.type === LocalImage);
   if (!nodes.some(image)) return <p key={key}>{nodes}</p>;
   const out: ReactNode[] = [];
   let words: ReactNode[] = [];
@@ -743,6 +813,8 @@ function drawBlock(b: Block, i: number): ReactNode {
       return <DirectiveCard key={i} card={b} />;
     case 'comment':
       return <CodeComment key={i} attrs={b.attrs} />;
+    case 'carousel':
+      return <Carousel key={i} slides={b.slides} />;
   }
 }
 

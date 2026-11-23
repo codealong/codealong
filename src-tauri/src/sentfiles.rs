@@ -211,6 +211,54 @@ fn respond(path: &str, you_asked: bool, range: Option<&str>) -> Result<Response<
     built.map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)
 }
 
+/// What reading a Markdown file to preview it inside Codealong gives back (`read_markdown`).
+#[derive(Clone, Debug, PartialEq, Serialize)]
+#[serde(tag = "kind", rename_all = "camelCase")]
+pub enum MarkdownRead {
+    /// Its contents, UTF-8.
+    Text { text: String },
+    /// macOS asks before Codealong reads this folder (`asks_first`); ask again once you've clicked
+    /// to show it.
+    AsksFirst,
+}
+
+/// The most of a Markdown file Codealong reads for an in-app preview.
+const MARKDOWN_MAX: u64 = 2 << 20;
+
+fn is_markdown(path: &Path) -> bool {
+    path.extension().and_then(|e| e.to_str()).is_some_and(|e| matches!(e.to_ascii_lowercase().as_str(), "md" | "markdown"))
+}
+
+/// Reads a local Markdown file for an in-app preview (src/ui/MarkdownPreview.tsx). Only a file
+/// whose name — and whose real path once symlinks are followed — ends in `.md` or `.markdown` is
+/// read, so nothing else on the machine can be read through it; one where macOS asks first waits
+/// until `you_asked` is true.
+pub fn read_markdown(path: &Path, you_asked: bool) -> Result<MarkdownRead, String> {
+    if !path.is_absolute() {
+        return Err("Only a full path on this machine can be previewed.".into());
+    }
+    if !is_markdown(path) {
+        return Err("Only Markdown files can be previewed here.".into());
+    }
+    let name = crate::util::file_name(path);
+    let real = dunce::canonicalize(path).map_err(|_| format!("{name} isn’t on this machine any more."))?;
+    if !is_markdown(&real) {
+        return Err("Only Markdown files can be previewed here.".into());
+    }
+    let meta = std::fs::metadata(&real).map_err(|_| format!("{name} isn’t on this machine any more."))?;
+    if !meta.is_file() {
+        return Err(format!("{name} isn’t a file."));
+    }
+    if asks_first(&real) && !you_asked {
+        return Ok(MarkdownRead::AsksFirst);
+    }
+    if meta.len() > MARKDOWN_MAX {
+        return Err(format!("{name} is too large to preview here."));
+    }
+    let text = std::fs::read_to_string(&real).map_err(|e| format!("Couldn’t read {name}: {e}"))?;
+    Ok(MarkdownRead::Text { text })
+}
+
 fn status_only(status: StatusCode) -> Response<Vec<u8>> {
     let mut r = Response::new(Vec::new());
     *r.status_mut() = status;
@@ -314,6 +362,28 @@ mod tests {
         assert_eq!(respond(&format!("/{}", urlencoding::encode(link.to_str().unwrap())), false, None).unwrap_err(), StatusCode::FORBIDDEN);
         let states = states(&[film.to_str().unwrap().into(), link.to_str().unwrap().into(), notes.to_str().unwrap().into(), dir.join("gone.png").to_str().unwrap().into(), "shots/after.png".into()]);
         assert_eq!(states, [State::Here, State::Gone, State::Gone, State::Gone, State::Gone]);
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
+    fn markdown_preview_reads_only_real_markdown_files() {
+        let dir = std::env::temp_dir().join(format!("codealong-mdread-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let doc = dir.join("mocks.md");
+        std::fs::write(&doc, "# Mocks\n\nHello").unwrap();
+        assert_eq!(read_markdown(&doc, false), Ok(MarkdownRead::Text { text: "# Mocks\n\nHello".into() }));
+
+        let secret = dir.join("secret.txt");
+        std::fs::write(&secret, "nope").unwrap();
+        assert!(read_markdown(&secret, false).is_err());
+
+        // A `.md` symlink pointing to a non-markdown file is refused too.
+        let link = dir.join("tricky.md");
+        os::files::symlink(&secret, &link).unwrap();
+        assert!(read_markdown(&link, false).is_err());
+
+        assert!(read_markdown(Path::new("relative.md"), false).is_err());
+        assert!(read_markdown(&dir.join("missing.md"), false).is_err());
         std::fs::remove_dir_all(&dir).unwrap();
     }
 }

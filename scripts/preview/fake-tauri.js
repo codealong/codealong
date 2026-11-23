@@ -873,6 +873,16 @@ window.__TAURI_INTERNALS__ = {
         return fetch('./files/' + encodeURIComponent(p), { method: 'HEAD' }).then(function (r) { return r.ok ? 'here' : 'gone'; }, function () { return 'gone'; });
       }));
     }
+    if (cmd === 'read_markdown') {
+      var mdPath = String((args || {}).path || '');
+      if (/^\/Users\/[^/]+\/(Desktop|Documents|Downloads)\//.test(mdPath) && !(args || {}).asked) {
+        return Promise.resolve({ kind: 'asksFirst' });
+      }
+      return fetch('./files/' + encodeURIComponent(mdPath)).then(function (r) {
+        if (!r.ok) return Promise.reject(mdPath.split('/').pop() + ' isn’t on this machine any more.');
+        return r.text().then(function (text) { return { kind: 'text', text: text }; });
+      });
+    }
     if (cmd === 'your_editor') return Promise.resolve({ id: 'cursor', name: 'Cursor' });
     // Chrome's profiles, for a link's menu and an account's pages: this Mac's, as Settings has them.
     if (cmd === 'chrome_profiles') return fetch('./config.json').then(function (r) { return r.ok ? r.json() : {}; }).then(function (v) { return v.chromeProfiles || []; });

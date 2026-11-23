@@ -23,6 +23,9 @@ export type PathKind = 'file' | 'folder';
  *  once you ask, or name it alone. */
 export type SentState = 'here' | 'asksFirst' | 'gone';
 
+/** What reading a local Markdown file for an in-app preview gives back (sentfiles.rs `MarkdownRead`). */
+export type MarkdownRead = { kind: 'text'; text: string } | { kind: 'asksFirst' };
+
 /** What switching a session's mode did (send.rs `switch_mode`): what happened, and the mode it's in
  *  now by its id, which isn't always the one asked for (its agent may put it in another). */
 export interface ModeSwitched {

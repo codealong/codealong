@@ -11,6 +11,7 @@ use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant, SystemTime};
 
 mod acp;
+mod artifacts;
 mod cache;
 mod rename;
 mod side;
@@ -818,9 +819,10 @@ pub struct Call {
     pub looks: bool,
     /// What an `ask_question` call asks you.
     pub questions: Vec<Question>,
-    /// The file it views or writes (`TargetFile`, `AbsolutePath`) as recorded, for its line to
-    /// open once transcript.rs has it in full (`files_from`).
+    /// The file it views or writes (`Path`, `TargetFile`, `AbsolutePath`) as recorded.
     pub file: Option<String>,
+    /// User-facing artifact and its embedded local images (artifacts.rs).
+    pub sent: Option<crate::harness::SentFiles>,
 }
 
 impl Call {
@@ -870,7 +872,7 @@ fn call(c: &Value, result_step: i64) -> Call {
     let said = said.next().map(|f| f.to_uppercase().collect::<String>() + said.as_str()).unwrap_or_default();
     let command = arg(&args, "CommandLine").filter(|_| name == "run_command");
     let cwd = arg(&args, "Cwd").filter(|c| !c.is_empty());
-    let file = ["TargetFile", "AbsolutePath", "DirectoryPath", "SearchPath", "SearchDirectory"].iter().find_map(|k| arg(&args, k)).filter(|p| p.starts_with('/'));
+    let file = ["Path", "TargetFile", "AbsolutePath", "DirectoryPath", "SearchPath", "SearchDirectory"].iter().find_map(|k| arg(&args, k)).filter(|p| p.starts_with('/'));
     let label = match (&command, arg(&args, "toolSummary").filter(|s| !s.trim().is_empty())) {
         (Some(c), _) => format!("{said} · {}", code(&one_line(c, 80))),
         (None, Some(summary)) => format!("{said} · {}", one_line(&summary, 80)),
@@ -886,12 +888,12 @@ fn call(c: &Value, result_step: i64) -> Call {
     };
     let work = match (&command, &cwd) {
         (Some(c), Some(dir)) => command_dir(c, dir),
-        _ => arg(&args, "TargetFile").filter(|p| p.starts_with('/')),
+        _ => artifacts::write_path(name, &args),
     };
     let looks = command.as_deref().is_some_and(only_looks);
     let questions = if name == ASK_QUESTION { questions_of(&args) } else { Vec::new() };
-    let file = ["TargetFile", "AbsolutePath"].iter().find_map(|k| arg(&args, k));
-    Call { result_step, label, input: command.clone().unwrap_or_else(rest), command, cwd, work, looks, questions, file }
+    let file = ["Path", "TargetFile", "AbsolutePath"].iter().find_map(|k| arg(&args, k));
+    Call { result_step, label, input: command.clone().unwrap_or_else(rest), command, cwd, work, looks, questions, file, sent: artifacts::sent_of(&args) }
 }
 
 /// The tool that asks you questions, each with choices to pick from.
@@ -1036,7 +1038,7 @@ pub fn conversation_items(v: &Value, _at: i64) -> Vec<Item> {
             }
             for c in &s.calls {
                 let shell = c.command.as_deref().is_some_and(|cmd| !cmd.trim().is_empty() && kept_whole(cmd));
-                out.push(Item { id: Some(c.result_step.to_string()), input: Some(clip_input(&c.input)), shell, cwd: c.cwd.clone().filter(|_| shell), questions: c.questions.clone(), file: c.file.clone(), ..item(s.at, "tool", c.label.clone()) });
+                out.push(Item { id: Some(c.result_step.to_string()), input: Some(clip_input(&c.input)), shell, cwd: c.cwd.clone().filter(|_| shell), questions: c.questions.clone(), file: c.file.clone(), sent: c.sent.clone(), ..item(s.at, "tool", c.label.clone()) });
             }
             out
         }
@@ -4202,5 +4204,45 @@ mod tests {
         assert_eq!(Antigravity.mode("auto").map(|m| m.kind), Some(ModeKind::Auto));
         assert_eq!(Antigravity.mode("plan").map(|m| m.kind), Some(ModeKind::Plan));
         assert_eq!(Antigravity.mode("unknown"), None);
+    }
+
+    #[test]
+    fn write_file_artifact_metadata_and_path_args_surface_on_items() {
+        let line = serde_json::json!({
+            "step_index": 10,
+            "source": "MODEL",
+            "type": "PLANNER_RESPONSE",
+            "status": "DONE",
+            "created_at": "2026-11-23T21:49:22Z",
+            "tool_calls": [
+                {
+                    "name": "read_file",
+                    "args": { "Path": "\"/Users/me/app/src/main.rs\"" }
+                },
+                {
+                    "name": "write_file",
+                    "args": {
+                        "Path": "\"/Users/me/.gemini/antigravity-cli/brain/id/mocks.md\"",
+                        "Content": "\"# Mocks\\n\\n![Light](/Users/me/.gemini/antigravity-cli/brain/id/light.png)\"",
+                        "ArtifactMetadata": "{\"UserFacing\":true,\"Summary\":\"Light mock\",\"RequestFeedback\":false}"
+                    }
+                }
+            ]
+        });
+        let items = conversation_items(&line, 0);
+        assert_eq!(items.len(), 2);
+        assert_eq!(items[0].text, "Read file · `main.rs`");
+        assert_eq!(items[0].file.as_deref(), Some("/Users/me/app/src/main.rs"));
+        assert_eq!(items[0].sent, None);
+        assert_eq!(call(&line["tool_calls"][0], 11).work, None);
+        assert_eq!(items[1].text, "Write file · `mocks.md`");
+        assert_eq!(items[1].file.as_deref(), Some("/Users/me/.gemini/antigravity-cli/brain/id/mocks.md"));
+        assert_eq!(call(&line["tool_calls"][1], 12).work.as_deref(), Some("/Users/me/.gemini/antigravity-cli/brain/id/mocks.md"));
+        let sent = items[1].sent.as_ref().expect("user-facing artifact should populate sent");
+        assert_eq!(sent.caption.as_deref(), Some("Light mock"));
+        assert_eq!(
+            sent.files,
+            vec!["/Users/me/.gemini/antigravity-cli/brain/id/mocks.md", "/Users/me/.gemini/antigravity-cli/brain/id/light.png"]
+        );
     }
 }

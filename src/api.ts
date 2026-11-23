@@ -4,7 +4,7 @@
 import { convertFileSrc, invoke } from '@tauri-apps/api/core';
 import { emit, emitTo, listen } from '@tauri-apps/api/event';
 import { getCurrentWebviewWindow } from '@tauri-apps/api/webviewWindow';
-import type { AccountCfg, AccountInfo, AgentsStatus, Analytics, Answers, AtLogin, Attachment, BarFeed, BarNote, Board, CalendarStatus, ChromeProfile, CloseOutcome, Config, ConfigView, DesktopFeed, DesktopPinned, DeviceFound, DevicesView, EditorIcon, FolderLook, FoundAccount, Harness, HarnessSchedule, Hearing, HearingStatus, HostedStream, KeptMeeting, MeetingAhead, MeetingFiles, IdlePlan, JevReport, LabelColor, Lane, LineageFeed, ListenAsk, ListeningTail, MergeBox, MergeOp, ModeSwitched, Notice, PathKind, PeekOpen, PeekShown, Pending, Profile, PointerProbe, PrAt, PrDetail, PrItem, ResetUsed, ResumeIn, Reviewed, Route, RouteNote, ScheduleOp, ScheduleTimes, Sent, SentState, Session, SessionSpent, Since, SetupView, ShortcutStatus, Side, SideKept, SkillsListed, StalePlan, StaleOutcome, Started, StartOptions, StartPlace, StartSpec, Talk, Talked, TerminalFrame, TerminalGlance, TerminalInput, TerminalSize, TerminalTheme, TextFound, Theme, TodoSuggested, TokenReport, Training, TranscriptPage, Unqueued, UpdateView, Verdict, Way, WrittenReview, YourReview } from './types';
+import type { AccountCfg, AccountInfo, AgentsStatus, Analytics, Answers, AtLogin, Attachment, BarFeed, BarNote, Board, CalendarStatus, ChromeProfile, CloseOutcome, Config, ConfigView, DesktopFeed, DesktopPinned, DeviceFound, DevicesView, EditorIcon, FolderLook, FoundAccount, Harness, HarnessSchedule, Hearing, HearingStatus, HostedStream, KeptMeeting, MeetingAhead, MeetingFiles, IdlePlan, JevReport, LabelColor, Lane, LineageFeed, ListenAsk, ListeningTail, MarkdownRead, MergeBox, MergeOp, ModeSwitched, Notice, PathKind, PeekOpen, PeekShown, Pending, Profile, PointerProbe, PrAt, PrDetail, PrItem, ResetUsed, ResumeIn, Reviewed, Route, RouteNote, ScheduleOp, ScheduleTimes, Sent, SentState, Session, SessionSpent, Since, SetupView, ShortcutStatus, Side, SideKept, SkillsListed, StalePlan, StaleOutcome, Started, StartOptions, StartPlace, StartSpec, Talk, Talked, TerminalFrame, TerminalGlance, TerminalInput, TerminalSize, TerminalTheme, TextFound, Theme, TodoSuggested, TokenReport, Training, TranscriptPage, Unqueued, UpdateView, Verdict, Way, WrittenReview, YourReview } from './types';
 import type { PrTab } from './agentReview';
 import type { ListenAsked } from './listening';
 import type { AgentTask } from './agentTasks';
@@ -1495,6 +1495,13 @@ export function imageUrl(name: string, from: string | null = null, again = 0): s
 export async function sentFiles(paths: string[]): Promise<SentState[]> {
   if (!inTauri) return paths.map(() => 'here');
   return invoke<SentState[]>('sent_files', { paths });
+}
+
+/** Reads a local Markdown file for an in-app preview (sentfiles.rs `read_markdown`), waiting for
+ *  `asked` when macOS asks permission for its folder. */
+export async function readMarkdown(path: string, asked = false): Promise<MarkdownRead> {
+  if (!inTauri) return { kind: 'text', text: '' };
+  return invoke<MarkdownRead>('read_markdown', { path, asked });
 }
 
 /** Where a window loads a picture, film or recording a session sent you, to show it in place

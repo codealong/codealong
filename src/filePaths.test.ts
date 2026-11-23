@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { fileInLine, pathIn } from './filePaths';
+import { fileInLine, fileUrlAt, isMarkdownFile, localImagePath, pathIn } from './filePaths';
 
 describe('fileInLine', () => {
   it('finds the file a call worked on where its line names it', () => {
@@ -45,5 +45,44 @@ describe('pathIn', () => {
     for (const code of ['src/ui/Markdown.tsx', './run.sh', '/release', '/codealong:orchestrate', '/', '~/', 'ls /Users/me', 'https://example.com/a/b', '//cdn.example.com/a.js', ' /Users/me/a.md', '/Users/me/a.md ']) {
       expect(pathIn(code), code).toBeNull();
     }
+  });
+});
+
+describe('fileUrlAt', () => {
+  it('parses local file:// URLs, percent-decoding paths and reading line anchors', () => {
+    expect(fileUrlAt('file:///Users/me/brain/mocks.md')).toEqual({ path: '/Users/me/brain/mocks.md', line: null });
+    expect(fileUrlAt('file://localhost/Users/me/My%20Docs/notes.md')).toEqual({ path: '/Users/me/My Docs/notes.md', line: null });
+    expect(fileUrlAt('file:///Users/me/src/Markdown.tsx#L344-L359')).toEqual({ path: '/Users/me/src/Markdown.tsx', line: 344 });
+    expect(fileUrlAt('file:///Users/me/src/Markdown.tsx#L12')).toEqual({ path: '/Users/me/src/Markdown.tsx', line: 12 });
+    expect(fileUrlAt('file:///Users/me/src/main.rs:42:7')).toEqual({ path: '/Users/me/src/main.rs', line: 42 });
+    expect(fileUrlAt('file:///C:/Users/me/notes.md#L5')).toEqual({ path: 'C:/Users/me/notes.md', line: 5 });
+  });
+
+  it('rejects non-file URLs, remote hosts and bad encodings', () => {
+    for (const url of ['https://example.com/a.md', 'file://otherhost/Users/me/a.md', 'file:///', 'file:///Users/%E0%A4%A/a.md', '/Users/me/a.md']) {
+      expect(fileUrlAt(url), url).toBeNull();
+    }
+  });
+});
+
+describe('localImagePath', () => {
+  it('recognizes absolute and file:// local image paths and rejects others', () => {
+    expect(localImagePath('/Users/me/brain/mock-light.png')).toBe('/Users/me/brain/mock-light.png');
+    expect(localImagePath('file:///Users/me/brain/mock%20dark.webp')).toBe('/Users/me/brain/mock dark.webp');
+    expect(localImagePath('</Users/me/My Shots/a.jpg>')).toBe('/Users/me/My Shots/a.jpg');
+    expect(localImagePath('/Users/me/a.png "Light"')).toBe('/Users/me/a.png');
+    expect(localImagePath('C:\\shots\\after.png')).toBe('C:\\shots\\after.png');
+    for (const target of ['https://example.com/a.png', '//cdn.example.com/a.png', 'images/0123456789abcdef.png', '/Users/me/notes.md', '/Users/me/clip.mp4', 'relative/shot.png']) {
+      expect(localImagePath(target), target).toBeNull();
+    }
+  });
+});
+
+describe('isMarkdownFile', () => {
+  it('matches .md and .markdown paths regardless of case', () => {
+    expect(isMarkdownFile('/Users/me/tool-rendering-mocks.md')).toBe(true);
+    expect(isMarkdownFile('/Users/me/README.MARKDOWN')).toBe(true);
+    expect(isMarkdownFile('/Users/me/shot.png')).toBe(false);
+    expect(isMarkdownFile('/Users/me/notes.md.bak')).toBe(false);
   });
 });
