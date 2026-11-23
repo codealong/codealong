@@ -9,6 +9,8 @@
 //! `projects/<folder as a slug>/agent-transcripts/<id>/<id>.jsonl`, which is what one of its
 //! chats' panel reads. Neither lists the other's chats. See .claude/rules/cursor.md.
 
+mod auth;
+
 use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
@@ -1954,56 +1956,12 @@ fn skip(pid: u32, cwd: &Path, asked: &Asked, words: Option<&str>) -> anyhow::Res
 
 /* ---- Privacy Mode ---- */
 
-/// Cursor's API, where the account's Privacy Mode is read and set, as Cursor 3.22.7's Settings
-/// and `cursor-agent` 2026.08.11 do: Connect's JSON over HTTP, `{}` to `GetUserPrivacyMode` and
-/// `{privacyMode}` to `SetUserPrivacyMode`. The app keeps a copy in its ItemTable
-/// (`cursorai/donotchange/newPrivacyMode2`) that it reads again every five minutes; writing it
-/// changes nothing on the server.
-const DASHBOARD: &str = "https://api2.cursor.sh/aiserver.v1.DashboardService";
 /// Where a person changes it by hand.
 const PRIVACY_PAGE: &str = "https://cursor.com/dashboard?tab=settings&openPrivacy=true";
 /// Privacy Mode as the Settings picker sets it: not trained on, though code may be kept for
 /// features that need it (Background Agents). `PRIVACY_MODE_NO_STORAGE` (Legacy) is offered only
 /// to accounts already on it.
 const NO_TRAINING: &str = "PRIVACY_MODE_NO_TRAINING";
-
-/// The sign-in to ask Cursor's API with: the app's, whose email Settings shows for the account;
-/// for a folder the app doesn't use, or with the app signed out, the command line's, kept in the
-/// account's folder (`auth.json`, `{accessToken, refreshToken, apiKey…}`) or the keychain. The
-/// token is never logged, and Codealong never refreshes it.
-fn api_token(home: &Path) -> Option<String> {
-    let cli = || procs::run("/usr/bin/security", &["find-generic-password", "-a", "cursor-user", "-s", "cursor-access-token", "-w"], None, Duration::from_secs(10)).ok();
-    saved_token(home).or_else(|| cli().and_then(usable_token))
-}
-
-/// The sign-in kept where Codealong reads it without asking the keychain: the app's, or the
-/// command line's file. What's read every couple of minutes goes by this alone, as the command
-/// line's keychain item is another program's, which macOS may ask you before handing over.
-fn saved_token(home: &Path) -> Option<String> {
-    let file = || {
-        let v: Value = serde_json::from_str(&std::fs::read_to_string(home.join("auth.json")).ok()?).ok()?;
-        v.get("accessToken").and_then(Value::as_str).map(str::to_string)
-    };
-    let app = || app_db(home).and_then(|p| crate::harness::open_database(&p)).and_then(|db| db.query_row("SELECT CAST(value AS TEXT) FROM ItemTable WHERE key = 'cursorAuth/accessToken'", [], |r| r.get::<_, String>(0)).ok());
-    app().and_then(usable_token).or_else(|| file().and_then(usable_token))
-}
-
-fn usable_token(t: String) -> Option<String> {
-    Some(t.trim().to_string()).filter(|t| !t.is_empty())
-}
-
-/// What a call says when Cursor turned its sign-in away.
-const EXPIRED: &str = "the sign-in has expired: sign in to Cursor again";
-
-fn dashboard(token: &str, method: &str, body: &Value) -> Result<Value, String> {
-    let headers = [format!("Authorization: Bearer {token}"), "Connect-Protocol-Version: 1".to_string()];
-    let reply = crate::http::call("POST", &format!("{DASHBOARD}/{method}"), &headers, Some(body), Duration::from_secs(15))?;
-    match reply.status {
-        200..=299 => reply.json().ok_or_else(|| "unexpected response".to_string()),
-        401 | 403 => Err(EXPIRED.to_string()),
-        other => Err(format!("HTTP {other}")),
-    }
-}
 
 /// Where the account stands from `GetUserPrivacyMode`'s answer: `privacyMode`, and
 /// `isEnforcedByTeam` when a team sets it. Fields at their defaults are left out.
@@ -2027,18 +1985,20 @@ fn privacy_training(account: &AccountCfg, v: &Value) -> crate::training::Trainin
 
 fn read_privacy(account: &AccountCfg) -> crate::training::Training {
     use crate::training::Training;
-    let Some(token) = api_token(&account.home_path()) else {
-        return Training::unknown(account, "Not signed in to Cursor.").at(PRIVACY_PAGE);
-    };
-    match dashboard(&token, "GetUserPrivacyMode", &serde_json::json!({})) {
-        Ok(v) => privacy_training(account, &v),
-        Err(why) => Training::unknown(account, format!("Couldn't read its Privacy Mode: {why}.")).at(PRIVACY_PAGE),
+    match auth::call_dashboard(&account.home_path(), "GetUserPrivacyMode", &serde_json::json!({})) {
+        Ok((v, _)) => privacy_training(account, &v),
+        Err(auth::TokenErr::Missing { app_encrypted: true }) => Training::unknown(account, format!("Cursor encrypts its app sign-in. Run {} so Codealong can check Privacy Mode.", code(&format!("{} login", cli_command(account))))).at(PRIVACY_PAGE),
+        Err(auth::TokenErr::Missing { app_encrypted: false }) => Training::unknown(account, "Not signed in to Cursor.").at(PRIVACY_PAGE),
+        Err(auth::TokenErr::Api(why)) => Training::unknown(account, format!("Couldn't read its Privacy Mode: {why}.")).at(PRIVACY_PAGE),
     }
 }
 
 fn stop_privacy(account: &AccountCfg) -> anyhow::Result<()> {
-    let token = api_token(&account.home_path()).ok_or_else(|| anyhow::anyhow!("{} isn't signed in to Cursor.", account.name))?;
-    dashboard(&token, "SetUserPrivacyMode", &serde_json::json!({ "privacyMode": NO_TRAINING })).map_err(|why| anyhow::anyhow!("Couldn't turn on Privacy Mode for {}: {why}.", account.name))?;
+    auth::call_dashboard(&account.home_path(), "SetUserPrivacyMode", &serde_json::json!({ "privacyMode": NO_TRAINING })).map_err(|e| match e {
+        auth::TokenErr::Missing { app_encrypted: true } => anyhow::anyhow!("Cursor encrypts its app sign-in. Run {} first.", code(&format!("{} login", cli_command(account)))),
+        auth::TokenErr::Missing { app_encrypted: false } => anyhow::anyhow!("{} isn't signed in to Cursor.", account.name),
+        auth::TokenErr::Api(why) => anyhow::anyhow!("Couldn't turn on Privacy Mode for {}: {why}.", account.name),
+    })?;
     Ok(())
 }
 
@@ -2049,24 +2009,49 @@ fn stop_privacy(account: &AccountCfg) -> anyhow::Result<()> {
 /// plan's name from `GetPlanInfo` (`planInfo.planName`, `Pro+`). Blocks for a second or so;
 /// call it off the engine thread.
 fn read_usage(account: &AccountCfg, now: i64) -> crate::model::Usage {
+    use crate::harness::Adapter as _;
+    read_usage_with(
+        account,
+        now,
+        || auth::call_dashboard(&account.home_path(), "GetCurrentPeriodUsage", &serde_json::json!({})),
+        |token| auth::dashboard(token, "GetPlanInfo", &serde_json::json!({})),
+        || Cursor.missing_cli(account, &crate::util::home()).is_none(),
+    )
+}
+
+fn read_usage_with(
+    account: &AccountCfg,
+    now: i64,
+    usage_call: impl FnOnce() -> Result<(Value, String), auth::TokenErr>,
+    plan_call: impl FnOnce(&str) -> Result<Value, String>,
+    has_cli: impl FnOnce() -> bool,
+) -> crate::model::Usage {
     let mut u = crate::model::Usage { loading: false, ..crate::usage::loading(account) };
-    let Some(token) = saved_token(&account.home_path()) else {
-        u.error = Some("Not signed in to Cursor".to_string());
-        u.needs_sign_in = true;
-        return u;
-    };
-    match dashboard(&token, "GetCurrentPeriodUsage", &serde_json::json!({})) {
-        Ok(v) => {
+    match usage_call() {
+        Ok((v, token)) => {
             u.as_of = Some(now);
             u.meters = usage_meters(&v, usage_display(&account.home_path()));
             if u.meters.is_empty() {
                 u.error = Some("Cursor reports no usage limits for this plan.".to_string());
             }
             // Only the name, which nothing waits on: a plan read that fails leaves it out.
-            u.plan = dashboard(&token, "GetPlanInfo", &serde_json::json!({})).ok().and_then(|p| p.pointer("/planInfo/planName")?.as_str().map(str::to_string)).filter(|n| !n.is_empty());
+            u.plan = plan_call(&token).ok().and_then(|p| p.pointer("/planInfo/planName")?.as_str().map(str::to_string)).filter(|n| !n.is_empty());
         }
-        Err(why) => {
-            u.needs_sign_in = why == EXPIRED;
+        Err(auth::TokenErr::Missing { app_encrypted }) => {
+            if app_encrypted && !has_cli() {
+                u.no_limits = true;
+                u.error = Some("Cursor encrypts its app sign-in. Install cursor-agent and run `cursor-agent login` so Codealong can read usage.".to_string());
+            } else {
+                u.needs_sign_in = true;
+                u.error = Some(if app_encrypted {
+                    format!("Cursor encrypts its app sign-in: run {} to sign in", code(&format!("{} login", cli_command(account))))
+                } else {
+                    "Not signed in to Cursor".to_string()
+                });
+            }
+        }
+        Err(auth::TokenErr::Api(why)) => {
+            u.needs_sign_in = why == auth::EXPIRED;
             u.error = Some(format!("Couldn't read usage: {why}"));
         }
     }
@@ -2260,13 +2245,13 @@ impl crate::harness::Adapter for Cursor {
         "Cursor"
     }
 
-    /// The app's sign-in, by the email it keeps beside its tokens, or the command line's file,
-    /// when it keeps one rather than the keychain. Only the email is read.
+    /// The app's sign-in (by the email beside its tokens), the command line's file, or its macOS
+    /// keychain item. Reads no secret.
     fn signed_in(&self, home: &Path) -> (bool, Option<String>) {
         let db = app_db(home).and_then(|p| crate::harness::open_database(&p));
         let email = db.and_then(|db| db.query_row("SELECT CAST(value AS TEXT) FROM ItemTable WHERE key = 'cursorAuth/cachedEmail'", [], |r| r.get::<_, String>(0)).ok());
         let email = email.map(|e| e.trim().to_string()).filter(|e| e.contains('@'));
-        (email.is_some() || home.join("auth.json").is_file(), email)
+        (email.is_some() || auth::file_signed_in(home) || auth::cli_store_has(home), email)
     }
 
     /// The command line signs in with `login`; without it, the app does from its own window.
@@ -2294,7 +2279,7 @@ impl crate::harness::Adapter for Cursor {
             files.push(db);
         }
         let has_data = files.iter().any(|p| p.is_dir() || (p.is_file() && !file_name(p).ends_with("-wal")));
-        crate::harness::FolderUse { has_data, last_used: files.iter().filter_map(|p| crate::util::mtime_ms(p)).max(), signed_in: dir.join("auth.json").is_file() }
+        crate::harness::FolderUse { has_data, last_used: files.iter().filter_map(|p| crate::util::mtime_ms(p)).max(), signed_in: auth::file_signed_in(dir) }
     }
 
     /// `~/.cursor/skills`, in your home whatever folder the account is kept in: the app and the
@@ -2444,15 +2429,17 @@ impl crate::harness::Adapter for Cursor {
         app.into_iter().chain(cli).filter_map(|c| c.cwd).collect()
     }
 
-    /// Usage is asked of Cursor's servers with a sign-in kept where Codealong reads it without
-    /// the keychain (`saved_token`): the app's, or the command line's file.
+    /// Usage is asked of Cursor's servers with the app's sign-in or the command line's (`auth.json`
+    /// or the OS secret store).
     fn no_limits(&self, account: &AccountCfg) -> Option<&'static str> {
-        (!self.polls_usage(account)).then_some("Codealong reads Cursor's usage with the Cursor app's sign-in, which this account doesn't have.")
+        (!self.polls_usage(account)).then_some("Codealong reads Cursor's usage with Cursor's sign-in, which this account doesn't have.")
     }
 
     fn polls_usage(&self, account: &AccountCfg) -> bool {
         let home = account.home_path();
-        app_db(&home).is_some_and(|db| db.is_file()) || home.join("auth.json").is_file()
+        app_db(&home).is_some_and(|db| db.is_file())
+            || auth::auth_file_paths(&home).iter().any(|p| p.is_file())
+            || (file_name(&home) == ".cursor" && self.missing_cli(account, &crate::util::home()).is_none())
     }
 
     fn read_usage(&self, account: &AccountCfg, now: i64) -> crate::model::Usage {
@@ -3357,17 +3344,6 @@ mod tests {
         assert_eq!(display_of(Some("express"), true, false), CursorModelsOnly);
         assert_eq!(display_of(Some("pro"), false, false), Total);
         assert_eq!(display_of(None, false, false), Total);
-    }
-
-    /// A folder the app doesn't use (not `~/.cursor`) has the command line's sign-in, from its
-    /// file when it keeps one.
-    #[test]
-    fn a_command_line_sign_in_kept_in_a_file_is_read() {
-        let dir = std::env::temp_dir().join(format!("codealong-cursor-auth-{}", std::process::id()));
-        std::fs::create_dir_all(&dir).unwrap();
-        std::fs::write(dir.join("auth.json"), r#"{"accessToken": " tok ", "refreshToken": "r", "apiKey": null}"#).unwrap();
-        assert_eq!(api_token(&dir).as_deref(), Some("tok"));
-        let _ = std::fs::remove_dir_all(&dir);
     }
 
     /// The terminal UI's prompts as 2026.11.05 drew them in tmux (2026-11-09), a web search's with
