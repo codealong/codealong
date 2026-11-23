@@ -365,6 +365,10 @@ pub struct Board {
     /// The schedules this machine shares with your others, as its feed tells them (peerfeed.rs).
     #[serde(skip)]
     pub shared_schedules: codealong_peer::schedules::Shared,
+    /// PRs (`prlinks::pr_key`) merged recently through Codealong's own merge box (`Engine::merged_here`),
+    /// so the nudger knows you merged them rather than the PR's session. Not sent to windows.
+    #[serde(skip)]
+    pub merged_here: std::collections::HashSet<String>,
 }
 
 

@@ -205,12 +205,27 @@ pub fn start() -> Result<Ctx, String> {
         }
         // The same for news on PRs with their nudge on: one thread for the batch, since two sends
         // typing into one terminal at once would interleave, and it says how each went, so what
-        // wasn't told is tried again.
+        // wasn't told is tried again. Merge nudges held while a turn settles wake once their
+        // settle window is up, even if no board came meanwhile.
         if let Some(engine) = nudges_with.get() {
-            let due = nudger.lock().map(|mut n| n.due(board, board.generated_at)).unwrap_or_default();
+            let (due, wake) = nudger.lock().map(|mut n| (n.due(board, board.generated_at), n.wake())).unwrap_or_default();
             if !due.is_empty() {
                 let (engine, nudger) = (engine.clone(), nudger.clone());
                 std::thread::spawn(move || nudges::send_now(&engine, &nudger, due));
+            }
+            if let Some(mut at) = wake {
+                let (engine, nudger) = (engine.clone(), nudger.clone());
+                std::thread::spawn(move || loop {
+                    std::thread::sleep(std::time::Duration::from_millis((at - util::now_ms()).max(0) as u64));
+                    let board = engine.board();
+                    let Ok((due, next)) = nudger.lock().map(|mut n| n.woke(at, &board, util::now_ms())) else { return };
+                    if !due.is_empty() {
+                        let (engine, nudger) = (engine.clone(), nudger.clone());
+                        std::thread::spawn(move || nudges::send_now(&engine, &nudger, due));
+                    }
+                    let Some(next) = next else { return };
+                    at = next;
+                });
             }
         }
         // And sessions a lost connection stopped, once their API can be reached, a usage limit,

@@ -510,6 +510,9 @@ struct Engine {
     running_elsewhere: std::collections::BTreeSet<String>,
     /// The PRs a session on another online device is actively working on (`Handle::peer_lanes`).
     working_elsewhere: std::collections::BTreeSet<String>,
+    /// PRs (`prlinks::pr_key`) merged through Codealong's own merge box (`Msg::Merged`), with when,
+    /// so merge nudges don't mistake your click for the agent merging it.
+    merged_here: HashMap<String, i64>,
     /// Your machines that share automations (`Handle::peer_machines`).
     machines: std::sync::Arc<crate::shared::Machines>,
     /// The files changed in the background whose last change couldn't be made, by name with
@@ -666,6 +669,7 @@ impl Engine {
             reusable: HashMap::new(),
             running_elsewhere: Default::default(),
             working_elsewhere: Default::default(),
+            merged_here: HashMap::new(),
             machines: Default::default(),
             store_warnings: Vec::new(),
             servers: None,
@@ -907,6 +911,9 @@ impl Engine {
                 Ok(Msg::RefreshGithub) => self.github.poll(&self.seeds, false, Now::real()),
                 Ok(Msg::PrChanged) => self.github.on_changed(&self.seeds, Now::real()),
                 Ok(Msg::Merged(slug, number, reply)) => {
+                    let now = now_ms();
+                    self.merged_here.retain(|_, at| now - *at < 15 * 60_000);
+                    self.merged_here.insert(prlinks::pr_key(&format!("{slug}#{number}")), now);
                     let changed = self.github.on_merged(slug, number, &self.seeds, Now::real());
                     self.dirty_if(changed, "merged");
                     // Now rather than on the next tick: the window shows it merged meanwhile.
