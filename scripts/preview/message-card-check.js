@@ -25,11 +25,14 @@
         var b = helpers[1];
         page.items = page.items.concat([
           item('codealong', news, 0, { glance: { about: 'pr', pr: { number: 397, title: 'Cursor file tools', url: 'https://github.com/northwind/app/pull/397' }, parts: [{ line: 'ana asked for changes' }] } }),
-          item('codealong', 'About your helpers:\n- The helper “' + a.title + '” (' + a.key + ') ended its turn: `codealong session wait ' + a.key + '` prints its reply.\n- The helper “' + b.title + '” (' + b.key + ') waits on your user.', 1, {
+          item('codealong', 'On your PR #430 “Severity floor 2026-11-27: Cloud SQL Auth Proxy 2.28.0” (https://github.com/northwind/app/pull/430):\n- whather approved it.\n- Its branch now conflicts with main, its base.\nTake it from there.', 1, {
+            glance: { about: 'pr', pr: { number: 430, title: 'Severity floor 2026-11-27: Cloud SQL Auth Proxy 2.28.0', url: 'https://github.com/northwind/app/pull/430' }, parts: [{ line: 'whather approved it' }, { line: 'conflicts with main' }] },
+          }),
+          item('codealong', 'About your helpers:\n- The helper “' + a.title + '” (' + a.key + ') ended its turn: `codealong session wait ' + a.key + '` prints its reply.\n- The helper “' + b.title + '” (' + b.key + ') waits on your user.', 2, {
             glance: { about: 'helper', parts: [{ session: { key: a.key, title: a.title }, line: 'ended its turn' }, { session: { key: b.key, title: b.title }, line: 'waits on you' }] },
           }),
-          item('codealong', 'An older message, with no line for its card.', 2),
-          item('agent', 'On it.', 3),
+          item('codealong', 'An older message, with no line for its card.', 3),
+          item('agent', 'On it.', 4),
         ]);
         page.after = 20;
         return page;
@@ -44,6 +47,19 @@
           else if (helpers.length < 2 && s.key !== picked.key) helpers.push({ key: s.key, title: s.title || 'A helper' });
         });
       });
+      // Register PR #430 on the board so the card's link sees a known PR and proves it adds no second PR icon.
+      if (!board.prs.some(function (pr) { return pr.key === 'northwind/app#430'; })) {
+        board.prs = board.prs.concat([
+          Object.assign({}, board.prs[0] || {}, {
+            key: 'northwind/app#430',
+            repoSlug: 'northwind/app',
+            number: 430,
+            title: 'Severity floor 2026-11-27: Cloud SQL Auth Proxy 2.28.0',
+            url: 'https://github.com/northwind/app/pull/430',
+            state: 'approved',
+          }),
+        ]);
+      }
       return board;
     });
   };
@@ -64,22 +80,30 @@
   until(function () { return row() && helpers.length === 2; }, 20000, 'no session to show, with two others as its helpers')
     .then(function () {
       row().dispatchEvent(new MouseEvent('mousedown', { bubbles: true }));
-      return until(function () { return cards().length === 3; }, 8000, 'the three cards');
+      return until(function () { return cards().length === 4; }, 8000, 'the four cards');
     })
     .then(function () {
       var pr = cards()[0];
-      var helper = cards()[1];
+      var approved = cards()[1];
+      var helper = cards()[2];
       var line = pr.querySelector('.ca-msgcard-title').textContent;
-      check('a PR’s news is its PR and what happened, in a line', /#397 Cursor file tools/.test(line) && /ana asked for changes/.test(line), line);
+      check('a PR’s news is concise with #number woven in, without the full PR title', line === 'ana asked for changes on #397', line);
       check('with the PR as a link', !!pr.querySelector('.ca-msgcard-title a.ca-prlink'), pr.innerHTML.slice(0, 200));
+      var approvedLine = approved.querySelector('.ca-msgcard-title').textContent;
+      var approvedLink = approved.querySelector('.ca-msgcard-title a.ca-prlink');
+      check('approval and conflict read concisely with #number', approvedLine === 'whather approved #430 · conflicts with main', approvedLine);
+      check('a known PR link in a card adds no redundant PR icon', !!approvedLink && !approvedLink.querySelector('.ca-prlink-icon'), approvedLink && approvedLink.innerHTML);
+      var linkColor = approvedLink && getComputedStyle(approvedLink).color;
+      var headColor = getComputedStyle(approved.querySelector('.ca-msgcard-head')).color;
+      check('and its link inherits the card heading color rather than browser blue', linkColor === headColor, linkColor + ' vs ' + headColor);
       // What shows: the line; the whole message is there, hidden, until it's opened.
       var shows = function (card) { return card.querySelector('.ca-msgcard-head').textContent; };
       check('and none of what it says to the agent', !/Take it from there|merge it only|quokka/.test(shows(pr)) && pr.querySelector('.ca-msgcard-body').hidden, shows(pr));
       var links = Array.prototype.map.call(helper.querySelectorAll('.ca-msgcard-title a.ca-sesslink'), function (a) { return a.getAttribute('href'); });
       check('several helpers’ news names each helper as a link to its session', links.join(' ') === helpers.map(function (h) { return 'codealong://session/' + h.key; }).join(' '), links.join(' '));
       check('with what happened to each, and none of the commands', /ended its turn · .*waits on you/.test(shows(helper)) && !/codealong session wait/.test(shows(helper)), shows(helper));
-      check('each closed until opened', !open(pr) && !open(helper));
-      var older = cards()[2];
+      check('each closed until opened', !open(pr) && !open(approved) && !open(helper));
+      var older = cards()[3];
       check('one with no line from the engine is a card headed Codealong, its words under it', older.querySelector('.ca-msgcard-title').textContent === 'Codealong' && !older.querySelector('.ca-msgcard-body').hidden && /An older message/.test(older.querySelector('.ca-msgcard-body').textContent) && !older.querySelector('.ca-msgcard-open'), older.textContent);
       pr.querySelector('.ca-msgcard-head').click();
       return tick();

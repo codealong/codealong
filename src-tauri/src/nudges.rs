@@ -790,9 +790,25 @@ pub fn glance(text: &str) -> Option<crate::glance::Glance> {
     let title = named[..at].strip_prefix('“')?;
     let url = named[at + "” (".len()..].strip_suffix(')')?;
     // What follows a happening's first words: its words, an agent's part in it, what's to do.
+    // Boilerplate subjects ("Its branch now …", "It was …") are trimmed so the card stays brief.
     let short = |item: &str| -> String {
         let cut = [": “", ", with their agent's review", ", from ", ", in a review", "; "].iter().filter_map(|m| item.find(m)).min().unwrap_or(item.len());
-        item[..cut].trim().trim_end_matches('.').to_string()
+        let s = item[..cut].trim().trim_end_matches('.');
+        if let Some(base) = s.strip_prefix("Its branch now conflicts with ").and_then(|r| r.strip_suffix(", its base")) {
+            format!("conflicts with {base}")
+        } else if let Some(rest) = s.strip_prefix("Its branch now ") {
+            rest.to_string()
+        } else if let Some(rest) = s.strip_prefix("Its ") {
+            rest.to_string()
+        } else if s == "It was closed without being merged" {
+            "closed".to_string()
+        } else if let Some(rest) = s.strip_prefix("It was ") {
+            rest.to_string()
+        } else if s == "Changes were asked for" {
+            "changes asked for".to_string()
+        } else {
+            s.to_string()
+        }
     };
     // A happening starts its line with "- ", a comment's further lines indented under it
     // (`glance::item`). Before they were, a comment's lines started where a happening's do: a
@@ -1565,7 +1581,14 @@ mod tests {
         // Another's PR, an agent's review from someone's account, and failing checks.
         let theirs = "On PR #4 “Fix “quotes” (and parens)” (https://github.com/o/r/pull/4):\n- ken's agent (claude) commented, from ken's account; an agent's review, not ken's word: “Fine.”\n- Its checks failed: test, lint.\nTake it from there.";
         let g = glance(theirs).unwrap();
-        assert_eq!((g.words(), g.pr.unwrap().title), ("ken's agent (claude) commented · Its checks failed: test, lint".to_string(), "Fix “quotes” (and parens)".to_string()));
+        assert_eq!((g.words(), g.pr.unwrap().title), ("ken's agent (claude) commented · checks failed: test, lint".to_string(), "Fix “quotes” (and parens)".to_string()));
+        // Approval with a base conflict, and each boilerplate item, reads concisely.
+        let conflicted = "On your PR #430 “Severity floor” (https://github.com/o/r/pull/430):\n- whather approved it.\n- Its branch now conflicts with main, its base.\nTake it from there.";
+        assert_eq!(glance(conflicted).unwrap().words(), "whather approved it · conflicts with main");
+        let base_only = "On your PR #430 “Severity floor” (https://github.com/o/r/pull/430):\n- Its branch now conflicts with its base.\nTake it from there.";
+        assert_eq!(glance(base_only).unwrap().words(), "conflicts with its base");
+        let board_only = "On your PR #1 “Fix” (https://github.com/o/r/pull/1):\n- It was approved.\n- Changes were asked for.\n- It was merged.\n- It was closed without being merged.\nNothing more.";
+        assert_eq!(glance(board_only).unwrap().words(), "approved · changes asked for · merged · closed");
         // Turned on for one approved already, with nothing read: said in the board's words.
         assert!(words(&approved, &Why { approved: true, ..Why::default() }, None, None, NudgeAbout::Everything).unwrap().contains("- It was approved.\n"));
         let merged = off(PrItem { state: PrState::Merged, mine: false, ..pr("o/r#1", PrState::Open, &[A]) });

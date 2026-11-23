@@ -4,6 +4,19 @@
   display: inline-flex;
 }
 
+/* It reads as a link wherever it is: in a reply as any link there does (Markdown.css), and in a
+   message card's heading (MessageCard.tsx `GlanceLine`). */
+.ca-prlink {
+  color: inherit;
+  text-decoration: underline;
+  text-decoration-color: var(--line-strong);
+  text-underline-offset: 2px;
+  cursor: pointer;
+}
+.ca-prlink:hover {
+  text-decoration-color: currentColor;
+}
+
 /* A link to a GitHub PR (PrLink.tsx): its state's icon ahead of its words once the PR is known. */
 .ca-prlink .ca-prlink-icon {
   margin-right: 2px;
