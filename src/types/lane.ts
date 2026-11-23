@@ -27,8 +27,6 @@ export interface GitInfo {
   /** When the worktree last took new work, from its HEAD's reflog: another branch checked out,
    *  or its branch reset or made afresh. */
   resetAt?: number;
-  /** How many times it took new work, as far back as its reflog goes. */
-  newWorkCount?: number;
   /** Commits HEAD has that no remote branch has: they'd go with the worktree. */
   unpushed?: number;
   /** Why the worktree is locked (`git worktree lock`), when it is. */

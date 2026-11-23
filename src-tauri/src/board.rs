@@ -501,7 +501,7 @@ pub fn compose(inp: Inputs) -> Board {
     let mut lanes = Vec::with_capacity(seeds.len());
     for ((seed, sessions), guests) in seeds.iter().zip(by_lane).zip(guests) {
         let g = git.get(&seed.path).cloned();
-        let reuse_on = reusable(seed, marks, g.as_ref());
+        let reuse_on = reusable(seed, marks);
         // Counted before the list is cut, archived ones too: archiving doesn't end a session.
         let running = sessions.iter().filter(|s| s.live).count();
         // Archived sessions stay in the lane's list, last, and out of its status. In a reusable
@@ -562,11 +562,11 @@ pub fn compose(inp: Inputs) -> Board {
         // a main checkout, reusable unless marked otherwise, parks as others do.
         let parked = bay == Bay::Idle && !dirty && now - last_activity > 14 * DAY_MS && !(reuse_on && mark == Some(true));
         let looks_finished = !reuse_on && looks_finished(seed.origin, pr.as_ref(), &sessions);
-        let looks_reusable = looks_reusable(seed, mark.is_some(), g.as_ref(), prs);
+        let looks_reusable = looks_reusable(seed, mark.is_some(), prs);
         let cleanup = cleanup(&Leaving {
             origin: seed.origin,
             chats: seed.chats || seed.starts_chats,
-            reusable: reuse_on.then_some(mark == Some(true)),
+            reusable: reuse_on,
             git: g.as_ref(),
             running,
             // Looked for only where it would be said: a main checkout holds the others.

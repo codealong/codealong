@@ -78,10 +78,9 @@ pub struct Plan {
     pub head: String,
     pub lock: Option<String>,
     pub base: Option<String>,
-    /// Whether it could be reusable (in one of your projects, a worktree of a repo), and how you
-    /// marked it, for checking again that it isn't (`verify`).
+    /// Whether it could be reusable (in one of your projects, a worktree of a repo), for
+    /// checking again that it wasn't marked reusable (`verify`).
     pub can_reuse: bool,
-    pub marked: Option<bool>,
     /// Why it stays, when it can't go.
     pub kept: Option<String>,
     /// The lock a session left on it, which comes off first: one hung up on, or the one being
@@ -135,8 +134,8 @@ pub fn plan(board: &Board, cfg: &Config, lane_id: &str, ending: Option<&Session>
     let Some((root, main)) = crate::repos::locate(&path) else { return Err(format!("{} isn't in a git repository.", tilde(&path))) };
     let origin = if root == main { Origin::Main } else { lane.origin };
     let checkout = crate::repos::load_checkout(&main);
-    // The default branch, which resets onto count as new work: the board's, else the repo's own
-    // (the command's board, with the app closed, read no git).
+    // The default branch, which squash-merged commits are checked against: the board's, else the
+    // repo's own (the command's board, with the app closed, read no git).
     let base = lane.git.as_ref().and_then(|g| g.base.clone()).or_else(|| checkout.as_ref().and_then(crate::repos::default_branch));
     let checked = facts(&path, base.as_deref());
     let listed = checkout.as_ref().map(crate::repos::list_worktrees).unwrap_or_default();
@@ -168,13 +167,12 @@ pub fn plan(board: &Board, cfg: &Config, lane_id: &str, ending: Option<&Session>
         (Some(_), None) => true,
         (None, _) => false,
     };
-    // Reusable as the board would have it, from git as it is: the command, with the app closed,
-    // has a board that read no git.
+    // Reusable as the board would have it: a main checkout unless turned off, else marked.
     let marked = crate::reusable::load().ok().and_then(|s| s.get(&lane.id));
     let can_reuse = lane.project != crate::board::ELSEWHERE && !lane.starts_chats && origin != Origin::Folder;
-    let reusable = can_reuse && marked.unwrap_or(origin == Origin::Main || crate::board::reused(git.as_ref()));
+    let reusable = can_reuse && marked.unwrap_or(origin == Origin::Main);
     let rule = |holds: Option<&str>| {
-        let leaving = Leaving { origin, chats: lane.starts_chats, reusable: reusable.then_some(marked == Some(true)), git: git.as_ref(), running, holds, lock: lock.as_deref().filter(|_| held), merged: merged.is_some() };
+        let leaving = Leaving { origin, chats: lane.starts_chats, reusable, git: git.as_ref(), running, holds, lock: lock.as_deref().filter(|_| held), merged: merged.is_some() };
         cleanup(&leaving).filter(|c| !c.ok).map(|c| c.why)
     };
     // A repository nothing lists is looked for last, as it can take a while (`repo_inside`): only
@@ -201,7 +199,7 @@ pub fn plan(board: &Board, cfg: &Config, lane_id: &str, ending: Option<&Session>
         }
     }
     let head = checked.map(|f| f.head).unwrap_or_default();
-    Ok(Plan { name: lane.callsign.clone(), path, main, branch, head, lock, base, can_reuse, marked, kept, unlock, ending: ends_first, hooks, skipped, branch_goes, merged, after })
+    Ok(Plan { name: lane.callsign.clone(), path, main, branch, head, lock, base, can_reuse, kept, unlock, ending: ends_first, hooks, skipped, branch_goes, merged, after })
 }
 
 /// What git says of a worktree, read for removing it. A command that fails or runs out is an
@@ -217,14 +215,12 @@ struct Facts {
     under_way: Option<&'static str>,
     head: String,
     locked: Option<String>,
-    /// How many times it took new work (`git::new_work`), for whether it's reusable.
-    new_work: u32,
 }
 
 impl Facts {
     /// As the board's rule reads them.
     fn git(&self) -> crate::model::GitInfo {
-        crate::model::GitInfo { dirty: self.dirty, unpushed: Some(self.unpushed), locked: self.locked.clone(), new_work_count: Some(self.new_work), ..Default::default() }
+        crate::model::GitInfo { dirty: self.dirty, unpushed: Some(self.unpushed), locked: self.locked.clone(), ..Default::default() }
     }
 }
 
@@ -235,7 +231,7 @@ fn facts(path: &Path, base: Option<&str>) -> Result<Facts, String> {
     let head = run(&["rev-parse", "--verify", "HEAD"])?.trim().to_string();
     let unpushed = crate::git::unpushed_by(&run, base)?;
     let dirty = crate::git::parse_status(&status).dirty + hidden_changes(path)?;
-    Ok(Facts { dirty, unpushed, under_way: crate::git::under_way(path), head, locked: crate::git::locked(path), new_work: crate::git::new_work(path).len() as u32 })
+    Ok(Facts { dirty, unpushed, under_way: crate::git::under_way(path), head, locked: crate::git::locked(path) })
 }
 
 /// Tracked files git is told not to look at (`update-index --assume-unchanged`, and
@@ -442,7 +438,7 @@ fn verify(plan: &Plan, running: usize) -> Result<bool, String> {
         Some(Ok(Some(inner))) => return stays(&format!("another repository is inside it now ({})", inner.strip_prefix(&plan.path).unwrap_or(&inner).display())),
         Some(Err(why)) => return stays(&why),
     }
-    if plan.can_reuse && plan.marked.unwrap_or_else(|| crate::board::reused(Some(&now.git()))) {
+    if plan.can_reuse && crate::reusable::load().ok().and_then(|s| s.get(&plan.path.to_string_lossy())) == Some(true) {
         return stays("it's reusable now");
     }
     Ok(plan.unlock && !went)
@@ -641,7 +637,6 @@ mod tests {
             lock: None,
             base: Some("origin/main".into()),
             can_reuse: true,
-            marked: None,
             kept: None,
             unlock: false,
             ending: None,
@@ -1018,16 +1013,13 @@ mod tests {
         crate::os::files::symlink("local.conf", wt.join("link")).unwrap();
         at(&wt, &["update-index", "--no-assume-unchanged", "link"]);
         at(&wt, &["reset", "-q", "--hard", "origin/main"]);
-        // Catch-up resets onto the default branch (such as scripts/land.sh's `git switch -C`)
-        // don't count as reusing the worktree; three branch switches do, though the board read no
-        // git.
+        // Switching branches several times doesn't auto-mark a worktree reusable.
         at(&wt, &["reset", "-q", "--hard", "origin/main"]);
         at(&wt, &["switch", "-q", "-C", "wt", "origin/main"]);
-        assert_eq!(kept(&board), None);
         for name in ["second", "third", "fourth"] {
             at(&wt, &["switch", "-q", "-c", name, "origin/main"]);
         }
-        assert_eq!(kept(&board).as_deref(), Some("reusable: it has taken several pieces of work"));
+        assert_eq!(kept(&board), None);
         assert!(wt.exists());
         let _ = std::fs::remove_dir_all(&dir);
     }

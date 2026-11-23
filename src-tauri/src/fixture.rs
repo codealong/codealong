@@ -532,7 +532,7 @@ fn git(c: &Cast) -> HashMap<PathBuf, GitInfo> {
         (PathBuf::from(NAV), branch("old-nav", "Remove the old navigation", 3 * 24 * 60, 1, 0)),
         (PathBuf::from(LEGACY), branch("legacy-cleanup", "Clear out the legacy exports", 20 * 24 * 60, 1, 0)),
         // Reused: reset onto the default branch after its last work, and ready for the next.
-        (PathBuf::from(SPARE), GitInfo { reset_at: Some(c.ago(2 * 24 * 60)), new_work_count: Some(6), ..level("Put new features behind flags (#398)", 600) }),
+        (PathBuf::from(SPARE), GitInfo { reset_at: Some(c.ago(2 * 24 * 60)), ..level("Put new features behind flags (#398)", 600) }),
         (PathBuf::from(API), level("Paginate the orders endpoint (#55)", 235)),
         (PathBuf::from(WEBHOOKS), branch("webhook-retries", "Retry failed webhooks", 26, 2, 3)),
         (PathBuf::from(ATLAS), level("Add the import tables (#86)", 195)),
