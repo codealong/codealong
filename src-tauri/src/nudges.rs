@@ -112,6 +112,9 @@ pub struct Job {
     /// You merged this PR through Codealong's own merge box (`Board::merged_here`), so the
     /// self-merge check doesn't suppress its merge notice.
     pub user_merged: bool,
+    /// When its session was last told the PR was approved, while that approval stands
+    /// (`Nudger::approvals`): told again, it would start a turn that only says it knew.
+    pub approval_told: Option<i64>,
 }
 
 /// What a nudge tells a session that isn't running, which it's resumed for: what asks for work,
@@ -289,6 +292,11 @@ pub struct Nudger {
     owed: HashMap<(String, String), Owed>,
     /// Sessions resumed as a copy, each with its copy and when (`went_on_as`).
     copies: HashMap<String, (String, i64)>,
+    /// When each session was told each PR was approved (`told_approval`), by PR and session. GitHub
+    /// says a PR is approved and lists the review that approved it a board or two apart, either
+    /// first, and each was told as news: a session was told the same approval twice a minute
+    /// apart (2026-11-23). Kept while the PR is approved, or nothing has happened on it since.
+    approvals: HashMap<(String, String), i64>,
     /// When to look again for a merge nudge settling after a turn, though no board comes, and the
     /// wake already asked for (`wake`), as `helpers::Reporter` does.
     look_again: Option<i64>,
@@ -387,6 +395,11 @@ impl Nudger {
             }
         }
         self.seen = seen_now;
+        // An approval told stops standing once something happens on its PR while it isn't
+        // approved: changes asked for, or commits that took it back. One that GitHub's decision
+        // hasn't caught up with yet still stands.
+        let listed: HashMap<String, &PrItem> = board.prs.iter().map(|p| (crate::prlinks::pr_key(&p.key), p)).collect();
+        self.approvals.retain(|(pr, _), at| listed.get(pr).is_some_and(|p| p.state == PrState::Approved || p.updated_at <= *at));
         self.more(board, now)
     }
 
@@ -460,6 +473,7 @@ impl Nudger {
                 runs_about: about,
                 stopped,
                 user_merged: o.user_merged,
+                approval_told: self.approvals.get(&(pr_key.clone(), s.clone())).copied(),
             });
         }
         self.look_again = settle_wake;
@@ -541,6 +555,17 @@ impl Nudger {
             to.merge_waited |= o.merge_waited;
             to.merge_settled_at = to.merge_settled_at.or(o.merge_settled_at);
         }
+        // The copy has the conversation it was told an approval in.
+        let told: Vec<(String, i64)> = self.approvals.iter().filter(|((_, s), _)| s == from).map(|((pr, _), at)| (pr.clone(), *at)).collect();
+        for (pr, at) in told {
+            self.approvals.remove(&(pr.clone(), from.to_string()));
+            self.approvals.insert((pr, copy.to_string()), at);
+        }
+    }
+
+    /// `job`'s message told its session the PR was approved, at `now` (ms).
+    pub fn told_approval(&mut self, job: &Job, now: i64) {
+        self.approvals.insert((crate::prlinks::pr_key(&job.pr.key), job.session.clone()), now);
     }
 }
 
@@ -622,6 +647,11 @@ fn excerpt(body: &str) -> String {
 /// What an open PR's message ends with: the news is no go-ahead to merge.
 pub const NOT_A_MERGE: &str = "This message doesn't ask you to merge it: merge it only if you were asked to.";
 
+/// What a message that asks nothing of the session ends with (an approval, a merge, a close):
+/// a session that had seen the news already answered that it had, and that turn waited on you to
+/// read it (2026-11-23).
+pub const QUIET: &str = "If this changes nothing for you (you'd seen it already, say), end your turn with `codealong session seen me --note \"<what it came to>\"`, so your user isn't left a turn to read.";
+
 /// What a nudge that tells of `about` leaves out that a session may be waiting on: an approval,
 /// with every setting but `everything`, and a merge where it doesn't tell of one. None where it
 /// tells of both, as a watched PR's does (`about_of`). A session told what happened on its PR
@@ -642,9 +672,16 @@ pub fn left_out(about: NudgeAbout) -> Option<&'static str> {
 /// `gh` is signed in as, whose reviews aren't news. Only what `about` tells of is said (`keep`):
 /// with feedback only, an approval or a dismissal among the reviews isn't either.
 pub fn words(pr: &PrItem, why: &Why, detail: Option<&PrDetail>, login: Option<&str>, about: NudgeAbout) -> Option<String> {
+    news(pr, why, detail, login, about, None).map(|(text, _)| text)
+}
+
+/// `words`, and whether they tell of an approval (`Nudger::told_approval`). An approval without
+/// words of its own isn't news on a PR that has ended, whose merge or close is, nor once
+/// `approval_told` says the session was told of it (`Job::approval_told`).
+fn news(pr: &PrItem, why: &Why, detail: Option<&PrDetail>, login: Option<&str>, about: NudgeAbout, approval_told: Option<i64>) -> Option<(String, bool)> {
     let why = &keep(about, pr.state.is_open(), why.clone());
     let mut items: Vec<String> = Vec::new();
-    let (mut approved_said, mut changes_said) = (false, false);
+    let (mut approved_said, mut changes_said, mut approval) = (false, false, false);
     if let (Some(since), Some(d)) = (why.since, detail) {
         let fresh = |at: Option<i64>| at.is_some_and(|t| t > since);
         // A review's own words come as a comment at the same time by the same author.
@@ -667,9 +704,11 @@ pub fn words(pr: &PrItem, why: &Why, detail: Option<&PrDetail>, login: Option<&s
                 "DISMISSED" => "had a review dismissed",
                 _ => "reviewed it",
             };
-            if not_feedback(&r.state) {
+            let told_before = r.at.zip(approval_told).is_some_and(|(at, told)| at <= told);
+            if not_feedback(&r.state) || (r.state == "APPROVED" && body.is_none() && (!pr.state.is_open() || told_before)) {
                 continue;
             }
+            approval |= r.state == "APPROVED";
             match body.and_then(|id| d.comments.iter().find(|c| c.id == id)) {
                 Some(c) => items.push(told(&r.author, words, &c.body, false)),
                 None => items.push(format!("{} {words}.", r.author)),
@@ -690,8 +729,9 @@ pub fn words(pr: &PrItem, why: &Why, detail: Option<&PrDetail>, login: Option<&s
             }
         }
     }
-    if why.approved && !approved_said {
+    if why.approved && !approved_said && approval_told.is_none() && pr.state.is_open() {
         items.push("It was approved.".into());
+        approval = true;
     }
     if why.changes && !changes_said {
         items.push("Changes were asked for.".into());
@@ -719,9 +759,9 @@ pub fn words(pr: &PrItem, why: &Why, detail: Option<&PrDetail>, login: Option<&s
     // Where it stands would say the conflict again.
     let standing = if pr.state.is_open() && !conflicts { standing(pr) } else { "" };
     let next = if why.ended.is_some() || !pr.state.is_open() {
-        "Nothing more is wanted on it, unless you were told otherwise.".to_string()
+        format!("Nothing more is wanted on it, unless you were told otherwise. {QUIET}")
     } else if pr.state == PrState::Approved && !changes_said && !why.changes && why.failed.is_empty() && !conflicts {
-        NOT_A_MERGE.to_string()
+        format!("{NOT_A_MERGE} {QUIET}")
     } else {
         format!("Take it from there, unless you were told to leave it to someone else. {NOT_A_MERGE}")
     };
@@ -735,7 +775,7 @@ pub fn words(pr: &PrItem, why: &Why, detail: Option<&PrDetail>, login: Option<&s
     } else {
         String::new()
     };
-    Some(format!("On {whose} #{} “{}” ({}):\n{}\n{came}{}{next}", pr.number, pr.title.trim(), pr.url, list.join("\n"), standing))
+    Some((format!("On {whose} #{} “{}” ({}):\n{}\n{came}{}{next}", pr.number, pr.title.trim(), pr.url, list.join("\n"), standing), approval))
 }
 
 /// What a PR's news (`words`) comes to on its card in the conversation (glance.rs): the PR, and
@@ -797,15 +837,20 @@ fn standing(pr: &PrItem) -> &'static str {
 /// isn't the last try, to try again rather than leave out what others wrote. An open PR's ends
 /// with what its nudge leaves out while the session runs (`left_out`), and how to hear of it.
 fn message(job: &Job, detail: Option<Result<&PrDetail, &str>>, login: Option<&str>) -> Result<Option<String>, String> {
+    message_news(job, detail, login).map(|news| news.map(|(text, _)| text))
+}
+
+/// `message`, and whether it tells of an approval (`news`).
+fn message_news(job: &Job, detail: Option<Result<&PrDetail, &str>>, login: Option<&str>) -> Result<Option<(String, bool)>, String> {
     let detail = match detail {
         Some(Err(e)) if !job.last => return Err(format!("What's new on {} couldn't be read: {e}", job.pr.key)),
         Some(Ok(d)) => Some(d),
         _ => None,
     };
-    let text = words(&job.pr, &job.why, detail, login, job.about);
-    Ok(text.map(|text| match left_out(job.runs_about).filter(|_| job.pr.state.is_open()) {
-        Some(what) => format!("{text}\nThis PR's {what} aren't passed on to you; if you're waiting on one, run `codealong pr watch {}`.", job.pr.key),
-        None => text,
+    let said = news(&job.pr, &job.why, detail, login, job.about, job.approval_told);
+    Ok(said.map(|(text, approval)| match left_out(job.runs_about).filter(|_| job.pr.state.is_open()) {
+        Some(what) => (format!("{text}\nThis PR's {what} aren't passed on to you; if you're waiting on one, run `codealong pr watch {}`.", job.pr.key), approval),
+        None => (text, approval),
     }))
 }
 
@@ -862,6 +907,7 @@ fn send_all(
         for mut job in jobs {
             // One that falls over is told as failed, so its session isn't left waiting on a send
             // that never says how it went.
+            let mut told_approval = false;
             let went = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
                 if job.why.ended == Some(PrState::Merged) && !job.user_merged && knows_merged(&job) {
                     job.why.ended = None;
@@ -870,8 +916,11 @@ fn send_all(
                     return Ok(None);
                 }
                 let detail = job.why.since.map(|since| details.entry((job.pr.key.clone(), since)).or_insert_with(|| read(&job.pr)).as_ref().map_err(String::as_str));
-                message(&job, detail, login.as_deref()).and_then(|text| match text {
-                    Some(text) => tell(&job, &text),
+                message_news(&job, detail, login.as_deref()).and_then(|news| match news {
+                    Some((text, approval)) => {
+                        told_approval = approval;
+                        tell(&job, &text)
+                    }
                     None => Ok(None),
                 })
             }))
@@ -881,6 +930,9 @@ fn send_all(
                 let mut nudger = nudger.lock().unwrap_or_else(|e| e.into_inner());
                 let at = now();
                 let again = nudger.told(&job, went.is_ok(), at);
+                if told_approval && went.is_ok() {
+                    nudger.told_approval(&job, at);
+                }
                 if let Some(copy) = &copy {
                     nudger.went_on_as(&job.session, copy, at);
                 }
@@ -1213,7 +1265,7 @@ mod tests {
     #[test]
     fn a_resume_is_checked_again_before_it_goes() {
         let p = pr("o/r#1", PrState::Open, &[A, B]);
-        let job = Job { pr: p.clone(), why: Why { since: Some(UPDATED), ..Why::default() }, session: A.into(), last: false, about: NudgeAbout::FeedbackAndChecks, runs_about: NudgeAbout::Everything, stopped: true, user_merged: false };
+        let job = Job { pr: p.clone(), why: Why { since: Some(UPDATED), ..Why::default() }, session: A.into(), last: false, about: NudgeAbout::FeedbackAndChecks, runs_about: NudgeAbout::Everything, stopped: true, user_merged: false, approval_told: None };
         assert!(still_due(&resuming(vec![p.clone()], vec![stopped(A), stopped(B)]), &job));
         assert!(!still_due(&resuming(vec![p.clone()], vec![stopped(A), live(B)]), &job), "B started meanwhile");
         assert!(!still_due(&board(vec![p.clone()], vec![stopped(A), stopped(B)]), &job), "the setting went off");
@@ -1291,7 +1343,7 @@ mod tests {
     /// its primary went on as meanwhile; a copy that couldn't be made primary stays said.
     #[test]
     fn a_prs_failure_is_taken_back_by_a_send_to_the_copy_its_primary_went_on_as() {
-        let job = |pr: &str, session: &str| Job { pr: self::pr(pr, PrState::Open, &[session]), why: Why::default(), session: session.into(), last: false, about: NudgeAbout::Everything, runs_about: NudgeAbout::Everything, stopped: true, user_merged: false };
+        let job = |pr: &str, session: &str| Job { pr: self::pr(pr, PrState::Open, &[session]), why: Why::default(), session: session.into(), last: false, about: NudgeAbout::Everything, runs_about: NudgeAbout::Everything, stopped: true, user_merged: false, approval_told: None };
         let mut outcomes = Outcomes::default();
         outcomes.went(&job("o/r#1", A), Some("o/r#1 couldn't be read.".into()));
         outcomes.went(&job("o/r#2", A), None);
@@ -1436,7 +1488,7 @@ mod tests {
     #[test]
     fn news_that_cant_be_read_is_tried_again_before_its_left_out() {
         let p = pr("o/r#1", PrState::Approved, &[A]);
-        let job = Job { pr: p.clone(), why: Why { since: Some(UPDATED), approved: true, ..Why::default() }, session: A.into(), last: false, about: NudgeAbout::Everything, runs_about: NudgeAbout::Everything, stopped: false, user_merged: false };
+        let job = Job { pr: p.clone(), why: Why { since: Some(UPDATED), approved: true, ..Why::default() }, session: A.into(), last: false, about: NudgeAbout::Everything, runs_about: NudgeAbout::Everything, stopped: false, user_merged: false, approval_told: None };
         let e = message(&job, Some(Err("gh timed out after 30s")), Some("me")).unwrap_err();
         assert_eq!(e, "What's new on o/r#1 couldn't be read: gh timed out after 30s");
         // The last try says what the board knows.
@@ -1508,7 +1560,7 @@ mod tests {
         let d = detail(vec![PrReview { author: "ken".into(), state: "APPROVED".into(), at: Some(UPDATED + 1), mine: false }], vec![]);
         let text = words(&approved, &Why { since: Some(UPDATED), approved: true, ..Why::default() }, Some(&d), Some("me"), NudgeAbout::Everything).unwrap();
         // The approval is news, never a go-ahead to merge.
-        assert_eq!(text, "On your PR #1 “Let the agent add photos” (https://github.com/o/r/pull/1):\n- ken approved it.\nIt's ready to merge. This message doesn't ask you to merge it: merge it only if you were asked to.");
+        assert_eq!(text, format!("On your PR #1 “Let the agent add photos” (https://github.com/o/r/pull/1):\n- ken approved it.\nIt's ready to merge. This message doesn't ask you to merge it: merge it only if you were asked to. {QUIET}"));
         assert_eq!(glance(&text).map(|g| g.words()), Some("ken approved it".into()));
         // Another's PR, an agent's review from someone's account, and failing checks.
         let theirs = "On PR #4 “Fix “quotes” (and parens)” (https://github.com/o/r/pull/4):\n- ken's agent (claude) commented, from ken's account; an agent's review, not ken's word: “Fine.”\n- Its checks failed: test, lint.\nTake it from there.";
@@ -1519,7 +1571,7 @@ mod tests {
         let merged = off(PrItem { state: PrState::Merged, mine: false, ..pr("o/r#1", PrState::Open, &[A]) });
         assert_eq!(
             words(&merged, &Why { ended: Some(PrState::Merged), ..Why::default() }, None, None, NudgeAbout::Everything).unwrap(),
-            "On PR #1 “Let the agent add photos” (https://github.com/o/r/pull/1):\n- It was merged.\nNothing more is wanted on it, unless you were told otherwise."
+            format!("On PR #1 “Let the agent add photos” (https://github.com/o/r/pull/1):\n- It was merged.\nNothing more is wanted on it, unless you were told otherwise. {QUIET}")
         );
         let failing = PrItem { checks: Checks { failed: 2, failing: vec!["lint".into(), "test".into()], ..Checks::default() }, ..pr("o/r#1", PrState::Open, &[A]) };
         let text = words(&failing, &Why { failed: vec!["lint".into(), "test".into()], ..Why::default() }, None, None, NudgeAbout::Everything).unwrap();
@@ -1528,8 +1580,72 @@ mod tests {
         let open = PrItem { merge: Merge::Clean, ..pr("o/r#1", PrState::Approved, &[A]) };
         for why in [Why { approved: true, ..Why::default() }, Why { changes: true, ..Why::default() }, Why { failed: vec!["lint".into()], ..Why::default() }] {
             let text = words(&open, &why, None, None, NudgeAbout::Everything).unwrap();
-            assert!(text.ends_with(NOT_A_MERGE) && !text.contains("merging it"), "{text}");
+            assert!(text.contains(NOT_A_MERGE) && !text.contains("merging it"), "{text}");
         }
+    }
+
+    /// Each job due on `b` at `at`, sent as the engine sends it (`send_all`), with `read` as the
+    /// PR's detail: what went.
+    fn sent_through(nudger: &Mutex<Nudger>, b: Board, read: &PrDetail, at: i64) -> Vec<String> {
+        let jobs = nudger.lock().unwrap().due(&b, at);
+        let mut went = Vec::new();
+        send_all(&Handle::over(b), nudger, jobs, |_| Ok(read.clone()), |_| false, |_, text| {
+            went.push(text.to_string());
+            Ok(None)
+        }, |_, _, _| Ok(()), || at)
+        .unwrap();
+        went
+    }
+
+    /// GitHub says a PR is approved and lists the review that approved it a board or two apart,
+    /// either first: the approval is told once, as the first of them comes, and one that comes
+    /// after something else happened on the PR is news again.
+    #[test]
+    fn an_approval_is_told_once_whichever_github_says_first() {
+        let open = pr("o/r#1", PrState::Open, &[A]);
+        let at = |state: PrState, updated_at: i64| board(vec![PrItem { state, updated_at, merge: Merge::Clean, ..open.clone() }], vec![live(A)]);
+        let review = |state: &str, at: i64| detail(vec![PrReview { author: "ken".into(), state: state.into(), at: Some(at), mine: false }], vec![]);
+        let none = detail(vec![], vec![]);
+
+        // The decision first, before the PR's `updatedAt` moves: told as the board has it. Then
+        // the review it came from, a board later: no news.
+        let nudger = Mutex::new(Nudger::default());
+        sent_through(&nudger, at(PrState::Open, UPDATED), &none, NOW);
+        let went = sent_through(&nudger, at(PrState::Approved, UPDATED), &none, NOW);
+        assert!(went.len() == 1 && went[0].contains("- It was approved.\n") && went[0].ends_with(QUIET), "{went:?}");
+        assert_eq!(sent_through(&nudger, at(PrState::Approved, NOW - 5_000), &review("APPROVED", NOW - 9_000), NOW + 60_000), Vec::<String>::new());
+        // Changes asked for take it back, and the next approval is news.
+        let went = sent_through(&nudger, at(PrState::Changes, NOW + 100_000), &review("CHANGES_REQUESTED", NOW + 90_000), NOW + 100_000);
+        assert!(went.len() == 1 && went[0].contains("- ken asked for changes.\n") && !went[0].contains(QUIET), "{went:?}");
+        let went = sent_through(&nudger, at(PrState::Approved, NOW + 200_000), &review("APPROVED", NOW + 190_000), NOW + 200_000);
+        assert!(went.len() == 1 && went[0].contains("- ken approved it.\n"), "{went:?}");
+
+        // The review first, while the decision lags (a board or more): the decision is no news.
+        let nudger = Mutex::new(Nudger::default());
+        sent_through(&nudger, at(PrState::Open, UPDATED), &none, NOW);
+        let went = sent_through(&nudger, at(PrState::Open, NOW - 5_000), &review("APPROVED", NOW - 9_000), NOW);
+        assert!(went.len() == 1 && went[0].contains("- ken approved it.\n"), "{went:?}");
+        assert_eq!(sent_through(&nudger, at(PrState::Open, NOW - 5_000), &none, NOW + 30_000), Vec::<String>::new());
+        assert_eq!(sent_through(&nudger, at(PrState::Approved, NOW - 5_000), &none, NOW + 60_000), Vec::<String>::new());
+    }
+
+    /// An approval on a PR that has merged is no news: the session merged it itself on
+    /// 2026-11-23 and was then told it had been approved, a turn that only said it knew. What
+    /// someone wrote with it still is.
+    #[test]
+    fn an_approval_on_a_pr_that_ended_is_no_news() {
+        let merged = off(PrItem { state: PrState::Merged, ..pr("o/r#1", PrState::Open, &[A]) });
+        let ken = PrReview { author: "ken".into(), state: "APPROVED".into(), at: Some(UPDATED + 1), mine: false };
+        let since = Why { since: Some(UPDATED), ..Why::default() };
+        // Its merge the session knew of (`knows_merged` took it out): nothing to say.
+        assert_eq!(words(&merged, &since, Some(&detail(vec![ken.clone()], vec![])), Some("me"), NudgeAbout::Everything), None);
+        assert_eq!(words(&merged, &Why { approved: true, ..since.clone() }, None, Some("me"), NudgeAbout::Everything), None);
+        // Merged by someone else: the merge alone.
+        let text = words(&merged, &Why { ended: Some(PrState::Merged), approved: true, ..since.clone() }, Some(&detail(vec![ken.clone()], vec![])), Some("me"), NudgeAbout::Everything).unwrap();
+        assert!(text.contains("\n- It was merged.\n") && !text.contains("approved"), "{text}");
+        // An approval with words of its own is told for them.
+        let said = detail(vec![ken], vec![comment("c1", "ken", "Fine, but the docs need the new flag.", UPDATED + 1, None, false)]);
+        assert!(words(&merged, &since, Some(&said), Some("me"), NudgeAbout::Everything).unwrap().contains("- ken approved it: “Fine, but the docs need the new flag.”\n"));
     }
 
     /// What a nudge tells about goes as the PR's repo says: its team's file, then your table for
@@ -1648,7 +1764,7 @@ mod tests {
         assert!(text.ends_with(&format!("{NOT_A_MERGE}\nThis PR's approvals and merges aren't passed on to you; if you're waiting on one, run `codealong pr watch o/r#1`.")), "{text}");
         assert!(told(true).ends_with(NOT_A_MERGE));
 
-        let job = |pr: &PrItem, why: Why, about: NudgeAbout| Job { pr: pr.clone(), why, session: A.into(), last: true, about, runs_about: about, stopped: false, user_merged: false };
+        let job = |pr: &PrItem, why: Why, about: NudgeAbout| Job { pr: pr.clone(), why, session: A.into(), last: true, about, runs_about: about, stopped: false, user_merged: false, approval_told: None };
         let read = |job: Job| message(&job, None, Some("me")).unwrap().unwrap();
         let failed = Why { failed: vec!["lint".into()], ..Why::default() };
         assert!(read(job(&failing, failed.clone(), NudgeAbout::FeedbackChecksAndMerges)).ends_with("\nThis PR's approvals aren't passed on to you; if you're waiting on one, run `codealong pr watch o/r#1`."));
@@ -1656,7 +1772,7 @@ mod tests {
         // Resumed to be told only what asks for work, it's told of everything once it runs.
         assert!(read(Job { about: NudgeAbout::FeedbackAndChecks, stopped: true, ..job(&failing, failed, NudgeAbout::Everything) }).ends_with(NOT_A_MERGE));
         let merged = PrItem { state: PrState::Merged, ..open };
-        assert!(read(job(&merged, Why { ended: Some(PrState::Merged), ..Why::default() }, NudgeAbout::FeedbackAndMerges)).ends_with("unless you were told otherwise."));
+        assert!(read(job(&merged, Why { ended: Some(PrState::Merged), ..Why::default() }, NudgeAbout::FeedbackAndMerges)).ends_with(&format!("unless you were told otherwise. {QUIET}")));
     }
 
     /// An agent's review Codealong posted from someone's account is told as their agent's when
@@ -1734,7 +1850,7 @@ mod tests {
         assert_eq!(jobs.iter().map(|j| (j.why.clone(), j.about)).collect::<Vec<_>>(), [(Why { ended: Some(PrState::Merged), ..Why::default() }, NudgeAbout::FeedbackAndMerges)]);
         assert_eq!(
             words(&merged, &Why { since: Some(UPDATED), ended: Some(PrState::Merged), ..Why::default() }, None, None, NudgeAbout::FeedbackChecksAndMerges).unwrap(),
-            "On your PR #1 “Let the agent add photos” (https://github.com/o/r/pull/1):\n- It was merged.\nNothing more is wanted on it, unless you were told otherwise."
+            format!("On your PR #1 “Let the agent add photos” (https://github.com/o/r/pull/1):\n- It was merged.\nNothing more is wanted on it, unless you were told otherwise. {QUIET}")
         );
         // Still never an approval or a close; checks only where it says so.
         let mut nudger = Nudger::default();
@@ -2003,7 +2119,7 @@ mod tests {
         assert_eq!((went, sent_msgs.len()), (Ok(()), 1));
         assert!(sent_msgs[0].contains("ana commented: “Thanks for shipping this!”"), "{}", sent_msgs[0]);
         assert!(!sent_msgs[0].contains("It was merged."), "{}", sent_msgs[0]);
-        assert!(sent_msgs[0].ends_with("Nothing more is wanted on it, unless you were told otherwise."), "{}", sent_msgs[0]);
+        assert!(sent_msgs[0].ends_with(&format!("Nothing more is wanted on it, unless you were told otherwise. {QUIET}")), "{}", sent_msgs[0]);
 
         // Merged by user in Codealong: never suppressed even if knows_merged would say true.
         let nudger = Mutex::new(Nudger::default());

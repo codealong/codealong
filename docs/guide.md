@@ -1338,8 +1338,14 @@ changes), when it's approved, merged or closed, when its checks fail, and when i
 conflict with its base (someone merged into the base what it conflicts with), with where it
 stands (ready to merge, its checks are still running), so it takes it from there. A conflict is
 told once, and again only if it comes back after it was resolved; one resolved before the
-message could go isn't told. The message never asks
-it to merge, an approval included: it says so, and the agent merges only if you asked it to. The
+message could go isn't told. So is an approval: GitHub says a PR is approved and lists the review
+that approved it a little apart, and whichever comes first is told, until changes are asked for
+or new commits take the approval back. An approval on a PR that has merged or closed by the time
+it's told isn't news (what the reviewer wrote with it still is). The message never asks
+it to merge, an approval included: it says so, and the agent merges only if you asked it to. One
+that asks nothing of the session (an approval, a merge, a close) has it end its turn with
+`codealong session seen me` when the news changes nothing for it, so a turn that only says it
+knew doesn't wait on you. The
 PR's other sessions (helpers, reviewers, ones that came to its branch) aren't told, and what you
 did to it yourself, which is what its agent did through `gh`, isn't told back. Turned on for a PR
 that's approved already, it's told that at once (not when the setting turns it on for every PR);
