@@ -4,7 +4,7 @@
 
 import type { Mcp, Resets, SignIn, Training, Usage } from './accounts';
 import type { Improve } from './app';
-import type { DecisionsCfg, DevicesCfg, ExperimentalCfg, NewTerminal, NudgeAbout, Profile, QueueCfg, RepoCfg, ReviewsCfg, SessionsCfg, TeamFile, Theme, WhenLimited } from './config';
+import type { DecisionsCfg, DevicesCfg, ExperimentalCfg, NewTerminal, NudgeAbout, Profile, QueueCfg, RepoCfg, ReviewsCfg, SessionsCfg, TeamFile, Theme, ToolDisplay, WhenLimited } from './config';
 import type { TodoQueue } from './feeds';
 import type { Lane } from './lane';
 import type { PrItem, PrStopped } from './pr';
@@ -145,6 +145,9 @@ export interface Board {
   /** Whether keyboard shortcuts show all the time, from `[appearance] show_keys` (keysShown.ts);
    *  on when it's missing, as by default. Off, they show while ⌘ or ⌃ is held. */
   showKeys?: boolean;
+  /** How tool calls appear in conversations, from `[appearance] tools` (toolDisplay.ts);
+   *  `folded` when missing, as by default. */
+  tools?: ToolDisplay;
   /** Every todo, in your order (src-tauri/src/todos.rs). */
   todos: Todo[];
   /** todos.json didn't read the last time it was read: `todos` is what it held before, and a

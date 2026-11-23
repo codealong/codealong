@@ -123,8 +123,9 @@ export interface Config {
   /** `zoom` is a percent; Settings leaves it as config.toml has it. */
   /** `glass`: the board's windows show what's behind them through macOS's glass (glass.rs); on by
    *  default on macOS, and the engine sends what it comes to. `show_keys`: keyboard shortcuts show
-   *  all the time, not only while ⌘ or ⌃ is held (keysShown.ts). */
-  appearance: { theme: Theme; zoom?: number; glass?: boolean; show_keys?: boolean };
+   *  all the time, not only while ⌘ or ⌃ is held (keysShown.ts). `tools`: how tool calls appear
+   *  in conversations (toolDisplay.ts), folded by default. */
+  appearance: { theme: Theme; zoom?: number; glass?: boolean; show_keys?: boolean; tools?: ToolDisplay };
   /** Shortcuts that work in any app, as config.toml writes them (`Option+Cmd+/`); empty is off. */
   shortcuts: { quick_panel: string; chat?: string; waiting: string; improve?: string; main_window?: string; talk?: string; talk_orchestrator?: string; listen?: string };
   /** What Codealong asks decision models, feature by feature, and the models. Older files have
@@ -487,3 +488,6 @@ export interface EmblemsCfg {
 
 /** Light, dark, or following macOS. */
 export type Theme = 'system' | 'light' | 'dark';
+
+/** How tool calls appear in a session's conversation (`[appearance] tools`, src/toolDisplay.ts). */
+export type ToolDisplay = 'folded' | 'compact' | 'detailed' | 'zen';

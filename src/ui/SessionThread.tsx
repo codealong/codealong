@@ -101,11 +101,13 @@ import { asCue, saysNothing, toldIn } from '../listening';
 import { foldQuietRuns } from '../orchestrators';
 import { Told } from './Listening';
 import { CodealongCard, PeerCard, peerLabel } from './MessageCard';
+import { useToolDisplay } from '../toolDisplay';
+import { foldTurns, hasAnswers, itemKey as keyOf, rowsOf, summarizeTools, summaryIcon, turnFoldLabel, turnMatchesFind, type ThreadRow, type ToolCall } from '../turnFolds';
+
+export { rowsOf };
 
 /** Loads the page before once you're this close to the top. */
 const NEAR_TOP = 240;
-/** Tool calls in a row before they fold. */
-const FOLD_AT = 3;
 /** Pages read back past the first, looking for the prompt behind it, before giving up. */
 const LOOK_BACK = 16;
 /** A message this long after the step before it heads itself again, though the same speaker said
@@ -117,56 +119,6 @@ const PAUSE = 10 * 60_000;
  *  it said of them and their names. Of your answers to questions, what you answered: a question's
  *  header beside it would run into it. */
 const FIND_IN = '.ca-thread-you:not(.ca-thread-answers), .ca-thread-answer, .ca-thread-agent, .ca-thread-codealong, .ca-thread-note, .ca-thread-toollabel, .ca-thread-tooldetail, .ca-thread-ran, .ca-thread-madetitle, .ca-thread-sentcaption, .ca-thread-sent .ca-md-file-name';
-
-type Row =
-  | { kind: 'item'; item: TranscriptItem; result?: TranscriptItem }
-  | { kind: 'tools'; calls: { item: TranscriptItem; result?: TranscriptItem }[] }
-  /** Your answers to the questions a call asked you, on its result. */
-  | { kind: 'answers'; result: TranscriptItem; questions: Question[] };
-
-const keyOf = (it: TranscriptItem) => `${it.cursor}:${it.n}`;
-
-/** A call's result that has your answers to the questions it asked. */
-const hasAnswers = (it: TranscriptItem) => it.kind === 'result' && Object.keys(it.answers ?? {}).length > 0;
-
-/** The items as rows: results joined to their calls, and to commands you ran in the session's
- *  shell, runs of calls folded, and your answers to questions where you gave them. */
-export function rowsOf(items: TranscriptItem[]): Row[] {
-  const results = new Map<string, TranscriptItem>();
-  for (const it of items) if (it.kind === 'result' && it.id) results.set(it.id, it);
-  const asked = new Map<string, Question[]>();
-  const rows: Row[] = [];
-  let run: { item: TranscriptItem; result?: TranscriptItem }[] = [];
-  const flush = () => {
-    if (run.length >= FOLD_AT) rows.push({ kind: 'tools', calls: run });
-    else rows.push(...run.map((c) => ({ kind: 'item' as const, ...c })));
-    run = [];
-  };
-  for (const it of items) {
-    if (it.kind === 'result') {
-      if (hasAnswers(it)) {
-        flush();
-        rows.push({ kind: 'answers', result: it, questions: (it.id && asked.get(it.id)) || [] });
-      }
-      continue;
-    }
-    if (it.kind === 'tool') {
-      const call = { item: it, result: it.id ? results.get(it.id) : undefined };
-      if (it.id && it.questions?.length) asked.set(it.id, it.questions);
-      // A call that made a page, or sent you files, is one to open, and questions it asked you
-      // are what your answers below them answer: the calls around it fold, and it stays in view.
-      if (it.link || call.result?.link || it.sent || it.questions?.length) {
-        flush();
-        rows.push({ kind: 'item', ...call });
-      } else run.push(call);
-      continue;
-    }
-    flush();
-    rows.push({ kind: 'item', item: it, result: it.kind === 'you' && it.id ? results.get(it.id) : undefined });
-  }
-  flush();
-  return rows;
-}
 
 /** Who spoke last, and when the last step was (0 when its record didn't say). */
 export interface Speaker {
@@ -330,7 +282,7 @@ function MadeLine({ link }: { link: NonNullable<TranscriptItem['link']> }) {
   );
 }
 
-function ToolLineView({ item, result, state, onOpen }: { item: TranscriptItem; result?: TranscriptItem; state: 'done' | 'running' | 'asks' | 'open'; onOpen?: () => void }) {
+function ToolLineView({ item, result, state, compact = false, onOpen }: { item: TranscriptItem; result?: TranscriptItem; state: 'done' | 'running' | 'asks' | 'open'; compact?: boolean; onOpen?: () => void }) {
   const questions = item.questions?.length ? item.questions : null;
   // Questions it waits on you for show without a click, unless the reply area below shows them.
   const [open, setOpen] = useState(!!questions && state === 'asks' && !!onOpen);
@@ -353,7 +305,7 @@ function ToolLineView({ item, result, state, onOpen }: { item: TranscriptItem; r
       <span className="ca-thread-asks">Waiting for you</span>
     ) : failed ? (
       <Icon name="x" size={12} stroke={2.25} title="Failed" />
-    ) : result || item.output != null ? (
+    ) : !compact && (result || item.output != null) ? (
       <Icon name="check" size={12} stroke={2.25} title="Done" />
     ) : null;
   const chevron = detail && <Icon name={open ? 'chevron-down' : 'chevron-right'} size={12} />;
@@ -371,7 +323,7 @@ function ToolLineView({ item, result, state, onOpen }: { item: TranscriptItem; r
       </>
     );
   return (
-    <div className={cx('ca-thread-tool', failed && 'is-failed', state === 'asks' && 'is-asks')}>
+    <div className={cx('ca-thread-tool', compact && 'is-compact', failed && 'is-failed', state === 'asks' && 'is-asks')}>
       {named && file ? (
         // Two things to do, each a control of its own: the name opens the file, the chevron the
         // call's input and output, as a click anywhere else on the line does too (on one with
@@ -442,29 +394,86 @@ function ToolLineView({ item, result, state, onOpen }: { item: TranscriptItem; r
   );
 }
 
-function ToolRunView({ calls, stateOf, inBox, onOpen }: { calls: { item: TranscriptItem; result?: TranscriptItem }[]; stateOf: (it: TranscriptItem) => 'done' | 'running' | 'asks' | 'open'; inBox: (it: TranscriptItem) => boolean; onOpen?: () => void }) {
+function ToolRunView({ calls, stateOf, inBox, compact = false, onOpen }: { calls: ToolCall[]; stateOf: (it: TranscriptItem) => 'done' | 'running' | 'asks' | 'open'; inBox: (it: TranscriptItem) => boolean; compact?: boolean; onOpen?: () => void }) {
   // Folded until you open it, or while ⌘F finds one of the calls it folds away; a click says
   // which from then on.
   const [opened, setOpen] = useState<boolean | null>(null);
   const last = calls[calls.length - 1];
-  const earlier = calls.slice(0, -1);
+  const lastState = stateOf(last.item);
+  // In compact / folded modes, a finished run collapses all its calls into one plain-English
+  // summary line; only an actively running or waiting call stays exposed underneath it.
+  const exposeLast = !compact || lastState === 'running' || lastState === 'asks';
+  const folded = exposeLast ? calls.slice(0, -1) : calls;
   const finding = useContext(FindContext);
-  const open = opened ?? (!!finding && earlier.some((c) => says(finding, shownText(c.item))));
-  const names = [...new Set(earlier.map((c) => c.item.text.split(' · ')[0]))].slice(0, 4).join(', ');
-  const failed = earlier.filter((c) => c.item.failed || c.result?.failed).length;
+  const open = opened ?? (!!finding && folded.some((c) => says(finding, shownText(c.item))));
+  const names = [...new Set(folded.map((c) => c.item.text.split(' · ')[0]))].slice(0, 4).join(', ');
+  const failed = folded.filter((c) => c.item.failed || c.result?.failed).length;
   return (
-    <div className="ca-thread-run">
-      <button type="button" className="ca-thread-runhead" aria-expanded={open} onClick={() => setOpen(!open)}>
-        <Icon name={open ? 'chevron-down' : 'chevron-right'} size={12} />
-        <span>
-          {earlier.length} tool calls · {names}
-          {failed > 0 ? ` · ${failed} failed` : ''}
-        </span>
-      </button>
-      {open && earlier.map((c) => <ToolLine key={keyOf(c.item)} item={c.item} result={c.result} state={stateOf(c.item)} onOpen={onOpen} />)}
+    <div className={cx('ca-thread-run', compact && 'is-compact')}>
+      {compact ? (
+        <button type="button" className="ca-thread-runhead is-compact" aria-expanded={open} onClick={() => setOpen(!open)}>
+          <Icon name={summaryIcon(folded)} size={13} />
+          <span className="ca-thread-runlabel">{summarizeTools(folded)}</span>
+          <Icon name={open ? 'chevron-down' : 'chevron-right'} size={12} className="ca-thread-runchev" />
+        </button>
+      ) : (
+        <button type="button" className="ca-thread-runhead" aria-expanded={open} onClick={() => setOpen(!open)}>
+          <Icon name={open ? 'chevron-down' : 'chevron-right'} size={12} />
+          <span>
+            {folded.length} tool calls · {names}
+            {failed > 0 ? ` · ${failed} failed` : ''}
+          </span>
+        </button>
+      )}
+      {open && (
+        <div className={cx(compact && 'ca-thread-runlist')}>
+          {folded.map((c) => (
+            <ToolLine key={keyOf(c.item)} item={c.item} result={c.result} state={stateOf(c.item)} compact={compact} onOpen={onOpen} />
+          ))}
+        </div>
+      )}
       {/* The call it waits on, once the box below shows it, is the box's (questionsBox.ts). */}
       {/* Keyed, so a call that comes in after it starts as its own line, not as this one was left. */}
-      {!inBox(last.item) && <ToolLine key={keyOf(last.item)} item={last.item} result={last.result} state={stateOf(last.item)} onOpen={onOpen} />}
+      {exposeLast && !inBox(last.item) && <ToolLine key={keyOf(last.item)} item={last.item} result={last.result} state={lastState} compact={compact} onOpen={onOpen} />}
+    </div>
+  );
+}
+
+/** A completed turn's intermediate work collapsed into one quiet "Worked for …" row (or hidden in
+ *  zen mode until ⌘F matches something inside it). */
+function TurnFoldView({ row, renderRow }: { row: Extract<ThreadRow, { kind: 'turn' }>; renderRow: (r: ThreadRow) => ReactNode }) {
+  const [opened, setOpen] = useState<boolean | null>(null);
+  const finding = useContext(FindContext);
+  const grew = useContext(ThreadGrows);
+  const matched = !!finding && turnMatchesFind(row.rows, finding);
+  const open = opened ?? matched;
+  const box = useRef<HTMLDivElement>(null);
+  const height = useRef<number | null>(null);
+  // When ⌘F auto-opens (or closes) a fold, keep what the user was reading anchored so the view
+  // doesn't jump into the middle of the newly expanded turn before WindowFind picks the nearest
+  // match. A fold the user clicked themselves stays where they clicked it.
+  useLayoutEffect(() => {
+    const el = box.current;
+    const next = el ? el.offsetHeight : 0;
+    const prev = height.current;
+    height.current = next;
+    if (prev !== null && next !== prev && opened === null && el && grew) grew(el, next - prev);
+  }, [open, opened, grew]);
+  if (row.hidden) {
+    if (!matched) return null;
+    return (
+      <div ref={box} className="ca-thread-turnbody is-zen">
+        {row.rows.map(renderRow)}
+      </div>
+    );
+  }
+  return (
+    <div ref={box} className={cx('ca-thread-turn', open && 'is-open')}>
+      <button type="button" className="ca-thread-turnhead" aria-expanded={open} onClick={() => setOpen(!open)}>
+        <span className="ca-thread-turnlabel">{turnFoldLabel(row)}</span>
+        <Icon name={open ? 'chevron-down' : 'chevron-right'} size={12} />
+      </button>
+      {open && <div className="ca-thread-turnbody">{row.rows.map(renderRow)}</div>}
     </div>
   );
 }
@@ -1177,15 +1186,18 @@ export function SessionThread({ session: s, now, onOpen, fallback, machine, onLo
 
   // An orchestrator's runs that found nothing fold into a line each (orchestrators.ts), which
   // starts afresh as any note does.
+  const toolDisplay = useToolDisplay();
+  const compactTools = toolDisplay !== 'detailed';
   const orchestrating = !!s.orchestrator;
   const fromStart = before == null;
   const folded = useMemo(() => (orchestrating ? foldQuietRuns(items, fromStart) : items), [items, orchestrating, fromStart]);
-  const rows = useMemo(() => rowsOf(folded), [folded]);
   // A session that listens (listen.rs): what Codealong told it is drawn as what it is (the
   // meeting's lines, that it began, that it ended), and an answer that says there's nothing to
   // say, a dash, as it's asked to give most of the time, isn't drawn at all.
   const told = useMemo(() => new Map(items.filter((it) => it.kind === 'codealong').flatMap((it) => [toldIn(it.text)].flatMap((t) => (t ? [[it, t] as const] : [])))), [items]);
   const undrawn = useCallback((it: TranscriptItem) => told.size > 0 && it.kind === 'agent' && saysNothing(it.text), [told]);
+  const rawRows = useMemo(() => rowsOf(folded, toolDisplay), [folded, toolDisplay]);
+  const rows = useMemo(() => foldTurns(rawRows, { mode: toolDisplay, active: active || writes, undrawn }), [rawRows, toolDisplay, active, writes, undrawn]);
   // Runs go by what's drawn: a run's time under a dash that isn't would be lost.
   const headings = useMemo(() => headingsOf(folded.filter((it) => !undrawn(it))), [folded, undrawn]);
   const editable = useMemo(() => editablePrompts(items, before == null), [items, before]);
@@ -1302,6 +1314,62 @@ export function SessionThread({ session: s, now, onOpen, fallback, machine, onLo
   // ⌘F finds in it as in the rest of the window, and in its pages further back (ThreadFind.tsx).
   useThreadFind({ key: s.key, scroller, roots: FIND_IN, ready: loaded && current, read: reading.current, before, pageAt, show }, find);
 
+  const renderRow = (r: ThreadRow): ReactNode => {
+    if (r.kind === 'turn') return <TurnFoldView key={r.id} row={r} renderRow={renderRow} />;
+    if (r.kind === 'tools') return <ToolRun key={keyOf(r.calls[0].item)} calls={r.calls} stateOf={stateOf} inBox={inBox} compact={compactTools} onOpen={askHere} />;
+    if (r.kind === 'answers') {
+      const rewind = onRewind && r.questions.length > 0 ? () => onRewind(r.result, r.questions) : undefined;
+      const head = headings.headed.get(keyOf(r.result));
+      const foot = headings.footed.get(keyOf(r.result));
+      return <Said key={keyOf(r.result)} item={r.result} asked={r.questions} now={foot === undefined ? 0 : now} who="You" head={head} foot={foot} onMenu={onMenu} onEdit={rewind} />;
+    }
+    const it = r.item;
+    if (it.kind === 'tool') return inBox(it) ? null : <ToolLine key={keyOf(it)} item={it} result={r.result} state={stateOf(it)} compact={compactTools} onOpen={askHere} />;
+    if (it.kind === 'note') {
+      // Where the turn was stopped stands out: otherwise only the call it cut short,
+      // marked failed, said so.
+      return (
+        <div key={keyOf(it)} className={cx('ca-thread-note', it.stop && 'is-stop')}>
+          {it.stop && <Icon name="player-stop" size={11} stroke={2} />}
+          {it.text}
+        </div>
+      );
+    }
+    const heard = told.get(it);
+    if (heard) return <Told key={keyOf(it)} told={heard} />;
+    if (undrawn(it)) return null;
+    const shown = told.size > 0 && it.kind === 'agent' ? { ...it, text: asCue(it.text) } : it;
+    const again = it.withdrawn && answeredBelow ? () => putBack(s.key, keyOf(it), it.text, true) : undefined;
+    // What Codealong or another session sent says who sent it. Yours and the agent's
+    // say nothing: your bubble says it's yours, and the header names its account.
+    const label = it.kind === 'codealong' ? 'Codealong' : it.kind === 'peer' ? peerLabel(it) : undefined;
+    const edit = onEdit && editable.has(keyOf(it)) ? () => onEdit(it) : undefined;
+    const head = headings.headed.get(keyOf(it));
+    // What's neither yours nor the agent's is a card (MessageCard.tsx): Codealong's own
+    // message a line saying what it comes to, which opens to the whole, and another
+    // session's who it's from and its first lines; when, as its heading would say it (a
+    // record without a time goes by the one before). One its session took back shows
+    // whole, saying so, with a way to put it back.
+    const at = head || it.at;
+    if (it.kind === 'codealong' && !it.withdrawn)
+      return (
+        <CodealongCard key={keyOf(it)} item={it} at={at} glance={it.glance} now={now}>
+          <Said item={shown} result={r.result} now={0} who="Codealong" onMenu={onMenu} />
+        </CodealongCard>
+      );
+    if (it.kind === 'peer' && !it.withdrawn)
+      return (
+        <PeerCard key={keyOf(it)} item={it} at={at} now={now} sessionKey={s.key}>
+          <Said item={shown} result={r.result} now={0} who={peerLabel(it)} onMenu={onMenu} />
+        </PeerCard>
+      );
+    // The clock only for one that ends a run, which says how long ago under it: the others
+    // needn't render as it moves. A reply streaming in after it that goes on with its run
+    // says when under it instead.
+    const foot = goesOn && keyOf(it) === headings.open ? undefined : headings.footed.get(keyOf(it));
+    return <Said key={keyOf(it)} item={shown} result={r.result} now={foot === undefined ? 0 : now} label={label} who={it.kind === 'you' ? 'You' : (label ?? s.account)} head={head} foot={foot} onPutBack={again} onMenu={onMenu} onEdit={edit} />;
+  };
+
   if (failedView) {
     return (
       <div className="ca-thread is-fallback">
@@ -1335,60 +1403,7 @@ export function SessionThread({ session: s, now, onOpen, fallback, machine, onLo
               {!loaded && <Reading what="Reading the conversation…" place="session" late />}
               {/* The start of the session says itself: the first prompt is at the top. */}
               {loaded && before != null && <div className="ca-thread-start">Loading earlier…</div>}
-              {rows.map((r) => {
-                if (r.kind === 'tools') return <ToolRun key={keyOf(r.calls[0].item)} calls={r.calls} stateOf={stateOf} inBox={inBox} onOpen={askHere} />;
-                if (r.kind === 'answers') {
-                  const rewind = onRewind && r.questions.length > 0 ? () => onRewind(r.result, r.questions) : undefined;
-                  const head = headings.headed.get(keyOf(r.result));
-                  const foot = headings.footed.get(keyOf(r.result));
-                  return <Said key={keyOf(r.result)} item={r.result} asked={r.questions} now={foot === undefined ? 0 : now} who="You" head={head} foot={foot} onMenu={onMenu} onEdit={rewind} />;
-                }
-                const it = r.item;
-                if (it.kind === 'tool') return inBox(it) ? null : <ToolLine key={keyOf(it)} item={it} result={r.result} state={stateOf(it)} onOpen={askHere} />;
-                if (it.kind === 'note') {
-                  // Where the turn was stopped stands out: otherwise only the call it cut short,
-                  // marked failed, said so.
-                  return (
-                    <div key={keyOf(it)} className={cx('ca-thread-note', it.stop && 'is-stop')}>
-                      {it.stop && <Icon name="player-stop" size={11} stroke={2} />}
-                      {it.text}
-                    </div>
-                  );
-                }
-                const heard = told.get(it);
-                if (heard) return <Told key={keyOf(it)} told={heard} />;
-                if (undrawn(it)) return null;
-                const shown = told.size > 0 && it.kind === 'agent' ? { ...it, text: asCue(it.text) } : it;
-                const again = it.withdrawn && answeredBelow ? () => putBack(s.key, keyOf(it), it.text, true) : undefined;
-                // What Codealong or another session sent says who sent it. Yours and the agent's
-                // say nothing: your bubble says it's yours, and the header names its account.
-                const label = it.kind === 'codealong' ? 'Codealong' : it.kind === 'peer' ? peerLabel(it) : undefined;
-                const edit = onEdit && editable.has(keyOf(it)) ? () => onEdit(it) : undefined;
-                const head = headings.headed.get(keyOf(it));
-                // What's neither yours nor the agent's is a card (MessageCard.tsx): Codealong's own
-                // message a line saying what it comes to, which opens to the whole, and another
-                // session's who it's from and its first lines; when, as its heading would say it (a
-                // record without a time goes by the one before). One its session took back shows
-                // whole, saying so, with a way to put it back.
-                const at = head || it.at;
-                if (it.kind === 'codealong' && !it.withdrawn)
-                  return (
-                    <CodealongCard key={keyOf(it)} item={it} at={at} glance={it.glance} now={now}>
-                      <Said item={shown} result={r.result} now={0} who="Codealong" onMenu={onMenu} />
-                    </CodealongCard>
-                  );
-                if (it.kind === 'peer' && !it.withdrawn)
-                  return (
-                    <PeerCard key={keyOf(it)} item={it} at={at} now={now} sessionKey={s.key}>
-                      <Said item={shown} result={r.result} now={0} who={peerLabel(it)} onMenu={onMenu} />
-                    </PeerCard>
-                  );
-                // The clock only for one that ends a run, which says how long ago under it: the others
-                // needn't render as it moves. A reply streaming in after it that goes on with its run
-                // says when under it instead.
-                const foot = goesOn && keyOf(it) === headings.open ? undefined : headings.footed.get(keyOf(it));
-                return <Said key={keyOf(it)} item={shown} result={r.result} now={foot === undefined ? 0 : now} label={label} who={it.kind === 'you' ? 'You' : (label ?? s.account)} head={head} foot={foot} onPutBack={again} onMenu={onMenu} onEdit={edit} />;
-              })}
+              {rows.map(renderRow)}
               {showing.map((a) => (
                 <Unsaid key={a.id} ahead={a} onOpen={onOpen} />
               ))}

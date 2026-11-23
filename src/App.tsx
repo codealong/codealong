@@ -131,6 +131,7 @@ import { inProject } from './quick';
 import { CODEALONG_REPO } from './improve';
 import { bare, keysIn } from './platform';
 import { useKeysShown } from './keysShown';
+import { useToolDisplaySync } from './toolDisplay';
 
 /** No worktrees yet, as one list, so Settings doesn't see a new one on every render. */
 const NO_LANES: Lane[] = [];
@@ -387,6 +388,7 @@ export function App() {
   useTheme(theme);
   useGlass(!!board?.glass);
   useKeysShown(board?.showKeys);
+  useToolDisplaySync(board?.tools);
   useEffect(() => {
     if (pickedTheme && board?.theme === pickedTheme) setPickedTheme(null);
   }, [board?.theme, pickedTheme]);

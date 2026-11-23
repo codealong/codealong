@@ -24,7 +24,7 @@ import { prRefOf } from '../prLinks';
 import { errorText, type Report } from '../report';
 import { reloadPressed, reloadWindow } from '../reload';
 import { reuse } from '../reuse';
-import type { Board, DeviceView, Lane, PrItem, ProjectSummary, Session, Theme, Todo, Usage } from '../types';
+import type { Board, DeviceView, Lane, PrItem, ProjectSummary, Session, Theme, Todo, ToolDisplay, Usage } from '../types';
 import { useTypingTrace } from '../typingTrace';
 import { useDevices, useObserve } from '../useDevices';
 import { zoomStep } from '../zoom';
@@ -48,6 +48,8 @@ export interface LiveSession {
   zoom: number | null;
   /** Whether keyboard shortcuts show all the time, as the board last said (keysShown.ts). */
   showKeys: boolean;
+  /** How tool calls appear in conversations, as the board last said (toolDisplay.ts). */
+  tools: ToolDisplay;
   /** The board's PRs, worktrees and todos, for what the header says around the session and for
    *  PR links in the conversation, and its terminals of Codealong's own, for the drawer under its
    *  box. The last ones stay for the next session shown. */
@@ -142,7 +144,7 @@ export function useLiveSession(told: Told | null, shown: boolean): LiveSession {
     if (following.current) following.current.read(failed);
     else void getBoard().then(takeBoard, failed);
   }, [takeBoard]);
-  return { lane, session, theme: now?.theme ?? (elsewhere ? look?.theme : null) ?? null, zoom: now?.zoom ?? (elsewhere ? look?.zoom : null) ?? null, showKeys: engine?.showKeys ?? true, board, device: elsewhere && key ? deviceOf(devices, key) : null, needBoard, there: elsewhere ? devices?.lanes : undefined, perfLog, projects: engine?.projects };
+  return { lane, session, theme: now?.theme ?? (elsewhere ? look?.theme : null) ?? null, zoom: now?.zoom ?? (elsewhere ? look?.zoom : null) ?? null, showKeys: engine?.showKeys ?? true, tools: engine?.tools ?? 'folded', board, device: elsewhere && key ? deviceOf(devices, key) : null, needBoard, there: elsewhere ? devices?.lanes : undefined, perfLog, projects: engine?.projects };
 }
 
 /** ⌘= ⌘- ⌘0 on a card in a window that floats: they zoom every window, as in the board's, and

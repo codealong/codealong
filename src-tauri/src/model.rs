@@ -240,6 +240,10 @@ pub struct Board {
     /// engine's board that doesn't say is read as on.
     #[serde(default = "crate::config::default_show_keys")]
     pub show_keys: bool,
+    /// How tool calls appear in conversations, from config.toml's `[appearance] tools`
+    /// (`src/toolDisplay.ts`).
+    #[serde(default)]
+    pub tools: crate::config::ToolDisplay,
     /// True while `[debug] perf_log` is on, so windows report their timings too.
     pub perf_log: bool,
     /// Every todo, in your order.

@@ -1329,44 +1329,9 @@ pub struct DebugCfg {
     pub perf_log: bool,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-pub struct AppearanceCfg {
-    #[serde(default)]
-    pub theme: Theme,
-    /// How big the board's windows draw, in percent; ⌘= and ⌘- step it (zoom.rs).
-    #[serde(default = "default_zoom")]
-    pub zoom: u32,
-    /// Glass (glass.rs): the main window and the project windows show what's behind them through
-    /// macOS's own material, Liquid Glass from macOS 26 and the sidebar's vibrancy before it, with
-    /// what was gray in them see-through over it. On by default on macOS, the only OS that has it.
-    #[serde(default = "default_glass")]
-    pub glass: bool,
-    /// Keyboard shortcuts show beside the buttons and rows they work, and in the lines that say
-    /// them, all the time: on by default. Off, they show while ⌘ or ⌃ is held (src/keysShown.ts),
-    /// and tooltips and menus say them either way.
-    #[serde(default = "default_show_keys")]
-    pub show_keys: bool,
-}
-
-impl Default for AppearanceCfg {
-    fn default() -> Self {
-        AppearanceCfg { theme: Theme::default(), zoom: default_zoom(), glass: default_glass(), show_keys: default_show_keys() }
-    }
-}
-
-/// Keys show all the time unless config.toml turns them off.
-pub fn default_show_keys() -> bool {
-    true
-}
-
-/// Glass is on unless config.toml turns it off, on macOS; elsewhere there's none to turn on.
-fn default_glass() -> bool {
-    crate::os::is_macos()
-}
-
-fn default_zoom() -> u32 {
-    crate::zoom::ACTUAL
-}
+mod appearance;
+pub use appearance::{AppearanceCfg, Theme, ToolDisplay, default_show_keys};
+use appearance::default_glass;
 
 /// Keyboard shortcuts that work whichever app is in front. An empty one is off.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -1477,26 +1442,6 @@ fn default_quick_panel() -> String {
 
 fn default_waiting() -> String {
     default_shortcuts().waiting.to_string()
-}
-
-/// Light or dark. `System` follows macOS, and changes when macOS does.
-#[derive(Debug, Clone, Copy, Default, Serialize, Deserialize, PartialEq, Eq)]
-#[serde(rename_all = "lowercase")]
-pub enum Theme {
-    #[default]
-    System,
-    Light,
-    Dark,
-}
-
-impl Theme {
-    pub fn as_str(self) -> &'static str {
-        match self {
-            Theme::System => "system",
-            Theme::Light => "light",
-            Theme::Dark => "dark",
-        }
-    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -1823,6 +1768,11 @@ pub fn glass() -> bool {
 /// say: the last good ones while a save doesn't parse.
 pub fn show_keys() -> bool {
     current().map_or_else(|_| default_show_keys(), |c| c.appearance.show_keys)
+}
+
+/// How tool calls appear in a session's conversation (`[appearance] tools`).
+pub fn tools() -> ToolDisplay {
+    current().map_or_else(|_| ToolDisplay::default(), |c| c.appearance.tools)
 }
 
 pub fn experimental() -> ExperimentalCfg {
@@ -2172,7 +2122,7 @@ fn set_accounts(doc: &mut toml_edit::DocumentMut, accounts: &[AccountCfg]) {
 }
 
 const APPS_COMMENT: &str = "# Where Codealong opens things. terminal: \"ghostty\", \"iterm2\", \"terminal\" or \"rex\". editor: \"vscode\", \"cursor\", \"zed\", \"xcode\" and the others\n# Settings lists, or any app's name. Picking another editor from an Open in menu sets it here.\n# new_terminal: \"window\", \"tab\" (in the front window), or \"project\" (a tab beside the same repo or project).\n# move_pointer: move the pointer to a terminal Codealong brings forward on another screen.\n# close_command_tabs_after: minutes after a command Codealong runs in your terminal ends that its tab\n# closes, unless you pressed Return for a shell there; 0 keeps it open.\n# tmux: when the sessions Codealong starts run in tmux, shown in your terminal: \"always\", \"when-locked\"\n# (only while the screen is locked, when Ghostty can't start a terminal) or \"never\".\n# run_in: where a session's new terminals (⌃`) and the commands you run from it open: \"codealong\", in a\n# terminal of Codealong's own under the session, or \"terminal\", in a tab of your terminal app.\n";
-const APPEARANCE_COMMENT: &str = "# Light or dark. \"system\" follows macOS. The buttons at the foot of the sidebar set this too.\n# zoom: how big the windows draw, in percent, 50 to 200. View › Zoom in and Zoom out (⌘= and ⌘-) set it.\n# glass: the main and the project windows show what's behind them through macOS's glass; on by default.\n# show_keys: keyboard shortcuts show beside what they do; on by default. Off, they show while you hold ⌘ or ⌃.\n";
+const APPEARANCE_COMMENT: &str = "# Light or dark. \"system\" follows macOS. The buttons at the foot of the sidebar set this too.\n# zoom: how big the windows draw, in percent, 50 to 200. View › Zoom in and Zoom out (⌘= and ⌘-) set it.\n# glass: the main and the project windows show what's behind them through macOS's glass; on by default.\n# show_keys: keyboard shortcuts show beside what they do; on by default. Off, they show while you hold ⌘ or ⌃.\n# tools: how tool calls appear in conversations: \"folded\" (default), \"compact\", \"detailed\", or \"zen\".\n";
 const DECISIONS_COMMENT: &str = "# What Codealong asks a decision model (TypeSafe's Jev unless you add others), feature by feature;\n# Settings › Decisions says what each one sends. default: the model a project or boundary group that\n# names none goes to (`decisions = \"<name>\"` or \"none\" on [[projects]]). Each provider's API key is\n# kept in the login keychain; set it in Settings.\n";
 const EMBLEMS_COMMENT: &str = "# Something to know each session by beside its title (Settings › Appearance): an emoji Jev picks\n# (`kind = \"emoji\"`), or a picture an account draws (`\"drawn\"`), as `prompt` says.\n";
 const SEARCH_COMMENT: &str = "# The quick panel, the main window's filter and `codealong sessions find` search what was said in\n# sessions active in the last `days` days, not just their titles. 0 turns it off; 14, the board's\n# reach, is the most.\n";
@@ -2653,6 +2603,9 @@ pub fn with_config(text: &str, cfg: &Config) -> Result<String> {
     }
     if cfg.appearance.show_keys != default_show_keys() || doc["appearance"].get("show_keys").is_some() {
         set_value(&mut doc["appearance"]["show_keys"], Value::from(cfg.appearance.show_keys));
+    }
+    if cfg.appearance.tools != ToolDisplay::default() || doc["appearance"].get("tools").is_some() {
+        set_value(&mut doc["appearance"]["tools"], Value::from(cfg.appearance.tools.as_str()));
     }
     set_shortcuts(&mut doc, &cfg.shortcuts, cfg.experimental.voice);
 
@@ -3335,6 +3288,9 @@ pub fn render(cfg: &Config) -> String {
     }
     if cfg.appearance.show_keys != default_show_keys() {
         s.push_str(&format!("show_keys = {}\n", cfg.appearance.show_keys));
+    }
+    if cfg.appearance.tools != ToolDisplay::default() {
+        s.push_str(&format!("tools = {}\n", q(cfg.appearance.tools.as_str())));
     }
     s.push('\n');
     s.push_str(&shortcuts_comment());
@@ -4245,6 +4201,25 @@ mod tests {
         let back = with_config(&out, &full()).unwrap();
         assert!(back.contains("show_keys = true\n"), "{back}");
         assert_eq!(from_text(&back).unwrap(), full());
+    }
+
+    #[test]
+    fn tools_fold_by_default_and_a_file_says_so_only_once_changed() {
+        let _mac = crate::os::AsIf::new(crate::os::Os::MacOs);
+        assert_eq!(toml::from_str::<Config>("").unwrap().appearance.tools, ToolDisplay::Folded);
+        let old = render(&full());
+        assert!(!old.contains("tools ="), "{old}");
+        for mode in [ToolDisplay::Compact, ToolDisplay::Detailed, ToolDisplay::Zen] {
+            let changed = Config { appearance: AppearanceCfg { tools: mode, ..full().appearance }, ..full() };
+            let out = with_config(&old, &changed).unwrap();
+            assert!(out.contains(&format!("tools = \"{}\"\n", mode.as_str())), "{out}");
+            assert_eq!(from_text(&out).unwrap(), changed);
+            assert_eq!(from_text(&render(&changed)).unwrap(), changed);
+            // Put back to the default, the line stays saying so.
+            let back = with_config(&out, &full()).unwrap();
+            assert!(back.contains("tools = \"folded\"\n"), "{back}");
+            assert_eq!(from_text(&back).unwrap(), full());
+        }
     }
 
     #[test]

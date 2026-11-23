@@ -174,6 +174,7 @@ impl Engine {
         board.zoom = self.cfg.appearance.zoom;
         board.glass = self.cfg.appearance.glass;
         board.show_keys = self.cfg.appearance.show_keys;
+        board.tools = self.cfg.appearance.tools;
         board.quick_shortcut = self.cfg.shortcuts.quick_panel.clone();
         board.chat_shortcut = self.cfg.shortcuts.chat.clone();
         board.waiting_shortcut = self.cfg.shortcuts.waiting.clone();

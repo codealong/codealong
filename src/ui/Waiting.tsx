@@ -68,6 +68,7 @@ import { useNow } from './useNow';
 import { useDoneHelpers } from './DoneHelpers';
 import { chordMod } from '../platform';
 import { useKeysShown } from '../keysShown';
+import { useToolDisplaySync } from '../toolDisplay';
 
 /** Where the sessions looked at here are kept, for ⌃- and ⌃⇧- (history.ts), apart from the other
  *  windows'. */
@@ -104,6 +105,7 @@ export function Waiting() {
   const onDesktop = menus.useDesktopPins();
   useTheme(board?.theme ?? 'system');
   useKeysShown(board?.showKeys);
+  useToolDisplaySync(board?.tools);
 
   // Followed afresh each time it's brought up (followBoard.ts): any board that comes then, read or
   // pushed, was made since it came up.

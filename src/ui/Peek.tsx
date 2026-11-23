@@ -56,6 +56,7 @@ import { cardZoom, zoomFactor } from '../zoom';
 import { cx } from './primitives';
 import { chordMod, held } from '../platform';
 import { useKeysShown } from '../keysShown';
+import { useToolDisplaySync } from '../toolDisplay';
 
 /** Room around the card for its shadow (`--shadow-peek`, which falls away from the bar): the
  *  window (peek.rs) is the card, this on its sides, `FAR` on the side away from the bar, and
@@ -199,6 +200,7 @@ export function Peek({ kept = false, side = false }: { kept?: boolean; side?: bo
   const theme = live.theme ?? open?.theme ?? 'system';
   useTheme(theme);
   useKeysShown(live.showKeys);
+  useToolDisplaySync(live.tools);
   // The card draws at the zoom, which the open said and the board keeps up (zoom.ts); the peek's
   // window opens as much bigger (peek.rs `place`).
   const zoom = live.zoom ?? open?.zoom;
