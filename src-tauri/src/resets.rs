@@ -4,8 +4,8 @@
 //! through its app-server (codex/resets.rs). Claude Code has resets too (`/limit-reset`), but
 //! Anthropic offers them only to Claude Code itself, so they aren't read here (claude-code.md).
 //! The engine reads every account's as accountpoll.rs says (`ResetPoll`), and once more right
-//! after Codealong uses one. The status bar marks an account that holds one, and its card lists
-//! them with Use a reset (src/ui/StatusBar.tsx).
+//! after Codealong uses one. The usage bar marks an account that holds one, and its card lists
+//! them with Use a reset (src/ui/UsageBar.tsx).
 
 use std::collections::BTreeSet;
 use std::sync::Mutex;
