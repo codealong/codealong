@@ -3,7 +3,9 @@
 // @ts-expect-error no @types/node
 import { spawnSync } from 'node:child_process';
 // @ts-expect-error no @types/node
-import { chmodSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { EventEmitter } from 'node:events';
+// @ts-expect-error no @types/node
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 // @ts-expect-error no @types/node
 import { tmpdir } from 'node:os';
 // @ts-expect-error no @types/node
@@ -12,7 +14,7 @@ import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, test } from 'vitest';
 // @ts-expect-error plain ESM script without .d.ts
-import { assertFixtureEngine, assertSnapshotDir, buildPreviewPage, createPreviewHandler, FIXTURE_MARK, formatReport, wantsMacEmulation } from '../scripts/preview/runner.mjs';
+import { assertFixtureEngine, assertSnapshotDir, buildPreviewPage, ChromeWorker, createPreviewHandler, FIXTURE_MARK, formatReport, runWorkerPool, startWorkers, wantsMacEmulation } from '../scripts/preview/runner.mjs';
 
 const repo: string = fileURLToPath(new URL('..', import.meta.url));
 
@@ -297,5 +299,217 @@ for (const r of plan) {
     } finally {
       rmSync(tmp, { recursive: true, force: true });
     }
+  });
+
+  test('ChromeWorker.start retries transient startup timeouts and cleans up failed attempts', async () => {
+    const profiles: string[] = [];
+    const killed: Array<[number, string]> = [];
+    let attempt = 0;
+
+    const fakeSpawn = (_cmd: string, args: string[]) => {
+      attempt += 1;
+      const profileArg = args.find((a) => a.startsWith('--user-data-dir=')) || '';
+      profiles.push(profileArg.slice('--user-data-dir='.length));
+      const proc = Object.assign(new EventEmitter(), {
+        pid: 1000 + attempt,
+        exitCode: null as number | null,
+        signalCode: null as string | null,
+        stderr: Object.assign(new EventEmitter(), { resume() {} }),
+      });
+      if (attempt === 1) {
+        // Attempt 1 hangs without printing DevTools URL, hitting startTimeoutMs.
+        queueMicrotask(() => proc.stderr.emit('data', 'slow init\n'));
+      } else {
+        queueMicrotask(() => proc.stderr.emit('data', 'DevTools listening on ws://127.0.0.1:9999/devtools/browser/1\n'));
+      }
+      return proc;
+    };
+
+    const fakeKill = (pid: number, sig: string) => {
+      killed.push([pid, sig]);
+    };
+
+    const fakeWs = () => {
+      const ws = new EventTarget() as EventTarget & { close(): void; send(): void };
+      ws.close = () => {};
+      ws.send = () => {};
+      queueMicrotask(() => ws.dispatchEvent(new Event('open')));
+      return ws;
+    };
+
+    const procs = new Map<number, EventEmitter & { exitCode: number | null }>();
+    const worker = new ChromeWorker('/fake/chrome', {
+      startTimeoutMs: 25,
+      startAttempts: 3,
+      retryDelayMs: 0,
+      spawnFn: (cmd: string, args: string[]) => {
+        const p = fakeSpawn(cmd, args);
+        procs.set(p.pid, p);
+        return p;
+      },
+      killFn: (pid: number, sig: string) => {
+        fakeKill(pid, sig);
+        const p = procs.get(pid);
+        if (p) {
+          p.exitCode = 0;
+          p.emit('exit', 0, null);
+        }
+      },
+      wsFactory: fakeWs,
+    });
+
+    await worker.start();
+    expect(attempt).toBe(2);
+    expect(worker.isReady()).toBe(true);
+    // Attempt 1's hung process was killed and its profile directory cleaned up.
+    expect(killed).toContainEqual([1001, 'SIGTERM']);
+    expect(existsSync(profiles[0])).toBe(false);
+    expect(existsSync(profiles[1])).toBe(true);
+
+    await worker.stop();
+    expect(existsSync(profiles[1])).toBe(false);
+    expect(worker.isReady()).toBe(false);
+  });
+
+  test('ChromeWorker.start fails fast on ENOENT without retrying and cleans up its profile dir', async () => {
+    const profiles: string[] = [];
+    let attempts = 0;
+
+    const worker = new ChromeWorker('/no/such/chrome', {
+      startAttempts: 3,
+      retryDelayMs: 0,
+      spawnFn: (_cmd: string, args: string[]) => {
+        attempts += 1;
+        const profileArg = args.find((a) => a.startsWith('--user-data-dir=')) || '';
+        profiles.push(profileArg.slice('--user-data-dir='.length));
+        const proc = Object.assign(new EventEmitter(), {
+          pid: undefined,
+          exitCode: null,
+          signalCode: null,
+          stderr: Object.assign(new EventEmitter(), { resume() {} }),
+        });
+        const err = Object.assign(new Error('spawn /no/such/chrome ENOENT'), { code: 'ENOENT' });
+        queueMicrotask(() => proc.emit('error', err));
+        return proc;
+      },
+    });
+
+    await expect(worker.start()).rejects.toThrow(/ENOENT/);
+    expect(attempts).toBe(1);
+    expect(existsSync(profiles[0])).toBe(false);
+  });
+
+  test('startWorkers continues when a subset fail and fails fast when all fail', async () => {
+    const warnings: string[] = [];
+    const stopped: number[] = [];
+    const makeWorker = (id: number, err?: Error) => ({
+      id,
+      async start() {
+        if (err) throw err;
+      },
+      async stop() {
+        stopped.push(id);
+      },
+    });
+
+    const partial = await startWorkers(
+      [makeWorker(1), makeWorker(2, new Error('Chrome did not print DevTools WebSocket URL within 30s')), makeWorker(3)],
+      { staggerMs: 0, warn: (m: string) => warnings.push(m) },
+    );
+    expect(partial.map((w: { id: number }) => w.id)).toEqual([1, 3]);
+    expect(stopped).toEqual([2]);
+    expect(warnings).toHaveLength(1);
+    expect(warnings[0]).toContain('1/3 Chrome worker(s) failed to start');
+
+    await expect(
+      startWorkers([makeWorker(1, new Error('boom 1')), makeWorker(2, new Error('boom 2'))], { staggerMs: 0, warn: () => {} }),
+    ).rejects.toThrow('boom 1');
+  });
+
+  test('runWorkerPool hands a failed worker check to a surviving idle worker and stops cleanly when the last dies', async () => {
+    const warnings: string[] = [];
+    const results: Array<{ id: number; status: number }> = [];
+    const w1 = {
+      name: 'w1',
+      ready: true,
+      stopped: false,
+      isReady() {
+        return this.ready;
+      },
+      async stop() {
+        this.stopped = true;
+      },
+    };
+    const w2 = {
+      name: 'w2',
+      ready: true,
+      stopped: false,
+      isReady() {
+        return this.ready;
+      },
+      async stop() {
+        this.stopped = true;
+      },
+    };
+
+    // Only 2 runs for 2 workers: w2 finishes run 1 immediately while w1 takes longer and dies on run 0.
+    // w2 must wake up and run run 0 instead of exiting early and dropping it.
+    let releaseW1!: () => void;
+    const w1Gate = new Promise<void>((r) => {
+      releaseW1 = r;
+    });
+    await runWorkerPool(
+      [w1, w2],
+      [{ id: 0 }, { id: 1 }],
+      async (worker: typeof w1, run: { id: number }) => {
+        if (worker === w1 && run.id === 0) {
+          await w1Gate;
+          worker.ready = false;
+          return { status: 3, result: 'FAIL 0/0 no result: Chrome never showed the page', extraLines: [], err: 'restart timeout' };
+        }
+        if (worker === w2 && run.id === 1) {
+          // Let w2 finish run 1 and enter idle wait before w1 fails.
+          queueMicrotask(() => releaseW1());
+        }
+        return { status: 0, result: 'PASS 1/1', extraLines: [] };
+      },
+      {
+        onResult: (run: { id: number }, out: { status: number }) => results.push({ id: run.id, status: out.status }),
+        warn: (m: string) => warnings.push(m),
+      },
+    );
+
+    expect(w1.stopped).toBe(true);
+    expect(results.sort((a, b) => a.id - b.id)).toEqual([
+      { id: 0, status: 0 },
+      { id: 1, status: 0 },
+    ]);
+    expect(warnings.some((w) => w.includes('retiring Chrome worker'))).toBe(true);
+
+    // When the last surviving worker dies, emit status 3 once and stop rather than looping all remaining runs.
+    const soloResults: Array<{ id: number; status: number }> = [];
+    const solo = {
+      ready: true,
+      isReady() {
+        return this.ready;
+      },
+      async stop() {},
+    };
+    let calls = 0;
+    await runWorkerPool(
+      [solo],
+      [{ id: 10 }, { id: 11 }, { id: 12 }],
+      async (worker: typeof solo) => {
+        calls += 1;
+        worker.ready = false;
+        return { status: 3, result: 'FAIL 0/0 no result: Chrome never showed the page', extraLines: [] };
+      },
+      {
+        onResult: (run: { id: number }, out: { status: number }) => soloResults.push({ id: run.id, status: out.status }),
+        warn: () => {},
+      },
+    );
+    expect(calls).toBe(1);
+    expect(soloResults).toEqual([{ id: 10, status: 3 }]);
   });
 });
