@@ -82,7 +82,7 @@ pub struct Leaving<'a> {
     pub origin: Origin,
     /// Codealong's own chats (`LaneSeed::starts_chats`).
     pub chats: bool,
-    /// It's marked reusable (`reusable`).
+    /// It's reusable (`reusable`).
     pub reusable: bool,
     pub git: Option<&'a GitInfo>,
     /// How many sessions run in it: a process has them open.
