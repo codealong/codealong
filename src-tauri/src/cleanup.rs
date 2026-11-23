@@ -407,7 +407,7 @@ fn running_in(board: &Board, lane_id: &str, except: Option<&str>) -> usize {
 /// end gives time for work to come in, and only then are its ignored folders looked through
 /// again: the plan has just done it otherwise. A lock the plan was to take off may have gone by
 /// itself (a session's own, as its process ends): whether it's still there to take off.
-fn verify(plan: &Plan, running: usize) -> Result<bool, String> {
+fn verify(plan: &Plan, running: usize, marked_reusable: bool) -> Result<bool, String> {
     let now = facts(&plan.path, plan.base.as_deref()).map_err(|e| format!("{} stays: git couldn't check it again ({e}).", plan.name))?;
     let stays = |why: &str| Err(format!("{} stays: {why}.", plan.name));
     if running > 0 {
@@ -438,7 +438,7 @@ fn verify(plan: &Plan, running: usize) -> Result<bool, String> {
         Some(Ok(Some(inner))) => return stays(&format!("another repository is inside it now ({})", inner.strip_prefix(&plan.path).unwrap_or(&inner).display())),
         Some(Err(why)) => return stays(&why),
     }
-    if plan.can_reuse && crate::reusable::load().ok().and_then(|s| s.get(&plan.path.to_string_lossy())) == Some(true) {
+    if plan.can_reuse && marked_reusable {
         return stays("it's reusable now");
     }
     Ok(plan.unlock && !went)
@@ -508,13 +508,14 @@ pub fn remove(board: &dyn Fn() -> Board, cfg: &Config, lane_id: &str, ending: Op
     let _one = ONE_AT_A_TIME.lock().unwrap_or_else(|e| e.into_inner());
     let plan = plan(&board(), cfg, lane_id, ending)?;
     let except = ending.map(|s| s.key.as_str());
-    let result = carry_out(&plan, &|| running_in(&board(), lane_id, except));
+    let result = carry_out(&plan, &|| running_in(&board(), lane_id, except), &|| crate::reusable::load().ok().and_then(|s| s.get(lane_id)) == Some(true));
     Ok(Removed { plan, result })
 }
 
 /// Removes the worktree as `plan` says, or says why it stays. `running` counts the sessions
-/// running in it now, for the last check.
-fn carry_out(plan: &Plan, running: &dyn Fn() -> usize) -> Result<Gone, String> {
+/// running in it now, and `marked_reusable` says whether it was marked reusable since `plan`, for
+/// the last check.
+fn carry_out(plan: &Plan, running: &dyn Fn() -> usize, marked_reusable: &dyn Fn() -> bool) -> Result<Gone, String> {
     if let Some(why) = &plan.kept {
         return Err(format!("{} stays: {why}.", plan.name));
     }
@@ -529,7 +530,7 @@ fn carry_out(plan: &Plan, running: &dyn Fn() -> usize) -> Result<Gone, String> {
             return Err(format!("{} stays: its session's process hasn't ended.", plan.name));
         }
     }
-    if verify(plan, running())? {
+    if verify(plan, running(), marked_reusable())? {
         procs::run("git", &["-C", &main, "worktree", "unlock", &path], None, COMMAND_WAIT).map_err(|e| format!("Couldn't take the lock its session left off {}: {}", plan.name, last_line(&e.to_string())))?;
     }
     let mut partly = false;
@@ -691,7 +692,7 @@ mod tests {
     fn nothing_runs_for_one_that_stays() {
         let kept = Plan { kept: Some("3 uncommitted files".into()), ..plan_with(vec![]) };
         procs::stand_in::set(Some(Box::new(|program, args, _, _| panic!("ran {program} {args:?}"))));
-        assert_eq!(carry_out(&kept, &|| 0), Err("brave-otter stays: 3 uncommitted files.".into()));
+        assert_eq!(carry_out(&kept, &|| 0, &|| false), Err("brave-otter stays: 3 uncommitted files.".into()));
         procs::stand_in::set(None);
     }
 
@@ -759,14 +760,14 @@ mod tests {
         let p = plan(&board, &cfg, wt.to_str().unwrap(), None).unwrap();
         assert_eq!(p.kept, None, "its .gitignore alone: {p:?}");
         std::fs::write(downloads.join("download-1a2b3c4d.pdf"), "").unwrap();
-        assert_eq!(carry_out(&p, &|| 0), Err("brave-otter stays: it holds a file saved from connectors (connector-downloads).".into()));
+        assert_eq!(carry_out(&p, &|| 0, &|| false), Err("brave-otter stays: it holds a file saved from connectors (connector-downloads).".into()));
         let saved = plan(&board, &cfg, wt.to_str().unwrap(), None).unwrap();
         assert_eq!(saved.kept.as_deref(), Some("it holds a file saved from connectors (connector-downloads)"));
         std::fs::remove_dir_all(&downloads).unwrap();
         let p = plan(&board, &cfg, wt.to_str().unwrap(), None).unwrap();
         assert_eq!(p.kept, None, "{p:?}");
         assert!(p.hooks.is_empty() && p.branch_goes);
-        assert_eq!(carry_out(&p, &|| 0), Ok(Gone { said: "Removed the worktree brave-otter and its branch, worktree-brave-otter.".into(), partly: false }));
+        assert_eq!(carry_out(&p, &|| 0, &|| false), Ok(Gone { said: "Removed the worktree brave-otter and its branch, worktree-brave-otter.".into(), partly: false }));
         assert!(!wt.exists());
         assert!(git(&["branch", "--list", "worktree-brave-otter"]).trim().is_empty());
         // A commit on no remote holds the next one.
@@ -780,13 +781,13 @@ mod tests {
         commit(&in_wt, &wt, "work.txt", "work");
         let p = plan(&board, &cfg, wt.to_str().unwrap(), None).unwrap();
         assert_eq!(p.kept.as_deref(), Some("1 commit on no remote"));
-        assert!(carry_out(&p, &|| 0).is_err());
+        assert!(carry_out(&p, &|| 0, &|| false).is_err());
         assert!(wt.exists());
         // Pushed, it goes; its branch stays where its work is merged nowhere but the remote's.
         in_wt(&["push", "-q", "origin", "worktree-kept"]);
         let p = plan(&board, &cfg, wt.to_str().unwrap(), None).unwrap();
         assert_eq!(p.kept, None);
-        assert_eq!(carry_out(&p, &|| 0), Ok(Gone { said: "Removed the worktree brave-otter; its branch, worktree-kept, stays: its work isn't merged.".into(), partly: false }));
+        assert_eq!(carry_out(&p, &|| 0, &|| false), Ok(Gone { said: "Removed the worktree brave-otter; its branch, worktree-kept, stays: its work isn't merged.".into(), partly: false }));
         // Squash-merged, its own commits are on no remote, but their change is in main, which
         // went on to change other files since: it goes.
         git(&["worktree", "add", "-q", "-b", "worktree-squashed", wt.to_str().unwrap(), "main"]);
@@ -823,14 +824,14 @@ mod tests {
             timeout: Duration::from_secs(30),
         };
         let p = Plan { hooks: vec![hook], after: vec![], ..plan(&board, &cfg, wt.to_str().unwrap(), None).unwrap() };
-        assert_eq!(carry_out(&p, &|| 0), Ok(Gone { said: "Removed the worktree brave-otter through the repo's WorktreeRemove hook.".into(), partly: false }));
+        assert_eq!(carry_out(&p, &|| 0, &|| false), Ok(Gone { said: "Removed the worktree brave-otter through the repo's WorktreeRemove hook.".into(), partly: false }));
         assert!(!wt.exists());
         assert!(std::fs::read_to_string(&log).unwrap().contains("\"worktree_path\""));
         // A hook that takes the folder and then fails says so.
         git(&["worktree", "add", "-q", "-b", "worktree-half", wt.to_str().unwrap(), "main"]);
         let half = Hook { command: format!("git -C \"$CLAUDE_PROJECT_DIR\" worktree remove --force {}; echo 'port 3000 still taken' >&2; exit 1", crate::util::sh_quote(&wt.to_string_lossy())), ..p.hooks[0].clone() };
         let p = Plan { hooks: vec![half], after: vec![], ..plan(&board, &cfg, wt.to_str().unwrap(), None).unwrap() };
-        assert_eq!(carry_out(&p, &|| 0), Ok(Gone { said: "Removed the worktree brave-otter through the repo's WorktreeRemove hook, which failed, though: port 3000 still taken.".into(), partly: true }));
+        assert_eq!(carry_out(&p, &|| 0, &|| false), Ok(Gone { said: "Removed the worktree brave-otter through the repo's WorktreeRemove hook, which failed, though: port 3000 still taken.".into(), partly: true }));
         let _ = std::fs::remove_dir_all(&dir);
     }
 
@@ -864,7 +865,7 @@ mod tests {
         let p = plan(&board, &Config::default(), wt.to_str().unwrap(), None).unwrap();
         assert_eq!(p.kept.as_deref(), Some("1 commit on no remote"), "git alone keeps it");
         let merged = Plan { kept: None, merged: Some("northwind/app#7".into()), ..p };
-        assert_eq!(carry_out(&merged, &|| 0), Ok(Gone { said: "Removed the worktree landed, at the last commit of northwind/app#7, which merged; its branch, worktree-landed, stays: git can't tell its work merged.".into(), partly: false }));
+        assert_eq!(carry_out(&merged, &|| 0, &|| false), Ok(Gone { said: "Removed the worktree landed, at the last commit of northwind/app#7, which merged; its branch, worktree-landed, stays: git can't tell its work merged.".into(), partly: false }));
         assert!(!wt.exists());
         assert!(!at(&main, &["branch", "--list", "worktree-landed"]).trim().is_empty());
         let _ = std::fs::remove_dir_all(&dir);
@@ -902,8 +903,8 @@ mod tests {
     }
 
     /// What the board can't see keeps a worktree: untracked files a setting hides, another
-    /// repository in an ignored folder, reuse its reflog shows, and work that came in after the
-    /// check. `cargo test cleanup::tests::keeps`.
+    /// repository in an ignored folder, and work or a reuse mark that came in after the check.
+    /// `cargo test cleanup::tests::keeps`.
     #[test]
     #[cfg(unix)]
     fn keeps_what_the_board_cant_see_and_what_changed_after_the_check() {
@@ -984,21 +985,23 @@ mod tests {
         let p = plan(&board, &cfg, wt.to_str().unwrap(), None).unwrap();
         assert_eq!(p.kept, None);
         at(&wt, &["commit", "-q", "--allow-empty", "-m", "late"]);
-        assert_eq!(carry_out(&p, &|| 0), Err("wt stays: its HEAD moved since it was checked.".into()));
+        assert_eq!(carry_out(&p, &|| 0, &|| false), Err("wt stays: its HEAD moved since it was checked.".into()));
         at(&wt, &["reset", "-q", "--hard", "origin/main"]);
         let p = plan(&board, &cfg, wt.to_str().unwrap(), None).unwrap();
         std::fs::write(wt.join("late.txt"), "").unwrap();
-        assert_eq!(carry_out(&p, &|| 0), Err("wt stays: it has uncommitted files now.".into()));
+        assert_eq!(carry_out(&p, &|| 0, &|| false), Err("wt stays: it has uncommitted files now.".into()));
         std::fs::remove_file(wt.join("late.txt")).unwrap();
         // Or while a session it was waiting on ended (a process here that has ended already).
         let mut ended = std::process::Command::new("/usr/bin/true").spawn().unwrap();
         let _ = ended.wait();
         let p = Plan { ending: Some(ended.id()), ..plan(&board, &cfg, wt.to_str().unwrap(), None).unwrap() };
         nested(&wt.join("vendor/late"));
-        assert_eq!(carry_out(&p, &|| 0), Err("wt stays: another repository is inside it now (vendor/late).".into()));
+        assert_eq!(carry_out(&p, &|| 0, &|| false), Err("wt stays: another repository is inside it now (vendor/late).".into()));
         std::fs::remove_dir_all(wt.join("vendor")).unwrap();
         // A session that started in it meanwhile keeps it, as the board has it then.
-        assert_eq!(carry_out(&p, &|| 1), Err("wt stays: a session is running in it now.".into()));
+        assert_eq!(carry_out(&p, &|| 1, &|| false), Err("wt stays: a session is running in it now.".into()));
+        // Marking it reusable meanwhile keeps it too.
+        assert_eq!(carry_out(&p, &|| 0, &|| true), Err("wt stays: it's reusable now.".into()));
         // A tracked link git is told not to look at, pointed elsewhere.
         crate::os::files::symlink("local.conf", wt.join("link")).unwrap();
         at(&wt, &["add", "link"]);
