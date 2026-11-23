@@ -50,7 +50,11 @@ of them. So, before the rest:
 Done means: typecheck, lint and tests pass, the engine builds without warnings, UI changes are
 previewed, and the work has landed. Work has landed when it's in `origin/main`
 (github.com/codealong/codealong), the main checkout has it, and the app that's running was
-built from it. Take every finished, checked piece of work that far without asking. Other
+built from it. Take every finished, checked piece of work that far without asking, a fix you
+found while looking into something too: once you know a bug's cause, make the fix in a worktree
+of its own, with its test, and land it, rather than ending your turn to ask whether to. Ask
+first when it changes what the user sees (show them its previews), removes something, has
+alternatives to choose between, or reaches past what you were asked about. Other
 agents work in this repo at the same time, many of them in the main checkout (the first entry of
 `git worktree list`), and whatever sits uncommitted there goes into their commits and builds.
 
