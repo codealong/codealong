@@ -33,6 +33,8 @@
 use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 use std::sync::Mutex;
 
+mod merged;
+
 use crate::config::NudgeAbout;
 use crate::engine::{Handle, Trouble};
 use crate::github::PrDetail;
@@ -107,6 +109,9 @@ pub struct Job {
     /// Its session isn't running, so it's resumed to be told (`Board::pr_stopped`,
     /// `send::tell_waking`).
     pub stopped: bool,
+    /// You merged this PR through Codealong's own merge box (`Board::merged_here`), so the
+    /// self-merge check doesn't suppress its merge notice.
+    pub user_merged: bool,
 }
 
 /// What a nudge tells a session that isn't running, which it's resumed for: what asks for work,
@@ -266,6 +271,13 @@ struct Owed {
     failures: u32,
     /// Not tried again before this (ms).
     next_at: i64,
+    /// You merged this PR through Codealong's own merge box (`Board::merged_here`).
+    user_merged: bool,
+    /// A merge nudge waited while the session was in a turn, so it settles briefly once that
+    /// turn ends before checking whether the session already knows it merged.
+    merge_waited: bool,
+    /// When the session first left its turn after `merge_waited`, for `merged::MERGE_SETTLE_MS`.
+    merge_settled_at: Option<i64>,
 }
 
 /// What each PR on the board stood at when last seen, so each update is noticed once, as it
@@ -277,6 +289,12 @@ pub struct Nudger {
     owed: HashMap<(String, String), Owed>,
     /// Sessions resumed as a copy, each with its copy and when (`went_on_as`).
     copies: HashMap<String, (String, i64)>,
+    /// When to look again for a merge nudge settling after a turn, though no board comes, and the
+    /// wake already asked for (`wake`), as `helpers::Reporter` does.
+    look_again: Option<i64>,
+    woken_for: Option<i64>,
+    /// Latest board looked at (`Board::rev`), so a stale wake doesn't undo a newer board.
+    rev: u64,
 }
 
 impl Nudger {
@@ -290,6 +308,7 @@ impl Nudger {
     /// PR: turning `nudge_by_default` on doesn't tell every approved PR of yours to merge); a PR
     /// the board no longer lists is forgotten, though what's owed for it is still told.
     pub fn due(&mut self, board: &Board, now: i64) -> Vec<Job> {
+        self.rev = self.rev.max(board.rev);
         let resumes = |pr: &PrItem| board.pr_stopped.get(&pr.key) == Some(&Stopped::Resumes);
         self.copies.retain(|_, (_, at)| now - *at < COPY_MS);
         let mut seen_now = HashMap::with_capacity(board.prs.len());
@@ -352,7 +371,18 @@ impl Nudger {
                 continue;
             };
             if why != Why::default() {
-                let owed = self.owed.entry((key.clone(), s)).or_insert_with(|| Owed { pr: pr.clone(), why: Why::default(), sending: None, failures: 0, next_at: 0 });
+                let user_merged = why.ended == Some(PrState::Merged) && board.merged_here.contains(&key);
+                let owed = self.owed.entry((key.clone(), s)).or_insert_with(|| Owed {
+                    pr: pr.clone(),
+                    why: Why::default(),
+                    sending: None,
+                    failures: 0,
+                    next_at: 0,
+                    user_merged: false,
+                    merge_waited: false,
+                    merge_settled_at: None,
+                });
+                owed.user_merged |= user_merged;
                 owed.why.add(why);
             }
         }
@@ -385,19 +415,77 @@ impl Nudger {
         // at once would interleave, and one that isn't running would be resumed twice.
         let mut busy: HashSet<String> = self.owed.iter().filter(|(_, o)| o.sending.is_some()).map(|((_, s), _)| s.clone()).collect();
         let waits = |k: &str| board.session(k).is_some_and(|(_, s)| crate::send::waits_on_you(s));
+        let mut settle_wake: Option<i64> = None;
         let mut out = Vec::new();
-        for ((_, s), o) in self.owed.iter_mut() {
-            if o.sending.is_some() || o.why == Why::default() || now < o.next_at || busy.contains(s) || waits(s) || board.session(s).is_none() {
+        for ((pr_key, s), o) in self.owed.iter_mut() {
+            if o.sending.is_some() || o.why == Why::default() || now < o.next_at || busy.contains(s) || waits(s) {
                 continue;
+            }
+            let Some((_, session)) = board.session(s) else { continue };
+            o.user_merged |= o.why.ended == Some(PrState::Merged) && board.merged_here.contains(pr_key);
+            // Hold a merge nudge while the session is in a turn, and let it settle briefly after
+            // recent activity or a turn ending, so an agent that just merged the PR finishes its
+            // step and writes its output/reply before we check whether it already knows.
+            if o.why.ended == Some(PrState::Merged) && !o.user_merged {
+                if merged::in_turn(session) {
+                    o.merge_waited = true;
+                    o.merge_settled_at = None;
+                    continue;
+                }
+                let settle_at = if o.merge_waited {
+                    *o.merge_settled_at.get_or_insert(now) + merged::MERGE_SETTLE_MS
+                } else {
+                    let activity = session.turn_ended.unwrap_or(session.last_activity);
+                    if activity > 0 && now - activity < merged::MERGE_SETTLE_MS {
+                        activity + merged::MERGE_SETTLE_MS
+                    } else {
+                        0
+                    }
+                };
+                if now < settle_at {
+                    settle_wake = Some(settle_wake.map_or(settle_at, |w| w.min(settle_at)));
+                    continue;
+                }
             }
             busy.insert(s.clone());
             let why = std::mem::take(&mut o.why);
             o.sending = Some(why.clone());
             let (about, stopped) = (about_of(board, &o.pr), !runs_here(s));
-            out.push(Job { pr: o.pr.clone(), why, session: s.clone(), last: o.failures + 1 >= TRIES, about: if stopped { for_stopped(&o.pr, about) } else { about }, runs_about: about, stopped });
+            out.push(Job {
+                pr: o.pr.clone(),
+                why,
+                session: s.clone(),
+                last: o.failures + 1 >= TRIES,
+                about: if stopped { for_stopped(&o.pr, about) } else { about },
+                runs_about: about,
+                stopped,
+                user_merged: o.user_merged,
+            });
         }
+        self.look_again = settle_wake;
         out.sort_by(|a, b| (&a.pr.key, &a.session).cmp(&(&b.pr.key, &b.session)));
         out
+    }
+
+    /// When to look again for a merge nudge settling after a turn, though no board comes by then.
+    /// Once for each time: none while one asked for comes no later.
+    pub fn wake(&mut self) -> Option<i64> {
+        let at = self.look_again?;
+        if self.woken_for.is_some_and(|w| w <= at) {
+            return None;
+        }
+        self.woken_for = Some(at);
+        Some(at)
+    }
+
+    /// The wake asked for at `at` came, with the board as it is then: what's due on it, unless a
+    /// later board was looked at meanwhile, and when to wake next.
+    pub fn woke(&mut self, at: i64, board: &Board, now: i64) -> (Vec<Job>, Option<i64>) {
+        if self.woken_for == Some(at) {
+            self.woken_for = None;
+        }
+        let due = if board.rev >= self.rev { self.due(board, now) } else { Vec::new() };
+        (due, self.wake())
     }
 
     /// How a job went, at `now` (ms). What was told is owed no longer; what wasn't is owed again,
@@ -437,9 +525,21 @@ impl Nudger {
         let owed: Vec<(String, String)> = self.owed.keys().filter(|(_, s)| s == from).cloned().collect();
         for (pr, s) in owed {
             let Some(o) = self.owed.remove(&(pr.clone(), s)) else { continue };
-            let to = self.owed.entry((pr, copy.to_string())).or_insert_with(|| Owed { pr: o.pr.clone(), why: Why::default(), sending: None, failures: 0, next_at: 0 });
+            let to = self.owed.entry((pr, copy.to_string())).or_insert_with(|| Owed {
+                pr: o.pr.clone(),
+                why: Why::default(),
+                sending: None,
+                failures: 0,
+                next_at: 0,
+                user_merged: false,
+                merge_waited: false,
+                merge_settled_at: None,
+            });
             to.why.add(o.why);
             to.sending = to.sending.take().or(o.sending);
+            to.user_merged |= o.user_merged;
+            to.merge_waited |= o.merge_waited;
+            to.merge_settled_at = to.merge_settled_at.or(o.merge_settled_at);
         }
     }
 }
@@ -618,7 +718,7 @@ pub fn words(pr: &PrItem, why: &Why, detail: Option<&PrDetail>, login: Option<&s
     let whose = if pr.mine { "your PR" } else { "PR" };
     // Where it stands would say the conflict again.
     let standing = if pr.state.is_open() && !conflicts { standing(pr) } else { "" };
-    let next = if why.ended.is_some() {
+    let next = if why.ended.is_some() || !pr.state.is_open() {
         "Nothing more is wanted on it, unless you were told otherwise.".to_string()
     } else if pr.state == PrState::Approved && !changes_said && !why.changes && why.failed.is_empty() && !conflicts {
         NOT_A_MERGE.to_string()
@@ -715,7 +815,8 @@ fn message(job: &Job, detail: Option<Result<&PrDetail, &str>>, login: Option<&st
 /// until nothing is; and tells the engine, which says so in a notice when something didn't go.
 pub fn send_now(engine: &Handle, nudger: &Mutex<Nudger>, jobs: Vec<Job>) {
     let read = |pr: &PrItem| crate::github::detail(&pr.repo_slug, pr.number).map_err(|e| e.to_string());
-    let went = send_all(engine, nudger, jobs, read, |job, text| deliver(engine, job, text), crate::util::now_ms);
+    let knows = |job: &Job| merged::session_knows(engine, &job.pr, &job.session);
+    let went = send_all(engine, nudger, jobs, read, knows, |job, text| deliver(engine, job, text), crate::util::now_ms);
     engine.went(Trouble::Nudges, went);
 }
 
@@ -723,7 +824,7 @@ pub fn send_now(engine: &Handle, nudger: &Mutex<Nudger>, jobs: Vec<Job>) {
 /// session that isn't running, if that still goes (`still_due`). The copy it went on as, where it
 /// was resumed as one.
 fn deliver(engine: &Handle, job: &Job, text: &str) -> Result<Option<String>, String> {
-    if engine.read(|b| b.automation_blocked(&job.session)) { return Ok(None); }
+    if engine.read(|b| b.automation_blocked(&job.session) || (!job.stopped && !runs_here(b, &job.session))) { return Ok(None); }
     let told = if !job.stopped {
         crate::send::tell(engine, &job.session, text).map(|_| None)
     } else if engine.read(|b| still_due(b, job)) {
@@ -737,20 +838,35 @@ fn deliver(engine: &Handle, job: &Job, text: &str) -> Result<Option<String>, Str
     })
 }
 
-/// `send_now`, reading a PR's detail with `read`, sending with `tell` and telling the time with
-/// `now`, in rounds: the jobs it was handed, then what `Nudger::more` hands out after each round.
-/// What the jobs came to, for the notice it leaves (`Outcomes`).
-fn send_all(engine: &Handle, nudger: &Mutex<Nudger>, jobs: Vec<Job>, mut read: impl FnMut(&PrItem) -> Result<PrDetail, String>, mut tell: impl FnMut(&Job, &str) -> Result<Option<String>, String>, now: impl Fn() -> i64) -> Result<(), String> {
+/// `send_now`, reading a PR's detail with `read`, checking whether the session already merged the
+/// PR with `knows_merged`, sending with `tell` and telling the time with `now`, in rounds: the
+/// jobs it was handed, then what `Nudger::more` hands out after each round. What the jobs came to,
+/// for the notice it leaves (`Outcomes`).
+fn send_all(
+    engine: &Handle,
+    nudger: &Mutex<Nudger>,
+    jobs: Vec<Job>,
+    mut read: impl FnMut(&PrItem) -> Result<PrDetail, String>,
+    mut knows_merged: impl FnMut(&Job) -> bool,
+    mut tell: impl FnMut(&Job, &str) -> Result<Option<String>, String>,
+    now: impl Fn() -> i64,
+) -> Result<(), String> {
     let login = engine.read(|b| b.github_login.clone());
     let mut outcomes = Outcomes::default();
     let mut jobs = jobs;
     while !jobs.is_empty() {
         // Read afresh each round: a retry has news its first try didn't, or GitHub answers now.
         let mut details: HashMap<(String, i64), Result<PrDetail, String>> = HashMap::new();
-        for job in jobs {
+        for mut job in jobs {
             // One that falls over is told as failed, so its session isn't left waiting on a send
             // that never says how it went.
             let went = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                if job.why.ended == Some(PrState::Merged) && !job.user_merged && knows_merged(&job) {
+                    job.why.ended = None;
+                }
+                if job.why == Why::default() {
+                    return Ok(None);
+                }
                 let detail = job.why.since.map(|since| details.entry((job.pr.key.clone(), since)).or_insert_with(|| read(&job.pr)).as_ref().map_err(String::as_str));
                 message(&job, detail, login.as_deref()).and_then(|text| match text {
                     Some(text) => tell(&job, &text),
@@ -1091,7 +1207,7 @@ mod tests {
     #[test]
     fn a_resume_is_checked_again_before_it_goes() {
         let p = pr("o/r#1", PrState::Open, &[A, B]);
-        let job = Job { pr: p.clone(), why: Why { since: Some(UPDATED), ..Why::default() }, session: A.into(), last: false, about: NudgeAbout::FeedbackAndChecks, runs_about: NudgeAbout::Everything, stopped: true };
+        let job = Job { pr: p.clone(), why: Why { since: Some(UPDATED), ..Why::default() }, session: A.into(), last: false, about: NudgeAbout::FeedbackAndChecks, runs_about: NudgeAbout::Everything, stopped: true, user_merged: false };
         assert!(still_due(&resuming(vec![p.clone()], vec![stopped(A), stopped(B)]), &job));
         assert!(!still_due(&resuming(vec![p.clone()], vec![stopped(A), live(B)]), &job), "B started meanwhile");
         assert!(!still_due(&board(vec![p.clone()], vec![stopped(A), stopped(B)]), &job), "the setting went off");
@@ -1142,6 +1258,7 @@ mod tests {
                 &nudger,
                 jobs,
                 |_| Ok(reads.pop().unwrap()),
+                |_| false,
                 |_, text| {
                     tries.push(text.to_string());
                     if tries.len() == 1 { Err("its terminal didn't take it".into()) } else { Ok(None) }
@@ -1167,7 +1284,7 @@ mod tests {
     /// its primary went on as meanwhile; a copy that couldn't be made primary stays said.
     #[test]
     fn a_prs_failure_is_taken_back_by_a_send_to_the_copy_its_primary_went_on_as() {
-        let job = |pr: &str, session: &str| Job { pr: self::pr(pr, PrState::Open, &[session]), why: Why::default(), session: session.into(), last: false, about: NudgeAbout::Everything, runs_about: NudgeAbout::Everything, stopped: true };
+        let job = |pr: &str, session: &str| Job { pr: self::pr(pr, PrState::Open, &[session]), why: Why::default(), session: session.into(), last: false, about: NudgeAbout::Everything, runs_about: NudgeAbout::Everything, stopped: true, user_merged: false };
         let mut outcomes = Outcomes::default();
         outcomes.went(&job("o/r#1", A), Some("o/r#1 couldn't be read.".into()));
         outcomes.went(&job("o/r#2", A), None);
@@ -1312,7 +1429,7 @@ mod tests {
     #[test]
     fn news_that_cant_be_read_is_tried_again_before_its_left_out() {
         let p = pr("o/r#1", PrState::Approved, &[A]);
-        let job = Job { pr: p.clone(), why: Why { since: Some(UPDATED), approved: true, ..Why::default() }, session: A.into(), last: false, about: NudgeAbout::Everything, runs_about: NudgeAbout::Everything, stopped: false };
+        let job = Job { pr: p.clone(), why: Why { since: Some(UPDATED), approved: true, ..Why::default() }, session: A.into(), last: false, about: NudgeAbout::Everything, runs_about: NudgeAbout::Everything, stopped: false, user_merged: false };
         let e = message(&job, Some(Err("gh timed out after 30s")), Some("me")).unwrap_err();
         assert_eq!(e, "What's new on o/r#1 couldn't be read: gh timed out after 30s");
         // The last try says what the board knows.
@@ -1524,7 +1641,7 @@ mod tests {
         assert!(text.ends_with(&format!("{NOT_A_MERGE}\nThis PR's approvals and merges aren't passed on to you; if you're waiting on one, run `codealong pr watch o/r#1`.")), "{text}");
         assert!(told(true).ends_with(NOT_A_MERGE));
 
-        let job = |pr: &PrItem, why: Why, about: NudgeAbout| Job { pr: pr.clone(), why, session: A.into(), last: true, about, runs_about: about, stopped: false };
+        let job = |pr: &PrItem, why: Why, about: NudgeAbout| Job { pr: pr.clone(), why, session: A.into(), last: true, about, runs_about: about, stopped: false, user_merged: false };
         let read = |job: Job| message(&job, None, Some("me")).unwrap().unwrap();
         let failed = Why { failed: vec!["lint".into()], ..Why::default() };
         assert!(read(job(&failing, failed.clone(), NudgeAbout::FeedbackChecksAndMerges)).ends_with("\nThis PR's approvals aren't passed on to you; if you're waiting on one, run `codealong pr watch o/r#1`."));
@@ -1772,5 +1889,133 @@ mod tests {
         assert_eq!(at(Merge::Blocked, 1, 2), "Some of its checks failed. ");
         assert_eq!(at(Merge::Unknown, 0, 2), "Its checks are still running. ");
         assert_eq!(at(Merge::Unknown, 0, 0), "");
+    }
+
+    /// A merge nudge waits while the session is in a turn, then settles briefly via `wake`/`woke`
+    /// once the turn ends (re-holding if the session starts working again); a merge you clicked in
+    /// Codealong's own merge box (`Board::merged_here`) goes immediately without holding.
+    #[test]
+    fn a_merge_nudge_waits_for_an_active_turn_and_settles_unless_merged_in_codealong() {
+        use crate::model::Status;
+        let open = pr("o/r#1", PrState::Open, &[A]);
+        let merged = off(PrItem { state: PrState::Merged, updated_at: UPDATED + 5, merged_at: Some(NOW), ..open.clone() });
+        let working = Session { status: Status::Working, last_activity: NOW, ..live(A) };
+        let ended = |at: i64| Session { status: Status::Unread, last_activity: at, turn_ended: Some(at), ..live(A) };
+
+        let mut nudger = Nudger::default();
+        assert!(nudger.due(&board(vec![open.clone()], vec![working.clone()]), NOW).is_empty());
+        // PR merges while A is mid-turn: held, no wake yet since we wait for the turn to end.
+        assert!(nudger.due(&board(vec![merged.clone()], vec![working.clone()]), NOW + 1_000).is_empty());
+        assert_eq!(nudger.wake(), None);
+        // Turn ends: settles for MERGE_SETTLE_MS and schedules a wake.
+        let b_ended = board(vec![merged.clone()], vec![ended(NOW + 5_000)]);
+        assert!(nudger.due(&b_ended, NOW + 5_000).is_empty());
+        let wake_at = nudger.wake().expect("should schedule settle wake");
+        assert_eq!(wake_at, NOW + 5_000 + merged::MERGE_SETTLE_MS);
+        assert_eq!(nudger.wake(), None, "once for the same time");
+        // A starts working again before settle expires: held again and wake sees nothing due.
+        let b_again = board(vec![merged.clone()], vec![working.clone()]);
+        assert!(nudger.due(&b_again, NOW + 8_000).is_empty());
+        assert!(nudger.woke(wake_at, &b_again, wake_at).0.is_empty());
+        // Turn ends again: new settle window, then released on wake.
+        let t2 = wake_at + 2_000;
+        let b_done = board(vec![merged.clone()], vec![ended(t2)]);
+        assert!(nudger.due(&b_done, t2).is_empty());
+        let wake2 = nudger.wake().expect("new settle wake");
+        assert_eq!(wake2, t2 + merged::MERGE_SETTLE_MS);
+        let (jobs, next) = nudger.woke(wake2, &b_done, wake2);
+        assert_eq!((jobs.len(), next), (1, None));
+        assert_eq!((jobs[0].why.ended, jobs[0].user_merged), (Some(PrState::Merged), false));
+
+        // Merged by you in Codealong's merge box: goes immediately with user_merged = true.
+        let mut nudger = Nudger::default();
+        sent(&mut nudger, &board(vec![open], vec![working.clone()]));
+        let mut b_user = board(vec![merged], vec![working]);
+        b_user.merged_here.insert("o/r#1".into());
+        let jobs = nudger.due(&b_user, NOW + 1_000);
+        assert_eq!(jobs.len(), 1);
+        assert_eq!((jobs[0].why.ended, jobs[0].user_merged), (Some(PrState::Merged), true));
+    }
+
+    /// `send_all` drops "It was merged." when the session already merged/knows it (skipping the
+    /// GitHub detail fetch when nothing else is owed), still delivers a reviewer's comment that
+    /// came in with the merge without asking not to merge, and never suppresses a merge done
+    /// through Codealong's own merge box.
+    #[test]
+    fn self_merge_is_suppressed_while_reviewer_comments_and_user_merges_still_go() {
+        let open = pr("o/r#1", PrState::Open, &[A]);
+        let merged = off(PrItem { state: PrState::Merged, updated_at: UPDATED + 5, merged_at: Some(NOW), ..open.clone() });
+
+        // FeedbackAndMerges: merge-only job suppressed → neither GitHub detail nor tell is called.
+        let nudger = Mutex::new(Nudger::default());
+        let b_open = Board { nudge_about: NudgeAbout::FeedbackAndMerges, ..board(vec![open.clone()], vec![live(A)]) };
+        let b_merged = Board { nudge_about: NudgeAbout::FeedbackAndMerges, ..board(vec![merged.clone()], vec![live(A)]) };
+        nudger.lock().unwrap().due(&b_open, NOW);
+        let jobs = nudger.lock().unwrap().due(&b_merged, NOW);
+        let (mut reads, mut sent_msgs) = (0usize, Vec::new());
+        let went = send_all(
+            &Handle::over(b_merged),
+            &nudger,
+            jobs,
+            |_| {
+                reads += 1;
+                Ok(detail(vec![], vec![]))
+            },
+            |_| true,
+            |_, text| {
+                sent_msgs.push(text.to_string());
+                Ok(None)
+            },
+            || NOW,
+        );
+        assert_eq!((went, reads, sent_msgs.len()), (Ok(()), 0, 0));
+
+        // Everything: self-merge suppressed, but a teammate's comment that came in with the merge
+        // still goes through (and ends as an ended PR, not NOT_A_MERGE).
+        let nudger = Mutex::new(Nudger::default());
+        let b_open = board(vec![open.clone()], vec![live(A)]);
+        let b_merged = board(vec![merged.clone()], vec![live(A)]);
+        nudger.lock().unwrap().due(&b_open, NOW);
+        let jobs = nudger.lock().unwrap().due(&b_merged, NOW);
+        let note = comment("c1", "ana", "Thanks for shipping this!", UPDATED + 4, None, false);
+        let mut sent_msgs = Vec::new();
+        let went = send_all(
+            &Handle::over(b_merged),
+            &nudger,
+            jobs,
+            |_| Ok(detail(vec![], vec![note.clone()])),
+            |_| true,
+            |_, text| {
+                sent_msgs.push(text.to_string());
+                Ok(None)
+            },
+            || NOW,
+        );
+        assert_eq!((went, sent_msgs.len()), (Ok(()), 1));
+        assert!(sent_msgs[0].contains("ana commented: “Thanks for shipping this!”"), "{}", sent_msgs[0]);
+        assert!(!sent_msgs[0].contains("It was merged."), "{}", sent_msgs[0]);
+        assert!(sent_msgs[0].ends_with("Nothing more is wanted on it, unless you were told otherwise."), "{}", sent_msgs[0]);
+
+        // Merged by user in Codealong: never suppressed even if knows_merged would say true.
+        let nudger = Mutex::new(Nudger::default());
+        nudger.lock().unwrap().due(&b_open, NOW);
+        let mut b_user = board(vec![merged], vec![live(A)]);
+        b_user.merged_here.insert("o/r#1".into());
+        let jobs = nudger.lock().unwrap().due(&b_user, NOW);
+        let mut sent_msgs = Vec::new();
+        let went = send_all(
+            &Handle::over(b_user),
+            &nudger,
+            jobs,
+            |_| Ok(detail(vec![], vec![])),
+            |_| true,
+            |_, text| {
+                sent_msgs.push(text.to_string());
+                Ok(None)
+            },
+            || NOW,
+        );
+        assert_eq!((went, sent_msgs.len()), (Ok(()), 1));
+        assert!(sent_msgs[0].contains("- It was merged."), "{}", sent_msgs[0]);
     }
 }

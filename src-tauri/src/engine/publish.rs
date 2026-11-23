@@ -150,6 +150,7 @@ impl Engine {
         board.github_current = self.github.current();
         board.when_limited = self.cfg.limits.when_hit;
         board.nudge_about = self.cfg.pull_requests.nudge_about;
+        board.merged_here = self.merged_here.iter().filter(|(_, at)| now - **at < 15 * 60_000).map(|(k, _)| k.clone()).collect();
         board.pr_stopped = crate::nudges::stopped_primaries(&board, &self.running_elsewhere, self.cfg.sessions.resume_for_pr_news, |s| crate::send::reaches_stopped(&self.cfg, s));
         board.reviews = self.cfg.reviews.clone();
         board.repos = self.cfg.repos.clone();

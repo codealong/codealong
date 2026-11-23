@@ -705,6 +705,7 @@ pub fn compose(inp: Inputs) -> Board {
         schedules_problem: None,
         machines: Default::default(),
         shared_schedules: Default::default(),
+        merged_here: Default::default(),
     }
 }
 

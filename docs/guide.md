@@ -1362,8 +1362,11 @@ where merges are told) aren't passed on, and `codealong pr watch <pr>` has them 
 waiting on one. `codealong pr nudge` says the same as it turns a nudge on, and `codealong pr show`
 while one is on.
 Also when it's merged, the box under it, adds a merge to either (`"feedback-and-merges"`,
-`"feedback-checks-and-merges"`): the session is told the PR was merged, whoever merged it, and that
-nothing more is wanted on it, so it can wrap its work up. Still not a close, nor what came in with
+`"feedback-checks-and-merges"`): the session is told the PR was merged, and that
+nothing more is wanted on it, so it can wrap its work up. If the session is mid-turn when the merge
+lands, Codealong waits for the turn to finish and settle briefly, and skips the merge notice when
+the session merged the PR itself or already reported it landed (a merge you triggered in Codealong's
+merge box is still told). Still not a close, nor what came in with
 the merge, and a session that has stopped isn't resumed for it. Everything has its merge already.
 
 Watching a PR has its nudge tell of everything, whatever that setting or the repo's team keep
