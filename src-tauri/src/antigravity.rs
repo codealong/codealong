@@ -12,6 +12,7 @@ use std::time::{Duration, Instant, SystemTime};
 
 mod acp;
 mod cache;
+mod rename;
 mod side;
 
 use rusqlite::types::Value as Sql;
@@ -1769,6 +1770,7 @@ impl Reader {
         rows.sort_by(|x, y| y.last_modified.cmp(&x.last_modified));
         let mut added = false;
         for c in &mut rows {
+            c.title = rename::annotation_title(&c.dir, &c.id).or(c.title.take());
             let process = self.processes.iter().find(|p| p.conversation.as_deref() == Some(c.id.as_str()));
             let held = process.is_some();
             let want_steps_now = c.running() || held;
@@ -2483,6 +2485,10 @@ impl crate::harness::Adapter for Antigravity {
     /// Its list of conversations, in each of its folders.
     fn databases(&self) -> &'static [&'static str] {
         &[SUMMARIES]
+    }
+
+    fn rename(&self, ctx: &Ctx, s: &Session, name: &str) -> anyhow::Result<Vec<PathBuf>> {
+        rename::rename(&folder_of(ctx.account, s), &s.id, &s.title, name)
     }
 
     fn reader(&self, _wake: crate::harness::Wake) -> Box<dyn crate::harness::Reader> {

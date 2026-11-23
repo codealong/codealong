@@ -11,7 +11,7 @@
 //   scripts/preview.sh quick '' scripts/preview/rename-check.js
 //   scripts/preview.sh waiting '' scripts/preview/rename-check.js
 //   scripts/preview.sh peek '' scripts/preview/rename-check.js
-// The board needs a Claude Code, Codex or OpenCode session.
+// The board needs a Claude Code, Codex, OpenCode or Antigravity session.
 (function () {
   var calls = sent;
   var labels = menuLabels;
@@ -48,14 +48,14 @@
       .then(function () {
         var input = document.querySelector('.ca-renamedlg input');
         check('the sheet has the name, selected', input.value.length > 0 && input.selectionStart === 0 && input.selectionEnd === input.value.length, input.value);
-        check('and says where it is kept', /keeps it with the (session|thread)/.test(document.querySelector('.ca-renamedlg .ca-dialog-lede').textContent), document.querySelector('.ca-renamedlg .ca-dialog-lede').textContent);
+        check('and says where it is kept', /keeps it with the (session|thread|conversation)/.test(document.querySelector('.ca-renamedlg .ca-dialog-lede').textContent), document.querySelector('.ca-renamedlg .ca-dialog-lede').textContent);
         type(input, '  ' + NAME + '\n ');
         document.querySelector('.ca-renamedlg button[type=submit]').click();
         return until(function () { return !document.querySelector('.ca-renamedlg'); }, 2000);
       })
       .then(function () {
         var r = renames().pop();
-        check('Rename sends the name, one line', r && r.name === NAME && /^(claude|codex|opencode):/.test(r.key), JSON.stringify(r));
+        check('Rename sends the name, one line', r && r.name === NAME && /^(claude|codex|opencode|antigravity):/.test(r.key), JSON.stringify(r));
         return until(function () { return document.body.textContent.indexOf(NAME) >= 0; }, 2000).then(
           function () { check('every list shows it at once', true); },
           function () { check('every list shows it at once', false); },
@@ -195,8 +195,8 @@
     until(function () { return !!title(); }, 20000)
       .then(function () { return window.__TAURI_INTERNALS__.invoke('get_board'); })
       .then(function (b) {
-        var lane = b.lanes.find(function (l) { return !l.hidden && l.sessions.some(function (s) { return !s.visitor && /^(claude|codex|opencode):/.test(s.key) && !s.archived; }); });
-        shown = lane.sessions.find(function (s) { return !s.visitor && /^(claude|codex|opencode):/.test(s.key) && !s.archived; });
+        var lane = b.lanes.find(function (l) { return !l.hidden && l.sessions.some(function (s) { return !s.visitor && /^(claude|codex|opencode|antigravity):/.test(s.key) && !s.archived; }); });
+        shown = lane.sessions.find(function (s) { return !s.visitor && /^(claude|codex|opencode|antigravity):/.test(s.key) && !s.archived; });
         window.__emit('waiting-open', { key: shown.key, rename: true });
         return until(function () { return !!document.querySelector('.ca-sessinsp-name'); }, 2000);
       })
@@ -234,8 +234,8 @@
   // a new name renames it and the peek goes.
   var board;
   var open = function (id, rename) {
-    var lane = board.lanes.find(function (l) { return !l.hidden && l.sessions.some(function (s) { return !s.visitor && /^(claude|codex|opencode):/.test(s.key) && !s.archived; }); });
-    var session = lane.sessions.find(function (s) { return !s.visitor && /^(claude|codex|opencode):/.test(s.key) && !s.archived; });
+    var lane = board.lanes.find(function (l) { return !l.hidden && l.sessions.some(function (s) { return !s.visitor && /^(claude|codex|opencode|antigravity):/.test(s.key) && !s.archived; }); });
+    var session = lane.sessions.find(function (s) { return !s.visitor && /^(claude|codex|opencode|antigravity):/.test(s.key) && !s.archived; });
     window.__emit('peek-open', { id: id, lane: lane, session: session, terminal: board.apps.terminal, theme: board.theme, room: 600, below: true, focus: true, rename: rename !== false });
     return session;
   };

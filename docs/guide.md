@@ -299,7 +299,8 @@ harness keeps names, so the harness shows it too: a Claude Code session's transc
 `/resume` lists it by and a running session takes up, in its terminal's title too, the next time it
 reads its transcript's end; a Codex thread, which the Codex app shows the next time it reads its
 threads (not an archived one); an OpenCode session, through its service, so OpenCode must be
-running. Antigravity's can't be renamed here.
+running; an Antigravity conversation, in its annotation and summary files, which `agy` and the
+Antigravity app read. Cursor's can't be renamed here.
 
 #### Labels
 
@@ -2058,7 +2059,7 @@ Every session of its runs shows it, those from before it had one too, in place o
 so its runs read as one thing and a schedule that runs daily costs one question or one drawing
 rather than one a day. A session of a schedule your machines share shows the same emblem on each
 of them. A session its run started is also named after the schedule, half a minute after its first
-prompt, where its harness can be renamed (Claude Code, Codex, OpenCode), in place of the title its
+prompt, where its harness can be renamed (Claude Code, Codex, OpenCode, Antigravity), in place of the title its
 harness makes up from the same prompt each time; with a new session each time and one thing it's
 for (the PR that merged, the todo that's ready, the watch's new line), that comes after the name:
 `Fix failed checks: #12 Dark mode`. It's named once, so a name you give it later stays, and

@@ -48,6 +48,18 @@ runs on this Mac (2026-10-01). Paths are under `src-tauri/src/`.
   every few seconds, the steps being in `antigravity-cli`, and the sidebar shows "No conversations
   yet". A conversation both tables claim is read from the folder that keeps its record
   (`once_each`).
+- Renaming (`antigravity/rename.rs`, `Antigravity::rename`, checked on `agy` 1.5.15, 2026-11-23):
+  `/rename` isn't available in print mode (`"print mode has no conversation manager"`), and
+  `agy acp` exposes no rename RPC. When `agy`'s own terminal UI runs `/rename`, it writes the title
+  to three places in the conversation's folder (`antigravity-cli` or `antigravity`):
+  `annotations/<id>.pbtxt` (`exa.jetski_cortex_pb.ConversationAnnotations`, top-level `title:"…"`),
+  `conversation_summaries.db` (`title`, `preview`, and `raw_summary`, a `CascadeTrajectorySummary`
+  proto with field 1 `summary` and field 15 `annotations.title`, leaving `last_modified_time`
+  unchanged), and `jetbox_summaries_proto.pb` / `agyhub_summaries_proto.pb` (`SummariesState`
+  field 1 `map<string, CascadeTrajectorySummary>`). Codealong writes all three so the rename
+  survives `agy`'s startup reconciliation and shows in `agy` (`session/list`, `/resume`) and the
+  Antigravity app; `Reader::reread_at` also reads `annotations/<id>.pbtxt` so an already-running
+  `agy` writing its older in-memory summary at turn end doesn't revert the title on the board.
 - Opening a WAL database whose harness has quit: `harness.rs` (`open_database`). Its immutable
   fallback can read a stale `conversations/<id>.db` without its WAL (`latest_step` returns `None` or
   an older timestamp than `latest_step_at`), so `Reader::reread` counts a read as behind only where
