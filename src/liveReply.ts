@@ -50,7 +50,10 @@ export class LiveReply {
    *  for one sent as it was written, rather than asked for: it can bring the view along. */
   put(next: HostedStream | null, follow: boolean) {
     this.waiting = { next, follow: follow || !!this.waiting?.follow };
-    this.cancel ??= this.schedule(() => this.flush());
+    if (!this.cancel) {
+      const off = this.schedule(() => this.flush());
+      if (this.waiting) this.cancel = off;
+    }
   }
 
   /** Nothing, at once, and nothing that was waiting: as another session's conversation opens. */
@@ -66,7 +69,9 @@ export class LiveReply {
     this.cancel = null;
     this.waiting = null;
     if (!w) return;
-    if (w.follow) this.onFollow?.();
+    // Only streaming reply text changes the conversation's length; a running tool stays on the
+    // working line's own row.
+    if (w.follow && (w.next?.text ?? '') !== (this.value?.text ?? '')) this.onFollow?.();
     this.show(w.next);
   }
 

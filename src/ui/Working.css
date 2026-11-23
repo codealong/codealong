@@ -10,10 +10,28 @@
   display: flex;
   flex-wrap: wrap;
   align-items: flex-start;
-  column-gap: var(--space-6);
   row-gap: var(--space-1);
   color: var(--ink-3);
   font: var(--type-meta);
+}
+.ca-working.is-waiting {
+  column-gap: var(--space-6);
+}
+/* The call a hosted session is running before its record has it (Working.tsx `RunningTool`):
+   zero flex basis with no margin or padding, so it takes only whatever room is left on this line
+   and never pushes a tip under or changes the line's height. */
+.ca-working-tool {
+  flex: 1 1 0;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  text-indent: var(--space-2);
+  color: var(--ink-3);
+  animation: ca-working-in var(--dur-base) ease-out;
+}
+.ca-working-tool-name {
+  color: var(--ink-2);
 }
 /* One line high, so a tip's first line sits level with the time. */
 .ca-working-head {
@@ -91,7 +109,10 @@
    the room beside goes under, where it wraps only if it's longer than the whole line. */
 .ca-working-tip {
   flex: 0 1 auto;
+  box-sizing: border-box;
+  max-width: 100%;
   margin: 0 0 0 auto;
+  padding-left: var(--space-6);
   text-align: right;
   text-wrap: balance;
   animation: ca-working-in var(--dur-sweep) ease-out;
@@ -120,6 +141,7 @@
 }
 @media (prefers-reduced-motion: reduce) {
   .ca-working-word,
+  .ca-working-tool,
   .ca-working-then,
   .ca-working-tip {
     animation: none;

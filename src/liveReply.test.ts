@@ -53,6 +53,16 @@ describe('LiveReply', () => {
     reply.put(st('abc'), false);
     f.frame();
     expect(asked).toBe(1);
+    // A tool starting or stopping without reply text changing doesn't change the conversation's
+    // length, so it doesn't ask to follow either.
+    reply.put({ key: 'k', text: 'abc', tool: 'Terminal' }, true);
+    f.frame();
+    expect(reply.get()?.tool).toBe('Terminal');
+    expect(asked).toBe(1);
+    reply.put({ key: 'k', text: 'abc', tool: null }, true);
+    f.frame();
+    expect(reply.get()?.tool).toBeNull();
+    expect(asked).toBe(1);
   });
 
   it('clears at once, dropping what was waiting', () => {

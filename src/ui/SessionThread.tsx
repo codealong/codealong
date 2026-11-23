@@ -586,24 +586,16 @@ const ToolRun = memoRow(ToolRunView, ['stateOf', 'inBox']);
 const Said = memoRow(SaidView);
 
 /** The reply a session is writing, at the conversation's end until its record has it (`active`
- *  while it's working or waits on you), or the call it's running before it has written anything,
- *  unless the conversation shows that call (`pending`). It reads `reply` itself, so it's all that
- *  renders as the reply grows, at most once a frame, and has the view land as `onShown` says once
- *  the reply has laid out. A `memoRow` row, so the rest of the conversation rendering leaves it be. */
-function WritingView({ reply, active, now, label, who, head, pending, onMenu, onShown }: { reply: LiveReply; active: boolean; now: number; label?: string; who: string; head?: number; pending: boolean; onMenu?: (items: MenuSpec) => void; onShown: () => void }) {
-  const written = useSyncExternalStore(reply.subscribe, reply.get);
-  useLayoutEffect(() => onShown(), [written, onShown]);
-  const streaming = active ? written : null;
-  const text = streaming?.text;
+ *  while it's working or waits on you). It reads `reply` itself, so it's all that renders as the
+ *  reply grows, at most once a frame, and has the view land as `onShown` says once the reply has
+ *  laid out. A `memoRow` row, so the rest of the conversation rendering leaves it be. The call it's
+ *  running before it writes anything shows on the working line instead (Working.tsx `RunningTool`),
+ *  so its coming and going doesn't move the conversation. */
+function WritingView({ reply, active, now, label, who, head, onMenu, onShown }: { reply: LiveReply; active: boolean; now: number; label?: string; who: string; head?: number; onMenu?: (items: MenuSpec) => void; onShown: () => void }) {
+  const text = useSyncExternalStore(reply.subscribe, () => (active ? reply.get()?.text || null : null));
+  useLayoutEffect(() => onShown(), [text, onShown]);
   const item = useMemo<TranscriptItem | null>(() => (text ? { at: now, kind: 'agent', text, failed: false, cursor: 0, n: 0 } : null), [text, now]);
   if (item) return <Said item={item} now={now} label={label} who={who} head={head} foot={now} onMenu={onMenu} />;
-  if (streaming?.tool && !pending) {
-    return (
-      <div className="ca-thread-note">
-        <Rich text={`Running \`${streaming.tool.replace(/`/g, '')}\``} now={now} />
-      </div>
-    );
-  }
   return null;
 }
 const Writing = memoRow(WritingView);
@@ -1408,7 +1400,6 @@ export function SessionThread({ session: s, now, onOpen, fallback, machine, onLo
                 who={s.account}
                 // Yours on their way are above it.
                 head={startsRun ? now : undefined}
-                pending={pending != null}
                 onMenu={onMenu}
                 onShown={place}
               />
@@ -1416,7 +1407,7 @@ export function SessionThread({ session: s, now, onOpen, fallback, machine, onLo
               {/* Not for one gone silent, which its header speaks for. One that waits on a command
                   you allowed in your terminal, or whose turn is over and waits on a command it left
                   running in the background, says what it waits on. */}
-              {loaded && s.status === 'working' && !s.stalledSince && (s.running || waitsInBackground(s) ? <Waiting session={s} onGrow={follow} /> : <Working session={s} tips={tips} onGrow={follow} />)}
+              {loaded && s.status === 'working' && !s.stalledSince && (s.running || waitsInBackground(s) ? <Waiting session={s} onGrow={follow} /> : <Working session={s} tips={tips} reply={reply} pending={pending != null} onGrow={follow} />)}
               {/* Not for a reply that asks you something: its excerpt is the reply's own question
                   (board.rs `needs_your_answer`), which ends the conversation just above. Nor while
                   the box below shows a call, which says what this would: a harness can hold back
