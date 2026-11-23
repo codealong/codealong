@@ -154,7 +154,7 @@ pub fn tell_waking(engine: &crate::engine::Handle, key: &str, text: &str) -> Res
     ensure_not_flagged(&cfg, session, &Sender::Codealong)?;
     let routes = || crate::harness::adapter(session.harness).routes(account, session);
     match waking(session, account, routes, || crate::start::resume_out_of_sight(account, &crate::util::home())) {
-        Waking::Send => send_from(|| engine.board(), &cfg, key, text, Sender::Codealong, false).map(|sent| Some(crate::start::Resumed { key: Some(key.to_string()), sent })),
+        Waking::Send => send_from(Some(engine), || engine.board(), &cfg, key, text, Sender::Codealong, false).map(|sent| Some(crate::start::Resumed { key: Some(key.to_string()), sent })),
         Waking::Nowhere => Ok(None),
         Waking::Resume(place) => {
             let prompt = by_codealong(&format!("{RESUMED_TO_TELL}\n\n{}", text.trim()));
@@ -605,25 +605,25 @@ pub fn opened(message: String) -> Sent {
 /// opened again, and you sent what it still showed, or another window sent it too) joins that
 /// send and gets its outcome, rather than going twice.
 pub fn send(board: &Board, cfg: &Config, session_key: &str, text: &str, sender: Sender, now: bool) -> Result<Sent> {
-    send_from(|| board, cfg, session_key, text, sender, now)
+    send_from(None, || board, cfg, session_key, text, sender, now)
 }
 
 /// `send` on the board `board` reads, which is read again once the session's input box is held
 /// (`at_the_box`): a send that waited there behind a Remove goes by the session as it is then,
 /// which may wait on you by now, not as it was when it was asked.
-fn send_from<B: Borrow<Board>>(board: impl Fn() -> B, cfg: &Config, session_key: &str, text: &str, sender: Sender, now: bool) -> Result<Sent> {
+fn send_from<B: Borrow<Board>>(engine: Option<&crate::engine::Handle>, board: impl Fn() -> B, cfg: &Config, session_key: &str, text: &str, sender: Sender, now: bool) -> Result<Sent> {
     let b = board();
     if let Some((_, s)) = b.borrow().session(session_key) {
         ensure_not_flagged(cfg, s, &sender)?;
     }
-    send_allowed(board, cfg, session_key, text, sender, now)
+    send_allowed(engine, board, cfg, session_key, text, sender, now)
 }
 
 /// After the automation check, or a deliberate Send review click. The click changes only
 /// whether a flagged session may receive it, never its author or its delivery routes.
-fn send_allowed<B: Borrow<Board>>(board: impl Fn() -> B, cfg: &Config, key: &str, text: &str, sender: Sender, now: bool) -> Result<Sent> {
+fn send_allowed<B: Borrow<Board>>(engine: Option<&crate::engine::Handle>, board: impl Fn() -> B, cfg: &Config, key: &str, text: &str, sender: Sender, now: bool) -> Result<Sent> {
     ensure_not_moved(&crate::origins::current(), board().borrow(), key)?;
-    join(key, text.trim(), || at_the_box(key, || deliver(board().borrow(), cfg, key, text, &sender, now)))
+    join(key, text.trim(), || at_the_box(key, || deliver(engine, board().borrow(), cfg, key, text, &sender, now)))
 }
 
 /// Each session's input box, held by whatever types into it or presses keys there for a while:
@@ -647,7 +647,7 @@ pub(crate) fn at_the_box<T>(key: &str, f: impl FnOnce() -> T) -> T {
 /// routes. It can reach a flagged session, but can't open an app with text left to paste.
 pub fn tell_by_hand(engine: &crate::engine::Handle, key: &str, text: &str) -> Result<Sent> {
     let cfg = crate::config::current()?;
-    send_allowed(|| engine.board(), &cfg, key, text, Sender::Codealong, false)
+    send_allowed(Some(engine), || engine.board(), &cfg, key, text, Sender::Codealong, false)
 }
 
 /// A flag stops messages from Codealong and other agents before any delivery path, including
@@ -682,7 +682,7 @@ pub fn moved_words(board: &Board, key: &str, copy: &str) -> String {
 /// through the app all come to.
 pub fn send_here(engine: &crate::engine::Handle, key: &str, text: &str, sender: Sender, now: bool) -> Result<Sent> {
     let cfg = crate::config::current()?;
-    send_from(|| engine.board(), &cfg, key, text, sender, now)
+    send_from(Some(engine), || engine.board(), &cfg, key, text, sender, now)
 }
 
 /// How a message from you would reach the session with this key, for its box to say before you
@@ -830,7 +830,7 @@ enum Tried {
     Passed(Option<String>),
 }
 
-fn deliver(board: &Board, cfg: &Config, session_key: &str, text: &str, sender: &Sender, now: bool) -> Result<Sent> {
+fn deliver(engine: Option<&crate::engine::Handle>, board: &Board, cfg: &Config, session_key: &str, text: &str, sender: &Sender, now: bool) -> Result<Sent> {
     let session = board
         .lanes
         .iter()
@@ -876,7 +876,7 @@ fn deliver(board: &Board, cfg: &Config, session_key: &str, text: &str, sender: &
         let holds = || adapter.would_hold_messages(&ctx, session);
         let out_of_sight = || crate::start::resume_out_of_sight(account, &crate::util::home());
         if let Some(woken) = wakes(cfg, &origins, &msg, session, &routes, holds, out_of_sight)? {
-            return wake(board, cfg, session, woken, &msg);
+            return wake(engine, board, cfg, session, woken, &msg);
         }
         routes = agent_routes(session, routes)?;
     } else if *sender == Sender::Codealong {
@@ -892,7 +892,7 @@ fn deliver(board: &Board, cfg: &Config, session_key: &str, text: &str, sender: &
             });
         }
     }
-    through(&routes, &session.title, |route, untyped, passes| attempt(route, board, session, account, cfg, &msg, untyped, passes))
+    through(&routes, &session.title, |route, untyped, passes| attempt(engine, route, board, session, account, cfg, &msg, untyped, passes))
 }
 
 /// Tries each way in, best first, until one sends it (`attempt`, given why typing didn't work
@@ -1111,16 +1111,32 @@ fn resume_once(board: &Board, cfg: &Config, session: &Session, place: Place, pro
 /// agent's byline, which says whose it is and how to answer; the agent is told it wasn't running.
 /// What `wakes` found still holds once it's claimed. Where its harness goes on with a copy, a copy
 /// resumed for the session that started it carries on that start (`origins::carry_start`), so
-/// that session can resume the copy in turn.
-fn wake(board: &Board, cfg: &Config, session: &Session, (place, link): (Place, Link), msg: &Message) -> Result<Sent> {
-    let key = session.key.as_str();
+/// that session can resume the copy in turn, and `actions::hand_over` archives the old session.
+fn wake(engine: Option<&crate::engine::Handle>, board: &Board, cfg: &Config, session: &Session, woken: (Place, Link), msg: &Message) -> Result<Sent> {
     let prompt = format!("{RESUMED_FOR_A_MESSAGE}\n\n{}", msg.text.trim());
-    let Some(resumed) = resume_once(board, cfg, session, place, &prompt)? else {
+    wake_with(engine, cfg, session, woken, || resume_once(board, cfg, session, woken.0, &prompt), crate::origins::carry_start)
+}
+
+fn wake_with(
+    engine: Option<&crate::engine::Handle>,
+    cfg: &Config,
+    session: &Session,
+    (place, link): (Place, Link),
+    resume: impl FnOnce() -> Result<Option<crate::start::Resumed>>,
+    carry_start: impl FnOnce(&str, &str),
+) -> Result<Sent> {
+    let key = session.key.as_str();
+    let Some(resumed) = resume()? else {
         bail!("{} is being resumed for another message sent to it just now, so yours wasn't sent: send it again in a minute, once it's running.", quoted(&session.title));
     };
     let copied = resumed.key.as_deref().filter(|k| *k != session.key);
-    if let (Some(copy), Link::YoursStarted) = (copied, link) {
-        crate::origins::carry_start(copy, key);
+    if let Some(copy) = copied {
+        if link == Link::YoursStarted {
+            carry_start(copy, key);
+        }
+        if let Some(engine) = engine {
+            crate::actions::hand_over(engine, key, copy);
+        }
     }
     let copy = copied.map(|k| format!(" It goes on as {k}: send there from now on.")).unwrap_or_default();
     let why = match link {
@@ -1227,7 +1243,23 @@ pub(crate) fn codealong_routes(session: &Session, routes: Vec<Route>) -> Result<
 /// why typing into the session's terminal didn't work, when that was tried first; `passes`,
 /// whether there's a way after this one, which typing gives up for sooner.
 #[allow(clippy::too_many_arguments)]
-fn attempt(route: &Route, board: &Board, session: &Session, account: &AccountCfg, cfg: &Config, msg: &Message, untyped: Option<&str>, passes: bool) -> Result<Tried> {
+fn attempt(engine: Option<&crate::engine::Handle>, route: &Route, board: &Board, session: &Session, account: &AccountCfg, cfg: &Config, msg: &Message, untyped: Option<&str>, passes: bool) -> Result<Tried> {
+    attempt_with(engine, route, session, account, msg, untyped, passes, || {
+        crate::start::resume(board, cfg, &session.key, &crate::start::ResumeIn { place: crate::start::default_resume_place(account, &crate::util::home()), ..Default::default() }, &msg.text, msg.sender)
+    })
+}
+
+#[allow(clippy::too_many_arguments)]
+fn attempt_with(
+    engine: Option<&crate::engine::Handle>,
+    route: &Route,
+    session: &Session,
+    account: &AccountCfg,
+    msg: &Message,
+    untyped: Option<&str>,
+    passes: bool,
+    resume: impl FnOnce() -> Result<crate::start::Resumed>,
+) -> Result<Tried> {
     let text: &str = &msg.text;
     let busy = mid_turn(session);
     let now = msg.now_for(session);
@@ -1265,7 +1297,13 @@ fn attempt(route: &Route, board: &Board, session: &Session, account: &AccountCfg
                 Err(_) => Err(MayHaveArrived(format!("Codealong started typing this into {title}, and its terminal didn't confirm it went in: look there before sending it again.")).into()),
             }
         }
-        Route::Resume => Ok(Tried::Sent(crate::start::resume(board, cfg, &session.key, &crate::start::ResumeIn { place: crate::start::default_resume_place(account, &crate::util::home()), ..Default::default() }, text, msg.sender)?.sent)),
+        Route::Resume => {
+            let resumed = resume()?;
+            if let (Some(engine), Some(copy)) = (engine, resumed.key.as_deref().filter(|k| *k != session.key)) {
+                crate::actions::hand_over(engine, &session.key, copy);
+            }
+            Ok(Tried::Sent(resumed.sent))
+        }
         Route::Own(own) => own.deliver(&msg.delivery(session, account, untyped)).map(Tried::Sent),
     }
 }
@@ -1359,7 +1397,7 @@ fn switch(board: &Board, cfg: &Config, key: &str, to: Switch) -> Result<String> 
     let mut typ = |text: &str| -> Result<bool> {
         let msg = Message::new(board, cfg, text, &Sender::You, false);
         for route in adapter.routes(account, session).iter().filter(|r| r.as_typed()) {
-            match attempt(route, board, session, account, cfg, &msg, None, false)? {
+            match attempt(None, route, board, session, account, cfg, &msg, None, false)? {
                 Tried::Sent(_) => return Ok(true),
                 Tried::Passed(passed) => why = passed.or(why.take()),
             }
@@ -1481,7 +1519,7 @@ mod tests {
             held.recv().unwrap();
             go.send(()).unwrap();
             let now = || Session { status: if asks.load(std::sync::atomic::Ordering::SeqCst) { Status::Needs } else { Status::Working }, ..working.clone() };
-            send_allowed(|| board_with(now()), &cfg, &working.key, "And the docs", Sender::You, false).unwrap_err()
+            send_allowed(None, || board_with(now()), &cfg, &working.key, "And the docs", Sender::You, false).unwrap_err()
         });
         assert_eq!(err.to_string(), "“Fix the build” is waiting on you; open it to answer.");
     }
@@ -1502,7 +1540,7 @@ mod tests {
         }
         // The explicit review action gets past the flag, then reaches the normal account
         // check; no real route is run. Its author and routes stay Codealong's.
-        assert!(send_allowed(|| &b, &cfg, &s.key, "Review findings", Sender::Codealong, false).unwrap_err().to_string().contains("no account named"));
+        assert!(send_allowed(None, || &b, &cfg, &s.key, "Review findings", Sender::Codealong, false).unwrap_err().to_string().contains("no account named"));
         let message = Message::new(&b, &cfg, "Review findings", &Sender::Codealong, false);
         assert!(message.text.starts_with(FROM_CODEALONG_ITSELF));
         assert_eq!(message.byline.as_ref().map(|b| b.name.as_str()), Some("Codealong"));
@@ -1539,11 +1577,11 @@ mod tests {
         let cfg = Config { accounts: vec![off], ..Config::default() };
         let idle = Session { key: "opencode:opencode:ses_1".into(), account: "opencode".into(), ..session(Harness::Opencode, Surface::Cli, Status::Idle, false, None) };
         let board = Board { lanes: vec![crate::fixtures::lane("/tmp", vec![idle.clone()])], ..Board::default() };
-        let e = deliver(&board, &cfg, &idle.key, "Go on", &Sender::You, false).unwrap_err().to_string();
+        let e = deliver(None, &board, &cfg, &idle.key, "Go on", &Sender::You, false).unwrap_err().to_string();
         assert_eq!(e, "opencode is turned off in Settings › Accounts.");
         let working = Session { status: Status::Working, ..idle };
         let board = Board { lanes: vec![crate::fixtures::lane("/tmp", vec![working.clone()])], ..Board::default() };
-        let e = deliver(&board, &cfg, &working.key, "Go on", &Sender::You, false).unwrap_err().to_string();
+        let e = deliver(None, &board, &cfg, &working.key, "Go on", &Sender::You, false).unwrap_err().to_string();
         assert!(!e.contains("turned off"), "{e}");
     }
 
@@ -1557,11 +1595,11 @@ mod tests {
         let cfg = Config { accounts: vec![account, cursor], ..Config::default() };
         let hosted = Session { key: "claude:claude:abc".into(), hosted: true, ..session(Harness::Claude, Surface::Cli, Status::Idle, true, None) };
         let board = Board { lanes: vec![crate::fixtures::lane("/tmp", vec![hosted.clone()])], ..Board::default() };
-        let e = deliver(&board, &cfg, &hosted.key, "! npm test", &Sender::You, false).unwrap_err().to_string();
+        let e = deliver(None, &board, &cfg, &hosted.key, "! npm test", &Sender::You, false).unwrap_err().to_string();
         assert_eq!(e, "Codealong runs “Fix the build” itself, with no shell of its own to run a command that starts with ! in, so nothing was sent.");
         let typed = Session { key: "cursor:cursor:c1".into(), account: "cursor".into(), ..session(Harness::Cursor, Surface::Cli, Status::Idle, true, Some(42)) };
         let board = Board { lanes: vec![crate::fixtures::lane("/tmp", vec![typed.clone()])], ..Board::default() };
-        let e = deliver(&board, &cfg, &typed.key, "! npm test", &Sender::You, false).unwrap_err().to_string();
+        let e = deliver(None, &board, &cfg, &typed.key, "! npm test", &Sender::You, false).unwrap_err().to_string();
         assert!(e.starts_with("Codealong can't hand “Fix the build” a command that starts with ! to run in its own shell"), "{e}");
     }
 
@@ -1763,7 +1801,7 @@ mod tests {
         assert_eq!(told(&Sender::Elsewhere), (None, false, false, Some("no tab".into())));
         assert_eq!(told(&AGENT), (Some("codealong".into()), false, true, Some("no tab".into())));
         let msg = Message::new(&board, &cfg, "hi", &Sender::You, false);
-        let Tried::Sent(went) = attempt(&Stand(Way::Message).into(), &board, &s, &account, &cfg, &msg, None, false).unwrap() else { panic!("it passed") };
+        let Tried::Sent(went) = attempt(None, &Stand(Way::Message).into(), &board, &s, &account, &cfg, &msg, None, false).unwrap() else { panic!("it passed") };
         assert_eq!(went.message, "Stood in for “Fix the build”.");
     }
 
@@ -2223,5 +2261,118 @@ mod tests {
             let w = e.downcast_ref::<WaitsOnItsUser>().expect("a WaitsOnItsUser");
             assert_eq!((w.title.as_str(), w.agent), ("Fix it", true));
         }
+    }
+
+    /// Waking a stopped session for another agent's message hands over to its copy (carrying the
+    /// start origin first when the sender started it, then archiving the old session). A resume
+    /// that stays on the same key, returns no key, or has no engine handle archives nothing.
+    #[test]
+    fn waking_a_session_as_a_copy_carries_start_then_archives_the_old_session() {
+        use crate::engine::Handle;
+        use crate::start::Resumed;
+        const OLD: &str = "claude:northwind:kestrel-old";
+        const COPY: &str = "claude:northwind:kestrel-copy";
+        let stopped = Session { key: OLD.into(), title: "Kestrel sync".into(), live: false, status: Status::Stopped, ..Session::new(Harness::Claude, "northwind", "kestrel-old") };
+        let cfg = Config::default();
+
+        // Copy with Link::YoursStarted: carry_start runs before hand_over archives OLD.
+        let (engine, archived) = Handle::for_tests_archiving(board_with(stopped.clone()));
+        let mut carried = Vec::new();
+        let out = wake_with(
+            Some(&engine),
+            &cfg,
+            &stopped,
+            (Place::Background, Link::YoursStarted),
+            || Ok(Some(Resumed { key: Some(COPY.into()), sent: super::sent("Resumed.".into()) })),
+            |copy, key| {
+                assert!(archived.lock().unwrap().is_empty(), "hand_over archived before carry_start ran");
+                carried.push((copy.to_string(), key.to_string()));
+            },
+        )
+        .unwrap();
+        assert!(out.message.contains(COPY), "{}", out.message);
+        assert_eq!(carried, vec![(COPY.to_string(), OLD.to_string())]);
+        assert_eq!(*archived.lock().unwrap(), vec![(OLD.to_string(), true)]);
+        assert!(engine.read(|b| b.session(OLD).is_some_and(|(_, s)| s.archived)));
+
+        // Copy with another link: still archives OLD without calling carry_start.
+        let (engine, archived) = Handle::for_tests_archiving(board_with(stopped.clone()));
+        let mut carried = false;
+        wake_with(
+            Some(&engine),
+            &cfg,
+            &stopped,
+            (Place::Background, Link::Neither),
+            || Ok(Some(Resumed { key: Some(COPY.into()), sent: super::sent("Resumed.".into()) })),
+            |_, _| carried = true,
+        )
+        .unwrap();
+        assert!(!carried);
+        assert_eq!(*archived.lock().unwrap(), vec![(OLD.to_string(), true)]);
+
+        // Same key or None: neither carry_start nor archive runs.
+        for returned in [Some(OLD.to_string()), None] {
+            let (engine, archived) = Handle::for_tests_archiving(board_with(stopped.clone()));
+            let mut carried = false;
+            wake_with(
+                Some(&engine),
+                &cfg,
+                &stopped,
+                (Place::Background, Link::YoursStarted),
+                || Ok(Some(Resumed { key: returned.clone(), sent: super::sent("Resumed.".into()) })),
+                |_, _| carried = true,
+            )
+            .unwrap();
+            assert!(!carried, "must not carry_start for {returned:?}");
+            assert!(archived.lock().unwrap().is_empty(), "must archive nothing for {returned:?}");
+        }
+
+        // Without an engine handle (`send::send`), a copy doesn't fail or archive.
+        let mut carried = false;
+        let out = wake_with(
+            None,
+            &cfg,
+            &stopped,
+            (Place::Background, Link::YoursStarted),
+            || Ok(Some(Resumed { key: Some(COPY.into()), sent: super::sent("Resumed.".into()) })),
+            |_, _| carried = true,
+        )
+        .unwrap();
+        assert!(carried && out.message.contains(COPY));
+    }
+
+    /// `Route::Resume` in `attempt` hands over to the copy when a resume copies the session, and
+    /// archives nothing when the session goes on under its own key, returns no key, or has no
+    /// engine handle.
+    #[test]
+    fn route_resume_archives_the_old_session_when_resumed_as_a_copy() {
+        use crate::engine::Handle;
+        use crate::start::Resumed;
+        const OLD: &str = "claude:northwind:atlas-old";
+        const COPY: &str = "claude:northwind:atlas-copy";
+        let stopped = Session { key: OLD.into(), title: "Atlas check".into(), live: false, status: Status::Stopped, ..Session::new(Harness::Claude, "northwind", "atlas-old") };
+        let board = board_with(stopped.clone());
+        let account = AccountCfg { name: "northwind".into(), harness: "claude".into(), home: "~/.claude".into(), command: None, start: None, acp: None, monthly: None, per_token: false, usage_cap: None, disabled: false, chrome_profile: None };
+        let cfg = Config::default();
+        let msg = Message::new(&board, &cfg, "Carry on", &Sender::You, false);
+
+        // Copy key: archives OLD and returns Tried::Sent.
+        let (engine, archived) = Handle::for_tests_archiving(board.clone());
+        let tried = attempt_with(Some(&engine), &Route::Resume, &stopped, &account, &msg, None, false, || Ok(Resumed { key: Some(COPY.into()), sent: super::sent("Resumed in background.".into()) })).unwrap();
+        assert!(matches!(tried, Tried::Sent(ref s) if s.message == "Resumed in background."));
+        assert_eq!(*archived.lock().unwrap(), vec![(OLD.to_string(), true)]);
+        assert!(engine.read(|b| b.session(OLD).is_some_and(|(_, s)| s.archived)));
+
+        // Same key or None: archives nothing.
+        for returned in [Some(OLD.to_string()), None] {
+            let (engine, archived) = Handle::for_tests_archiving(board.clone());
+            let tried = attempt_with(Some(&engine), &Route::Resume, &stopped, &account, &msg, None, false, || Ok(Resumed { key: returned.clone(), sent: super::sent("Resumed.".into()) })).unwrap();
+            assert!(matches!(tried, Tried::Sent(_)));
+            assert!(archived.lock().unwrap().is_empty(), "must archive nothing for {returned:?}");
+        }
+
+        // No engine handle (`send::send`): succeeds without archiving.
+        let tried = attempt_with(None, &Route::Resume, &stopped, &account, &msg, None, false, || Ok(Resumed { key: Some(COPY.into()), sent: super::sent("Resumed.".into()) })).unwrap();
+        assert!(matches!(tried, Tried::Sent(_)));
     }
 }
