@@ -1577,9 +1577,10 @@ fn move_session(engine: &Handle, c: &Call) -> Result<Value, String> {
 
 /// The copy a session moved into takes its place: the todos it was on, as their primary session
 /// where it was theirs, its labels, its place among the pinned sessions, and the schedules whose
-/// runs went to it. The session itself is archived. A schedule's resume that went on as a copy
-/// hands over the same way (schedules/runner.rs `act`). The board is read now, not before the
-/// move or resume, which takes seconds: a pin or a todo changed meanwhile isn't undone.
+/// runs went to it. The session itself is archived. Resumes that go on as a copy (schedules, PR
+/// nudges, agent wakes, send resumes, automatic reviews) hand over the same way. The board is read
+/// now, not before the move or resume, which takes seconds: a pin or a todo changed meanwhile isn't
+/// undone.
 pub(crate) fn hand_over(engine: &Handle, key: &str, copy: &str) {
     let board = engine.board();
     for t in board.todos.iter().filter(|t| t.sessions.iter().any(|s| s == key)) {
@@ -1599,8 +1600,14 @@ pub(crate) fn hand_over(engine: &Handle, key: &str, copy: &str) {
     }
     crate::terminals::follow(key, copy);
     // Before it's archived too, which would end a thread kept on it (runner.rs `target`).
-    if let Err(e) = crate::schedules::runner::copy_takes_place(&board, key, copy) {
-        eprintln!("Moved {key}, but couldn't send its schedules' runs to {copy}: {e:#}");
+    #[cfg(test)]
+    let touch_schedules = !engine.is_in_memory();
+    #[cfg(not(test))]
+    let touch_schedules = true;
+    if touch_schedules {
+        if let Err(e) = crate::schedules::runner::copy_takes_place(&board, key, copy) {
+            eprintln!("Moved {key}, but couldn't send its schedules' runs to {copy}: {e:#}");
+        }
     }
     archive_moved(engine, key);
 }

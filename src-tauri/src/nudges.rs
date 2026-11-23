@@ -816,7 +816,7 @@ fn message(job: &Job, detail: Option<Result<&PrDetail, &str>>, login: Option<&st
 pub fn send_now(engine: &Handle, nudger: &Mutex<Nudger>, jobs: Vec<Job>) {
     let read = |pr: &PrItem| crate::github::detail(&pr.repo_slug, pr.number).map_err(|e| e.to_string());
     let knows = |job: &Job| merged::session_knows(engine, &job.pr, &job.session);
-    let went = send_all(engine, nudger, jobs, read, knows, |job, text| deliver(engine, job, text), crate::util::now_ms);
+    let went = send_all(engine, nudger, jobs, read, knows, |job, text| deliver(engine, job, text), follow, crate::util::now_ms);
     engine.went(Trouble::Nudges, went);
 }
 
@@ -839,9 +839,10 @@ fn deliver(engine: &Handle, job: &Job, text: &str) -> Result<Option<String>, Str
 }
 
 /// `send_now`, reading a PR's detail with `read`, checking whether the session already merged the
-/// PR with `knows_merged`, sending with `tell` and telling the time with `now`, in rounds: the
-/// jobs it was handed, then what `Nudger::more` hands out after each round. What the jobs came to,
-/// for the notice it leaves (`Outcomes`).
+/// PR with `knows_merged`, sending with `tell`, moving PR primary links with `follow_pr`, and
+/// telling the time with `now`, in rounds: the jobs it was handed, then what `Nudger::more` hands
+/// out after each round. What the jobs came to, for the notice it leaves (`Outcomes`).
+#[allow(clippy::too_many_arguments)]
 fn send_all(
     engine: &Handle,
     nudger: &Mutex<Nudger>,
@@ -849,6 +850,7 @@ fn send_all(
     mut read: impl FnMut(&PrItem) -> Result<PrDetail, String>,
     mut knows_merged: impl FnMut(&Job) -> bool,
     mut tell: impl FnMut(&Job, &str) -> Result<Option<String>, String>,
+    mut follow_pr: impl FnMut(&Handle, &str, &str) -> Result<(), String>,
     now: impl Fn() -> i64,
 ) -> Result<(), String> {
     let login = engine.read(|b| b.github_login.clone());
@@ -874,7 +876,7 @@ fn send_all(
                 })
             }))
             .unwrap_or_else(|_| Err(format!("Telling a session what's new on {} stopped partway.", job.pr.key)));
-            let copy = went.as_ref().ok().cloned().flatten();
+            let copy = went.as_ref().ok().cloned().flatten().filter(|k| k != &job.session);
             let again = {
                 let mut nudger = nudger.lock().unwrap_or_else(|e| e.into_inner());
                 let at = now();
@@ -885,7 +887,11 @@ fn send_all(
                 again
             };
             if let Some(copy) = copy {
-                outcomes.followed(follow(engine, &job.session, &copy));
+                outcomes.followed(follow_pr(engine, &job.session, &copy));
+                // After `follow_pr`: `board/prs.rs` `pr_primary` drops archived sessions from
+                // `primary`, so `follow` has to read `p.primary == Some(from)` before `hand_over`
+                // archives `from`.
+                crate::actions::hand_over(engine, &job.session, &copy);
             }
             outcomes.went(&job, went.err().map(|e| if again { format!("{e} Codealong tries again in a few minutes.") } else { e }));
         }
@@ -1263,6 +1269,7 @@ mod tests {
                     tries.push(text.to_string());
                     if tries.len() == 1 { Err("its terminal didn't take it".into()) } else { Ok(None) }
                 },
+                |_, _, _| Ok(()),
                 || {
                     calls.set(calls.get() + 1);
                     clock(calls.get())
@@ -1966,6 +1973,7 @@ mod tests {
                 sent_msgs.push(text.to_string());
                 Ok(None)
             },
+            |_, _, _| Ok(()),
             || NOW,
         );
         assert_eq!((went, reads, sent_msgs.len()), (Ok(()), 0, 0));
@@ -1989,6 +1997,7 @@ mod tests {
                 sent_msgs.push(text.to_string());
                 Ok(None)
             },
+            |_, _, _| Ok(()),
             || NOW,
         );
         assert_eq!((went, sent_msgs.len()), (Ok(()), 1));
@@ -2013,9 +2022,82 @@ mod tests {
                 sent_msgs.push(text.to_string());
                 Ok(None)
             },
+            |_, _, _| Ok(()),
             || NOW,
         );
         assert_eq!((went, sent_msgs.len()), (Ok(()), 1));
         assert!(sent_msgs[0].contains("- It was merged."), "{}", sent_msgs[0]);
+    }
+
+    /// Resuming a stopped primary session as a copy moves its PR primary link first (`follow`) and
+    /// then archives the old session (`actions::hand_over`), so the old session doesn't stay in
+    /// Your turn beside its copy. A resume that isn't a copy (`copy == key`, or `None`) archives
+    /// nothing.
+    #[test]
+    fn resuming_a_stopped_primary_as_a_copy_follows_pr_links_then_archives_the_old_session() {
+        const OLD: &str = "claude:northwind:atlas-old";
+        const COPY: &str = "claude:northwind:atlas-copy";
+        let open = pr("northwind/atlas#7", PrState::Open, &[OLD]);
+        let changes = PrItem { state: PrState::Changes, updated_at: UPDATED + 5, ..open.clone() };
+        let b_open = resuming(vec![open], vec![stopped(OLD)]);
+        let b_changes = resuming(vec![changes], vec![stopped(OLD)]);
+
+        // Returned a copy key: follow sees OLD still unarchived and still the PR's primary, then
+        // hand_over archives OLD.
+        let nudger = Mutex::new(Nudger::default());
+        nudger.lock().unwrap().due(&b_open, NOW);
+        let jobs = nudger.lock().unwrap().due(&b_changes, NOW);
+        let (engine, archived) = Handle::for_tests_archiving(b_changes.clone());
+        let mut followed = Vec::new();
+        let went = send_all(
+            &engine,
+            &nudger,
+            jobs,
+            |_| Ok(detail(vec![], vec![])),
+            |_| false,
+            |_, _| Ok(Some(COPY.into())),
+            |eng, from, copy| {
+                assert!(archived.lock().unwrap().is_empty(), "hand_over archived before follow ran");
+                let (still_unarchived, still_primary) = eng.read(|b| {
+                    (
+                        b.session(from).is_some_and(|(_, s)| !s.archived),
+                        b.prs.iter().any(|p| p.key == "northwind/atlas#7" && p.primary.as_deref() == Some(from)),
+                    )
+                });
+                assert!(still_unarchived && still_primary, "follow must read primary before hand_over archives {from}");
+                followed.push((from.to_string(), copy.to_string()));
+                Ok(())
+            },
+            || NOW,
+        );
+        assert_eq!(went, Ok(()));
+        assert_eq!(followed, vec![(OLD.to_string(), COPY.to_string())]);
+        assert_eq!(*archived.lock().unwrap(), vec![(OLD.to_string(), true)]);
+        assert!(engine.read(|b| b.session(OLD).is_some_and(|(_, s)| s.archived)));
+
+        // Not a copy (same key, or None): neither follow nor archive runs.
+        for returned in [Some(OLD.to_string()), None] {
+            let nudger = Mutex::new(Nudger::default());
+            nudger.lock().unwrap().due(&b_open, NOW);
+            let jobs = nudger.lock().unwrap().due(&b_changes, NOW);
+            let (engine, archived) = Handle::for_tests_archiving(b_changes.clone());
+            let mut followed = false;
+            let went = send_all(
+                &engine,
+                &nudger,
+                jobs,
+                |_| Ok(detail(vec![], vec![])),
+                |_| false,
+                |_, _| Ok(returned.clone()),
+                |_, _, _| {
+                    followed = true;
+                    Ok(())
+                },
+                || NOW,
+            );
+            assert_eq!(went, Ok(()));
+            assert!(!followed, "same-key or None resume must not follow: {returned:?}");
+            assert!(archived.lock().unwrap().is_empty(), "same-key or None resume must archive nothing: {returned:?}");
+        }
     }
 }

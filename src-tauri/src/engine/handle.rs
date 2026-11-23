@@ -26,6 +26,10 @@ pub struct Handle {
     pub(super) board: Arc<RwLock<Board>>,
     /// The app's engine's `Engine::terminal_use`.
     pub(super) terminal_use: Option<Arc<Mutex<crate::stale::Uses>>>,
+    /// In-memory test handle (`for_tests_archiving`): skips disk/config side effects in archive
+    /// and hand-over so tests don't depend on this Mac's settings.
+    #[cfg(test)]
+    pub(super) in_memory: bool,
 }
 
 impl Handle {
@@ -33,7 +37,56 @@ impl Handle {
     #[cfg(test)]
     pub fn for_tests() -> Handle {
         let (tx, _) = channel();
-        Handle { tx, board: Arc::new(RwLock::new(Board::default())), terminal_use: None }
+        Handle { tx, board: Arc::new(RwLock::new(Board::default())), terminal_use: None, in_memory: false }
+    }
+
+    /// A handle on `board` for tests that observe archives: each `Msg::SetArchived` updates
+    /// `board` (marking matching sessions archived and dropping archived sessions from
+    /// `PrItem::primary`, as `board/prs.rs` `pr_primary` does), records `(key, archived)` in the
+    /// returned list, and replies once done. Skips `archive_in_harness` so tests don't read this
+    /// Mac's `config.toml`.
+    #[cfg(test)]
+    pub fn for_tests_archiving(board: Board) -> (Handle, Arc<Mutex<Vec<(String, bool)>>>) {
+        let (tx, rx) = channel();
+        let board = Arc::new(RwLock::new(board));
+        let archived: Arc<Mutex<Vec<(String, bool)>>> = Arc::new(Mutex::new(Vec::new()));
+        let (b, log) = (board.clone(), archived.clone());
+        std::thread::spawn(move || {
+            for msg in rx {
+                if let Msg::SetArchived(keys, on, _, reply) = msg {
+                    if let Ok(mut guard) = b.write() {
+                        for key in &keys {
+                            for lane in &mut guard.lanes {
+                                for s in &mut lane.sessions {
+                                    if s.key == *key {
+                                        s.archived = on;
+                                    }
+                                }
+                            }
+                            if on {
+                                for pr in &mut guard.prs {
+                                    if pr.primary.as_deref() == Some(key.as_str()) {
+                                        pr.primary = None;
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    if let Ok(mut guard) = log.lock() {
+                        for key in keys {
+                            guard.push((key, on));
+                        }
+                    }
+                    let _ = reply.send(0);
+                }
+            }
+        });
+        (Handle { tx, board, terminal_use: None, in_memory: true }, archived)
+    }
+
+    #[cfg(test)]
+    pub(crate) fn is_in_memory(&self) -> bool {
+        self.in_memory
     }
 
     /// A handle on a board read once (`snapshot`, `light_snapshot`), with no engine behind it,
@@ -43,7 +96,13 @@ impl Handle {
     pub fn over(board: Board) -> Handle {
         let (tx, rx) = channel();
         std::thread::spawn(move || for _ in rx {});
-        Handle { tx, board: Arc::new(RwLock::new(board)), terminal_use: None }
+        Handle {
+            tx,
+            board: Arc::new(RwLock::new(board)),
+            terminal_use: None,
+            #[cfg(test)]
+            in_memory: false,
+        }
     }
 
     pub fn board(&self) -> Board {
@@ -366,7 +425,7 @@ impl Handle {
     /// now, stays archived until it's active again. Says when the board shows it and what its
     /// harness kept.
     pub fn archive(&self, key: &str, archived: bool) -> Result<Archived> {
-        let kept = archive_in_harness(key, archived)?;
+        let kept = self.archive_in_harness(key, archived)?;
         let only_here = kept.iter().map(|_| key.to_string()).collect();
         Ok(Archived { at: self.set_archived(vec![key.to_string()], archived, only_here)?, kept })
     }
@@ -381,7 +440,7 @@ impl Handle {
     /// key's result (with why its harness kept it, if any), in order. One its harness refused
     /// isn't changed in Codealong either.
     pub fn archive_batch(&self, keys: &[String], archived: bool) -> Vec<Result<Option<String>>> {
-        let mut results: Vec<Result<Option<String>>> = keys.iter().map(|k| archive_in_harness(k, archived)).collect();
+        let mut results: Vec<Result<Option<String>>> = keys.iter().map(|k| self.archive_in_harness(k, archived)).collect();
         let only_here = keys.iter().zip(&results).filter(|(_, r)| matches!(r, Ok(Some(_)))).map(|(k, _)| k.clone()).collect();
         let done: Vec<String> = keys.iter().zip(&results).filter(|(_, r)| r.is_ok()).map(|(k, _)| k.clone()).collect();
         if !done.is_empty() {
@@ -393,6 +452,14 @@ impl Handle {
             }
         }
         results
+    }
+
+    fn archive_in_harness(&self, key: &str, archived: bool) -> Result<Option<String>> {
+        #[cfg(test)]
+        if self.in_memory {
+            return Ok(None);
+        }
+        archive_in_harness(key, archived)
     }
 
     fn set_archived(&self, keys: Vec<String>, archived: bool, only_here: HashSet<String>) -> Result<Option<i64>> {

@@ -2629,14 +2629,21 @@ fn hand(engine: &Handle, board: &Board, cfg: &Config, pr: &PrItem, key: &str, mo
         return Ok((Some(key.to_string()), None));
     }
     let place = goes_on_in(cfg, s)?;
-    let at = now_ms();
     let how = ResumeIn { place, model: model.map(str::to_string), effort: effort.map(str::to_string) };
-    let r = crate::start::resume(board, cfg, key, &how, &crate::send::by_codealong(&text), &crate::send::Sender::Codealong).map_err(|e| format!("its session couldn't go on {}: {e:#}", start_words(cfg.reviews.start)))?;
+    hand_resume(engine, pr, key, &lane.id, &s.account, || crate::start::resume(board, cfg, key, &how, &crate::send::by_codealong(&text), &crate::send::Sender::Codealong).map_err(|e| format!("its session couldn't go on {}: {e:#}", start_words(cfg.reviews.start))), link)
+}
+
+/// Resumes a stopped reviewer session through `resume`, links a copy to `pr` with `link_pr`, and
+/// hands over to that copy (`actions::hand_over`) so the old stopped session is archived.
+fn hand_resume(engine: &Handle, pr: &PrItem, key: &str, lane_id: &str, account: &str, resume: impl FnOnce() -> Result<crate::start::Resumed, String>, link_pr: impl FnOnce(&Handle, &PrItem, &str)) -> Result<(Option<String>, Option<Pending>), String> {
+    let at = now_ms();
+    let r = resume()?;
     engine.talking(key, false);
     if let Some(k) = r.key.as_deref().filter(|k| *k != key) {
-        link(engine, pr, k);
+        link_pr(engine, pr, k);
+        crate::actions::hand_over(engine, key, k);
     }
-    let pending = r.key.is_none().then(|| Pending { lane: lane.id.clone(), account: s.account.clone(), at });
+    let pending = r.key.is_none().then(|| Pending { lane: lane_id.to_string(), account: account.to_string(), at });
     Ok((r.key, pending))
 }
 
@@ -6080,5 +6087,72 @@ mod tests {
         assert_eq!(in_draft(&body, "o/r#7", HEAD, NOW + 5, false), Some(Drafted::Another), "another machine's, of the same commit");
         assert_eq!(in_draft(&body, "o/r#7", HEAD, NOW + 5, true), None, "one asked for by hand goes beside it");
         assert_eq!(in_draft(&body, "o/r#7", NEXT, NOW + 5, false), None, "another commit's");
+    }
+
+    /// Resuming a stopped reviewer session as a copy links the copy to the PR and then archives
+    /// the old session (`actions::hand_over`). Resuming in place (`r.key == Some(key)`) or without
+    /// a key (`None`) links and archives nothing.
+    #[test]
+    fn resuming_a_reviewer_as_a_copy_links_the_copy_then_archives_the_old_session() {
+        use crate::start::Resumed;
+        const OLD: &str = "claude:northwind:kestrel-old";
+        const COPY: &str = "claude:northwind:kestrel-copy";
+        let stopped = Session { key: OLD.into(), account: "northwind".into(), live: false, status: Status::Stopped, ..session(Status::Stopped, NOW) };
+        let board = Board { lanes: vec![fixtures::lane("/northwind/kestrel", vec![stopped])], ..Board::default() };
+        let p = pr(7, HEAD);
+
+        // Copy key: link runs before hand_over archives OLD.
+        let (engine, archived) = Handle::for_tests_archiving(board.clone());
+        let mut linked = Vec::new();
+        let (key, pending) = hand_resume(
+            &engine,
+            &p,
+            OLD,
+            "/northwind/kestrel",
+            "northwind",
+            || Ok(Resumed { key: Some(COPY.into()), sent: crate::send::sent("Resumed.".into()) }),
+            |_, pr, copy| {
+                assert!(archived.lock().unwrap().is_empty(), "hand_over archived before link ran");
+                linked.push((pr.key.clone(), copy.to_string()));
+            },
+        )
+        .unwrap();
+        assert_eq!((key.as_deref(), pending), (Some(COPY), None));
+        assert_eq!(linked, vec![(p.key.clone(), COPY.to_string())]);
+        assert_eq!(*archived.lock().unwrap(), vec![(OLD.to_string(), true)]);
+        assert!(engine.read(|b| b.session(OLD).is_some_and(|(_, s)| s.archived)));
+
+        // Same key: neither link nor archive runs.
+        let (engine, archived) = Handle::for_tests_archiving(board.clone());
+        let mut linked = false;
+        let (key, pending) = hand_resume(
+            &engine,
+            &p,
+            OLD,
+            "/northwind/kestrel",
+            "northwind",
+            || Ok(Resumed { key: Some(OLD.into()), sent: crate::send::sent("Resumed.".into()) }),
+            |_, _, _| linked = true,
+        )
+        .unwrap();
+        assert_eq!((key.as_deref(), pending), (Some(OLD), None));
+        assert!(!linked && archived.lock().unwrap().is_empty());
+
+        // No key: returns Pending, neither link nor archive runs.
+        let (engine, archived) = Handle::for_tests_archiving(board);
+        let mut linked = false;
+        let (key, pending) = hand_resume(
+            &engine,
+            &p,
+            OLD,
+            "/northwind/kestrel",
+            "northwind",
+            || Ok(Resumed { key: None, sent: crate::send::sent("Resumed.".into()) }),
+            |_, _, _| linked = true,
+        )
+        .unwrap();
+        assert_eq!(key, None);
+        assert!(pending.is_some_and(|pend| pend.lane == "/northwind/kestrel" && pend.account == "northwind"));
+        assert!(!linked && archived.lock().unwrap().is_empty());
     }
 }

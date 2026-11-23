@@ -336,7 +336,13 @@ pub fn start(emit: impl Fn(&Board) + Send + 'static) -> Handle {
     let (tx, rx) = channel();
     let board = Arc::new(RwLock::new(starting_board()));
     let terminal_use = crate::stale::lists_tabs().then(|| Arc::new(Mutex::new(crate::stale::Uses::load())));
-    let handle = Handle { tx: tx.clone(), board: board.clone(), terminal_use: terminal_use.clone() };
+    let handle = Handle {
+        tx: tx.clone(),
+        board: board.clone(),
+        terminal_use: terminal_use.clone(),
+        #[cfg(test)]
+        in_memory: false,
+    };
     let ping = tx.clone();
     std::thread::spawn(move || loop {
         std::thread::sleep(Duration::from_secs(1));
