@@ -23,6 +23,10 @@ use crate::model::{AgentSeen, Raised};
 use crate::store;
 use crate::util::{now_ms, DAY_MS};
 
+/// How long a mark is kept once its time has passed: a turn you saw, a snooze, a session marked
+/// unread or moved to the top (`SeenState::save_to`).
+const KEEP_MS: i64 = 30 * DAY_MS;
+
 #[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq)]
 #[serde(rename_all = "camelCase")]
 pub struct SeenState {
@@ -33,9 +37,15 @@ pub struct SeenState {
     /// A file from before the wizard has none, and was set up without it.
     #[serde(default = "set_up_before")]
     pub setup_done: bool,
-    /// Session key → when you last saw it.
+    /// Session key → when you last saw it, for a month (`KEEP_MS`).
     #[serde(default)]
     pub seen: HashMap<String, i64>,
+    /// When the marks let go were from: a turn that ended before then counts as seen, as one
+    /// before the first run does. A session can outlast its mark on the board (its process still
+    /// runs, or it's pinned), and would otherwise be Your turn again the day its mark went. A
+    /// file without it was saved by a build that let marks go without saying.
+    #[serde(default)]
+    pub forgotten_before: i64,
     /// Pinned session keys, in the order you put them.
     #[serde(default)]
     pub pinned: Vec<String>,
@@ -194,6 +204,11 @@ impl SeenState {
         if state.first_run <= 0 {
             state.first_run = now_ms();
         }
+        // One from a build that let marks go without saying when from may have let go of any
+        // older than a month.
+        if state.forgotten_before <= 0 {
+            state.forgotten_before = now_ms() - KEEP_MS;
+        }
         Ok(state)
     }
 
@@ -202,8 +217,9 @@ impl SeenState {
     }
 
     fn save_to(&mut self, path: &Path) -> Result<()> {
-        let cutoff = now_ms() - 30 * DAY_MS;
+        let cutoff = now_ms() - KEEP_MS;
         self.seen.retain(|_, at| *at >= cutoff);
+        self.forgotten_before = self.forgotten_before.max(cutoff);
         self.snoozed.retain(|z| z.until >= cutoff);
         self.review_snoozes.retain(|z| z.until >= cutoff);
         self.unread.retain(|u| u.at >= cutoff);
@@ -214,9 +230,9 @@ impl SeenState {
         store::save(path, self)
     }
 
-    /// When the session was last seen, never earlier than the first run.
+    /// When the session was last seen, never earlier than the first run or the marks let go.
     pub fn seen_at(&self, key: &str) -> i64 {
-        self.seen.get(key).copied().unwrap_or(0).max(self.first_run)
+        self.seen.get(key).copied().unwrap_or(0).max(self.first_run).max(self.forgotten_before)
     }
 
     pub fn mark(&mut self, key: &str, at: i64) {
@@ -553,6 +569,30 @@ mod tests {
         assert!(s.first_run >= before);
         assert_eq!(s.pinned, ["codex:codex:b"]);
         assert!(s.setup_done);
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    /// A session can stay on the board after its seen mark is let go: one whose process has run
+    /// in a terminal for a month, or a pinned one. The turn you saw stays seen, there and after a
+    /// restart, rather than coming back as Your turn the day its mark went. A file an older build
+    /// saved doesn't say when its marks were from, and counts as having let go of any older than
+    /// a month. A turn newer than that you haven't seen is still unseen.
+    #[test]
+    fn a_turn_seen_long_ago_stays_seen_once_its_mark_is_let_go() {
+        let dir = store::test_dir("state-forgotten");
+        let path = dir.join("state.json");
+        let key = "claude:claude:open-for-a-month";
+        let (seen, turn) = (now_ms() - 31 * DAY_MS, now_ms() - 32 * DAY_MS);
+        let mut s = SeenState { first_run: 1, ..SeenState::default() };
+        s.mark(key, seen);
+        s.save_to(&path).unwrap();
+        assert!(!s.seen.contains_key(key), "its mark is let go");
+        assert!(s.seen_at(key) >= seen && s.seen_at(key) > turn, "its turn is still seen");
+        assert!(SeenState::load_from(&path).unwrap().seen_at(key) >= seen, "after a restart too");
+        std::fs::write(&path, r#"{"firstRun":1}"#).unwrap();
+        let older = SeenState::load_from(&path).unwrap();
+        assert!(older.seen_at(key) >= seen, "from a file an older build saved too");
+        assert!(older.seen_at("claude:claude:unseen") < now_ms() - 29 * DAY_MS, "a turn from within the month you haven't seen is still unseen");
         std::fs::remove_dir_all(&dir).unwrap();
     }
 

@@ -351,8 +351,10 @@ elsewhere), the check at the top of its panel or its right-click menu. Only that
 Code turn you haven't seen stays Your turn for three days after its terminal closes or the Mac
 restarts, and a Codex thread's until you see it. Mark as unread (⌃⌘U, `u` elsewhere, or its
 right-click menu, for several picked sessions too, and from a linked phone) makes a turn you've seen
-Your turn again, until you see it or send it a prompt. A side conversation that answered waits on you
-the same way ([Side conversations](#side-conversations)).
+Your turn again, until you see it or send it a prompt. What you've seen is remembered for a month,
+and a turn that ended before then counts as seen, so a session left open in its terminal for weeks
+doesn't come back as Your turn. A side conversation that answered waits on you the same way
+([Side conversations](#side-conversations)).
 
 #### Fork
 
