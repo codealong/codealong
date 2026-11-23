@@ -9,7 +9,7 @@ import { accountHeadWords, agentOptionWords, autoOptionWords, effortDefaultTitle
 import type { Harness, Lane, Meter, RoutingGroup, StartAccount, StartPlace, Usage } from '../types';
 import type { PickerOption, PickerSection } from './Picker';
 import { Icon, Kbd, Seg } from './primitives';
-import { UsageMeter } from './UsageBar';
+import { UsageMeter } from './StatusBar';
 
 export function placeIcon(place: StartPlace): string {
   return place === 'terminal' ? 'terminal' : place === 'background' ? 'stack' : 'app';

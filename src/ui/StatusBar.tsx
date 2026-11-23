@@ -1,4 +1,4 @@
-// The usage bar, the main window's status bar along its foot: one chip per account, in config order. Each limit shows
+// The main window's status bar along its foot: one chip per account, in config order. Each limit shows
 // how full it is and how long until it resets, after a clock once it's past RESET_CLOCK_ABOVE,
 // where the reset is worth a glance. Per-model limits, like Fable's weekly limit, are marked with
 // sparkles and their model's name where a chip shows them beside its others; a chip that shows
@@ -458,7 +458,7 @@ export function listsInOrder(usage: Usage[], order: string[]): boolean {
   return listed.join('\n') === order.filter((a) => listed.includes(a)).join('\n');
 }
 
-interface UsageBarProps {
+interface StatusBarProps {
   usage: Usage[];
   now: number;
   onRefresh: () => void;
@@ -491,7 +491,7 @@ interface UsageBarProps {
   machines?: readonly DeviceView[];
 }
 
-export function UsageBar({ usage: board, now, onRefresh, onUsage, onSignIn, training, onStopTraining, resets, onUseReset, onOpenUrl, loading, notices, toast, onReorder, load, machines }: UsageBarProps) {
+export function StatusBar({ usage: board, now, onRefresh, onUsage, onSignIn, training, onStopTraining, resets, onUseReset, onOpenUrl, loading, notices, toast, onReorder, load, machines }: StatusBarProps) {
   // The order a drag left the chips in, until the board lists them so.
   const [order, setOrder] = useState<string[] | null>(null);
   const usage = order ? inOrder(board, order) : board;
@@ -603,11 +603,11 @@ export function UsageBar({ usage: board, now, onRefresh, onUsage, onSignIn, trai
     return holds(r) && !u.needsSignIn ? r : undefined;
   };
   return (
-    <div className="ca-usagebar" role="region" aria-label="Plan usage">
-      <div className="ca-usagebar-main">
+    <div className="ca-statusbar" role="region" aria-label="Status bar">
+      <div className="ca-statusbar-main">
         <div
           ref={row}
-          className={cx('ca-usagebar-accts', clipped.start && 'is-clip-start', clipped.end && 'is-clip-end', sort.sorting && 'is-sorting')}
+          className={cx('ca-statusbar-accts', clipped.start && 'is-clip-start', clipped.end && 'is-clip-end', sort.sorting && 'is-sorting')}
         >
           {usage.map((u, i) => {
             const t = trainingOf(training, u.account);
@@ -631,10 +631,10 @@ export function UsageBar({ usage: board, now, onRefresh, onUsage, onSignIn, trai
           })}
           {usage.length === 0 && !loading && <span className="ca-uchip-note">No accounts yet.</span>}
         </div>
-        <div className="ca-usagebar-toast">{toast}</div>
+        <div className="ca-statusbar-toast">{toast}</div>
       </div>
       {(['all', 'one'] as const).map((f) => (
-        <div key={f} ref={f === 'all' ? measureAll : measureOne} className="ca-usagebar-measure" aria-hidden="true">
+        <div key={f} ref={f === 'all' ? measureAll : measureOne} className="ca-statusbar-measure" aria-hidden="true">
           {usage.map((u) => {
             const t = trainingOf(training, u.account);
             return <AccountChip key={u.account} usage={u} now={now} fit={f} measure training={flagged(t) ? t : undefined} resets={heldBy(u)} />;
@@ -663,7 +663,7 @@ export function UsageBar({ usage: board, now, onRefresh, onUsage, onSignIn, trai
           onLeave={peekActs ? () => hide() : undefined}
         />
       )}
-      <div className="ca-usagebar-end">
+      <div className="ca-statusbar-end">
         {load?.level === 'strained' && <LoadTag load={load} name="This machine" bar others={machines} />}
         {notices}
         <Button

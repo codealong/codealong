@@ -16,7 +16,7 @@
   };
 
   var linux = window.__CODEALONG_PLATFORM__ === 'linux' || /\bLinux\b/.test(navigator.userAgent);
-  var chip = function () { return q('.ca-usagebar-end .ca-load.is-bar'); };
+  var chip = function () { return q('.ca-statusbar-end .ca-load.is-bar'); };
   var card = function () { return q('.ca-loadcard'); };
   var enter = function (el) { el.dispatchEvent(new MouseEvent('mouseover', { bubbles: true, relatedTarget: document.body })); };
   var leave = function (el) { el.dispatchEvent(new MouseEvent('mouseout', { bubbles: true, relatedTarget: document.body })); };

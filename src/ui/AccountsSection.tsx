@@ -17,7 +17,7 @@ import { afterStop, flagged, readNote, trainingOf, trainingTag } from '../traini
 import type { AccountCfg, AccountInfo, ChromeProfile, FoundAccount, Harness, Mcp, StartPlace, Training, Usage } from '../types';
 import { ChromeProfileSelect, findChromeProfile } from './PreviewBits';
 import { Button, CheckBox, Chip, cx, Icon, Rich, Seg } from './primitives';
-import { asOfPhrase, UsageMeter } from './UsageBar';
+import { asOfPhrase, UsageMeter } from './StatusBar';
 
 interface Draft {
   /** The account being edited, or null when adding one. */

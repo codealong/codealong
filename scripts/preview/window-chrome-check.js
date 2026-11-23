@@ -44,16 +44,16 @@
     var kids = Array.prototype.filter.call(body.children, function (c) { return c.getBoundingClientRect().width > 0; });
     var right = Math.max.apply(null, kids.map(function (c) { return c.getBoundingClientRect().right; }));
     check('at its least width the board, the panel and the gutter fit the window', body.scrollWidth <= body.clientWidth && right <= window.innerWidth - 4, 'children reach ' + Math.round(right) + ' of ' + window.innerWidth + ', scroll ' + body.scrollWidth + ' of ' + body.clientWidth);
-    var refresh = q('.ca-usagebar-end button[aria-label="Refresh usage"]').getBoundingClientRect();
+    var refresh = q('.ca-statusbar-end button[aria-label="Refresh usage"]').getBoundingClientRect();
     // Crowded (window-chrome-crowded-init.js): the notices and a meeting with a long name.
-    var meeting = q('.ca-usagebar-end .ca-meeting.is-line');
-    check('the bar is crowded: notices and a meeting beside Refresh', !!q('.ca-usagebar-end .ca-notice') && !!meeting, 'notice ' + !!q('.ca-usagebar-end .ca-notice') + ', meeting ' + !!meeting);
-    check('and Refresh stays in the window', refresh.right <= window.innerWidth && refresh.left >= q('.ca-usagebar').getBoundingClientRect().left, Math.round(refresh.left) + '–' + Math.round(refresh.right) + ' of ' + window.innerWidth);
+    var meeting = q('.ca-statusbar-end .ca-meeting.is-line');
+    check('the bar is crowded: notices and a meeting beside Refresh', !!q('.ca-statusbar-end .ca-notice') && !!meeting, 'notice ' + !!q('.ca-statusbar-end .ca-notice') + ', meeting ' + !!meeting);
+    check('and Refresh stays in the window', refresh.right <= window.innerWidth && refresh.left >= q('.ca-statusbar').getBoundingClientRect().left, Math.round(refresh.left) + '–' + Math.round(refresh.right) + ' of ' + window.innerWidth);
     // What's cut is cut at the left; nothing it shows spills over what's beside it.
-    var hits = all('.ca-usagebar-end button').filter(function (b) {
+    var hits = all('.ca-statusbar-end button').filter(function (b) {
       var r = b.getBoundingClientRect();
       var x = r.left + r.width / 2;
-      if (x < q('.ca-usagebar-end').getBoundingClientRect().left) return false;
+      if (x < q('.ca-statusbar-end').getBoundingClientRect().left) return false;
       var at = document.elementFromPoint(x, r.top + r.height / 2);
       return !(at && b.contains(at));
     });
@@ -70,7 +70,7 @@
     var win = q('.ca-win--app');
     var bar = q('.ca-win-bar');
     var side = q('.ca-side');
-    var foot = q('.ca-usagebar');
+    var foot = q('.ca-statusbar');
     check('the window has a ground of its own for the chrome', !clear(win) || document.documentElement.classList.contains('is-glass'), style(win).backgroundColor);
     check('the title bar, the sidebar and the status bar draw none over it', clear(bar) && clear(side) && clear(foot), [bar, side, foot].map(function (el) { return style(el).backgroundColor; }).join(' | '));
     check('and no line between them', style(bar).borderBottomWidth === '0px' && style(side).borderRightWidth === '0px' && style(foot).borderTopWidth === '0px', [style(bar).borderBottomWidth, style(side).borderRightWidth, style(foot).borderTopWidth].join(' | '));
@@ -122,13 +122,13 @@
     check('the sidebar and the status bar paint over the shadow', style(side).position === 'relative' && style(foot).position === 'relative', style(side).position + ' ' + style(foot).position);
 
     if (window.innerWidth <= 1000) narrow();
-    var end = q('.ca-usagebar-end');
+    var end = q('.ca-statusbar-end');
     check('the status bar ends with Refresh', !!end.lastElementChild && end.lastElementChild.getAttribute('aria-label') === 'Refresh usage', end.lastElementChild && end.lastElementChild.outerHTML.slice(0, 120));
     check('with no Accounts, Analytics, Settings or theme there', !end.querySelector('[aria-label="Accounts"], [aria-label="Analytics"], [aria-label="Settings"], .ca-theme'), end.innerHTML.slice(0, 200));
 
     // A model's own limit is named (its sparkle and name) only beside the chip's other limits.
     var lone = 0, beside = 0;
-    var misnamed = all('.ca-usagebar-accts .ca-uchip').filter(function (c) {
+    var misnamed = all('.ca-statusbar-accts .ca-uchip').filter(function (c) {
       var ms = Array.prototype.slice.call(c.querySelectorAll('.ca-meter'));
       return ms.some(function (m) {
         var label = m.querySelector('.ca-meter-label');
@@ -141,8 +141,8 @@
     note(lone + ' model limits alone in their chip, ' + beside + ' beside others');
     check('a model’s limit alone in its chip goes unnamed, and is named beside others', misnamed.length === 0, misnamed.map(function (c) { return c.getAttribute('aria-label'); }).join(' | '));
     // Each limit with a reset says how long until it does; the clock marks it only once it's over
-    // 70% (UsageBar.tsx RESET_CLOCK_ABOVE).
-    var meters = all('.ca-usagebar-accts .ca-uchip .ca-meter');
+    // 70% (StatusBar.tsx RESET_CLOCK_ABOVE).
+    var meters = all('.ca-statusbar-accts .ca-uchip .ca-meter');
     var full = meters.filter(function (m) { return parseFloat(m.querySelector('.ca-meter-value').textContent) > 70; });
     // Drawn, not only written: a reset hidden by a rule still has its words.
     var resets = function (m) { var r = m.querySelector('.ca-meter-reset'); return !!r && !!r.textContent.trim() && r.getBoundingClientRect().width > 0; };
@@ -167,7 +167,7 @@
     check('the clock marks it only once it’s over 70%', early.length === 0 && unclocked.length === 0, early.concat(unclocked).map(function (m) { return m.textContent.trim(); }).join(' | '));
     // A chip flagged for training has a card in place of its tooltip, so the card names its limits
     // and says when they reset, though the chip shows them all.
-    var flagged = q('.ca-usagebar-accts .ca-uchip.is-training');
+    var flagged = q('.ca-statusbar-accts .ca-uchip.is-training');
     if (flagged && flagged.querySelector('.ca-meter')) {
       flagged.dispatchEvent(new MouseEvent('mouseover', { bubbles: true, relatedTarget: document.body }));
       var trainingCard = await until(function () { return q('.ca-usage-popover.is-training'); }, 3000, 'the flagged chip’s card');

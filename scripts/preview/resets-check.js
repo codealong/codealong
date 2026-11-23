@@ -1,4 +1,4 @@
-// Checks the limit resets in the accounts bar (ui/UsageBar.tsx, resets.ts): an account holding
+// Checks the limit resets in the status bar (ui/StatusBar.tsx, resets.ts): an account holding
 // some has a clock on its chip, the others not; hovering it brings up its card over the chip,
 // which says how many, what kind and when the first expires, stays up while the pointer is on it,
 // and asks again before Use a reset spends one, the first to expire, saying how that went in a
@@ -7,7 +7,7 @@
 //   PREVIEW_RESETS=scripts/preview/resets-sample.json PREVIEW_WAIT=60000 scripts/preview.sh sessions '' scripts/preview/resets-check.js
 (function () {
   var chipOf = function (account) {
-    return all('.ca-usagebar-accts .ca-uchip').filter(function (c) { return (q('.ca-uchip-name', c) || {}).textContent === account; })[0];
+    return all('.ca-statusbar-accts .ca-uchip').filter(function (c) { return (q('.ca-uchip-name', c) || {}).textContent === account; })[0];
   };
   var card = function () { return q('.ca-usage-popover.has-buttons'); };
   var button = function (text) { return all('.ca-usage-popover button').filter(function (b) { return b.textContent === text; })[0]; };
@@ -16,9 +16,9 @@
   var enter = function (el) { el.dispatchEvent(new MouseEvent('mouseover', { bubbles: true, relatedTarget: document.body })); };
   var leave = function (el) { el.dispatchEvent(new MouseEvent('mouseout', { bubbles: true, relatedTarget: document.body })); };
 
-  until(function () { return q('.ca-usagebar-accts .ca-uchip .ca-uchip-resets'); }, 20000)
+  until(function () { return q('.ca-statusbar-accts .ca-uchip .ca-uchip-resets'); }, 20000)
     .then(function () {
-      var marked = all('.ca-usagebar-accts .ca-uchip').filter(function (c) { return q('.ca-uchip-resets', c); }).map(function (c) { return q('.ca-uchip-name', c).textContent; });
+      var marked = all('.ca-statusbar-accts .ca-uchip').filter(function (c) { return q('.ca-uchip-resets', c); }).map(function (c) { return q('.ca-uchip-name', c).textContent; });
       check('only an account holding resets is marked', marked.sort().join(',') === 'antigravity,codex,cursor', marked.join(','));
       check('the chip says so to a screen reader', /\. 3 limit resets$/.test(chipOf('codex').getAttribute('aria-label')), chipOf('codex').getAttribute('aria-label'));
       enter(chipOf('codex'));

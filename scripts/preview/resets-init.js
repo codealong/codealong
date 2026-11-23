@@ -5,7 +5,7 @@
 (function () {
   var tries = 0;
   var hover = function () {
-    var chip = Array.prototype.filter.call(document.querySelectorAll('.ca-usagebar-accts .ca-uchip'), function (c) {
+    var chip = Array.prototype.filter.call(document.querySelectorAll('.ca-statusbar-accts .ca-uchip'), function (c) {
       return c.querySelector('.ca-uchip-resets');
     })[0];
     if (!chip) {

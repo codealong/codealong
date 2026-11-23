@@ -104,7 +104,7 @@
     var opens = countdown();
     check('the main window’s Meetings button has the minutes to go', !!opens && opens.textContent.trim() === '4m' && !opens.classList.contains('is-icon'), opens && opens.textContent);
     check('and says which meeting, and where to take it', (opens.getAttribute('title') || '').indexOf('Design review, in 4 min: take its notes from Meetings') === 0, opens.getAttribute('title'));
-    check('nothing is offered beside the notices before its time', !q('.ca-usagebar .ca-meeting'));
+    check('nothing is offered beside the notices before its time', !q('.ca-statusbar .ca-meeting'));
     return again(null).then(function () {
       check('with none counted down to, it’s the calendar alone', countdown().textContent.trim() === '' && countdown().classList.contains('is-icon'), countdown().textContent);
     });

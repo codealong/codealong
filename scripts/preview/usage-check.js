@@ -55,7 +55,7 @@
       });
     })
     .then(function () {
-      var chip = q('.ca-usagebar-accts .ca-uchip:not(.is-attn)');
+      var chip = q('.ca-statusbar-accts .ca-uchip:not(.is-attn)');
       if (!chip) throw new Error('no account chip on the usage bar');
       var name = chip.querySelector('.ca-uchip-name').textContent;
       chip.click();
