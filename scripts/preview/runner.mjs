@@ -535,17 +535,43 @@ class CdpClient {
   }
 }
 
+const FATAL_SPAWN_CODES = new Set(['ENOENT', 'EACCES', 'EPERM', 'EISDIR', 'ENOTDIR']);
+const isFatalSpawnError = (err) => Boolean(err && typeof err === 'object' && FATAL_SPAWN_CODES.has(err.code));
+
 /** One persistent headless Chrome process with isolated process-group cleanup. */
-class ChromeWorker {
-  constructor(chromePath, { fixture = false } = {}) {
+export class ChromeWorker {
+  constructor(
+    chromePath,
+    {
+      fixture = false,
+      startTimeoutMs = 30_000,
+      startAttempts = 3,
+      retryDelayMs = 500,
+      wsTimeoutMs = 15_000,
+      spawnFn = spawn,
+      killFn = (pid, sig) => process.kill(-pid, sig),
+      wsFactory = (url) => new WebSocket(url),
+    } = {},
+  ) {
     this.chromePath = chromePath;
     this.fixture = fixture;
+    this.startTimeoutMs = startTimeoutMs;
+    this.startAttempts = Math.max(1, startAttempts);
+    this.retryDelayMs = retryDelayMs;
+    this.wsTimeoutMs = wsTimeoutMs;
+    this.spawnFn = spawnFn;
+    this.killFn = killFn;
+    this.wsFactory = wsFactory;
     this.proc = null;
     this.profile = null;
     this.cdp = null;
   }
 
-  async start() {
+  isReady() {
+    return Boolean(this.cdp && !this.cdp.closed);
+  }
+
+  async startOnce() {
     this.profile = mkdtempSync(join(tmpdir(), 'ca-cdp-'));
     const args = [
       '--headless=new',
@@ -562,7 +588,7 @@ class ChromeWorker {
       ...(process.platform === 'linux' ? ['--no-sandbox', '--disable-dev-shm-usage'] : []),
       'about:blank',
     ];
-    const proc = spawn(this.chromePath, args, { detached: true, stdio: ['ignore', 'ignore', 'pipe'] });
+    const proc = this.spawnFn(this.chromePath, args, { detached: true, stdio: ['ignore', 'ignore', 'pipe'] });
     this.proc = proc;
     const wsUrl = await new Promise((resolveUrl, rejectUrl) => {
       let buf = '';
@@ -571,7 +597,7 @@ class ChromeWorker {
         clearTimeout(timer);
         proc.off('exit', onExit);
         proc.off('error', onError);
-        proc.stderr.off('data', onStderr);
+        proc.stderr?.off('data', onStderr);
       };
       const done = (fn, arg) => {
         if (settled) return;
@@ -579,8 +605,12 @@ class ChromeWorker {
         cleanupListeners();
         fn(arg);
       };
-      const timer = setTimeout(() => done(rejectUrl, new Error('Chrome did not print DevTools WebSocket URL within 30s')), 30_000);
-      const onExit = (code) => done(rejectUrl, new Error(`Chrome exited early (${code}): ${buf.slice(-400)}`));
+      const timer = setTimeout(() => {
+        const tail = buf.trim().slice(-400);
+        const secs = Math.round(this.startTimeoutMs / 1000);
+        done(rejectUrl, new Error(`Chrome did not print DevTools WebSocket URL within ${secs}s${tail ? `: ${tail}` : ''}`));
+      }, this.startTimeoutMs);
+      const onExit = (code, signal) => done(rejectUrl, new Error(`Chrome exited early (${code ?? signal}): ${buf.slice(-400)}`));
       const onError = (err) => done(rejectUrl, err);
       const onStderr = (chunk) => {
         buf += chunk.toString('utf8');
@@ -589,25 +619,56 @@ class ChromeWorker {
       };
       proc.once('exit', onExit);
       proc.once('error', onError);
-      proc.stderr.on('data', onStderr);
+      proc.stderr?.on('data', onStderr);
     });
 
     // Drain stderr after startup so Chrome never blocks on a full pipe buffer.
-    proc.stderr.resume();
+    proc.stderr?.resume?.();
 
-    const ws = new WebSocket(wsUrl);
+    const ws = this.wsFactory(wsUrl);
     await new Promise((res, rej) => {
-      const timer = setTimeout(() => rej(new Error('CDP WebSocket open timeout')), 15_000);
-      ws.addEventListener('open', () => {
+      let settled = false;
+      const finish = (fn, arg) => {
+        if (settled) return;
+        settled = true;
         clearTimeout(timer);
-        res();
-      });
-      ws.addEventListener('error', () => {
-        clearTimeout(timer);
-        rej(new Error('CDP WebSocket failed to connect'));
-      });
+        ws.removeEventListener?.('open', onOpen);
+        ws.removeEventListener?.('error', onError);
+        fn(arg);
+      };
+      const onOpen = () => finish(res);
+      const onError = () => {
+        try {
+          ws.close?.();
+        } catch {}
+        finish(rej, new Error('CDP WebSocket failed to connect'));
+      };
+      const timer = setTimeout(() => {
+        try {
+          ws.close?.();
+        } catch {}
+        finish(rej, new Error('CDP WebSocket open timeout'));
+      }, this.wsTimeoutMs);
+      ws.addEventListener('open', onOpen);
+      ws.addEventListener('error', onError);
     });
     this.cdp = new CdpClient(ws);
+  }
+
+  async start() {
+    let lastErr;
+    for (let attempt = 1; attempt <= this.startAttempts; attempt++) {
+      try {
+        await this.startOnce();
+        return;
+      } catch (err) {
+        lastErr = err;
+        await this.stop();
+        if (isFatalSpawnError(err) || attempt === this.startAttempts) throw err;
+        if (this.retryDelayMs > 0) await new Promise((r) => setTimeout(r, this.retryDelayMs));
+      }
+    }
+    throw lastErr;
   }
 
   async stop() {
@@ -619,15 +680,18 @@ class ChromeWorker {
     this.proc = null;
     if (proc && proc.pid) {
       try {
-        process.kill(-proc.pid, 'SIGTERM');
+        this.killFn(proc.pid, 'SIGTERM');
       } catch {
         // Process group already gone.
       }
       await new Promise((res) => {
         let done = false;
+        let killTimer = null;
         const finish = () => {
           if (done) return;
           done = true;
+          if (killTimer) clearTimeout(killTimer);
+          proc.off?.('exit', finish);
           res();
         };
         if (proc.exitCode !== null || proc.signalCode !== null) {
@@ -635,9 +699,9 @@ class ChromeWorker {
           return;
         }
         proc.once('exit', finish);
-        setTimeout(() => {
+        killTimer = setTimeout(() => {
           try {
-            process.kill(-proc.pid, 'SIGKILL');
+            this.killFn(proc.pid, 'SIGKILL');
           } catch {
             // Already gone.
           }
@@ -661,7 +725,18 @@ class ChromeWorker {
   }
 
   async runCheck(run, page, port) {
-    if (!this.cdp || this.cdp.closed) await this.restart();
+    if (!this.isReady()) {
+      try {
+        await this.restart();
+      } catch (err) {
+        return {
+          status: 3,
+          result: 'FAIL 0/0 no result: Chrome never showed the page',
+          extraLines: [],
+          err: err instanceof Error ? err.message : String(err),
+        };
+      }
+    }
     const vars = run.vars || {};
     const waitMs = vars.PREVIEW_WAIT ? Number(vars.PREVIEW_WAIT) : 30_000;
     // Matches checks.sh's outer timeout (PREVIEW_WAIT + 90s, or 150s when unset).
@@ -827,6 +902,104 @@ function parseCli(argv) {
   return opts;
 }
 
+/** Starts Chrome workers with a brief stagger so simultaneous cold launches don't contend,
+ *  continuing with whichever workers came up and failing fast only if none could start. */
+export async function startWorkers(workers, { staggerMs = 250, warn = (msg) => console.error(msg) } = {}) {
+  let fatalErr = null;
+  const settled = await Promise.allSettled(
+    workers.map(async (worker, i) => {
+      if (i > 0 && staggerMs > 0) {
+        await new Promise((r) => setTimeout(r, i * staggerMs));
+      }
+      if (fatalErr) throw fatalErr;
+      try {
+        await worker.start();
+        return worker;
+      } catch (err) {
+        if (isFatalSpawnError(err)) fatalErr = err;
+        await worker.stop().catch(() => {});
+        throw err;
+      }
+    }),
+  );
+
+  const ready = [];
+  const errors = [];
+  for (const outcome of settled) {
+    if (outcome.status === 'fulfilled') ready.push(outcome.value);
+    else errors.push(outcome.reason);
+  }
+  if (ready.length === 0) {
+    throw errors[0] || new Error('No Chrome workers could start');
+  }
+  if (errors.length > 0) {
+    const why = errors[0] instanceof Error ? errors[0].message : String(errors[0]);
+    warn(`Warning: ${errors.length}/${workers.length} Chrome worker(s) failed to start (${why}); continuing with ${ready.length}`);
+  }
+  return ready;
+}
+
+/** Runs queued checks across healthy workers, retiring a dead worker and handing its check to
+ *  surviving workers instead of aborting the whole batch. */
+export async function runWorkerPool(
+  workers,
+  runs,
+  runOne,
+  { onResult, isShuttingDown = () => false, warn = (msg) => console.error(msg) },
+) {
+  const queue = [...runs];
+  let active = workers.length;
+  let inFlight = 0;
+  const waiters = [];
+  const wakeAll = () => {
+    while (waiters.length > 0) waiters.shift()();
+  };
+  const waitForWork = () => new Promise((res) => waiters.push(res));
+
+  const runWorker = async (worker) => {
+    while (!isShuttingDown()) {
+      if (queue.length === 0) {
+        if (inFlight === 0) break;
+        await waitForWork();
+        continue;
+      }
+      const run = queue.shift();
+      inFlight += 1;
+      try {
+        let out = await runOne(worker, run);
+        if (out.status === 3 && !isShuttingDown()) {
+          if (worker.isReady()) {
+            // Matches checks.sh: status 3 (Chrome never showed the page) gets one immediate retry.
+            out = await runOne(worker, run);
+          } else if (active > 1) {
+            active -= 1;
+            warn(`Warning: retiring Chrome worker after failed restart (${out.err || 'unknown error'}); ${active} remaining`);
+            await worker.stop().catch(() => {});
+            queue.unshift(run);
+            return;
+          } else {
+            onResult(run, out);
+            return;
+          }
+        }
+        onResult(run, out);
+        if (!worker.isReady() && !isShuttingDown()) {
+          if (active > 1) {
+            active -= 1;
+            warn(`Warning: retiring Chrome worker after failed restart; ${active} remaining`);
+            await worker.stop().catch(() => {});
+          }
+          return;
+        }
+      } finally {
+        inFlight -= 1;
+        wakeAll();
+      }
+    }
+  };
+  await Promise.all(workers.map(runWorker));
+}
+
 async function main() {
   const opts = parseCli(process.argv.slice(2));
   if (!opts.dir || !opts.plan) {
@@ -853,21 +1026,21 @@ async function main() {
   }
 
   try {
-    await Promise.all(workers.map((w) => w.start()));
-    let next = 0;
-    const runWorker = async (worker) => {
-      while (next < runs.length && !shuttingDown) {
-        const run = runs[next++];
+    const ready = await startWorkers(workers);
+    await runWorkerPool(
+      ready,
+      runs,
+      (worker, run) => {
         const { page } = srv.runsById.get(String(run.id));
-        let out = await worker.runCheck(run, page, srv.port);
-        // Matches checks.sh: status 3 (Chrome never showed the page) gets one immediate retry.
-        if (out.status === 3 && !shuttingDown) {
-          out = await worker.runCheck(run, page, srv.port);
-        }
-        process.stdout.write(`${JSON.stringify({ id: run.id, ...out })}\n`);
-      }
-    };
-    await Promise.all(workers.map(runWorker));
+        return worker.runCheck(run, page, srv.port);
+      },
+      {
+        isShuttingDown: () => shuttingDown,
+        onResult: (run, out) => {
+          process.stdout.write(`${JSON.stringify({ id: run.id, ...out })}\n`);
+        },
+      },
+    );
   } finally {
     await shutdown();
   }
