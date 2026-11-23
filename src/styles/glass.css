@@ -1,17 +1,18 @@
 /* With glass on (src/glass.ts), what sits on the glass draws its neutrals see-through, black or
    white with no hue of their own, rather than the palette's grays, which have one (a green-gray)
-   and looked out of place over a glass that takes its hue from the wallpaper. A well, a hover, a
-   selection, a line or a keycap there is a shade of whatever is behind it, as macOS's vibrancy draws
-   them. Only the glass's places: the title bar, the usage bar, the sidebar and its rail, the strip
+   and looked out of place—and low-contrast for secondary/muted ink—over a glass that takes its hue
+   and brightness from the wallpaper. A well, a hover, a
+   selection, a line, a keycap or secondary ink there is a shade of whatever is behind it, as macOS's vibrancy draws
+   them. Only the glass's places: the title bar, the status bar, the sidebar and its rail, the strip
    over the list and the ones over a session's panel and a PR's, which take its shade
    (SessionPanel.css), the list's group headers, Kanban's column heads and the quick panel's bar. What's
    white (the rows, the cards, the panel, menus) keeps the palette's grays, which the see-through
    ones come to over white anyway, and what covers something that scrolls under it keeps a ground
    of its own. A white control there (a button, a quick panel chip, and a usage chip, flat until
-   the pointer is on it) lays its hover over white (controls.css, UsageBar.css, Quick.css), so it
+   the pointer is on it) lays its hover over white (controls.css, StatusBar.css, Quick.css), so it
    stays opaque under the pointer, and a usage chip while it's dragged over the others. */
 .is-glass .ca-win-bar,
-.is-glass .ca-usagebar,
+.is-glass .ca-statusbar,
 .is-glass .ca-side,
 .is-glass .ca-rail,
 .is-glass .ca-listbar,
@@ -31,4 +32,6 @@
   --nav-selected: var(--glass-nav-selected);
   --line: var(--glass-line);
   --neutral-tint: var(--glass-tint);
+  --ink-2: var(--glass-ink-2);
+  --ink-3: var(--glass-ink-3);
 }

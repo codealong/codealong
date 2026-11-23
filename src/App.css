@@ -55,7 +55,7 @@
 /* What's hovered on the chrome takes a shade of it, as the sidebar's rows do (nav.css), rather
    than the white's that's meant for the card. */
 .ca-win-bar,
-.ca-usagebar {
+.ca-statusbar {
   --surface-hover: var(--nav-hover);
 }
 /* With glass on (src/glass.ts), the chrome is one pane of macOS's glass, mostly see-through, as
@@ -328,7 +328,7 @@
 .ca-win--app .ca-win-body {
   position: relative;
 }
-.ca-win--app :is(.ca-side, .ca-rail, .ca-usagebar) {
+.ca-win--app :is(.ca-side, .ca-rail, .ca-statusbar) {
   position: relative;
 }
 .ca-win--app .ca-win-body::before {

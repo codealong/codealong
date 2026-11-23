@@ -21,7 +21,9 @@
   --glass-selected: rgba(0, 0, 0, 0.11);
   --glass-nav-selected: #ffffff;
   --glass-line: rgba(0, 0, 0, 0.13);
-  --glass-tint: rgba(0, 0, 0, 0.07);
+  --glass-tint: rgba(0, 0, 0, 0.13);
+  --glass-ink-2: rgba(0, 0, 0, 0.78);
+  --glass-ink-3: rgba(0, 0, 0, 0.66);
   --notch: #000000;
   --surface-hover: #f6f7f5;
   --surface-selected: #e2e6e1;
@@ -194,7 +196,9 @@
     --glass-selected: rgba(255, 255, 255, 0.075);
     --glass-nav-selected: rgba(255, 255, 255, 0.075);
     --glass-line: rgba(255, 255, 255, 0.08);
-    --glass-tint: rgba(255, 255, 255, 0.06);
+    --glass-tint: rgba(255, 255, 255, 0.11);
+    --glass-ink-2: rgba(255, 255, 255, 0.80);
+    --glass-ink-3: rgba(255, 255, 255, 0.66);
     --notch: #000000;
     --surface-hover: #1a1d1f;
     --surface-selected: #262b2d;
@@ -303,7 +307,9 @@
   --glass-selected: rgba(255, 255, 255, 0.075);
   --glass-nav-selected: rgba(255, 255, 255, 0.075);
   --glass-line: rgba(255, 255, 255, 0.08);
-  --glass-tint: rgba(255, 255, 255, 0.06);
+  --glass-tint: rgba(255, 255, 255, 0.11);
+  --glass-ink-2: rgba(255, 255, 255, 0.80);
+  --glass-ink-3: rgba(255, 255, 255, 0.66);
   --notch: #000000;
   --surface-hover: #1a1d1f;
   --surface-selected: #262b2d;

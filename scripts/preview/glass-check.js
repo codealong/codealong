@@ -85,7 +85,7 @@
       check('in Send to, the part at the card’s foot has its bottom corners', corners.borderBottomLeftRadius === '12px' && corners.borderBottomRightRadius === '12px', foot.className + ' ' + corners.borderBottomLeftRadius + ' ' + corners.borderBottomRightRadius);
       return;
     }
-    await until(function () { return q('.ca-usagebar .ca-uchip') && q('.ca-side') && q('.ca-listbar') && q('.ca-bay'); }, 20000, 'the usage bar, the sidebar, the strip over the list and a group header');
+    await until(function () { return q('.ca-statusbar .ca-uchip') && q('.ca-side') && q('.ca-listbar') && q('.ca-bay'); }, 20000, 'the status bar, the sidebar, the strip over the list and a group header');
     var root = document.documentElement;
     var board = q('.ca-board');
     if (linux) {
@@ -95,16 +95,19 @@
     }
     check('the page says is-glass', root.classList.contains('is-glass'), root.className);
     check('the page draws no ground of its own, the window only a see-through tint', alpha(bg(document.body)) === 0 && alpha(bg(q('.ca-win'))) < 0.5, bg(document.body) + ' | ' + bg(q('.ca-win')));
-    var over = ['.ca-win-bar', '.ca-usagebar', '.ca-side'].filter(function (sel) { return alpha(bg(q(sel))) !== 0; });
-    check('the title bar, the usage bar and the sidebar are one pane: none draws over the window’s tint', over.length === 0, over.map(function (sel) { return sel + ' ' + bg(q(sel)); }).join(', '));
+    var over = ['.ca-win-bar', '.ca-statusbar', '.ca-side'].filter(function (sel) { return alpha(bg(q(sel))) !== 0; });
+    check('the title bar, the status bar and the sidebar are one pane: none draws over the window’s tint', over.length === 0, over.map(function (sel) { return sel + ' ' + bg(q(sel)); }).join(', '));
     var frost = alpha(bg(board));
     check('the board’s ground is frosted: mostly opaque, not clear', frost > 0.6 && frost < 1, bg(board));
-    ['.ca-win-bar', '.ca-usagebar', '.ca-side', '.ca-listbar', '.ca-bay'].forEach(function (sel) {
+    ['.ca-win-bar', '.ca-statusbar', '.ca-side', '.ca-listbar', '.ca-bay'].forEach(function (sel) {
       var el = q(sel);
-      var see = ['--surface-sunken', '--surface-hover', '--surface-selected', '--line', '--neutral-tint'].filter(function (t) { return !(alpha(token(el, t)) < 1); });
-      check(sel + ' draws its wells, hovers, selections, lines and keycaps see-through', see.length === 0, see.map(function (t) { return t + ' ' + token(el, t); }).join(', '));
+      var see = ['--surface-sunken', '--surface-hover', '--surface-selected', '--line', '--neutral-tint', '--ink-2', '--ink-3'].filter(function (t) { return !(alpha(token(el, t)) < 1); });
+      check(sel + ' draws its wells, hovers, selections, lines, keycaps and muted ink see-through', see.length === 0, see.map(function (t) { return t + ' ' + token(el, t); }).join(', '));
     });
-    check('the usage bar has the title bar’s glass', bg(q('.ca-usagebar')) === bg(q('.ca-win-bar')), bg(q('.ca-usagebar')) + ' | ' + bg(q('.ca-win-bar')));
+    var statusBar = q('.ca-statusbar');
+    check('secondary and muted ink on the glass keep strong contrast alpha', alpha(token(statusBar, '--ink-2')) >= 0.7 && alpha(token(statusBar, '--ink-3')) >= 0.6, token(statusBar, '--ink-2') + ' | ' + token(statusBar, '--ink-3'));
+    check('meter tracks on the glass stay visible', alpha(token(statusBar, '--neutral-tint')) >= 0.1, token(statusBar, '--neutral-tint'));
+    check('the status bar has the title bar’s glass', bg(statusBar) === bg(q('.ca-win-bar')), bg(statusBar) + ' | ' + bg(q('.ca-win-bar')));
     var strip = q('.ca-listbar');
     check('the strip over the list hides the rows that scroll under it: opaque', alpha(bg(strip)) === 1, bg(strip));
     // The strip over a session's panel is the list's strip carried on across the window: its shade,
@@ -122,9 +125,9 @@
     hovers('.is-glass .ca-search:hover', q('.ca-win-bar'), false, 'the search box’s hover is see-through');
     hovers('.ca-sidetoggle:hover', q('.ca-win-bar'), false, 'the sidebar toggle’s hover is see-through');
     hovers('.ca-btn:hover', q('.ca-win-bar'), true, 'a button keeps its white under the pointer');
-    hovers('.ca-uchip:hover', q('.ca-usagebar'), true, 'a usage chip keeps its white under the pointer');
+    hovers('.ca-uchip:hover', statusBar, true, 'a usage chip keeps its white under the pointer');
     // At rest a usage chip is flat, as a status bar's items are: the glass shows through it.
-    var chip = q('.ca-usagebar .ca-uchip:not(.is-attn):not(.is-training)');
+    var chip = q('.ca-statusbar .ca-uchip:not(.is-attn):not(.is-training)');
     if (chip) check('a usage chip at rest draws no ground of its own', alpha(bg(chip)) === 0, bg(chip));
     else note('no usage chip at rest to look at');
     var row = q('.ca-board .ca-lane');

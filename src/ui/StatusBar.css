@@ -1,4 +1,4 @@
-/* Plan usage in the window's status bar, along its foot (UsageBar.tsx): one chip per account,
+/* Plan usage in the window's status bar, along its foot (StatusBar.tsx): one chip per account,
    the meters, and the popover over a chip, which for an account its provider may train on says
    why and has buttons; at its far end, what's wrong and Refresh. The bar draws on the window's
    ground, the chrome's, as the title bar and the sidebar do (App.css), and the meters' tracks, a
@@ -18,7 +18,7 @@
 .ca-meter.is-compact .ca-meter-value { font: var(--type-code-sm); color: var(--ink-2); text-align: right; }
 .ca-meter.is-compact.is-over .ca-meter-value { color: var(--alert); }
 
-.ca-usagebar {
+.ca-statusbar {
   display: flex;
   align-items: center;
   gap: var(--space-2);
@@ -29,7 +29,7 @@
 }
 /* Chips that don't fit scroll sideways. The scrollbar is hidden: where macOS always shows
    scrollbars it would take most of the bar's height. Fades mark the ends with more past them. */
-.ca-usagebar-accts {
+.ca-statusbar-accts {
   flex: 1;
   align-self: stretch;
   display: flex;
@@ -42,20 +42,20 @@
   overscroll-behavior-x: contain;
   scrollbar-width: none;
 }
-.ca-usagebar-accts::-webkit-scrollbar {
+.ca-statusbar-accts::-webkit-scrollbar {
   display: none;
 }
-.ca-usagebar-accts.is-clip-start {
+.ca-statusbar-accts.is-clip-start {
   mask-image: linear-gradient(to right, transparent, var(--ink) var(--space-8));
 }
-.ca-usagebar-accts.is-clip-end {
+.ca-statusbar-accts.is-clip-end {
   mask-image: linear-gradient(to left, transparent, var(--ink) var(--space-8));
 }
-.ca-usagebar-accts.is-clip-start.is-clip-end {
+.ca-statusbar-accts.is-clip-start.is-clip-end {
   mask-image: linear-gradient(to right, transparent, var(--ink) var(--space-8), var(--ink) calc(100% - var(--space-8)), transparent);
 }
 /* Every chip with all its limits, measured to decide whether the row collapses. */
-.ca-usagebar-measure {
+.ca-statusbar-measure {
   position: fixed;
   top: -100px;
   left: 0;
@@ -91,10 +91,10 @@
 }
 /* A chip dragged to another place (useSort.ts) follows the pointer over the others,
    which slide aside to make way for it. */
-.ca-usagebar-accts.is-sorting .ca-uchip {
+.ca-statusbar-accts.is-sorting .ca-uchip {
   transition: transform var(--dur-base) ease-out, background var(--dur-fast) ease-out, border-color var(--dur-fast) ease-out;
 }
-.ca-usagebar-accts.is-sorting .ca-uchip.is-lifted {
+.ca-statusbar-accts.is-sorting .ca-uchip.is-lifted {
   position: relative;
   z-index: var(--z-sorting);
   border-color: var(--line);
@@ -148,7 +148,7 @@
   color: var(--attn);
 }
 /* A row, not the compact meter's grid: a chip leaves out a model's name when it's the only limit it
-   shows, the clock before a reset while the limit has room left (UsageBar.tsx), and a reset a limit
+   shows, the clock before a reset while the limit has room left (StatusBar.tsx), and a reset a limit
    doesn't have, and what's left closes up. */
 .ca-uchip .ca-meter.is-compact {
   display: flex;
@@ -199,7 +199,7 @@
   color: var(--alert);
 }
 /* The chips' row and the toast over its end. */
-.ca-usagebar-main {
+.ca-statusbar-main {
   position: relative;
   flex: 1;
   align-self: stretch;
@@ -209,7 +209,7 @@
 /* The window's toast (Toasts.tsx), lying over the end of the chips' row: as wide as its words up
    to a limit, and the chips under it stay as they are, so the row doesn't move as one comes and
    goes. Cut short, its whole words grow up from it, over the window above the bar. */
-.ca-usagebar-toast {
+.ca-statusbar-toast {
   position: absolute;
   top: 0;
   right: 0;
@@ -218,19 +218,19 @@
   align-items: center;
   max-width: min(560px, 100%);
 }
-.ca-usagebar-toast:empty {
+.ca-statusbar-toast:empty {
   display: none;
 }
 /* A chip the keyboard reaches shows, though the toast lies over it: the toast fades while a chip
    has the focus, and is back as soon as the focus moves on (a Tab past the last chip reaches its
    Undo, which a hidden toast would skip). */
-.ca-usagebar-main:has(.ca-uchip:focus-visible) .ca-usagebar-toast {
+.ca-statusbar-main:has(.ca-uchip:focus-visible) .ca-statusbar-toast {
   opacity: 0;
   pointer-events: none;
 }
 /* While a dialog is up, over its scrim, as the toast was when it floated: an Undo stays a click
    away, and words cut short can still be read whole. */
-body:has(.ca-scrim) .ca-usagebar-toast {
+body:has(.ca-scrim) .ca-statusbar-toast {
   z-index: var(--z-toast);
 }
 /* Only the limit's bar and number: its window and reset are on hover, with the others. */
@@ -242,7 +242,7 @@ body:has(.ca-scrim) .ca-usagebar-toast {
    after them stays in the window. Clipped sideways only, and a
    focus ring's width in, so a ring isn't cut; what pops out of it (a notice, the load's card) is
    drawn over the page, outside it. */
-.ca-usagebar-end {
+.ca-statusbar-end {
   display: flex;
   align-items: center;
   justify-content: flex-end;
@@ -253,7 +253,7 @@ body:has(.ca-scrim) .ca-usagebar-toast {
   padding: 0 4px;
   margin: 0 -4px;
 }
-.ca-usagebar-end > * {
+.ca-statusbar-end > * {
   flex: none;
 }
 /* Popup styles stay separate from the account and project cards in Settings. */

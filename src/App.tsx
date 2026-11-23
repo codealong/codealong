@@ -74,7 +74,7 @@ import { BoardDialog, ColumnDialog } from './ui/BoardDialog';
 import { BoardEmpty } from './ui/BoardEmpty';
 import { ThemeSwitch, useTheme } from './ui/ThemeSwitch';
 import { Reading } from './ui/Tip';
-import { UsageBar } from './ui/UsageBar';
+import { StatusBar } from './ui/StatusBar';
 import { Notices } from './ui/Notices';
 import { noticeId } from './notices';
 import { analyticsTitle, Sidebar } from './ui/Sidebar';
@@ -2261,9 +2261,9 @@ export function App() {
           />
         )}
       </div>
-      {/* The usage bar is the window's status bar: what every account has left, what's under way
+      {/* The window's status bar: what every account has left, what's under way
           and what isn't working, at its foot, out of the way of what you read and act on. */}
-      <UsageBar
+      <StatusBar
         usage={board?.usage ?? []}
         loading={loading}
         now={now}

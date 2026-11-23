@@ -28,7 +28,7 @@
   window.__MEETING__ = soon({});
   var where = function () { return q('.ca-notch') ? 'notch' : q('.ca-hud') ? 'bar' : q('.ca-win-bar') ? 'window' : null; };
   var offer = function () {
-    return where() === 'notch' ? q('.ca-notch-session .ca-meeting.is-card') : where() === 'bar' ? q('.ca-hud > .ca-meeting.is-line') : q('.ca-usagebar .ca-meeting.is-line');
+    return where() === 'notch' ? q('.ca-notch-session .ca-meeting.is-card') : where() === 'bar' ? q('.ca-hud > .ca-meeting.is-line') : q('.ca-statusbar .ca-meeting.is-line');
   };
   var text = function (sel) { var el = offer() && offer().querySelector(sel); return el ? el.textContent.trim() : ''; };
   var button = function (word) { return all('button', offer()).filter(function (b) { return b.textContent.trim() === word || b.getAttribute('aria-label') === word; })[0]; };

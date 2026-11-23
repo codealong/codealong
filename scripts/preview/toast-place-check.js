@@ -1,4 +1,4 @@
-// Checks where the main window says things around a session's panel (Toasts.tsx, UsageBar.tsx
+// Checks where the main window says things around a session's panel (Toasts.tsx, StatusBar.tsx
 // `toast`, MainPanel.tsx): a message that didn't go after ⌘⏎ went on to the next is said on the
 // next one's strip, not in a toast over its box, and in a toast where no strip shows by then
 // (several picked); a toast is a line in the usage bar, the window's status bar along its foot with
@@ -60,16 +60,16 @@
   var rect = function (el) { var r = el.getBoundingClientRect(); return { left: Math.round(r.left), right: Math.round(r.right), top: Math.round(r.top), bottom: Math.round(r.bottom) }; };
   var overlaps = function (a, b) { return a.left < b.right && b.left < a.right && a.top < b.bottom && b.top < a.bottom; };
   var inside = function (a, b) { return a.left >= b.left && a.right <= b.right && a.top >= b.top && a.bottom <= b.bottom; };
-  var bar = function () { return rect(document.querySelector('.ca-usagebar')); };
-  var tight = function () { return document.querySelectorAll('.ca-usagebar-accts .ca-uchip.is-tight').length; };
-  var chips = function () { return document.querySelectorAll('.ca-usagebar-accts .ca-uchip').length; };
+  var bar = function () { return rect(document.querySelector('.ca-statusbar')); };
+  var tight = function () { return document.querySelectorAll('.ca-statusbar-accts .ca-uchip.is-tight').length; };
+  var chips = function () { return document.querySelectorAll('.ca-statusbar-accts .ca-uchip').length; };
   // What the toast's words would take on one line, with its icon and Undo: its width, less the
   // words' room, plus all of them.
   var needs = function () { var t = toast(); var w = t.querySelector('.ca-oneline-text'); return t.offsetWidth - w.clientWidth + w.scrollWidth; };
   var hover = function (on) { toast().dispatchEvent(new MouseEvent(on ? 'mouseover' : 'mouseout', { bubbles: true, relatedTarget: on ? document.body : document.querySelector('.ca-board') })); };
   var tightBefore = 0;
   // Where each chip is and how wide, to say the row hasn't moved.
-  var layout = function () { return Array.prototype.map.call(document.querySelectorAll('.ca-usagebar-accts .ca-uchip'), function (c) { var r = rect(c); return r.left + '+' + (r.right - r.left); }).join(' '); };
+  var layout = function () { return Array.prototype.map.call(document.querySelectorAll('.ca-statusbar-accts .ca-uchip'), function (c) { var r = rect(c); return r.left + '+' + (r.right - r.left); }).join(' '); };
   var layoutBefore = '';
   var sentFrom = 0;
   var on = function (name) { return until(function () { return title() === name; }, 3000).catch(function () {}); };
@@ -111,22 +111,22 @@
       var t = rect(toast());
       var board = rect(document.querySelector('.ca-board'));
       var composer = rect(document.querySelector('.ca-sessinsp .ca-composer'));
-      var accts = rect(document.querySelector('.ca-usagebar-accts'));
-      var end = rect(document.querySelector('.ca-usagebar-end'));
+      var accts = rect(document.querySelector('.ca-statusbar-accts'));
+      var end = rect(document.querySelector('.ca-statusbar-end'));
       check('the usage bar is the window’s foot', Math.abs(bar().bottom - window.innerHeight) <= 1 && bar().bottom - bar().top <= 32, JSON.stringify({ bar: bar(), window: window.innerHeight }));
       var ground = function (sel) { return getComputedStyle(document.querySelector(sel)).backgroundColor; };
-      check('with the title bar’s ground', ground('.ca-usagebar') === ground('.ca-win-bar'), ground('.ca-usagebar') + ' | ' + ground('.ca-win-bar'));
+      check('with the title bar’s ground', ground('.ca-statusbar') === ground('.ca-win-bar'), ground('.ca-statusbar') + ' | ' + ground('.ca-win-bar'));
       check('a toast is a line in the usage bar', inside(t, bar()), JSON.stringify({ toast: t, bar: bar() }));
       check('over the end of the chips’ row, beside the bar’s end', t.left >= accts.left && Math.abs(t.right - accts.right) <= 1 && t.right <= end.left, JSON.stringify({ chips: accts, toast: t, end: end }));
       check('over neither the list nor the panel’s message box', !overlaps(t, board) && !overlaps(t, composer), JSON.stringify({ toast: t, board: board, box: composer }));
       var want = Math.min(needs(), 560, accts.right - accts.left);
       note('its words want ' + needs() + 'px; it has ' + (t.right - t.left) + 'px, and ' + tight() + ' of ' + chips() + ' chips show only a number');
       check('as wide as its words need, up to its limit', t.right - t.left >= want - 1, JSON.stringify({ toast: t.right - t.left, wants: want }));
-      var under = Array.prototype.filter.call(document.querySelectorAll('.ca-usagebar-accts .ca-uchip'), function (c) { return overlaps(rect(c), t); });
+      var under = Array.prototype.filter.call(document.querySelectorAll('.ca-statusbar-accts .ca-uchip'), function (c) { return overlaps(rect(c), t); });
       check('it lies over a chip', under.length > 0, JSON.stringify({ toast: t, chips: layout() }));
       check('the chips stay as they are under it', layout() !== '' && layout() === layoutBefore && tight() === tightBefore, layout() + ' | before: ' + layoutBefore);
       // A chip under it that the keyboard reaches shows: the toast fades while it has the focus.
-      var fade = function () { return getComputedStyle(document.querySelector('.ca-usagebar-toast')).opacity; };
+      var fade = function () { return getComputedStyle(document.querySelector('.ca-statusbar-toast')).opacity; };
       if (under.length) {
         under[0].focus({ focusVisible: true });
         if (under[0].matches(':focus-visible')) {

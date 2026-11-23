@@ -1,4 +1,4 @@
-// Checks the training flags in the accounts bar (ui/UsageBar.tsx, training.ts): an account whose
+// Checks the training flags in the status bar (ui/StatusBar.tsx, training.ts): an account whose
 // provider may train on it, or where nothing's chosen, has its chip in the attention colors with
 // a shield, the others not; hovering it brings up its card over the chip, the bar being at the
 // window's foot, which says why, stays up while the
@@ -8,7 +8,7 @@
 //   PREVIEW_TRAINING=scripts/preview/training-sample.json PREVIEW_WAIT=60000 scripts/preview.sh sessions '' scripts/preview/training-check.js
 (function () {
   var chipOf = function (account) {
-    return all('.ca-usagebar-accts .ca-uchip').filter(function (c) { return (q('.ca-uchip-name', c) || {}).textContent === account; })[0];
+    return all('.ca-statusbar-accts .ca-uchip').filter(function (c) { return (q('.ca-uchip-name', c) || {}).textContent === account; })[0];
   };
   var card = function () { return q('.ca-usage-popover.is-training'); };
   var button = function (text) { return all('.ca-usage-popover button').filter(function (b) { return b.textContent === text; })[0]; };
@@ -17,9 +17,9 @@
   var enter = function (el) { el.dispatchEvent(new MouseEvent('mouseover', { bubbles: true, relatedTarget: document.body })); };
   var leave = function (el) { el.dispatchEvent(new MouseEvent('mouseout', { bubbles: true, relatedTarget: document.body })); };
 
-  until(function () { return q('.ca-usagebar-accts .ca-uchip.is-training'); }, 20000)
+  until(function () { return q('.ca-statusbar-accts .ca-uchip.is-training'); }, 20000)
     .then(function () {
-      var flagged = all('.ca-usagebar-accts .ca-uchip.is-training .ca-uchip-name').map(function (n) { return n.textContent; });
+      var flagged = all('.ca-statusbar-accts .ca-uchip.is-training .ca-uchip-name').map(function (n) { return n.textContent; });
       check('only accounts that may be trained on are flagged', flagged.join(',') === 'claude,claude2', flagged.join(','));
       check('the chip itself says so, with no flag beside it', !q('.ca-uchip-flag') && /Training is on: Help improve Claude/.test(chipOf('claude').getAttribute('aria-label')), chipOf('claude').getAttribute('aria-label'));
       enter(chipOf('claude'));

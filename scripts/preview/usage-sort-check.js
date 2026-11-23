@@ -4,8 +4,8 @@
 // (order_accounts) and opens nothing. A click still opens the Analytics window on its account.
 //   scripts/preview.sh sessions '' scripts/preview/usage-sort-check.js
 (function () {
-  var row = function () { return q('.ca-usagebar-accts'); };
-  var chips = function () { return all('.ca-usagebar-accts > .ca-uchip'); };
+  var row = function () { return q('.ca-statusbar-accts'); };
+  var chips = function () { return all('.ca-statusbar-accts > .ca-uchip'); };
   var names = function () { return chips().map(function (c) { return c.querySelector('.ca-uchip-name').textContent; }); };
   var pointer = function (el, type, x, y) {
     el.dispatchEvent(new PointerEvent(type, { bubbles: true, cancelable: true, button: type === 'pointermove' ? -1 : 0, buttons: type === 'pointerup' ? 0 : 1, clientX: x, clientY: y, pointerType: 'mouse', isPrimary: true }));

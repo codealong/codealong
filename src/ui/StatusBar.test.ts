@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import * as fx from '../testing/fixtures';
 import type { Meter, Severity } from '../types';
-import { chipClocksReset, fitFor, headlineMeter, inOrder, listsInOrder } from './UsageBar';
+import { chipClocksReset, fitFor, headlineMeter, inOrder, listsInOrder } from './StatusBar';
 
 const meter = (key: string, percent: number, severity: Severity = 'normal'): Meter => fx.meter({ key, percent, severity });
 

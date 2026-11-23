@@ -25,7 +25,7 @@
 @import './glass.css';
 @import '../App.css';
 @import '../ui/Inspector.css';
-@import '../ui/UsageBar.css';
+@import '../ui/StatusBar.css';
 @import '../ui/LoadTag.css';
 @import '../ui/Toasts.css';
 @import '../ui/UsageDialog.css';

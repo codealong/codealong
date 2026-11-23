@@ -1,4 +1,4 @@
-// Dragging things in a line into another order: the usage bar's chips sideways (UsageBar.tsx), a
+// Dragging things in a line into another order: the status bar's chips sideways (StatusBar.tsx), a
 // routing group's accounts up and down (SettingsDialog.tsx `RoutingPane`). The one held follows
 // the pointer along the line, the others slide aside to make way for it, and letting go puts it
 // there. A pointer drag, as `useRowDrag` is: clicks are left alone until the pointer has moved a
