@@ -1341,10 +1341,6 @@ pub struct GitInfo {
     /// branch checked out, or its branch reset or made afresh.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub reset_at: Option<i64>,
-    /// How many times it switched to another branch, as far back as its reflog goes (90 days by
-    /// default): zero for a worktree kept on one branch, three or more for one that's reused.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub new_work_count: Option<u32>,
     /// Commits HEAD has that no remote branch has (`git rev-list HEAD --not --remotes`, Claude
     /// Code's own rule for a worktree it removes): they'd go with the worktree. None count when
     /// their change is in the default branch already, as a squash merge leaves a branch's
@@ -1814,7 +1810,7 @@ mod tests {
                 },
                 "git": {
                     "upstream": "origin/fix", "ahead": 1, "behind": 2, "dirty": 3, "lastCommit": "Fix it", "lastCommitAt": 4, "added": 5, "removed": 6,
-                    "base": "origin/main", "baseAhead": 7, "baseBehind": 8, "resetAt": 9, "newWorkCount": 10
+                    "base": "origin/main", "baseAhead": 7, "baseBehind": 8, "resetAt": 9
                 },
                 "lastActivity": 11, "looksFinished": true,
                 "targets": [{ "id": "l|terminal", "icon": "terminal", "label": "Terminal", "detail": "fix", "kbd": ["⌘", "T"], "disabled": false, "group": "lane" }],

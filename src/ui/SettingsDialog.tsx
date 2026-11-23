@@ -2266,16 +2266,16 @@ function ReusableWorktrees({ lanes }: { lanes: Lane[] }) {
     setBusy(false);
   };
   const name = (l: Lane) => `${l.repo} · ${worktreeName(l)}`;
-  // Why one is reusable: a main worktree and one that has been reused are unless marked
-  // otherwise (board::reusable); the rest were marked.
-  const why = (l: Lane) => (l.origin === 'main' ? 'main worktree' : (l.git?.newWorkCount ?? 0) >= 3 ? `reused ${l.git?.newWorkCount} times` : 'marked');
+  // Why one is reusable: a main worktree is unless marked otherwise (board::reusable); the rest
+  // were marked.
+  const why = (l: Lane) => (l.origin === 'main' ? 'main worktree' : 'marked');
   return (
     <>
       <div className="ca-settings-intro">
         <h3>Reusable worktrees</h3>
         <p>
           A reusable worktree takes one piece of work after another; the rest are kept for one piece of work each. New work in a repo starts in its reusable worktrees, the ones free of work first.
-          Main worktrees, and worktrees that have taken new work three times or more, are reusable unless you turn them off: a worktree's right-click menu has Reuse for new work.
+          Main worktrees are reusable unless you turn them off; a worktree's right-click menu has Reuse for new work.
         </p>
       </div>
       <div className="ca-settings-cards">

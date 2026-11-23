@@ -332,7 +332,6 @@ export type GitInfo = Holds<Same<
   | "lastCommit"
   | "lastCommitAt"
   | "locked"
-  | "newWorkCount"
   | "removed"
   | "resetAt"
   | "unpushed"

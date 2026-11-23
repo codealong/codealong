@@ -171,8 +171,8 @@ through the list for something to do. What follows is for when they've asked.
   `free` (nothing uncommitted or unlanded and no agent at work, so new work can start there),
   `open` (work under way, which work that belongs with it can join), `review` (its PR is open)
   or `landed` (its PR merged; the repo's own steps put it back on the default branch before
-  new work). A repo's main worktree, and one that has taken new work three times or more, are
-  reusable unless marked otherwise. When you need a worktree for new work and the repo's
+  new work). A repo's main worktree is reusable unless marked otherwise; other worktrees are
+  reusable only when marked. When you need a worktree for new work and the repo's
   instructions don't name one, a free reusable worktree is the place. `codealong reuse on|off`
   marks one, when the user asks.
 - `codealong worktree remove <path|.>` removes a worktree whose work is done, only when nothing

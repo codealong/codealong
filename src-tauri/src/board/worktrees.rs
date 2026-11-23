@@ -20,31 +20,20 @@ pub fn can_reuse(seed: &LaneSeed) -> bool {
     !seed.elsewhere && !seed.chats && seed.origin != Origin::Folder
 }
 
-/// How many times a worktree must have switched branches to count as reused: a couple of branch
-/// changes can happen in one piece of work, three says it's taking one piece of work after another.
-const REUSED_AT: u32 = 3;
-
-/// Whether a worktree has been reused: it switched to another branch three times or more, as far
-/// back as its reflog goes (`git::new_work`).
-pub fn reused(git: Option<&GitInfo>) -> bool {
-    git.and_then(|g| g.new_work_count).is_some_and(|n| n >= REUSED_AT)
-}
-
 /// Whether a worktree takes one piece of work after another: as marked (its menu's Reuse for
 /// new work, reusable.rs), else a main checkout does, being where work starts when there's no
-/// other, and so does one that has been reused; the rest are kept for one piece of work each.
-pub fn reusable(seed: &LaneSeed, marks: &HashMap<String, bool>, git: Option<&GitInfo>) -> bool {
-    can_reuse(seed) && marks.get(seed.path.to_string_lossy().as_ref()).copied().unwrap_or(seed.origin == Origin::Main || reused(git))
+/// other; the rest are kept for one piece of work each.
+pub fn reusable(seed: &LaneSeed, marks: &HashMap<String, bool>) -> bool {
+    can_reuse(seed) && marks.get(seed.path.to_string_lossy().as_ref()).copied().unwrap_or(seed.origin == Origin::Main)
 }
 
 /// A worktree Settings suggests making reusable: marked neither way and not reusable already,
 /// whose branch has carried two or more merged PRs among the repo's recent ones. A branch that
 /// goes on from one merged PR to the next is a worktree taking one piece of work after another
-/// (one repo's `app2`, reset onto `origin/main` after each), though a fresh clone's reflog
-/// doesn't show it yet. PRs from anyone's fork count: a teammate's `app2` says the repo's
-/// people name reused worktrees so.
-pub fn looks_reusable(seed: &LaneSeed, marked: bool, git: Option<&GitInfo>, prs: &HashMap<String, Vec<PrRaw>>) -> bool {
-    if marked || !can_reuse(seed) || seed.origin == Origin::Main || reused(git) {
+/// (one repo's `app2`, reset onto `origin/main` after each). PRs from anyone's fork count: a
+/// teammate's `app2` says the repo's people name reused worktrees so.
+pub fn looks_reusable(seed: &LaneSeed, marked: bool, prs: &HashMap<String, Vec<PrRaw>>) -> bool {
+    if marked || !can_reuse(seed) || seed.origin == Origin::Main {
         return false;
     }
     let (Some(slug), Some(branch)) = (seed.repo_slug.as_ref(), seed.branch.as_ref()) else { return false };
@@ -93,8 +82,8 @@ pub struct Leaving<'a> {
     pub origin: Origin,
     /// Codealong's own chats (`LaneSeed::starts_chats`).
     pub chats: bool,
-    /// It's reusable (`reusable`), and whether you marked it so.
-    pub reusable: Option<bool>,
+    /// It's marked reusable (`reusable`).
+    pub reusable: bool,
     pub git: Option<&'a GitInfo>,
     /// How many sessions run in it: a process has them open.
     pub running: usize,
@@ -133,8 +122,8 @@ pub fn cleanup(w: &Leaving) -> Option<Cleanup> {
     if w.origin == Origin::Folder || w.chats {
         return kept("a folder, not a worktree".into());
     }
-    if let Some(marked) = w.reusable {
-        return kept(if marked { "marked reusable" } else { "reusable: it has taken several pieces of work" }.into());
+    if w.reusable {
+        return kept("marked reusable".into());
     }
     let mut why = Vec::new();
     match w.running {
@@ -211,25 +200,20 @@ mod tests {
     use crate::board::fixtures::{acct, insight, pr, reg, seed, tr, NOW};
 
     #[test]
-    fn main_checkouts_and_reused_worktrees_are_reusable_unless_marked_otherwise() {
+    fn main_checkouts_and_marked_worktrees_are_reusable() {
         let main = LaneSeed { origin: Origin::Main, ..seed("/r/spark", "app") };
         let wt = seed("/r/spark-app3", "app3");
         let none = HashMap::new();
-        assert!(reusable(&main, &none, None));
-        assert!(!reusable(&wt, &none, None));
+        assert!(reusable(&main, &none));
+        assert!(!reusable(&wt, &none));
         let marks = HashMap::from([("/r/spark".to_string(), false), ("/r/spark-app3".to_string(), true)]);
-        assert!(!reusable(&main, &marks, None));
-        assert!(reusable(&wt, &marks, None));
-        // One that took new work three times or more has been reused, unless marked otherwise.
-        let git = |n: u32| GitInfo { new_work_count: Some(n), ..Default::default() };
-        assert!(reusable(&wt, &none, Some(&git(3))));
-        assert!(!reusable(&wt, &none, Some(&git(2))));
-        assert!(!reusable(&wt, &HashMap::from([("/r/spark-app3".to_string(), false)]), Some(&git(9))));
+        assert!(!reusable(&main, &marks));
+        assert!(reusable(&wt, &marks));
         // A plain folder, an app's chats and a repo outside your projects never are.
         let all = HashMap::from([("/r/notes".to_string(), true)]);
-        assert!(!reusable(&LaneSeed { origin: Origin::Folder, ..seed("/r/notes", "x") }, &all, None));
-        assert!(!reusable(&LaneSeed { chats: true, ..seed("/r/notes", "x") }, &all, None));
-        assert!(!reusable(&LaneSeed { elsewhere: true, ..seed("/r/notes", "x") }, &all, None));
+        assert!(!reusable(&LaneSeed { origin: Origin::Folder, ..seed("/r/notes", "x") }, &all));
+        assert!(!reusable(&LaneSeed { chats: true, ..seed("/r/notes", "x") }, &all));
+        assert!(!reusable(&LaneSeed { elsewhere: true, ..seed("/r/notes", "x") }, &all));
     }
 
     #[test]
@@ -238,20 +222,16 @@ mod tests {
         let merged = |n: u64, owner: &str| PrRaw { number: n, head_ref: "app3".into(), head_owner: Some(owner.into()), ..pr(PrState::Merged, 0) };
         let prs = |list: Vec<PrRaw>| HashMap::from([("sprucehq/spark".to_string(), list)]);
         let two = prs(vec![merged(1, "gwen"), merged(2, "gwen")]);
-        assert!(looks_reusable(&wt, false, None, &two));
+        assert!(looks_reusable(&wt, false, &two));
         // A teammate's `app3` from their fork says the same of the name.
-        assert!(looks_reusable(&wt, false, None, &prs(vec![merged(1, "gwen"), merged(2, "someone")])));
+        assert!(looks_reusable(&wt, false, &prs(vec![merged(1, "gwen"), merged(2, "someone")])));
         // One merged PR is a branch's usual life, and an open one hasn't landed.
-        assert!(!looks_reusable(&wt, false, None, &prs(vec![merged(1, "gwen"), PrRaw { state: PrState::Open, ..merged(2, "gwen") }])));
-        // One that has been reused is reusable already, so it isn't suggested.
-        let git = |n: u32| GitInfo { new_work_count: Some(n), ..Default::default() };
-        assert!(!looks_reusable(&wt, false, Some(&git(3)), &two));
-        assert!(looks_reusable(&wt, false, Some(&git(2)), &two));
-        // Marked either way, or reusable already, it isn't suggested; nor is the default branch.
-        assert!(!looks_reusable(&wt, true, Some(&git(9)), &two));
-        assert!(!looks_reusable(&LaneSeed { origin: Origin::Main, ..wt.clone() }, false, Some(&git(9)), &two));
+        assert!(!looks_reusable(&wt, false, &prs(vec![merged(1, "gwen"), PrRaw { state: PrState::Open, ..merged(2, "gwen") }])));
+        // Marked either way, or a main checkout, it isn't suggested; nor is the default branch.
+        assert!(!looks_reusable(&wt, true, &two));
+        assert!(!looks_reusable(&LaneSeed { origin: Origin::Main, ..wt.clone() }, false, &two));
         let on_main = |n| PrRaw { head_ref: "main".into(), ..merged(n, "gwen") };
-        assert!(!looks_reusable(&LaneSeed { branch: Some("main".into()), ..wt.clone() }, false, None, &prs(vec![on_main(1), on_main(2)])));
+        assert!(!looks_reusable(&LaneSeed { branch: Some("main".into()), ..wt.clone() }, false, &prs(vec![on_main(1), on_main(2)])));
     }
 
     #[test]
@@ -358,15 +338,14 @@ mod tests {
     #[test]
     fn a_worktree_can_go_only_when_nothing_in_it_would_be_lost() {
         let clean = GitInfo { unpushed: Some(0), ..Default::default() };
-        let w = Leaving { origin: Origin::ClaudeApp, chats: false, reusable: None, git: Some(&clean), running: 0, holds: None, lock: None, merged: false };
+        let w = Leaving { origin: Origin::ClaudeApp, chats: false, reusable: false, git: Some(&clean), running: 0, holds: None, lock: None, merged: false };
         let said = |w: Leaving| cleanup(&w).map(|c| (c.ok, c.why));
         assert_eq!(said(w), Some((true, String::new())));
         // Kept whatever they hold.
         assert_eq!(said(Leaving { origin: Origin::Main, ..w }), Some((false, "the main checkout".into())));
         assert_eq!(said(Leaving { origin: Origin::Folder, ..w }), Some((false, "a folder, not a worktree".into())));
         assert_eq!(said(Leaving { chats: true, ..w }), Some((false, "a folder, not a worktree".into())));
-        assert_eq!(said(Leaving { reusable: Some(true), ..w }), Some((false, "marked reusable".into())));
-        assert_eq!(said(Leaving { reusable: Some(false), git: None, ..w }), Some((false, "reusable: it has taken several pieces of work".into())));
+        assert_eq!(said(Leaving { reusable: true, git: None, ..w }), Some((false, "marked reusable".into())));
         // Unknown until its git is read.
         assert_eq!(said(Leaving { git: None, ..w }), None);
         // What would be lost, all of it said.

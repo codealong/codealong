@@ -322,11 +322,10 @@ fn print_reuse(out: &ReuseOut, lane: Option<&Lane>) {
     let at = tilde(Path::new(&out.worktree));
     match lane.and_then(|l| l.reuse) {
         Some(state) => {
-            // Not marked, it's reusable by default: a main checkout, or one that has been reused.
+            // Not marked, it's reusable by default: a main checkout.
             let why = match (out.marked, lane) {
-                (Some(_), _) => String::new(),
-                (None, Some(l)) if l.origin == Origin::Main => " (a main checkout is, unless marked otherwise)".into(),
-                (None, l) => format!(" (it has taken new work {} times, so it is unless marked otherwise)", l.and_then(|l| l.git.as_ref()).and_then(|g| g.new_work_count).unwrap_or(0)),
+                (None, Some(l)) if l.origin == Origin::Main => " (a main checkout is, unless marked otherwise)",
+                _ => "",
             };
             println!("{at} is reusable{why} and {}.", reuse_words(state))
         }
