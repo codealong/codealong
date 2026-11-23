@@ -689,6 +689,14 @@ pub trait Adapter: Sync {
         Err(format!("{} has no Agent Client Protocol adapter.", self.harness().word()))
     }
 
+    /// Whether Codealong answers a hosted session's `session/request_permission` itself rather
+    /// than holding it for you (acp.rs `on_permission`), where its ACP server asks for what its
+    /// own terminal UI auto-approves under the account's settings in `home` and current ACP
+    /// `mode`. Plans (`is_plan`) never reach this.
+    fn acp_auto_allows(&self, _home: &Path, _mode: Option<&str>, _call: &serde_json::Value) -> bool {
+        false
+    }
+
     /// Where an account can start a session, the usual place first, or why it can't (start.rs).
     /// `home` is yours: an app runs the account in the harness's default folder.
     fn places(&self, account: &AccountCfg, _home: &Path) -> std::result::Result<Vec<crate::start::Place>, String> {

@@ -190,6 +190,8 @@ impl Claim {
 /// One adapter process.
 struct Agent {
     account: String,
+    /// Its harness and home folder, when known (`agent`), for harness-specific permission rules.
+    who: Option<(Harness, PathBuf)>,
     /// The process, which is killed when this goes.
     client: rpc::Client,
     /// Its `agentCapabilities`.
@@ -502,7 +504,7 @@ fn agent(a: &AccountCfg) -> Result<Arc<Agent>> {
     // Through a shell, so an account's command may set variables the way it does in a terminal.
     let mut cmd = Command::new(crate::procs::sh()?);
     cmd.args(["-c", &format!("exec {command}")]).envs(env).env("PATH", adapter_path()).current_dir(crate::util::home());
-    let ag = connect(&a.name, cmd, log_file(&a.name)).with_context(|| format!("Couldn't start {}'s agent ({command}).", a.name))?;
+    let ag = connect_as(&a.name, Some((Harness::from_config(&a.harness), a.home_path())), cmd, log_file(&a.name)).with_context(|| format!("Couldn't start {}'s agent ({command}).", a.name))?;
     let init = match ag.initialize() {
         Ok(v) => v,
         // Its process is killed as `ag` goes, here and below.
@@ -563,13 +565,18 @@ fn keep_agent(account: &str, ag: Arc<Agent>) -> Result<Arc<Agent>> {
 
 /// Starts an account's adapter process, with its stderr in `log`. What it writes that isn't an
 /// answer is heard on its client's thread (`hear`), and so is its end (`stopped`).
+#[cfg(test)]
 fn connect(account: &str, cmd: Command, log: std::fs::File) -> std::io::Result<Arc<Agent>> {
+    connect_as(account, None, cmd, log)
+}
+
+fn connect_as(account: &str, who: Option<(Harness, PathBuf)>, cmd: Command, log: std::fs::File) -> std::io::Result<Arc<Agent>> {
     let of = account.to_string();
     let client = rpc::Client::spawn(cmd, rpc::Stderr::Log(log), rpc::Wire::JsonRpc2, move |link, heard| match heard {
         rpc::Heard::Line(msg) => hear(&of, link, msg),
         rpc::Heard::Closed(_) => stopped(&of, link),
     })?;
-    Ok(Arc::new(Agent { account: account.to_string(), client, caps: Mutex::new(Value::Null) }))
+    Ok(Arc::new(Agent { account: account.to_string(), who, client, caps: Mutex::new(Value::Null) }))
 }
 
 /// The login shell's PATH, and where OpenCode's installer puts it, which only an interactive
@@ -729,6 +736,25 @@ fn on_permission(account: &str, link: &rpc::Link, rpc: Value, params: &Value) {
     let tool_call = call.get("toolCallId").and_then(Value::as_str).unwrap_or("").to_string();
     // A plan reads as itself, all of it, as a terminal session's does: it's what you approve.
     let plan = is_plan(call);
+    if !plan {
+        if let Some(opt) = options.iter().find(|o| o.kind == "allow_once") {
+            let check = {
+                let st = state();
+                match (st.agents.get(account), st.sessions.get(&key)) {
+                    (Some(ag), Some(h)) if std::ptr::eq::<rpc::Link>(&*ag.client, link) => {
+                        ag.who.clone().map(|(harness, home)| (harness, home, current_option(&h.options, "mode")))
+                    }
+                    _ => None,
+                }
+            };
+            if let Some((harness, home, mode)) = check {
+                if crate::harness::adapter(harness).acp_auto_allows(&home, mode.as_deref(), call) {
+                    let _ = link.respond(&rpc, json!({ "outcome": { "outcome": "selected", "optionId": opt.id } }));
+                    return;
+                }
+            }
+        }
+    }
     let (label, input) = match raw.and_then(|v| v.get("plan")).and_then(Value::as_str).filter(|p| plan && !p.trim().is_empty()) {
         Some(text) => (PLAN.to_string(), Some(text.to_string())),
         None if plan => (PLAN.to_string(), input.map(|i| truncate(&i, 4000))),
@@ -2612,7 +2638,7 @@ mod tests {
         a.acp = Some("my-agent --acp".into());
         assert_eq!(adapter_command(&a).unwrap().0, "my-agent --acp");
         let ag: AccountCfg = serde_json::from_value(json!({ "name": "ag", "harness": "antigravity", "home": "~/.gemini/antigravity" })).unwrap();
-        assert!(adapter_command(&ag).unwrap().0.starts_with("agy acp --log-file "));
+        assert!(adapter_command(&ag).unwrap().0.starts_with("agy acp --process-per-session --log-file "));
         let cursor: AccountCfg = serde_json::from_value(json!({ "name": "cursor", "harness": "cursor", "home": "~/.cursor" })).unwrap();
         assert!(adapter_command(&cursor).is_err());
     }
@@ -2766,6 +2792,71 @@ mod tests {
         assert_eq!(p.label, "run_command · `cargo test`");
         assert_eq!(p.input.as_deref(), Some("cargo test"));
         assert!(!p.always && !p.no_once);
+        state().sessions.remove(&key);
+        state().agents.remove(account);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn on_permission_auto_allows_antigravity_always_proceed_in_default_mode_only() {
+        let dir = store::test_dir("acp-ag-auto-allow");
+        let app_home = dir.join("antigravity");
+        let cli_home = dir.join("antigravity-cli");
+        std::fs::create_dir_all(&app_home).unwrap();
+        std::fs::create_dir_all(&cli_home).unwrap();
+        let settings = cli_home.join("settings.json");
+        std::fs::write(&settings, json!({ "toolPermission": "always-proceed" }).to_string()).unwrap();
+
+        let account = "test-adapter-ag-auto-allow";
+        let key = key_of(Harness::Antigravity, account, "s1");
+        let mode_opts = |cur: &str| json!([{ "id": "mode", "category": "mode", "currentValue": cur, "options": [{ "value": "default" }, { "value": "auto" }, { "value": "plan" }] }]);
+        state().sessions.insert(key.clone(), Hosted { account: account.into(), id: "s1".into(), cwd: "/w".into(), loaded: true, running: true, options: mode_opts("default"), ..Default::default() });
+        let mut cmd = Command::new(crate::procs::posix_tool("sh"));
+        cmd.args(["-c", r#"while IFS= read -r line; do printf '%s\n' "$line" >> "$1"; done"#, "sh"]).arg(dir.join("heard"));
+        let ag = connect_as(account, Some((Harness::Antigravity, app_home.clone())), cmd, std::fs::File::create(dir.join("log")).unwrap()).unwrap();
+        state().agents.insert(account.into(), ag.clone());
+        let link = ag.client.link();
+        let perm = |id: &str, call: Value, options: Value| {
+            json!({
+                "jsonrpc": "2.0",
+                "id": id,
+                "method": "session/request_permission",
+                "params": { "sessionId": "s1", "toolCall": call, "options": options }
+            })
+        };
+        let run_cmd = json!({ "toolCallId": "call_1", "name": "run_command", "title": "git status", "kind": "execute", "rawInput": { "CommandLine": "git status" } });
+        let once_opts = json!([{ "optionId": "allow", "name": "Allow", "kind": "allow_once" }, { "optionId": "deny", "name": "Deny", "kind": "reject_once" }]);
+
+        // Default mode + toolPermission: always-proceed -> auto-answered with allow_once, never pending.
+        hear(account, &link, &perm("1", run_cmd.clone(), once_opts.clone()));
+        wait_until("auto-allow response written", 10, || !heard(&dir).is_empty());
+        assert_eq!(pending(&key), None);
+        assert_eq!(heard(&dir), [r#"{"id":"1","jsonrpc":"2.0","result":{"outcome":{"optionId":"allow","outcome":"selected"}}}"#]);
+
+        // Plans are never auto-approved, even under always-proceed.
+        let plan_call = json!({ "toolCallId": "call_plan", "name": "ExitPlanMode", "title": "Approve Plan", "kind": "switch_mode", "rawInput": { "plan": "Step 1" } });
+        hear(account, &link, &perm("2", plan_call, once_opts.clone()));
+        assert_eq!(pending(&key).as_ref().map(|p| p.id.as_str()), Some("call_plan"));
+        state().sessions.get_mut(&key).unwrap().permissions.clear();
+
+        // Without an allow_once option, never auto-approves with allow_always.
+        let always_only = json!([{ "optionId": "always", "name": "Always", "kind": "allow_always" }, { "optionId": "deny", "name": "Deny", "kind": "reject_once" }]);
+        hear(account, &link, &perm("3", run_cmd.clone(), always_only));
+        assert_eq!(pending(&key).as_ref().map(|p| p.id.as_str()), Some("call_1"));
+        state().sessions.get_mut(&key).unwrap().permissions.clear();
+
+        // Switching to a non-default mode stops auto-approval.
+        state().sessions.get_mut(&key).unwrap().options = mode_opts("auto");
+        hear(account, &link, &perm("4", run_cmd.clone(), once_opts.clone()));
+        assert_eq!(pending(&key).as_ref().map(|p| p.id.as_str()), Some("call_1"));
+        state().sessions.get_mut(&key).unwrap().permissions.clear();
+
+        // Changing settings.json away from always-proceed takes effect on the next ask.
+        state().sessions.get_mut(&key).unwrap().options = mode_opts("default");
+        std::fs::write(&settings, json!({ "toolPermission": "request-review" }).to_string()).unwrap();
+        hear(account, &link, &perm("5", run_cmd, once_opts));
+        assert_eq!(pending(&key).as_ref().map(|p| p.id.as_str()), Some("call_1"));
+
         state().sessions.remove(&key);
         state().agents.remove(account);
         let _ = std::fs::remove_dir_all(&dir);
