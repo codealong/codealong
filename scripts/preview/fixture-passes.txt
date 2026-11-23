@@ -146,6 +146,7 @@ PREVIEW_WAIT=30000 scripts/preview.sh sessions '' scripts/preview/terminal-asks-
 PREVIEW_WAIT=30000 scripts/preview.sh sessions '' scripts/preview/terminal-run-check.js
 PREVIEW_WAIT=30000 scripts/preview.sh sessions '' scripts/preview/thread-links-check.js
 PREVIEW_WAIT=30000 scripts/preview.sh sessions '' scripts/preview/thread-table-check.js
+PREVIEW_WAIT=30000 scripts/preview.sh sessions '' scripts/preview/turn-folds-check.js
 PREVIEW_WAIT=30000 scripts/preview.sh terminal '' scripts/preview/terminal-box-check.js
 PREVIEW_WAIT=30000 scripts/preview.sh terminal '' scripts/preview/terminal-window-check.js
 PREVIEW_WAIT=30000 scripts/preview.sh waiting '' scripts/preview/questions-minimize-check.js

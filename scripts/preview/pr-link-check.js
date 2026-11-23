@@ -162,8 +162,12 @@
     })
     .then(function () {
       check('its way back is the session’s panel', true);
-      document.querySelector('.ca-sessinsp .ca-thread-toolhead').click();
-      return until(function () { return document.querySelector('.ca-sessinsp .ca-thread-out a.ca-prlink'); }, 3000, 'the link in the tool’s output');
+      var fold = document.querySelector('.ca-sessinsp .ca-thread-turnhead');
+      if (fold && fold.getAttribute('aria-expanded') === 'false') fold.click();
+      return until(function () { return document.querySelector('.ca-sessinsp .ca-thread-toolhead'); }, 3000, 'the tool line inside the turn fold').then(function (head) {
+        head.click();
+        return until(function () { return document.querySelector('.ca-sessinsp .ca-thread-out a.ca-prlink'); }, 3000, 'the link in the tool’s output');
+      });
     })
     .then(function () {
       var link = document.querySelector('.ca-sessinsp .ca-thread-out a.ca-prlink');

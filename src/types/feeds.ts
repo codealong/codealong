@@ -3,7 +3,7 @@
 // lines between pins (lineage.rs), and what the peek is asked to show (peek.rs).
 
 import type { Board, LogoStatus } from './board';
-import type { Profile, Theme } from './config';
+import type { Profile, Theme, ToolDisplay } from './config';
 import type { DeviceTag, Lane } from './lane';
 import type { PrItem } from './pr';
 import type { Emblem, Raised, Session, Status } from './session';
@@ -32,6 +32,8 @@ export interface BarFeed {
   zoom?: number;
   /** Whether keyboard shortcuts show all the time (keysShown.ts); missing from an older app's. */
   showKeys?: boolean;
+  /** How tool calls appear in conversations (toolDisplay.ts); missing from an older app's. */
+  tools?: ToolDisplay;
   /** What the mark's colors say, as on the board, with your other devices' sessions it lists. */
   logoStatus: LogoStatus;
   perfLog: boolean;

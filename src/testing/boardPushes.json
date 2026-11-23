@@ -358,6 +358,7 @@
         "ready": []
       },
       "todos": [],
+      "tools": "folded",
       "training": [],
       "usage": [],
       "waitingShortcut": "",
@@ -723,6 +724,7 @@
           "ready": []
         },
         "todos": [],
+        "tools": "folded",
         "training": [],
         "usage": [],
         "waitingShortcut": "",
@@ -1091,6 +1093,7 @@
         "ready": []
       },
       "todos": [],
+      "tools": "folded",
       "training": [],
       "usage": [],
       "waitingShortcut": "",
@@ -1497,6 +1500,7 @@
         "ready": []
       },
       "todos": [],
+      "tools": "folded",
       "training": [],
       "usage": [],
       "waitingShortcut": "",
@@ -1902,6 +1906,7 @@
         "ready": []
       },
       "todos": [],
+      "tools": "folded",
       "training": [],
       "usage": [],
       "waitingShortcut": "",
@@ -2373,6 +2378,7 @@
         "ready": []
       },
       "todos": [],
+      "tools": "folded",
       "training": [],
       "usage": [],
       "waitingShortcut": "",
@@ -2819,6 +2825,7 @@
         "ready": []
       },
       "todos": [],
+      "tools": "folded",
       "training": [],
       "usage": [],
       "waitingShortcut": "",

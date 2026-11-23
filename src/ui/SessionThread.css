@@ -305,8 +305,91 @@
 .ca-thread-runhead {
   color: var(--ink-3);
 }
+.ca-thread-runhead.is-compact {
+  padding: 2px 6px;
+}
+.ca-thread-runlabel {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.ca-thread-runchev {
+  flex: none;
+  color: var(--ink-3);
+  opacity: 0.7;
+}
+.ca-thread-runlist {
+  display: grid;
+  padding-left: 12px;
+  margin-left: 5px;
+  border-left: 1px solid var(--line);
+}
 .ca-thread-run {
   display: grid;
+}
+.ca-thread-tool.is-compact:not(.is-failed):not(.is-asks) .ca-thread-toolhead {
+  padding: 2px 6px;
+  color: var(--ink-3);
+}
+.ca-thread-tool.is-compact:not(.is-failed):not(.is-asks) .ca-thread-toolhead:hover {
+  color: var(--ink-2);
+}
+/* A completed turn's intermediate work collapsed into one quiet row above the turn's final reply
+   (SessionThread.tsx `TurnFoldView`, turnFolds.ts). */
+.ca-thread-turn {
+  display: grid;
+  gap: 6px;
+  min-width: 0;
+}
+.ca-thread-turnhead {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  width: 100%;
+  min-width: 0;
+  padding: 2px 2px 7px;
+  border: 0;
+  border-bottom: 1px solid var(--line);
+  border-radius: 0;
+  background: transparent;
+  color: var(--ink-3);
+  font: var(--type-meta);
+  font-variant-numeric: tabular-nums;
+  text-align: left;
+  cursor: pointer;
+}
+.ca-thread-turnhead:hover {
+  color: var(--ink-2);
+}
+.ca-thread-turnhead:focus-visible {
+  outline: none;
+  border-radius: var(--radius-sm);
+  box-shadow: var(--shadow-focus);
+}
+.ca-thread-turn.is-open > .ca-thread-turnhead {
+  border-bottom-color: transparent;
+  padding-bottom: 2px;
+  color: var(--ink-2);
+}
+.ca-thread-turnlabel {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.ca-thread-turnbody {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  min-width: 0;
+  padding: 2px 0 4px 11px;
+  margin-left: 4px;
+  border-left: 1.5px solid var(--line);
+}
+.ca-thread-turnbody .ca-thread-agent {
+  color: var(--ink-2);
 }
 .ca-thread-tooldetail {
   display: grid;

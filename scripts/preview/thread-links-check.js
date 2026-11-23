@@ -53,6 +53,8 @@
     var p = real(cmd, args, options);
     if (cmd !== 'get_board') return p;
     return p.then(function (board) {
+      // Checks detailed tool-run folding alongside artifacts, sent files, and file links.
+      board.tools = 'detailed';
       board.lanes.forEach(function (l) {
         l.sessions.forEach(function (s) {
           if (!picked && !l.hidden && !s.visitor && !s.archived) picked = { key: s.key, lane: l.id };

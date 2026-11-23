@@ -319,6 +319,7 @@ pub fn starting_board() -> Board {
         zoom: config::zoom(),
         glass: config::glass(),
         show_keys: config::show_keys(),
+        tools: config::tools(),
         experimental: config::experimental(),
         quick_shortcut: shortcuts.quick_panel,
         chat_shortcut: shortcuts.chat,

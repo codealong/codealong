@@ -671,6 +671,7 @@ pub fn compose(inp: Inputs) -> Board {
         zoom: crate::zoom::ACTUAL,
         glass: false,
         show_keys: false,
+        tools: crate::config::ToolDisplay::default(),
         perf_log: false,
         todos: Vec::new(),
         todos_unreadable: false,

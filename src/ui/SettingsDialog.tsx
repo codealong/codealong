@@ -15,7 +15,7 @@ import { REUSE_STATE, REUSE_WORDS } from '../reusable';
 import { groupReviewWords, reviewsRunIn } from '../review';
 import { type Field, mineOf, offerWords, pullRequestsFor, repoChoices, reviewsEverywhere, reviewsFor, type Reviews, sourceOf, type Source, teamFileOf, withOwn, withPullRequests, withRepo, withReviews, without, PULL_REQUESTS_OFF } from '../repoSettings';
 import { BUFFER, modelName, withGroupRenamed, withLists } from '../start';
-import type { AtLogin, CalendarStatus, ChromeProfile, Config, ConfigView, EmblemKind, EmblemsCfg, ExperimentalCfg, GroupMemberCfg, Lane, Mcp, NewTerminal, NudgeAbout, OwnReviewsCfg, Profile, ProjectCfg, PullRequestsCfg, RepoCfg, ReviewPost, ReviewsCfg, ReviewStart, ReviewSubmit, RoutingCfg, RoutingGroup, RoutingGroupCfg, RoutingStrategy, SessionsCfg, ShortcutStatus, SignIn, SoundsCfg, StartAccount, TeamCfg, TeamFile, Theme, TmuxUse, Training, Usage, Verdict, VoiceCfg, WhenLimited } from '../types';
+import type { AtLogin, CalendarStatus, ChromeProfile, Config, ConfigView, EmblemKind, EmblemsCfg, ExperimentalCfg, GroupMemberCfg, Lane, Mcp, NewTerminal, NudgeAbout, OwnReviewsCfg, Profile, ProjectCfg, PullRequestsCfg, RepoCfg, ReviewPost, ReviewsCfg, ReviewStart, ReviewSubmit, RoutingCfg, RoutingGroup, RoutingGroupCfg, RoutingStrategy, SessionsCfg, ShortcutStatus, SignIn, SoundsCfg, StartAccount, TeamCfg, TeamFile, Theme, TmuxUse, ToolDisplay, Training, Usage, Verdict, VoiceCfg, WhenLimited } from '../types';
 import { outsideMembers } from '../boundary';
 import { choices, decisionsOf, forGroup, forProject, JEV, modelsOf, provider, PROVIDERS } from '../decisions';
 import { AccountsSection } from './AccountsSection';
@@ -474,7 +474,15 @@ function GeneralPane({ cfg, view, disabled, onSave, now }: PaneProps & { view: C
 /** `[appearance]`, and what else is about how Codealong looks: the theme, glass, and session
  *  emblems (`[emblems]`). The zoom is the keys' and the View menu's: Settings saves the whole file,
  *  and a zoom it had read would undo a key pressed since. */
+const TOOL_DISPLAYS: { id: ToolDisplay; label: string; says: string }[] = [
+  { id: 'folded', label: 'Folded', says: 'Finished turns collapse their tool calls and intermediate updates into one expandable “Worked for …” line. Active turns, failures, questions, artifacts and sent files stay visible.' },
+  { id: 'compact', label: 'Compact', says: 'Consecutive tool calls collapse into one summary line each, while intermediate replies stay visible.' },
+  { id: 'detailed', label: 'Detailed', says: 'Tool calls show as individual lines, folding runs of three or more while keeping their latest call in view.' },
+  { id: 'zen', label: 'Zen', says: 'Shows only your prompts and the agent’s final reply for each turn. Approvals, questions, errors, artifacts and sent files stay visible, and ⌘F still finds hidden steps.' },
+];
+
 function AppearancePane({ cfg, theme, onPickTheme, disabled, onSave }: PaneProps & { theme: Theme; onPickTheme: (t: Theme) => void }) {
+  const tools = cfg.appearance.tools ?? 'folded';
   return (
     <>
       <div className="ca-settings-intro">
@@ -501,6 +509,17 @@ function AppearancePane({ cfg, theme, onPickTheme, disabled, onSave }: PaneProps
           {/* keysIn says chords, not a modifier held alone: Linux and Windows hold Ctrl. */}
           <small>{`Beside the buttons and rows they work, and in the lines under the message box. Off, they show while you hold ${platform() === 'mac' ? '⌘ or ⌃' : 'Ctrl'}, and tooltips and menus say them either way.`}</small>
         </label>
+        <div className="ca-field">
+          <span>Tool calls in conversations</span>
+          <Seg
+            className="ca-settings-theme"
+            label="Tool calls in conversations"
+            options={TOOL_DISPLAYS}
+            value={tools}
+            onPick={(id) => id !== tools && void onSave({ ...cfg, appearance: { ...cfg.appearance, tools: id } })}
+          />
+          <small>{keysIn(TOOL_DISPLAYS.find((o) => o.id === tools)?.says ?? '')}</small>
+        </div>
         <EmblemsFields cfg={cfg} disabled={disabled} onSave={(next) => void onSave(next)} />
       </fieldset>
     </>

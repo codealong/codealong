@@ -675,6 +675,7 @@ pub fn board(now: i64) -> Board {
     board.zoom = cfg.appearance.zoom;
     board.glass = cfg.appearance.glass;
     board.show_keys = cfg.appearance.show_keys;
+    board.tools = cfg.appearance.tools;
     board.quick_shortcut = cfg.shortcuts.quick_panel.clone();
     board.chat_shortcut = cfg.shortcuts.chat.clone();
     board.waiting_shortcut = cfg.shortcuts.waiting.clone();

@@ -62,6 +62,8 @@ pub struct BarFeed {
     pub zoom: u32,
     /// Whether keyboard shortcuts show all the time (`[appearance] show_keys`, src/keysShown.ts).
     pub show_keys: bool,
+    /// How tool calls appear in conversations (`[appearance] tools`, src/toolDisplay.ts).
+    pub tools: crate::config::ToolDisplay,
     /// What the mark's colors say, as on the board, with your other devices' sessions it lists.
     pub logo_status: LogoStatus,
     pub perf_log: bool,
@@ -384,6 +386,7 @@ pub fn feed(shown: Shown) -> BarFeed {
         theme: board.theme,
         zoom: board.zoom,
         show_keys: board.show_keys,
+        tools: board.tools,
         logo_status: board.logo_status.min(crate::board::logo_status(there.iter().copied(), &[])),
         perf_log: board.perf_log,
         terminal: board.apps.terminal.clone(),

@@ -557,6 +557,7 @@ export type Board = Holds<Same<
   | "todoQueue"
   | "todos"
   | "todosUnreadable"
+  | "tools"
   | "training"
   | "usage"
   | "waitingShortcut"
