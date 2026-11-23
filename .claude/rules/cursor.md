@@ -190,12 +190,21 @@ chunks) and this Mac's files (2026-10-09). Paths are under `src-tauri/src/`.
   prompt up and a new chat started, the old one left with a turn that never ended (2026-11-09 and
   11-10, from server.log's "starts afresh" lines and reviews.json).
 - Sign-in: the app keeps it in its ItemTable (`cursorAuth/accessToken`, `cursorAuth/cachedEmail`,
-  `cursorAuth/stripeMembershipType`…); the command line in the keychain (account `cursor-user`,
-  services `cursor-access-token`, `cursor-refresh-token`) or, with
-  `AGENT_CLI_CREDENTIAL_STORE=file`, `~/.cursor/auth.json`: `cursor.rs` (`Cursor::signed_in`,
-  which reads the email only). The command line's keychain item is written by a keychain
-  module of its own, so the usage read every couple of minutes uses only the app's sign-in or
-  the file (`saved_token`).
+  `cursorAuth/stripeMembershipType`…). From Cursor 3.30.14 (`cursorAuthTokenStorageCodec.js`),
+  once `cursor.storage.authTokenEncryptionAtRest` is `"true"`, `cursorAuth/accessToken` and
+  `cursorAuth/refreshToken` are encrypted with Electron `safeStorage` and stored prefixed with
+  `cursor-safe-storage:v1:` (never a bearer token). The command line (`cursor-agent` 2026.11.22,
+  `../cli-credentials` and `../keychain`) stores its sign-in on macOS in the login keychain
+  (account `cursor-user`, services `cursor-access-token`, `cursor-refresh-token`) written through
+  `/usr/bin/security -i`, so reading it with `/usr/bin/security` doesn't prompt (as Claude Code's
+  doesn't); on Linux in the Secret Service (`secret-tool`, service `cursor-credentials`, account
+  `cursor-user`, JSON `{accessToken, …}`, with `auth.json` holding `{"storedIn": "os-secret-store"}`);
+  or in `auth.json` (`~/.cursor/auth.json` on macOS, `$XDG_CONFIG_HOME/cursor/auth.json` on Linux,
+  `%APPDATA%\Cursor\auth.json` on Windows, or in a custom `CURSOR_CONFIG_DIR` folder) with
+  `AGENT_CLI_CREDENTIAL_STORE=file`. Usage and Privacy Mode try `auth.json`, then the app's
+  plaintext token (skipping `cursor-safe-storage:`), then the command line's OS secret store,
+  falling through when a token is turned down (`cursor.rs` `ask_tokens`, `call_dashboard`,
+  `Cursor::signed_in`).
 - Usage: `GetCurrentPeriodUsage` on the DashboardService with `{}`, as the app's
   `UsageDataService` asks it, and `GetPlanInfo` for the plan's name: `cursor.rs` (Plan usage
   section, `read_usage`, `usage_meters`). Spends are cents, percents out of 100, times strings of
