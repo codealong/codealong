@@ -102,7 +102,7 @@ import { dismissSuggestions, forkSession, runCommand, sessionCancel, sessionPend
 import { filesToAttach, keepFiles, useFileDrop } from '../attachInput';
 import { answersDraft, onDraftChange, readAnswers, readDraft, sideDraft, writeDraft, writtenAnswers } from '../drafts';
 import { noteDraftTaken } from '../typingTrace';
-import { HARNESS_WORD, sessionPlace } from '../harness';
+import { HARNESS_APP, HARNESS_WORD, sessionPlace } from '../harness';
 import { asideable, seenable, stoppable, stuckMidTurn, waitsInBackground, waitsOnYou } from '../lanes';
 import { beingRead, notAsked, shownSide, showSides, startingSide, useAside, usePopped, useSideAnswer } from '../side';
 import { COMMANDS, commandWords, slashCommand, slashMatches } from '../slash';
@@ -1286,9 +1286,21 @@ function hintKeys(waiting: boolean | undefined, next: boolean, allow: boolean, s
   return [next && keysIn('⌘⏎ send + next'), sendNow && keysIn('⌃⏎ send now, into the turn it’s taking')].filter(Boolean).join(' · ');
 }
 
+/** Where an unanswerable approval asks you to go when the session runs on another device:
+ *  sessions there can't open in a terminal on this Mac, and `terminal` is this Mac's configured
+ *  terminal rather than the remote device's. Null for a session on this device. */
+export function remoteAnswerWhere(s: Session, deviceName?: string): string | null {
+  const on = deviceName ?? (shortOf(s.key) ? 'its device' : null);
+  if (!on) return null;
+  const place = s.hosted ? null : s.surface === 'app' ? HARNESS_APP[s.harness] : s.terminal;
+  return place ? `Answer in ${place} on ${on}` : `Answer on ${on}`;
+}
+
 interface ApprovalProps {
   session: Session;
   terminal: string;
+  /** The device the session runs on, when that's another of yours: it can't open here. */
+  deviceName?: string;
   onOpen: () => void;
   /** After an answer went through, with what happened. */
   onAnswered?: (said: string) => void;
@@ -1354,7 +1366,7 @@ function useUnanswered(s: Session): Unanswered | null {
 }
 
 /** A session waiting on you: what it wants to do, with Allow and Deny when it can be answered here. */
-function Approval({ session: s, terminal, onOpen, onAnswered, keys, onKeys, onNext }: ApprovalProps) {
+function Approval({ session: s, terminal, deviceName, onOpen, onAnswered, keys, onKeys, onNext }: ApprovalProps) {
   const [pending, setPending] = useState<Pending | null | undefined>(undefined);
   const [busy, setBusy] = useState(false);
   const [told, setNote] = useState<{ text: string; error: boolean } | null>(null);
@@ -1468,6 +1480,7 @@ function Approval({ session: s, terminal, onOpen, onAnswered, keys, onKeys, onNe
   };
 
   const where = sessionPlace(s, terminal);
+  const remoteWhere = remoteAnswerWhere(s, deviceName);
   // Questions that can only be answered where it runs still show here, to read before you go.
   if (pending?.cannot && pending.questions?.length) {
     return (
@@ -1483,10 +1496,14 @@ function Approval({ session: s, terminal, onOpen, onAnswered, keys, onKeys, onNe
             <SuggestionNote suggestions={picked} note={pickedNote} />
             <QuestionList questions={pending.questions} suggested={picked?.picks} why={picked?.why} />
             <div className="ca-composer-foot">
-              <span className="ca-composer-note">{note?.text}</span>
-              <Button variant="primary" size="sm" icon="arrow-up-right" title={pending.cannot} onClick={onOpen}>
-                Answer in {where}
-              </Button>
+              <span className="ca-composer-note" title={remoteWhere ? pending.cannot : undefined}>
+                {note?.text ?? remoteWhere}
+              </span>
+              {!remoteWhere && (
+                <Button variant="primary" size="sm" icon="arrow-up-right" title={pending.cannot} onClick={onOpen}>
+                  Answer in {where}
+                </Button>
+              )}
             </div>
           </>
         )}
@@ -1505,12 +1522,16 @@ function Approval({ session: s, terminal, onOpen, onAnswered, keys, onKeys, onNe
           </span>
         </div>
         {pending.input && pending.input !== pending.label && (pending.message ? <Plan session={s} text={pending.input} /> : <CodeBlock text={pending.input} className="ca-approval-input" />)}
-        {/* Why it can't be answered here is on the button that goes there. */}
+        {/* Why it can't be answered here is on the button that goes there (or the note on another device). */}
         <div className="ca-composer-foot">
-          <span className="ca-composer-note">{note?.text}</span>
-          <Button variant="primary" size="sm" icon="arrow-up-right" title={pending.cannot} onClick={onOpen}>
-            Answer in {where}
-          </Button>
+          <span className="ca-composer-note" title={remoteWhere ? pending.cannot : undefined}>
+            {note?.text ?? remoteWhere}
+          </span>
+          {!remoteWhere && (
+            <Button variant="primary" size="sm" icon="arrow-up-right" title={pending.cannot} onClick={onOpen}>
+              Answer in {where}
+            </Button>
+          )}
         </div>
       </div>
     );
@@ -1518,10 +1539,12 @@ function Approval({ session: s, terminal, onOpen, onAnswered, keys, onKeys, onNe
   if (!pending) {
     return (
       <div className="ca-composer is-waiting">
-        <span>{note?.text}</span>
-        <Button size="sm" icon="arrow-up-right" onClick={onOpen}>
-          Answer in {where}
-        </Button>
+        <span>{note?.text ?? (pending === null ? remoteWhere : undefined)}</span>
+        {!remoteWhere && (
+          <Button size="sm" icon="arrow-up-right" onClick={onOpen}>
+            Answer in {where}
+          </Button>
+        )}
       </div>
     );
   }
@@ -1798,6 +1821,8 @@ function Questions({ questions, draft, call, keys, busy, note, given, onAnswer, 
 export interface ReplyProps {
   session: Session;
   terminal: string;
+  /** The device the session runs on, when that's another of yours. */
+  deviceName?: string;
   /** Where a command led by `!` in the box runs (`ComposerProps.runIn`). */
   runIn?: string;
   /** Commands run in a terminal of Codealong's own under the session (`ComposerProps.runsUnder`). */
@@ -1840,7 +1865,7 @@ export function SideReply({ session, terminal, inWindow }: { session: Session; t
 /** The bottom of a session's panel: what it waits on you for, if anything, its side conversation
  *  while it has one, and the box that sends it a message. The box is the same one throughout, so
  *  it keeps what's in it as the session starts and stops waiting. */
-export function Reply({ session, terminal, runIn, runsUnder, onOpen, autoFocus, keys, onSending, onSent, onFailed, onAnswered, onNext, onAsked, sayKeys, moves, onMove, above }: ReplyProps) {
+export function Reply({ session, terminal, deviceName, runIn, runsUnder, onOpen, autoFocus, keys, onSending, onSent, onFailed, onAnswered, onNext, onAsked, sayKeys, moves, onMove, above }: ReplyProps) {
   const waiting = !takesReply(session);
   // What the box's ⌘⏎ and ⌘⌫ do, once there's a call to answer here.
   const [call, setCall] = useState<CallKeys | null>(null);
@@ -1849,7 +1874,7 @@ export function Reply({ session, terminal, runIn, runsUnder, onOpen, autoFocus, 
   useSideAnswer(session.key, session.sideAnswer);
   return (
     <>
-      {waiting && <Approval key={`wait:${session.key}`} session={session} terminal={terminal} onOpen={onOpen} onAnswered={onAnswered} keys={keys} onKeys={takeKeys} onNext={onNext} />}
+      {waiting && <Approval key={`wait:${session.key}`} session={session} terminal={terminal} deviceName={deviceName} onOpen={onOpen} onAnswered={onAnswered} keys={keys} onKeys={takeKeys} onNext={onNext} />}
       <SideStrip key={`side:${session.key}`} sideKey={session.key} words={SESSION_SIDES} />
       {/* A session Codealong runs takes a message while it waits, after its current turn. */}
       <Composer key={`box:${session.key}`} session={session} terminal={terminal} autoFocus={autoFocus} waiting={waiting && !session.hosted} onSending={onSending} onSent={onSent} onFailed={onFailed} onNext={onNext} onAsked={onAsked} keyed={keys} onAllow={callKeys?.allow} onDeny={callKeys?.deny} onDenySaying={callKeys?.denySaying} asked={callKeys?.asked} runIn={runIn} runsUnder={runsUnder} sayKeys={sayKeys} moves={moves} onMove={onMove} above={above} />

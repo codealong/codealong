@@ -2,7 +2,7 @@ import { afterEach, describe, expect, it } from 'vitest';
 import * as fx from '../testing/fixtures';
 import { setPlatform } from '../platform';
 import type { Question, Session } from '../types';
-import { bangSays, bangTitle, boxPlace, replyPlaceholder, takesReply, typesCommands } from './SessionReply';
+import { bangSays, bangTitle, boxPlace, remoteAnswerWhere, replyPlaceholder, takesReply, typesCommands } from './SessionReply';
 import { givenBack, stillOffered } from './QuestionList';
 
 const session = (over: Partial<Session> = {}): Session => fx.session({ live: true, asks: false, hosted: false, ...over });
@@ -128,5 +128,22 @@ describe('stillOffered', () => {
     expect(stillOffered([{ ...days, multiSelect: false }], { 'Which days?': ['Tue', 'Mon'] })).toEqual({ 'Which days?': ['Tue'] });
     // A question no longer asked, and one whose picks were all taken back.
     expect(stillOffered([days], { 'Which color?': ['Red'], 'Which days?': [] })).toEqual({ 'Which days?': [] });
+  });
+});
+
+describe('remoteAnswerWhere', () => {
+  it('returns null for a session on this device', () => {
+    expect(remoteAnswerWhere(session({ key: 'codex:codex:t1', harness: 'codex' }))).toBeNull();
+  });
+
+  it('names the remote device rather than this Mac’s terminal', () => {
+    // Headless tmux on another Mac has no terminal name: never fall back to local apps.terminal.
+    expect(remoteAnswerWhere(session({ key: '@mini:codex:codex:t1', harness: 'codex', surface: 'cli', terminal: undefined }), 'Gordon’s Mac mini')).toBe('Answer on Gordon’s Mac mini');
+    // Named terminal on another Mac.
+    expect(remoteAnswerWhere(session({ key: '@mini:codex:codex:t1', harness: 'codex', surface: 'cli', terminal: 'Ghostty' }), 'Gordon’s Mac mini')).toBe('Answer in Ghostty on Gordon’s Mac mini');
+    // Desktop app on another Mac.
+    expect(remoteAnswerWhere(session({ key: '@mini:codex:codex:t1', harness: 'codex', surface: 'app' }), 'Gordon’s Mac mini')).toBe('Answer in Codex on Gordon’s Mac mini');
+    // Remote key even without a device name passed in.
+    expect(remoteAnswerWhere(session({ key: '@mini:codex:codex:t1', harness: 'codex', surface: 'cli', terminal: undefined }))).toBe('Answer on its device');
   });
 });

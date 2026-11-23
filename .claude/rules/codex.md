@@ -64,7 +64,11 @@ checked on this Mac, most of them by reading the apps' own bundles and files. Pa
   (`codex_unanswered`). Where Codealong's `PermissionRequest` hook is in the account, it says so
   for sure as Codex asks: what Codex hands a hook (0.162.1), how a note is matched to its call and
   let go, and the prompt's keys: `codex/asks.rs` (module header, `waiting`), `codex/mod.rs`
-  (`pending`, `answer`). Its hook in `hooks.json` and trusting it: `codex/hook.rs`,
+  (`pending`, `answer`). When the hook yields no answerable prompt (`Approve for me` escalations,
+  multiple asks in one turn, MCP/permissions prompts, custom `[tui.keymap]`, or no hook),
+  `codex/screen.rs` falls back to reading Codex's live `ApprovalOverlay` off the terminal screen
+  (`launch::screen_of`: tmux, Rex, Codealong terminals) and answering it with arrows and Return.
+  Its hook in `hooks.json` and trusting it: `codex/hook.rs`,
   `codex/appserver.rs` (`trust_hook`). Not there (0.162.1's code): hooks are stable and on
   (`features.hooks`), `hooks.json` beside config.toml and config.toml's `[hooks]` are both read,
   a plugin's `hooks/hooks.json` too, and a hook's key is `<file>:permission_request:<group>:<index>`;
