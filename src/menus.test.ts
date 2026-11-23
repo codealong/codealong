@@ -203,7 +203,8 @@ describe('sessionMenu', () => {
     // Renaming, where the window asks for a name and the harness keeps one.
     expect(has(session(), 'Rename…')).toBe(false);
     expect(has(session(), 'Rename…', { rename: noop })).toBe(true);
-    expect(has(session({ key: 'antigravity:a:1', harness: 'antigravity' }), 'Rename…', { rename: noop })).toBe(false);
+    expect(has(session({ key: 'antigravity:a:1', harness: 'antigravity' }), 'Rename…', { rename: noop })).toBe(true);
+    expect(has(session({ key: 'cursor:a:1', harness: 'cursor' }), 'Rename…', { rename: noop })).toBe(false);
     // Archived: only unarchiving, no pins or snoozes.
     const archived = session({ archived: true });
     expect(has(archived, 'Unarchive')).toBe(true);

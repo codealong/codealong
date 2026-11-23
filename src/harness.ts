@@ -27,10 +27,10 @@ export function harnessOfKey(key: string): Harness | null {
 }
 
 /** Whether Codealong can name a session where its harness keeps names (harness.rs `rename`):
- *  Claude Code, Codex and OpenCode can, though Codex not an archived thread. */
+ *  Claude Code, Codex, OpenCode and Antigravity can, though Codex not an archived thread. */
 export function renames(s: { key: string; archived?: boolean }): boolean {
   const h = harnessOfKey(s.key);
-  return h === 'claude' || h === 'opencode' || (h === 'codex' && !s.archived);
+  return h === 'claude' || h === 'opencode' || h === 'antigravity' || (h === 'codex' && !s.archived);
 }
 
 /** The harnesses whose sessions move to another of their accounts (harness.rs `move_to`,
@@ -98,7 +98,7 @@ export const NAME_KEPT: Record<Harness, string> = {
   claude: 'Claude Code keeps it with the session, for its terminal and /resume.',
   codex: 'Codex keeps it with the thread, for the Codex app.',
   opencode: 'OpenCode keeps it with the session, for its terminal.',
-  antigravity: '',
+  antigravity: 'Antigravity keeps it with the conversation, for agy and the Antigravity app.',
   cursor: '',
 };
 

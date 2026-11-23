@@ -52,15 +52,16 @@ describe('nameShown', () => {
 });
 
 describe('renames', () => {
-  it('names what Claude Code, Codex and OpenCode keep, here and on other devices', () => {
+  it('names what Claude Code, Codex, OpenCode and Antigravity keep, here and on other devices', () => {
     expect(harnessOfKey('@k3j9:codex:codex:0199')).toBe('codex');
     expect(harnessOfKey('nothing')).toBeNull();
     expect(renames({ key: 'claude:claude2:9f62' })).toBe(true);
     expect(renames({ key: 'opencode:opencode:ses_1' })).toBe(true);
+    expect(renames({ key: 'antigravity:antigravity:c1' })).toBe(true);
     expect(renames({ key: '@k3j9:codex:codex:0199' })).toBe(true);
-    // Codex refuses an archived thread, and Antigravity's conversations aren't Codealong's to name.
+    // Codex refuses an archived thread, and Cursor's sessions aren't Codealong's to name.
     expect(renames({ key: 'codex:codex:0199', archived: true })).toBe(false);
-    expect(renames({ key: 'antigravity:antigravity:c1' })).toBe(false);
+    expect(renames({ key: 'cursor:cursor:c1' })).toBe(false);
   });
 });
 
