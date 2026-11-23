@@ -113,20 +113,92 @@ export function CodealongCard({ item, at, glance: g, now, children }: { item: Tr
   );
 }
 
-/** A glance's words: the PR, then each part, the session it's about a link before it. */
+/** Shortens verbose PR event wording (including from older engines) to concise form. */
+function concisePrPart(line: string): string {
+  const conflictBase = /^Its branch now conflicts with (.+), its base$/.exec(line);
+  if (conflictBase) return `conflicts with ${conflictBase[1]}`;
+  if (line.startsWith('Its branch now ')) return line.slice('Its branch now '.length);
+  if (line.startsWith('Its ')) return line.slice('Its '.length);
+  if (line === 'It was closed without being merged') return 'closed';
+  if (line.startsWith('It was ')) return line.slice('It was '.length);
+  if (line === 'Changes were asked for') return 'changes asked for';
+  return line;
+}
+
+/** Where `#number` sits in a PR card's first happening: in place of "it" (`whather approved #430`),
+ *  after an action (`ana asked for changes on #430`, `ana commented on src/a.ts in #430`), or
+ *  ahead of a state (`#430 conflicts with main`, `#430 merged`). */
+function placePr(line: string): { before: string; after: string } {
+  if (line.endsWith(' approved it') || line.endsWith(' reviewed it')) {
+    return { before: line.slice(0, -2), after: '' };
+  }
+  const reviewedComma = line.indexOf(' reviewed it,');
+  if (reviewedComma >= 0) {
+    return { before: line.slice(0, reviewedComma + ' reviewed '.length), after: line.slice(reviewedComma + ' reviewed it'.length) };
+  }
+  if (line.endsWith(' asked for changes') || line.endsWith(' commented') || line.endsWith(' had a review dismissed')) {
+    return { before: `${line} on `, after: '' };
+  }
+  if (line.includes(' commented on ')) {
+    return { before: `${line} in `, after: '' };
+  }
+  if (line === 'changes asked for') {
+    return { before: 'Changes asked for on ', after: '' };
+  }
+  if (line === 'approved' || line === 'merged' || line === 'closed' || line.startsWith('conflicts with ') || line.startsWith('checks failed')) {
+    return { before: '', after: ` ${line}` };
+  }
+  return { before: '', after: ` · ${line}` };
+}
+
+/** A glance's words: when it's about a PR, `#number` (plain, so it doesn't double the card's own
+ *  icon; hovering opens the PR's full card) woven into the first happening, then any further parts;
+ *  otherwise each part, the session it's about a link before it. */
 function GlanceLine({ glance: g }: { glance: Glance }) {
   const pr = g.pr;
   const ref = pr?.url ? prRefOf(pr.url) : null;
-  const named = pr && `#${pr.number} ${pr.title}`;
+  const prNode =
+    pr &&
+    (ref && pr.url ? (
+      <PrLink url={pr.url} pr={ref} plain>
+        #{pr.number}
+      </PrLink>
+    ) : (
+      <span className="ca-msgcard-named" title={pr.title || undefined}>
+        #{pr.number}
+      </span>
+    ));
+
+  if (pr && prNode) {
+    if (g.parts.length === 0) return <>{prNode}</>;
+    if (!g.parts[0].session) {
+      const { before, after } = placePr(concisePrPart(g.parts[0].line));
+      const rest = g.parts.slice(1);
+      return (
+        <>
+          {before && <span className="ca-msgcard-line">{before}</span>}
+          {prNode}
+          {after && <span className="ca-msgcard-line">{after}</span>}
+          {rest.map((p, i) => (
+            <Fragment key={i}>
+              {' · '}
+              {p.session && (
+                <>
+                  <SessionLink name={p.session.key} unknown={<span className="ca-msgcard-named">“{p.session.title}”</span>} />{' '}
+                </>
+              )}
+              <span className="ca-msgcard-line">{concisePrPart(p.line)}</span>
+            </Fragment>
+          ))}
+        </>
+      );
+    }
+  }
+
   return (
     <>
-      {pr && ref && pr.url && (
-        <PrLink url={pr.url} pr={ref}>
-          {named}
-        </PrLink>
-      )}
-      {pr && !ref && <span className="ca-msgcard-named">{named}</span>}
-      {pr && g.parts.length > 0 && ' '}
+      {prNode}
+      {prNode && g.parts.length > 0 && ' · '}
       {g.parts.map((p, i) => (
         <Fragment key={i}>
           {i > 0 && ' · '}

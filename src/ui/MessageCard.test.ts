@@ -4,8 +4,9 @@ import { createElement } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { act, engine, settle } from '../testing/dom';
 import { beingRead, noteSide, showSides } from '../side';
-import type { SideKept, TranscriptItem } from '../types';
-import { PeerCard } from './MessageCard';
+import type { Glance, PrItem, SideKept, TranscriptItem } from '../types';
+import { CodealongCard, PeerCard } from './MessageCard';
+import { usePrLinks } from './PrLink';
 
 let seq = 0;
 globalThis.ResizeObserver ??= class {
@@ -91,5 +92,75 @@ describe('PeerCard side conversation link', () => {
     });
     expect(host.querySelector('button.ca-sidelink')).toBeNull();
     expect(host.querySelector('.ca-msgcard-title')?.textContent).toBe('From “Side conversation”');
+  });
+});
+
+function mountCodealong(glance: Glance, knownPr?: PrItem) {
+  const item: TranscriptItem = { at: 2000, kind: 'codealong', text: 'Full message text.', glance, failed: false, cursor: 10, n: 0 };
+  const host = document.body.appendChild(document.createElement('div'));
+  const root = createRoot(host);
+  roots.push(root);
+  function Harness() {
+    usePrLinks(knownPr ? [knownPr] : [], [], { showSession: () => {}, openSession: () => {}, sessionMenu: () => {}, prMenu: () => {} }, null);
+    return createElement(CodealongCard, { item, at: 2000, glance, now: 62_000, children: createElement('div', { className: 'ca-thread-said' }, item.text) });
+  }
+  act(() => root.render(createElement(Harness)));
+  return host;
+}
+
+const prGlance = (parts: string[], extra?: Partial<NonNullable<Glance['pr']>>, about: Glance['about'] = 'pr'): Glance => ({
+  about,
+  pr: { number: 430, title: 'Severity floor 2026-11-27: Cloud SQL Auth Proxy 2.28.0', url: 'https://github.com/o/r/pull/430', ...extra },
+  parts: parts.map((line) => ({ line })),
+});
+
+describe('CodealongCard PR glance', () => {
+  it('weaves #number concisely into PR happenings without the full PR title', () => {
+    const cases: [Glance, string][] = [
+      [prGlance(['whather approved it', 'conflicts with main']), 'whather approved #430 · conflicts with main'],
+      [prGlance(['whather approved it', 'Its branch now conflicts with main, its base']), 'whather approved #430 · conflicts with main'],
+      [prGlance(['ana asked for changes']), 'ana asked for changes on #430'],
+      [prGlance(['ana asked for changes', 'ana commented on src/a.ts']), 'ana asked for changes on #430 · ana commented on src/a.ts'],
+      [prGlance(['ana commented']), 'ana commented on #430'],
+      [prGlance(['ana commented on src/a.ts']), 'ana commented on src/a.ts in #430'],
+      [prGlance(['ana reviewed it']), 'ana reviewed #430'],
+      [prGlance(['ana had a review dismissed']), 'ana had a review dismissed on #430'],
+      [prGlance(['Codex, gpt-5.5 reviewed it'], { number: 7 }, 'review'), 'Codex, gpt-5.5 reviewed #7'],
+      [prGlance(['Codex, gpt-5.5 reviewed it, with 2 comments on lines'], { number: 7 }, 'review'), 'Codex, gpt-5.5 reviewed #7, with 2 comments on lines'],
+      [prGlance(['approved']), '#430 approved'],
+      [prGlance(['It was approved']), '#430 approved'],
+      [prGlance(['merged']), '#430 merged'],
+      [prGlance(['It was merged']), '#430 merged'],
+      [prGlance(['closed']), '#430 closed'],
+      [prGlance(['It was closed without being merged']), '#430 closed'],
+      [prGlance(['changes asked for']), 'Changes asked for on #430'],
+      [prGlance(['Changes were asked for']), 'Changes asked for on #430'],
+      [prGlance(['checks failed: lint, test']), '#430 checks failed: lint, test'],
+      [prGlance(['Its checks failed: lint, test']), '#430 checks failed: lint, test'],
+      [prGlance(['conflicts with main']), '#430 conflicts with main'],
+      [prGlance(['Its branch now conflicts with its base']), '#430 conflicts with its base'],
+      [prGlance(['something unexpected']), '#430 · something unexpected'],
+      [prGlance([]), '#430'],
+    ];
+    for (const [glance, expected] of cases) {
+      const host = mountCodealong(glance);
+      expect(host.querySelector('.ca-msgcard-title')?.textContent).toBe(expected);
+    }
+  });
+
+  it('omits the redundant inline PR icon even when the PR is known on the board', () => {
+    const known = { key: 'o/r#430', repoSlug: 'o/r', number: 430, title: 'Severity floor', url: 'https://github.com/o/r/pull/430', state: 'approved' } as PrItem;
+    const host = mountCodealong(prGlance(['whather approved it', 'conflicts with main']), known);
+    const link = host.querySelector<HTMLAnchorElement>('.ca-msgcard-title a.ca-prlink');
+    expect(link?.textContent).toBe('#430');
+    expect(link?.querySelector('.ca-prlink-icon')).toBeNull();
+    expect(host.querySelectorAll('.ca-msgcard-head .ca-icon').length).toBe(2); // leading PR icon + expand chevron
+  });
+
+  it('shows the PR title on hover when the glance has no PR link', () => {
+    const host = mountCodealong(prGlance(['Codex reviewed it'], { number: 7, title: 'Add teams', url: undefined }, 'review'));
+    const named = host.querySelector<HTMLSpanElement>('.ca-msgcard-named');
+    expect(named?.textContent).toBe('#7');
+    expect(named?.title).toBe('Add teams');
   });
 });

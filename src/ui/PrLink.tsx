@@ -204,8 +204,9 @@ function usePrCard(url: string, ref: PrRef, clickShows = false) {
   return { hosted, anchor: c.anchor, show: c.show, hide: c.hide, close: c.close, follow, card };
 }
 
-/** `plain` keeps the link's words as written, without the PR's state before them: one in a
- *  tool's output, which shows every character as it was. */
+/** `plain` keeps the link's words as written, without the PR's state icon before them: in a
+ *  tool's output, which shows every character as it was, and in a message card's heading, which
+ *  already has its own leading icon. */
 export function PrLink({ url, pr: ref, plain, children }: { url: string; pr: PrRef; plain?: boolean; children: ReactNode }) {
   const item = useSyncExternalStore(subscribe, () => (plain ? undefined : (host.index.get(ref.key) ?? fetched.get(ref.key)?.item)));
   const c = usePrCard(url, ref);
