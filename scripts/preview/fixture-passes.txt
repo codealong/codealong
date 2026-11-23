@@ -19,6 +19,7 @@ PREVIEW_DEVICES=scripts/preview/devices-sample.json PREVIEW_SIZE=1512,980 PREVIE
 PREVIEW_DEVICES=scripts/preview/devices-sample.json PREVIEW_WAIT=60000 PREVIEW_PIN=session:@ scripts/preview.sh desktop '' scripts/preview/desktop-devices-check.js
 PREVIEW_DEVICES=scripts/preview/devices-sample.json PREVIEW_WAIT=60000 PREVIEW_PIN=session:@4a3b2c1d0e scripts/preview.sh desktop '' scripts/preview/desktop-devices-check.js
 PREVIEW_DEVICES=scripts/preview/devices-sample.json PREVIEW_WAIT=60000 scripts/preview.sh kept '' scripts/preview/kept-devices-check.js
+PREVIEW_DEVICES=scripts/preview/devices-sample.json PREVIEW_WAIT=60000 scripts/preview.sh kept '' scripts/preview/remote-approval-check.js
 PREVIEW_DEVICES=scripts/preview/devices-sample.json PREVIEW_WAIT=60000 scripts/preview.sh quick '' scripts/preview/start-effort-check.js
 PREVIEW_DEVICES=scripts/preview/devices-sample.json scripts/preview.sh prs '' scripts/preview/pr-other-machines-check.js
 PREVIEW_DEVICES=scripts/preview/devices-sample.json scripts/preview.sh sessions '' scripts/preview/sidebar-check.js

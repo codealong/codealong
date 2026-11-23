@@ -23,6 +23,7 @@ mod models;
 mod queue;
 mod resets;
 mod rollout;
+mod screen;
 mod side;
 mod terminals;
 mod hook;
@@ -343,27 +344,45 @@ impl crate::harness::Adapter for Codex {
     }
 
     /// The approval Codex's hook handed over that the thread's turn waits on (asks.rs), which its
-    /// terminal UI asks with `y` for Yes and Escape for No (`answer`); the app asks in its own
-    /// window, which Codealong can't answer in.
+    /// terminal UI asks with `y` for Yes and Escape for No (`answer`); where the hook didn't
+    /// give an answerable prompt (Approve for me escalations, multiple asks in one turn, MCP or
+    /// permissions prompts, custom keymaps, or a session started without the hook), falls back to
+    /// reading the active approval overlay off the terminal screen (`screen.rs`). The app asks in
+    /// its own window, which Codealong can't answer in.
     fn pending(&self, ctx: &crate::harness::Ctx, s: &crate::model::Session) -> Option<crate::harness::Pending> {
-        let (note, answerable, cwd) = self.waiting_note(ctx, s)?;
-        let cannot = match (s.surface, s.pid) {
-            _ if !answerable => Some("Codex has asked more than once in this turn, and its terminal shows one at a time: answer it there.".to_string()),
-            _ if s.pid.is_some_and(|pid| keys_of_its_own(&ctx.account.home_path(), &cwd, pid)) => Some("Codex's keys may be set up its own way (tui.keymap), so Codealong doesn't press them: answer it in its terminal.".to_string()),
-            (crate::model::Surface::Cli, Some(pid)) if note.keyed() && crate::launch::terminal_kind(pid).is_some_and(|t| t.presses_keys()) => None,
-            (crate::model::Surface::Cli, Some(_)) if note.keyed() => Some(format!("Codex asks in its terminal, which Codealong can't press keys in ({}); answer it there.", crate::launch::presses_keys_in())),
-            (crate::model::Surface::Cli, _) => Some("Codex asks this in its terminal; answer it there.".to_string()),
-            _ => Some("Codex asks in its own window; answer it there.".to_string()),
-        };
-        Some(crate::harness::Pending { id: note.id(), label: note.label(), input: Some(note.whole()), cannot, ..Default::default() })
+        let from_hook = self.waiting_note(ctx, s).map(|(note, answerable, cwd)| {
+            let cannot = match (s.surface, s.pid) {
+                _ if !answerable => Some("Codex has asked more than once in this turn, and its terminal shows one at a time: answer it there.".to_string()),
+                _ if s.pid.is_some_and(|pid| keys_of_its_own(&ctx.account.home_path(), &cwd, pid)) => Some("Codex's keys may be set up its own way (tui.keymap), so Codealong doesn't press them: answer it in its terminal.".to_string()),
+                (crate::model::Surface::Cli, Some(pid)) if note.keyed() && crate::launch::terminal_kind(pid).is_some_and(|t| t.presses_keys()) => None,
+                (crate::model::Surface::Cli, Some(_)) if note.keyed() => Some(format!("Codex asks in its terminal, which Codealong can't press keys in ({}); answer it there.", crate::launch::presses_keys_in())),
+                (crate::model::Surface::Cli, _) => Some("Codex asks this in its terminal; answer it there.".to_string()),
+                _ => Some("Codex asks in its own window; answer it there.".to_string()),
+            };
+            crate::harness::Pending { id: note.id(), label: note.label(), input: Some(note.whole()), cannot, ..Default::default() }
+        });
+        if from_hook.as_ref().is_some_and(|p| p.cannot.is_none()) {
+            return from_hook;
+        }
+        let turn_open = record(self, ctx, s).ok().and_then(|p| parse_rollout(&p, 0, None)).is_some_and(|(th, _)| th.turn_open);
+        if turn_open {
+            if let Some(p) = screen::pending(s) {
+                return Some(p);
+            }
+        }
+        from_hook
     }
 
     /// Its terminal UI's approval prompt, with a key (0.162.1, in tmux, 2026-10-24): `y` is
     /// "Yes, proceed", and Escape "No, and tell Codex what to do differently", which stops the
     /// turn. Its other choices (for this command from now on, for the session) aren't offered
     /// for every request, so they're left to its terminal. Pressed only while the note is still
-    /// the one its turn waits on, as read again after the checks that take time.
+    /// the one its turn waits on, as read again after the checks that take time. Screen-read
+    /// prompts (`screen:`) are answered with arrows and Return (`screen::answer`).
     fn answer(&self, ctx: &crate::harness::Ctx, s: &crate::model::Session, id: &str, answer: crate::harness::Answer) -> anyhow::Result<String> {
+        if id.starts_with(screen::SCREEN_ID) {
+            return screen::answer(s, id, answer);
+        }
         use crate::harness::Answer;
         let (note, answerable, cwd) = self.waiting_note(ctx, s).filter(|(n, ..)| n.id() == id).ok_or_else(|| anyhow::anyhow!("Codex isn't asking that any more."))?;
         if !answerable {

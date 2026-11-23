@@ -553,7 +553,7 @@ export function SessionPanel({ variant = 'panel', zoom, queue, notice, hotkeys, 
               {device.name} doesn't take prompts from your other devices. To send from here, turn on <b>Let my linked devices act on sessions here</b> in Settings › Devices on {device.name}.
             </p>
           ) : (
-            <Reply session={s} terminal={terminal} runIn={folder ?? undefined} runsUnder={apps.runIn !== 'terminal'} onOpen={openIt} autoFocus={autoFocus && !renaming} keys={keys} onSending={onSending} onSent={onSent} onFailed={onFailed} onAnswered={onAnswered} onNext={goesOn ? onDone : undefined} onAsked={header.actions?.askAside} sayKeys={!!hotkeys} moves={moves} onMove={ask} above={<SnoozeSuggestion session={s} snooze={header.actions?.snooze} now={now} />} />
+            <Reply session={s} terminal={terminal} deviceName={device?.name} runIn={folder ?? undefined} runsUnder={apps.runIn !== 'terminal'} onOpen={openIt} autoFocus={autoFocus && !renaming} keys={keys} onSending={onSending} onSent={onSent} onFailed={onFailed} onAnswered={onAnswered} onNext={goesOn ? onDone : undefined} onAsked={header.actions?.askAside} sayKeys={!!hotkeys} moves={moves} onMove={ask} above={<SnoozeSuggestion session={s} snooze={header.actions?.snooze} now={now} />} />
           )}
           {folder !== null && terminals && !away && (
             <TerminalDrawer
