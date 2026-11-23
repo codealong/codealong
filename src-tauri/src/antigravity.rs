@@ -10,6 +10,7 @@ use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant, SystemTime};
 
+mod acp;
 mod cache;
 mod side;
 
@@ -2163,10 +2164,12 @@ impl crate::harness::Adapter for Antigravity {
         Some(crate::util::home().join(".gemini/config/skills"))
     }
 
-    /// `agy acp` is built in; its log goes into Codealong's logs folder rather than `~/.gemini/antigravity-cli/log`.
     fn acp_command(&self, account: &AccountCfg) -> std::result::Result<(String, Vec<(String, String)>), String> {
-        let log = crate::config::logs_dir().join(format!("agy-acp-{}.log", account.name));
-        Ok((format!("{} acp --log-file {}", cli_command(account), crate::util::sh_quote(&log.to_string_lossy())), Vec::new()))
+        acp::command(account)
+    }
+
+    fn acp_auto_allows(&self, home: &Path, mode: Option<&str>, call: &Value) -> bool {
+        acp::auto_allows(home, mode, call)
     }
 
     /// The command line starts a conversation in Codealong (`agy acp`) by default, or in a
@@ -4172,17 +4175,18 @@ mod tests {
         use crate::harness::Adapter;
         use crate::start::Place;
         assert_eq!(cli_args("agy acp"), None);
-        assert_eq!(cli_args("/Users/me/.local/bin/agy acp --log-file /tmp/agy-acp.log"), None);
+        assert_eq!(cli_args("/Users/me/.local/bin/agy acp --process-per-session --log-file /tmp/agy-acp.log"), None);
+        assert_eq!(cli_args("/Users/me/.local/bin/agy acp --worker --log-file=/tmp/agy-acp.log"), None);
 
         let a: AccountCfg = serde_json::from_value(serde_json::json!({ "name": "antigravity", "harness": "antigravity", "home": "~/.gemini/antigravity" })).unwrap();
         let (cmd, env) = Antigravity.acp_command(&a).unwrap();
-        assert!(cmd.starts_with("agy acp --log-file ") && cmd.contains("agy-acp-antigravity.log"), "{cmd}");
+        assert!(cmd.starts_with("agy acp --process-per-session --log-file ") && cmd.contains("agy-acp-antigravity.log"), "{cmd}");
         assert!(env.is_empty());
         assert_eq!(crate::detect::program_of(&cmd), Some("agy"));
 
         let custom: AccountCfg = serde_json::from_value(serde_json::json!({ "name": "ag", "harness": "antigravity", "home": "~/.gemini/antigravity", "command": "FOO=1 /opt/agy" })).unwrap();
         let (cmd, _) = Antigravity.acp_command(&custom).unwrap();
-        assert!(cmd.starts_with("FOO=1 /opt/agy acp --log-file "), "{cmd}");
+        assert!(cmd.starts_with("FOO=1 /opt/agy acp --process-per-session --log-file "), "{cmd}");
 
         assert_eq!(Antigravity.places(&a, Path::new("/Users/me")).unwrap(), vec![Place::Codealong, Place::Terminal, Place::Background]);
         assert!(Antigravity.resumes_in(Place::Terminal) && Antigravity.resumes_in(Place::Background) && Antigravity.resumes_in(Place::Codealong));
