@@ -1,13 +1,16 @@
 // The line at the end of a conversation while its agent works (working.ts says when a tip comes):
 // a small square tumbling, and how long it has worked on what you last asked, quiet, where its
-// words will come. Now and then a tip, on the line's right, out of the way of the agent's words;
+// words will come. A hosted session's running tool before its record has it sits on the same line
+// (`RunningTool`), so its coming and going never moves the conversation above it. Now and then a
+// tip, on the line's right, out of the way of the agent's words;
 // only in the main window's panel, since a card is read at a glance. A session whose turn is over
 // that only waits on a command it left running in the background has another line in its place
 // (`Waiting`): its clock and the command.
 
-import { useEffect, useLayoutEffect, useState } from 'react';
+import { useEffect, useLayoutEffect, useState, useSyncExternalStore } from 'react';
 import { duration } from '../format';
 import { workingSince } from '../lanes';
+import type { LiveReply } from '../liveReply';
 import { readStored, writeStored, type Codec } from '../stored';
 import { TIPS, tipShows } from '../tips';
 import type { Session } from '../types';
@@ -74,7 +77,23 @@ function Head({ word, took }: { word?: string; took: string | null }) {
   );
 }
 
-export function Working({ session: s, tips, onGrow }: { session: Session; tips: boolean; onGrow: () => void }) {
+/** The call a hosted session is running before its record has it, drawn on the working line's own
+ *  row so its coming and going never shifts the conversation above it. */
+function RunningTool({ reply, pending }: { reply: LiveReply; pending: boolean }) {
+  const tool = useSyncExternalStore(reply.subscribe, () => {
+    if (pending) return null;
+    const st = reply.get();
+    return st && !st.text && st.tool ? st.tool : null;
+  });
+  if (!tool) return null;
+  return (
+    <span className="ca-working-tool" title={`Running ${tool}`}>
+      Running <span className="ca-working-tool-name">{tool}</span>
+    </span>
+  );
+}
+
+export function Working({ session: s, tips, reply, pending = false, onGrow }: { session: Session; tips: boolean; reply?: LiveReply; pending?: boolean; onGrow: () => void }) {
   const now = useClock(TICK_MS);
   const since = workingSince(s) ?? s.lastPromptAt;
   const took = duration(since, now);
@@ -87,6 +106,7 @@ export function Working({ session: s, tips, onGrow }: { session: Session; tips: 
   return (
     <div className="ca-working">
       <Head took={took} />
+      {reply && <RunningTool reply={reply} pending={pending} />}
       {due && (due !== 'take' || !document.hidden) && <WorkingTip kept={due === 'take' ? null : due.keep} turn={turn} since={since} onGrow={onGrow} />}
     </div>
   );

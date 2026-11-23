@@ -131,16 +131,47 @@
         (beside ? 'beside' : 'under') + ' · ends ' + Math.round(right) + ' of ' + Math.round(box.right) + ' · ' + Math.round(box.height) + 'px high');
       var c = claim();
       check('kept for the turn', !!c && c.id === tip().getAttribute('data-tip'), JSON.stringify(c));
+      // A hosted session's running tool sits on the working line itself, never as a separate note
+      // pill, and its coming and going never changes the line's height, the tip's row, or the
+      // conversation's scrollHeight (even with a long tool name).
+      var heightBefore = l.getBoundingClientRect().height;
+      var tipTopBefore = tip().getBoundingClientRect().top;
+      var scrollBefore = thread.scrollHeight;
+      var notesBefore = thread.querySelectorAll('.ca-thread-note').length;
+      var longTool = 'Bash · cargo test --workspace --all-targets -- --nocapture ' + 'x'.repeat(80);
+      window.__emit('hosted-stream', { key: picked[0].key, text: '', tool: 'Terminal' });
       // The tip, cut to a short line, sits beside the time; the time grows wide enough to leave it
       // no room there (as 9m becoming 10m does, made wider here), and once it says the next minute
       // the line has grown and a conversation read at its end stays there.
       var short = document.createElement('style');
       short.textContent = '.ca-sessinsp .ca-thread { max-height: 200px; } .ca-sessinsp .ca-working-tip { max-width: 12em; white-space: nowrap; overflow: hidden; }';
-      document.head.appendChild(short);
       var tall;
       var was;
       var offBefore;
-      return wait(300)
+      return until(function () { return l.querySelector('.ca-working-tool'); }, 3000, 'the running tool on the working line')
+        .then(function () {
+          var toolEl = l.querySelector('.ca-working-tool');
+          var sameShort = Math.abs(l.getBoundingClientRect().height - heightBefore) < 0.5 && Math.abs(tip().getBoundingClientRect().top - tipTopBefore) < 0.5 && thread.scrollHeight === scrollBefore;
+          check('a running tool sits on the working line without moving anything',
+            toolEl.textContent === 'Running Terminal' && thread.querySelectorAll('.ca-thread-note').length === notesBefore && sameShort,
+            toolEl.textContent + ' · notes ' + notesBefore + '→' + thread.querySelectorAll('.ca-thread-note').length + ' · h ' + heightBefore + '→' + l.getBoundingClientRect().height + ' · scroll ' + scrollBefore + '→' + thread.scrollHeight);
+          window.__emit('hosted-stream', { key: picked[0].key, text: '', tool: longTool });
+          return until(function () { var t = l.querySelector('.ca-working-tool'); return t && t.textContent.indexOf('cargo test') >= 0; }, 3000, 'the long running tool');
+        })
+        .then(function () {
+          var sameLong = Math.abs(l.getBoundingClientRect().height - heightBefore) < 0.5 && Math.abs(tip().getBoundingClientRect().top - tipTopBefore) < 0.5 && thread.scrollHeight === scrollBefore && thread.scrollWidth <= thread.clientWidth + 1;
+          check('a long running tool truncates on the same line without moving anything', sameLong,
+            'h ' + heightBefore + '→' + l.getBoundingClientRect().height + ' · tipTop ' + tipTopBefore + '→' + tip().getBoundingClientRect().top + ' · scroll ' + scrollBefore + '→' + thread.scrollHeight + ' · width ' + thread.scrollWidth + '/' + thread.clientWidth);
+          window.__emit('hosted-stream', { key: picked[0].key, text: '', tool: null });
+          return until(function () { return !l.querySelector('.ca-working-tool'); }, 3000, 'the running tool to clear');
+        })
+        .then(function () {
+          var sameAfter = Math.abs(l.getBoundingClientRect().height - heightBefore) < 0.5 && Math.abs(tip().getBoundingClientRect().top - tipTopBefore) < 0.5 && thread.scrollHeight === scrollBefore;
+          check('clearing the running tool leaves the conversation still', sameAfter,
+            'h ' + heightBefore + '→' + l.getBoundingClientRect().height + ' · scroll ' + scrollBefore + '→' + thread.scrollHeight);
+          document.head.appendChild(short);
+          return wait(300);
+        })
         .then(function () {
           thread.scrollTop = thread.scrollHeight;
           tall = l.getBoundingClientRect().height;
