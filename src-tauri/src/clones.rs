@@ -20,7 +20,7 @@
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};
-use std::time::{Duration, Instant};
+use std::time::{Duration, Instant, SystemTime};
 
 use crate::config::{repo_key, Config};
 
@@ -28,6 +28,9 @@ use crate::config::{repo_key, Config};
 const RETRY_AFTER: Duration = Duration::from_secs(60 * 60);
 /// How long a clone may take before it's given up on.
 const CLONE_WAIT: Duration = Duration::from_secs(15 * 60);
+/// How long what a try left (`staging`) stays before a later try clears it: the `git clone` that
+/// outlived its `gh` is long over by then.
+const LEFT_FOR: Duration = Duration::from_secs(24 * 60 * 60);
 
 /// A repo to clone: `slug` (owner/name, as GitHub names it now) into the first of the folders
 /// `into` that's free or holds its checkout already (`run`).
@@ -131,33 +134,47 @@ fn folder_for(slug: &str) -> Option<Vec<String>> {
 
 /// Clones `c` with `gh`, at a low priority, as nobody waits on it.
 pub fn run(c: &ToClone) -> Cloned {
-    run_with(c, &|program, args| crate::procs::run_background(program, args, None, CLONE_WAIT))
+    let attempt = format!("{}-{}", std::process::id(), crate::util::now_ms());
+    run_with(c, &|program, args| crate::procs::run_background(program, args, None, CLONE_WAIT), &attempt, SystemTime::now())
 }
 
-/// The hidden folder beside `into` a clone is made in (`run_with`), which the scan passes over
-/// (`repos::passed_over`), so a clone cut off partway (Codealong quitting, a timeout, which
-/// stops `gh` and not the `git clone` it started) is never read as the repo.
-fn staging(into: &Path) -> PathBuf {
-    let name = into.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
-    into.with_file_name(format!(".{name}.codealong-clone"))
+/// The hidden folder beside `into` that try `attempt` makes its clone in (`run_with`), which the
+/// scan passes over (`repos::passed_over`), so a clone cut off partway (Codealong quitting, a
+/// timeout, which stops `gh` and not the `git clone` it started) is never read as the repo. Each
+/// try has its own: a `git clone` that outlived its `gh` may still be writing to an earlier one.
+fn staging(into: &Path, attempt: &str) -> PathBuf {
+    into.with_file_name(format!(".{}.codealong-clone-{attempt}", into.file_name().map(|n| n.to_string_lossy()).unwrap_or_default()))
+}
+
+/// Clears what tries made beside `into` (`staging`) that was last written `LEFT_FOR` or more
+/// before `now`. One that won't go is left: it's only space, hidden from the scan, and the next
+/// try clears it again.
+fn clear_left(into: &Path, now: SystemTime) {
+    let (Some(parent), Some(name)) = (into.parent(), into.file_name()) else { return };
+    let prefix = format!(".{}.codealong-clone-", name.to_string_lossy());
+    let Ok(entries) = std::fs::read_dir(parent) else { return };
+    for e in entries.flatten().filter(|e| e.file_name().to_string_lossy().starts_with(&prefix)) {
+        let old = e.metadata().and_then(|m| m.modified()).is_ok_and(|at| now.duration_since(at).is_ok_and(|age| age >= LEFT_FOR));
+        if old {
+            let _ = std::fs::remove_dir_all(e.path());
+        }
+    }
 }
 
 /// Clones `c` into the first of its folders that's free, or finds it there already: a folder that
 /// holds the repo's checkout, whole (its HEAD a commit: one cloned by hand and cut off has none
 /// yet), is it, and one that holds anything else is passed over. The clone is made in a hidden
-/// folder beside it (`staging`), what an earlier one left there cleared first, and moved into
-/// place once `gh` is done. `exec` runs a program, as `run` does.
-fn run_with(c: &ToClone, exec: &dyn Fn(&str, &[&str]) -> anyhow::Result<String>) -> Cloned {
+/// folder beside it of this try's own (`staging`, `attempt`), and moved into place once `gh` is
+/// done; what tries a day before `now` left there is cleared first (`clear_left`). `exec` runs a
+/// program, as `run` does.
+fn run_with(c: &ToClone, exec: &dyn Fn(&str, &[&str]) -> anyhow::Result<String>, attempt: &str, now: SystemTime) -> Cloned {
     for into in &c.into {
         let at = crate::util::tilde(into);
         if !into.exists() {
-            let made = staging(into);
-            let failed = |what: &str, e: String| format!("{what} {} failed: {}.", crate::util::tilde(&made), e.trim_end_matches('.'));
-            if made.exists() {
-                std::fs::remove_dir_all(&made).map_err(|e| failed("clearing", e.to_string()))?;
-            }
+            clear_left(into, now);
+            let made = staging(into, attempt);
             let arg = made.to_string_lossy();
-            exec("gh", &["repo", "clone", &c.slug, &arg, "--", "--quiet"]).map_err(|e| failed("gh repo clone into", crate::util::words(e)))?;
+            exec("gh", &["repo", "clone", &c.slug, &arg, "--", "--quiet"]).map_err(|e| format!("gh repo clone into {} failed: {}.", crate::util::tilde(&made), crate::util::words(e).trim_end_matches('.')))?;
             return std::fs::rename(&made, into).map_err(|e| format!("moving its clone to {at} failed: {e}."));
         }
         let identity = crate::repos::load_checkout(into).and_then(|ch| ch.identity);
@@ -328,6 +345,11 @@ mod tests {
     /// Runs `c` with programs that answer as `answer` says, and what was run. A clone that
     /// answers makes its folder, as `gh` would.
     fn ran(c: &ToClone, answer: impl Fn(&str) -> bool) -> (Cloned, Vec<String>) {
+        ran_at(c, answer, "t1", SystemTime::now())
+    }
+
+    /// `ran`, as try `attempt` at `now`.
+    fn ran_at(c: &ToClone, answer: impl Fn(&str) -> bool, attempt: &str, now: SystemTime) -> (Cloned, Vec<String>) {
         let asked = RefCell::new(Vec::new());
         let went = run_with(c, &|program, args| {
             let line = format!("{program} {}", args.join(" "));
@@ -339,7 +361,7 @@ mod tests {
                 std::fs::create_dir_all(Path::new(args[3]).join(".git")).unwrap();
             }
             Ok(String::new())
-        });
+        }, attempt, now);
         (went, asked.into_inner())
     }
 
@@ -350,30 +372,36 @@ mod tests {
         let c = ToClone { slug: "acme/api".into(), into: vec![api.clone(), owned.clone()] };
         let (went, asked) = ran(&c, |_| true);
         assert_eq!(went, Ok(()));
-        assert_eq!(asked, [format!("gh repo clone acme/api {} -- --quiet", dir.join(".api.codealong-clone").to_string_lossy())]);
-        assert!(api.join(".git").is_dir() && !dir.join(".api.codealong-clone").exists());
-        assert!(crate::repos::passed_over(".api.codealong-clone"), "the scan never reads one under way");
+        assert_eq!(asked, [format!("gh repo clone acme/api {} -- --quiet", dir.join(".api.codealong-clone-t1").to_string_lossy())]);
+        assert!(api.join(".git").is_dir() && !dir.join(".api.codealong-clone-t1").exists());
+        assert!(crate::repos::passed_over(".api.codealong-clone-t1"), "the scan never reads one under way");
         // Another repo's checkout, or any other folder, of its name: the next one.
         checkout_of(&api, "beta/api");
         let (_, asked) = ran(&c, |_| true);
-        assert_eq!(asked, [format!("gh repo clone acme/api {} -- --quiet", dir.join(".acme-api.codealong-clone").to_string_lossy())]);
+        assert_eq!(asked, [format!("gh repo clone acme/api {} -- --quiet", dir.join(".acme-api.codealong-clone-t1").to_string_lossy())]);
         let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[test]
-    fn a_clone_cut_off_is_left_where_the_scan_never_reads_it_and_cleared_for_the_next() {
+    fn a_clone_cut_off_is_left_where_the_scan_never_reads_it_until_a_day_on() {
         let dir = scratch("cut");
         let api = dir.join("api");
         let c = ToClone { slug: "acme/api".into(), into: vec![api.clone()] };
-        let left = dir.join(".api.codealong-clone");
-        checkout_of(&left, "acme/api");
-        std::fs::write(left.join("half"), "").unwrap();
-        let (went, _) = ran(&c, |line| !line.starts_with("gh"));
+        let (went, _) = ran_at(&c, |line| !line.starts_with("gh"), "t1", SystemTime::now());
         assert!(went.is_err_and(|why| why.contains("gh repo clone into")));
+        // As though its `git clone` outlived `gh`, still writing there.
+        let left = dir.join(".api.codealong-clone-t1");
+        checkout_of(&left, "acme/api");
         assert!(!api.exists(), "nothing's in its place");
-        let (went, _) = ran(&c, |_| true);
+        // The next try clones beside it, leaving it be.
+        let (went, asked) = ran_at(&c, |_| true, "t2", SystemTime::now());
         assert_eq!(went, Ok(()));
-        assert!(!api.join("half").exists(), "what was left was cleared first");
+        assert!(asked[0].contains(".api.codealong-clone-t2") && left.exists());
+        // A day on, a try clears it.
+        std::fs::remove_dir_all(&api).unwrap();
+        let (went, _) = ran_at(&c, |_| true, "t3", SystemTime::now() + LEFT_FOR);
+        assert_eq!(went, Ok(()));
+        assert!(!left.exists());
         let _ = std::fs::remove_dir_all(&dir);
     }
 
