@@ -4645,6 +4645,14 @@ surfaces in *Needs you* until you've seen it. A polling loop that stays quiet wi
 activity for two hours is marked stuck (*Stuck polling*), unless an agent explicitly tagged it as
 polling itself.
 
+Antigravity's command line (`agy`) moves a command still running after the wait its call asked for
+(ten seconds, as its agent usually writes it) into the background on its own, and its agent ends
+its turn waiting on it. Codealong watches that command's processes as it does a Claude session's:
+the session is *Waiting on* the command while it does something, and *Left running* once it has
+done nothing for 15 minutes, with Jev's read of the command as above. So a command that can never
+end (one waiting for input nothing gives it) is left running, rather than keeping the session
+*Working* for as long as `agy` stays open.
+
 Agents and workflows a Claude Code session started in the background keep it busy by Claude Code's
 own word, whether or not a turn runs. A session whose transcript says its turn ended with some of
 them still running waits on them (*Waiting on 3 background agents*), as on a command, until each

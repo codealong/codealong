@@ -299,19 +299,6 @@ pub fn output_of(rollout: &Path, id: &str) -> String {
     whole.unwrap_or_else(|| parts.into_iter().rev().collect())
 }
 
-/// What a process Codex runs a command in is running, by its command line as `ps` gives it: the
-/// script of a shell, `/bin/zsh -c <command>` (`-lc` for a login shell; 0.162.1 on this Mac), or
-/// the command line itself, since a shell given one plain command runs it in its own place
-/// (`zsh -c 'sleep 8'` is `sleep 8` in the table).
-pub fn shell_script(cmdline: &str) -> String {
-    let wrapped = cmdline.split_once(' ').and_then(|(program, rest)| {
-        let shell = program.rsplit('/').next().is_some_and(|p| matches!(p, "zsh" | "bash" | "sh" | "fish"));
-        let script = rest.strip_prefix("-c ").or_else(|| rest.strip_prefix("-lc "))?;
-        shell.then_some(script)
-    });
-    wrapped.unwrap_or(cmdline).to_string()
-}
-
 /// The commands a code-mode script starts, in the order it calls `exec_command`: each call's
 /// `cmd` where it's a plain string literal, `None` where it's worked out (`[…].join(" ")`, a
 /// variable, a template with `${}`).
@@ -465,15 +452,6 @@ text(await tools.write_stdin({session_id:19957,chars:"",yield_time_ms:1000}));"#
         assert_eq!(output_of(&path, "19957"), "compiling\nready\nbye\n");
         assert_eq!(output_of(&path, "1"), "");
         std::fs::remove_dir_all(dir).unwrap();
-    }
-
-    #[test]
-    fn reads_the_command_a_shell_runs() {
-        assert_eq!(shell_script("/bin/zsh -c codealong session transcript claude:x --full"), "codealong session transcript claude:x --full");
-        assert_eq!(shell_script("/bin/zsh -lc npm run dev"), "npm run dev");
-        // A plain command its shell ran in its own place.
-        assert_eq!(shell_script("sleep 8"), "sleep 8");
-        assert_eq!(shell_script("node server.mjs -c x"), "node server.mjs -c x");
     }
 
     #[test]

@@ -199,9 +199,9 @@ export interface Session {
    *  Codex app's follow-up queue), whoever sent them: shown at the end of its conversation until
    *  they go in. Missing when it holds none or its harness doesn't say. */
   queued?: QueuedMessage[];
-  /** A Claude session whose turn left a command running in the background: the command, or ""
-   *  when it couldn't be read. Working, it waits on it (`waitsInBackground`). Missing from a
-   *  board an older app sent. */
+  /** A session whose turn left a command running in the background (Claude Code's, `agy`'s): the
+   *  command, or "" when it couldn't be read. Working, it waits on it (`waitsInBackground`).
+   *  Missing from a board an older app sent. */
   background?: string;
   /** A Claude session whose turn ended with subagents or workflows it started in the background
    *  still running: what each is for, oldest first ("" where its call didn't say). Working, it

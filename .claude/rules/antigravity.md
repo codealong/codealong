@@ -146,7 +146,18 @@ runs on this Mac (2026-10-01). Paths are under `src-tauri/src/`.
   `board/sessions.rs` (`antigravity_session`). A command that runs long goes to the background on its
   own: the turn ends with the agent saying it waits, the row idle with `not_fully_idle` 1, the
   command's step running (2); its result comes back as a `SYSTEM_MESSAGE` step (type 101) that
-  starts the agent again, the row written running (1.3.5, in tmux, 2026-10-14).
+  starts the agent again, the row written running (1.3.5, in tmux, 2026-10-14). How long a
+  command runs before it goes there is the call's `WaitMsBeforeAsync` (10000 as Gemini writes
+  it); its result step (132) says `Tool is running as a background task with task id:
+  <conversation>/task-<step>` and `Task Description: <command>`, its `task_details` column has the
+  task's id and its log (`brain/<id>/.system_generated/tasks/task-<step>.log`), and it runs as
+  `zsh -c <command>` under the `agy` process. A command killed there leaves its step canceled (6)
+  and the row idle, with no message to the agent, which doesn't wake (1.5, 2026-11-24). One that
+  can't end holds the row "not fully idle" for as long as the process lives, so Codealong watches
+  the shell's processes as it does a Claude Code session's (`procs::LeftRunning`): *Waiting on*
+  while they do something, *Left running* after 15 minutes still: `antigravity/processes.rs`
+  (`Background`), `board/sessions.rs` (`antigravity_session`). Codealong's own `agy acp` sessions
+  aren't watched so.
 - A terminal UI opened with no prompt (`agy` alone) takes a conversation at once: it holds the
   presence lock, and its row has gorm's zero for every time, no steps, and status idle. A slash
   command (`/model`) writes no input line to its log. One left so from one evening to the next

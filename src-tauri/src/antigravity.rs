@@ -13,8 +13,14 @@ use std::time::{Duration, Instant, SystemTime};
 mod acp;
 mod artifacts;
 mod cache;
+mod processes;
 mod rename;
 mod side;
+
+use processes::open_logs;
+pub use processes::{processes, Background, Process};
+#[cfg(test)]
+use processes::{cli_args, held_conversation, is_app_agent, processes_excluding};
 
 use rusqlite::types::Value as Sql;
 use rusqlite::Connection;
@@ -248,6 +254,9 @@ pub struct Conversation {
     /// Its next read can't go by this one (`Reader::reread`): a command line process had it open,
     /// which may write its last steps before it lets go, or its database read behind.
     pub read_again: bool,
+    /// What its turn left running in the background, as the reader watches it
+    /// (`Reader::background_of`), for the board.
+    pub background: Option<Background>,
 }
 
 impl Conversation {
@@ -1172,95 +1181,6 @@ fn started(dirs: &[Folder], p: &Process) -> Option<Conversation> {
     })
 }
 
-/* ---- The command line's processes ---- */
-
-/// An `agy` process on this Mac.
-#[derive(Debug, Clone, PartialEq)]
-pub struct Process {
-    pub pid: u32,
-    /// The conversation it has open, from the presence lock it holds.
-    pub conversation: Option<String>,
-    /// It's the interactive UI in a terminal, rather than a print run.
-    pub terminal: bool,
-    /// The logs it has open: its own among them (`own_log`).
-    pub logs: Vec<PathBuf>,
-    /// When it began, as the kernel has it: the only time a conversation it opened and never
-    /// prompted has, its row's being gorm's zero.
-    pub started: Option<i64>,
-}
-
-/// For a process's command line that's `agy` running a conversation: whether it's the
-/// interactive UI rather than a print run. None for its other commands (`models`, `update`…)
-/// and for anything else. `ps` joins the arguments with spaces, so a prompt reads as words;
-/// only the words before it matter.
-pub fn cli_args(command: &str) -> Option<bool> {
-    let (program, rest) = crate::util::program_and_rest(command)?;
-    let mut words = rest.split_whitespace();
-    if crate::util::program_name(program) != CLI {
-        return None;
-    }
-    while let Some(w) = words.next() {
-        match w.split('=').next().unwrap_or(w) {
-            "-p" | "--print" | "--prompt" | "--input-format" => return Some(false),
-            "-i" | "--prompt-interactive" => return Some(true),
-            "--add-dir" | "--agent" | "--conversation" | "--effort" | "--json-schema" | "--log-file" | "--mode" | "--model" | "--output-format" | "--print-timeout" | "--project" if !w.contains('=') => {
-                words.next();
-            }
-            _ if w.starts_with('-') => {}
-            "acp" | "agent" | "agents" | "changelog" | "help" | "install" | "mcp" | "mic-serve" | "models" | "plugin" | "plugins" | "remote-control" | "update" => return None,
-            // A prompt.
-            _ => return Some(true),
-        }
-    }
-    Some(true)
-}
-
-/// Whether a process's command line is the hub app's agent, which runs the app's conversations.
-fn is_app_agent(command: &str) -> bool {
-    let program = command.split(" --").next().unwrap_or(command);
-    program.ends_with("/language_server") && program.contains("Antigravity")
-}
-
-/// The conversation a command line process has open: the presence lock among its open files.
-fn held_conversation(open_files: &[PathBuf]) -> Option<String> {
-    open_files.iter().find_map(|p| {
-        (p.parent().map(file_name).as_deref() == Some("presence") && p.extension().and_then(|x| x.to_str()) == Some("lock")).then(|| p.file_stem().map(|s| s.to_string_lossy().into_owned())).flatten()
-    })
-}
-
-/// The command line's logs a process has open (`log/cli-<time>.log`), from the same list.
-fn open_logs(open_files: &[PathBuf]) -> Vec<PathBuf> {
-    let mut logs: Vec<PathBuf> = open_files.iter().filter(|p| p.parent().map(file_name).as_deref() == Some("log") && log_begun(p).is_some()).cloned().collect();
-    logs.sort();
-    logs.dedup();
-    logs
-}
-
-/// The command line's processes, each with the conversation and the logs it has open, and
-/// whether the hub app's agent is running. From the list of every process, and each `agy`'s
-/// open files as the kernel lists them: an `lsof` for each took half a second at a high load,
-/// on the engine's thread.
-pub fn processes(listed: &[procs::PsLine]) -> (Vec<Process>, bool) {
-    processes_excluding(listed, crate::side::runs)
-}
-
-fn processes_excluding(listed: &[procs::PsLine], skip: impl Fn(u32) -> bool) -> (Vec<Process>, bool) {
-    let mut app = false;
-    let mut found = Vec::new();
-    for p in listed {
-        app |= is_app_agent(&p.command);
-        if skip(p.pid) {
-            continue;
-        }
-        if let Some(interactive) = cli_args(&p.command) {
-            // One gone since the list was made, or not yours, has nothing open that's known.
-            let files = procs::open_files(p.pid).unwrap_or_default();
-            found.push(Process { pid: p.pid, conversation: held_conversation(&files), terminal: interactive && !p.tty.starts_with('?'), logs: open_logs(&files), started: procs::proc_start_ms(p.pid) });
-        }
-    }
-    (found, app)
-}
-
 /* ---- A terminal UI's log ---- */
 
 /// Its log's line as it sends a prompt into the conversation it names: one you typed, the
@@ -1735,6 +1655,8 @@ pub struct Reader {
     logs: HashMap<u32, LogRead>,
     app_running: bool,
     looked_at: Option<Instant>,
+    /// The commands conversations' turns left running in the background (`watch_background`).
+    background: procs::LeftRunning,
 }
 
 struct Reread {
@@ -1914,6 +1836,7 @@ impl crate::harness::Reader for Reader {
                 out.added |= self.reread(a, look).added;
             }
         }
+        self.watch_background(look);
         out
     }
 
@@ -1950,7 +1873,8 @@ impl crate::harness::Reader for Reader {
             .map(|c| {
                 let key = Session::key_for(Harness::Antigravity, &account.name, &c.id);
                 let process = self.processes.iter().find(|p| p.conversation.as_deref() == Some(c.id.as_str()));
-                let mut s = crate::board::antigravity_session(account, c, process, self.app_running, look.seen.seen_at(&key), look.now);
+                let left = self.background_of(c, look).map(|b| Conversation { background: Some(b), ..c.clone() });
+                let mut s = crate::board::antigravity_session(account, left.as_ref().unwrap_or(c), process, self.app_running, look.seen.seen_at(&key), look.now);
                 s.archived = look.archived_here(&key, s.last_activity);
                 s
             })

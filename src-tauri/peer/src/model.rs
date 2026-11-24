@@ -303,8 +303,9 @@ pub struct Session {
     /// tells one need from another by the words of an excerpt.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub need: Option<Need>,
-    /// Set on a Claude session whose turn ended with a command left running in the background
-    /// (registry status `shell`): the command, or empty when it couldn't be read. A working one
+    /// Set on a session whose turn ended with a command left running in the background (Claude
+    /// Code's registry status `shell`, a task `agy` runs on): the command, or empty when it
+    /// couldn't be read. A working one
     /// is waiting on it (a CI watch, a build), and the windows draw it with a clock instead of the
     /// spinner of a turn that's running.
     #[serde(default, skip_serializing_if = "Option::is_none")]
