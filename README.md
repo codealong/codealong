@@ -992,7 +992,7 @@ home = "~/.cursor"             # the command line's folder; the Cursor app's cha
 
 [[projects]]
 name = "Acme"
-repos = ["github.com/acme/*"]
+repos = ["github.com/acme/*"]   # with [reviews] auto, a repo of these you haven't cloned is cloned into scan's first folder when a PR there waits on your review
 folders = []                   # folders that belong to it too; a repo in one is this project's, whatever its remote
 chrome_profile = "Work"        # its worktrees' previews, and links into them, open in this Chrome profile; without it, the default browser
 default = "authorized"         # the routing group a start here on Auto goes on (sessions, schedules, reviews, meetings), in place of [routing] auto; without it, [routing] auto's

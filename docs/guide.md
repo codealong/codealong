@@ -1461,13 +1461,20 @@ over. Reviews of your own PRs and Review with… go there too, in every repo. It
 starts in the worktree that holds the PR's branch, else the repo's
 main checkout. A PR that asks for your review in a repo with no checkout on this Mac, which a
 project's `repos` pattern covers (`github.com/acme/*` takes in a repo of acme's you never cloned),
-has its repo cloned for it, under the repo's name (`<owner>-<name>` for a name the scan passes
-over, such as `.github`) into the first `scan` folder that isn't a checkout itself, with `gh repo clone` (so as gh's git protocol for github.com says), once GitHub
-has said what each of your repos is called now (a renamed one isn't cloned again under its new
-name); the repo is then read with your others, and the PR listed and reviewed as theirs are. Nothing is cloned while automatic reviews are off for
-the repo, nor for a repo no project covers, whose PRs Codealong doesn't list. A folder of that name
-that's already the repo's checkout is read as it is; any other is left alone, and a notice says
-which, as it says why a clone failed. A repo is tried again an hour after a try that didn't take.
+has its repo cloned for it, into the first `scan` folder that's there and isn't a checkout
+itself, under the repo's name, or as `<owner>-<name>` when another folder has that name or the
+scan passes it over (`.github`), with `gh repo clone` (so as gh's git protocol for github.com
+says). One repo is cloned at a time, at a low priority, and only once GitHub has said what each
+of your repos is called now (a renamed one isn't cloned again under its new name); the repo is
+then read with your others, and the PR listed and reviewed as theirs are. Nothing is cloned while
+automatic reviews are off for the repo, nor for a repo no project covers, whose PRs Codealong
+doesn't list. A whole checkout of the repo already in one of those folders is read as it is; a
+clone that was cut off partway, or folders of both names holding something else, are left alone,
+and a notice says so, as it says why a clone failed. A repo is tried again an hour after a try
+that didn't take. Its reviewer then runs in that clone as in any repo of yours, with the agent
+settings its default branch holds (a Claude Code hook in `.claude/settings.json`, say), which you
+never opened it to see: have a pattern cover only owners whose repos you'd open yourself, or turn
+reviews off for a repo in its own table (`[repos."github.com/owner/name"]`, below).
 The reviewer is handed the PR and its whole diff as files, each line of the diff numbered by
 its place in the file's new version (so it never stops on a permission prompt to ask `gh`, and can
 name its lines). What it's told to do is `[reviews] prompt`, which Settings shows to edit, filled

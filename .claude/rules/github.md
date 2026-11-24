@@ -148,7 +148,12 @@ Harness facts (from GitHub's answers on this Mac, 2026-10-01). A bare file name 
   GitHub has said what each repo here is called now (`GhPoll::names_known`): `gh api
   repos/<owner>/<name>` for a repo GitHub doesn't have for you exits 1 with `gh: Not Found (HTTP
   404)` on stderr (2026-11-24), which `github::current_slug` takes as the repo going by its own
-  name; any other failure is no answer.
+  name, as it does a 451 and a 403 that isn't a rate limit (an organization's SAML enforcement
+  answers `Resource protected by organization SAML enforcement … (HTTP 403)`; a rate limit's 403
+  says `rate limit`); any other failure is no answer. Clones run one at a time through
+  `procs::run_background`, whose timeout kills `gh` but not the `git clone` it started, so a
+  folder whose HEAD isn't a commit yet (`git rev-parse --verify HEAD` fails) is a clone cut off
+  partway, not the repo.
 - Who's assigned to a PR and by whom: `ASSIGNED_EVENT` and `UNASSIGNED_EVENT` beside
   `REVIEW_REQUESTED_EVENT` in `ASKED_FIELDS`'s `timelineItems` (`assigned_of`, `events_of`), each
   node's `__typename` telling them apart, `assignee` a union whose `... on User { login }` names

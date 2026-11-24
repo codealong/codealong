@@ -214,33 +214,36 @@ impl Engine {
         }
     }
 
-    /// Clones the repos a project covers that GitHub's search found PRs waiting on your review
-    /// in, with no checkout here, while reviews are on for them (clones.rs). Never in a test,
-    /// where `gh` would clone for real.
+    /// Clones a repo a project covers that GitHub's search found PRs waiting on your review in,
+    /// with no checkout here, while reviews are on for it (clones.rs), one at a time. Never in a
+    /// test, where `gh` would clone for real: what's due there stays under way.
     pub(super) fn clone_covered(&mut self) {
-        if self.passing || cfg!(test) || !self.github.names_known(&self.seeds) {
+        if self.passing || !self.github.names_known(&self.seeds) {
             return;
         }
         let root = crate::clones::root(&self.cfg.scan);
-        for c in self.clones.due(&self.github.not_here(&self.seeds), &self.cfg, root.as_deref(), Instant::now()) {
-            let tx = self.tx.clone();
-            let back = c.clone();
-            throttle::background(
-                "codealong-clone",
-                move || {
-                    crate::os::system::utility_thread();
-                    crate::clones::run(&c)
-                },
-                move |went| {
-                    let _ = tx.send(Msg::Cloned(back, went));
-                },
-            );
+        let Some(c) = self.clones.due(&self.github.not_here(&self.seeds), &self.cfg, root.as_deref(), Instant::now()) else { return };
+        if cfg!(test) {
+            return;
         }
+        let tx = self.tx.clone();
+        let back = c.clone();
+        throttle::background(
+            "codealong-clone",
+            move || {
+                crate::os::system::utility_thread();
+                crate::clones::run(&c)
+            },
+            move |went| {
+                let _ = tx.send(Msg::Cloned(back, went));
+            },
+        );
     }
 
     /// A clone `clone_covered` started is over: one that's there is read with the repos, and
     /// GitHub read again in full, its search too, whose answer before the clone left the repo's
-    /// PRs out; one that isn't says why as a notice.
+    /// PRs out, and whose answer starts the next repo waiting; one that isn't says why as a
+    /// notice, and the next starts with the next search's answer.
     pub(super) fn on_cloned(&mut self, c: crate::clones::ToClone, went: Option<crate::clones::Cloned>) {
         if self.clones.on_cloned(&c, went) {
             self.rescan_repos();
