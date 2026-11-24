@@ -134,6 +134,8 @@ use crate::transcript::Item;
 use crate::util::{now_ms, DAY_MS};
 
 mod own;
+pub use own::{back_message, review_file};
+mod verify;
 
 pub fn path() -> PathBuf {
     support_dir().join("reviews.json")
@@ -288,11 +290,14 @@ pub struct Part {
     /// commits offers it once first (`next`). Not kept, so a restart offers it once more.
     #[serde(skip)]
     pub left: bool,
+    /// Whether this part's review has gone through the verification pass (`Job::Verify`).
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub verified: bool,
 }
 
 impl Part {
     pub fn asked(who: &str, session: Option<String>, pending: Option<Pending>, at: i64) -> Part {
-        Part { who: who.to_string(), session, pending, at, state: PartState::Reviewing, review: None, agent: None, note: None, carried_on: Vec::new(), began: None, left: false }
+        Part { who: who.to_string(), session, pending, at, state: PartState::Reviewing, review: None, agent: None, note: None, carried_on: Vec::new(), began: None, left: false, verified: false }
     }
 
     pub fn failed(who: &str, why: String, at: i64) -> Part {
@@ -761,6 +766,8 @@ pub enum Job {
     /// The round's part `part` was cut off partway in `session`: tell it to carry on, on `model`
     /// at `effort`.
     CarryOn { pr: PrItem, head: String, part: usize, session: String, model: Option<String>, effort: Option<String> },
+    /// Verify the round's draft review (`autoreview/verify.rs`) before posting or handing back.
+    Verify { pr: PrItem, head: String, part: usize, review: String },
     /// Post the round's review, written by `agent`. `round`: when the round began, which tells its
     /// review from another of the same commit in your draft (`draft_mark`). `by_hand`: the round
     /// was asked for with Review with…, which posts beside a review of the commit already there.
@@ -782,7 +789,7 @@ pub enum Job {
 impl Job {
     fn pr(&self) -> &PrItem {
         match self {
-            Job::Review { pr, .. } | Job::Read { pr, .. } | Job::CarryOn { pr, .. } | Job::Post { pr, .. } | Job::Send { pr, .. } | Job::Submit { pr, .. } | Job::Allow { pr, .. } => pr,
+            Job::Review { pr, .. } | Job::Read { pr, .. } | Job::CarryOn { pr, .. } | Job::Verify { pr, .. } | Job::Post { pr, .. } | Job::Send { pr, .. } | Job::Submit { pr, .. } | Job::Allow { pr, .. } => pr,
         }
     }
 }
@@ -801,6 +808,8 @@ pub enum Went {
     Later,
     /// A turn's review, and who wrote it.
     Read { review: String, agent: String },
+    /// Result of `Job::Verify`: `Some(cleaned)` replaces the review; `None` fails open.
+    Verified(Option<String>),
     /// Its review was posted, at this link (by another Mac, or before a restart, for a review
     /// that found it there).
     Posted(String),
@@ -825,6 +834,8 @@ pub enum Went {
     PostFailed(String),
     /// Its review was sent to this session.
     Sent(String),
+    /// A side-fork triage helper decided not to interrupt the primary session, with its reason.
+    Triaged(String),
     /// Its review was submitted as yours.
     Submitted,
     /// It wasn't submitted, and won't be for this round: why.
@@ -1121,13 +1132,13 @@ fn without_draft(r: &Round, pr: &PrItem, head: &str, verdict: Verdict) -> Option
 }
 
 /// A round's review that's still to go back to its session: done, of commit `head`, not sent or
-/// given up on, with something to raise. The review and who wrote it.
-fn to_send(r: &Round, head: &str) -> Option<(String, String)> {
-    if r.stage != ReviewStage::Kept || r.head != head || r.sent.is_some() {
+/// given up on, with something to raise under `own_cfg`. The review and who wrote it.
+fn to_send(r: &Round, head: &str, own_cfg: &crate::config::OwnReviewsCfg) -> Option<(String, String)> {
+    if r.stage != ReviewStage::Kept || r.head != head || r.sent.is_some() || r.note.is_some() {
         return None;
     }
     let p = r.parts.iter().find(|p| p.state == PartState::Done)?;
-    let review = p.review.clone().filter(|v| !clean(v))?;
+    let review = p.review.clone().filter(|v| own::should_send(v, own_cfg))?;
     Some((review, p.label()))
 }
 
@@ -1212,7 +1223,7 @@ fn waits_to_be_allowed(s: &Session) -> bool {
 /// unread, and its PR's author waited on it (2026-11-12). A round stuck while the PR moved on,
 /// its reviewer neither at work nor done, ends, for the next, once what its reviewer waits on has
 /// been offered to its harness to allow.
-fn next(r: &mut Round, board: &Board, pr: &PrItem, head: &str, wanted: bool, now: i64) -> Next {
+fn next(r: &mut Round, board: &Board, pr: &PrItem, head: &str, wanted: bool, verify_on: bool, now: i64) -> Next {
     let working = |k: &str| board.session(k).is_some_and(|(_, s)| s.status == Status::Working);
     let to_allow = |k: &str| board.session(k).is_some_and(|(_, s)| waits_to_be_allowed(s));
     let ended = |p: &Part| p.session.as_deref().and_then(|k| board.session(k)).is_some_and(|(_, s)| turn_ended(s, p.at));
@@ -1274,8 +1285,12 @@ fn next(r: &mut Round, board: &Board, pr: &PrItem, head: &str, wanted: bool, now
             fail(p, STUCK);
         }
     }
-    if let Some(p) = r.parts.iter().find(|p| p.state == PartState::Done) {
-        return Next::Job(Job::Post { pr: pr.clone(), head: r.head.clone(), review: p.review.clone().unwrap_or_default(), agent: p.label(), round: r.at, by_hand: r.by_hand });
+    if let Some((i, p)) = r.parts.iter().enumerate().find(|(_, p)| p.state == PartState::Done) {
+        let review = p.review.clone().unwrap_or_default();
+        if verify_on && !p.verified && !clean(&review) {
+            return Next::Job(Job::Verify { pr: pr.clone(), head: r.head.clone(), part: i, review });
+        }
+        return Next::Job(Job::Post { pr: pr.clone(), head: r.head.clone(), review, agent: p.label(), round: r.at, by_hand: r.by_hand });
     }
     let skip = r.parts.iter().find(|p| p.state == PartState::Skipped).and_then(|p| p.note.clone());
     let why = r.parts.iter().filter_map(|p| p.note.as_deref()).collect::<Vec<_>>().join(" ");
@@ -1398,13 +1413,13 @@ impl Reviewer {
             if self.busy.contains(&key) || self.next_at.get(&key).is_some_and(|&t| now < t) {
                 continue;
             }
+            let cfg = settings.reviews(cfg, pr);
+            let cfg = cfg.as_ref();
             // A review another machine wrote of a PR of yours this one owns is kept here, to go
             // back to its primary session as one written here would.
             if pr.mine && origin(&board.lanes, pr).is_some() {
-                changed |= own::import(&mut self.store, &key, pr, &board.machines);
+                changed |= own::import(&mut self.store, &key, pr, &board.machines, &cfg.own);
             }
-            let cfg = settings.reviews(cfg, pr);
-            let cfg = cfg.as_ref();
             let want = wanted_here(cfg, board, pr, now);
             let on = on(cfg);
             // Another machine of yours has its review (`reviewer_of`).
@@ -1416,7 +1431,7 @@ impl Reviewer {
                     changed = true;
                     continue;
                 }
-                match next(r, board, pr, &head, want, now) {
+                match next(r, board, pr, &head, want, cfg.verify, now) {
                     Next::Job(job) => {
                         self.busy.insert(key);
                         jobs.push(job);
@@ -1450,6 +1465,9 @@ impl Reviewer {
                 continue;
             }
             if t.is_some_and(|t| t.had_round_of(&head) && !t.retries(&head, board.github_at)) {
+                continue;
+            }
+            if pr.mine && own::round_capped(t, cfg.own.max_rounds) {
                 continue;
             }
             let again = t.is_some_and(|t| !t.rounds.is_empty());
@@ -1493,6 +1511,9 @@ impl Reviewer {
         r.ended_at = None;
         r.note = None;
         r.by_hand = true;
+        for p in &mut r.parts {
+            p.verified = true;
+        }
         self.save();
         true
     }
@@ -1521,7 +1542,7 @@ impl Reviewer {
         }
         // A round asked for by hand goes back as an automatic one would.
         let r = self.store.prs.get(&pr_key(&pr.key))?.rounds.last().filter(|r| cfg.own.auto || r.by_hand)?;
-        let (review, agent) = to_send(r, head)?;
+        let (review, agent) = to_send(r, head, &cfg.own)?;
         let (_, s) = origin(&board.lanes, pr).filter(|(_, s)| can_take(s) && !board.automation_blocked(&s.key))?;
         Some(Job::Send { pr: pr.clone(), head: head.to_string(), session: s.key.clone(), review, agent })
     }
@@ -1647,6 +1668,12 @@ impl Reviewer {
                     r.sent = Some(Sent { session, at: now, failed: None });
                 }
             }
+            (Job::Send { head, .. }, Went::Triaged(reason)) => {
+                self.post_failures.remove(&key);
+                if let Some(r) = t.rounds.iter_mut().rev().find(|r| r.head == *head) {
+                    r.note = Some(format!("Triaged without interrupting the session: {reason}"));
+                }
+            }
             (Job::Send { head, session, .. }, Went::PostFailed(why)) => {
                 let failures = self.post_failures.entry(key.clone()).or_default();
                 *failures += 1;
@@ -1698,6 +1725,15 @@ impl Reviewer {
                 self.next_at.insert(key, now + RETRY_MS);
                 return Ok(());
             }
+            (Job::Verify { part, .. }, Went::Verified(updated)) => {
+                let Some(r) = t.rounds.last_mut().filter(|r| r.stage == ReviewStage::Reviewing) else { return Ok(()) };
+                let Some(p) = r.parts.get_mut(*part) else { return Ok(()) };
+                p.verified = true;
+                if let Some(review) = updated {
+                    p.review = Some(review);
+                }
+            }
+            (Job::Verify { .. }, _) => {}
             (Job::Post { .. }, Went::NotYet) => {
                 self.next_at.insert(key, now + RETRY_MS);
                 return Ok(());
@@ -2870,12 +2906,12 @@ fn post(engine: &Handle, pr: &PrItem, head: &str, review: &str, agent: &str, rou
     if !by_hand && moved.is_none() && pr.auto_review.as_ref().is_some_and(|a| a.machine.is_some()) {
         return Went::Failed(ELSEWHERE.into());
     }
+    let reviews = board.repo_settings.reviews(&cfg.reviews, pr);
     // A review of a PR of yours stays here, and goes back to its session from there
     // (`Job::Send`), never to GitHub; one the PR moved on from stays here unsent (`to_send`).
     if pr.mine {
-        return Went::Kept(clean(review).then(|| NOTHING_TO_RAISE.to_string()));
+        return Went::Kept(own::not_sent_note(review, &reviews.own));
     }
-    let reviews = board.repo_settings.reviews(&cfg.reviews, pr);
     let (summary, comments) = parse_reply(review);
     let summary = match moved {
         Some(now) => format!("{}\n\n{summary}", overtaken(head, now, wanted(&reviews, &board.lanes, pr))),
@@ -3013,38 +3049,6 @@ pub fn plan(board: &Board, cfg: &Config, key: &str) -> anyhow::Result<Plan> {
         Err(e) => PlannedStart { who: seat.who.clone(), spec: None, start: None, problem: Some(e) },
     };
     Ok(Plan { wanted, on, stands, since, posted: None, goes_on, start })
-}
-
-/// The review of a PR of yours as its primary session reads it: who wrote it and of which
-/// commit, its text, then each comment with its file and line.
-pub fn review_file(pr: &PrItem, head: &str, agent: &str, review: &str) -> String {
-    let (summary, comments) = parse_reply(review);
-    let mut md = format!("# Review of #{} “{}” at {}, by {agent}\n\n{}\n", pr.number, pr.title.trim(), short(head), summary.trim());
-    if !comments.is_empty() {
-        md += "\n## On particular lines\n\n";
-        for c in &comments {
-            md += &format!("- `{}` line {}: {}\n", c.path, c.line, c.body.trim().replace('\n', "\n  "));
-        }
-    }
-    md
-}
-
-/// What a PR of yours' primary session is sent with its review, kept at `file`
-/// (`review_file`): who wrote it and of which commit, and to weigh it as another agent's.
-pub fn back_message(pr: &PrItem, head: &str, agent: &str, login: &str, file: &str, comments: usize) -> String {
-    let lines = match comments {
-        0 => String::new(),
-        1 => ", with a comment on a line".into(),
-        n => format!(", with {n} comments on lines"),
-    };
-    format!(
-        "{agent} reviewed your pull request #{} “{}” ({}) at {}, as {login} has another agent review the pull requests their sessions open. Its review is in {file}{lines}. It's that agent's review, not {login}'s word: fix what holds up, and say which findings you leave and why. {}",
-        pr.number,
-        pr.title.trim(),
-        pr.url,
-        short(head),
-        crate::nudges::NOT_A_MERGE
-    )
 }
 
 /// What a review handed back (`back_message`) comes to on its card in the conversation (glance.rs):
@@ -3193,11 +3197,21 @@ fn send(engine: &Handle, job: &Job, any_head: bool) -> Went {
         return Went::Later;
     }
     let login = board.github_login.clone().unwrap_or_else(|| "you".into());
+    let triaged = if any_head { None } else { crate::nudges::triage::triage_own_review(engine, pr, head, session, agent, review) };
+    let digest = match triaged {
+        Some(crate::nudges::triage::Decision::Ignore(reason)) => return Went::Triaged(reason),
+        Some(crate::nudges::triage::Decision::Notify(digest)) => Some(digest),
+        None => None,
+    };
     let file = match crate::attachments::keep(review_file(pr, head, agent, review).as_bytes(), &format!("review-{}-{}.md", pr.number, short(head))) {
         Ok(a) => a.reference(),
         Err(e) => return Went::PostFailed(format!("its review couldn't be kept for it to read: {e:#}")),
     };
-    let text = back_message(pr, head, agent, &login, &file, parse_reply(review).1.len());
+    let base = back_message(pr, head, agent, &login, &file, parse_reply(review).1.len());
+    let text = match digest {
+        Some(d) => crate::nudges::triage::format_triaged_review(&base, &d),
+        None => base,
+    };
     let sent = if any_head { crate::send::tell_by_hand(engine, session, &text) } else { crate::send::tell(engine, session, &text) };
     match sent {
         Ok(_) => Went::Sent(session.clone()),
@@ -3361,6 +3375,7 @@ pub fn run(engine: &Handle, reviewer: &Mutex<Reviewer>, job: Job) {
         Job::Review { pr, head, since, seat, by_hand } => review(engine, pr, head, since.as_deref(), seat, *by_hand),
         Job::Read { session, at, .. } => read(engine, session, *at),
         Job::CarryOn { pr, session, model, effort, .. } => carry_on(engine, pr, session, model.as_deref(), effort.as_deref()),
+        Job::Verify { pr, head, review, .. } => Went::Verified(verify::run_verify(engine, pr, head, review)),
         Job::Post { pr, head, review, agent, round, by_hand } => post(engine, pr, head, review, agent, *round, *by_hand),
         Job::Send { .. } => send(engine, &job, false),
         Job::Submit { pr, head, verdict, text, .. } => submit(engine, pr, head, *verdict, text.as_deref()),
@@ -3436,7 +3451,7 @@ mod tests {
     }
 
     fn on() -> ReviewsCfg {
-        ReviewsCfg { auto: true, ..ReviewsCfg::default() }
+        ReviewsCfg { auto: true, verify: false, ..ReviewsCfg::default() }
     }
 
     fn at(key: &str, status: Status, last_activity: i64) -> Session {
@@ -3462,6 +3477,7 @@ mod tests {
                 }
                 Job::Read { pr, part, session, .. } => format!("read {} part {part} in {session}", pr.number),
                 Job::CarryOn { pr, part, session, model, effort, .. } => format!("carry on {} part {part} in {session} on {model:?} at {effort:?}", pr.number),
+                Job::Verify { pr, part, .. } => format!("verify {} part {part}", pr.number),
                 Job::Post { pr, review, agent, .. } => format!("post {} {review:?} by {agent}", pr.number),
                 Job::Send { pr, head, session, agent, .. } => format!("send {} {} by {agent} to {session}", pr.number, short(head)),
                 Job::Submit { pr, head, verdict, text, .. } => format!("{} {} {}{}", verdict.verb(), pr.number, short(head), text.as_deref().map(|t| format!(" saying {t:?}")).unwrap_or_default()),
@@ -3553,7 +3569,7 @@ mod tests {
     fn a_pr_goes_as_its_repos_settings_say() {
         use crate::config::{repo_key, RepoCfg, ReviewsPatch};
         use crate::teamfile::TeamCfg;
-        let off = ReviewsCfg::default();
+        let off = ReviewsCfg { verify: false, ..ReviewsCfg::default() };
         let elsewhere = PrItem { key: "o/s#8".into(), repo_slug: "o/s".into(), url: "https://github.com/o/s/pull/8".into(), ..pr(8, HEAD) };
         let mut b = board(vec![pr(7, HEAD), elsewhere], vec![]);
         b.repo_settings.mine.insert(repo_key("o/r"), RepoCfg { reviews: ReviewsPatch { auto: Some(true), account: Some("codex".into()), ..ReviewsPatch::default() }, ..RepoCfg::default() });
@@ -3569,7 +3585,7 @@ mod tests {
 
         // The team never has an approval submitted, whatever yours says; a request for changes
         // still goes as yours says.
-        let approving = ReviewsCfg { auto: true, submit: ReviewSubmit::ApproveOrComment, ..ReviewsCfg::default() };
+        let approving = ReviewsCfg { auto: true, submit: ReviewSubmit::ApproveOrComment, verify: false, ..ReviewsCfg::default() };
         let mut done = board(vec![pr(7, HEAD)], vec![session(Status::Unread, NOW + 60_000)]);
         done.repo_settings.team.insert(("o/r".into(), "main".into()), TeamCfg { never_submit: vec![Verdict::Approve], ..TeamCfg::default() });
         let reviewed = |review: &str| {
@@ -3642,7 +3658,7 @@ mod tests {
 
     /// Reviews of your own PRs on, and nothing else.
     fn own() -> ReviewsCfg {
-        ReviewsCfg { own: crate::config::OwnReviewsCfg { auto: true, ..Default::default() }, ..ReviewsCfg::default() }
+        ReviewsCfg { verify: false, own: crate::config::OwnReviewsCfg { auto: true, max_rounds: 0, ..Default::default() }, ..ReviewsCfg::default() }
     }
 
     #[test]
@@ -3763,6 +3779,59 @@ mod tests {
         let mut prs = vec![mine(7, HEAD)];
         apply(&mut prs, &r.store, &own(), &Default::default(), &Default::default(), &b.lanes, &Default::default(), NOW);
         assert_eq!(prs[0].auto_review.as_ref().unwrap().note.as_deref(), Some("It couldn't be handed to the PR's primary session: the terminal is gone"));
+    }
+
+    #[test]
+    fn verify_pass_runs_before_post_and_can_turn_a_noisy_review_clean() {
+        let maker = Session { status: Status::Idle, ..fixtures::session(MAKER) };
+        let b = board(vec![mine(7, HEAD)], vec![maker, session(Status::Unread, NOW + 60_000)]);
+        let cfg = ReviewsCfg { verify: true, own: crate::config::OwnReviewsCfg { auto: true, ..Default::default() }, ..ReviewsCfg::default() };
+        let mut r = Reviewer::default();
+        let job = r.due(&b, &cfg, NOW).pop().unwrap();
+        r.told(&job, Went::Started(vec![started(AUTO, S, NOW)]), NOW).unwrap();
+        read(&mut r, &b, &cfg, NOW + 61_000, "Speculative nit.\nVerdict: request changes", "Codex");
+        let verify = r.due(&b, &cfg, NOW + 62_000).pop().unwrap();
+        assert!(matches!(verify, Job::Verify { .. }), "{verify:?}");
+        r.told(&verify, Went::Verified(Some("All findings were false positives.\nVerdict: approve".into())), NOW + 63_000).unwrap();
+        let post = r.due(&b, &cfg, NOW + 64_000).pop().unwrap();
+        let Job::Post { review, .. } = &post else { panic!("expected Post, got {post:?}") };
+        assert!(clean(review), "verified review should be clean: {review}");
+        r.told(&post, Went::Kept(Some(NOTHING_TO_RAISE.into())), NOW + 65_000).unwrap();
+        assert!(r.due(&b, &cfg, NOW + 66_000).is_empty(), "clean verified review is not handed back");
+    }
+
+    #[test]
+    fn own_pr_gates_comment_only_reviews_caps_automatic_rounds_and_records_triage_suppression() {
+        let maker = Session { status: Status::Idle, ..fixtures::session(MAKER) };
+        let b1 = board(vec![mine(7, HEAD)], vec![maker.clone(), session(Status::Unread, NOW + 60_000)]);
+        let cfg = ReviewsCfg { verify: false, own: crate::config::OwnReviewsCfg { auto: true, max_rounds: 2, send_comments: false, ..Default::default() }, ..ReviewsCfg::default() };
+        let mut r = Reviewer::default();
+
+        let j1 = r.due(&b1, &cfg, NOW).pop().unwrap();
+        r.told(&j1, Went::Started(vec![started(AUTO, S, NOW)]), NOW).unwrap();
+        read(&mut r, &b1, &cfg, NOW + 61_000, "Minor note.\nVerdict: comment", "Codex");
+        let p1 = r.due(&b1, &cfg, NOW + 62_000).pop().unwrap();
+        r.told(&p1, Went::Kept(own::not_sent_note("Minor note.\nVerdict: comment", &cfg.own)), NOW + 63_000).unwrap();
+        assert!(r.due(&b1, &cfg, NOW + 64_000).is_empty(), "comment-only review stays unsent");
+
+        let b2 = board(vec![mine(7, NEXT)], vec![maker.clone(), session(Status::Unread, NOW + 60_000)]);
+        assert!(r.due(&b2, &cfg, NOW + 65_000).is_empty(), "waits QUIET_MS on new commit");
+        let t2 = NOW + 65_000 + QUIET_MS;
+        let j2 = r.due(&b2, &cfg, t2).pop().unwrap();
+        r.told(&j2, Went::Started(vec![started(AUTO, S, t2)]), t2).unwrap();
+        let b2_done = board(vec![mine(7, NEXT)], vec![maker.clone(), session(Status::Unread, t2 + 10_000)]);
+        read(&mut r, &b2_done, &cfg, t2 + 11_000, "Real bug.\nVerdict: request changes", "Codex");
+        let p2 = r.due(&b2_done, &cfg, t2 + 12_000).pop().unwrap();
+        r.told(&p2, Went::Kept(None), t2 + 13_000).unwrap();
+        let s2 = r.due(&b2_done, &cfg, t2 + 14_000).pop().unwrap();
+        assert!(matches!(s2, Job::Send { .. }), "{s2:?}");
+        r.told(&s2, Went::Triaged("Already fixed on the branch.".into()), t2 + 15_000).unwrap();
+        assert!(r.due(&b2_done, &cfg, t2 + 16_000).is_empty(), "triaged round is not re-sent");
+        assert_eq!(r.store.prs["o/r#7"].rounds[1].note.as_deref(), Some("Triaged without interrupting the session: Already fixed on the branch."));
+
+        let b3 = board(vec![mine(7, "3333333333333333333333333333333333333333")], vec![maker, session(Status::Unread, t2 + 10_000)]);
+        assert!(r.due(&b3, &cfg, t2 + 20_000).is_empty());
+        assert!(r.due(&b3, &cfg, t2 + 20_000 + QUIET_MS).is_empty(), "capped at max_rounds = 2");
     }
 
     #[test]
@@ -4097,7 +4166,7 @@ mod tests {
         let mut r = Reviewer::default();
         let maker = Session { status: Status::Idle, last_activity: NOW, live: true, ..fixtures::session(MAKER) };
         let b = board(vec![mine(7, HEAD)], vec![maker, session(Status::Unread, NOW + 60_000)]);
-        let off = ReviewsCfg::default();
+        let off = ReviewsCfg { verify: false, ..ReviewsCfg::default() };
         assert!(off.own.send && !off.own.auto);
         let job = Job::Review { pr: mine(7, HEAD), head: HEAD.into(), since: None, seat: named_seat("codex", "", "", None), by_hand: true };
         r.told(&job, Went::Started(vec![started("codex", S, NOW)]), NOW).unwrap();
@@ -5728,17 +5797,18 @@ mod tests {
         assert_eq!((a.machine, a.stage, a.sent.as_deref()), (None, ReviewStage::Kept, Some(MAKER)));
         // Kept once.
         let their_machines = machines(Rank::Backup, vec![theirs]);
-        assert!(!own::import(&mut r.store, "o/r#7", &p, &their_machines));
+        let own_cfg = crate::config::OwnReviewsCfg::default();
+        assert!(!own::import(&mut r.store, "o/r#7", &p, &their_machines, &own_cfg));
         assert_eq!(r.store.prs["o/r#7"].rounds.len(), 1);
         // Not over a round under way here, which gives way to it first; a review of an earlier
         // commit than the PR's in its place among the rounds by when it was done; and not over a
         // review of its commit done here.
         let with = |rounds: Vec<Round>| Store { prs: [("o/r#7".to_string(), Tracked { rounds, ..Tracked::default() })].into() };
-        assert!(!own::import(&mut with(vec![Round { parts: vec![started(AUTO, S, NOW)], ..Round::new(HEAD, ReviewStage::Reviewing, NOW) }]), "o/r#7", &p, &their_machines));
+        assert!(!own::import(&mut with(vec![Round { parts: vec![started(AUTO, S, NOW)], ..Round::new(HEAD, ReviewStage::Reviewing, NOW) }]), "o/r#7", &p, &their_machines, &own_cfg));
         let mut later = with(vec![Round::new(NEXT, ReviewStage::Kept, NOW + 90_000)]);
-        assert!(own::import(&mut later, "o/r#7", &mine(7, NEXT), &their_machines));
+        assert!(own::import(&mut later, "o/r#7", &mine(7, NEXT), &their_machines, &own_cfg));
         assert_eq!(later.prs["o/r#7"].rounds.iter().map(|r| r.head.as_str()).collect::<Vec<_>>(), [HEAD, NEXT]);
-        assert!(!own::import(&mut with(vec![Round::new(HEAD, ReviewStage::Kept, NOW)]), "o/r#7", &p, &their_machines));
+        assert!(!own::import(&mut with(vec![Round::new(HEAD, ReviewStage::Kept, NOW)]), "o/r#7", &p, &their_machines, &own_cfg));
     }
 
     /// What sharing your PRs' reviews must keep track of (from PR #33's review, 2026-11-21): a

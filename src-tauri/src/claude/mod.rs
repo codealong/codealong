@@ -624,6 +624,10 @@ impl crate::harness::Adapter for ClaudeCode {
     /// its rules. It runs on the model and effort picked for it (`--model`,
     /// `--effort`), else the account's usual ones, and has its rules with its first question as a
     /// copy does.
+    fn supports_fresh_side(&self) -> bool {
+        true
+    }
+
     fn fresh_side(&self, ctx: &crate::harness::Ctx, _cwd: &Path, rules: &str, reads: &Path, on: crate::side::RunsOn) -> anyhow::Result<crate::side::Recipe> {
         let reads = format!("--add-dir={}", reads.display());
         let looks = pr_lookups_allowed();

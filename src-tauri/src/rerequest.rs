@@ -249,7 +249,7 @@ mod tests {
         Board { prs: vec![p], lanes: vec![crate::fixtures::lane("/work", vec![Session { status, ..crate::fixtures::session(A) }])], ..Board::default() }
     }
 
-    const ON: PullRequestsCfg = PullRequestsCfg { nudge_by_default: false, nudge_about: crate::config::NudgeAbout::Everything, rerequest_after_fixes: true, reviews_first: false };
+    const ON: PullRequestsCfg = PullRequestsCfg { nudge_by_default: false, nudge_about: crate::config::NudgeAbout::Everything, triage_nudges: true, nudge_bots: Vec::new(), rerequest_after_fixes: true, reviews_first: false };
 
     #[test]
     fn asks_the_reviewer_once_the_fixes_have_settled_and_nobody_works_on_them() {

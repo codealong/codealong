@@ -1560,10 +1560,10 @@ query($owner: String!, $name: String!, $number: Int!) {
     pullRequest(number: $number) {
       body bodyHTML mergeable
       commits { totalCount }
-      reviews(last: 50) { nodes { id author { login } state submittedAt body url } }
+      reviews(last: 50) { nodes { id author { __typename login } state submittedAt body url } }
       reviewRequests(first: 20) { nodes { requestedReviewer { __typename ... on User { login } ... on Team { name } } } }
-      comments(last: 50) { nodes { id author { login } body createdAt url } }
-      reviewThreads(last: 50) { nodes { isResolved isOutdated path line diffSide comments(first: 1) { totalCount nodes { id author { login } body createdAt url pullRequestReview { id } } } } }
+      comments(last: 50) { nodes { id author { __typename login } body createdAt url } }
+      reviewThreads(last: 50) { nodes { isResolved isOutdated path line diffSide comments(first: 1) { totalCount nodes { id author { __typename login } body createdAt url pullRequestReview { id } } } } }
     }
   }
 }
@@ -1578,6 +1578,9 @@ pub struct PrReview {
     pub at: Option<i64>,
     /// Given by whoever `gh` is signed in as.
     pub mine: bool,
+    /// Written by a GitHub App bot (`__typename == "Bot"` or `[bot]` login).
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub bot: bool,
 }
 
 /// A comment on a PR: on the conversation, a review's own text, or the first comment of a
@@ -1587,6 +1590,9 @@ pub struct PrReview {
 pub struct PrComment {
     pub id: String,
     pub author: String,
+    /// Written by a GitHub App bot (`__typename == "Bot"` or `[bot]` login).
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub bot: bool,
     /// As written, in Markdown.
     pub body: String,
     pub at: Option<i64>,
@@ -1702,18 +1708,21 @@ pub fn parse_detail(graph: &str, files: &str) -> Result<PrDetail> {
     let pr = v.pointer("/data/repository/pullRequest").ok_or_else(|| anyhow!("GitHub didn't return the PR"))?;
     let viewer = v.pointer("/data/viewer/login").and_then(Value::as_str);
     let mut latest: Vec<PrReview> = Vec::new();
+    let author_is_bot = |n: &Value, login: &str| n.get("author").is_some_and(is_bot) || login.ends_with("[bot]");
     for r in pr.pointer("/reviews/nodes").and_then(Value::as_array).into_iter().flatten() {
         let Some(author) = r.pointer("/author/login").and_then(Value::as_str) else { continue };
         let state = r.get("state").and_then(Value::as_str).unwrap_or("COMMENTED").to_string();
         let at = r.get("submittedAt").and_then(Value::as_str).and_then(parse_rfc3339_ms);
+        let bot = author_is_bot(r, author);
         match latest.iter_mut().find(|x| x.author == author) {
             // A later comment doesn't undo an approval or a change request.
             Some(x) if state == "COMMENTED" && x.state != "COMMENTED" => {}
             Some(x) => {
                 x.state = state;
                 x.at = at;
+                x.bot |= bot;
             }
-            None => latest.push(PrReview { author: author.to_string(), state, at, mine: viewer == Some(author) }),
+            None => latest.push(PrReview { author: author.to_string(), state, at, mine: viewer == Some(author), bot }),
         }
     }
     let requested = pr
@@ -1732,9 +1741,11 @@ pub fn parse_detail(graph: &str, files: &str) -> Result<PrDetail> {
             return None;
         }
         let author = n.pointer("/author/login").and_then(Value::as_str).unwrap_or("ghost").to_string();
+        let bot = author_is_bot(n, &author);
         Some(PrComment {
             id: n.get("id").and_then(Value::as_str)?.to_string(),
             mine: viewer == Some(author.as_str()),
+            bot,
             author,
             body,
             at: n.get("createdAt").or_else(|| n.get("submittedAt")).and_then(Value::as_str).and_then(parse_rfc3339_ms),
@@ -3375,5 +3386,25 @@ mod tests {
         assert!(heads_query(2).contains("$c1: GitObjectID!") && heads_query(2).contains("c1: object(oid: $c1)"));
         let key = head_key("Northwind/App", &"a".repeat(40));
         assert_eq!((key.as_str(), head_of_key(&key)), (format!("northwind/app {}", "a".repeat(40)).as_str(), Some("a".repeat(40).as_str())));
+    }
+
+    #[test]
+    fn parse_detail_marks_bot_reviews_and_comments() {
+        let graph = r#"{"data":{"viewer":{"login":"me"},"repository":{"pullRequest":{"bodyHTML":"","mergeable":"MERGEABLE","commits":{"totalCount":1},
+          "reviews":{"nodes":[
+            {"id":"R1","author":{"__typename":"Bot","login":"coderabbitai"},"state":"COMMENTED","submittedAt":"2026-11-20T10:00:00Z","body":"Summary","url":"u1"},
+            {"id":"R2","author":{"__typename":"User","login":"ana"},"state":"CHANGES_REQUESTED","submittedAt":"2026-11-20T10:05:00Z","body":"Fix this","url":"u2"}]},
+          "reviewRequests":{"nodes":[]},
+          "comments":{"nodes":[
+            {"id":"C1","author":{"__typename":"Bot","login":"vercel"},"body":"Preview ready","createdAt":"2026-11-20T10:01:00Z","url":"u3"},
+            {"id":"C2","author":{"login":"dependabot[bot]"},"body":"Rebased","createdAt":"2026-11-20T10:02:00Z","url":"u4"},
+            {"id":"C3","author":{"__typename":"User","login":"bo"},"body":"Looks good","createdAt":"2026-11-20T10:03:00Z","url":"u5"}]},
+          "reviewThreads":{"nodes":[]}}}}}"#;
+        let d = parse_detail(graph, "[]").unwrap();
+        assert_eq!(d.reviews.iter().find(|r| r.author == "coderabbitai").unwrap().bot, true);
+        assert_eq!(d.reviews.iter().find(|r| r.author == "ana").unwrap().bot, false);
+        assert_eq!(d.comments.iter().find(|c| c.id == "C1").unwrap().bot, true);
+        assert_eq!(d.comments.iter().find(|c| c.id == "C2").unwrap().bot, true);
+        assert_eq!(d.comments.iter().find(|c| c.id == "C3").unwrap().bot, false);
     }
 }

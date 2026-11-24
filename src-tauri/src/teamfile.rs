@@ -648,7 +648,7 @@ reviews_first = true
         let s = &cfg.suggests;
         assert_eq!((s.reviews.auto, s.reviews.post), (Some(true), Some(ReviewPost::Comment)));
         assert_eq!((s.reviews.own.auto, s.reviews.own.send), (Some(true), Some(false)));
-        assert_eq!(s.pull_requests, PullRequestsPatch { nudge_by_default: Some(true), nudge_about: None, rerequest_after_fixes: Some(true), reviews_first: None });
+        assert_eq!(s.pull_requests, PullRequestsPatch { nudge_by_default: Some(true), rerequest_after_fixes: Some(true), ..PullRequestsPatch::default() });
         // None of a person's own settings: those aren't the team's to suggest.
         assert_eq!((&s.reviews.account, &s.reviews.model, &s.reviews.prompt, s.reviews.submit), (&None, &None, &None, None));
         assert_eq!(parse("", &none).unwrap(), (TeamCfg::default(), Vec::new()));

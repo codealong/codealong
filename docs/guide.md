@@ -1368,6 +1368,18 @@ message the session gets on an open PR, in a last line: its approvals and merges
 where merges are told) aren't passed on, and `codealong pr watch <pr>` has them told, for a session
 waiting on one. `codealong pr nudge` says the same as it turns a nudge on, and `codealong pr show`
 while one is on.
+
+To keep PR nudges quiet and high-signal, Codealong batches bursts of non-urgent updates (comments,
+failing checks, conflicts) over a short quiet window (one minute, capped at three minutes), ignores
+bot comments and reviews unless allowlisted in `[pull_requests] nudge_bots` (a list of bot logins,
+or `["*"]` for all bots), and skips comments that `[decisions] pull_requests` (`prasks`) marks as
+not asking for work. With `[pull_requests] triage_nudges` (on by default; Settings › Automation ›
+Triage updates with a helper first), a read-only side copy of the primary session inspects failing
+CI logs, review comments, and automatic own-PR review handbacks before notifying or waking the main
+session: if nothing actionable remains (a flaky check, an already-addressed comment, or a false
+positive), the interruption is suppressed and the triage note is kept quietly in the session's side
+history; otherwise a distilled digest is delivered. Watched PRs bypass triage so explicit watches
+always hear raw status changes.
 Also when it's merged, the box under it, adds a merge to either (`"feedback-and-merges"`,
 `"feedback-checks-and-merges"`): the session is told the PR was merged, and that
 nothing more is wanted on it, so it can wrap its work up. If the session is mid-turn when the merge
@@ -1640,10 +1652,15 @@ code around them. With `[reviews.own] send` (on unless turned off), the PR's pri
 is sent a message once it runs here and doesn't wait on you to answer something: which agent
 reviewed which commit, that its review is in a file it reads (kept as an attachment, so another
 agent's words never reach it typed in as yours), to fix what holds up and say what it leaves, and
-that it isn't asked to merge. A review that found nothing to raise isn't sent, nor one of a commit
-the PR has moved on from: the next round's is. A send that doesn't go is tried a few times and then
-said. The Reviews tab says where each review went or why it hasn't, and Send hands the latest to the
-session by hand while it runs here, whatever `send` says. While `send` is on, the reviewer's own
+that it isn't asked to merge. Before a review (of yours or someone else's PR) is drafted, posted, or
+handed back, `[reviews] verify` (on by default; `verify_account` and `verify_model` override the
+verifier) runs a read-only critic pass to drop false positives, already-handled edge cases, and
+style nits. A review that found nothing to raise isn't sent, nor a `Verdict: comment` review unless
+`[reviews.own] send_comments = true` (it stays in the Reviews tab to send by hand), nor one of a
+commit the PR has moved on from: the next round's is. Automatic own-PR review rounds cap at
+`[reviews.own] max_rounds` (default `2`, `0` for unlimited; manual reviews always run). The Reviews
+tab says where each review went or why it hasn't, and Send hands the latest to the session by hand
+while it runs here, whatever `send` says. While `send` is on, the reviewer's own
 messages to that session (an answer to what it asked about the review, say) aren't held for you to
 allow when it skips permission prompts, as a helper's aren't (see *Helpers*). New commits are
 reviewed again once the branch holds still, as above, so a session that fixes what was raised has

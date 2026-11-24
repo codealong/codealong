@@ -25,6 +25,9 @@ pub use codealong_peer::feed::Rank;
 pub use crate::decisions::{DecisionModelCfg, DecisionsCfg};
 use crate::decisions::default_decider;
 
+mod pull_requests;
+pub use pull_requests::{NudgeAbout, PullRequestsCfg, PullRequestsPatch};
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct Config {
     #[serde(default = "default_scan")]
@@ -577,6 +580,17 @@ pub struct ReviewsCfg {
     /// written; `combine` from then is dropped as unknown.
     #[serde(default, skip_serializing)]
     pub reviewers: Vec<ReviewerCfg>,
+    /// Run an adversarial verification pass over a review's findings before posting it or handing
+    /// it back (autoreview/verify.rs), dropping false positives and style nits.
+    #[serde(default = "yes")]
+    pub verify: bool,
+    /// Account or routing group for the verifier pass; empty picks a fast account that supports
+    /// read-only side runs.
+    #[serde(default)]
+    pub verify_account: String,
+    /// Model for the verifier pass; empty uses the verifier account's default.
+    #[serde(default)]
+    pub verify_model: String,
     /// Your own pull requests, `[reviews.own]`.
     #[serde(default)]
     pub own: OwnReviewsCfg,
@@ -592,8 +606,12 @@ pub struct ReviewsCfg {
 
 impl Default for ReviewsCfg {
     fn default() -> Self {
-        ReviewsCfg { auto: false, account: String::new(), model: String::new(), effort: String::new(), other_harness: true, drafts: true, prompt: String::new(), start: ReviewStart::NoTerminal, post: ReviewPost::Draft, submit: ReviewSubmit::Never, auto_approve: false, reviewers: Vec::new(), own: OwnReviewsCfg::default(), team_instructions: String::new(), never_submit: Vec::new() }
+        ReviewsCfg { auto: false, account: String::new(), model: String::new(), effort: String::new(), other_harness: true, drafts: true, prompt: String::new(), start: ReviewStart::NoTerminal, post: ReviewPost::Draft, submit: ReviewSubmit::Never, auto_approve: false, reviewers: Vec::new(), verify: true, verify_account: String::new(), verify_model: String::new(), own: OwnReviewsCfg::default(), team_instructions: String::new(), never_submit: Vec::new() }
     }
+}
+
+fn default_own_max_rounds() -> u32 {
+    2
 }
 
 /// The pull requests your sessions open, each reviewed by an agent on another model or provider
@@ -625,6 +643,15 @@ pub struct OwnReviewsCfg {
     /// you; else it's kept here, to send from the PR's Review tab.
     #[serde(default = "yes")]
     pub send: bool,
+    /// Also hand back `Verdict: comment` reviews automatically. Off by default: only reviews that
+    /// request changes (or leave no verdict line) interrupt the primary session; comment-only
+    /// reviews stay in the Reviews tab to send by hand.
+    #[serde(default)]
+    pub send_comments: bool,
+    /// Maximum automatic own-PR review rounds per PR before stopping (0 for unlimited; manual
+    /// reviews still run). Keeps review→fix→re-review loops bounded.
+    #[serde(default = "default_own_max_rounds")]
+    pub max_rounds: u32,
     /// Review your draft PRs too, not only the ones ready for review. Other people's drafts go by
     /// `[reviews] drafts`.
     #[serde(default)]
@@ -637,7 +664,7 @@ pub struct OwnReviewsCfg {
 
 impl Default for OwnReviewsCfg {
     fn default() -> Self {
-        OwnReviewsCfg { auto: false, account: String::new(), model: String::new(), effort: String::new(), other_harness: true, prompt: String::new(), send: true, drafts: false, team_instructions: String::new() }
+        OwnReviewsCfg { auto: false, account: String::new(), model: String::new(), effort: String::new(), other_harness: true, prompt: String::new(), send: true, send_comments: false, max_rounds: default_own_max_rounds(), drafts: false, team_instructions: String::new() }
     }
 }
 
@@ -732,70 +759,6 @@ impl ReviewSubmit {
     }
 }
 
-/// Your PRs (nudges.rs). A PR's own switch, on its card, its menu or `codealong pr nudge`, wins
-/// over this either way.
-#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq)]
-pub struct PullRequestsCfg {
-    /// Every open PR of yours tells its primary session (board.rs `pr_primary`) what happens on
-    /// it. Off, a PR tells nobody until turned on for it.
-    #[serde(default)]
-    pub nudge_by_default: bool,
-    /// What a PR whose nudge is on tells its session about.
-    #[serde(default)]
-    pub nudge_about: NudgeAbout,
-    /// On a PR of yours whose reviewer asked for changes, ask them to review it again once
-    /// commits came after their last word, nobody said so on it, and it's been quiet a while
-    /// (rerequest.rs): GitHub tells a reviewer of a request, not of a push. It acts as you, so
-    /// it's off until you turn it on.
-    #[serde(default)]
-    pub rerequest_after_fixes: bool,
-    /// A PR waiting on your review goes ahead of everything else in what waits on you (src/queue.ts
-    /// `byPlace`), in the notch, the waiting window and the quick panel's list. Off, reviews come
-    /// where `[queue] order` puts them. A repo's team can turn it on for everyone (teamfile.rs),
-    /// and your table for a repo wins over both.
-    #[serde(default)]
-    pub reviews_first: bool,
-}
-
-/// What a nudge tells a PR's session about (nudges.rs `NudgeAbout::keep`). `everything`: reviews,
-/// comments, an approval, a merge or close, failing checks, and a branch that came to conflict
-/// with its base. `feedback`: only what asks for work: comments, and reviews that ask for changes
-/// or say something, never an approval, a merge or a close. `feedback-and-checks`: that, failing
-/// checks and conflicts. `feedback-and-merges` and `feedback-checks-and-merges`: one of those, and
-/// a merge, so the session can wrap its work up; still never an approval or a close.
-#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Default)]
-#[serde(rename_all = "kebab-case")]
-pub enum NudgeAbout {
-    #[default]
-    Everything,
-    Feedback,
-    FeedbackAndChecks,
-    FeedbackAndMerges,
-    FeedbackChecksAndMerges,
-}
-
-impl NudgeAbout {
-    pub fn as_str(self) -> &'static str {
-        match self {
-            NudgeAbout::Everything => "everything",
-            NudgeAbout::Feedback => "feedback",
-            NudgeAbout::FeedbackAndChecks => "feedback-and-checks",
-            NudgeAbout::FeedbackAndMerges => "feedback-and-merges",
-            NudgeAbout::FeedbackChecksAndMerges => "feedback-checks-and-merges",
-        }
-    }
-
-    /// It tells of failing checks and conflicts.
-    pub fn checks(self) -> bool {
-        matches!(self, NudgeAbout::Everything | NudgeAbout::FeedbackAndChecks | NudgeAbout::FeedbackChecksAndMerges)
-    }
-
-    /// It tells of a merge.
-    pub fn merges(self) -> bool {
-        matches!(self, NudgeAbout::Everything | NudgeAbout::FeedbackAndMerges | NudgeAbout::FeedbackChecksAndMerges)
-    }
-}
-
 /// Your settings for one repo's pull requests, `[repos."github.com/owner/name"]` (Settings ›
 /// Automation with the repo picked). Each value set here goes for that repo in place of
 /// `[reviews]`'s or `[pull_requests]`'s, and over what the repo's own `.codealong/config.toml`
@@ -829,6 +792,9 @@ impl RepoCfg {
         put(&mut mine.prompt, &r.prompt);
         put(&mut mine.post, &r.post);
         put(&mut mine.submit, &r.submit);
+        put(&mut mine.verify, &r.verify);
+        put(&mut mine.verify_account, &r.verify_account);
+        put(&mut mine.verify_model, &r.verify_model);
         put(&mut mine.own.auto, &o.auto);
         put(&mut mine.own.account, &o.account);
         put(&mut mine.own.model, &o.model);
@@ -836,9 +802,13 @@ impl RepoCfg {
         put(&mut mine.own.other_harness, &o.other_harness);
         put(&mut mine.own.prompt, &o.prompt);
         put(&mut mine.own.send, &o.send);
+        put(&mut mine.own.send_comments, &o.send_comments);
+        put(&mut mine.own.max_rounds, &o.max_rounds);
         put(&mut mine.own.drafts, &o.drafts);
         put(&mut out.pull_requests.nudge_by_default, &over.pull_requests.nudge_by_default);
         put(&mut out.pull_requests.nudge_about, &over.pull_requests.nudge_about);
+        put(&mut out.pull_requests.triage_nudges, &over.pull_requests.triage_nudges);
+        put(&mut out.pull_requests.nudge_bots, &over.pull_requests.nudge_bots);
         put(&mut out.pull_requests.rerequest_after_fixes, &over.pull_requests.rerequest_after_fixes);
         put(&mut out.pull_requests.reviews_first, &over.pull_requests.reviews_first);
         out
@@ -872,6 +842,12 @@ pub struct ReviewsPatch {
     pub post: Option<ReviewPost>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub submit: Option<ReviewSubmit>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub verify: Option<bool>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub verify_account: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub verify_model: Option<String>,
     #[serde(default, skip_serializing_if = "OwnReviewsPatch::is_empty")]
     pub own: OwnReviewsPatch,
 }
@@ -900,31 +876,16 @@ pub struct OwnReviewsPatch {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub send: Option<bool>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub send_comments: Option<bool>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub max_rounds: Option<u32>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub drafts: Option<bool>,
 }
 
 impl OwnReviewsPatch {
     pub fn is_empty(&self) -> bool {
         *self == OwnReviewsPatch::default()
-    }
-}
-
-/// `[pull_requests]` for one repo, key by key.
-#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq)]
-pub struct PullRequestsPatch {
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub nudge_by_default: Option<bool>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub nudge_about: Option<NudgeAbout>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub rerequest_after_fixes: Option<bool>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub reviews_first: Option<bool>,
-}
-
-impl PullRequestsPatch {
-    pub fn is_empty(&self) -> bool {
-        *self == PullRequestsPatch::default()
     }
 }
 
@@ -960,6 +921,9 @@ pub fn reviews_for(global: &ReviewsCfg, team: Option<&crate::teamfile::TeamCfg>,
         set(&mut r.prompt, &m.prompt);
         r.post = m.post.unwrap_or(r.post);
         r.submit = m.submit.unwrap_or(r.submit);
+        r.verify = m.verify.unwrap_or(r.verify);
+        set(&mut r.verify_account, &m.verify_account);
+        set(&mut r.verify_model, &m.verify_model);
         r.own.auto = m.own.auto.unwrap_or(r.own.auto);
         set(&mut r.own.account, &m.own.account);
         set(&mut r.own.model, &m.own.model);
@@ -967,6 +931,8 @@ pub fn reviews_for(global: &ReviewsCfg, team: Option<&crate::teamfile::TeamCfg>,
         r.own.other_harness = m.own.other_harness.unwrap_or(r.own.other_harness);
         set(&mut r.own.prompt, &m.own.prompt);
         r.own.send = m.own.send.unwrap_or(r.own.send);
+        r.own.send_comments = m.own.send_comments.unwrap_or(r.own.send_comments);
+        r.own.max_rounds = m.own.max_rounds.unwrap_or(r.own.max_rounds);
         r.own.drafts = m.own.drafts.unwrap_or(r.own.drafts);
     }
     r
@@ -983,6 +949,10 @@ pub fn pull_requests_for(global: &PullRequestsCfg, team: Option<&crate::teamfile
     if let Some(m) = mine.map(|m| &m.pull_requests) {
         p.nudge_by_default = m.nudge_by_default.unwrap_or(p.nudge_by_default);
         p.nudge_about = m.nudge_about.unwrap_or(p.nudge_about);
+        p.triage_nudges = m.triage_nudges.unwrap_or(p.triage_nudges);
+        if let Some(bots) = &m.nudge_bots {
+            p.nudge_bots = bots.clone();
+        }
         p.rerequest_after_fixes = m.rerequest_after_fixes.unwrap_or(p.rerequest_after_fixes);
         p.reviews_first = m.reviews_first.unwrap_or(p.reviews_first);
     }
@@ -1003,9 +973,8 @@ pub fn suggestions_left(suggests: &RepoCfg, reviews: &ReviewsCfg, prs: &PullRequ
         },
         pull_requests: PullRequestsPatch {
             nudge_by_default: differs(&suggests.pull_requests.nudge_by_default, prs.nudge_by_default),
-            nudge_about: None,
             rerequest_after_fixes: differs(&suggests.pull_requests.rerequest_after_fixes, prs.rerequest_after_fixes),
-            reviews_first: None,
+            ..PullRequestsPatch::default()
         },
     }
 }
@@ -2767,6 +2736,15 @@ pub fn with_config(text: &str, cfg: &Config) -> Result<String> {
         if !cfg.reviews.drafts || doc["reviews"].get("drafts").is_some() {
             set_value(&mut doc["reviews"]["drafts"], Value::from(cfg.reviews.drafts));
         }
+        if !cfg.reviews.verify || doc["reviews"].get("verify").is_some() {
+            set_value(&mut doc["reviews"]["verify"], Value::from(cfg.reviews.verify));
+        }
+        if !cfg.reviews.verify_account.trim().is_empty() || doc["reviews"].get("verify_account").is_some() {
+            set_value(&mut doc["reviews"]["verify_account"], Value::from(cfg.reviews.verify_account.trim()));
+        }
+        if !cfg.reviews.verify_model.trim().is_empty() || doc["reviews"].get("verify_model").is_some() {
+            set_value(&mut doc["reviews"]["verify_model"], Value::from(cfg.reviews.verify_model.trim()));
+        }
         // What said who reviewed and where it went for a day (2026-10-09): `comment`, then
         // `reviewers` (folded into `account` and `model` as it's read) and `combine`; and
         // `auto_approve`, folded into `submit` (2026-10-11).
@@ -2794,6 +2772,12 @@ pub fn with_config(text: &str, cfg: &Config) -> Result<String> {
             }
             set_value(&mut doc["reviews"]["own"]["prompt"], Value::from(own.prompt.trim()));
             set_value(&mut doc["reviews"]["own"]["send"], Value::from(own.send));
+            if own.send_comments || doc["reviews"]["own"].get("send_comments").is_some() {
+                set_value(&mut doc["reviews"]["own"]["send_comments"], Value::from(own.send_comments));
+            }
+            if own.max_rounds != default_own_max_rounds() || doc["reviews"]["own"].get("max_rounds").is_some() {
+                set_value(&mut doc["reviews"]["own"]["max_rounds"], Value::from(i64::from(own.max_rounds)));
+            }
             set_value(&mut doc["reviews"]["own"]["drafts"], Value::from(own.drafts));
             if !own.other_harness || doc["reviews"]["own"].get("other_harness").is_some() {
                 set_value(&mut doc["reviews"]["own"]["other_harness"], Value::from(own.other_harness));
@@ -2821,6 +2805,12 @@ pub fn with_config(text: &str, cfg: &Config) -> Result<String> {
         }
         set_value(&mut doc["pull_requests"]["nudge_by_default"], Value::from(cfg.pull_requests.nudge_by_default));
         set_value(&mut doc["pull_requests"]["nudge_about"], Value::from(cfg.pull_requests.nudge_about.as_str()));
+        if !cfg.pull_requests.triage_nudges || doc["pull_requests"].get("triage_nudges").is_some() {
+            set_value(&mut doc["pull_requests"]["triage_nudges"], Value::from(cfg.pull_requests.triage_nudges));
+        }
+        if !cfg.pull_requests.nudge_bots.is_empty() || doc["pull_requests"].get("nudge_bots").is_some() {
+            set_value(&mut doc["pull_requests"]["nudge_bots"], Value::Array(Array::from_iter(cfg.pull_requests.nudge_bots.iter().map(|b| b.trim()))));
+        }
         set_value(&mut doc["pull_requests"]["rerequest_after_fixes"], Value::from(cfg.pull_requests.rerequest_after_fixes));
         set_value(&mut doc["pull_requests"]["reviews_first"], Value::from(cfg.pull_requests.reviews_first));
     }
@@ -3162,6 +3152,9 @@ fn set_repos(doc: &mut toml_edit::DocumentMut, repos: &BTreeMap<String, RepoCfg>
             ("prompt", text(&rv.prompt)),
             ("post", rv.post.map(|v| Value::from(v.as_str()))),
             ("submit", rv.submit.map(|v| Value::from(v.as_str()))),
+            ("verify", rv.verify.map(Value::from)),
+            ("verify_account", text(&rv.verify_account)),
+            ("verify_model", text(&rv.verify_model)),
         ];
         let own_values = [
             ("auto", own.auto.map(Value::from)),
@@ -3171,11 +3164,15 @@ fn set_repos(doc: &mut toml_edit::DocumentMut, repos: &BTreeMap<String, RepoCfg>
             ("other_harness", own.other_harness.map(Value::from)),
             ("prompt", text(&own.prompt)),
             ("send", own.send.map(Value::from)),
+            ("send_comments", own.send_comments.map(Value::from)),
+            ("max_rounds", own.max_rounds.map(|v| Value::from(i64::from(v)))),
             ("drafts", own.drafts.map(Value::from)),
         ];
         let prs = [
             ("nudge_by_default", r.pull_requests.nudge_by_default.map(Value::from)),
             ("nudge_about", r.pull_requests.nudge_about.map(|v| Value::from(v.as_str()))),
+            ("triage_nudges", r.pull_requests.triage_nudges.map(Value::from)),
+            ("nudge_bots", r.pull_requests.nudge_bots.as_ref().map(|v| Value::Array(toml_edit::Array::from_iter(v.iter().map(|b| b.trim()))))),
             ("rerequest_after_fixes", r.pull_requests.rerequest_after_fixes.map(Value::from)),
             ("reviews_first", r.pull_requests.reviews_first.map(Value::from)),
         ];
@@ -3422,6 +3419,15 @@ pub fn render(cfg: &Config) -> String {
         if !cfg.reviews.drafts {
             s.push_str("drafts = false\n");
         }
+        if !cfg.reviews.verify {
+            s.push_str("verify = false\n");
+        }
+        if !cfg.reviews.verify_account.trim().is_empty() {
+            s.push_str(&format!("verify_account = {}\n", q(cfg.reviews.verify_account.trim())));
+        }
+        if !cfg.reviews.verify_model.trim().is_empty() {
+            s.push_str(&format!("verify_model = {}\n", q(cfg.reviews.verify_model.trim())));
+        }
         let own = &cfg.reviews.own;
         if *own != OwnReviewsCfg::default() {
             s.push('\n');
@@ -3435,6 +3441,12 @@ pub fn render(cfg: &Config) -> String {
             }
             s.push_str(&format!("prompt = {}\n", toml_edit::Value::from(own.prompt.trim())));
             s.push_str(&format!("send = {}\n", own.send));
+            if own.send_comments {
+                s.push_str("send_comments = true\n");
+            }
+            if own.max_rounds != default_own_max_rounds() {
+                s.push_str(&format!("max_rounds = {}\n", own.max_rounds));
+            }
             s.push_str(&format!("drafts = {}\n", own.drafts));
             if !own.other_harness {
                 s.push_str("other_harness = false\n");
@@ -3447,6 +3459,12 @@ pub fn render(cfg: &Config) -> String {
         s.push_str("[pull_requests]\n");
         s.push_str(&format!("nudge_by_default = {}\n", cfg.pull_requests.nudge_by_default));
         s.push_str(&format!("nudge_about = {}\n", q(cfg.pull_requests.nudge_about.as_str())));
+        if !cfg.pull_requests.triage_nudges {
+            s.push_str("triage_nudges = false\n");
+        }
+        if !cfg.pull_requests.nudge_bots.is_empty() {
+            s.push_str(&format!("nudge_bots = [{}]\n", cfg.pull_requests.nudge_bots.iter().map(|b| q(b.trim())).collect::<Vec<_>>().join(", ")));
+        }
         s.push_str(&format!("rerequest_after_fixes = {}\n", cfg.pull_requests.rerequest_after_fixes));
         s.push_str(&format!("reviews_first = {}\n", cfg.pull_requests.reviews_first));
     }
@@ -3638,8 +3656,8 @@ mod tests {
                 }],
             },
             sessions: SessionsCfg { block_flagged_sessions: false, continue_after_network_error: false, continue_after_sign_in: false, continue_after_restart: false, resume_for_sessions_it_started: false, resume_for_any_session: false, resume_for_pr_news: false, live_replies: true, hibernate_after: 0 },
-            reviews: ReviewsCfg { auto: true, account: "claude".into(), model: "opus".into(), effort: String::new(), other_harness: true, drafts: true, prompt: "Start two subagents.\nThen combine their findings.".into(), start: ReviewStart::Codealong, post: ReviewPost::None, submit: ReviewSubmit::Approve, auto_approve: false, reviewers: Vec::new(), own: OwnReviewsCfg::default(), team_instructions: String::new(), never_submit: Vec::new() },
-            pull_requests: PullRequestsCfg { nudge_by_default: true, nudge_about: NudgeAbout::FeedbackAndChecks, rerequest_after_fixes: false, reviews_first: true },
+            reviews: ReviewsCfg { auto: true, account: "claude".into(), model: "opus".into(), effort: String::new(), other_harness: true, drafts: true, prompt: "Start two subagents.\nThen combine their findings.".into(), start: ReviewStart::Codealong, post: ReviewPost::None, submit: ReviewSubmit::Approve, auto_approve: false, reviewers: Vec::new(), verify: true, verify_account: String::new(), verify_model: String::new(), own: OwnReviewsCfg::default(), team_instructions: String::new(), never_submit: Vec::new() },
+            pull_requests: PullRequestsCfg { nudge_by_default: true, nudge_about: NudgeAbout::FeedbackAndChecks, triage_nudges: true, nudge_bots: Vec::new(), rerequest_after_fixes: false, reviews_first: true },
             repos: BTreeMap::from([("github.com/sprucehq/web".to_string(), RepoCfg { reviews: ReviewsPatch { auto: Some(true), account: Some("codex".into()), post: Some(ReviewPost::Draft), own: OwnReviewsPatch { send: Some(false), ..OwnReviewsPatch::default() }, ..ReviewsPatch::default() }, pull_requests: PullRequestsPatch { nudge_about: Some(NudgeAbout::Feedback), reviews_first: Some(false), ..PullRequestsPatch::default() } })]),
             queue: QueueCfg { order: vec!["reviews".into(), "needs".into(), "unread".into(), "due".into()], due_within: 2 },
             sounds: SoundsCfg { needs_you: "Tink".into(), your_turn: String::new(), review_requested: "Purr".into(), meeting: "Glass".into(), volume: 35 },
@@ -4555,7 +4573,7 @@ mod tests {
         assert!(!old.contains("[reviews]"), "{old}");
         assert!(!with_config(&old, &full()).unwrap().contains("[reviews]"));
         let mut on = full();
-        on.reviews = ReviewsCfg { auto: true, account: "claude".into(), model: "opus".into(), effort: String::new(), other_harness: true, drafts: true, prompt: "Start two subagents, on Opus and Sonnet.\nCombine what they find.".into(), start: ReviewStart::Terminal, post: ReviewPost::Comment, submit: ReviewSubmit::ApproveOrComment, auto_approve: false, reviewers: Vec::new(), own: OwnReviewsCfg::default(), team_instructions: String::new(), never_submit: Vec::new() };
+        on.reviews = ReviewsCfg { auto: true, account: "claude".into(), model: "opus".into(), effort: String::new(), other_harness: true, drafts: true, prompt: "Start two subagents, on Opus and Sonnet.\nCombine what they find.".into(), start: ReviewStart::Terminal, post: ReviewPost::Comment, submit: ReviewSubmit::ApproveOrComment, auto_approve: false, reviewers: Vec::new(), verify: true, verify_account: String::new(), verify_model: String::new(), own: OwnReviewsCfg::default(), team_instructions: String::new(), never_submit: Vec::new() };
         let out = with_config(&old, &on).unwrap();
         assert!(out.contains(&format!("{REVIEWS_COMMENT}[reviews]\nauto = true\naccount = \"claude\"\nmodel = \"opus\"\nprompt = ")), "{out}");
         assert!(out.find("[reviews]").unwrap() < out.find("[[accounts]]").unwrap(), "{out}");
@@ -4769,7 +4787,7 @@ mod tests {
         assert!(none.send && !none.auto && !none.drafts && none.other_harness);
         let old = render(&full());
         let mut on = full();
-        on.reviews.own = OwnReviewsCfg { auto: true, account: "codex".into(), model: "gpt-5.5".into(), effort: String::new(), other_harness: true, prompt: "Look hard at the tests.".into(), send: true, drafts: false, team_instructions: String::new() };
+        on.reviews.own = OwnReviewsCfg { auto: true, account: "codex".into(), model: "gpt-5.5".into(), effort: String::new(), other_harness: true, prompt: "Look hard at the tests.".into(), send: true, send_comments: false, max_rounds: default_own_max_rounds(), drafts: false, team_instructions: String::new() };
         let out = with_config(&old, &on).unwrap();
         assert!(out.contains(&format!("{OWN_REVIEWS_COMMENT}[reviews.own]\nauto = true\naccount = \"codex\"\nmodel = \"gpt-5.5\"\nprompt = \"Look hard at the tests.\"\nsend = true\ndrafts = false")), "{out}");
         // Right after [reviews], whose own lines stay as they were.

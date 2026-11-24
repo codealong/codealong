@@ -1328,6 +1328,13 @@ function ReviewsField({ reviews, set, setOwn, scope, team, disabled, defaultProm
           {scope && team && team.neverSubmit.length > 0 && ` In ${scope.repo}, its team never has ${team.neverSubmit.map((v) => VERDICT_WORDS[v]).join(' or ')} submitted for anyone.`}
         </small>
       </label>
+      <label className="ca-field ca-settings-check">
+        <CheckBox checked={reviews.verify} onChange={(on) => set({ verify: on })} />
+        <span>
+          Verify findings before posting or handing back<SourceTag field="reviews.verify" scope={scope} />
+        </span>
+        <small>Runs a read-only critic pass over each review’s findings to drop false positives, already-handled edge cases, and style nits before drafting on GitHub or notifying your session.</small>
+      </label>
       <OwnReviewsField own={reviews.own} setOwn={setOwn} scope={scope} team={team} accounts={accounts} all={all} lanes={lanes} groups={groups} autoGroup={autoGroup} start={start} defaultPrompt={defaultPrompt} usage={usage} now={now} disabled={disabled} />
     </fieldset>
   );
@@ -1410,10 +1417,18 @@ function OwnReviewsField({ own, setOwn, scope, team, accounts, all, lanes, group
               Hand each review to the pull request’s primary session<SourceTag field="own.send" scope={scope} />
             </span>
             <small>
-              Once that session runs here and doesn’t wait on you, it’s sent a message naming the review, kept as a file it reads, to fix what holds up and say what it leaves. A review that finds nothing to raise isn’t sent, nor one of commits it has moved on from. Off, send one from the pull
-              request’s Reviews tab.
+              Once that session runs here and doesn’t wait on you, reviews that request changes are sent to it (capped at {own.max_rounds || 'unlimited'} automatic rounds per pull request). Off, send one from the pull request’s Reviews tab.
             </small>
           </label>
+          {own.send && (
+            <label className="ca-field ca-settings-check">
+              <CheckBox checked={own.send_comments} onChange={(on) => setOwn({ send_comments: on })} />
+              <span>
+                Hand back comment-only reviews too<SourceTag field="own.send_comments" scope={scope} />
+              </span>
+              <small>Off, reviews that only leave comments stay in the Reviews tab to send by hand instead of interrupting the session.</small>
+            </label>
+          )}
           <label className="ca-field ca-settings-check">
             <CheckBox checked={own.drafts} onChange={(on) => setOwn({ drafts: on })} />
             <span>
@@ -1823,6 +1838,13 @@ function NudgeField({ prs, set, scope, disabled }: { prs: Required<PullRequestsC
             ? 'Everything that happens on it has its merge already.'
             : 'When it’s merged, by you or anyone else, the session is told so, and that nothing more is wanted on it, so it can wrap its work up. Not when it’s closed without being merged, and a session that has stopped isn’t resumed for it.'}
         </small>
+      </label>
+      <label className="ca-field ca-settings-check">
+        <CheckBox checked={prs.triage_nudges} onChange={(on) => set({ triage_nudges: on })} />
+        <span>
+          Triage updates with a helper first<SourceTag field="prs.triage_nudges" scope={scope} />
+        </span>
+        <small>Batches bursts, skips bot chatter, and runs a read-only side copy of the session to check CI logs and review comments before notifying or waking the main session.</small>
       </label>
     </fieldset>
   );

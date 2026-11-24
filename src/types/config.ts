@@ -209,6 +209,11 @@ export interface VoiceCfg {
 export interface PullRequestsCfg {
   nudge_by_default: boolean;
   nudge_about?: NudgeAbout;
+  /** Run a read-only side-fork triage helper before notifying/waking a PR's primary session.
+   *  Older files have none: on. */
+  triage_nudges?: boolean;
+  /** Bot logins allowed to trigger PR nudges (empty ignores all bots; `"*"` allows all). */
+  nudge_bots?: string[];
   /** Ask a reviewer who asked for changes to review again once commits came and nothing was said
    *  (rerequest.rs). Missing from older engines. */
   rerequest_after_fixes?: boolean;
@@ -236,6 +241,9 @@ export interface ReviewsPatch {
   prompt?: string;
   post?: ReviewPost;
   submit?: ReviewSubmit;
+  verify?: boolean;
+  verify_account?: string;
+  verify_model?: string;
   own?: Partial<OwnReviewsCfg>;
 }
 
@@ -328,6 +336,12 @@ export interface ReviewsCfg {
   /** Which of the agent's verdicts goes as your review once it's posted. Older files have none:
    *  never. */
   submit?: ReviewSubmit;
+  /** Verify findings with a critic pass before posting or handing back. Older files have none: on. */
+  verify?: boolean;
+  /** Account or routing group for the verifier pass; empty picks one automatically. */
+  verify_account?: string;
+  /** Model for the verifier pass; empty uses the verifier account's own. */
+  verify_model?: string;
   /** The pull requests your sessions open (`[reviews.own]`). */
   own?: OwnReviewsCfg;
 }
@@ -348,6 +362,10 @@ export interface OwnReviewsCfg {
   prompt?: string;
   /** Hand each review to the PR's primary session. Older files have none: on. */
   send?: boolean;
+  /** Hand back `Verdict: comment` reviews automatically too. Older files have none: off. */
+  send_comments?: boolean;
+  /** Maximum automatic own-PR review rounds per PR (0 = unlimited). Older files have none: 2. */
+  max_rounds?: number;
   /** Review your draft PRs too. Older files have none: off. Others' drafts go by `ReviewsCfg.drafts`. */
   drafts?: boolean;
 }

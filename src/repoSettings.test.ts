@@ -18,8 +18,8 @@ describe('reviewsFor and pullRequestsFor', () => {
     expect(reviewsFor(global, undefined)).toMatchObject({ auto: false, account: 'claude', post: 'draft', submit: 'approve', drafts: true, own: { auto: false, send: true, drafts: false } });
     const mine: RepoCfg = { reviews: { auto: true, account: ' codex ', drafts: false, own: { send: false, drafts: true } }, pull_requests: { nudge_by_default: true } };
     expect(reviewsFor(global, mine)).toMatchObject({ auto: true, account: 'codex', post: 'draft', submit: 'approve', drafts: false, own: { send: false, drafts: true } });
-    expect(pullRequestsFor({ nudge_by_default: false }, team, undefined)).toEqual({ nudge_by_default: false, nudge_about: 'feedback', rerequest_after_fixes: false, reviews_first: false });
-    expect(pullRequestsFor({ nudge_by_default: false }, team, mine)).toEqual({ nudge_by_default: true, nudge_about: 'feedback', rerequest_after_fixes: false, reviews_first: false });
+    expect(pullRequestsFor({ nudge_by_default: false }, team, undefined)).toEqual({ nudge_by_default: false, nudge_about: 'feedback', triage_nudges: true, nudge_bots: [], rerequest_after_fixes: false, reviews_first: false });
+    expect(pullRequestsFor({ nudge_by_default: false }, team, mine)).toEqual({ nudge_by_default: true, nudge_about: 'feedback', triage_nudges: true, nudge_bots: [], rerequest_after_fixes: false, reviews_first: false });
     // Reviews first: yours everywhere, then the team's for everyone, then your table's for the repo.
     expect(pullRequestsFor({ nudge_by_default: false, reviews_first: true }, team, undefined).reviews_first).toBe(true);
     const first: TeamCfg = { ...team, reviewsFirst: true };
@@ -56,6 +56,9 @@ describe('sourceOf', () => {
     expect(sourceOf('prs.reviews_first', undefined, team)).toBe('everywhere');
     expect(sourceOf('prs.reviews_first', undefined, { ...team, reviewsFirst: true })).toBe('team');
     expect(sourceOf('prs.reviews_first', { pull_requests: { reviews_first: false } }, { ...team, reviewsFirst: true })).toBe('repo');
+    expect(sourceOf('reviews.verify', { reviews: { verify: false } }, team)).toBe('repo');
+    expect(sourceOf('own.send_comments', { reviews: { own: { send_comments: true } } }, team)).toBe('repo');
+    expect(sourceOf('prs.triage_nudges', { pull_requests: { triage_nudges: false } }, team)).toBe('repo');
   });
 });
 
