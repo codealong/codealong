@@ -1,16 +1,18 @@
 /* With glass on (src/glass.ts), surfaces fall into three material tiers:
    1. Live window glass (the title bar, status bar, sidebar, its rail, and the quick panel's foot
-      bar): macOS's NSGlassEffectView sits right behind them, so their controls draw as translucent
-      glass pills with a specular top sheen and hairline edge — no opaque white boxes, no green-gray
-      palette borders, and no page-level backdrop-filter (which flickers over native glass in
-      WebKit). Anything that floats over other items (a dragged usage chip, a toast) stays opaque
-      so text underneath doesn't bleed through.
+      bar): macOS's NSGlassEffectView sits right behind them, so real chrome controls (toolbar
+      platters, the bar-placement capsule, the frosted search pill, and quick-panel footer chips)
+      draw as thin translucent capsules with a hairline edge and a 0.5px top rim — no gradient
+      sheen, no resting drop shadows, and no page-level backdrop-filter (which flickers over native
+      glass in WebKit). Hovers and selections stay plain flat translucent tints, and anything that
+      floats over other items (a dragged usage chip, a toast) stays opaque so text underneath
+      doesn't bleed through.
    2. Frosted board ground (the board's bay headers, Kanban columns, folded rail and Add column):
       neutrals are see-through over the frosted glass, while rows and cards keep their own grounds
       for reading legibility.
    3. Opaque glass-matched covers inside the card (the list strip and panel queue strips,
-      --glass-cover): matte neutral controls with no fake live-glass sheen, since scrolling content
-      sits behind them rather than the wallpaper.
+      --glass-cover): matte neutral controls with no live-glass rim, since scrolling content sits
+      behind them rather than the wallpaper.
 
    Popups rendered as DOM descendants of glass bars (the project switcher's menu, the quick panel's
    pickers) sit on opaque --surface-raised and are kept out of the live-glass control rules. */
@@ -43,13 +45,50 @@
   --ink-3: var(--glass-ink-3);
 }
 
-/* ── 2. Raised glass pill buttons & chips on live window glass ───────────────────────────────── */
+/* ── 2. Toolbar platters & standalone glass pills on live window glass ─────────────────────────
+   Related right-side toolbar buttons share a 28px glass platter (.ca-win-bar-group) matching the
+   bar-placement capsule, with borderless buttons inside. Standalone buttons (Meetings while a
+   session is hearing) and quick-panel chips use the same thin fill + rim without drop shadows. */
+.is-glass .ca-win-bar-end > .ca-win-bar-group,
+.is-glass .ca-win-bar-end > .ca-segctl {
+  align-items: center;
+  height: 28px;
+  padding: 1px;
+  gap: 0;
+  box-sizing: border-box;
+  border: 1px solid var(--glass-control-line);
+  border-radius: var(--radius-pill);
+  background: var(--glass-control);
+  box-shadow: var(--shadow-glass-control);
+}
+.is-glass .ca-win-bar-end > .ca-win-bar-group > .ca-btn {
+  height: 24px;
+  border: 0;
+  border-radius: var(--radius-pill);
+  background: transparent;
+  box-shadow: none;
+}
+.is-glass .ca-win-bar-end > .ca-win-bar-group > .ca-btn.is-icon {
+  width: 28px;
+}
+.is-glass .ca-win-bar-end > .ca-win-bar-group > .ca-btn:not(.is-icon) {
+  padding: 0 9px;
+}
+.is-glass .ca-win-bar-end > .ca-win-bar-group > .ca-btn:hover:not(:disabled) {
+  background: var(--glass-hover);
+}
+.is-glass .ca-win-bar-end > .ca-win-bar-group > .ca-btn:active:not(:disabled) {
+  background: var(--glass-selected);
+}
+.is-glass .ca-win-bar-end > .ca-win-bar-group > .ca-btn:focus-visible {
+  box-shadow: var(--shadow-focus);
+}
+
 .is-glass .ca-win-bar-end > .ca-btn,
 .is-glass .ca-quick-bar .ca-quick-chip {
   border-color: var(--glass-control-line);
   border-radius: var(--radius-pill);
-  background-color: var(--glass-control);
-  background-image: var(--glass-sheen);
+  background: var(--glass-control);
   box-shadow: var(--shadow-glass-control);
 }
 .is-glass .ca-win-bar-end > .ca-btn:not(.is-icon) {
@@ -61,14 +100,11 @@
 .is-glass .ca-win-bar-end > .ca-btn:hover:not(:disabled),
 .is-glass .ca-quick-bar .ca-quick-chip:hover:not(:disabled),
 .is-glass .ca-quick-bar .ca-quick-chip[aria-expanded='true'] {
-  background-color: var(--glass-control-hover);
-  background-image: var(--glass-sheen);
-  box-shadow: var(--shadow-glass-control-hover);
+  background: var(--glass-control-hover);
 }
 .is-glass .ca-win-bar-end > .ca-btn:active:not(:disabled),
 .is-glass .ca-quick-bar .ca-quick-chip:active:not(:disabled) {
-  background-color: var(--glass-control-active);
-  box-shadow: var(--shadow-glass-control-active);
+  background: var(--glass-control-active);
 }
 .is-glass .ca-quick-bar .ca-quick-chip:disabled {
   opacity: 0.55;
@@ -78,62 +114,50 @@
   box-shadow: var(--shadow-focus);
 }
 
-/* ── 3. Luminous frosted glass search/prompt bar & sidebar inline input ──────────────────────── */
+/* ── 3. Frosted glass search/prompt pill & sidebar inline input ──────────────────────────────── */
 .is-glass .ca-win-bar .ca-search {
-  padding: 0 7px 0 11px;
+  padding: 0 10px 0 11px;
   border: 1px solid var(--glass-control-line);
   border-radius: var(--radius-pill);
-  background-color: var(--glass-field);
-  background-image: var(--glass-sheen);
+  background: var(--glass-field);
   box-shadow: var(--shadow-glass-field);
 }
 .is-glass .ca-win-bar .ca-search:hover {
-  background-color: var(--glass-field-hover);
-  background-image: var(--glass-sheen);
-  box-shadow: var(--shadow-glass-control);
+  background: var(--glass-field-hover);
   color: var(--ink-2);
 }
 .is-glass .ca-win-bar .ca-search:active {
-  background-color: var(--glass-control-active);
-  box-shadow: var(--shadow-glass-control-active);
+  background: var(--glass-control-active);
 }
 .is-glass .ca-win-bar .ca-search:focus-visible {
   box-shadow: var(--shadow-focus);
 }
+/* Plain quiet shortcut text inside the frosted pill (no keycap pills inside a pill). */
+.is-glass .ca-win-bar .ca-search .ca-kbds {
+  gap: 1px;
+}
 .is-glass .ca-win-bar .ca-search .ca-kbd {
-  padding: 0 5px;
-  border-color: transparent;
-  border-radius: var(--radius-pill);
-  background: var(--glass-kbd);
+  min-width: 0;
+  padding: 0 1px;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
 }
 .is-glass .ca-side .ca-side-name {
   padding: 0 11px;
   border-color: var(--glass-control-line);
   border-radius: var(--radius-pill);
-  background-color: var(--glass-field);
-  background-image: var(--glass-sheen);
+  background: var(--glass-field);
   box-shadow: var(--shadow-glass-field);
 }
 .is-glass .ca-side .ca-side-name:focus {
-  background-color: var(--glass-field-hover);
+  background: var(--glass-field-hover);
   box-shadow: var(--shadow-focus);
 }
 
 /* ── 4. Segmented controls on live window glass ────────────────────────────────────────────────
-   In the title bar, the grouped toggle sits in the same 28px raised glass capsule as the adjacent
-   buttons, with a tinted inner pill for the selected option. In the sidebar, segmented controls
-   keep a recessed track with a raised glass thumb. */
-.is-glass .ca-win-bar-end > .ca-segctl {
-  align-items: center;
-  height: 28px;
-  padding: 1px;
-  box-sizing: border-box;
-  border: 1px solid var(--glass-control-line);
-  border-radius: var(--radius-pill);
-  background-color: var(--glass-control);
-  background-image: var(--glass-sheen);
-  box-shadow: var(--shadow-glass-control);
-}
+   Title-bar .ca-segctl shares the 28px glass platter style above; sidebar segmented controls keep
+   a recessed track with a translucent lifted thumb. */
 .is-glass .ca-side .ca-segctl {
   border-radius: var(--radius-pill);
   background: var(--glass-track);
@@ -152,17 +176,15 @@
   color: var(--ink);
 }
 .is-glass .ca-win-bar-end > .ca-segctl button.is-on {
-  background-color: var(--glass-capsule-on);
-  background-image: none;
+  background: var(--glass-capsule-on);
   box-shadow: var(--shadow-glass-capsule-on);
 }
 .is-glass .ca-side .ca-segctl button.is-on {
-  background-color: var(--glass-seg-on);
-  background-image: var(--glass-sheen);
-  box-shadow: var(--shadow-glass-control);
+  background: var(--glass-seg-on);
+  box-shadow: var(--shadow-glass-seg);
 }
 
-/* ── 5. Quiet / flat chrome buttons: glass hover pill under the pointer ──────────────────────── */
+/* ── 5. Quiet / flat chrome buttons: plain translucent tint on hover ─────────────────────────── */
 .is-glass .ca-win-bar .ca-sidetoggle,
 .is-glass .ca-win-bar .ca-histnav button,
 .is-glass .ca-win-bar .ca-projswitch-btn,
@@ -176,62 +198,41 @@
 .is-glass .ca-win-bar .ca-projswitch-btn[aria-expanded='true'],
 .is-glass .ca-side-foot .ca-btn--ghost:hover,
 .is-glass .ca-statusbar-end > .ca-btn--ghost:hover {
-  background-color: var(--glass-ghost-hover);
-  background-image: var(--glass-sheen);
-  box-shadow: var(--shadow-glass-ghost);
+  background: var(--glass-hover);
 }
 .is-glass .ca-win-bar .ca-sidetoggle:active,
 .is-glass .ca-win-bar .ca-histnav button:not([aria-disabled='true']):active,
 .is-glass .ca-win-bar .ca-projswitch-btn:active,
 .is-glass .ca-side-foot .ca-btn--ghost:active,
 .is-glass .ca-statusbar-end > .ca-btn--ghost:active {
-  background-color: var(--glass-control-active);
-  box-shadow: var(--shadow-glass-control-active);
-}
-.is-glass .ca-win-bar .ca-sidetoggle:focus-visible,
-.is-glass .ca-win-bar .ca-histnav button:focus-visible {
-  box-shadow: inset 0 0 0 2px var(--focus);
-}
-.is-glass .ca-win-bar .ca-projswitch-btn:focus-visible,
-.is-glass .ca-side-foot .ca-btn--ghost:focus-visible,
-.is-glass .ca-statusbar-end > .ca-btn--ghost:focus-visible {
-  box-shadow: var(--shadow-focus);
+  background: var(--glass-selected);
 }
 
-/* ── 6. Status bar usage chips: flat at rest, glass pill on hover, opaque while dragged ──────── */
-.is-glass .ca-statusbar .ca-uchip {
-  transition: background-color var(--dur-fast) ease-out, border-color var(--dur-fast) ease-out, box-shadow var(--dur-fast) ease-out;
-}
+/* ── 6. Status bar usage chips: flat at rest, plain tint on hover, opaque while dragged ──────── */
 .is-glass .ca-statusbar .ca-uchip:hover:not(.is-lifted) {
-  border-color: var(--glass-control-line);
-  background-color: var(--glass-control);
-  background-image: var(--glass-sheen);
-  box-shadow: var(--shadow-glass-control);
+  border-color: transparent;
+  background: var(--glass-hover);
+  box-shadow: none;
 }
 .is-glass .ca-statusbar .ca-uchip:active:not(.is-lifted) {
-  background-color: var(--glass-control-active);
-  box-shadow: var(--shadow-glass-control-active);
+  background: var(--glass-selected);
 }
 .is-glass .ca-statusbar .ca-uchip:focus-visible {
   box-shadow: inset 0 0 0 2px var(--focus);
 }
 .is-glass .ca-statusbar .ca-uchip.is-attn,
 .is-glass .ca-statusbar .ca-uchip.is-training {
-  border-color: color-mix(in srgb, var(--attn-solid) 55%, transparent);
-  background-color: color-mix(in srgb, var(--attn-solid) 16%, var(--glass-control));
-  background-image: var(--glass-sheen);
-  box-shadow: var(--shadow-glass-control);
+  border-color: color-mix(in srgb, var(--attn-solid) 48%, transparent);
+  background: color-mix(in srgb, var(--attn-solid) 14%, transparent);
+  box-shadow: none;
 }
 .is-glass .ca-statusbar .ca-uchip:is(.is-attn, .is-training):hover:not(.is-lifted) {
-  border-color: color-mix(in srgb, var(--attn-solid) 70%, transparent);
-  background-color: color-mix(in srgb, var(--attn-solid) 20%, var(--glass-control-hover));
-  background-image: var(--glass-sheen);
-  box-shadow: var(--shadow-glass-control-hover);
+  border-color: color-mix(in srgb, var(--attn-solid) 62%, transparent);
+  background: color-mix(in srgb, var(--attn-solid) 20%, transparent);
 }
 .is-glass .ca-statusbar .ca-statusbar-accts.is-sorting .ca-uchip.is-lifted {
   border-color: var(--line);
-  background-color: var(--surface);
-  background-image: none;
+  background: var(--surface);
   box-shadow: var(--shadow-hud);
 }
 
@@ -239,58 +240,46 @@
 .is-glass .ca-win-bar-end .ca-hearing-now,
 .is-glass .ca-statusbar-end .ca-notice,
 .is-glass .ca-statusbar-end .ca-load.is-bar {
-  background-color: color-mix(in srgb, var(--alert-solid) 15%, var(--glass-control));
-  background-image: var(--glass-sheen);
-  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--alert-solid) 28%, transparent), var(--shadow-glass-control);
+  background: color-mix(in srgb, var(--alert-solid) 15%, var(--glass-control));
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--alert-solid) 28%, transparent);
 }
 .is-glass .ca-win-bar-end .ca-hearing-now:hover {
-  background-color: color-mix(in srgb, var(--alert-solid) 20%, var(--glass-control-hover));
-  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--alert-solid) 44%, transparent), var(--shadow-glass-control-hover);
+  background: color-mix(in srgb, var(--alert-solid) 22%, var(--glass-control-hover));
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--alert-solid) 44%, transparent);
 }
 .is-glass .ca-win-bar-end .ca-hearing-now:focus-visible {
   box-shadow: var(--shadow-focus);
 }
 
-/* ── 8. Sidebar & collapsed rail: luminous active glass plate & glass filter chips ───────────── */
+/* ── 8. Sidebar & collapsed rail: flat AppKit selection tint & calm filter chips ─────────────── */
 .is-glass .ca-side .ca-nav,
 .is-glass .ca-rail .ca-rail-btn {
   border-radius: var(--radius-md);
 }
 .is-glass .ca-side .ca-nav.is-active,
 .is-glass .ca-rail .ca-rail-btn.is-on {
-  background-color: var(--nav-selected);
-  background-image: var(--glass-sheen);
-  box-shadow: var(--shadow-glass-control);
+  background: var(--nav-selected);
+  box-shadow: none;
 }
 .is-glass .ca-side .ca-nav.is-active:focus-visible,
 .is-glass .ca-rail .ca-rail-btn.is-on:focus-visible {
-  box-shadow: inset 0 0 0 2px var(--focus), var(--shadow-glass-control);
+  box-shadow: inset 0 0 0 2px var(--focus);
 }
 .is-glass .ca-side .ca-side-chip {
   border-color: var(--glass-line-strong);
 }
 .is-glass .ca-side .ca-side-chip:hover {
-  border-color: var(--glass-control-line);
-  background-color: var(--glass-ghost-hover);
-  background-image: var(--glass-sheen);
-  box-shadow: var(--shadow-glass-ghost);
+  border-color: var(--glass-line-strong);
+  background: var(--glass-hover);
 }
 .is-glass .ca-side .ca-side-chip.is-on {
-  border-color: color-mix(in srgb, var(--ink) 42%, transparent);
-  background-color: var(--glass-seg-on);
-  background-image: var(--glass-sheen);
-  box-shadow: var(--shadow-glass-control);
+  border-color: color-mix(in srgb, var(--ink) 45%, transparent);
+  background: var(--glass-selected);
+  box-shadow: none;
 }
 .is-glass .ca-side .ca-side-chip.is-on:hover {
-  background-color: var(--glass-control-hover);
-  box-shadow: var(--shadow-glass-control-hover);
+  background: color-mix(in srgb, var(--glass-selected) 80%, var(--ink) 8%);
 }
 .is-glass .ca-side .ca-side-chip:focus-visible {
   box-shadow: 0 0 0 2px var(--focus);
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .is-glass .ca-statusbar .ca-uchip {
-    transition: none;
-  }
 }

@@ -13,6 +13,7 @@
 .ca-win-bar-start,
 .ca-win-bar-end { display: flex; align-items: center; gap: var(--space-4); min-width: 0; }
 .ca-win-bar-end { justify-content: flex-end; gap: var(--space-2); }
+.ca-win-bar-group { display: inline-flex; align-items: center; gap: var(--space-2); }
 
 /* The quick panel's box (ui/Quick.tsx), as a button that opens it: what the panel's box says,
    and its shortcut. A field of the card's ground on the chrome's, as an input is. */
