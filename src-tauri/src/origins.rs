@@ -144,17 +144,42 @@ impl Store {
         self.sessions.get(key).map(|e| SessionOrigin { key: e.from.clone(), how: e.how })
     }
 
-    /// The session the session with this key is a helper of, when it was started as one, and
-    /// whether that session is told what it does.
+    /// The session the session with this key is a helper of, when it was started as one (or
+    /// forked from one), and whether that session is told what it does.
     pub fn helper_of(&self, key: &str) -> Option<(&str, bool)> {
-        self.sessions.get(key).filter(|e| e.helper).map(|e| (e.from.as_str(), e.report))
+        let mut at = key;
+        let mut seen = HashSet::new();
+        while seen.insert(at) {
+            let e = self.sessions.get(at)?;
+            if e.helper {
+                return Some((e.from.as_str(), e.report));
+            }
+            if e.how != OriginHow::Fork {
+                return None;
+            }
+            at = e.from.as_str();
+        }
+        None
     }
 
-    /// The session the session with this key was started as a helper of, when the start that made
-    /// it said which session it made (`Entry::known`), not when it was only matched later. Made
-    /// your own since, it's still noted here; the board says it helps no more.
+    /// The session the session with this key was started as a helper of (or forked from such a
+    /// helper), when the start that made it said which session it made (`Entry::known`), not when
+    /// it was only matched later. Made your own since, it's still noted here; the board says it
+    /// helps no more.
     pub fn known_helper_of(&self, key: &str) -> Option<&str> {
-        self.sessions.get(key).filter(|e| e.helper && e.known).map(|e| e.from.as_str())
+        let mut at = key;
+        let mut seen = HashSet::new();
+        while seen.insert(at) {
+            let e = self.sessions.get(at)?;
+            if e.helper {
+                return e.known.then_some(e.from.as_str());
+            }
+            if e.how != OriginHow::Fork || !e.known {
+                return None;
+            }
+            at = e.from.as_str();
+        }
+        None
     }
 
     /// The session whose agent started the session with this key (`codealong start`, a helper or
@@ -681,6 +706,26 @@ mod tests {
             assert!(!store.carry_start("claude:claude2:other", key, 20), "{key}");
         }
         assert_eq!(store.origin_of("claude:claude2:other"), None);
+    }
+
+    #[test]
+    fn a_fork_of_a_helper_stays_a_helper_of_its_parent() {
+        let mut store = Store::default();
+        let entry = |from: &str, how, helper, known| Entry { from: from.into(), how, at: 10, helper, report: helper, known };
+        store.sessions.insert("claude:claude-work:helper".into(), entry("claude:claude2:boss", OriginHow::Started, true, true));
+        store.sessions.insert("claude:claude-work:fork1".into(), entry("claude:claude-work:helper", OriginHow::Fork, false, true));
+        store.sessions.insert("claude:claude-work:fork2".into(), entry("claude:claude-work:fork1", OriginHow::Fork, false, true));
+        assert_eq!(store.helper_of("claude:claude-work:fork1"), Some(("claude:claude2:boss", true)));
+        assert_eq!(store.helper_of("claude:claude-work:fork2"), Some(("claude:claude2:boss", true)));
+        assert_eq!(store.known_helper_of("claude:claude-work:fork1"), Some("claude:claude2:boss"));
+        // A fork of a non-helper stays non-helper, and cycles terminate safely.
+        store.sessions.insert("claude:claude2:plain".into(), entry("claude:claude2:boss", OriginHow::Started, false, true));
+        store.sessions.insert("claude:claude2:plain-fork".into(), entry("claude:claude2:plain", OriginHow::Fork, false, true));
+        assert_eq!(store.helper_of("claude:claude2:plain-fork"), None);
+        store.sessions.insert("claude:claude:cyc1".into(), entry("claude:claude:cyc2", OriginHow::Fork, false, true));
+        store.sessions.insert("claude:claude:cyc2".into(), entry("claude:claude:cyc1", OriginHow::Fork, false, true));
+        assert_eq!(store.helper_of("claude:claude:cyc1"), None);
+        assert_eq!(store.known_helper_of("claude:claude:cyc1"), None);
     }
 
     #[test]

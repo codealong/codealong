@@ -200,6 +200,9 @@ What costs your user when agents don't know of each other:
   and what each is doing.
 - Duplicate sessions on one task: a new session whose prompt or todo matches another running one
   (`codealong sessions find "<key words>"`, a todo's `primary`).
+- Peer ping-pong (`chatter` in `codealong changes`): two non-helper sessions exchanging messages
+  back and forth, which usually means unclear ownership of a branch, PR or deliverable. Flag the
+  pair and suggest consolidating under one owner or making one a helper.
 - PRs touching the same code: for a PR just opened, `gh pr diff <number> -R <owner/name>
   --name-only` against the repo's other open PRs in that area. Migrations above all: two in one
   release can collide on order or schema.

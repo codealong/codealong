@@ -529,6 +529,28 @@ pub struct Session {
     /// were icons on colors.
     #[serde(default, skip_serializing_if = "Option::is_none", deserialize_with = "emblem_or_none")]
     pub emblem: Option<Emblem>,
+    /// Other non-helper sessions this session has been actively messaging back and forth with
+    /// recently (chatter.rs): shown so split ownership and peer loops are visible at a glance.
+    /// Empty when there is no recent peer chatter, and from Macs before 2026-11-24.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub peers: Vec<PeerTalk>,
+}
+
+/// Recent peer-to-peer message activity between this session and another non-helper session
+/// (`Session::peers`, chatter.rs).
+#[derive(Serialize, Deserialize, Clone, Debug, Default, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct PeerTalk {
+    /// The other session's key on its device.
+    pub key: String,
+    /// The other session's title.
+    pub title: String,
+    /// Messages exchanged in both directions within the recent window.
+    pub count: u32,
+    /// Direction changes (back-and-forth flips) within the recent window.
+    pub flips: u32,
+    /// When the latest message went (epoch ms).
+    pub last_at: i64,
 }
 
 /// A session's emblem: something you can name that stands for what it works on, an emoji Jev
@@ -856,6 +878,7 @@ impl Session {
             artifacts: Vec::new(),
             color: None,
             emblem: None,
+            peers: Vec::new(),
         }
     }
 }

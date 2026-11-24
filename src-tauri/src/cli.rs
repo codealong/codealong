@@ -777,6 +777,9 @@ struct SendArgs {
     /// A file to send with it, such as a screenshot or a log: copied into Codealong's store, and the session gets its full path to open (Claude Code's Read tool shows images). Repeatable.
     #[arg(long, value_name = "FILE")]
     attach: Vec<String>,
+    /// One-way notice: tells the other session not to reply unless something is blocked.
+    #[arg(long)]
+    fyi: bool,
 }
 
 #[derive(Args, Debug)]

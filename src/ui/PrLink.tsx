@@ -167,6 +167,10 @@ export const linkHost = {
   subscribe,
   sessions: sessionsNow,
   todos: () => host.todos,
+  pr: (url: string) => {
+    const ref = prRefOf(url);
+    return ref ? (host.index.get(ref.key) ?? null) : null;
+  },
   actions: () => host.actions,
 };
 

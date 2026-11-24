@@ -154,4 +154,7 @@ fn print_changes(out: &crate::changes::Changes, now: i64) {
         let who: Vec<String> = s.sessions.iter().map(|x| format!("{} ({})", truncate(&x.title, 30), word(&x.status))).collect();
         println!("\nShared: {}{} has {} agents at work: {}", tilde(Path::new(&s.worktree)), if s.main { " (main checkout)" } else { "" }, s.sessions.len(), who.join(", "));
     }
+    for c in &out.chatter {
+        println!("\nChatter: {} ↔ {} exchanged {} messages ({} flips)", truncate(&c.a.title, 30), truncate(&c.b.title, 30), c.count, c.flips);
+    }
 }

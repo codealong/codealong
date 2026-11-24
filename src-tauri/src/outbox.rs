@@ -76,6 +76,9 @@ pub struct Held {
     /// Into the turn the session is taking at once, as it was asked (`--now`).
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub now: bool,
+    /// One-way notice (`--fyi`).
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub fyi: bool,
     /// When it was sent (ms).
     pub at: i64,
     /// Sends that failed in a row.
@@ -94,6 +97,7 @@ impl Held {
     /// The sender it goes as.
     fn sender(&self) -> Sender {
         match self.by {
+            By::Agent if self.fyi => Sender::AgentFyi(self.from.clone()),
             By::Agent => Sender::Agent(self.from.clone()),
             By::Side => Sender::Side(self.from.clone()),
             By::Codealong => Sender::Codealong,
@@ -235,7 +239,7 @@ impl Outbox {
         let (By::Agent, Some(from)) = (&h.by, &h.from) else { return };
         let said = crate::jev::clip(&h.text, 300);
         let text = format!("Your message to {to} ({}), sent {ago} while it waited on its user to answer a prompt, wasn't sent: {why}. It began: “{said}”", h.to);
-        self.held.push(Held { id: next_id(now), to: from.clone(), title: String::new(), by: By::Codealong, from: None, text, now: false, at: now, failures: 0, next_at: 0 });
+        self.held.push(Held { id: next_id(now), to: from.clone(), title: String::new(), by: By::Codealong, from: None, text, now: false, fyi: false, at: now, failures: 0, next_at: 0 });
     }
 
     /// What was dropped since it was last asked, a sentence each.
@@ -323,8 +327,9 @@ fn report(engine: &Handle, out: &mut Outbox, sent: bool) {
 /// to answer a prompt, holds a message from an agent or a side conversation to send once it
 /// doesn't (`Outbox`), in a server that sends it then. The answer says it's held.
 pub fn send_or_hold(engine: &Handle, key: &str, text: &str, sender: Sender, now: bool) -> Result<Sent> {
+    let fyi = sender.is_fyi();
     let (by, from) = match &sender {
-        Sender::Agent(from) => (Some(By::Agent), from.clone()),
+        Sender::Agent(from) | Sender::AgentFyi(from) => (Some(By::Agent), from.clone()),
         Sender::Side(from) => (Some(By::Side), from.clone()),
         _ => (None, None),
     };
@@ -333,7 +338,7 @@ pub fn send_or_hold(engine: &Handle, key: &str, text: &str, sender: Sender, now:
     let Some(title) = e.downcast_ref::<WaitsOnItsUser>().map(|w| w.title.clone()) else { return sent };
     let at = crate::util::now_ms();
     let told = sender_told(&by, &from);
-    let h = Held { id: next_id(at), to: key.to_string(), title: title.clone(), by, from, text: text.to_string(), now, at, failures: 0, next_at: 0 };
+    let h = Held { id: next_id(at), to: key.to_string(), title: title.clone(), by, from, text: text.to_string(), now, fyi, at, failures: 0, next_at: 0 };
     let mut out = outbox().lock().unwrap_or_else(|e| e.into_inner());
     let holding = out.hold(h);
     if holding == Holding::Held {
@@ -451,7 +456,7 @@ mod tests {
     }
 
     fn held(text: &str, at: i64) -> Held {
-        Held { id: format!("{text}@{at}"), to: TO.into(), title: "Fix the build".into(), by: By::Agent, from: Some(FROM.into()), text: text.into(), now: false, at, failures: 0, next_at: 0 }
+        Held { id: format!("{text}@{at}"), to: TO.into(), title: "Fix the build".into(), by: By::Agent, from: Some(FROM.into()), text: text.into(), now: false, fyi: false, at, failures: 0, next_at: 0 }
     }
 
     fn ids(due: &[Held]) -> Vec<&str> {

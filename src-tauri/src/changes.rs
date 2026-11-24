@@ -73,6 +73,10 @@ pub struct Look {
     /// Worktrees agents were working in, by path, with their sessions' keys.
     #[serde(default)]
     pub shared: Option<Part<Vec<String>>>,
+    /// Non-helper peer pairs that crossed the chatter threshold, keyed by `a|b`, holding the
+    /// message count last reported.
+    #[serde(default)]
+    pub chatter: Option<Part<u32>>,
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
@@ -347,6 +351,19 @@ pub struct SharedSession {
     pub status: Status,
 }
 
+/// Two non-helper sessions actively messaging each other back and forth (`Session::peers`,
+/// chatter.rs) past the ping-pong threshold.
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct ChatterRow {
+    pub project: String,
+    pub a: SharedSession,
+    pub b: SharedSession,
+    pub count: u32,
+    pub flips: u32,
+    pub last_at: i64,
+}
+
 /// What a look found.
 #[derive(Serialize, Deserialize, Clone, Debug, Default, PartialEq)]
 #[serde(rename_all = "camelCase")]
@@ -370,13 +387,16 @@ pub struct Changes {
     pub prs: Option<Vec<PrRow>>,
     pub todos: Vec<TodoRow>,
     pub shared: Vec<SharedRow>,
+    /// Non-helper peer pairs that crossed the ping-pong chatter threshold since the earlier look.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub chatter: Vec<ChatterRow>,
 }
 
 impl Changes {
     /// Nothing changed and nothing waits on the user without a suggestion or a tag. Headless
     /// runs don't count: what ran them reads them.
     pub fn quiet(&self) -> bool {
-        self.sessions.is_empty() && self.prs.as_ref().map_or(true, Vec::is_empty) && self.todos.is_empty() && self.shared.is_empty()
+        self.sessions.is_empty() && self.prs.as_ref().map_or(true, Vec::is_empty) && self.todos.is_empty() && self.shared.is_empty() && self.chatter.is_empty()
     }
 }
 
@@ -551,8 +571,51 @@ pub fn compare(sight: &Sight, earlier: Option<&Look>, since: i64, now: i64) -> (
             marks.insert(lane.id.clone(), keys);
         }
         look.shared = Some(Part { at: now, marks, repos: BTreeMap::new() });
+
+        // Non-helper peer sessions exchanging back-and-forth chatter past the threshold.
+        let part = earlier.and_then(|l| l.chatter.as_ref());
+        let mut chatter_marks = BTreeMap::new();
+        let by_key: BTreeMap<&str, (&Session, &Lane)> = sessions.iter().map(|&(s, l)| (s.key.as_str(), (s, l))).collect();
+        let mut seen_pairs = BTreeSet::new();
+        for &(s, lane) in &sessions {
+            if s.archived || sight.me == Some(s.key.as_str()) {
+                continue;
+            }
+            for peer in &s.peers {
+                if peer.count < crate::chatter::WARN_MESSAGES || peer.flips < crate::chatter::WARN_FLIPS {
+                    continue;
+                }
+                if sight.me == Some(peer.key.as_str()) {
+                    continue;
+                }
+                let Some(&(other, other_lane)) = by_key.get(peer.key.as_str()) else { continue };
+                if other.archived {
+                    continue;
+                }
+                let (first, second, first_lane, second_lane) = if s.key <= other.key { (s, other, lane, other_lane) } else { (other, s, other_lane, lane) };
+                let pair_key = format!("{}|{}", first.key, second.key);
+                if !seen_pairs.insert(pair_key.clone()) {
+                    continue;
+                }
+                let prev = part.and_then(|p| p.marks.get(&pair_key)).copied().unwrap_or(0);
+                if peer.count > prev && (in_project(&first_lane.project) || in_project(&second_lane.project)) {
+                    let project = if in_project(&first_lane.project) { first_lane.project.clone() } else { second_lane.project.clone() };
+                    out.chatter.push(ChatterRow {
+                        project,
+                        a: SharedSession { key: first.key.clone(), title: first.title.clone(), status: first.status },
+                        b: SharedSession { key: second.key.clone(), title: second.title.clone(), status: second.status },
+                        count: peer.count,
+                        flips: peer.flips,
+                        last_at: peer.last_at,
+                    });
+                }
+                chatter_marks.insert(pair_key, peer.count);
+            }
+        }
+        look.chatter = Some(Part { at: now, marks: chatter_marks, repos: BTreeMap::new() });
     } else {
         look.shared = earlier.and_then(|l| l.shared.clone());
+        look.chatter = earlier.and_then(|l| l.chatter.clone());
     }
     (out, look)
 }
@@ -1405,5 +1468,30 @@ mod tests {
         }
         assert_eq!(looks.len(), KEEP_LOOKS);
         assert!(!looks.contains_key(&a));
+    }
+
+    #[test]
+    fn peer_ping_pong_chatter_is_reported_once_and_again_when_count_grows() {
+        let peer = |key: &str, title: &str, count: u32, flips: u32| crate::model::PeerTalk { key: key.into(), title: title.into(), count, flips, last_at: NOW - 1_000 };
+        let mut a = Session { status: Status::Working, live: true, title: "Alpha".into(), ..crate::fixtures::session("claude:claude:a") };
+        let mut b = Session { status: Status::Working, live: true, title: "Beta".into(), ..crate::fixtures::session("claude:claude:b") };
+        a.peers = vec![peer(&b.key, "Beta", 4, 2)];
+        b.peers = vec![peer(&a.key, "Alpha", 4, 2)];
+        let board = Board { lanes: vec![crate::fixtures::lane("/r/app", vec![a.clone(), b.clone()])], ..Board::default() };
+        let sight = Sight { board: &board, sessions: true, prs: false, todos: false, me: None, project: None, skip: &[] };
+        let (first, look1) = compare(&sight, None, NOW - 60_000, NOW);
+        assert_eq!(first.chatter.len(), 1);
+        assert_eq!((first.chatter[0].count, first.chatter[0].flips), (4, 2));
+        // Same count on next look: quiet.
+        let (second, _) = compare(&sight, Some(&look1), NOW, NOW + 10_000);
+        assert!(second.chatter.is_empty());
+        // Count grows: reported again.
+        a.peers[0].count = 6;
+        b.peers[0].count = 6;
+        let board2 = Board { lanes: vec![crate::fixtures::lane("/r/app", vec![a, b])], ..Board::default() };
+        let sight2 = Sight { board: &board2, ..sight };
+        let (third, _) = compare(&sight2, Some(&look1), NOW, NOW + 20_000);
+        assert_eq!(third.chatter.len(), 1);
+        assert_eq!(third.chatter[0].count, 6);
     }
 }

@@ -74,6 +74,7 @@ export type Session = Holds<Same<
   | "orchestrator"
   | "origin"
   | "ownWorktree"
+  | "peers"
   | "pid"
   | "pin"
   | "queued"
@@ -107,6 +108,15 @@ export type Emblem = Holds<Same<
   | "name"
   | "picture",
   Names<Types.Emblem>
+>>;
+
+export type PeerTalk = Holds<Same<
+  | "count"
+  | "flips"
+  | "key"
+  | "lastAt"
+  | "title",
+  Names<Types.PeerTalk>
 >>;
 
 export type Artifact = Holds<Same<
