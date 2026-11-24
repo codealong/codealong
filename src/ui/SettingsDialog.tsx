@@ -30,6 +30,7 @@ import { UpdatesFields } from './Updates';
 import { Button, CheckBox, cx, Dialog, Icon, NavItem, ReorderHint, Seg, WaitsGlyph } from './primitives';
 import { ALWAYS_WAITS, queueKinds, WAITS, withKind, type Waits } from '../queue';
 import { SettingsFindField, useSettingsFind } from './SettingsFind';
+import { SessionThemesSection } from './SessionThemesSettings';
 import { THEMES } from './ThemeSwitch';
 import { useSort } from './useSort';
 import { reorderKey } from '../mainKeys';
@@ -2408,7 +2409,7 @@ function AdvancedPane({ cfg, view, disabled, onSave }: PaneProps & { view: Confi
 /* ---- Experimental ---- */
 
 /** `[experimental]` as a file without the table has it: every experiment off. */
-const EXPERIMENTS_OFF: Required<ExperimentalCfg> = { boards: false, voice: false, analytics: false };
+const EXPERIMENTS_OFF: Required<ExperimentalCfg> = { boards: false, voice: false, analytics: false, session_themes: false };
 
 /** `[voice]` as a file without the table has it (config.rs `VoiceCfg`). */
 export const VOICE_DEFAULT: Required<VoiceCfg> = { locale: '', send_on_release: false, tell_every: 20, meetings: false, meetings_folder: '', meeting_account: '', meeting_model: '', meeting_lead: 1, meeting_countdown: 5, meeting_calendars_off: [] };
@@ -2576,6 +2577,10 @@ function ExperimentalPane({ cfg, view, disabled, onSave }: PaneProps & { view: C
             </label>
           )}
         </section>
+        <SessionThemesSection
+          enabled={experimental.session_themes}
+          onToggle={(on) => void onSave({ ...cfg, experimental: { ...experimental, session_themes: on } })}
+        />
       </fieldset>
     </>
   );

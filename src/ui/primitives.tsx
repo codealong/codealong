@@ -916,6 +916,7 @@ interface RowProps {
   label?: string;
   selected?: boolean;
   className?: string;
+  style?: CSSProperties;
   /** Dragging it (`useRowDrag`'s `rowProps`): where it starts, its place among the ordered rows,
    *  the marks of a drag under way, and with them the grip at its start. */
   drag?: DragProps;
@@ -933,7 +934,7 @@ interface RowProps {
 
 /** A list's row: every list's rows are this, so a press, a double-click, a right-click and a
  *  drag mean the same in each. What's in the row, and its classes, are the list's own. */
-export function Row({ id, role = 'option', level, label, selected = false, className, drag, onSelect, onClick, onOpen, onMenu, children }: RowProps) {
+export function Row({ id, role = 'option', level, label, selected = false, className, style, drag, onSelect, onClick, onOpen, onMenu, children }: RowProps) {
   return (
     <div
       id={id}
@@ -942,6 +943,7 @@ export function Row({ id, role = 'option', level, label, selected = false, class
       aria-label={label}
       aria-selected={role === 'option' ? selected : undefined}
       className={cx(className, selected && 'is-selected', drag?.extraClass)}
+      style={style}
       data-drag-of={drag?.dragOf}
       data-pin-index={drag?.pinIndex}
       onPointerDown={drag?.onPointerDown}

@@ -467,7 +467,7 @@ function sampleAnalytics(board, days, account) {
 // ⌃ is held with PREVIEW_KEYS=held.
 function withExperiments(board) {
   var voice = !!window.__PREVIEW_VOICE__;
-  var out = Object.assign(board, { glass: !!window.__PREVIEW_GLASS__, showKeys: !window.__PREVIEW_KEYS_HELD__, experimental: Object.assign({}, board.experimental, { boards: !window.__PREVIEW_BOARDS_OFF__, voice: voice, analytics: !!window.__PREVIEW_ANALYTICS__ }) });
+  var out = Object.assign(board, { glass: !!window.__PREVIEW_GLASS__, showKeys: !window.__PREVIEW_KEYS_HELD__, experimental: Object.assign({}, board.experimental, { boards: !window.__PREVIEW_BOARDS_OFF__, voice: voice, analytics: !!window.__PREVIEW_ANALYTICS__, session_themes: !!window.__PREVIEW_SESSION_THEMES__ }) });
   if (voice && window.__LISTENS__) {
     out.listenings = Object.assign({}, out.listenings, listeningSample(window.__LISTENS__));
     // Said on the session too, as the engine says it (board.rs `apply_listening`).

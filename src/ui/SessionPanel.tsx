@@ -51,6 +51,9 @@ import { MoveDialog } from './MoveAccount';
 import { Button, cx, DialogHostContext, Icon, OneLine, PanelBack, Rich, useDialogPlace, type PanelBackTo } from './primitives';
 import { runFolder } from './RunButton';
 import { SessionHeader, type SessionHeaderProps } from './SessionHeader';
+import { SessionBackdrop } from './SessionBackdrop';
+import { useSessionTheme } from './SessionThemeProvider';
+import { themeCssVars } from '../sessionTheme';
 import { Reply } from './SessionReply';
 import { SessionThread } from './SessionThread';
 import { SnoozeSuggestion } from './SnoozeSuggestion';
@@ -503,8 +506,12 @@ export function SessionPanel({ variant = 'panel', zoom, queue, notice, hotkeys, 
   // moment. The terminal it runs in stays here, where alone it's shown.
   const away = useKeptSessions(variant === 'panel').has(key);
   const popOut = variant === 'panel' && !away ? header.actions?.window?.run : undefined;
+  const theme = useSessionTheme(s);
+  const fullTheme = !!theme && theme.prefs.surface === 'full';
+  const themeStyle = theme ? themeCssVars(theme.assigned.color, theme.prefs.intensity) : undefined;
   const body = (
     <>
+          {fullTheme && <SessionBackdrop theme={theme.assigned} vibe={theme.prefs.vibe} intensity={theme.prefs.intensity} place="thread" working={s.status === 'working'} />}
           {/* The way back goes on the strip where there's one, else over the header. */}
           <QueueStrip queue={queue} notice={notice} hotkeys={hotkeys} session={s} actions={header.actions} onSeen={header.onSeen} back={hotkeys ? header.back : undefined} />
           <SessionHeader {...header} back={hotkeys ? undefined : header.back} seenAbove={!!hotkeys} compact={variant === 'card'} accountBelow={replies} inMain={variant === 'panel'} onMove={moves && (() => ask(null))} onPopOut={popOut} />
@@ -580,10 +587,10 @@ export function SessionPanel({ variant = 'panel', zoom, queue, notice, hotkeys, 
     return (
       <div
         ref={placeDialogs}
-        className="ca-reply"
+        className={cx('ca-reply', theme && 'ca-st-panel', fullTheme && 'is-full')}
         data-find="conversation"
         data-shows-session={key}
-        style={cardZoom(zoom)}
+        style={themeStyle ? { ...themeStyle, ...cardZoom(zoom) } : cardZoom(zoom)}
         onContextMenu={(e) => {
           // The box keeps its own menu, for copy and paste, as does anything inside with one.
           if (!onMenu || e.defaultPrevented || (e.target instanceof Element && e.target.closest('input, textarea, [contenteditable="true"]'))) return;
@@ -596,7 +603,7 @@ export function SessionPanel({ variant = 'panel', zoom, queue, notice, hotkeys, 
     );
   }
   return (
-    <aside className="ca-insp ca-sessinsp" aria-label={`${s.title} details`} data-find="conversation" data-shows-session={key}>
+    <aside className={cx('ca-insp', 'ca-sessinsp', theme && 'ca-st-panel', fullTheme && 'is-full')} style={themeStyle} aria-label={`${s.title} details`} data-find="conversation" data-shows-session={key}>
       {body}
     </aside>
   );

@@ -999,6 +999,7 @@ export type EmblemsCfg = Holds<Same<
 export type ExperimentalCfg = Holds<Same<
   | "analytics"
   | "boards"
+  | "session_themes"
   | "voice",
   Names<Types.ExperimentalCfg>
 >>;

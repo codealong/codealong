@@ -32,6 +32,7 @@
       "experimental": {
         "analytics": false,
         "boards": false,
+        "session_themes": false,
         "voice": false
       },
       "generatedAt": 1000,
@@ -403,6 +404,7 @@
         "experimental": {
           "analytics": false,
           "boards": false,
+          "session_themes": false,
           "voice": false
         },
         "generatedAt": 1000,
@@ -777,6 +779,7 @@
       "experimental": {
         "analytics": false,
         "boards": false,
+        "session_themes": false,
         "voice": false
       },
       "generatedAt": 2000,
@@ -1189,6 +1192,7 @@
       "experimental": {
         "analytics": false,
         "boards": false,
+        "session_themes": false,
         "voice": false
       },
       "generatedAt": 3000,
@@ -1600,6 +1604,7 @@
       "experimental": {
         "analytics": false,
         "boards": false,
+        "session_themes": false,
         "voice": false
       },
       "generatedAt": 4000,
@@ -2080,6 +2085,7 @@
       "experimental": {
         "analytics": false,
         "boards": false,
+        "session_themes": false,
         "voice": false
       },
       "generatedAt": 5000,
@@ -2532,6 +2538,7 @@
       "experimental": {
         "analytics": false,
         "boards": false,
+        "session_themes": false,
         "voice": false
       },
       "generatedAt": 6000,
