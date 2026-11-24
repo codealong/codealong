@@ -356,6 +356,9 @@ pub struct GhPoll {
     /// The open PRs GitHub's search says wait on your review, by the slug a project's repo has
     /// here: the board lists them for the repos `prs` doesn't read (`board::pr_items`).
     requested: HashMap<String, Vec<PrRaw>>,
+    /// The repos that search found such PRs in with no checkout here, as GitHub names them now,
+    /// whose PRs `requested` leaves out (clones.rs clones the ones a project covers).
+    not_here: BTreeSet<String>,
     /// The PRs sessions here made or changed in repos `prs` doesn't read, by the slug they were
     /// asked for by (`set_marked`, `github::parse_made`).
     made: HashMap<String, Vec<PrRaw>>,
@@ -421,6 +424,7 @@ impl GhPoll {
             back,
             prs: HashMap::new(),
             requested: HashMap::new(),
+            not_here: BTreeSet::new(),
             made: HashMap::new(),
             marked: Vec::new(),
             failures: BTreeMap::new(),
@@ -519,6 +523,12 @@ impl GhPoll {
     /// The PRs that wait on your review, by the slug their repo has here.
     pub fn requested(&self) -> &HashMap<String, Vec<PrRaw>> {
         &self.requested
+    }
+
+    /// The repos GitHub's search last found PRs that wait on your review in with no checkout
+    /// here, as GitHub names them now (`on_requested`).
+    pub fn not_here(&self) -> &BTreeSet<String> {
+        &self.not_here
     }
 
     /// The PRs sessions made in repos whose PRs aren't read, by the slug they were asked
@@ -970,8 +980,8 @@ impl GhPoll {
     }
 
     /// GitHub's search for the PRs that wait on your review, each filed under the repo it's in
-    /// here, by the name GitHub has for it now; a repo no project covers is left out, as its
-    /// PRs are.
+    /// here, by the name GitHub has for it now; a repo with no checkout here is left out, as its
+    /// PRs are, and kept in `not_here`.
     fn on_requested(&mut self, result: Result<Requested, Failure>, seeds: &[LaneSeed], now: Now) -> bool {
         let found = match result {
             Ok(found) => found,
@@ -986,11 +996,16 @@ impl GhPoll {
             here.entry(now.to_lowercase()).or_insert_with(|| slug.clone());
         }
         let mut requested: HashMap<String, Vec<PrRaw>> = HashMap::new();
+        let mut not_here = BTreeSet::new();
         for (slug, pr) in found.prs {
-            if let Some(local) = here.get(&slug.to_lowercase()) {
-                requested.entry(local.clone()).or_default().push(pr);
+            match here.get(&slug.to_lowercase()) {
+                Some(local) => requested.entry(local.clone()).or_default().push(pr),
+                None => {
+                    not_here.insert(slug);
+                }
             }
         }
+        self.not_here = not_here;
         // As with a repo's own PRs (`on_repo`): an answer asked for before you approved a PR
         // here still lists it.
         let asked = self.schedule.last;
@@ -1507,10 +1522,11 @@ mod tests {
         let sent = clock();
         gh.schedule.last = Some(sent.at);
 
-        // Filed under the slug the repo has here, by the name GitHub has for it now; a repo no
-        // project covers is left out.
+        // Filed under the slug the repo has here, by the name GitHub has for it now; a repo with
+        // no checkout here is left out, and named for clones.rs.
         assert!(gh.on_event(found(), &seeds, sent));
         assert_eq!(gh.requested().keys().collect::<Vec<_>>(), ["SparkHQ/spark"]);
+        assert_eq!(gh.not_here().iter().collect::<Vec<_>>(), ["else/where"]);
         assert_eq!((gh.login(), gh.at()), (Some("gwen"), Some(sent.ms)));
 
         // Approved here: gone at once, and an answer asked for before doesn't bring it back.

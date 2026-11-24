@@ -549,6 +549,7 @@ as the engine always was.
 | `src-tauri/src/resets.rs`, `src/resets.ts` | Plan limit reset credits an account holds, read and redeemed from its card in the usage bar |
 | `src-tauri/src/glass.rs`, `src/glass.ts`, `src/styles/glass.css` | macOS Liquid Glass vibrancy behind board windows and the quick panel (`[appearance] glass`) |
 | `src-tauri/src/load.rs`, `src/machineLoad.ts`, `src/ui/LoadTag.tsx` | Machine load readings (`Board::load`, `DeviceInfo::load`), the *Machine strained* chip and card, and the quick panel's calmer-machine offer |
+| `src-tauri/src/clones.rs` | Cloning the repos a project covers that a PR waiting on your review is in, with no checkout here, so it's listed and reviewed |
 | `src-tauri/src/orgavatars.rs` | Cached GitHub organization avatars (`org-avatars/` in the cache folder) for the project switcher and All projects badges |
 | `src-tauri/src/start.rs`, `src/start.ts` | New sessions: where each account can start one, the launch it makes, the agent menu (every account on every model, and the effort levels) and Auto's pick; and going on with one that isn't running, by the same rules (`resume`) |
 | `src/newSession.ts`, `src/ui/NewSession.tsx` | A start from the quick panel with nothing typed, in the background or In Codealong: a new session in Sessions' panel that waits for its first prompt and starts only once it's sent |

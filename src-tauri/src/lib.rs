@@ -45,6 +45,7 @@ mod chrometabs;
 mod caret;
 mod claude;
 mod cleanup;
+mod clones;
 mod worktree;
 mod cli;
 mod antigravity;

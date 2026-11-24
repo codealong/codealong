@@ -213,6 +213,40 @@ impl Engine {
             self.mark_dirty("org avatars");
         }
     }
+
+    /// Clones the repos a project covers that GitHub's search found PRs waiting on your review
+    /// in, with no checkout here, while reviews are on for them (clones.rs). Never in a test,
+    /// where `gh` would clone for real.
+    pub(super) fn clone_covered(&mut self) {
+        if self.passing || cfg!(test) {
+            return;
+        }
+        for c in self.clones.due(self.github.not_here(), &self.cfg, Instant::now()) {
+            let tx = self.tx.clone();
+            let back = c.clone();
+            throttle::background(
+                "codealong-clone",
+                move || {
+                    crate::os::system::utility_thread();
+                    crate::clones::run(&c)
+                },
+                move |went| {
+                    let _ = tx.send(Msg::Cloned(back, went));
+                },
+            );
+        }
+    }
+
+    /// A clone `clone_covered` started is over: one that's there is read with the repos, and its
+    /// PRs asked of GitHub at once; one that isn't says why as a notice.
+    pub(super) fn on_cloned(&mut self, c: crate::clones::ToClone, went: Option<crate::clones::Cloned>) {
+        if self.clones.on_cloned(&c, went) {
+            self.rescan_repos();
+            self.github.poll(&self.seeds, true, Now::real());
+        } else {
+            self.mark_dirty("clones");
+        }
+    }
 }
 
 #[cfg(test)]

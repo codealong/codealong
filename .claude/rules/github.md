@@ -1,5 +1,6 @@
 ---
 paths:
+  - "src-tauri/src/clones.rs"
   - "src-tauri/src/github.rs"
   - "src-tauri/src/ghpoll.rs"
   - "src-tauri/src/prlinks.rs"
@@ -137,6 +138,13 @@ Harness facts (from GitHub's answers on this Mac, 2026-10-01). A bare file name 
   with made-up ids (`NOT_FOUND` after the document's checked; a made-up field is refused first),
   not run for real: submitting would reach the PR's people. Codealong's hidden mark is kept through
   an edit of the draft's text (`unmarked`), since the next round looks for it.
+- A PR the search finds waiting on your review in a repo with no checkout here is left out of
+  the board (`ghpoll.rs` `on_requested`, `not_here`), and its repo cloned when a project covers it
+  and reviews are on for it (`clones.rs`). `gh repo clone <owner>/<name> <dir> -- --quiet` clones
+  as `gh config get git_protocol -h github.com` says, which can differ from the global
+  `git_protocol` (ssh for the host and https globally on this Mac, 2026-11-24, which cloned with
+  an ssh `origin`). A fork's clone gets the repo it was forked from as `upstream` too, fetched
+  at once; `origin` still names the checkout (`repos::load_checkout`).
 - Who's assigned to a PR and by whom: `ASSIGNED_EVENT` and `UNASSIGNED_EVENT` beside
   `REVIEW_REQUESTED_EVENT` in `ASKED_FIELDS`'s `timelineItems` (`assigned_of`, `events_of`), each
   node's `__typename` telling them apart, `assignee` a union whose `... on User { login }` names
