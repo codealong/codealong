@@ -185,6 +185,10 @@ struct Names {
     now: HashMap<String, String>,
     /// When each slug was last asked about, so one GitHub didn't answer is asked again later.
     asked: HashMap<String, Instant>,
+    /// The slugs the asking on its way is about, and how many askings in a row each slug went
+    /// unanswered in (`known`).
+    asking: BTreeSet<String>,
+    missed: HashMap<String, u32>,
     inflight: bool,
 }
 
@@ -206,6 +210,7 @@ impl Names {
         for slug in &slugs {
             self.asked.insert(slug.clone(), now);
         }
+        self.asking = slugs.clone();
         self.inflight = true;
         Some(slugs)
     }
@@ -218,9 +223,20 @@ impl Names {
         for (slug, name) in names {
             let Some(name) = name else { continue };
             renamed |= !name.eq_ignore_ascii_case(&slug);
+            self.missed.remove(&slug);
             self.now.insert(slug, name);
         }
+        for slug in std::mem::take(&mut self.asking).into_iter().filter(|s| !self.now.contains_key(s)) {
+            *self.missed.entry(slug).or_default() += 1;
+        }
         renamed
+    }
+
+    /// Whether what GitHub calls the repo whose remote has `slug` (lowercase) is known, as far as
+    /// it can be: GitHub said, or didn't say twice in a row, as for a repo it no longer has. One
+    /// miss may be the network.
+    fn known(&self, slug: &str) -> bool {
+        self.now.contains_key(slug) || self.missed.get(slug).is_some_and(|n| *n >= 2)
     }
 }
 
@@ -356,9 +372,9 @@ pub struct GhPoll {
     /// The open PRs GitHub's search says wait on your review, by the slug a project's repo has
     /// here: the board lists them for the repos `prs` doesn't read (`board::pr_items`).
     requested: HashMap<String, Vec<PrRaw>>,
-    /// The repos that search found such PRs in with no checkout here, as GitHub names them now,
-    /// whose PRs `requested` leaves out (clones.rs clones the ones a project covers).
-    not_here: BTreeSet<String>,
+    /// The repos that search last found such PRs in, as GitHub names them now: those with no
+    /// checkout here are left out of `requested` (`not_here`).
+    found_in: BTreeSet<String>,
     /// The PRs sessions here made or changed in repos `prs` doesn't read, by the slug they were
     /// asked for by (`set_marked`, `github::parse_made`).
     made: HashMap<String, Vec<PrRaw>>,
@@ -424,7 +440,7 @@ impl GhPoll {
             back,
             prs: HashMap::new(),
             requested: HashMap::new(),
-            not_here: BTreeSet::new(),
+            found_in: BTreeSet::new(),
             made: HashMap::new(),
             marked: Vec::new(),
             failures: BTreeMap::new(),
@@ -526,9 +542,22 @@ impl GhPoll {
     }
 
     /// The repos GitHub's search last found PRs that wait on your review in with no checkout
-    /// here, as GitHub names them now (`on_requested`).
-    pub fn not_here(&self) -> &BTreeSet<String> {
-        &self.not_here
+    /// here, as GitHub names them now, by the repos here and their names as they are now: a
+    /// rename heard of after the search answered counts (clones.rs clones the ones a project
+    /// covers).
+    pub fn not_here(&self, seeds: &[LaneSeed]) -> BTreeSet<String> {
+        let here = self.here(seeds);
+        self.found_in.iter().filter(|s| !here.contains_key(&s.to_lowercase())).cloned().collect()
+    }
+
+    /// The repos here by what GitHub calls them now (lowercase), each to the slug its remote has.
+    fn here(&self, seeds: &[LaneSeed]) -> HashMap<String, String> {
+        let mut here: HashMap<String, String> = HashMap::new();
+        for slug in seeds.iter().filter_map(|s| s.repo_slug.as_ref()) {
+            let now = self.names.now.get(&slug.to_lowercase()).unwrap_or(slug);
+            here.entry(now.to_lowercase()).or_insert_with(|| slug.clone());
+        }
+        here
     }
 
     /// The PRs sessions made in repos whose PRs aren't read, by the slug they were asked
@@ -594,11 +623,11 @@ impl GhPoll {
         &self.names.now
     }
 
-    /// Whether GitHub has been asked what it calls each repo here now, and the asking is over:
-    /// until then a renamed repo's checkout isn't known by the name the search gives it, and
-    /// would be in `not_here` (clones.rs).
+    /// Whether what GitHub calls each repo here now is known (`Names::known`): until it is, a
+    /// renamed repo's checkout isn't known by the name the search gives it, and would be in
+    /// `not_here` (clones.rs).
     pub fn names_known(&self, seeds: &[LaneSeed]) -> bool {
-        !self.names.inflight && seeds.iter().filter_map(|s| s.repo_slug.as_deref()).map(str::to_lowercase).all(|s| self.names.now.contains_key(&s) || self.names.asked.contains_key(&s))
+        !self.names.inflight && seeds.iter().filter_map(|s| s.repo_slug.as_deref()).all(|s| self.names.known(&s.to_lowercase()))
     }
 
     /// What GitHub calls a repo now, when that isn't the name its remote has.
@@ -988,7 +1017,7 @@ impl GhPoll {
 
     /// GitHub's search for the PRs that wait on your review, each filed under the repo it's in
     /// here, by the name GitHub has for it now; a repo with no checkout here is left out, as its
-    /// PRs are, and kept in `not_here`.
+    /// PRs are (`not_here`).
     fn on_requested(&mut self, result: Result<Requested, Failure>, seeds: &[LaneSeed], now: Now) -> bool {
         let found = match result {
             Ok(found) => found,
@@ -997,22 +1026,14 @@ impl GhPoll {
                 return true;
             }
         };
-        let mut here: HashMap<String, String> = HashMap::new();
-        for slug in seeds.iter().filter_map(|s| s.repo_slug.as_ref()) {
-            let now = self.names.now.get(&slug.to_lowercase()).unwrap_or(slug);
-            here.entry(now.to_lowercase()).or_insert_with(|| slug.clone());
-        }
+        let here = self.here(seeds);
+        self.found_in = found.prs.iter().map(|(slug, _)| slug.clone()).collect();
         let mut requested: HashMap<String, Vec<PrRaw>> = HashMap::new();
-        let mut not_here = BTreeSet::new();
         for (slug, pr) in found.prs {
-            match here.get(&slug.to_lowercase()) {
-                Some(local) => requested.entry(local.clone()).or_default().push(pr),
-                None => {
-                    not_here.insert(slug);
-                }
+            if let Some(local) = here.get(&slug.to_lowercase()) {
+                requested.entry(local.clone()).or_default().push(pr);
             }
         }
-        self.not_here = not_here;
         // As with a repo's own PRs (`on_repo`): an answer asked for before you approved a PR
         // here still lists it.
         let asked = self.schedule.last;
@@ -1386,7 +1407,8 @@ mod tests {
         assert!(gh.on_event(Event::RepoNames(vec![("sparkhq/spark".into(), Some("sprucehq/spark".into())), ("spurhq/spur".into(), None)]), &seeds, clock()), "a rename changes the board");
         assert_eq!(gh.renamed("SparkHQ/spark").map(String::as_str), Some("sprucehq/spark"));
         assert_eq!(gh.renamed("spurhq/spur"), None);
-        assert!(gh.names_known(&seeds), "known, as far as GitHub said");
+        assert!(!gh.names_known(&seeds), "one it didn't answer for may be the network");
+        assert!(gh.names_known(&seeds[..1]));
         assert!(!gh.names_known(&[seed("/x/new", "acme/new", "main")]), "a repo here since isn't");
         // The one it didn't answer for is asked about again after an hour, and only that one.
         assert!(gh.names.to_ask(slugs(), t + NAME_RETRY - Duration::from_secs(1)).is_none());
@@ -1394,6 +1416,7 @@ mod tests {
         assert_eq!(gh.names.to_ask(slugs(), t + NAME_RETRY).unwrap().iter().collect::<Vec<_>>(), ["spurhq/spur"]);
         assert!(!gh.on_event(Event::RepoNames(vec![("spurhq/spur".into(), Some("spurhq/spur".into()))]), &seeds, clock()), "a repo that kept its name changes nothing");
         assert_eq!(gh.renamed("spurhq/spur"), None, "a repo that kept its name says nothing more");
+        assert!(gh.names_known(&seeds));
         // Every repo has its answer, so there's nothing to ask GitHub.
         gh.ask_names(&seeds, t + NAME_RETRY * 3);
         assert!(!gh.names.inflight);
@@ -1403,7 +1426,26 @@ mod tests {
         gh.names.to_ask(slugs(), t).unwrap();
         assert!(!gh.on_event(Event::RepoNames(Vec::new()), &seeds, clock()));
         assert!(!gh.names.inflight);
+        assert!(!gh.names_known(&seeds));
         assert_eq!(gh.names.to_ask(slugs(), t + NAME_RETRY).map(|s| s.len()), Some(2));
+        // Unanswered twice in a row, as for a repo GitHub no longer has, its name is as known as
+        // it'll be.
+        gh.on_event(Event::RepoNames(Vec::new()), &seeds, clock());
+        assert!(gh.names_known(&seeds));
+    }
+
+    #[test]
+    fn a_repo_the_search_found_is_here_once_a_rename_says_its_checkout_is_it() {
+        let mut gh = quiet();
+        let seeds = [seed("/x/old", "acme/old", "main")];
+        gh.names.to_ask(seeds.iter().filter_map(|s| s.repo_slug.as_ref()), Instant::now()).unwrap();
+        // The search answers before GitHub says what acme/old is called now.
+        gh.on_event(Event::Requested(Ok(Requested { login: Some("gwen".into()), prs: vec![("acme/new".into(), pr(7))] }), None), &seeds, clock());
+        assert_eq!(gh.not_here(&seeds).iter().collect::<Vec<_>>(), ["acme/new"]);
+        assert!(!gh.names_known(&seeds));
+        gh.on_event(Event::RepoNames(vec![("acme/old".into(), Some("acme/new".into()))]), &seeds, clock());
+        assert!(gh.names_known(&seeds));
+        assert!(gh.not_here(&seeds).is_empty(), "its checkout is the one here");
     }
 
     #[test]
@@ -1539,7 +1581,7 @@ mod tests {
         // no checkout here is left out, and named for clones.rs.
         assert!(gh.on_event(found(), &seeds, sent));
         assert_eq!(gh.requested().keys().collect::<Vec<_>>(), ["SparkHQ/spark"]);
-        assert_eq!(gh.not_here().iter().collect::<Vec<_>>(), ["else/where"]);
+        assert_eq!(gh.not_here(&seeds).iter().collect::<Vec<_>>(), ["else/where"]);
         assert_eq!((gh.login(), gh.at()), (Some("gwen"), Some(sent.ms)));
 
         // Approved here: gone at once, and an answer asked for before doesn't bring it back.

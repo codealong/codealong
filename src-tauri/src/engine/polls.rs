@@ -222,7 +222,7 @@ impl Engine {
             return;
         }
         let root = crate::clones::root(&self.cfg.scan);
-        for c in self.clones.due(self.github.not_here(), &self.cfg, root.as_deref(), Instant::now()) {
+        for c in self.clones.due(&self.github.not_here(&self.seeds), &self.cfg, root.as_deref(), Instant::now()) {
             let tx = self.tx.clone();
             let back = c.clone();
             throttle::background(
