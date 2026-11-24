@@ -47,13 +47,12 @@ import { absolute, ago, agoPhrase, duration, middleTruncate, tildePath } from '.
 import { MOVES_ACCOUNTS, sessionName, sessionPlace } from '../harness';
 import { apiErrorWords, archivedShows, cutOffWords, endedOnApiError, endedPhrase, endedSignedOut, limitPhrase, limitWords, raisedBy, seenable, setAside, sideTitle, signedOutWords } from '../lanes';
 import { hearingShows } from '../listening';
-import { cameLines, cameLineWords, cameWord, originWord, startingTitle, type CameLine, type Kin, type Lineage } from '../lineage';
+import { cameLines, cameLineWords, cameWord, originWord, startingState, startingTitle, type CameLine, type Kin, type Lineage } from '../lineage';
 import { CHORDS, chordKeys, chordSigns, type SessionActions } from '../menus';
 import { scopeWords } from '../orchestrators';
 import { showSide } from '../side';
 import { SUGGESTED_CHORD, suggestedIn, suggestedSnooze, untilWords } from '../snooze';
-import { answerStart, openTarget, sessionTokens, stopStart } from '../api';
-import { errorText } from '../report';
+import { sessionTokens } from '../api';
 import { cacheShare, money, tokenCount, totalTokens } from '../spend';
 import type { Board, DeviceView, Label, Lane, Pr, Session, SessionSpent, SideGlance, Starting, Target, Todo } from '../types';
 import { closedWord, isOpen, newId, nextColor, panelTodos, STATUS_WORD as TODO_WORD } from '../todos';
@@ -115,6 +114,9 @@ export interface SessionHeaderProps {
   onShowSchedule?: (id: string) => void;
   onShowSession?: (lane: Lane, session: Session) => void;
   onSessionMenu?: (lane: Lane, session: Session) => void;
+  /** Opens a pending start's panel (`Board.starting`, StartingPanel.tsx), and its menu on right-click. */
+  onShowStarting?: (starting: Starting) => void;
+  onStartingMenu?: (starting: Starting) => void;
   /** The session's menu (menus.ts): from the ⋯ button, below it, and at the pointer from a
    *  right-click on the header. */
   onMenu?: (at?: { x: number; y: number }) => void;
@@ -271,95 +273,43 @@ function RunsRow({ runs, now, onShow }: { runs: Kin[]; now: number; onShow?: (la
   );
 }
 
-/** The first line a stuck start's terminal shows, which says what it waits on (Codex's “Hooks
- *  need review”). */
-function screenHeadline(screen: string): string {
-  return (screen.split('\n').find((l) => l.trim() !== '') ?? '').trim();
-}
-
 /** A start the session's agent asked for whose session isn't here yet (`Board.starting`), under
  *  its title as what came of it: titled by how its prompt opens, starting, or once it's gone a few
- *  minutes without its session, waiting in its terminal on what that shows. Once its terminal is
- *  found a click shows its tab; stuck, it waits on you (the session needs you for it), so what
- *  its screen offers is a row of buttons under it that pick it there as you would, with Stop,
- *  which closes its tab. What went wrong with one shows on the line, in whichever window it's in. */
-function StartingRow({ starting: s, now }: { starting: Starting; now: number }) {
-  const [busy, setBusy] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const terminal = s.terminal ?? 'its terminal';
+ *  minutes without its session, waiting in its terminal on what that shows. A click opens its
+ *  panel (`StartingPanel.tsx`) to answer its prompt, show its tab or mark it done. */
+function StartingRow({ starting: s, now, onShow, onMenu }: { starting: Starting; now: number; onShow?: (starting: Starting) => void; onMenu?: (starting: Starting) => void }) {
   const who = `${s.harness} on ${s.account}`;
   const where = s.terminal ? `in ${s.terminal}, in ${s.place}` : `in ${s.place}`;
-  const headline = s.screen ? screenHeadline(s.screen) : '';
-  const state = s.stuck ? (headline ? `“${headline}”` : `Waiting in ${terminal}`) : 'Starting';
-  const answerHere = s.choices.length > 0 ? ' Answer it with a button below, or in that tab.' : ' Answer it in that tab.';
+  const state = startingState(s);
   const said = s.stuck
     ? s.screen
-      ? `${who} hasn't made its session ${duration(s.at, now)} after it was started ${where}: its terminal, which may be behind your windows, waits on this to be answered before it starts.\n\n${s.screen}\n\n${answerHere.trim()}`
-      : `${who} hasn't made its session ${duration(s.at, now)} after it was started ${where}: its terminal, which may be behind your windows, may be waiting on a screen of its own before it starts.${answerHere}`
+      ? `${who} hasn't made its session ${duration(s.at, now)} after it was started ${where}: its terminal, which may be behind your windows, waits on this to be answered before it starts.\n\n${s.screen}`
+      : `${who} hasn't made its session ${duration(s.at, now)} after it was started ${where}: its terminal, which may be behind your windows, may be waiting on a screen of its own before it starts.`
     : `${who} is starting ${where}. It shows here as its session once ${s.harness} makes one.`;
-  const act = (work: () => Promise<void>) => {
-    setBusy(true);
-    setError(null);
-    work()
-      .catch((e: unknown) => setError(errorText(e)))
-      .finally(() => setBusy(false));
-  };
-  // Its tab is found by its process, read with its screen a minute after it started. Until then
-  // the line is no button: a disabled one may not show its tooltip, which says where it is.
-  const show = s.pid != null ? () => act(() => openTarget(s.lane, `start|${s.at}|focus`)) : undefined;
-  const className = cx('ca-sessinsp-kin', 'is-starting', s.stuck && 'is-stuck');
-  const title = `${s.helper ? 'Its helper' : 'Started'}: ${startingTitle(s)}\n${said}${show ? `\n\nClick to show its tab in ${terminal}.` : ''}`;
-  const line = (
-    <>
+  const title = `${s.helper ? 'Its helper' : 'Started'}: ${startingTitle(s)}\n${said}${onShow ? '\n\nClick to show it.' : ''}`;
+  return (
+    <button
+      type="button"
+      className={cx('ca-sessinsp-kin', 'is-starting', s.stuck && 'is-stuck')}
+      title={title}
+      disabled={!onShow}
+      onClick={() => onShow?.(s)}
+      onContextMenu={
+        onMenu &&
+        ((e) => {
+          e.preventDefault();
+          e.stopPropagation();
+          onMenu(s);
+        })
+      }
+    >
       <span className="ca-sessinsp-elbow" aria-hidden="true" />
       <SessionGlyph s={{ status: s.stuck ? 'needs' : 'working' }} size={11} />
       <span className="ca-sessinsp-kin-title">{startingTitle(s)}</span>
       <span className="ca-sessinsp-kin-state">{state}</span>
       {s.helper && <Icon name="subtask" size={11} />}
       <span className="ca-sessinsp-kin-age">{duration(s.at, now)}</span>
-    </>
-  );
-  return (
-    <div className="ca-sessinsp-start">
-      {show ? (
-        <button type="button" className={className} title={title} onClick={show}>
-          {line}
-        </button>
-      ) : (
-        <div className={className} title={title}>
-          {line}
-        </div>
-      )}
-      {s.stuck && (
-        <div className="ca-sessinsp-start-acts" role="group" aria-label={headline ? `Answer “${headline}”` : `${s.harness} waits in ${terminal}`}>
-          {s.choices.map((c) => (
-            <Button key={c.number} size="sm" disabled={busy} title={`Picks “${c.words}” in its terminal, as you would there.`} onClick={() => act(() => answerStart(s.at, headline, c.number, c.words))}>
-              {c.words}
-            </Button>
-          ))}
-          {show && (
-            <Button size="sm" variant="ghost" icon="terminal" disabled={busy} title={`Shows its tab in ${terminal}, to answer it there.`} onClick={show}>
-              Show in {terminal}
-            </Button>
-          )}
-          <Button
-            size="sm"
-            variant="ghost"
-            icon="x"
-            disabled={busy}
-            title={s.pid != null ? 'Closes its tab, which ends it before it starts, and stops waiting for it.' : 'Stops waiting for it. Codealong can’t tell which tab is its: close it yourself if it’s still open.'}
-            onClick={() => act(() => stopStart(s.at))}
-          >
-            {s.pid != null ? 'Stop' : 'Forget it'}
-          </Button>
-          {error && (
-            <span className="ca-sessinsp-start-error" role="alert">
-              {error}
-            </span>
-          )}
-        </div>
-      )}
-    </div>
+    </button>
   );
 }
 
@@ -511,7 +461,7 @@ function SessionLabels({ session: s, relabel, adds }: { session: Session; relabe
   );
 }
 
-export function SessionHeader({ lane, session: s, apps, now, onOpen, onShowLane, prs = [], onShowPr, onOpenPr, onPrMenu, todos, onShowTodo, lineage, schedule, onShowSchedule, onShowSession, onSessionMenu, onMenu, onSeen, actions, seenAbove, onKeep, keepTitle, onPopOut, onClose, closeTitle, renaming, onRename, device, back, maximized, onMaximize, compact, accountBelow, inMain, onMove }: SessionHeaderProps) {
+export function SessionHeader({ lane, session: s, apps, now, onOpen, onShowLane, prs = [], onShowPr, onOpenPr, onPrMenu, todos, onShowTodo, lineage, schedule, onShowSchedule, onShowSession, onSessionMenu, onShowStarting, onStartingMenu, onMenu, onSeen, actions, seenAbove, onKeep, keepTitle, onPopOut, onClose, closeTitle, renaming, onRename, device, back, maximized, onMaximize, compact, accountBelow, inMain, onMove }: SessionHeaderProps) {
   const [details, setDetails] = useState(false);
   const [allPrs, setAllPrs] = useState(false);
   const [allTodos, setAllTodos] = useState(false);
@@ -635,7 +585,7 @@ export function SessionHeader({ lane, session: s, apps, now, onOpen, onShowLane,
               ) : line.kind === 'runs' ? (
                 <RunsRow runs={line.runs} now={now} onShow={onShowSession} />
               ) : line.kind === 'starting' ? (
-                <StartingRow starting={line.starting} now={now} />
+                <StartingRow starting={line.starting} now={now} onShow={onShowStarting} onMenu={onStartingMenu} />
               ) : (
                 <SideKinRow sessionKey={s.key} side={line.side} now={now} />
               )}

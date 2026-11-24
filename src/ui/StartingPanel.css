@@ -1,0 +1,74 @@
+/* A pending start's panel or card (StartingPanel.tsx): reuses SessionPanel's chrome (.ca-sessinsp,
+   .ca-reply, .ca-sessinsp-head) and adds the body showing its status, terminal screen, choices and
+   opening prompt. */
+
+.ca-startpanel-stuck {
+  color: var(--attn);
+}
+.ca-startpanel-body {
+  display: flex;
+  flex: 1 1 auto;
+  flex-direction: column;
+  gap: var(--space-3);
+  min-height: 0;
+  padding: var(--space-4);
+  overflow-y: auto;
+}
+.ca-reply.ca-startpanel .ca-startpanel-body {
+  padding: var(--space-3);
+}
+.ca-startpanel-said {
+  margin: 0;
+  color: var(--ink-2);
+  font: var(--type-body);
+  overflow-wrap: anywhere;
+}
+.ca-startpanel-screen {
+  margin: 0;
+  padding: var(--space-3);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  background: var(--surface-sunken);
+  color: var(--ink-2);
+  font: var(--type-code-block);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  -webkit-user-select: text;
+  user-select: text;
+}
+.ca-startpanel-choices {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2);
+}
+.ca-startpanel-note {
+  margin: 0;
+  color: var(--ink-3);
+  font: var(--type-meta);
+  overflow-wrap: anywhere;
+}
+.ca-startpanel-prompt {
+  display: grid;
+  gap: var(--space-1);
+  padding-top: var(--space-2);
+  border-top: 1px solid var(--line);
+}
+.ca-startpanel-label {
+  color: var(--ink-3);
+  font: var(--type-caption-heading);
+}
+.ca-startpanel-opens {
+  margin: 0;
+  color: var(--ink-2);
+  font: var(--type-body);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  -webkit-user-select: text;
+  user-select: text;
+}
+.ca-startpanel-error {
+  margin: 0;
+  color: var(--alert);
+  font: var(--type-meta);
+}

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { arrowhead, cameLines, cameLineWords, cameOf, cameWord, connector, lineageOf, movedTargets, originWord, pathOf, pointAt, polyline } from './lineage';
+import { arrowhead, cameLines, cameLineWords, cameOf, cameWord, connector, lineageOf, movedTargets, originWord, pathOf, pointAt, polyline, screenHeadline, sortStarting, startingState } from './lineage';
 import * as fx from './testing/fixtures';
 
 const card = (x: number, y: number) => ({ x, y, w: 200, h: 50 });
@@ -140,9 +140,14 @@ describe('cameLines', () => {
     expect(cameLines(lineage).map(cameLineWords)).toEqual(['Its helper, starting: Draft the northwind release notes', 'Its helper Review the diff', 'Started, starting: Codex on codex']);
     expect(lineageOf(review.session, homes, { starting: { boss: [start] } }).starting).toEqual([]);
     // One stuck in its terminal waits on you, so it comes first however long ago it started.
-    const stuck = { ...untitled, helper: true, opens: 'Check the atlas migration', stuck: true, screen: 'Hooks need review\n› 1. Review hooks', pid: 4242, choices: [{ number: 1, words: 'Review hooks' }] };
+    const stuck = { ...untitled, helper: true, opens: 'Check the atlas migration', stuck: true, screen: '  \n  Hooks need review\n› 1. Review hooks', pid: 4242, choices: [{ number: 1, words: 'Review hooks' }] };
     const waiting = lineageOf(boss.session, homes, { starting: { boss: [start, stuck] } });
     expect(cameLines(waiting).map(cameLineWords)).toEqual(['Its helper, starting: Check the atlas migration', 'Its helper, starting: Draft the northwind release notes', 'Its helper Review the diff']);
+    expect(screenHeadline(stuck.screen!)).toBe('Hooks need review');
+    expect(startingState(stuck)).toBe('“Hooks need review”');
+    expect(startingState({ ...stuck, screen: null })).toBe('Waiting in Rex');
+    expect(startingState(start)).toBe('Starting');
+    expect(sortStarting([start, untitled, stuck]).map((x) => x.at)).toEqual([stuck.at, start.at, untitled.at]);
   });
 });
 

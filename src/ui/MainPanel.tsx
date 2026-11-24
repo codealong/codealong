@@ -30,7 +30,7 @@ import { scheduleBySession } from '../schedules';
 import type * as menus from '../menus';
 import { unarchived, type ListRow } from '../boardLists';
 import type { TodoItem, useTodoStore } from '../todos';
-import type { Board, DevicesView, Lane, Pr, PrItem, Session, TerminalGlance, Todo } from '../types';
+import type { Board, DevicesView, Lane, Pr, PrItem, Session, Starting, TerminalGlance, Todo } from '../types';
 import type { WaitingQueue } from '../useWaitingQueue';
 import type { useListPicks } from '../useListPicks';
 import type { useTodoView } from '../useTodoView';
@@ -40,6 +40,7 @@ import { PrInspector } from './PrInspector';
 import type { PanelBackTo } from './primitives';
 import type { PrRowItem } from './PrsView';
 import { SessionPanel, type SessionPanelProps } from './SessionPanel';
+import { StartingPanel, startingMenu } from './StartingPanel';
 import type { FindAsk } from './ThreadFind';
 import { PrPickPanel } from './PrPickPanel';
 import { SessionPickPanel } from './SessionPickPanel';
@@ -56,12 +57,12 @@ import { NOWHERE } from '../viewQueue';
  *  a new empty one with every board. */
 const NO_TERMINALS: TerminalGlance[] = [];
 
-/** A panel shown in place of another: `from` is the row whose panel it is, `key` the PR or the
- *  worktree it shows. */
+/** A panel shown in place of another: `from` is the row whose panel it is, `key` the PR, the
+ *  worktree or the pending start (`Starting.at`) it shows. */
 export interface Drill {
   from: string;
   key: string;
-  kind: 'pr' | 'lane';
+  kind: 'pr' | 'lane' | 'starting';
 }
 
 /** What the canvas's selected card is, as its panel shows it; null when nothing is selected or
@@ -340,6 +341,7 @@ export function MainPanel(props: MainPanelProps) {
     // In Sessions it works through what waits on you: what's left after it, and how the last went.
     const queued = row !== undefined;
     if (queued) stripShown.current = true;
+    const drillFrom = row ?? (view === 'schedules' ? scheduleFrom?.key : view === 'kanban' ? selected?.key : undefined);
     return (
       <NamedSessionPanel
         key={session.key}
@@ -361,6 +363,8 @@ export function MainPanel(props: MainPanelProps) {
         onShowSchedule={showSchedule}
         onShowSession={showSessionFromPanel}
         onSessionMenu={(l, x) => sessionMenu(l, x, 'session')}
+        onShowStarting={drillFrom ? (st) => setDrill({ from: drillFrom, key: String(st.at), kind: 'starting' }) : undefined}
+        onStartingMenu={(st) => void showContextMenu(startingMenu(st, () => { if (drill?.kind === 'starting' && drill.key === String(st.at)) setDrill(null); }, setToast)).catch((err: unknown) => setToast(String(err)))}
         onMenu={(at) => void showContextMenu(sessionMenuSpec(lane, session, 'session'), at).catch((err: unknown) => setToast(String(err)))}
         onThreadMenu={(items) => void showContextMenu(items).catch((err: unknown) => setToast(String(err)))}
         find={findIn(session.key)}
@@ -402,6 +406,34 @@ export function MainPanel(props: MainPanelProps) {
   const drilledPanel = (from: string | undefined, label: string): ReactNode => {
     if (!drill || drill.from !== from) return null;
     const back = { label, onBack: () => setDrill(null) };
+    if (drill.kind === 'starting') {
+      let found: { parentKey: string; starting: Starting } | null = null;
+      for (const [parentKey, list] of Object.entries(board?.starting ?? {})) {
+        const hit = list.find((s) => String(s.at) === drill.key);
+        if (hit) {
+          found = { parentKey, starting: hit };
+          break;
+        }
+      }
+      if (!found) return null;
+      const parent = homes.get(found.parentKey) ?? (selected?.kind === 'agent' && selected.session.key === found.parentKey ? { lane: selected.lane, session: selected.session } : undefined);
+      if (!parent) return null;
+      const startLane = laneById.get(found.starting.lane);
+      return (
+        <StartingPanel
+          key={found.starting.at}
+          starting={found.starting}
+          parent={parent}
+          now={now}
+          variant="panel"
+          queue={viewQueue}
+          hotkeys={{ nowhere }}
+          back={back}
+          onDone={() => setDrill(null)}
+          onShowLane={startLane ? () => showLaneFromPanel(startLane) : undefined}
+        />
+      );
+    }
     if (drill.kind === 'lane') {
       // Schedules' headings name this Mac's worktrees whichever machine the sidebar shows: one it
       // leaves out is the board's, with its archived sessions left out as everywhere else.

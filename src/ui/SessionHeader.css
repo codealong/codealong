@@ -304,33 +304,7 @@
   text-overflow: ellipsis;
   white-space: nowrap;
 }
-/* A start whose session isn't here yet: its line, and once it's stuck, what its screen offers
-   under it. Until its terminal is found it has nothing to show, so nothing lights up. */
-div.ca-sessinsp-kin.is-starting:hover {
-  background: transparent;
-  color: var(--ink-2);
-}
-.ca-sessinsp-start {
-  display: grid;
-  gap: var(--space-1);
-  min-width: 0;
-}
-.ca-sessinsp-start > .ca-sessinsp-kin {
-  justify-self: start;
-}
-/* Under the line, past its elbow, so they read as the start's. */
-.ca-sessinsp-start-acts {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: var(--space-1);
-  padding-left: 18px;
-}
-.ca-sessinsp-start-error {
-  flex-basis: 100%;
-  color: var(--alert);
-}
-/* What it waits on keeps its words while the title gives way, up to half the line. */
+/* What a pending start waits on keeps its words while the title gives way, up to half the line. */
 .ca-sessinsp-kin-state {
   flex: none;
   max-width: 50%;

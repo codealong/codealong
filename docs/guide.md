@@ -4793,11 +4793,13 @@ session meanwhile, *Starting*. When one started with a prompt has made no sessio
 it waits on you. If an agent started it, that agent's session needs you for it once it isn't taking
 a turn, *Helper waits* in its row, and the start's line comes first under its title, saying what it
 waits on (*“Hooks need review”*), with the whole screen when you point at it. Where Codealong can
-read its terminal (Rex, tmux and its own terminals; not Ghostty), the screen's choices are buttons
-under the line, which pick one in that tab as you would there, and the start goes on with its
-prompt. *Show in Rex*, or a click on the line, shows its tab, and *Stop* closes it, ending the
-start. Those go only to a tab whose program has the start's prompt in its command line; where
-Codealong can't tell which tab is its, *Forget it* stops waiting for it. On your other devices the
+read its terminal (Rex, tmux and its own terminals; not Ghostty), its panel shows the screen and
+buttons for its choices, which pick one in that tab as you would there, and the start goes on with
+its prompt. Click the helper (in the Sessions list under its session, or under the session's title)
+to open its panel: *Show in Rex* shows its tab, and **Done** (`⇧⌘E`) closes it when its tab was
+found and stops waiting for it. Those go only to a tab whose program has the start's prompt in its
+command line; where Codealong can't tell which tab is its, **Done** stops waiting for it and leaves
+you to close any open tab yourself. On your other devices the
 session shows *Helper waits* too, to answer on the Mac it runs on. A helper started with `--report` is told of to its session once, so its
 agent can tell you. One you started yourself has a notice instead (*Codex hasn't started in …*),
 with what its terminal shows, until its session shows, and so does an agent's while its session is

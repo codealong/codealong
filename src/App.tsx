@@ -57,6 +57,7 @@ import { byWords, FilterChips, ListBar, ListFind, ListTools, rowsSetting, ViewMe
 import { TODO_GROUPS, TODO_ROWS, TODO_SORTS, TodoComposer, TodoView } from './ui/TodoView';
 import { ScheduleDialog } from './ui/ScheduleDialog';
 import { HarnessSchedulePanel, SchedulePanel } from './ui/SchedulePanel';
+import { startingMenu } from './ui/StartingPanel';
 import { SCHEDULE_GROUPS, SCHEDULE_ROWS, SCHEDULE_SORTS, SchedulesView } from './ui/SchedulesView';
 import { scheduleOf, scheduleProject, type ScheduleSort } from './schedules';
 import { KanbanView } from './ui/KanbanView';
@@ -2165,6 +2166,16 @@ export function App() {
                 sideGlancesOf={sideGlancesOf}
                 onToggleSides={(key) => toggleHelpers(sidesShownKey(key))}
                 onShowSide={showSideOf}
+                startingOf={(key) => board?.starting?.[key]}
+                selectedStarting={drill?.kind === 'starting' ? Number(drill.key) : null}
+                onShowStarting={(parent, st) => {
+                  picks.worktrees.clear();
+                  picks.sessions.select(parent, 'one');
+                  setDrill({ from: parent.key, key: String(st.at), kind: 'starting' });
+                }}
+                onStartingMenu={(_parent, st) =>
+                  void showContextMenu(startingMenu(st, () => setDrill((d) => (d?.kind === 'starting' && d.key === String(st.at) ? null : d)), setToast)).catch((e: unknown) => setToast(String(e)))
+                }
                 helperActions={helperActions}
                 onShowTodo={showTodo}
                 onFilterLabel={(l) => setFacets((f) => onlyPick(f, 'sessionLabels', labelPick(l)))}
