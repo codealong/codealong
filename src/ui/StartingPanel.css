@@ -42,6 +42,12 @@
   align-items: center;
   gap: var(--space-2);
 }
+.ca-startpanel-acts {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2);
+}
 .ca-startpanel-note {
   margin: 0;
   color: var(--ink-3);
@@ -53,6 +59,12 @@
   gap: var(--space-1);
   padding-top: var(--space-2);
   border-top: 1px solid var(--line);
+}
+.ca-startpanel-prompt-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-2);
 }
 .ca-startpanel-label {
   color: var(--ink-3);
