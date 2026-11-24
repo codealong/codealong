@@ -218,10 +218,11 @@ impl Engine {
     /// in, with no checkout here, while reviews are on for them (clones.rs). Never in a test,
     /// where `gh` would clone for real.
     pub(super) fn clone_covered(&mut self) {
-        if self.passing || cfg!(test) {
+        if self.passing || cfg!(test) || !self.github.names_known(&self.seeds) {
             return;
         }
-        for c in self.clones.due(self.github.not_here(), &self.cfg, Instant::now()) {
+        let root = crate::clones::root(&self.cfg.scan);
+        for c in self.clones.due(self.github.not_here(), &self.cfg, root.as_deref(), Instant::now()) {
             let tx = self.tx.clone();
             let back = c.clone();
             throttle::background(
@@ -237,12 +238,13 @@ impl Engine {
         }
     }
 
-    /// A clone `clone_covered` started is over: one that's there is read with the repos, and its
-    /// PRs asked of GitHub at once; one that isn't says why as a notice.
+    /// A clone `clone_covered` started is over: one that's there is read with the repos, and
+    /// GitHub read again in full, its search too, whose answer before the clone left the repo's
+    /// PRs out; one that isn't says why as a notice.
     pub(super) fn on_cloned(&mut self, c: crate::clones::ToClone, went: Option<crate::clones::Cloned>) {
         if self.clones.on_cloned(&c, went) {
             self.rescan_repos();
-            self.github.poll(&self.seeds, true, Now::real());
+            self.github.on_changed(&self.seeds, Now::real());
         } else {
             self.mark_dirty("clones");
         }

@@ -1455,7 +1455,9 @@ impl Engine {
 
     /// Takes in what GitHub was asked in the background (ghpoll.rs).
     fn on_github(&mut self, event: ghpoll::Event) {
-        let searched = matches!(event, ghpoll::Event::Requested(..));
+        // The repos to clone are known once the search has answered and what GitHub calls the
+        // repos here has been asked (`GhPoll::names_known`).
+        let searched = matches!(event, ghpoll::Event::Requested(..) | ghpoll::Event::RepoNames(..));
         if self.github.on_event(event, &self.seeds, Now::real()) {
             self.mark_dirty("github");
         }

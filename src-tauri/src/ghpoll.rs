@@ -594,6 +594,13 @@ impl GhPoll {
         &self.names.now
     }
 
+    /// Whether GitHub has been asked what it calls each repo here now, and the asking is over:
+    /// until then a renamed repo's checkout isn't known by the name the search gives it, and
+    /// would be in `not_here` (clones.rs).
+    pub fn names_known(&self, seeds: &[LaneSeed]) -> bool {
+        !self.names.inflight && seeds.iter().filter_map(|s| s.repo_slug.as_deref()).map(str::to_lowercase).all(|s| self.names.now.contains_key(&s) || self.names.asked.contains_key(&s))
+    }
+
     /// What GitHub calls a repo now, when that isn't the name its remote has.
     pub fn renamed(&self, slug: &str) -> Option<&String> {
         self.names.now.get(&slug.to_lowercase()).filter(|now| !now.eq_ignore_ascii_case(slug))
@@ -1367,14 +1374,20 @@ mod tests {
         let t = Instant::now();
         let seeds = [seed("/x/spark", "SparkHQ/spark", "main"), seed("/x/spur", "spurhq/spur", "main")];
         let slugs = || seeds.iter().filter_map(|s| s.repo_slug.as_ref());
+        // Until GitHub's asked, and has answered, a renamed repo here isn't known by its new name,
+        // and clones.rs mustn't take it for one with no checkout.
+        assert!(!gh.names_known(&seeds), "not asked yet");
         let asked = gh.names.to_ask(slugs(), t).unwrap();
         assert_eq!(asked.iter().collect::<Vec<_>>(), ["sparkhq/spark", "spurhq/spur"], "by the slug a remote has, lowercase");
         assert!(gh.names.to_ask(slugs(), t).is_none(), "an asking is on its way");
+        assert!(!gh.names_known(&seeds), "on its way");
 
         // GitHub answered for one repo, which has another name now.
         assert!(gh.on_event(Event::RepoNames(vec![("sparkhq/spark".into(), Some("sprucehq/spark".into())), ("spurhq/spur".into(), None)]), &seeds, clock()), "a rename changes the board");
         assert_eq!(gh.renamed("SparkHQ/spark").map(String::as_str), Some("sprucehq/spark"));
         assert_eq!(gh.renamed("spurhq/spur"), None);
+        assert!(gh.names_known(&seeds), "known, as far as GitHub said");
+        assert!(!gh.names_known(&[seed("/x/new", "acme/new", "main")]), "a repo here since isn't");
         // The one it didn't answer for is asked about again after an hour, and only that one.
         assert!(gh.names.to_ask(slugs(), t + NAME_RETRY - Duration::from_secs(1)).is_none());
         assert!(!gh.names.inflight);

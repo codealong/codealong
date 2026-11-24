@@ -60,6 +60,11 @@ pub fn load_checkout(root: &Path) -> Option<Checkout> {
     Some(Checkout { root: root.to_path_buf(), git_dir, name: file_name(root), identity, github, github_owners })
 }
 
+/// A folder `discover` never looks in: hidden ones, and the ones that hold what's built.
+pub fn passed_over(name: &str) -> bool {
+    name.starts_with('.') || name == "node_modules" || name == "target"
+}
+
 /// Finds main checkouts (folders with a `.git` directory) up to `depth` levels below each root.
 pub fn discover(roots: &[PathBuf], depth: usize) -> Vec<Checkout> {
     fn walk(dir: &Path, depth: usize, out: &mut Vec<Checkout>) {
@@ -77,7 +82,7 @@ pub fn discover(roots: &[PathBuf], depth: usize) -> Vec<Checkout> {
         for e in entries.flatten() {
             let name = e.file_name();
             let name = name.to_string_lossy();
-            if name.starts_with('.') || name == "node_modules" || name == "target" {
+            if passed_over(&name) {
                 continue;
             }
             if e.file_type().map(|t| t.is_dir()).unwrap_or(false) {

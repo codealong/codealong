@@ -5,8 +5,11 @@
 //!
 //! So while automatic reviews are on for such a repo (`[reviews] auto`, or its own
 //! `[repos."github.com/…"]`) and a project's `repos` pattern covers it (`github.com/acme/*`),
-//! it's cloned into the first `scan` folder under its own name (`due`), with `gh repo clone`,
-//! which clones as gh's git protocol for GitHub says (`run`). The repos are read again and
+//! it's cloned under its own name into the first `scan` folder that isn't a checkout itself,
+//! where the scan would never look (`root`, `due`), with `gh repo clone`, which clones as gh's
+//! git protocol for GitHub says (`run`). Not before what GitHub calls each repo here now is known
+//! (ghpoll.rs `names_known`): a renamed repo's checkout would look missing under its new name,
+//! and be cloned again (engine/polls.rs `clone_covered`). The repos are read again and
 //! GitHub asked again then, and the PR is listed and reviewed as any other. A repo no project
 //! covers stays out, as before, and nothing is cloned while reviews are off for it. A folder of
 //! that name there already is read again when it's a checkout of the repo (one cloned by hand,
@@ -15,7 +18,7 @@
 //! no longer waits to.
 
 use std::collections::{BTreeMap, BTreeSet, HashSet};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
 
 use crate::config::{repo_key, Config};
@@ -46,12 +49,12 @@ pub struct Clones {
 }
 
 impl Clones {
-    /// The repos to clone now, of those GitHub's search found PRs that wait on your review in
-    /// with no checkout here (`not_here`), each marked under way. A failure is forgotten once its
-    /// repo no longer waits to be cloned.
-    pub fn due(&mut self, not_here: &BTreeSet<String>, cfg: &Config, now: Instant) -> Vec<ToClone> {
+    /// The repos to clone into `root` (the folder `root` picks) now, of those GitHub's search found PRs that wait
+    /// on your review in with no checkout here (`not_here`), each marked under way. A failure is
+    /// forgotten once its repo no longer waits to be cloned.
+    pub fn due(&mut self, not_here: &BTreeSet<String>, cfg: &Config, root: Option<&Path>, now: Instant) -> Vec<ToClone> {
         self.failed.retain(|slug, _| not_here.contains(slug) && wanted(cfg, slug));
-        let Some(root) = cfg.scan.iter().map(|s| s.trim()).find(|s| !s.is_empty()).map(crate::util::expand) else { return Vec::new() };
+        let Some(root) = root else { return Vec::new() };
         let mut due = Vec::new();
         for slug in not_here.iter().filter(|s| wanted(cfg, s)) {
             let key = slug.to_lowercase();
@@ -89,18 +92,26 @@ impl Clones {
     }
 }
 
-/// Whether a PR waiting on your review in `slug` has its repo cloned: automatic reviews are on for
-/// it, and a project's `repos` pattern covers it.
-fn wanted(cfg: &Config, slug: &str) -> bool {
-    let key = repo_key(slug);
-    let auto = cfg.repos.get(&key).and_then(|r| r.reviews.auto).unwrap_or(cfg.reviews.auto);
-    auto && cfg.projects.iter().any(|p| p.repos.iter().any(|pat| crate::repos::matches(&key, pat)))
+/// The folder repos are cloned into: the first `scan` folder that isn't a checkout itself, whose
+/// insides the scan never reads (`repos::discover`).
+pub fn root(scan: &[String]) -> Option<PathBuf> {
+    scan.iter().map(|s| s.trim()).filter(|s| !s.is_empty()).map(crate::util::expand).find(|r| !r.join(".git").exists())
 }
 
-/// A repo's name as a folder's, which GitHub keeps to letters, digits, `.`, `-` and `_`: nothing
-/// that would reach outside the scan folder.
+/// Whether a PR waiting on your review in `slug` has its repo cloned: automatic reviews are on for
+/// it, and a project's `repos` pattern covers it. Its table in `[repos]` is found in any case, as
+/// the patterns are: the search names a repo as GitHub does, which a remote may not.
+fn wanted(cfg: &Config, slug: &str) -> bool {
+    let key = repo_key(slug);
+    let mine = cfg.repos.iter().find(|(k, _)| k.eq_ignore_ascii_case(&key)).and_then(|(_, r)| r.reviews.auto);
+    mine.unwrap_or(cfg.reviews.auto) && cfg.projects.iter().any(|p| p.repos.iter().any(|pat| crate::repos::matches(&key, pat)))
+}
+
+/// A repo's name as a folder's that the scan reads: GitHub keeps names to letters, digits, `.`,
+/// `-` and `_`, so nothing reaches outside the scan folder, and the scan passes over a hidden
+/// folder (`.github`) and `target` and `node_modules` (`repos::passed_over`).
 fn plain_name(name: &str) -> bool {
-    !name.is_empty() && name != "." && name != ".." && name.chars().all(|c| c.is_ascii_alphanumeric() || matches!(c, '.' | '-' | '_'))
+    !name.is_empty() && !crate::repos::passed_over(name) && name.chars().all(|c| c.is_ascii_alphanumeric() || matches!(c, '.' | '-' | '_'))
 }
 
 /// Clones `c`, or finds it's there: a folder of its name that's a checkout of the repo is, and
@@ -130,6 +141,11 @@ mod tests {
         cfg
     }
 
+    /// The scan folder the tests clone into.
+    fn code() -> Option<&'static Path> {
+        Some(Path::new("/code"))
+    }
+
     fn slugs(list: &[&str]) -> BTreeSet<String> {
         list.iter().map(|s| s.to_string()).collect()
     }
@@ -138,12 +154,12 @@ mod tests {
     fn clones_a_repo_a_project_covers_into_the_first_scan_folder_while_reviews_are_on() {
         let mut c = Clones::default();
         let now = Instant::now();
-        let due = c.due(&slugs(&["Acme/Plugins", "other/thing"]), &cfg(true), now);
+        let due = c.due(&slugs(&["Acme/Plugins", "other/thing"]), &cfg(true), code(), now);
         assert_eq!(due, vec![ToClone { slug: "Acme/Plugins".into(), into: PathBuf::from("/code/Plugins") }], "no project covers other/thing");
         // Under way, it isn't handed out again.
-        assert!(c.due(&slugs(&["Acme/Plugins"]), &cfg(true), now).is_empty());
+        assert!(c.due(&slugs(&["Acme/Plugins"]), &cfg(true), code(), now).is_empty());
         // Nor with reviews off.
-        assert!(Clones::default().due(&slugs(&["acme/plugins"]), &cfg(false), now).is_empty());
+        assert!(Clones::default().due(&slugs(&["acme/plugins"]), &cfg(false), code(), now).is_empty());
     }
 
     #[test]
@@ -151,11 +167,11 @@ mod tests {
         let now = Instant::now();
         let mut off = cfg(true);
         off.repos.insert("github.com/acme/quiet".into(), RepoCfg { reviews: crate::config::ReviewsPatch { auto: Some(false), ..Default::default() }, ..Default::default() });
-        let due = Clones::default().due(&slugs(&["acme/quiet", "acme/loud"]), &off, now);
-        assert_eq!(due.iter().map(|c| c.slug.as_str()).collect::<Vec<_>>(), ["acme/loud"]);
+        let due = Clones::default().due(&slugs(&["Acme/Quiet", "acme/loud"]), &off, code(), now);
+        assert_eq!(due.iter().map(|c| c.slug.as_str()).collect::<Vec<_>>(), ["acme/loud"], "its table found in any case");
         let mut on = cfg(false);
         on.repos.insert("github.com/acme/loud".into(), RepoCfg { reviews: crate::config::ReviewsPatch { auto: Some(true), ..Default::default() }, ..Default::default() });
-        let due = Clones::default().due(&slugs(&["acme/quiet", "acme/loud"]), &on, now);
+        let due = Clones::default().due(&slugs(&["acme/quiet", "acme/loud"]), &on, code(), now);
         assert_eq!(due.iter().map(|c| c.slug.as_str()).collect::<Vec<_>>(), ["acme/loud"]);
     }
 
@@ -164,32 +180,44 @@ mod tests {
         let mut c = Clones::default();
         let now = Instant::now();
         let waiting = slugs(&["acme/plugins"]);
-        let first = c.due(&waiting, &cfg(true), now).remove(0);
+        let first = c.due(&waiting, &cfg(true), code(), now).remove(0);
         assert!(!c.on_cloned(&first, Some(Err("Repository not found.".into()))));
         assert!(c.notice().is_some_and(|n| n.starts_with("acme/plugins wasn't cloned") && n.contains("Repository not found.")));
-        assert!(c.due(&waiting, &cfg(true), now + Duration::from_secs(59 * 60)).is_empty(), "not within the hour");
-        let again = c.due(&waiting, &cfg(true), now + RETRY_AFTER).remove(0);
+        assert!(c.due(&waiting, &cfg(true), code(), now + Duration::from_secs(59 * 60)).is_empty(), "not within the hour");
+        let again = c.due(&waiting, &cfg(true), code(), now + RETRY_AFTER).remove(0);
         // Work that fell over is a failure too.
         assert!(!c.on_cloned(&again, None));
         assert!(c.notice().is_some_and(|n| n.contains("its clone fell over")));
         // Once it's there it's read again, and says nothing.
-        let third = c.due(&waiting, &cfg(true), now + RETRY_AFTER * 2).remove(0);
+        let third = c.due(&waiting, &cfg(true), code(), now + RETRY_AFTER * 2).remove(0);
         assert!(c.on_cloned(&third, Some(Ok(()))));
         assert_eq!(c.notice(), None);
         // A failure goes once its repo no longer waits to be cloned.
-        let fourth = c.due(&waiting, &cfg(true), now + RETRY_AFTER * 3).remove(0);
+        let fourth = c.due(&waiting, &cfg(true), code(), now + RETRY_AFTER * 3).remove(0);
         c.on_cloned(&fourth, Some(Err("offline".into())));
-        c.due(&BTreeSet::new(), &cfg(true), now + RETRY_AFTER * 3);
+        c.due(&BTreeSet::new(), &cfg(true), code(), now + RETRY_AFTER * 3);
         assert_eq!(c.notice(), None);
     }
 
     #[test]
-    fn clones_nothing_without_a_scan_folder_nor_into_a_name_that_leaves_it() {
+    fn clones_nothing_without_a_scan_folder_nor_into_a_name_the_scan_passes_over_or_that_leaves_it() {
         let now = Instant::now();
-        let none = Config { scan: vec![" ".into()], ..cfg(true) };
-        assert!(Clones::default().due(&slugs(&["acme/plugins"]), &none, now).is_empty());
-        assert!(Clones::default().due(&slugs(&["acme/..", "acme/a/b", "acme/"]), &cfg(true), now).is_empty());
+        assert!(Clones::default().due(&slugs(&["acme/plugins"]), &cfg(true), None, now).is_empty());
+        let names = slugs(&["acme/..", "acme/a/b", "acme/", "acme/.github", "acme/target", "acme/node_modules"]);
+        assert!(Clones::default().due(&names, &cfg(true), code(), now).is_empty());
         assert!(plain_name("specset-plugins.v2_x"));
+    }
+
+    #[test]
+    fn clones_into_the_first_scan_folder_that_isnt_a_checkout_itself() {
+        let dir = std::env::temp_dir().join(format!("codealong-clone-root-{}", std::process::id()));
+        let repo = dir.join("repo");
+        std::fs::create_dir_all(repo.join(".git")).unwrap();
+        let scan = |list: &[&PathBuf]| list.iter().map(|p| p.to_string_lossy().into_owned()).collect::<Vec<_>>();
+        assert_eq!(root(&[" ".to_string()]), None);
+        assert_eq!(root(&scan(&[&repo, &dir])), Some(dir.clone()), "the scan never looks inside a checkout");
+        assert_eq!(root(&scan(&[&dir, &repo])), Some(dir.clone()));
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[test]
