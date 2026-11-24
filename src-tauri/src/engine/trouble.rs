@@ -182,6 +182,22 @@ fn held_warning(paths: &[PathBuf]) -> Option<String> {
 
 #[cfg(test)]
 mod tests {
+    /// A repo that wasn't cloned for its review says why, until it is (clones.rs).
+    #[test]
+    fn a_repo_that_wasnt_cloned_is_a_notice() {
+        use super::*;
+
+        let (tx, _rx) = channel();
+        let mut engine = Engine::new(Box::new(|_| {}), tx, Arc::new(RwLock::new(Board::default())));
+        let c = crate::clones::ToClone { slug: "acme/plugins".into(), into: vec![PathBuf::from("/code/plugins")] };
+        engine.on_cloned(c, Some(Err("gh repo clone into ~/code/plugins failed: offline.".into())));
+        assert!(engine.dirty, "the board says so");
+        let said = engine.notices().into_iter().find(|n| n.key == "clones").unwrap();
+        assert_eq!(said.title, "A repo wasn't cloned for its review");
+        assert!(said.text.starts_with("acme/plugins wasn't cloned to review the pull request that waits on you there: gh repo clone into ~/code/plugins failed: offline."));
+        assert!(engine.compose().notices.contains(&said));
+    }
+
     /// GitHub's notice is one of the board's, in the place it always had: after config.toml's.
     #[test]
     fn what_went_wrong_with_github_is_a_notice() {
