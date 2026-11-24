@@ -4,13 +4,17 @@
 // is frosted, not clear;
 // what sits on the glass (the title bar, the usage bar, the sidebar, the strip over the list, the
 // group headers) draws its wells, hovers, selections and lines see-through, so they take the
-// glass's tint (styles/glass.css), while a white control there keeps its white under the pointer,
-// a usage chip too (flat at rest, as a status bar's items are) and while it's dragged over the others; the strip over the list hides the rows that
-// scroll under it, the strip over a session's panel has its ground and line, and nothing draws a blur of its own (WebKit's, stacked on the glass, flickers as
-// the window moves). In the quick panel the card draws no ground of its own, which would cover the
-// glass under it, its parts above the bar draw it, the bar is see-through, its chips keep their
-// white under the pointer, and in Send to, which has no bar, the part at the foot has the card's
-// corners. On Linux there's no glass to let through, so neither page is see-through anywhere.
+// glass's tint (styles/glass.css). Controls on live window glass (title bar buttons, the luminous
+// frosted search pill, segmented controls, sidebar active items, quick panel chips, and usage chips
+// on hover) draw as translucent glass pills with no opaque white boxes or palette-tinted borders,
+// while a dragged usage chip keeps its opaque ground so chips underneath don't bleed through; the
+// strip over the list hides the rows that scroll under it, the strip over a session's panel has
+// its ground and line, and nothing draws a blur of its own (WebKit's, stacked on the glass,
+// flickers as the window moves). In the quick panel the card draws no ground of its own, which
+// would cover the glass under it, its parts above the bar draw it, the bar is see-through, its
+// chips are translucent glass pills, and in Send to, which has no bar, the part at the foot has
+// the card's corners. On Linux there's no glass to let through, so neither page is see-through
+// anywhere.
 //   PREVIEW_GLASS=1 scripts/preview.sh sessions '' scripts/preview/glass-check.js
 //   PREVIEW_GLASS=1 PREVIEW_SCHEME=dark scripts/preview.sh sessions '' scripts/preview/glass-check.js
 //   PREVIEW_WAIT=60000 PREVIEW_GLASS=1 scripts/preview.sh quick '' scripts/preview/glass-check.js
@@ -41,7 +45,8 @@
     if (!rule) return null;
     var probe = document.createElement('div');
     place.appendChild(probe);
-    probe.style.background = rule.style.background;
+    if (rule.style.background) probe.style.background = rule.style.background;
+    else probe.style.backgroundColor = rule.style.backgroundColor;
     var color = bg(probe);
     probe.remove();
     return color;
@@ -66,7 +71,9 @@
       var parts = Array.prototype.filter.call(card.children, function (c) { return c !== bar && !c.classList.contains('ca-scrim'); });
       var clear = parts.filter(function (c) { return alpha(bg(c)) !== 1; });
       check('each part above the bar draws the card’s ground', parts.length > 0 && clear.length === 0, clear.map(function (c) { return c.className + ' ' + bg(c); }).join(', '));
-      hovers('.ca-quick-chip:hover', bar, true, 'a chip on the bar keeps its white under the pointer');
+      var qchip = bar.querySelector('.ca-quick-chip');
+      check('a chip on the bar is a translucent glass pill', !!qchip && alpha(bg(qchip)) > 0 && alpha(bg(qchip)) < 1 && parseFloat(getComputedStyle(qchip).borderTopLeftRadius) >= 100, qchip ? bg(qchip) + ' r=' + getComputedStyle(qchip).borderTopLeftRadius : 'none');
+      hovers('.is-glass .ca-quick-bar .ca-quick-chip:hover:not(:disabled)', bar, false, 'a chip on the bar stays translucent glass under the pointer');
       // Send to (⌘F under a prompt) has no bar: the part at the card's foot has its corners.
       var box = q('.ca-quick-input textarea');
       type(box, 'Look at why the build fails on main and fix it');
@@ -101,7 +108,7 @@
     check('the board’s ground is frosted: mostly opaque, not clear', frost > 0.6 && frost < 1, bg(board));
     ['.ca-win-bar', '.ca-statusbar', '.ca-side', '.ca-listbar', '.ca-bay'].forEach(function (sel) {
       var el = q(sel);
-      var see = ['--surface-sunken', '--surface-hover', '--surface-selected', '--line', '--neutral-tint', '--ink-2', '--ink-3'].filter(function (t) { return !(alpha(token(el, t)) < 1); });
+      var see = ['--surface-sunken', '--surface-hover', '--surface-selected', '--line', '--line-strong', '--neutral-tint', '--ink-2', '--ink-3'].filter(function (t) { return !(alpha(token(el, t)) < 1); });
       check(sel + ' draws its wells, hovers, selections, lines, keycaps and muted ink see-through', see.length === 0, see.map(function (t) { return t + ' ' + token(el, t); }).join(', '));
     });
     var statusBar = q('.ca-statusbar');
@@ -120,12 +127,24 @@
     // A page's own blur, stacked on the glass behind the window, flickers as the window moves.
     var blurred = all('body *').filter(function (el) { var cs = getComputedStyle(el); return (cs.backdropFilter || cs.webkitBackdropFilter || 'none') !== 'none'; });
     check('nothing on the page draws a blur of its own over the glass', blurred.length === 0, blurred.slice(0, 3).map(function (el) { return el.className; }).join(', '));
-    // Under the pointer, what's on the glass is a shade of it, not near white; a white control there
-    // stays white, and a usage chip so while it's dragged over the others.
-    hovers('.is-glass .ca-search:hover', q('.ca-win-bar'), false, 'the search box’s hover is see-through');
-    hovers('.ca-sidetoggle:hover', q('.ca-win-bar'), false, 'the sidebar toggle’s hover is see-through');
-    hovers('.ca-btn:hover', q('.ca-win-bar'), true, 'a button keeps its white under the pointer');
-    hovers('.ca-uchip:hover', statusBar, true, 'a usage chip keeps its white under the pointer');
+    // Controls on live window glass draw as translucent glass pills with specular depth; a dragged
+    // usage chip stays opaque so sliding chips underneath don't bleed through.
+    var winBar = q('.ca-win-bar');
+    var barBtn = q('.ca-win-bar-end > .ca-btn');
+    var search = q('.ca-win-bar .ca-search');
+    var seg = q('.ca-win-bar-end > .ca-segctl');
+    // `.ca-btn` transitions its background over 120ms when `is-glass` arrives after first paint.
+    if (barBtn && seg) await until(function () { return bg(barBtn) === bg(seg); }, 1000, 'title bar button to settle into glass').catch(function () {});
+    check('title bar buttons are translucent glass pills', !!barBtn && alpha(bg(barBtn)) > 0 && alpha(bg(barBtn)) < 1 && parseFloat(getComputedStyle(barBtn).borderTopLeftRadius) >= 100, barBtn ? bg(barBtn) + ' r=' + getComputedStyle(barBtn).borderTopLeftRadius : 'none');
+    check('the search pill is luminous frosted glass', !!search && alpha(bg(search)) > 0 && alpha(bg(search)) < 1 && parseFloat(getComputedStyle(search).borderTopLeftRadius) >= 100, search ? bg(search) + ' r=' + getComputedStyle(search).borderTopLeftRadius : 'none');
+    check('the title bar segmented control is a glass capsule matching the buttons’ height', !!seg && !!barBtn && bg(seg) === bg(barBtn) && parseFloat(getComputedStyle(seg).borderTopLeftRadius) >= 100 && Math.abs(seg.getBoundingClientRect().height - barBtn.getBoundingClientRect().height) <= 0.5, seg && barBtn ? bg(seg) + ' h=' + seg.getBoundingClientRect().height + ' vs ' + barBtn.getBoundingClientRect().height : 'none');
+    var navActive = q('.ca-side .ca-nav.is-active');
+    if (navActive) check('the active sidebar row is translucent glass', alpha(bg(navActive)) > 0 && alpha(bg(navActive)) < 1, bg(navActive));
+    hovers('.is-glass .ca-win-bar .ca-search:hover', winBar, false, 'the search pill’s hover is translucent glass');
+    hovers('.is-glass .ca-win-bar .ca-sidetoggle:hover', winBar, false, 'the sidebar toggle’s hover is translucent glass');
+    hovers('.is-glass .ca-win-bar-end > .ca-btn:hover:not(:disabled)', winBar, false, 'a title bar button stays translucent glass under the pointer');
+    hovers('.is-glass .ca-statusbar .ca-uchip:hover:not(.is-lifted)', statusBar, false, 'a usage chip lifts into a translucent glass pill under the pointer');
+    hovers('.is-glass .ca-statusbar .ca-statusbar-accts.is-sorting .ca-uchip.is-lifted', statusBar, true, 'a dragged usage chip stays opaque over the others');
     // At rest a usage chip is flat, as a status bar's items are: the glass shows through it.
     var chip = q('.ca-statusbar .ca-uchip:not(.is-attn):not(.is-training)');
     if (chip) check('a usage chip at rest draws no ground of its own', alpha(bg(chip)) === 0, bg(chip));
