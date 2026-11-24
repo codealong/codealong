@@ -867,7 +867,7 @@ function StartingListRowView({ starting: s, now, selected, onShow, onContextMenu
         </div>
       </div>
       <div className="ca-seg ca-seg-age" title={`Started ${absolute(s.at)}`}>
-        {duration(s.at, now)}
+        {ago(s.at, now)}
       </div>
     </Row>
   );

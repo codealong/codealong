@@ -1104,13 +1104,19 @@ fn with_note(said: Option<String>, ran: &launch::Ran, cfg: &Config) -> Option<St
     }
 }
 
+/// Whether starting at `place` opens a terminal tab: Terminal always does, and Background does
+/// only for a harness with no background service of its own (`!service`).
+fn opens_terminal(place: Place, service: bool) -> bool {
+    place == Place::Terminal || (place == Place::Background && !service)
+}
+
 /// Where a start or a resume at `place` goes: there, unless it would open a terminal (Terminal,
 /// or Background for a harness with no background service of its own, `service`) while the screen
 /// is locked and nothing can (`hosted`, from `launch::host_for`). Then it goes out of sight where
 /// the account can (`offered`): under the harness's background service, else in Codealong, saying
 /// why; with neither, the start fails saying why. `terminal` is the app config.toml names.
 fn locked_place(place: Place, offered: &[Place], service: bool, hosted: std::result::Result<launch::Host, launch::Unhosted>, terminal: &str) -> Result<(Place, Option<String>)> {
-    let opens_terminal = place == Place::Terminal || (place == Place::Background && !service);
+    let opens_terminal = opens_terminal(place, service);
     match hosted {
         Err(why) if opens_terminal => {
             let instead = match why {
@@ -1157,8 +1163,11 @@ pub fn plan_now(cfg: &Config, account: &AccountCfg, place: Place, folder: &Path,
 }
 
 /// Starts a session: checks the choice against the board and the config, then hands it to the
-/// terminal or the app, the way the account's harness starts one.
-pub fn start(board: &Board, cfg: &Config, spec: &StartSpec) -> Result<Started> {
+/// terminal or the app, the way the account's harness starts one. Also returns whether the start
+/// actually opened a terminal tab (`opens_terminal`), so `origins::started` only marks terminal
+/// starts as waiting in a terminal (never a background service like `claude --bg`, or a
+/// locked-screen fallback to Background/Codealong).
+fn start(board: &Board, cfg: &Config, spec: &StartSpec) -> Result<(Started, bool)> {
     let lane = board.lanes.iter().find(|l| l.id == spec.lane_id).ok_or_else(|| anyhow!("That worktree just changed. Try again."))?;
     let account = cfg.accounts.iter().find(|a| a.name == spec.account).ok_or_else(|| anyhow!("There's no account named {}.", spec.account))?;
     account.ensure_on()?;
@@ -1168,7 +1177,8 @@ pub fn start(board: &Board, cfg: &Config, spec: &StartSpec) -> Result<Started> {
     }
     let (place, instead) = place_now(account, spec.place, offered.as_deref().unwrap_or_default(), cfg)?;
     let started = start_at(board, cfg, spec, lane, account, place)?;
-    Ok(Started { message: with_instead(started.message, instead), ..started })
+    let in_terminal = opens_terminal(place, adapter_of(account).runs_in_background());
+    Ok((Started { message: with_instead(started.message, instead), ..started }, in_terminal))
 }
 
 /// `message` with why the start went where it did put first, where there's a why.
@@ -1444,8 +1454,8 @@ fn linked(spec: &StartSpec, started: &Started, harness: &str, now: i64) -> Optio
 /// engine does for the app (`start_here`), and the `codealong` command writes todos.json itself
 /// when the app is closed.
 pub fn start_and_link(board: &Board, cfg: &Config, spec: &StartSpec, record: impl FnOnce(Linked) -> Result<()>) -> Result<Started> {
-    let started = start(board, cfg, spec)?;
-    crate::origins::started(spec, started.key.as_deref());
+    let (started, in_terminal) = start(board, cfg, spec)?;
+    crate::origins::started(spec, started.key.as_deref(), in_terminal);
     // `start` found the account, or it would have failed.
     let harness = cfg.accounts.iter().find(|a| a.name == spec.account).map(|a| a.harness.as_str());
     if let Some(link) = harness.and_then(|h| linked(spec, &started, h, now_ms())) {
@@ -1770,7 +1780,13 @@ mod tests {
         let all = [Place::Terminal, Place::Background, Place::Codealong];
         for locked in [Err(Unhosted::Locked { tmux_installed: false }), Err(Unhosted::Locked { tmux_installed: true })] {
             // Claude Code goes under its background service.
-            let (place, why) = locked_place(Place::Terminal, &all, true, locked, "Ghostty").unwrap();
+            // Background opens a terminal only when the harness has no background service of its own.
+        assert!(!opens_terminal(Place::Background, true));
+        assert!(opens_terminal(Place::Background, false));
+        assert!(opens_terminal(Place::Terminal, true));
+        assert!(!opens_terminal(Place::Codealong, false));
+        assert!(!opens_terminal(Place::ClaudeApp, true));
+        let (place, why) = locked_place(Place::Terminal, &all, true, locked, "Ghostty").unwrap();
             assert_eq!(place, Place::Background);
             assert_eq!(why.as_deref(), Some("The screen is locked, and Ghostty can't open a terminal until you unlock it, so it goes on in the background instead."));
             assert_eq!(locked_place(Place::Background, &all, true, locked, "Ghostty").unwrap(), (Place::Background, None));
