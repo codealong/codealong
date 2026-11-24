@@ -144,7 +144,11 @@ Harness facts (from GitHub's answers on this Mac, 2026-10-01). A bare file name 
   as `gh config get git_protocol -h github.com` says, which can differ from the global
   `git_protocol` (ssh for the host and https globally on this Mac, 2026-11-24, which cloned with
   an ssh `origin`). A fork's clone gets the repo it was forked from as `upstream` too, fetched
-  at once; `origin` still names the checkout (`repos::load_checkout`).
+  at once; `origin` still names the checkout (`repos::load_checkout`). Nothing is cloned until
+  GitHub has said what each repo here is called now (`GhPoll::names_known`): `gh api
+  repos/<owner>/<name>` for a repo GitHub doesn't have for you exits 1 with `gh: Not Found (HTTP
+  404)` on stderr (2026-11-24), which `github::current_slug` takes as the repo going by its own
+  name; any other failure is no answer.
 - Who's assigned to a PR and by whom: `ASSIGNED_EVENT` and `UNASSIGNED_EVENT` beside
   `REVIEW_REQUESTED_EVENT` in `ASKED_FIELDS`'s `timelineItems` (`assigned_of`, `events_of`), each
   node's `__typename` telling them apart, `assignee` a union whose `... on User { login }` names

@@ -102,11 +102,13 @@ pub fn root(scan: &[String]) -> Option<PathBuf> {
 }
 
 /// Whether a PR waiting on your review in `slug` has its repo cloned: automatic reviews are on for
-/// it, as your table for it says if any (found as its review finds it, `config::repo_cfg`), and a
-/// project's `repos` pattern covers it.
+/// it, as your table for it says if any, and a project's `repos` pattern covers it. The table is
+/// found as its review finds it (teamfile.rs `RepoSettings::mine_of`), by the slug as GitHub
+/// names the repo, which its clone's remote will have.
 fn wanted(cfg: &Config, slug: &str) -> bool {
-    let auto = crate::config::repo_cfg(&cfg.repos, slug).and_then(|r| r.reviews.auto).unwrap_or(cfg.reviews.auto);
-    auto && cfg.projects.iter().any(|p| p.repos.iter().any(|pat| crate::repos::matches(&repo_key(slug), pat)))
+    let key = repo_key(slug);
+    let auto = cfg.repos.get(&key).and_then(|r| r.reviews.auto).unwrap_or(cfg.reviews.auto);
+    auto && cfg.projects.iter().any(|p| p.repos.iter().any(|pat| crate::repos::matches(&key, pat)))
 }
 
 /// The folder a repo is cloned into, by its name: one the scan reads, which passes over a hidden
@@ -175,11 +177,11 @@ mod tests {
         let now = Instant::now();
         let mut off = cfg(true);
         off.repos.insert("github.com/acme/quiet".into(), RepoCfg { reviews: crate::config::ReviewsPatch { auto: Some(false), ..Default::default() }, ..Default::default() });
-        let due = Clones::default().due(&slugs(&["Acme/Quiet", "acme/loud"]), &off, code(), now);
-        assert_eq!(due.iter().map(|c| c.slug.as_str()).collect::<Vec<_>>(), ["acme/loud"], "its table found in any case");
+        let due = Clones::default().due(&slugs(&["acme/quiet", "acme/loud"]), &off, code(), now);
+        assert_eq!(due.iter().map(|c| c.slug.as_str()).collect::<Vec<_>>(), ["acme/loud"]);
         // As the review it's cloned for finds it.
         let settings = crate::teamfile::RepoSettings { mine: off.repos.clone(), ..Default::default() };
-        assert_eq!(settings.mine_of("Acme/Quiet").and_then(|r| r.reviews.auto), Some(false));
+        assert_eq!(settings.mine_of("acme/quiet").and_then(|r| r.reviews.auto), Some(false));
         let mut on = cfg(false);
         on.repos.insert("github.com/acme/loud".into(), RepoCfg { reviews: crate::config::ReviewsPatch { auto: Some(true), ..Default::default() }, ..Default::default() });
         let due = Clones::default().due(&slugs(&["acme/quiet", "acme/loud"]), &on, code(), now);
@@ -219,9 +221,10 @@ mod tests {
     fn a_name_the_scan_passes_over_is_cloned_with_its_owner_and_one_no_folder_can_have_says_so() {
         let mut c = Clones::default();
         let due = c.due(&slugs(&["acme/.github", "acme/target", "acme/node_modules", "acme/plugins.v2_x"]), &cfg(true), code(), Instant::now());
-        let into: Vec<String> = due.iter().map(|c| c.into.to_string_lossy().into_owned()).collect();
-        assert_eq!(into, ["/code/acme-.github", "/code/acme-node_modules", "/code/plugins.v2_x", "/code/acme-target"]);
-        assert!(into.iter().all(|f| !crate::repos::passed_over(f.trim_start_matches("/code/"))));
+        let into: Vec<PathBuf> = due.iter().map(|c| c.into.clone()).collect();
+        let want: Vec<PathBuf> = ["acme-.github", "acme-node_modules", "plugins.v2_x", "acme-target"].iter().map(|f| Path::new("/code").join(f)).collect();
+        assert_eq!(into, want);
+        assert!(into.iter().all(|f| f.file_name().is_some_and(|n| !crate::repos::passed_over(&n.to_string_lossy()))));
         assert_eq!(c.due(&slugs(&["acme/a/b", "acme/", "acme/x y"]), &cfg(true), code(), Instant::now()), vec![]);
         assert_eq!(c.notice().map(|n| n.lines().count()), Some(3), "each says why");
     }

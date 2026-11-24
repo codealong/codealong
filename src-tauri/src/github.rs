@@ -297,10 +297,15 @@ pub fn display_name(owner: &str) -> Option<String> {
 
 /// What GitHub calls a repo now (`oldorg/app` → `neworg/app`). A repo that was
 /// renamed, or whose owner was renamed or changed, still answers to its old name, which older
-/// checkouts' remotes keep: GitHub redirects it. None when GitHub didn't answer.
+/// checkouts' remotes keep: GitHub redirects it. A repo GitHub says it doesn't have for you
+/// (`HTTP 404`: deleted, or no longer yours to see) goes by its own name, as nothing else you
+/// could clone (clones.rs). None when GitHub didn't answer.
 pub fn current_slug(slug: &str) -> Option<String> {
-    let out = procs::run("gh", &["api", &format!("repos/{slug}"), "--jq", ".full_name"], None, Duration::from_secs(10)).ok()?;
-    slug_of(&out)
+    match procs::run("gh", &["api", &format!("repos/{slug}"), "--jq", ".full_name"], None, Duration::from_secs(10)) {
+        Ok(out) => slug_of(&out),
+        Err(e) if format!("{e:#}").contains("(HTTP 404)") => slug_of(slug),
+        Err(_) => None,
+    }
 }
 
 fn slug_of(out: &str) -> Option<String> {
@@ -2608,6 +2613,20 @@ mod tests {
         for bad in ["", "null", "sprucehq", "a/b/c", "gh: Not Found (HTTP 404)"] {
             assert_eq!(slug_of(bad), None, "{bad}");
         }
+    }
+
+    #[test]
+    fn a_repo_github_doesnt_have_for_you_goes_by_its_own_name_and_one_it_didnt_answer_for_by_none() {
+        // As `gh api` fails each way, through procs.rs, which names the program before its words.
+        let named = |failure: &'static str| {
+            procs::stand_in::set(Some(Box::new(move |_, _, _, _| Err(anyhow::anyhow!("gh {failure}")))));
+            let name = current_slug("acme/gone");
+            procs::stand_in::set(None);
+            name
+        };
+        assert_eq!(named("gh: Not Found (HTTP 404)").as_deref(), Some("acme/gone"));
+        assert_eq!(named("timed out after 10s"), None);
+        assert_eq!(named("gh: API rate limit exceeded (HTTP 403)"), None);
     }
 
     /// A repo's PRs as GitHub answers: an open one whose checks are running, and a merged one.

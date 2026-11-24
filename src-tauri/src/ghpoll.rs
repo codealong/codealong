@@ -185,10 +185,6 @@ struct Names {
     now: HashMap<String, String>,
     /// When each slug was last asked about, so one GitHub didn't answer is asked again later.
     asked: HashMap<String, Instant>,
-    /// The slugs the asking on its way is about, and how many askings in a row each slug went
-    /// unanswered in (`known`).
-    asking: BTreeSet<String>,
-    missed: HashMap<String, u32>,
     inflight: bool,
 }
 
@@ -210,7 +206,6 @@ impl Names {
         for slug in &slugs {
             self.asked.insert(slug.clone(), now);
         }
-        self.asking = slugs.clone();
         self.inflight = true;
         Some(slugs)
     }
@@ -223,20 +218,9 @@ impl Names {
         for (slug, name) in names {
             let Some(name) = name else { continue };
             renamed |= !name.eq_ignore_ascii_case(&slug);
-            self.missed.remove(&slug);
             self.now.insert(slug, name);
         }
-        for slug in std::mem::take(&mut self.asking).into_iter().filter(|s| !self.now.contains_key(s)) {
-            *self.missed.entry(slug).or_default() += 1;
-        }
         renamed
-    }
-
-    /// Whether what GitHub calls the repo whose remote has `slug` (lowercase) is known, as far as
-    /// it can be: GitHub said, or didn't say twice in a row, as for a repo it no longer has. One
-    /// miss may be the network.
-    fn known(&self, slug: &str) -> bool {
-        self.now.contains_key(slug) || self.missed.get(slug).is_some_and(|n| *n >= 2)
     }
 }
 
@@ -623,11 +607,12 @@ impl GhPoll {
         &self.names.now
     }
 
-    /// Whether what GitHub calls each repo here now is known (`Names::known`): until it is, a
-    /// renamed repo's checkout isn't known by the name the search gives it, and would be in
-    /// `not_here` (clones.rs).
+    /// Whether GitHub has said what it calls each repo here now (`github::current_slug`, a repo it
+    /// doesn't have for you by its own name): until it has, a renamed repo's checkout isn't known
+    /// by the name the search gives it, and would be in `not_here` (clones.rs). A repo it didn't
+    /// answer for is asked again within the hour.
     pub fn names_known(&self, seeds: &[LaneSeed]) -> bool {
-        !self.names.inflight && seeds.iter().filter_map(|s| s.repo_slug.as_deref()).all(|s| self.names.known(&s.to_lowercase()))
+        seeds.iter().filter_map(|s| s.repo_slug.as_deref()).all(|s| self.names.now.contains_key(&s.to_lowercase()))
     }
 
     /// What GitHub calls a repo now, when that isn't the name its remote has.
@@ -1407,7 +1392,7 @@ mod tests {
         assert!(gh.on_event(Event::RepoNames(vec![("sparkhq/spark".into(), Some("sprucehq/spark".into())), ("spurhq/spur".into(), None)]), &seeds, clock()), "a rename changes the board");
         assert_eq!(gh.renamed("SparkHQ/spark").map(String::as_str), Some("sprucehq/spark"));
         assert_eq!(gh.renamed("spurhq/spur"), None);
-        assert!(!gh.names_known(&seeds), "one it didn't answer for may be the network");
+        assert!(!gh.names_known(&seeds), "one it didn't answer for may be renamed yet");
         assert!(gh.names_known(&seeds[..1]));
         assert!(!gh.names_known(&[seed("/x/new", "acme/new", "main")]), "a repo here since isn't");
         // The one it didn't answer for is asked about again after an hour, and only that one.
@@ -1428,10 +1413,8 @@ mod tests {
         assert!(!gh.names.inflight);
         assert!(!gh.names_known(&seeds));
         assert_eq!(gh.names.to_ask(slugs(), t + NAME_RETRY).map(|s| s.len()), Some(2));
-        // Unanswered twice in a row, as for a repo GitHub no longer has, its name is as known as
-        // it'll be.
         gh.on_event(Event::RepoNames(Vec::new()), &seeds, clock());
-        assert!(gh.names_known(&seeds));
+        assert!(!gh.names_known(&seeds), "however often it goes unanswered");
     }
 
     #[test]

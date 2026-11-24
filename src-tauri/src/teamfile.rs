@@ -541,7 +541,7 @@ impl RepoSettings {
 
     /// Your table for repo `slug`.
     pub fn mine_of(&self, slug: &str) -> Option<&RepoCfg> {
-        crate::config::repo_cfg(&self.mine, slug)
+        self.mine.get(&crate::config::repo_key(slug))
     }
 
     /// What's been read and which repos are here, in order, for telling a board from the last
