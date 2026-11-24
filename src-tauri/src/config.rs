@@ -934,14 +934,6 @@ pub fn repo_key(slug: &str) -> String {
     format!("github.com/{slug}")
 }
 
-/// Your table in `[repos]` for `slug`'s repo, its key in any case, as `[[projects]] repos`
-/// patterns match: a remote, GitHub's search and a key written by hand can each spell a repo
-/// their own way.
-pub fn repo_cfg<'a>(repos: &'a BTreeMap<String, RepoCfg>, slug: &str) -> Option<&'a RepoCfg> {
-    let key = repo_key(slug);
-    repos.get(&key).or_else(|| repos.iter().find(|(k, _)| k.eq_ignore_ascii_case(&key)).map(|(_, r)| r))
-}
-
 /// `[reviews]` as it goes for one repo's pull requests: yours, then what the repo's team sets for
 /// everyone in its `.codealong/config.toml` (`team`: what it adds to the reviewer's instructions,
 /// and the verdicts never to submit), then yours for that repo (`mine`). What the team only
