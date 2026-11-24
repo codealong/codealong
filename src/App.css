@@ -19,9 +19,6 @@
 .ca-search { appearance: none; display: flex; align-items: center; gap: var(--space-2); min-width: 0; height: 28px; padding: 0 6px 0 9px; box-sizing: border-box; border: 0; border-radius: var(--radius-sm); background: var(--surface); box-shadow: inset 0 0 0 1px var(--line); color: var(--ink-3); font: var(--type-body); text-align: left; white-space: nowrap; overflow: hidden; cursor: text; }
 .ca-search > span:not(.ca-kbds) { flex: 1; overflow: hidden; text-overflow: ellipsis; }
 .ca-search:hover { color: var(--ink-2); box-shadow: inset 0 0 0 1px var(--line-strong); }
-/* On the glass, a well of it, as a field there is (styles/glass.css): a shade of what's behind it. */
-.is-glass .ca-search { background: var(--surface-sunken); box-shadow: none; }
-.is-glass .ca-search:hover { background: var(--surface-hover); }
 .ca-search:focus-visible { outline: none; box-shadow: var(--shadow-focus); }
 .ca-win-body { display: grid; grid-template-columns: var(--sidebar-w) minmax(0, 1fr) var(--inspector-w); min-height: 0; }
 

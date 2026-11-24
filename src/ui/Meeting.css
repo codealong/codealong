@@ -85,6 +85,11 @@
 .ca-statusbar-end > .ca-meeting.is-line {
   flex: none;
 }
+.is-glass .ca-statusbar-end > .ca-meeting.is-line {
+  background-color: var(--glass-control);
+  background-image: var(--glass-sheen);
+  box-shadow: inset 0 0 0 1px var(--glass-control-line), var(--shadow-glass-control);
+}
 .ca-meeting.is-line.is-failed .ca-meeting-when {
   min-width: 0;
   overflow: hidden;
