@@ -5,8 +5,8 @@
 //!
 //! So while automatic reviews are on for such a repo (`[reviews] auto`, or its own
 //! `[repos."github.com/…"]`) and a project's `repos` pattern covers it (`github.com/acme/*`),
-//! it's cloned under its own name into the first `scan` folder that isn't a checkout itself,
-//! where the scan would never look (`root`, `due`), with `gh repo clone`, which clones as gh's
+//! it's cloned under its own name (`folder_for`) into the first `scan` folder that isn't a
+//! checkout itself, where the scan would never look (`root`, `due`), with `gh repo clone`, which clones as gh's
 //! git protocol for GitHub says (`run`). Not before what GitHub calls each repo here now is known
 //! (ghpoll.rs `names_known`): a renamed repo's checkout would look missing under its new name,
 //! and be cloned again (engine/polls.rs `clone_covered`). The repos are read again and
@@ -61,10 +61,13 @@ impl Clones {
             if self.running.contains(&key) || self.tried.get(&key).is_some_and(|t| now.duration_since(*t) < RETRY_AFTER) {
                 continue;
             }
-            let Some(name) = slug.split_once('/').map(|(_, name)| name).filter(|name| plain_name(name)) else { continue };
-            self.running.insert(key.clone());
-            self.tried.insert(key, now);
-            due.push(ToClone { slug: slug.clone(), into: root.join(name) });
+            self.tried.insert(key.clone(), now);
+            let Some(folder) = folder_for(slug) else {
+                self.failed.insert(slug.clone(), "its name isn't one a folder can have.".into());
+                continue;
+            };
+            self.running.insert(key);
+            due.push(ToClone { slug: slug.clone(), into: root.join(folder) });
         }
         due
     }
@@ -99,19 +102,24 @@ pub fn root(scan: &[String]) -> Option<PathBuf> {
 }
 
 /// Whether a PR waiting on your review in `slug` has its repo cloned: automatic reviews are on for
-/// it, and a project's `repos` pattern covers it. Its table in `[repos]` is found in any case, as
-/// the patterns are: the search names a repo as GitHub does, which a remote may not.
+/// it, as your table for it says if any (found as its review finds it, `config::repo_cfg`), and a
+/// project's `repos` pattern covers it.
 fn wanted(cfg: &Config, slug: &str) -> bool {
-    let key = repo_key(slug);
-    let mine = cfg.repos.iter().find(|(k, _)| k.eq_ignore_ascii_case(&key)).and_then(|(_, r)| r.reviews.auto);
-    mine.unwrap_or(cfg.reviews.auto) && cfg.projects.iter().any(|p| p.repos.iter().any(|pat| crate::repos::matches(&key, pat)))
+    let auto = crate::config::repo_cfg(&cfg.repos, slug).and_then(|r| r.reviews.auto).unwrap_or(cfg.reviews.auto);
+    auto && cfg.projects.iter().any(|p| p.repos.iter().any(|pat| crate::repos::matches(&repo_key(slug), pat)))
 }
 
-/// A repo's name as a folder's that the scan reads: GitHub keeps names to letters, digits, `.`,
-/// `-` and `_`, so nothing reaches outside the scan folder, and the scan passes over a hidden
-/// folder (`.github`) and `target` and `node_modules` (`repos::passed_over`).
-fn plain_name(name: &str) -> bool {
-    !name.is_empty() && !crate::repos::passed_over(name) && name.chars().all(|c| c.is_ascii_alphanumeric() || matches!(c, '.' | '-' | '_'))
+/// The folder a repo is cloned into, by its name: one the scan reads, which passes over a hidden
+/// folder (`.github`), `target` and `node_modules` (`repos::passed_over`), so those go in as
+/// `<owner>-<name>`. None for a slug that isn't GitHub's, whose names are letters, digits, `.`,
+/// `-` and `_`, so nothing reaches outside the scan folder.
+fn folder_for(slug: &str) -> Option<String> {
+    let (owner, name) = slug.split_once('/')?;
+    let plain = |s: &str| !s.is_empty() && s.chars().all(|c| c.is_ascii_alphanumeric() || matches!(c, '.' | '-' | '_'));
+    if !plain(owner) || !plain(name) || owner.starts_with('.') {
+        return None;
+    }
+    Some(if crate::repos::passed_over(name) { format!("{owner}-{name}") } else { name.to_string() })
 }
 
 /// Clones `c`, or finds it's there: a folder of its name that's a checkout of the repo is, and
@@ -169,6 +177,9 @@ mod tests {
         off.repos.insert("github.com/acme/quiet".into(), RepoCfg { reviews: crate::config::ReviewsPatch { auto: Some(false), ..Default::default() }, ..Default::default() });
         let due = Clones::default().due(&slugs(&["Acme/Quiet", "acme/loud"]), &off, code(), now);
         assert_eq!(due.iter().map(|c| c.slug.as_str()).collect::<Vec<_>>(), ["acme/loud"], "its table found in any case");
+        // As the review it's cloned for finds it.
+        let settings = crate::teamfile::RepoSettings { mine: off.repos.clone(), ..Default::default() };
+        assert_eq!(settings.mine_of("Acme/Quiet").and_then(|r| r.reviews.auto), Some(false));
         let mut on = cfg(false);
         on.repos.insert("github.com/acme/loud".into(), RepoCfg { reviews: crate::config::ReviewsPatch { auto: Some(true), ..Default::default() }, ..Default::default() });
         let due = Clones::default().due(&slugs(&["acme/quiet", "acme/loud"]), &on, code(), now);
@@ -200,12 +211,19 @@ mod tests {
     }
 
     #[test]
-    fn clones_nothing_without_a_scan_folder_nor_into_a_name_the_scan_passes_over_or_that_leaves_it() {
-        let now = Instant::now();
-        assert!(Clones::default().due(&slugs(&["acme/plugins"]), &cfg(true), None, now).is_empty());
-        let names = slugs(&["acme/..", "acme/a/b", "acme/", "acme/.github", "acme/target", "acme/node_modules"]);
-        assert!(Clones::default().due(&names, &cfg(true), code(), now).is_empty());
-        assert!(plain_name("specset-plugins.v2_x"));
+    fn clones_nothing_without_a_scan_folder() {
+        assert!(Clones::default().due(&slugs(&["acme/plugins"]), &cfg(true), None, Instant::now()).is_empty());
+    }
+
+    #[test]
+    fn a_name_the_scan_passes_over_is_cloned_with_its_owner_and_one_no_folder_can_have_says_so() {
+        let mut c = Clones::default();
+        let due = c.due(&slugs(&["acme/.github", "acme/target", "acme/node_modules", "acme/plugins.v2_x"]), &cfg(true), code(), Instant::now());
+        let into: Vec<String> = due.iter().map(|c| c.into.to_string_lossy().into_owned()).collect();
+        assert_eq!(into, ["/code/acme-.github", "/code/acme-node_modules", "/code/plugins.v2_x", "/code/acme-target"]);
+        assert!(into.iter().all(|f| !crate::repos::passed_over(f.trim_start_matches("/code/"))));
+        assert_eq!(c.due(&slugs(&["acme/a/b", "acme/", "acme/x y"]), &cfg(true), code(), Instant::now()), vec![]);
+        assert_eq!(c.notice().map(|n| n.lines().count()), Some(3), "each says why");
     }
 
     #[test]

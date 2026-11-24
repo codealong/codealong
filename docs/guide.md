@@ -1461,8 +1461,8 @@ over. Reviews of your own PRs and Review with… go there too, in every repo. It
 starts in the worktree that holds the PR's branch, else the repo's
 main checkout. A PR that asks for your review in a repo with no checkout on this Mac, which a
 project's `repos` pattern covers (`github.com/acme/*` takes in a repo of acme's you never cloned),
-has its repo cloned for it, under the repo's name into the first `scan` folder that isn't a
-checkout itself, with `gh repo clone` (so as gh's git protocol for github.com says), once GitHub
+has its repo cloned for it, under the repo's name (`<owner>-<name>` for a name the scan passes
+over, such as `.github`) into the first `scan` folder that isn't a checkout itself, with `gh repo clone` (so as gh's git protocol for github.com says), once GitHub
 has said what each of your repos is called now (a renamed one isn't cloned again under its new
 name); the repo is then read with your others, and the PR listed and reviewed as theirs are. Nothing is cloned while automatic reviews are off for
 the repo, nor for a repo no project covers, whose PRs Codealong doesn't list. A folder of that name
