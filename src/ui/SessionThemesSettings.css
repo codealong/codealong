@@ -1,0 +1,63 @@
+/* Settings › Experimental controls for experimental session themes (SessionThemesSettings.tsx). */
+
+.ca-st-vibegrid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(112px, 1fr));
+  gap: var(--space-2);
+}
+.ca-st-vibecard {
+  appearance: none;
+  display: grid;
+  gap: 5px;
+  padding: 5px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-md);
+  background: var(--surface);
+  color: var(--ink-2);
+  text-align: left;
+  cursor: pointer;
+  transition: border-color var(--dur-fast) ease-out, background var(--dur-fast) ease-out;
+}
+.ca-st-vibecard:hover {
+  border-color: var(--line-strong);
+  color: var(--ink);
+}
+.ca-st-vibecard.is-on {
+  border-color: var(--focus);
+  box-shadow: inset 0 0 0 1px var(--focus);
+  color: var(--ink);
+}
+.ca-st-vibecard:focus-visible {
+  outline: none;
+  box-shadow: var(--shadow-focus);
+}
+.ca-st-vibethumb {
+  position: relative;
+  height: 44px;
+  padding: 8px 9px;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: 5px;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--line);
+  background: var(--surface);
+  overflow: hidden;
+}
+.ca-st-vibeline {
+  position: relative;
+  z-index: 1;
+  display: block;
+  width: 62%;
+  height: 4px;
+  border-radius: var(--radius-pill);
+  background: color-mix(in oklch, var(--ink) 26%, transparent);
+}
+.ca-st-vibeline.is-short {
+  width: 38%;
+  background: color-mix(in oklch, var(--ink) 15%, transparent);
+}
+.ca-st-vibename {
+  padding: 0 2px;
+  font: var(--type-caption-strong);
+}

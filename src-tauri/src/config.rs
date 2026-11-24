@@ -1192,6 +1192,10 @@ pub struct ExperimentalCfg {
     /// kept in the ledger and shown in the Analytics window.
     #[serde(default)]
     pub analytics: bool,
+    /// Session themes (src/sessionTheme.ts): collision-free, emblem-aware colors and generative
+    /// backgrounds on session headers, conversations, and optionally list rows.
+    #[serde(default)]
+    pub session_themes: bool,
     /// `glass` from 0.22.0, when glass was an experiment: accepted, folded into `[appearance] glass`
     /// as the file has it (`from_text`), and never written back.
     #[serde(default, skip_serializing)]
@@ -2861,6 +2865,9 @@ pub fn with_config(text: &str, cfg: &Config) -> Result<String> {
         if cfg.experimental.analytics || doc["experimental"].get("analytics").is_some() {
             set_value(&mut doc["experimental"]["analytics"], Value::from(cfg.experimental.analytics));
         }
+        if cfg.experimental.session_themes || doc["experimental"].get("session_themes").is_some() {
+            set_value(&mut doc["experimental"]["session_themes"], Value::from(cfg.experimental.session_themes));
+        }
         // Folded into [appearance] as it was read.
         if let Some(experimental) = doc["experimental"].as_table_like_mut() {
             experimental.remove("glass");
@@ -3494,6 +3501,9 @@ pub fn render(cfg: &Config) -> String {
         if cfg.experimental.analytics {
             s.push_str("analytics = true\n");
         }
+        if cfg.experimental.session_themes {
+            s.push_str("session_themes = true\n");
+        }
     }
     if cfg.voice != VoiceCfg::default() {
         s.push('\n');
@@ -3661,7 +3671,7 @@ mod tests {
             repos: BTreeMap::from([("github.com/sprucehq/web".to_string(), RepoCfg { reviews: ReviewsPatch { auto: Some(true), account: Some("codex".into()), post: Some(ReviewPost::Draft), own: OwnReviewsPatch { send: Some(false), ..OwnReviewsPatch::default() }, ..ReviewsPatch::default() }, pull_requests: PullRequestsPatch { nudge_about: Some(NudgeAbout::Feedback), reviews_first: Some(false), ..PullRequestsPatch::default() } })]),
             queue: QueueCfg { order: vec!["reviews".into(), "needs".into(), "unread".into(), "due".into()], due_within: 2 },
             sounds: SoundsCfg { needs_you: "Tink".into(), your_turn: String::new(), review_requested: "Purr".into(), meeting: "Glass".into(), volume: 35 },
-            experimental: ExperimentalCfg { boards: true, voice: true, analytics: true, glass: false },
+            experimental: ExperimentalCfg { boards: true, voice: true, analytics: true, session_themes: true, glass: false },
             voice: VoiceCfg { locale: "en-GB".into(), send_on_release: true, tell_every: 45, meetings: true, meetings_folder: "~/Meetings".into(), meeting_account: String::new(), meeting_model: "haiku".into(), meeting_lead: 2, meeting_countdown: 10, meeting_calendars_off: vec!["C1".into(), "C2".into()] },
             debug: DebugCfg::default(),
             prices: BTreeMap::new(),
@@ -4261,6 +4271,7 @@ mod tests {
     fn voice_is_off_until_the_file_turns_it_on_and_brings_its_settings_and_keys() {
         let none = toml::from_str::<Config>("").unwrap();
         assert!(!none.experimental.voice);
+        assert!(!none.experimental.session_themes);
         assert_eq!(none.voice, VoiceCfg { locale: String::new(), send_on_release: false, tell_every: 20, meetings: false, meetings_folder: String::new(), meeting_account: String::new(), meeting_model: String::new(), meeting_lead: 1, meeting_countdown: 5, meeting_calendars_off: Vec::new() });
         let old = render(&full());
         assert!(!old.contains("\n[voice]\n") && !old.contains("\ntalk = ") && !old.contains("voice = "), "{old}");

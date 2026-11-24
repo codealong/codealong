@@ -1,0 +1,425 @@
+/* Experimental session themes (SessionBackdrop.tsx, sessionTheme.ts): atmospheric OKLCH washes,
+   procedural patterns and blurred emblem art behind SessionHeader and optionally the conversation
+   thread, plus the header color/vibe picker and optional Sessions list row accents. */
+
+/* Computed perceptual colors per themed element from --st-h, --st-h2, --st-c and --st-scale. */
+.ca-st-panel,
+.ca-st-layer,
+.ca-st-swatchbtn,
+.ca-st-swatch,
+.ca-st-row {
+  --st-accent: oklch(0.58 calc(0.14 * var(--st-c, 0.9)) var(--st-h, 222));
+  --st-accent-2: oklch(0.62 calc(0.13 * var(--st-c, 0.9)) var(--st-h2, 244));
+  --st-stroke-ink: oklch(0.46 calc(0.11 * var(--st-c, 0.9)) var(--st-h, 222));
+  --st-stroke-ink-2: oklch(0.50 calc(0.10 * var(--st-c, 0.9)) var(--st-h2, 244));
+}
+
+:root[data-theme='dark'] .ca-st-panel,
+:root[data-theme='dark'] .ca-st-layer,
+:root[data-theme='dark'] .ca-st-swatchbtn,
+:root[data-theme='dark'] .ca-st-swatch,
+:root[data-theme='dark'] .ca-st-row {
+  --st-accent: oklch(0.72 calc(0.14 * var(--st-c, 0.9)) var(--st-h, 222));
+  --st-accent-2: oklch(0.68 calc(0.13 * var(--st-c, 0.9)) var(--st-h2, 244));
+  --st-stroke-ink: oklch(0.78 calc(0.11 * var(--st-c, 0.9)) var(--st-h, 222));
+  --st-stroke-ink-2: oklch(0.74 calc(0.10 * var(--st-c, 0.9)) var(--st-h2, 244));
+}
+
+/* Host stacking: backdrop sits at z-index 0 inside its own overflow-clipped layer so dropdowns and
+   hover cards inside SessionHeader are never clipped. Header and its top row stay above sibling
+   rows and the conversation thread so the swatch popover and Open menu always paint on top. */
+.ca-st-head {
+  position: relative;
+  isolation: isolate;
+}
+.ca-st-head > :not(.ca-st-layer) {
+  position: relative;
+  z-index: 1;
+}
+.ca-st-head > .ca-sessinsp-top {
+  z-index: 2;
+}
+/* Subtle colored top hairline on a themed session panel/card so popped-out windows read apart in
+   peripheral vision. */
+.ca-st-panel {
+  position: relative;
+  isolation: isolate;
+}
+.ca-st-panel > :not(.ca-st-layer) {
+  position: relative;
+  z-index: 1;
+}
+.ca-st-panel > .ca-st-head {
+  z-index: 2;
+}
+.ca-st-panel > .ca-reply-queue {
+  z-index: 3;
+}
+.ca-st-panel .ca-sessinsp-head {
+  border-bottom-color: color-mix(in oklch, var(--st-accent) 18%, var(--line));
+}
+
+.ca-st-layer {
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  overflow: hidden;
+  pointer-events: none;
+  border-radius: inherit;
+}
+
+/* Base tonal wash: subtle in header, extra quiet behind the scrolling conversation thread so
+   reading contrast stays high. */
+.ca-st-wash {
+  position: absolute;
+  inset: 0;
+}
+.ca-st-layer.is-header .ca-st-wash,
+.ca-st-layer.is-preview .ca-st-wash {
+  background:
+    linear-gradient(
+      118deg,
+      color-mix(in oklch, var(--st-accent) calc(9% * var(--st-scale, 1)), transparent) 0%,
+      color-mix(in oklch, var(--st-accent-2) calc(5% * var(--st-scale, 1)), transparent) 55%,
+      color-mix(in oklch, var(--st-accent) calc(12% * var(--st-scale, 1)), transparent) 100%
+    );
+}
+.ca-st-layer.is-header.is-wash .ca-st-wash,
+.ca-st-layer.is-preview.is-wash .ca-st-wash {
+  background:
+    linear-gradient(
+      115deg,
+      color-mix(in oklch, var(--st-accent) calc(13% * var(--st-scale, 1)), transparent) 0%,
+      color-mix(in oklch, var(--st-accent-2) calc(8% * var(--st-scale, 1)), transparent) 58%,
+      color-mix(in oklch, var(--st-accent) calc(16% * var(--st-scale, 1)), transparent) 100%
+    );
+}
+.ca-st-layer.is-thread .ca-st-wash {
+  background:
+    radial-gradient(
+      120% 80% at 90% 8%,
+      color-mix(in oklch, var(--st-accent) calc(6.5% * var(--st-scale, 1)), transparent) 0%,
+      transparent 62%
+    ),
+    radial-gradient(
+      100% 70% at 12% 96%,
+      color-mix(in oklch, var(--st-accent-2) calc(5.5% * var(--st-scale, 1)), transparent) 0%,
+      transparent 65%
+    ),
+    linear-gradient(
+      180deg,
+      color-mix(in oklch, var(--st-accent) calc(4% * var(--st-scale, 1)), transparent) 0%,
+      color-mix(in oklch, var(--st-accent-2) calc(2.5% * var(--st-scale, 1)), transparent) 50%,
+      color-mix(in oklch, var(--st-accent) calc(4.5% * var(--st-scale, 1)), transparent) 100%
+    );
+}
+
+/* Aurora mesh glows: overlapping radial blooms driven by deterministic session seed coordinates. */
+.ca-st-mesh {
+  position: absolute;
+  inset: -15%;
+  background:
+    radial-gradient(
+      48% 85% at var(--st-x1, 74%) var(--st-y1, 22%),
+      color-mix(in oklch, var(--st-accent) calc(20% * var(--st-scale, 1)), transparent) 0%,
+      transparent 72%
+    ),
+    radial-gradient(
+      46% 80% at var(--st-x2, 36%) var(--st-y2, 74%),
+      color-mix(in oklch, var(--st-accent-2) calc(16% * var(--st-scale, 1)), transparent) 0%,
+      transparent 74%
+    ),
+    radial-gradient(
+      38% 72% at var(--st-x3, 88%) var(--st-y3, 80%),
+      color-mix(in oklch, var(--st-accent-2) calc(14% * var(--st-scale, 1)), transparent) 0%,
+      transparent 70%
+    );
+  filter: blur(10px);
+}
+.ca-st-layer.is-thread .ca-st-mesh {
+  opacity: 0.55;
+  filter: blur(24px);
+}
+
+/* Ambient art vibe: heavily softened bloom of the session's drawn emblem picture when present. */
+.ca-st-art {
+  position: absolute;
+  right: -4%;
+  top: 50%;
+  width: 56%;
+  height: 200%;
+  object-fit: cover;
+  transform: translateY(-50%) scale(1.15);
+  filter: blur(22px) saturate(1.25);
+  opacity: calc(0.24 * var(--st-scale, 1));
+  -webkit-mask-image: radial-gradient(ellipse 85% 95% at 78% 50%, #000 10%, transparent 78%);
+  mask-image: radial-gradient(ellipse 85% 95% at 78% 50%, #000 10%, transparent 78%);
+}
+.ca-st-layer.is-thread .ca-st-art {
+  width: 72%;
+  height: 70%;
+  top: 68%;
+  opacity: calc(0.11 * var(--st-scale, 1));
+  filter: blur(42px) saturate(1.15);
+}
+
+/* Procedural SVG pattern layer (topo, arcs, waves, dots). Masked softly so left-aligned titles
+   and body text sit on calm ground while the motif shines in the open space. */
+.ca-st-svg {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  display: block;
+}
+.ca-st-layer.is-header .ca-st-svg {
+  -webkit-mask-image: linear-gradient(95deg, rgba(0, 0, 0, 0.22) 0%, rgba(0, 0, 0, 0.72) 45%, #000 100%);
+  mask-image: linear-gradient(95deg, rgba(0, 0, 0, 0.22) 0%, rgba(0, 0, 0, 0.72) 45%, #000 100%);
+}
+.ca-st-layer.is-thread .ca-st-svg {
+  opacity: 0.45;
+  -webkit-mask-image: radial-gradient(ellipse 90% 90% at 88% 22%, #000 0%, rgba(0, 0, 0, 0.35) 55%, rgba(0, 0, 0, 0.08) 100%);
+  mask-image: radial-gradient(ellipse 90% 90% at 88% 22%, #000 0%, rgba(0, 0, 0, 0.35) 55%, rgba(0, 0, 0, 0.08) 100%);
+}
+
+.ca-st-stroke {
+  fill: none;
+  stroke: color-mix(in oklch, var(--st-stroke-ink) calc(22% * var(--st-scale, 1)), transparent);
+  stroke-width: 1.1;
+  vector-effect: non-scaling-stroke;
+}
+.ca-st-stroke.is-alt {
+  stroke: color-mix(in oklch, var(--st-stroke-ink-2) calc(24% * var(--st-scale, 1)), transparent);
+}
+.ca-st-stroke.is-faint {
+  stroke: color-mix(in oklch, var(--st-stroke-ink) calc(12% * var(--st-scale, 1)), transparent);
+}
+.ca-st-fill {
+  fill: color-mix(in oklch, var(--st-accent) calc(6% * var(--st-scale, 1)), transparent);
+}
+.ca-st-dot {
+  fill: color-mix(in oklch, var(--st-stroke-ink) calc(26% * var(--st-scale, 1)), transparent);
+}
+.ca-st-dot.is-alt {
+  fill: color-mix(in oklch, var(--st-stroke-ink-2) calc(30% * var(--st-scale, 1)), transparent);
+}
+
+/* Calm breathing drift while a session is actively working. */
+.ca-st-layer.is-working .ca-st-mesh,
+.ca-st-layer.is-working .ca-st-art {
+  animation: ca-st-breathe 14s ease-in-out infinite alternate;
+}
+@keyframes ca-st-breathe {
+  from {
+    transform: translate3d(0, 0, 0) scale(1);
+  }
+  to {
+    transform: translate3d(-1.5%, 1.5%, 0) scale(1.04);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .ca-st-layer.is-working .ca-st-mesh,
+  .ca-st-layer.is-working .ca-st-art {
+    animation: none;
+  }
+}
+
+/* Keep interactive thread chrome and user bubbles readable over tinted conversation backdrops. */
+.ca-st-panel.is-full .ca-thread-you {
+  background: color-mix(in oklch, var(--st-accent) calc(12% * var(--st-scale, 1)), var(--surface));
+  box-shadow: inset 0 0 0 1px color-mix(in oklch, var(--st-accent) 20%, var(--line));
+}
+
+/* Optional list-row accent in Sessions: crisp 3px leading accent rail + whisper-soft tint.
+   Yields the left rail to amber when a row needs you so urgent status stays unmistakable. */
+.ca-st-row:not(.is-needs) .ca-seg-glyph {
+  box-shadow: inset 3px 0 0 color-mix(in oklch, var(--st-accent) calc(72% * var(--st-scale, 1)), transparent);
+}
+.ca-st-row {
+  background-image: linear-gradient(
+    90deg,
+    color-mix(in oklch, var(--st-accent) calc(6.5% * var(--st-scale, 1)), transparent) 0%,
+    color-mix(in oklch, var(--st-accent) calc(2% * var(--st-scale, 1)), transparent) 42%,
+    transparent 78%
+  );
+}
+.ca-st-row.is-selected {
+  background-image: linear-gradient(
+    90deg,
+    color-mix(in oklch, var(--st-accent) calc(12% * var(--st-scale, 1)), transparent) 0%,
+    color-mix(in oklch, var(--st-accent) calc(4.5% * var(--st-scale, 1)), transparent) 60%,
+    transparent 100%
+  );
+}
+
+/* ── Header swatch trigger & live vibe/color popover ─────────────────────────────────────────── */
+
+.ca-st-pick {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  flex: none;
+  margin-top: 2px;
+}
+.ca-st-swatchbtn {
+  appearance: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 18px;
+  height: 18px;
+  padding: 0;
+  border: 1px solid color-mix(in oklch, var(--st-accent) 45%, var(--line));
+  border-radius: var(--radius-pill);
+  background: color-mix(in oklch, var(--st-accent) 16%, var(--surface));
+  cursor: pointer;
+  transition: transform var(--dur-fast) ease-out, border-color var(--dur-fast) ease-out;
+}
+.ca-st-swatchbtn:hover,
+.ca-st-swatchbtn.is-open {
+  transform: scale(1.08);
+  border-color: var(--st-accent);
+}
+.ca-st-swatchbtn:focus-visible {
+  outline: none;
+  box-shadow: var(--shadow-focus);
+}
+.ca-st-swatchdot {
+  width: 10px;
+  height: 10px;
+  border-radius: var(--radius-pill);
+  background: linear-gradient(135deg, var(--st-accent), var(--st-accent-2));
+}
+
+.ca-st-popover {
+  position: absolute;
+  top: calc(100% + 6px);
+  left: 0;
+  z-index: var(--z-popover);
+  width: 284px;
+  padding: 10px;
+  display: grid;
+  gap: 10px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-md);
+  background: var(--surface-raised);
+  box-shadow: var(--shadow-popover);
+  color: var(--ink);
+}
+.ca-st-pophead {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--space-2);
+}
+.ca-st-poptitle {
+  font: var(--type-meta-strong);
+  color: var(--ink);
+}
+.ca-st-popmeta {
+  font: var(--type-caption);
+  color: var(--ink-3);
+}
+.ca-st-swatches {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 5px;
+}
+.ca-st-auto {
+  appearance: none;
+  height: 22px;
+  padding: 0 7px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-pill);
+  background: transparent;
+  color: var(--ink-2);
+  font: var(--type-caption-strong);
+  cursor: pointer;
+}
+.ca-st-auto:hover {
+  background: var(--surface-hover);
+  color: var(--ink);
+}
+.ca-st-auto.is-on {
+  border-color: var(--line-strong);
+  background: var(--surface-selected);
+  color: var(--ink);
+}
+.ca-st-swatch {
+  appearance: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  padding: 0;
+  border: 2px solid transparent;
+  border-radius: var(--radius-pill);
+  background: linear-gradient(135deg, var(--st-accent), var(--st-accent-2));
+  color: var(--on-fill-strong);
+  cursor: pointer;
+}
+.ca-st-swatch:hover {
+  transform: scale(1.1);
+}
+.ca-st-swatch.is-active {
+  box-shadow: 0 0 0 2px var(--surface-raised), 0 0 0 3.5px var(--st-accent);
+}
+.ca-st-swatch:focus-visible,
+.ca-st-auto:focus-visible,
+.ca-st-pill:focus-visible {
+  outline: none;
+  box-shadow: var(--shadow-focus);
+}
+
+.ca-st-popsec {
+  display: grid;
+  gap: var(--space-1);
+}
+.ca-st-poprow {
+  display: grid;
+  gap: var(--space-2);
+}
+.ca-st-poplabel {
+  font: var(--type-caption-strong);
+  color: var(--ink-3);
+}
+.ca-st-pills {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-1);
+}
+.ca-st-pill {
+  appearance: none;
+  height: 22px;
+  padding: 0 7px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--ink-2);
+  font: var(--type-caption);
+  cursor: pointer;
+}
+.ca-st-pill:hover {
+  background: var(--surface-hover);
+  color: var(--ink);
+}
+.ca-st-pill.is-on {
+  border-color: var(--line-strong);
+  background: var(--surface-selected);
+  color: var(--ink);
+}
+.ca-st-popcheck {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding-top: 4px;
+  border-top: 1px solid var(--line);
+  font: var(--type-caption);
+  color: var(--ink-2);
+  cursor: pointer;
+}
+.ca-st-popcheck input {
+  margin: 0;
+}

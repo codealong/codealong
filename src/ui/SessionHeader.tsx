@@ -70,6 +70,8 @@ import { PrChipCard } from './PrLink';
 import { AccountLabel, BranchLabel, Button, cx, HarnessChip, headerMenu, Icon, PanelBack, STATUS_WORD, SessionEmblem, SessionGlyph, type PanelBackTo } from './primitives';
 import { runFolder } from './RunButton';
 import { AddChip, LabelChip, TodoGlyph } from './TodoBits';
+import { SessionBackdrop, SessionThemePicker } from './SessionBackdrop';
+import { useSessionTheme } from './SessionThemeProvider';
 import { keysIn } from '../platform';
 
 /** The PRs it worked on, and the pages it made, each shown as chips before a "+N": a long session
@@ -523,9 +525,11 @@ export function SessionHeader({ lane, session: s, apps, now, onOpen, onShowLane,
   // Main window, in the windows that show a session as a card: not for a session Codealong runs
   // here, whose Open button goes there already. One on another device has no Open button.
   const toMain = !inMain && !(s.hosted && !device) ? actions?.reveal : undefined;
+  const theme = useSessionTheme(s);
 
   return (
-    <header className="ca-sessinsp-head" onContextMenu={headerMenu(onMenu && (() => onMenu()))}>
+    <header className={cx('ca-sessinsp-head', theme && 'ca-st-head')} onContextMenu={headerMenu(onMenu && (() => onMenu()))}>
+      {theme && <SessionBackdrop theme={theme.assigned} vibe={theme.prefs.vibe} intensity={theme.prefs.intensity} place="header" working={s.status === 'working'} />}
       {back && <PanelBack back={back} />}
       {lineage?.from && <KinRow kin={lineage.from} now={now} parent onShow={onShowSession} onMenu={onSessionMenu} />}
       {!lineage?.from && s.helper?.pr && <ReviewOf pr={s.helper.pr} yours={!!s.helper.yours} prs={prs} onOpenPr={onOpenPr} />}
@@ -534,6 +538,7 @@ export function SessionHeader({ lane, session: s, apps, now, onOpen, onShowLane,
       {!s.orchestrator && !lineage?.from && !s.helper?.pr && schedule && <FromSchedule schedule={schedule} onShow={onShowSchedule} />}
       <div className="ca-sessinsp-top">
         <SessionGlyph s={s} size={14} />
+        {theme && <SessionThemePicker theme={theme} />}
         <SessionEmblem emblem={s.emblem} of={s.key} size={20} />
         {naming ? (
           <NameField title={s.title} onDone={onRename} />

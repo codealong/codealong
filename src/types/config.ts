@@ -174,11 +174,13 @@ export interface Config {
  *  it's turned on. `boards`: the Board view, as Kanban and as Canvas, and Add to board. `voice`:
  *  the keys held to talk, and sessions that listen. `analytics`: who began each session and turn,
  *  what your prompts did, and how the sessions you marked done stood (the Analytics window's Your part
- *  and Sessions). Missing from files and boards before it: off. */
+ *  and Sessions). `session_themes`: experimental per-session colors and generative backgrounds.
+ *  Missing from files and boards before it: off. */
 export interface ExperimentalCfg {
   boards: boolean;
   voice?: boolean;
   analytics?: boolean;
+  session_themes?: boolean;
 }
 
 /** `[voice]` (config.rs `VoiceCfg`). */
