@@ -16,6 +16,9 @@
   // The call its conversation ends on: the one the card shows, until another of the same tool
   // waits after it.
   var latest = first;
+  // Optional override for a call whose ACP prompt and transcript format the label differently.
+  var pendingSpec = null;
+  var threadCall = null;
   // Whether what it waits on can be read: off, it waits on something Codealong can't say.
   var readable = true;
   var real = window.__TAURI_INTERNALS__.invoke;
@@ -23,7 +26,7 @@
     var mine = picked && (args || {}).key === picked.key;
     if (cmd === 'session_pending' && mine) {
       window.__calls.push([cmd, args, options]);
-      return Promise.resolve(readable ? { id: 'ask-card', label: label, input: first, cannot: null } : null);
+      return Promise.resolve(readable ? (pendingSpec || { id: 'ask-card', label: label, input: first, cannot: null }) : null);
     }
     if (cmd === 'session_page' && mine) {
       window.__calls.push([cmd, args, options]);
@@ -32,7 +35,7 @@
       return Promise.resolve({ before: null, after: 3, items: [
         item(0, 'you', 'File the toolchain issue'),
         item(1, 'agent', 'Filing it now.'),
-        item(2, 'tool', label, { id: 'toolu_wait', input: latest }),
+        threadCall ? item(2, 'tool', threadCall.text, threadCall.extra) : item(2, 'tool', label, { id: 'toolu_wait', input: latest }),
       ] });
     }
     var p = real(cmd, args, options);
@@ -108,6 +111,19 @@
     .then(function () { return wait(300); })
     .then(function () {
       check('another call with the same label keeps its line', !!line() && new RegExp(label).test(line().textContent), line() ? line().textContent : 'none');
+      // An ACP `run_command` whose prompt label differs from the transcript's `Run command` line
+      // still shows only the approval card, with no duplicate yellow box in the conversation.
+      var cmd = 'cargo test --workspace\necho ok';
+      pendingSpec = { id: 'call_4570', label: 'run_command · `cargo test --workspace echo ok`', input: cmd, cannot: null };
+      threadCall = { text: 'Run command · `cargo test --workspace`', extra: { id: '24', input: cmd, shell: true } };
+      return reopen();
+    })
+    .then(function () { return wait(300); })
+    .then(function () {
+      check('an ACP run_command shows its approval card', /run_command/.test(card().textContent), card().textContent.slice(0, 80));
+      check('no duplicate Run command box in the conversation', !line(), line() ? line().textContent : '');
+      pendingSpec = null;
+      threadCall = null;
       // It waits on something Codealong can read nothing of.
       readable = false;
       return reopen(waitCard);

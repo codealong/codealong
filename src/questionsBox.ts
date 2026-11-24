@@ -9,10 +9,12 @@
 // record once it's answered), the line it ends on in its place, the session's excerpt, is left out
 // too while the box shows a call (asked 2026-11-15).
 //
-// The line is known for the box's by what the call asks (`askedOf`, `calledOf`), not only by its
-// session: a session can wait on two calls at once (a subagent's and its own), and the box shows
-// the one asked first where the conversation marks the latest. One the box doesn't show keeps its
-// line. Each window keeps its own: a box and the conversation above it are in the same window.
+// The line is known for the box's by its call id when both sides keep the same one (ACP's
+// `toolCallId` on Claude Code's `toolu_…`, or a step index), else by what the call asks
+// (`askedOf`, `calledOf`), not only by its session: a session can wait on two calls at once (a
+// subagent's and its own), and the box shows the one asked first where the conversation marks
+// the latest. One the box doesn't show keeps its line. Each window keeps its own: a box and the
+// conversation above it are in the same window.
 
 import { useSyncExternalStore } from 'react';
 import type { Question, TranscriptItem } from './types';
@@ -47,19 +49,42 @@ export function askedOf(questions: Pick<Question, 'question' | 'options'>[]): st
   return JSON.stringify(questions.map((q) => [q.question.trim(), q.options.map((o) => o.label.trim())]));
 }
 
-/** What a call to allow asks, to know its line in the conversation for the box's: its label and its
- *  input, which the conversation's line has alike where the harness makes both the same way
- *  (Claude Code's `tool_request`, and `clip_input` of `claude_input`). The input as well, since a
- *  label can leave out what the call was given (an MCP tool's is its name alone): two calls of one
- *  tool waiting at once have the same label, and the box shows the one asked first. Where they
- *  differ, the line stays. */
-export function calledOf(label: string, input: string | null | undefined): string {
-  return JSON.stringify([label.trim(), (input ?? '').trim()]);
+/** A tool's name from its line, without the summary or inline-code detail after ` · `, so
+ *  `run_command · `…`` and `Run command · `…`` name the same tool while `linear · create_issue`
+ *  and `linear · delete_issue` keep their tool names distinct. */
+function toolName(label: string): string {
+  const trimmed = label.trim();
+  const sep = trimmed.indexOf(' · ');
+  const base = sep >= 0 && !/^[A-Za-z0-9_-]+ · [A-Za-z0-9_-]+$/.test(trimmed) ? trimmed.slice(0, sep) : trimmed;
+  const head = base
+    .replace(/^mcp__/i, '')
+    .replace(/__/g, ' · ')
+    .replace(/[_-]+/g, ' ')
+    .replace(/\s+/g, ' ')
+    .toLowerCase();
+  return head === 'bash' || head === 'shell' || head === 'run command' || head === 'exec command' ? 'shell' : head;
 }
 
-/** Whether the box shows the call a line of the conversation is for, by what each asks. */
-export function showsCall(box: ShownCall | null, call: Pick<TranscriptItem, 'text' | 'input' | 'questions'>): boolean {
-  return !!box && box.asked === (call.questions?.length ? askedOf(call.questions) : calledOf(call.text, call.input));
+/** What a call to allow asks, to know its line in the conversation for the box's: its tool name
+ *  and its input when it has input (since a permission prompt and the session's record can word
+ *  or clip the line's label differently: ACP's `run_command · `…`` vs Antigravity's
+ *  `Run command · `…``, or `Bash` without `cd … &&`), and its whole label when it has none. The
+ *  input as well, since a label can leave out what the call was given (an MCP tool's is its name
+ *  alone): two calls of one tool waiting at once have the same label, and the box shows the one
+ *  asked first. Where they differ, the line stays. */
+export function calledOf(label: string, input: string | null | undefined): string {
+  const body = (input ?? '').trim();
+  return JSON.stringify([body ? toolName(label) : label.trim(), body]);
+}
+
+/** Whether the box shows the call a line of the conversation is for, by its call id when both
+ *  sides keep the same one, else by what each asks. */
+export function showsCall(box: ShownCall | null, call: Pick<TranscriptItem, 'id' | 'text' | 'input' | 'questions'>): boolean {
+  if (!box) return false;
+  if (call.questions?.length) return box.asked === askedOf(call.questions);
+  if (box.asked.startsWith('[[')) return false;
+  if (call.id && box.call === call.id) return true;
+  return box.asked === calledOf(call.text, call.input);
 }
 
 /** Says a session's box shows `call`, until the function it returns is called. */

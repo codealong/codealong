@@ -757,8 +757,8 @@ fn on_permission(account: &str, link: &rpc::Link, rpc: Value, params: &Value) {
     }
     let (label, input) = match raw.and_then(|v| v.get("plan")).and_then(Value::as_str).filter(|p| plan && !p.trim().is_empty()) {
         Some(text) => (PLAN.to_string(), Some(text.to_string())),
-        None if plan => (PLAN.to_string(), input.map(|i| truncate(&i, 4000))),
-        None => (label, input.map(|i| truncate(&i, 4000))),
+        None if plan => (PLAN.to_string(), input.map(|i| crate::transcript::clip_input(&i))),
+        None => (label, input.map(|i| crate::transcript::clip_input(&i))),
     };
     {
         let mut st = state();
@@ -2792,6 +2792,32 @@ mod tests {
         assert_eq!(p.label, "run_command · `cargo test`");
         assert_eq!(p.input.as_deref(), Some("cargo test"));
         assert!(!p.always && !p.no_once);
+
+        // Long commands clip through `transcript::clip_input` (trimmed first) so the approval card's
+        // input matches the conversation's line for the same call.
+        let long = format!("\n  {}\n", "x".repeat(4100));
+        state().sessions.get_mut(&key).unwrap().permissions.clear();
+        hear(
+            account,
+            &link,
+            &json!({
+                "jsonrpc": "2.0",
+                "id": "2",
+                "method": "session/request_permission",
+                "params": {
+                    "sessionId": "s1",
+                    "toolCall": {
+                        "toolCallId": "call_2",
+                        "name": "run_command",
+                        "title": "long",
+                        "kind": "execute",
+                        "rawInput": { "CommandLine": long }
+                    },
+                    "options": [{ "optionId": "allow", "name": "Allow", "kind": "allow_once" }]
+                }
+            }),
+        );
+        assert_eq!(pending(&key).unwrap().input.as_deref(), Some(crate::transcript::clip_input(&long).as_str()));
         state().sessions.remove(&key);
         state().agents.remove(account);
         let _ = std::fs::remove_dir_all(&dir);
