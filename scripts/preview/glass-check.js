@@ -127,23 +127,24 @@
     // A page's own blur, stacked on the glass behind the window, flickers as the window moves.
     var blurred = all('body *').filter(function (el) { var cs = getComputedStyle(el); return (cs.backdropFilter || cs.webkitBackdropFilter || 'none') !== 'none'; });
     check('nothing on the page draws a blur of its own over the glass', blurred.length === 0, blurred.slice(0, 3).map(function (el) { return el.className; }).join(', '));
-    // Controls on live window glass draw as translucent glass pills with specular depth; a dragged
-    // usage chip stays opaque so sliding chips underneath don't bleed through.
+    // Controls on live window glass draw as thin translucent capsules (no gloss gradient sheen);
+    // hovers and sidebar selections are plain translucent tints, while a dragged usage chip stays
+    // opaque so sliding chips underneath don't bleed through.
     var winBar = q('.ca-win-bar');
-    var barBtn = q('.ca-win-bar-end > .ca-btn');
+    var platter = q('.ca-win-bar-end > .ca-win-bar-group');
     var search = q('.ca-win-bar .ca-search');
     var seg = q('.ca-win-bar-end > .ca-segctl');
-    // `.ca-btn` transitions its background over 120ms when `is-glass` arrives after first paint.
-    if (barBtn && seg) await until(function () { return bg(barBtn) === bg(seg); }, 1000, 'title bar button to settle into glass').catch(function () {});
-    check('title bar buttons are translucent glass pills', !!barBtn && alpha(bg(barBtn)) > 0 && alpha(bg(barBtn)) < 1 && parseFloat(getComputedStyle(barBtn).borderTopLeftRadius) >= 100, barBtn ? bg(barBtn) + ' r=' + getComputedStyle(barBtn).borderTopLeftRadius : 'none');
-    check('the search pill is luminous frosted glass', !!search && alpha(bg(search)) > 0 && alpha(bg(search)) < 1 && parseFloat(getComputedStyle(search).borderTopLeftRadius) >= 100, search ? bg(search) + ' r=' + getComputedStyle(search).borderTopLeftRadius : 'none');
-    check('the title bar segmented control is a glass capsule matching the buttons’ height', !!seg && !!barBtn && bg(seg) === bg(barBtn) && parseFloat(getComputedStyle(seg).borderTopLeftRadius) >= 100 && Math.abs(seg.getBoundingClientRect().height - barBtn.getBoundingClientRect().height) <= 0.5, seg && barBtn ? bg(seg) + ' h=' + seg.getBoundingClientRect().height + ' vs ' + barBtn.getBoundingClientRect().height : 'none');
+    check('title bar platters are thin translucent glass capsules with no gloss gradient', !!platter && alpha(bg(platter)) > 0 && alpha(bg(platter)) < 1 && getComputedStyle(platter).backgroundImage === 'none' && parseFloat(getComputedStyle(platter).borderTopLeftRadius) >= 100, platter ? bg(platter) + ' img=' + getComputedStyle(platter).backgroundImage + ' r=' + getComputedStyle(platter).borderTopLeftRadius : 'none');
+    check('the search pill is frosted glass with plain shortcut text', !!search && alpha(bg(search)) > 0 && alpha(bg(search)) < 1 && getComputedStyle(search).backgroundImage === 'none' && parseFloat(getComputedStyle(search).borderTopLeftRadius) >= 100, search ? bg(search) + ' r=' + getComputedStyle(search).borderTopLeftRadius : 'none');
+    var searchKbd = search && search.querySelector('.ca-kbd');
+    if (searchKbd) check('search pill shortcut has no pill box inside the pill', alpha(bg(searchKbd)) === 0 && getComputedStyle(searchKbd).borderTopWidth === '0px', bg(searchKbd) + ' b=' + getComputedStyle(searchKbd).borderTopWidth);
+    check('the title bar segmented control matches the toolbar platter’s fill and height', !!seg && !!platter && bg(seg) === bg(platter) && parseFloat(getComputedStyle(seg).borderTopLeftRadius) >= 100 && Math.abs(seg.getBoundingClientRect().height - platter.getBoundingClientRect().height) <= 0.5, seg && platter ? bg(seg) + ' h=' + seg.getBoundingClientRect().height + ' vs ' + platter.getBoundingClientRect().height : 'none');
     var navActive = q('.ca-side .ca-nav.is-active');
-    if (navActive) check('the active sidebar row is translucent glass', alpha(bg(navActive)) > 0 && alpha(bg(navActive)) < 1, bg(navActive));
+    if (navActive) check('the active sidebar row is a flat translucent tint', alpha(bg(navActive)) > 0 && alpha(bg(navActive)) < 1 && getComputedStyle(navActive).boxShadow === 'none', bg(navActive) + ' shadow=' + getComputedStyle(navActive).boxShadow);
     hovers('.is-glass .ca-win-bar .ca-search:hover', winBar, false, 'the search pill’s hover is translucent glass');
-    hovers('.is-glass .ca-win-bar .ca-sidetoggle:hover', winBar, false, 'the sidebar toggle’s hover is translucent glass');
-    hovers('.is-glass .ca-win-bar-end > .ca-btn:hover:not(:disabled)', winBar, false, 'a title bar button stays translucent glass under the pointer');
-    hovers('.is-glass .ca-statusbar .ca-uchip:hover:not(.is-lifted)', statusBar, false, 'a usage chip lifts into a translucent glass pill under the pointer');
+    hovers('.is-glass .ca-win-bar .ca-sidetoggle:hover', winBar, false, 'the sidebar toggle’s hover is a translucent tint');
+    hovers('.is-glass .ca-win-bar-end > .ca-win-bar-group > .ca-btn:hover:not(:disabled)', winBar, false, 'a toolbar platter button’s hover is a translucent tint');
+    hovers('.is-glass .ca-statusbar .ca-uchip:hover:not(.is-lifted)', statusBar, false, 'a usage chip’s hover is a flat translucent tint');
     hovers('.is-glass .ca-statusbar .ca-statusbar-accts.is-sorting .ca-uchip.is-lifted', statusBar, true, 'a dragged usage chip stays opaque over the others');
     // At rest a usage chip is flat, as a status bar's items are: the glass shows through it.
     var chip = q('.ca-statusbar .ca-uchip:not(.is-attn):not(.is-training)');

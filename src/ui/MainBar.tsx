@@ -49,6 +49,18 @@ interface Props {
 export function MainBar({ board, now, sideCollapsed, onToggleSidebar, history, historyTitle, onTravel, switcher, onQuick, onShowListening, onListen, onMeetings, barPlace, onBarPlace, pickedTodos, todoSelected, onNew, onImprove }: Props) {
   // The quick panel's shortcut from any app, which the box in the title bar shows; ⌘K without one.
   const quickKeys = shortcutKeys(board?.quickShortcut);
+  const listenings = hearingNow(board?.lanes ?? [], board?.listenings);
+  const voiceOn = !!board?.experimental?.voice;
+  const meetingsBtn = voiceOn && (
+    <Button
+      icon="calendar"
+      aria-label="Meetings"
+      title={board.meetingSoon ? `${board.meetingSoon.title.trim() || 'A meeting'}, ${meetingWhen(board.meetingSoon, now)}: take its notes from Meetings` : 'Meetings: the notes and transcripts of the ones Codealong took'}
+      onClick={onMeetings}
+    >
+      {board.meetingSoon ? <MeetingCountdown meeting={board.meetingSoon} /> : undefined}
+    </Button>
+  );
   return (
     <div className="ca-win-bar" data-tauri-drag-region>
       <div className="ca-win-bar-start" data-tauri-drag-region>
@@ -100,25 +112,20 @@ export function MainBar({ board, now, sideCollapsed, onToggleSidebar, history, h
       </button>
       <div className="ca-win-bar-end" data-tauri-drag-region>
         {/* The sessions hearing now (listen.rs), whatever the window shows: a click shows one.
-            While none hears, and voice is on, Listen now is in their place (meetings.rs `now`):
-            the button that starts a listening is where the light that says one is going shows. */}
-        <ListeningNow
-          listenings={hearingNow(board?.lanes ?? [], board?.listenings)}
-          onShow={onShowListening}
-          onListen={board?.experimental?.voice ? onListen : undefined}
-          shortcut={shortcutLabel(board?.listenShortcut)}
-        />
-        {/* With a meeting counted down to (meetings.rs `counting_down`), the minutes to go are
-            on it, and its dialog opens on that meeting (meetings.rs `Ahead::takeable`). */}
-        {board?.experimental?.voice && (
-          <Button
-            icon="calendar"
-            aria-label="Meetings"
-            title={board.meetingSoon ? `${board.meetingSoon.title.trim() || 'A meeting'}, ${meetingWhen(board.meetingSoon, now)}: take its notes from Meetings` : 'Meetings: the notes and transcripts of the ones Codealong took'}
-            onClick={onMeetings}
-          >
-            {board.meetingSoon ? <MeetingCountdown meeting={board.meetingSoon} /> : undefined}
-          </Button>
+            While none hears, and voice is on, Listen now and Meetings share one toolbar group
+            (a single glass platter in glass mode, separate buttons without glass). */}
+        {listenings.length > 0 ? (
+          <>
+            <ListeningNow listenings={listenings} onShow={onShowListening} shortcut={shortcutLabel(board?.listenShortcut)} />
+            {meetingsBtn}
+          </>
+        ) : (
+          voiceOn && (
+            <div className="ca-win-bar-group">
+              <ListeningNow listenings={listenings} onShow={onShowListening} onListen={onListen} shortcut={shortcutLabel(board?.listenShortcut)} />
+              {meetingsBtn}
+            </div>
+          )
         )}
         <Seg
           className="ca-barplace"
@@ -134,15 +141,17 @@ export function MainBar({ board, now, sideCollapsed, onToggleSidebar, history, h
           value={barPlace === 'off' ? null : barPlace}
           onPick={onBarPlace}
         />
-        <Button
-          icon="plus"
-          aria-label="New session"
-          title={keysIn(pickedTodos > 0 ? `Start one session for the ${pickedTodos} selected todos (⌘N)` : todoSelected ? 'Start a session for the selected todo (⌘N)' : 'Start a session in the selected worktree (⌘N)')}
-          onClick={onNew}
-        />
-        {/* Improve Codealong (improve.ts): the quick panel on Codealong's own project, with pictures
-            of its windows as they are, for a session that changes Codealong itself. */}
-        <Button icon="bulb" className="ca-improve" aria-label="Improve Codealong" title={improveTitle(shortcutLabel(board?.improveShortcut))} onClick={onImprove} />
+        <div className="ca-win-bar-group">
+          <Button
+            icon="plus"
+            aria-label="New session"
+            title={keysIn(pickedTodos > 0 ? `Start one session for the ${pickedTodos} selected todos (⌘N)` : todoSelected ? 'Start a session for the selected todo (⌘N)' : 'Start a session in the selected worktree (⌘N)')}
+            onClick={onNew}
+          />
+          {/* Improve Codealong (improve.ts): the quick panel on Codealong's own project, with pictures
+              of its windows as they are, for a session that changes Codealong itself. */}
+          <Button icon="bulb" className="ca-improve" aria-label="Improve Codealong" title={improveTitle(shortcutLabel(board?.improveShortcut))} onClick={onImprove} />
+        </div>
       </div>
     </div>
   );
