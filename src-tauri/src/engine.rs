@@ -134,6 +134,9 @@ pub enum Msg {
     Github(ghpoll::Event),
     /// GitHub organization avatars fetched in the background (orgavatars.rs).
     OrgAvatars(Option<Vec<(String, crate::orgavatars::Outcome)>>),
+    /// A repo cloned in the background for a PR that waits on your review, or not, or none when
+    /// its work fell over (clones.rs).
+    Cloned(crate::clones::ToClone, Option<crate::clones::Cloned>),
     RefreshGithub,
     /// A PR changed on GitHub at your hand: PRs are read again in full now.
     PrChanged,
@@ -546,6 +549,9 @@ struct Engine {
     github: GhPoll,
     /// Cached GitHub organization avatars for projects (orgavatars.rs).
     org_avatars: crate::orgavatars::OrgAvatars,
+    /// The repos cloned for PRs that wait on your review in repos with no checkout here
+    /// (clones.rs).
+    clones: crate::clones::Clones,
     /// An engine for one pass (`--snapshot`, the command without the app): it's gone before
     /// what it would ask in the background comes back.
     passing: bool,
@@ -690,6 +696,7 @@ impl Engine {
             codealong_sources: Vec::new(),
             github,
             org_avatars: crate::orgavatars::OrgAvatars::new(if cfg!(test) { PathBuf::new() } else { config::cache_dir().join("org-avatars") }),
+            clones: crate::clones::Clones::default(),
             passing: false,
             watcher: None,
             missing_homes: Vec::new(),
@@ -915,6 +922,7 @@ impl Engine {
                 Ok(Msg::GitDone(path, info)) => self.on_git(path, info),
                 Ok(Msg::Github(event)) => self.on_github(event),
                 Ok(Msg::OrgAvatars(results)) => self.on_org_avatars(results),
+                Ok(Msg::Cloned(c, went)) => self.on_cloned(c, went),
                 Ok(Msg::RefreshGithub) => self.github.poll(&self.seeds, false, Now::real()),
                 Ok(Msg::PrChanged) => self.github.on_changed(&self.seeds, Now::real()),
                 Ok(Msg::Merged(slug, number, reply)) => {
@@ -1447,8 +1455,12 @@ impl Engine {
 
     /// Takes in what GitHub was asked in the background (ghpoll.rs).
     fn on_github(&mut self, event: ghpoll::Event) {
+        let searched = matches!(event, ghpoll::Event::Requested(..));
         if self.github.on_event(event, &self.seeds, Now::real()) {
             self.mark_dirty("github");
+        }
+        if searched {
+            self.clone_covered();
         }
     }
 

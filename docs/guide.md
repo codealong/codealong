@@ -1459,7 +1459,15 @@ or a window as `[apps] new_terminal` says, which comes forward. When the reviewe
 group, Settings names its accounts that can't review where reviews run, which the group passes
 over. Reviews of your own PRs and Review with… go there too, in every repo. It
 starts in the worktree that holds the PR's branch, else the repo's
-main checkout, and is handed the PR and its whole diff as files, each line of the diff numbered by
+main checkout. A PR that asks for your review in a repo with no checkout on this Mac, which a
+project's `repos` pattern covers (`github.com/acme/*` takes in a repo of acme's you never cloned),
+has its repo cloned for it, into the first `scan` folder under the repo's name, with `gh repo
+clone` (so as gh's git protocol for github.com says); the repo is then read with your others, and
+the PR listed and reviewed as theirs are. Nothing is cloned while automatic reviews are off for
+the repo, nor for a repo no project covers, whose PRs Codealong doesn't list. A folder of that name
+that's already the repo's checkout is read as it is; any other is left alone, and a notice says
+which, as it says why a clone failed. A repo is tried again an hour after a try that didn't take.
+The reviewer is handed the PR and its whole diff as files, each line of the diff numbered by
 its place in the file's new version (so it never stops on a permission prompt to ask `gh`, and can
 name its lines). What it's told to do is `[reviews] prompt`, which Settings shows to edit, filled
 with Codealong's own instructions until you change it. Those ask for bugs, security and data risks,
