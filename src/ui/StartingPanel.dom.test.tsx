@@ -167,8 +167,8 @@ describe('StartingPanel', () => {
 });
 
 describe('StartingListRow', () => {
-  it('renders nested under its session, highlights when selected, and invokes onShow on click', () => {
-    const st = starting();
+  it('renders nested under its session, highlights when selected, keeps multi-hour age single-line, and invokes onShow on click', () => {
+    const st = starting({ at: fx.NOW - (12 * 60 + 46) * 60_000 });
     const onShow = vi.fn();
     const { el, unmount } = render(<StartingListRow starting={st} now={fx.NOW} selected onShow={onShow} />);
     const row = el.querySelector<HTMLElement>('.ca-lane.is-nested.is-starting.is-stuck');
@@ -176,6 +176,7 @@ describe('StartingListRow', () => {
     expect(row!.classList.contains('is-selected')).toBe(true);
     expect(row!.querySelector('.ca-agentline-title')?.textContent).toBe('Draft the release notes');
     expect(row!.querySelector('.ca-startingline-state')?.textContent).toBe('“Hooks need review”');
+    expect(row!.querySelector('.ca-seg-age')?.textContent).toBe('12h');
     act(() => {
       row!.dispatchEvent(new MouseEvent('mousedown', { bubbles: true, button: 0 }));
     });

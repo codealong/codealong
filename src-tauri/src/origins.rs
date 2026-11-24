@@ -104,9 +104,11 @@ pub struct Pending {
 }
 
 impl Pending {
-    /// How long it waits: a start with a prompt a day, for a session that opens with it.
+    /// How long it waits: a start in a terminal with a prompt waits a day, for a session that
+    /// opens with it once its terminal UI's prompt is answered; any other start (a background
+    /// service like `claude --bg`, a desktop app, or a blank terminal) waits half an hour.
     fn waits(&self) -> i64 {
-        if self.opens.is_some() { PROMPTED_MS } else { PENDING_MS }
+        if self.terminal && self.opens.is_some() { PROMPTED_MS } else { PENDING_MS }
     }
 
     /// Started in a terminal with a prompt and still waited for: its UI can stop on a screen of
@@ -471,9 +473,8 @@ pub fn forget_start(at: i64) -> Result<()> {
 /// `StartSpec::report` says is told what it does. A start in a terminal from no session (yours,
 /// in Codealong) waits too, with no `from`, only so it's said when it's stuck (`stuck_notices`):
 /// it notes no origin.
-pub fn started(spec: &crate::start::StartSpec, key: Option<&str>) {
+pub fn started(spec: &crate::start::StartSpec, key: Option<&str>, terminal: bool) {
     let from = spec.from.as_deref().unwrap_or_default();
-    let terminal = matches!(spec.place, crate::start::Place::Terminal | crate::start::Place::Background);
     match key {
         Some(key) if !from.is_empty() => {
             if let Err(e) = write_as(key, from, OriginHow::Started, spec.helper, spec.report) {
@@ -755,7 +756,7 @@ mod tests {
     fn a_start_with_a_prompt_takes_the_session_its_process_runs_however_late() {
         const AT: i64 = 1_000_000;
         const PROMPT: &str = "Review the commits on this branch that origin/main doesn't have.\n\nCLAUDE.md has the rules.";
-        let start = || Pending { helper: true, report: true, opens: opening(PROMPT), ..pending("claude:claude:boss", "/r/app", "codex", AT) };
+        let start = || Pending { helper: true, report: true, terminal: true, opens: opening(PROMPT), ..pending("claude:claude:boss", "/r/app", "codex", AT) };
         let late = AT + 66 * 60 * 1000;
         // Each session showed an hour on, its process begun when `launched` says.
         let c = |key: &'static str, prompt: Option<&'static str>, launched: i64| Candidate { key, lane: "/r/app", account: "codex", started: late, created: Some(late), prompt, launched: Some(launched) };
@@ -821,6 +822,14 @@ mod tests {
         assert_eq!(store.pending.iter().map(|p| p.opens.is_some()).collect::<Vec<_>>(), vec![true]);
         assert!(resolve(&mut store, &[], &Repos, 1_000_000 + PROMPTED_MS + 1));
         assert!(store.pending.is_empty());
+        // A background-service start (not in a terminal) with a prompt never marks itself stuck
+        // and stops waiting after PENDING_MS instead of lingering for a full day.
+        let bg = Pending { helper: true, report: true, terminal: false, opens: opening(PROMPT), ..pending("claude:claude:boss", "/r/app", "claude-work", AT) };
+        assert!(!bg.stuck(AT + STUCK_MS));
+        let mut bg_store = Store { pending: vec![bg], ..Default::default() };
+        assert!(!resolve(&mut bg_store, &[], &Repos, AT + PENDING_MS - 1));
+        assert!(resolve(&mut bg_store, &[], &Repos, AT + PENDING_MS + 1));
+        assert!(bg_store.pending.is_empty());
         // A start without a prompt notes none.
         assert_eq!(opening("  \n "), None);
     }
