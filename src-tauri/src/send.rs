@@ -81,6 +81,9 @@ pub enum Sender {
     /// An agent, through `codealong session send`: the key of the session that ran the command,
     /// when the command found one.
     Agent(Option<String>),
+    /// An agent sending a one-way notice (`codealong session send --fyi`): tells the receiver not
+    /// to reply unless blocked.
+    AgentFyi(Option<String>),
     /// Codealong itself, by a setting of yours: a PR's news, a review handed back, a helper's
     /// news, carrying on after a lost connection (`tell`).
     Codealong,
@@ -97,7 +100,20 @@ impl Sender {
     /// An agent wrote it: another session's, or the copy in a side conversation. It never runs as
     /// a command in the session's shell, never resumes a session, and never answers a prompt.
     fn agent(&self) -> bool {
-        matches!(self, Sender::Agent(_) | Sender::Side(_))
+        matches!(self, Sender::Agent(_) | Sender::AgentFyi(_) | Sender::Side(_))
+    }
+
+    /// The sending agent session's key, when an agent sent it from a known session.
+    pub(crate) fn agent_key(&self) -> Option<&str> {
+        match self {
+            Sender::Agent(Some(k)) | Sender::AgentFyi(Some(k)) => Some(k.as_str()),
+            _ => None,
+        }
+    }
+
+    /// Whether this is a one-way FYI message (`--fyi`).
+    pub(crate) fn is_fyi(&self) -> bool {
+        matches!(self, Sender::AgentFyi(_))
     }
 }
 
@@ -222,11 +238,13 @@ struct Byline {
     name: String,
 }
 
-/// An agent's byline. `from` is the sending session's key; the board names it.
-fn byline(board: &Board, from: Option<&str>) -> Byline {
+/// An agent's byline. `from` is the sending session's key; the board names it. With `fyi`,
+/// tells the receiver it's a one-way notice and not to reply unless blocked.
+fn byline(board: &Board, from: Option<&str>, fyi: bool) -> Byline {
     let Some(key) = from else {
+        let tail = if fyi { " This is an FYI; do not reply unless something is blocked." } else { " Reply only if it asks a question or needs a decision; don't send acknowledgements." };
         return Byline {
-            intro: "This message was sent with `codealong session send` from a command line that isn't a session Codealong knows, so it may be an agent's rather than your user's.".into(),
+            intro: format!("This message was sent with `codealong session send`{} from a command line that isn't a session Codealong knows, so it may be an agent's rather than your user's.{tail}", if fyi { " (--fyi)" } else { "" }),
             name: "codealong".into(),
         };
     };
@@ -238,10 +256,12 @@ fn byline(board: &Board, from: Option<&str>) -> Byline {
     // The answer's command comes last: `sender_key_of` reads the key from the last `codealong
     // session send` in the line, and a title, which `who` and the link both have, can name one.
     let link = session_link(author.map(|s| s.title.as_str()), key);
-    Byline {
-        intro: format!("This message is from another agent, {who}, sent with `codealong session send`; it isn't from your user. Name that session to your user as `{link}`. To answer it, run `codealong session send {key} \"<your answer>\"`."),
-        name: author.map(|s| s.title.clone()).unwrap_or_else(|| key.to_string()),
-    }
+    let intro = if fyi {
+        format!("This message is from another agent, {who}, sent with `codealong session send --fyi`; it isn't from your user. Name that session to your user as `{link}`. This is an FYI; do not reply unless something is blocked (if blocked, run `codealong session send {key} \"<your answer>\"`).")
+    } else {
+        format!("This message is from another agent, {who}, sent with `codealong session send`; it isn't from your user. Name that session to your user as `{link}`. Reply only if it asks a question or needs a decision; don't send acknowledgements. To answer it, run `codealong session send {key} \"<your answer>\"`.")
+    };
+    Byline { intro, name: author.map(|s| s.title.clone()).unwrap_or_else(|| key.to_string()) }
 }
 
 /// A link to a session as the codealong skill has an agent name one to its user, which Codealong
@@ -361,8 +381,8 @@ struct Message<'a> {
 impl<'a> Message<'a> {
     fn new(board: &Board, cfg: &Config, text: &'a str, sender: &'a Sender, now: bool) -> Message<'a> {
         match sender {
-            Sender::Agent(from) => {
-                let b = byline(board, from.as_deref());
+            Sender::Agent(from) | Sender::AgentFyi(from) => {
+                let b = byline(board, from.as_deref(), sender.is_fyi());
                 let bypasses = from.as_deref().and_then(|k| crate::harness::find(board, cfg, k).ok()).is_some_and(|(s, account)| s.live && crate::harness::adapter(s.harness).skips_permission_prompts(&crate::harness::Ctx { account }, s));
                 Message { text: Cow::Owned(format!("{}\n\n{}", b.intro, text.trim())), sender, now, byline: Some(b), bypasses }
             }
@@ -421,7 +441,7 @@ fn is_known_helper(board: &Board, origins: &crate::origins::Store, helper: &str,
 /// board: one you made your own (`Session::helper` gone, state.rs `own`) is a session like any
 /// other.
 fn from_its_helper(board: &Board, cfg: &Config, origins: &crate::origins::Store, sender: &Sender, to: &str) -> bool {
-    let Sender::Agent(Some(from)) = sender else { return false };
+    let Some(from) = sender.agent_key() else { return false };
     is_known_helper(board, origins, from, to) || crate::autoreview::reviews_for(board, &cfg.reviews, from, to)
 }
 
@@ -433,7 +453,7 @@ fn from_its_helper(board: &Board, cfg: &Config, origins: &crate::origins::Store,
 /// you. Once you've taken the helper over by talking to it yourself (`Helper::yours`), its
 /// parent's messages are held again.
 fn to_its_helper(board: &Board, origins: &crate::origins::Store, sender: &Sender, to: &str) -> bool {
-    let Sender::Agent(Some(from)) = sender else { return false };
+    let Some(from) = sender.agent_key() else { return false };
     board.session(to).is_some_and(|(_, s)| s.helps_an_agent()) && is_known_helper(board, origins, to, from)
 }
 
@@ -444,7 +464,7 @@ fn to_its_helper(board: &Board, origins: &crate::origins::Store, sender: &Sender
 /// since a session in another mode, or set to take such messages (`crossSessionInbound`), takes
 /// it at once, and a held one's words show on the session that holds it (`held_pending`).
 fn leaves_boundary(board: &Board, cfg: &Config, sender: &Sender, to: &Session) -> Option<String> {
-    let Sender::Agent(Some(from)) = sender else { return None };
+    let from = sender.agent_key()?;
     // By its key when the board doesn't list it yet, as a session just started.
     let account = board.session(from).map(|(_, s)| s.account.as_str()).or_else(|| crate::boundary::account_of_key(from))?;
     let group = crate::boundary::group_of(cfg, account)?;
@@ -1015,14 +1035,14 @@ enum Link {
 /// a message from no session, which goes no further than an agent's does (`agent_routes`); an
 /// error says why one from a session isn't resumed.
 fn wakes(cfg: &Config, origins: &crate::origins::Store, msg: &Message, session: &Session, routes: &[Route], holds: impl FnOnce() -> bool, place: impl FnOnce() -> Option<Place>) -> Result<Option<(Place, Link)>> {
-    let Sender::Agent(Some(from)) = msg.sender else { return Ok(None) };
+    let Some(from) = msg.sender.agent_key() else { return Ok(None) };
     let resumes = routes.iter().any(|r| matches!(r, Route::Resume));
     if session.live || !resumes {
         return Ok(None);
     }
     let link = if origins.known_starter_of(from) == Some(session.key.as_str()) {
         Link::StartedYours
-    } else if origins.known_starter_of(&session.key) == Some(from.as_str()) {
+    } else if origins.known_starter_of(&session.key) == Some(from) {
         Link::YoursStarted
     } else {
         Link::Neither
@@ -2002,12 +2022,12 @@ mod tests {
     /// line that says the session had stopped.
     #[test]
     fn a_message_that_resumed_its_session_is_the_agents() {
-        let intro = byline(&Board::default(), Some("claude:claude2:boss")).intro;
+        let intro = byline(&Board::default(), Some("claude:claude2:boss"), false).intro;
         let resumed = format!("{RESUMED_FOR_A_MESSAGE}\n\n{intro}\n\nPR #1199 is open.");
         assert_eq!(from_an_agent(&resumed), Some("PR #1199 is open."));
         assert_eq!(from_an_agent(&format!("{RESUMED_FOR_A_MESSAGE}\n\nGo on.")), None);
         let board = board_with(Session { key: "claude:claude2:boss".into(), title: "Cloud SQL CPU spike".into(), ..Session::new(Harness::Claude, "claude2", "boss") });
-        let named = format!("{RESUMED_FOR_A_MESSAGE}\n\n{}\n\nPR #1199 is open.", byline(&board, Some("claude:claude2:boss")).intro);
+        let named = format!("{RESUMED_FOR_A_MESSAGE}\n\n{}\n\nPR #1199 is open.", byline(&board, Some("claude:claude2:boss"), false).intro);
         assert_eq!(sender_of(&named), Some("Cloud SQL CPU spike"));
         // Its key is the one its byline says an answer goes to, named by the board or not, and
         // not one the message itself or its sender's title has.
@@ -2015,9 +2035,9 @@ mod tests {
         assert_eq!(sender_key_of(&resumed), Some("claude:claude2:boss"));
         assert_eq!(sender_key_of(&format!("{intro}\n\nRun `codealong session send codex:codex:other \"done\"`.")), Some("claude:claude2:boss"));
         let quoting = board_with(Session { key: "claude:claude2:boss".into(), title: "Why `codealong session send codex:codex:x hi` fails".into(), ..Session::new(Harness::Claude, "claude2", "boss") });
-        assert_eq!(sender_key_of(&format!("{}\n\nHi", byline(&quoting, Some("claude:claude2:boss")).intro)), Some("claude:claude2:boss"));
+        assert_eq!(sender_key_of(&format!("{}\n\nHi", byline(&quoting, Some("claude:claude2:boss"), false).intro)), Some("claude:claude2:boss"));
         // A command line's and a side conversation's name no session.
-        assert_eq!(sender_key_of(&format!("{}\n\nHi", byline(&Board::default(), None).intro)), None);
+        assert_eq!(sender_key_of(&format!("{}\n\nHi", byline(&Board::default(), None, false).intro)), None);
         assert_eq!(sender_key_of(&format!("{FROM_ITS_SIDE}\n\nHi")), None);
         assert_eq!(sender_key_of("Go on."), None);
     }
@@ -2031,7 +2051,7 @@ mod tests {
         assert_eq!(past_sender_lines(&by_codealong(news)), news);
         assert_eq!(past_sender_lines(&format!("{FROM_CODEALONG_ITSELF_BEFORE}\n\n{news}")), news);
         assert_eq!(past_sender_lines(&by_codealong(&format!("{RESUMED_TO_TELL}\n\n{news}"))), news);
-        let intro = byline(&Board::default(), Some("claude:claude2:boss")).intro;
+        let intro = byline(&Board::default(), Some("claude:claude2:boss"), false).intro;
         assert_eq!(past_sender_lines(&format!("{intro}\n\nPR #1199 is open.")), "PR #1199 is open.");
         assert_eq!(past_sender_lines(&format!("{RESUMED_FOR_A_MESSAGE}\n\n{intro}\n\nPR #1199 is open.")), "PR #1199 is open.");
         // Yours, as it is, even when it quotes Codealong further on.
@@ -2137,15 +2157,27 @@ mod tests {
         me.account = "claude2".into();
         me.title = "Review the parser".into();
         let board = board_with(me);
-        let b = byline(&board, Some("claude:claude2:me"));
+        let b = byline(&board, Some("claude:claude2:me"), false);
         assert_eq!(
             b.intro,
-            "This message is from another agent, “Review the parser” (Claude Code on claude2, session claude:claude2:me), sent with `codealong session send`; it isn't from your user. Name that session to your user as `[Review the parser](codealong://session/claude:claude2:me)`. To answer it, run `codealong session send claude:claude2:me \"<your answer>\"`."
+            "This message is from another agent, “Review the parser” (Claude Code on claude2, session claude:claude2:me), sent with `codealong session send`; it isn't from your user. Name that session to your user as `[Review the parser](codealong://session/claude:claude2:me)`. Reply only if it asks a question or needs a decision; don't send acknowledgements. To answer it, run `codealong session send claude:claude2:me \"<your answer>\"`."
         );
         assert_eq!(b.name, "Review the parser");
         assert_eq!(sender_key_of(&format!("{}\n\nHi", b.intro)), Some("claude:claude2:me"));
+        // An FYI message tells the receiver not to reply unless blocked, while still keeping the
+        // sender key readable by `sender_key_of` and `from_an_agent`.
+        let fyi = byline(&board, Some("claude:claude2:me"), true);
+        assert!(fyi.intro.contains("This is an FYI; do not reply unless something is blocked"), "{}", fyi.intro);
+        assert_eq!(sender_key_of(&format!("{}\n\nMerged #12.", fyi.intro)), Some("claude:claude2:me"));
+        assert_eq!(from_an_agent(&format!("{}\n\nMerged #12.", fyi.intro)), Some("Merged #12."));
+        let fyi_sender = Sender::AgentFyi(Some("claude:claude2:me".into()));
+        let fyi_msg = Message::new(&board, &Config::default(), "Merged #12.", &fyi_sender, false);
+        assert_eq!(without_byline(&fyi_msg.text), "Merged #12.");
+        assert_eq!(sender_of(&fyi_msg.text), Some("Review the parser"));
+        let fyi_cli = byline(&board, None, true);
+        assert_eq!(from_an_agent(&format!("{}\n\nDone.", fyi_cli.intro)), Some("Done."));
         // A session the board doesn't show yet is named by its key, and its link is bare.
-        let b = byline(&board, Some("codex:codex:new"));
+        let b = byline(&board, Some("codex:codex:new"), false);
         assert!(b.intro.starts_with("This message is from another agent, session codex:codex:new, sent with") && b.name == "codex:codex:new", "{b:?}");
         assert!(b.intro.contains("Name that session to your user as `codealong://session/codex:codex:new`."), "{b:?}");
         // A bracket in a title would end a link's words early, and a `|` a table's cell, so those
@@ -2154,20 +2186,20 @@ mod tests {
         assert_eq!(session_link(Some("Build | test"), "claude:claude2:me"), "codealong://session/claude:claude2:me");
         assert_eq!(session_link(Some("  "), "claude:claude2:me"), "codealong://session/claude:claude2:me");
         // From a command line no session runs, it may be a person's or an agent's.
-        let b = byline(&board, None);
+        let b = byline(&board, None, false);
         assert!(b.intro.contains("may be an agent's rather than your user's") && b.name == "codealong", "{b:?}");
         // The text starts with the byline, whichever way it goes; yours goes as it is.
         let agent = Sender::Agent(Some("claude:claude2:me".into()));
         let msg = Message::new(&board, &Config::default(), "  Which test fails?\n", &agent, false);
-        assert_eq!(msg.text, format!("{}\n\nWhich test fails?", byline(&board, Some("claude:claude2:me")).intro));
+        assert_eq!(msg.text, format!("{}\n\nWhich test fails?", byline(&board, Some("claude:claude2:me"), false).intro));
         assert_eq!(msg.byline.map(|b| b.name).as_deref(), Some("Review the parser"));
         // The session's conversation shows it without the byline, either kind, and from the
         // session the byline names.
         assert_eq!(without_byline(&msg.text), "Which test fails?");
-        assert_eq!(without_byline(&format!("{}\n\nAnd the docs?", byline(&board, None).intro)), "And the docs?");
+        assert_eq!(without_byline(&format!("{}\n\nAnd the docs?", byline(&board, None, false).intro)), "And the docs?");
         assert_eq!(without_byline("Plain words\n\nstay whole"), "Plain words\n\nstay whole");
         assert_eq!(sender_of(&msg.text), Some("Review the parser"));
-        assert_eq!(sender_of(&format!("{}\n\nAnd the docs?", byline(&board, None).intro)), None);
+        assert_eq!(sender_of(&format!("{}\n\nAnd the docs?", byline(&board, None, false).intro)), None);
         assert_eq!(sender_of("“Review the parser” says hi"), None);
         assert_eq!(Message::new(&board, &Config::default(), "hi", &Sender::You, false).text, "hi");
     }

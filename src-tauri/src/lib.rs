@@ -40,6 +40,7 @@ mod board;
 mod boards;
 mod boundary;
 mod changes;
+mod chatter;
 mod chrome;
 mod chrometabs;
 mod caret;

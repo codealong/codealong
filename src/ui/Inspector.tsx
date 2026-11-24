@@ -8,6 +8,7 @@ import { branchLabel } from '../lanes';
 import { REUSE_WORDS } from '../reusable';
 import type { Board, Lane, Origin, Session, Target, Todo } from '../types';
 import { InsightChips } from './InsightBits';
+import { PeerChatterChip } from './PeerTalkBits';
 import { BranchLabel, Button, cx, driftWords, HarnessChip, headerMenu, Icon, Kbd, LaneGlyph, PrChip, Rich, SessionEmblem, SessionGlyph, type PanelBackTo } from './primitives';
 import { QueueStrip, type Queue, type StripAction } from './SessionPanel';
 import { PLACE_CHORDS } from '../mainKeys';
@@ -144,6 +145,7 @@ function SessionRow({ session: s, terminal, now, focused, onOpen, todos, onShowT
           {s.visitor ? <span>{s.visitor}</span> : null}
           <TodoChips todos={todos} onShow={onShowTodo} />
           <InsightChips session={s} />
+          <PeerChatterChip session={s} />
         </div>
         {s.excerpt && (
           <div className="ca-srow-excerpt">

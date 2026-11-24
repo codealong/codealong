@@ -169,6 +169,22 @@ impl Engine {
         sessions
     }
 
+    /// Recent peer-to-peer exchanges between non-helper sessions (chatter.rs), attached after
+    /// `with_origins` so helper links are excluded.
+    fn with_chatter(&self, mut sessions: Vec<Session>, now: i64) -> Vec<Session> {
+        let store = origins::current();
+        let mut by_key = crate::chatter::peers_for(&sessions, &store, now);
+        if by_key.is_empty() {
+            return sessions;
+        }
+        for s in &mut sessions {
+            if let Some(peers) = by_key.remove(&s.key) {
+                s.peers = peers;
+            }
+        }
+        sessions
+    }
+
     /// Each headless run with the session that started it as its origin, where nothing else
     /// said where it came from: the nearest of its process's parents that's a running session's
     /// own, else the session its process's environment names (`board::run_started_by`). Looked
@@ -358,6 +374,7 @@ impl Engine {
         let mut sessions = with_terminals(built);
         crate::worktree::attach_own(&mut sessions);
         let sessions = self.with_origins(sessions);
+        let sessions = self.with_chatter(sessions, now);
         let sessions = self.with_run_origins(sessions);
         let sessions = self.with_chrome(sessions);
         let sessions = self.with_artifacts(sessions);

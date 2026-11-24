@@ -23,6 +23,7 @@ import type { AgentSeen, GitInfo, Label, Lane, Raised, Session, SideGlance, Star
 import { Chip, cx, Drift, HarnessChip, Icon, PrChip, Rich, Row, SaidText, STATUS_WORD, SessionEmblem, SessionGlyph, WorktreeChip } from './primitives';
 import type { DragProps } from './useRowDrag';
 import { FlagChip, InsightChips, LooksFinished } from './InsightBits';
+import { PeerChatterChip } from './PeerTalkBits';
 import { HelpersCard, type HelperActions } from './HelpersCard';
 import { useHoverCard } from './HoverCard';
 import { PreviewChip } from './PreviewBits';
@@ -370,6 +371,7 @@ function SessionLines({ s, now, stripFor = false, where, end, todos, onShowTodo,
           <TodoChips todos={todos} onShow={onShowTodo} inRow />
           <SessionLabelChips labels={s.labels} onFilter={onFilterLabel} />
           <InsightChips session={s} />
+          <PeerChatterChip session={s} />
           <HarnessChip session={s} withStatus={false} onOpen={onOpen} inRow />
         </span>
         {end && <span className="ca-lane-right">{end}</span>}
@@ -728,6 +730,7 @@ function AgentRowView({ lane, session: s, domId, now, age, slim = false, selecte
               <SuggestedChip suggestions={s.suggestions} />
               <SessionLabelChips labels={s.labels} onFilter={onFilterLabel} />
               <InsightChips session={s} slim />
+              <PeerChatterChip session={s} />
               {where && <PlaceChip session={s} lane={lane} short alwaysName={!!(nested && elsewhere)} />}
             </span>
             {pr}

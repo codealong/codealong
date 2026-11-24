@@ -60,6 +60,7 @@ import { ArtifactChip } from './ArtifactBits';
 import { BackgroundChip, BackgroundList } from './BackgroundBits';
 import { DeviceBadge } from './DeviceBadge';
 import { InsightChips } from './InsightBits';
+import { OtherOwnerChips, PeerTalkChips, TodoOwnerTag } from './PeerTalkBits';
 import { LabelPicker } from './LabelPicker';
 import { ModeLabel } from './ModeLabel';
 import { OpenInMenu } from './Inspector';
@@ -712,11 +713,14 @@ export function SessionHeader({ lane, session: s, apps, now, onOpen, onShowLane,
         <BackgroundChip session={s} now={now} open={tasksShown} onToggle={() => setAllTasks(!tasksShown)} />
         <PreviewChip preview={lane.preview} now={now} onOpen={() => onOpen('l|preview')} />
         <InsightChips session={s} />
+        <PeerTalkChips session={s} now={now} onShowSession={onShowSession} onSessionMenu={onSessionMenu} />
+        <OtherOwnerChips session={s} prs={prs} todo={current} onShowSession={onShowSession} />
         <SessionLabels session={s} relabel={actions?.relabel} adds={!compact} />
         {!allTodos && current && (
           <button type="button" className="ca-sessinsp-todo" title={`${current.title || 'Untitled'} · ${TODO_WORD[current.status]}.${onShowTodo ? ' Show the todo.' : ''}`} onClick={() => onShowTodo?.(current)}>
             <TodoGlyph status={current.status} />
             <span>{current.title || 'Untitled'}</span>
+            <TodoOwnerTag todo={current} sessionKey={s.key} />
           </button>
         )}
         {!allTodos && listed.length > (current ? 1 : 0) && (

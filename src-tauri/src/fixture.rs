@@ -349,13 +349,23 @@ fn sessions(c: &Cast) -> Vec<Session> {
         // Work under way: a turn that runs, one that waits on a command in the background, and
         // a turn that ended beside them. They're kin: the first was forked into the last, which
         // started the second.
-        Session { stoppable: true, steerable: true, started_at: Some(c.ago(200)), ..opus(said(c.session("claude", "search-filters", SEARCH, "Add filters to search", Status::Working, 2, 0), "`npm run typecheck`")) },
+        Session {
+            stoppable: true,
+            steerable: true,
+            started_at: Some(c.ago(200)),
+            peers: vec![PeerTalk { key: c.key("claude2", "search-ranking"), title: "Rank exact matches first".into(), count: 6, flips: 4, last_at: c.ago(4) }],
+            ..opus(said(c.session("claude", "search-filters", SEARCH, "Add filters to search", Status::Working, 2, 0), "`npm run typecheck`"))
+        },
         Session {
             background: Some("gh run watch".into()),
             origin: Some(SessionOrigin { key: c.key("claude2", "search-ranking"), how: OriginHow::Started }),
             ..said(c.session("codex", "search-index", SEARCH, "Rebuild the search index nightly", Status::Working, 25, 8), "Waiting on `gh run watch`")
         },
-        Session { origin: Some(SessionOrigin { key: claude("search-filters"), how: OriginHow::Fork }), ..said(c.session("claude2", "search-ranking", SEARCH, "Rank exact matches first", Status::Unread, 70, 50), "Exact matches now sort first; the tests cover ties.") },
+        Session {
+            origin: Some(SessionOrigin { key: claude("search-filters"), how: OriginHow::Fork }),
+            peers: vec![PeerTalk { key: claude("search-filters"), title: "Add filters to search".into(), count: 6, flips: 4, last_at: c.ago(4) }],
+            ..said(c.session("claude2", "search-ranking", SEARCH, "Rank exact matches first", Status::Unread, 70, 50), "Exact matches now sort first; the tests cover ties.")
+        },
         // Your turn: finished turns you haven't seen, one whose work is done, and one put away.
         // Two came of the first: a helper its agent started, which works for it and has no row
         // of its own, and a fork. Neither is under one of the latest sessions, which a check pins.

@@ -264,9 +264,10 @@ pub mod params {
         pub message: Option<String>,
     }
 
-    /// `session-send`: a prompt, into the turn the session is taking at once with `now`. `side`
-    /// is the secret the `codealong` command hands on when the copy answering in a side
-    /// conversation runs it, there to tell its session something its user asked it to: the Mac
+    /// `session-send`: a prompt, into the turn the session is taking at once with `now`. `fyi`
+    /// marks an agent's message as a one-way notice so the receiver is told not to reply unless
+    /// blocked. `side` is the secret the `codealong` command hands on when the copy answering in a
+    /// side conversation runs it, there to tell its session something its user asked it to: the Mac
     /// believes it's that copy's only when the secret is the one it gave a copy of that session.
     #[derive(Serialize, Deserialize, Clone, Debug, Default, PartialEq)]
     #[serde(default)]
@@ -275,6 +276,8 @@ pub mod params {
         pub key: String,
         pub text: String,
         pub now: bool,
+        #[serde(skip_serializing_if = "std::ops::Not::not")]
+        pub fyi: bool,
         #[serde(skip_serializing_if = "String::is_empty")]
         pub side: String,
     }
@@ -1556,7 +1559,8 @@ mod tests {
         assert_eq!(v(&saying), json!({ "id": "t1", "answer": "deny", "answers": null, "message": "Explain it first" }));
         let picks = params::Answer { answers: Some(json!({ "Which?": "This" })), answer: Some(Answer::Allow), ..answer };
         assert_eq!(v(&picks), json!({ "id": "t1", "answer": "allow", "answers": { "Which?": "This" } }));
-        assert_eq!(v(&params::Send { key: String::new(), text: "hi".into(), now: false, side: String::new() }), json!({ "text": "hi", "now": false }));
+        assert_eq!(v(&params::Send { key: String::new(), text: "hi".into(), now: false, fyi: false, side: String::new() }), json!({ "text": "hi", "now": false }));
+        assert_eq!(v(&params::Send { text: "hi".into(), fyi: true, ..Default::default() }), json!({ "text": "hi", "now": false, "fyi": true }));
         // Only a side conversation's copy hands on a secret; a Mac from before reads it as any send.
         assert_eq!(v(&params::Send { text: "hi".into(), side: "5ec7e7".into(), ..Default::default() }), json!({ "text": "hi", "now": false, "side": "5ec7e7" }));
         assert_eq!(v(&params::Archive { key: key(), archived: false }), json!({ "key": "claude:claude:abc", "archived": false }));

@@ -1040,10 +1040,19 @@ fn send_prompt(engine: &Handle, c: &Call) -> Result<Value, String> {
     let p: params::Send = c.read()?;
     let key = c.session()?;
     unarchive_to_send(engine, c, key);
-    let sender = sender_for(c.from, || crate::side::sent_by_copy(key, &p.side));
+    let sender = match sender_for(c.from, || crate::side::sent_by_copy(key, &p.side)) {
+        send::Sender::Agent(from) if p.fyi => send::Sender::AgentFyi(from),
+        other => other,
+    };
+    let from_agent = sender.agent_key().map(str::to_string);
     // One of the replies suggested for it, sent as it was written.
     let suggested = matches!(c.from, From::Here | From::Phone) && engine.read(|b| b.session(key).and_then(|(_, s)| s.suggestions.as_ref()).is_some_and(|sg| sg.replies.iter().any(|r| r.trim() == p.text.trim())));
-    let sent = crate::outbox::send_or_hold(engine, key, &p.text, sender, p.now).map_err(words)?;
+    let mut sent = crate::outbox::send_or_hold(engine, key, &p.text, sender, p.now).map_err(words)?;
+    if let Some(from_key) = from_agent.as_deref() {
+        if let Some(warning) = crate::chatter::record_and_warn(&engine.board(), from_key, key) {
+            sent.message = format!("{}\n\nWarning: {warning}", sent.message);
+        }
+    }
     note_talking(engine, c, key);
     if matches!(c.from, From::Device | From::Phone) && sent.opened {
         return Err(format!("It needs someone at this device: {}", sent.message));

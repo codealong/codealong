@@ -2766,6 +2766,10 @@ Options:
       --table
           Tables, even when piped
 
+      --fyi
+          One-way notice: tells the other session not to reply unless something is
+          blocked
+
       --verbose
           Say on stderr whether Codealong's server or the files answered
 

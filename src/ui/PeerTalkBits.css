@@ -1,0 +1,70 @@
+/* Peer-to-peer messaging and task ownership indicators (PeerTalkBits.tsx). */
+
+.ca-peertalk-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+  max-width: 240px;
+  height: 20px;
+  padding: 0 7px;
+  border: 0;
+  border-radius: var(--radius-pill);
+  background: var(--neutral-tint);
+  color: var(--ink-2);
+  font: var(--type-caption-heading);
+  cursor: pointer;
+}
+.ca-peertalk-btn.is-warn {
+  background: var(--attn-tint);
+  color: var(--attn);
+}
+.ca-peertalk-btn:hover:not(:disabled) {
+  filter: brightness(0.95);
+}
+.ca-peertalk-btn:disabled {
+  cursor: default;
+}
+.ca-peertalk-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.ca-owner-tag {
+  display: inline-flex;
+  align-items: center;
+  height: 16px;
+  padding: 0 5px;
+  border-radius: var(--radius-pill);
+  font: var(--type-caption-heading);
+  letter-spacing: 0.01em;
+}
+.ca-owner-tag.is-owner {
+  background: var(--pr-open-tint);
+  color: var(--pr-open);
+}
+.ca-owner-tag.is-other {
+  background: var(--attn-tint);
+  color: var(--attn);
+}
+
+.ca-owner-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+  max-width: 220px;
+  height: 20px;
+  padding: 0 7px;
+  border: 0;
+  border-radius: var(--radius-pill);
+  background: var(--attn-tint);
+  color: var(--attn);
+  font: var(--type-caption-heading);
+  cursor: pointer;
+}
+.ca-owner-btn:hover:not(:disabled) {
+  filter: brightness(0.95);
+}
+.ca-owner-btn:disabled {
+  cursor: default;
+}

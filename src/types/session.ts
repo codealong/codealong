@@ -338,6 +338,9 @@ export interface Session {
   /** Something to know it by beside its title, an emoji or a small picture (emblems.rs, when
    *  `[emblems]` is on). Missing until it has one, and from older Macs. */
   emblem?: Emblem;
+  /** Other non-helper sessions this session has been actively messaging back and forth with
+   *  recently (chatter.rs). Missing when there is no recent peer chatter, and from older Macs. */
+  peers?: PeerTalk[];
   resumeCommand: string | null;
   /** The Claude app is signed into this session's account. */
   appAccount: boolean;
@@ -351,6 +354,16 @@ export interface Session {
   /** This session's own sentence; backtick spans and time tokens as in lane headlines. */
   headline: string;
   detail: string | null;
+}
+
+/** Recent peer-to-peer message activity between this session and another non-helper session
+ *  (peer model.rs `PeerTalk`, chatter.rs). */
+export interface PeerTalk {
+  key: string;
+  title: string;
+  count: number;
+  flips: number;
+  lastAt: number;
 }
 
 /** A session's emblem (peer model.rs `Emblem`): something you can name that stands for what it
