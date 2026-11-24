@@ -151,9 +151,10 @@ Harness facts (from GitHub's answers on this Mac, 2026-10-01). A bare file name 
   name, as it does a 451 and a 403 that isn't a rate limit (an organization's SAML enforcement
   answers `Resource protected by organization SAML enforcement … (HTTP 403)`; a rate limit's 403
   says `rate limit`); any other failure is no answer. Clones run one at a time through
-  `procs::run_background`, whose timeout kills `gh` but not the `git clone` it started, so a
-  folder whose HEAD isn't a commit yet (`git rev-parse --verify HEAD` fails) is a clone cut off
-  partway, not the repo.
+  `procs::run_background`, whose timeout kills `gh` but not the `git clone` it started, so each
+  is made in a hidden folder the scan passes over (`clones::staging`) and moved into place once
+  `gh` is done; a folder already there whose HEAD isn't a commit (`git rev-parse --verify HEAD`
+  fails) is one cloned by hand and cut off, not the repo.
 - Who's assigned to a PR and by whom: `ASSIGNED_EVENT` and `UNASSIGNED_EVENT` beside
   `REVIEW_REQUESTED_EVENT` in `ASKED_FIELDS`'s `timelineItems` (`assigned_of`, `events_of`), each
   node's `__typename` telling them apart, `assignee` a union whose `... on User { login }` names

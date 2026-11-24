@@ -1465,13 +1465,14 @@ has its repo cloned for it, into the first `scan` folder that's there and isn't 
 itself, under the repo's name, or as `<owner>-<name>` when another folder has that name or the
 scan passes it over (`.github`), with `gh repo clone` (so as gh's git protocol for github.com
 says). One repo is cloned at a time, at a low priority, and only once GitHub has said what each
-of your repos is called now (a renamed one isn't cloned again under its new name); the repo is
-then read with your others, and the PR listed and reviewed as theirs are. Nothing is cloned while
-automatic reviews are off for the repo, nor for a repo no project covers, whose PRs Codealong
-doesn't list. A whole checkout of the repo already in one of those folders is read as it is; a
-clone that was cut off partway, or folders of both names holding something else, are left alone,
-and a notice says so, as it says why a clone failed. A repo is tried again an hour after a try
-that didn't take. Its reviewer then runs in that clone as in any repo of yours, with the agent
+of your repos is called now (a renamed one isn't cloned again under its new name). It's made in
+a hidden folder beside its place, which the scan passes over, and moved there once it's done, so
+a clone cut off partway is never taken for the repo; the repo is then read with your others, and
+the PR listed and reviewed as theirs are. Nothing is cloned while automatic reviews are off for
+the repo, nor for a repo no project covers, whose PRs Codealong doesn't list. A whole checkout of
+the repo already in one of those folders is read as it is; folders of both names holding
+something else are left alone, and a notice says so, as it says why a clone failed. A repo is
+tried again an hour after a try that didn't take, one never tried going before it. Its reviewer then runs in that clone as in any repo of yours, with the agent
 settings its default branch holds (a Claude Code hook in `.claude/settings.json`, say), which you
 never opened it to see: have a pattern cover only owners whose repos you'd open yourself, or turn
 reviews off for a repo in its own table (`[repos."github.com/owner/name"]`, below).

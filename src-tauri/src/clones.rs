@@ -54,17 +54,16 @@ impl Clones {
     /// The repo to clone into `root` (the folder `root` picks) now, of those GitHub's search
     /// found PRs that wait on your review in with no checkout here (`not_here`), marked under
     /// way: one at a time, so two can't make for the same folder, and a first launch among an
-    /// org's requests doesn't clone them all at once. A failure is forgotten once its repo no
-    /// longer waits to be cloned.
+    /// org's requests doesn't clone them all at once. One never tried goes first, then the one
+    /// tried longest ago, so repos that keep failing don't keep the rest waiting. A failure is
+    /// forgotten once its repo no longer waits to be cloned.
     pub fn due(&mut self, not_here: &BTreeSet<String>, cfg: &Config, root: Option<&Path>, now: Instant) -> Option<ToClone> {
         self.failed.retain(|slug, _| not_here.contains(slug) && wanted(cfg, slug));
         let root = root.filter(|_| self.running.is_none())?;
-        for slug in not_here.iter().filter(|s| wanted(cfg, s)) {
-            let key = slug.to_lowercase();
-            if self.tried.get(&key).is_some_and(|t| now.duration_since(*t) < RETRY_AFTER) {
-                continue;
-            }
-            self.tried.insert(key, now);
+        let mut waiting: Vec<(Option<Instant>, &String)> = not_here.iter().filter(|s| wanted(cfg, s)).map(|s| (self.tried.get(&s.to_lowercase()).copied(), s)).filter(|(t, _)| t.is_none_or(|t| now.duration_since(t) >= RETRY_AFTER)).collect();
+        waiting.sort();
+        for (_, slug) in waiting {
+            self.tried.insert(slug.to_lowercase(), now);
             let Some(folders) = folder_for(slug) else {
                 self.failed.insert(slug.clone(), "its name isn't one a folder can have.".into());
                 continue;
@@ -135,15 +134,31 @@ pub fn run(c: &ToClone) -> Cloned {
     run_with(c, &|program, args| crate::procs::run_background(program, args, None, CLONE_WAIT))
 }
 
+/// The hidden folder beside `into` a clone is made in (`run_with`), which the scan passes over
+/// (`repos::passed_over`), so a clone cut off partway (Codealong quitting, a timeout, which
+/// stops `gh` and not the `git clone` it started) is never read as the repo.
+fn staging(into: &Path) -> PathBuf {
+    let name = into.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
+    into.with_file_name(format!(".{name}.codealong-clone"))
+}
+
 /// Clones `c` into the first of its folders that's free, or finds it there already: a folder that
-/// holds the repo's checkout, whole (its HEAD a commit: a clone cut off partway has none yet), is
-/// it, and one that holds anything else is passed over. `exec` runs a program, as `run` does.
+/// holds the repo's checkout, whole (its HEAD a commit: one cloned by hand and cut off has none
+/// yet), is it, and one that holds anything else is passed over. The clone is made in a hidden
+/// folder beside it (`staging`), what an earlier one left there cleared first, and moved into
+/// place once `gh` is done. `exec` runs a program, as `run` does.
 fn run_with(c: &ToClone, exec: &dyn Fn(&str, &[&str]) -> anyhow::Result<String>) -> Cloned {
     for into in &c.into {
         let at = crate::util::tilde(into);
         if !into.exists() {
-            let arg = into.to_string_lossy();
-            return exec("gh", &["repo", "clone", &c.slug, &arg, "--", "--quiet"]).map(|_| ()).map_err(|e| format!("gh repo clone into {at} failed: {}.", crate::util::words(e).trim_end_matches('.')));
+            let made = staging(into);
+            let failed = |what: &str, e: String| format!("{what} {} failed: {}.", crate::util::tilde(&made), e.trim_end_matches('.'));
+            if made.exists() {
+                std::fs::remove_dir_all(&made).map_err(|e| failed("clearing", e.to_string()))?;
+            }
+            let arg = made.to_string_lossy();
+            exec("gh", &["repo", "clone", &c.slug, &arg, "--", "--quiet"]).map_err(|e| failed("gh repo clone into", crate::util::words(e)))?;
+            return std::fs::rename(&made, into).map_err(|e| format!("moving its clone to {at} failed: {e}."));
         }
         let identity = crate::repos::load_checkout(into).and_then(|ch| ch.identity);
         if identity.is_some_and(|id| id.eq_ignore_ascii_case(&repo_key(&c.slug))) {
@@ -206,6 +221,26 @@ mod tests {
         assert_eq!(due, Some(ToClone { slug: "Acme/Plugins".into(), into: at(&["Plugins", "Acme-Plugins"]) }), "no project covers other/thing");
         // Nor with reviews off.
         assert_eq!(Clones::default().due(&slugs(&["acme/plugins"]), &cfg(false), code(), now), None);
+    }
+
+    #[test]
+    fn repos_that_keep_failing_dont_keep_the_rest_waiting() {
+        let mut c = Clones::default();
+        let now = Instant::now();
+        let mut tried = Vec::new();
+        let mut tick = |c: &mut Clones, waiting: &[&str], minutes: u64| {
+            if let Some(due) = c.due(&slugs(waiting), &cfg(true), code(), now + Duration::from_secs(60 * minutes)) {
+                tried.push(due.slug.clone());
+                c.on_cloned(&due, Some(Err("refused".into())));
+            }
+        };
+        tick(&mut c, &["acme/a", "acme/b"], 0);
+        tick(&mut c, &["acme/a", "acme/b"], 10);
+        // An hour on, acme/a may be tried again, but acme/z never was.
+        tick(&mut c, &["acme/a", "acme/b", "acme/z"], 60);
+        tick(&mut c, &["acme/a", "acme/b", "acme/z"], 70);
+        tick(&mut c, &["acme/a", "acme/b", "acme/z"], 80);
+        assert_eq!(tried, ["acme/a", "acme/b", "acme/z", "acme/a", "acme/b"], "one never tried, then the one tried longest ago");
     }
 
     #[test]
@@ -290,29 +325,55 @@ mod tests {
         let _ = std::fs::remove_dir_all(&dir);
     }
 
-    /// Runs `c` with programs that answer as `answer` says, and what was run.
+    /// Runs `c` with programs that answer as `answer` says, and what was run. A clone that
+    /// answers makes its folder, as `gh` would.
     fn ran(c: &ToClone, answer: impl Fn(&str) -> bool) -> (Cloned, Vec<String>) {
         let asked = RefCell::new(Vec::new());
         let went = run_with(c, &|program, args| {
             let line = format!("{program} {}", args.join(" "));
             asked.borrow_mut().push(line.clone());
-            if answer(&line) { Ok(String::new()) } else { Err(anyhow::anyhow!("{program} failed")) }
+            if !answer(&line) {
+                return Err(anyhow::anyhow!("{program} failed"));
+            }
+            if args.starts_with(&["repo", "clone"]) {
+                std::fs::create_dir_all(Path::new(args[3]).join(".git")).unwrap();
+            }
+            Ok(String::new())
         });
         (went, asked.into_inner())
     }
 
     #[test]
-    fn clones_with_gh_into_the_first_free_folder() {
+    fn clones_with_gh_beside_the_first_free_folder_and_moves_it_there_once_done() {
         let dir = scratch("free");
         let (api, owned) = (dir.join("api"), dir.join("acme-api"));
         let c = ToClone { slug: "acme/api".into(), into: vec![api.clone(), owned.clone()] };
         let (went, asked) = ran(&c, |_| true);
         assert_eq!(went, Ok(()));
-        assert_eq!(asked, [format!("gh repo clone acme/api {} -- --quiet", api.to_string_lossy())]);
+        assert_eq!(asked, [format!("gh repo clone acme/api {} -- --quiet", dir.join(".api.codealong-clone").to_string_lossy())]);
+        assert!(api.join(".git").is_dir() && !dir.join(".api.codealong-clone").exists());
+        assert!(crate::repos::passed_over(".api.codealong-clone"), "the scan never reads one under way");
         // Another repo's checkout, or any other folder, of its name: the next one.
         checkout_of(&api, "beta/api");
         let (_, asked) = ran(&c, |_| true);
-        assert_eq!(asked, [format!("gh repo clone acme/api {} -- --quiet", owned.to_string_lossy())]);
+        assert_eq!(asked, [format!("gh repo clone acme/api {} -- --quiet", dir.join(".acme-api.codealong-clone").to_string_lossy())]);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn a_clone_cut_off_is_left_where_the_scan_never_reads_it_and_cleared_for_the_next() {
+        let dir = scratch("cut");
+        let api = dir.join("api");
+        let c = ToClone { slug: "acme/api".into(), into: vec![api.clone()] };
+        let left = dir.join(".api.codealong-clone");
+        checkout_of(&left, "acme/api");
+        std::fs::write(left.join("half"), "").unwrap();
+        let (went, _) = ran(&c, |line| !line.starts_with("gh"));
+        assert!(went.is_err_and(|why| why.contains("gh repo clone into")));
+        assert!(!api.exists(), "nothing's in its place");
+        let (went, _) = ran(&c, |_| true);
+        assert_eq!(went, Ok(()));
+        assert!(!api.join("half").exists(), "what was left was cleared first");
         let _ = std::fs::remove_dir_all(&dir);
     }
 
