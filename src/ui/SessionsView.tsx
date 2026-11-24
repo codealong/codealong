@@ -27,13 +27,14 @@ import { Fragment, type ReactNode } from 'react';
 import { byDay, newestFirst } from '../days';
 import { groupOptions, groupRows, groupsOf, noneLabel, placeIn, type Grouped, type GroupOptions, type ListGroup, type ListGroupBy, type PlaceBy } from '../groups';
 import { bySession, byStatusTime, foldsOf, heldBack, listedStatus, listedUnder, runsShownKey, sidesListed, sidesShownKey, snoozedApart, startedOf, waitingSince, waitsFinished, workingFor, type Fold, type LaneItem, type Placed } from '../lanes';
+import { sortStarting } from '../lineage';
 import type { SelectHow } from '../picks';
 import type { HelperCount, RunCount, SideCount } from '../boardLists';
 import type { SaidLine } from '../quick';
-import type { Bay, DesktopPinned, Label, Lane, Session, SideGlance, Status, Todo } from '../types';
+import type { Bay, DesktopPinned, Label, Lane, Session, SideGlance, Starting, Status, Todo } from '../types';
 import type { HelperActions } from './HelpersCard';
 import { GroupBlock, useGroupDrag, type GroupActs } from './Groups';
-import { AgentRow, FoldRow, SideRow } from './LaneRow';
+import { AgentRow, FoldRow, SideRow, StartingListRow } from './LaneRow';
 import { PinnedSection } from './PinnedSection';
 import { byWords, ListTools, rowsOptions, rowsSetting, ViewMenu, viewSetting, type RowLines } from './ListBar';
 import { BAY_WORD, BayHeader, Button, SectionHeader } from './primitives';
@@ -386,6 +387,12 @@ interface SessionsViewProps {
   onToggleSides?: (sessionKey: string) => void;
   /** Shows a side conversation: its session selected, and it above the session's box. */
   onShowSide?: (sessionKey: string, side: SideGlance) => void;
+  /** Pending starts for a session (`Board.starting`), listed nested under it as its helpers are. */
+  startingOf?: (sessionKey: string) => Starting[] | undefined;
+  /** The pending start currently shown in the panel, by its `at`, so its nested row highlights. */
+  selectedStarting?: number | null;
+  onShowStarting?: (parent: SessionItem, starting: Starting) => void;
+  onStartingMenu?: (parent: SessionItem, starting: Starting) => void;
   /** What a helpers chip's card does with a helper (HelpersCard.tsx). */
   helperActions?: HelperActions;
   onShowTodo?: (todo: Todo) => void;
@@ -402,7 +409,7 @@ interface SessionsViewProps {
 const NO_KEYS: ReadonlySet<string> = new Set();
 
 export function SessionsView(props: SessionsViewProps) {
-  const { orchestrators = [], listening, pinned, topHelpers, sections, groups, groupActs, sort, lines, now, selectedKey, picked, domId, onSelect, onPickThese, onOpen, onContextMenu, onPrMenu, onPrShow, onPrOpen, onPlacePinned, onUnpin, pinnedKeys, desktop, archived, sectionFolded, sectionToggle, todosFor, helpersOf, helpersShown, onToggleHelpers, runsOf, onToggleRuns, sidesOf, sideGlancesOf, onToggleSides, onShowSide, helperActions, onShowTodo, onFilterLabel, saidOf, movedToOf, onShowSession } = props;
+  const { orchestrators = [], listening, pinned, topHelpers, sections, groups, groupActs, sort, lines, now, selectedKey, picked, domId, onSelect, onPickThese, onOpen, onContextMenu, onPrMenu, onPrShow, onPrOpen, onPlacePinned, onUnpin, pinnedKeys, desktop, archived, sectionFolded, sectionToggle, todosFor, helpersOf, helpersShown, onToggleHelpers, runsOf, onToggleRuns, sidesOf, sideGlancesOf, onToggleSides, onShowSide, startingOf, selectedStarting, onShowStarting, onStartingMenu, helperActions, onShowTodo, onFilterLabel, saidOf, movedToOf, onShowSession } = props;
   const isFolded = (id: string) => !!sectionFolded?.(id);
   const toggleSection = (id: string) => sectionToggle?.(id);
   const shown = helpersShown ?? NO_KEYS;
@@ -437,7 +444,7 @@ export function SessionsView(props: SessionsViewProps) {
       now={now}
       age={sort === 'started' ? 'started' : 'active'}
       slim={lines === 'one'}
-      selected={r.key === selectedKey || picked.has(r.key)}
+      selected={(r.key === selectedKey && selectedStarting == null) || picked.has(r.key)}
       onSelect={(how) => onSelect(r, how)}
       onOpen={() => onOpen(r)}
       pinned={index != null}
@@ -477,22 +484,36 @@ export function SessionsView(props: SessionsViewProps) {
       if (g) onShowSide?.(key, g);
     },
   });
+  /** A session's pending starts listed nested under it (`Board.starting`). */
+  const startingRows = (r: SessionItem) =>
+    sortStarting(startingOf?.(r.session.key)).map((s) => (
+      <StartingListRow
+        key={`starting:${s.at}`}
+        starting={s}
+        now={now}
+        selected={selectedStarting === s.at && r.key === selectedKey}
+        onShow={(st) => onShowStarting?.(r, st)}
+        onContextMenu={onStartingMenu && ((st) => onStartingMenu(r, st))}
+      />
+    ));
   /** A session's side conversations listed under it (lanes.ts `sidesListed`). */
   const sideRows = (r: SessionItem) =>
     sidesListed(sideGlancesOf?.(r.session.key), r.session.key, shown).map((g) => <SideRow key={`side:${g.id}`} sessionKey={r.session.key} side={g} now={now} onShow={(key, side) => onShowSide?.(key, side)} />);
   /** Back to listing only the ones at work, as the kind's chip's double-click does. */
   const fold = (f: Fold) => (f.kind === 'helpers' ? onToggleHelpers : f.kind === 'runs' ? onToggleRuns : onToggleSides)?.(f.key);
-  /** A session's row, its side conversations, the rows nested under it each with theirs, and the
-   *  way back from what's listed in full under any of them. `held` is how each row is dragged. */
+  /** A session's row, its pending starts and side conversations, the rows nested under it each with
+   *  theirs, and the way back from what's listed in full under any of them. `held` is how each row is dragged. */
   const family = (head: SessionItem, kids: SessionItem[], index: number | null, held: (r: SessionItem, index: number | null) => DragProps | undefined, inWorktree = false, inRepo = false) => {
     const folds = foldsOf([head, ...kids].map((r) => r.session), shown, { helpers: (k) => helpersOf?.(k), runs: (k) => runsOf?.(k), sides: (k) => sidesOf?.(k) });
     return (
       <Fragment key={head.key}>
         {row(head, index, held(head, index), inWorktree, inRepo)}
+        {startingRows(head)}
         {sideRows(head)}
         {kids.map((k) => (
           <Fragment key={k.key}>
             {row(k, null, held(k, null), inWorktree, inRepo)}
+            {startingRows(k)}
             {sideRows(k)}
           </Fragment>
         ))}

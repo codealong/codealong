@@ -282,7 +282,8 @@ export function onMainKey<V extends string>(e: KeyboardEvent, keys: MainKeys<V>)
   }
   // ⇧⌘E marks the selected session done (menus.ts `CHORDS`), in any view, and from Sessions' box
   // as ⌘E beside it marks seen there. Done goes on to the next that waits, as ⌘E does.
-  if (chordPressed(menus.CHORDS.done ?? '', e)) {
+  // A panel shown in the row's place (StartingPanel.tsx, TodoStrip.tsx) takes it first.
+  if (!e.defaultPrevented && chordPressed(menus.CHORDS.done ?? '', e)) {
     e.preventDefault();
     if (picking) {
       const act = picked('done');
@@ -298,7 +299,7 @@ export function onMainKey<V extends string>(e: KeyboardEvent, keys: MainKeys<V>)
   }
   // ⇧⌘M asks to merge the selected session's PR and mark the session done (menus.ts `CHORDS`,
   // Merge and done…), where it's the primary session of a PR that's ready to merge.
-  if (mergeDone) {
+  if (!e.defaultPrevented && mergeDone) {
     e.preventDefault();
     if (picking || selected?.kind !== 'agent') return;
     const act = actionsRef.current.session(selected.lane, selected.session, 'session').mergeDone;

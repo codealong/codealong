@@ -142,6 +142,27 @@ export function startingTitle(s: Starting): string {
   return s.opens ?? `${s.harness} on ${s.account}`;
 }
 
+/** The first non-blank line a stuck start's terminal shows, which says what it waits on (Codex's
+ *  “Hooks need review”). */
+export function screenHeadline(screen: string): string {
+  return (screen.split('\n').find((l) => l.trim() !== '') ?? '').trim();
+}
+
+/** Where a start whose session isn't here yet stands, on one short phrase: what its terminal waits
+ *  on, Waiting in its terminal, or Starting. */
+export function startingState(s: Starting): string {
+  if (!s.stuck) return 'Starting';
+  const headline = s.screen ? screenHeadline(s.screen) : '';
+  return headline ? `“${headline}”` : `Waiting in ${s.terminal ?? 'its terminal'}`;
+}
+
+/** A session's pending starts, in the order they appear under it: stuck ones first, then newest
+ *  first. */
+export function sortStarting(starts: readonly Starting[] | undefined): Starting[] {
+  if (!starts || starts.length === 0) return [];
+  return [...starts].sort((a, b) => Number(b.stuck) - Number(a.stuck) || b.at - a.at);
+}
+
 /** One line under a session's title for what came of it (SessionHeader.tsx): a session, its
  *  headless runs together (the latest first), a side conversation, or a start whose session
  *  isn't here yet, with when it started. */

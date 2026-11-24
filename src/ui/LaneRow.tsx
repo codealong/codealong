@@ -12,13 +12,14 @@ import { memoRow } from './memoRow';
 import { useContext, type ReactNode } from 'react';
 import { absolute, ago, agoPhrase, duration, elapsedShort, middleTruncate, untilShort } from '../format';
 import { branchLabel, foldWords, helperLine, listedStatus, raisedBy, sideTitle, startedOf, workingSince, worktreeName, type Fold, type Placed } from '../lanes';
+import { startingState, startingTitle } from '../lineage';
 import { hasActiveHelpers, hasActiveRuns, hasActiveSides, stripWorkingFor } from '../rowSignal';
 import { selectHow, type SelectHow } from '../picks';
 import { untilWords } from '../snooze';
 import type { HelperCount, RunCount, SideCount } from '../boardLists';
 import type { RepoName } from '../groups';
 import type { SaidLine } from '../quick';
-import type { AgentSeen, GitInfo, Label, Lane, Raised, Session, SideGlance, Suggestions, Todo } from '../types';
+import type { AgentSeen, GitInfo, Label, Lane, Raised, Session, SideGlance, Starting, Suggestions, Todo } from '../types';
 import { Chip, cx, Drift, HarnessChip, Icon, PrChip, Rich, Row, SaidText, STATUS_WORD, SessionEmblem, SessionGlyph, WorktreeChip } from './primitives';
 import type { DragProps } from './useRowDrag';
 import { FlagChip, InsightChips, LooksFinished } from './InsightBits';
@@ -828,6 +829,51 @@ function SideRowView({ sessionKey, side: g, now, onShow }: SideRowProps) {
 }
 
 export const SideRow = memoRow(SideRowView);
+
+interface StartingListRowProps {
+  starting: Starting;
+  now: number;
+  selected: boolean;
+  onShow: (starting: Starting) => void;
+  onContextMenu?: (starting: Starting) => void;
+}
+
+/** A start whose session isn't here yet (`Board.starting`), listed nested under the session that
+ *  started it, as its helpers are: its status (starting, or waiting in its terminal), its title
+ *  from how its prompt opens, and how long since it started. A click shows its panel
+ *  (`StartingPanel.tsx`) to answer its prompt, show its tab or mark it done. */
+function StartingListRowView({ starting: s, now, selected, onShow, onContextMenu }: StartingListRowProps) {
+  const state = startingState(s);
+  const who = `${s.harness} on ${s.account}`;
+  const where = s.terminal ? `in ${s.terminal}, in ${s.place}` : `in ${s.place}`;
+  const title = `${s.helper ? 'Its helper' : 'Started'}: ${startingTitle(s)}\n${who} ${s.stuck ? 'waits' : 'is starting'} ${where}. Click to show it.`;
+  return (
+    <Row
+      label={`${s.helper ? 'Its helper' : 'Started'}: ${startingTitle(s)}`}
+      selected={selected}
+      className={cx('ca-lane', 'is-item', 'is-agent', 'is-slim', 'is-nested', 'is-starting', s.stuck ? 'is-needs' : 'is-working', s.stuck && 'is-stuck')}
+      onSelect={(e) => {
+        if (!cmd(e) && !e.shiftKey) onShow(s);
+      }}
+      onMenu={onContextMenu && (() => onContextMenu(s))}
+    >
+      <div className="ca-seg ca-seg-glyph" title={state}>
+        <SessionGlyph s={{ status: s.stuck ? 'needs' : 'working' }} />
+      </div>
+      <div className="ca-seg ca-seg-main">
+        <div className="ca-agentrow-line1" title={title}>
+          <span className="ca-agentline-title">{startingTitle(s)}</span>
+          <span className="ca-startingline-state">{state}</span>
+        </div>
+      </div>
+      <div className="ca-seg ca-seg-age" title={`Started ${absolute(s.at)}`}>
+        {duration(s.at, now)}
+      </div>
+    </Row>
+  );
+}
+
+export const StartingListRow = memoRow(StartingListRowView);
 
 /** The end of what's listed under a session where you asked to see every one of a kind (`Fold`,
  *  lanes.ts `foldsOf`): a click lists only the ones at work again, as the kind's chip's

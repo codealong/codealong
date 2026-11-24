@@ -18,7 +18,7 @@
 // adds (a queue, a pin that keeps it on the desktop). The card holds Merge and done…'s dialog
 // (MergeDone.tsx) for every one of them, for its menus and its header.
 
-import { useEffect, useMemo, useRef } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { openUrl, setPinned, showMain } from '../api';
 import { showContextMenu, type MenuAction, type MenuSpec } from '../contextMenu';
 import { useEditorIcons } from '../editors';
@@ -36,6 +36,7 @@ import { useMergeDone } from './MergeDone';
 import { useDoneHelpers } from './DoneHelpers';
 import { runFolder } from './RunButton';
 import { SessionPanel, type SessionPanelProps } from './SessionPanel';
+import { StartingPanel, startingMenu } from './StartingPanel';
 
 /** What the card reads from the board: what's around the session, and what's pinned in Sessions. */
 export type CardBoard = Pick<Board, 'prs' | 'lanes' | 'todos' | 'sides' | 'starting' | 'nudgeAbout' | 'reviews' | 'repos' | 'teamFiles' | 'terminals'> & { pinned?: string[]; labels?: Board['labels'] };
@@ -128,17 +129,19 @@ export function SessionCard({ lane, session, apps, now, board, can, canFor, outg
   useStartAccounts(!session.live);
   const actions = menus.sessionActions(lane, session, mine);
   const context = useMemo(() => sessionContext(board, lane, session), [board, lane, session]);
+  const [shownStartingAt, setShownStartingAt] = useState<number | null>(null);
+  const shownStarting = shownStartingAt != null ? (context.lineage.starting.find((s) => s.at === shownStartingAt) ?? null) : null;
   const show = (spec: MenuSpec, at?: { x: number; y: number }) => void showContextMenu(spec, at).catch((e: unknown) => report.error(errorText(e)));
 
   // The Sessions list's shortcuts, for the session shown, and ⌘= ⌘- ⌘0, which zoom it as they do
-  // the board's windows. Not while its name is being typed.
+  // the board's windows. Not while its name is being typed or a pending helper is open in its place.
   const latest = useRef(actions);
   latest.current = actions;
   const leaving = useRef(outgoing);
   leaving.current = outgoing;
   const reportNow = useLatest(report);
   useEffect(() => {
-    if (renaming) return;
+    if (renaming || shownStarting) return;
     const onKey = (e: KeyboardEvent) => {
       if (e.defaultPrevented || e.isComposing) return;
       if (zoomKey(e, reportNow.current) || reloadKey(e, reportNow.current) || dialogUp()) return;
@@ -151,7 +154,7 @@ export function SessionCard({ lane, session, apps, now, board, can, canFor, outg
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [renaming, reportNow]);
+  }, [renaming, shownStarting, reportNow]);
 
   const open = (url: string) => void openUrl(url).catch((e: unknown) => report.error(errorText(e)));
   /** A PR's menu, as every window has it: for one the board lists, with showing it in Codealong
@@ -168,6 +171,28 @@ export function SessionCard({ lane, session, apps, now, board, can, canFor, outg
     if (item && follow) follow(item);
     else open(pr.url);
   };
+
+  if (shownStarting) {
+    const startLane = board?.lanes.find((l) => l.id === shownStarting.lane);
+    return (
+      <StartingPanel
+        key={shownStarting.at}
+        variant="card"
+        starting={shownStarting}
+        parent={{ lane, session }}
+        now={now}
+        zoom={panel.zoom}
+        queue={panel.queue}
+        notice={panel.notice}
+        hotkeys={panel.hotkeys}
+        back={{ label: session.title, onBack: () => setShownStartingAt(null) }}
+        onDone={() => setShownStartingAt(null)}
+        onShowLane={startLane ? () => onShowLane(startLane) : undefined}
+        onClose={panel.onClose}
+        closeTitle={panel.closeTitle}
+      />
+    );
+  }
 
   return (
     <SessionPanel
@@ -195,6 +220,8 @@ export function SessionCard({ lane, session, apps, now, board, can, canFor, outg
       onShowSchedule={(id) => void showMain({ kind: 'schedule', id })}
       onShowSession={onShowSession}
       onSessionMenu={(l, s) => show(menus.sessionMenu(l, s, whole(s, canFor(l, s))))}
+      onShowStarting={(st) => setShownStartingAt(st.at)}
+      onStartingMenu={(st) => show(startingMenu(st, () => setShownStartingAt((at) => (at === st.at ? null : at)), (why) => report.error(why)))}
       terminals={board?.terminals?.[session.key] ?? NO_TERMINALS}
       dialog={
         <>

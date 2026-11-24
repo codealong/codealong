@@ -144,6 +144,20 @@
   font: var(--type-meta);
   color: var(--ink-3);
 }
+/* A pending start under its session (LaneRow.tsx `StartingListRow`): what its terminal waits on,
+   in the attention ink once stuck, giving way after its title. */
+.ca-startingline-state {
+  flex: 0 1000000 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font: var(--type-meta);
+  color: var(--ink-3);
+}
+.ca-lane.is-agent.is-starting.is-stuck .ca-startingline-state {
+  color: var(--attn);
+}
 /* The way back from listing them all (LaneRow.tsx `FoldRow`): the thread's end, a chevron where a
    glyph would be, and a link. It isn't a row to select, so it doesn't light up under the pointer. */
 .ca-lane.is-agent.is-fold {
