@@ -2434,7 +2434,7 @@ impl crate::harness::Adapter for Antigravity {
             _ => Some("Antigravity asks in its own window; answer it there.".to_string()),
         };
         // Questions are answered with your picks, so their arguments aren't shown.
-        let input = c.questions.is_empty().then(|| c.input.clone());
+        let input = c.questions.is_empty().then(|| clip_input(&c.input));
         Some(crate::harness::Pending { id: c.result_step.to_string(), label: c.asked(), input, cannot, always: false, no_once: false, plan: false, message: false, from_key: None, always_rule: None, questions: c.questions, unwritten: false, terminal: None, exiting: false, dialog: false })
     }
 

@@ -65,5 +65,30 @@ describe('questionsBox', () => {
     const asking = { call: 'ask-2', asked: askedOf([color]) };
     expect(showsCall(asking, { text: 'AskUserQuestion', input: '{}', questions: [{ ...color, header: 'Color' }] })).toBe(true);
     expect(showsCall(asking, { text: 'AskUserQuestion', input: '{}', questions: [{ ...color, options: [{ label: 'Red' }] }] })).toBe(false);
+    expect(showsCall(asking, { id: 'ask-2', text: 'Bash · `ls`', input: 'ls' })).toBe(false);
+  });
+
+  it('matches a call whose approval label words or clips the line differently from the transcript', () => {
+    // Antigravity over ACP (`run_command`, 100-char single-line title, its own call id) vs its
+    // transcript (`Run command`, 80-char first line, step index id).
+    const cmd = 'python3 -m unittest discover -s scripts\npython3 -c "print(1)"';
+    const acp = { call: 'call_4570', asked: calledOf('run_command · `python3 -m unittest discover -s scripts python3 -c "print(1)"`', cmd) };
+    expect(showsCall(acp, { id: '24', text: 'Run command · `python3 -m unittest discover -s scripts`', input: cmd })).toBe(true);
+    // Another run_command waiting beside it with a different command still keeps its line.
+    expect(showsCall(acp, { id: '23', text: 'Run command · `git status`', input: 'git status' })).toBe(false);
+    // Claude Code `Bash` with `cd … &&` stripped in the transcript, and OpenCode `Bash` vs `Shell`.
+    expect(showsCall({ call: 'ask-3', asked: calledOf('Bash · `cd /app && npm test`', 'cd /app && npm test') }, { text: 'Bash · `npm test`', input: 'cd /app && npm test' })).toBe(true);
+    expect(showsCall({ call: 'per_1', asked: calledOf('Bash · `ls`', 'ls') }, { text: 'Shell · `ls`', input: 'ls' })).toBe(true);
+    // Non-command snake_case tool (`write_to_file`) vs its transcript line (`Write to file`).
+    expect(showsCall({ call: 'call_2', asked: calledOf('write_to_file · `Fix notes.txt`', '{"path":"notes.txt"}') }, { id: '7', text: 'Write to file · Fix notes.txt', input: '{"path":"notes.txt"}' })).toBe(true);
+    // MCP `mcp__server__tool` matches `server · tool`, while distinct tools on one server stay apart.
+    expect(showsCall({ call: 'ask-4', asked: calledOf('mcp__linear__create_issue', '{}') }, { text: 'linear · create_issue', input: '{}' })).toBe(true);
+    expect(showsCall({ call: 'ask-4', asked: calledOf('linear · create_issue', '{}') }, { text: 'linear · delete_issue', input: '{}' })).toBe(false);
+    // Distinct tools with the same path stay apart unless they share a call id.
+    expect(showsCall({ call: 'ask-5', asked: calledOf('Read · `a.ts`', '/app/a.ts') }, { id: 'toolu_2', text: 'Write · `a.ts`', input: '/app/a.ts' })).toBe(false);
+    // Same non-empty call id (Claude ACP's `toolCallId` on `Read`/`Edit` whose raw JSON differs from
+    // the transcript's summary input) matches directly; empty ids never do.
+    expect(showsCall({ call: 'toolu_9', asked: calledOf('Read · `Read src/a.ts`', '{"file_path":"/app/src/a.ts"}') }, { id: 'toolu_9', text: 'Read · `a.ts`', input: '/app/src/a.ts' })).toBe(true);
+    expect(showsCall({ call: '', asked: calledOf('Read · `a.ts`', '/app/a.ts') }, { id: '', text: 'Write · `b.ts`', input: '/app/b.ts' })).toBe(false);
   });
 });
