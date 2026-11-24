@@ -329,9 +329,9 @@ impl crate::harness::Adapter for Codex {
     }
 
     /// A command runs in its own shell, `/bin/zsh -c <command>` (`-lc` for a login shell), or in
-    /// the shell's place where it's one plain command (background.rs).
+    /// the shell's place where it's one plain command (procs.rs `shell_script`).
     fn shell_script(&self, cmdline: &str) -> Option<String> {
-        Some(background::shell_script(cmdline))
+        Some(crate::procs::shell_script(cmdline))
     }
 
     /// The last of what a command left running in a background terminal printed, as the agent

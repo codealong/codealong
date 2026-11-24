@@ -366,6 +366,104 @@ pub fn command_trees(listed: &[PsLine], pids: &[u32], root: fn(&str) -> bool) ->
     pids.iter().map(|&session| (session, under(&rows, rows.iter().filter(|r| r.1 == session && root(r.3)).map(|r| (r.0, r.2)).collect()))).collect()
 }
 
+/// What a process a harness runs a command in is running, by its command line as `ps` gives it:
+/// the script of a shell, `/bin/zsh -c <command>` (`-lc` for a login shell; Codex 0.162.1 and
+/// `agy` 1.5 on this Mac), or the command line itself, since a shell given one plain command runs
+/// it in its own place (`zsh -c 'sleep 8'` is `sleep 8` in the table).
+pub fn shell_script(cmdline: &str) -> String {
+    let wrapped = cmdline.split_once(' ').and_then(|(program, rest)| {
+        let shell = program.rsplit('/').next().is_some_and(|p| matches!(p, "zsh" | "bash" | "sh" | "fish"));
+        let script = rest.strip_prefix("-c ").or_else(|| rest.strip_prefix("-lc "))?;
+        shell.then_some(script)
+    });
+    wrapped.unwrap_or(cmdline).to_string()
+}
+
+/// How often a harness's reader looks at what the commands sessions left running in the
+/// background are doing (`LeftRunning`).
+pub const LEFT_RUNNING_EVERY: Duration = Duration::from_secs(60);
+
+/// What the commands sessions left running in the background have been doing, by the process of
+/// the session that left them, from looks at the process table a minute apart: when they last
+/// started a process or used CPU, or what they wait behind for a lock was. A harness's reader
+/// says which sessions have one and since when, and its command trees (`command_trees`, with
+/// the harness's word on which of a session's children run its commands); the board takes a
+/// command quiet for `board::BACKGROUND_QUIET_MS` for one left sitting there.
+#[derive(Default)]
+pub struct LeftRunning {
+    watched: HashMap<u32, Watched>,
+    looked: Option<Instant>,
+}
+
+/// A command a session left running in the background, as last seen.
+struct Watched {
+    /// When its harness says the turn that left it running ended: a new one starts afresh.
+    since: i64,
+    tree: CommandTree,
+    /// What it waited behind at the last look, while its own processes did nothing
+    /// (`CommandTree::waits_behind`).
+    behind: CommandTree,
+    /// When its processes were last seen starting a process or using CPU, or what they wait
+    /// behind for a lock was.
+    active_at: i64,
+}
+
+impl LeftRunning {
+    /// Whether it's time for another look (`LEFT_RUNNING_EVERY`), the look counted from now.
+    pub fn due(&mut self) -> bool {
+        if self.looked.is_some_and(|t| t.elapsed() < LEFT_RUNNING_EVERY) {
+            return false;
+        }
+        self.looked = Some(Instant::now());
+        true
+    }
+
+    /// Takes a look at the commands of the sessions in `left`, each its process and when its turn
+    /// left them running, in the processes `ps` lists at `now`, whose trees under those
+    /// processes `trees` finds (`command_trees`). The processes are listed only when there's one.
+    pub fn look(&mut self, ps: &Listing, left: &[(u32, i64)], trees: impl FnOnce(&[PsLine], &[u32]) -> HashMap<u32, CommandTree>, now: i64) {
+        self.watched.retain(|pid, _| left.iter().any(|(p, _)| p == pid));
+        if left.is_empty() {
+            return;
+        }
+        // No processes at all is a `ps` that failed or ran out of time: nothing is known.
+        let listed = ps.all();
+        if listed.is_empty() {
+            return;
+        }
+        let pids: Vec<u32> = left.iter().map(|(p, _)| *p).collect();
+        let mut trees = trees(listed, &pids);
+        for &(pid, since) in left {
+            let Some(tree) = trees.remove(&pid) else { continue };
+            match self.watched.get_mut(&pid) {
+                Some(w) if w.since == since => {
+                    // A build queued for a lock another build holds does nothing until it gets
+                    // it: while that one works, this one is waiting its turn.
+                    let active = tree.active_since(&w.tree);
+                    let behind = if active { CommandTree::default() } else { tree.waits_behind(listed, open_files, held_exclusively) };
+                    if active || (!w.behind.cpu.is_empty() && behind.active_since(&w.behind)) {
+                        w.active_at = now;
+                    }
+                    w.tree = tree;
+                    w.behind = behind;
+                }
+                _ => {
+                    // Seen for the first time, perhaps long after the turn ended (the app just
+                    // started): give it a few looks to show it's doing something.
+                    let active_at = since.max(now - crate::board::BACKGROUND_QUIET_MS + 3 * LEFT_RUNNING_EVERY.as_millis() as i64);
+                    self.watched.insert(pid, Watched { since, tree, behind: CommandTree::default(), active_at });
+                }
+            }
+        }
+    }
+
+    /// When what the session of process `pid` left running at `since` was last seen doing
+    /// something; None when it hasn't been looked at since then.
+    pub fn active_at(&self, pid: u32, since: i64) -> Option<i64> {
+        self.watched.get(&pid).filter(|w| w.since == since).map(|w| w.active_at)
+    }
+}
+
 /// `ps`'s `time`: `0:00.88`, `12:34.56` or `1:02:03.45`, in hundredths of a second.
 fn cpu_hundredths(t: &str) -> Option<u64> {
     let (whole, frac) = t.split_once('.').unwrap_or((t, "0"));
@@ -693,6 +791,52 @@ mod tests {
         assert!(!tree(&[(300, 1)]).active_since(&before));
         assert!(tree(&[(300, 1), (301, 98)]).active_since(&before));
         assert!(tree(&[(300, 1), (301, 88), (310, 0)]).active_since(&before));
+    }
+
+    #[test]
+    fn reads_the_command_a_shell_runs() {
+        use super::shell_script;
+        assert_eq!(shell_script("/bin/zsh -c codealong session transcript claude:x --full"), "codealong session transcript claude:x --full");
+        assert_eq!(shell_script("/bin/zsh -lc npm run dev"), "npm run dev");
+        // A plain command its shell ran in its own place.
+        assert_eq!(shell_script("sleep 8"), "sleep 8");
+        assert_eq!(shell_script("node server.mjs -c x"), "node server.mjs -c x");
+    }
+
+    #[test]
+    fn a_command_left_running_is_active_while_its_processes_do_something() {
+        use super::{command_trees, LeftRunning, Listed, Listing, PsLine, LEFT_RUNNING_EVERY};
+        use crate::board::BACKGROUND_QUIET_MS;
+        const MIN: i64 = 60_000;
+        let now = 1_800_000_000_000;
+        // Past any pid a system gives, so nothing here is asked what files it has open.
+        let (agy, shell, node) = (4_200_041, 4_200_042, 4_200_043);
+        let row = |pid: u32, ppid: u32, cpu: u64, command: &str| PsLine { pid, ppid, tty: "??".into(), cpu: Some(cpu), command: command.into() };
+        let ps = |lines: Vec<PsLine>| Listing::of(std::sync::Arc::new(Listed { at: now, lines }));
+        let running = |cpu: u64| vec![row(agy, 1, 500, "agy -i"), row(shell, agy, 2, "zsh -c npm test"), row(node, shell, cpu, "node vitest")];
+        let trees = |listed: &[PsLine], pids: &[u32]| command_trees(listed, pids, |c| c.starts_with("zsh -c "));
+        let ended = now - 30 * MIN;
+        let mut left = LeftRunning::default();
+        // Seen first long after its turn ended: it has a few looks to show it does something.
+        let grace = now - BACKGROUND_QUIET_MS + 3 * LEFT_RUNNING_EVERY.as_millis() as i64;
+        left.look(&ps(running(5)), &[(agy, ended)], trees, now);
+        assert_eq!(left.active_at(agy, ended), Some(grace));
+        assert_eq!((left.active_at(agy, ended + 1), left.active_at(shell, ended)), (None, None), "another turn's, another session's");
+        // Using no CPU since the last look isn't doing something; using some is.
+        left.look(&ps(running(5)), &[(agy, ended)], trees, now + MIN);
+        assert_eq!(left.active_at(agy, ended), Some(grace));
+        left.look(&ps(running(50)), &[(agy, ended)], trees, now + 2 * MIN);
+        assert_eq!(left.active_at(agy, ended), Some(now + 2 * MIN));
+        // A later turn that leaves a command running starts afresh, from when it ended.
+        let next = now + 3 * MIN;
+        left.look(&ps(running(50)), &[(agy, next)], trees, now + 4 * MIN);
+        assert_eq!((left.active_at(agy, ended), left.active_at(agy, next)), (None, Some(next)));
+        // A listing with nothing in it is a `ps` that failed, which says nothing; a session that
+        // no longer leaves one running is forgotten.
+        left.look(&ps(Vec::new()), &[(agy, next)], trees, now + 30 * MIN);
+        assert_eq!(left.active_at(agy, next), Some(next));
+        left.look(&ps(running(50)), &[], trees, now + 31 * MIN);
+        assert_eq!(left.active_at(agy, next), None);
     }
 
     /// A build queued for a lock waits behind the build that holds it: the same program, the same

@@ -634,12 +634,17 @@ pub fn antigravity_session(account: &AccountCfg, c: &Conversation, process: Opti
         (true, None) => false,
         (false, _) => c.running() && app_running,
     };
+    // A command its turn left running in the background, whose result starts the agent again:
+    // it waits on it, as a Claude session waits on its shell, until the command has done nothing
+    // for `BACKGROUND_QUIET_MS`. Then it's left sitting there, and the turn is over.
+    let background = c.background.as_ref().filter(|_| process.is_some());
+    let left_running = background.is_some_and(|b| b.active_at.is_some_and(|t| now - t >= BACKGROUND_QUIET_MS));
     let news = written > seen_at;
     let status = if c.killed {
         Status::Idle
     } else if under_way && c.waiting {
         Status::Needs
-    } else if under_way && (c.cli || fresh) {
+    } else if under_way && !left_running && (c.cli || fresh) {
         Status::Working
     } else if news && written > c.last_input.unwrap_or(0) {
         Status::Unread
@@ -657,8 +662,11 @@ pub fn antigravity_session(account: &AccountCfg, c: &Conversation, process: Opti
     // A lost connection reads as a finished turn, as Claude Code's does: it says so beside it.
     let status = if failed.is_some_and(|f| f.on != FailedOn::Connection) && status == Status::Unread { Status::Error } else { status };
     let title = c.title.clone().or_else(|| c.preview.clone()).unwrap_or_else(|| "Antigravity conversation".to_string());
+    let shown = background.map(|b| code(&truncate(&one_line(&b.command, 200), 80)));
     let excerpt = match status {
         Status::Needs => c.tail.open.first().map(|call| call.asked()).or_else(|| Some("A step waits for you to allow it".to_string())),
+        Status::Idle | Status::Unread if left_running => shown.map(|cmd| format!("Left running · {cmd}")),
+        Status::Working if background.is_some() => shown.map(|cmd| format!("Waiting on {cmd}")),
         Status::Working => c.tail.last_tool.clone().or_else(|| c.preview.clone()),
         // What went wrong, where the reply before it would read as the turn's end.
         _ => failed.map(|f| f.said.clone()).or_else(|| c.tail.last_text.clone()).or_else(|| c.preview.clone()),
@@ -704,10 +712,12 @@ pub fn antigravity_session(account: &AccountCfg, c: &Conversation, process: Opti
         // From its record: the preview is the conversation's title from agy 1.4 on.
         first_prompt: c.asked.clone().or_else(|| c.preview.clone()),
         started_at: c.started_at,
-        status_since: if status == Status::Working { c.last_input } else { Some(active) },
+        // Waiting on what its turn left running since that turn ended.
+        status_since: if status == Status::Working && background.is_none() { c.last_input } else { Some(active) },
         last_prompt_at: c.last_input.unwrap_or(active),
         last_activity: active,
         excerpt,
+        background: background.map(|b| b.command.clone()),
         resume_command: c.cli.then(|| format!("{} --conversation {}", crate::antigravity::cli_command(account), c.id)),
         mode,
         modes,
@@ -1601,6 +1611,43 @@ mod tests {
         // An account with a command of its own resumes with it.
         let own = AccountCfg { command: Some("agy --sandbox".into()), ..a.clone() };
         assert_eq!(antigravity_session(&own, &c, None, false, 0, NOW).resume_command.as_deref(), Some("agy --sandbox --conversation c2"));
+    }
+
+    /// `agy` put a command that ran on into the background and the agent ended its turn waiting
+    /// on it; the row says it isn't fully idle for as long as the command runs. One that could
+    /// never end read as working for a day (2026-11-23).
+    #[test]
+    fn a_command_line_conversation_waits_on_what_its_turn_left_running_until_it_sits_still() {
+        use crate::antigravity::Background;
+        const MIN: i64 = 60_000;
+        let a = AccountCfg { name: "antigravity".into(), harness: "antigravity".into(), home: "~/.gemini/antigravity".into(), command: None, start: None, acp: None, monthly: None, per_token: false, usage_cap: None, disabled: false, chrome_profile: None };
+        let ui = Process { pid: 41, conversation: Some("c6".into()), terminal: true, logs: Vec::new(), started: None };
+        let ended = NOW - 20 * MIN;
+        let mut c = Conversation { id: "c6".into(), cli: true, status: "cascade_run_status_idle".into(), not_fully_idle: true, turn_ended: true, step_under_way: true, latest_step_at: Some(ended), last_modified: ended, last_input: Some(NOW - 21 * MIN), ..Default::default() };
+        c.tail.last_tool = Some("Run command · `npm test && scripts/land.sh`".into());
+        c.tail.last_text = Some("Committed, and landing it. Waiting for CI.".into());
+        let build = |active_at| Background { command: "npm test && scripts/land.sh".into(), active_at };
+        // While the command does something, or before it's been looked at, the session waits on
+        // it, since its turn ended.
+        for active_at in [Some(NOW - 2 * MIN), None] {
+            let s = antigravity_session(&a, &Conversation { background: Some(build(active_at)), ..c.clone() }, Some(&ui), false, 0, NOW);
+            assert_eq!((s.status, s.excerpt.as_deref(), s.background.as_deref()), (Status::Working, Some("Waiting on `npm test && scripts/land.sh`"), Some("npm test && scripts/land.sh")));
+            assert_eq!(s.status_since, Some(ended));
+            assert!(s.left_running() && !crate::harness::turn_running(&s), "no turn to stop");
+        }
+        // Still for `BACKGROUND_QUIET_MS`, it's left sitting there: the turn's reply is yours to
+        // read, and then it's idle, still with the command.
+        c.background = Some(build(Some(NOW - BACKGROUND_QUIET_MS)));
+        let s = antigravity_session(&a, &c, Some(&ui), false, 0, NOW);
+        assert_eq!((s.status, s.excerpt.as_deref(), s.background.as_deref(), s.live), (Status::Unread, Some("Left running · `npm test && scripts/land.sh`"), Some("npm test && scripts/land.sh"), true));
+        let s = antigravity_session(&a, &c, Some(&ui), false, NOW - MIN, NOW);
+        assert_eq!((s.status, s.excerpt.as_deref()), (Status::Idle, Some("Left running · `npm test && scripts/land.sh`")));
+        // With its process gone, so is the command.
+        let s = antigravity_session(&a, &c, None, false, NOW - MIN, NOW);
+        assert_eq!((s.status, s.background), (Status::Idle, None));
+        // Without one, a step running on with the turn over is working, as it was.
+        let s = antigravity_session(&a, &Conversation { background: None, ..c.clone() }, Some(&ui), false, 0, NOW);
+        assert_eq!((s.status, s.excerpt.as_deref(), s.background), (Status::Working, Some("Run command · `npm test && scripts/land.sh`"), None));
     }
 
     /// An `agy` opened in a terminal and left at its box, never prompted (2026-11-19, open since

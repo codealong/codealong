@@ -1286,23 +1286,8 @@ impl crate::harness::Adapter for ClaudeCode {
 
 /* ---- Reading sessions for the board ---- */
 
-/// How often the commands sessions left running in the background are looked at.
-const BACKGROUND_EVERY: Duration = Duration::from_secs(60);
 /// How often the Claude app's records are read again, for what you archived there.
 const APP_RECORDS_EVERY: Duration = Duration::from_secs(30);
-
-/// A command a session left running in the background, as last seen.
-struct BackgroundWatch {
-    /// The registry's status time: a new turn that leaves a command running starts afresh.
-    since: i64,
-    tree: procs::CommandTree,
-    /// What it waited behind at the last look, while its own processes did nothing
-    /// (`CommandTree::waits_behind`).
-    behind: procs::CommandTree,
-    /// When its processes were last seen starting a process or using CPU, or what they wait
-    /// behind for a lock was.
-    active_at: i64,
-}
 
 /// What a quiet or background-shell session's child shells are running, read once per status change.
 #[derive(Clone, Default)]
@@ -1329,9 +1314,9 @@ pub struct Reader {
     /// (pid, status time) → what a stuck or background-shell session's shells are running.
     stuck: Mutex<HashMap<(u32, i64), ShellCheck>>,
     /// Sessions whose turn left a command running in the background, by pid: when their
-    /// processes last did something, from a look at them every minute.
-    background: HashMap<u32, BackgroundWatch>,
-    background_at: Option<Instant>,
+    /// processes last did something, from a look at them every minute. The registry's status
+    /// time says when the turn left it running.
+    background: procs::LeftRunning,
 }
 
 /// The conversation a session with no transcript of its own yet goes on from: its ID, its key
@@ -1407,11 +1392,9 @@ impl Reader {
     /// Looks at what the commands sessions left running in the background are doing, once a
     /// minute and only while there are some, in the processes listed after a tick.
     fn watch_background(&mut self, look: &Look) {
-        let now = look.now;
-        if self.background_at.is_some_and(|t| t.elapsed() < BACKGROUND_EVERY) {
+        if !self.background.due() {
             return;
         }
-        self.background_at = Some(Instant::now());
         // A session moved to another account keeps its ID there.
         let said = |acct: &str, r: &RegistryEntry| self.transcripts.values().filter(|(a, (_, t, _))| a == acct && t.session_id == r.session_id).map(|(_, (_, t, _))| t).max_by_key(|t| t.last_ts);
         let shells: Vec<(u32, i64)> = self
@@ -1421,39 +1404,7 @@ impl Reader {
             .filter(|(acct, r)| r.status == "shell" || said(acct, r).is_some_and(|t| crate::board::untold_shell(r, t)))
             .map(|(_, r)| (r.pid, r.status_updated_at.unwrap_or(0)))
             .collect();
-        self.background.retain(|pid, _| shells.iter().any(|(p, _)| p == pid));
-        if shells.is_empty() {
-            return;
-        }
-        // No processes at all is a `ps` that failed or ran out of time: nothing is known.
-        let listed = look.ps.all();
-        if listed.is_empty() {
-            return;
-        }
-        let pids: Vec<u32> = shells.iter().map(|(p, _)| *p).collect();
-        let mut trees = shells::command_trees(listed, &pids);
-        for (pid, since) in shells {
-            let Some(tree) = trees.remove(&pid) else { continue };
-            match self.background.get_mut(&pid) {
-                Some(w) if w.since == since => {
-                    // A build queued for a lock another build holds does nothing until it gets
-                    // it: while that one works, this one is waiting its turn.
-                    let active = tree.active_since(&w.tree);
-                    let behind = if active { procs::CommandTree::default() } else { tree.waits_behind(listed, procs::open_files, procs::held_exclusively) };
-                    if active || (!w.behind.cpu.is_empty() && behind.active_since(&w.behind)) {
-                        w.active_at = now;
-                    }
-                    w.tree = tree;
-                    w.behind = behind;
-                }
-                _ => {
-                    // Seen for the first time, perhaps long after the turn ended (the app just
-                    // started): give it a few looks to show it's doing something.
-                    let active_at = since.max(now - crate::board::BACKGROUND_QUIET_MS + 3 * BACKGROUND_EVERY.as_millis() as i64);
-                    self.background.insert(pid, BackgroundWatch { since, tree, behind: procs::CommandTree::default(), active_at });
-                }
-            }
-        }
+        self.background.look(&look.ps, &shells, shells::command_trees, look.now);
     }
 
     /// What a stuck or background-shell session's shells are running, read once per status change.
@@ -1648,7 +1599,7 @@ impl crate::harness::Reader for Reader {
                 }
                 _ => (None, None, false),
             };
-            let background_active_at = background.and_then(|r| self.background.get(&r.pid)).filter(|w| Some(w.since) == background.and_then(|r| r.status_updated_at)).map(|w| w.active_at);
+            let background_active_at = background.and_then(|r| self.background.active_at(r.pid, r.status_updated_at?));
             let app_ask = reg.and_then(applog::up_for);
             let quiet = board::Quiet { app_ask: app_ask.as_ref(), subagent_at, running: running.as_deref(), background_active_at, background_orphaned };
             if let Some(mut s) = board::claude_session(a, reg, info, seen_at, now, &quiet) {
