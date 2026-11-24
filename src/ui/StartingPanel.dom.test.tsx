@@ -137,8 +137,9 @@ describe('StartingPanel', () => {
     unmount();
   });
 
-  it('offers Done in the header when rendered as a card without a hotkey strip, and explains when no tab was matched', async () => {
+  it('offers primary Mark as done in the body, Open in terminal in the header, and Copy prompt when no tab was matched', async () => {
     engine.answer('start_stop', () => null);
+    engine.answer('open_target', () => null);
     const lane = fx.lane({ id: '/r/app', callsign: 'app' });
     const session = fx.session({ key: 'boss', title: 'Boss' });
     const st = starting({ pid: null, screen: null, choices: [] });
@@ -149,6 +150,7 @@ describe('StartingPanel', () => {
         parent={{ lane, session }}
         now={fx.NOW}
         variant="card"
+        canOpenTerminal
         back={{ label: session.title, onBack: () => {} }}
         onDone={onDone}
       />,
@@ -156,9 +158,19 @@ describe('StartingPanel', () => {
 
     expect(el.textContent).toContain('can’t tell which tab');
     expect(el.textContent).not.toContain('Show in Rex');
-    const doneBtn = [...el.querySelectorAll<HTMLButtonElement>('.ca-btn')].find((b) => b.textContent === 'Done')!;
-    expect(doneBtn).toBeDefined();
-    act(() => doneBtn.click());
+    const openBtn = [...el.querySelectorAll<HTMLButtonElement>('.ca-sessinsp-tools .ca-btn')].find((b) => b.textContent?.includes('Open in Rex'))!;
+    expect(openBtn).toBeDefined();
+    act(() => openBtn.click());
+    await settle();
+    expect(engine.sent('open_target')).toEqual([{ laneId: st.lane, targetId: 'l|terminal' }]);
+
+    const copyBtn = [...el.querySelectorAll<HTMLButtonElement>('.ca-startpanel-prompt .ca-btn')].find((b) => b.textContent?.includes('Copy prompt'));
+    expect(copyBtn).toBeDefined();
+
+    const bodyDoneBtn = el.querySelector<HTMLButtonElement>('.ca-startpanel-acts .ca-btn--primary')!;
+    expect(bodyDoneBtn).not.toBeNull();
+    expect(bodyDoneBtn.textContent).toContain('Mark as done');
+    act(() => bodyDoneBtn.click());
     await settle();
     expect(engine.sent('start_stop')).toEqual([{ at: st.at }]);
     expect(onDone).toHaveBeenCalledTimes(1);

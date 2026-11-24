@@ -431,6 +431,7 @@ export function MainPanel(props: MainPanelProps) {
           back={back}
           onDone={() => setDrill(null)}
           onShowLane={startLane ? () => showLaneFromPanel(startLane) : undefined}
+          canOpenTerminal={!!startLane}
         />
       );
     }

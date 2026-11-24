@@ -17,6 +17,7 @@ import { errorText } from '../report';
 import { snoozeChordIndex } from '../snooze';
 import type { Lane, Session, Starting } from '../types';
 import { cardZoom } from '../zoom';
+import { CopyButton } from './CopyButton';
 import { dialogUp } from './focusTrap';
 import { Button, cx, Icon, PanelBack, SessionGlyph, type PanelBackTo } from './primitives';
 import { QueueStrip, type Hotkeys, type Notice, type Queue, type StripAction } from './SessionPanel';
@@ -35,6 +36,9 @@ export interface StartingPanelProps {
   onDone: () => void;
   /** Opens the worktree it was started in, where the host can show it. */
   onShowLane?: () => void;
+  /** Whether the start's worktree is on the board so Open in <terminal> can open a tab there when
+   *  no running tab (`pid`) was matched. */
+  canOpenTerminal?: boolean;
   /** Closes a card window (peek, kept desktop card). */
   onClose?: () => void;
   closeTitle?: string;
@@ -67,7 +71,7 @@ export function startingMenu(s: Starting, onDone: () => void, onError: (why: str
   ];
 }
 
-export function StartingPanel({ starting: s, parent, now, variant = 'panel', zoom, queue, notice, hotkeys, back, onDone, onShowLane, onClose, closeTitle }: StartingPanelProps) {
+export function StartingPanel({ starting: s, parent, now, variant = 'panel', zoom, queue, notice, hotkeys, back, onDone, onShowLane, canOpenTerminal = false, onClose, closeTitle }: StartingPanelProps) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -93,6 +97,8 @@ export function StartingPanel({ starting: s, parent, now, variant = 'panel', zoo
   }, [act, busy, onDone, s.at]);
 
   const showTab = s.pid != null ? () => act(() => openTarget(s.lane, `start|${s.at}|focus`)) : undefined;
+  const openTerminal = s.pid == null && s.terminal && canOpenTerminal ? () => act(() => openTarget(s.lane, 'l|terminal')) : undefined;
+  const doneKeys = menus.chordKeys(menus.CHORDS.done ?? '');
 
   const doneNow = useLatest(runDone);
   const panel = variant === 'panel';
@@ -158,11 +164,15 @@ export function StartingPanel({ starting: s, parent, now, variant = 'panel', zoo
           <SessionGlyph s={{ status: s.stuck ? 'needs' : 'working' }} size={12} />
           <h2 className="ca-sessinsp-title">{startingTitle(s)}</h2>
           <div className="ca-sessinsp-tools">
-            {showTab && (
+            {showTab ? (
               <Button size="sm" variant="secondary" icon="terminal" disabled={busy} title={`Shows its tab in ${terminal}, to answer it there.`} onClick={showTab}>
                 Show in {terminal}
               </Button>
-            )}
+            ) : openTerminal ? (
+              <Button size="sm" variant="secondary" icon="terminal" disabled={busy} title={`Opens ${terminal} in ${s.place} to check its tabs or start fresh there.`} onClick={openTerminal}>
+                Open in {terminal}
+              </Button>
+            ) : null}
             {!hotkeys && (
               <Button size="sm" variant="ghost" icon="check" disabled={busy} title={keysIn(`${doneHelp} (⇧⌘E)`)} onClick={runDone}>
                 Done
@@ -215,9 +225,25 @@ export function StartingPanel({ starting: s, parent, now, variant = 'panel', zoo
             Codealong can’t tell which tab in {terminal} is its. If it’s still open, answer or close it there — or mark <b>Done</b> ({keysIn('⇧⌘E')}) to stop waiting for it.
           </p>
         )}
+        <div className="ca-startpanel-acts">
+          <Button
+            size="sm"
+            variant={s.stuck && s.pid == null ? 'primary' : 'ghost'}
+            icon="check"
+            kbd={doneKeys}
+            disabled={busy}
+            title={doneHelp}
+            onClick={runDone}
+          >
+            Mark as done
+          </Button>
+        </div>
         {s.opens && (
           <div className="ca-startpanel-prompt">
-            <span className="ca-startpanel-label">Prompt</span>
+            <div className="ca-startpanel-prompt-head">
+              <span className="ca-startpanel-label">Prompt</span>
+              <CopyButton text={s.opens} label="Copy prompt" title="Copy the opening prompt" />
+            </div>
             <p className="ca-startpanel-opens">{s.opens}</p>
           </div>
         )}

@@ -188,6 +188,7 @@ export function SessionCard({ lane, session, apps, now, board, can, canFor, outg
         back={{ label: session.title, onBack: () => setShownStartingAt(null) }}
         onDone={() => setShownStartingAt(null)}
         onShowLane={startLane ? () => onShowLane(startLane) : undefined}
+        canOpenTerminal={!!startLane}
         onClose={panel.onClose}
         closeTitle={panel.closeTitle}
       />
