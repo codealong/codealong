@@ -58,10 +58,13 @@ jobs:
         with:
           targets: aarch64-apple-darwin,x86_64-apple-darwin
       # Ghostty's terminal library (libghostty-vt) builds from Ghostty's source with Zig, for both
-      # Macs (docs/development.md).
+      # Macs (docs/development.md). use-cache is off: setup-zig keeps its cache in .zig-cache in
+      # the checkout, so a rerun restored the first attempt's there and release.sh turned the
+      # checkout down as uncommitted (v0.31.0's run, 2026-11-24).
       - uses: mlugg/setup-zig@v2
         with:
           version: 0.17.0
+          use-cache: false
       # Writes the crates' licenses that go in the app (src-tauri/about.toml).
       - run: cargo install cargo-about --version 0.9.2 --locked --features cli
       # dmgbuild, which draws the disk image's window, needs Python 3.10 or later.
@@ -152,10 +155,11 @@ jobs:
       - run: npm ci --no-audit --no-fund
       - uses: dtolnay/rust-toolchain@stable
       # Ghostty's terminal library (libghostty-vt) builds from Ghostty's source with Zig
-      # (docs/development.md).
+      # (docs/development.md), with no cache, as the release's own build above.
       - uses: mlugg/setup-zig@v2
         with:
           version: 0.17.0
+          use-cache: false
       # Writes the crates' licenses that go in the app (src-tauri/about.toml).
       - run: cargo install cargo-about --version 0.9.2 --locked --features cli
       - name: Build the installers
