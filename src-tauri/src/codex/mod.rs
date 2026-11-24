@@ -283,6 +283,10 @@ impl crate::harness::Adapter for Codex {
 
     /// An ephemeral thread of its own on the same app-server, read-only, which reads anywhere,
     /// so what it's handed needs no more than its path; on the model and effort picked for it.
+    fn supports_fresh_side(&self) -> bool {
+        true
+    }
+
     fn fresh_side(&self, ctx: &crate::harness::Ctx, cwd: &Path, rules: &str, _reads: &Path, on: crate::side::RunsOn) -> anyhow::Result<crate::side::Recipe> {
         Ok(crate::side::Recipe {
             program: appserver::codex_binary(),

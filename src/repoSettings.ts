@@ -7,9 +7,9 @@
 
 import type { Lane, NudgeAbout, OwnReviewsCfg, PullRequestsCfg, RepoCfg, ReviewPost, ReviewsCfg, TeamCfg, TeamFile } from './types';
 
-export const OWN_REVIEWS_OFF: Required<OwnReviewsCfg> = { auto: false, account: '', model: '', effort: '', prompt: '', send: true, drafts: false, other_harness: true };
-export const REVIEWS_OFF: Required<ReviewsCfg> = { auto: false, account: '', model: '', effort: '', prompt: '', start: 'no-terminal', post: 'draft', submit: 'never', other_harness: true, drafts: true, own: OWN_REVIEWS_OFF };
-export const PULL_REQUESTS_OFF: Required<PullRequestsCfg> = { nudge_by_default: false, nudge_about: 'everything', rerequest_after_fixes: false, reviews_first: false };
+export const OWN_REVIEWS_OFF: Required<OwnReviewsCfg> = { auto: false, account: '', model: '', effort: '', prompt: '', send: true, send_comments: false, max_rounds: 2, drafts: false, other_harness: true };
+export const REVIEWS_OFF: Required<ReviewsCfg> = { auto: false, account: '', model: '', effort: '', prompt: '', start: 'no-terminal', post: 'draft', submit: 'never', verify: true, verify_account: '', verify_model: '', other_harness: true, drafts: true, own: OWN_REVIEWS_OFF };
+export const PULL_REQUESTS_OFF: Required<PullRequestsCfg> = { nudge_by_default: false, nudge_about: 'everything', triage_nudges: true, nudge_bots: [], rerequest_after_fixes: false, reviews_first: false };
 
 /** `[reviews]` with every value filled in, its own table too. */
 export type Reviews = Required<ReviewsCfg> & { own: Required<OwnReviewsCfg> };
@@ -47,6 +47,9 @@ export function reviewsFor(global: ReviewsCfg | undefined, mine: RepoCfg | undef
     start: g.start,
     post: m.post ?? g.post,
     submit: m.submit ?? g.submit,
+    verify: m.verify ?? g.verify,
+    verify_account: given(m.verify_account) ? m.verify_account.trim() : g.verify_account,
+    verify_model: given(m.verify_model) ? m.verify_model.trim() : g.verify_model,
     other_harness: m.other_harness ?? g.other_harness,
     drafts: m.drafts ?? g.drafts,
     own: {
@@ -56,6 +59,8 @@ export function reviewsFor(global: ReviewsCfg | undefined, mine: RepoCfg | undef
       effort: given(o.effort) ? o.effort.trim() : g.own.effort,
       prompt: given(o.prompt) ? o.prompt.trim() : g.own.prompt,
       send: o.send ?? g.own.send,
+      send_comments: o.send_comments ?? g.own.send_comments,
+      max_rounds: o.max_rounds ?? g.own.max_rounds,
       drafts: o.drafts ?? g.own.drafts,
       other_harness: o.other_harness ?? g.own.other_harness,
     },
@@ -76,6 +81,8 @@ export function pullRequestsFor(global: PullRequestsCfg | undefined, team: TeamC
   return {
     nudge_by_default: m.nudge_by_default ?? g.nudge_by_default,
     nudge_about: m.nudge_about ?? team?.nudgeAbout ?? g.nudge_about,
+    triage_nudges: m.triage_nudges ?? g.triage_nudges,
+    nudge_bots: m.nudge_bots ?? g.nudge_bots,
     rerequest_after_fixes: m.rerequest_after_fixes ?? g.rerequest_after_fixes,
     reviews_first: m.reviews_first ?? team?.reviewsFirst ?? g.reviews_first,
   };
@@ -93,7 +100,7 @@ export function nudgeAboutFor(board: { nudgeAbout?: NudgeAbout; repos?: Record<s
 }
 
 /** A setting Settings shows for a repo, by where it is in `[reviews]` and `[pull_requests]`. */
-export type Field = 'reviews.auto' | 'reviews.reviewer' | 'reviews.other_harness' | 'reviews.drafts' | 'reviews.prompt' | 'reviews.post' | 'reviews.submit' | 'own.auto' | 'own.reviewer' | 'own.other_harness' | 'own.prompt' | 'own.send' | 'own.drafts' | 'prs.nudge_by_default' | 'prs.nudge_about' | 'prs.rerequest_after_fixes' | 'prs.reviews_first';
+export type Field = 'reviews.auto' | 'reviews.reviewer' | 'reviews.other_harness' | 'reviews.drafts' | 'reviews.prompt' | 'reviews.post' | 'reviews.submit' | 'reviews.verify' | 'own.auto' | 'own.reviewer' | 'own.other_harness' | 'own.prompt' | 'own.send' | 'own.send_comments' | 'own.drafts' | 'prs.nudge_by_default' | 'prs.nudge_about' | 'prs.triage_nudges' | 'prs.rerequest_after_fixes' | 'prs.reviews_first';
 
 /** Where a value for a repo comes from: your table for it, its team's file, or `[reviews]` and
  *  `[pull_requests]` as they go everywhere. */
@@ -112,14 +119,17 @@ export function sourceOf(field: Field, mine: RepoCfg | undefined, team: TeamCfg 
     'reviews.prompt': [r.prompt],
     'reviews.post': [r.post],
     'reviews.submit': [r.submit],
+    'reviews.verify': [r.verify],
     'own.auto': [o.auto],
     'own.reviewer': [o.account, o.model, o.effort],
     'own.other_harness': [o.other_harness],
     'own.prompt': [o.prompt],
     'own.send': [o.send],
+    'own.send_comments': [o.send_comments],
     'own.drafts': [o.drafts],
     'prs.nudge_by_default': [p.nudge_by_default],
     'prs.nudge_about': [p.nudge_about],
+    'prs.triage_nudges': [p.triage_nudges],
     'prs.rerequest_after_fixes': [p.rerequest_after_fixes],
     'prs.reviews_first': [p.reviews_first],
   };

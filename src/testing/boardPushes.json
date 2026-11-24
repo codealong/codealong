@@ -323,15 +323,20 @@
           "auto": false,
           "drafts": false,
           "effort": "",
+          "max_rounds": 2,
           "model": "",
           "other_harness": true,
           "prompt": "",
-          "send": true
+          "send": true,
+          "send_comments": false
         },
         "post": "draft",
         "prompt": "",
         "start": "no-terminal",
-        "submit": "never"
+        "submit": "never",
+        "verify": true,
+        "verify_account": "",
+        "verify_model": ""
       },
       "schedules": [],
       "sessions": {
@@ -689,15 +694,20 @@
             "auto": false,
             "drafts": false,
             "effort": "",
+            "max_rounds": 2,
             "model": "",
             "other_harness": true,
             "prompt": "",
-            "send": true
+            "send": true,
+            "send_comments": false
           },
           "post": "draft",
           "prompt": "",
           "start": "no-terminal",
-          "submit": "never"
+          "submit": "never",
+          "verify": true,
+          "verify_account": "",
+          "verify_model": ""
         },
         "schedules": [],
         "sessions": {
@@ -1058,15 +1068,20 @@
           "auto": false,
           "drafts": false,
           "effort": "",
+          "max_rounds": 2,
           "model": "",
           "other_harness": true,
           "prompt": "",
-          "send": true
+          "send": true,
+          "send_comments": false
         },
         "post": "draft",
         "prompt": "",
         "start": "no-terminal",
-        "submit": "never"
+        "submit": "never",
+        "verify": true,
+        "verify_account": "",
+        "verify_model": ""
       },
       "schedules": [],
       "sessions": {
@@ -1465,15 +1480,20 @@
           "auto": false,
           "drafts": false,
           "effort": "",
+          "max_rounds": 2,
           "model": "",
           "other_harness": true,
           "prompt": "",
-          "send": true
+          "send": true,
+          "send_comments": false
         },
         "post": "draft",
         "prompt": "",
         "start": "no-terminal",
-        "submit": "never"
+        "submit": "never",
+        "verify": true,
+        "verify_account": "",
+        "verify_model": ""
       },
       "schedules": [],
       "sessions": {
@@ -1871,15 +1891,20 @@
           "auto": false,
           "drafts": false,
           "effort": "",
+          "max_rounds": 2,
           "model": "",
           "other_harness": true,
           "prompt": "",
-          "send": true
+          "send": true,
+          "send_comments": false
         },
         "post": "draft",
         "prompt": "",
         "start": "no-terminal",
-        "submit": "never"
+        "submit": "never",
+        "verify": true,
+        "verify_account": "",
+        "verify_model": ""
       },
       "schedules": [],
       "sessions": {
@@ -2343,15 +2368,20 @@
           "auto": false,
           "drafts": false,
           "effort": "",
+          "max_rounds": 2,
           "model": "",
           "other_harness": true,
           "prompt": "",
-          "send": true
+          "send": true,
+          "send_comments": false
         },
         "post": "draft",
         "prompt": "",
         "start": "no-terminal",
-        "submit": "never"
+        "submit": "never",
+        "verify": true,
+        "verify_account": "",
+        "verify_model": ""
       },
       "schedules": [],
       "sessions": {
@@ -2790,15 +2820,20 @@
           "auto": false,
           "drafts": false,
           "effort": "",
+          "max_rounds": 2,
           "model": "",
           "other_harness": true,
           "prompt": "",
-          "send": true
+          "send": true,
+          "send_comments": false
         },
         "post": "draft",
         "prompt": "",
         "start": "no-terminal",
-        "submit": "never"
+        "submit": "never",
+        "verify": true,
+        "verify_account": "",
+        "verify_model": ""
       },
       "schedules": [],
       "sessions": {

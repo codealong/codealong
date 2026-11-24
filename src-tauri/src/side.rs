@@ -184,6 +184,9 @@ struct State {
     /// What's kept of each one closed with nothing to answer, by id, while that's written to
     /// sides.json (`put_away`): a question asked of it meanwhile goes on from this (`ask_with`).
     keeping: HashMap<String, Kept>,
+    /// PIDs of one-shot background helpers (`run_recipe_once`) currently running, so `runs(pid)`
+    /// keeps their harness processes off the board and out of permission hooks.
+    oneshot_pids: std::collections::HashSet<u32>,
     next: u64,
 }
 
@@ -319,7 +322,7 @@ pub fn get(key: &str) -> Option<Side> {
 /// from it: neither is a session.
 pub fn runs(pid: u32) -> bool {
     let st = state();
-    st.open.values().chain(&st.closing).any(|o| o.proc.as_ref().is_some_and(|p| p.pid == pid))
+    st.oneshot_pids.contains(&pid) || st.open.values().chain(&st.closing).any(|o| o.proc.as_ref().is_some_and(|p| p.pid == pid))
 }
 
 /// The id of the copy of session `key` that runs with `secret` (`SIDE_VAR`): its open side
@@ -1109,6 +1112,138 @@ fn end(p: Proc) {
     p.client.end(Duration::from_millis(1500));
 }
 
+// ---- one-shot headless helper runs (review verification & PR triage) ----
+
+/// Guard that removes a one-shot helper's PID from `State::oneshot_pids` however the run exits.
+struct OneshotPid(u32);
+
+impl Drop for OneshotPid {
+    fn drop(&mut self) {
+        state().oneshot_pids.remove(&self.0);
+    }
+}
+
+/// Runs a single prompt against a throwaway headless `Recipe`, waiting up to `timeout` for the
+/// turn to finish, and always tears down the child process before returning. Tracks its PID in
+/// `State::oneshot_pids` while running so `runs(pid)` hides it from live-session scans.
+pub fn run_recipe_once(mut recipe: Recipe, cwd: &Path, prompt: &str, timeout: Duration) -> Result<(String, Vec<String>)> {
+    let failed = || format!("Couldn't start {} for a helper run.", recipe.program.display());
+    let mut cmd = crate::procs::command(&recipe.program, crate::procs::user_path(), Some(cwd)).with_context(failed)?;
+    cmd.args(&recipe.args);
+    for (k, v) in &recipe.env {
+        cmd.env(k, v);
+    }
+    for k in &recipe.unset {
+        cmd.env_remove(k);
+    }
+    enum Msg {
+        Line(Value),
+        Closed(String),
+    }
+    let (tx, rx) = channel::<Msg>();
+    let client = rpc::Client::spawn(cmd, rpc::Stderr::Tail, rpc::Wire::Bare, move |_, line| {
+        let msg = match line {
+            rpc::Heard::Line(v) => Msg::Line(v.clone()),
+            rpc::Heard::Closed(said) => Msg::Closed(said.last().cloned().unwrap_or_default()),
+        };
+        let _ = tx.send(msg);
+    })
+    .with_context(failed)?;
+    let pid = client.pid();
+    state().oneshot_pids.insert(pid);
+    let _pid_guard = OneshotPid(pid);
+    let link = client.link();
+    let send_batch = |batch: &[Value]| -> Result<()> {
+        for l in batch {
+            link.send(l).map_err(|e| anyhow::anyhow!("helper write failed: {e}"))?;
+        }
+        Ok(())
+    };
+    let open_lines = recipe.dialect.open();
+    let ask_lines = recipe.dialect.ask(prompt);
+    let res = (|| -> Result<(String, Vec<String>)> {
+        send_batch(&open_lines)?;
+        send_batch(&ask_lines)?;
+        let deadline = Instant::now() + timeout;
+        let mut answer = String::new();
+        let mut tools: Vec<String> = Vec::new();
+        loop {
+            let left = deadline.saturating_duration_since(Instant::now());
+            if left.is_zero() {
+                bail!("The helper timed out after {} seconds.", timeout.as_secs());
+            }
+            match rx.recv_timeout(left) {
+                Ok(Msg::Line(v)) => {
+                    let (events, replies) = recipe.dialect.hear(&v);
+                    if !replies.is_empty() {
+                        send_batch(&replies)?;
+                    }
+                    for e in events {
+                        match e {
+                            Event::Said(more) => {
+                                if !(answer.is_empty() && more.trim().is_empty()) {
+                                    answer.push_str(&more);
+                                }
+                            }
+                            Event::Tool(line) => {
+                                if tools.len() < TOOLS {
+                                    tools.push(truncate(line.lines().next().unwrap_or("").trim(), 120));
+                                }
+                            }
+                            Event::Done(Some(err)) => bail!("{err}"),
+                            Event::Done(None) => return Ok((answer.trim().to_string(), tools)),
+                        }
+                    }
+                }
+                Ok(Msg::Closed(why)) => {
+                    let trimmed = answer.trim().to_string();
+                    if !trimmed.is_empty() && why.is_empty() {
+                        return Ok((trimmed, tools));
+                    }
+                    if why.is_empty() {
+                        bail!("The helper stopped before it answered.");
+                    }
+                    bail!("The helper stopped: {}", truncate(&why, 300));
+                }
+                Err(_) => bail!("The helper timed out after {} seconds.", timeout.as_secs()),
+            }
+        }
+    })();
+    client.end(Duration::from_millis(1500));
+    res
+}
+
+/// Runs a read-only one-shot conversation of its own (`Adapter::fresh_side`, supported by Claude
+/// Code and Codex) in `cwd`, returning its final answer text.
+pub fn run_fresh_once(account: &crate::config::AccountCfg, cwd: &Path, rules: &str, reads: &Path, on: RunsOn, prompt: &str, timeout: Duration) -> Result<String> {
+    account.ensure_on()?;
+    let Some(adapter) = crate::harness::of(account) else { bail!("Codealong doesn't know {}'s harness, {}.", account.name, account.harness) };
+    let recipe = adapter.fresh_side(&crate::harness::Ctx { account }, cwd, rules, reads, on)?;
+    run_recipe_once(recipe, cwd, prompt, timeout).map(|(answer, _)| answer)
+}
+
+/// Runs a read-only one-shot fork of session `key` (`Adapter::side`), without touching the user's
+/// open side conversation or making the session wait on the user. When `record_label` is `Some`,
+/// the finished turn is kept quietly in `sides.json` (`answered_at: None`) so the user can
+/// inspect what the triage helper saw and decided.
+pub fn run_session_once(board: &Board, cfg: &Config, key: &str, prompt: &str, record_label: Option<&str>, timeout: Duration) -> Result<String> {
+    let (recipe, cwd, title) = recipe(board, cfg, key)?;
+    let started_at = now_ms();
+    let (answer, tools) = run_recipe_once(recipe, &cwd, prompt, timeout)?;
+    if let Some(label) = record_label {
+        let now = now_ms();
+        let id = {
+            let mut st = state();
+            st.next += 1;
+            format!("{started_at}-triage-{}", st.next)
+        };
+        let turn = Turn { question: label.to_string(), answer: answer.clone(), done: true, error: None, tool: None, tools, at: started_at };
+        keep(Some(Kept { id, key: key.to_string(), title, started_at, last_at: now, turns: vec![turn], answering: false, answered_at: None }));
+        changed();
+    }
+    Ok(answer)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1739,5 +1874,15 @@ mod tests {
         let kept = kept_of(&o).unwrap();
         assert_eq!(kept.turns.iter().map(|t| (t.answer.as_str(), t.error.as_deref())).collect::<Vec<_>>(), [("Done.", None), ("Half of", Some("Closed before it finished.")), ("", Some("Closed before it answered."))]);
         assert!(kept.turns.iter().all(|t| t.done && t.tool.is_none()));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn run_recipe_once_reads_answer_and_clears_oneshot_pid() {
+        let recipe = Recipe { program: "cat".into(), args: Vec::new(), env: Vec::new(), unset: Vec::new(), dialect: Box::new(Echo) };
+        let (answer, tools) = run_recipe_once(recipe, Path::new("/"), "check this", Duration::from_secs(10)).unwrap();
+        assert_eq!(answer, "You asked: check this");
+        assert_eq!(tools, vec!["looking".to_string()]);
+        assert!(state().oneshot_pids.is_empty(), "pid guard clears after run");
     }
 }

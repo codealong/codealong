@@ -545,6 +545,11 @@ pub trait Adapter: Sync {
     /// to ask, where what would ask is refused but the lookups the adapter lets through (and
     /// tells it of). The harness keeps no record of it.
     /// `src/harness.ts` `FRESH_SIDES` lists the harnesses that have one.
+    /// Whether this harness supports a read-only conversation of its own (`fresh_side`).
+    fn supports_fresh_side(&self) -> bool {
+        false
+    }
+
     fn fresh_side(&self, _ctx: &Ctx, _cwd: &Path, _rules: &str, _reads: &Path, _on: crate::side::RunsOn) -> Result<crate::side::Recipe> {
         bail!("{} can't answer questions about a PR here.", self.harness().word())
     }

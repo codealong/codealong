@@ -1005,10 +1005,12 @@ export type OwnReviewsCfg = Holds<Same<
   | "auto"
   | "drafts"
   | "effort"
+  | "max_rounds"
   | "model"
   | "other_harness"
   | "prompt"
-  | "send",
+  | "send"
+  | "send_comments",
   Names<Types.OwnReviewsCfg>
 >>;
 
@@ -1030,9 +1032,11 @@ export type ProjectCfg = Holds<Same<
 
 export type PullRequestsCfg = Holds<Same<
   | "nudge_about"
+  | "nudge_bots"
   | "nudge_by_default"
   | "rerequest_after_fixes"
-  | "reviews_first",
+  | "reviews_first"
+  | "triage_nudges",
   Names<Types.PullRequestsCfg>
 >>;
 
@@ -1053,7 +1057,10 @@ export type ReviewsCfg = Holds<Same<
   | "post"
   | "prompt"
   | "start"
-  | "submit",
+  | "submit"
+  | "verify"
+  | "verify_account"
+  | "verify_model",
   Names<Types.ReviewsCfg>
 >>;
 
@@ -1067,7 +1074,10 @@ export type ReviewsPatch = Holds<Same<
   | "own"
   | "post"
   | "prompt"
-  | "submit",
+  | "submit"
+  | "verify"
+  | "verify_account"
+  | "verify_model",
   Names<Types.ReviewsPatch>
 >>;
 

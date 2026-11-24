@@ -33,7 +33,9 @@
 use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 use std::sync::Mutex;
 
+pub mod filter;
 mod merged;
+pub mod triage;
 
 use crate::config::NudgeAbout;
 use crate::engine::{Handle, Trouble};
@@ -281,6 +283,10 @@ struct Owed {
     merge_waited: bool,
     /// When the session first left its turn after `merge_waited`, for `merged::MERGE_SETTLE_MS`.
     merge_settled_at: Option<i64>,
+    /// When the current unsent batch of updates began (ms), for `filter::COALESCE_MAX_MS`.
+    first_owed_at: i64,
+    /// When the latest update was added to the current batch (ms), for `Nudger::coalesce_ms`.
+    last_owed_at: i64,
 }
 
 /// What each PR on the board stood at when last seen, so each update is noticed once, as it
@@ -297,15 +303,22 @@ pub struct Nudger {
     /// first, and each was told as news: a session was told the same approval twice a minute
     /// apart (2026-11-23). Kept while the PR is approved, or nothing has happened on it since.
     approvals: HashMap<(String, String), i64>,
-    /// When to look again for a merge nudge settling after a turn, though no board comes, and the
-    /// wake already asked for (`wake`), as `helpers::Reporter` does.
+    /// When to look again for a merge nudge settling after a turn, or a coalescing burst, though
+    /// no board comes, and the wake already asked for (`wake`), as `helpers::Reporter` does.
     look_again: Option<i64>,
     woken_for: Option<i64>,
     /// Latest board looked at (`Board::rev`), so a stale wake doesn't undo a newer board.
     rev: u64,
+    /// Quiet window (ms) to coalesce rapid PR updates before sending (`filter::COALESCE_MS` in
+    /// `new()`, 0 in `default()`).
+    coalesce_ms: i64,
 }
 
 impl Nudger {
+    /// A nudger with the standard coalescing window (`filter::COALESCE_MS`), for the server.
+    pub fn new() -> Nudger {
+        Nudger { coalesce_ms: filter::COALESCE_MS, ..Nudger::default() }
+    }
     /// The jobs due now, at `now` (ms). For each PR with its nudge on that the last board showed
     /// otherwise, what's new is owed to its primary session when that runs on this Mac, and what
     /// asks for work when it's to be resumed for it (`Board::pr_stopped`), or to the copy it went
@@ -389,8 +402,14 @@ impl Nudger {
                     user_merged: false,
                     merge_waited: false,
                     merge_settled_at: None,
+                    first_owed_at: 0,
+                    last_owed_at: 0,
                 });
                 owed.user_merged |= user_merged;
+                if owed.first_owed_at == 0 {
+                    owed.first_owed_at = now;
+                }
+                owed.last_owed_at = now;
                 owed.why.add(why);
             }
         }
@@ -460,8 +479,19 @@ impl Nudger {
                     continue;
                 }
             }
+            // Coalesce bursts of non-urgent PR updates (comments, check failures, conflicts) over
+            // a short quiet window so rapid events reach the session as one message.
+            if self.coalesce_ms > 0 && o.failures == 0 && filter::needs_coalesce(&o.why, o.pr.watched) {
+                let until = filter::coalesce_until(o.first_owed_at, o.last_owed_at, self.coalesce_ms);
+                if now < until {
+                    settle_wake = Some(settle_wake.map_or(until, |w| w.min(until)));
+                    continue;
+                }
+            }
             busy.insert(s.clone());
             let why = std::mem::take(&mut o.why);
+            o.first_owed_at = 0;
+            o.last_owed_at = 0;
             o.sending = Some(why.clone());
             let (about, stopped) = (about_of(board, &o.pr), !runs_here(s));
             out.push(Job {
@@ -548,8 +578,14 @@ impl Nudger {
                 user_merged: false,
                 merge_waited: false,
                 merge_settled_at: None,
+                first_owed_at: 0,
+                last_owed_at: 0,
             });
             to.why.add(o.why);
+            if o.first_owed_at > 0 {
+                to.first_owed_at = if to.first_owed_at == 0 { o.first_owed_at } else { to.first_owed_at.min(o.first_owed_at) };
+                to.last_owed_at = to.last_owed_at.max(o.last_owed_at);
+            }
             to.sending = to.sending.take().or(o.sending);
             to.user_merged |= o.user_merged;
             to.merge_waited |= o.merge_waited;
@@ -671,6 +707,7 @@ pub fn left_out(about: NudgeAbout) -> Option<&'static str> {
 /// doesn't ask that. None when nothing new was by someone else (the PR's own agent pushed, say). `detail` is the PR as GitHub has it now, read when `why.since` says to; `login` is who
 /// `gh` is signed in as, whose reviews aren't news. Only what `about` tells of is said (`keep`):
 /// with feedback only, an approval or a dismissal among the reviews isn't either.
+#[cfg(test)]
 pub fn words(pr: &PrItem, why: &Why, detail: Option<&PrDetail>, login: Option<&str>, about: NudgeAbout) -> Option<String> {
     news(pr, why, detail, login, about, None).map(|(text, _)| text)
 }
@@ -678,7 +715,15 @@ pub fn words(pr: &PrItem, why: &Why, detail: Option<&PrDetail>, login: Option<&s
 /// `words`, and whether they tell of an approval (`Nudger::told_approval`). An approval without
 /// words of its own isn't news on a PR that has ended, whose merge or close is, nor once
 /// `approval_told` says the session was told of it (`Job::approval_told`).
+#[cfg(test)]
 fn news(pr: &PrItem, why: &Why, detail: Option<&PrDetail>, login: Option<&str>, about: NudgeAbout, approval_told: Option<i64>) -> Option<(String, bool)> {
+    news_filtered(pr, why, detail, login, about, approval_told, &[], &HashSet::new())
+}
+
+/// `news`, skipping bot reviews/comments not allowlisted in `allowed_bots` (`filter::author_allowed`)
+/// and comments classified as non-actionable (`ignored_comments`, from `prasks.rs`).
+#[allow(clippy::too_many_arguments)]
+fn news_filtered(pr: &PrItem, why: &Why, detail: Option<&PrDetail>, login: Option<&str>, about: NudgeAbout, approval_told: Option<i64>, allowed_bots: &[String], ignored_comments: &HashSet<String>) -> Option<(String, bool)> {
     let why = &keep(about, pr.state.is_open(), why.clone());
     let mut items: Vec<String> = Vec::new();
     let (mut approved_said, mut changes_said, mut approval) = (false, false, false);
@@ -689,7 +734,7 @@ fn news(pr: &PrItem, why: &Why, detail: Option<&PrDetail>, login: Option<&str>, 
         // With feedback only, an approval or a dismissal isn't told, nor its words: the latest
         // review's, nor an earlier one's (`PrComment::review`), which the detail keeps as a comment.
         let not_feedback = |state: &str| about != NudgeAbout::Everything && matches!(state, "APPROVED" | "DISMISSED");
-        for r in d.reviews.iter().filter(|r| fresh(r.at) && Some(r.author.as_str()) != login) {
+        for r in d.reviews.iter().filter(|r| fresh(r.at) && Some(r.author.as_str()) != login && filter::author_allowed(&r.author, r.bot, allowed_bots)) {
             let body = d.comments.iter().find(|c| c.author == r.author && c.at == r.at && c.path.is_none()).map(|c| c.id.as_str());
             said.extend(body);
             let words = match r.state.as_str() {
@@ -708,13 +753,20 @@ fn news(pr: &PrItem, why: &Why, detail: Option<&PrDetail>, login: Option<&str>, 
             if not_feedback(&r.state) || (r.state == "APPROVED" && body.is_none() && (!pr.state.is_open() || told_before)) {
                 continue;
             }
+            if r.state == "COMMENTED" && body.is_some_and(|id| ignored_comments.contains(id)) {
+                continue;
+            }
             approval |= r.state == "APPROVED";
             match body.and_then(|id| d.comments.iter().find(|c| c.id == id)) {
                 Some(c) => items.push(told(&r.author, words, &c.body, false)),
                 None => items.push(format!("{} {words}.", r.author)),
             }
         }
-        let mut comments: Vec<_> = d.comments.iter().filter(|c| fresh(c.at) && !c.mine && !said.contains(&c.id.as_str()) && !c.review.as_deref().is_some_and(not_feedback)).collect();
+        let mut comments: Vec<_> = d
+            .comments
+            .iter()
+            .filter(|c| fresh(c.at) && !c.mine && !said.contains(&c.id.as_str()) && !c.review.as_deref().is_some_and(not_feedback) && filter::author_allowed(&c.author, c.bot, allowed_bots) && !ignored_comments.contains(&c.id))
+            .collect();
         comments.sort_by_key(|c| c.at);
         // A line comment has no mark of its own: one that went in with a review that has an
         // agent's review in it (`draft_plan` puts its comments on their lines) may be the agent's.
@@ -852,18 +904,25 @@ fn standing(pr: &PrItem) -> &'static str {
 /// None when there's nothing to say, and an error when the detail couldn't be read and this
 /// isn't the last try, to try again rather than leave out what others wrote. An open PR's ends
 /// with what its nudge leaves out while the session runs (`left_out`), and how to hear of it.
+#[cfg(test)]
 fn message(job: &Job, detail: Option<Result<&PrDetail, &str>>, login: Option<&str>) -> Result<Option<String>, String> {
     message_news(job, detail, login).map(|news| news.map(|(text, _)| text))
 }
 
 /// `message`, and whether it tells of an approval (`news`).
+#[cfg(test)]
 fn message_news(job: &Job, detail: Option<Result<&PrDetail, &str>>, login: Option<&str>) -> Result<Option<(String, bool)>, String> {
+    message_news_filtered(job, detail, login, &[], &HashSet::new())
+}
+
+/// `message_news`, with bot allowlisting and `prasks.rs` non-actionable comment filtering.
+fn message_news_filtered(job: &Job, detail: Option<Result<&PrDetail, &str>>, login: Option<&str>, allowed_bots: &[String], ignored_comments: &HashSet<String>) -> Result<Option<(String, bool)>, String> {
     let detail = match detail {
         Some(Err(e)) if !job.last => return Err(format!("What's new on {} couldn't be read: {e}", job.pr.key)),
         Some(Ok(d)) => Some(d),
         _ => None,
     };
-    let said = news(&job.pr, &job.why, detail, login, job.about, job.approval_told);
+    let said = news_filtered(&job.pr, &job.why, detail, login, job.about, job.approval_told, allowed_bots, ignored_comments);
     Ok(said.map(|(text, approval)| match left_out(job.runs_about).filter(|_| job.pr.state.is_open()) {
         Some(what) => (format!("{text}\nThis PR's {what} aren't passed on to you; if you're waiting on one, run `codealong pr watch {}`.", job.pr.key), approval),
         None => (text, approval),
@@ -871,13 +930,31 @@ fn message_news(job: &Job, detail: Option<Result<&PrDetail, &str>>, login: Optio
 }
 
 /// Does each job in turn: reads the PR's detail from GitHub where its `updatedAt` moved (once
-/// for the jobs that share it), works out the message, and sends it to the session as a window's
-/// send does; tells `nudger` how each went, then does what it's owed besides (`Nudger::more`)
-/// until nothing is; and tells the engine, which says so in a notice when something didn't go.
+/// for the jobs that share it), filters bot and non-actionable comments, works out the message,
+/// and sends it to the session as a window's send does; tells `nudger` how each went, then does
+/// what it's owed besides (`Nudger::more`) until nothing is; and tells the engine, which says so
+/// in a notice when something didn't go.
 pub fn send_now(engine: &Handle, nudger: &Mutex<Nudger>, jobs: Vec<Job>) {
     let read = |pr: &PrItem| crate::github::detail(&pr.repo_slug, pr.number).map_err(|e| e.to_string());
     let knows = |job: &Job| merged::session_knows(engine, &job.pr, &job.session);
-    let went = send_all(engine, nudger, jobs, read, knows, |job, text| deliver(engine, job, text), follow, crate::util::now_ms);
+    let filter_for = |job: &Job, detail: Option<&PrDetail>| -> (Vec<String>, HashSet<String>) {
+        let Ok(cfg) = crate::config::current() else { return (Vec::new(), HashSet::new()) };
+        let allowed = engine.read(|b| b.repo_settings.pull_requests(&cfg.pull_requests, &job.pr).nudge_bots.clone());
+        let ignored = match (job.why.since, detail) {
+            (Some(since), Some(d)) if !job.pr.watched => {
+                let fresh: Vec<&crate::github::PrComment> = d
+                    .comments
+                    .iter()
+                    .filter(|c| c.at.is_some_and(|t| t > since) && !c.mine && filter::author_allowed(&c.author, c.bot, &allowed))
+                    .collect();
+                let project = (!job.pr.project.is_empty()).then_some(job.pr.project.as_str());
+                filter::ask_non_actionable(&cfg, project, &job.pr.title, &fresh)
+            }
+            _ => HashSet::new(),
+        };
+        (allowed, ignored)
+    };
+    let went = send_all_with(engine, nudger, jobs, read, knows, filter_for, |job, text| triage::triage_nudge(engine, job, text), |job, text| deliver(engine, job, text), follow, crate::util::now_ms);
     engine.went(Trouble::Nudges, went);
 }
 
@@ -903,13 +980,30 @@ fn deliver(engine: &Handle, job: &Job, text: &str) -> Result<Option<String>, Str
 /// PR with `knows_merged`, sending with `tell`, moving PR primary links with `follow_pr`, and
 /// telling the time with `now`, in rounds: the jobs it was handed, then what `Nudger::more` hands
 /// out after each round. What the jobs came to, for the notice it leaves (`Outcomes`).
+#[cfg(test)]
 #[allow(clippy::too_many_arguments)]
 fn send_all(
     engine: &Handle,
     nudger: &Mutex<Nudger>,
     jobs: Vec<Job>,
+    read: impl FnMut(&PrItem) -> Result<PrDetail, String>,
+    knows_merged: impl FnMut(&Job) -> bool,
+    tell: impl FnMut(&Job, &str) -> Result<Option<String>, String>,
+    follow_pr: impl FnMut(&Handle, &str, &str) -> Result<(), String>,
+    now: impl Fn() -> i64,
+) -> Result<(), String> {
+    send_all_with(engine, nudger, jobs, read, knows_merged, |_, _| (Vec::new(), HashSet::new()), |_, text| Some(text), tell, follow_pr, now)
+}
+
+#[allow(clippy::too_many_arguments)]
+fn send_all_with(
+    engine: &Handle,
+    nudger: &Mutex<Nudger>,
+    jobs: Vec<Job>,
     mut read: impl FnMut(&PrItem) -> Result<PrDetail, String>,
     mut knows_merged: impl FnMut(&Job) -> bool,
+    mut filter_for: impl FnMut(&Job, Option<&PrDetail>) -> (Vec<String>, HashSet<String>),
+    mut triage: impl FnMut(&Job, String) -> Option<String>,
     mut tell: impl FnMut(&Job, &str) -> Result<Option<String>, String>,
     mut follow_pr: impl FnMut(&Handle, &str, &str) -> Result<(), String>,
     now: impl Fn() -> i64,
@@ -932,11 +1026,15 @@ fn send_all(
                     return Ok(None);
                 }
                 let detail = job.why.since.map(|since| details.entry((job.pr.key.clone(), since)).or_insert_with(|| read(&job.pr)).as_ref().map_err(String::as_str));
-                message_news(&job, detail, login.as_deref()).and_then(|news| match news {
-                    Some((text, approval)) => {
-                        told_approval = approval;
-                        tell(&job, &text)
-                    }
+                let (allowed_bots, ignored_comments) = filter_for(&job, detail.and_then(|r| r.ok()));
+                message_news_filtered(&job, detail, login.as_deref(), &allowed_bots, &ignored_comments).and_then(|news| match news {
+                    Some((text, approval)) => match triage(&job, text) {
+                        Some(text) => {
+                            told_approval = approval;
+                            tell(&job, &text)
+                        }
+                        None => Ok(None),
+                    },
                     None => Ok(None),
                 })
             }))
@@ -1087,7 +1185,7 @@ mod tests {
     const B: &str = "claude:claude:b";
 
     fn comment(id: &str, author: &str, body: &str, at: i64, path: Option<&str>, mine: bool) -> PrComment {
-        PrComment { id: id.into(), author: author.into(), body: body.into(), at: Some(at), url: None, path: path.map(String::from), line: None, before: false, outdated: false, replies: 0, resolved: false, mine, review: None, in_review: None }
+        PrComment { id: id.into(), author: author.into(), bot: false, body: body.into(), at: Some(at), url: None, path: path.map(String::from), line: None, before: false, outdated: false, replies: 0, resolved: false, mine, review: None, in_review: None }
     }
 
     fn detail(reviews: Vec<PrReview>, comments: Vec<PrComment>) -> PrDetail {
@@ -1207,7 +1305,7 @@ mod tests {
         let approved = Job { last: true, ..jobs[0].clone() };
         let read = |why: Why| message(&Job { why, ..approved.clone() }, None, Some("me")).unwrap();
         assert_eq!(read(Why { since: Some(UPDATED), approved: true, ..Why::default() }), None);
-        let d = detail(vec![PrReview { author: "ken".into(), state: "APPROVED".into(), at: Some(UPDATED + 1), mine: false }], vec![]);
+        let d = detail(vec![PrReview { author: "ken".into(), state: "APPROVED".into(), at: Some(UPDATED + 1), mine: false, bot: false }], vec![]);
         assert_eq!(message(&Job { why: Why { since: Some(UPDATED), ..Why::default() }, ..approved.clone() }, Some(Ok(&d)), Some("me")).unwrap(), None, "ken's approval alone");
         assert!(read(Why { failed: vec!["lint".into()], ..Why::default() }).unwrap().contains("- Its checks failed: lint.\n"));
         // Running, it's told as before.
@@ -1511,7 +1609,7 @@ mod tests {
         let text = message(&Job { last: true, ..job.clone() }, Some(Err("gh timed out after 30s")), Some("me")).unwrap().unwrap();
         assert!(text.contains("- It was approved.\n"), "{text}");
         // Read: what others wrote.
-        let d = detail(vec![PrReview { author: "ken".into(), state: "APPROVED".into(), at: Some(UPDATED + 1), mine: false }], vec![]);
+        let d = detail(vec![PrReview { author: "ken".into(), state: "APPROVED".into(), at: Some(UPDATED + 1), mine: false, bot: false }], vec![]);
         assert!(message(&job, Some(Ok(&d)), Some("me")).unwrap().unwrap().contains("- ken approved it.\n"));
     }
 
@@ -1520,9 +1618,9 @@ mod tests {
         let p = pr("o/r#1", PrState::Changes, &[A]);
         let d = detail(
             vec![
-                PrReview { author: "ana".into(), state: "CHANGES_REQUESTED".into(), at: Some(UPDATED + 10), mine: false },
-                PrReview { author: "me".into(), state: "COMMENTED".into(), at: Some(UPDATED + 20), mine: false },
-                PrReview { author: "old".into(), state: "APPROVED".into(), at: Some(UPDATED - 1), mine: false },
+                PrReview { author: "ana".into(), state: "CHANGES_REQUESTED".into(), at: Some(UPDATED + 10), mine: false, bot: false },
+                PrReview { author: "me".into(), state: "COMMENTED".into(), at: Some(UPDATED + 20), mine: false, bot: false },
+                PrReview { author: "old".into(), state: "APPROVED".into(), at: Some(UPDATED - 1), mine: false, bot: false },
             ],
             vec![
                 comment("c1", "ana", "Please add a test.", UPDATED + 10, None, false),
@@ -1544,7 +1642,7 @@ mod tests {
         assert_eq!(g.words(), "ana asked for changes · ana commented on src/a.ts");
         assert_eq!(crate::glance::of(&text), g);
         // A comment with a list in it: its lines go under it, and none reads as a happening.
-        let listed = detail(vec![PrReview { author: "ana".into(), state: "COMMENTED".into(), at: Some(UPDATED + 10), mine: false }], vec![comment("c1", "ana", "Two things:\n- It was merged.\n- Its checks failed.", UPDATED + 10, None, false)]);
+        let listed = detail(vec![PrReview { author: "ana".into(), state: "COMMENTED".into(), at: Some(UPDATED + 10), mine: false, bot: false }], vec![comment("c1", "ana", "Two things:\n- It was merged.\n- Its checks failed.", UPDATED + 10, None, false)]);
         let text = words(&p, &Why { since: Some(UPDATED), ..Why::default() }, Some(&listed), Some("me"), NudgeAbout::Everything).unwrap();
         assert!(text.contains("“Two things:\n  - It was merged.\n  - Its checks failed.”"), "{text}");
         assert_eq!(glance(&text).unwrap().words(), "ana reviewed it");
@@ -1553,7 +1651,7 @@ mod tests {
         assert_eq!(glance(before).unwrap().words(), "ana commented · ken approved it");
         // A comment cut short inside a quote of its own: the happenings after it are still read.
         let long = format!("Look at “{}", "this ".repeat(200));
-        let cut = detail(vec![PrReview { author: "ana".into(), state: "COMMENTED".into(), at: Some(UPDATED + 10), mine: false }], vec![comment("c1", "ana", &long, UPDATED + 10, None, false)]);
+        let cut = detail(vec![PrReview { author: "ana".into(), state: "COMMENTED".into(), at: Some(UPDATED + 10), mine: false, bot: false }], vec![comment("c1", "ana", &long, UPDATED + 10, None, false)]);
         let failed = PrItem { checks: Checks { failed: 1, ..Checks::default() }, ..p.clone() };
         let text = words(&failed, &Why { since: Some(UPDATED), failed: vec!["test".into()], ..Why::default() }, Some(&cut), Some("me"), NudgeAbout::Everything).unwrap();
         assert!(text.contains("…”\n- "), "{text}");
@@ -1573,7 +1671,7 @@ mod tests {
     #[test]
     fn says_an_approval_a_merge_and_failing_checks() {
         let approved = PrItem { merge: Merge::Clean, ..pr("o/r#1", PrState::Approved, &[A]) };
-        let d = detail(vec![PrReview { author: "ken".into(), state: "APPROVED".into(), at: Some(UPDATED + 1), mine: false }], vec![]);
+        let d = detail(vec![PrReview { author: "ken".into(), state: "APPROVED".into(), at: Some(UPDATED + 1), mine: false, bot: false }], vec![]);
         let text = words(&approved, &Why { since: Some(UPDATED), approved: true, ..Why::default() }, Some(&d), Some("me"), NudgeAbout::Everything).unwrap();
         // The approval is news, never a go-ahead to merge.
         assert_eq!(text, format!("On your PR #1 “Let the agent add photos” (https://github.com/o/r/pull/1):\n- ken approved it.\nIt's ready to merge. This message doesn't ask you to merge it: merge it only if you were asked to. {QUIET}"));
@@ -1627,7 +1725,7 @@ mod tests {
     fn an_approval_is_told_once_whichever_github_says_first() {
         let open = pr("o/r#1", PrState::Open, &[A]);
         let at = |state: PrState, updated_at: i64| board(vec![PrItem { state, updated_at, merge: Merge::Clean, ..open.clone() }], vec![live(A)]);
-        let review = |state: &str, at: i64| detail(vec![PrReview { author: "ken".into(), state: state.into(), at: Some(at), mine: false }], vec![]);
+        let review = |state: &str, at: i64| detail(vec![PrReview { author: "ken".into(), state: state.into(), at: Some(at), mine: false, bot: false }], vec![]);
         let none = detail(vec![], vec![]);
 
         // The decision first, before the PR's `updatedAt` moves: told as the board has it. Then
@@ -1658,7 +1756,7 @@ mod tests {
     #[test]
     fn an_approval_on_a_pr_that_ended_is_no_news() {
         let merged = off(PrItem { state: PrState::Merged, ..pr("o/r#1", PrState::Open, &[A]) });
-        let ken = PrReview { author: "ken".into(), state: "APPROVED".into(), at: Some(UPDATED + 1), mine: false };
+        let ken = PrReview { author: "ken".into(), state: "APPROVED".into(), at: Some(UPDATED + 1), mine: false, bot: false };
         let since = Why { since: Some(UPDATED), ..Why::default() };
         // Its merge the session knew of (`knows_merged` took it out): nothing to say.
         assert_eq!(words(&merged, &since, Some(&detail(vec![ken.clone()], vec![])), Some("me"), NudgeAbout::Everything), None);
@@ -1706,7 +1804,7 @@ mod tests {
         };
         let open = pr("o/r#1", PrState::Open, &[A]);
         let approved = PrItem { state: PrState::Approved, updated_at: UPDATED + 1, ..open.clone() };
-        let ken = detail(vec![PrReview { author: "ken".into(), state: "APPROVED".into(), at: Some(UPDATED + 1), mine: false }], vec![]);
+        let ken = detail(vec![PrReview { author: "ken".into(), state: "APPROVED".into(), at: Some(UPDATED + 1), mine: false, bot: false }], vec![]);
 
         // Not watched: the approval comes up, and there's nothing to say of it.
         let mut nudger = Nudger::default();
@@ -1813,7 +1911,7 @@ mod tests {
         let review = |id: &str, author: &str, body: &str, at: i64, state: &str| PrComment { review: Some(state.into()), ..comment(id, author, body, at, None, false) };
         let line = |id: &str, author: &str, body: &str, at: i64, in_review: &str| PrComment { in_review: Some(in_review.into()), ..comment(id, author, body, at, Some("main.tf"), false) };
         let d = detail(
-            vec![PrReview { author: "ken".into(), state: "APPROVED".into(), at: Some(UPDATED + 3), mine: false }, PrReview { author: "ana".into(), state: "CHANGES_REQUESTED".into(), at: Some(UPDATED + 4), mine: false }],
+            vec![PrReview { author: "ken".into(), state: "APPROVED".into(), at: Some(UPDATED + 3), mine: false, bot: false }, PrReview { author: "ana".into(), state: "CHANGES_REQUESTED".into(), at: Some(UPDATED + 4), mine: false, bot: false }],
             vec![
                 comment("c1", "wes", &format!("Fix the race.\n\n---\n\nAdd a test.\n\n{}\n{mark}", sub(claude, "posted")), UPDATED + 1, None, false),
                 comment("c2", "wes", "Agreed, go ahead. Keep `<!-- codealong-review o/r#1 abc -->` in the fixture.", UPDATED + 2, None, false),
@@ -1918,9 +2016,9 @@ mod tests {
         // said.
         let d = detail(
             vec![
-                PrReview { author: "ken".into(), state: "APPROVED".into(), at: Some(UPDATED + 1), mine: false },
-                PrReview { author: "ana".into(), state: "CHANGES_REQUESTED".into(), at: Some(UPDATED + 2), mine: false },
-                PrReview { author: "bo".into(), state: "DISMISSED".into(), at: Some(UPDATED + 3), mine: false },
+                PrReview { author: "ken".into(), state: "APPROVED".into(), at: Some(UPDATED + 1), mine: false, bot: false },
+                PrReview { author: "ana".into(), state: "CHANGES_REQUESTED".into(), at: Some(UPDATED + 2), mine: false, bot: false },
+                PrReview { author: "bo".into(), state: "DISMISSED".into(), at: Some(UPDATED + 3), mine: false, bot: false },
             ],
             vec![comment("c1", "ken", "Looks good.", UPDATED + 1, None, false), comment("c2", "ken", "Nit: a map.", UPDATED + 1, Some("src/a.ts"), false), comment("c3", "ana", "Add a test.", UPDATED + 2, None, false)],
         );
@@ -1932,7 +2030,7 @@ mod tests {
         );
         assert!(words(&approved, &why, Some(&d), Some("me"), NudgeAbout::Everything).unwrap().contains("- ken approved it: “Looks good.”\n"));
         // Only an approval: nothing to say. Nor anything about a PR that ended.
-        let only = detail(vec![PrReview { author: "ken".into(), state: "APPROVED".into(), at: Some(UPDATED + 1), mine: false }], vec![]);
+        let only = detail(vec![PrReview { author: "ken".into(), state: "APPROVED".into(), at: Some(UPDATED + 1), mine: false, bot: false }], vec![]);
         assert_eq!(words(&approved, &why, Some(&only), Some("me"), NudgeAbout::Feedback), None);
         assert_eq!(words(&merged, &Why { since: Some(UPDATED), ended: Some(PrState::Merged), ..Why::default() }, Some(&d), Some("me"), NudgeAbout::FeedbackAndChecks), None);
         // Two approvals by one reviewer since: the detail keeps the latest as the review, and the
@@ -2238,5 +2336,62 @@ mod tests {
             assert!(!followed, "same-key or None resume must not follow: {returned:?}");
             assert!(archived.lock().unwrap().is_empty(), "same-key or None resume must archive nothing: {returned:?}");
         }
+    }
+
+    #[test]
+    fn bot_comments_are_ignored_unless_allowlisted_and_non_actionable_comments_are_skipped() {
+        let open = pr("o/r#1", PrState::Open, &[A]);
+        let why = Why { since: Some(UPDATED), ..Why::default() };
+        let vercel = PrComment { bot: true, ..comment("b1", "vercel[bot]", "Preview deployed", UPDATED + 1, None, false) };
+        let praise = comment("h1", "ana", "Nice work!", UPDATED + 2, None, false);
+        let ask = comment("h2", "bo", "Please add a test for the empty case.", UPDATED + 3, Some("src/a.ts"), false);
+        let bot_review = PrReview { author: "codecov".into(), state: "COMMENTED".into(), at: Some(UPDATED + 4), mine: false, bot: true };
+        let d = detail(vec![bot_review], vec![vercel.clone(), praise.clone(), ask.clone()]);
+
+        // Default: bots ignored, non-actionable comment h1 skipped, actionable comment h2 kept.
+        let ignored = HashSet::from(["h1".to_string()]);
+        let (text, _) = news_filtered(&open, &why, Some(&d), Some("me"), NudgeAbout::Feedback, None, &[], &ignored).unwrap();
+        assert!(!text.contains("vercel"), "{text}");
+        assert!(!text.contains("codecov"), "{text}");
+        assert!(!text.contains("Nice work!"), "{text}");
+        assert!(text.contains("bo commented on src/a.ts"), "{text}");
+
+        // Only bot + non-actionable comments: nothing to send.
+        let quiet = detail(vec![], vec![vercel.clone(), praise]);
+        assert!(news_filtered(&open, &why, Some(&quiet), Some("me"), NudgeAbout::Feedback, None, &[], &ignored).is_none());
+
+        // Allowlisting vercel lets its comment through.
+        let (allowed, _) = news_filtered(&open, &why, Some(&quiet), Some("me"), NudgeAbout::Feedback, None, &["vercel".into()], &ignored).unwrap();
+        assert!(allowed.contains("vercel[bot] commented"), "{allowed}");
+    }
+
+    #[test]
+    fn coalesces_burst_of_updates_into_one_nudge_while_approvals_go_immediately() {
+        let mut nudger = Nudger::new();
+        let open = pr("o/r#1", PrState::Open, &[A]);
+        assert!(nudger.due(&board(vec![open.clone()], vec![live(A)]), NOW).is_empty());
+
+        // First check failure arrives: held for COALESCE_MS and schedules a wake.
+        let fail1 = PrItem { checks: Checks { failed: 1, failing: vec!["lint".into()], ..Checks::default() }, updated_at: UPDATED + 1, ..open.clone() };
+        assert!(nudger.due(&board(vec![fail1.clone()], vec![live(A)]), NOW + 1_000).is_empty());
+        assert_eq!(nudger.wake(), Some(NOW + 1_000 + filter::COALESCE_MS));
+
+        // Another comment arrives 20s later: coalesced, extending the quiet deadline.
+        let more = PrItem { updated_at: UPDATED + 5, ..fail1 };
+        let b_more = board(vec![more.clone()], vec![live(A)]);
+        assert!(nudger.due(&b_more, NOW + 21_000).is_empty());
+        let wake_at = NOW + 21_000 + filter::COALESCE_MS;
+        assert!(nudger.woke(NOW + 1_000 + filter::COALESCE_MS, &b_more, NOW + 1_000 + filter::COALESCE_MS).0.is_empty());
+        let (jobs, next) = nudger.woke(wake_at, &b_more, wake_at);
+        assert_eq!((jobs.len(), next), (1, None));
+        assert_eq!(jobs[0].why.since, Some(UPDATED));
+        assert_eq!(jobs[0].why.failed, vec!["lint".to_string()]);
+        assert!(!nudger.told(&jobs[0], true, wake_at));
+
+        // Approval arrives: goes immediately without waiting for COALESCE_MS.
+        let approved = PrItem { state: PrState::Approved, updated_at: UPDATED + 9, ..more };
+        let jobs = nudger.due(&board(vec![approved], vec![live(A)]), wake_at + 1_000);
+        assert_eq!(jobs.len(), 1);
+        assert!(jobs[0].why.approved);
     }
 }

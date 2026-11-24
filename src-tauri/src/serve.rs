@@ -183,7 +183,7 @@ pub fn start() -> Result<Ctx, String> {
     };
     let publishes = peers.clone();
     let (mover, moves_with) = (Mutex::new(limits::Mover::default()), engine_slot.clone());
-    let (nudger, nudges_with) = (Arc::new(Mutex::new(nudges::Nudger::default())), engine_slot.clone());
+    let (nudger, nudges_with) = (Arc::new(Mutex::new(nudges::Nudger::new())), engine_slot.clone());
     let ends_with = engine_slot.clone();
     let holds_with = engine_slot.clone();
     let (continuer, continues_with) = (Arc::new(Mutex::new(reconnect::Continuer::default())), engine_slot.clone());
