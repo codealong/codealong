@@ -30,7 +30,7 @@ pub fn reviewer_prompt(spec_path: &Path, diff_path: &Path) -> String {
         - Cite concrete file paths and line numbers for every finding.\n\
         - End your reply with a final standalone line:\n\
           `Verdict: approve` (if solid with no material issues) or\n\
-          `Verdict: request_changes` (if issues should be fixed before acceptance).",
+          `Verdict: request changes` (if issues should be fixed before acceptance).",
         spec_path.display(),
         diff_path.display()
     )
@@ -68,6 +68,17 @@ pub fn judge_prompt(has_gate: bool) -> String {
     )
 }
 
+/// Parses the reviewer's final `Verdict:` line, accepting `request changes`, `request-changes`,
+/// and `request_changes` (underscores aren't normalized by `autoreview::verdict_of`).
+pub fn parse_review_verdict(reply: &str) -> Option<crate::github::Verdict> {
+    let normalized: String = reply
+        .lines()
+        .map(|l| if l.to_ascii_lowercase().contains("verdict:") { l.replace('_', "-") } else { l.to_string() })
+        .collect::<Vec<_>>()
+        .join("\n");
+    crate::autoreview::verdict_of(&normalized)
+}
+
 /// Parses the judge's final `Winner: A|B|tie` line (matching `autoreview::verdict_of`'s style).
 pub fn parse_winner(reply: &str) -> Option<&'static str> {
     for line in reply.lines().rev() {
@@ -102,6 +113,17 @@ mod tests {
         assert_eq!(parse_winner("Close call.\n`Winner: tie`"), Some("tie"));
         assert_eq!(parse_winner("Winner: Candidate B"), Some("B"));
         assert_eq!(parse_winner("No verdict line here."), None);
+    }
+
+    #[test]
+    fn parse_review_verdict_accepts_underscores_hyphens_and_spaces() {
+        use crate::github::Verdict;
+        assert_eq!(parse_review_verdict("Looks solid.\n\nVerdict: approve"), Some(Verdict::Approve));
+        assert_eq!(parse_review_verdict("Two bugs.\n\nVerdict: request_changes"), Some(Verdict::RequestChanges));
+        assert_eq!(parse_review_verdict("Two bugs.\n\nVerdict: request-changes"), Some(Verdict::RequestChanges));
+        assert_eq!(parse_review_verdict("Two bugs.\n\nVerdict: request changes"), Some(Verdict::RequestChanges));
+        assert_eq!(parse_review_verdict("Minor nit.\n\nVerdict: comment"), Some(Verdict::Comment));
+        assert_eq!(parse_review_verdict("No verdict line."), None);
     }
 
     #[test]
