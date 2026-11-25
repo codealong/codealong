@@ -840,8 +840,9 @@ window.__TAURI_INTERNALS__ = {
         if (window.__PREVIEW_VOICE__ && window.__MEETING__) feed.meeting = window.__MEETING__;
         if (window.__PREVIEW_VOICE__ && window.__MEETING_SOON__) feed.meetingSoon = window.__MEETING_SOON__;
         if (window.__PREVIEW_EMBLEMS__) (feed.items || []).forEach(function (i) { i.emblem = emblemOf(i.key); });
-        // Keys show as the board's windows have them (PREVIEW_KEYS).
+        // Keys and glass follow the preview flags, as the board's windows do.
         feed.showKeys = !window.__PREVIEW_KEYS_HELD__;
+        feed.glass = !!window.__PREVIEW_GLASS__;
         if (!all[1] || all[1].cfg.in_bar === false) return feed;
         return window.__TAURI_INTERNALS__.invoke('devices').then(function (view) {
           var there = {};

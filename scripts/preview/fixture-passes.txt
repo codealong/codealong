@@ -25,8 +25,12 @@ PREVIEW_DEVICES=scripts/preview/devices-sample.json scripts/preview.sh prs '' sc
 PREVIEW_DEVICES=scripts/preview/devices-sample.json scripts/preview.sh sessions '' scripts/preview/sidebar-check.js
 PREVIEW_EMBLEMS=drawn PREVIEW_ROUTE=scripts/preview/route-sample.json PREVIEW_WAIT=60000 scripts/preview.sh quick '' scripts/preview/quick-emblems-check.js
 PREVIEW_EMBLEMS=drawn scripts/preview.sh sessions '' scripts/preview/emblems-check.js
+PREVIEW_GLASS=1 PREVIEW_PLATFORM=linux scripts/preview.sh bar '' scripts/preview/glass-check.js
 PREVIEW_GLASS=1 PREVIEW_PLATFORM=linux scripts/preview.sh sessions '' scripts/preview/glass-check.js
+PREVIEW_GLASS=1 PREVIEW_SCHEME=dark scripts/preview.sh bar '' scripts/preview/glass-check.js
 PREVIEW_GLASS=1 PREVIEW_SCHEME=dark scripts/preview.sh sessions '' scripts/preview/glass-check.js
+PREVIEW_GLASS=1 scripts/preview.sh bar '' scripts/preview/glass-check.js
+PREVIEW_GLASS=1 scripts/preview.sh notch '' scripts/preview/glass-check.js
 PREVIEW_GLASS=1 scripts/preview.sh sessions '' scripts/preview/glass-check.js
 PREVIEW_GLASS=1 scripts/preview.sh sessions '' scripts/preview/window-chrome-check.js
 PREVIEW_GROUP=worktree PREVIEW_DEVICES=scripts/preview/devices-sample.json scripts/preview.sh sessions '' scripts/preview/grouphead-baseline-check.js

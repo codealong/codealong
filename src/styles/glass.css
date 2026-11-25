@@ -32,7 +32,8 @@
 .is-glass .ca-kb-head,
 .is-glass .ca-kb-rail,
 .is-glass .ca-kb-add,
-.is-glass .ca-quick-bar {
+.is-glass .ca-quick-bar,
+.is-glass .ca-hud {
   --surface-sunken: var(--glass-well);
   --surface-hover: var(--glass-hover);
   --surface-selected: var(--glass-selected);
@@ -249,6 +250,14 @@
 }
 .is-glass .ca-win-bar-end .ca-hearing-now:focus-visible {
   box-shadow: var(--shadow-focus);
+}
+/* Floating bar pills over live glass: status tones stay translucent so macOS's glass carries
+   through the capsule rather than sitting behind opaque pastel stickers. */
+.is-glass .ca-hud {
+  --attn-tint: color-mix(in srgb, var(--attn-solid) 16%, transparent);
+  --unread-tint: color-mix(in srgb, var(--unread-solid) 16%, transparent);
+  --alert-tint: color-mix(in srgb, var(--alert-solid) 16%, transparent);
+  --pr-open-tint: color-mix(in srgb, var(--pr-open) 16%, transparent);
 }
 
 /* ── 8. Sidebar & collapsed rail: flat AppKit selection tint & calm filter chips ─────────────── */

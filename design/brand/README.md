@@ -1,7 +1,9 @@
 # Codealong mark
 
 The selected mark is a rounded C surrounding a circular commit node with a short,
-rounded stem. Keep it flat, with a neutral C and a colored node for live status.
+rounded stem. Keep the UI, browser and menu bar marks flat, with a neutral C and a colored node
+for live status; the macOS Dock/Finder tile adds subtle glass depth and a hairline specular rim
+so the static bundle icon and live status states sit naturally on macOS.
 The [status sheet](preview.html) shows all five states in light, dark, and Dock form.
 
 | Node | Meaning |
@@ -35,7 +37,7 @@ Run `npm run icons` after editing the master. It generates:
 
 - `src/ui/brand.ts`, used by the project switcher and floating bar through `Mark`.
 - `public/favicon.svg` and `public/logos/*`, which follow the browser's appearance.
-- `design/app-icon.svg`, the flat Dock/Finder icon using the dark surface and ink tokens.
+- `design/app-icon.svg`, the Dock/Finder icon on a dark smoked-glass tile.
 - `src-tauri/app-icon.png` and `src-tauri/icons/*`, the native bundle assets.
 - `src-tauri/icons/status/*`, the running Dock's colored states.
 - `preview.html`, the compact status reference sheet.

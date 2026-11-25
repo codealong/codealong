@@ -396,7 +396,7 @@ backdrop="linear-gradient(135deg,rgb(93,111,134),rgb(169,182,196))"
 on_desktop() {
   setup="$setup</script><style>html.$1{background:${2:-}$backdrop!important}</style><script>"
 }
-[ -n "${PREVIEW_GLASS:-}" ] && setup="$setup</script><style>html.is-glass{background:linear-gradient(135deg,color-mix(in srgb,var(--surface) 82%,rgb(120,150,60)),color-mix(in srgb,var(--surface) 82%,rgb(60,120,200)))!important}html.is-glass.is-quick .ca-quick::before{content:'';position:absolute;inset:0;z-index:-1;border-radius:inherit;background:linear-gradient(135deg,color-mix(in srgb,var(--surface) 82%,rgb(120,150,60)),color-mix(in srgb,var(--surface) 82%,rgb(60,120,200)))}</style><script>"
+[ -n "${PREVIEW_GLASS:-}" ] && setup="$setup</script><style>html.is-glass{background:linear-gradient(135deg,color-mix(in srgb,var(--surface) 82%,rgb(120,150,60)),color-mix(in srgb,var(--surface) 82%,rgb(60,120,200)))!important}html.is-glass.is-quick .ca-quick::before,html.is-glass.is-bar .ca-hud::before{content:'';position:absolute;inset:0;z-index:-1;border-radius:inherit;background:linear-gradient(135deg,color-mix(in srgb,var(--surface) 82%,rgb(120,150,60)),color-mix(in srgb,var(--surface) 82%,rgb(60,120,200)))}</style><script>"
 if [ "$view" = bar ]; then
   size="${PREVIEW_SIZE:-1200,64}"
   # Headless Chrome's screen is 800 wide whatever the window; the bar fits itself to the screen.

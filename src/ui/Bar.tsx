@@ -52,6 +52,7 @@ import { MeetingOffered, MeetingSoon } from './Meeting';
 import { hearingSays } from '../said';
 import { useKeysShown } from '../keysShown';
 import { useToolDisplaySync } from '../toolDisplay';
+import { useGlass } from '../glass';
 
 /** Room around the bar for its shadow: the window is this much bigger on every side. */
 const MARGIN = 12;
@@ -481,8 +482,9 @@ export function Bar() {
   const logoStatus = useLogo(feed?.logoStatus);
   // What the mark plays as something happens (mark.ts).
   const moment = useMarkMoment(feed, ahead);
-  // Docked in the notch it's dark whatever the theme, as the notch is.
+  // Docked in the notch it's dark whatever the theme, as the notch is; glass is the floating bar's alone.
   const docked = notch !== null;
+  useGlass(!!feed?.glass && !docked);
   useEffect(() => {
     applyTheme(docked ? 'dark' : theme);
     document.documentElement.classList.toggle('is-notch', docked);

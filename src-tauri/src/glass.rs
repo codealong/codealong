@@ -15,7 +15,8 @@
 //!
 //! The quick panel has glass too, only under its card, as its window has room round the card for
 //! the card's shadow that the glass mustn't frost (`panel::set_glass_under`, quick.rs
-//! `fit_glass`); its page lets it through at the bar along the card's foot.
+//! `fit_glass`); its page lets it through at the bar along the card's foot. The floating bar does
+//! the same under its pill (bar.rs `fit_glass`), never while docked in the notch.
 
 use std::sync::atomic::{AtomicBool, Ordering};
 
@@ -39,6 +40,7 @@ pub fn follow(app: &tauri::AppHandle, on: bool) {
         }
     }
     crate::quick::fit_glass(app);
+    crate::bar::fit_glass(app);
 }
 
 /// Whether the windows have glass now.
