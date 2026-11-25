@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { handoffActionLabel, handoffPlaceholder, handoffSubmitOptions, handoffSummary, isNativeMove, moveDialogWords, moveSubmenuLabel, moveTargetsFor } from './handoff';
+import { isNativeMove, moveDialogTitle, moveDialogWords, moveSubmenuLabel, moveTargetsFor } from './handoff';
 import type { AccountInfo, Session } from './types';
 
 const acct = (name: string, harness: AccountInfo['harness'], over: Partial<AccountInfo> = {}): AccountInfo => ({
@@ -68,7 +68,7 @@ describe('isNativeMove', () => {
   });
 });
 
-describe('handoff copy and submit options', () => {
+describe('handoff copy', () => {
   const nativeClaude = { account: 'claude2', harness: 'claude' as const, native: true };
   const codex = { account: 'codex', harness: 'codex' as const, native: false };
 
@@ -79,46 +79,22 @@ describe('handoff copy and submit options', () => {
     expect(moveSubmenuLabel(codex, 'claude', 'codex')).toBe('codex · Codex (has room)');
   });
 
-  it('describes native moves, background jobs, working turns, cross-provider handoffs, and keep-open copies', () => {
+  it('explains native moves, cross-provider handoffs, picked models, and keep-open copies', () => {
+    expect(moveDialogTitle(nativeClaude, 'claude', false)).toBe('Move to another account');
+    expect(moveDialogTitle(codex, 'claude', false)).toBe('Move to Codex');
+    expect(moveDialogTitle(codex, 'claude', true)).toBe('Hand off to another account');
     expect(moveDialogWords(sess(), nativeClaude, 'Ghostty', false)).toBe(
-      'A copy of “Fix login” goes on under claude2 in a new Ghostty tab, and this one is closed and archived.',
+      'A copy of “Fix login” goes on under claude2 in a new Ghostty tab with its full conversation carried over, and this one is closed and archived.',
     );
     expect(moveDialogWords(sess({ attachCommand: 'claude --attach x' }), nativeClaude, 'Ghostty', true)).toBe(
-      'A copy of “Fix login” goes on under claude2 as a background job, told to carry on where it stopped, and this one is closed and archived.',
+      'A copy of “Fix login” goes on under claude2 as a background job, told to carry on where it stopped with its full conversation carried over, and this one is closed and archived.',
     );
     expect(moveDialogWords(sess({ status: 'working' }), nativeClaude, 'Ghostty', false)).toMatch(/ Its turn is stopped first\.$/);
-    expect(moveDialogWords(sess(), codex, 'Ghostty', false, { place: 'codealong' })).toBe(
-      'A new Codex session starts under codex in Codealong with a handoff brief and a link to the full transcript, and this one is closed and archived.',
+    expect(moveDialogWords(sess(), codex, 'Ghostty', false, { model: 'gpt-5.5' }, 'GPT-5.5')).toBe(
+      'Starts a new Codex session under codex on GPT-5.5 with a handoff brief and a link to the full transcript on disk, and this one is closed and archived.',
     );
-    expect(moveDialogWords(sess(), codex, 'Ghostty', false, { keep: true, place: 'terminal', prompt: 'Finish the PR' })).toBe(
-      'A new Codex session starts under codex in a new Ghostty tab with a handoff brief and a link to the full transcript with your next-step note; this session stays open.',
+    expect(moveDialogWords(sess(), codex, 'Ghostty', false, { keep: true, model: 'gpt-5.5' }, 'GPT-5.5')).toBe(
+      'Starts a new Codex session under codex on GPT-5.5 with a handoff brief and a link to the full transcript on disk; this session stays open.',
     );
-  });
-
-  it('builds crisp inline summary, placeholder, action label, and submit options', () => {
-    expect(handoffSummary(sess(), nativeClaude, false)).toBe('Move to claude2 · closes this');
-    expect(handoffSummary(sess(), nativeClaude, true)).toBe('Move to claude2 · carries on · closes this');
-    expect(handoffSummary(sess(), codex, false)).toBe('Move to codex (Codex) · closes this');
-    expect(handoffSummary(sess(), codex, false, { keep: true })).toBe('Hand off to codex (Codex) · keeps this open');
-    expect(handoffPlaceholder(codex, false)).toBe('Add a note for codex, or press ⏎ to move…');
-    expect(handoffPlaceholder(codex, true)).toBe('Add a note for codex, or press ⏎ to hand off…');
-    expect(handoffActionLabel('codex', false)).toBe('Move to codex');
-    expect(handoffActionLabel('codex', true)).toBe('Hand off to codex');
-    expect(handoffSubmitOptions(nativeClaude, { account: 'claude2', model: null, effort: null, place: null, keep: false }, '', true)).toBeUndefined();
-    expect(handoffSubmitOptions(codex, { account: 'codex', model: 'gpt-5.5', effort: 'high', place: 'codealong', keep: true }, '  Fix test  ', true)).toEqual({
-      keep: true,
-      place: 'codealong',
-      model: 'gpt-5.5',
-      effort: 'high',
-      prompt: 'Fix test',
-    });
-    // Places that don't take a model omit model & effort cleanly.
-    expect(handoffSubmitOptions(codex, { account: 'codex', model: 'gpt-5.5', effort: 'high', place: 'claude-app', keep: false }, '', false)).toEqual({
-      keep: undefined,
-      place: 'claude-app',
-      model: undefined,
-      effort: undefined,
-      prompt: undefined,
-    });
   });
 });

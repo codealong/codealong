@@ -103,12 +103,11 @@ import { filesToAttach, keepFiles, useFileDrop } from '../attachInput';
 import { answersDraft, onDraftChange, readAnswers, readDraft, sideDraft, writeDraft, writtenAnswers } from '../drafts';
 import { noteDraftTaken } from '../typingTrace';
 import { HARNESS_APP, HARNESS_WORD, sessionPlace } from '../harness';
-import { handoffActionLabel, handoffPlaceholder, handoffSubmitOptions, isNativeMove, type StagedHandoff } from '../handoff';
 import { asideable, seenable, stoppable, stuckMidTurn, waitsInBackground, waitsOnYou } from '../lanes';
 import { beingRead, notAsked, shownSide, showSides, startingSide, useAside, usePopped, useSideAnswer } from '../side';
 import { COMMANDS, commandWords, slashCommand, slashMatches } from '../slash';
 import { completed, matching, mentionsIn, sessionSkills, skillNamed, typedAt, writtenFor } from '../skills';
-import { placeTakesModel, rememberResumed, resumeChoice, resumedIn, resumeIn, resumeWords, type ResumePicks } from '../start';
+import { rememberResumed, resumeChoice, resumedIn, resumeIn, resumeWords, type ResumePicks } from '../start';
 import { accountOf, useDeviceStartAccounts } from '../startAccounts';
 import { useSessionSkills } from '../useSkills';
 import { mergeAttachments, splitAttachments, withAttachments } from '../todos';
@@ -125,8 +124,6 @@ import { BoxPlace, offersResume, SessionAgent } from './SessionAgent';
 import { placeIcon } from './StartControls';
 import { ContextMeter } from './ContextMeter';
 import { dialogUp } from './focusTrap';
-import { HandoffStrip } from './HandoffStrip';
-import { useEscape } from './useDismiss';
 import { SESSION_SIDES, SideStrip, type SideWindowCan } from './SideStrip';
 import { SlashList, type SlashOption } from './SlashList';
 import { chordedReply, SuggestedPicks, SuggestedReplies, SuggestionNote, useNoteOpen, type Denies, type PickHow } from './SuggestedReplies';
@@ -269,12 +266,10 @@ interface ComposerProps {
   /** The window is worked from the keyboard and says its keys on a strip (SessionPanel.tsx
    *  `QueueStrip`), so the box's foot says the box's own keys too when it has nothing else to say. */
   sayKeys?: boolean;
-  /** The accounts it can move or hand off to: its account chip switches into a staged handoff
-   *  right in the box (HandoffStrip.tsx). */
+  /** The accounts it can move or hand off to: its account selector lists all their models, and
+   *  picking one opens the quick confirmation dialog (`onMove`, MoveAccount.tsx). */
   moves?: AccountMoves;
-  staged?: StagedHandoff | null;
-  onStaged?: (next: StagedHandoff | null) => void;
-  stageNonce?: number;
+  onMove?: (to: string, model?: string | null, modelLabel?: string | null) => void;
   /** What its panel offers above the box, with the replies suggested for it: a snooze until the
    *  time its last reply says the work goes on (SnoozeSuggestion.tsx). Not over a side
    *  conversation's box. */
@@ -389,7 +384,7 @@ function land(key: string, note: Note): boolean {
   return true;
 }
 
-function Composer({ session: s, terminal, autoFocus, onlyAside = false, waiting, onSending, onSent, onFailed, onNext, onAsked, keyed = false, onAllow, onDeny, onDenySaying, asked = false, runIn, runsUnder = false, sayKeys = false, moves, staged, onStaged, stageNonce, above }: ComposerProps) {
+function Composer({ session: s, terminal, autoFocus, onlyAside = false, waiting, onSending, onSent, onFailed, onNext, onAsked, keyed = false, onAllow, onDeny, onDenySaying, asked = false, runIn, runsUnder = false, sayKeys = false, moves, onMove, above }: ComposerProps) {
   // A side conversation shows above the box, in this window and every other, so the box is its.
   const aside = useAside(s.key) || onlyAside;
   // Out in a window of its own, where what's asked of it here shows.
@@ -444,47 +439,7 @@ function Composer({ session: s, terminal, autoFocus, onlyAside = false, waiting,
   const resumeHow = resuming ? resumeIn(resuming) : null;
   const resumePlace = resumeHow ? resuming?.places.find((p) => p.place === resumeHow.place) : undefined;
   const resumeWhere = resumeHow && { place: resumeHow.place, behind: !!resumePlace?.behind };
-  const stagedTarget = !aside && staged && moves ? (moves.targets.find((t) => t.account === staged.account) ?? null) : null;
-  const stagedAccount = stagedTarget ? allAccounts.find((a) => a.name === stagedTarget.account && a.harness === stagedTarget.harness) : undefined;
-  const stagedPlaces = stagedAccount?.places ?? [];
-  const stagedPlaceNow: StartPlace | null = stagedTarget
-    ? staged!.place && stagedPlaces.some((p) => p.place === staged!.place)
-      ? staged!.place
-      : (stagedAccount?.chosen ?? stagedPlaces[0]?.place ?? null)
-    : null;
-  const stagedTakesModel = stagedPlaceNow ? placeTakesModel(stagedPlaceNow, false) : true;
-  const stagedPlaceObj = stagedPlaceNow ? stagedPlaces.find((p) => p.place === stagedPlaceNow) : undefined;
-  const stagedNative =
-    !!stagedTarget &&
-    isNativeMove(stagedTarget, {
-      keep: staged!.keep || undefined,
-      place: staged!.place ?? undefined,
-      model: stagedTakesModel && staged!.model ? staged!.model : undefined,
-      effort: stagedTakesModel && staged!.effort ? staged!.effort : undefined,
-      prompt: text.trim() || undefined,
-    });
-  const place = stagedTarget
-    ? stagedNative
-      ? { icon: placeIcon(s.attachCommand != null ? 'background' : 'terminal'), label: s.attachCommand != null ? 'Background' : terminal, title: `Moves into ${s.attachCommand != null ? 'a background job' : `a new ${terminal} tab`}` }
-      : { icon: placeIcon(stagedPlaceNow ?? 'terminal'), label: stagedPlaceObj?.label ?? terminal, title: `Starts under ${stagedTarget.account} in ${stagedPlaceObj?.label ?? terminal}` }
-    : boxPlace(s, terminal, way, resumeHow && resumePlace ? { place: resumeHow.place, label: resumePlace.label } : null);
-  useEscape(() => onStaged?.(null), !!stagedTarget);
-  useEffect(() => {
-    if (stageNonce && stagedTarget) box.current?.focus();
-  }, [stageNonce, stagedTarget]);
-  const stageTarget = (acct: string, model: string | null) => {
-    const keep = staged?.keep ?? false;
-    const same = staged?.account === acct;
-    onStaged?.({ account: acct, model, effort: same ? staged.effort : null, place: same ? staged.place : null, keep });
-  };
-  const confirmHandoff = () => {
-    if (!stagedTarget || !staged || !moves) return;
-    const promptText = withAttachments(text.trim(), attached);
-    const opts = handoffSubmitOptions(stagedTarget, staged, promptText, stagedTakesModel);
-    onStaged?.(null);
-    if (promptText) clearBox();
-    moves.run(stagedTarget.account, opts);
-  };
+  const place = boxPlace(s, terminal, way, resumeHow && resumePlace ? { place: resumeHow.place, label: resumePlace.label } : null);
   // A running one says what model and effort it's on, beside Send, and where Codealong can switch
   // them (SessionAgent.tsx): one it runs (loaded or unloaded, since acp::switch picks it up
   // again), or one whose terminal or background job's box it types into, by its harness's
@@ -1005,14 +960,14 @@ function Composer({ session: s, terminal, autoFocus, onlyAside = false, waiting,
   }, [suggesting, chordsNow]);
   // With nothing in the box, the button stops a turn that can be stopped; with something, it
   // sends, the turn taking the message in as it works. Not while the box is the side
-  // conversation's or a move/handoff is staged.
-  const stopButton = canStop && empty && !aside && !stagedTarget;
+  // conversation's: what's done there leaves the session's turn alone.
+  const stopButton = canStop && empty && !aside;
   // Escape and ⌘. stopping a turn are said in the placeholder only where keys show all the time.
   const keysAlways = useKeysAlways();
   // Into the turn it's taking at once, where it can be reached that way.
-  const canSendNow = !!s.steerable && !waiting && !aside && !stagedTarget;
+  const canSendNow = !!s.steerable && !waiting && !aside;
   const said = (text: string, keys = false, keysOnly = keys): BoxSays => ({ text, error: false, keys, keysOnly });
-  const keys = stagedTarget ? '' : hint(waiting, !!onNext, !!onAllow, canSendNow, denies, !empty, !!suggested && !text);
+  const keys = hint(waiting, !!onNext, !!onAllow, canSendNow, denies, !empty, !!suggested && !text);
   const says: BoxSays | null = stopsAgain
     ? { text: 'Esc again stops its turn', error: false, keys: false, attn: true }
     : note?.error
@@ -1071,32 +1026,18 @@ function Composer({ session: s, terminal, autoFocus, onlyAside = false, waiting,
         ref={field}
         className="ca-composer-field"
         onMouseDown={(e) => {
-          // A press anywhere in the box but its buttons, its menus and the handoff bar puts the cursor in it.
-          if ((e.target as Element).closest('button, textarea, .ca-picker, .ca-handoff-bar')) return;
+          // A press anywhere in the box but its buttons and its menus puts the cursor in it.
+          if ((e.target as Element).closest('button, textarea, .ca-picker')) return;
           e.preventDefault();
           box.current?.focus();
         }}
       >
-        {stagedTarget && staged && moves && (
-          <HandoffStrip
-            session={s}
-            target={stagedTarget}
-            terminal={terminal}
-            goesOn={moves.goesOn}
-            staged={staged}
-            effectivePlace={stagedPlaceNow}
-            takesModel={stagedTakesModel}
-            prompt={text}
-            onToggleKeep={(keep) => onStaged?.({ ...staged, keep })}
-            onCancel={() => onStaged?.(null)}
-          />
-        )}
         {attached.length > 0 && <AttachmentStrip items={attached} onRemove={(a) => setAttached(attachedNow.current.filter((x) => x.path !== a.path))} />}
         <BoxText
           ref={box}
           value={text}
           lines={LINES}
-          hint={stagedTarget && staged ? handoffPlaceholder(stagedTarget, staged.keep) : aside ? 'Ask on the side' : denies === 'question' ? `Or decline it, and write to ${s.account} instead` : denies ? `Or deny it, and tell ${s.account} what to do instead` : replyPlaceholder(s, terminal, way, resumeWhere) + (canStop && keysAlways ? keysIn(' · esc twice or ⌘. stops its turn') : '')}
+          hint={aside ? 'Ask on the side' : denies === 'question' ? `Or decline it, and write to ${s.account} instead` : denies ? `Or deny it, and tell ${s.account} what to do instead` : replyPlaceholder(s, terminal, way, resumeWhere) + (canStop && keysAlways ? keysIn(' · esc twice or ⌘. stops its turn') : '')}
           onChange={(e) => {
             setText(e.target.value);
             setCaret(e.target.selectionStart);
@@ -1138,21 +1079,6 @@ function Composer({ session: s, terminal, autoFocus, onlyAside = false, waiting,
                 return;
               }
             }
-            // While a move/handoff is staged, Escape cancels it and ⏎ confirms it (never allowing,
-            // denying or stopping the original session's turn behind it).
-            if (stagedTarget) {
-              if (e.key === 'Escape' && !e.nativeEvent.isComposing) {
-                e.preventDefault();
-                e.stopPropagation();
-                onStaged?.(null);
-                return;
-              }
-              if (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing) {
-                e.preventDefault();
-                confirmHandoff();
-                return;
-              }
-            }
             // While its turn can be stopped, a second Escape stops it, and the first keeps the
             // keyboard here (the window's Escape skips a key taken), saying so. One held down
             // repeats, which is still one press.
@@ -1181,7 +1107,7 @@ function Composer({ session: s, terminal, autoFocus, onlyAside = false, waiting,
             }
             // ⌘⌫ with nothing written denies the call it waits on; with words, it deletes them as
             // it does in any box.
-            if (chordPressed('Cmd+Backspace', e) && onDeny && !aside && !stagedTarget && empty) {
+            if (chordPressed('Cmd+Backspace', e) && onDeny && !aside && empty) {
               e.preventDefault();
               onDeny();
               return;
@@ -1238,15 +1164,15 @@ function Composer({ session: s, terminal, autoFocus, onlyAside = false, waiting,
               in a narrow box, where the note gets only what's left between. */}
           {!saying?.attn && (
             <div className="ca-composer-tools ca-composer-who">
-              {/* The mode it runs in now; a side conversation's copy and a staged handoff have modes of their own. */}
-              {!aside && !stagedTarget && (switchesMode ? <ModeMenu mode={mode} modes={modes} disabled={switching} onPick={switchMode} onDone={() => box.current?.focus()} /> : s.live && s.mode && <ModeLabel mode={s.mode} small />)}
+              {/* The mode it runs in now; a side conversation's copy has a mode of its own. */}
+              {switchesMode && !aside ? <ModeMenu mode={mode} modes={modes} disabled={switching} onPick={switchMode} onDone={() => box.current?.focus()} /> : s.live && s.mode && !aside && <ModeLabel mode={s.mode} small />}
               {!aside && <BoxPlace {...place} />}
             </div>
           )}
           {/* A line of keys shows where keys do (keysShown.ts). */}
           {saying && <OneLine className={cx('ca-composer-note', saying.error && 'is-error', saying.attn && 'is-attn', saying.keysOnly && 'ca-keyhint')} role="status" text={saying.text} />}
           <div className="ca-composer-buttons">
-            {!aside && !stagedTarget && <ContextMeter session={s} />}
+            {!aside && <ContextMeter session={s} />}
             {/* A side conversation's copy runs on the session's account, model and effort: said, not picked. */}
             {aside ? (
               <SessionAgent session={s} account={account} onDone={() => box.current?.focus()} />
@@ -1269,8 +1195,7 @@ function Composer({ session: s, terminal, autoFocus, onlyAside = false, waiting,
                     : null
                 }
                 moves={moves}
-                handoff={stagedTarget && staged ? { staged, target: stagedTarget, account: stagedAccount, onChange: (next) => onStaged?.(next) } : null}
-                onStage={moves ? stageTarget : undefined}
+                onMove={onMove}
                 onDone={() => box.current?.focus()}
               />
             )}
@@ -1281,11 +1206,7 @@ function Composer({ session: s, terminal, autoFocus, onlyAside = false, waiting,
                 <Icon name="bolt" size={14} stroke={2} />
               </button>
             )}
-            {stagedTarget && staged ? (
-              <button type="button" className="ca-composer-confirm" title={keysIn(`${handoffActionLabel(stagedTarget.account, staged.keep)} (⏎)`)} onClick={confirmHandoff}>
-                {handoffActionLabel(stagedTarget.account, staged.keep)}
-              </button>
-            ) : stopButton ? (
+            {stopButton ? (
               <button type="button" className="ca-composer-send is-stop" aria-label={stopping ? 'Stopping' : 'Stop'} title={keysIn('Stop its turn (⌘., or esc twice)')} disabled={stopping} onClick={stop}>
                 <Icon name="player-stop" size={12} stroke={2} />
               </button>
@@ -1931,10 +1852,9 @@ export interface ReplyProps {
   /** The box says its own keys too, where the window says its keys on a strip
    *  (`ComposerProps.sayKeys`). */
   sayKeys?: boolean;
-  /** Its account is a menu of the accounts it can move or hand off to (`ComposerProps.moves`). */
+  /** Its account selector lists other accounts' models (`ComposerProps.moves`). */
   moves?: AccountMoves;
-  /** External request (e.g. header Move… button) to stage a move/handoff in the reply box. */
-  stageMove?: { to: string | null; nonce: number } | null;
+  onMove?: (to: string, model?: string | null, modelLabel?: string | null) => void;
   /** What its panel offers above the box (`ComposerProps.above`). */
   above?: ReactNode;
 }
@@ -1954,29 +1874,19 @@ export function SideReply({ session, terminal, inWindow }: { session: Session; t
 /** The bottom of a session's panel: what it waits on you for, if anything, its side conversation
  *  while it has one, and the box that sends it a message. The box is the same one throughout, so
  *  it keeps what's in it as the session starts and stops waiting. */
-export function Reply({ session, terminal, deviceName, runIn, runsUnder, onOpen, autoFocus, keys, onSending, onSent, onFailed, onAnswered, onNext, onAsked, sayKeys, moves, stageMove, above }: ReplyProps) {
+export function Reply({ session, terminal, deviceName, runIn, runsUnder, onOpen, autoFocus, keys, onSending, onSent, onFailed, onAnswered, onNext, onAsked, sayKeys, moves, onMove, above }: ReplyProps) {
   const waiting = !takesReply(session);
   // What the box's ⌘⏎ and ⌘⌫ do, once there's a call to answer here.
   const [call, setCall] = useState<CallKeys | null>(null);
   const takeKeys = useCallback((keys: CallKeys | null) => setCall(keys), []);
   const callKeys = waiting ? call : null;
-  const [stagedState, setStagedState] = useState<{ key: string; handoff: StagedHandoff } | null>(null);
-  const staged = stagedState?.key === session.key ? stagedState.handoff : null;
-  const setStaged = useCallback((next: StagedHandoff | null) => setStagedState(next ? { key: session.key, handoff: next } : null), [session.key]);
-  const lastStageNonce = useRef<number | undefined>(undefined);
-  useEffect(() => {
-    if (!stageMove || stageMove.nonce === lastStageNonce.current || !moves) return;
-    lastStageNonce.current = stageMove.nonce;
-    const to = stageMove.to && moves.to.includes(stageMove.to) ? stageMove.to : (moves.suggested ?? moves.to[0]);
-    if (to) setStaged({ account: to, model: null, effort: null, place: null, keep: false });
-  }, [stageMove, moves, setStaged]);
   useSideAnswer(session.key, session.sideAnswer);
   return (
     <>
-      {waiting && <Approval key={`wait:${session.key}`} session={session} terminal={terminal} deviceName={deviceName} onOpen={onOpen} onAnswered={onAnswered} keys={keys && !staged} onKeys={takeKeys} onNext={onNext} />}
+      {waiting && <Approval key={`wait:${session.key}`} session={session} terminal={terminal} deviceName={deviceName} onOpen={onOpen} onAnswered={onAnswered} keys={keys} onKeys={takeKeys} onNext={onNext} />}
       <SideStrip key={`side:${session.key}`} sideKey={session.key} words={SESSION_SIDES} />
       {/* A session Codealong runs takes a message while it waits, after its current turn. */}
-      <Composer key={`box:${session.key}`} session={session} terminal={terminal} autoFocus={autoFocus} waiting={waiting && !session.hosted} onSending={onSending} onSent={onSent} onFailed={onFailed} onNext={onNext} onAsked={onAsked} keyed={keys && !staged} onAllow={callKeys?.allow} onDeny={callKeys?.deny} onDenySaying={callKeys?.denySaying} asked={callKeys?.asked} runIn={runIn} runsUnder={runsUnder} sayKeys={sayKeys} moves={moves} staged={staged} onStaged={setStaged} stageNonce={stageMove?.nonce} above={above} />
+      <Composer key={`box:${session.key}`} session={session} terminal={terminal} autoFocus={autoFocus} waiting={waiting && !session.hosted} onSending={onSending} onSent={onSent} onFailed={onFailed} onNext={onNext} onAsked={onAsked} keyed={keys} onAllow={callKeys?.allow} onDeny={callKeys?.deny} onDenySaying={callKeys?.denySaying} asked={callKeys?.asked} runIn={runIn} runsUnder={runsUnder} sayKeys={sayKeys} moves={moves} onMove={onMove} above={above} />
     </>
   );
 }

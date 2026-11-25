@@ -1,9 +1,9 @@
-// Checks inline cross-provider session handoff in the bar's peek (handoff.ts, HandoffStrip.tsx,
-// SessionAgent.tsx, SessionReply.tsx, menus.ts): a Claude Code session offers cross-provider
-// accounts in both its right-click Move to submenu and the reply box's account chip (`Hand off
-// here`); picking one stages it directly in the conversation input with an inline confirmation
-// bar, lets you type a next-step note in the reply box itself and toggle Keep open, and confirms
-// on ⏎ or clicking Hand off without closing/archiving the original session.
+// Checks cross-provider session handoff via the all-models account selector + quick confirmation
+// modal in the bar's peek (handoff.ts, MoveAccount.tsx, SessionAgent.tsx, menus.ts): the session's
+// right-click Move to submenu lists cross-provider accounts, the reply-box account selector lists
+// all models for every eligible account, and picking a model under another provider opens the
+// quick confirmation modal explaining how moving across accounts works, with Keep original open
+// and passing the chosen model to move_session.
 //   PREVIEW_WAIT=60000 scripts/preview.sh peek '' scripts/preview/handoff-check.js
 (function () {
   var get = function (file) {
@@ -45,7 +45,7 @@
     return real.apply(this, arguments);
   };
 
-  var bar = function () { return q('.ca-handoff-bar'); };
+  var dialog = function () { return q('.ca-movedlg'); };
 
   (async function () {
     try {
@@ -59,45 +59,45 @@
       check('the session menu lists cross-provider accounts with their provider name', hasCrossMenu, labels.join(' | '));
       document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
 
-      // 2. Reply box account chip lists cross-provider targets with "Hand off here".
+      // 2. Account selector shows all models for cross-provider accounts too.
       var chip = await until(function () { return q('.ca-peek .ca-composer-buttons .ca-modelmenu-chip'); }, 5000, 'no account chip');
       chip.click();
       var menu = await until(function () { return q('.ca-peek .ca-composer-buttons .ca-modelmenu .ca-picker'); }, 3000, 'no account menu');
-      var handoffOpts = all('.ca-picker-opt', menu).filter(function (o) {
-        var t = q('.ca-picker-title', o);
-        var d = q('.ca-picker-detail', o);
-        return (t && t.textContent.trim() === 'Hand off here') || (d && d.textContent.trim() === 'Hand off here');
-      });
-      check('the account chip menu offers Hand off here for other providers', handoffOpts.length > 0, all('.ca-picker-title', menu).map(function (t) { return t.textContent; }).join(' | '));
-      handoffOpts[0].click();
+      var crossSec = all('.ca-picker-section', menu).filter(function (sec) {
+        var h = q('.ca-quick-acct-name', sec);
+        return h && h.textContent === crossTarget.name;
+      })[0];
+      var opts = crossSec ? all('.ca-picker-opt', crossSec) : [];
+      check('the account selector lists the other provider and its models', !!crossSec && opts.length > 0, crossSec ? opts.length + ' options' : 'missing section');
+      // Pick an explicit model (second option if available, else default).
+      var pickedOpt = opts[1] || opts[0];
+      var pickedModelTitle = q('.ca-picker-title', pickedOpt).textContent.trim();
+      pickedOpt.click();
 
-      // 3. Inline confirmation bar appears inside the reply box, and the chip highlights the staged target.
-      var strip = await until(bar, 3000, 'picking Hand off here showed no inline confirmation bar');
-      var textEl = q('.ca-handoff-text', strip);
-      check('inline bar describes the cross-provider handoff and archive fate', /^Move to /.test(textEl.textContent) && /closes this/.test(textEl.textContent) && /handoff brief/.test(textEl.title) && /full transcript/.test(textEl.title), textEl.textContent + ' | ' + textEl.title);
-      check('the account chip highlights the staged target', q('.ca-peek .ca-composer-buttons .ca-modelmenu-chip.is-handoff') !== null, chip.className);
-      var input = q('.ca-peek .ca-composer-field textarea');
-      check('the conversation input stays ready for an optional next-step note', !!input, 'no textarea');
+      // 3. Quick confirmation modal explains how moving across accounts works.
+      var dlg = await until(dialog, 3000, 'picking a model under another account opened no confirmation modal');
+      var title = q('.ca-dialog-head h2', dlg).textContent;
+      var lede = q('.ca-dialog-lede', dlg).textContent;
+      check('modal title names the target provider', /^Move to /.test(title), title);
+      check('lede briefly explains handoff brief, full transcript, and archive fate', /handoff brief/.test(lede) && /full transcript/.test(lede) && /closed and archived/.test(lede), lede);
+      if (opts.length > 1) check('lede names the picked model', lede.indexOf('on ' + pickedModelTitle) >= 0, lede + ' | ' + pickedModelTitle);
 
-      // 4. Typing a next-step note right into the reply box and toggling Keep open updates the bar and confirm button.
-      var setVal = Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value').set;
-      setVal.call(input, 'Finish fixing the flaky test');
-      input.dispatchEvent(new Event('input', { bubbles: true }));
-      await wait(50);
-      var keepInput = q('.ca-handoff-keep input[type="checkbox"]', strip);
-      check('inline bar has a Keep open checkbox', !!keepInput && !keepInput.checked, 'missing or checked');
+      // 4. Toggling Keep original open updates title, lede, and primary button.
+      var keepInput = q('.ca-movedlg-keep input[type="checkbox"]', dlg);
+      check('modal offers Keep original open toggle', !!keepInput && !keepInput.checked, 'missing or checked');
       keepInput.click();
-      await until(function () { return /keeps this open/.test(q('.ca-handoff-text', strip).textContent); }, 2000, 'bar did not switch to Keep open');
-      var go = q('.ca-composer-confirm');
-      check('keeping open updates bar copy and confirm button', /^Hand off to /.test(q('.ca-handoff-text', strip).textContent) && go && /^Hand off to /.test(go.textContent), q('.ca-handoff-text', strip).textContent + ' | ' + (go ? go.textContent : 'no button'));
+      await until(function () { return q('.ca-dialog-head h2', dlg).textContent === 'Hand off to another account'; }, 2000, 'title did not update for Keep original open');
+      lede = q('.ca-dialog-lede', dlg).textContent;
+      var go = q('.ca-btn--primary', dlg);
+      check('Keep original open updates lede and primary button', /this session stays open\./.test(lede) && go && go.textContent === 'Hand off to ' + crossTarget.name, lede + ' | ' + (go ? go.textContent : 'no button'));
 
-      // 5. Pressing Enter in the conversation input confirms with keep: true and the typed prompt without hiding the peek.
+      // 5. Confirming passes account, model, and keep: true without closing the peek.
       var hidesBefore = calls('peek_hide').length;
-      input.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true }));
-      await until(function () { return calls('move_session').length > 0; }, 3000, 'pressing Enter asked for no move_session');
+      go.click();
+      await until(function () { return calls('move_session').length > 0; }, 3000, 'confirming asked for no move_session');
       var asked = calls('move_session')[0][1];
-      check('move_session receives keep: true and the typed next-step prompt', asked.key === key && asked.keep === true && asked.prompt === 'Finish fixing the flaky test', JSON.stringify(asked));
-      await until(function () { return !bar(); }, 3000, 'inline bar stayed up after Hand off');
+      check('move_session receives target account, keep: true, and chosen model', asked.key === key && asked.account === crossTarget.name && asked.keep === true && (opts.length <= 1 || !!asked.model), JSON.stringify(asked));
+      await until(function () { return !dialog(); }, 3000, 'modal stayed up after confirm');
       await wait(150);
       check('keeping the session open leaves the peek open rather than hiding it', calls('peek_hide').length === hidesBefore, String(calls('peek_hide').length - hidesBefore));
     } catch (e) {

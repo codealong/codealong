@@ -12,16 +12,15 @@
 // - Not running, what it goes on with (start.ts `resumeChoice`): its account's own model or one
 //   of its models, the effort, and where it goes on, as a row under them; the box's placeholder
 //   says what sending does then, and the send asks for it.
-// - Any other signed-in account on this Mac (same harness or cross-provider), with its own models
-//   and default: picking another account stages a move or handoff right in the reply box
-//   (HandoffStrip.tsx), where the chip shows the staged target and lets you adjust its model,
-//   effort, and where it opens before confirming.
+// - Every other signed-in account on this Mac (same harness or cross-provider), each listing its
+//   default and models as the agent menu does: picking any model under another account opens a
+//   quick confirmation modal (MoveAccount.tsx `MoveDialog`) explaining how moving across accounts
+//   works before moving or handing off.
 // With none of that, the chip only says the account, model and effort.
 
-import type { MoveTarget, StagedHandoff } from '../handoff';
 import { HARNESS_WORD } from '../harness';
 import type { AccountMoves } from '../menus';
-import { agentId, agentOptions, effortStep, modelName, parseAgent, placeTakesModel, resumeAccount, takesModel, type ChosenStart, type ResumePicks } from '../start';
+import { agentId, agentOptions, agentOptionWords, effortStep, modelName, parseAgent, placeTakesModel, resumeAccount, takesModel, type ChosenStart, type ResumePicks } from '../start';
 import type { Session, StartAccount, StartPlace } from '../types';
 import { AgentFoot } from './AgentMenu';
 import { BoxMenu } from './ModelMenu';
@@ -49,36 +48,23 @@ export interface ResumeSwitch {
   onPicks: (picks: ResumePicks) => void;
 }
 
-/** A move or handoff staged on the reply box for another account or provider. */
-export interface HandoffSwitch {
-  staged: StagedHandoff;
-  target: MoveTarget;
-  account: StartAccount | undefined;
-  onChange: (next: StagedHandoff | null) => void;
-}
-
 interface SessionAgentProps {
   session: Session;
   /** Its account, as start options list it, when they're read. */
   account: StartAccount | undefined;
-  /** Every startable account on the session's device, for target accounts' models and places. */
+  /** Every startable account on this Mac, so other accounts list all their models here too. */
   accounts?: StartAccount[];
   live?: LiveSwitch | null;
   resume?: ResumeSwitch | null;
-  /** The accounts it can move or hand off to. */
+  /** The accounts it can move or hand off to, and opening the quick confirmation dialog. */
   moves?: AccountMoves | null;
-  /** Active staged move/handoff in the reply box, when switched to another account. */
-  handoff?: HandoffSwitch | null;
-  /** Stages a move/handoff to `account` (with optional `model`) right in the reply box. */
-  onStage?: (account: string, model: string | null) => void;
+  onMove?: (to: string, model?: string | null, modelLabel?: string | null) => void;
   onDone: () => void;
 }
 
 /** A line that moves or hands off to another account: `:move:<account>` or `:move:<account>|<model>`,
  *  which no agent id can be, an account's name being letters, numbers, dots, dashes and underscores. */
 const MOVE = ':move:';
-/** A line that cancels a staged move and returns to the session's own account. */
-const STAY = ':stay:';
 
 /** Parses a move/handoff picker option id into its target account and optional model, or null for
  *  a line of the session's own account. */
@@ -106,58 +92,24 @@ export function offersResume(chosen: ChosenStart | null): chosen is ChosenStart 
   return !!chosen && (chosen.places.length > 1 || chosen.takesAModel);
 }
 
-export function SessionAgent({ session: s, account, accounts = [], live, resume, moves, handoff, onStage, onDone }: SessionAgentProps) {
+export function SessionAgent({ session: s, account, accounts = [], live, resume, moves, onMove, onDone }: SessionAgentProps) {
   const resumed = resume && account ? resumeAccount(account) : null;
   const a = resumed ?? account;
   const models = a?.models ?? [];
   const efforts = a?.efforts ?? [];
-
-  // Target account's config when a move/handoff is staged.
-  const ha = handoff?.account;
-  const hPlaces = ha?.places ?? [];
-  const hPlaceNow: StartPlace | null = handoff
-    ? handoff.staged.place && hPlaces.some((p) => p.place === handoff.staged.place)
-      ? handoff.staged.place
-      : (ha?.chosen ?? hPlaces[0]?.place ?? null)
-    : null;
-  const hTakesModel = hPlaceNow ? placeTakesModel(hPlaceNow, false) : true;
-  const hModels = ha?.models ?? [];
-  const hEfforts = ha?.efforts ?? [];
-
-  // What the chip displays: staged target when switching accounts, else the session's own.
-  const model = handoff
-    ? hTakesModel
-      ? handoff.staged.model
-        ? modelName(handoff.staged.model, hModels)
-        : ha?.defaultModel
-          ? modelName(ha.defaultModel, hModels)
-          : null
-      : null
-    : resume
-      ? resume.chosen.modelShown
-      : s.model
-        ? modelName(s.model, models)
-        : null;
-  const effort = handoff ? (hTakesModel ? handoff.staged.effort : null) : resume ? resume.chosen.effortNow : (s.effort ?? null);
+  // What it's on, or goes on with.
+  const model = resume ? resume.chosen.modelShown : s.model ? modelName(s.model, models) : null;
+  const effort = resume ? resume.chosen.effortNow : (s.effort ?? null);
   const detail = [model, effort].filter(Boolean).join(' · ') || null;
-  const label = <span className="ca-account-name">{handoff ? `→ ${handoff.staged.account}` : s.account}</span>;
-  const title = handoff ? `Switching to ${handoff.staged.account} (${HARNESS_WORD[handoff.target.harness]})` : `${s.account} (${HARNESS_WORD[s.harness]})`;
+  const label = <span className="ca-account-name">{s.account}</span>;
+  const title = `${s.account} (${HARNESS_WORD[s.harness]})`;
 
   // Its own account's lines.
   const own: PickerOption[] = [];
-  let value: string | null = handoff ? `${MOVE}${handoff.staged.account}|${handoff.staged.model ?? ''}` : null;
-  if (handoff) {
-    own.push({
-      id: STAY,
-      text: `${s.account} ${HARNESS_WORD[s.harness]} stay cancel`,
-      label: `Stay on ${s.account}`,
-      detail: 'Cancel move',
-      lead: <span className="ca-picker-check" />,
-    });
-  }
+  let value: string | null = null;
   if (resume && a && resume.chosen.takesAModel) {
-    if (!handoff) value = resume.chosen.agentNow ?? agentId(a.name, null);
-    own.push(...agentOptions([a], models, null).map((o) => agentLine(o, a, models, handoff ? null : value)));
+    value = resume.chosen.agentNow ?? agentId(a.name, null);
+    own.push(...agentOptions([a], models, null).map((o) => agentLine(o, a, models, value)));
   } else if (live?.switches && a) {
     // Only a model by its name: the account's own isn't one `/model` takes.
     own.push(
@@ -169,80 +121,51 @@ export function SessionAgent({ session: s, account, accounts = [], live, resume,
 
   const sections: PickerSection[] = [];
   if (own.length > 0) sections.push({ key: s.account, head: <AccountHead name={s.account} detail={HARNESS_WORD[s.harness]} meters={null} note="Its account" now={0} />, options: own });
-  for (const t of moves && onStage ? moves.targets : []) {
+  for (const t of moves && onMove ? moves.targets : []) {
     const ta = accounts.find((x) => x.name === t.account && x.harness === t.harness);
     const tModels = ta && takesModel(ta) ? (ta.models ?? []) : [];
-    const actionWord = t.native ? 'Move it here' : 'Hand off here';
-    const defId = `${MOVE}${t.account}|`;
-    const isDef = value === defId;
     const opts: PickerOption[] = [];
-    if (tModels.length > 0) {
-      const defLabel = ta?.defaultModel ? `Default · ${modelName(ta.defaultModel, tModels)}` : 'Default';
+    if (ta && tModels.length > 0) {
+      const def = agentOptionWords({ model: null }, ta, tModels);
       opts.push({
-        id: defId,
-        text: `${t.account} ${HARNESS_WORD[t.harness]} default ${defLabel} move handoff`,
-        label: defLabel,
-        detail: actionWord,
-        lead: <span className="ca-picker-check">{isDef ? <Icon name="check" size={14} /> : null}</span>,
+        id: `${MOVE}${t.account}|`,
+        text: `${def.text} move handoff`,
+        label: def.label,
+        detail: def.detail ?? undefined,
+        lead: <span className="ca-picker-check" />,
       });
       for (const m of tModels) {
-        const mid = `${MOVE}${t.account}|${m.id}`;
+        const said = agentOptionWords({ model: m.id }, ta, tModels);
         opts.push({
-          id: mid,
-          text: `${t.account} ${HARNESS_WORD[t.harness]} ${m.label} ${m.id} move handoff`,
-          label: m.label,
-          detail: actionWord,
-          lead: <span className="ca-picker-check">{value === mid ? <Icon name="check" size={14} /> : null}</span>,
+          id: `${MOVE}${t.account}|${m.id}`,
+          text: `${said.text} move handoff`,
+          label: said.label,
+          detail: said.detail ?? undefined,
+          lead: <span className="ca-picker-check" />,
         });
       }
     } else {
+      const said = ta ? agentOptionWords({ model: null }, ta, []) : null;
       opts.push({
-        id: defId,
+        id: `${MOVE}${t.account}|`,
         text: `${t.account} ${HARNESS_WORD[t.harness]} move handoff`,
-        label: actionWord,
-        detail: t.native ? 'Closes & archives this' : 'With handoff brief',
-        lead: <span className="ca-picker-check">{isDef ? <Icon name="check" size={14} /> : null}</span>,
+        label: said?.label ?? (t.native ? 'Move it here' : t.account),
+        detail: said?.detail ?? (t.native ? 'Move to this account' : 'Move with handoff brief'),
+        lead: <span className="ca-picker-check" />,
       });
     }
+    const note = t.account === moves?.suggested ? 'Has room · Moves session' : 'Moves session';
     sections.push({
       key: t.account,
-      head: <AccountHead name={t.account} detail={HARNESS_WORD[t.harness]} meters={null} note={t.account === moves?.suggested ? 'Has room' : ''} now={0} />,
+      head: <AccountHead name={t.account} detail={HARNESS_WORD[t.harness]} meters={null} note={note} now={0} />,
       options: opts,
     });
   }
 
-  // Footer rows under the picker: staged target's effort & place when switching accounts, else the
-  // session's own resume/live effort & place.
+  // The rows under the lines: a running one's level, its own not among them, a pick switching it
+  // and done with the menu; one that isn't running, the effort and where it goes on.
   const pickPlace = (place: StartPlace) => resume?.onPicks({ ...resume.picks, place, agent: placeTakesModel(place, true) ? resume.picks.agent : null });
-  const pickHandoffPlace = (place: StartPlace) => {
-    if (!handoff) return;
-    const keepsModel = placeTakesModel(place, false);
-    handoff.onChange({
-      ...handoff.staged,
-      place,
-      model: keepsModel ? handoff.staged.model : null,
-      effort: keepsModel ? handoff.staged.effort : null,
-    });
-  };
-  const foot = handoff ? (
-    ha && (hEfforts.length > 0 || hPlaces.length > 1) ? (
-      <AgentFoot
-        effort={
-          hEfforts.length > 0
-            ? {
-                efforts: hEfforts.map((e) => ({ id: e.id, label: e.id })),
-                value: handoff.staged.effort,
-                onPick: (e) => handoff.onChange({ ...handoff.staged, effort: e }),
-                harness: ha.harness,
-                model: handoff.staged.model ?? ha.defaultModel,
-                takesEffort: hTakesModel,
-              }
-            : null
-        }
-        place={{ places: hPlaces, value: hPlaceNow, onPick: pickHandoffPlace }}
-      />
-    ) : null
-  ) : resume ? (
+  const foot = resume ? (
     <AgentFoot
       // The levels as the chip says them (`xhigh`).
       effort={efforts.length > 0 && a ? { efforts: efforts.map((e) => ({ id: e.id, label: e.id })), value: resume.picks.effort, onPick: (e) => resume.onPicks({ ...resume.picks, effort: e }), harness: a.harness, model: resume.chosen.effortModel } : null}
@@ -265,7 +188,7 @@ export function SessionAgent({ session: s, account, accounts = [], live, resume,
       />
     )
   ) : null;
-  const hasFoot = handoff ? !!foot : resume ? efforts.length > 0 || resume.chosen.places.length > 1 : !!foot;
+  const hasFoot = resume ? efforts.length > 0 || resume.chosen.places.length > 1 : !!foot;
 
   if (sections.length === 0 && !hasFoot) {
     return (
@@ -275,19 +198,10 @@ export function SessionAgent({ session: s, account, accounts = [], live, resume,
       </span>
     );
   }
-  const what = handoff
-    ? 'Staged move or handoff; pick another account, model, effort or place, or stay on this session'
-    : live
-      ? live.busy
-        ? `Its account; its model and effort can be switched ${live.busy}`
-        : live.nextTurn
-          ? 'Its account, and its model and effort from its next turn'
-          : 'Its account, model and effort, for this session alone'
-      : 'Its account, and the model, effort and place it goes on with';
+  const what = live ? (live.busy ? `Its account; its model and effort can be switched ${live.busy}` : live.nextTurn ? 'Its account, and its model and effort from its next turn' : 'Its account, model and effort, for this session alone') : 'Its account, and the model, effort and place it goes on with';
   return (
     <BoxMenu
       kind="model"
-      chipClass={handoff ? 'is-handoff' : undefined}
       sections={sections}
       value={value}
       icon={undefined}
@@ -296,24 +210,15 @@ export function SessionAgent({ session: s, account, accounts = [], live, resume,
       title={`${title}. ${what}`}
       placeholder="Account or model"
       foot={foot}
-      onStep={
-        handoff && hEfforts.length > 0
-          ? (delta) => handoff.onChange({ ...handoff.staged, effort: effortStep(hEfforts, handoff.staged.effort, delta) })
-          : resume && efforts.length > 0
-            ? (delta) => resume.onPicks({ ...resume.picks, effort: effortStep(efforts, resume.picks.effort, delta) })
-            : undefined
-      }
+      onStep={resume && efforts.length > 0 ? (delta) => resume.onPicks({ ...resume.picks, effort: effortStep(efforts, resume.picks.effort, delta) }) : undefined}
       onPick={(id) => {
-        if (id === STAY) {
-          handoff?.onChange(null);
-          return;
-        }
         const mv = parseMovePick(id);
         if (mv !== null) {
-          onStage?.(mv.account, mv.model);
+          const ta = accounts.find((x) => x.name === mv.account);
+          const ml = mv.model ? modelName(mv.model, ta?.models ?? []) : null;
+          onMove?.(mv.account, mv.model, ml);
           return;
         }
-        if (handoff) handoff.onChange(null);
         const { model: picked } = parseAgent(id);
         if (resume) {
           // A model is asked for on the command line or of Codealong's adapter, so a place that

@@ -1,0 +1,21 @@
+/* Moving or handing off a session to another account (MoveAccount.tsx): quick confirmation modal. */
+
+.ca-dialog.ca-movedlg {
+  width: min(460px, 100%);
+}
+.ca-movedlg-to {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  margin: 0 var(--space-5) var(--space-4);
+  font: var(--type-meta-strong);
+  color: var(--ink-2);
+}
+.ca-movedlg-to .ca-segctl {
+  flex-wrap: wrap;
+}
+.ca-movedlg-keep {
+  font: var(--type-meta-strong);
+  color: var(--ink-2);
+}
