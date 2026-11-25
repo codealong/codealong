@@ -1,12 +1,11 @@
 // Experimental session themes (`[experimental] session_themes`): collision-free, emblem-aware
-// per-session colors and generative backdrop vibes for headers, conversation backgrounds and
-// optionally Sessions list rows.
+// multi-color curated chords and grainy mesh backdrop styles for session windows and optionally
+// Sessions list rows.
 //
-// Palette hues are curated in OKLCH to stay calm and readable in both light and dark themes and to
-// stay clear of Codealong's semantic amber (needs you) and bright red (errors). Assignment is
-// deterministic and collision-free per project: active sessions claim their emblem's preferred hue
-// (or a stable hash of their key) when free, and otherwise the nearest free hue so colors never
-// jump as sessions update. Helpers inherit their parent's color family.
+// Each theme is a 4-color chord hand-tuned separately for light and dark themes (warm + cool
+// tension, never flat monochrome, clear of Codealong's semantic amber and alarm red). Assignment
+// is deterministic and collision-free per project: active sessions claim their emblem's matching
+// mood when free, or the closest free chord on the wheel so colors stay stable as sessions update.
 
 import type { CSSProperties } from 'react';
 import { imageUrl } from './api';
@@ -15,34 +14,43 @@ import { readStored, textByName, writeStored, type Codec } from './stored';
 import type { Emblem } from './types';
 
 export type SessionColorId =
-  | 'slate'
-  | 'cobalt'
-  | 'indigo'
-  | 'plum'
-  | 'orchid'
-  | 'rose'
-  | 'clay'
-  | 'olive'
-  | 'sage'
-  | 'pine'
-  | 'teal'
-  | 'sky';
+  | 'dusk'
+  | 'alabaster'
+  | 'aurora'
+  | 'kyoto'
+  | 'coastal'
+  | 'botanical'
+  | 'blossom'
+  | 'glacier'
+  | 'terracotta'
+  | 'twilight'
+  | 'meadow'
+  | 'silver';
 
-export type SessionThemeVibe = 'wash' | 'mesh' | 'topo' | 'arcs' | 'dots' | 'waves' | 'emblem';
+export type SessionThemeVibe = 'grain-mesh' | 'horizon' | 'velvet' | 'prism' | 'paper';
 
-export type SessionThemeSurface = 'header' | 'full';
+export type SessionThemeSurface = 'full' | 'header';
 
 export type SessionThemeIntensity = 'subtle' | 'medium' | 'vivid';
+
+export interface ChordStopSet {
+  /** Subtle tinted ground behind the mesh stops. */
+  base: string;
+  /** Four harmonized mesh control-node colors. */
+  stops: readonly [string, string, string, string];
+  /** Primary accent used for swatch dots, list rails, and subtle borders. */
+  accent: string;
+  /** Secondary accent for dual-tone swatch dots and list rails. */
+  accent2: string;
+}
 
 export interface SessionThemeColor {
   id: SessionColorId;
   label: string;
-  /** Primary OKLCH hue in degrees. */
+  /** Representative hue in degrees for nearest-hue matching (emblem images & collision spread). */
   hue: number;
-  /** Harmonious companion OKLCH hue for gradients and multi-tone patterns. */
-  hue2: number;
-  /** Chroma multiplier so desaturated hues (slate) and richer hues balance evenly. */
-  chroma: number;
+  light: ChordStopSet;
+  dark: ChordStopSet;
 }
 
 export interface SessionThemePrefs {
@@ -54,29 +62,222 @@ export interface SessionThemePrefs {
 
 export interface AssignedSessionTheme {
   color: SessionThemeColor;
-  /** Where the color came from: picked by hand, matched from the session's emblem, inherited from
+  /** Where the chord came from: picked by hand, matched from the session's emblem, inherited from
    *  its parent helper session, or chosen automatically to avoid collisions. */
   source: 'picked' | 'emblem' | 'inherited' | 'auto';
-  /** Stable 32-bit seed for deterministic pattern geometry. */
+  /** Stable 32-bit seed for deterministic mesh warping and glow positions. */
   seed: number;
-  /** Drawn emblem picture URL when available (used by the ambient art vibe). */
+  /** Drawn emblem picture URL when available. */
   emblemImage: string | null;
 }
 
-/** Curated OKLCH families, avoiding amber (65–95°) and alarm red (18–30°). */
+/** Twelve hand-tuned 4-color chords for light and dark themes, with warm/cool tension and clear
+ *  separation from Codealong's semantic amber (needs you) and bright red (errors). */
 export const SESSION_PALETTE: readonly SessionThemeColor[] = [
-  { id: 'sky', label: 'Cerulean', hue: 222, hue2: 244, chroma: 0.92 },
-  { id: 'cobalt', label: 'Cobalt', hue: 256, hue2: 280, chroma: 0.96 },
-  { id: 'indigo', label: 'Indigo', hue: 282, hue2: 306, chroma: 0.95 },
-  { id: 'plum', label: 'Plum', hue: 308, hue2: 332, chroma: 0.9 },
-  { id: 'orchid', label: 'Orchid', hue: 336, hue2: 312, chroma: 0.88 },
-  { id: 'rose', label: 'Dusty rose', hue: 358, hue2: 336, chroma: 0.84 },
-  { id: 'clay', label: 'Terracotta', hue: 44, hue2: 26, chroma: 0.86 },
-  { id: 'olive', label: 'Moss', hue: 122, hue2: 146, chroma: 0.84 },
-  { id: 'sage', label: 'Sage', hue: 152, hue2: 176, chroma: 0.9 },
-  { id: 'pine', label: 'Pine', hue: 174, hue2: 196, chroma: 0.92 },
-  { id: 'teal', label: 'Sea glass', hue: 198, hue2: 220, chroma: 0.92 },
-  { id: 'slate', label: 'Slate', hue: 238, hue2: 214, chroma: 0.48 },
+  {
+    id: 'dusk',
+    label: 'Velvet Dusk',
+    hue: 278,
+    light: {
+      base: '#f6f4fa',
+      stops: ['#c8bef4', '#efc2d4', '#b4d2f4', '#f2d6c8'],
+      accent: '#7159c6',
+      accent2: '#c46489',
+    },
+    dark: {
+      base: '#12131b',
+      stops: ['#4e46a8', '#9e466e', '#2d5c9c', '#885148'],
+      accent: '#9c8df2',
+      accent2: '#e288ad',
+    },
+  },
+  {
+    id: 'aurora',
+    label: 'Nordic Aurora',
+    hue: 186,
+    light: {
+      base: '#f3f8f8',
+      stops: ['#9fdfd2', '#c8bcf5', '#a6d2f4', '#b9e7d6'],
+      accent: '#1e8682',
+      accent2: '#7562c9',
+    },
+    dark: {
+      base: '#0f161a',
+      stops: ['#1d7d7a', '#5d47a8', '#22659a', '#26785f'],
+      accent: '#5ad1c9',
+      accent2: '#a493f2',
+    },
+  },
+  {
+    id: 'alabaster',
+    label: 'Warm Alabaster',
+    hue: 138,
+    light: {
+      base: '#f8f6f1',
+      stops: ['#e8d1ba', '#bdded0', '#d5e0c2', '#efdfcc'],
+      accent: '#3e846a',
+      accent2: '#a87c54',
+    },
+    dark: {
+      base: '#141514',
+      stops: ['#7d5d3f', '#2c6b58', '#4c6943', '#674e3b'],
+      accent: '#75c4a6',
+      accent2: '#cfa47a',
+    },
+  },
+  {
+    id: 'kyoto',
+    label: 'Kyoto Mist',
+    hue: 306,
+    light: {
+      base: '#f7f5f8',
+      stops: ['#d9bce8', '#b2ded5', '#eddac7', '#c5c7f3'],
+      accent: '#8a58ad',
+      accent2: '#398b7f',
+    },
+    dark: {
+      base: '#15131a',
+      stops: ['#784591', '#2a7268', '#7d5c45', '#4c5196'],
+      accent: '#c592e6',
+      accent2: '#6bc4b7',
+    },
+  },
+  {
+    id: 'coastal',
+    label: 'Coastal Fog',
+    hue: 214,
+    light: {
+      base: '#f3f6fa',
+      stops: ['#adc9e8', '#efcad3', '#b1dde2', '#c7d4ea'],
+      accent: '#3b73ad',
+      accent2: '#b8687f',
+    },
+    dark: {
+      base: '#10151b',
+      stops: ['#2c598a', '#8c4b62', '#266b7a', '#3b4e78'],
+      accent: '#78b2eb',
+      accent2: '#d98da4',
+    },
+  },
+  {
+    id: 'botanical',
+    label: 'Botanical Dew',
+    hue: 154,
+    light: {
+      base: '#f3f8f4',
+      stops: ['#aedec0', '#b5d6f0', '#d2e2b5', '#b3e1d4'],
+      accent: '#2c8456',
+      accent2: '#467eb0',
+    },
+    dark: {
+      base: '#0f1713',
+      stops: ['#2a744e', '#2b5e8a', '#4e7036', '#246e66'],
+      accent: '#66c993',
+      accent2: '#75b1e3',
+    },
+  },
+  {
+    id: 'blossom',
+    label: 'Orchid Mist',
+    hue: 334,
+    light: {
+      base: '#f9f5f8',
+      stops: ['#ebb8df', '#bcc6f6', '#f4c2c8', '#d3bff2'],
+      accent: '#b44d98',
+      accent2: '#5f6fd4',
+    },
+    dark: {
+      base: '#18131a',
+      stops: ['#944382', '#4554a6', '#994858', '#6b4799'],
+      accent: '#e68acf',
+      accent2: '#8fa0f5',
+    },
+  },
+  {
+    id: 'glacier',
+    label: 'Glacier Prism',
+    hue: 202,
+    light: {
+      base: '#f2f7fb',
+      stops: ['#a4d2f5', '#b0e5d7', '#d0c2f4', '#bed6ee'],
+      accent: '#247bb5',
+      accent2: '#339482',
+    },
+    dark: {
+      base: '#0f151c',
+      stops: ['#22679e', '#237c6c', '#5b489c', '#33597d'],
+      accent: '#68b9f0',
+      accent2: '#66cfb9',
+    },
+  },
+  {
+    id: 'terracotta',
+    label: 'Desert Clay',
+    hue: 40,
+    light: {
+      base: '#f9f5f2',
+      stops: ['#efbfae', '#dcc2dd', '#edd6bc', '#c4ded2'],
+      accent: '#b45f46',
+      accent2: '#895f8d',
+    },
+    dark: {
+      base: '#191413',
+      stops: ['#96503b', '#734873', '#805f40', '#326658'],
+      accent: '#e0957d',
+      accent2: '#bd8ebf',
+    },
+  },
+  {
+    id: 'twilight',
+    label: 'Cobalt Twilight',
+    hue: 252,
+    light: {
+      base: '#f3f5fb',
+      stops: ['#b1c5f7', '#a8deea', '#e3bbdd', '#bfc0f5'],
+      accent: '#4060c4',
+      accent2: '#9c5694',
+    },
+    dark: {
+      base: '#0f121d',
+      stops: ['#3054ab', '#1f738a', '#82427a', '#4a43a3'],
+      accent: '#829ff5',
+      accent2: '#d48ac9',
+    },
+  },
+  {
+    id: 'meadow',
+    label: 'Moss & Linen',
+    hue: 118,
+    light: {
+      base: '#f6f7f2',
+      stops: ['#cddab0', '#e9d6be', '#b8dbd8', '#c6d1df'],
+      accent: '#5e7e36',
+      accent2: '#3a8480',
+    },
+    dark: {
+      base: '#131612',
+      stops: ['#566e35', '#755b3c', '#2c6b68', '#43556b'],
+      accent: '#9dc06b',
+      accent2: '#6fc0ba',
+    },
+  },
+  {
+    id: 'silver',
+    label: 'Graphite Silk',
+    hue: 234,
+    light: {
+      base: '#f5f6f8',
+      stops: ['#c4cedd', '#cccde9', '#e2dbd3', '#bed9de'],
+      accent: '#5a6b84',
+      accent2: '#6b6799',
+    },
+    dark: {
+      base: '#131519',
+      stops: ['#455368', '#52507f', '#645b51', '#346169'],
+      accent: '#93a6c2',
+      accent2: '#a4a1d4',
+    },
+  },
 ] as const;
 
 export const PALETTE_BY_ID: Record<SessionColorId, SessionThemeColor> = Object.fromEntries(
@@ -84,29 +285,27 @@ export const PALETTE_BY_ID: Record<SessionColorId, SessionThemeColor> = Object.f
 ) as Record<SessionColorId, SessionThemeColor>;
 
 export const SESSION_VIBES: readonly { id: SessionThemeVibe; label: string; says: string }[] = [
-  { id: 'mesh', label: 'Aurora', says: 'Soft overlapping OKLCH color glows that fade cleanly into the surface.' },
-  { id: 'topo', label: 'Topo', says: 'Fine topographic contour rings unique to each session.' },
-  { id: 'arcs', label: 'Arcs', says: 'Architectural concentric arcs and hairline orbits.' },
-  { id: 'waves', label: 'Waves', says: 'Flowing harmonic silk ribbons curving across the backdrop.' },
-  { id: 'dots', label: 'Halftone', says: 'Subtle risograph dot-wave texture with gentle print warmth.' },
-  { id: 'emblem', label: 'Ambient art', says: 'Soft blurred bloom from the session’s drawn emblem, or painterly dual-tone art.' },
-  { id: 'wash', label: 'Soft tint', says: 'Quiet tonal color wash with no pattern.' },
+  { id: 'grain-mesh', label: 'Grainy Mesh', says: 'Domain-warped 4-color mesh with fine analog film grain flowing seamlessly across the window.' },
+  { id: 'horizon', label: 'Horizon Glow', says: 'Velvety multi-color light bloom spilling down from the top edge, fading cleanly into neutral ground.' },
+  { id: 'velvet', label: 'Corner Bloom', says: 'Opposing soft ambient glows tucked into the corners with micro-grain, keeping the reading column pure.' },
+  { id: 'prism', label: 'Frosted Prism', says: 'Sweeping blurred color ribbons with translucent frosted surfaces so the palette breathes through.' },
+  { id: 'paper', label: 'Editorial Paper', says: 'Low-saturation atmospheric gradient with tactile fine-tooth paper grain for calm reading.' },
 ] as const;
 
 export const SESSION_SURFACES: readonly { id: SessionThemeSurface; label: string; says: string }[] = [
-  { id: 'header', label: 'Header only', says: 'Color and texture live in the session header and fade into clean neutral ground for the conversation.' },
-  { id: 'full', label: 'Header + thread', says: 'Extends a restrained ambient tint and corner motif behind the conversation while keeping text and code crisp.' },
+  { id: 'full', label: 'Whole panel', says: 'Seamless atmosphere behind both the header and conversation with no harsh seam between them.' },
+  { id: 'header', label: 'Header only', says: 'Confines the mesh to the session header while leaving the conversation on plain neutral ground.' },
 ] as const;
 
 export const SESSION_INTENSITIES: readonly { id: SessionThemeIntensity; label: string; scale: number }[] = [
   { id: 'subtle', label: 'Subtle', scale: 0.65 },
   { id: 'medium', label: 'Medium', scale: 1.0 },
-  { id: 'vivid', label: 'Vivid', scale: 1.45 },
+  { id: 'vivid', label: 'Vivid', scale: 1.4 },
 ] as const;
 
 export const DEFAULT_PREFS: SessionThemePrefs = {
-  vibe: 'mesh',
-  surface: 'header',
+  vibe: 'grain-mesh',
+  surface: 'full',
   intensity: 'medium',
   listRows: false,
 };
@@ -138,7 +337,7 @@ const prefsCodec: Codec<SessionThemePrefs> = {
   format: (v) => JSON.stringify(v),
 };
 
-/** Deterministic FNV-1a 32-bit hash for stable seeds and fallback hue picks. */
+/** Deterministic FNV-1a 32-bit hash for stable seeds and fallback chord picks. */
 export function hashString(input: string): number {
   let h = 0x811c9dc5;
   for (let i = 0; i < input.length; i++) {
@@ -165,13 +364,12 @@ export function hueDistance(a: number, b: number): number {
   return d > 180 ? 360 - d : d;
 }
 
-/** Closest curated palette family to an arbitrary hue angle (e.g. sampled from a drawn emblem). */
+/** Closest curated chord to an arbitrary hue angle (e.g. sampled from a drawn emblem). */
 export function nearestPaletteColor(hueDeg: number): SessionColorId {
   let best = SESSION_PALETTE[0];
   let bestDist = Infinity;
   for (const c of SESSION_PALETTE) {
-    // Skip low-chroma slate when matching vivid hues unless nothing else is close.
-    const penalty = c.id === 'slate' ? 18 : 0;
+    const penalty = c.id === 'silver' ? 18 : 0;
     const d = hueDistance(hueDeg, c.hue) + penalty;
     if (d < bestDist) {
       bestDist = d;
@@ -181,24 +379,24 @@ export function nearestPaletteColor(hueDeg: number): SessionColorId {
   return best.id;
 }
 
-// Emblem name/emoji keywords mapped to curated color families so a session's default palette
+// Emblem name/emoji keywords mapped to curated multi-color moods so a session's default palette
 // harmonizes with its emoji or drawn emblem subject.
 const EMBLEM_HINTS: readonly [SessionColorId, readonly string[]][] = [
-  ['sage', ['bug', 'test-tube', 'leaf', 'leaves', 'plant', 'cactus', 'tree', 'dinosaur', 'dino', 'frog', 'clover', 'sprout', 'garden', 'checkmark', 'chart-up', 'money-bag', '🐛', '🧪', '🌿', '🌵', '🌳', '🦕', '🦖', '🐸', '🍀', '🌱', '✅', '📈', '💰']],
-  ['pine', ['forest', 'pine', 'turtle', 'snake', 'emerald', 'bamboo', 'fern', 'broccoli', 'moss', '🐊', '🐢', '🌲', '🎋', '🦎']],
-  ['olive', ['avocado', 'olive', 'kiwi', 'pear', 'compass', 'map', 'backpack', 'tent', 'owl', 'acorn', '🧭', '🗺', '🏕', '🦉', '🍐', '🥝']],
-  ['teal', ['ocean', 'wave', 'whale', 'dolphin', 'fish', 'water', 'drop', 'ice', 'anchor', 'sailboat', 'plug', 'link', 'hook', 'microscope', '🌊', '🐳', '🐬', '🐟', '💧', '🧊', '⚓', '⛵', '🔌', '🔗', '🪝', '🔬']],
-  ['sky', ['cloud', 'sky', 'bird', 'feather', 'wind', 'snowflake', 'plane', 'paper-plane', 'globe', 'satellite', 'speech', 'mailbox', 'envelope', '☁', '🐦', '✈', '🌐', '📡', '💬', '📬', '✉', '💎']],
-  ['cobalt', ['whale', 'shark', 'shield', 'passport', 'lock', 'detective', 'magnifier', 'books', 'book', 'calendar', 'credit-card', 'bar-chart', '🛡', '🛂', '🔒', '🕵', '🔍', '📚', '📖', '📅', '💳', '📊']],
-  ['indigo', ['rocket', 'space', 'planet', 'moon', 'star', 'sparkles', 'crystal-ball', 'telescope', 'night', 'galaxy', 'comet', 'alien', '🚀', '🪐', '🌙', '✨', '🔮', '🔭', '🌌', '👾', '☄']],
-  ['plum', ['brain', 'octopus', 'jellyfish', 'grape', 'eggplant', 'umbrella', 'magic', 'wand', 'puzzle', 'dice', 'music', 'movie', '🧠', '🐙', '🍇', '☂', '🧩', '🎲', '🎵', '🎬', '🔮']],
-  ['orchid', ['palette', 'paintbrush', 'flower', 'blossom', 'hibiscus', 'butterfly', 'flamingo', 'unicorn', 'ribbon', 'gift', 'megaphone', '🎨', '🖌', '🌸', '🌺', '🦋', '🦩', '🦄', '🎀', '🎁', '📣']],
-  ['rose', ['ladybug', 'strawberry', 'cherry', 'heart', 'rose', 'tulip', 'crayon', 'microphone', 'bell', 'heart', '🐞', '🍓', '🍒', '🌹', '🌷', '🖍', '🎤', '🔔', '🎈']],
-  ['clay', ['fire', 'fox', 'crab', 'brick', 'package', 'hammer', 'wrench', 'toolbox', 'construction', 'coffee', 'bread', 'orange', 'pumpkin', 'volcano', 'tiger', 'lion', '🔥', '🦊', '🦀', '🧱', '📦', '🔨', '🔧', '🧰', '🚧', '☕', '🍊', '🎃', '🦁']],
-  ['slate', ['gear', 'robot', 'nut-bolt', 'key', 'old-key', 'clipboard', 'memo', 'pencil', 'newspaper', 'receipt', 'abacus', 'stopwatch', 'hourglass', 'alarm-clock', 'bank', 'camera', 'frame', 'chain', '⚙', '🤖', '🔩', '🔑', '🗝', '📋', '📝', '✏', '📰', '🧾', '🧮', '⏱', '⏳', '⏰', '🏦', '📸', '🖼', '⛓']],
+  ['botanical', ['bug', 'test-tube', 'leaf', 'leaves', 'plant', 'cactus', 'tree', 'dinosaur', 'dino', 'frog', 'clover', 'sprout', 'garden', 'checkmark', 'chart-up', 'money-bag', 'forest', 'pine', 'turtle', '🐛', '🧪', '🌿', '🌵', '🌳', '🦕', '🦖', '🐸', '🍀', '🌱', '✅', '📈', '💰', '🌲', '🐢']],
+  ['meadow', ['avocado', 'olive', 'kiwi', 'pear', 'tent', 'owl', 'acorn', 'moss', 'bamboo', '🏕', '🦉', '🍐', '🥝', '🎋']],
+  ['alabaster', ['compass', 'map', 'book', 'books', 'memo', 'scroll', 'sand', 'linen', 'coffee', 'bread', '🧭', '🗺', '📖', '📚', '📝', '☕']],
+  ['aurora', ['ocean', 'wave', 'whale', 'dolphin', 'fish', 'water', 'plug', 'link', 'hook', 'microscope', '🌊', '🐳', '🐬', '🐟', '🔌', '🔗', '🪝', '🔬']],
+  ['glacier', ['ice', 'snowflake', 'cloud', 'sky', 'bird', 'feather', 'wind', 'plane', 'globe', 'satellite', 'speech', 'mailbox', 'envelope', '💧', '🧊', '☁', '🐦', '✈', '🌐', '📡', '💬', '📬', '✉', '💎']],
+  ['coastal', ['anchor', 'sailboat', 'shield', 'passport', 'lock', 'detective', 'magnifier', 'calendar', 'bar-chart', '⚓', '⛵', '🛡', '🛂', '🔒', '🕵', '🔍', '📅', '📊']],
+  ['twilight', ['credit-card', 'night', 'galaxy', 'telescope', 'planet', 'comet', 'alien', '💳', '🌌', '🔭', '🪐', '☄', '👾']],
+  ['dusk', ['rocket', 'space', 'moon', 'star', 'sparkles', 'crystal-ball', '🚀', '🌙', '✨', '🔮']],
+  ['kyoto', ['brain', 'octopus', 'jellyfish', 'grape', 'umbrella', 'magic', 'puzzle', 'dice', 'music', 'movie', '🧠', '🐙', '🍇', '☂', '🧩', '🎲', '🎵', '🎬']],
+  ['blossom', ['palette', 'paintbrush', 'flower', 'blossom', 'hibiscus', 'butterfly', 'flamingo', 'unicorn', 'ribbon', 'gift', 'megaphone', 'ladybug', 'strawberry', 'rose', 'tulip', 'crayon', 'microphone', 'bell', '🎨', '🖌', '🌸', '🌺', '🦋', '🦩', '🦄', '🎀', '🎁', '📣', '🐞', '🍓', '🌹', '🌷', '🖍', '🎤', '🔔']],
+  ['terracotta', ['fire', 'fox', 'crab', 'brick', 'package', 'hammer', 'wrench', 'toolbox', 'construction', 'orange', 'pumpkin', 'volcano', 'tiger', 'lion', '🔥', '🦊', '🦀', '🧱', '📦', '🔨', '🔧', '🧰', '🚧', '🍊', '🎃', '🦁']],
+  ['silver', ['gear', 'robot', 'nut-bolt', 'key', 'old-key', 'clipboard', 'pencil', 'newspaper', 'receipt', 'abacus', 'stopwatch', 'hourglass', 'alarm-clock', 'bank', 'camera', 'frame', 'chain', '⚙', '🤖', '🔩', '🔑', '🗝', '📋', '✏', '📰', '🧾', '🧮', '⏱', '⏳', '⏰', '🏦', '📸', '🖼', '⛓']],
 ];
 
-/** Infers a natural curated color from an emblem's emoji or subject name, when recognizable. */
+/** Infers a natural curated chord from an emblem's emoji or subject name, when recognizable. */
 export function emblemPreferredColor(emblem?: Emblem | null): SessionColorId | null {
   if (!emblem) return null;
   const emoji = emblem.emoji?.trim() ?? '';
@@ -218,19 +416,19 @@ export interface SessionColorInput {
   project: string;
   startedAt: number;
   emblem?: Emblem;
-  /** Parent session key for helpers so they inherit their parent's color family. */
+  /** Parent session key for helpers so they inherit their parent's chord. */
   helperOf?: string | null;
   archived?: boolean;
 }
 
 /**
- * Assigns a deterministic, collision-free color to every session on the board.
+ * Assigns a deterministic, collision-free multi-color chord to every session on the board.
  *
- * Within each project, manual picks reserve their color first. Active top-level sessions are then
+ * Within each project, manual picks reserve their chord first. Active top-level sessions are then
  * assigned in stable creation order (`startedAt`, then `key`), taking their emblem-derived or
- * hashed preferred color when free, or the closest unused color on the wheel so active sessions
+ * hashed preferred chord when free, or the closest unused chord on the wheel so active sessions
  * side by side read apart without shuffling when status or activity changes. Helpers inherit their
- * parent's color family when the parent is present.
+ * parent's chord when the parent is present.
  */
 export function assignSessionColors(
   sessions: readonly SessionColorInput[],
@@ -272,8 +470,6 @@ export function assignSessionColors(
       }
     }
 
-    // Active sessions claim free slots first, in stable creation order; archived sessions follow
-    // without blocking active ones from getting their preferred hue.
     autoTop.sort((a, b) => {
       if (!!a.archived !== !!b.archived) return a.archived ? 1 : -1;
       return (a.startedAt || 0) - (b.startedAt || 0) || a.key.localeCompare(b.key);
@@ -311,7 +507,6 @@ export function assignSessionColors(
       });
     }
 
-    // Helpers inherit their parent's color and pattern motif (with a slight seed offset).
     for (const h of helpers) {
       const parent = h.helperOf ? result.get(h.helperOf) : undefined;
       if (parent) {
@@ -336,13 +531,24 @@ export function assignSessionColors(
   return result;
 }
 
-/** CSS custom properties that drive a themed surface (header, conversation, or list row). */
+/** CSS custom properties exposing the chord's light + dark stops and intensity scale. */
 export function themeCssVars(color: SessionThemeColor, intensity: SessionThemeIntensity): CSSProperties {
   const scale = SESSION_INTENSITIES.find((i) => i.id === intensity)?.scale ?? 1;
   return {
-    '--st-h': String(color.hue),
-    '--st-h2': String(color.hue2),
-    '--st-c': String(color.chroma),
+    '--st-l-base': color.light.base,
+    '--st-l-1': color.light.stops[0],
+    '--st-l-2': color.light.stops[1],
+    '--st-l-3': color.light.stops[2],
+    '--st-l-4': color.light.stops[3],
+    '--st-l-accent': color.light.accent,
+    '--st-l-accent2': color.light.accent2,
+    '--st-d-base': color.dark.base,
+    '--st-d-1': color.dark.stops[0],
+    '--st-d-2': color.dark.stops[1],
+    '--st-d-3': color.dark.stops[2],
+    '--st-d-4': color.dark.stops[3],
+    '--st-d-accent': color.dark.accent,
+    '--st-d-accent2': color.dark.accent2,
     '--st-scale': String(scale),
   } as CSSProperties;
 }
@@ -386,4 +592,3 @@ export function writeColorPick(sessionKey: string, color: SessionColorId | null)
   writeStored(PICKS_KEY, textByName, next);
   notifyAll();
 }
-

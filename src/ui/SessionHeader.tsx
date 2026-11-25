@@ -529,7 +529,7 @@ export function SessionHeader({ lane, session: s, apps, now, onOpen, onShowLane,
 
   return (
     <header className={cx('ca-sessinsp-head', theme && 'ca-st-head')} onContextMenu={headerMenu(onMenu && (() => onMenu()))}>
-      {theme && <SessionBackdrop theme={theme.assigned} vibe={theme.prefs.vibe} intensity={theme.prefs.intensity} place="header" working={s.status === 'working'} />}
+      {theme && theme.prefs.surface === 'header' && <SessionBackdrop theme={theme.assigned} vibe={theme.prefs.vibe} intensity={theme.prefs.intensity} place="header" working={s.status === 'working'} />}
       {back && <PanelBack back={back} />}
       {lineage?.from && <KinRow kin={lineage.from} now={now} parent onShow={onShowSession} onMenu={onSessionMenu} />}
       {!lineage?.from && s.helper?.pr && <ReviewOf pr={s.helper.pr} yours={!!s.helper.yours} prs={prs} onOpenPr={onOpenPr} />}

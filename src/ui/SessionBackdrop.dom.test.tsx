@@ -1,8 +1,7 @@
 // @vitest-environment jsdom
 // DOM tests for SessionBackdrop, SessionThemePicker and SessionThemeProvider:
-// renders nothing when the experiment is off, renders each vibe with deterministic SVG/DOM
-// layers when on, lets you pick a color or switch vibes from the header popover, and updates
-// Sessions list rows when opted in.
+// renders nothing when the experiment is off, renders each of the 5 grainy mesh vibes cleanly when
+// on, lets you pick a chord or switch vibes from the header popover, and restores Auto matching.
 
 import { describe, expect, it, beforeEach } from 'vitest';
 import { createRoot } from 'react-dom/client';
@@ -50,7 +49,7 @@ function Probe({ session }: { session: Session }) {
   if (!theme) return <div data-testid="off">off</div>;
   return (
     <div data-testid="on" data-color={theme.assigned.color.id} data-vibe={theme.prefs.vibe} data-surface={theme.prefs.surface}>
-      <SessionBackdrop theme={theme.assigned} vibe={theme.prefs.vibe} intensity={theme.prefs.intensity} place="header" working={session.status === 'working'} />
+      <SessionBackdrop theme={theme.assigned} vibe={theme.prefs.vibe} intensity={theme.prefs.intensity} place="panel" working={session.status === 'working'} />
       <SessionThemePicker theme={theme} />
     </div>
   );
@@ -87,7 +86,7 @@ describe('SessionThemeProvider and SessionBackdrop', () => {
     view.unmount();
   });
 
-  it('renders every vibe cleanly and lets the header picker change color and vibe live', () => {
+  it('renders every grainy mesh vibe cleanly and lets the header picker change chord and vibe live', () => {
     const s = makeSession('a', { emblem: { name: 'Rocket', emoji: '🚀' } });
     const view = mount(
       <SessionThemeProvider board={{ lanes: [makeLane([s])], experimental: { boards: false, session_themes: true } }}>
@@ -95,15 +94,15 @@ describe('SessionThemeProvider and SessionBackdrop', () => {
       </SessionThemeProvider>,
     );
     const on = () => view.el.querySelector('[data-testid="on"]') as HTMLElement;
-    expect(on().dataset.color).toBe('indigo');
-    expect(view.el.querySelector('.ca-st-layer.is-header.is-mesh')).not.toBeNull();
+    expect(on().dataset.color).toBe('dusk');
+    expect(view.el.querySelector('.ca-st-layer.is-panel.is-grain-mesh')).not.toBeNull();
 
-    // Open the header popover, pick Terracotta, and cycle through every vibe.
+    // Open the header popover, pick Desert Clay, and cycle through all 5 vibes.
     act(() => (view.el.querySelector('.ca-st-swatchbtn') as HTMLElement).click());
     expect(view.el.querySelector('.ca-st-popover')).not.toBeNull();
 
-    act(() => (view.el.querySelector('.ca-st-swatch[aria-label="Terracotta"]') as HTMLElement).click());
-    expect(on().dataset.color).toBe('clay');
+    act(() => (view.el.querySelector('.ca-st-swatch[aria-label="Desert Clay"]') as HTMLElement).click());
+    expect(on().dataset.color).toBe('terracotta');
 
     for (const v of SESSION_VIBES) {
       const btn = [...view.el.querySelectorAll('.ca-st-pill')].find((b) => b.textContent === v.label) as HTMLElement;
@@ -113,9 +112,9 @@ describe('SessionThemeProvider and SessionBackdrop', () => {
       expect(view.el.querySelector(`.ca-st-layer.is-${v.id}`)).not.toBeNull();
     }
 
-    // Switch back to Auto restores the emblem-matched Indigo color.
+    // Switch back to Auto restores the emblem-matched Velvet Dusk chord.
     act(() => (view.el.querySelector('.ca-st-auto') as HTMLElement).click());
-    expect(on().dataset.color).toBe('indigo');
+    expect(on().dataset.color).toBe('dusk');
     view.unmount();
   });
 });
