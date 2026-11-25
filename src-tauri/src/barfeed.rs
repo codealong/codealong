@@ -58,6 +58,9 @@ pub struct BarFeed {
     /// arrives (src/ahead.ts).
     pub generated_at: i64,
     pub theme: Theme,
+    /// Whether the floating bar shows what's behind it through macOS's glass (`[appearance] glass`,
+    /// glass.rs, `src/glass.ts`). Docked in the notch it stays opaque black.
+    pub glass: bool,
     /// The zoom, in percent: the session or PR the notch shows draws at it (zoom.rs).
     pub zoom: u32,
     /// Whether keyboard shortcuts show all the time (`[appearance] show_keys`, src/keysShown.ts).
@@ -384,6 +387,7 @@ pub fn feed(shown: Shown) -> BarFeed {
         loading: board.loading,
         generated_at: board.generated_at,
         theme: board.theme,
+        glass: board.glass,
         zoom: board.zoom,
         show_keys: board.show_keys,
         tools: board.tools,
@@ -907,5 +911,14 @@ mod tests {
         let f = feed(Shown::here(&b));
         assert!(f.reviews.is_empty(), "{:?}", f.reviews);
         assert_eq!(f.queue_order, vec!["needs", "due", "unread", "ready"]);
+    }
+
+    #[test]
+    fn carries_whether_glass_is_on() {
+        let mut b = board(vec![], vec![]);
+        b.glass = false;
+        assert!(!feed(Shown::here(&b)).glass);
+        b.glass = true;
+        assert!(feed(Shown::here(&b)).glass);
     }
 }

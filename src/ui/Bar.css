@@ -19,6 +19,12 @@ html.is-bar body {
   background: var(--surface-raised);
   box-shadow: var(--shadow-hud);
 }
+/* With glass on (src/glass.ts), the app puts macOS's glass under the floating pill (bar.rs
+   `fit_glass`), so the pill draws only a light tint and hairline rim over it. */
+.is-glass .ca-hud {
+  background: var(--glass-sunken);
+  box-shadow: var(--shadow-hud), var(--shadow-glass-control);
+}
 .ca-hud-mark {
   appearance: none;
   flex: none;

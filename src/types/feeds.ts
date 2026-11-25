@@ -28,6 +28,9 @@ export interface BarFeed {
    *  arrives (ahead.ts). Missing from a feed an older app sent. */
   generatedAt?: number;
   theme: Theme;
+  /** Whether the floating bar shows what's behind it through macOS's glass (`[appearance] glass`,
+   *  src/glass.ts); missing from an older app's feed. */
+  glass?: boolean;
   /** The zoom, in percent: the session or PR the notch shows draws at it (zoom.ts). */
   zoom?: number;
   /** Whether keyboard shortcuts show all the time (keysShown.ts); missing from an older app's. */

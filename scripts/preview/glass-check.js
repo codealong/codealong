@@ -18,11 +18,17 @@
 //   PREVIEW_GLASS=1 scripts/preview.sh sessions '' scripts/preview/glass-check.js
 //   PREVIEW_GLASS=1 PREVIEW_SCHEME=dark scripts/preview.sh sessions '' scripts/preview/glass-check.js
 //   PREVIEW_WAIT=60000 PREVIEW_GLASS=1 scripts/preview.sh quick '' scripts/preview/glass-check.js
+//   PREVIEW_GLASS=1 scripts/preview.sh bar '' scripts/preview/glass-check.js
+//   PREVIEW_GLASS=1 PREVIEW_SCHEME=dark scripts/preview.sh bar '' scripts/preview/glass-check.js
+//   PREVIEW_GLASS=1 PREVIEW_PLATFORM=linux scripts/preview.sh bar '' scripts/preview/glass-check.js
+//   PREVIEW_GLASS=1 scripts/preview.sh notch '' scripts/preview/glass-check.js
 //   PREVIEW_GLASS=1 PREVIEW_PLATFORM=linux scripts/preview.sh sessions '' scripts/preview/glass-check.js
 (function () {
   var linux = window.__CODEALONG_PLATFORM__ === 'linux';
-  // The quick panel's page, as its window says (quick.rs `setup`).
+  // The quick panel's and bar's pages, as their windows say (quick.rs, bar.rs).
   var quick = !!window.__CODEALONG_QUICK__;
+  var isBar = !!window.__CODEALONG_BAR__;
+  var isNotch = isBar && window.__BAR_MODE__ && window.__BAR_MODE__.mode === 'notch';
   // Before the app's script: every project's sessions, for Send to to list (quick-sendto-check.js).
   if (quick) localStorage.setItem('codealong.quick.project', 'All projects');
   // A color's opacity, as computed (rgb(), rgba()) or as the build writes a token (#rgb, #rrggbb,
@@ -32,9 +38,13 @@
     var hex = c.match(/^#([0-9a-f]{3,8})$/i);
     if (hex) return hex[1].length === 8 ? parseInt(hex[1].slice(6), 16) / 255 : hex[1].length === 4 ? parseInt(hex[1][3] + hex[1][3], 16) / 255 : 1;
     var m = c.match(/rgba?\(([^)]+)\)/);
-    if (!m) return NaN;
-    var p = m[1].split(/[\s,/]+/).filter(Boolean).map(Number);
-    return p.length > 3 ? p[3] : 1;
+    if (m) {
+      var p = m[1].split(/[\s,/]+/).filter(Boolean).map(Number);
+      return p.length > 3 ? p[3] : 1;
+    }
+    var cm = c.match(/^color\([^)]*\/\s*([\d.]+)\s*\)$/);
+    if (cm) return Number(cm[1]);
+    return /^color\(/.test(c) ? 1 : NaN;
   };
   var bg = function (el) { return getComputedStyle(el).backgroundColor; };
   // The background a control's :hover rule gives it, drawn on a probe in `place` (a :hover can't be
@@ -57,6 +67,30 @@
   };
   var token = function (el, name) { return getComputedStyle(el).getPropertyValue(name).trim(); };
   var run = async function () {
+    if (isBar) {
+      if (isNotch) {
+        await until(function () { return q('.ca-notch'); }, 20000, 'the docked notch');
+        check('the docked notch never turns on is-glass', !document.documentElement.classList.contains('is-glass'), document.documentElement.className);
+        return;
+      }
+      var hud = await until(function () { return q('.ca-hud'); }, 20000, 'the floating bar');
+      if (linux) {
+        check('Linux has no glass on the floating bar', !document.documentElement.classList.contains('is-glass') && alpha(bg(hud)) === 1, document.documentElement.className + ' | ' + bg(hud));
+        return;
+      }
+      await until(function () { return document.documentElement.classList.contains('is-glass'); }, 20000, 'is-glass on the floating bar');
+      check('the floating bar lets the glass through', alpha(bg(hud)) < 0.5, bg(hud));
+      var barSee = ['--surface-hover', '--surface-selected', '--line', '--line-strong', '--neutral-tint', '--ink-2', '--ink-3'].filter(function (t) { return !(alpha(token(hud, t)) < 1); });
+      check('the floating bar draws its hovers, lines, neutral pills and muted ink see-through', barSee.length === 0, barSee.map(function (t) { return t + ' ' + token(hud, t); }).join(', '));
+      var pills = all('.ca-hud .ca-hud-pill');
+      if (pills.length) {
+        var opaquePills = pills.filter(function (p) { var a = alpha(bg(p)); return !(a > 0 && a < 1); });
+        check('floating bar pills stay translucent over live glass', opaquePills.length === 0, opaquePills.map(function (p) { return p.className + ' ' + bg(p); }).join(', '));
+      } else note('no pills on the floating bar to inspect');
+      var barBlurred = all('body *').filter(function (el) { var cs = getComputedStyle(el); return (cs.backdropFilter || cs.webkitBackdropFilter || 'none') !== 'none'; });
+      check('nothing on the floating bar draws a blur of its own over the glass', barBlurred.length === 0, barBlurred.slice(0, 3).map(function (el) { return el.className; }).join(', '));
+      return;
+    }
     if (quick) {
       var bar = await until(function () { return q('.ca-quick-bar'); }, 20000, 'the quick panel’s bar');
       var card = q('.ca-quick');

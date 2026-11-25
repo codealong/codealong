@@ -59,6 +59,9 @@ const TRAY_EVERY: Duration = Duration::from_secs(10);
 const TRAY_TRIES: u32 = 12;
 /// The bar's size before its page has measured itself.
 const START: (f64, f64) = (240.0, 48.0);
+/// The floating pill's corner radius: half of `.ca-hud`'s 34px height (5px padding each side
+/// around 24px items in Bar.css), so macOS's glass under it matches `border-radius: var(--radius-pill)`.
+const HUD_RADIUS: f64 = 17.0;
 /// The width of the notch drawn on a screen without one: about the hardware's on a 14-inch
 /// MacBook Pro (185 points).
 const DRAWN_NOTCH_WIDTH: f64 = 180.0;
@@ -338,6 +341,7 @@ pub fn setup(app: &AppHandle) -> Result<()> {
         place_for(app, &window, mode);
         panel::show(&window);
     }
+    fit_glass(app);
     if mode == Mode::MenuBar {
         to_menu_bar(app, app.state::<Bar>().picks.pick(), TRAY_TRIES);
     }
@@ -719,8 +723,26 @@ fn show_as(app: &AppHandle, mode: Mode) {
                 panel::show(&bar);
             }
         }
+        panel::set_glass_under(&bar, glass_under(crate::glass::shown(), mode));
         let view = mode_view(&handle);
         let _ = handle.emit("bar-mode", view);
+    });
+}
+
+/// The inset and corner radius for macOS's glass under the bar: only while glass is on and the
+/// bar floats. Docked in the notch the bar is an opaque black extension of the hardware notch.
+fn glass_under(glass_on: bool, mode: Mode) -> Option<(f64, f64)> {
+    (glass_on && mode == Mode::Floating).then_some((CARD_MARGIN, HUD_RADIUS))
+}
+
+/// With glass on (glass.rs), puts macOS's glass under the floating bar's pill, and takes it off
+/// when glass turns off or the bar leaves floating mode. Called from any thread (glass.rs `follow`
+/// is the server's), it decides on the main thread.
+pub fn fit_glass(app: &AppHandle) {
+    let handle = app.clone();
+    let _ = app.run_on_main_thread(move || {
+        let Some(bar) = handle.get_webview_window(LABEL) else { return };
+        panel::set_glass_under(&bar, glass_under(crate::glass::shown(), mode_of(&handle)));
     });
 }
 
@@ -1022,5 +1044,18 @@ mod tests {
         // No further than keeps the notch on that screen.
         assert_eq!(sliding(window, screen, -1910.0, 185.0), r(-1978.0, 1198.0, 300.0, 82.0));
         assert_eq!(sliding(window, screen, 10.0, 185.0), r(-243.0, 1198.0, 300.0, 82.0));
+    }
+
+    #[test]
+    fn glass_goes_only_under_the_floating_bar_with_its_pill_corners() {
+        assert_eq!(glass_under(true, Mode::Floating), Some((CARD_MARGIN, HUD_RADIUS)));
+        for mode in [Mode::Notch, Mode::MenuBar, Mode::Off] {
+            assert_eq!(glass_under(true, mode), None, "{mode:?} stays off the floating glass");
+        }
+        assert_eq!(glass_under(false, Mode::Floating), None);
+        // The inset and radius stay in step with Bar.css and Bar.tsx (.ca-hud: 5px padding round 24px items = 34px).
+        let bar_ts = include_str!("../../src/ui/Bar.tsx");
+        assert!(bar_ts.contains(&format!("const MARGIN = {};", CARD_MARGIN as i64)));
+        assert_eq!(HUD_RADIUS, 17.0);
     }
 }
