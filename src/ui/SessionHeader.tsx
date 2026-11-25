@@ -70,7 +70,7 @@ import { PrChipCard } from './PrLink';
 import { AccountLabel, BranchLabel, Button, cx, HarnessChip, headerMenu, Icon, PanelBack, STATUS_WORD, SessionEmblem, SessionGlyph, type PanelBackTo } from './primitives';
 import { runFolder } from './RunButton';
 import { AddChip, LabelChip, TodoGlyph } from './TodoBits';
-import { SessionBackdrop, SessionThemePicker } from './SessionBackdrop';
+import { SessionBackdrop } from './SessionBackdrop';
 import { useSessionTheme } from './SessionThemeProvider';
 import { keysIn } from '../platform';
 
@@ -529,7 +529,7 @@ export function SessionHeader({ lane, session: s, apps, now, onOpen, onShowLane,
   const hasBackdrop = !!theme && (!theme.aiEnabled || !!theme.assigned.backdropImage);
 
   return (
-    <header className={cx('ca-sessinsp-head', theme && 'ca-st-head')} onContextMenu={headerMenu(onMenu && (() => onMenu()))}>
+    <header className={cx('ca-sessinsp-head', hasBackdrop && 'ca-st-head')} onContextMenu={headerMenu(onMenu && (() => onMenu()))}>
       {hasBackdrop && theme.prefs.surface === 'header' && <SessionBackdrop theme={theme.assigned} vibe={theme.prefs.vibe} intensity={theme.prefs.intensity} place="header" working={s.status === 'working'} aiOnly={theme.aiEnabled} />}
       {back && <PanelBack back={back} />}
       {lineage?.from && <KinRow kin={lineage.from} now={now} parent onShow={onShowSession} onMenu={onSessionMenu} />}
@@ -539,7 +539,6 @@ export function SessionHeader({ lane, session: s, apps, now, onOpen, onShowLane,
       {!s.orchestrator && !lineage?.from && !s.helper?.pr && schedule && <FromSchedule schedule={schedule} onShow={onShowSchedule} />}
       <div className="ca-sessinsp-top">
         <SessionGlyph s={s} size={14} />
-        {theme && <SessionThemePicker theme={theme} />}
         <SessionEmblem emblem={s.emblem} of={s.key} size={20} />
         {naming ? (
           <NameField title={s.title} onDone={onRename} />

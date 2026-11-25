@@ -1,23 +1,17 @@
-// Grainy multi-color mesh backdrop layers and live header swatch picker (src/sessionTheme.ts,
-// src/ui/meshCanvas.ts): renders five distinct atmospheric styles (`grain-mesh`, `horizon`,
-// `velvet`, `prism`, `paper`) with domain-warped 4-color chords and crisp film grain.
+// Atmospheric backdrop layer for experimental session themes (src/sessionTheme.ts,
+// src/ui/meshCanvas.ts): renders either bespoke per-session AI artwork or one of five grainy
+// multi-color mesh styles (`grain-mesh`, `horizon`, `velvet`, `prism`, `paper`).
 
-import { useEffect, useMemo, useRef, useState, type CSSProperties } from 'react';
+import { useEffect, useMemo, useState, type CSSProperties } from 'react';
 import {
   seededRandom,
-  SESSION_INTENSITIES,
-  SESSION_PALETTE,
-  SESSION_SURFACES,
-  SESSION_VIBES,
   themeCssVars,
   type AssignedSessionTheme,
   type SessionThemeIntensity,
   type SessionThemeVibe,
 } from '../sessionTheme';
 import { getGrainTileUrl, renderMeshDataUrl } from './meshCanvas';
-import { cx, Icon } from './primitives';
-import type { ActiveSessionTheme } from './SessionThemeProvider';
-import { useDismiss } from './useDismiss';
+import { cx } from './primitives';
 
 /** Tracks the active document theme (`light` or `dark`), following `data-theme` when set and
  *  otherwise `prefers-color-scheme` (matching ThemeSwitch.tsx and tokens.css). */
@@ -126,173 +120,5 @@ export function SessionBackdrop({ theme, vibe, intensity, place, working = false
       <div className="ca-st-veil" />
       <div className="ca-st-grain" />
     </div>
-  );
-}
-
-/** Compact multi-color chord & mesh-vibe popover triggered from a session's header swatch orb. */
-export function SessionThemePicker({ theme }: { theme: ActiveSessionTheme }) {
-  const [open, setOpen] = useState(false);
-  const [redrawing, setRedrawing] = useState(false);
-  const anchor = useRef<HTMLSpanElement>(null);
-  useDismiss(anchor, () => setOpen(false), { when: open });
-
-  const { assigned, aiEnabled, prefs, setPrefs, picked, pickColor, redraw } = theme;
-  useEffect(() => {
-    setRedrawing(false);
-  }, [assigned.backdrop?.picture]);
-  const sourceWord =
-    assigned.source === 'picked'
-      ? 'Picked'
-      : assigned.source === 'backdrop'
-        ? 'Matched to artwork'
-        : assigned.source === 'emblem'
-          ? 'Matched to emblem'
-          : assigned.source === 'inherited'
-            ? 'Inherited from parent'
-            : 'Auto (collision-free)';
-
-  return (
-    <span ref={anchor} className="ca-st-pick">
-      <button
-        type="button"
-        className={cx('ca-st-swatchbtn', open && 'is-open')}
-        style={themeCssVars(assigned.color, prefs.intensity, assigned.accentOverride)}
-        aria-label={`Session theme: ${assigned.color.label} (${sourceWord})`}
-        aria-expanded={open}
-        aria-haspopup="dialog"
-        title={`Session theme: ${assigned.backdrop?.name ? `${assigned.backdrop.name} · ` : ''}${assigned.color.label} · ${sourceWord}. Click to customize.`}
-        onClick={(e) => {
-          e.stopPropagation();
-          setOpen((v) => !v);
-        }}
-      >
-        <span className="ca-st-swatchdot" />
-      </button>
-      {open && (
-        <div
-          className="ca-st-popover"
-          role="dialog"
-          aria-label="Session theme"
-          onClick={(e) => e.stopPropagation()}
-        >
-          <div className="ca-st-pophead">
-            <span className="ca-st-poptitle">{assigned.color.label}</span>
-            <span className="ca-st-popmeta">{sourceWord}</span>
-          </div>
-          {(assigned.backdrop || aiEnabled) && (
-            <div className="ca-st-popai">
-              <div className="ca-st-popai-copy">
-                <span className="ca-st-poplabel">AI background</span>
-                <span className="ca-st-popai-name">
-                  {redrawing ? 'Redrawing…' : assigned.backdrop?.name || 'Drawing automatically…'}
-                </span>
-              </div>
-              <button
-                type="button"
-                className="ca-st-redraw"
-                disabled={redrawing}
-                title="Draw a fresh AI background for this session"
-                onClick={() => {
-                  setRedrawing(true);
-                  redraw();
-                }}
-              >
-                <Icon name="refresh" size={11} />
-                Redraw
-              </button>
-            </div>
-          )}
-          <div className="ca-st-swatches" role="radiogroup" aria-label="Session palette">
-            <button
-              type="button"
-              role="radio"
-              aria-checked={picked === null}
-              className={cx('ca-st-auto', picked === null && 'is-on')}
-              title="Automatic: matches the session’s emblem and avoids active collisions"
-              onClick={() => pickColor(null)}
-            >
-              Auto
-            </button>
-            {SESSION_PALETTE.map((c) => {
-              const active = picked === c.id || (picked === null && assigned.color.id === c.id);
-              return (
-                <button
-                  key={c.id}
-                  type="button"
-                  role="radio"
-                  aria-checked={picked === c.id}
-                  aria-label={c.label}
-                  title={c.label}
-                  className={cx('ca-st-swatch', picked === c.id && 'is-picked', active && 'is-active')}
-                  style={themeCssVars(c, 'medium')}
-                  onClick={() => pickColor(c.id)}
-                >
-                  {picked === c.id && <Icon name="check" size={10} stroke={2.4} />}
-                </button>
-              );
-            })}
-          </div>
-          {!aiEnabled && (
-            <div className="ca-st-popsec">
-              <span className="ca-st-poplabel">Mesh vibe</span>
-              <div className="ca-st-pills">
-                {SESSION_VIBES.map((v) => (
-                  <button
-                    key={v.id}
-                    type="button"
-                    className={cx('ca-st-pill', prefs.vibe === v.id && 'is-on')}
-                    title={v.says}
-                    onClick={() => setPrefs({ vibe: v.id })}
-                  >
-                    {v.label}
-                  </button>
-                ))}
-              </div>
-            </div>
-          )}
-          <div className="ca-st-poprow">
-            <div className="ca-st-popsec">
-              <span className="ca-st-poplabel">Surface</span>
-              <div className="ca-st-pills">
-                {SESSION_SURFACES.map((s) => (
-                  <button
-                    key={s.id}
-                    type="button"
-                    className={cx('ca-st-pill', prefs.surface === s.id && 'is-on')}
-                    title={s.says}
-                    onClick={() => setPrefs({ surface: s.id })}
-                  >
-                    {s.label}
-                  </button>
-                ))}
-              </div>
-            </div>
-            <div className="ca-st-popsec">
-              <span className="ca-st-poplabel">Strength</span>
-              <div className="ca-st-pills">
-                {SESSION_INTENSITIES.map((i) => (
-                  <button
-                    key={i.id}
-                    type="button"
-                    className={cx('ca-st-pill', prefs.intensity === i.id && 'is-on')}
-                    onClick={() => setPrefs({ intensity: i.id })}
-                  >
-                    {i.label}
-                  </button>
-                ))}
-              </div>
-            </div>
-          </div>
-          <label className="ca-st-popcheck">
-            <input
-              type="checkbox"
-              checked={prefs.listRows}
-              onChange={(e) => setPrefs({ listRows: e.target.checked })}
-            />
-            <span>Accent rows in Sessions list</span>
-          </label>
-        </div>
-      )}
-    </span>
   );
 }
