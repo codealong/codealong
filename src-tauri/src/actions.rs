@@ -22,6 +22,7 @@ use crate::peers::Peers;
 use crate::stops::Stop;
 use crate::util::{now_ms, words};
 use crate::{acp, config, harness, peerfeed, send, stops, transcript};
+mod aside;
 
 /// What only happens on the device a session runs on: another device can't ask for them, so
 /// they have names here but none in `api`.
@@ -794,7 +795,7 @@ fn pending_of(engine: &Handle, key: &str) -> Result<Option<api::Pending>, String
         return Ok(Some(crate::terminal::pending(&asked, &terminal)));
     }
     if acp::hosts(key) {
-        return Ok(acp::pending(key));
+        return aside::hosted_pending(engine, key);
     }
     let (cfg, board) = (cfg()?, engine.board());
     let (s, account) = harness::find(&board, &cfg, key).map_err(words)?;
@@ -924,7 +925,9 @@ fn answer_here(engine: &Handle, c: &Call) -> Result<Value, String> {
         return answer_run(engine, c, key, &id, answer, saying);
     }
     if acp::hosts(key) {
-        // What it asks of you there is a form (acp/forms.rs), answered with what you picked and wrote.
+        // What it asks of you there is a form (acp/forms.rs), answered with what you picked and
+        // wrote, or questions its agent asked without waiting on them (actions/aside.rs).
+        if let Some(said) = aside::answer(engine, c, key, &id, answer, answers.as_ref(), saying)? { return Ok(said) }
         if let Some(a) = &answers {
             return acp::answer_form(key, &id, a).map(Value::String).map_err(words);
         }

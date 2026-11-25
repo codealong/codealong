@@ -117,7 +117,8 @@ on 2026-09-27. Paths are under `src-tauri/src/`.
   process; its commands carry the thread's ID in `CODEX_THREAD_ID`, which is how the `codealong`
   command run there finds its session however it was run (`cli/whoami.rs` `hosted_above`). With `approvals_reviewer =
   "auto_review"` in config.toml it doesn't ask: its reviewer model decides. It can put a prompt
-  into the running turn, which Codealong doesn't use yet: the extension request
+  into the running turn, which Codealong uses only for answers to questions Codex asked without
+  waiting on them (`acp/steer.rs`, `codex/aside.rs`): the extension request
   `_session/steering {sessionId, prompt}` (`turn/steer` underneath), offered in `initialize`'s
   answer as `_meta.steering.supported` (checked 2026-10-13). Its `outcome` is `injected`,
   `failed`, or `startedNewTurn` when the turn had ended, a turn it starts itself whose end no
@@ -146,7 +147,9 @@ on 2026-09-27. Paths are under `src-tauri/src/`.
   they apply right after the running turn ends and before any queued prompt starts. See
   `.claude/rules/antigravity.md`.
 - The adapter processes, one per account and children of Codealong's server (serve.rs), their stderr logs and
-  `hosted.json`: `acp.rs` (header, `agent`, `log_path`, `remembered_path`).
+  `hosted.json`: `acp.rs` (header, `agent`, `log_path`, `remembered_path`). An adapter goes by
+  what `initialize` told it Codealong takes for as long as it runs, so a server hand-over lets
+  one told otherwise go, and it restarts (`acp/handover.rs` `take_over`, `client_capabilities`).
 - When the app quits, each adapter's input closes and codex-acp 1.13.1 interrupts the turns it
   runs: the rollout ends the turn with `turn_aborted`, `reason: "interrupted"`, as a Stop does, and
   its log has `write_stdin failed: Unknown process id …` for the commands it was running and

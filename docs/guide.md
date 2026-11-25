@@ -1095,7 +1095,14 @@ field the form can't go without keeps Answer back until it has an answer, and th
 which; an answer a field doesn't take (a word for a number, say) is refused with why, and the box
 keeps what you gave. Decline tells the agent you didn't answer, and it goes on; Stop calls the
 form off. A link an MCP server asks you to open (a sign-in) isn't shown here: it's called off, and
-so is a form with a field Codealong has no way to ask for. Another session's message that a Claude Code session holds for
+so is a form with a field Codealong has no way to ask for. In its Default mode Codex asks without
+waiting on the answer: it goes on, ends its turn, or waits in it, and the session asks you until a
+message of yours comes. In a session Codealong runs the same box answers those questions, in the
+words Codex's own apps send, into the turn it's taking while it's still at it, else as your next
+message; Decline answers each with nothing, which lets an agent waiting on you go on, and words
+you write instead are your answer. Elsewhere they show for you to read, and are answered in
+Codex's terminal or app. Your answers show in the conversation as yours, each under its question.
+Another session's message that a Claude Code session holds for
 you to allow (it skips permission prompts and the sender didn't say it does too) shows the same way,
 all of it when Codealong sent it (without the line its byline says to the agent, and with its sender
 named as a link to that session), with Deliver and Deny, pressed in its Ghostty, iTerm2, Rex, Codealong or tmux tab

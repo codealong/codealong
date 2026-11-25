@@ -7,7 +7,8 @@
 //! clean adapter's pipes (`rpc::Client::hand_over`) and serialize its sessions (including in-flight
 //! `session/prompt` request IDs, pending permission requests, queued prompts, and queued
 //! model/effort switches). Any account that can't be handed over cleanly (still mid-control-RPC,
-//! or upgraded npm adapter packages on the receiving side) is skipped and falls back to the
+//! upgraded npm adapter packages on the receiving side, or an adapter told in `initialize` what
+//! another build of Codealong takes, which it goes by for good) is skipped and falls back to the
 //! existing `hosted.json` `cut_off` + `Carry on` path.
 
 use std::collections::HashSet;
@@ -19,7 +20,7 @@ use std::time::{Duration, Instant};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
-use super::{flush_queued, hear, notify, package_stamp, resume_turn, state, stopped, Agent, Change, Claim, Hosted, Permission, State, HANDING_OVER};
+use super::{client_capabilities, flush_queued, hear, notify, package_stamp, resume_turn, state, stopped, Agent, Change, Claim, Hosted, Permission, State, HANDING_OVER};
 use crate::model::Harness;
 use crate::os::procs::Fd;
 use crate::rpc;
@@ -62,6 +63,11 @@ pub struct Handed {
     pub account: String,
     who: Option<(Harness, PathBuf)>,
     packages: Option<String>,
+    /// What Codealong told it it takes (`client_capabilities`), which it goes by while it runs
+    /// (claude-agent-acp leaves `AskUserQuestion` out of every session for a client that takes
+    /// no forms). None from a server before it was written down.
+    #[serde(default)]
+    told: Option<Value>,
     pub pid: u32,
     caps: Value,
     next_id: u64,
@@ -171,6 +177,9 @@ fn hand_over_matching(pick: impl Fn(&str) -> bool) -> Vec<Handed> {
             account: account.clone(),
             who: ag.who.clone(),
             packages: ag.packages.clone(),
+            // Every adapter this server runs was told what it says now: it started one, or took
+            // one over only when it had been told the same (`take_over`).
+            told: Some(client_capabilities()),
             pid: client.pid,
             caps: ag.caps.lock().unwrap_or_else(|e| e.into_inner()).clone(),
             next_id: client.next_id,
@@ -251,9 +260,17 @@ fn hand_over_matching(pick: impl Fn(&str) -> bool) -> Vec<Handed> {
 /// mark `load_remembered` reads from `hosted.json`. Returns how many adapters were taken over.
 pub fn take_over(handed: Vec<Handed>) -> usize {
     let expected_packages = package_stamp();
+    let told = client_capabilities();
     let mut taken = 0;
     for mut h in handed {
         if h.stdin_fd < 0 || h.stdout_fd < 0 {
+            h.close_fds();
+            let pid = h.pid;
+            std::thread::spawn(move || crate::os::pty::reap(pid));
+            continue;
+        }
+        if h.told.as_ref() != Some(&told) {
+            eprintln!("ACP adapter for {} was told another build of Codealong's capabilities; letting it restart.", h.account);
             h.close_fds();
             let pid = h.pid;
             std::thread::spawn(move || crate::os::pty::reap(pid));
@@ -537,6 +554,26 @@ cat >/dev/null
         assert_eq!(take_over(handed), 0);
         assert!(!state().agents.contains_key(account));
         // Closing its stdin causes `cat` to exit and `take_over`'s reaper reaps it.
+        assert!(wait_until(Duration::from_secs(5), || !crate::procs::pid_alive(pid)));
+    }
+
+    /// An adapter told in `initialize` what another build of Codealong takes, or handed over by a
+    /// server from before that was written down, goes by that while it runs (claude-agent-acp
+    /// leaves `AskUserQuestion` out for a client that takes no forms), so it's let go and restarts.
+    #[cfg(unix)]
+    #[test]
+    fn take_over_skips_adapter_told_other_capabilities() {
+        let account = "test-acp-told-mismatch";
+        let ag = fake_adapter(account, "cat >/dev/null");
+        let pid = ag.client.pid();
+        let mut handed = hand_over_matching(|a| a == account);
+        assert_eq!(handed.len(), 1);
+        assert_eq!(handed[0].told, Some(client_capabilities()));
+        handed[0].told = None;
+        drop(ag);
+
+        assert_eq!(take_over(handed), 0);
+        assert!(!state().agents.contains_key(account));
         assert!(wait_until(Duration::from_secs(5), || !crate::procs::pid_alive(pid)));
     }
 

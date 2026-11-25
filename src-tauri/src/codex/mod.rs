@@ -10,6 +10,7 @@
 
 mod applog;
 mod appserver;
+mod aside;
 mod asks;
 mod automations;
 mod background;
@@ -53,6 +54,8 @@ use terminals::{codex_cli, held_rollouts, TERMINAL_UI, latest_day, pair_terminal
 
 pub use appserver::trust_hook;
 pub use conversation::{conversation_items, with_images_before};
+#[cfg(test)]
+pub use aside::Aside;
 #[cfg(test)]
 pub use rollout::PendingCall;
 pub use rollout::ThreadInfo;
@@ -374,7 +377,29 @@ impl crate::harness::Adapter for Codex {
                 return Some(p);
             }
         }
-        from_hook
+        from_hook.or_else(|| self.asked_aside(ctx, s))
+    }
+
+    fn asks_aside(&self) -> bool {
+        true
+    }
+
+    /// From its rollout (aside.rs). Its terminal UI and the app show them too, and answer them
+    /// there.
+    fn asked_aside(&self, ctx: &crate::harness::Ctx, s: &crate::model::Session) -> Option<crate::harness::Pending> {
+        let (th, _) = parse_rollout(&record(self, ctx, s).ok()?, 0, None)?;
+        let cannot = match s.surface {
+            _ if s.hosted => None,
+            crate::model::Surface::Cli => Some("Codex asks in its terminal; answer it there.".to_string()),
+            _ => Some("Codex asks in its own window; answer it there.".to_string()),
+        };
+        Some(aside::pending(th.asked_aside.as_ref()?, cannot))
+    }
+
+    fn aside_reply(&self, ctx: &crate::harness::Ctx, s: &crate::model::Session, id: &str, answers: Option<&Value>) -> Option<anyhow::Result<String>> {
+        let id = id.strip_prefix(aside::ASIDE_ID)?;
+        let asked = record(self, ctx, s).ok().and_then(|p| parse_rollout(&p, 0, None)).and_then(|(th, _)| th.asked_aside).filter(|a| a.id == id);
+        Some(asked.ok_or_else(|| anyhow::anyhow!("It isn't asking that any more.")).and_then(|a| aside::reply(&a, answers)))
     }
 
     /// Its terminal UI's approval prompt, with a key (0.162.1, in tmux, 2026-10-24): `y` is
