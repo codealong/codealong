@@ -107,6 +107,17 @@ pub(super) fn start_cmd(c: &mut Client, a: &StartArgs, json: bool) -> Result<()>
             eprintln!("note: {} may run outside the boundary group {} this session is in, so what you send it leaves the group.", a.account, g.name.trim());
             a.account.clone()
         }
+        None if a.account != "auto" => {
+            if let Some(proj) = project.as_deref() {
+                let auto_name = crate::config::auto_group(&cfg, Some(proj));
+                if let Some(g) = cfg.routing.groups.iter().find(|g| g.boundary && g.name == auto_name) {
+                    if !crate::boundary::stays_inside(&cfg, g, &a.account) {
+                        eprintln!("note: {} may run outside {}, the boundary group {} defaults to.", a.account, g.name.trim(), proj);
+                    }
+                }
+            }
+            a.account.clone()
+        }
         _ => a.account.clone(),
     };
     let picked = start::pick(&cfg, board, &account, project.as_deref(), a.place.map(place_of), a.model.as_deref(), a.effort.as_deref(), a.helper, now_ms(), &crate::util::home())?;

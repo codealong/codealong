@@ -82,6 +82,8 @@ pub enum News {
     Ended,
     /// It waits on its user: what for, as the board says, when it does.
     OnUser(Option<String>),
+    /// Its account hit a usage limit (`Session::limit`), with which limit and when it resets.
+    Limited { account: String, limit: String, resets_in: Option<String> },
     /// Started in a terminal some minutes ago, it hasn't made its session yet
     /// (`origins::Pending::stuck`): its terminal likely waits on its user, on what it shows
     /// (`screen`) where that was read.
@@ -244,7 +246,14 @@ impl Reporter {
                 let news = match (was, at) {
                     (Stand::Working | Stand::OnUser(_), Stand::Still(_)) => Some(News::Ended),
                     (Stand::Still(before), Stand::Still(prompt)) if prompt > before && s.last_activity > prompt => Some(News::Ended),
-                    (was, Stand::OnUser(_)) if was != at => Some(News::OnUser(s.excerpt.clone().filter(|_| parent_reads(parent, s)))),
+                    (was, Stand::OnUser(_)) if was != at => match &s.limit {
+                        Some(lim) => Some(News::Limited {
+                            account: s.account.clone(),
+                            limit: crate::exhausted::limit_noun(lim.meter.as_deref()),
+                            resets_in: lim.resets_at.filter(|&r| r > now).map(|r| crate::exhausted::in_words(r - now)),
+                        }),
+                        None => Some(News::OnUser(s.excerpt.clone().filter(|_| parent_reads(parent, s)))),
+                    },
                     _ => None,
                 };
                 if let Some(news) = news.filter(|_| runs_here(parent)) {
@@ -266,7 +275,7 @@ impl Reporter {
             // A wait on its user answered while its news was held (gathered, or its session
             // waiting on you) is no news: it would have its session tell your user of a question
             // they've answered.
-            o.notes.retain(|_, n| !matches!(n.news, News::OnUser(_)) || matches!(seen.get(&n.helper), Some(Stand::OnUser(_))));
+            o.notes.retain(|_, n| !matches!(n.news, News::OnUser(_) | News::Limited { .. }) || matches!(seen.get(&n.helper), Some(Stand::OnUser(_))));
             // Nor is a session that hadn't shown once it has.
             o.notes.retain(|_, n| !matches!(n.news, News::Unseen { .. }) || board.session(&n.helper).is_none());
             if o.sending.is_some() || o.notes.is_empty() || now < o.next_at || waits(k) {
@@ -341,6 +350,10 @@ fn line(n: &Note) -> String {
             let what = what.as_deref().map(|w| format!(": {}", w.trim())).unwrap_or_default();
             format!("“{title}” ({key}) waits on your user{what}. They answer it in Codealong, so you may want to tell them; `codealong session wait {key} --until-done` waits on to the end of its turn.")
         }
+        News::Limited { account, limit, resets_in } => match resets_in {
+            Some(when) => format!("“{title}” ({key}) stopped at {account}'s {limit} (resets in {when}). Don't retry or start other {account} sessions until it resets; tell your user, or use another account if one is allowed."),
+            None => format!("“{title}” ({key}) stopped at {account}'s {limit}. Tell your user rather than retrying on {account}."),
+        },
         News::Unstarted { account, place, terminal, minutes, screen: None } => format!(
             "you started on {account} in {terminal} {minutes} minutes ago, in {place}, hasn't made its session yet: its terminal may be waiting on your user on a screen of its own before it starts, such as an update offer or a question about its background server. Your session shows in Codealong as waiting on them for it, and its line under your session's title shows its tab, or stops it if you no longer need it: tell them. Once it starts, you're told when its turn ends."
         ),
@@ -380,17 +393,33 @@ pub fn glance(text: &str) -> Option<crate::glance::Glance> {
     let one = |s: &str| -> Option<Part> {
         // The first place either is said that has “title” (key) before it: a key has no spaces
         // or parentheses, and a title may say either.
-        let mut ats: Vec<usize> = [") ended its turn", ") waits on your user"].iter().flat_map(|m| s.match_indices(m).map(|(at, _)| at)).collect();
+        let mut ats: Vec<usize> = [") ended its turn", ") waits on your user", ") stopped at "].iter().flat_map(|m| s.match_indices(m).map(|(at, _)| at)).collect();
         ats.sort_unstable();
-        // The key is the one the command after the news names (`codealong session wait <key>`).
-        let named = |at: usize| s[..at].strip_prefix('“')?.rsplit_once("” (").filter(|(_, key)| !key.is_empty() && !key.contains(char::is_whitespace) && s[at..].contains(&format!("codealong session wait {key}"))).map(|n| (at, n));
+        // The key is the one the command after the news names (`codealong session wait <key>`),
+        // or for a usage-limit stop a `harness:account:id` key right before `stopped at `.
+        let named = |at: usize| {
+            let limited = s[at..].starts_with(") stopped at ");
+            s[..at]
+                .strip_prefix('“')?
+                .rsplit_once("” (")
+                .filter(|(_, key)| {
+                    !key.is_empty()
+                        && !key.contains(char::is_whitespace)
+                        && if limited { key.contains(':') } else { s[at..].contains(&format!("codealong session wait {key}")) }
+                })
+                .map(|n| (at, n))
+        };
         if let Some((at, (title, key))) = ats.into_iter().find_map(named) {
-            let line = match s[at + 2..].strip_prefix("waits on your user") {
-                None => "ended its turn".to_string(),
-                Some(waits) => match waits.split(". They answer it in Codealong").next().unwrap_or("").trim_start_matches(':').trim() {
+            let rest = &s[at + 2..];
+            let line = if let Some(waits) = rest.strip_prefix("waits on your user") {
+                match waits.split(". They answer it in Codealong").next().unwrap_or("").trim_start_matches(':').trim() {
                     "" => "waits on you".to_string(),
                     said => format!("waits on you: {said}"),
-                },
+                }
+            } else if rest.starts_with("stopped at ") {
+                rest.split('.').next().unwrap_or(rest).trim().to_string()
+            } else {
+                "ended its turn".to_string()
             };
             return Some(Part { session: Some(Named { key: key.to_string(), title: title.to_string() }), line: crate::glance::cut(&line) });
         }
@@ -828,5 +857,33 @@ mod tests {
         let told = Store { unseen: ["claude:claude2:gone".to_string()].into(), ..store.clone() };
         assert!(looked().due(&told, &b, NOW + UNSEEN_MS).is_empty());
         assert_eq!(news(&Reporter::default().due(&store, &b, NOW + UNSEEN_MS + 60_000)).len(), 1);
+    }
+
+    #[test]
+    fn a_helper_stopped_at_a_usage_limit_names_the_account_limit_and_reset() {
+        let mut r = Reporter::default();
+        let helper = |status: Status, limit: Option<crate::model::SessionLimit>| Session {
+            key: "claude:claude-work:h1".into(),
+            account: "claude-work".into(),
+            limit,
+            ..rev(status, 10, 30)
+        };
+        assert!(r.due(&starts(&[]), &board(vec![boss(Status::Idle), helper(Status::Working, None)]), NOW).is_empty());
+        let lim = crate::model::SessionLimit { meter: Some("session".into()), at: NOW, resets_at: Some(NOW + 75 * 60_000), ..Default::default() };
+        let jobs = r.due(&starts(&[]), &board(vec![boss(Status::Idle), helper(Status::Error, Some(lim))]), NOW);
+        assert_eq!(news(&jobs), [(BOSS.to_string(), News::Limited { account: "claude-work".into(), limit: "5-hour limit".into(), resets_in: Some("1h 15m".into()) })]);
+        let msg = words(&jobs[0].notes);
+        assert!(msg.contains("stopped at claude-work's 5-hour limit (resets in 1h 15m)") && msg.contains("Don't retry"), "{msg}");
+        let g = glance(&msg).unwrap();
+        assert_eq!(g.parts[0].session.as_ref().map(|n| n.key.as_str()), Some("claude:claude-work:h1"));
+        assert_eq!(g.parts[0].line, "stopped at claude-work's 5-hour limit (resets in 1h 15m)");
+
+        // Without a reset time, says so without inventing one.
+        let mut r2 = Reporter::default();
+        r2.due(&starts(&[]), &board(vec![boss(Status::Idle), helper(Status::Working, None)]), NOW);
+        let lim2 = crate::model::SessionLimit { meter: None, at: NOW, resets_at: None, ..Default::default() };
+        let jobs2 = r2.due(&starts(&[]), &board(vec![boss(Status::Idle), helper(Status::Error, Some(lim2))]), NOW);
+        let msg2 = words(&jobs2[0].notes);
+        assert!(msg2.contains("stopped at claude-work's usage limit. Tell your user rather than retrying"), "{msg2}");
     }
 }

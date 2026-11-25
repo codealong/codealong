@@ -122,11 +122,14 @@ enum Cmd {
         #[command(subcommand)]
         cmd: ServerCmd,
     },
-    /// The configured accounts: harness, sign-in, and with --usage how much of each plan limit is used.
+    /// The configured accounts: harness, sign-in, with --usage how much of each plan limit is used, and with --groups the configured routing groups (`--account <group>`).
     Accounts {
         /// Read plan usage: from Codealong's server when it runs, else one call per Claude account. Don't loop it; the usage endpoint rate-limits.
         #[arg(long)]
         usage: bool,
+        /// List the configured routing groups (`[[routing.groups]]`): strategy, members, boundary flag, which projects default to each, and what each group would pick now.
+        #[arg(long)]
+        groups: bool,
     },
     /// One account: which subscription the session running this command is signed in to (`check`), for a repository's guard hook or a script deciding what the agent may reach.
     Account {
@@ -1887,7 +1890,7 @@ fn run(cmd: Cmd, c: &mut Client, json: bool) -> Result<()> {
     match cmd {
         Cmd::Status => status(c, json),
         Cmd::Server { cmd } => server_cmd(cmd, json),
-        Cmd::Accounts { usage } => accounts(c, usage, json),
+        Cmd::Accounts { usage, groups } => accounts(c, usage, groups, json),
         Cmd::Account { cmd: AccountCmd::Check { group } } => std::process::exit(account_check(group.as_deref(), json)),
         Cmd::Mcp { service, tools } => mcp(c, service.as_deref(), tools, json),
         Cmd::Tokens { days, account, by } => tokens(c, days, account.as_deref(), by, json),

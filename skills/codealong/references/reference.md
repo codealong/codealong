@@ -37,8 +37,9 @@ Commands:
                 leaves them going. The app is a view of it. launchd runs it (`codealong
                 serve`, with its output in Codealong's logs folder as server.log); a
                 command starts it when it isn't running, and so does the app as it opens
-  accounts      The configured accounts: harness, sign-in, and with --usage how much of
-                each plan limit is used
+  accounts      The configured accounts: harness, sign-in, with --usage how much of each
+                plan limit is used, and with --groups the configured routing groups
+                (`--account <group>`)
   account       One account: which subscription the session running this command is
                 signed in to (`check`), for a repository's guard hook or a script
                 deciding what the agent may reach
@@ -362,8 +363,8 @@ Options:
 ## codealong accounts
 
 ```
-The configured accounts: harness, sign-in, and with --usage how much of each plan limit
-is used
+The configured accounts: harness, sign-in, with --usage how much of each plan limit is
+used, and with --groups the configured routing groups (`--account <group>`)
 
 Usage: codealong accounts [OPTIONS]
 
@@ -374,6 +375,11 @@ Options:
       --usage
           Read plan usage: from Codealong's server when it runs, else one call per
           Claude account. Don't loop it; the usage endpoint rate-limits
+
+      --groups
+          List the configured routing groups (`[[routing.groups]]`): strategy, members,
+          boundary flag, which projects default to each, and what each group would pick
+          now
 
       --table
           Tables, even when piped
