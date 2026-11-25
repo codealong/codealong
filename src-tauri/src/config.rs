@@ -1199,6 +1199,9 @@ pub struct ExperimentalCfg {
     /// backgrounds on session headers, conversations, and optionally list rows.
     #[serde(default)]
     pub session_themes: bool,
+    /// Experiments (`experiments/`): side-by-side pinned agent trials, local review and blind judge.
+    #[serde(default)]
+    pub experiments: bool,
     /// `glass` from 0.22.0, when glass was an experiment: accepted, folded into `[appearance] glass`
     /// as the file has it (`from_text`), and never written back.
     #[serde(default, skip_serializing)]
@@ -2866,14 +2869,10 @@ pub fn with_config(text: &str, cfg: &Config) -> Result<String> {
             place_after(&mut doc, "experimental", after);
         }
         set_value(&mut doc["experimental"]["boards"], Value::from(cfg.experimental.boards));
-        if cfg.experimental.voice || doc["experimental"].get("voice").is_some() {
-            set_value(&mut doc["experimental"]["voice"], Value::from(cfg.experimental.voice));
-        }
-        if cfg.experimental.analytics || doc["experimental"].get("analytics").is_some() {
-            set_value(&mut doc["experimental"]["analytics"], Value::from(cfg.experimental.analytics));
-        }
-        if cfg.experimental.session_themes || doc["experimental"].get("session_themes").is_some() {
-            set_value(&mut doc["experimental"]["session_themes"], Value::from(cfg.experimental.session_themes));
+        for (k, v) in [("voice", cfg.experimental.voice), ("analytics", cfg.experimental.analytics), ("session_themes", cfg.experimental.session_themes), ("experiments", cfg.experimental.experiments)] {
+            if v || doc["experimental"].get(k).is_some() {
+                set_value(&mut doc["experimental"][k], Value::from(v));
+            }
         }
         // Folded into [appearance] as it was read.
         if let Some(experimental) = doc["experimental"].as_table_like_mut() {
@@ -3506,14 +3505,10 @@ pub fn render(cfg: &Config) -> String {
         s.push_str(EXPERIMENTAL_COMMENT);
         s.push_str("[experimental]\n");
         s.push_str(&format!("boards = {}\n", cfg.experimental.boards));
-        if cfg.experimental.voice {
-            s.push_str("voice = true\n");
-        }
-        if cfg.experimental.analytics {
-            s.push_str("analytics = true\n");
-        }
-        if cfg.experimental.session_themes {
-            s.push_str("session_themes = true\n");
+        for (k, v) in [("voice", cfg.experimental.voice), ("analytics", cfg.experimental.analytics), ("session_themes", cfg.experimental.session_themes), ("experiments", cfg.experimental.experiments)] {
+            if v {
+                s.push_str(&format!("{k} = true\n"));
+            }
         }
     }
     if cfg.voice != VoiceCfg::default() {
@@ -3688,7 +3683,7 @@ mod tests {
             repos: BTreeMap::from([("github.com/sprucehq/web".to_string(), RepoCfg { reviews: ReviewsPatch { auto: Some(true), account: Some("codex".into()), post: Some(ReviewPost::Draft), own: OwnReviewsPatch { send: Some(false), ..OwnReviewsPatch::default() }, ..ReviewsPatch::default() }, pull_requests: PullRequestsPatch { nudge_about: Some(NudgeAbout::Feedback), reviews_first: Some(false), ..PullRequestsPatch::default() } })]),
             queue: QueueCfg { order: vec!["reviews".into(), "needs".into(), "unread".into(), "due".into()], due_within: 2 },
             sounds: SoundsCfg { needs_you: "Tink".into(), your_turn: String::new(), review_requested: "Purr".into(), meeting: "Glass".into(), volume: 35 },
-            experimental: ExperimentalCfg { boards: true, voice: true, analytics: true, session_themes: true, glass: false },
+            experimental: ExperimentalCfg { boards: true, voice: true, analytics: true, session_themes: true, experiments: true, glass: false },
             voice: VoiceCfg { locale: "en-GB".into(), send_on_release: true, tell_every: 45, meetings: true, meetings_folder: "~/Meetings".into(), meeting_account: String::new(), meeting_model: "haiku".into(), meeting_lead: 2, meeting_countdown: 10, meeting_calendars_off: vec!["C1".into(), "C2".into()] },
             debug: DebugCfg::default(),
             prices: BTreeMap::new(),

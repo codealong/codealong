@@ -21,7 +21,7 @@ use crate::calls::Ctx;
 use crate::engine::Handle;
 use crate::server::{self, Request, Status};
 use crate::util::words;
-use crate::{acp, actions, agentdone, api, autoreview, config, engine, helpers, hibernate, ledger, limits, listen, meetings, nudges, origins, os, outbox, peers, perf, reconnect, rerequest, reviewdone, schedules, search, send, side, store, terminal, terminals, util, views};
+use crate::{acp, actions, agentdone, api, autoreview, config, engine, experiments, helpers, hibernate, ledger, limits, listen, meetings, nudges, origins, os, outbox, peers, perf, reconnect, rerequest, reviewdone, schedules, search, send, side, store, terminal, terminals, util, views};
 
 /// What the engine was built from (build.rs): a hash of the Rust that goes into it, so two builds
 /// that differ only in their windows have the same.
@@ -317,6 +317,8 @@ pub fn start() -> Result<Ctx, String> {
     outbox::start(engine.clone());
     // Schedules (schedules/runner.rs): what's due, every few seconds.
     schedules::runner::spawn(engine.clone(), peers.clone());
+    // Experiments (experiments/runner.rs): active bake-off runs, every few seconds.
+    experiments::runner::spawn(engine.clone());
     // Automatic reviews' sessions once they're done with (reviewdone.rs).
     reviewdone::spawn(engine.clone());
     // Sessions left idle long enough to hibernate, where config.toml says to (hibernate.rs), on a

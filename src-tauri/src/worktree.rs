@@ -117,16 +117,64 @@ fn create_with_slug(cfg: &Config, main: &Path, slug: &str) -> Result<Created> {
     create_with_hooks(main, &hooks)
 }
 
+/// Whether the repo containing `main` declares a `WorktreeCreate` hook (trusted or skipped).
+pub fn has_create_hook(cfg: &Config, main: &Path) -> bool {
+    let (hooks, skipped) = setup_hooks(cfg, main, "check");
+    !hooks.is_empty() || skipped.is_some()
+}
+
+/// Creates a new worktree for the repo containing `folder` pinned to a concrete `base_ref`
+/// (usually a 40-char commit SHA). Refuses repos with `WorktreeCreate` hooks, which pick their
+/// own base and require their own teardown hook.
+pub fn create_at(cfg: &Config, folder: &Path, base_ref: &str) -> Result<Created> {
+    let (_, main) = crate::repos::locate(folder).ok_or_else(|| anyhow!("{} isn't in a git repository, so Codealong can't make a worktree there.", tilde(folder)))?;
+    if has_create_hook(cfg, &main) {
+        bail!("{} declares a WorktreeCreate hook, so Codealong can't pin a base commit there.", tilde(&main));
+    }
+    let slug = pick_slug(&main);
+    create_with_git_at(&main, &slug, base_ref)
+}
+
+/// Force-removes a git worktree and its branch after its diff has been preserved elsewhere (for
+/// discarding experiment trials). Never removes a main checkout or a reusable worktree.
+pub fn force_remove(main: &Path, path: &Path, branch: Option<&str>) -> Result<()> {
+    let real_main = dunce::canonicalize(main).unwrap_or_else(|_| main.to_path_buf());
+    let real_path = dunce::canonicalize(path).unwrap_or_else(|_| path.to_path_buf());
+    if real_path == real_main {
+        bail!("Refusing to remove main checkout {}.", tilde(main));
+    }
+    if crate::reusable::load().ok().and_then(|s| s.get(&real_path.to_string_lossy())) == Some(true) {
+        bail!("Refusing to force-remove reusable worktree {}.", tilde(path));
+    }
+    forget(path);
+    let main_s = main.to_string_lossy().into_owned();
+    let path_s = path.to_string_lossy().into_owned();
+    if path.exists() {
+        procs::run("git", &["-C", &main_s, "worktree", "remove", "--force", &path_s], None, GIT_WAIT)
+            .map_err(|e| anyhow!("Git couldn't remove worktree {}: {}", tilde(path), last_line(&e.to_string())))?;
+    } else {
+        let _ = procs::run("git", &["-C", &main_s, "worktree", "prune"], None, CHECK_WAIT);
+    }
+    if let Some(b) = branch.filter(|b| !b.is_empty()) {
+        let _ = procs::run("git", &["-C", &main_s, "branch", "-D", b], None, CHECK_WAIT);
+    }
+    Ok(())
+}
+
 fn create_with_git(main: &Path, slug: &str) -> Result<Created> {
+    let base = base_ref(main);
+    create_with_git_at(main, slug, &base)
+}
+
+fn create_with_git_at(main: &Path, slug: &str, base: &str) -> Result<Created> {
     ensure_excluded(main)?;
     let dir = main.join(".codealong").join("worktrees");
     std::fs::create_dir_all(&dir).map_err(|e| anyhow!("Couldn't make {}: {e}", tilde(&dir)))?;
     let path = dir.join(slug);
     let branch = format!("worktree-{slug}");
-    let base = base_ref(main);
     let main_s = main.to_string_lossy().into_owned();
     let path_s = path.to_string_lossy().into_owned();
-    procs::run("git", &["-C", &main_s, "worktree", "add", "--no-track", "-b", &branch, &path_s, &base], None, GIT_WAIT)
+    procs::run("git", &["-C", &main_s, "worktree", "add", "--no-track", "-b", &branch, &path_s, base], None, GIT_WAIT)
         .map_err(|e| anyhow!("Git couldn't make a worktree in {}: {}", tilde(main), last_line(&e.to_string())))?;
     let path = dunce::canonicalize(&path).unwrap_or(path);
     Ok(Created { path, main: main.to_path_buf(), name: slug.to_string(), branch: Some(branch), by_hook: false })
@@ -523,5 +571,29 @@ mod tests {
         // Existing own_worktree is never overwritten.
         assert_eq!(sessions[2].own_worktree.as_deref(), Some("/r/app/.claude/worktrees/existing"));
         assert_eq!(sessions[3].own_worktree, None);
+    }
+
+    #[test]
+    fn create_at_pins_specific_commit_and_force_remove_cleans_unpushed_work() {
+        let main = init_repo("wt-create-at");
+        let first_sha = git(&main, &["rev-parse", "HEAD"]).trim().to_string();
+        std::fs::write(main.join("README.md"), "second\n").unwrap();
+        git(&main, &["add", "."]);
+        git(&main, &["commit", "-m", "second"]);
+
+        // Pinned to `first_sha`, not `HEAD`.
+        let created = create_at(&Config::default(), &main, &first_sha).unwrap();
+        assert_eq!(git(&created.path, &["rev-parse", "HEAD"]).trim(), first_sha);
+
+        // Leave an unpushed commit + dirty file and verify force_remove cleans both.
+        std::fs::write(created.path.join("dirty.txt"), "experiment edit\n").unwrap();
+        git(&created.path, &["add", "."]);
+        git(&created.path, &["commit", "-m", "trial edit"]);
+        std::fs::write(created.path.join("untracked.txt"), "extra\n").unwrap();
+
+        force_remove(&main, &created.path, created.branch.as_deref()).unwrap();
+        assert!(!created.path.exists());
+        // Refusing main checkout protects the repo.
+        assert!(force_remove(&main, &main, None).is_err());
     }
 }

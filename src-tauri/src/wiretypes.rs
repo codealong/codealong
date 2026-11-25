@@ -86,6 +86,14 @@ fn others() -> Vec<Pair> {
         // Its `when` is a tagged enum, which no plain value reads as: its default stands in.
         vec![pair_of("Schedule", &crate::schedules::Schedule::default())],
         of!(crate::ledger: JevReport, JevUsed, SessionSpent, Spent),
+        vec![
+            pair::<crate::experiments::report::Report>("ExperimentReport"),
+            pair::<crate::experiments::report::RunView>("ExperimentRunView"),
+            pair::<crate::experiments::report::TrialView>("ExperimentTrialView"),
+            pair::<crate::experiments::report::PairView>("ExperimentPairView"),
+            pair::<crate::experiments::report::CostBreakdown>("ExperimentCost"),
+            pair::<crate::experiments::report::LeaderboardRow>("ExperimentLeaderboardRow"),
+        ],
         of!(crate::teamfile: TeamCfg, TeamFile),
         of!(crate::listen: Listening),
         of!(crate::starting: Starting, Choice),

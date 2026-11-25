@@ -376,6 +376,7 @@ setup="localStorage.setItem('codealong.view','$view');localStorage.setItem('code
 [ -n "${PREVIEW_LOADING:-}" ] && setup="$setup window.__PREVIEW_LOADING__=true;"
 [ -n "${PREVIEW_EMBLEMS:-}" ] && setup="$setup window.__PREVIEW_EMBLEMS__='$PREVIEW_EMBLEMS';"
 [ -n "${PREVIEW_ANALYTICS:-}" ] && setup="$setup window.__PREVIEW_ANALYTICS__=true;"
+[ -n "${PREVIEW_EXPERIMENTS:-}" ] && setup="$setup window.__PREVIEW_EXPERIMENTS__=true;"
 [ -n "${PREVIEW_GLASS:-}" ] && setup="$setup window.__PREVIEW_GLASS__=true;"
 [ "${PREVIEW_KEYS:-}" = held ] && setup="$setup window.__PREVIEW_KEYS_HELD__=true;"
 # The window remembers whether boards were on, for before the board comes: as the stub has them.

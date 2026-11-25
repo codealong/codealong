@@ -66,6 +66,10 @@ Commands:
                 left asking you something, not landed…). The Analytics window's Your
                 part and Sessions show the same; JSON has it all. `prompts` lists
                 prompts of yours nothing has read yet, and `tag` says what one did
+  exp           Experiments (`[experimental] experiments`, Settings › Experimental): run
+                pinned agent combinations side-by-side on the same task and base commit,
+                optionally with a local reviewer, a mechanical gate command, and a blind
+                pairwise judge
   whoami        Which session runs this command, its worktree, the other agents running
                 in that worktree now (`others`: none means no other agent shares the
                 checkout, however many sessions worked there before), and its open
@@ -628,6 +632,273 @@ Arguments:
 
   <STANCE>
           
+
+Options:
+      --json
+          JSON output. The default when stdout isn't a terminal
+
+      --table
+          Tables, even when piped
+
+      --verbose
+          Say on stderr whether Codealong's server or the files answered
+
+  -h, --help
+          Print help
+```
+
+## codealong exp
+
+```
+Experiments (`[experimental] experiments`, Settings › Experimental): run pinned agent
+combinations side-by-side on the same task and base commit, optionally with a local
+reviewer, a mechanical gate command, and a blind pairwise judge
+
+Usage: codealong exp [OPTIONS] <COMMAND>
+
+Commands:
+  run      Start a bake-off run across pinned agent combinations on the same task and
+           base commit
+  list     List experiment runs
+  show     Show one experiment run in full (trials, gate, pairwise comparisons, costs)
+  results  Show the leaderboard aggregated across completed runs
+  adopt    Mark a trial as the adopted winner (recording whether you agreed with the
+           judge)
+  discard  Save diffs to git refs and patch files, mark trial sessions done, and
+           force-remove worktrees
+  cancel   Stop an active run's hosted sessions and mark the run cancelled
+  help     Print this message or the help of the given subcommand(s)
+
+Options:
+      --json
+          JSON output. The default when stdout isn't a terminal
+
+      --table
+          Tables, even when piped
+
+      --verbose
+          Say on stderr whether Codealong's server or the files answered
+
+  -h, --help
+          Print help
+```
+
+## codealong exp run
+
+```
+Start a bake-off run across pinned agent combinations on the same task and base commit
+
+Usage: codealong exp run [OPTIONS] --arm <ARMS>
+
+Options:
+      --arm <ARMS>
+          Arm specification `<worker>[+<reviewer>]`, where each seat is
+          `<account>[:<model>][:<effort>][@<mode>]`. Pass at least twice
+
+      --json
+          JSON output. The default when stdout isn't a terminal
+
+      --judge <JUDGE>
+          Blind pairwise judge seat `<account>[:<model>][:<effort>][@<mode>]`
+
+      --table
+          Tables, even when piped
+
+      --eval <EVAL_CMD>
+          Mechanical gate command run through your login shell in each trial worktree
+          after its last agent turn
+
+      --verbose
+          Say on stderr whether Codealong's server or the files answered
+
+      --eval-timeout <EVAL_TIMEOUT>
+          Timeout in seconds for each gate execution
+          
+          [default: 600]
+
+      --skip-base-check
+          Skip running --eval once on a clean base worktree before launching arms
+
+      --prompt <PROMPT>
+          The task prompt. Or --prompt-file or --todo
+
+      --prompt-file <PROMPT_FILE>
+          Read the task prompt from a file, or `-` for stdin
+
+      --todo <TODO>
+          Read the task prompt from a todo's title and description (without linking arms
+          to the todo)
+
+      --experiment <EXPERIMENT>
+          Named experiment cohort for grouping leaderboard results
+          
+          [default: default]
+
+      --worktree <WORKTREE>
+          Repository folder to base trial worktrees on (default `.`)
+          
+          [default: .]
+
+      --base <BASE>
+          Git ref to pin every arm's starting commit to (default `HEAD`)
+          
+          [default: HEAD]
+
+      --max-parallel <MAX_PARALLEL>
+          Maximum number of arms running concurrently
+          
+          [default: 2]
+
+      --dry-run
+          Validate arms, boundaries, and base commit and print the plan without starting
+          anything
+
+  -h, --help
+          Print help
+```
+
+## codealong exp list
+
+```
+List experiment runs
+
+Usage: codealong exp list [OPTIONS]
+
+Options:
+      --experiment <EXPERIMENT>
+          Only runs in this named experiment
+
+      --json
+          JSON output. The default when stdout isn't a terminal
+
+      --table
+          Tables, even when piped
+
+      --verbose
+          Say on stderr whether Codealong's server or the files answered
+
+  -h, --help
+          Print help
+```
+
+## codealong exp show
+
+```
+Show one experiment run in full (trials, gate, pairwise comparisons, costs)
+
+Usage: codealong exp show [OPTIONS] <ID>
+
+Arguments:
+  <ID>
+          The run id (or a unique prefix)
+
+Options:
+      --json
+          JSON output. The default when stdout isn't a terminal
+
+      --table
+          Tables, even when piped
+
+      --verbose
+          Say on stderr whether Codealong's server or the files answered
+
+  -h, --help
+          Print help
+```
+
+## codealong exp results
+
+```
+Show the leaderboard aggregated across completed runs
+
+Usage: codealong exp results [OPTIONS] [EXPERIMENT]
+
+Arguments:
+  [EXPERIMENT]
+          Only runs in this named experiment
+
+Options:
+      --json
+          JSON output. The default when stdout isn't a terminal
+
+      --table
+          Tables, even when piped
+
+      --verbose
+          Say on stderr whether Codealong's server or the files answered
+
+  -h, --help
+          Print help
+```
+
+## codealong exp adopt
+
+```
+Mark a trial as the adopted winner (recording whether you agreed with the judge)
+
+Usage: codealong exp adopt [OPTIONS] <RUN> [TRIAL]
+
+Arguments:
+  <RUN>
+          Run id (or `<run-id>/<trial-id>`)
+
+  [TRIAL]
+          Trial id (e.g. `t1`), unless given after `/` in RUN
+
+Options:
+      --json
+          JSON output. The default when stdout isn't a terminal
+
+      --table
+          Tables, even when piped
+
+      --verbose
+          Say on stderr whether Codealong's server or the files answered
+
+  -h, --help
+          Print help
+```
+
+## codealong exp discard
+
+```
+Save diffs to git refs and patch files, mark trial sessions done, and force-remove
+worktrees
+
+Usage: codealong exp discard [OPTIONS] <RUN> [TRIAL]
+
+Arguments:
+  <RUN>
+          Run id (or `<run-id>/<trial-id>`). Without a trial id, discards every
+          non-adopted trial
+
+  [TRIAL]
+          Only discard this trial id
+
+Options:
+      --json
+          JSON output. The default when stdout isn't a terminal
+
+      --table
+          Tables, even when piped
+
+      --verbose
+          Say on stderr whether Codealong's server or the files answered
+
+  -h, --help
+          Print help
+```
+
+## codealong exp cancel
+
+```
+Stop an active run's hosted sessions and mark the run cancelled
+
+Usage: codealong exp cancel [OPTIONS] <ID>
+
+Arguments:
+  <ID>
+          Run id (or unique prefix)
 
 Options:
       --json

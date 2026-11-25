@@ -470,7 +470,7 @@ function withExperiments(board) {
   var out = Object.assign(board, {
     glass: !!window.__PREVIEW_GLASS__,
     showKeys: !window.__PREVIEW_KEYS_HELD__,
-    experimental: Object.assign({}, board.experimental, { boards: !window.__PREVIEW_BOARDS_OFF__, voice: voice, analytics: !!window.__PREVIEW_ANALYTICS__, session_themes: !!window.__PREVIEW_SESSION_THEMES__ }),
+    experimental: Object.assign({}, board.experimental, { boards: !window.__PREVIEW_BOARDS_OFF__, voice: voice, analytics: !!window.__PREVIEW_ANALYTICS__, session_themes: !!window.__PREVIEW_SESSION_THEMES__, experiments: !!window.__PREVIEW_EXPERIMENTS__ }),
     backgrounds: Object.assign({ enabled: false, account: '', prompt: '' }, board.backgrounds, window.__PREVIEW_BACKGROUNDS__ || {}),
   });
   if (window.__PREVIEW_AI_BACKDROPS__ && typeof window.__PREVIEW_AI_BACKDROPS__ === 'object') {
@@ -682,6 +682,30 @@ window.__TAURI_INTERNALS__ = {
       return fetch('./board.json').then(function (r) { return r.json(); }).then(function (board) {
         return window.__PREVIEW_ANALYTICS__ ? sampleAnalytics(board, (args || {}).days || 30, (args || {}).account || null) : { on: false };
       });
+    }
+    if (cmd === 'experiment_report') {
+      return Promise.resolve(window.__PREVIEW_EXPERIMENTS__ ? {
+        on: true,
+        experiments: ['parser-bench'],
+        leaderboard: [
+          { key: 'parser-bench|codex|sol-6.2|high|claude/opus/high', experiment: 'parser-bench', workerHarness: 'codex', workerModel: 'sol-6.2', workerEffort: 'high', reviewer: 'claude/opus/high', label: 'codex/sol-6.2/high + claude/opus/high', runs: 3, wins: 3, ties: 0, losses: 0, gatePassed: 3, gateTotal: 3, avgCostApi: 4.12, avgWorkerCostApi: 2.85, avgReviewerCostApi: 1.27, avgDurationMs: 420000, adoptedCount: 2 },
+          { key: 'parser-bench|claude|opus|high|', experiment: 'parser-bench', workerHarness: 'claude', workerModel: 'opus', workerEffort: 'high', reviewer: null, label: 'claude/opus/high', runs: 3, wins: 0, ties: 0, losses: 3, gatePassed: 3, gateTotal: 3, avgCostApi: 6.48, avgWorkerCostApi: 6.48, avgReviewerCostApi: 0, avgDurationMs: 365000, adoptedCount: 1 },
+        ],
+        runs: [
+          {
+            id: 'exp-a1b2c3d4', experiment: 'parser-bench', repo: 'northwind', baseSha: 'c05baf1842', prompt: 'Fix streaming chunk boundary handling in parser', stage: 'complete',
+            createdAt: Date.now() - 3600000, finishedAt: Date.now() - 3180000, durationMs: 420000, baseGateOk: true, recommended: 't1',
+            recommendationNote: 'Recommended codex/sol-6.2/high + claude/opus/high (1/1 consistent pairwise wins).', adoptedTrial: 't1', judgeCostApi: 0.42, error: null,
+            trials: [
+              { id: 't1', label: 'codex/sol-6.2/high + claude/opus/high', worker: 'codex/sol-6.2/high', reviewer: 'claude/opus/high', observedModel: 'sol-6.2', stage: 'ready', worktree: '/Users/me/northwind/.codealong/worktrees/amber-fox', branch: 'worktree-amber-fox', workerKey: null, reviewerKey: null, diffBytes: 2480, diffRef: 'refs/codealong/experiments/exp-a1b2c3d4/t1', reviewVerdict: 'request-changes', reviewerModifiedTree: false, gatePassed: true, prOpened: false, drift: null, error: null, interruptions: 0, durationMs: 420000, cost: { totalApi: 4.12, workerApi: 2.85, reviewerApi: 1.27, inputTokens: 82000, outputTokens: 6400, cacheReadTokens: 45000, unpricedCalls: 0 }, adopted: true, discarded: false, recommended: true },
+              { id: 't2', label: 'claude/opus/high', worker: 'claude/opus/high', reviewer: null, observedModel: 'claude-opus-5-5', stage: 'ready', worktree: '/Users/me/northwind/.codealong/worktrees/calm-otter', branch: 'worktree-calm-otter', workerKey: null, reviewerKey: null, diffBytes: 1920, diffRef: 'refs/codealong/experiments/exp-a1b2c3d4/t2', reviewVerdict: null, reviewerModifiedTree: false, gatePassed: true, prOpened: false, drift: null, error: null, interruptions: 0, durationMs: 365000, cost: { totalApi: 6.48, workerApi: 6.48, reviewerApi: 0, inputTokens: 96000, outputTokens: 8100, cacheReadTokens: 61000, unpricedCalls: 0 }, adopted: false, discarded: false, recommended: false },
+            ],
+            comparisons: [
+              { trialA: 't1', trialB: 't2', labelA: 'codex/sol-6.2/high + claude/opus/high', labelB: 'claude/opus/high', forwardWinner: 't1', reversedWinner: 't1', consistentWinner: 't1', rationale: 'Candidate A handled multi-byte UTF-8 splits at chunk boundaries and added regression tests.' },
+            ],
+          },
+        ],
+      } : { on: false, experiments: [], leaderboard: [], runs: [] });
     }
     if (cmd === 'jev_usage') return Promise.resolve(sampleJevUsage((args || {}).days || 30));
     // The keychain has no key for any decision model here, as on a new Mac: Settings › Decisions
