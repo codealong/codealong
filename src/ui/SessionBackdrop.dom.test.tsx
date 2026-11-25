@@ -165,7 +165,7 @@ describe('SessionThemeProvider, SessionBackdrop, and sessionMenu theme items', (
         <Probe session={drawn} />
       </SessionThemeProvider>,
     );
-    expect(drawnView.el.querySelector('.ca-st-layer.is-has-ai.is-light-art .ca-st-ai')).not.toBeNull();
+    expect(drawnView.el.querySelector('.ca-st-layer.is-has-ai.is-light-art[data-strength="medium"] .ca-st-ai')).not.toBeNull();
     expect(drawnView.el.querySelector('.ca-st-canvas')).toBeNull();
     const drawnLabels = sessionMenu(lane, drawn, dummyCan).filter((i): i is MenuAction | MenuGroup => i !== 'separator').map((i) => i.label);
     expect(drawnLabels).toContain('Redraw background');

@@ -105,93 +105,130 @@
   background-position: center;
 }
 
-/* AI-generated vertical fine-art background layer (fades in smoothly over neutral ground). */
+/* AI-generated vertical fine-art background layer:
+   - Ground blends natively into `--surface` via `multiply` (light mode) or `screen`/`lighten` (dark mode).
+   - When the artwork's ground opposes the active UI theme (e.g. a light-paper image in dark mode),
+     `invert(1) hue-rotate(180deg)` flips luminance to match the UI while preserving the artwork's
+     original hues — no extra generation and no heavy opaque blanket hiding the art.
+   - Strength (`data-strength="subtle|medium|vivid"`) dials both artwork opacity and the gentle
+     left-side reading cushion while leaving the art edges clear. */
+.ca-st-layer.is-has-ai {
+  isolation: isolate;
+  background: var(--surface);
+}
 .ca-st-ai {
   position: absolute;
   inset: -2%;
   background-image: var(--st-ai-img, none);
   background-size: cover;
   background-position: center;
-  opacity: min(1, calc(0.88 * var(--st-scale, 1)));
+  opacity: 0.86;
+  mix-blend-mode: multiply;
   animation: ca-st-fadein 320ms ease-out;
+}
+.ca-st-layer.is-has-ai[data-strength='subtle'] .ca-st-ai {
+  opacity: 0.46;
+}
+.ca-st-layer.is-has-ai[data-strength='vivid'] .ca-st-ai {
+  opacity: 1;
+  filter: saturate(1.14) contrast(1.04);
+}
+/* Dark-ground artwork viewed in Light mode: invert luminance while preserving hue. */
+.ca-st-layer.is-has-ai.is-dark-art .ca-st-ai {
+  filter: invert(1) hue-rotate(180deg) brightness(1.06) contrast(1.04) saturate(1.15);
+}
+.ca-st-layer.is-has-ai.is-dark-art[data-strength='vivid'] .ca-st-ai {
+  filter: invert(1) hue-rotate(180deg) brightness(1.06) contrast(1.06) saturate(1.25);
+}
+/* Light reading cushion: keeps left-aligned conversation text effortless while leaving the right
+   and outer edges where the artwork lives crisp and unveiled. */
+.ca-st-layer.is-has-ai.is-panel .ca-st-veil {
+  background: linear-gradient(
+    90deg,
+    color-mix(in oklch, var(--surface) 22%, transparent) 0%,
+    color-mix(in oklch, var(--surface) 14%, transparent) 52%,
+    transparent 82%
+  );
+}
+.ca-st-layer.is-has-ai.is-panel[data-strength='subtle'] .ca-st-veil {
+  background: linear-gradient(
+    90deg,
+    color-mix(in oklch, var(--surface) 38%, transparent) 0%,
+    color-mix(in oklch, var(--surface) 26%, transparent) 58%,
+    color-mix(in oklch, var(--surface) 10%, transparent) 100%
+  );
+}
+.ca-st-layer.is-has-ai.is-panel[data-strength='vivid'] .ca-st-veil {
+  background: linear-gradient(
+    90deg,
+    color-mix(in oklch, var(--surface) 8%, transparent) 0%,
+    transparent 55%
+  );
+}
+.ca-st-layer.is-has-ai.is-header .ca-st-veil {
+  background: color-mix(in oklch, var(--surface) 12%, transparent);
+}
+.ca-st-layer.is-has-ai.is-header[data-strength='subtle'] .ca-st-veil {
+  background: color-mix(in oklch, var(--surface) 28%, transparent);
+}
+.ca-st-layer.is-has-ai.is-header[data-strength='vivid'] .ca-st-veil {
+  background: transparent;
+}
+/* Dark mode: light-paper artwork flips cleanly onto dark charcoal with hue-preserving inversion
+   + `screen` blend; dark-ground artwork blends natively with `lighten`. */
+:root[data-theme='dark'] .ca-st-layer.is-has-ai.is-light-art .ca-st-ai {
+  opacity: 0.78;
+  mix-blend-mode: screen;
+  filter: invert(1) hue-rotate(180deg) brightness(0.9) contrast(1.08) saturate(1.3);
+}
+:root[data-theme='dark'] .ca-st-layer.is-has-ai.is-light-art[data-strength='subtle'] .ca-st-ai {
+  opacity: 0.44;
+}
+:root[data-theme='dark'] .ca-st-layer.is-has-ai.is-light-art[data-strength='vivid'] .ca-st-ai {
+  opacity: 0.96;
+  filter: invert(1) hue-rotate(180deg) brightness(0.95) contrast(1.1) saturate(1.42);
+}
+:root[data-theme='dark'] .ca-st-layer.is-has-ai.is-dark-art .ca-st-ai {
+  opacity: 0.88;
+  mix-blend-mode: lighten;
+  filter: none;
+}
+:root[data-theme='dark'] .ca-st-layer.is-has-ai.is-dark-art[data-strength='subtle'] .ca-st-ai {
+  opacity: 0.5;
+}
+:root[data-theme='dark'] .ca-st-layer.is-has-ai.is-dark-art[data-strength='vivid'] .ca-st-ai {
+  opacity: 1;
+  filter: saturate(1.15) contrast(1.05);
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme='light']) .ca-st-layer.is-has-ai.is-light-art .ca-st-ai {
+    opacity: 0.78;
+    mix-blend-mode: screen;
+    filter: invert(1) hue-rotate(180deg) brightness(0.9) contrast(1.08) saturate(1.3);
+  }
+  :root:not([data-theme='light']) .ca-st-layer.is-has-ai.is-light-art[data-strength='subtle'] .ca-st-ai {
+    opacity: 0.44;
+  }
+  :root:not([data-theme='light']) .ca-st-layer.is-has-ai.is-light-art[data-strength='vivid'] .ca-st-ai {
+    opacity: 0.96;
+    filter: invert(1) hue-rotate(180deg) brightness(0.95) contrast(1.1) saturate(1.42);
+  }
+  :root:not([data-theme='light']) .ca-st-layer.is-has-ai.is-dark-art .ca-st-ai {
+    opacity: 0.88;
+    mix-blend-mode: lighten;
+    filter: none;
+  }
+  :root:not([data-theme='light']) .ca-st-layer.is-has-ai.is-dark-art[data-strength='subtle'] .ca-st-ai {
+    opacity: 0.5;
+  }
+  :root:not([data-theme='light']) .ca-st-layer.is-has-ai.is-dark-art[data-strength='vivid'] .ca-st-ai {
+    opacity: 1;
+    filter: saturate(1.15) contrast(1.05);
+  }
 }
 @keyframes ca-st-fadein {
   from {
     opacity: 0;
-  }
-}
-.ca-st-layer.is-has-ai.is-panel.is-light-art .ca-st-veil {
-  background: linear-gradient(
-    180deg,
-    color-mix(in oklch, var(--surface) 14%, transparent) 0%,
-    color-mix(in oklch, var(--surface) 54%, transparent) 24%,
-    color-mix(in oklch, var(--surface) 58%, transparent) 78%,
-    color-mix(in oklch, var(--surface) 38%, transparent) 100%
-  );
-}
-.ca-st-layer.is-has-ai.is-panel.is-dark-art .ca-st-veil {
-  background: linear-gradient(
-    180deg,
-    color-mix(in oklch, var(--surface) 60%, transparent) 0%,
-    color-mix(in oklch, var(--surface) 78%, transparent) 26%,
-    color-mix(in oklch, var(--surface) 80%, transparent) 78%,
-    color-mix(in oklch, var(--surface) 66%, transparent) 100%
-  );
-}
-.ca-st-layer.is-has-ai.is-header .ca-st-veil {
-  background: color-mix(in oklch, var(--surface) 22%, transparent);
-}
-.ca-st-layer.is-has-ai.is-header.is-dark-art .ca-st-veil {
-  background: color-mix(in oklch, var(--surface) 64%, transparent);
-}
-:root[data-theme='dark'] .ca-st-layer.is-has-ai.is-panel.is-dark-art .ca-st-veil {
-  background: linear-gradient(
-    180deg,
-    color-mix(in oklch, var(--surface) 22%, transparent) 0%,
-    color-mix(in oklch, var(--surface) 58%, transparent) 24%,
-    color-mix(in oklch, var(--surface) 62%, transparent) 78%,
-    color-mix(in oklch, var(--surface) 42%, transparent) 100%
-  );
-}
-:root[data-theme='dark'] .ca-st-layer.is-has-ai.is-panel.is-light-art .ca-st-veil {
-  background: linear-gradient(
-    180deg,
-    color-mix(in oklch, var(--surface) 68%, transparent) 0%,
-    color-mix(in oklch, var(--surface) 82%, transparent) 26%,
-    color-mix(in oklch, var(--surface) 84%, transparent) 78%,
-    color-mix(in oklch, var(--surface) 72%, transparent) 100%
-  );
-}
-:root[data-theme='dark'] .ca-st-layer.is-has-ai.is-header.is-dark-art .ca-st-veil {
-  background: color-mix(in oklch, var(--surface) 24%, transparent);
-}
-:root[data-theme='dark'] .ca-st-layer.is-has-ai.is-header.is-light-art .ca-st-veil {
-  background: color-mix(in oklch, var(--surface) 68%, transparent);
-}
-@media (prefers-color-scheme: dark) {
-  :root:not([data-theme='light']) .ca-st-layer.is-has-ai.is-panel.is-dark-art .ca-st-veil {
-    background: linear-gradient(
-      180deg,
-      color-mix(in oklch, var(--surface) 22%, transparent) 0%,
-      color-mix(in oklch, var(--surface) 58%, transparent) 24%,
-      color-mix(in oklch, var(--surface) 62%, transparent) 78%,
-      color-mix(in oklch, var(--surface) 42%, transparent) 100%
-    );
-  }
-  :root:not([data-theme='light']) .ca-st-layer.is-has-ai.is-panel.is-light-art .ca-st-veil {
-    background: linear-gradient(
-      180deg,
-      color-mix(in oklch, var(--surface) 68%, transparent) 0%,
-      color-mix(in oklch, var(--surface) 82%, transparent) 26%,
-      color-mix(in oklch, var(--surface) 84%, transparent) 78%,
-      color-mix(in oklch, var(--surface) 72%, transparent) 100%
-    );
-  }
-  :root:not([data-theme='light']) .ca-st-layer.is-has-ai.is-header.is-dark-art .ca-st-veil {
-    background: color-mix(in oklch, var(--surface) 24%, transparent);
-  }
-  :root:not([data-theme='light']) .ca-st-layer.is-has-ai.is-header.is-light-art .ca-st-veil {
-    background: color-mix(in oklch, var(--surface) 68%, transparent);
   }
 }
 
