@@ -402,11 +402,13 @@ again itself: the dialog asks them first, and the copy goes on with your answers
 
 Move to, in any session's right-click menu, moves it to another signed-in account — on the same
 provider or a different one (Claude Code, Codex, OpenCode, Antigravity or Cursor). The chip at the
-right of the reply box's foot, which starts with its account, lists every eligible account under its
-own, with *Move it here* for same-harness lossless moves and *Hand off here* for cross-provider
-handoffs: picking one opens the move dialog, where you can confirm the target account, choose where
-it opens, pick a model or effort, add an optional next-step note, or check **Keep this session
-open** to start a linked handoff copy without closing or archiving the original.
+right of the reply box's foot, which starts with its account, lists every eligible account and its
+models under its own: picking another account stages the move or handoff right in the reply box,
+with an inline confirmation bar above the input (showing what will happen, a **Keep open** toggle,
+and **Cancel** / Esc) while letting you adjust model, effort, and where it opens in the chip and
+optionally type a next-step note directly in the box before pressing ⏎ or clicking **Move** /
+**Hand off**. Clicking **Move…** on a Limit, Cut-off, or API error banner stages the target in the
+same box.
 
 Same-harness Claude Code default moves take the lossless native path: the conversation goes on in a
 new terminal under that account (a background job's as a job there), carrying the session's title
