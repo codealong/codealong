@@ -126,6 +126,7 @@ export function buildPreviewPage(indexHtml, run) {
   if (vars.PREVIEW_LOADING) parts.push('window.__PREVIEW_LOADING__=true;');
   if (vars.PREVIEW_EMBLEMS) parts.push(`window.__PREVIEW_EMBLEMS__=${JSON.stringify(vars.PREVIEW_EMBLEMS)};`);
   if (vars.PREVIEW_ANALYTICS) parts.push('window.__PREVIEW_ANALYTICS__=true;');
+  if (vars.PREVIEW_EXPERIMENTS) parts.push('window.__PREVIEW_EXPERIMENTS__=true;');
   if (vars.PREVIEW_GLASS) parts.push('window.__PREVIEW_GLASS__=true;');
   if (vars.PREVIEW_KEYS === 'held') parts.push('window.__PREVIEW_KEYS_HELD__=true;');
   if (vars.PREVIEW_BOARDS_OFF) {

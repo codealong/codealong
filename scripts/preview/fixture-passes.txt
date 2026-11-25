@@ -10,6 +10,7 @@
 # again: `scripts/checks.sh --fixture --all --jobs=6 --results=<file>` twice, and keep the run
 # lines (the third column) that say PASS in both, sorted.
 PREVIEW_ANALYTICS=1 scripts/preview.sh sessions '' scripts/preview/usage-analytics-check.js
+PREVIEW_EXPERIMENTS=1 scripts/preview.sh sessions '' scripts/preview/usage-experiments-check.js
 PREVIEW_BOARDS=scripts/preview/boards-everything.json scripts/preview.sh canvas '' scripts/preview/boards-empty-check.js
 PREVIEW_BOARDS=scripts/preview/boards-everything.json scripts/preview.sh canvas '' scripts/preview/canvas-tools-check.js
 PREVIEW_BOARDS=scripts/preview/boards-everything.json scripts/preview.sh sessions '' scripts/preview/boards-off-check.js
@@ -411,6 +412,7 @@ scripts/preview.sh sessions '' scripts/preview/snooze-pick-check.js
 scripts/preview.sh sessions '' scripts/preview/snooze-suggested-check.js
 scripts/preview.sh sessions '' scripts/preview/stop-note-check.js
 scripts/preview.sh sessions '' scripts/preview/usage-analytics-check.js
+scripts/preview.sh sessions '' scripts/preview/usage-experiments-check.js
 scripts/preview.sh sessions '' scripts/preview/usage-check.js
 scripts/preview.sh sessions '' scripts/preview/usage-sort-check.js
 scripts/preview.sh sessions '' scripts/preview/view-keys-check.js

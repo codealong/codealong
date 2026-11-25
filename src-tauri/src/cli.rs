@@ -36,6 +36,7 @@ mod board_cmd;
 mod changes;
 mod client;
 mod devices;
+mod exp;
 mod hygiene;
 mod listen;
 mod lookup;
@@ -72,6 +73,7 @@ use self::board_cmd::*;
 use self::changes::*;
 use self::client::*;
 use self::devices::*;
+use self::exp::*;
 use self::hygiene::*;
 use self::listen::*;
 use self::lookup::*;
@@ -153,6 +155,11 @@ enum Cmd {
     },
     /// Your part in the work, an experiment (`[experimental] analytics`, Settings › Experimental): what came in to your sessions and who from (you; Delegated, another session's agent; Automation, Codealong by itself; the session itself), what your prompts did with what the agent had said (set out new work, agreed, steered, redirected, asked), how sessions began, and how the ones you marked done stood (finished, or left asking you something, not landed…). The Analytics window's Your part and Sessions show the same; JSON has it all. `prompts` lists prompts of yours nothing has read yet, and `tag` says what one did.
     Analytics(AnalyticsArgs),
+    /// Experiments (`[experimental] experiments`, Settings › Experimental): run pinned agent combinations side-by-side on the same task and base commit, optionally with a local reviewer, a mechanical gate command, and a blind pairwise judge.
+    Exp {
+        #[command(subcommand)]
+        cmd: ExpCmd,
+    },
     /// Which session runs this command, its worktree, the other agents running in that worktree now (`others`: none means no other agent shares the checkout, however many sessions worked there before), and its open todos: the ones linked to the session, then the worktree's when no other agent is running there (in a checkout several agents share, those are the others' work), and the rest of the worktree's project (`projectFolders`: the main checkout of each of its other repos, and its folders), the most recently active first. Run it first.
     Whoami {
         /// Plain text for a session-start hook, even when piped: a few lines when a session, a todo or the rest of its project is found, nothing otherwise.
@@ -1889,6 +1896,7 @@ fn run(cmd: Cmd, c: &mut Client, json: bool) -> Result<()> {
             Some(AnalyticsCmd::Tag { id, stance }) => analytics_tag(c, &id, &stance, json),
             None => analytics(c, args.days, args.account.as_deref(), json),
         },
+        Cmd::Exp { cmd } => exp(cmd, c, json),
         Cmd::Whoami { context } => whoami(c, context, json),
         Cmd::Todo { cmd } => todo(cmd, c, json),
         Cmd::Schedule { cmd } => schedule(cmd, c, json),

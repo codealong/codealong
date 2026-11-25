@@ -470,7 +470,7 @@ export function SessionsPart({ analytics, report, sessions, now, onShowSession }
 }
 
 /** Which of the Analytics window's views is up. */
-export type UsageView = 'cost' | 'part' | 'sessions';
+export type UsageView = 'cost' | 'part' | 'sessions' | 'experiments';
 
 export const VIEWS: { id: UsageView; label: string }[] = [
   { id: 'cost', label: 'Cost' },

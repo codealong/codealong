@@ -8,13 +8,14 @@
 
 import { useEffect, useMemo, useState } from 'react';
 import { BEGAN, HANDS } from '../analytics';
-import { analyticsReport, tokenReport } from '../api';
+import { analyticsReport, experimentReport, tokenReport } from '../api';
 import { agoPhrase } from '../format';
 import { byProject, cacheShare, cumulative, dayLabel, leverage, money, readNote, seriesColor, sessionLabel, stackOf, ticks, tokenCount, totalTokens } from '../spend';
-import type { Analytics, Board, Session, Spent, SpendDay, TokenReport } from '../types';
+import type { Analytics, Board, ExperimentReport, Session, Spent, SpendDay, TokenReport } from '../types';
 import { Button, cx, Dialog, Icon, Seg } from './primitives';
 import { SessionsPart, type UsageView, VIEWS, YourPart } from './UsageAnalytics';
 import { AXIS, bar, HitArea, PLOT, Tip, W, XAxis, xOf, YAxis } from './UsageChart';
+import { ExperimentsPart } from './UsageExperiments';
 
 type By = 'account' | 'model' | 'project' | 'session' | 'day' | 'began' | 'turn';
 
@@ -56,11 +57,18 @@ export function UsageDialog({ board, account: first, now, onClose, onShowSession
   const [report, setReport] = useState<TokenReport | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  // Your part and Sessions, an experiment: off, the window is what it was.
-  const experiment = !!board.experimental?.analytics;
+  // Your part / Sessions (`analytics`) and Experiments (`experiments`): each adds its tab(s).
+  const analyticsOn = !!board.experimental?.analytics;
+  const experimentsOn = !!board.experimental?.experiments;
+  const views = useMemo<{ id: UsageView; label: string }[]>(() => {
+    const out: { id: UsageView; label: string }[] = analyticsOn ? [...VIEWS] : [{ id: 'cost', label: 'Cost' }];
+    if (experimentsOn) out.push({ id: 'experiments', label: 'Experiments' });
+    return out;
+  }, [analyticsOn, experimentsOn]);
   const [view, setView] = useState<UsageView>('cost');
   const [analytics, setAnalytics] = useState<Analytics | null>(null);
-  const shown: UsageView = experiment ? view : 'cost';
+  const [experiments, setExperiments] = useState<ExperimentReport | null>(null);
+  const shown: UsageView = views.some((v) => v.id === view) ? view : 'cost';
 
   useEffect(() => {
     let live = true;
@@ -76,22 +84,29 @@ export function UsageDialog({ board, account: first, now, onClose, onShowSession
         .finally(() => live && setLoading(false));
     // The numbers the other views show come with the same days; without them, they say why.
     const askAnalytics = () =>
-      experiment &&
+      analyticsOn &&
       analyticsReport(days, account)
         .then((a) => live && setAnalytics(a))
         .catch((e: unknown) => live && setError(String(e)));
+    const askExperiments = () =>
+      experimentsOn &&
+      experimentReport()
+        .then((e) => live && setExperiments(e))
+        .catch((e: unknown) => live && setError(String(e)));
     void ask();
     void askAnalytics();
+    void askExperiments();
     // While the ledger reads records for the first time, and as sessions work, the numbers move.
     const t = setInterval(() => {
       void ask();
       void askAnalytics();
+      void askExperiments();
     }, 30_000);
     return () => {
       live = false;
       clearInterval(t);
     };
-  }, [days, account, experiment]);
+  }, [days, account, analyticsOn, experimentsOn]);
 
   const order = useMemo(() => board.usage.map((u) => u.account), [board.usage]);
   const sessions = useMemo(() => new Map<string, Session>(board.lanes.filter((l) => !l.device).flatMap((l) => l.sessions.map((s) => [s.key, s] as const))), [board.lanes]);
@@ -115,24 +130,34 @@ export function UsageDialog({ board, account: first, now, onClose, onShowSession
     >
       <div className="ca-dialog-body ca-usage-body">
         <div className="ca-usage-filters">
-          {experiment && <Seg options={VIEWS} value={view} onPick={setView} label="View" />}
-          <Seg options={SPANS} value={days} onPick={setDays} label="Days" look="text" />
-          <div className="ca-start-select ca-usage-account">
-            <select aria-label="Account" value={account ?? ''} onChange={(e) => setAccount(e.target.value || null)}>
-              <option value="">All accounts</option>
-              {order.map((a) => (
-                <option key={a} value={a}>
-                  {a}
-                </option>
-              ))}
-            </select>
-            <Icon name="chevron-down" size={12} />
-          </div>
+          {views.length > 1 && <Seg options={views} value={shown} onPick={setView} label="View" />}
+          {shown !== 'experiments' && <Seg options={SPANS} value={days} onPick={setDays} label="Days" look="text" />}
+          {shown !== 'experiments' && (
+            <div className="ca-start-select ca-usage-account">
+              <select aria-label="Account" value={account ?? ''} onChange={(e) => setAccount(e.target.value || null)}>
+                <option value="">All accounts</option>
+                {order.map((a) => (
+                  <option key={a} value={a}>
+                    {a}
+                  </option>
+                ))}
+              </select>
+              <Icon name="chevron-down" size={12} />
+            </div>
+          )}
         </div>
         {error && !report ? (
           <p className="ca-form-error" role="alert">
             {error}
           </p>
+        ) : shown === 'experiments' ? (
+          !experiments ? (
+            <p className="ca-empty">Reading experiment runs…</p>
+          ) : (
+            <div className="ca-usage-report">
+              <ExperimentsPart report={experiments} sessions={sessions} now={now} onShowSession={onShowSession} />
+            </div>
+          )
         ) : shown !== 'cost' ? (
           !analytics ? (
             <p className="ca-empty">Reading what came in to your sessions…</p>
@@ -155,7 +180,7 @@ export function UsageDialog({ board, account: first, now, onClose, onShowSession
               <span className="ca-usage-by-label" id="ca-usage-by">
                 By
               </span>
-              <Seg options={experiment ? BYS_ANALYTICS : BYS} value={by} onPick={setBy} labelledBy="ca-usage-by" look="text" />
+              <Seg options={analyticsOn ? BYS_ANALYTICS : BYS} value={by} onPick={setBy} labelledBy="ca-usage-by" look="text" />
             </div>
             <Table report={report} by={by} order={order} sessions={sessions} lanes={board.lanes} onAccount={(a) => setAccount(a)} onShowSession={onShowSession} />
             <Notes report={report} />

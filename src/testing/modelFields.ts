@@ -764,6 +764,108 @@ export type Spent = Holds<Same<
   Names<Types.Spent>
 >>;
 
+export type Report = Holds<Same<
+  | "experiments"
+  | "leaderboard"
+  | "on"
+  | "runs",
+  Names<Types.ExperimentReport>
+>>;
+
+export type RunView = Holds<Same<
+  | "adoptedTrial"
+  | "baseGateOk"
+  | "baseSha"
+  | "comparisons"
+  | "createdAt"
+  | "durationMs"
+  | "error"
+  | "experiment"
+  | "finishedAt"
+  | "id"
+  | "judgeCostApi"
+  | "prompt"
+  | "recommendationNote"
+  | "recommended"
+  | "repo"
+  | "stage"
+  | "trials",
+  Names<Types.ExperimentRunView>
+>>;
+
+export type TrialView = Holds<Same<
+  | "adopted"
+  | "branch"
+  | "cost"
+  | "diffBytes"
+  | "diffRef"
+  | "discarded"
+  | "drift"
+  | "durationMs"
+  | "error"
+  | "gatePassed"
+  | "id"
+  | "interruptions"
+  | "label"
+  | "observedModel"
+  | "prOpened"
+  | "recommended"
+  | "reviewVerdict"
+  | "reviewer"
+  | "reviewerKey"
+  | "reviewerModifiedTree"
+  | "stage"
+  | "worker"
+  | "workerKey"
+  | "worktree",
+  Names<Types.ExperimentTrialView>
+>>;
+
+export type PairView = Holds<Same<
+  | "consistentWinner"
+  | "forwardWinner"
+  | "labelA"
+  | "labelB"
+  | "rationale"
+  | "reversedWinner"
+  | "trialA"
+  | "trialB",
+  Names<Types.ExperimentPairView>
+>>;
+
+export type CostBreakdown = Holds<Same<
+  | "cacheReadTokens"
+  | "inputTokens"
+  | "outputTokens"
+  | "reviewerApi"
+  | "totalApi"
+  | "unpricedCalls"
+  | "workerApi",
+  Names<Types.ExperimentCost>
+>>;
+
+export type LeaderboardRow = Holds<Same<
+  | "adoptedCount"
+  | "avgCostApi"
+  | "avgDurationMs"
+  | "avgReviewerCostApi"
+  | "avgWorkerCostApi"
+  | "experiment"
+  | "gatePassed"
+  | "gateTotal"
+  | "key"
+  | "label"
+  | "losses"
+  | "reviewer"
+  | "runs"
+  | "ties"
+  | "wins"
+  | "workerEffort"
+  | "workerHarness"
+  | "workerModel",
+  Names<Types.ExperimentLeaderboardRow>
+>>;
+
 export type TeamCfg = Holds<Same<
   | "backgroundPrompt"
   | "neverSubmit"
@@ -1018,6 +1120,7 @@ export type EmblemsCfg = Holds<Same<
 export type ExperimentalCfg = Holds<Same<
   | "analytics"
   | "boards"
+  | "experiments"
   | "session_themes"
   | "voice",
   Names<Types.ExperimentalCfg>

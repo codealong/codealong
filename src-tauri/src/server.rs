@@ -102,6 +102,8 @@ pub enum Request {
         #[serde(default)]
         account: Option<String>,
     },
+    /// Lifecycle action on an experiment run (`codealong exp adopt|discard|cancel`).
+    ExperimentOp { op: crate::experiments::Op },
     /// Sessions whose prompts and replies have every word (search.rs).
     Search { words: Vec<String> },
     /// The accounts in config.toml as `codealong accounts` lists them (usage.rs `describe`),
@@ -623,6 +625,7 @@ fn handle_request(ctx: &Ctx, req: serde_json::Result<Request>) -> Reply {
         Request::CloseIdle { keys, after_ms, archive } => answered(crate::idle::close_on(engine, &keys, after_ms, archive)),
         Request::Start { spec } => answered(crate::start::start_here(engine, &spec).map_err(crate::util::words)),
         Request::PrReview { pr, account } => answered(crate::autoreview::review_now(engine, &ctx.reviews, &pr, account.as_deref()).map(|()| crate::autoreview::begun(&ctx.reviews, &pr))),
+        Request::ExperimentOp { op } => answered(crate::experiments::report::apply_op(Some(engine), op).map_err(crate::util::words)),
         Request::Devices => {
             let mut view = DevicesSummary::of(peers.view());
             view.me.load = engine.read(|b| b.load.clone());

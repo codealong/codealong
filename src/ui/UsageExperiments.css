@@ -1,0 +1,200 @@
+/* The Analytics window's Experiments tab (`UsageExperiments.tsx`). */
+
+.ca-exp {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+}
+
+.ca-exp-empty {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  padding: var(--space-5) 0;
+}
+
+.ca-exp-hint {
+  margin: 0;
+  color: var(--ink-3);
+  font: var(--type-meta);
+  text-align: center;
+}
+
+.ca-exp-bar {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.ca-exp-section {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.ca-exp-table .ca-num {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.ca-exp-arm {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.ca-exp-model {
+  font: var(--type-meta-strong);
+  color: var(--ink);
+}
+
+.ca-exp-cohort {
+  font: var(--type-caption);
+  color: var(--ink-3);
+  padding: 1px 6px;
+  border-radius: var(--radius-pill);
+  background: var(--surface-sunken);
+}
+
+.ca-exp-muted {
+  color: var(--ink-3);
+}
+
+.ca-exp-sublink {
+  font: var(--type-caption);
+  color: var(--ink-3);
+}
+
+.ca-exp-runs {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.ca-exp-run {
+  border: 1px solid var(--line);
+  border-radius: var(--radius-md);
+  background: var(--surface);
+  overflow: hidden;
+}
+
+.ca-exp-run-head {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: 9px var(--space-3);
+  background: transparent;
+  border: 0;
+  color: var(--ink);
+  text-align: left;
+  cursor: pointer;
+  font: var(--type-meta);
+}
+
+.ca-exp-run-head:hover {
+  background: var(--surface-hover);
+}
+
+.ca-exp-run-id {
+  font: var(--type-code-caption);
+  color: var(--ink-3);
+  flex-shrink: 0;
+}
+
+.ca-exp-run-title {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font: var(--type-meta-strong);
+}
+
+.ca-exp-run-meta {
+  font: var(--type-caption);
+  color: var(--ink-3);
+  white-space: nowrap;
+}
+
+.ca-exp-run-body {
+  padding: 0 var(--space-3) var(--space-3);
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  border-top: 1px solid var(--line);
+}
+
+.ca-exp-rec {
+  margin: 10px 0 0;
+  font: var(--type-meta);
+  color: var(--ink-2);
+}
+
+.ca-exp-pill {
+  display: inline-block;
+  font: var(--type-caption);
+  padding: 1px 7px;
+  border-radius: var(--radius-pill);
+  background: var(--surface-sunken);
+  color: var(--ink-2);
+  text-transform: capitalize;
+  white-space: nowrap;
+}
+
+.ca-exp-pill.is-working,
+.ca-exp-pill.is-reviewing,
+.ca-exp-pill.is-fixing,
+.ca-exp-pill.is-gating,
+.ca-exp-pill.is-running,
+.ca-exp-pill.is-judging {
+  color: var(--unread);
+}
+
+.ca-exp-pill.is-failed,
+.ca-exp-pill.is-voided {
+  color: var(--alert);
+}
+
+.ca-exp-flags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-1);
+}
+
+.ca-exp-flag {
+  font: var(--type-caption);
+  padding: 1px 6px;
+  border-radius: var(--radius-pill);
+  background: var(--surface-sunken);
+  color: var(--ink-2);
+}
+
+.ca-exp-err {
+  font: var(--type-caption);
+  color: var(--alert);
+}
+
+.ca-exp-pairs {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  font: var(--type-meta);
+  color: var(--ink-2);
+}
+
+.ca-exp-pair {
+  display: flex;
+  gap: var(--space-2);
+  flex-wrap: wrap;
+}
+
+.ca-exp-pair-names {
+  font: var(--type-meta-strong);
+}
+
+.ca-exp-pair-res {
+  color: var(--ink-3);
+}

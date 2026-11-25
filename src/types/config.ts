@@ -186,6 +186,7 @@ export interface ExperimentalCfg {
   voice?: boolean;
   analytics?: boolean;
   session_themes?: boolean;
+  experiments?: boolean;
 }
 
 /** `[voice]` (config.rs `VoiceCfg`). */

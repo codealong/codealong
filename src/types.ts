@@ -25,6 +25,8 @@ export * from './types/config';
 export type * from './types/accounts';
 // What model calls used and cost, and your part in the work: the Analytics window, Settings › Decisions.
 export type * from './types/analytics';
+// Experiment bake-off runs and leaderboard: the Analytics window's Experiments tab.
+export type * from './types/experiments';
 // A session's conversation: transcript pages, what it waits on you to allow, what a send did, search.
 export type * from './types/conversation';
 // Side conversations about a session or a PR.

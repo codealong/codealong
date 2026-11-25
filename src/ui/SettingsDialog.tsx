@@ -2425,7 +2425,7 @@ function AdvancedPane({ cfg, view, disabled, onSave }: PaneProps & { view: Confi
 /* ---- Experimental ---- */
 
 /** `[experimental]` as a file without the table has it: every experiment off. */
-const EXPERIMENTS_OFF: Required<ExperimentalCfg> = { boards: false, voice: false, analytics: false, session_themes: false };
+const EXPERIMENTS_OFF: Required<ExperimentalCfg> = { boards: false, voice: false, analytics: false, session_themes: false, experiments: false };
 
 /** `[voice]` as a file without the table has it (config.rs `VoiceCfg`). */
 export const VOICE_DEFAULT: Required<VoiceCfg> = { locale: '', send_on_release: false, tell_every: 20, meetings: false, meetings_folder: '', meeting_account: '', meeting_model: '', meeting_lead: 1, meeting_countdown: 5, meeting_calendars_off: [] };
@@ -2600,6 +2600,15 @@ function ExperimentalPane({ cfg, view, disabled, onSave }: PaneProps & { view: C
           onToggle={(on) => void onSave({ ...cfg, experimental: { ...experimental, session_themes: on } })}
           onSave={(next) => void onSave(next)}
         />
+        <section className="ca-settings-group">
+          <label className="ca-field ca-settings-check ca-settings-experiment">
+            <CheckBox checked={experimental.experiments} onChange={(on) => void onSave({ ...cfg, experimental: { ...experimental, experiments: on } })} />
+            <span>Experiments</span>
+            <small>
+              Run pinned agent combinations side-by-side on the same task and base commit, optionally with a local reviewer, mechanical gate and blind pairwise judge (<code className="ca-ic">codealong exp</code>), and view the leaderboard in the Analytics window.
+            </small>
+          </label>
+        </section>
       </fieldset>
     </>
   );

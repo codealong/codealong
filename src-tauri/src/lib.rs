@@ -70,6 +70,7 @@ mod dictation;
 mod ear;
 mod editors;
 mod engine;
+mod experiments;
 // The tests' sessions, lanes and scratch folders are codealong-peer's, compiled here too: one
 // crate's tests can't see another's test-only code.
 #[cfg(test)]
