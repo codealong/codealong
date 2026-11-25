@@ -9,7 +9,9 @@
 //!
 //! Every board the engine publishes is looked at. A helper first seen is only noted, so a restart
 //! doesn't tell a turn that ended before it; after that, a turn that ends or a wait on you that
-//! begins is owed to its session while that session runs on this Mac. A session waiting on you to
+//! begins is owed to its session while that session runs on this Mac, or is one Codealong runs
+//! itself and hasn't been archived (`Session::hosted`: a server restart ends its adapter process,
+//! and sending to it picks it up again in a new one, acp.rs `send`). A session waiting on you to
 //! answer a prompt isn't sent anything (what's typed would answer it) and is told once it isn't;
 //! what's owed to one session goes in one message, gathered for up to `GATHER_MS` while another of
 //! its reporting helpers is at work (serve.rs wakes it then, though no board comes); a wait on its
@@ -163,11 +165,14 @@ impl Reporter {
     /// (`pending`, `Pending::stuck`) is told of once, with what its terminal shows once that's
     /// read, or once `SCREEN_WAIT_MS` has gone without it. One started with its session's key
     /// known whose session still isn't on the board `UNSEEN_MS` on is told of once too. Each is
-    /// owed to the helper's session while that runs on this Mac. `starts` is origins.json.
+    /// owed to the helper's session while that runs on this Mac, or is hosted by Codealong and
+    /// unarchived (`Session::hosted`). `starts` is origins.json.
     pub fn due(&mut self, starts: &Store, board: &Board, now: i64) -> Vec<Job> {
         let pending = &starts.pending[..];
         self.rev = self.rev.max(board.rev);
-        let runs_here = |k: &str| board.session(k).is_some_and(|(lane, s)| lane.device.is_none() && s.live && !s.archived);
+        // A session Codealong runs stays open here when a server restart ends its adapter process:
+        // sending to it picks it up again in a new one (acp.rs `send`, reconnect.rs `open_where_it_stopped`).
+        let runs_here = |k: &str| board.session(k).is_some_and(|(lane, s)| lane.device.is_none() && (s.live || s.hosted) && !s.archived);
         let screen_of = |p: &Pending| board.starting.get(&p.from).and_then(|starts| starts.iter().find(|s| s.at == p.at)).and_then(|s| s.screen.clone());
         self.told_stuck.retain(|(from, at)| pending.iter().any(|p| &p.from == from && p.at == *at));
         self.stuck_seen.retain(|(from, at), _| pending.iter().any(|p| &p.from == from && p.at == *at));
@@ -633,6 +638,46 @@ mod tests {
         r.due(&starts(&[]), &board(vec![boss(Status::Needs), rev(Status::Working, 10, 20)]), NOW);
         assert!(r.due(&starts(&[]), &board(vec![boss(Status::Needs), rev(Status::Idle, 10, 40)]), NOW).is_empty());
         assert_eq!(news(&r.due(&starts(&[]), &board(vec![boss(Status::Idle), rev(Status::Idle, 10, 40)]), NOW)), [(BOSS.to_string(), News::Ended)]);
+    }
+
+    /// As it was found (2026-11-24): a session Codealong runs itself started a reporting helper,
+    /// Codealong's server relaunched while the helper worked (ending the parent's adapter process
+    /// so `live` was false), and when the helper finished its turn the parent wasn't told.
+    #[test]
+    fn a_hosted_session_is_told_though_a_restart_ended_its_process() {
+        let hosted = Session { hosted: true, live: false, ..boss(Status::Idle) };
+        let mut r = Reporter::default();
+        assert!(r.due(&starts(&[]), &board(vec![hosted.clone(), rev(Status::Working, 10, 20)]), NOW).is_empty());
+        let jobs = r.due(&starts(&[]), &board(vec![hosted.clone(), rev(Status::Idle, 10, 40)]), NOW);
+        assert_eq!(news(&jobs), [(BOSS.to_string(), News::Ended)]);
+        r.told(&jobs[0], true, NOW);
+
+        // Waiting on its user, stuck before its session, and never showing up are told too.
+        let jobs = r.due(&starts(&[]), &board(vec![hosted.clone(), rev(Status::Needs, 50, 60)]), NOW);
+        assert!(matches!(news(&jobs)[..], [(_, News::OnUser(_))]), "{:?}", news(&jobs));
+
+        let stuck = Pending { from: BOSS.into(), how: crate::model::OriginHow::Started, lane: "/r/app".into(), account: "codex".into(), at: NOW - 4 * 60_000, helper: true, report: true, opens: Some("Review the branch".into()), terminal: true };
+        let mut r = Reporter::default();
+        assert!(r.due(&starts(&[stuck.clone()]), &board(vec![hosted.clone()]), NOW - SCREEN_WAIT_MS).is_empty());
+        assert!(matches!(news(&r.due(&starts(&[stuck]), &board(vec![hosted.clone()]), NOW))[..], [(_, News::Unstarted { .. })]));
+
+        let mut store = Store::default();
+        store.sessions.insert("claude:claude2:gone".into(), Entry { from: BOSS.into(), how: OriginHow::Started, at: NOW, helper: true, report: true, known: true });
+        assert_eq!(news(&Reporter::default().due(&store, &board(vec![hosted.clone()]), NOW + UNSEEN_MS)), [(BOSS.to_string(), News::Unseen { account: "claude2".into(), minutes: 10 })]);
+
+        // Archived or on another Mac: nobody here to tell.
+        let archived = Session { archived: true, ..hosted.clone() };
+        let mut r = Reporter::default();
+        r.due(&starts(&[]), &board(vec![archived.clone(), rev(Status::Working, 10, 20)]), NOW);
+        assert!(r.due(&starts(&[]), &board(vec![archived, rev(Status::Idle, 10, 40)]), NOW).is_empty());
+
+        let mut remote_lane = crate::fixtures::lane("/r/other", vec![hosted]);
+        remote_lane.device = Some(crate::model::DeviceTag { name: "Studio".into(), short: "st".into(), color: "blue".into(), online: true, last_seen: None });
+        let mut remote = Board { lanes: vec![remote_lane, crate::fixtures::lane("/r/app", vec![rev(Status::Working, 10, 20)])], ..Board::default() };
+        let mut r = Reporter::default();
+        r.due(&starts(&[]), &remote, NOW);
+        remote.lanes[1].sessions[0] = rev(Status::Idle, 10, 40);
+        assert!(r.due(&starts(&[]), &remote, NOW).is_empty());
     }
 
     /// A Codex helper started in a terminal sat an hour on a screen of its own before it made its
