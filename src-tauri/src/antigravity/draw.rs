@@ -101,6 +101,7 @@ pub fn draw(account: &AccountCfg, cwd: &Path, prompt: &str) -> Result<Drawn> {
         log_str.as_str(),
     ];
     let cli = super::cli_command(account);
+    super::kept_mode::keep(&account.home_path());
     let out = crate::procs::run_in(cli, &args, cwd, &[], "", TIMEOUT)?;
     let ran = parse_output(&out.out);
     let Some(id) = ran.conversation_id else {

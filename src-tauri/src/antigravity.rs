@@ -14,6 +14,7 @@ mod acp;
 mod artifacts;
 mod cache;
 mod draw;
+mod kept_mode;
 mod processes;
 mod rename;
 mod side;
@@ -124,10 +125,8 @@ pub fn trust_folder(settings: &Path, folder: &Path, user_home: &Path) -> anyhow:
     let given = folder.to_str().map(|p| p.trim_end_matches('/').to_string()).filter(|p| !p.is_empty()).ok_or_else(|| anyhow::anyhow!("{} isn't a folder Antigravity can keep", folder.display()))?;
     let real = dunce::canonicalize(folder).ok().and_then(|p| p.to_str().map(String::from));
     let paths: Vec<String> = std::iter::once(given.clone()).chain(real.filter(|r| *r != given)).collect();
-    // Two starts at once would each write back the list they read, losing one folder. agy takes
-    // no lock of its own on the file, so only Codealong's writes wait for each other.
-    static WRITING: std::sync::Mutex<()> = std::sync::Mutex::new(());
-    let _writing = WRITING.lock().unwrap_or_else(|e| e.into_inner());
+    // Two starts at once would each write back the list they read, losing one folder.
+    let _writing = kept_mode::WRITES.lock().unwrap_or_else(|e| e.into_inner());
     let text = match std::fs::read_to_string(settings) {
         Ok(t) => t,
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => "{}\n".to_string(),
@@ -1408,13 +1407,15 @@ impl KeptModels {
 /// second or two: asked off the caller's thread, kept for an hour (`KeptModels`), and on disk
 /// for the next launch (`kept_models_path`), which starts with the last list while it asks again.
 /// The reader asks as the app starts, so the list is fresh by the time a panel wants it.
-fn models(command: &str) -> Vec<crate::start::ModelOption> {
+fn models(command: &str, home: &Path) -> Vec<crate::start::ModelOption> {
     static KEPT: std::sync::Mutex<Option<KeptModels>> = std::sync::Mutex::new(None);
     let mut lock = KEPT.lock().unwrap_or_else(|e| e.into_inner());
     let kept = lock.get_or_insert_with(|| KeptModels { list: crate::store::read_or_default(&kept_models_path()), ask_at: None });
     if kept.on_wanted(Instant::now()) {
         let command = format!("{command} models");
+        let home = home.to_path_buf();
         std::thread::spawn(move || {
+            kept_mode::keep(&home);
             // Through a shell: an account's command may set variables first.
             let listed = procs::sh().and_then(|sh| procs::run_background(&sh, &["-c", &command], None, Duration::from_secs(30))).map(|out| listed_models(&out)).unwrap_or_default();
             let mut lock = KEPT.lock().unwrap_or_else(|e| e.into_inner());
@@ -1477,6 +1478,7 @@ pub fn read_usage(account: &AccountCfg, now: i64) -> crate::model::Usage {
     let _ = std::fs::create_dir_all(log.parent().unwrap_or(Path::new("/tmp")));
     // Through a shell, as `models` asks: an account's command may set variables first.
     let command = format!("{cli} -p /usage --output-format json --log-file {}", crate::util::sh_quote(&log.to_string_lossy()));
+    kept_mode::keep(&account.home_path());
     let answer = match procs::sh().and_then(|sh| procs::run_in(&sh, &["-c", &command], &crate::util::home(), &[], "", USAGE_TIMEOUT)) {
         Ok(out) => usage_answer(&out.out),
         Err(_) => UsageAnswer::Failed(format!("{} didn't answer in {} seconds", code(cli), USAGE_TIMEOUT.as_secs())),
@@ -1822,7 +1824,7 @@ impl crate::harness::Reader for Reader {
     /// Keeps the list of models a start can ask for at hand (`models`).
     fn poll(&mut self, accounts: &[AccountCfg]) {
         for a in accounts.iter().filter(|a| has_cli(a, &crate::util::home())) {
-            models(cli_command(a));
+            models(cli_command(a), &a.home_path());
         }
     }
 
@@ -2184,7 +2186,7 @@ impl crate::harness::Adapter for Antigravity {
 
     /// The models `agy models` lists, which its `--model` takes.
     fn models(&self, account: &AccountCfg) -> Vec<crate::start::ModelOption> {
-        models(cli_command(account))
+        models(cli_command(account), &account.home_path())
     }
 
     fn takes_model(&self) -> bool {

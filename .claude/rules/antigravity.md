@@ -308,7 +308,9 @@ runs on this Mac (2026-10-01). Paths are under `src-tauri/src/`.
   sets `agentMode`, and `session/resume` puts a session back in `default`): `acp.rs` (`set_model`,
   `overlay`) splits and recombines them, `Antigravity::mode` names the four modes, and `acp.rs`
   `start_mode` switches a session to the settings' `agentMode` as it starts and as it's picked up
-  (`Antigravity::acp_start_mode`). In `auto` the worker still asked (`session/request_permission`)
+  (`Antigravity::acp_start_mode`). `agy` 1.5.16 deletes `agentMode` from settings.json in nearly
+  every run that isn't its terminal UI or `agy acp` (print runs, `agy models`), which Codealong
+  starts every few minutes, so it puts the mode back after each (`antigravity/kept_mode.rs`). In `auto` the worker still asked (`session/request_permission`)
   about commands its `agy_tool_safety` monitor flagged for `unquoted_shell_operators` (a heredoc,
   a pipe, `&&`), whatever its model monitors (`sir_flash_lite`, then `severe_internal_risks_agy` on
   the whole conversation) made of them: one `sir_flash_lite` passed as a read of a local diff
