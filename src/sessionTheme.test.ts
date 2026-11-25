@@ -9,6 +9,7 @@ import {
   hueDistance,
   nearestPaletteColor,
   SESSION_PALETTE,
+  themeCssVars,
   type SessionColorInput,
 } from './sessionTheme';
 
@@ -135,5 +136,11 @@ describe('assignSessionColors', () => {
     expect(helper.backdrop).toBeNull();
     expect(helper.backdropImage).toBeNull();
     expect(helper.accentOverride).toBe('#2a8068');
+
+    // Every UI color variable comes directly from the image's accent, never a preset chord's stops.
+    const vars = themeCssVars(parent.color, 'medium', parent.accentOverride) as Record<string, string>;
+    for (const key of ['--st-l-1', '--st-l-2', '--st-l-accent', '--st-l-accent2', '--st-d-1', '--st-d-2', '--st-d-accent', '--st-d-accent2']) {
+      expect(vars[key], key).toContain('#2a8068');
+    }
   });
 });

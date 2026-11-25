@@ -283,12 +283,11 @@ pub fn analyze_pixels(rgba: &[u8], w: usize, h: usize) -> (Option<String>, u8) {
     }
     let luminance = if lum_count > 0.0 { (lum_sum / lum_count).round().clamp(0.0, 255.0) as u8 } else { 128 };
 
-    // Dominant chromatic accent across the whole artwork (weighted by saturation so focal artwork
-    // along edges/corners supplies a pleasing hue rather than neutral canvas).
-    let mut r_sum = 0.0f64;
-    let mut g_sum = 0.0f64;
-    let mut b_sum = 0.0f64;
-    let mut w_sum = 0.0f64;
+    // Dominant chromatic accent across the whole artwork, grouped into 24 hue buckets (15° each)
+    // so two-tone artwork (e.g. teal + warm terracotta) keeps its true dominant color instead of
+    // averaging complementary hues into muddy grey.
+    const BINS: usize = 24;
+    let mut bins = [(0.0f64, 0.0f64, 0.0f64, 0.0f64); BINS];
     for p in rgba.chunks_exact(4) {
         if p[3] < 128 {
             continue;
@@ -300,16 +299,45 @@ pub fn analyze_pixels(rgba: &[u8], w: usize, h: usize) -> (Option<String>, u8) {
         let min = r.min(g).min(b);
         let delta = max - min;
         let sat = if max > 0.0 { delta / max } else { 0.0 };
-        if sat < 0.14 || max < 0.12 || min > 0.94 {
+        if delta < 0.02 || sat < 0.10 || max < 0.10 || min > 0.95 {
             continue;
         }
-        let weight = sat * sat;
-        r_sum += r * weight;
-        g_sum += g * weight;
-        b_sum += b * weight;
-        w_sum += weight;
+        let mut hue = if (max - r).abs() < f64::EPSILON {
+            60.0 * (((g - b) / delta) % 6.0)
+        } else if (max - g).abs() < f64::EPSILON {
+            60.0 * ((b - r) / delta + 2.0)
+        } else {
+            60.0 * ((r - g) / delta + 4.0)
+        };
+        if hue < 0.0 {
+            hue += 360.0;
+        }
+        let bin = ((hue / 15.0).floor() as usize) % BINS;
+        let weight = sat * sat * (0.3 + 0.7 * max);
+        bins[bin].0 += r * weight;
+        bins[bin].1 += g * weight;
+        bins[bin].2 += b * weight;
+        bins[bin].3 += weight;
     }
-    let accent = if w_sum > 0.05 {
+    // Score each bucket together with its immediate 15° neighbors so hues straddling a bin edge
+    // don't split, then average pixels from that dominant hue family.
+    let best = (0..BINS)
+        .max_by(|&a, &b| {
+            let score = |i: usize| bins[(i + BINS - 1) % BINS].3 * 0.5 + bins[i].3 + bins[(i + 1) % BINS].3 * 0.5;
+            score(a).total_cmp(&score(b))
+        })
+        .unwrap_or(0);
+    let mut r_sum = bins[best].0;
+    let mut g_sum = bins[best].1;
+    let mut b_sum = bins[best].2;
+    let mut w_sum = bins[best].3;
+    for neighbor in [(best + BINS - 1) % BINS, (best + 1) % BINS] {
+        r_sum += bins[neighbor].0 * 0.5;
+        g_sum += bins[neighbor].1 * 0.5;
+        b_sum += bins[neighbor].2 * 0.5;
+        w_sum += bins[neighbor].3 * 0.5;
+    }
+    let accent = if w_sum > 0.02 {
         let rr = ((r_sum / w_sum) * 255.0).round().clamp(0.0, 255.0) as u8;
         let gg = ((g_sum / w_sum) * 255.0).round().clamp(0.0, 255.0) as u8;
         let bb = ((b_sum / w_sum) * 255.0).round().clamp(0.0, 255.0) as u8;
@@ -556,5 +584,13 @@ mod tests {
         let (accent, lum) = analyze_pixels(&rgba, 10, 10);
         assert_eq!(accent.as_deref(), Some("#3c50b4"));
         assert!(lum < 110);
+
+        // Two-tone image (70% teal + 30% complementary coral) picks teal cleanly rather than
+        // averaging complementary hues into muddy grey.
+        let two_tone: Vec<u8> = (0..100)
+            .flat_map(|i| if i < 70 { [36u8, 150, 140, 255] } else { [220u8, 95, 70, 255] })
+            .collect();
+        let (accent2, _) = analyze_pixels(&two_tone, 10, 10);
+        assert_eq!(accent2.as_deref(), Some("#24968c"));
     }
 }
