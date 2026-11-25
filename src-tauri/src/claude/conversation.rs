@@ -146,7 +146,7 @@ fn images_of(content: Option<&Value>, paste_ids: Option<&Value>) -> Vec<Image> {
     let numbers: Vec<u32> = paste_ids.and_then(Value::as_array).map(|ids| ids.iter().filter_map(|n| n.as_u64().map(|n| n as u32)).collect()).unwrap_or_default();
     // The numbers are the images' only when there's one for each.
     let numbered = numbers.len() == data.len();
-    data.iter().enumerate().map(|(i, d)| Image { number: numbered.then(|| numbers[i]), base64: d.to_string() }).collect()
+    data.iter().enumerate().map(|(i, d)| Image::from_base64(numbered.then(|| numbers[i]), d.to_string())).collect()
 }
 
 /// A command you ran in the session's shell, typed after `!` in its box (bash mode), and what it

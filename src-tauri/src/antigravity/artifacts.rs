@@ -85,23 +85,29 @@ pub(super) fn embedded_images(markdown: &str) -> Vec<String> {
     out
 }
 
-fn local_image_path(target: &str) -> Option<String> {
-    let path = if target.starts_with("file://") {
+/// Turns a `file://` URL or an absolute Unix/Windows path into a local path string; web URLs and
+/// relative paths return `None`.
+pub(super) fn local_path(target: &str) -> Option<String> {
+    if target.starts_with("file://") {
         let stripped = target.split(['?', '#']).next()?;
         let p = super::uri_path(stripped)?;
         // Windows `file:///C:/...` -> `C:/...`.
         if p.len() >= 3 && p.as_bytes()[0] == b'/' && p.as_bytes()[1].is_ascii_alphabetic() && p.as_bytes()[2] == b':' {
-            p[1..].to_string()
+            Some(p[1..].to_string())
         } else {
-            p
+            Some(p)
         }
     } else if target.starts_with('/') && !target.starts_with("//") {
-        target.to_string()
+        Some(target.to_string())
     } else if target.len() >= 3 && target.as_bytes()[0].is_ascii_alphabetic() && target.as_bytes()[1] == b':' && matches!(target.as_bytes()[2], b'/' | b'\\') {
-        target.to_string()
+        Some(target.to_string())
     } else {
-        return None;
-    };
+        None
+    }
+}
+
+fn local_image_path(target: &str) -> Option<String> {
+    let path = local_path(target)?;
     let mime = crate::sentfiles::mime(Path::new(&path))?;
     mime.starts_with("image/").then_some(path)
 }

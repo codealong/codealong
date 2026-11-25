@@ -1030,6 +1030,25 @@ fn result_of(content: &str, status: &str) -> (String, bool) {
 /// the model.
 const ASIDES: [&str; 6] = ["SYSTEM_MESSAGE", "CHECKPOINT", "EPHEMERAL_MESSAGE", "CONVERSATION_HISTORY", "KNOWLEDGE_ARTIFACTS", "USER_INPUT"];
 
+/// Images attached to a `USER_INPUT` step in its `media` array (`{ mime_type, uri }`), as written
+/// when images arrive over ACP or are uploaded in Antigravity's UI. `transcript::shown` reads each
+/// local file and keeps it under Codealong's `images/` so it renders in place.
+fn user_media(v: &Value) -> Vec<crate::transcript::Image> {
+    let Some(media) = v.get("media").and_then(Value::as_array) else { return Vec::new() };
+    media
+        .iter()
+        .filter_map(|m| {
+            if let Some(mime) = m.get("mime_type").and_then(Value::as_str) {
+                if !mime.is_empty() && !mime.starts_with("image/") {
+                    return None;
+                }
+            }
+            let uri = m.get("uri").and_then(Value::as_str)?.trim();
+            crate::transcript::Image::from_data_url(uri).or_else(|| artifacts::local_path(uri).map(crate::transcript::Image::from_path))
+        })
+        .collect()
+}
+
 /// A transcript line's items (transcript.rs): your prompt, the agent's reply and its calls, or
 /// a call's result, which is a step of its own. A call has no id in the record, so each gets
 /// the number of the step its result is written as.
@@ -1038,7 +1057,12 @@ pub fn conversation_items(v: &Value, _at: i64) -> Vec<Item> {
     match (s.source, s.kind) {
         ("USER_EXPLICIT", "USER_INPUT") => {
             let asked = request_of(s.content);
-            if asked.is_empty() { Vec::new() } else { vec![item(s.at, "you", asked)] }
+            let images = user_media(v);
+            if asked.is_empty() && images.is_empty() {
+                Vec::new()
+            } else {
+                vec![Item { images, ..item(s.at, "you", asked) }]
+            }
         }
         ("MODEL", "PLANNER_RESPONSE") => {
             let mut out = Vec::new();

@@ -2126,7 +2126,7 @@ mod tests {
         let items = conversation_items(&body, 1, 100);
         assert_eq!(items.len(), 1);
         assert_eq!(items[0].text, "Look");
-        assert_eq!(items[0].images, vec![crate::transcript::Image { number: None, base64: "iVBORw==".into() }]);
+        assert_eq!(items[0].images, vec![crate::transcript::Image::from_base64(None, "iVBORw==".into())]);
     }
 
     /// A password with a backslash or a quote in it signs in the same on a read as on a post:

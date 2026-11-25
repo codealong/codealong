@@ -113,7 +113,11 @@ runs on this Mac (2026-10-01). Paths are under `src-tauri/src/`.
   wrapping, results as steps of their own in the calls' order, lines out of step order, and a
   result's text: `antigravity.rs` (`transcript_file`, `step`, `request_of`, `Call`, `tail_of`,
   `result_of`). Steps are written as they finish, `created_at` to the second, so a step that
-  waits on you isn't there until it's answered: the planner's call is the last line.
+  waits on you isn't there until it's answered: the planner's call is the last line. Images sent
+  with a prompt (including ACP `image` blocks, which strip `![…](images/…)` out of the text) are
+  saved under `brain/<id>/.user_uploaded/uploaded_media_…` and listed in the `USER_INPUT` step's
+  `media` array (`{mime_type, uri}`), read by `user_media` into `Item::images` so `transcript::shown`
+  keeps and renders them in place.
 - Tool arguments (`toolAction`, `toolSummary`, `CommandLine`, `Cwd`, `AbsolutePath`,
   `TargetFile`): `antigravity.rs` (`call`).
 - `agy` opens its terminal UI: `-i <prompt>`, `--conversation <id>`, `--model` with what `agy

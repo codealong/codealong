@@ -16,7 +16,7 @@
 
 use std::collections::BTreeMap;
 use std::io::{Read, Seek, SeekFrom};
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 use anyhow::Result;
 use serde::Serialize;
@@ -40,20 +40,53 @@ const LINE_MAX: usize = 16 * 1024 * 1024;
 /// no such item leaves the engine.
 pub const IMAGES: &str = "images";
 
+/// Where a prompt's image bytes live in the session's record.
+#[derive(Debug, Clone, PartialEq)]
+pub enum ImageData {
+    /// Base64-encoded bytes inline in the record (Claude Code, Codex, OpenCode).
+    Base64(String),
+    /// A local file path the record points to (Antigravity's `media[].uri`).
+    Path(PathBuf),
+}
+
 /// An image a prompt came with, as the session's record has it.
 #[derive(Debug, Clone, PartialEq)]
 pub struct Image {
     /// Its number where the prompt's text names it (`[Image #2]`).
     pub number: Option<u32>,
-    /// Its bytes in base64, as the record holds them.
-    pub base64: String,
+    /// Where its bytes live in the record.
+    pub data: ImageData,
 }
 
 impl Image {
-    /// From a `data:image/png;base64,…` URL, which is how Codex records one.
+    /// Inline base64-encoded bytes, as Claude Code records them.
+    pub fn from_base64(number: Option<u32>, base64: String) -> Image {
+        Image { number, data: ImageData::Base64(base64) }
+    }
+
+    /// From a `data:image/png;base64,…` URL, which is how Codex and OpenCode record one.
     pub fn from_data_url(url: &str) -> Option<Image> {
         let (kind, base64) = url.strip_prefix("data:image/")?.split_once(',')?;
-        kind.ends_with(";base64").then(|| Image { number: None, base64: base64.to_string() })
+        kind.ends_with(";base64").then(|| Image::from_base64(None, base64.to_string()))
+    }
+
+    /// From a local file path on disk, which is how Antigravity records one (`media[].uri`).
+    pub fn from_path(path: impl Into<PathBuf>) -> Image {
+        Image { number: None, data: ImageData::Path(path.into()) }
+    }
+
+    /// The image's bytes, decoded from base64 or read from disk (capped at `MAX_IMAGE_BYTES`).
+    fn bytes(&self) -> Option<Vec<u8>> {
+        match &self.data {
+            ImageData::Base64(b64) => data_encoding::BASE64.decode(b64.as_bytes()).ok(),
+            ImageData::Path(path) => {
+                let meta = std::fs::metadata(path).ok()?;
+                if !meta.is_file() || meta.len() > attachments::MAX_IMAGE_BYTES as u64 {
+                    return None;
+                }
+                std::fs::read(path).ok()
+            }
+        }
     }
 }
 
@@ -228,7 +261,7 @@ fn shown_in(mut page: Page, images: &Path, files: &Path) -> Page {
         let own = std::mem::take(&mut it.images);
         let with = if before.is_empty() { own } else { before };
         // One that isn't an image a window shows is left out, and the text keeps its mark for it.
-        let kept: Vec<(Option<u32>, String)> = with.iter().filter_map(|i| Some((i.number, attachments::keep_image_in(images, &data_encoding::BASE64.decode(i.base64.as_bytes()).ok()?)?))).collect();
+        let kept: Vec<(Option<u32>, String)> = with.iter().filter_map(|i| Some((i.number, attachments::keep_image_in(images, &i.bytes()?)?))).collect();
         it.text = attachments::with_images(&attachments::written_in(&it.text, images, files), &kept);
     }
     // A prompt that was only images, none of them to show, has nothing to say.
@@ -687,7 +720,7 @@ mod tests {
         let p = write(&lines.iter().map(String::as_str).collect::<Vec<_>>());
         let raw = file_page(&p, crate::claude::conversation_items, None, 100).unwrap();
         assert_eq!(raw.items.iter().map(|i| i.images.len()).collect::<Vec<_>>(), [2, 1, 1, 1, 0, 1, 1]);
-        assert_eq!(raw.items[0].images[1], Image { number: Some(4), base64: other.clone() });
+        assert_eq!(raw.items[0].images[1], Image::from_base64(Some(4), other.clone()));
         let page = shown_in(raw, &images, &files);
         // Each is kept under the name it has when it's pasted into Codealong.
         let (a, b) = (attachments::keep_image_in(&images, PNG).unwrap(), attachments::keep_image_in(&images, &[PNG, b"2"].concat()).unwrap());
@@ -752,6 +785,97 @@ mod tests {
         let gone = write(&[prompt(serde_json::json!([pasted])).as_str(), reply]);
         let page = shown_in(crate::codex::with_images_before(&gone, file_page(&gone, crate::codex::conversation_items, None, 100).unwrap()), &images, &files);
         assert_eq!(said(&page), [("agent", "Looking.")]);
+    }
+
+    #[test]
+    fn an_antigravity_prompt_shows_the_images_it_came_with() {
+        let (dir, images, files) = kept_dirs("shown-antigravity");
+        let uploaded = dir.join("uploaded");
+        std::fs::create_dir_all(&uploaded).unwrap();
+        let shot_a = uploaded.join("uploaded_media_0.png");
+        let shot_b = uploaded.join("shot two.png");
+        let not_img = uploaded.join("doc.pdf");
+        let fake_png = uploaded.join("fake.png");
+        std::fs::write(&shot_a, PNG).unwrap();
+        std::fs::write(&shot_b, [PNG, b"2"].concat()).unwrap();
+        std::fs::write(&not_img, b"%PDF-1.7").unwrap();
+        std::fs::write(&fake_png, b"%PDF-1.7").unwrap();
+        let missing = uploaded.join("gone.png");
+        let path_b = shot_b.to_string_lossy().replace('\\', "/").replace(' ', "%20");
+        let file_uri_b = if path_b.starts_with('/') { format!("file://{path_b}") } else { format!("file:///{path_b}") };
+        let step = |idx: i64, req: &str, media: Value| {
+            serde_json::json!({
+                "step_index": idx,
+                "source": "USER_EXPLICIT",
+                "type": "USER_INPUT",
+                "status": "DONE",
+                "created_at": "2026-11-25T22:47:38Z",
+                "content": format!("<USER_REQUEST>\n{req}\n</USER_REQUEST>\n<ADDITIONAL_METADATA>\nnow\n</ADDITIONAL_METADATA>"),
+                "media": media,
+            })
+            .to_string()
+        };
+        let a_kept = attachments::keep_image_in(&images, PNG).unwrap();
+        let a_full = attachments::locate_in(&images, &files, &a_kept).unwrap();
+        let lines = [
+            // Improve Codealong sent via ACP: prose ends with the heading, images live in `media`.
+            step(
+                0,
+                "Why is the picker empty?\n\nCodealong’s windows as they were when this was asked:",
+                serde_json::json!([
+                    { "mime_type": "image/png", "uri": shot_a },
+                    { "mime_type": "image/png", "uri": file_uri_b },
+                ]),
+            ),
+            // Image-only prompt with a valid file.
+            step(1, "", serde_json::json!([{ "mime_type": "image/png", "uri": shot_a }])),
+            // Image-only prompt whose file is gone: dropped rather than an empty turn.
+            step(2, "", serde_json::json!([{ "mime_type": "image/png", "uri": missing }])),
+            // Non-image mime type, non-image bytes, and remote URL are ignored.
+            step(
+                3,
+                "Just prose",
+                serde_json::json!([
+                    { "mime_type": "application/pdf", "uri": not_img },
+                    { "mime_type": "image/png", "uri": fake_png },
+                    { "mime_type": "image/png", "uri": "https://example.com/a.png" },
+                ]),
+            ),
+            // Already referenced as an expanded path in the prompt: not duplicated.
+            step(
+                4,
+                &format!("Look at ![shot]({})", a_full.display()),
+                serde_json::json!([{ "mime_type": "image/png", "uri": shot_a }]),
+            ),
+            // Model tool result with `media` is not turned into a user image.
+            serde_json::json!({
+                "step_index": 5,
+                "source": "MODEL",
+                "type": "GENERIC",
+                "status": "DONE",
+                "created_at": "2026-11-25T22:47:40Z",
+                "content": "Generated image",
+                "media": [{ "mime_type": "image/png", "uri": shot_a }],
+            })
+            .to_string(),
+        ];
+        let p = write(&lines.iter().map(String::as_str).collect::<Vec<_>>());
+        let raw = file_page(&p, crate::antigravity::conversation_items, None, 100).unwrap();
+        assert_eq!(raw.items[0].images, vec![Image::from_path(&shot_a), Image::from_path(&shot_b)]);
+        let page = shown_in(raw, &images, &files);
+        let b_kept = attachments::keep_image_in(&images, &[PNG, b"2"].concat()).unwrap();
+        assert_eq!(
+            said(&page),
+            [
+                ("you", format!("Why is the picker empty?\n\nCodealong’s windows as they were when this was asked:\n![image]({a_kept})\n![image]({b_kept})").as_str()),
+                ("you", format!("![image]({a_kept})").as_str()),
+                ("you", "Just prose"),
+                ("you", format!("Look at ![shot]({a_kept})").as_str()),
+                ("result", ""),
+            ]
+        );
+        assert!(page.items.iter().all(|i| i.images.is_empty()));
+        assert_eq!(std::fs::read_dir(&images).unwrap().count(), 2, "nothing else is kept");
     }
 
     #[test]
