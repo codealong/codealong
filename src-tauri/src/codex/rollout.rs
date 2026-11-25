@@ -46,6 +46,9 @@ pub struct ThreadInfo {
     pub last_prompt_at: Option<i64>,
     /// An approval request with nothing after it.
     pub pending_approval: Option<String>,
+    /// Questions its agent asked without waiting on them (aside.rs), which no message of yours
+    /// has answered since, nor a stop called off.
+    pub asked_aside: Option<super::aside::Aside>,
     /// Tool calls the model made that have no result yet, oldest first. The app doesn't record
     /// its approval requests (a computer-use app to allow, a command to run), so a call that
     /// stays unanswered well past how long its tool takes is the only sign one is waiting.
@@ -682,6 +685,11 @@ pub fn prose_of(v: &Value) -> Option<(bool, String)> {
     if let Some(prompt) = prompt_of(payload) {
         return Some((true, prompt));
     }
+    // Your answers to questions the agent asked aside, which aren't a prompt, as Codex's
+    // terminal UI shows them (aside.rs `shown`).
+    if let Some(answers) = user_text(payload).as_deref().and_then(super::aside::shown) {
+        return Some((true, answers));
+    }
     let text = match payload.get("type").and_then(Value::as_str)? {
         "agent_message" => payload.get("message").and_then(Value::as_str)?.to_string(),
         "item_completed" => {
@@ -966,6 +974,7 @@ fn apply_event(info: &mut ThreadInfo, v: &Value) {
             info.turn_open = false;
             info.last_complete_at = ts;
             info.pending_approval = None;
+            info.asked_aside = None;
             info.interrupted_at = ts.filter(|_| payload.get("reason").and_then(Value::as_str) == Some("interrupted"));
         }
         // The model, level and permissions the thread's next turn runs on, written as they're
@@ -985,6 +994,9 @@ fn apply_event(info: &mut ThreadInfo, v: &Value) {
         "user_message" => {
             if let Some(m) = prompt_of(payload) {
                 note_prompt(info, &m, ts);
+            }
+            if answers_aside(payload) {
+                info.asked_aside = None;
             }
         }
         "token_count" => {
@@ -1016,7 +1028,28 @@ fn apply_event(info: &mut ThreadInfo, v: &Value) {
                 note_prompt(info, &m, ts);
             }
             info.pending_approval = None;
+            if let Some(asked) = super::aside::of(payload, ts.unwrap_or(info.last_ts)) {
+                info.asked_aside = Some(asked);
+            } else if answers_aside(payload) {
+                info.asked_aside = None;
+            }
         }
+    }
+}
+
+/// Whether a user message answers the questions its agent asked aside: Codex's reply to them
+/// (aside.rs), which isn't a prompt (`request_of`), or a prompt, which Codex reads as the answer.
+fn answers_aside(payload: &Value) -> bool {
+    user_text(payload).is_some_and(|t| !t.trim().is_empty())
+}
+
+/// The words of a user message, whatever they are: a prompt, Codex's reply to questions, a
+/// message wrapped in context.
+fn user_text(payload: &Value) -> Option<String> {
+    match payload.get("type").and_then(Value::as_str)? {
+        "user_message" => payload.get("message").and_then(Value::as_str).map(str::to_string),
+        "item_completed" => payload.get("item").filter(|i| i.get("type").and_then(Value::as_str) == Some("UserMessage")).and_then(|i| i.get("content")).map(crate::transcript::text_of),
+        _ => None,
     }
 }
 
@@ -1370,6 +1403,30 @@ mod tests {
         let reply = r#"{"timestamp":"2026-09-21T16:07:00.000Z","type":"event_msg","payload":{"type":"user_message","message":"<send_user_message_question_reply>\n[{\"answer\":\"Yes\"}]\n</send_user_message_question_reply>"}}"#;
         apply_events(&mut info, &format!("{reply}\n"));
         assert_eq!(info.last_prompt_at, parse_rfc3339_ms("2026-09-21T16:00:00.000Z"));
+    }
+
+    /// Questions the agent asks aside (aside.rs) stay open until a message of yours (Codex's
+    /// reply to them, or any prompt) or a stop.
+    #[test]
+    fn notices_questions_asked_aside_until_answered() {
+        let mut info = parse_meta(META_USER).unwrap();
+        let asked = r#"{"timestamp":"2026-09-21T16:00:01.000Z","type":"event_msg","payload":{"type":"task_started"}}
+{"timestamp":"2026-09-21T16:00:02.000Z","type":"event_msg","payload":{"type":"item_completed","item":{"type":"AgentMessage","id":"call_1","content":[{"type":"Text","text":"Which color?\n- Red\n- Blue"}],"phase":"final_answer","delivery":"async","questions":[{"title":"Which color?","options":["Red","Blue"]}]}}}
+"#;
+        apply_events(&mut info, asked);
+        let a = info.asked_aside.clone().unwrap();
+        assert_eq!((a.id.as_str(), a.at, a.questions[0].question.as_str()), ("call_1", parse_rfc3339_ms("2026-09-21T16:00:02.000Z").unwrap(), "Which color?"));
+        // Its work goes on, and they stay open.
+        apply_events(&mut info, "{\"timestamp\":\"2026-09-21T16:00:03.000Z\",\"type\":\"event_msg\",\"payload\":{\"type\":\"agent_message\",\"message\":\"Waiting for your pick.\"}}\n");
+        assert!(info.asked_aside.is_some());
+        let reply = r#"{"timestamp":"2026-09-21T16:00:09.000Z","type":"event_msg","payload":{"type":"user_message","message":"<send_user_message_question_reply>\n[{\"answer\":\"Red\"}]\n</send_user_message_question_reply>"}}"#;
+        apply_events(&mut info, &format!("{reply}\n"));
+        assert!(info.asked_aside.is_none());
+        // The conversation shows the reply as yours.
+        assert_eq!(prose_of(&serde_json::from_str(reply).unwrap()), Some((true, "Red".to_string())));
+        apply_events(&mut info, asked);
+        apply_events(&mut info, "{\"timestamp\":\"2026-09-21T16:01:00.000Z\",\"type\":\"event_msg\",\"payload\":{\"type\":\"turn_aborted\",\"reason\":\"interrupted\"}}\n");
+        assert!(info.asked_aside.is_none(), "a stop calls them off");
     }
 
     #[test]

@@ -32,7 +32,9 @@ use std::time::Duration;
 
 mod forms;
 mod handover;
+mod steer;
 pub use handover::{any_running, hand_over, take_over, Handed};
+pub use steer::steer;
 
 use anyhow::{anyhow, bail, Context, Result};
 use serde::{Deserialize, Serialize};
@@ -40,7 +42,7 @@ use serde_json::{json, Value};
 
 use crate::config::{self, AccountCfg};
 use crate::harness::{Answer, Pending, Switch};
-use crate::model::{Harness, ModeKind, Session, SessionMode, Status};
+use crate::model::{Harness, ModeKind, Need, Session, SessionMode, Status};
 use crate::rpc::{self, Failure};
 use crate::store;
 use crate::util::{now_ms, sh_quote, truncate};
@@ -56,6 +58,9 @@ pub const PACKAGES: [(&str, &str); 2] = [("@agentclientprotocol/claude-agent-acp
 /// as "not supported when using Codex with a ChatGPT account" (2026-11-17). 1.13.1 runs 0.169.0's
 /// app-server, a turn on `gpt-6.2-astra` with a command in it included (checked 2026-11-17).
 pub const OVERRIDES: [(&str, &str); 1] = [("@openai/codex", "0.169.0")];
+
+/// Where an agent's capabilities note that it takes `_session/steering` (`agent`, steer.rs).
+const STEERS: &str = "_steering";
 
 /// How long a request other than a prompt may take: starting a session loads the agent's
 /// tools and MCP servers, which can take a while.
@@ -525,18 +530,7 @@ impl Agent {
     /// The protocol's handshake: who's asking and what Codealong lends the agent. It answers
     /// with what it can do.
     fn initialize(&self) -> Result<Value> {
-        self.request(
-            "initialize",
-            json!({
-                "protocolVersion": 1,
-                "clientInfo": rpc::client_info(),
-                // The agents read and write files and run commands with their own tools. Forms
-                // show as questions to answer (forms.rs), which is how the adapters ask their
-                // harness's own: without them, claude-agent-acp leaves `AskUserQuestion` out.
-                "clientCapabilities": { "fs": { "readTextFile": false, "writeTextFile": false }, "terminal": false, "elicitation": { "form": {} } },
-            }),
-            Some(REQUEST_TIMEOUT),
-        )
+        self.request("initialize", json!({ "protocolVersion": 1, "clientInfo": rpc::client_info(), "clientCapabilities": client_capabilities() }), Some(REQUEST_TIMEOUT))
     }
 
     fn can(&self, what: &str) -> bool {
@@ -544,9 +538,19 @@ impl Agent {
         match what {
             "load" => caps.get("loadSession").and_then(Value::as_bool).unwrap_or(false),
             "image" => caps.pointer("/promptCapabilities/image").and_then(Value::as_bool).unwrap_or(false),
+            "steer" => caps.get(STEERS).and_then(Value::as_bool).unwrap_or(false),
             other => caps.pointer(&format!("/sessionCapabilities/{other}")).is_some(),
         }
     }
+}
+
+/// What Codealong tells an adapter it takes. The agents read and write files and run commands
+/// with their own tools. Forms show as questions to answer (forms.rs), which is how the adapters
+/// ask their harness's own: without them, claude-agent-acp leaves `AskUserQuestion` out. An
+/// adapter goes by what it was told while it runs, so one told otherwise isn't taken over
+/// (handover.rs `take_over`).
+fn client_capabilities() -> Value {
+    json!({ "fs": { "readTextFile": false, "writeTextFile": false }, "terminal": false, "elicitation": { "form": {} } })
 }
 
 /// The account's adapter process, started when there isn't one running.
@@ -569,7 +573,13 @@ fn agent(a: &AccountCfg) -> Result<Arc<Agent>> {
         // Its process is killed as `ag` goes, here and below.
         Err(e) => bail!("{}'s agent didn't start ({e:#}). Its log: {}", a.name, crate::util::tilde(&log_path(&a.name))),
     };
-    *ag.caps.lock().unwrap_or_else(|e| e.into_inner()) = init.get("agentCapabilities").cloned().unwrap_or(Value::Null);
+    let mut caps = init.get("agentCapabilities").cloned().unwrap_or(Value::Null);
+    // codex-acp says it takes `_session/steering` in the answer's `_meta`, not among its
+    // capabilities (steer.rs): kept with them, so a hand-over keeps it.
+    if let (Some(c), Some(true)) = (caps.as_object_mut(), init.pointer("/_meta/steering/supported").and_then(Value::as_bool)) {
+        c.insert(STEERS.into(), Value::Bool(true));
+    }
+    *ag.caps.lock().unwrap_or_else(|e| e.into_inner()) = caps;
     keep_agent(&a.name, ag).map_err(|e| anyhow!("{e} Its log: {}", crate::util::tilde(&log_path(&a.name))))
 }
 
@@ -1922,6 +1932,10 @@ pub fn overlay(s: &mut Session, seen_at: i64) {
         s.excerpt = Some(p.label.clone());
         s.stalled_since = None;
         s.asks = false;
+    } else if s.status == Status::Needs && s.need() == Some(Need::Question) && crate::harness::adapter(s.harness).asks_aside() {
+        // Questions its agent asked without waiting on them, open as its record says
+        // (`Adapter::asks_aside`): it asks you, whether its turn runs on or has ended.
+        s.stalled_since = None;
     } else if h.running {
         s.status = Status::Working;
         s.status_since = Some(h.since);
@@ -2628,6 +2642,46 @@ mod tests {
         );
         state().sessions.remove(&key);
         let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// The answer to questions its agent asked aside goes into the turn a session is taking where
+    /// its agent takes that (steer.rs), and nowhere when it isn't taking one or doesn't: the
+    /// caller sends it as the next prompt instead.
+    #[test]
+    fn an_answer_is_steered_into_the_running_turn() {
+        let dir = store::test_dir("acp-steer");
+        let script = r#"while IFS= read -r line; do printf '%s\n' "$line" >> "$1"; id=$(printf '%s' "$line" | sed -n 's/^{"id":\([0-9]*\),.*/\1/p'); case "$line" in *'"method":"_session/steering"'*) echo "{\"jsonrpc\":\"2.0\",\"id\":$id,\"result\":{\"outcome\":\"injected\"}}";; esac; done"#;
+        let account = "test-adapter-steer";
+        let key = key_of(Harness::Codex, account, "t1");
+        state().sessions.insert(key.clone(), Hosted { account: account.into(), id: "t1".into(), cwd: "/w".into(), loaded: true, running: true, ..Default::default() });
+        let ag = stand_in(account, script, &dir);
+        // Without steering among what it says it takes, nothing goes.
+        assert_eq!(steer(&key, "Red").unwrap(), None);
+        *ag.caps.lock().unwrap() = json!({ STEERS: true });
+        assert_eq!(steer(&key, "Red").unwrap().as_deref(), Some("Sent into the turn it's taking."));
+        assert_eq!(heard(&dir), [r#"{"id":1,"jsonrpc":"2.0","method":"_session/steering","params":{"prompt":[{"text":"Red","type":"text"}],"sessionId":"t1"}}"#]);
+        set(&key, |h| h.running = false);
+        assert_eq!(steer(&key, "Blue").unwrap(), None);
+        assert_eq!(heard(&dir).len(), 1);
+        state().sessions.remove(&key);
+        state().agents.remove(account);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// Questions its agent asked aside, open as its record says (codex/aside.rs), stand over the
+    /// turn Codealong knows it's taking, or has ended; a harness whose agent doesn't ask that way
+    /// shows working as before.
+    #[test]
+    fn questions_asked_aside_stand_over_the_turn() {
+        let account = "test-overlay-aside";
+        for (harness, running, kept) in [(Harness::Codex, true, true), (Harness::Codex, false, true), (Harness::Claude, true, false)] {
+            let key = key_of(harness, account, "t1");
+            state().sessions.insert(key.clone(), Hosted { account: account.into(), id: "t1".into(), cwd: "/w".into(), running, since: 1, ..Default::default() });
+            let mut s = Session { account: account.into(), harness, status: Status::Needs, excerpt: Some(crate::board::asks_you("Which color?")), ..crate::fixtures::session(&key) };
+            overlay(&mut s, 0);
+            assert_eq!(s.status == Status::Needs, kept, "{harness:?}, running {running}: {:?}", s.status);
+            state().sessions.remove(&key);
+        }
     }
 
     /// A process an adapter started is one of Codealong's own sessions (claude-agent-acp's

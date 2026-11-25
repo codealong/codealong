@@ -416,6 +416,27 @@ pub trait Adapter: Sync {
         bail!("Answer it in {}: Codealong can't answer it from here.", self.harness().word())
     }
 
+    /// Whether its agent asks questions without waiting on them, which your next message
+    /// answers (Codex's `request_user_input_async`, codex/aside.rs): its reader says the session
+    /// asks you while they're open, and that stands over what Codealong knows of a session it
+    /// runs, whose turn may run on or have ended meanwhile (acp.rs `overlay`).
+    fn asks_aside(&self) -> bool {
+        false
+    }
+
+    /// The questions its agent asked without waiting on them that no message has answered, as
+    /// the panel shows them (`asks_aside`). A session Codealong runs is answered from here, with
+    /// the message `aside_reply` writes; one elsewhere says where (`Pending::cannot`).
+    fn asked_aside(&self, _ctx: &Ctx, _session: &Session) -> Option<Pending> {
+        None
+    }
+
+    /// The message that answers the questions asked aside `id` with `answers`, by question, or
+    /// declines them (none); None when `id` names nothing asked aside.
+    fn aside_reply(&self, _ctx: &Ctx, _session: &Session, _id: &str, _answers: Option<&serde_json::Value>) -> Option<Result<String>> {
+        None
+    }
+
     /// The whole input of each tool call the session made that has no result yet: the command
     /// it's running now, or the call waiting on you. The `codealong` command finds the session
     /// that runs it from these when no process above it is a session (cli/whoami.rs). The harness

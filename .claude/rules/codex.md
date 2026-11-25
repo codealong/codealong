@@ -80,6 +80,16 @@ checked on this Mac, most of them by reading the apps' own bundles and files. Pa
   goes on without running it, `decline` Escape or `n`, which stops the turn, `cancel` `c`), which
   Codealong takes as they come. A hook's run left nothing in the TUI's screen when it printed
   nothing, and the hook's environment had no `CODEX_HOME` for `~/.codex` (in tmux, 2026-10-24).
+- Questions the agent asks without waiting on them (`request_user_input_async`, 0.169.0's Default
+  mode, where the model's catalog gives it that tool; `request_user_input` is Plan mode's, which
+  codex-acp asks as a form, acp/forms.rs): the call answers `{"accepted":true}` at once, the
+  questions are an `item_completed` `AgentMessage` with `delivery: "async"` and `questions`, and
+  the agent goes on, ends its turn, or sleeps in it a minute at a time waiting (2026-11-24). Your
+  next message answers them, in Codex's `<send_user_message_question_reply>` envelope with each
+  question's id; its terminal UI steers that into the live turn and lets an unanswered question
+  expire after 30 s. codex-acp 1.13.1 passes none of it on: `codex/aside.rs` (module header),
+  `codex/rollout.rs` (`ThreadInfo::asked_aside`), `board/sessions.rs` (`codex_session`), and for
+  a session Codealong runs `acp.rs` (`overlay`), `acp/steer.rs`, actions.rs (`answer_aside`).
 - Commands (`CommandExecution`, with the folder the agent chose as a `file://` URL), file edits
   (`FileChange`) and the PRs a thread made: `codex/rollout.rs` (`work_of`, `file_path_of`,
   `pr_made`). Scripts don't `cd`, and many run outside the thread's own folder.

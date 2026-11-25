@@ -465,9 +465,12 @@ pub fn codex_session(account: &AccountCfg, th: &ThreadInfo, name: Option<&str>, 
     let cut_off = if th.turn_open && terminal.is_none() && held == Some(false) { Some(th.last_ts) } else { th.interrupted_at.filter(|_| by_the_app) };
     let unanswered = codex_unanswered(th, now).filter(|_| cut_off.is_none());
     let asked = asked.filter(|_| cut_off.is_none());
+    // Questions its agent asked without waiting on them (codex/aside.rs): it asks you, whether it
+    // works on meanwhile or has ended its turn.
+    let aside = th.asked_aside.as_ref().filter(|_| cut_off.is_none()).map(|a| crate::board::asks_you(&a.questions[0].question));
     let status = if let Some(at) = cut_off {
         if at > seen_at { Status::Error } else { Status::Idle }
-    } else if asked.is_some() || th.pending_approval.is_some() || unanswered.is_some() {
+    } else if asked.is_some() || th.pending_approval.is_some() || aside.is_some() || unanswered.is_some() {
         Status::Needs
     } else if th.turn_open && fresh {
         Status::Working
@@ -486,7 +489,7 @@ pub fn codex_session(account: &AccountCfg, th: &ThreadInfo, name: Option<&str>, 
         .unwrap_or_else(|| "Codex thread".to_string());
     let excerpt = match status {
         // Known from Codex's hook, else guessed from a call left without its result.
-        Status::Needs => asked.as_ref().map(|(what, _)| format!("Waiting for approval · {what}")).or_else(|| th.pending_approval.clone()).or(unanswered),
+        Status::Needs => asked.as_ref().map(|(what, _)| format!("Waiting for approval · {what}")).or_else(|| th.pending_approval.clone()).or(aside).or(unanswered),
         // What the turn was on.
         Status::Working => th.last_user_message.clone(),
         _ if cut_off.is_some() => th.last_user_message.clone(),
@@ -1317,6 +1320,23 @@ mod tests {
         let ended = TranscriptInfo { unfinished: None, ..cut };
         let done = claude_session(&a, None, Some(&ended), 0, NOW, &Quiet::default()).unwrap();
         assert_eq!((done.cut_off, done.status), (None, Status::Unread));
+    }
+
+    /// Questions a Codex thread's agent asked without waiting on them (codex/aside.rs) ask you,
+    /// while it works on and once its turn has ended; an approval its turn waits on comes first.
+    #[test]
+    fn a_codex_thread_asks_what_its_agent_asked_aside() {
+        let a = AccountCfg { name: "codex".into(), harness: "codex".into(), home: "~/.codex".into(), command: None, start: None, acp: None, monthly: None, per_token: false, usage_cap: None, disabled: false, chrome_profile: None };
+        let question = codealong_peer::api::Question { question: "Which color?".into(), header: None, options: Vec::new(), multi_select: false, form: None };
+        let aside = crate::codex::Aside { id: "call_1".into(), at: NOW - 2_000, questions: vec![question] };
+        let mut th = ThreadInfo { id: "01a0c4a6".into(), cwd: "/r".into(), last_ts: NOW - 1_000, turn_open: true, turn_started_at: Some(NOW - 5_000), asked_aside: Some(aside), ..Default::default() };
+        let s = codex_session(&a, &th, None, None, None, false, 0, NOW, None);
+        assert_eq!((s.status, s.excerpt.as_deref(), s.need()), (Status::Needs, Some("Asks you · Which color?"), Some(crate::model::Need::Question)));
+        th.turn_open = false;
+        th.last_complete_at = Some(NOW - 1_000);
+        assert_eq!(codex_session(&a, &th, None, None, None, false, NOW, NOW, None).status, Status::Needs);
+        th.pending_approval = Some("Run · `yarn install`".into());
+        assert_eq!(codex_session(&a, &th, None, None, None, false, 0, NOW, None).excerpt.as_deref(), Some("Run · `yarn install`"));
     }
 
     #[test]
