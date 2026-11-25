@@ -585,25 +585,45 @@ export function assignSessionColors(
   return result;
 }
 
-/** CSS custom properties exposing the chord's light + dark stops and intensity scale. */
+/** CSS custom properties exposing the chord's light + dark stops and intensity scale.
+ *  When `accentOverride` comes from an AI background image, every tint and accent stop is derived
+ *  directly from that image color in OKLCH so UI surfaces purely complement the artwork without
+ *  bleeding in colors from preset mesh chords. */
 export function themeCssVars(color: SessionThemeColor, intensity: SessionThemeIntensity, accentOverride?: string | null): CSSProperties {
   const scale = SESSION_INTENSITIES.find((i) => i.id === intensity)?.scale ?? 1;
-  const lightAccent = accentOverride ? `color-mix(in oklch, ${accentOverride} 86%, #111111)` : color.light.accent;
-  const darkAccent = accentOverride ? `color-mix(in oklch, ${accentOverride} 78%, #ffffff)` : color.dark.accent;
+  if (accentOverride) {
+    return {
+      '--st-l-base': `color-mix(in oklch, ${accentOverride} 6%, #ffffff)`,
+      '--st-l-1': `color-mix(in oklch, ${accentOverride} 24%, #ffffff)`,
+      '--st-l-2': `color-mix(in oklch, ${accentOverride} 12%, #ffffff)`,
+      '--st-l-3': `color-mix(in oklch, ${accentOverride} 18%, #ffffff)`,
+      '--st-l-4': `color-mix(in oklch, ${accentOverride} 10%, #ffffff)`,
+      '--st-l-accent': `color-mix(in oklch, ${accentOverride} 86%, #111111)`,
+      '--st-l-accent2': `color-mix(in oklch, ${accentOverride} 62%, #ffffff)`,
+      '--st-d-base': `color-mix(in oklch, ${accentOverride} 10%, #121318)`,
+      '--st-d-1': `color-mix(in oklch, ${accentOverride} 34%, #121318)`,
+      '--st-d-2': `color-mix(in oklch, ${accentOverride} 18%, #121318)`,
+      '--st-d-3': `color-mix(in oklch, ${accentOverride} 26%, #121318)`,
+      '--st-d-4': `color-mix(in oklch, ${accentOverride} 14%, #121318)`,
+      '--st-d-accent': `color-mix(in oklch, ${accentOverride} 78%, #ffffff)`,
+      '--st-d-accent2': `color-mix(in oklch, ${accentOverride} 52%, #121318)`,
+      '--st-scale': String(scale),
+    } as CSSProperties;
+  }
   return {
     '--st-l-base': color.light.base,
     '--st-l-1': color.light.stops[0],
     '--st-l-2': color.light.stops[1],
     '--st-l-3': color.light.stops[2],
     '--st-l-4': color.light.stops[3],
-    '--st-l-accent': lightAccent,
+    '--st-l-accent': color.light.accent,
     '--st-l-accent2': color.light.accent2,
     '--st-d-base': color.dark.base,
     '--st-d-1': color.dark.stops[0],
     '--st-d-2': color.dark.stops[1],
     '--st-d-3': color.dark.stops[2],
     '--st-d-4': color.dark.stops[3],
-    '--st-d-accent': darkAccent,
+    '--st-d-accent': color.dark.accent,
     '--st-d-accent2': color.dark.accent2,
     '--st-scale': String(scale),
   } as CSSProperties;
