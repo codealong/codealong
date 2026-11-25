@@ -2278,6 +2278,11 @@ end run
                 })
                 .collect();
             let by_ps = |pid: u32| rows.iter().find(|r| r.0 == pid).map(|r| (r.1, r.3.to_string()));
+            let ps_now = |pid: u32| {
+                let line = procs::run("/bin/ps", &["-o", "ppid=,ucomm=", "-p", &pid.to_string()], None, Duration::from_secs(20)).ok()?;
+                let (ppid, name) = line.trim().split_once(char::is_whitespace)?;
+                Some((ppid.parse::<u32>().ok()?, name.trim().to_string()))
+            };
             let mut checked = 0;
             for &(pid, ppid, tty, name) in &rows {
                 // A Linux kernel thread names itself for the work it's on, which changes as it goes.
@@ -2287,7 +2292,14 @@ end run
                 // Gone since `ps` looked.
                 let Some((parent, kernel_name)) = procs::parent_and_name(pid) else { continue };
                 // A name cut to 16 characters can end in a space, which `ps` doesn't print.
-                assert_eq!((parent, kernel_name.trim_end()), (ppid, name), "pid {pid}");
+                let kernel = (parent, kernel_name.trim_end().to_string());
+                // One that has started another program since (on CI, a forked copy of a test
+                // binary that went on to run `osacompile`, 2026-11-25), or ended and left its pid
+                // to another, is as the kernel says when `ps` is asked again.
+                if kernel != (ppid, name.to_string()) && ps_now(pid).as_ref() == Some(&kernel) {
+                    continue;
+                }
+                assert_eq!(kernel, (ppid, name.to_string()), "pid {pid}");
                 // macOS names a tab's (`ttys004`) and not its console; Linux every terminal ps names
                 // (`pts/3`, a VM's console `hvc0`), but none (`?`).
                 let named = match crate::os::NATIVE {
