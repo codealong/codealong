@@ -25,9 +25,13 @@
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::process::Command;
-use std::sync::atomic::{AtomicU8, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU8, Ordering};
+use std::sync::mpsc::Receiver;
 use std::sync::{Arc, Mutex, OnceLock};
 use std::time::Duration;
+
+mod handover;
+pub use handover::{any_running, hand_over, take_over, Handed};
 
 use anyhow::{anyhow, bail, Context, Result};
 use serde::{Deserialize, Serialize};
@@ -79,7 +83,7 @@ pub enum Change {
 pub use codealong_peer::api::Stream;
 
 /// A permission request waiting for an answer.
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Serialize, Deserialize)]
 struct Permission {
     /// The JSON-RPC id to answer.
     rpc: Value,
@@ -91,6 +95,7 @@ struct Permission {
     /// It's a plan to approve (`is_plan`): `input` is the plan.
     plan: bool,
     /// An answer to it is being written: a second isn't sent with it.
+    #[serde(skip)]
     answering: bool,
     /// When it was asked: the session waits on you from then, not from when its turn began, so
     /// a window that answered the call before can tell the next one from it (ahead.ts). Each is
@@ -99,7 +104,7 @@ struct Permission {
 }
 
 /// One of the answers an agent offers to a permission request.
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 struct Offered {
     id: String,
     /// ACP's `allow_once`, `allow_always`, `reject_once` or `reject_always`.
@@ -128,6 +133,9 @@ struct Hosted {
     running: bool,
     /// The running turn's claim on the prompt it's sending: none between turns.
     turn: Option<Claim>,
+    /// The JSON-RPC id of the in-flight `session/prompt` request once written (`run_turn`), for
+    /// server hand-over (`acp/handover.rs`).
+    prompt_id: Option<u64>,
     /// When the running turn started, or the last one ended.
     since: i64,
     /// The permission requests waiting for an answer, in the order asked: each waits for its own,
@@ -167,6 +175,11 @@ impl Claim {
     const SENT: u8 = 1;
     const STOPPED: u8 = 2;
 
+    /// A claim whose prompt was already sent before a server hand-over.
+    fn already_sent() -> Self {
+        Self(Arc::new(AtomicU8::new(Self::SENT)))
+    }
+
     fn from_waiting(&self, to: u8) -> bool {
         self.0.compare_exchange(Self::WAITING, to, Ordering::SeqCst, Ordering::SeqCst).is_ok()
     }
@@ -196,6 +209,9 @@ struct Agent {
     account: String,
     /// Its harness and home folder, when known (`agent`), for harness-specific permission rules.
     who: Option<(Harness, PathBuf)>,
+    /// Package version stamp when started from Codealong's managed npm adapters (`package_stamp`),
+    /// so a server hand-over doesn't keep an outdated npm adapter package across upgrades.
+    packages: Option<String>,
     /// The process, which is killed when this goes.
     client: rpc::Client,
     /// Its `agentCapabilities`.
@@ -212,6 +228,8 @@ struct State {
 
 static STATE: OnceLock<Mutex<State>> = OnceLock::new();
 static NOTIFY: OnceLock<Box<dyn Fn(Change) + Send + Sync>> = OnceLock::new();
+/// Set while `hand_over()` freezes adapter processes ahead of `exec` (`serve.rs`).
+static HANDING_OVER: AtomicBool = AtomicBool::new(false);
 
 fn state() -> std::sync::MutexGuard<'static, State> {
     let m = STATE.get_or_init(|| Mutex::new(State::default()));
@@ -231,9 +249,17 @@ pub fn init(notify: impl Fn(Change) + Send + Sync + 'static) {
     let _ = NOTIFY.set(Box::new(notify));
 }
 
+fn check_not_handing_over() -> Result<()> {
+    if HANDING_OVER.load(Ordering::SeqCst) {
+        bail!("Codealong is updating its server.");
+    }
+    Ok(())
+}
+
 /// The processes are the server's children: a `codealong` command reading the files, with no
 /// server, would take them with it when it exits.
 fn in_app() -> Result<()> {
+    check_not_handing_over()?;
     if NOTIFY.get().is_none() {
         bail!("Sessions Codealong runs need its server, which isn't running: `codealong server start` starts it.");
     }
@@ -368,6 +394,11 @@ fn packages_current(dir: &Path) -> bool {
     })
 }
 
+/// Version stamp of the managed npm adapter packages and overrides expected by this build.
+fn package_stamp() -> String {
+    PACKAGES.iter().chain(&OVERRIDES).map(|(n, v)| format!("{n}@{v}")).collect::<Vec<_>>().join(",")
+}
+
 /// Whether `a`'s sessions in Codealong would run on one of the adapter packages, installed or
 /// not: it has no `acp` of its own, its harness offers Codealong as a place, and the command
 /// it would run is one `install_dir` holds, or can't be made until it does.
@@ -455,6 +486,15 @@ fn run_npm(npm: &str, args: &[&str], dir: &Path, timeout: Duration) -> Result<cr
 }
 
 impl Agent {
+    fn failure(&self, method: &str, e: Failure) -> anyhow::Error {
+        match e {
+            Failure::Timeout => anyhow!("{} didn't answer {method} in time.", self.account),
+            Failure::Closed(_) => anyhow!("{}'s agent stopped.", self.account),
+            Failure::Refused(e) => anyhow!("{}", e.get("message").and_then(Value::as_str).unwrap_or("error")),
+            Failure::Write(e) => e.into(),
+        }
+    }
+
     /// Sends a request and waits for its answer; None waits as long as the process lives.
     fn request(&self, method: &str, params: Value, timeout: Option<Duration>) -> Result<Value> {
         self.request_if(method, params, timeout, || true).unwrap_or_else(|| unreachable!("a request that's always wanted is always made"))
@@ -462,12 +502,7 @@ impl Agent {
 
     /// As `request`, if `wanted()` says so as it's written (`rpc::Link::request_if`).
     fn request_if(&self, method: &str, params: Value, timeout: Option<Duration>, wanted: impl FnOnce() -> bool) -> Option<Result<Value>> {
-        Some(self.client.request_if(method, params, timeout, wanted)?.map_err(|e| match e {
-            Failure::Timeout => anyhow!("{} didn't answer {method} in time.", self.account),
-            Failure::Closed(_) => anyhow!("{}'s agent stopped.", self.account),
-            Failure::Refused(e) => anyhow!("{}", e.get("message").and_then(Value::as_str).unwrap_or("error")),
-            Failure::Write(e) => e.into(),
-        }))
+        Some(self.client.request_if(method, params, timeout, wanted)?.map_err(|e| self.failure(method, e)))
     }
 
     /// The protocol's handshake: who's asking and what Codealong lends the agent. It answers
@@ -503,12 +538,13 @@ fn agent(a: &AccountCfg) -> Result<Arc<Agent>> {
     a.ensure_on()?;
     // An install under way (`refresh_adapters` at launch) finishes before one of the packages
     // is looked for, since npm may not have written it yet, and none starts until it has answered.
-    let _installing = runs_a_package(a).then(|| INSTALLING.read().unwrap_or_else(|e| e.into_inner()));
+    let managed = runs_a_package(a);
+    let _installing = managed.then(|| INSTALLING.read().unwrap_or_else(|e| e.into_inner()));
     let (command, env) = adapter_command(a).map_err(|e| anyhow!(e))?;
     // Through a shell, so an account's command may set variables the way it does in a terminal.
     let mut cmd = Command::new(crate::procs::sh()?);
     cmd.args(["-c", &format!("exec {command}")]).envs(env).env("PATH", adapter_path()).current_dir(crate::util::home());
-    let ag = connect_as(&a.name, Some((Harness::from_config(&a.harness), a.home_path())), cmd, log_file(&a.name)).with_context(|| format!("Couldn't start {}'s agent ({command}).", a.name))?;
+    let ag = connect_as(&a.name, Some((Harness::from_config(&a.harness), a.home_path())), managed.then(package_stamp), cmd, log_file(&a.name)).with_context(|| format!("Couldn't start {}'s agent ({command}).", a.name))?;
     let init = match ag.initialize() {
         Ok(v) => v,
         // Its process is killed as `ag` goes, here and below.
@@ -571,16 +607,16 @@ fn keep_agent(account: &str, ag: Arc<Agent>) -> Result<Arc<Agent>> {
 /// answer is heard on its client's thread (`hear`), and so is its end (`stopped`).
 #[cfg(test)]
 fn connect(account: &str, cmd: Command, log: std::fs::File) -> std::io::Result<Arc<Agent>> {
-    connect_as(account, None, cmd, log)
+    connect_as(account, None, None, cmd, log)
 }
 
-fn connect_as(account: &str, who: Option<(Harness, PathBuf)>, cmd: Command, log: std::fs::File) -> std::io::Result<Arc<Agent>> {
+fn connect_as(account: &str, who: Option<(Harness, PathBuf)>, packages: Option<String>, cmd: Command, log: std::fs::File) -> std::io::Result<Arc<Agent>> {
     let of = account.to_string();
     let client = rpc::Client::spawn(cmd, rpc::Stderr::Log(log), rpc::Wire::JsonRpc2, move |link, heard| match heard {
         rpc::Heard::Line(msg) => hear(&of, link, msg),
         rpc::Heard::Closed(_) => stopped(&of, link),
     })?;
-    Ok(Arc::new(Agent { account: account.to_string(), who, client, caps: Mutex::new(Value::Null) }))
+    Ok(Arc::new(Agent { account: account.to_string(), who, packages, client, caps: Mutex::new(Value::Null) }))
 }
 
 /// The login shell's PATH, and where OpenCode's installer puts it, which only an interactive
@@ -648,6 +684,7 @@ fn let_go(st: &mut State, account: &str) {
             if h.turn.take().is_some_and(|turn| !turn.stop()) {
                 h.cut_off = Some(h.since);
             }
+            h.prompt_id = None;
             h.running = false;
             h.since = now_ms();
             h.error = Some("Its agent stopped.".into());
@@ -1336,6 +1373,7 @@ fn begin(h: &mut Hosted) -> Claim {
     let turn = Claim::default();
     h.running = true;
     h.turn = Some(turn.clone());
+    h.prompt_id = None;
     // After the last turn's begin and end, within a millisecond too: a turn's note in hosted.json
     // is known by it (`note_turn`).
     h.since = now_ms().max(h.since + 1);
@@ -1357,6 +1395,7 @@ fn abandon(key: &str, turn: &Claim, was: (i64, Option<String>, Option<i64>), e: 
     set(key, |h| {
         h.running = false;
         h.turn = None;
+        h.prompt_id = None;
         h.pending_model = None;
         h.pending_effort = None;
         (h.since, h.error, h.cut_off) = was;
@@ -1409,27 +1448,130 @@ fn apply_queued_switch(ag: &Agent, key: &str, id: &str, model: Option<String>, e
 /// here. Each is noted in hosted.json while it runs (`note_turn`), and one whose process ends
 /// under it is cut off, left noted.
 fn run_turn(ag: Arc<Agent>, key: String, text: String, turn: Claim) {
+    run_turn_loop(ag, key, Some((text, turn)), None);
+}
+
+/// Resumes waiting on an in-flight `session/prompt` handed over from the previous server build
+/// (`acp/handover.rs`), then runs any queued switches and prompts as `run_turn` does.
+fn resume_turn(ag: Arc<Agent>, key: String, turn: Claim, req_id: u64, rx: Receiver<rpc::Answer>, began: i64) {
+    run_turn_loop(ag, key, None, Some((turn, req_id, rx, began)));
+}
+
+/// Flushes queued model/effort switches and prompts for an idle session handed over right as its
+/// previous turn finished (`acp/handover.rs`).
+fn flush_queued(ag: Arc<Agent>, key: String) {
     std::thread::spawn(move || {
-        let (mut text, mut turn) = (text, turn);
-        loop {
-            let (id, began) = {
-                let st = state();
-                let h = st.sessions.get(&key);
-                (h.map(|h| h.id.clone()).unwrap_or_default(), h.filter(|h| h.turn.as_ref().is_some_and(|t| t.is(&turn))).map(|h| h.since))
-            };
-            // Before its prompt goes, so a turn the app's end cuts off is known at the next launch.
-            if let Some(b) = began {
-                note_turn(&key, b, true);
-            }
-            let prompt = prompt_blocks_in(&text, ag.can("image"), &crate::attachments::images_dir(), &crate::attachments::files_dir());
-            let Some(r) = ag.request_if("session/prompt", json!({ "sessionId": id, "prompt": prompt }), None, || turn.send()) else {
-                if let Some(b) = began {
-                    note_turn(&key, b, false);
+        let pending = {
+            let st = state();
+            st.sessions.get(&key).filter(|h| !h.running && (h.pending_model.is_some() || h.pending_effort.is_some())).map(|h| (h.id.clone(), h.pending_model.clone(), h.pending_effort.clone(), h.options.clone()))
+        };
+        let switch_err = pending.and_then(|(id, model, effort, options)| apply_queued_switch(&ag, &key, &id, model, effort, options));
+        let next = {
+            let mut st = state();
+            let Some(h) = st.sessions.get_mut(&key) else { return };
+            if let Some(se) = switch_err {
+                match h.error.as_mut() {
+                    Some(e) => {
+                        e.push(' ');
+                        e.push_str(&se);
+                    }
+                    None => h.error = Some(se),
                 }
-                return;
+            }
+            if !h.running && !h.queue.is_empty() {
+                let text = h.queue.remove(0);
+                let turn = begin(h);
+                Some((text, turn))
+            } else {
+                None
+            }
+        };
+        notify(Change::Board);
+        if let Some((text, turn)) = next {
+            run_turn(ag, key, text, turn);
+        }
+    });
+}
+
+fn run_turn_loop(ag: Arc<Agent>, key: String, mut first: Option<(String, Claim)>, mut resumed: Option<(Claim, u64, Receiver<rpc::Answer>, i64)>) {
+    std::thread::spawn(move || {
+        loop {
+            let (id, turn, began, r) = if let Some((turn, req_id, rx, began)) = resumed.take() {
+                let id = state().sessions.get(&key).map(|h| h.id.clone()).unwrap_or_default();
+                let r = ag.client.finish_request(req_id, rx, None).map_err(|e| ag.failure("session/prompt", e));
+                (id, turn, Some(began), r)
+            } else {
+                let Some((text, turn)) = first.take() else { return };
+                let (id, began) = {
+                    let st = state();
+                    let h = st.sessions.get(&key);
+                    (h.map(|h| h.id.clone()).unwrap_or_default(), h.filter(|h| h.turn.as_ref().is_some_and(|t| t.is(&turn))).map(|h| h.since))
+                };
+                // Before its prompt goes, so a turn the app's end cuts off is known at the next launch.
+                if let Some(b) = began {
+                    note_turn(&key, b, true);
+                }
+                let prompt = prompt_blocks_in(&text, ag.can("image"), &crate::attachments::images_dir(), &crate::attachments::files_dir());
+                let started = ag.client.start_request_if("session/prompt", json!({ "sessionId": id, "prompt": prompt }), None, || turn.send());
+                let Some(started) = started else {
+                    if let Some(b) = began {
+                        note_turn(&key, b, false);
+                    }
+                    return;
+                };
+                let r = match started {
+                    Ok((req_id, rx)) => {
+                        set(&key, |h| {
+                            if h.turn.as_ref().is_some_and(|t| t.is(&turn)) {
+                                h.prompt_id = Some(req_id);
+                            }
+                        });
+                        ag.client.finish_request(req_id, rx, None).map_err(|e| ag.failure("session/prompt", e))
+                    }
+                    Err(e) => Err(ag.failure("session/prompt", e)),
+                };
+                (id, turn, began, r)
             };
             // Its process ended under it, as it does when the app ends: cut off partway.
             let cut = r.is_err() && ag.client.is_closed();
+            // If the server is handing adapters over right as this turn's response arrived, finish
+            // recording this turn's result and leave any queued switches/prompts for the new server.
+            if HANDING_OVER.load(Ordering::SeqCst) {
+                {
+                    let mut st = state();
+                    let Some(h) = st.sessions.get_mut(&key).filter(|h| h.turn.as_ref().is_some_and(|t| t.is(&turn))) else { return };
+                    if cut {
+                        h.cut_off = began;
+                        h.pending_model = None;
+                        h.pending_effort = None;
+                    }
+                    h.prompt_id = None;
+                    h.permissions.clear();
+                    h.text.clear();
+                    h.tool = None;
+                    h.error = match &r {
+                        Ok(v) => match v.get("stopReason").and_then(Value::as_str) {
+                            Some("refusal") => Some("The agent refused.".into()),
+                            Some("max_tokens") => Some("The reply ran out of room.".into()),
+                            _ => None,
+                        },
+                        Err(e) => Some(format!("{e:#}")),
+                    };
+                    if r.is_err() && !h.queue.is_empty() {
+                        h.queue.clear();
+                        if let Some(e) = h.error.as_mut() {
+                            e.push_str(" What was sent while it ran wasn't sent: send it again if it's still wanted.");
+                        }
+                    }
+                    h.running = false;
+                    h.turn = None;
+                    h.since = now_ms();
+                }
+                if let (false, Some(b)) = (cut, began) {
+                    note_turn(&key, b, false);
+                }
+                return;
+            }
             // Apply any model/effort switches queued during the turn while `h.running` is still
             // true, before either starting the next queued prompt or returning to idle.
             let mut switch_err: Option<String> = None;
@@ -1457,6 +1599,7 @@ fn run_turn(ag: Arc<Agent>, key: String, text: String, turn: Claim) {
                     h.pending_model = None;
                     h.pending_effort = None;
                 }
+                h.prompt_id = None;
                 h.permissions.clear();
                 h.text.clear();
                 h.tool = None;
@@ -1506,7 +1649,7 @@ fn run_turn(ag: Arc<Agent>, key: String, text: String, turn: Claim) {
             notify(Change::Stream(Stream { key: key.clone(), text: String::new(), tool: None }));
             notify(Change::Board);
             match next {
-                Some(n) => (text, turn) = n,
+                Some(n) => first = Some(n),
                 None => return,
             }
         }
@@ -1517,6 +1660,7 @@ fn run_turn(ag: Arc<Agent>, key: String, text: String, turn: Claim) {
 /// answered as cancelled first, as the protocol asks. A turn whose prompt hasn't been written
 /// yet, its session still being picked up in the process, ends here, and its prompt never goes.
 pub fn cancel(key: &str) -> Result<()> {
+    check_not_handing_over()?;
     let asked = {
         let mut st = state();
         let h = st.sessions.get_mut(key).ok_or_else(|| anyhow!("Codealong doesn't run that session."))?;
@@ -1524,6 +1668,7 @@ pub fn cancel(key: &str) -> Result<()> {
         if h.turn.as_ref().is_some_and(Claim::stop) {
             h.running = false;
             h.turn = None;
+            h.prompt_id = None;
             h.pending_model = None;
             h.pending_effort = None;
             h.since = now_ms();
@@ -1552,6 +1697,7 @@ pub fn cancel(key: &str) -> Result<()> {
 /// the thread through its own app-server, the one that holds it (codex/mod.rs `archive`). One
 /// taking a turn is refused rather than stopped.
 pub fn delete_held(account: &str, harness: Harness, id: &str) -> Result<bool> {
+    check_not_handing_over()?;
     let key = key_of(harness, account, id);
     let ag = {
         let mut guard = state();
@@ -1607,6 +1753,7 @@ fn pending_of(p: &Permission) -> Pending {
 /// answer (`pick`), and no other. The request stays waiting until the answer is written, so one
 /// that couldn't be is answered again.
 pub fn answer(key: &str, id: &str, answer: Answer) -> Result<String> {
+    check_not_handing_over()?;
     let (ag, rpc, option, plan) = {
         let mut guard = state();
         let st = &mut *guard;
@@ -3005,7 +3152,7 @@ mod tests {
         state().sessions.insert(key.clone(), Hosted { account: account.into(), id: "s1".into(), cwd: "/w".into(), loaded: true, running: true, options: mode_opts("default"), ..Default::default() });
         let mut cmd = Command::new(crate::procs::posix_tool("sh"));
         cmd.args(["-c", r#"while IFS= read -r line; do printf '%s\n' "$line" >> "$1"; done"#, "sh"]).arg(dir.join("heard"));
-        let ag = connect_as(account, Some((Harness::Antigravity, app_home.clone())), cmd, std::fs::File::create(dir.join("log")).unwrap()).unwrap();
+        let ag = connect_as(account, Some((Harness::Antigravity, app_home.clone())), None, cmd, std::fs::File::create(dir.join("log")).unwrap()).unwrap();
         state().agents.insert(account.into(), ag.clone());
         let link = ag.client.link();
         let perm = |id: &str, call: Value, options: Value| {

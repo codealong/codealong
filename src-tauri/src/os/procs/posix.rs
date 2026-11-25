@@ -110,9 +110,76 @@ fn set_nonblocking(fd: RawFd) {
     }
 }
 
+/// Waits up to `wait` for `pipe` to have bytes to read (or hang up).
+pub fn readable_within(pipe: &std::fs::File, wait: Duration) -> bool {
+    let mut ready = libc::pollfd { fd: pipe.as_raw_fd(), events: libc::POLLIN, revents: 0 };
+    // SAFETY: one live pollfd, and a count of one.
+    unsafe { libc::poll(&mut ready, 1, wait.as_millis().max(1) as libc::c_int) > 0 }
+}
+
+fn dup_cloexec(fd: RawFd) -> Option<super::Fd> {
+    // SAFETY: F_DUPFD_CLOEXEC makes a new close-on-exec descriptor for one we own.
+    let copy = unsafe { libc::fcntl(fd, libc::F_DUPFD_CLOEXEC, 0) };
+    (copy >= 0).then_some(copy)
+}
+
+fn set_cloexec(fd: RawFd) {
+    // SAFETY: setting FD_CLOEXEC on a descriptor this process owns.
+    unsafe {
+        let flags = libc::fcntl(fd, libc::F_GETFD);
+        if flags >= 0 {
+            libc::fcntl(fd, libc::F_SETFD, flags | libc::FD_CLOEXEC);
+        }
+    }
+}
+
+/// Turns a child's stdin pipe into a `File` that can be dup'd or handed over uniformly.
+pub fn pipe_in_from_child(pipe: ChildStdin) -> std::fs::File {
+    std::os::fd::OwnedFd::from(pipe).into()
+}
+
+/// Turns a child's stdout pipe into a `File` that can be dup'd or handed over uniformly.
+pub fn pipe_out_from_child(pipe: ChildStdout) -> std::fs::File {
+    std::os::fd::OwnedFd::from(pipe).into()
+}
+
+/// A close-on-exec copy of a pipe `File` for a server hand-over (serve.rs `hand_over`).
+pub fn dup_pipe(pipe: &std::fs::File) -> Option<super::Fd> {
+    dup_cloexec(pipe.as_raw_fd())
+}
+
+/// Takes a pipe descriptor handed across an exec (`dup_pipe`), closed on future execs.
+///
+/// # Safety
+///
+/// `fd` is open and owned exclusively by the caller.
+pub unsafe fn pipe_from_handed(fd: super::Fd) -> std::io::Result<std::fs::File> {
+    use std::os::fd::FromRawFd;
+    set_cloexec(fd);
+    // SAFETY: caller guarantees `fd` is open and uniquely owned.
+    Ok(unsafe { std::fs::File::from_raw_fd(fd) })
+}
+
+/// Checks without blocking whether a child `pid` handed across an exec has exited, reaping it if so.
+pub fn try_reap(pid: u32) -> bool {
+    let mut status: libc::c_int = 0;
+    // SAFETY: non-blocking waitpid on a child pid.
+    let r = unsafe { libc::waitpid(pid as libc::pid_t, &mut status, libc::WNOHANG) };
+    if r == pid as libc::pid_t {
+        return true;
+    }
+    if r < 0 {
+        let e = std::io::Error::last_os_error();
+        if e.raw_os_error() == Some(libc::ECHILD) {
+            return true;
+        }
+    }
+    false
+}
+
 /// Writes all of `bytes` to a child's input, set not to wait (`nonblocking`), as it takes them,
 /// asking every `tick` it waits whether to give up.
-pub fn write_within(pipe: &mut ChildStdin, bytes: &[u8], tick: Duration, give_up: &(dyn Fn() -> bool + Sync)) -> std::io::Result<super::Wrote> {
+pub fn write_within(pipe: &mut (impl Write + AsRawFd), bytes: &[u8], tick: Duration, give_up: &(dyn Fn() -> bool + Sync)) -> std::io::Result<super::Wrote> {
     let mut rest = bytes;
     while !rest.is_empty() {
         match pipe.write(rest) {

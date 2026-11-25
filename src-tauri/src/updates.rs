@@ -155,7 +155,7 @@ pub fn view(app: &AppHandle) -> View {
 /// The commit a development build was built from: relaunch.sh sets `CODEALONG_COMMIT` when the
 /// checkout it builds has no uncommitted changes. None for any other build, which has no commit
 /// to compare.
-fn built_commit() -> Option<&'static str> {
+pub(crate) fn built_commit() -> Option<&'static str> {
     option_env!("CODEALONG_COMMIT").map(str::trim).filter(|c| !c.is_empty())
 }
 

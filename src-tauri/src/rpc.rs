@@ -13,16 +13,17 @@
 //! without a process).
 
 use std::collections::{HashMap, VecDeque};
-use std::io::{self, BufRead, BufReader};
-use std::process::{Child, ChildStdin, Command, Stdio};
+use std::fs::File;
+use std::io::{self, BufRead, BufReader, Read};
+use std::process::{Child, Command, Stdio};
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
-use std::sync::mpsc::{channel, RecvTimeoutError, Sender};
+use std::sync::mpsc::{channel, Receiver, RecvTimeoutError, Sender};
 use std::sync::{Arc, Mutex, MutexGuard};
 use std::time::{Duration, Instant};
 
 use serde_json::{json, Value};
 
-use crate::os::procs::Wrote;
+use crate::os::procs::{self, Fd, Wrote};
 
 /// How many of the child's last stderr lines are kept.
 const TAIL: usize = 5;
@@ -39,6 +40,12 @@ const WRITE_TIMEOUT: Duration = Duration::from_secs(10);
 
 /// How often a write the child isn't taking looks again, and looks whether the client is ending.
 const TICK: Duration = Duration::from_millis(50);
+
+/// How often the stdout reader wakes to check whether the server is handing the client over.
+const READ_TICK: Duration = Duration::from_millis(25);
+
+/// How long `Client::hand_over` waits for the stdout reader to stop and return its pipe.
+const HAND_OVER_WAIT: Duration = Duration::from_secs(2);
 
 /// Who Codealong says it is to a child that asks (`clientInfo`, in Codex's app-server protocol
 /// and the Agent Client Protocol alike).
@@ -102,24 +109,78 @@ pub enum Failure {
     Write(io::Error),
 }
 
-type Answer = std::result::Result<Value, Failure>;
+pub type Answer = std::result::Result<Value, Failure>;
+
+/// How the child process is owned: spawned here, taken over from the server's previous build by
+/// pid, or handed out to the next build so dropping `Client` leaves it running.
+enum Owner {
+    Child(Child),
+    Handed(u32),
+    HandedOut,
+}
+
+impl Owner {
+    fn kill(&mut self) {
+        match self {
+            Owner::Child(c) => {
+                let _ = c.kill();
+            }
+            Owner::Handed(pid) => {
+                let _ = procs::signal(*pid, procs::Signal::Kill);
+            }
+            Owner::HandedOut => {}
+        }
+    }
+
+    fn try_reaped(&mut self) -> bool {
+        match self {
+            Owner::Child(c) => matches!(c.try_wait(), Ok(Some(_))),
+            Owner::Handed(pid) => procs::try_reap(*pid),
+            Owner::HandedOut => true,
+        }
+    }
+
+    fn wait(&mut self) {
+        match self {
+            Owner::Child(c) => {
+                let _ = c.wait();
+            }
+            Owner::Handed(pid) => crate::os::pty::reap(*pid),
+            Owner::HandedOut => {}
+        }
+    }
+}
+
+/// A running child's open pipes and JSON-RPC state, frozen for `serve.rs::hand_over` to pass
+/// across an exec (`Client::hand_over`, `Client::from_handed`).
+pub struct Handed {
+    pub pid: u32,
+    pub stdin_fd: Fd,
+    pub stdout_fd: Fd,
+    pub next_id: u64,
+    pub pending_ids: Vec<u64>,
+    pub unread: Vec<u8>,
+}
 
 /// The way to a child: what writes to it. The function a client is started with gets one, to
 /// answer what the child asks.
 pub struct Link {
     pid: u32,
     wire: Wire,
-    /// None once the client is ended, or a line was given up on half written.
-    stdin: Mutex<Option<ChildStdin>>,
-    child: Mutex<Child>,
+    /// None once the client is ended, handed over, or a line was given up on half written.
+    stdin: Mutex<Option<File>>,
+    child: Mutex<Owner>,
     next: AtomicU64,
     /// The requests waiting for an answer, by id. None once the child's output has ended.
     waiting: Mutex<Option<HashMap<u64, Sender<Answer>>>>,
     tail: Arc<Mutex<VecDeque<String>>>,
     ending: AtomicBool,
+    handing_over: AtomicBool,
+    handed_tx: Mutex<Option<Sender<(File, Vec<u8>)>>>,
 }
 
-/// A child process and the way to it. Dropping it kills the process and reaps it.
+/// A child process and the way to it. Dropping it kills the process and reaps it (unless handed
+/// over to the next build via `Client::hand_over`).
 pub struct Client {
     link: Arc<Link>,
 }
@@ -141,11 +202,81 @@ fn lock<T>(m: &Mutex<T>) -> MutexGuard<'_, T> {
     m.lock().unwrap_or_else(|e| e.into_inner())
 }
 
+fn spawn_reader(
+    reader: Arc<Link>,
+    mut stdout: File,
+    initial: Vec<u8>,
+    said: Option<Receiver<()>>,
+    mut on: impl FnMut(&Link, Heard<'_>) + Send + 'static,
+) {
+    std::thread::spawn(move || {
+        let mut buf = initial;
+        let mut chunk = [0u8; 8192];
+        let mut dispatch = |raw: &[u8]| {
+            let trimmed = raw.strip_suffix(b"\r").unwrap_or(raw);
+            let text = String::from_utf8_lossy(trimmed);
+            let Ok(msg) = serde_json::from_str::<Value>(&text) else { return };
+            match reader.asker(&msg) {
+                Some(asker) => {
+                    let _ = asker.send(match msg.get("error") {
+                        Some(e) => Err(Failure::Refused(e.clone())),
+                        None => Ok(msg.get("result").cloned().unwrap_or(Value::Null)),
+                    });
+                }
+                None => on(&reader, Heard::Line(&msg)),
+            }
+        };
+        let handed = loop {
+            while let Some(nl) = buf.iter().position(|&b| b == b'\n') {
+                let line: Vec<u8> = buf.drain(..=nl).collect();
+                dispatch(&line[..line.len() - 1]);
+            }
+            if reader.handing_over.load(Ordering::SeqCst) {
+                if let Some(tx) = lock(&reader.handed_tx).take() {
+                    let _ = tx.send((stdout, buf));
+                    break true;
+                }
+            }
+            if !procs::readable_within(&stdout, READ_TICK) {
+                continue;
+            }
+            match stdout.read(&mut chunk) {
+                Ok(0) => {
+                    if !buf.is_empty() {
+                        dispatch(&buf);
+                        buf.clear();
+                    }
+                    break false;
+                }
+                Ok(n) => buf.extend_from_slice(&chunk[..n]),
+                Err(e) if e.kind() == io::ErrorKind::Interrupted || e.kind() == io::ErrorKind::WouldBlock => continue,
+                Err(_) => break false,
+            }
+        };
+        if handed {
+            return;
+        }
+        // Drop any handover waiter immediately if EOF raced with `Client::hand_over`.
+        lock(&reader.handed_tx).take();
+        if let Some(said) = said {
+            let _ = said.recv_timeout(LAST_WORDS);
+        }
+        let last = reader.last_words();
+        // Taken under the lock a request starts waiting under, so none waits from here on
+        // for an answer that can't come.
+        let waiting = lock(&reader.waiting).take();
+        for asker in waiting.into_iter().flat_map(HashMap::into_values) {
+            let _ = asker.send(Err(Failure::Closed(last.clone())));
+        }
+        on(&reader, Heard::Closed(&last));
+    });
+}
+
 impl Client {
     /// Starts `cmd` with its stdin and stdout as pipes and reads its lines on a thread of their
     /// own. `on` runs there for each line that isn't an answer to a `request`, in order, and a
     /// last time when the output ends: it mustn't call `request`, whose answer that thread reads.
-    pub fn spawn(mut cmd: Command, stderr: Stderr, wire: Wire, mut on: impl FnMut(&Link, Heard<'_>) + Send + 'static) -> io::Result<Client> {
+    pub fn spawn(mut cmd: Command, stderr: Stderr, wire: Wire, on: impl FnMut(&Link, Heard<'_>) + Send + 'static) -> io::Result<Client> {
         cmd.stdin(Stdio::piped()).stdout(Stdio::piped()).stderr(match stderr {
             Stderr::Log(file) => Stdio::from(file),
             Stderr::Tail => Stdio::piped(),
@@ -156,12 +287,26 @@ impl Client {
             let _ = child.wait();
             return Err(io::Error::other("the process has no pipes"));
         };
+        let (stdin, stdout) = (procs::pipe_in_from_child(stdin), procs::pipe_out_from_child(stdout));
         let stderr = child.stderr.take();
         // Written without blocking, so a child that stops reading holds a write only as long as
-        // its deadline, and never past the client's end (`Link::write`).
+        // its deadline, and never past the client's end (`Link::write`); stdout is also nonblocking
+        // so the reader can stop cleanly for server hand-over.
         crate::procs::nonblocking(&stdin);
+        crate::procs::nonblocking(&stdout);
         let tail = Arc::new(Mutex::new(VecDeque::new()));
-        let link = Arc::new(Link { pid: child.id(), wire, stdin: Mutex::new(Some(stdin)), child: Mutex::new(child), next: AtomicU64::new(1), waiting: Mutex::new(Some(HashMap::new())), tail: tail.clone(), ending: AtomicBool::new(false) });
+        let link = Arc::new(Link {
+            pid: child.id(),
+            wire,
+            stdin: Mutex::new(Some(stdin)),
+            child: Mutex::new(Owner::Child(child)),
+            next: AtomicU64::new(1),
+            waiting: Mutex::new(Some(HashMap::new())),
+            tail: tail.clone(),
+            ending: AtomicBool::new(false),
+            handing_over: AtomicBool::new(false),
+            handed_tx: Mutex::new(None),
+        });
         // Ends when stderr does, which the reader below waits for.
         let said = stderr.map(|stderr| {
             let (done, said) = channel::<()>();
@@ -181,33 +326,108 @@ impl Client {
             });
             said
         });
-        let reader = link.clone();
-        std::thread::spawn(move || {
-            for line in BufReader::new(stdout).lines().map_while(std::result::Result::ok) {
-                let Ok(msg) = serde_json::from_str::<Value>(&line) else { continue };
-                match reader.asker(&msg) {
-                    Some(asker) => {
-                        let _ = asker.send(match msg.get("error") {
-                            Some(e) => Err(Failure::Refused(e.clone())),
-                            None => Ok(msg.get("result").cloned().unwrap_or(Value::Null)),
-                        });
-                    }
-                    None => on(&reader, Heard::Line(&msg)),
-                }
-            }
-            if let Some(said) = said {
-                let _ = said.recv_timeout(LAST_WORDS);
-            }
-            let last = reader.last_words();
-            // Taken under the lock a request starts waiting under, so none waits from here on
-            // for an answer that can't come.
-            let waiting = lock(&reader.waiting).take();
-            for asker in waiting.into_iter().flat_map(HashMap::into_values) {
-                let _ = asker.send(Err(Failure::Closed(last.clone())));
-            }
-            on(&reader, Heard::Closed(&last));
-        });
+        spawn_reader(link.clone(), stdout, Vec::new(), said, on);
         Ok(Client { link })
+    }
+
+    /// Re-attaches to a running child handed across an exec (`hand_over`): pre-registers every
+    /// `pending_ids` waiter before starting the stdout reader so responses already sitting in the
+    /// pipe or in `unread` are delivered to their callers.
+    ///
+    /// # Safety
+    ///
+    /// `stdin_fd` and `stdout_fd` are open pipe descriptors owned exclusively by the caller.
+    #[allow(clippy::too_many_arguments)]
+    pub unsafe fn from_handed(
+        pid: u32,
+        stdin_fd: Fd,
+        stdout_fd: Fd,
+        next_id: u64,
+        pending_ids: &[u64],
+        unread: Vec<u8>,
+        wire: Wire,
+        on: impl FnMut(&Link, Heard<'_>) + Send + 'static,
+    ) -> io::Result<(Client, HashMap<u64, Receiver<Answer>>)> {
+        // SAFETY: caller guarantees unique ownership of both descriptors.
+        let stdin = unsafe { procs::pipe_from_handed(stdin_fd) }?;
+        let stdout = match unsafe { procs::pipe_from_handed(stdout_fd) } {
+            Ok(out) => out,
+            Err(e) => {
+                drop(stdin);
+                return Err(e);
+            }
+        };
+        crate::procs::nonblocking(&stdin);
+        crate::procs::nonblocking(&stdout);
+        let mut waiting = HashMap::with_capacity(pending_ids.len());
+        let mut receivers = HashMap::with_capacity(pending_ids.len());
+        for &id in pending_ids {
+            let (tx, rx) = channel();
+            waiting.insert(id, tx);
+            receivers.insert(id, rx);
+        }
+        let link = Arc::new(Link {
+            pid,
+            wire,
+            stdin: Mutex::new(Some(stdin)),
+            child: Mutex::new(Owner::Handed(pid)),
+            next: AtomicU64::new(next_id.max(1)),
+            waiting: Mutex::new(Some(waiting)),
+            tail: Arc::new(Mutex::new(VecDeque::new())),
+            ending: AtomicBool::new(false),
+            handing_over: AtomicBool::new(false),
+            handed_tx: Mutex::new(None),
+        });
+        spawn_reader(link.clone(), stdout, unread, None, on);
+        Ok((Client { link }, receivers))
+    }
+
+    /// Freezes this client for a server hand-over: stops the stdout reader without losing any
+    /// partial line in its buffer, takes stdin so no further lines are written, dups both pipes as
+    /// close-on-exec descriptors, and disarms `Drop` so the child keeps running across `exec`.
+    /// Pending `waiting` senders are left parked until `exec` replaces the process.
+    pub fn hand_over(&self) -> Option<Handed> {
+        if self.is_closed() || self.ending.load(Ordering::SeqCst) {
+            return None;
+        }
+        let (tx, rx) = channel();
+        *lock(&self.handed_tx) = Some(tx);
+        self.handing_over.store(true, Ordering::SeqCst);
+        let (stdout, unread) = match rx.recv_timeout(HAND_OVER_WAIT) {
+            Ok(pair) => pair,
+            Err(_) => {
+                self.handing_over.store(false, Ordering::SeqCst);
+                lock(&self.handed_tx).take();
+                return None;
+            }
+        };
+        let mut stdin_guard = lock(&self.stdin);
+        let Some(stdin) = stdin_guard.as_ref() else {
+            return None;
+        };
+        let stdin_fd = procs::dup_pipe(stdin);
+        let stdout_fd = procs::dup_pipe(&stdout);
+        let (Some(stdin_fd), Some(stdout_fd)) = (stdin_fd, stdout_fd) else {
+            if let Some(fd) = stdin_fd {
+                // SAFETY: closing a dup'd descriptor we just made and aren't using.
+                unsafe { crate::os::pty::close(fd) };
+            }
+            if let Some(fd) = stdout_fd {
+                // SAFETY: closing a dup'd descriptor we just made and aren't using.
+                unsafe { crate::os::pty::close(fd) };
+            }
+            return None;
+        };
+        // No more writes from this process; the dup'd `stdin_fd` keeps the pipe open.
+        stdin_guard.take();
+        drop(stdin_guard);
+        drop(stdout);
+        self.ending.store(true, Ordering::SeqCst);
+        *lock(&self.child) = Owner::HandedOut;
+        let next_id = self.next.load(Ordering::SeqCst);
+        let mut pending_ids: Vec<u64> = lock(&self.waiting).as_ref().map(|w| w.keys().copied().collect()).unwrap_or_default();
+        pending_ids.sort_unstable();
+        Some(Handed { pid: self.pid, stdin_fd, stdout_fd, next_id, pending_ids, unread })
     }
 
     /// Ends the process gently: its input closes, which a process that reads until its input
@@ -230,7 +450,7 @@ fn finish(link: &Arc<Link>, grace: Duration) {
         return;
     }
     if grace.is_zero() {
-        let _ = lock(&link.child).kill();
+        lock(&link.child).kill();
     }
     let until = Instant::now() + grace;
     let reaper = link.clone();
@@ -240,13 +460,13 @@ fn finish(link: &Arc<Link>, grace: Duration) {
     std::thread::spawn(move || {
         let mut child = lock(&reaper.child);
         while Instant::now() < until {
-            if matches!(child.try_wait(), Ok(Some(_))) {
+            if child.try_reaped() {
                 return;
             }
             std::thread::sleep(Duration::from_millis(100));
         }
-        let _ = child.kill();
-        let _ = child.wait();
+        child.kill();
+        child.wait();
     });
     // A write the child isn't taking holds this lock until it sees the client ending, a tick.
     lock(&link.stdin).take();
@@ -301,6 +521,13 @@ impl Link {
         }
     }
 
+    /// The JSON-RPC request ids currently waiting for an answer.
+    pub fn pending_ids(&self) -> Vec<u64> {
+        let mut ids: Vec<u64> = lock(&self.waiting).as_ref().map(|w| w.keys().copied().collect()).unwrap_or_default();
+        ids.sort_unstable();
+        ids
+    }
+
     /// Sends a request, numbered from 1 in the order they're made, and waits for its answer:
     /// its `result`. `timeout` covers writing the request as well as the answer; None waits as
     /// long as the process lives. Any thread but the reader's may ask, several at once.
@@ -313,6 +540,17 @@ impl Link {
     /// request. None, with nothing written, when it says no.
     pub fn request_if(&self, method: &str, params: Value, timeout: Option<Duration>, wanted: impl FnOnce() -> bool) -> Option<Answer> {
         let deadline = timeout.map(|t| Instant::now() + t);
+        let (id, rx) = match self.start_request_if(method, params, deadline, wanted)? {
+            Ok(pair) => pair,
+            Err(e) => return Some(Err(e)),
+        };
+        Some(self.finish_request(id, rx, deadline))
+    }
+
+    /// Writes a request if `wanted()` still says so and returns its JSON-RPC id and answer
+    /// receiver without blocking on the answer yet, so the caller can record `id` (for server
+    /// hand-over) before waiting in `finish_request`.
+    pub fn start_request_if(&self, method: &str, params: Value, deadline: Option<Instant>, wanted: impl FnOnce() -> bool) -> Option<std::result::Result<(u64, Receiver<Answer>), Failure>> {
         let id = self.next.fetch_add(1, Ordering::SeqCst);
         let (asker, answer) = channel();
         match lock(&self.waiting).as_mut() {
@@ -320,16 +558,20 @@ impl Link {
             None => return Some(Err(Failure::Closed(self.last_words()))),
         };
         match self.write_if(&self.marked(request_line(id, method, params)), deadline, wanted) {
-            Ok(true) => {}
+            Ok(true) => Some(Ok((id, answer))),
             Ok(false) => {
                 self.forget(id);
-                return None;
+                None
             }
             Err(e) => {
                 self.forget(id);
-                return Some(Err(if e.kind() == io::ErrorKind::TimedOut { Failure::Timeout } else { Failure::Write(e) }));
+                Some(Err(if e.kind() == io::ErrorKind::TimedOut { Failure::Timeout } else { Failure::Write(e) }))
             }
         }
+    }
+
+    /// Waits for an answer started by `start_request_if` (or restored by `Client::from_handed`).
+    pub fn finish_request(&self, id: u64, answer: Receiver<Answer>, deadline: Option<Instant>) -> Answer {
         let got = match deadline {
             Some(d) => answer.recv_timeout(d.saturating_duration_since(Instant::now())).map_err(|e| match e {
                 RecvTimeoutError::Timeout => Failure::Timeout,
@@ -340,7 +582,7 @@ impl Link {
         if got.is_err() {
             self.forget(id);
         }
-        Some(got.and_then(|a| a))
+        got.and_then(|a| a)
     }
 
     /// Tells the child something that takes no answer.
@@ -634,5 +876,53 @@ mod tests {
         client.end(Duration::from_millis(200));
         assert!(crate::procs::pid_alive(pid));
         assert!(gone(pid), "the child is still there");
+    }
+
+    /// Handing a client over keeps its process alive across `Client::drop`, delivers the answer
+    /// to an in-flight request to the new client, continues numbering requests after `next_id`,
+    /// and stitches any partial line buffered before the hand-over.
+    #[cfg(unix)]
+    #[test]
+    fn handing_a_client_over_keeps_in_flight_requests_and_buffered_bytes() {
+        let (client, _old_rx) = child(
+            r#"read one; printf '{"method":"split",'; read go; printf '"params":{"ok":true}}\n'; answer "$one"; read two; answer "$two"; cat >/dev/null"#,
+            Wire::JsonRpc2,
+        );
+        let pid = client.pid();
+        let (id, _old_answer_rx) = client.start_request_if("slow", json!({}), None, || true).unwrap().unwrap();
+        assert_eq!(id, 1);
+        // Wait briefly so the child writes the partial first half of the notification line.
+        std::thread::sleep(Duration::from_millis(150));
+        let handed = client.hand_over().expect("client hands over");
+        assert_eq!(handed.pid, pid);
+        assert_eq!(handed.pending_ids, vec![1]);
+        assert!(handed.next_id >= 2);
+        // Dropping the handed-out client must not kill the child.
+        drop(client);
+        assert!(crate::procs::pid_alive(pid), "child must stay alive after hand_over");
+
+        let (tx, new_rx) = channel();
+        // SAFETY: `handed` owns both dup'd fds exclusively.
+        let (resumed, mut waiters) = unsafe {
+            Client::from_handed(handed.pid, handed.stdin_fd, handed.stdout_fd, handed.next_id, &handed.pending_ids, handed.unread, Wire::JsonRpc2, move |_, heard| {
+                if let Heard::Line(v) = heard {
+                    let _ = tx.send(v.clone());
+                }
+            })
+        }
+        .unwrap();
+        let slow_rx = waiters.remove(&1).expect("pending id 1 restored");
+        // Tell the child to finish the split line and answer request 1.
+        resumed.notify("go", Value::Null).unwrap();
+        let split = new_rx.recv_timeout(Duration::from_secs(10)).expect("stitched notification");
+        assert_eq!(split, json!({ "method": "split", "params": { "ok": true } }));
+        let slow = resumed.finish_request(1, slow_rx, Some(Instant::now() + Duration::from_secs(10))).unwrap();
+        assert_eq!(slow, json!({ "method": "slow" }));
+        // Subsequent requests work on the resumed client and don't reuse id 1.
+        let second = resumed.request("after", json!({}), SOON).unwrap();
+        assert_eq!(second, json!({ "method": "after" }));
+        // Dropping the resumed client kills and reaps the child.
+        drop(resumed);
+        assert!(gone(pid), "resumed client drop must kill and reap the child");
     }
 }

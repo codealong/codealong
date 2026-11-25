@@ -494,11 +494,45 @@ pub fn lower_priority(pid: u32) {
 /// not to wait for a broken one), so writes to one wait until the child reads.
 pub fn nonblocking<P>(_pipe: &P) {}
 
+/// Windows doesn't hand pipes across an exec, so the reader blocks directly in `read`.
+pub fn readable_within(_pipe: &std::fs::File, _wait: Duration) -> bool {
+    true
+}
+
+/// Turns a child's stdin pipe into a `File`.
+pub fn pipe_in_from_child(pipe: std::process::ChildStdin) -> std::fs::File {
+    std::os::windows::io::OwnedHandle::from(pipe).into()
+}
+
+/// Turns a child's stdout pipe into a `File`.
+pub fn pipe_out_from_child(pipe: std::process::ChildStdout) -> std::fs::File {
+    std::os::windows::io::OwnedHandle::from(pipe).into()
+}
+
+/// Nothing is handed over on Windows.
+pub fn dup_pipe(_pipe: &std::fs::File) -> Option<super::Fd> {
+    None
+}
+
+/// Nothing is handed over on Windows.
+///
+/// # Safety
+///
+/// None needed: nothing is taken.
+pub unsafe fn pipe_from_handed(_fd: super::Fd) -> std::io::Result<std::fs::File> {
+    Err(std::io::Error::new(std::io::ErrorKind::Unsupported, crate::os::not_on_windows("Handing agent pipes to a new build")))
+}
+
+/// Checks whether `pid` has exited on Windows.
+pub fn try_reap(pid: u32) -> bool {
+    !alive(pid)
+}
+
 /// Writes all of `bytes` to a child's input. A write there waits until the child takes it
 /// (`nonblocking`), so a thread of its own asks every `tick` whether to give up, and then cancels
 /// it (`CancelIoEx`, as `Pipes` does). Windows doesn't say how much of a cancelled write went, so
 /// it's taken for part of it.
-pub fn write_within(pipe: &mut std::process::ChildStdin, bytes: &[u8], tick: Duration, give_up: &(dyn Fn() -> bool + Sync)) -> std::io::Result<super::Wrote> {
+pub fn write_within(pipe: &mut (impl std::io::Write + std::os::windows::io::AsRawHandle), bytes: &[u8], tick: Duration, give_up: &(dyn Fn() -> bool + Sync)) -> std::io::Result<super::Wrote> {
     use std::io::Write;
     use std::os::windows::io::AsRawHandle;
     use std::sync::atomic::{AtomicBool, Ordering};
