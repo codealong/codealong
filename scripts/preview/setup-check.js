@@ -3,7 +3,7 @@
 // searched or worked in ticked, a typed folder added ticked; Done saves, in one go, the accounts kept and the
 // one added, the folders in order, the apps and the emblems picked, puts Codealong in the
 // accounts, opens at login when ticked and says setup is finished. Session emblems start off;
-// Drawn is offered only while an account that draws (Codex) is kept, and Emoji always, with a box
+// Drawn is offered only while an account that draws (Codex or Antigravity) is kept, and Emoji always, with a box
 // for Jev's key while there's none, whose Return saves the key and stays on the step. Skip setup
 // saves nothing and says it's finished too. A first run (`setup_needed`) opens it by itself. What
 // the last step suggests for later leads with pull request reviews, and Set up reviews finishes it
@@ -87,7 +87,7 @@
 
       await until(function () { return heading() === 'Your sessions'; }, 5000, 'Next didn’t go on to session emblems');
       check('session emblems start off', choice('None') && choice('None').classList.contains('is-on'), choice('None') && choice('None').className);
-      check('without an account kept that draws, Drawn isn’t offered, and it says what would', !choice('Drawn') && /A Codex account can draw them/.test(field('Session emblems').textContent), field('Session emblems').textContent);
+      check('without an account kept that draws, Drawn isn’t offered, and it says what would', !choice('Drawn') && /A Codex or Antigravity account can draw them/.test(field('Session emblems').textContent), field('Session emblems').textContent);
       check('no box for Jev’s key before Emoji', !field('Jev’s key'));
       choice('Emoji').click();
       var keyBox = await until(function () { var f = field('Jev’s key'); return f && f.querySelector('input[type="password"]'); }, 5000, 'Emoji didn’t ask for Jev’s key');
