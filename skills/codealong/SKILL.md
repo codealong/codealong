@@ -533,17 +533,20 @@ worked in a worktree on the PR's branch while the PR was open. So there's usuall
 `codealong accounts` lists the configured accounts and whether each is signed in;
 `--usage` adds each plan limit's percent used and `room`, how much of the tightest limit is
 left. Read it once when advising which account to use; don't poll it, the usage endpoint
-rate-limits. `codealong account check [--group <name>]` verifies an account's commercial sign-in
-against a boundary routing group (`boundary = true`, whose sessions' text stays inside the group
-and whose helpers default into it). `codealong mcp` lists the services each account reaches (*Services on other
-accounts*).
+rate-limits. `codealong accounts --groups` lists the configured routing groups (`[[routing.groups]]`
+in config.toml): each group's strategy, members, boundary flag, which projects default to it, and
+what it would pick now; `--account` in `codealong start` accepts a routing group name or `auto`
+(the default) as well as a single account. `codealong account check [--group <name>]` verifies an
+account's commercial sign-in against a boundary routing group (`boundary = true`, whose sessions'
+text stays inside the group and whose helpers default into it). `codealong mcp` lists the services
+each account reaches (*Services on other accounts*).
 
 ## Starting sessions
 
 `codealong start --todo <id>` starts a session on the todo (its title and description as the
 prompt, then a line naming the todo) in the current worktree, on the account Auto picks (an account with room, or from Auto's routing group, the one whose week resets soonest), in a new terminal
 (a tab or window, as config.toml's `new_terminal` says), and links the session to the todo. Give `--todo` more than once to
-start several todos in one session: the prompt numbers them, and the session is linked to each. `--account`, `--worktree`, `--new-worktree`, `--chat`,
+start several todos in one session: the prompt numbers them, and the session is linked to each. Leave `--account` out to let `auto` pick from the project's default routing group (respecting usage caps, active limit refusals, boundaries and model fallback), or pass a routing group name (`--account reviewers`); name a specific account only when the user or an MCP service requires it (`--dry-run` shows what would be picked). Codealong refuses agent starts and wakes on an account currently at a usage limit and says when it resets. `--account`, `--worktree`, `--new-worktree`, `--chat`,
 `--in terminal|background|claude-app|codex-app|codealong` (background: nothing comes forward; Claude Code's `--bg` with no terminal, any other agent in Codealong's tmux with no window), `--model` and `--effort` change that. `--device <name> --prompt "…"` starts it on
 another of your user's machines (`codealong devices` lists them; it needs remote control on there),
 which picks the worktree (`--worktree` a folder there; by default its main checkout of this

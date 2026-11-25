@@ -75,8 +75,66 @@ fn described(c: &Client, cfg: &Config) -> Result<Vec<crate::model::AccountInfo>>
     Ok(cfg.accounts.iter().map(usage::describe).collect())
 }
 
-pub(super) fn accounts(c: &mut Client, with_usage: bool, json: bool) -> Result<()> {
+#[derive(Serialize, Debug, PartialEq)]
+#[serde(rename_all = "camelCase")]
+struct GroupRow {
+    name: String,
+    strategy: String,
+    members: Vec<GroupMemberRow>,
+    #[serde(skip_serializing_if = "std::ops::Not::not")]
+    boundary: bool,
+    #[serde(skip_serializing_if = "std::ops::Not::not")]
+    auto: bool,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    projects: Vec<String>,
+    /// What `codealong start --account <group>` would pick now, when board or usage data is read.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pick: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pick_model: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    exhausted: Option<ExhaustedRow>,
+}
+
+#[derive(Serialize, Debug, PartialEq)]
+#[serde(rename_all = "camelCase")]
+struct GroupMemberRow {
+    account: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    model: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    effort: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    exhausted: Option<ExhaustedRow>,
+}
+
+#[derive(Serialize, Debug, PartialEq)]
+#[serde(rename_all = "camelCase")]
+struct ExhaustedRow {
+    limit: String,
+    resets_at: i64,
+}
+
+pub(super) fn accounts(c: &mut Client, with_usage: bool, groups: bool, json: bool) -> Result<()> {
     let cfg = c.cfg()?.clone();
+    if groups {
+        let now = now_ms();
+        let fallback_board;
+        let board = if c.app.is_some() {
+            Some(c.board()?)
+        } else if with_usage {
+            fallback_board = Board { usage: usage::read_all(&cfg.accounts), ..Board::default() };
+            Some(&fallback_board)
+        } else {
+            None
+        };
+        let rows = group_rows(&cfg, board, now);
+        if json {
+            return print_json(&rows);
+        }
+        print!("{}", group_table(&rows, now));
+        return Ok(());
+    }
     let mut rows: Vec<AccountRow> = described(c, &cfg)?
         .into_iter()
         .map(|info| AccountRow { name: info.name, harness: info.harness, command: info.command, signed_in: info.signed_in, email: info.email, sign_in_note: info.sign_in_note, disabled: info.disabled, missing_cli: info.missing_cli, home: info.home, usage: None, room: None, usage_error: None })
@@ -119,6 +177,92 @@ pub(super) fn accounts(c: &mut Client, with_usage: bool, json: bool) -> Result<(
         .collect();
     print!("{}", table_text(&["ACCOUNT", "HARNESS", "SIGN-IN", "EMAIL", "USAGE"], table));
     Ok(())
+}
+
+/// Configured routing groups (`codealong accounts --groups`), with each group's strategy,
+/// members, boundary flag, projects that default to it, and current pick/exhaustion when `board`
+/// is available.
+fn group_rows(cfg: &Config, board: Option<&Board>, now: i64) -> Vec<GroupRow> {
+    let auto_name = cfg.routing.auto.trim();
+    let ex_of = |account: &str, model: Option<&str>| {
+        board
+            .and_then(|b| crate::exhausted::check(b, cfg, account, model, now))
+            .map(|o| ExhaustedRow { limit: crate::exhausted::limit_noun(o.meter.as_deref()), resets_at: o.resets_at })
+    };
+    cfg.routing
+        .groups
+        .iter()
+        .map(|g| {
+            let name = g.name.trim().to_string();
+            let members: Vec<GroupMemberRow> = if g.members.is_empty() {
+                cfg.accounts
+                    .iter()
+                    .filter(|a| !a.disabled)
+                    .map(|a| GroupMemberRow { account: a.name.clone(), model: None, effort: None, exhausted: ex_of(&a.name, None) })
+                    .collect()
+            } else {
+                g.members
+                    .iter()
+                    .map(|m| {
+                        let account = m.account.trim().to_string();
+                        let model = Some(m.model.trim()).filter(|s| !s.is_empty()).map(String::from);
+                        let effort = Some(m.effort.trim()).filter(|s| !s.is_empty()).map(String::from);
+                        let exhausted = ex_of(&account, model.as_deref());
+                        GroupMemberRow { account, model, effort, exhausted }
+                    })
+                    .collect()
+            };
+            let projects: Vec<String> = cfg.projects.iter().filter(|p| p.default.as_deref().map(str::trim) == Some(name.as_str())).map(|p| p.name.clone()).collect();
+            let picked = board.and_then(|b| start::resolve_group(cfg, Some(b), &name, None, &[], None, None, false, now, |_| true)).and_then(Result::ok);
+            let (pick, pick_model, exhausted) = match picked {
+                Some(p) => {
+                    let ex = ex_of(&p.account, p.model.as_deref());
+                    (Some(p.account), p.model, ex)
+                }
+                None => (None, None, None),
+            };
+            GroupRow { name: name.clone(), strategy: g.strategy.word().to_string(), members, boundary: g.boundary, auto: !auto_name.is_empty() && auto_name == name, projects, pick, pick_model, exhausted }
+        })
+        .collect()
+}
+
+fn group_table(rows: &[GroupRow], now: i64) -> String {
+    if rows.is_empty() {
+        return "No routing groups configured in config.toml (`[[routing.groups]]`).\n".into();
+    }
+    let table: Vec<Vec<String>> = rows
+        .iter()
+        .map(|r| {
+            let strategy = if r.boundary { format!("{}, boundary", r.strategy) } else { r.strategy.clone() };
+            let members = r
+                .members
+                .iter()
+                .map(|m| match (&m.model, &m.effort) {
+                    (Some(model), Some(effort)) => format!("{} ({model}, {effort})", m.account),
+                    (Some(model), None) => format!("{} ({model})", m.account),
+                    (None, Some(effort)) => format!("{} ({effort})", m.account),
+                    (None, None) => m.account.clone(),
+                })
+                .collect::<Vec<_>>()
+                .join(", ");
+            let mut defaults = Vec::new();
+            if r.auto {
+                defaults.push("auto".to_string());
+            }
+            defaults.extend(r.projects.iter().cloned());
+            let now_col = match (&r.pick, &r.pick_model, &r.exhausted) {
+                (Some(p), m, Some(ex)) => {
+                    let who = m.as_ref().map_or_else(|| p.clone(), |m| format!("{p} ({m})"));
+                    format!("{who} ({}, resets in {})", ex.limit, crate::exhausted::in_words(ex.resets_at - now))
+                }
+                (Some(p), Some(m), None) => format!("{p} ({m})"),
+                (Some(p), None, None) => p.clone(),
+                (None, _, _) => String::new(),
+            };
+            vec![r.name.clone(), strategy, members, defaults.join(", "), now_col]
+        })
+        .collect();
+    table_text(&["GROUP", "STRATEGY", "MEMBERS", "DEFAULT FOR", "NOW"], table)
 }
 
 // ---- mcp ----
@@ -510,5 +654,38 @@ mod tests {
             assert!(v["signIn"].get(key).is_some(), "signIn.{key}");
         }
         assert_eq!(check_text(&c, Some("authorized")).lines().last(), Some("In group authorized."));
+    }
+
+    #[test]
+    fn accounts_groups_lists_strategy_members_defaults_and_exhaustion() {
+        let mut cfg = boundary_cfg();
+        cfg.routing.auto = "personal".into();
+        cfg.routing.groups.push(crate::config::RoutingGroupCfg {
+            name: "personal".into(),
+            strategy: crate::config::RoutingStrategy::Usage,
+            members: vec![crate::config::GroupMemberCfg { account: "claude".into(), model: "opus".into(), effort: String::new() }],
+            boundary: false,
+            decisions: None,
+        });
+        cfg.projects.push(crate::config::ProjectCfg { name: "Acme".into(), repos: vec![], folders: vec![], default: Some("authorized".into()), chrome_profile: None, decisions: None, background_prompt: None });
+        let now = 1_800_000_000_000;
+        let lim = crate::model::SessionLimit { meter: Some("session".into()), at: now - 60_000, resets_at: Some(now + 90 * 60_000), ..Default::default() };
+        let s = crate::model::Session { account: "claude-work".into(), status: crate::model::Status::Error, last_activity: now - 60_000, limit: Some(lim), ..crate::fixtures::session("claude:claude-work:s1") };
+        let board = Board { lanes: vec![crate::fixtures::lane("/work", vec![s])], ..Board::default() };
+
+        let rows = group_rows(&cfg, Some(&board), now);
+        assert_eq!(rows.len(), 2);
+        assert_eq!(rows[0].name, "authorized");
+        assert!(rows[0].boundary && !rows[0].auto);
+        assert_eq!(rows[0].projects, ["Acme"]);
+        assert_eq!(rows[0].members[0].exhausted, Some(ExhaustedRow { limit: "5-hour limit".into(), resets_at: now + 90 * 60_000 }));
+        assert_eq!(rows[1].name, "personal");
+        assert!(!rows[1].boundary && rows[1].auto);
+        assert_eq!(rows[1].members[0].model.as_deref(), Some("opus"));
+
+        let table = group_table(&rows, now);
+        assert!(table.contains("GROUP") && table.contains("authorized") && table.contains("usage, boundary") && table.contains("Acme"), "{table}");
+        assert!(table.contains("personal") && table.contains("claude (opus)") && table.contains("auto"), "{table}");
+        assert_eq!(group_table(&[], now), "No routing groups configured in config.toml (`[[routing.groups]]`).\n");
     }
 }

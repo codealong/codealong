@@ -1171,6 +1171,7 @@ fn start(board: &Board, cfg: &Config, spec: &StartSpec) -> Result<(Started, bool
     let lane = board.lanes.iter().find(|l| l.id == spec.lane_id).ok_or_else(|| anyhow!("That worktree just changed. Try again."))?;
     let account = cfg.accounts.iter().find(|a| a.name == spec.account).ok_or_else(|| anyhow!("There's no account named {}.", spec.account))?;
     account.ensure_on()?;
+    check_start_exhausted(board, cfg, spec, now_ms())?;
     let offered = ordered_places(account, &home());
     if !offered.as_ref().is_ok_and(|ps| ps.contains(&spec.place)) {
         bail!(offered.err().unwrap_or_else(|| format!("{} can't start a session there.", account.name)));
@@ -1179,6 +1180,19 @@ fn start(board: &Board, cfg: &Config, spec: &StartSpec) -> Result<(Started, bool
     let started = start_at(board, cfg, spec, lane, account, place)?;
     let in_terminal = opens_terminal(place, adapter_of(account).runs_in_background());
     Ok((Started { message: with_instead(started.message, instead), ..started }, in_terminal))
+}
+
+/// Refuses an agent's start (`spec.from.is_some()`) when the resolved account is currently at an
+/// active usage-limit refusal for the model it would run on (exhausted.rs). Human starts
+/// (`spec.from.is_none()`, from Codealong's windows or a person's own terminal) are never gated.
+fn check_start_exhausted(board: &Board, cfg: &Config, spec: &StartSpec, now: i64) -> Result<()> {
+    if spec.from.is_none() {
+        return Ok(());
+    }
+    if let Some(out) = crate::exhausted::check(board, cfg, &spec.account, spec.model.as_deref(), now) {
+        bail!("{}", crate::exhausted::start_error(board, cfg, spec, &out, now));
+    }
+    Ok(())
 }
 
 /// `message` with why the start went where it did put first, where there's a why.
@@ -2901,5 +2915,19 @@ mod tests {
         assert_eq!(err("claude"), "“Photo tools” is on claude already.");
         assert_eq!(err("codex"), "codex isn't a Claude Code account; a session moves only between accounts of its own harness.");
         assert_eq!(err("claude3"), "There's no account named claude3 in config.toml.");
+    }
+
+    #[test]
+    fn agent_starts_are_gated_when_account_is_exhausted_and_human_starts_are_not() {
+        let cfg = Config { accounts: vec![account("claude-work", "claude", "/tmp/.cw", None)], ..Config::default() };
+        let now = 1_800_000_000_000;
+        let lim = crate::model::SessionLimit { meter: Some("session".into()), at: now - 60_000, resets_at: Some(now + 3_600_000), ..Default::default() };
+        let s = Session { account: "claude-work".into(), status: crate::model::Status::Error, last_activity: now - 60_000, limit: Some(lim), ..crate::fixtures::session("claude:claude-work:s1") };
+        let board = Board { lanes: vec![crate::fixtures::lane("/work", vec![s])], ..Board::default() };
+        let agent_spec = StartSpec { lane_id: "/work".into(), account: "claude-work".into(), place: Place::Background, prompt: "hi".into(), model: None, effort: None, worktree: false, todos: vec![], from: Some("claude:claude2:boss".into()), helper: true, report: true };
+        let err = check_start_exhausted(&board, &cfg, &agent_spec, now).unwrap_err().to_string();
+        assert!(err.contains("claude-work is at its 5-hour limit (resets in 1h)"), "{err}");
+        let human_spec = StartSpec { from: None, helper: false, report: false, ..agent_spec };
+        assert!(check_start_exhausted(&board, &cfg, &human_spec, now).is_ok());
     }
 }

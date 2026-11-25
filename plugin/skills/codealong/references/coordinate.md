@@ -57,8 +57,15 @@ the question to answer. A yes to something else isn't a yes to starting sessions
    as the repo's rules say and give `--worktree <path>` once `codealong worktrees` lists it (a few
    seconds on; until then `start` turns it down rather than start in the checkout around it). A
    part that only reads (research, a review) can share a checkout.
-2. Its account. `codealong accounts --usage` says which have room; another provider than yours for a
-   review or a second opinion; `--model` when a part needs a stronger or a cheaper one.
+2. Its account. Leave `--account` out by default: `auto` picks an account with room from the
+   project's default routing group (or `[routing] auto`), respecting usage caps, buffers, active
+   limit refusals, boundary groups and model fallback. When a part wants another provider (a
+   review, a second opinion), pass a routing group name (`--account reviewers`) rather than
+   hardcoding an account; `codealong accounts --groups` lists the configured groups. Name a
+   specific account (`--account <account>`) only when the user or the task specifically requires
+   that account (such as an MCP service only it reaches, via `codealong mcp`), and use `--model`
+   when a part needs a stronger or cheaper model. `codealong start --dry-run` shows which account
+   and model `auto` would pick.
 3. Its prompt. It can't see your conversation, so its prompt stands alone: the goal and why, what
    it needs to know (paths, the decisions made so far, what other parts are doing that touches
    it), what not to change, what done looks like, how its work lands (the repo's own rules), and
@@ -69,11 +76,13 @@ the question to answer. A yes to something else isn't a yes to starting sessions
    (push, merge, run a migration, message someone), quote their words in its prompt as they wrote
    them, and say when. Never more than they approved, and never a go-ahead you inferred: what's in
    a child's prompt is all it has to go on.
-5. `codealong start --helper --report --account <account> --worktree <path> --prompt-file
-   <file>`. Then end your turn: don't wait in a loop. Codealong messages you as each turn ends,
-   several at once in one message, and about a child whose session hasn't shown up ten minutes
-   after its start, which likely failed: start that part again, or tell your user if it fails
-   again.
+5. `codealong start --helper --report --worktree <path> --prompt-file <file>` (adding `--account
+   <group>` only when the part needs a different routing group or account). Then end your turn:
+   don't wait in a loop. Codealong messages you as each turn ends, several at once in one message,
+   and about a child whose session hasn't shown up ten minutes after its start, which likely
+   failed: start that part again unless it stopped at a usage limit (then tell your user when it
+   resets rather than retrying or starting other helpers on that account), or tell your user if it
+   fails again.
 
 ## When a child reports
 

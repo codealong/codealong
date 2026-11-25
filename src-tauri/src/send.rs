@@ -869,6 +869,8 @@ fn deliver(engine: Option<&crate::engine::Handle>, board: &Board, cfg: &Config, 
     if let Some(group) = leaves_boundary(board, cfg, sender, session) {
         bail!("{} is outside the boundary group {group} your session is in, and what's said there stays there unless your user lets it out, so nothing was sent. Ask your user to send it from Codealong if they want it to go.", quoted(&session.title));
     }
+    let now_ts = crate::util::now_ms();
+    let live_out = check_send_exhausted(board, cfg, session, sender, now_ts)?;
     // A command of yours for the session's own shell (`shell_command`), not words for its agent.
     let for_its_shell = !msg.from_agent() && *sender != Sender::Codealong && shell_command(&msg.text);
     if session.hosted {
@@ -912,7 +914,30 @@ fn deliver(engine: Option<&crate::engine::Handle>, board: &Board, cfg: &Config, 
             });
         }
     }
-    through(&routes, &session.title, |route, untyped, passes| attempt(engine, route, board, session, account, cfg, &msg, untyped, passes))
+    let mut out = through(&routes, &session.title, |route, untyped, passes| attempt(engine, route, board, session, account, cfg, &msg, untyped, passes))?;
+    if let Some(exhausted) = live_out {
+        let note = crate::exhausted::live_send_note(&session.account, &exhausted, now_ts);
+        out.message = if out.message.is_empty() { note } else { format!("{} {note}", out.message.trim_end()) };
+    }
+    Ok(out)
+}
+
+/// Checks whether an agent-to-agent send (`Sender::Agent` / `AgentFyi`) targets a session whose
+/// account is currently exhausted (exhausted.rs). Refuses stopped and hosted sessions (waking a
+/// stopped session would spawn a new failing job, and hosted sessions return before `wakes`);
+/// lets live non-hosted sessions deliver so the prompt stays in history for `continue_when_lifted`,
+/// returning `Some(Out)` so the reply notes when the account resets.
+fn check_send_exhausted(board: &Board, cfg: &Config, session: &Session, sender: &Sender, now: i64) -> Result<Option<crate::exhausted::Out>> {
+    if !matches!(sender, Sender::Agent(_) | Sender::AgentFyi(_)) {
+        return Ok(None);
+    }
+    let Some(out) = crate::exhausted::check(board, cfg, &session.account, session.model.as_deref(), now) else {
+        return Ok(None);
+    };
+    if session.hosted || !session.live {
+        bail!("{}", crate::exhausted::send_error(session, &out, now));
+    }
+    Ok(Some(out))
 }
 
 /// Tries each way in, best first, until one sends it (`attempt`, given why typing didn't work
@@ -2485,5 +2510,31 @@ mod tests {
         // No engine handle (`send::send`): succeeds without archiving.
         let tried = attempt_with(None, &Route::Resume, &stopped, &account, &msg, None, false, || Ok(Resumed { key: Some(COPY.into()), sent: super::sent("Resumed.".into()) })).unwrap();
         assert!(matches!(tried, Tried::Sent(_)));
+    }
+
+    #[test]
+    fn agent_send_refuses_stopped_and_hosted_sessions_on_exhausted_account_and_notes_live_ones() {
+        let now = 1_800_000_000_000;
+        let lim = crate::model::SessionLimit { meter: Some("session".into()), at: now - 60_000, resets_at: Some(now + 45 * 60_000), ..Default::default() };
+        let stopped = Session { key: "claude:claude-work:a".into(), account: "claude-work".into(), title: "CPO helper".into(), live: false, status: Status::Stopped, ..Session::new(Harness::Claude, "claude-work", "a") };
+        let hosted = Session { key: "claude:claude-work:b".into(), account: "claude-work".into(), title: "Hosted helper".into(), live: true, hosted: true, status: Status::Idle, ..Session::new(Harness::Claude, "claude-work", "b") };
+        let live = Session { key: "claude:claude-work:c".into(), account: "claude-work".into(), title: "Live helper".into(), live: true, hosted: false, status: Status::Idle, ..Session::new(Harness::Claude, "claude-work", "c") };
+        let limited = Session { key: "claude:claude-work:d".into(), account: "claude-work".into(), status: Status::Error, last_activity: now - 60_000, limit: Some(lim), ..Session::new(Harness::Claude, "claude-work", "d") };
+        let board = Board { lanes: vec![crate::fixtures::lane("/work", vec![stopped.clone(), hosted.clone(), live.clone(), limited])], ..Board::default() };
+        let cfg = Config::default();
+        let agent = Sender::Agent(Some("claude:claude2:coord".into()));
+
+        // Stopped and hosted sessions are refused without suggesting `codealong start`.
+        for s in [&stopped, &hosted] {
+            let err = check_send_exhausted(&board, &cfg, s, &agent, now).unwrap_err().to_string();
+            assert!(err.contains("claude-work") && err.contains("5-hour limit") && err.contains("resets in 45m"), "{err}");
+            assert!(!err.contains("codealong start"), "{err}");
+        }
+        // Live non-hosted session is allowed and gets a reset note.
+        let out = check_send_exhausted(&board, &cfg, &live, &agent, now).unwrap().unwrap();
+        assert_eq!(out.resets_at, now + 45 * 60_000);
+        // Human sends are never gated.
+        assert!(check_send_exhausted(&board, &cfg, &stopped, &Sender::You, now).unwrap().is_none());
+        assert!(check_send_exhausted(&board, &cfg, &hosted, &Sender::You, now).unwrap().is_none());
     }
 }
