@@ -1332,7 +1332,11 @@ pub fn resume(board: &Board, cfg: &Config, key: &str, how: &ResumeIn, prompt: &s
         bail!("{title} can't go on {} from here.", place_words(how.place, cfg));
     }
     let (place, instead) = locked_place(how.place, &offered, adapter.runs_in_background(), launch::host_for(&cfg.apps.terminal, cfg.apps.tmux), &launch::terminal_name(&cfg.apps.terminal))?;
+    let claim = crate::send::note_waking(key);
     let resumed = resume_at(board, cfg, key, &ResumeIn { place, ..how.clone() }, prompt, (s, account, &cwd))?;
+    if let Some(c) = claim {
+        c.keep();
+    }
     let sent = crate::send::Sent { message: with_instead(Some(resumed.sent.message), instead).unwrap_or_default(), ..resumed.sent };
     Ok(Resumed { sent, ..resumed })
 }
@@ -1358,6 +1362,9 @@ fn resume_at(board: &Board, cfg: &Config, key: &str, how: &ResumeIn, prompt: &st
             let job = adapter.resume_in_background(&ctx, s, &cwd, &ask)?;
             let copied = job.as_deref().is_some_and(|k| k != key);
             if let Some(copy) = job.as_deref().filter(|_| copied) {
+                if let Some(c) = crate::send::note_waking(copy) {
+                    c.keep();
+                }
                 crate::origins::record(copy, key, crate::model::OriginHow::Fork);
             }
             let copy_note = if copied { " Claude Code copies a session a background job had before into a new job, so the copy takes its place." } else { "" };
@@ -1578,11 +1585,18 @@ pub fn move_to(board: &Board, cfg: &Config, key: &str, to: &str, prompt: &str) -
     // board to go on with however its terminal ends (`claude::Reader::closed_copies`), so the
     // session is closed only once it's written.
     let note = |copy: &str| crate::origins::write(copy, key, crate::model::OriginHow::Fork);
+    // Keep automatic wakes (PR nudges, agent messages) from resuming the old session before the
+    // caller archives it, or the copy while `closed_copies` shows it stopped before its process
+    // registers.
+    let source_claim = crate::send::note_waking(key);
     // Where a copy in a terminal runs, when that isn't a tab of it now.
     let mut runs = None;
     let copy = if in_background {
         adapter.before_start(target, &cwd);
         let copy = adapter.move_to_background(&ctx, s, target, &cwd, prompt)?;
+        if let Some(c) = copy.as_deref().and_then(crate::send::note_waking) {
+            c.keep();
+        }
         // The service picks a job's ID, so it's noted once the job has one.
         if let Some(copy) = &copy {
             note(copy).map_err(|e| anyhow!("Its copy started as a job under {to} ({copy}), but the move couldn't be noted, so “{}” stays where it is: {e:#}", s.title))?;
@@ -1590,6 +1604,9 @@ pub fn move_to(board: &Board, cfg: &Config, key: &str, to: &str, prompt: &str) -
         copy
     } else {
         let copy = adapter.move_to(&ctx, s, target, prompt)?;
+        // Claim before writing origins so `claude::Reader::closed_copies` can't expose the copy
+        // stopped to an automatic wake before its terminal boots.
+        let copy_claim = copy.key.as_deref().and_then(crate::send::note_waking);
         if let Some(copy) = &copy.key {
             note(copy).map_err(|e| anyhow!("Couldn't note the move, so “{}” stays where it is: {e:#}", s.title))?;
         }
@@ -1605,8 +1622,14 @@ pub fn move_to(board: &Board, cfg: &Config, key: &str, to: &str, prompt: &str) -
                 return Err(e);
             }
         }
+        if let Some(c) = copy_claim {
+            c.keep();
+        }
         copy.key
     };
+    if let Some(c) = source_claim {
+        c.keep();
+    }
     let mut left = if !s.live {
         String::new()
     } else {
@@ -1672,6 +1695,9 @@ pub fn move_to_folder(board: &Board, cfg: &Config, key: &str, lane_id: &str) -> 
     }
     adapter.before_start(account, &folder);
     let in_background = s.live && s.attach_command.is_some();
+    // Claim before closing the old process so an automatic wake doesn't resume it in the gap
+    // before the new terminal or job registers.
+    let claim = crate::send::note_waking(key);
     if s.live {
         crate::idle::close_one(board, cfg, key).map_err(|e| anyhow!("Couldn't close “{}” where it runs, so it stays where it is: {e:#}", s.title))?;
         if let Some(pid) = s.pid {
@@ -1695,7 +1721,13 @@ pub fn move_to_folder(board: &Board, cfg: &Config, key: &str, lane_id: &str) -> 
     };
     let copied = goes_on.as_deref().is_some_and(|k| k != key);
     if let Some(copy) = goes_on.as_deref().filter(|_| copied) {
+        if let Some(c) = crate::send::note_waking(copy) {
+            c.keep();
+        }
         crate::origins::record(copy, key, crate::model::OriginHow::Fork);
+    }
+    if let Some(c) = claim {
+        c.keep();
     }
     let copy_note = if copied { " Claude Code copies a background job's conversation into a new job rather than move it, so the copy takes its place." } else { "" };
     let runs = runs.map(|r| format!(" {r}")).unwrap_or_default();
