@@ -204,6 +204,21 @@ export interface Question {
   options: { label: string; description?: string }[];
   /** More than one choice can be picked. */
   multiSelect?: boolean;
+  /** It's a field of a form its agent asks you to fill in (a session Codealong runs), where what
+   *  it takes is more than a pick or words of your own. */
+  form?: FormField;
+}
+
+/** What a form's field takes (`Question.form`). */
+export interface FormField {
+  /** Its choices are all it takes: no box for words of your own. */
+  choicesOnly?: boolean;
+  /** The form doesn't go without an answer to it. */
+  required?: boolean;
+  /** What words it takes, where it takes some and not any: "A whole number". */
+  hint?: string;
+  /** What's written for it is hidden as it's typed. */
+  secret?: boolean;
 }
 
 /** Answers to questions, each by its question's text: a choice's label or your own words, or

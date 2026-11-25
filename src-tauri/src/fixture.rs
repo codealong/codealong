@@ -918,6 +918,7 @@ pub fn pending(board: &Board, key: &str) -> Option<Pending> {
                     .map(|(label, description)| crate::api::Choice { label: label.into(), description: Some(description.into()) })
                     .collect(),
                 multi_select: false,
+                form: None,
             }],
             ..Default::default()
         }),

@@ -265,7 +265,7 @@ mod tests {
 
     fn asked(question: &str, header: &str, labels: &[&str], multi_select: bool) -> Question {
         let options = labels.iter().map(|l| codealong_peer::api::Choice { label: l.to_string(), description: None }).collect();
-        Question { question: question.into(), header: Some(header.into()), options, multi_select }
+        Question { question: question.into(), header: Some(header.into()), options, multi_select, form: None }
     }
 
     #[test]

@@ -33,11 +33,20 @@ on 2026-09-27. Paths are under `src-tauri/src/`.
   is taken on by its ID with `session/resume`, its conversation and all, and its model set after
   (`acp.rs` `adopt`, `acp_takes_on_a_session`; checked 2026-10-06): the transcript gets a
   `/model` line for the settings' model as it's resumed and another for the one asked for.
-- claude-agent-acp 0.81.2 puts `AskUserQuestion` in `disallowedTools` unless the client says
-  in `initialize` that it takes form elicitations (`clientCapabilities.elicitation.form`), which
-  it asks the questions as (`dist/acp-agent.js` `handleAskUserQuestion`). Codealong says none,
-  so a Claude Code session it runs never asks questions that way: it writes them in its reply,
-  and a copy can't ask again what its session asked (EditFrom.tsx `RewindDialog`).
+- Form elicitation (`elicitation/create`, `mode: "form"`, answered `{action: "accept", content}`,
+  `decline` or `cancel`) is how the adapters ask their harness's own questions, and only of a
+  client that says in `initialize` it takes them (`clientCapabilities.elicitation.form: {}`),
+  which Codealong does: claude-agent-acp 0.81.2 otherwise puts `AskUserQuestion` in
+  `disallowedTools` (`dist/acp-agent.js` `handleAskUserQuestion`; the 0.112.0 of 2026-11-24 still
+  does), codex-acp 1.13.1 answers Codex's `request_user_input` with no answers
+  (`handleUserInput`), and `agy acp` completes `ask_question` without asking. Each also passes on
+  an MCP server's form (codex-acp keeps a form with no fields, an MCP tool's approval, as a
+  `session/request_permission`), and claude-agent-acp the consent to retry a refused prompt on its
+  fallback model. Decline lets every one's agent go on, told you skipped (claude-agent-acp answers
+  `AskUserQuestion` with no answers; cancel aborts the call). What each writes in a form, and how
+  Codealong shows one as questions and answers it: `acp/forms.rs`. A form waits as a permission
+  request does (`Permission::form`), so a Stop or `$/cancel_request` cancels it. `url` mode (a link
+  to open) isn't offered, and one that comes anyway is cancelled.
 - claude-agent-acp's `claude` is the adapter's child, started with `--permission-mode <mode>`
   and `--setting-sources=user,project,local`, so it runs the account's hooks, the Codealong
   plugin's `PermissionRequest` hook among them; its `sessions/<pid>.json` (2.1.280) lets that

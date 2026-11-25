@@ -30,6 +30,7 @@ use std::sync::mpsc::Receiver;
 use std::sync::{Arc, Mutex, OnceLock};
 use std::time::Duration;
 
+mod forms;
 mod handover;
 pub use handover::{any_running, hand_over, take_over, Handed};
 
@@ -82,7 +83,8 @@ pub enum Change {
 /// codealong-peer.
 pub use codealong_peer::api::Stream;
 
-/// A permission request waiting for an answer.
+/// A permission request waiting for an answer, or a form to fill in (`form`), which waits the
+/// same way.
 #[derive(Clone, Debug, Serialize, Deserialize)]
 struct Permission {
     /// The JSON-RPC id to answer.
@@ -101,6 +103,20 @@ struct Permission {
     /// a window that answered the call before can tell the next one from it (ahead.ts). Each is
     /// later than the one asked before it, which shows first.
     asked_at: i64,
+    /// It's a form its agent asks you to fill in (forms.rs), with no `options`: answered with
+    /// your answers to its questions, or declined. `tool_call` is its id (`forms::id_of`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    form: Option<forms::Form>,
+}
+
+impl Permission {
+    /// Its answer when it's called off, by a Stop or by its agent withdrawing it.
+    fn called_off(&self) -> Value {
+        match self.form {
+            Some(_) => json!({ "action": "cancel" }),
+            None => json!({ "outcome": { "outcome": "cancelled" } }),
+        }
+    }
 }
 
 /// One of the answers an agent offers to a permission request.
@@ -140,7 +156,8 @@ struct Hosted {
     since: i64,
     /// The permission requests waiting for an answer, in the order asked: each waits for its own,
     /// and an agent asks several at once for calls it makes together (claude-agent-acp asks for
-    /// each of the parallel reads Claude Code makes). The first is the one shown.
+    /// each of the parallel reads Claude Code makes). The first is the one shown. Forms to fill
+    /// in wait here too (`Permission::form`).
     permissions: Vec<Permission>,
     /// Prompts sent while a turn ran, sent in order once it ends.
     queue: Vec<String>,
@@ -513,8 +530,10 @@ impl Agent {
             json!({
                 "protocolVersion": 1,
                 "clientInfo": rpc::client_info(),
-                // The agents read and write files and run commands with their own tools.
-                "clientCapabilities": { "fs": { "readTextFile": false, "writeTextFile": false }, "terminal": false },
+                // The agents read and write files and run commands with their own tools. Forms
+                // show as questions to answer (forms.rs), which is how the adapters ask their
+                // harness's own: without them, claude-agent-acp leaves `AskUserQuestion` out.
+                "clientCapabilities": { "fs": { "readTextFile": false, "writeTextFile": false }, "terminal": false, "elicitation": { "form": {} } },
             }),
             Some(REQUEST_TIMEOUT),
         )
@@ -644,6 +663,7 @@ fn hear(account: &str, link: &rpc::Link, msg: &Value) {
     match (method, msg.get("id")) {
         (Some("session/update"), _) => on_update(account, link, msg.get("params").unwrap_or(&Value::Null)),
         (Some("session/request_permission"), Some(id)) => on_permission(account, link, id.clone(), msg.get("params").unwrap_or(&Value::Null)),
+        (Some("elicitation/create"), Some(id)) => on_form(account, link, id.clone(), msg.get("params").unwrap_or(&Value::Null)),
         (Some("$/cancel_request"), None) => on_withdrawn(account, link, msg.pointer("/params/requestId").unwrap_or(&Value::Null)),
         (Some(_), Some(id)) => {
             // Files and terminals are the agents' own; nothing else was offered.
@@ -808,7 +828,34 @@ fn on_permission(account: &str, link: &rpc::Link, rpc: Value, params: &Value) {
         let Some(h) = st.sessions.get_mut(&key) else { return };
         // After the one before it, in the same millisecond too: it shows once that's answered.
         let asked_at = h.permissions.last().map_or(0, |p| p.asked_at + 1).max(now_ms());
-        h.permissions.push(Permission { rpc, tool_call, label, input, options, plan, answering: false, asked_at });
+        h.permissions.push(Permission { rpc, tool_call, label, input, options, plan, answering: false, asked_at, form: None });
+    }
+    notify(Change::Board);
+}
+
+/// A form the agent asks you to fill in (forms.rs), which waits as a permission request does.
+/// One Codealong can't show (a link to open, a field of a kind it can't ask for) is cancelled,
+/// and its agent goes on without it.
+fn on_form(account: &str, link: &rpc::Link, rpc: Value, params: &Value) {
+    let cancel = json!({ "action": "cancel" });
+    let Some(key) = session_key(account, link, params) else {
+        let _ = link.respond(&rpc, cancel);
+        return;
+    };
+    let form = match forms::read(params) {
+        Ok(form) => form,
+        Err(why) => {
+            eprintln!("{account}'s agent asked {key} for a form Codealong can't show: {why}.");
+            let _ = link.respond(&rpc, cancel);
+            return;
+        }
+    };
+    {
+        let mut st = state();
+        let Some(h) = st.sessions.get_mut(&key) else { return };
+        let asked_at = h.permissions.last().map_or(0, |p| p.asked_at + 1).max(now_ms());
+        let (tool_call, label, input) = (forms::id_of(&rpc), form.label(), form.says());
+        h.permissions.push(Permission { rpc, tool_call, label, input, options: Vec::new(), plan: false, answering: false, asked_at, form: Some(form) });
     }
     notify(Change::Board);
 }
@@ -817,15 +864,16 @@ fn on_permission(account: &str, link: &rpc::Link, rpc: Value, params: &Value) {
 /// call it asked about is aborted): it no longer waits on that answer, so the request goes, and
 /// is answered as cancelled, since JSON-RPC answers every request.
 fn on_withdrawn(account: &str, link: &rpc::Link, rpc: &Value) {
-    {
+    let withdrawn = {
         let mut st = state();
         if !current(&st, account, link) {
             return;
         }
         let Some(h) = st.sessions.values_mut().find(|h| h.account == account && h.permissions.iter().any(|p| &p.rpc == rpc)) else { return };
-        h.permissions.retain(|p| &p.rpc != rpc);
-    }
-    let _ = link.respond(rpc, json!({ "outcome": { "outcome": "cancelled" } }));
+        let Some(at) = h.permissions.iter().position(|p| &p.rpc == rpc) else { return };
+        h.permissions.remove(at)
+    };
+    let _ = link.respond(rpc, withdrawn.called_off());
     notify(Change::Board);
 }
 
@@ -1683,7 +1731,7 @@ pub fn cancel(key: &str) -> Result<()> {
     };
     let ag = state().agents.get(&account).cloned().ok_or_else(|| anyhow!("That session isn't running."))?;
     for p in permissions {
-        ag.client.respond(&p.rpc, json!({ "outcome": { "outcome": "cancelled" } }))?;
+        ag.client.respond(&p.rpc, p.called_off())?;
     }
     ag.client.notify("session/cancel", json!({ "sessionId": id }))?;
     notify(Change::Board);
@@ -1743,6 +1791,9 @@ pub fn pending(key: &str) -> Option<Pending> {
 }
 
 fn pending_of(p: &Permission) -> Pending {
+    if let Some(form) = &p.form {
+        return form.pending(&p.tool_call);
+    }
     let always = pick(p, Answer::Always).ok();
     // What a plan's Always does is the agent's to say, in its own words.
     let always_rule = always.filter(|_| p.plan).map(|o| format!("Approves the plan and keeps the conversation, as its agent's “{}”.", o.name.trim()));
@@ -1750,11 +1801,44 @@ fn pending_of(p: &Permission) -> Pending {
 }
 
 /// Answers the permission request for tool call `id` with the option its agent offered for that
-/// answer (`pick`), and no other. The request stays waiting until the answer is written, so one
-/// that couldn't be is answered again.
+/// answer (`pick`), and no other; or, for a form, declines it, or sends one that asks nothing.
 pub fn answer(key: &str, id: &str, answer: Answer) -> Result<String> {
+    let mut plan = None;
+    let form = reply_to(key, id, |p| match &p.form {
+        Some(form) => form.reply(answer).map_err(|e| anyhow!(e)),
+        None => {
+            let picked = pick(p, answer).map_err(|e| anyhow!(e))?;
+            plan = p.plan.then(|| picked.name.trim().to_string());
+            Ok(json!({ "outcome": { "outcome": "selected", "optionId": picked.id } }))
+        }
+    })?;
+    // What a plan's answers do is the agent's to say, so it's said in its words.
+    Ok(match (answer, plan) {
+        (Answer::Deny, _) if form => "Declined: its agent is told you didn't answer, and goes on.".into(),
+        _ if form => "Sent.".into(),
+        (Answer::Allow | Answer::Always, Some(name)) => format!("Approved the plan: “{name}”."),
+        (Answer::Deny, Some(name)) => format!("Denied the plan: “{name}”."),
+        (Answer::Allow, None) => "Allowed.".into(),
+        (Answer::Always, None) => "Allowed, and from now on.".into(),
+        (Answer::Deny, None) => "Denied.".into(),
+    })
+}
+
+/// Answers the form `id` waits on with `answers`, by question (forms.rs `Form::answered`).
+pub fn answer_form(key: &str, id: &str, answers: &Value) -> Result<String> {
+    reply_to(key, id, |p| match &p.form {
+        Some(form) => form.answered(answers).map_err(|e| anyhow!(e)),
+        None => Err(anyhow!("It asks to make a call, not questions: allow or deny it.")),
+    })?;
+    Ok("Answered.".into())
+}
+
+/// Writes what `reply` makes of the request `id` the session `key` waits on, if it still waits on
+/// it, and says whether it was a form. The request stays waiting until the reply is written, so
+/// one that couldn't be is answered again.
+fn reply_to(key: &str, id: &str, reply: impl FnOnce(&Permission) -> Result<Value>) -> Result<bool> {
     check_not_handing_over()?;
-    let (ag, rpc, option, plan) = {
+    let (ag, rpc, value, form) = {
         let mut guard = state();
         let st = &mut *guard;
         let h = st.sessions.get_mut(key).ok_or_else(|| anyhow!("Codealong doesn't run that session."))?;
@@ -1762,13 +1846,12 @@ pub fn answer(key: &str, id: &str, answer: Answer) -> Result<String> {
         if p.answering {
             bail!("It's still answering that.");
         }
-        let picked = pick(p, answer).map_err(|e| anyhow!(e))?;
-        let (option, plan) = (picked.id.clone(), p.plan.then(|| picked.name.trim().to_string()));
+        let value = reply(p)?;
         let ag = st.agents.get(&h.account).cloned().ok_or_else(|| anyhow!("That session's agent stopped."))?;
         p.answering = true;
-        (ag, p.rpc.clone(), option, plan)
+        (ag, p.rpc.clone(), value, p.form.is_some())
     };
-    let written = ag.client.respond(&rpc, json!({ "outcome": { "outcome": "selected", "optionId": option } }));
+    let written = ag.client.respond(&rpc, value);
     {
         let mut st = state();
         // What else it asked stays, the next of them shown.
@@ -1781,14 +1864,7 @@ pub fn answer(key: &str, id: &str, answer: Answer) -> Result<String> {
     }
     written?;
     notify(Change::Board);
-    // What a plan's answers do is the agent's to say, so it's said in its words.
-    Ok(match (answer, plan) {
-        (Answer::Allow | Answer::Always, Some(name)) => format!("Approved the plan: “{name}”."),
-        (Answer::Deny, Some(name)) => format!("Denied the plan: “{name}”."),
-        (Answer::Allow, None) => "Allowed.".into(),
-        (Answer::Always, None) => "Allowed, and from now on.".into(),
-        (Answer::Deny, None) => "Denied.".into(),
-    })
+    Ok(form)
 }
 
 /// The reply streaming in a session, if it's running.
@@ -1905,7 +1981,7 @@ mod tests {
     #[test]
     fn a_hosted_session_needs_you_from_when_the_call_was_asked() {
         let key = key_of(Harness::Codex, "test-needs-since", "s1");
-        let asked = |at: i64| Permission { rpc: json!(1), tool_call: "t".into(), label: "Run ls".into(), input: None, options: Vec::new(), plan: false, answering: false, asked_at: at };
+        let asked = |at: i64| Permission { rpc: json!(1), tool_call: "t".into(), label: "Run ls".into(), input: None, options: Vec::new(), plan: false, answering: false, asked_at: at, form: None };
         state().sessions.insert(key.clone(), Hosted { account: "test-needs-since".into(), id: "s1".into(), cwd: "/w".into(), running: true, since: 1_000, permissions: vec![asked(5_000)], ..Default::default() });
         let mut s = crate::fixtures::session(&key);
         overlay(&mut s, 0);
@@ -2378,7 +2454,7 @@ mod tests {
         assert_eq!(
             wrote(),
             [
-                format!(r#"{{"id":1,"jsonrpc":"2.0","method":"initialize","params":{{"clientCapabilities":{{"fs":{{"readTextFile":false,"writeTextFile":false}},"terminal":false}},"clientInfo":{{"name":"codealong","title":"Codealong","version":"{}"}},"protocolVersion":1}}}}"#, env!("CARGO_PKG_VERSION")),
+                format!(r#"{{"id":1,"jsonrpc":"2.0","method":"initialize","params":{{"clientCapabilities":{{"elicitation":{{"form":{{}}}},"fs":{{"readTextFile":false,"writeTextFile":false}},"terminal":false}},"clientInfo":{{"name":"codealong","title":"Codealong","version":"{}"}},"protocolVersion":1}}}}"#, env!("CARGO_PKG_VERSION")),
                 r#"{"id":"p2","jsonrpc":"2.0","result":{"outcome":{"outcome":"cancelled"}}}"#.to_string(),
                 r#"{"error":{"code":-32601,"message":"Codealong doesn't offer that."},"id":9,"jsonrpc":"2.0"}"#.to_string(),
                 r#"{"id":"p1","jsonrpc":"2.0","result":{"outcome":{"optionId":"ok","outcome":"selected"}}}"#.to_string(),
@@ -2497,6 +2573,63 @@ mod tests {
         let _ = std::fs::remove_dir_all(&dir);
     }
 
+    /// A form an agent asks (`elicitation/create`) waits as a call to allow does, shown as its
+    /// questions: answered with your picks, declined, withdrawn by its agent or called off by a
+    /// Stop, each with the answer the protocol has for it. One for a session that isn't the
+    /// account's, or a link to open, is cancelled at once.
+    #[test]
+    fn a_form_is_asked_and_answered_as_questions() {
+        let dir = store::test_dir("acp-forms");
+        let form = |id: &str, session: &str, mode: &str| {
+            let fields = r#""q1":{"type":"string","title":"Which color?","oneOf":[{"const":"1","title":"Red"},{"const":"2","title":"Blue"}]},"q1_other":{"type":"string","title":"Other"}"#;
+            format!(r#"echo '{{"jsonrpc":"2.0","id":"{id}","method":"elicitation/create","params":{{"sessionId":"{session}","toolCallId":"call-{id}","mode":"{mode}","message":"The agent has 1 question.","requestedSchema":{{"type":"object","properties":{{{fields}}}}}}}}}'"#)
+        };
+        let script = [
+            r#"while IFS= read -r line; do printf '%s\n' "$line" >> "$1"; case "$line" in"#.to_string(),
+            format!(r#"*'"method":"initialize"'*) echo '{{"jsonrpc":"2.0","id":1,"result":{{}}}}'; {}; {}; {};;"#, form("f2", "nobody", "form"), form("f3", "s1", "url"), form("f1", "s1", "form")),
+            // Answered, it asks again and withdraws that; then asks once more, which is declined,
+            // and again, which a Stop calls off.
+            format!(r#"*'"id":"f1"'*) {}; echo '{{"jsonrpc":"2.0","method":"$/cancel_request","params":{{"requestId":"f4"}}}}'; {};;"#, form("f4", "s1", "form"), form("f5", "s1", "form")),
+            format!(r#"*'"id":"f5"'*) {};;"#, form("f6", "s1", "form")),
+            r#"*'"method":"session/cancel"'*) exit 0;; esac; done"#.to_string(),
+        ]
+        .join(" ");
+        let account = "test-adapter-forms";
+        let key = key_of(Harness::Codex, account, "s1");
+        state().sessions.insert(key.clone(), Hosted { account: account.into(), id: "s1".into(), cwd: "/w".into(), loaded: true, ..Default::default() });
+        let ag = stand_in(account, &script, &dir);
+        ag.initialize().unwrap();
+        wait_until("it to ask", 10, || pending(&key).is_some());
+        let p = pending(&key).unwrap();
+        assert_eq!((p.id.as_str(), p.label.as_str()), ("form-f1", "Asks you · Which color?"));
+        assert_eq!(p.questions.iter().map(|q| q.question.as_str()).collect::<Vec<_>>(), ["Which color?"]);
+        let mut s = Session { account: account.into(), harness: Harness::Codex, hosted: true, live: true, ..crate::fixtures::session(&key) };
+        overlay(&mut s, 0);
+        assert_eq!((s.status, s.excerpt.as_deref()), (Status::Needs, Some("Asks you · Which color?")));
+        // An Allow from a device that doesn't know questions is refused, and nothing is sent.
+        assert!(answer(&key, "form-f1", Answer::Allow).is_err());
+        assert_eq!(answer_form(&key, "form-f1", &json!({ "Which color?": ["Blue", "a dark one"] })).unwrap(), "Answered.");
+        wait_until("the next to be asked", 10, || pending(&key).is_some_and(|p| p.id == "form-f5"));
+        assert_eq!(answer(&key, "form-f5", Answer::Deny).unwrap(), "Declined: its agent is told you didn't answer, and goes on.");
+        wait_until("the last to be asked", 10, || pending(&key).is_some_and(|p| p.id == "form-f6"));
+        cancel(&key).unwrap();
+        wait_until("it to leave", 10, || !state().agents.contains_key(account));
+        assert_eq!(
+            heard(&dir)[1..],
+            [
+                r#"{"id":"f2","jsonrpc":"2.0","result":{"action":"cancel"}}"#,
+                r#"{"id":"f3","jsonrpc":"2.0","result":{"action":"cancel"}}"#,
+                r#"{"id":"f1","jsonrpc":"2.0","result":{"action":"accept","content":{"q1":"2","q1_other":"a dark one"}}}"#,
+                r#"{"id":"f4","jsonrpc":"2.0","result":{"action":"cancel"}}"#,
+                r#"{"id":"f5","jsonrpc":"2.0","result":{"action":"decline"}}"#,
+                r#"{"id":"f6","jsonrpc":"2.0","result":{"action":"cancel"}}"#,
+                r#"{"jsonrpc":"2.0","method":"session/cancel","params":{"sessionId":"s1"}}"#,
+            ]
+        );
+        state().sessions.remove(&key);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
     /// A process an adapter started is one of Codealong's own sessions (claude-agent-acp's
     /// `claude`, which runs the permission hook); any other process isn't.
     #[test]
@@ -2550,7 +2683,7 @@ mod tests {
     /// the conversation, and Deny keeps it planning.
     #[test]
     fn a_plans_answers_keep_its_conversation() {
-        let permission = |plan: bool, options: &str| Permission { rpc: json!(1), tool_call: "t".into(), label: PLAN.into(), input: None, options: offered(&json!({ "options": serde_json::from_str::<Value>(options).unwrap() })), plan, answering: false, asked_at: 0 };
+        let permission = |plan: bool, options: &str| Permission { rpc: json!(1), tool_call: "t".into(), label: PLAN.into(), input: None, options: offered(&json!({ "options": serde_json::from_str::<Value>(options).unwrap() })), plan, answering: false, asked_at: 0, form: None };
         let picks = |p: &Permission| [Answer::Allow, Answer::Always, Answer::Deny].map(|a| pick(p, a).map(|o| o.id.clone()).map_err(String::from));
         let ok = |a: &str, b: &str, c: &str| [Ok(a.to_string()), Ok(b.to_string()), Ok(c.to_string())];
         assert_eq!(picks(&permission(true, PLAN_OPTIONS)), ok("exit-plan-default", "exit-plan-auto", "reject"));
@@ -2622,7 +2755,7 @@ mod tests {
         let keeps = r#"while IFS= read -r line; do printf '%s\n' "$line" >> "$1"; done"#;
         let account = "test-adapter-let-go";
         let key = key_of(Harness::Codex, account, "s1");
-        let asked = Permission { rpc: json!("w1"), tool_call: "call-w1".into(), label: "Run ls".into(), input: None, options: vec![Offered { id: "ok".into(), kind: "allow_once".into(), name: "Yes".into() }], plan: false, answering: false, asked_at: 0 };
+        let asked = Permission { rpc: json!("w1"), tool_call: "call-w1".into(), label: "Run ls".into(), input: None, options: vec![Offered { id: "ok".into(), kind: "allow_once".into(), name: "Yes".into() }], plan: false, answering: false, asked_at: 0, form: None };
         state().sessions.insert(key.clone(), Hosted { account: account.into(), id: "s1".into(), cwd: "/w".into(), loaded: true, running: true, permissions: vec![asked], queue: vec!["And then?".into()], text: "Working".into(), ..Default::default() });
         let ag = stand_in(account, keeps, &stayed);
         let mut cmd = Command::new(crate::procs::posix_tool("sh"));
@@ -3371,6 +3504,7 @@ mod tests {
             plan: false,
             answering: false,
             asked_at: 1,
+            form: None,
         });
         let make_board = |status: Status| {
             let mut s = Session { title: "Fix the build".into(), account: account.into(), harness: Harness::Claude, hosted: true, live: true, status, ..crate::fixtures::session(&key) };

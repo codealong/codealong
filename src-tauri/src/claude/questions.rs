@@ -102,7 +102,7 @@ mod tests {
     use Press::{Key as K, Words};
 
     fn question(text: &str, labels: &[&str], multi_select: bool) -> Question {
-        Question { question: text.into(), header: None, options: labels.iter().map(|l| Choice { label: (*l).into(), description: None }).collect(), multi_select }
+        Question { question: text.into(), header: None, options: labels.iter().map(|l| Choice { label: (*l).into(), description: None }).collect(), multi_select, form: None }
     }
 
     fn answers(v: Value) -> Map<String, Value> {

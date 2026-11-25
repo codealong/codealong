@@ -137,6 +137,7 @@ PREVIEW_WAIT=30000 scripts/preview.sh sessions '' scripts/preview/antigravity-fi
 PREVIEW_WAIT=30000 scripts/preview.sh sessions '' scripts/preview/approval-card-check.js
 PREVIEW_WAIT=30000 scripts/preview.sh sessions '' scripts/preview/caret-check.js
 PREVIEW_WAIT=30000 scripts/preview.sh sessions '' scripts/preview/chrome-check.js
+PREVIEW_WAIT=30000 scripts/preview.sh sessions '' scripts/preview/forms-check.js
 PREVIEW_WAIT=30000 scripts/preview.sh sessions '' scripts/preview/held-message-check.js
 PREVIEW_WAIT=30000 scripts/preview.sh sessions '' scripts/preview/link-menu-check.js
 PREVIEW_WAIT=30000 scripts/preview.sh sessions '' scripts/preview/once-check.js

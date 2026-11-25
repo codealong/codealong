@@ -344,7 +344,7 @@ fn took(home: &Path, s: &Session, id: &str, key: &str) -> Result<()> {
 /// that says something else now isn't taken.
 fn question_of(d: &Dialog) -> Question {
     let question = if d.says.is_empty() { d.title.clone() } else { format!("{} {}", d.title, d.says) };
-    Question { question, header: None, options: d.choices.clone(), multi_select: false }
+    Question { question, header: None, options: d.choices.clone(), multi_select: false, form: None }
 }
 
 /// The dialog up in `s`, as a question to answer with one of its choices (`Pending::dialog`): the
