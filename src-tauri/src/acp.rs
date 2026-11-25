@@ -136,6 +136,10 @@ struct Hosted {
     permissions: Vec<Permission>,
     /// Prompts sent while a turn ran, sent in order once it ends.
     queue: Vec<String>,
+    /// Model and effort switches requested while a turn ran, applied once it ends (before any
+    /// queued prompt starts its turn). Always None while `running` is false.
+    pending_model: Option<String>,
+    pending_effort: Option<String>,
     /// Replaying history into the process (`session/load`): its updates aren't news.
     replaying: bool,
     text: String,
@@ -650,6 +654,8 @@ fn let_go(st: &mut State, account: &str) {
         }
         h.permissions.clear();
         h.queue.clear();
+        h.pending_model = None;
+        h.pending_effort = None;
     }
 }
 
@@ -977,9 +983,99 @@ fn set_config(ag: &Agent, id: &str, options: Value, config_id: &str, value: &str
     Ok(got.get("configOptions").cloned().unwrap_or(options))
 }
 
+/// How a model or effort switch on a hosted session went (`switch`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Switched {
+    /// Applied to the agent right away (between turns).
+    Now,
+    /// Queued while a turn runs; applied as soon as it ends, before any queued prompt.
+    Queued,
+    /// Already on that model or effort (cancelling any queued switch).
+    Unchanged,
+}
+
+/// Whether `options` can be switched to `model` directly or by splitting a compound
+/// `<model>-<level>` name (as `set_model` does). When `base` differs from the current model,
+/// its available `thought_level` values aren't known until `model` switches, so `set_model`
+/// verifies the level when applied.
+fn can_set_model(options: &Value, model: &str) -> bool {
+    if offered_option(options, "model", model).is_some() {
+        return true;
+    }
+    let Some((base, level)) = model.rsplit_once('-') else { return false };
+    if offered_option(options, "model", base).is_none() {
+        return false;
+    }
+    if current_option(options, "model").as_deref() == Some(base) {
+        return offered_option(options, "thought_level", level).is_some();
+    }
+    true
+}
+
+/// The model `options` currently reports, combined with `thought_level` for harnesses without a
+/// separate effort picker (like Antigravity's `gemini-4-neon-high`).
+fn active_model(options: &Value, harness: Harness) -> Option<String> {
+    let model = current_option(options, "model")?;
+    if crate::harness::adapter(harness).efforts().is_empty() {
+        let effort = current_option(options, "thought_level").filter(|e| e != "default");
+        Some(match effort {
+            Some(e) if !model.ends_with(&format!("-{e}")) => format!("{model}-{e}"),
+            _ => model,
+        })
+    } else {
+        Some(model)
+    }
+}
+
 /// Switches a session Codealong runs to a model or an effort level (`send::switch_model`,
-/// `switch_effort`). The model or level must be one its agent offers: the levels are its model's.
-pub fn switch(a: &AccountCfg, key: &str, to: Switch) -> Result<()> {
+/// `switch_effort`). Between turns the agent switches at once; while a turn runs (including
+/// while it waits on a permission), the switch is queued on the session and applied as soon as
+/// that turn ends, before any queued prompt starts its turn.
+pub fn switch(a: &AccountCfg, key: &str, to: Switch) -> Result<Switched> {
+    in_app()?;
+    let harness = Harness::from_config(&a.harness);
+    let queued = {
+        let mut st = state();
+        let h = st.sessions.get_mut(key).ok_or_else(|| anyhow!("Codealong doesn't run that session."))?;
+        if h.deleting {
+            bail!("It's being archived.");
+        }
+        if h.running {
+            let result = match to {
+                Switch::Model(value) => {
+                    if h.options.is_array() && !can_set_model(&h.options, value) {
+                        bail!("{}'s agent doesn't offer {value}.", a.name);
+                    }
+                    if active_model(&h.options, harness).as_deref() == Some(value) {
+                        h.pending_model = None;
+                        Switched::Unchanged
+                    } else {
+                        h.pending_model = Some(value.to_string());
+                        Switched::Queued
+                    }
+                }
+                Switch::Effort(value) => {
+                    if h.options.is_array() && h.pending_model.is_none() && offered_option(&h.options, "thought_level", value).is_none() {
+                        bail!("{}'s agent doesn't offer {value}.", a.name);
+                    }
+                    if h.pending_model.is_none() && current_option(&h.options, "thought_level").as_deref() == Some(value) {
+                        h.pending_effort = None;
+                        Switched::Unchanged
+                    } else {
+                        h.pending_effort = Some(value.to_string());
+                        Switched::Queued
+                    }
+                }
+            };
+            Some(result)
+        } else {
+            None
+        }
+    };
+    if let Some(result) = queued {
+        notify(Change::Board);
+        return Ok(result);
+    }
     match to {
         Switch::Model(value) => {
             let (ag, id, options) = ready_options(a, key)?;
@@ -988,9 +1084,12 @@ pub fn switch(a: &AccountCfg, key: &str, to: Switch) -> Result<()> {
             };
             set(key, |h| h.options = options);
             notify(Change::Board);
-            Ok(())
+            Ok(Switched::Now)
         }
-        Switch::Effort(value) => set_option(a, key, "thought_level", value),
+        Switch::Effort(value) => {
+            set_option(a, key, "thought_level", value)?;
+            Ok(Switched::Now)
+        }
     }
 }
 
@@ -1258,6 +1357,8 @@ fn abandon(key: &str, turn: &Claim, was: (i64, Option<String>, Option<i64>), e: 
     set(key, |h| {
         h.running = false;
         h.turn = None;
+        h.pending_model = None;
+        h.pending_effort = None;
         (h.since, h.error, h.cut_off) = was;
         if !h.queue.is_empty() {
             h.queue.clear();
@@ -1267,11 +1368,46 @@ fn abandon(key: &str, turn: &Claim, was: (i64, Option<String>, Option<i64>), e: 
     notify(Change::Board);
 }
 
-/// Runs a turn `begin` marked on a thread of its own, then the next queued prompt, until the
-/// queue is empty or a turn fails. Each prompt goes only while its turn's claim holds: a turn stopped first was
-/// ended by whoever stopped it, and one ended without it (its process stopped) may have been
-/// followed by another, so neither is touched here. Each is noted in hosted.json while it runs
-/// (`note_turn`), and one whose process ends under it is cut off, left noted.
+/// Applies one batch of queued model/effort switches for `key` while `h.running` is still true,
+/// updating `h.options` and clearing only the entries that haven't been superseded meanwhile.
+/// Returns a note when a queued switch failed.
+fn apply_queued_switch(ag: &Agent, key: &str, id: &str, model: Option<String>, effort: Option<String>, mut options: Value) -> Option<String> {
+    let mut failed = Vec::new();
+    if let Some(m) = model.as_deref() {
+        match set_model(ag, id, options.clone(), m) {
+            Ok(Some(next)) => options = next,
+            Ok(None) => failed.push(format!("its agent doesn't offer {m}")),
+            Err(e) => failed.push(format!("{e:#}")),
+        }
+    }
+    if let Some(e) = effort.as_deref() {
+        if let Some(config_id) = offered_option(&options, "thought_level", e) {
+            match set_config(ag, id, options.clone(), &config_id, e) {
+                Ok(next) => options = next,
+                Err(e) => failed.push(format!("{e:#}")),
+            }
+        } else {
+            failed.push(format!("its agent doesn't offer {e} effort"));
+        }
+    }
+    set(key, |h| {
+        h.options = options;
+        if h.pending_model.as_deref() == model.as_deref() {
+            h.pending_model = None;
+        }
+        if h.pending_effort.as_deref() == effort.as_deref() {
+            h.pending_effort = None;
+        }
+    });
+    (!failed.is_empty()).then(|| format!("Queued switch failed: {}.", failed.join("; ")))
+}
+
+/// Runs a turn `begin` marked on a thread of its own, then any queued model/effort switches and
+/// the next queued prompt, until the queue is empty or a turn fails. Each prompt goes only while
+/// its turn's claim holds: a turn stopped first was ended by whoever stopped it, and one ended
+/// without it (its process stopped) may have been followed by another, so neither is touched
+/// here. Each is noted in hosted.json while it runs (`note_turn`), and one whose process ends
+/// under it is cut off, left noted.
 fn run_turn(ag: Arc<Agent>, key: String, text: String, turn: Claim) {
     std::thread::spawn(move || {
         let (mut text, mut turn) = (text, turn);
@@ -1294,11 +1430,32 @@ fn run_turn(ag: Arc<Agent>, key: String, text: String, turn: Claim) {
             };
             // Its process ended under it, as it does when the app ends: cut off partway.
             let cut = r.is_err() && ag.client.is_closed();
-            let next = {
+            // Apply any model/effort switches queued during the turn while `h.running` is still
+            // true, before either starting the next queued prompt or returning to idle.
+            let mut switch_err: Option<String> = None;
+            let next = loop {
+                let pending = if cut {
+                    None
+                } else {
+                    let st = state();
+                    let Some(h) = st.sessions.get(&key).filter(|h| h.turn.as_ref().is_some_and(|t| t.is(&turn))) else { return };
+                    (h.pending_model.is_some() || h.pending_effort.is_some()).then(|| (h.pending_model.clone(), h.pending_effort.clone(), h.options.clone()))
+                };
+                if let Some((model, effort, options)) = pending {
+                    if let Some(e) = apply_queued_switch(&ag, &key, &id, model, effort, options) {
+                        switch_err = Some(e);
+                    }
+                    continue;
+                }
                 let mut st = state();
                 let Some(h) = st.sessions.get_mut(&key).filter(|h| h.turn.as_ref().is_some_and(|t| t.is(&turn))) else { return };
+                if !cut && (h.pending_model.is_some() || h.pending_effort.is_some()) {
+                    continue;
+                }
                 if cut {
                     h.cut_off = began;
+                    h.pending_model = None;
+                    h.pending_effort = None;
                 }
                 h.permissions.clear();
                 h.text.clear();
@@ -1311,6 +1468,15 @@ fn run_turn(ag: Arc<Agent>, key: String, text: String, turn: Claim) {
                     },
                     Err(e) => Some(format!("{e:#}")),
                 };
+                if let Some(se) = switch_err.take() {
+                    match h.error.as_mut() {
+                        Some(e) => {
+                            e.push(' ');
+                            e.push_str(&se);
+                        }
+                        None => h.error = Some(se),
+                    }
+                }
                 // What was sent while a turn that failed ran goes with it, and its error says so:
                 // it was written to follow that turn, and the windows showed it sent, so it isn't
                 // sent now as though nothing had happened, nor left to follow the next send.
@@ -1320,7 +1486,7 @@ fn run_turn(ag: Arc<Agent>, key: String, text: String, turn: Claim) {
                         e.push_str(" What was sent while it ran wasn't sent: send it again if it's still wanted.");
                     }
                 }
-                if h.queue.is_empty() {
+                break if h.queue.is_empty() {
                     h.running = false;
                     h.turn = None;
                     h.since = now_ms();
@@ -1330,7 +1496,7 @@ fn run_turn(ag: Arc<Agent>, key: String, text: String, turn: Claim) {
                     let next = Claim::default();
                     h.turn = Some(next.clone());
                     Some((h.queue.remove(0), next))
-                }
+                };
             };
             // Its end is noted whether or not a queued prompt follows: that one notes its own
             // turn, and a Stop before it begins leaves nothing to.
@@ -1358,6 +1524,8 @@ pub fn cancel(key: &str) -> Result<()> {
         if h.turn.as_ref().is_some_and(Claim::stop) {
             h.running = false;
             h.turn = None;
+            h.pending_model = None;
+            h.pending_effort = None;
             h.since = now_ms();
             None
         } else {
@@ -1500,24 +1668,22 @@ pub fn overlay(s: &mut Session, seen_at: i64) {
         s.pid = None;
     }
     s.open_target = format!("s|{}|hosted", s.key);
-    // Its agent says the model and effort it's on as soon as they're switched; its record says so
-    // only once the next turn starts. A harness with no separate effort picker (`efforts` empty,
-    // like Antigravity) embeds the thinking level in its model id (`gemini-4-neon-high`), where
-    // its ACP server splits them across `model` and `thought_level`. For Claude/Codex, `default`
-    // is the account's own level, which only a reply names.
-    let model = current_option(&h.options, "model");
-    let effort = current_option(&h.options, "thought_level").filter(|e| e != "default");
-    if crate::harness::adapter(s.harness).efforts().is_empty() {
-        if let Some(m) = model {
-            s.model = Some(match effort {
-                Some(e) if !m.ends_with(&format!("-{e}")) => format!("{m}-{e}"),
-                _ => m,
-            });
-        }
-    } else {
-        if let Some(m) = model {
-            s.model = Some(m);
-        }
+    // Its agent says the model and effort it's on as soon as they're switched (and a switch
+    // queued mid-turn shows right away for the next turn); its record says so only once the next
+    // turn starts. A harness with no separate effort picker (`efforts` empty, like Antigravity)
+    // embeds the thinking level in its model id (`gemini-4-neon-high`), where its ACP server
+    // splits them across `model` and `thought_level`. For Claude/Codex, `default` is the
+    // account's own level, which only a reply names.
+    if let Some(m) = h.pending_model.clone().or_else(|| active_model(&h.options, s.harness)) {
+        s.model = Some(m);
+    }
+    if !crate::harness::adapter(s.harness).efforts().is_empty() {
+        let effort = h
+            .pending_effort
+            .as_deref()
+            .filter(|e| *e != "default")
+            .map(str::to_string)
+            .or_else(|| current_option(&h.options, "thought_level").filter(|e| e != "default"));
         if let Some(e) = effort {
             s.effort = Some(e);
         }
@@ -2917,6 +3083,177 @@ mod tests {
         *ag.caps.lock().unwrap() = json!({ "promptCapabilities": { "image": true } });
         assert!(ag.can("image"));
         state().agents.remove("test-adapter-img-caps");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn mid_turn_switches_queue_and_apply_before_the_next_queued_prompt() {
+        init(|_| {});
+        let dir = store::test_dir("acp-queued-switch");
+        let ag_opts = |model: &str, level: Option<&str>, levels: &[&str]| {
+            let mut opts = vec![json!({
+                "id": "model", "category": "model", "currentValue": model,
+                "options": [{ "value": "gemini-4-neon" }, { "value": "gemini-3.8-flash" }]
+            })];
+            if let Some(l) = level {
+                opts.push(json!({
+                    "id": "thought_level", "category": "thought_level", "currentValue": l,
+                    "options": levels.iter().map(|v| json!({ "value": v })).collect::<Vec<_>>()
+                }));
+            }
+            Value::Array(opts)
+        };
+        let flash_high = serde_json::to_string(&ag_opts("gemini-3.8-flash", Some("high"), &["low", "medium", "high"])).unwrap();
+        let flash_med = serde_json::to_string(&ag_opts("gemini-3.8-flash", Some("medium"), &["low", "medium", "high"])).unwrap();
+        std::fs::write(dir.join("flash_high"), &flash_high).unwrap();
+        std::fs::write(dir.join("flash_med"), &flash_med).unwrap();
+        let release = dir.join("release");
+        let script = format!(
+            r#"while IFS= read -r line; do printf '%s\n' "$line" >> "$1"; id=$(printf '%s' "$line" | sed -n 's/^{{"id":\([0-9]*\),.*/\1/p'); case "$line" in *'"method":"session/prompt"'*'"first"'*) while [ ! -f '{}' ]; do sleep 0.05; done; echo "{{\"jsonrpc\":\"2.0\",\"id\":$id,\"result\":{{\"stopReason\":\"end_turn\"}}}}";; *'"method":"session/prompt"'*) echo "{{\"jsonrpc\":\"2.0\",\"id\":$id,\"result\":{{\"stopReason\":\"end_turn\"}}}}";; *'"configId":"model"'*'"value":"gemini-3.8-flash"'*) echo "{{\"jsonrpc\":\"2.0\",\"id\":$id,\"result\":{{\"configOptions\":$(cat '{}')}}}}";; *'"configId":"thought_level"'*'"value":"medium"'*) echo "{{\"jsonrpc\":\"2.0\",\"id\":$id,\"result\":{{\"configOptions\":$(cat '{}')}}}}";; esac; done"#,
+            release.display(),
+            dir.join("flash_high").display(),
+            dir.join("flash_med").display(),
+        );
+        let account = "test-adapter-queued-ag";
+        let key = key_of(Harness::Antigravity, account, "s1");
+        state().sessions.insert(
+            key.clone(),
+            Hosted {
+                account: account.into(),
+                id: "s1".into(),
+                cwd: "/w".into(),
+                loaded: true,
+                options: ag_opts("gemini-4-neon", Some("high"), &["low", "medium", "high", "xhigh"]),
+                ..Default::default()
+            },
+        );
+        let _ag = stand_in(account, &script, &dir);
+        let a: AccountCfg = serde_json::from_value(json!({ "name": account, "harness": "antigravity", "home": "/h" })).unwrap();
+
+        // Start turn 1 and wait until the agent receives it.
+        assert_eq!(send(&a, &key, "first").unwrap(), "Sent.");
+        wait_until("turn 1 prompt sent", 10, || !heard(&dir).is_empty());
+
+        // Mid-turn switches queue without firing an RPC yet, and overlay shows the pending target.
+        assert_eq!(switch(&a, &key, Switch::Model("gemini-3.8-flash-low")).unwrap(), Switched::Queued);
+        assert_eq!(heard(&dir).len(), 1);
+        let mut s = Session { harness: Harness::Antigravity, ..crate::fixtures::session(&key) };
+        overlay(&mut s, 0);
+        assert_eq!(s.model.as_deref(), Some("gemini-3.8-flash-low"));
+
+        // An unoffered model is still refused immediately without losing the queued pick.
+        let err = switch(&a, &key, Switch::Model("no-such-model")).unwrap_err().to_string();
+        assert!(err.contains("doesn't offer no-such-model"), "{err}");
+
+        // A later switch replaces the earlier queued pick.
+        assert_eq!(switch(&a, &key, Switch::Model("gemini-3.8-flash-medium")).unwrap(), Switched::Queued);
+        let mut s = Session { harness: Harness::Antigravity, ..crate::fixtures::session(&key) };
+        overlay(&mut s, 0);
+        assert_eq!(s.model.as_deref(), Some("gemini-3.8-flash-medium"));
+
+        // Queue a follow-up prompt behind turn 1: the switch must apply before turn 2 runs.
+        assert_eq!(send(&a, &key, "second").unwrap(), "Queued: it goes after the current turn.");
+        assert_eq!(heard(&dir).len(), 1);
+
+        // Release turn 1 and wait for turn 2 to complete.
+        std::fs::write(&release, "go").unwrap();
+        wait_until("both turns done", 10, || state().sessions.get(&key).is_some_and(|h| !h.running));
+
+        let log = heard(&dir);
+        assert_eq!(log.len(), 4, "{log:?}");
+        assert!(log[0].contains(r#""method":"session/prompt""#) && log[0].contains("first"), "{log:?}");
+        assert!(log[1].contains(r#""configId":"model""#) && log[1].contains(r#""value":"gemini-3.8-flash""#), "{log:?}");
+        assert!(log[2].contains(r#""configId":"thought_level""#) && log[2].contains(r#""value":"medium""#), "{log:?}");
+        assert!(log[3].contains(r#""method":"session/prompt""#) && log[3].contains("second"), "{log:?}");
+
+        let mut s = Session { harness: Harness::Antigravity, ..crate::fixtures::session(&key) };
+        overlay(&mut s, 0);
+        assert_eq!(s.model.as_deref(), Some("gemini-3.8-flash-medium"));
+        assert!(state().sessions.get(&key).unwrap().pending_model.is_none());
+
+        state().sessions.remove(&key);
+        state().agents.remove(account);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn mid_turn_switch_through_send_queues_model_and_effort_even_while_waiting() {
+        init(|_| {});
+        let dir = store::test_dir("acp-queued-send");
+        let claude_opts = |model: &str, effort: &str| {
+            json!([
+                { "id": "model", "category": "model", "currentValue": model, "options": [{ "value": "opus" }, { "value": "sonnet" }] },
+                { "id": "effort", "category": "thought_level", "currentValue": effort, "options": [{ "value": "low" }, { "value": "medium" }, { "value": "high" }] }
+            ])
+        };
+        let opus_med = serde_json::to_string(&claude_opts("opus", "medium")).unwrap();
+        std::fs::write(dir.join("opus_med"), &opus_med).unwrap();
+        let release = dir.join("release");
+        let script = format!(
+            r#"while IFS= read -r line; do printf '%s\n' "$line" >> "$1"; id=$(printf '%s' "$line" | sed -n 's/^{{"id":\([0-9]*\),.*/\1/p'); case "$line" in *'"method":"session/prompt"'*) while [ ! -f '{}' ]; do sleep 0.05; done; echo "{{\"jsonrpc\":\"2.0\",\"id\":$id,\"result\":{{\"stopReason\":\"end_turn\"}}}}";; *'"configId":"effort"'*'"value":"medium"'*) echo "{{\"jsonrpc\":\"2.0\",\"id\":$id,\"result\":{{\"configOptions\":$(cat '{}')}}}}";; esac; done"#,
+            release.display(),
+            dir.join("opus_med").display(),
+        );
+        let account = "test-adapter-queued-claude";
+        let key = key_of(Harness::Claude, account, "s1");
+        state().sessions.insert(
+            key.clone(),
+            Hosted {
+                account: account.into(),
+                id: "s1".into(),
+                cwd: "/w".into(),
+                loaded: true,
+                options: claude_opts("opus", "high"),
+                ..Default::default()
+            },
+        );
+        let _ag = stand_in(account, &script, &dir);
+        let cfg: crate::config::Config = serde_json::from_value(json!({ "accounts": [{ "name": account, "harness": "claude", "home": "/h" }] })).unwrap();
+        let a = &cfg.accounts[0];
+
+        assert_eq!(send(a, &key, "work").unwrap(), "Sent.");
+        wait_until("turn started", 10, || !heard(&dir).is_empty());
+
+        // Simulate waiting on a permission during the running turn.
+        state().sessions.get_mut(&key).unwrap().permissions.push(Permission {
+            rpc: json!(9),
+            tool_call: "t1".into(),
+            label: "Run ls".into(),
+            input: None,
+            options: Vec::new(),
+            plan: false,
+            answering: false,
+            asked_at: 1,
+        });
+        let make_board = |status: Status| {
+            let mut s = Session { title: "Fix the build".into(), account: account.into(), harness: Harness::Claude, hosted: true, live: true, status, ..crate::fixtures::session(&key) };
+            overlay(&mut s, 0);
+            crate::model::Board { lanes: vec![crate::fixtures::lane("p", vec![s])], ..Default::default() }
+        };
+
+        // Queue model and effort through send::switch_* while Status::Needs.
+        assert_eq!(crate::send::switch_model(&make_board(Status::Needs), &cfg, &key, "sonnet").unwrap(), "“Fix the build” switches to Sonnet after its current turn.");
+        assert_eq!(crate::send::switch_effort(&make_board(Status::Needs), &cfg, &key, "medium").unwrap(), "“Fix the build” switches to medium effort after its current turn.");
+        let mut s = Session { harness: Harness::Claude, ..crate::fixtures::session(&key) };
+        overlay(&mut s, 0);
+        assert_eq!((s.model.as_deref(), s.effort.as_deref()), (Some("sonnet"), Some("medium")));
+
+        // Picking back the active model cancels the queued model switch while keeping the effort switch.
+        assert_eq!(crate::send::switch_model(&make_board(Status::Working), &cfg, &key, "opus").unwrap(), "“Fix the build” stays on Opus.");
+        let mut s = Session { harness: Harness::Claude, ..crate::fixtures::session(&key) };
+        overlay(&mut s, 0);
+        assert_eq!((s.model.as_deref(), s.effort.as_deref()), (Some("opus"), Some("medium")));
+
+        // Release the turn: only the effort switch runs.
+        std::fs::write(&release, "go").unwrap();
+        wait_until("turn finished", 10, || state().sessions.get(&key).is_some_and(|h| !h.running));
+
+        let log = heard(&dir);
+        assert_eq!(log.len(), 2, "{log:?}");
+        assert!(log[1].contains(r#""configId":"effort""#) && log[1].contains(r#""value":"medium""#), "{log:?}");
+
+        state().sessions.remove(&key);
+        state().agents.remove(account);
         let _ = std::fs::remove_dir_all(&dir);
     }
 }

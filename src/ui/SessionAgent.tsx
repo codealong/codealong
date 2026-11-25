@@ -8,11 +8,13 @@
 //   (SessionReply.tsx `typesCommands`), `StartAccount.switchesModel` and
 //   `switchesEffort`; one whose app goes on with it, through the app, `switchesInApp`), and the
 //   levels under them, its own checked; a pick switches that session alone (send.rs
-//   `switch_model`, `switch_effort`), on whichever device it's on. Not while it waits on you,
-//   where the command would answer it, nor while its turn runs where its harness would hold the
-//   command as a prompt: one that runs it at once (`StartAccount.switchesMidTurn`) goes on with
-//   the turn's next step on the new model. The app takes a switch whenever, for the session's
-//   next turn (`nextTurn`). The model it's on is the one its latest
+//   `switch_model`, `switch_effort`), on whichever device it's on. One Codealong runs queues a
+//   switch while its turn runs (including while it waits on you) and applies it as soon as the
+//   turn ends (`nextTurn`). A terminal session can't be switched while it waits on you, where the
+//   command would answer it, nor while its turn runs where its harness would hold the command as
+//   a prompt: one that runs it at once (`StartAccount.switchesMidTurn`) goes on with the turn's
+//   next step on the new model. The app takes a switch whenever, for the session's next turn
+//   (`nextTurn`). The model it's on is the one its latest
 //   reply came from, or that it was switched to since (`Session.model`), and none is checked: a
 //   reply names the model without its context size.
 // - Not running, what it goes on with (start.ts `resumeChoice`): its account's own model or one

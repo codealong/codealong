@@ -3047,9 +3047,10 @@ alone (`/model <name>` or `/effort <level>` typed into a Claude Code session, or
 background job by its account's background service, as a send is; its agent's model or effort for
 one Codealong runs). A Claude Code session in a terminal or a background job is switched mid-turn
 too, as its own terminal does it: the turn goes on, and its next step runs on the new model and
-effort. One Codealong runs is switched between turns, and mid-turn its models wait for the turn to
-end, as they do while a session waits on you, while a move to another account from the same menu
-doesn't. Claude Code asks before a switch to another model while the conversation is cached for
+effort. One Codealong runs switches at once between turns and queues the switch while a turn runs
+(including while it waits on you), applying it as soon as that turn ends and before any queued
+prompt starts its turn. A terminal session waits for your answer while it waits on you, while a
+move to another account from the same menu doesn't. Claude Code asks before a switch to another model while the conversation is cached for
 what it's on ("Your next response will be slower"), mid-turn too; Codealong answers yes, as
 picking it meant. It also saves what it's switched to as the account's default for new sessions;
 Codealong puts the default back a few seconds later, so the switch stays with that session, and the
