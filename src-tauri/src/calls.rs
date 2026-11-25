@@ -1014,6 +1014,12 @@ calls! {
     fn image_from(c, device: String, path: String) -> Result<(), String> {
         actions::image_from(&c.engine, &c.peers, &device, &path).map(|_| ())
     }
+
+    /// Drops a session's kept AI background so the engine draws a fresh one (backgrounds.rs).
+    fn redraw_session_background(c, key: String) -> Result<(), String> {
+        c.engine.redraw_background(key);
+        Ok(())
+    }
 }
 
 #[cfg(test)]

@@ -81,23 +81,35 @@ export function SessionBackdrop({ theme, vibe, intensity, place, working = false
   const grainUrl = useMemo(() => getGrainTileUrl(), []);
   const ribbons = useMemo(() => (vibe === 'prism' ? prismRibbons(theme.seed) : null), [vibe, theme.seed]);
 
+  const hasAi = !!theme.backdropImage && place !== 'preview';
+  const darkArt = (theme.backdrop?.luminance ?? 128) < 130;
+
   const layerStyle = useMemo<CSSProperties>(() => {
-    const vars = themeCssVars(theme.color, intensity);
+    const vars = themeCssVars(theme.color, intensity, theme.accentOverride);
     return {
       ...vars,
       ...(meshUrl ? { '--st-mesh-img': `url("${meshUrl}")` } : null),
       ...(grainUrl ? { '--st-grain-img': `url("${grainUrl}")` } : null),
+      ...(hasAi && theme.backdropImage ? { '--st-ai-img': `url("${theme.backdropImage}")` } : null),
     } as CSSProperties;
-  }, [theme.color, intensity, meshUrl, grainUrl]);
+  }, [theme.color, theme.accentOverride, theme.backdropImage, hasAi, intensity, meshUrl, grainUrl]);
 
   return (
     <div
-      className={cx('ca-st-layer', `is-${place}`, `is-${vibe}`, working && 'is-working')}
+      className={cx(
+        'ca-st-layer',
+        `is-${place}`,
+        `is-${vibe}`,
+        hasAi && 'is-has-ai',
+        hasAi && (darkArt ? 'is-dark-art' : 'is-light-art'),
+        working && 'is-working',
+      )}
       style={layerStyle}
       aria-hidden="true"
     >
       <div className="ca-st-canvas" />
-      {ribbons && (
+      {hasAi && <div className="ca-st-ai" />}
+      {!hasAi && ribbons && (
         <svg className="ca-st-prism" viewBox="0 0 640 120" preserveAspectRatio="none">
           {ribbons.map((r, i) => (
             <path key={i} d={r.d} className={cx('ca-st-ribbon', i === 1 && 'is-r2', i === 2 && 'is-r3')} />
@@ -113,29 +125,35 @@ export function SessionBackdrop({ theme, vibe, intensity, place, working = false
 /** Compact multi-color chord & mesh-vibe popover triggered from a session's header swatch orb. */
 export function SessionThemePicker({ theme }: { theme: ActiveSessionTheme }) {
   const [open, setOpen] = useState(false);
+  const [redrawing, setRedrawing] = useState(false);
   const anchor = useRef<HTMLSpanElement>(null);
   useDismiss(anchor, () => setOpen(false), { when: open });
 
-  const { assigned, prefs, setPrefs, picked, pickColor } = theme;
+  const { assigned, aiEnabled, prefs, setPrefs, picked, pickColor, redraw } = theme;
+  useEffect(() => {
+    setRedrawing(false);
+  }, [assigned.backdrop?.picture]);
   const sourceWord =
     assigned.source === 'picked'
       ? 'Picked'
-      : assigned.source === 'emblem'
-        ? 'Matched to emblem'
-        : assigned.source === 'inherited'
-          ? 'Inherited from parent'
-          : 'Auto (collision-free)';
+      : assigned.source === 'backdrop'
+        ? 'Matched to artwork'
+        : assigned.source === 'emblem'
+          ? 'Matched to emblem'
+          : assigned.source === 'inherited'
+            ? 'Inherited from parent'
+            : 'Auto (collision-free)';
 
   return (
     <span ref={anchor} className="ca-st-pick">
       <button
         type="button"
         className={cx('ca-st-swatchbtn', open && 'is-open')}
-        style={themeCssVars(assigned.color, prefs.intensity)}
+        style={themeCssVars(assigned.color, prefs.intensity, assigned.accentOverride)}
         aria-label={`Session theme: ${assigned.color.label} (${sourceWord})`}
         aria-expanded={open}
         aria-haspopup="dialog"
-        title={`Session theme: ${assigned.color.label} · ${sourceWord}. Click to pick a palette or switch mesh vibes.`}
+        title={`Session theme: ${assigned.backdrop?.name ? `${assigned.backdrop.name} · ` : ''}${assigned.color.label} · ${sourceWord}. Click to customize.`}
         onClick={(e) => {
           e.stopPropagation();
           setOpen((v) => !v);
@@ -154,6 +172,29 @@ export function SessionThemePicker({ theme }: { theme: ActiveSessionTheme }) {
             <span className="ca-st-poptitle">{assigned.color.label}</span>
             <span className="ca-st-popmeta">{sourceWord}</span>
           </div>
+          {(assigned.backdrop || aiEnabled) && (
+            <div className="ca-st-popai">
+              <div className="ca-st-popai-copy">
+                <span className="ca-st-poplabel">AI background</span>
+                <span className="ca-st-popai-name">
+                  {redrawing ? 'Redrawing…' : assigned.backdrop?.name || 'Drawing automatically…'}
+                </span>
+              </div>
+              <button
+                type="button"
+                className="ca-st-redraw"
+                disabled={redrawing}
+                title="Draw a fresh AI background for this session"
+                onClick={() => {
+                  setRedrawing(true);
+                  redraw();
+                }}
+              >
+                <Icon name="refresh" size={11} />
+                Redraw
+              </button>
+            </div>
+          )}
           <div className="ca-st-swatches" role="radiogroup" aria-label="Session palette">
             <button
               type="button"

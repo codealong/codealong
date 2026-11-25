@@ -99,6 +99,7 @@ mod github;
 mod install;
 mod insights;
 mod emblems;
+mod backgrounds;
 // Link codes and iroh, the messages between devices, and the model their feeds carry are in
 // codealong-peer (peer/), which the phone app builds on too.
 use codealong_peer::net as irohnet;

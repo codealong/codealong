@@ -64,7 +64,7 @@ fn pairs() -> Vec<Pair> {
         ($($t:ident),* $(,)?) => { vec![$(pair::<model::$t>(stringify!($t))),*] };
     }
     let mut pairs = same![
-        Session, Emblem, PeerTalk, Artifact, Helper, Orchestrator, SessionMode, ContextUse, QueuedMessage, SessionLimit, ConnectionLost, ApiError, SignedOut, Suggestions, SideAnswer, Raised, AgentSeen, BackgroundTask, RunningIn, SessionOrigin, ChromeTabs,
+        Session, Emblem, PeerTalk, SessionBackdrop, Artifact, Helper, Orchestrator, SessionMode, ContextUse, QueuedMessage, SessionLimit, ConnectionLost, ApiError, SignedOut, Suggestions, SideAnswer, Raised, AgentSeen, BackgroundTask, RunningIn, SessionOrigin, ChromeTabs,
         SessionInsight, Finished, Checks, Label, PrLabel, Pr, StaleApproval, GitInfo, Target, Lane, Cleanup, Preview, PreviewServer, DeviceTag, Meter, Usage, Load, ProjectSummary, AccountInfo, Notice, Board,
         TodoHint, PrItem, LastReview, AutoReview, ReviewPart, PrSession,
     ];
@@ -95,6 +95,7 @@ fn others() -> Vec<Pair> {
         of!(crate::resets: Resets, ResetCredit, ResetUsed),
         of!(crate::signin: SignIn),
         of!(crate::peers: DeviceView, ProjectThere),
+        of!(crate::backgrounds: BackgroundsCfg),
         of!(
             crate::config: AccountCfg, Config, DecisionModelCfg, DecisionsCfg, DevicesCfg, EmblemsCfg, ExperimentalCfg, GroupMemberCfg, OwnReviewsCfg, Profile, ProjectCfg, PullRequestsCfg, RepoCfg, ReviewsCfg, ReviewsPatch,
             RoutingCfg, RoutingGroupCfg, SessionsCfg, SoundsCfg, VoiceCfg

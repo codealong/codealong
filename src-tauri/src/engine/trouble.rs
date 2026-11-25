@@ -55,15 +55,17 @@ pub enum Trouble {
     HeldMessages,
     /// Why the last emblem drawn wasn't, until one is.
     Emblems,
+    /// Why the last AI session background drawn wasn't, until one is.
+    Backgrounds,
     /// What the engine's own thread fell over on, when it did and carried on (`run_guarded`).
     Engine,
 }
 
 impl Trouble {
     #[cfg(test)]
-    const ALL: [Trouble; 18] = {
+    const ALL: [Trouble; 19] = {
         use Trouble::*;
-        [Engine, Config, Watch, Todos, TodosLock, State, PrLinks, Previews, Reusable, Limits, Nudges, TerminalRuns, Reconnect, Rerequests, Unlocked, Helpers, HeldMessages, Emblems]
+        [Engine, Config, Watch, Todos, TodosLock, State, PrLinks, Previews, Reusable, Limits, Nudges, TerminalRuns, Reconnect, Rerequests, Unlocked, Helpers, HeldMessages, Emblems, Backgrounds]
     };
 
     /// Its notice's key, which the windows know a notice by, and its title.
@@ -87,6 +89,7 @@ impl Trouble {
             Trouble::Helpers => ("helpers", "A session wasn't told what its helper did"),
             Trouble::HeldMessages => ("held-messages", "A message held for a session wasn't sent"),
             Trouble::Emblems => ("emblems", "An emblem wasn't drawn"),
+            Trouble::Backgrounds => ("backgrounds", "A background wasn't drawn"),
         }
     }
 }
@@ -154,6 +157,7 @@ impl Engine {
             trouble(Trouble::Helpers),
             trouble(Trouble::HeldMessages),
             trouble(Trouble::Emblems),
+            trouble(Trouble::Backgrounds),
             said("reviews", "A pull request wasn't reviewed", review.map(|s| &s.text)).map(|n| Notice { review_again: review.and_then(|s| s.again.clone()), ..n }),
             said("team-files", "A repo's team settings aren't used", team_files.as_ref()),
             said("clones", "A repo wasn't cloned for its review", clones.as_ref()),
@@ -246,7 +250,7 @@ mod tests {
         }
         assert_eq!(
             keys(&engine),
-            ["engine", "config", "watch", "todos", "todos-lock", "state", "pr-links", "previews", "reusable", "limits", "nudges", "terminal-runs", "reconnect", "rerequests", "unlocked", "helpers", "held-messages", "emblems"]
+            ["engine", "config", "watch", "todos", "todos-lock", "state", "pr-links", "previews", "reusable", "limits", "nudges", "terminal-runs", "reconnect", "rerequests", "unlocked", "helpers", "held-messages", "emblems", "backgrounds"]
         );
     }
 

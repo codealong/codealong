@@ -5,6 +5,7 @@ import { describe, expect, it } from 'vitest';
 import {
   assignSessionColors,
   emblemPreferredColor,
+  hexHue,
   hueDistance,
   nearestPaletteColor,
   SESSION_PALETTE,
@@ -109,5 +110,30 @@ describe('assignSessionColors', () => {
     const assigned = assignSessionColors(list);
     expect(assigned.get('active')!.color.id).toBe('dusk');
     expect(assigned.get('active')!.source).toBe('emblem');
+  });
+
+  it('harmonizes chord and accent override from an AI backdrop while keeping helpers clean', () => {
+    expect(hexHue('#2a8068')).toBeGreaterThan(140);
+    expect(hexHue('#2a8068')).toBeLessThan(185);
+    expect(hexHue('#888888')).toBeNull();
+    const list = [
+      sess('parent', {
+        startedAt: 10,
+        backdrop: { picture: 'bg1.jpg', name: 'Eucalyptus shadows', accent: '#2a8068', luminance: 215 },
+      }),
+      sess('helper', { startedAt: 20, helperOf: 'parent' }),
+    ];
+    const assigned = assignSessionColors(list);
+    const parent = assigned.get('parent')!;
+    expect(parent.source).toBe('backdrop');
+    expect(parent.accentOverride).toBe('#2a8068');
+    expect(parent.backdrop?.name).toBe('Eucalyptus shadows');
+    expect(parent.backdropImage).toBeTruthy();
+
+    const helper = assigned.get('helper')!;
+    expect(helper.source).toBe('inherited');
+    expect(helper.backdrop).toBeNull();
+    expect(helper.backdropImage).toBeNull();
+    expect(helper.accentOverride).toBe('#2a8068');
   });
 });

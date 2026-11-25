@@ -48,6 +48,13 @@ runs on this Mac (2026-10-01). Paths are under `src-tauri/src/`.
   every few seconds, the steps being in `antigravity-cli`, and the sidebar shows "No conversations
   yet". A conversation both tables claim is read from the folder that keeps its record
   (`once_each`).
+- Drawing (`antigravity/draw.rs`, `Antigravity::draw`, checked on `agy` 1.5.16, 2026-11-24):
+  `agy -p <prompt> --output-format json --disable-slash-commands --log-file <logs/agy-draw.log>`
+  invokes Antigravity's built-in `image-generator` subagent, which writes a `.jpg` (or `.png`)
+  into `<cli_dir>/brain/<conversation_id>/` and returns `{conversation_id, status, response}` on
+  stdout. The conversation id is hidden immediately via `antigravity/side.rs` (`side::hide`) so it
+  stays off the board, out of search, and out of the token ledger, and the brain folder is removed
+  once the image is read.
 - Renaming (`antigravity/rename.rs`, `Antigravity::rename`, checked on `agy` 1.5.15, 2026-11-23):
   `/rename` isn't available in print mode (`"print mode has no conversation manager"`), and
   `agy acp` exposes no rename RPC. When `agy`'s own terminal UI runs `/rename`, it writes the title

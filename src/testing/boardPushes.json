@@ -10,6 +10,11 @@
         "terminal": "",
         "terminalId": ""
       },
+      "backgrounds": {
+        "account": "",
+        "enabled": false,
+        "prompt": ""
+      },
       "chatShortcut": "",
       "decisions": {
         "default": "jev",
@@ -381,6 +386,11 @@
           "runIn": "codealong",
           "terminal": "",
           "terminalId": ""
+        },
+        "backgrounds": {
+          "account": "",
+          "enabled": false,
+          "prompt": ""
         },
         "chatShortcut": "",
         "decisions": {
@@ -756,6 +766,11 @@
         "runIn": "codealong",
         "terminal": "",
         "terminalId": ""
+      },
+      "backgrounds": {
+        "account": "",
+        "enabled": false,
+        "prompt": ""
       },
       "chatShortcut": "",
       "decisions": {
@@ -1170,6 +1185,11 @@
         "terminal": "",
         "terminalId": ""
       },
+      "backgrounds": {
+        "account": "",
+        "enabled": false,
+        "prompt": ""
+      },
       "chatShortcut": "",
       "decisions": {
         "default": "jev",
@@ -1581,6 +1601,11 @@
         "runIn": "codealong",
         "terminal": "",
         "terminalId": ""
+      },
+      "backgrounds": {
+        "account": "",
+        "enabled": false,
+        "prompt": ""
       },
       "chatShortcut": "",
       "decisions": {
@@ -2063,6 +2088,11 @@
         "terminal": "",
         "terminalId": ""
       },
+      "backgrounds": {
+        "account": "",
+        "enabled": false,
+        "prompt": ""
+      },
       "chatShortcut": "",
       "decisions": {
         "default": "jev",
@@ -2515,6 +2545,11 @@
         "runIn": "codealong",
         "terminal": "",
         "terminalId": ""
+      },
+      "backgrounds": {
+        "account": "",
+        "enabled": false,
+        "prompt": ""
       },
       "chatShortcut": "",
       "decisions": {

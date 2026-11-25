@@ -111,6 +111,90 @@
   background-position: center;
 }
 
+/* AI-generated vertical fine-art background layer (sits above mesh fallback, under contrast veil). */
+.ca-st-ai {
+  position: absolute;
+  inset: -2%;
+  background-image: var(--st-ai-img, none);
+  background-size: cover;
+  background-position: center;
+  opacity: min(1, calc(0.88 * var(--st-scale, 1)));
+}
+.ca-st-layer.is-has-ai.is-panel.is-light-art .ca-st-veil {
+  background: linear-gradient(
+    180deg,
+    color-mix(in oklch, var(--surface) 14%, transparent) 0%,
+    color-mix(in oklch, var(--surface) 54%, transparent) 24%,
+    color-mix(in oklch, var(--surface) 58%, transparent) 78%,
+    color-mix(in oklch, var(--surface) 38%, transparent) 100%
+  );
+}
+.ca-st-layer.is-has-ai.is-panel.is-dark-art .ca-st-veil {
+  background: linear-gradient(
+    180deg,
+    color-mix(in oklch, var(--surface) 60%, transparent) 0%,
+    color-mix(in oklch, var(--surface) 78%, transparent) 26%,
+    color-mix(in oklch, var(--surface) 80%, transparent) 78%,
+    color-mix(in oklch, var(--surface) 66%, transparent) 100%
+  );
+}
+.ca-st-layer.is-has-ai.is-header .ca-st-veil {
+  background: color-mix(in oklch, var(--surface) 22%, transparent);
+}
+.ca-st-layer.is-has-ai.is-header.is-dark-art .ca-st-veil {
+  background: color-mix(in oklch, var(--surface) 64%, transparent);
+}
+:root[data-theme='dark'] .ca-st-layer.is-has-ai.is-panel.is-dark-art .ca-st-veil {
+  background: linear-gradient(
+    180deg,
+    color-mix(in oklch, var(--surface) 22%, transparent) 0%,
+    color-mix(in oklch, var(--surface) 58%, transparent) 24%,
+    color-mix(in oklch, var(--surface) 62%, transparent) 78%,
+    color-mix(in oklch, var(--surface) 42%, transparent) 100%
+  );
+}
+:root[data-theme='dark'] .ca-st-layer.is-has-ai.is-panel.is-light-art .ca-st-veil {
+  background: linear-gradient(
+    180deg,
+    color-mix(in oklch, var(--surface) 68%, transparent) 0%,
+    color-mix(in oklch, var(--surface) 82%, transparent) 26%,
+    color-mix(in oklch, var(--surface) 84%, transparent) 78%,
+    color-mix(in oklch, var(--surface) 72%, transparent) 100%
+  );
+}
+:root[data-theme='dark'] .ca-st-layer.is-has-ai.is-header.is-dark-art .ca-st-veil {
+  background: color-mix(in oklch, var(--surface) 24%, transparent);
+}
+:root[data-theme='dark'] .ca-st-layer.is-has-ai.is-header.is-light-art .ca-st-veil {
+  background: color-mix(in oklch, var(--surface) 68%, transparent);
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme='light']) .ca-st-layer.is-has-ai.is-panel.is-dark-art .ca-st-veil {
+    background: linear-gradient(
+      180deg,
+      color-mix(in oklch, var(--surface) 22%, transparent) 0%,
+      color-mix(in oklch, var(--surface) 58%, transparent) 24%,
+      color-mix(in oklch, var(--surface) 62%, transparent) 78%,
+      color-mix(in oklch, var(--surface) 42%, transparent) 100%
+    );
+  }
+  :root:not([data-theme='light']) .ca-st-layer.is-has-ai.is-panel.is-light-art .ca-st-veil {
+    background: linear-gradient(
+      180deg,
+      color-mix(in oklch, var(--surface) 68%, transparent) 0%,
+      color-mix(in oklch, var(--surface) 82%, transparent) 26%,
+      color-mix(in oklch, var(--surface) 84%, transparent) 78%,
+      color-mix(in oklch, var(--surface) 72%, transparent) 100%
+    );
+  }
+  :root:not([data-theme='light']) .ca-st-layer.is-has-ai.is-header.is-dark-art .ca-st-veil {
+    background: color-mix(in oklch, var(--surface) 24%, transparent);
+  }
+  :root:not([data-theme='light']) .ca-st-layer.is-has-ai.is-header.is-light-art .ca-st-veil {
+    background: color-mix(in oklch, var(--surface) 68%, transparent);
+  }
+}
+
 /* Calm breathing drift while a session is actively working. */
 .ca-st-layer.is-working .ca-st-canvas,
 .ca-st-layer.is-working .ca-st-prism {
@@ -481,6 +565,55 @@
 .ca-st-popmeta {
   font: var(--type-caption);
   color: var(--ink-3);
+}
+.ca-st-popai {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-2);
+  padding: 6px 8px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  background: color-mix(in oklch, var(--surface) 75%, var(--st-1));
+}
+.ca-st-popai-copy {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+}
+.ca-st-popai-name {
+  font: var(--type-caption);
+  color: var(--ink);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.ca-st-redraw {
+  appearance: none;
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+  flex: none;
+  height: 22px;
+  padding: 0 7px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  background: var(--surface-raised);
+  color: var(--ink-2);
+  font: var(--type-caption-strong);
+  cursor: pointer;
+}
+.ca-st-redraw:hover:not(:disabled) {
+  background: var(--surface-hover);
+  color: var(--ink);
+}
+.ca-st-redraw:disabled {
+  opacity: 0.6;
+  cursor: default;
+}
+.ca-st-redraw:focus-visible {
+  outline: none;
+  box-shadow: var(--shadow-focus);
 }
 .ca-st-swatches {
   display: flex;

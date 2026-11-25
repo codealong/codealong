@@ -312,6 +312,10 @@ pub struct Board {
     /// window's Board view and Add to board.
     #[serde(default)]
     pub experimental: crate::config::ExperimentalCfg,
+    /// `[backgrounds]` from config.toml: per-session AI background settings (active when
+    /// `experimental.session_themes` is on).
+    #[serde(default)]
+    pub backgrounds: crate::backgrounds::BackgroundsCfg,
     /// `[reviews]` from config.toml: whether PRs that wait on your review are reviewed without
     /// being asked (autoreview.rs), on which account, and whether each review is posted.
     #[serde(default)]

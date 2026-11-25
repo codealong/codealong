@@ -4,7 +4,7 @@
 // across every open window (main, peek, kept desktop windows, waiting, notch).
 
 import { createContext, useContext, useEffect, useMemo, useState, type ReactNode } from 'react';
-import { imageUrl } from '../api';
+import { imageUrl, redrawSessionBackground } from '../api';
 import { shortOf } from '../devices';
 import {
   assignSessionColors,
@@ -30,6 +30,7 @@ import type { Board, Lane, Session } from '../types';
 
 export interface SessionThemeContextValue {
   enabled: boolean;
+  aiEnabled: boolean;
   prefs: SessionThemePrefs;
   setPrefs: (patch: Partial<SessionThemePrefs>) => void;
   themes: ReadonlyMap<string, AssignedSessionTheme>;
@@ -39,6 +40,7 @@ export interface SessionThemeContextValue {
 
 const OFF_CONTEXT: SessionThemeContextValue = {
   enabled: false,
+  aiEnabled: false,
   prefs: DEFAULT_PREFS,
   setPrefs: () => {},
   themes: new Map(),
@@ -146,10 +148,11 @@ export function useSessionThemePrefs(): [SessionThemePrefs, (patch: Partial<Sess
   return [prefs, update];
 }
 
-export type ThemeBoard = Pick<Board, 'lanes' | 'experimental'>;
+export type ThemeBoard = Pick<Board, 'lanes' | 'experimental' | 'backgrounds'>;
 
 export function SessionThemeProvider({ board, extraLanes, children }: { board: ThemeBoard | null | undefined; extraLanes?: readonly Lane[]; children: ReactNode }) {
   const enabled = !!board?.experimental?.session_themes;
+  const aiEnabled = enabled && !!board?.backgrounds?.enabled;
   const [prefs, setPrefs] = useSessionThemePrefs();
   const [picks, setPicks] = useState<Record<string, SessionColorId>>(readColorPicks);
   const [imageHues, setImageHues] = useState<Record<string, SessionColorId>>(() => {
@@ -186,6 +189,7 @@ export function SessionThemeProvider({ board, extraLanes, children }: { board: T
             project: lane.project,
             startedAt: s.startedAt ?? s.lastActivity,
             emblem: s.emblem,
+            backdrop: s.backdrop,
             helperOf: s.helper ? (s.origin?.key ?? null) : null,
             archived: s.archived,
           });
@@ -218,6 +222,7 @@ export function SessionThemeProvider({ board, extraLanes, children }: { board: T
   const value = useMemo<SessionThemeContextValue>(
     () => ({
       enabled,
+      aiEnabled,
       prefs,
       setPrefs,
       themes,
@@ -227,7 +232,7 @@ export function SessionThemeProvider({ board, extraLanes, children }: { board: T
         setPicks(readColorPicks());
       },
     }),
-    [enabled, prefs, setPrefs, themes, picks],
+    [enabled, aiEnabled, prefs, setPrefs, themes, picks],
   );
 
   return <SessionThemeContext.Provider value={value}>{children}</SessionThemeContext.Provider>;
@@ -235,28 +240,43 @@ export function SessionThemeProvider({ board, extraLanes, children }: { board: T
 
 export interface ActiveSessionTheme {
   assigned: AssignedSessionTheme;
+  aiEnabled: boolean;
   prefs: SessionThemePrefs;
   setPrefs: (patch: Partial<SessionThemePrefs>) => void;
   picked: SessionColorId | null;
   pickColor: (color: SessionColorId | null) => void;
+  redraw: () => void;
 }
 
 /** Reads the active session theme for `session`, or null when the experiment is off. */
-export function useSessionTheme(session: Pick<Session, 'key' | 'emblem' | 'helper' | 'origin'> | null | undefined): ActiveSessionTheme | null {
+export function useSessionTheme(session: Pick<Session, 'key' | 'emblem' | 'backdrop' | 'helper' | 'origin'> | null | undefined): ActiveSessionTheme | null {
   const ctx = useContext(SessionThemeContext);
   if (!ctx.enabled || !session) return null;
   const fromMap = ctx.themes.get(session.key);
+  const backdropPic = session.backdrop?.picture;
+  const fallbackBackdropImg = backdropPic
+    ? backdropPic.startsWith('data:') || backdropPic.startsWith('http://') || backdropPic.startsWith('https://') || backdropPic.startsWith('blob:')
+      ? backdropPic
+      : imageUrl(backdropPic, shortOf(session.key))
+    : null;
   const assigned: AssignedSessionTheme = fromMap ?? {
     color: PALETTE_BY_ID[emblemPreferredColor(session.emblem) ?? SESSION_PALETTE[hashString(session.key) % SESSION_PALETTE.length].id],
     source: emblemPreferredColor(session.emblem) ? 'emblem' : 'auto',
     seed: hashString(session.key),
     emblemImage: session.emblem?.picture ? imageUrl(session.emblem.picture, shortOf(session.key)) : null,
+    backdrop: session.backdrop ?? null,
+    backdropImage: fallbackBackdropImg,
+    accentOverride: session.backdrop?.accent ?? null,
   };
   return {
     assigned,
+    aiEnabled: ctx.aiEnabled,
     prefs: ctx.prefs,
     setPrefs: ctx.setPrefs,
     picked: ctx.picks[session.key] ?? null,
     pickColor: (color) => ctx.pickColor(session.key, color),
+    redraw: () => {
+      void redrawSessionBackground(session.key);
+    },
   };
 }

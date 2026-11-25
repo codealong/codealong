@@ -11,7 +11,7 @@ import type { CSSProperties } from 'react';
 import { imageUrl } from './api';
 import { shortOf } from './devices';
 import { readStored, textByName, writeStored, type Codec } from './stored';
-import type { Emblem } from './types';
+import type { Emblem, SessionBackdrop } from './types';
 
 export type SessionColorId =
   | 'dusk'
@@ -62,13 +62,20 @@ export interface SessionThemePrefs {
 
 export interface AssignedSessionTheme {
   color: SessionThemeColor;
-  /** Where the chord came from: picked by hand, matched from the session's emblem, inherited from
-   *  its parent helper session, or chosen automatically to avoid collisions. */
-  source: 'picked' | 'emblem' | 'inherited' | 'auto';
+  /** Where the chord came from: picked by hand, extracted from the session's AI backdrop, matched
+   *  from its emblem, inherited from its parent helper session, or chosen automatically to avoid
+   *  collisions. */
+  source: 'picked' | 'backdrop' | 'emblem' | 'inherited' | 'auto';
   /** Stable 32-bit seed for deterministic mesh warping and glow positions. */
   seed: number;
   /** Drawn emblem picture URL when available. */
   emblemImage: string | null;
+  /** Experimental AI-generated backdrop metadata when drawn for this session. */
+  backdrop?: SessionBackdrop | null;
+  /** Resolved URL for the AI-generated backdrop image when available. */
+  backdropImage?: string | null;
+  /** Extracted hex accent from the AI backdrop when harmonized automatically. */
+  accentOverride?: string | null;
 }
 
 /** Twelve hand-tuned 4-color chords for light and dark themes, with warm/cool tension and clear
@@ -416,9 +423,30 @@ export interface SessionColorInput {
   project: string;
   startedAt: number;
   emblem?: Emblem;
+  backdrop?: SessionBackdrop;
   /** Parent session key for helpers so they inherit their parent's chord. */
   helperOf?: string | null;
   archived?: boolean;
+}
+
+/** Extracts hue in degrees `[0, 360)` from a `#rrggbb` hex string, or null if neutral/invalid. */
+export function hexHue(hex: string | null | undefined): number | null {
+  if (!hex) return null;
+  const m = /^#?([0-9a-f]{6})$/i.exec(hex.trim());
+  if (!m) return null;
+  const n = parseInt(m[1], 16);
+  const r = ((n >> 16) & 255) / 255;
+  const g = ((n >> 8) & 255) / 255;
+  const b = (n & 255) / 255;
+  const max = Math.max(r, g, b);
+  const min = Math.min(r, g, b);
+  const d = max - min;
+  if (d < 0.04) return null;
+  let h = 0;
+  if (max === r) h = 60 * (((g - b) / d) % 6);
+  else if (max === g) h = 60 * ((b - r) / d + 2);
+  else h = 60 * ((r - g) / d + 4);
+  return h < 0 ? h + 360 : h;
 }
 
 /**
@@ -447,6 +475,12 @@ export function assignSessionColors(
   }
 
   const emblemImg = (s: SessionColorInput): string | null => (s.emblem?.picture ? imageUrl(s.emblem.picture, shortOf(s.key)) : null);
+  const backdropImg = (s: SessionColorInput): string | null => {
+    const pic = s.backdrop?.picture;
+    if (!pic) return null;
+    if (pic.startsWith('data:') || pic.startsWith('http://') || pic.startsWith('https://') || pic.startsWith('blob:')) return pic;
+    return imageUrl(pic, shortOf(s.key));
+  };
 
   for (const group of byProject.values()) {
     const counts = new Map<SessionColorId, number>(SESSION_PALETTE.map((c) => [c.id, 0]));
@@ -461,6 +495,9 @@ export function assignSessionColors(
           source: 'picked',
           seed: hashString(s.key),
           emblemImage: emblemImg(s),
+          backdrop: s.backdrop ?? null,
+          backdropImage: backdropImg(s),
+          accentOverride: null,
         });
         if (!s.archived) counts.set(picked, (counts.get(picked) ?? 0) + 1);
       } else if (s.helperOf && byKey.has(s.helperOf)) {
@@ -476,15 +513,22 @@ export function assignSessionColors(
     });
 
     for (const s of autoTop) {
+      const backdropAccent = s.backdrop?.accent ?? null;
+      const backdropHue = hexHue(backdropAccent);
+      const fromBackdrop = backdropHue !== null ? nearestPaletteColor(backdropHue) : undefined;
       const fromImage = s.emblem?.picture ? imageHues[s.emblem.picture] : undefined;
       const fromEmblem = fromImage ?? emblemPreferredColor(s.emblem);
       const seed = hashString(s.key);
       const fallback = SESSION_PALETTE[seed % SESSION_PALETTE.length].id;
-      const preferredId = fromEmblem ?? fallback;
+      const preferredId = fromBackdrop ?? fromEmblem ?? fallback;
       const preferredColor = PALETTE_BY_ID[preferredId];
 
       let chosen = preferredColor;
-      if (!s.archived) {
+      if (fromBackdrop) {
+        // When an AI backdrop supplied its own accent hue, harmonize the chord directly with it.
+        chosen = preferredColor;
+        if (!s.archived) counts.set(chosen.id, (counts.get(chosen.id) ?? 0) + 1);
+      } else if (!s.archived) {
         let bestCount = Infinity;
         let bestDist = Infinity;
         for (const candidate of SESSION_PALETTE) {
@@ -501,9 +545,12 @@ export function assignSessionColors(
 
       result.set(s.key, {
         color: chosen,
-        source: fromEmblem && chosen.id === fromEmblem ? 'emblem' : 'auto',
+        source: fromBackdrop ? 'backdrop' : fromEmblem && chosen.id === fromEmblem ? 'emblem' : 'auto',
         seed,
         emblemImage: emblemImg(s),
+        backdrop: s.backdrop ?? null,
+        backdropImage: backdropImg(s),
+        accentOverride: backdropAccent,
       });
     }
 
@@ -515,6 +562,9 @@ export function assignSessionColors(
           source: 'inherited',
           seed: hashString(h.key),
           emblemImage: emblemImg(h) ?? parent.emblemImage,
+          backdrop: null,
+          backdropImage: null,
+          accentOverride: parent.accentOverride ?? null,
         });
       } else {
         const seed = hashString(h.key);
@@ -523,6 +573,9 @@ export function assignSessionColors(
           source: 'auto',
           seed,
           emblemImage: emblemImg(h),
+          backdrop: null,
+          backdropImage: null,
+          accentOverride: null,
         });
       }
     }
@@ -532,22 +585,24 @@ export function assignSessionColors(
 }
 
 /** CSS custom properties exposing the chord's light + dark stops and intensity scale. */
-export function themeCssVars(color: SessionThemeColor, intensity: SessionThemeIntensity): CSSProperties {
+export function themeCssVars(color: SessionThemeColor, intensity: SessionThemeIntensity, accentOverride?: string | null): CSSProperties {
   const scale = SESSION_INTENSITIES.find((i) => i.id === intensity)?.scale ?? 1;
+  const lightAccent = accentOverride ? `color-mix(in oklch, ${accentOverride} 86%, #111111)` : color.light.accent;
+  const darkAccent = accentOverride ? `color-mix(in oklch, ${accentOverride} 78%, #ffffff)` : color.dark.accent;
   return {
     '--st-l-base': color.light.base,
     '--st-l-1': color.light.stops[0],
     '--st-l-2': color.light.stops[1],
     '--st-l-3': color.light.stops[2],
     '--st-l-4': color.light.stops[3],
-    '--st-l-accent': color.light.accent,
+    '--st-l-accent': lightAccent,
     '--st-l-accent2': color.light.accent2,
     '--st-d-base': color.dark.base,
     '--st-d-1': color.dark.stops[0],
     '--st-d-2': color.dark.stops[1],
     '--st-d-3': color.dark.stops[2],
     '--st-d-4': color.dark.stops[3],
-    '--st-d-accent': color.dark.accent,
+    '--st-d-accent': darkAccent,
     '--st-d-accent2': color.dark.accent2,
     '--st-scale': String(scale),
   } as CSSProperties;

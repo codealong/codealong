@@ -534,6 +534,10 @@ pub struct Session {
     /// Empty when there is no recent peer chatter, and from Macs before 2026-11-24.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub peers: Vec<PeerTalk>,
+    /// An experimental AI-generated background drawn for this session (backgrounds.rs, when
+    /// `[experimental] session_themes` and `[backgrounds] enabled` are on).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub backdrop: Option<SessionBackdrop>,
 }
 
 /// Recent peer-to-peer message activity between this session and another non-helper session
@@ -551,6 +555,28 @@ pub struct PeerTalk {
     pub flips: u32,
     /// When the latest message went (epoch ms).
     pub last_at: i64,
+}
+
+/// An AI-generated fine-art background drawn for a session (backgrounds.rs), with its dominant
+/// accent hex and center luminance extracted so the UI chrome harmonizes with it.
+#[derive(Serialize, Deserialize, Clone, Debug, Default, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct SessionBackdrop {
+    /// Kept image name (`<hash>.jpg` or `<hash>.png`), loaded from `images/<name>`.
+    pub picture: String,
+    /// Short 2–4 word scene label ("Indigo woodblock ridges").
+    #[serde(default)]
+    pub name: String,
+    /// Dominant chromatic accent hex (`#rrggbb`) sampled from the artwork, if chromatic enough.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub accent: Option<String>,
+    /// Average perceived luminance (`0..=255`) in the center reading region, for contrast veils.
+    #[serde(default = "default_backdrop_luminance")]
+    pub luminance: u8,
+}
+
+fn default_backdrop_luminance() -> u8 {
+    128
 }
 
 /// A session's emblem: something you can name that stands for what it works on, an emoji Jev
@@ -879,6 +905,7 @@ impl Session {
             color: None,
             emblem: None,
             peers: Vec::new(),
+            backdrop: None,
         }
     }
 }
