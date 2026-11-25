@@ -18,6 +18,7 @@ import {
   readColorPicks,
   readThemePrefs,
   SESSION_PALETTE,
+  setSessionThemeMode,
   subscribeThemeStore,
   writeColorPick,
   writeThemePrefs,
@@ -153,6 +154,7 @@ export type ThemeBoard = Pick<Board, 'lanes' | 'experimental' | 'backgrounds'>;
 export function SessionThemeProvider({ board, extraLanes, children }: { board: ThemeBoard | null | undefined; extraLanes?: readonly Lane[]; children: ReactNode }) {
   const enabled = !!board?.experimental?.session_themes;
   const aiEnabled = enabled && !!board?.backgrounds?.enabled;
+  setSessionThemeMode({ enabled, aiEnabled });
   const [prefs, setPrefs] = useSessionThemePrefs();
   const [picks, setPicks] = useState<Record<string, SessionColorId>>(readColorPicks);
   const [imageHues, setImageHues] = useState<Record<string, SessionColorId>>(() => {
@@ -217,7 +219,7 @@ export function SessionThemeProvider({ board, extraLanes, children }: { board: T
     };
   }, [enabled, inputs]);
 
-  const themes = useMemo(() => (enabled ? assignSessionColors(inputs, picks, imageHues) : new Map<string, AssignedSessionTheme>()), [enabled, inputs, picks, imageHues]);
+  const themes = useMemo(() => (enabled ? assignSessionColors(inputs, picks, imageHues, aiEnabled) : new Map<string, AssignedSessionTheme>()), [enabled, inputs, picks, imageHues, aiEnabled]);
 
   const value = useMemo<SessionThemeContextValue>(
     () => ({

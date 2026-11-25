@@ -462,6 +462,7 @@ export function assignSessionColors(
   sessions: readonly SessionColorInput[],
   manual: Readonly<Record<string, SessionColorId>> = {},
   imageHues: Readonly<Record<string, SessionColorId>> = {},
+  aiOnly = false,
 ): Map<string, AssignedSessionTheme> {
   const result = new Map<string, AssignedSessionTheme>();
   const byProject = new Map<string, SessionColorInput[]>();
@@ -488,7 +489,7 @@ export function assignSessionColors(
     const autoTop: SessionColorInput[] = [];
 
     for (const s of group) {
-      const picked = manual[s.key];
+      const picked = aiOnly ? undefined : manual[s.key];
       if (picked && PALETTE_BY_ID[picked]) {
         result.set(s.key, {
           color: PALETTE_BY_ID[picked],
@@ -609,6 +610,22 @@ export function themeCssVars(color: SessionThemeColor, intensity: SessionThemeIn
 }
 
 // ── Shared reactive store across components and windows (through stored.ts) ────────────────────
+
+export interface SessionThemeMode {
+  enabled: boolean;
+  aiEnabled: boolean;
+}
+
+let activeThemeMode: SessionThemeMode = { enabled: false, aiEnabled: false };
+
+/** Current board-level session-theme mode, synced by SessionThemeProvider for context menus. */
+export function sessionThemeMode(): SessionThemeMode {
+  return activeThemeMode;
+}
+
+export function setSessionThemeMode(next: SessionThemeMode): void {
+  activeThemeMode = next;
+}
 
 const listeners = new Set<() => void>();
 function notifyAll() {

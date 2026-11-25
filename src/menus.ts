@@ -11,7 +11,7 @@
 // back where GitHub refuses the merge) is here.
 
 import { useEffect, useState } from 'react';
-import { chromeProfiles, closeSession, desktopPins, expandAttachments, forkSession, getAccounts, inPreview, moveSession, moveSessionTo, onDesktopPins, openInChrome, openUrl, ownSessions, pinToDesktop, resumeSession, sessionCancel, sessionWindow, signIn, stopListening, setPrNudge, setPrPrimary, setReusable, showQuick, unpinFromDesktop, type MergeDone, NONE_CHOSEN, type HelpersChosen } from './api';
+import { chromeProfiles, closeSession, desktopPins, expandAttachments, forkSession, getAccounts, inPreview, moveSession, moveSessionTo, onDesktopPins, openInChrome, openUrl, ownSessions, pinToDesktop, redrawSessionBackground, resumeSession, sessionCancel, sessionWindow, signIn, stopListening, setPrNudge, setPrPrimary, setReusable, showQuick, unpinFromDesktop, type MergeDone, NONE_CHOSEN, type HelpersChosen } from './api';
 import { archiveAhead, asideAhead, doneAhead, labelAhead, quietAhead, raiseAhead, seenAhead, sendAhead, sentWorthSaying, unreadAhead } from './ahead';
 import { copyText } from './clipboard';
 import { showContextMenu, type MenuAction, type MenuGroup, type MenuImage, type MenuSpec } from './contextMenu';
@@ -34,6 +34,7 @@ import { mayApprove, prReady } from './prStatus';
 import { errorText, type Report } from './report';
 import { askToListen, voiceNow } from './listening';
 import { orchestratorActions } from './orchestrators';
+import { readColorPicks, SESSION_PALETTE, sessionThemeMode, writeColorPick } from './sessionTheme';
 
 /** The editors installed here and their icons, for Open folder in and Open in. */
 export interface Editors {
@@ -412,6 +413,9 @@ export interface SessionActions {
   /** Listen…, which asks what to listen to and what for, or Stop listening while it hears
    *  (listen.rs): for a session on this Mac, while voice is turned on. */
   listen?: MenuAction;
+  /** Session theme action when `[experimental] session_themes` is on: either Redraw/Draw
+   *  background (when AI backgrounds are enabled) or a Theme color submenu (in Mesh mode). */
+  theme?: MenuAction | MenuGroup;
   rename?: MenuAction;
   seen?: MenuAction;
   /** Set aside until its side conversation answers, for one that needs you for something marking
@@ -671,6 +675,7 @@ export function sessionActions(lane: Lane, s: Session, can: SessionCan): Session
     // The session carries on, waiting for you.
     stop: stoppable(s) ? { label: 'Stop turn', run: () => void said(`Stopping ${s.title}…`, sessionCancel(s.key)) } : undefined,
     listen: listenItem(lane, s, report),
+    theme: themeMenuItem(lane, s, report),
     rename: can.rename && renames(s) ? { label: 'Rename…', run: can.rename } : undefined,
     seen: seenable(s) ? { label: 'Mark as seen', run: () => settle('marked seen')(seenAhead([s.key])) } : can.answering ? aside : undefined,
     aside,
@@ -847,7 +852,7 @@ const SESSION_MENU = [
   // Turn off is in Mark as done's place, with its key.
   ['look', 'fresh'],
   ['open', 'resume', 'folder', 'ownTerminal', 'pr', 'chrome', 'reveal', 'window', 'reply', 'newSession', 'fork', 'move', 'moveFolder'],
-  ['todos', 'boards', 'labels', 'related'],
+  ['todos', 'boards', 'labels', 'theme', 'related'],
   ['stop', 'listen', 'rename', 'seen', 'unread', 'pin', 'desktop', 'raise', 'snooze', 'quiet', 'own', 'close', 'done', 'mergeDone', 'archive'],
   ['copyId', 'copyResume'],
 ] as const;
@@ -860,6 +865,33 @@ function listenItem(lane: Lane, s: Session, report: Report): MenuAction | undefi
   if (voice.listenings[s.key]) return { label: 'Stop listening', run: () => void stopListening(s.key).catch((e: unknown) => report.error(errorText(e))) };
   if (!voice.on || s.archived || s.visitor || s.helper || lane.device) return undefined;
   return { label: 'Listen…', run: () => askToListen({ key: s.key, title: s.title, laneId: lane.id }) };
+}
+
+/** Session theme menu item when `[experimental] session_themes` is on: strictly either-or between
+ *  AI backgrounds (`Redraw background` / `Draw background`) and Mesh themes (`Theme color` submenu). */
+function themeMenuItem(lane: Lane, s: Session, report: Report): MenuAction | MenuGroup | undefined {
+  const mode = sessionThemeMode();
+  if (!mode.enabled || s.visitor) return undefined;
+  if (mode.aiEnabled) {
+    if (s.archived || s.helper || s.headless || lane.device) return undefined;
+    return {
+      label: s.backdrop ? 'Redraw background' : 'Draw background',
+      run: () => void redrawSessionBackground(s.key).then(() => report.info('Drawing a fresh background…')).catch((e: unknown) => report.error(errorText(e))),
+    };
+  }
+  const picked = readColorPicks()[s.key] ?? null;
+  return {
+    label: 'Theme color',
+    items: [
+      { label: 'Auto', checked: picked === null, run: () => writeColorPick(s.key, null) },
+      'separator',
+      ...SESSION_PALETTE.map((c) => ({
+        label: c.label,
+        checked: picked === c.id,
+        run: () => writeColorPick(s.key, c.id),
+      })),
+    ],
+  };
 }
 
 /** A session's menu, as every window has it. */

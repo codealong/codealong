@@ -697,7 +697,7 @@ function AgentRowView({ lane, session: s, domId, now, age, slim = false, selecte
   const runSince = !started && listedStatus(s) === 'working' ? workingSince(s) : null;
   const pr = !nested && !inWorktree && lane.pr && <PrChip pr={lane.pr} compact onMenu={onPrMenu} onShow={onPrShow} onOpen={onPrOpen} inRow />;
   const theme = useSessionTheme(s);
-  const rowTheme = theme && theme.prefs.listRows && !nested ? theme : null;
+  const rowTheme = theme && theme.prefs.listRows && !nested && (!theme.aiEnabled || !!theme.assigned.accentOverride) ? theme : null;
   return (
     <Row
       id={domId}

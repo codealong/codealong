@@ -62,19 +62,31 @@ export function SessionThemesSection({ enabled, cfg, disabled, onToggle, onSave 
         <CheckBox checked={enabled} onChange={onToggle} />
         <span>Session themes</span>
         <small>
-          Gives each session a distinct color chord and atmospheric backdrop on its header (and optionally behind its conversation) so sessions read apart at a glance. Click the color orb beside a session’s title to pick a palette, switch mesh vibes, or redraw its AI background.
+          Gives each session a distinct atmospheric backdrop on its header (and optionally behind its conversation) so sessions read apart at a glance. Choose either procedural meshes or AI-generated artwork below.
         </small>
       </label>
       {enabled && (
         <>
-          <label className="ca-field ca-settings-check">
-            <CheckBox checked={backgrounds.enabled} disabled={disabled} onChange={(on) => saveBg({ enabled: on })} />
-            <span>Draw an AI background for each session</span>
+          <div className="ca-field">
+            <span>Backdrop style</span>
+            <Seg
+              label="Session backdrop style"
+              options={[
+                { id: 'mesh' as const, label: 'Mesh' },
+                { id: 'ai' as const, label: 'AI-generated' },
+              ]}
+              value={backgrounds.enabled ? 'ai' : 'mesh'}
+              onPick={(mode) => {
+                if (!disabled) saveBg({ enabled: mode === 'ai' });
+              }}
+            />
             <small>
-              Automatically draws a bespoke fine-art background for each new top-level session and harmonizes its accent color with the artwork (skipping helpers, automatic PR reviews, and headless runs). Sessions stay on the clean neutral surface until their artwork finishes drawing.
-              {drawers.length === 0 && ' Add a Codex or Antigravity account in Settings › Accounts to draw backgrounds.'}
+              {backgrounds.enabled
+                ? 'Automatically draws a bespoke fine-art background for each new top-level session and harmonizes its accent color (skipping helpers, automatic PR reviews, and headless runs). Redraw anytime from a session’s ⋯ menu.'
+                : 'Collision-free multi-color grainy meshes matched to each session’s emblem. Pick a different color anytime from a session’s ⋯ menu.'}
+              {backgrounds.enabled && drawers.length === 0 && ' Add a Codex or Antigravity account in Settings › Accounts to draw backgrounds.'}
             </small>
-          </label>
+          </div>
           {backgrounds.enabled && drawers.length > 0 && (
             <label className="ca-field">
               <span>Drawn by</span>
